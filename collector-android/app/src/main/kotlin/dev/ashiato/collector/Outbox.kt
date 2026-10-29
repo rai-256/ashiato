@@ -34,6 +34,12 @@ class Outbox<T : Outboxable>(
     private val writeFailures: WriteFailures<T>? = null,
     /** 積んだ後に呼ぶ（保持の上限の見回りを積む契機に相乗りさせる。新しい契機を起こさない） */
     private val afterAdd: () -> Unit = {},
+    /**
+     * 積むときに `client_version` の無い行へ書く、この収集アプリの印（ST49 / design D13）。**null なら書かない。**
+     * 印を書くのは記録と原本の欠けの置き場だけ —— 生存信号は書かず、破棄の報告は下書きが先に持つ（D15）。
+     * 読み戻しと `importLegacy`（古い形の取り込み）は書かない。
+     */
+    private val stampVersion: String? = null,
 ) {
     /** 置き場に書けなかったもの。**書けるようになったら先に書く**（積んだ順を保つ） */
     private val unwritten = ArrayDeque<Stored<T>>()
@@ -45,9 +51,10 @@ class Outbox<T : Outboxable>(
     fun add(request: T): Boolean {
         val ok = synchronized(this) {
             val enq = age()
-            val written = flushUnwritten() && store.append(request, enq)
+            val json = stampVersion?.let { store.stamped(request, it) }
+            val written = flushUnwritten() && store.append(request, enq, json)
             if (!written) {
-                unwritten.addLast(Stored(request, enq))
+                unwritten.addLast(Stored(request, enq, json))
                 writeFailures?.failed(request)
                 // **メモリに持ちきれない分は手放す**（端末の空きが尽きたまま続くと、メモリで落ちて収集が止まる）。
                 // 手放すのは**失ったことを報告できる置き場だけ**（記録）。生存信号と破棄の報告は数えを持たないので、
@@ -75,7 +82,7 @@ class Outbox<T : Outboxable>(
     private fun flushUnwritten(): Boolean {
         while (unwritten.isNotEmpty()) {
             val next = unwritten.first()
-            if (!store.append(next.item, next.enqAgeMs)) return false
+            if (!store.append(next.item, next.enqAgeMs, next.json)) return false
             unwritten.removeFirst()
             writeFailures?.recovered(next.item)
         }
@@ -87,11 +94,15 @@ class Outbox<T : Outboxable>(
      * **全件をメモリに載せない**（spec「読み戻しでメモリに載る件数は 1 回に載る件数を超えない」）。
      */
     @Synchronized
-    fun head(limit: Int, skip: Set<String> = emptySet()): List<T> {
-        val out = store.head(limit, skip).mapTo(ArrayList()) { it.item }
+    fun head(limit: Int, skip: Set<String> = emptySet()): List<T> = headStored(limit, skip).map { it.item }
+
+    /** `head` の、行の JSON つき。送り出しが使う（行の JSON をそのまま送る。ST49 / design D3（仮））。 */
+    @Synchronized
+    fun headStored(limit: Int, skip: Set<String> = emptySet()): List<Stored<T>> {
+        val out = ArrayList(store.head(limit, skip))
         for (u in unwritten) {
             if (out.size >= limit) break
-            if (u.item.id !in skip) out += u.item
+            if (u.item.id !in skip) out += u
         }
         return out
     }
@@ -168,12 +179,14 @@ class Outbox<T : Outboxable>(
         fun <T : Outboxable> inDir(
             dir: File,
             serializer: KSerializer<T>,
+            stampVersion: String? = null,
             log: (String) -> Unit,
         ): Outbox<T> {
             val clock = AgeClock(JvmDeviceClock, File(dir, "age-clock.txt"), log)
             return Outbox(
                 SegmentStore(File(dir, "segments"), serializer, File(dir, "unreadable.jsonl"), log),
                 age = clock::now,
+                stampVersion = stampVersion,
             )
         }
     }

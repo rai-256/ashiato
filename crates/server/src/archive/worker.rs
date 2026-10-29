@@ -1092,6 +1092,8 @@ fn build_request(
         end_time: None,
         end_tz_offset_min: None,
         end_tz_id: None,
+        // 書庫の取り込みは書き手が内部（D9）。部品の版は持たない
+        client_version: None,
     })
 }
 

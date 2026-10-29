@@ -61,6 +61,7 @@ fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
         end_time: None,
         end_tz_offset_min: None,
         end_tz_id: None,
+        client_version: None,
     }
 }
 

@@ -881,7 +881,10 @@ left=$(psql -c "SELECT count(*) FROM core.export_ledger WHERE export_id='$EXPORT
 # 一致しなくなったら、増やした人が**どちら側かを決めるまで落ちる**（既定は厳しい側。扉 #15）。
 # ST41: 終わりの 3 列は始まりの時刻・TZ と同じに凍結する（design D19（仮））。
 # 収集した記録の終わりは門（require_version_or_ledger）が見る —— 検査は tools/check-immutable.d/202610231200_st41-event-end-time.sh
-open_cols="sensitivity deleted_at deleted_by"          # FR-50 / PERM-2 で開ける
+# ST49: 作った部品の版の 3 列は、「収集した」記録だけを門が見る（前の版を同じまとまりに積んだときだけ書き換えられる。
+# design D21（仮）。検査は tools/check-immutable.d/202610251000_st49-record-component-version.sh）。本人が書いた・派生させた記録の
+# 版は門の対象外（`OLD.origin <> 'collected'` は素通し）なので、ここでは開けている側に数える。
+open_cols="sensitivity deleted_at deleted_by collector_version web_version server_version"  # FR-50 / PERM-2 で開ける
 gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
 frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
              tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref

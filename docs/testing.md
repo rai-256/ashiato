@@ -11,6 +11,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | server（Rust） | `ingest.rs` / `heartbeat.rs` の `#[cfg(test)]` | 同じ `src/` の `*_tests.rs` と `coverage/tests/`（**本物の PostgreSQL**。`testdb.rs`。★ 2026-10-11: ファイルの列挙をやめた。Story ごとに増えて古くなる —— 2026-10-11 の整合の確認） | — | `tools/smoke.sh`（curl で外から）/ `tools/check-*.sh` |
 | collector-windows（Rust） | 各モジュールの `#[cfg(test)]`（ubuntu で走る。~~86 本~~ ★ 2026-10-11: 本数は書かない。2026-10-11 の整合の確認で数えたら 133 本だった） | — | `tests/runtime_windows.rs`（**Windows の上でだけ**。テストが自分で窓を作る） | — |
 | collector-android（Kotlin） | `src/test`（JUnit4 + Robolectric） | — | `src/androidTest`（エミュレータでも実機でも同じ） | — |
+| 組み立ての印（server・collector-windows・collector-android の `<版番号>+<commit>[.dirty][.debug]`。ST49 の design D5・D6） | 印を組む関数は `crates/build-stamp` の `#[cfg(test)]` | — | — | `tools/check-build-stamp.sh tool\|server\|windows\|android`。節ごとに repo を使い捨ての場所へ clone し、本物の組み立て（cargo / gradle）を走らせて成果物に埋め込まれた印を読む。commit を進めた後・add していない変更の後の差分の組み立てで印が作り直されること（`.dirty`・release の `.debug` なし）と、C-01 では環境変数 `ASHIATO_BUILD_COMMIT` が git の HEAD より先に使われることを担保する（これを見るのはこの台本だけ）。CI の `build-stamp` job が 4 節を走らせる。節ごとに使い捨ての target で組み立てて重い（server・windows は数分）ので、`changes` の `stamp`（`crates/build-stamp/`・2 つの `build.rs`・`app/build.gradle.kts`・この台本・`Cargo.*`・`.github/` が変わったとき）だけで走る。各節は、ほかの部品の木だけの変更で `.dirty` にならず、部品の道の別の場所（S-01 の `migrations/`・`crates/build-stamp`）の変更で `.dirty` になることも見る |
 | web（React） | `src/__tests__`（vitest + jsdom） | — | **`web/e2e`（playwright + 本物の Chromium）**。実寸・スクロール・フォーカスはここ | `tools/stack.sh up`（DB → サーバ → 偽データ → 画面。確認バッチの `run.sh` と**同じもの**） |
 
 **CI は何が変わったかで出し分ける**（2026-09-19）。`changes` job が差分を見て、
@@ -35,6 +36,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | **`e2e`** | `code` | playwright + 本物の Chromium（`STACK_RESET=1`） |
 | `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
+| `build-stamp` | `stamp`（印の作り方を触ったとき。ST49） | `tools/check-build-stamp.sh tool` / `server` / `windows` / `android` |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
 | `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
 

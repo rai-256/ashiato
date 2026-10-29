@@ -25,6 +25,7 @@ jobs:
       code: ${{ steps.f.outputs.code }}
       android: ${{ steps.f.outputs.android }}
       windows: ${{ steps.f.outputs.windows }}
+      stamp: ${{ steps.f.outputs.stamp }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
@@ -34,7 +35,7 @@ jobs:
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          all() { for k in code android windows; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
+          all() { for k in code android windows stamp; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
           if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             echo "base が引けないので全部走らせる（BASE='${BASE:-}'）"; all; exit 0
           fi
@@ -49,6 +50,8 @@ jobs:
           fi
           has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
           has '^(crates/|Cargo\.)|^\.github/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
+          # 組み立ての印の作り方（ST49 / design D5・D6）。触ったときだけ本物の組み立てで印を見る（review/code.md R23）
+          has '^(crates/build-stamp/|crates/server/build\.rs|crates/collector-windows/build\.rs|collector-android/app/build\.gradle\.kts|tools/check-build-stamp\.sh|Cargo\.)|^\.github/' && echo "stamp=true" >> "$GITHUB_OUTPUT" || echo "stamp=false" >> "$GITHUB_OUTPUT"
           echo "--- 判定 ---"; cat "$GITHUB_OUTPUT"
 
   rust:
@@ -124,6 +127,24 @@ jobs:
       # **型だけでなく lint も当てる**（review/code.md B-5 / R34）。ubuntu の clippy は
       # cfg(windows) の中身をコンパイルしないので、作業場の lint が platform.rs に届かない
       - run: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+
+  # 組み立ての印（ST49 / design D5・D6）。repo を使い捨ての場所へ clone し、本物の組み立て（cargo / gradle）で
+  # commit を進めた後・add していない変更の後に印が作り直されることを見る。節ごとに使い捨ての target で組み立てて重いので、
+  # 印の作り方を触ったときだけ走らせる（changes の stamp。review/code.md R23）。画面の印は web の vitest と e2e が見る
+  build-stamp:
+    needs: changes
+    if: needs.changes.outputs.stamp == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with: { distribution: temurin, java-version: "21" }
+      - run: ./tools/check-build-stamp.sh tool
+      - run: ./tools/check-build-stamp.sh server
+      - run: ./tools/check-build-stamp.sh windows
+      - run: ./tools/check-build-stamp.sh android
 
   # C-02 の**実行時テスト**（ST07 design D25 / 2026-09-14）。windows-latest は対話セッションで動くので、
   # テストが自分で窓（WinForms / Edge）を出し、本物の前景・入力・アドレスバーを読ませて記録を数える。

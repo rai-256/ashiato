@@ -261,4 +261,47 @@ mod tests {
         );
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    /// 版の欄を持たない今の形の 1 行は、壊れた行にならず、版の欄の無いまま送る形で残る。
+    ///
+    /// Scenario: PC の版の欄を持たない未送信の行は、版の欄の無いまま送られる
+    #[test]
+    fn st49_c02_old_line_is_sent_without_version() {
+        let dir = tmp_dir();
+        let path = std::path::Path::join(dir.as_ref(), "outbox.jsonl");
+        let line = r#"{"id":"00000000-0000-0000-0000-000000000001","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c02-window","external_id":null,"device_id":"dev-1","origin":"collected","event_time":"2026-09-13T00:00:00.000Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{}","payload":{}}"#;
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+        let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
+        assert_eq!(o.broken_lines(), 0, "壊れた行として退避された");
+        assert_eq!(o.len(), 1);
+        let sent = serde_json::to_value(&o.snapshot()[0]).unwrap();
+        assert!(sent.get("client_version").is_none(), "{sent}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 今の C-02 の知らない欄を持つ行は、読み戻して書き直し・送る形にしても欄を落とさない。
+    ///
+    /// Scenario: PC の未送信の行が知らない欄を持っていても、送るときに落ちない
+    #[test]
+    fn st49_c02_unknown_field_survives_resend() {
+        let dir = tmp_dir();
+        let path = std::path::Path::join(dir.as_ref(), "outbox.jsonl");
+        let mut v = serde_json::to_value(req(1)).unwrap();
+        v["future_field"] = serde_json::json!({"n": 7});
+        v["client_version"] = serde_json::json!("0.1.0+x");
+        std::fs::write(&path, format!("{v}\n")).unwrap();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        let sent = serde_json::to_value(&o.snapshot()[0]).unwrap();
+        assert_eq!(sent["future_field"], serde_json::json!({"n": 7}));
+        assert_eq!(sent["client_version"], "0.1.0+x");
+        // 別の行を取り除いて全件書き直しになっても残る
+        o.add(req(2)).unwrap();
+        o.remove(&[o.snapshot()[1].id]).unwrap();
+        let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
+        assert_eq!(
+            serde_json::to_value(&o.snapshot()[0]).unwrap()["future_field"],
+            serde_json::json!({"n": 7})
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

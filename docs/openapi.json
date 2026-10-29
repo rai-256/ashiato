@@ -2897,6 +2897,13 @@
           "raw"
         ],
         "properties": {
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。**鍵にも `raw` にも入れない**（D11）"
+          },
           "count": {
             "type": "integer",
             "format": "int64"
@@ -3579,6 +3586,13 @@
           "payload"
         ],
         "properties": {
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "この記録を積んだ部品の版（ST49 / D8）。省略できる。**形は検査しない・断らない**。\n収集アプリの版か画面の版かは、要求の欄ではなく資格情報で決まる（`Writer`）。\n内容の鍵・原文・解析済みの内容には入れない。"
+          },
           "crs": {
             "type": [
               "string",
@@ -4050,6 +4064,13 @@
           "noticed_at"
         ],
         "properties": {
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。冪等の判定には使わない（D11）"
+          },
           "device_id": {
             "type": [
               "string",

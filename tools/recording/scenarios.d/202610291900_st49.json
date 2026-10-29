@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST49": "画面にも収集アプリの見た目にも出るものが無い。足したのは送る記録の 1 件の client_version と D-01 の版の列だけ（web は送る本文の欄、Android は未送信に積むときの版、Windows は組み立ての印と送る欄）で、版で選び出す口・画面は Non-Goals（D18。ST51 以降）。送る本文に版が載ることは web/e2e/st49-client-version.spec.ts（本物の画面から送った /api/ingest の本文）と各部品の試験が見る"
+  }
+}
