@@ -381,6 +381,27 @@ async fn st51_view_skips_versionless() {
     assert!(changes(&pool, user).await.is_empty());
 }
 
+// Scenario: 版を持たない信号が挟まっても、変化は版を持つ信号どうしで数える
+#[tokio::test]
+async fn st51_view_versionless_between_different_versions() {
+    let pool = testdb::pool().await;
+    let user = uuid::Uuid::new_v4();
+    let src = view_source(&pool, "c01-").await;
+    Sig::new(user, &src, Some("d1"), "10:00")
+        .col(COMMIT_A)
+        .put(&pool)
+        .await;
+    Sig::new(user, &src, Some("d1"), "11:00").put(&pool).await;
+    Sig::new(user, &src, Some("d1"), "12:00")
+        .col(COMMIT_B)
+        .put(&pool)
+        .await;
+    let rows = changes(&pool, user).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].2.as_deref(), Some(COMMIT_A));
+    assert_eq!(rows[0].3, COMMIT_B);
+}
+
 // Scenario: 列に版が無い信号は、原文の版で数える
 #[tokio::test]
 async fn st51_view_reads_raw_when_column_empty() {
@@ -509,14 +530,15 @@ async fn st51_view_split_by_user() {
 async fn st51_view_only_collector_sources() {
     let pool = testdb::pool().await;
     let user = uuid::Uuid::new_v4();
-    let loc = view_source(&pool, "c01-").await;
+    // 部品の CASE は c01-/c02- 以外を C-02 に倒すので、c02- の並びに挟んで絞り込みを確かめる
+    let loc = view_source(&pool, "c02-").await;
     let other = view_source(&pool, "c03-chrome-history-").await;
     Sig::new(user, &loc, Some("d1"), "10:00")
         .col(COMMIT_A)
         .put(&pool)
         .await;
     Sig::new(user, &other, Some("d1"), "11:00")
-        .raw(raw_version("9.9.9"))
+        .col(COMMIT_B)
         .put(&pool)
         .await;
     Sig::new(user, &loc, Some("d1"), "12:00")
