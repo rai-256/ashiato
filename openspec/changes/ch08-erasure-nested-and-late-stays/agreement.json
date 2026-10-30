@@ -1,0 +1,31 @@
+{
+  "status": "accepted",
+  "digest": "c24656eff8a77a2b45dd7243cd99699f9342fbca78fec8e5c10a598ec50f7e83",
+  "head": "4ea6600cef9ba723183684ab1d2a3ba45ab2b69a",
+  "answers": "deep-answers-2.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-30T00:06:57Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "隠れて本文を消した滞在に書いた気分が、吸収先の滞在の下に出なくなる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "はみ出しが滞在にならない消した滞在は、はみ出した位置も戻せない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "書き出しの「前回の後に消した記録」に、隠れて本文を消した滞在が入る"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "本人の操作なしに、位置の取り込みや基準の変更で一覧の滞在の本文が消える"
+    }
+  ]
+}
