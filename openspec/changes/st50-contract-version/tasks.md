@@ -237,9 +237,9 @@
 
 ## Task 12: 縦串（本物の S-01 と DB）と申し送りの確かめ
 
-- [ ] 12.1 `tools/smoke.d/<作成時刻>_st50-contract-version.sh` を作る（`tools/smoke.sh` の本体には書き足さない）: 立ち上げた S-01 に curl で
+- [x] 12.1 `tools/smoke.d/<作成時刻>_st50-contract-version.sh` を作る（`tools/smoke.sh` の本体には書き足さない）: 立ち上げた S-01 に curl で
   `GET /contract` が `{"contract_version":1}`・見出し `Ashiato-Contract-Version: 2` の `/ingest` が 426 で行が増えない・見出しなしの今の形の 1 件が入って `contract_version` が 1・知らない最上位の欄の 1 件が `unknown_field` で行が増えない、を psql で行を見て確かめる
   （Scenario の印は Task 1〜3 の試験が持つ。この節は本物の起動・資格情報・DB を通した確かめ）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0
-- [ ] 12.2 PR の前に、全 Scenario に印があり、仮の決定の台帳が通ることを見る。
+- [x] 12.2 PR の前に、全 Scenario に印があり、仮の決定の台帳が通ることを見る。
   検証: `python3 scripts/check_scenarios.py . st50-contract-version` rc=0 / `python3 scripts/provisional.py check openspec/changes/st50-contract-version` rc=0
