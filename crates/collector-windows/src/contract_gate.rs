@@ -88,6 +88,8 @@ pub struct ContractGate {
     store: WaitStore,
     state: WaitState,
     reasons: Reasons,
+    /// 起動してから `Version` の答えを 1 度でも得たか（理由はメモリにしか無いので、それまで「待っていない」は当てにならない）。
+    reasons_known: bool,
 }
 
 impl ContractGate {
@@ -98,7 +100,13 @@ impl ContractGate {
             store,
             state,
             reasons: Reasons::default(),
+            reasons_known: false,
         }
+    }
+
+    /// 理由を引き直せたか。偽の間は「待っていない」を、通知を消す根拠にしない。
+    pub fn reasons_known(&self) -> bool {
+        self.reasons_known
     }
 
     pub fn reasons(&self) -> Reasons {
@@ -138,6 +146,7 @@ impl ContractGate {
         match answer {
             ContractAnswer::Transient => return false,
             ContractAnswer::Version(_) => {
+                self.reasons_known = true;
                 self.state.unreadable_since = None;
                 self.reasons.no_endpoint = false;
                 self.reasons.unreadable_long = false;

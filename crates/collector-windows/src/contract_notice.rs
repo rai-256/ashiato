@@ -99,6 +99,10 @@ impl ContractNotice {
         oldest: Option<DateTime<Utc>>,
         log: &mut dyn FnMut(String),
     ) {
+        // 再起動の後は理由がまだ空。読める答えを得るまで「待っていない」で通知を消さない
+        if !gate.waiting() && !gate.reasons_known() {
+            return;
+        }
         let (result, next) = match decide(gate.waiting(), gate.notified_at(), now) {
             NoticeAction::Nothing => return,
             NoticeAction::Show => {
@@ -265,6 +269,18 @@ mod tests {
         for (days, text) in shown.iter().enumerate() {
             assert!(text.contains(&format!("未送信 {days} 日分")), "{text}");
         }
+    }
+
+    // Scenario: 契約の版で止まると PC に通知が 1 回出る
+    #[test]
+    fn st50_notice_restart_then_transient_keeps_notified_at() {
+        let mut r = Rig::new();
+        r.ahead(at(0));
+        r.restart();
+        r.trigger(ContractAnswer::Transient, at(5), &[]);
+        assert_eq!(r.fake.dismissed("contract"), 0);
+        r.ahead(at(10));
+        assert_eq!(r.fake.shown("contract").len(), 1, "再起動で出し直した");
     }
 
     // Scenario: 更新を促す通知は途切れの通知を置き換えない
