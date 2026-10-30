@@ -13,10 +13,12 @@ echo "OK /contract"
 
 echo "== ST50. 知らない版の見出しの /ingest は 426 で、行が増えない"
 st50_before=$(st50_events)
-st50_426=$(curl -s "${AUTH[@]}" -o /tmp/st50-426.$$ -w '%{http_code}' -X POST "http://$BIND/ingest" \
+# 本文と状態符号を 1 回の出力で受け取る（一時ファイルを作らない。curl が落ちても残らない。final review R16）
+st50_426_out=$(curl -s "${AUTH[@]}" -w '\n%{http_code}' -X POST "http://$BIND/ingest" \
   -H 'content-type: application/json' -H 'Ashiato-Contract-Version: 2' \
   -d "$(st50_body 50000000-0000-4000-8000-000000000001)")
-st50_426_body=$(cat /tmp/st50-426.$$); rm -f /tmp/st50-426.$$
+st50_426=${st50_426_out##*$'\n'}
+st50_426_body=${st50_426_out%$'\n'*}
 [ "$st50_426" = "426" ] || { echo "426 のはずが $st50_426"; exit 1; }
 [ "$(printf '%s' "$st50_426_body" | jq -cS '.')" = '{"contract_version":1,"error":"contract_unsupported"}' ] || { echo "426 の本文が違う: $st50_426_body"; exit 1; }
 [ "$(st50_events)" = "$st50_before" ] || { echo "426 なのに行が増えた"; exit 1; }
