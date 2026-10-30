@@ -134,7 +134,14 @@ class OriginalUploader(
                 is ContractAnswer.Version -> answer.version
                 else -> null
             }
-            return if (limit != null && mayOpenFiles()) pass(limit) else 0
+            return if (limit != null && mayOpenFiles()) {
+                pass(limit)
+            } else {
+                // 原本を開かずに終えた回は、前の回の 426 を持ち越さない（/code-review R21。持ち越すと契機ごとに
+                // 「原本が断られた」を立て直し、S-01 を更新しても待ちを抜けない）
+                lastContract = ContractOutcome()
+                0
+            }
         } finally {
             running.set(false)
         }

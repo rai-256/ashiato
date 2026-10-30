@@ -250,10 +250,7 @@ async fn drop_one(
     item: &serde_json::Value,
     writer: Writer,
 ) -> Result<DropResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
     let req: DropReportRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,
         Err(_) => {

@@ -195,7 +195,11 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
             }
             ContractAnswer.Unreadable -> {
                 // known は立てない（R3）。24 時間に満たない読めない答えで「待っていない」と決めると、出ていた通知と画面の行が消える
-                val since = store.unreadableSinceMs ?: now.toEpochMilli().also { setUnreadableSince(it) }
+                // 数え始めが今より後（時計が先へ進んでいた間に数え始めた）なら今へ置き直す。置き直さないと時計が戻った後は
+                // 何日経っても 24 時間に届かず、促されないまま 90 日で捨てる（code-verify R18。design D25（仮））。
+                // 読める答え以外で数え始めを動かすのはここだけ
+                val since = minOf(store.unreadableSinceMs ?: Long.MAX_VALUE, now.toEpochMilli())
+                setUnreadableSince(since)
                 val long = now.toEpochMilli() - since >= UNREADABLE_LIMIT.toMillis()
                 reasons = reasons.copy(unreadableLong = long)
             }

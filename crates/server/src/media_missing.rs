@@ -128,10 +128,7 @@ async fn missing_one(
     item: &serde_json::Value,
     writer: Writer,
 ) -> Result<MediaMissingResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
     let Ok(req) = serde_json::from_value::<MediaMissingRequest>(item.clone()) else {
         // **元のエラーを載せない。** serde の文言は受け取った値を含むことがある
         tracing::warn!(

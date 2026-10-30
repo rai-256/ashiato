@@ -493,18 +493,25 @@ class St50SenderTest {
         val refusedUp = OriginalLedger(File(tmp.newFolder("o1"), ORIGINALS_FILE))
         refusedUp.queue(h.env.originals.get(sha)!!)
         refusedUp.markReady(listOf(sha))
+        var access = MediaAccess.FULL
         val u1 = OriginalUploader(
             refusedUp,
             h.source,
             h.transport,
             h.reporter,
-            OriginalEnvironment(access = { MediaAccess.FULL }, unmetered = { true }, now = { h.now() }),
+            OriginalEnvironment(access = { access }, unmetered = { true }, now = { h.now() }),
         )
         assertEquals(0, u1.run(ContractAnswer.Version(1)))
         assertEquals(listOf(sha), refusedUp.ready().map { it.sha256 })
         assertNull(refusedUp.get(sha)!!.missingSince)
         assertTrue(h.missingReports().isEmpty())
         assertTrue(u1.lastContract.refused)
+
+        // 原本を開かずに終えた回（位置の権限が無い・版 A を得られない）は、前の回の 426 を持ち越さない（/code-review R21）。
+        // 持ち越すと契機ごとに「原本が断られた」を立て直し、S-01 を更新しても待ちを抜けない
+        access = MediaAccess.NO_LOCATION
+        assertEquals(0, u1.run(ContractAnswer.Version(1)))
+        assertFalse("原本を開かなかった回に前の 426 が残った", u1.lastContract.refused)
     }
 
     @Test
@@ -541,6 +548,22 @@ class St50SenderTest {
         assertEquals(1, uploader.run(ContractAnswer.Version(1)))
 
         assertEquals(listOf("HEAD:1", "PUT:1"), headers)
+    }
+
+    // 時計が先へ進んでいた間に数え始めても、戻った後 24 時間で促す（code-verify R18。design D25（仮））
+    @Test
+    fun `読めない 200 の数え始めが未来に残っていれば今へ置き直し、そこから 24 時間で更新を待つ状態に入る`() {
+        val t0 = Instant.parse("2026-10-30T00:00:00Z")
+        val gate = ContractGate(ContractWaitStore(prefs()))
+
+        gate.observe(ContractAnswer.Unreadable, t0.plusSeconds(365L * 24 * 3600), emptyList())
+        gate.observe(ContractAnswer.Unreadable, t0, emptyList())
+        assertFalse("置き直した直後に促した", gate.waiting)
+        assertEquals(t0.toEpochMilli(), ContractWaitStore(prefs()).unreadableSinceMs)
+
+        val restarted = ContractGate(ContractWaitStore(prefs()))
+        restarted.observe(ContractAnswer.Unreadable, t0.plusSeconds(24 * 3600), emptyList())
+        assertTrue("数え始めが未来に残り、促されない", restarted.waiting)
     }
 
     @Test

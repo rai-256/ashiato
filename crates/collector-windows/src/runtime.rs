@@ -813,7 +813,17 @@ impl<'a> Runtime<'a> {
         let answer = read_contract_answer(&self.transport.get("/contract"));
         let accepted = match answer {
             ContractAnswer::Version(a) => Some(a),
-            _ => None,
+            held => {
+                // 送らずに残した契機を必ず 1 行残す（/code-review R22）。合言葉の誤り（401）も到達できないのも
+                // ここでは一時的な失敗になり、送る口の `send_failed` が出なくなる。携帯の `send_held` と同じ形
+                log(telemetry::line(
+                    "send_held",
+                    None,
+                    None,
+                    Some(contract_answer_kind(held)),
+                ));
+                None
+            }
         };
         let sent = self
             .ingest
@@ -847,20 +857,33 @@ impl<'a> Runtime<'a> {
             // 手元に残した最も古い行を**積んだ時刻**（design D5。置き場の控え）。控えに無い行（控えを書く前に
             // 積んだ・書けなかった）だけ出来事の時刻で代える —— ブラウザの履歴は古い訪問の時刻を持つので、
             // 出来事の時刻の最小で代えると日数が大きく出る（final review R10）
-            let oldest = self
-                .events
-                .snapshot()
-                .iter()
-                .filter_map(|r| {
-                    self.events.enqueued_at(&r.id).or_else(|| {
-                        DateTime::parse_from_rfc3339(&r.event_time)
-                            .ok()
-                            .map(|t| t.with_timezone(&Utc))
+            // 通知を出す契機でだけ数える（未送信を全部なめるので。/code-review R25）
+            let events = &self.events;
+            let oldest = || {
+                events
+                    .snapshot()
+                    .iter()
+                    .filter_map(|r| {
+                        events.enqueued_at(&r.id).or_else(|| {
+                            DateTime::parse_from_rfc3339(&r.event_time)
+                                .ok()
+                                .map(|t| t.with_timezone(&Utc))
+                        })
                     })
-                })
-                .min();
+                    .min()
+            };
             notice.after_send(&mut self.contract_gate, now, oldest, &mut log);
         }
+    }
+}
+
+/// 送らずに残した契機のログの `error`（携帯の `send_held` と同じ語）。
+fn contract_answer_kind(answer: ContractAnswer) -> &'static str {
+    match answer {
+        ContractAnswer::Version(_) => "version",
+        ContractAnswer::NoEndpoint => "noendpoint",
+        ContractAnswer::Unreadable => "unreadable",
+        ContractAnswer::Transient => "transient",
     }
 }
 
@@ -1416,6 +1439,72 @@ mod tests {
         let shown = toast.0.lock().unwrap().clone();
         assert_eq!(shown.len(), 1, "待っている間は 1 回だけ出す");
         assert!(shown[0].contains("サーバを更新してください"));
+    }
+
+    /// 送る契機の頭の答えが口の無い 404・読めない 200 なら、記録も生存信号も 1 件も送らず残す（code-verify R17）。
+    /// 送り手に答えを手で渡す試験だけでは、契機が答えを送り手へ渡すこと（`send_at`）を見ていなかった
+    /// Scenario: 問い合わせの口が無い S-01 には PC も何も送らない
+    #[test]
+    fn st50_runtime_send_holds_everything_without_a_readable_answer() {
+        #[derive(Debug)]
+        struct Answers {
+            reply: Reply,
+            posts: std::sync::Mutex<usize>,
+        }
+        impl Transport for Answers {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                Ok(self.reply.clone())
+            }
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
+                *self.posts.lock().unwrap() += 1;
+                anyhow::bail!("送ってはいけない")
+            }
+        }
+        for reply in [
+            Reply {
+                status: 404,
+                body: String::new(),
+            },
+            Reply {
+                status: 200,
+                body: "<html>入口の画面</html>".to_string(),
+            },
+        ] {
+            let transport = Answers {
+                reply: reply.clone(),
+                posts: std::sync::Mutex::new(0),
+            };
+            let (cfg, _tmp) = cfg();
+            let mut rt = Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(t(0))),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+            )
+            .unwrap();
+            let mut src = FakeSource::new("editor");
+            rt.start_at(&src, t(0), t(0));
+            run(&mut rt, &mut src, 0, 700, 10);
+            rt.send_at(t(710));
+            assert!(
+                !rt.events.is_empty() && !rt.beats.is_empty(),
+                "{}: 記録と生存信号が積まれていない",
+                reply.status
+            );
+            assert_eq!(
+                *transport.posts.lock().unwrap(),
+                0,
+                "{} {:?} の答えで送った",
+                reply.status,
+                reply.body
+            );
+        }
     }
 
     /// Scenario: 通知を出せなくても収集は止まらない

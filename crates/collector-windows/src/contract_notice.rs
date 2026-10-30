@@ -97,12 +97,13 @@ impl ContractNotice {
         }
     }
 
-    /// 1 つの契機の後に呼ぶ。`oldest` は契約の版で手元に残している行の最も古いものを積んだ時刻。
+    /// 1 つの契機の後に呼ぶ。`oldest` は契約の版で手元に残している行の最も古いものを積んだ時刻を返す。
+    /// 未送信を全部なめるので、通知を出す契機でだけ呼ぶ（/code-review R25）。
     pub fn after_send(
         &self,
         gate: &mut ContractGate,
         now: DateTime<Utc>,
-        oldest: Option<DateTime<Utc>>,
+        oldest: impl FnOnce() -> Option<DateTime<Utc>>,
         log: &mut dyn FnMut(String),
     ) {
         // 再起動の後は理由がまだ空。読める答えを得るまで「待っていない」で通知を消さない
@@ -112,7 +113,7 @@ impl ContractNotice {
         let (result, next) = match decide(gate.waiting(), gate.notified_at(), now) {
             NoticeAction::Nothing => return,
             NoticeAction::Show => {
-                let text = message(gate.reasons(), days_since(oldest, now));
+                let text = message(gate.reasons(), days_since(oldest(), now));
                 (self.toaster.show_contract(&toast_xml(&text)), Some(now))
             }
             NoticeAction::Dismiss => (self.toaster.dismiss_contract(), None),
@@ -236,7 +237,7 @@ mod tests {
             let mut log = |_: String| {};
             self.gate.observe(answer, now, outcomes, &mut log);
             self.notice
-                .after_send(&mut self.gate, now, Some(t0()), &mut log);
+                .after_send(&mut self.gate, now, || Some(t0()), &mut log);
         }
 
         fn ahead(&mut self, now: DateTime<Utc>) {
@@ -288,7 +289,7 @@ mod tests {
                 &[ahead_outcome()],
                 &mut log,
             );
-            notice.after_send(gate, at(m), Some(t0()), &mut log);
+            notice.after_send(gate, at(m), || Some(t0()), &mut log);
         };
         for m in (0..60).step_by(5) {
             tick(&mut gate, m, &mut lines);

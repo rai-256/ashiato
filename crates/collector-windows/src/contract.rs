@@ -397,6 +397,9 @@ pub struct HeartbeatRequest {
     /// 積んだ時の送信契約の版（`IngestRequest.contract_version` と同じ）
     #[serde(default = "one")]
     pub contract_version: u32,
+    /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**（`IngestRequest.unknown` と同じ。code-verify R19）
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する。

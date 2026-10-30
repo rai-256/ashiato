@@ -268,6 +268,7 @@ pub fn signal(
         successes,
         raw: serde_json::to_string(&raw)?,
         contract_version: crate::contract::CONTRACT_VERSION,
+        unknown: serde_json::Map::new(),
     })
 }
 

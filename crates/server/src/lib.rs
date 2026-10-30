@@ -1185,10 +1185,7 @@ async fn ingest_one(
     writer: Writer,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 収集側が採番した id だけは、形が壊れていても拾えるなら結果に載せる（対応づけの助けになる）
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
 
     let req: IngestRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,
@@ -3197,10 +3194,7 @@ async fn heartbeat_one(
     app: &App,
     item: &serde_json::Value,
 ) -> Result<HeartbeatResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
 
     let req: heartbeat::HeartbeatRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,

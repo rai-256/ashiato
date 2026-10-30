@@ -501,6 +501,31 @@ class LocationServiceTest {
     }
 
     /**
+     * 送る契機の頭の答えが口の無い 404・読めない 200 なら、本番の配線は 5 つの口のどこにも送らず、行を残す（ST50 / code-verify R17）。
+     * 送り手に答えを手で渡す試験（`St50SenderTest`）だけでは、`LocationService` が答えを送り手へ渡すことを見ていなかった。
+     *
+     * Scenario: 問い合わせの口が無い S-01 には何も送らない
+     * Scenario: 読めない答えの S-01 には何も送らない
+     */
+    @Test
+    fun `本番の配線は 404 と読めない 200 の答えでどの口にも送らず行を残す`() = withConfig {
+        listOf(
+            Outcome.Responded(404, ""),
+            Outcome.Responded(200, "<html>入口の画面</html>"),
+        ).forEachIndexed { i, answer ->
+            val service = start()
+            service.contractReply = answer
+            service.outboxForTest.add(fix("held-$i"))
+            service.scheduler.fire()
+            assertTrue("$answer の答えで送った: ${service.posted.map { it.first }}", service.posted.isEmpty())
+            assertTrue(
+                "$answer の答えで行が残っていない",
+                service.outboxForTest.snapshot().any { it.id == "held-$i" },
+            )
+        }
+    }
+
+    /**
      * `/drops` の送り手は**恒久的に断られても報告を取り除かない**（C2 / design D13）。
      * 本番の配線を `dropPermanentlyRejected = true` に変えると、断られた報告が端末から消える。
      *

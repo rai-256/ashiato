@@ -97,8 +97,9 @@ impl<T: Outboxable> Outbox<T> {
         };
         if out.broken > 0 {
             out.rewrite()?;
-        } else if enq_lines != out.enqueued.len() {
-            // 送った行・壊れた行の控えが残っている。伸び続けないよう今の分だけに書き直す
+        }
+        // 送った行・壊れた行の控えが残っている。伸び続けないよう今の分だけに書き直す（壊れた行を退避した回も。/code-review R29）
+        if enq_lines != out.enqueued.len() {
             out.rewrite_enqueued();
         }
         Ok(out)
@@ -243,7 +244,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use crate::contract::{IngestRequest, WindowPayload};
+    use crate::contract::{HeartbeatRequest, IngestRequest, WindowPayload};
 
     fn tmp_dir() -> tempfile::TempDir {
         tempfile::Builder::new()
@@ -334,6 +335,63 @@ mod tests {
             1,
             "取り除いた行の控えが残っている: {enq}"
         );
+    }
+
+    /// 壊れた行を退避した回も、もう未送信に無い行の控えを落とす（/code-review R29）
+    #[test]
+    fn st50_outbox_trims_enqueued_ledger_when_quarantining() {
+        let tmp = tmp_dir();
+        let path = tmp.path().join("outbox.jsonl");
+        let (a, b) = (req(1), req(2));
+        {
+            let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+            o.add_many(vec![a.clone(), b.clone()]).unwrap();
+        }
+        // a を送った後の形（行だけが消え、控えは残る）に、壊れた 1 行を足す
+        let kept = serde_json::to_string(&b).unwrap();
+        std::fs::write(&path, format!("{kept}\n{{broken\n")).unwrap();
+        let o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        assert_eq!(o.broken_lines(), 1);
+        assert!(o.enqueued_at(&b.id).is_some());
+        let enq = std::fs::read_to_string(path.with_extension("enq.jsonl")).unwrap();
+        assert_eq!(enq.lines().count(), 1, "送った行の控えが残っている: {enq}");
+    }
+
+    /// 生存信号の行も、今の C-02 の知らない欄を書き直しで落とさない（code-verify R19。ST49 design D3（仮））
+    #[test]
+    fn st50_heartbeat_unknown_field_survives_rewrite() {
+        let tmp = tmp_dir();
+        let path = tmp.path().join("beats.jsonl");
+        let beat = |n: i64| {
+            let at = chrono::DateTime::parse_from_rfc3339("2026-10-30T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+                + chrono::Duration::seconds(n);
+            crate::heartbeat::signal(
+                uuid::Uuid::nil(),
+                "pc-1",
+                at,
+                &crate::heartbeat::Capability::from_blockers(&std::collections::BTreeSet::new()),
+                1,
+                1,
+            )
+            .unwrap()
+        };
+        let mut future = serde_json::to_value(beat(1)).unwrap();
+        future["contract_version"] = serde_json::json!(2);
+        future["future"] = serde_json::json!("KEEP");
+        let current = beat(2);
+        std::fs::write(
+            &path,
+            format!("{future}\n{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let mut o: Outbox<HeartbeatRequest> = Outbox::open(path.clone()).unwrap();
+        o.remove(&[current.id]).unwrap();
+        let o: Outbox<HeartbeatRequest> = Outbox::open(path).unwrap();
+        let sent = serde_json::to_value(&o.snapshot()[0]).unwrap();
+        assert_eq!(sent["future"], "KEEP", "書き直しで知らない欄が消えた");
+        assert_eq!(sent["contract_version"], 2);
     }
 
     /// **壊れた 1 行のために残りを捨てない**（捨てないという約束を守る）。

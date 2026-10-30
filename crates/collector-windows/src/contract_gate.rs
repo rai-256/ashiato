@@ -189,7 +189,11 @@ impl ContractGate {
                 self.reasons.no_endpoint = true;
             }
             ContractAnswer::Unreadable => {
-                let since = *self.state.unreadable_since.get_or_insert(now);
+                // 数え始めが今より後（時計が先へ進んでいた間に数え始めた）なら今へ置き直す。置き直さないと時計が戻った後は
+                // 何日経っても 24 時間に届かず、促されないまま残る（code-verify R18。design D25（仮））。
+                // 読める答え以外で数え始めを動かすのはここだけ
+                let since = self.state.unreadable_since.map_or(now, |s| s.min(now));
+                self.state.unreadable_since = Some(since);
                 self.reasons.unreadable_long =
                     now - since >= Duration::hours(UNREADABLE_LIMIT_HOURS);
             }
@@ -254,6 +258,23 @@ mod tests {
         g.observe(ContractAnswer::Unreadable, t(24), &[], &mut log);
         assert!(g.waiting());
         assert!(g.reasons().only_unreadable());
+    }
+
+    /// 時計が先へ進んでいた間に数え始めても、戻った後 24 時間で促す（code-verify R18。design D25（仮））
+    #[test]
+    fn st50_gate_unreadable_count_from_the_future_restarts_at_now() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut g = ContractGate::new(dir.path());
+        let mut log = quiet();
+        g.observe(ContractAnswer::Unreadable, t(365 * 24), &[], &mut log);
+        g.observe(ContractAnswer::Unreadable, t(0), &[], &mut log);
+        assert!(!g.waiting(), "置き直した直後に促した");
+        // 置き直した数え始めは再起動をまたいで残る
+        let mut g = ContractGate::new(dir.path());
+        g.observe(ContractAnswer::Unreadable, t(23), &[], &mut log);
+        assert!(!g.waiting());
+        g.observe(ContractAnswer::Unreadable, t(24), &[], &mut log);
+        assert!(g.waiting(), "数え始めが未来に残り、促されない");
     }
 
     #[test]
