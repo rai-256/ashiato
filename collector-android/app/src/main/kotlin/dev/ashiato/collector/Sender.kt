@@ -243,8 +243,10 @@ class Sender<T : Outboxable>(
             versionRejected.remove(probe)
             skipped.remove(probe)
         }
-        // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
-        val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH, maxVersion = upTo) else fresh
+        // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）。
+        // 飛ばす印が無ければ同じ読み方になるので読み直さない（版 > A の行だけが残る間は、読み直すと未送信を毎契機 2 回
+        // 全部復号していた。final review R9）
+        val stored = if (fresh.isEmpty() && skipped.isNotEmpty()) outbox.headStored(MAX_BATCH, maxVersion = upTo) else fresh
         if (stored.isEmpty()) return finish(Flushed(0, 0), ContractOutcome(ahead = ahead))
         if (fresh.isEmpty()) skipped.clear()
         val batch = stored.map { it.item }
