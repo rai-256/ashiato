@@ -582,6 +582,8 @@ pub struct PurgeScope {
     /// すでに本文を消した滞在。範囲は空・件数は 0。
     pub already_purged: bool,
     pub counts: PurgeCounts,
+    /// 指定した滞在の時間と重なる、一覧に出ている滞在の数（design D7。`counts` の外。端が触れるだけは数えない）
+    pub visible_overlaps: u32,
     members: Vec<Member>,
     versions: Vec<VersionRow>,
 }
@@ -649,9 +651,28 @@ pub async fn purge_scope(
         end,
         already_purged: stay.raw.is_empty(),
         counts: PurgeCounts::default(),
+        visible_overlaps: 0,
         members: Vec::new(),
         versions: Vec::new(),
     };
+    // 終わりの読み方は `core.stay_erased_purge` と同じ（本文を消していない行）。消す口は比べない（D7）
+    let visible: i64 = sqlx::query_scalar(
+        "SELECT count(*)
+           FROM core.event e
+          WHERE e.user_id = $1 AND e.id <> $2
+            AND e.logical_source = 's01-stay' AND e.origin = 'derived' AND e.deleted_at IS NULL
+            AND e.event_time < $4
+            AND $3 < coalesce(CASE WHEN e.end_time > e.event_time THEN e.end_time END,
+                              core.try_timestamptz(e.payload->>'end'),
+                              e.event_time + interval '1 microsecond')",
+    )
+    .bind(scope.user_id)
+    .bind(stay_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(&mut **tx)
+    .await?;
+    scope.visible_overlaps = visible as u32;
     if scope.already_purged {
         return Ok(scope);
     }

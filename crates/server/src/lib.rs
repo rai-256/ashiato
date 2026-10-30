@@ -195,6 +195,9 @@ mod purge_restore_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
+/// 確認の口の「一覧に出ている重なる滞在」を HTTP の口から見る（CH08 Task 4 / design D7）。
+#[cfg(test)]
+mod purge_visible_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -2311,6 +2314,8 @@ const PURGE_REMAINS: [PurgeRemain; 4] = [
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PurgePreview {
     counts: deletion::PurgeCounts,
+    /// 指定した滞在の時間と重なる、一覧に出ている滞在の数。`counts` の外（本文は消えない。消す口は比べない。design D7）
+    visible_overlaps: u32,
     range: PurgeRange,
     /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）
     copies: u32,
@@ -2400,6 +2405,7 @@ pub async fn stays_purge_preview_get(
         .map_err(|e| purge_refusal(deletion::PurgeError::Database(e), "stays.purge_preview"))?;
     Ok(Json(PurgePreview {
         counts: scope.counts,
+        visible_overlaps: scope.visible_overlaps,
         range: PurgeRange {
             start: scope.start,
             end: scope.end,

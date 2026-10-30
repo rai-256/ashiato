@@ -4845,6 +4845,7 @@
         "description": "`GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。",
         "required": [
           "counts",
+          "visible_overlaps",
           "range",
           "copies",
           "remains",
@@ -4873,6 +4874,12 @@
               "$ref": "#/components/schemas/PurgeRemain"
             },
             "description": "本文ごと消しても消えずに残るもの（いつも 4 つすべて）"
+          },
+          "visible_overlaps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "指定した滞在の時間と重なる、一覧に出ている滞在の数。`counts` の外（本文は消えない。消す口は比べない。design D7）",
+            "minimum": 0
           }
         }
       },
