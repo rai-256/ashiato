@@ -177,6 +177,9 @@ mod purge_compaction_tests;
 /// 1 日の並びに出る「本文ごと消した」の区間を本物の DB で見る（ST23 Task 9 / design D12）。
 #[cfg(test)]
 mod purge_day_tests;
+/// 作り直しが隠した、本文ごと消した時間帯と重なる滞在の本文の消去を本物の DB で見る（CH08 Task 1 / design D2・D3）。
+#[cfg(test)]
+mod purge_hidden_tests;
 /// 消えずに残るものと、本文を消しても変わらない稼働状況・後に消した記録の数を見る（ST23 Task 8 / design D10 / D18）。
 #[cfg(test)]
 mod purge_keep_tests;

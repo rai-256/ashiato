@@ -1124,3 +1124,133 @@ pub(crate) async fn purge_late_arrival(
     erase_bodies(tx, &[late.event_id]).await?;
     Ok(())
 }
+
+/// 作り直しが隠した、本文ごと消した時間帯と重なる滞在 1 件（`stay_store::rebuild_day` が渡す）。
+pub(crate) struct HiddenOverlap {
+    pub user_id: uuid::Uuid,
+    /// 本文を消す滞在（一覧に出ていた重なる滞在）
+    pub event_id: uuid::Uuid,
+    /// 読んだときの削除の印（読んだ後に変わっていたら作り直しごと巻き戻す）
+    pub deleted_by: Option<String>,
+    /// 作り直しの前の時間
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// 元の操作（`core.erasure_operation.id`）
+    pub parent_id: uuid::Uuid,
+    /// 元の操作の指定した滞在と、その時間帯
+    pub stay_id: uuid::Uuid,
+    pub parent_start: DateTime<Utc>,
+    pub parent_end: DateTime<Utc>,
+}
+
+/// 作り直しが隠した重なる滞在の本文を、呼び出し側のトランザクションの中で消す（CH08 design D2 / D3（仮）。`kind = 'late'`）。
+///
+/// 順は `purge` と同じ（門が commit の時に台帳の行を見る）: 操作の行（元の操作へ `parent_id` で結ぶ）→ 記録ごと・前の版ごとの
+/// 消去の台帳 → 範囲の行（滞在と前の版の時間）→ 本文（`erase_bodies`）→ `user:purged` への付け替えと削除の台帳の `erase`。
+/// `user:purged` は `core.stay_erased` に出ないので、この滞在の時間は消した時間帯の窓を広げない。
+/// `event_scope` は記録ごとの台帳の `scope`（通常は `"event"`。試験が CHECK 違反を起こす差し込み口）。
+pub(crate) async fn purge_hidden_overlap(
+    tx: &mut Transaction<'_, Postgres>,
+    hidden: HiddenOverlap,
+    event_scope: &str,
+) -> anyhow::Result<()> {
+    let logical_source = stay::SOURCE;
+    let operation_id = uuid::Uuid::new_v4();
+    let versions: Vec<(i32, DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
+        "SELECT version_no, event_time, payload FROM core.event_version
+          WHERE event_id = $1 AND raw <> '' ORDER BY version_no",
+    )
+    .bind(hidden.event_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let n = versions.len();
+
+    // 1: 操作の台帳に 1 行（滞在 1 件・前の版 n 件）
+    sqlx::query(
+        "INSERT INTO core.erasure_operation
+           (id, user_id, kind, parent_id, stay_id, start_at, end_at,
+            stays, locations, archive_locations, archive_items, versions)
+         VALUES ($1, $2, 'late', $3, $4, $5, $6, 1, 0, 0, 0, $7)",
+    )
+    .bind(operation_id)
+    .bind(hidden.user_id)
+    .bind(hidden.parent_id)
+    .bind(hidden.stay_id)
+    .bind(hidden.parent_start)
+    .bind(hidden.parent_end)
+    .bind(n as i32)
+    .execute(&mut **tx)
+    .await?;
+
+    // 2: 記録ごと・前の版ごとの消去の台帳
+    ledger_erasures(
+        tx,
+        operation_id,
+        hidden.user_id,
+        event_scope,
+        &[hidden.event_id],
+        &[logical_source],
+    )
+    .await?;
+    ledger_erasures(
+        tx,
+        operation_id,
+        hidden.user_id,
+        "version",
+        &vec![hidden.event_id; n],
+        &vec![logical_source; n],
+    )
+    .await?;
+
+    // 3: 作り直しの前の時間と、前の版ごとの時間
+    let mut span_scopes = vec!["event"];
+    let mut span_versions = vec![None];
+    let mut span_starts = vec![hidden.start];
+    let mut span_ends = vec![hidden.end];
+    for (no, event_time, payload) in &versions {
+        let (from, to) = stay_store::span_of(*event_time, payload);
+        span_scopes.push("version");
+        span_versions.push(Some(*no));
+        span_starts.push(from);
+        span_ends.push(to);
+    }
+    sqlx::query(
+        "INSERT INTO core.erasure_span (operation_id, event_id, scope, version_no, start_at, end_at)
+         SELECT $1, $2, * FROM unnest($3::text[], $4::int[], $5::timestamptz[], $6::timestamptz[])",
+    )
+    .bind(operation_id)
+    .bind(hidden.event_id)
+    .bind(&span_scopes)
+    .bind(&span_versions)
+    .bind(&span_starts)
+    .bind(&span_ends)
+    .execute(&mut **tx)
+    .await?;
+
+    // 4: 本文（前の版 → 記録）
+    erase_bodies(tx, &[hidden.event_id]).await?;
+
+    // 5: 印を本人の「本文ごと消した」に付け替える（読んだときと印が同じ行だけ）
+    let done = sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:purged'
+          WHERE id = $1 AND deleted_at IS NULL AND deleted_by IS NOT DISTINCT FROM $2",
+    )
+    .bind(hidden.event_id)
+    .bind(&hidden.deleted_by)
+    .execute(&mut **tx)
+    .await?;
+    if done.rows_affected() != 1 {
+        return Err(stay_store::MarkChanged.into());
+    }
+    ledger(
+        tx,
+        hidden.event_id,
+        hidden.user_id,
+        logical_source,
+        "erase",
+        hidden.stay_id,
+        "user:purged",
+    )
+    .await?;
+    Ok(())
+}

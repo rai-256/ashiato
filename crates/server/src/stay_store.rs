@@ -282,6 +282,9 @@ pub(crate) struct Existing {
     pub mark: Mark,
     /// 読んだときの `deleted_by`（書き換えるときに、読んだ後に変わっていないことを確かめる。R44）
     pub deleted_by: Option<String>,
+    /// 本文ごと消した滞在の、本文ごと消した操作（`core.erasure_operation.id`）。
+    /// **範囲の行が無く、その日全体として読む窓（ST23 D14）には無い**。
+    pub operation_id: Option<uuid::Uuid>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -311,7 +314,13 @@ pub(crate) fn span_of(
 }
 
 /// 本文ごと消した滞在の 1 行（識別子・始まり・終わり・消した印）。
-type PurgedStay = (uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>);
+type PurgedStay = (
+    uuid::Uuid,
+    DateTime<Utc>,
+    DateTime<Utc>,
+    Option<String>,
+    Option<uuid::Uuid>,
+);
 
 /// `[from, to)` と時間が重なる（閉区間で触れるものを含む）既存の滞在。**候補は `origin='derived'` の `s01-stay` だけ**（D2 / D3）。
 ///
@@ -345,7 +354,7 @@ async fn load_existing(
     .fetch_all(&mut **tx)
     .await?;
     let purged: Vec<PurgedStay> = sqlx::query_as(
-        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased_purge
+        "SELECT id, start_at, end_at, deleted_by, operation_id FROM core.stay_erased_purge
               WHERE user_id = $1 AND purged AND start_at < $2 AND end_at >= $3
               ORDER BY start_at, id",
     )
@@ -367,23 +376,23 @@ async fn load_existing(
                 raw: r.raw,
                 mark: Mark::of(r.deleted_at, r.deleted_by.as_deref()),
                 deleted_by: r.deleted_by,
+                operation_id: None,
             })
         })
         .collect();
-    existing.extend(
-        purged
-            .into_iter()
-            .map(|(id, start, end, deleted_by): PurgedStay| Existing {
-                id,
-                start,
-                end,
-                lat: None,
-                lon: None,
-                raw: String::new(),
-                mark: Mark::UserDeleted,
-                deleted_by,
-            }),
-    );
+    existing.extend(purged.into_iter().map(
+        |(id, start, end, deleted_by, operation_id): PurgedStay| Existing {
+            id,
+            start,
+            end,
+            lat: None,
+            lon: None,
+            raw: String::new(),
+            mark: Mark::UserDeleted,
+            deleted_by,
+            operation_id,
+        },
+    ));
     existing.sort_by(|a, b| a.start.cmp(&b.start).then(a.id.cmp(&b.id)));
     Ok(existing)
 }
@@ -580,6 +589,58 @@ fn touches_erased(f: &Stay, erased: &[(DateTime<Utc>, DateTime<Utc>)]) -> bool {
     erased.iter().any(|(s, e)| f.start <= *e && *s <= f.end)
 }
 
+/// 作り直しが隠す、本文ごと消した時間帯と重なる既存の滞在を選び、`plan` から外す（CH08 design D2 / D3）。
+/// 返すのは (本文を消す滞在の位置, 元の操作を持つ窓の位置)。
+///
+/// 本文を消す滞在は、作り直しの前に一覧に出ていて（`Mark::Live`）、時間が本文ごと消した時間帯と**重なり**（端が触れるだけは含めない）、
+/// この作り直しが隠すもの —— 吸収される、または引き継ぐ新しい滞在が消した時間帯に触れて隠れる。
+/// 後者は引き継がせず（`inherits` を外す）、新しい滞在を隠して作らせる。
+/// 操作の識別子の無い窓（範囲の行が無く、その日全体として読むもの）は使わない。
+/// 窓が複数なら重なりの大きいもの → 始まりの早いもの → 操作の識別子の順に選ぶ。
+fn take_hidden_overlaps(
+    fresh: &[Stay],
+    existing: &[Existing],
+    erased: &[(DateTime<Utc>, DateTime<Utc>)],
+    plan: &mut Assignment,
+) -> Vec<(usize, usize)> {
+    let mut hidden = Vec::new();
+    for (j, l) in existing.iter().enumerate() {
+        if l.mark != Mark::Live {
+            continue;
+        }
+        let parent = existing
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| w.operation_id.is_some() && l.start < w.end && w.start < l.end)
+            .min_by_key(|(_, w)| {
+                (
+                    std::cmp::Reverse(overlap((l.start, l.end), (w.start, w.end))),
+                    w.start,
+                    w.operation_id,
+                )
+            })
+            .map(|(k, _)| k);
+        let Some(parent) = parent else {
+            continue;
+        };
+        let absorbed = plan.absorbed.iter().any(|(k, _)| *k == j);
+        let hiding = plan
+            .inherits
+            .iter()
+            .zip(fresh)
+            .position(|(inherit, f)| *inherit == Some(j) && touches_erased(f, erased));
+        if absorbed {
+            plan.absorbed.retain(|(k, _)| *k != j);
+        } else if let Some(i) = hiding {
+            plan.inherits[i] = None;
+        } else {
+            continue;
+        }
+        hidden.push((j, parent));
+    }
+    hidden
+}
+
 // ------------------------------------------------------------------ 作り直し
 
 /// 1 日ぶん（広げた範囲）の作り直しの結果。**値を含まない**のでログに出してよい。
@@ -598,6 +659,27 @@ pub async fn rebuild_day(
     pool: &PgPool,
     user: uuid::Uuid,
     day: NaiveDate,
+) -> anyhow::Result<DayOutcome> {
+    rebuild_day_using(pool, user, day, "event").await
+}
+
+/// 作り直しが隠した重なる滞在の消去の台帳（最後の書き込みの手前）の CHECK 違反を起こし、
+/// 本文が空になった後でも作り直しごと rollback されることを試す口。
+#[cfg(test)]
+pub(crate) async fn rebuild_day_with_ledger_scope(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    day: NaiveDate,
+    ledger_scope: &str,
+) -> anyhow::Result<DayOutcome> {
+    rebuild_day_using(pool, user, day, ledger_scope).await
+}
+
+async fn rebuild_day_using(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    day: NaiveDate,
+    ledger_scope: &str,
 ) -> anyhow::Result<DayOutcome> {
     let mut tx = pool.begin().await?;
     lock(&mut tx, user).await?;
@@ -621,7 +703,8 @@ pub async fn rebuild_day(
         .filter(|e| e.mark == Mark::UserDeleted)
         .map(|e| (e.start, e.end))
         .collect();
-    let plan = assign(&fresh, &existing, c.radius_m);
+    let mut plan = assign(&fresh, &existing, c.radius_m);
+    let hidden = take_hidden_overlaps(&fresh, &existing, &erased, &mut plan);
 
     let mut out = DayOutcome::default();
     let mut ids = Vec::with_capacity(fresh.len());
@@ -657,6 +740,28 @@ pub async fn rebuild_day(
     for (j, into) in &plan.absorbed {
         absorb(&mut tx, user, &existing[*j], into.map(|i| ids[i]), c.id).await?;
         out.absorbed += 1;
+    }
+    for (j, parent) in hidden {
+        let (l, p) = (&existing[j], &existing[parent]);
+        let Some(parent_id) = p.operation_id else {
+            continue;
+        };
+        crate::deletion::purge_hidden_overlap(
+            &mut tx,
+            crate::deletion::HiddenOverlap {
+                user_id: user,
+                event_id: l.id,
+                deleted_by: l.deleted_by.clone(),
+                start: l.start,
+                end: l.end,
+                parent_id,
+                stay_id: p.id,
+                parent_start: p.start,
+                parent_end: p.end,
+            },
+            ledger_scope,
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(out)
@@ -1749,6 +1854,7 @@ pub(crate) async fn absorb_for_test(
         raw: String::new(),
         mark: Mark::Live,
         deleted_by: None,
+        operation_id: None,
     };
     absorb(tx, user, &read_as_live, into, c.id).await
 }
