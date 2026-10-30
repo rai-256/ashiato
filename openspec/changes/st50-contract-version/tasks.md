@@ -156,7 +156,7 @@
 
 ## Task 8: PC の収集アプリ —— 焼き込み・確かめ・版で選んで送る・426
 
-- [ ] 8.1 `contract.rs` の `IngestRequest` と `HeartbeatRequest` に `contract_version: u32`（`#[serde(default = "one")]` で、版を持たない溜めの行を読み戻すと 1）を足し、溜めに積む 1 か所で 7.1 の `CONTRACT_VERSION` を焼き込む（D1・D10）。欄を足したら `tools/check-contract-version.sh --write` で写しを作り直す。
+- [x] 8.1 `contract.rs` の `IngestRequest` と `HeartbeatRequest` に `contract_version: u32`（`#[serde(default = "one")]` で、版を持たない溜めの行を読み戻すと 1）を足し、溜めに積む 1 か所で 7.1 の `CONTRACT_VERSION` を焼き込む（D1・D10）。欄を足したら `tools/check-contract-version.sh --write` で写しを作り直す。
   `sender.rs` に `GET /contract` を引く口（`Transport` に `get` を足す）と、答えを「版 A / 受け付けない / 一時的な失敗」に読む関数（D11）、`flush` に「版 ≤ A の行だけ・見出しは載せた行の最大」（D9）と 426 の分岐（何も取り除かない・止まった状態）を足す。
   `runtime.rs` の送る契機の頭で 1 回確かめ、記録と生存信号の両方の `flush` に同じ答えを渡す（D18（仮））。「S-01 の更新を待っている」状態（D9 の a〜e。e は 200 の読めない答えが 24 時間続いた —— 数え始めの時刻を再起動をまたぐ手元のファイルに持つ。置き場はこの Task で作り、9.1 が同じファイルに通知の時刻を足す。D22・D24（仮））を持ち、抜けた契機で「飛ばす」印を捨てる（D14）。`sender.rs` の試験:
   - `st50_sender_sends_accepted_versions_only` — `// Scenario: PC は S-01 が受け付ける版の行だけを送り、新しい版の行を残す`（見出しの値も見る）
