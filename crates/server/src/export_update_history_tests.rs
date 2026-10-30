@@ -70,6 +70,19 @@ fn file_columns(file: &str) -> Vec<&'static str> {
         .collect()
 }
 
+type HistoryRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    Vec<String>,
+    Option<String>,
+    Option<String>,
+);
+
 // Scenario: 書き出しに更新の履歴の全行と全列が入る
 #[tokio::test]
 async fn st51_export_update_history_rows() {
@@ -93,18 +106,7 @@ async fn st51_export_update_history_rows() {
     let rows = scan(&path, "update_history.jsonl", "");
     assert_eq!(rows.len(), 2);
 
-    let db: Vec<(
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        String,
-        String,
-        Vec<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
+    let db: Vec<HistoryRow> = sqlx::query_as(
         "SELECT seq, to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
                     component, via, from_version, to_version, outcome, applied_versions,
                     failed_version, sqlstate

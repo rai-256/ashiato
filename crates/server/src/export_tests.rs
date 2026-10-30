@@ -124,8 +124,9 @@ async fn export_dir_writes_under_the_chosen_dir() {
     let tables = export::CATALOG
         .iter()
         .filter(|(_, c)| matches!(c, export::Class::Include { .. }))
-        .count();
-    assert_eq!(z.len(), tables + 2); // 表のファイル（CATALOG の Include）と説明書と目録（D7）
+        .count()
+        + export::VIEW_FILES.len();
+    assert_eq!(z.len(), tables + 2); // 表のファイル（CATALOG の Include）・読み口のファイル（VIEW_FILES）と説明書と目録（D7）
 }
 
 #[test]

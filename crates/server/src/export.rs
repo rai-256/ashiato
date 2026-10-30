@@ -379,6 +379,7 @@ const UPDATE_HISTORY_COLUMNS: &[(&str, &str)] = &[
 ];
 
 /// 表ではない読み口のファイル（ビュー）。表の分類の走査（`CATALOG`）には載らず、写しの取引の中で読む（ST51 / D11）。
+#[derive(Debug)]
 pub struct ViewFile {
     pub file: &'static str,
     pub view: &'static str,

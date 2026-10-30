@@ -470,7 +470,8 @@ async fn export_ledger_rows_start_and_finish_are_appended() {
     let included = export::CATALOG
         .iter()
         .filter(|(_, c)| matches!(c, export::Class::Include { .. }))
-        .count();
+        .count()
+        + export::VIEW_FILES.len();
     assert_eq!(sizes.len(), included, "表ごとの行の数: {sizes:?}");
     assert_eq!(
         finish.bytes,
