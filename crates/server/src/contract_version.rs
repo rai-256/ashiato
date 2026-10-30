@@ -121,24 +121,25 @@ pub fn check_header(
 }
 
 /// 収集アプリが送る口の断り。従来の `(状態符号, 文字)` の断りと 426 を同じ `?` で返せる。
+/// 応答は箱に入れる（`Result` の `Err` を小さく保つ。clippy の `result_large_err`）。
 #[derive(Debug)]
-pub struct Refusal(Response);
+pub struct Refusal(Box<Response>);
 
 impl IntoResponse for Refusal {
     fn into_response(self) -> Response {
-        self.0
+        *self.0
     }
 }
 
 impl From<(StatusCode, String)> for Refusal {
     fn from(e: (StatusCode, String)) -> Self {
-        Self(e.into_response())
+        Self(Box::new(e.into_response()))
     }
 }
 
 impl From<Unsupported> for Refusal {
     fn from(u: Unsupported) -> Self {
-        Self(u.into_response())
+        Self(Box::new(u.into_response()))
     }
 }
 
