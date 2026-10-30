@@ -51,6 +51,13 @@ class ContractNotifier(
 ) {
     private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
 
+    /**
+     * 前の契機で出せなかったか。**出せない間は契機ごとにログを出さない**（final review R14）——
+     * 通知を切った端末では 5 分ごとに同じ行が出続ける。出せない状態に入った契機で 1 行だけ残す
+     */
+    @Volatile
+    private var skipping = false
+
     /** 送る契機の終わりに呼ぶ。[days] は手元に残している最も古い行を積んでからの日数。 */
     fun update(reasons: ContractReasons, days: Int) {
         val notice = contractNotice(reasons, days)
@@ -70,9 +77,11 @@ class ContractNotifier(
 
     private fun post(notice: ContractNotice): Boolean {
         if (!canPost()) {
-            log(Telemetry.line("contract_notice_skipped", source = null))
+            if (!skipping) log(Telemetry.line("contract_notice_skipped", source = null))
+            skipping = true
             return false
         }
+        skipping = false
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT),
         )

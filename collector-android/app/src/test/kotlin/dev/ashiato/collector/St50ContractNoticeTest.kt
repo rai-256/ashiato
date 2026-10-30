@@ -216,6 +216,32 @@ class St50ContractNoticeTest {
         assertNotNull("画面の行の写しが消えた", p.store.notice)
     }
 
+    @Test
+    fun `通知を出せない間は契機ごとにログを出さず、出せない状態に入った契機で 1 行だけ残す`() {
+        val lines = mutableListOf<String>()
+        val store = ContractWaitStore(prefs())
+        val notifier = ContractNotifier(app, store, { nowMs }, log = { lines += it })
+        val waiting = ContractReasons(noEndpoint = true)
+        fun skipped() = lines.count { it.contains("contract_notice_skipped") }
+
+        shadowOf(manager).setNotificationsEnabled(false)
+        repeat(12) {
+            notifier.update(waiting, 1)
+            advance(5 * 60_000L)
+        }
+        assertEquals("final review R14", 1, skipped())
+
+        // 出せるようになったら出す。24 時間後の出し直しでまた出せなければもう 1 行
+        shadowOf(manager).setNotificationsEnabled(true)
+        notifier.update(waiting, 1)
+        assertNotNull(posted())
+        shadowOf(manager).setNotificationsEnabled(false)
+        advance(24 * hour)
+        notifier.update(waiting, 2)
+        notifier.update(waiting, 2)
+        assertEquals(2, skipped())
+    }
+
     // Scenario: 止まっている間は 1 日に 1 回だけ通知が出直す
     @Test
     fun `5 分ごとに 2 日進めて、通知は止まった時と 1 日後と 2 日後の 3 回、欄には 1 通だけが残る`() {

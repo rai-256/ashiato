@@ -84,11 +84,17 @@ pub fn toast_xml(message: &str) -> String {
 #[derive(Debug)]
 pub struct ContractNotice {
     toaster: Arc<dyn ContractToaster>,
+    /// 前の契機で出せなかった・消せなかった種別。**同じ種別が続く間はログに出さない**（final review R14）——
+    /// 通知が切られた PC では契機ごと（5 分ごと）に同じ行が出続ける
+    failing: std::sync::Mutex<Option<&'static str>>,
 }
 
 impl ContractNotice {
     pub fn new(toaster: Arc<dyn ContractToaster>) -> Self {
-        Self { toaster }
+        Self {
+            toaster,
+            failing: std::sync::Mutex::new(None),
+        }
     }
 
     /// 1 つの契機の後に呼ぶ。`oldest` は契約の版で手元に残している行の最も古いものを積んだ時刻。
@@ -113,14 +119,16 @@ impl ContractNotice {
         };
         // 出せなかった・消せなかったときは時刻を進めない（次の契機でやり直す）
         let result = result.and_then(|()| gate.set_notified_at(next));
-        if let Err(e) = result {
-            log(telemetry::line(
-                "contract_notice_skipped",
-                None,
-                None,
-                Some(telemetry::error_kind(&e)),
-            ));
+        let kind = result.as_ref().err().map(telemetry::error_kind);
+        let mut failing = self
+            .failing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // 出せない状態に入った・種別が変わった契機でだけ残す（R14）
+        if kind.is_some() && *failing != kind {
+            log(telemetry::line("contract_notice_skipped", None, None, kind));
         }
+        *failing = kind;
     }
 }
 
@@ -242,6 +250,57 @@ mod tests {
             ahead: true,
             ..SendOutcome::default()
         }
+    }
+
+    /// 出せない間は契機ごとにログを出さず、出せない状態に入った契機で 1 行だけ残す（final review R14）。
+    #[test]
+    fn st50_notice_skipped_logged_once_per_failure() {
+        #[derive(Debug, Default)]
+        struct Broken {
+            fail: std::sync::atomic::AtomicBool,
+            shown: std::sync::atomic::AtomicUsize,
+        }
+        impl ContractToaster for Broken {
+            fn show_contract(&self, _xml: &str) -> anyhow::Result<()> {
+                if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+                    anyhow::bail!("toast off");
+                }
+                self.shown.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+            fn dismiss_contract(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+        }
+        let dir = tempfile::TempDir::new().unwrap();
+        let toaster = Arc::new(Broken::default());
+        toaster.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        let notice = ContractNotice::new(toaster.clone());
+        let mut gate = ContractGate::new(dir.path());
+        let mut lines = Vec::new();
+        let mut tick = |gate: &mut ContractGate, m: i64, lines: &mut Vec<String>| {
+            let mut log = |l: String| lines.push(l);
+            gate.observe(ContractAnswer::Version(1), at(m), &[ahead_outcome()], &mut log);
+            notice.after_send(gate, at(m), Some(t0()), &mut log);
+        };
+        for m in (0..60).step_by(5) {
+            tick(&mut gate, m, &mut lines);
+        }
+        let skipped = |lines: &[String]| {
+            lines
+                .iter()
+                .filter(|l| l.contains("contract_notice_skipped"))
+                .count()
+        };
+        assert_eq!(skipped(&lines), 1, "{lines:?}");
+        // 出せるようになったら出す。その後また出せなくなったら（24 時間後の出し直し）もう 1 行
+        toaster.fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        tick(&mut gate, 65, &mut lines);
+        assert_eq!(toaster.shown.load(std::sync::atomic::Ordering::SeqCst), 1);
+        toaster.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        tick(&mut gate, 65 + 24 * 60, &mut lines);
+        tick(&mut gate, 70 + 24 * 60, &mut lines);
+        assert_eq!(skipped(&lines), 2, "{lines:?}");
     }
 
     // Scenario: 契約の版で止まると PC に通知が 1 回出る
