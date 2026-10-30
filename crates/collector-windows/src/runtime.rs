@@ -30,6 +30,7 @@ use crate::clock_worker::{ClockReading, ClockWorker, WorkerPoll};
 use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
 use crate::contract_gate::ContractGate;
+use crate::contract_notice::ContractNotice;
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
@@ -104,6 +105,8 @@ pub struct Runtime<'a> {
     clock_worker: Option<ClockWorker>,
     /// 途切れの問い合わせ係。**時計の測定の契機で 1 回呼ぶ**（ST14 / design D11）。通知を出せない構成では持たない
     outage: Option<OutagePoller>,
+    /// 「サーバを更新してください」の通知係（ST50 / design D5）。付けなければ通知は出ない
+    contract_notice: Option<ContractNotice>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -261,6 +264,7 @@ impl<'a> Runtime<'a> {
             skew_trigger: ClockTrigger::Start,
             clock_worker: None,
             outage: None,
+            contract_notice: None,
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -293,6 +297,11 @@ impl<'a> Runtime<'a> {
     /// 途切れの問い合わせ係を付ける。**付けなければ問い合わせない**（通知を出せない構成）。
     pub fn set_outage_poller(&mut self, poller: OutagePoller) {
         self.outage = Some(poller);
+    }
+
+    /// 「サーバを更新してください」の通知係を付ける。**付けなければ通知は出ない**（収集は続く）。
+    pub fn set_contract_notice(&mut self, notice: ContractNotice) {
+        self.contract_notice = Some(notice);
     }
 
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
@@ -834,6 +843,17 @@ impl<'a> Runtime<'a> {
             self.ingest.clear_skipped();
             self.beat_sender.clear_skipped();
         }
+        if let Some(notice) = &self.contract_notice {
+            // 手元に残した最も古い行の時刻は、行の `event_time` の最小で代える（積んだ時刻は行に持たない）
+            let oldest = self
+                .events
+                .snapshot()
+                .iter()
+                .filter_map(|r| DateTime::parse_from_rfc3339(&r.event_time).ok())
+                .map(|t| t.with_timezone(&Utc))
+                .min();
+            notice.after_send(&mut self.contract_gate, now, oldest, &mut log);
+        }
     }
 }
 
@@ -1331,6 +1351,65 @@ mod tests {
             1,
             "測り直しでは問い合わせない"
         );
+    }
+
+    /// Scenario: 契約の版で止まると PC に通知が 1 回出る
+    /// 送る契機の後に通知係が呼ばれ、待っている間は 2 回目の契機でも出し直さない。
+    #[test]
+    fn st50_runtime_notifies_once_when_waiting_for_server_update() {
+        #[derive(Debug, Default)]
+        struct Toast(std::sync::Mutex<Vec<String>>);
+        impl crate::contract_notice::ContractToaster for Toast {
+            fn show_contract(&self, xml: &str) -> anyhow::Result<()> {
+                self.0.lock().unwrap().push(xml.to_string());
+                Ok(())
+            }
+            fn dismiss_contract(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+        }
+        // 版 1 までしか受け付けない。送りは通らず、行は残る
+        #[derive(Debug)]
+        struct Old;
+        impl Transport for Old {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                Ok(Reply {
+                    status: 200,
+                    body: r#"{"contract_version":1}"#.to_string(),
+                })
+            }
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
+                anyhow::bail!("止まっている")
+            }
+        }
+        let cfg = cfg();
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &Old,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap();
+        let toast = Arc::new(Toast::default());
+        rt.set_contract_notice(ContractNotice::new(toast.clone()));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 400, 10);
+        assert!(!rt.events.is_empty(), "送れない行が残っている");
+        let ahead = rt.events.snapshot()[0].clone();
+        rt.events.add_many_at(vec![ahead], 2).unwrap();
+        rt.send_at(t(10));
+        rt.send_at(t(20));
+        let shown = toast.0.lock().unwrap().clone();
+        assert_eq!(shown.len(), 1, "待っている間は 1 回だけ出す");
+        assert!(shown[0].contains("サーバを更新してください"));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     /// Scenario: 通知を出せなくても収集は止まらない
