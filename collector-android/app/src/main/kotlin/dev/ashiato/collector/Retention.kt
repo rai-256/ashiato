@@ -124,8 +124,11 @@ interface RetentionAlerts {
     /** 常駐の通知の本文を差し替える */
     fun ongoing(text: String)
 
-    /** 音の鳴る通知を 1 回出す。出せなかったら（権限が無い）false */
-    fun alert(days: Int): Boolean
+    /**
+     * 音の鳴る通知を 1 回出す。出せなかったら（権限が無い）false。
+     * [contractHeadline] は S-01 の更新を待っているときの案内（ST50 / D6・D24（仮））。本文へ添える
+     */
+    fun alert(days: Int, contractHeadline: String? = null): Boolean
 }
 
 /**
@@ -147,6 +150,8 @@ class RetentionNotifier(
     private val baseText: String,
     private val policy: () -> RetentionPolicy = { RetentionPolicy.current },
     private val log: (String) -> Unit = {},
+    /** S-01 の更新を待っている間の案内（待っていなければ null。ST50 / D6・D24（仮）） */
+    private val contractHeadline: () -> String? = { null },
 ) {
     private var lastText: String? = null
     private var blockedLogged = false
@@ -164,7 +169,7 @@ class RetentionNotifier(
         }
         if (elapsed != null && elapsed >= p.alertAgeMs) {
             if (!mark.exists()) {
-                if (alerts.alert(days)) {
+                if (alerts.alert(days, contractHeadline())) {
                     try {
                         mark.parentFile?.mkdirs()
                         mark.writeText(days.toString())
@@ -227,6 +232,8 @@ class Drainer(
     private val contract: ContractGuard? = null,
     /** 原本の送り待ちに版 > A の行があるか（D9 の（a））。台帳はメモリにあるので安い */
     private val originalsAhead: (Int) -> Boolean = { false },
+    /** 契機の終わりに、いまの理由を渡す（画面と通知。ST50 / D6）。確かめを 1 度でも終えてから */
+    private val onContract: (ContractReasons) -> Unit = {},
     /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */
     private val maintenance: () -> Unit = {},
     private val log: (String) -> Unit = {},
@@ -267,7 +274,16 @@ class Drainer(
             if (!keepGoing) break
         }
         if (rounds > 1) log(Telemetry.line("drained", source = null, count = rounds))
-        if (contract != null && answer != null) settleContract(contract, answer, outcomes)
+        val guard = contract
+        if (guard != null && answer != null) {
+            settleContract(guard, answer, outcomes)
+            // 再起動の直後は理由がメモリに無い。確かめを 1 度終えるまでは、通知を消すことも画面を消すこともしない
+            if (guard.gate.known) {
+                runCatching { onContract(guard.gate.reasons) }.onFailure {
+                    log(Telemetry.line("contract_notice_crashed", source = null, error = it.javaClass.simpleName))
+                }
+            }
+        }
         runCatching { afterRecords(answer) }.onFailure {
             log(Telemetry.line("originals_kick_crashed", source = null, error = it.javaClass.simpleName))
         }

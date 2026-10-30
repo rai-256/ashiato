@@ -73,21 +73,47 @@ private const val UNREADABLE_LIMIT_HOURS = 24L
 
 /**
  * 手元に持つもの。**収集アプリや端末の再起動をまたぐ**（`SharedPreferences`。FR-126 の★）。
- * 11.1 が同じ置き場に通知の時刻を足す。
+ * 通知を前に出した時刻と、画面が読む「いま止まっている」の写し（D6）も同じ置き場に持つ。
  */
 class ContractWaitStore(private val prefs: SharedPreferences) {
     /** 200 の読めない答えを最初に得た時刻（エポックミリ秒）。無ければ null */
     var unreadableSinceMs: Long?
         get() = prefs.getLong(UNREADABLE_SINCE, NONE).takeIf { it != NONE }
+        set(value) = putOrRemove(UNREADABLE_SINCE, value)
+
+    /** 更新を促す通知を前に出した時刻（エポックミリ秒）。無ければ null（止まっていない・まだ出していない） */
+    var notifiedAtMs: Long?
+        get() = prefs.getLong(NOTIFIED_AT, NONE).takeIf { it != NONE }
+        set(value) = putOrRemove(NOTIFIED_AT, value)
+
+    /** 画面が出す行の元。止まっていなければ null */
+    var notice: ContractNotice?
+        get() {
+            val days = prefs.getLong(NOTICE_DAYS, NONE).takeIf { it != NONE } ?: return null
+            return ContractNotice(prefs.getBoolean(NOTICE_ONLY_UNREADABLE, false), days.toInt())
+        }
         set(value) {
             val edit = prefs.edit()
-            if (value == null) edit.remove(UNREADABLE_SINCE) else edit.putLong(UNREADABLE_SINCE, value)
+            if (value == null) {
+                edit.remove(NOTICE_DAYS).remove(NOTICE_ONLY_UNREADABLE)
+            } else {
+                edit.putLong(NOTICE_DAYS, value.days.toLong()).putBoolean(NOTICE_ONLY_UNREADABLE, value.onlyUnreadable)
+            }
             edit.apply()
         }
+
+    private fun putOrRemove(key: String, value: Long?) {
+        val edit = prefs.edit()
+        if (value == null) edit.remove(key) else edit.putLong(key, value)
+        edit.apply()
+    }
 
     companion object {
         const val PREFS = "contract-wait"
         private const val UNREADABLE_SINCE = "unreadable_since_ms"
+        private const val NOTIFIED_AT = "notified_at_ms"
+        private const val NOTICE_DAYS = "notice_days"
+        private const val NOTICE_ONLY_UNREADABLE = "notice_only_unreadable"
         private const val NONE = Long.MIN_VALUE
     }
 }
@@ -104,6 +130,9 @@ data class ContractReasons(
 
     /** 理由が（e）だけか（知らせの文言を分ける。D22） */
     val onlyUnreadable: Boolean get() = unreadableLong && !(ahead || noEndpoint || refused || rejected)
+
+    /** 待っているときの案内（待っていなければ null。画面・通知・7 日前の知らせが使う。D6） */
+    val headline: String? get() = if (waiting) contractHeadline(onlyUnreadable) else null
 }
 
 /**
