@@ -234,6 +234,8 @@ pub mod testdb;
 /// 試験の足場の繋ぎ先（回の database）を本物の DB で見る（CH04）。
 #[cfg(test)]
 mod testdb_tests;
+/// 更新の履歴を書く（ST51 / design D7 / D8 / D9）。
+pub mod update_history;
 /// 更新の履歴の置き場・形・門・付与（ST51 / design D4 / D10）。
 #[cfg(test)]
 mod update_history_tests;
@@ -257,18 +259,21 @@ pub const GRANTS: &str = include_str!("grants.sql");
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 /// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    migrate_after(pool, || Ok(())).await
+    migrate_after(pool, || Ok(()), None).await
 }
 
 /// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
+/// `stamp` があれば更新の履歴を書く（`run_migrate` だけが渡す。ST51 / design D8）。
 async fn migrate_after(
     pool: &sqlx::PgPool,
     before_apply: impl FnOnce() -> anyhow::Result<()>,
+    stamp: Option<&str>,
 ) -> anyhow::Result<()> {
     // 付与も錠の中で当てる（同時の `GRANT … ON ALL TABLES` は `tuple concurrently updated` で落ちる）。
     // ahead・読めないなら付与も流さない（design D4）
     let conn = pool.acquire().await?;
-    migration_ledger::apply_migrations_with(conn, MIGRATIONS, before_apply, GRANTS).await?;
+    migration_ledger::apply_migrations_recorded(conn, MIGRATIONS, before_apply, GRANTS, stamp)
+        .await?;
     Ok(())
 }
 
@@ -355,16 +360,23 @@ pub async fn run_migrate() -> anyhow::Result<()> {
         }
         Ok(())
     };
-    if let Err(e) = migrate_after(&pool, backup).await {
-        if let Some((kind, report)) = e
-            .downcast_ref::<migration_ledger::MigrateError>()
-            .and_then(migration_ledger::MigrateError::mismatch_report)
-        {
-            // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
-            tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
-            // log-ok: 同上。ST58 が読む（design D6）
-            eprint!("{report}");
-            std::process::exit(3);
+    if let Err(e) = migrate_after(&pool, backup, Some(BUILD_STAMP)).await {
+        if let Some(me) = e.downcast_ref::<migration_ledger::MigrateError>() {
+            if let Some((kind, report)) = me.mismatch_report() {
+                // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
+                tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
+                // log-ok: 同上。ST58 が読む（design D6）
+                eprint!("{report}");
+                std::process::exit(3);
+            }
+            // 落ちたときに示すのは種別・落ちた版の名前・SQLSTATE の 1 行だけ。DB の誤りの本文は出さない（ST51 / design D8）
+            if let Some(line) = me.failure_line() {
+                // log-ok: 種別・版の名前（配った移行のファイル名）・SQLSTATE だけ（誤りの本文は持たない）
+                tracing::error!("{line}");
+                // log-ok: 同上
+                eprintln!("{line}");
+                std::process::exit(1);
+            }
         }
         return Err(e);
     }
