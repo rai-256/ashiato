@@ -55,14 +55,14 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 2: migrate の終わりに更新の履歴を書く
 
-- [ ] 2.1 新しい `crates/server/src/update_history.rs`: `record_migrate(conn, stamp, outcome)`・`record_startup(conn, stamp)`・前の版を読む（D7。`outcome IN ('applied','nothing_to_apply')` の `seq` の最大。取引の頭で `pg_advisory_xact_lock`）・
+- [x] 2.1 新しい `crates/server/src/update_history.rs`: `record_migrate(conn, stamp, outcome)`・`record_startup(conn, stamp)`・前の版を読む（D7。`outcome IN ('applied','nothing_to_apply')` の `seq` の最大。取引の頭で `pg_advisory_xact_lock`）・
   表が無ければ書かずに `tracing::warn!(kind = "update_history_unwritten")`（D9。`to_regclass`）。`record_attempt(conn, stamp)`（Q6・D16（仮））: `migration_ledger::apply_locked` の版の検査の後・`before_apply()`（退避）の前に呼ぶ口を足し、
   前の版と比べて違えば `outcome = 'attempted'` の行を書き、退避を取る前に commit する（錠を持った接続で、版を当てる取引の外。比べて書くのは D7 と同じ 1 つの取引）。
   試みの行を書いた回は、結果の行を比べ直さずに必ず書く（前の版は D7 のまま）。結果の行は `apply_migrations_with` が錠を外す前に書く口から書く。試みと結果の行は錠を持つ接続で書く。`record_startup` の取引は頭で当てる処理の錠（`migration_ledger` の `LOCK_KEY`）を `pg_try_advisory_xact_lock` で取り（待たない）、取れなければ書かずに `update_history_unwritten` の警告、取れたら版の記録を読み直して知らない版があれば書かない（D16（仮）・review/spec.md R17・R23・R24・R26〜R28）。`migration_ledger::apply_migrations_with` を、当てた版の名前と、落ちたときの版の名前と SQLSTATE を返す形に広げる（D8。誤りの本文は返さない）。
   結果の行は錠を外す前に書く（0・1 のどちらでも。3 では書かない）。落ちた行は落ちた版の取引が戻った後の別の取引で書く。付与・錠・版の記録の失敗も `failed`（落ちた版は空）で書く。
   落ちたときに示すのは種別・落ちた版の名前・SQLSTATE の 1 行だけにし、本文を持つ誤りを `main` まで運ばない（D8・review/spec.md R2）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'` rc=0
-- [ ] 2.2 `update_history_tests.rs`（試験用の並び = `MIGRATIONS` + 試験用の版。印は引数で渡す。同じプロセスの中で、当てる処理の返り値と行を見る）:
+- [x] 2.2 `update_history_tests.rs`（試験用の並び = `MIGRATIONS` + 試験用の版。印は引数で渡す。同じプロセスの中で、当てる処理の返り値と行を見る）:
   - `st51_migrate_applied_row` — `// Scenario: 新しい組み立ての migrate が版を当てると、当てた版の名前を持つ 1 行が残る`
   - `st51_migrate_nothing_to_apply_row` — `// Scenario: 当てる版が無い入れ替えの migrate も 1 行残る`
   - `st51_migrate_same_stamp_no_row` — `// Scenario: 同じ組み立てで migrate を走らせ直しても、行は増えない`
@@ -84,7 +84,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
   - `st51_migrate_startup_rechecks_ledger` — `// Scenario: 版の検査の後に知らない版が当たった D-01 には、起動の行を書かない`
   `st51_migrate_applied_row` は試みの行（1 つ前の行）も、`st51_migrate_first_row_prev_empty` は 2 行（`attempted`・`applied`）も見る
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server migration_ledger_ && test "$(cargo test -p ashiato-server migration_ledger_ -- --list 2>/dev/null | grep -c ": test$")" -ge 20'` rc=0（ST48 の台帳の試験が通る）
-- [ ] 2.3 本物の bin の試験（`crates/server/tests/server_startup.rs`。所有者の接続で別の印 `0.1.0+<commit A>` の通った行を先に置く。D15）:
+- [x] 2.3 本物の bin の試験（`crates/server/tests/server_startup.rs`。所有者の接続で別の印 `0.1.0+<commit A>` の通った行を先に置く。D15）:
   - `st51_bin_migrate_failed_exit1_no_value` — `// Scenario: 移行が落ちた migrate は終了コード 1 で終わり、標準エラーに行の値を出さない`（ST48 の `st48_migrate_content_failure_exits_1` と同じ組み方で、誤りの本文に値の入る誤りにする）
   - `st51_bin_migrate_backup_failed_row` — `// Scenario: 退避に失敗した回は、版を当てていない行が残る`（`PG_DUMP` を失敗する道具にする。終了コード 1）
   - `st51_bin_migrate_db_ahead_writes_nothing` — `// Scenario: 知らない版の当たった DB で止まった migrate は、何も書かない`
