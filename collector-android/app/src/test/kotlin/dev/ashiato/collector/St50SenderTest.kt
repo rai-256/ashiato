@@ -391,7 +391,7 @@ class St50SenderTest {
     }
 
     // Scenario: S-01 を更新すると、止まっていた間に飛ばす印の付いた記録も先に送られる
-    // Scenario: 契約の版で止まると携帯に通知が 1 回出る
+    // Scenario: 止まっている間は 1 日に 1 回だけ通知が出直す
     @Test
     fun `unknown_field で断られた記録が残る間は新しい記録が通っても止まったままで、S-01 の更新後に当たり直して抜ける`() {
         val v = versioned()
