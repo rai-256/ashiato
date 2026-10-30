@@ -1287,6 +1287,43 @@ mod outage_toast {
 
         clear();
     }
+
+    // Scenario: 更新を促す通知は途切れの通知を置き換えない
+    #[test]
+    fn st50_contract_toast_coexists_with_outage() {
+        use ashiato_collector_windows::contract_notice::{
+            toast_xml as contract_xml, ContractToaster,
+        };
+        use ashiato_collector_windows::toast::CONTRACT_TAG;
+
+        let _g = super::desktop();
+        let toaster = WindowsToaster::register_as(TEST_AUMID).unwrap();
+        clear();
+        let outages = match location_outage() {
+            OutageResult::Ready(v) => v,
+            _ => unreachable!(),
+        };
+        Toaster::show(&toaster, &toast_xml(&outages, true), true).unwrap();
+        toaster
+            .show_contract(&contract_xml(
+                "サーバを更新してください（未送信 0 日分を PC に残しています）",
+            ))
+            .unwrap();
+        let tags = |h: &[ToastNotification]| {
+            let mut t: Vec<String> = h.iter().map(|n| n.Tag().unwrap().to_string()).collect();
+            t.sort();
+            t
+        };
+        let h = wait_history(|h| h.len() == 2);
+        assert_eq!(tags(&h), vec![CONTRACT_TAG.to_string(), TAG.to_string()]);
+
+        // 更新を促す通知だけを消す。途切れの通知は残る
+        toaster.dismiss_contract().unwrap();
+        let h = wait_history(|h| h.len() == 1);
+        assert_eq!(tags(&h), vec![TAG.to_string()]);
+
+        clear();
+    }
 }
 
 // ブラウザ履歴（ST08 design D14）。**一時プロファイル**で開くので、本人の実物のプロファイルは使わない。

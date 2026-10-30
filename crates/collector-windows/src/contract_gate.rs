@@ -16,12 +16,15 @@ use crate::telemetry;
 /// 200 の読めない答えがこれだけ続いたら、更新を待っている状態に入る（D22）。
 pub const UNREADABLE_LIMIT_HOURS: i64 = 24;
 
-/// 手元のファイルに持つもの。ST50 Task 9 が同じファイルに通知の時刻を足す。
+/// 手元のファイルに持つもの（数え始めと、更新を促す通知を前に出した時刻。D5・D22）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WaitState {
     /// 200 の読めない答えを最初に得た時刻。読める答えを得たら消える
     #[serde(default)]
     pub unreadable_since: Option<DateTime<Utc>>,
+    /// 更新を促す通知を前に出した時刻。通知を消したら消える
+    #[serde(default)]
+    pub notified_at: Option<DateTime<Utc>>,
 }
 
 /// 待っている理由（D9 の（a）〜（e））。
@@ -104,6 +107,20 @@ impl ContractGate {
 
     pub fn waiting(&self) -> bool {
         self.reasons.waiting()
+    }
+
+    /// 更新を促す通知を前に出した時刻。
+    pub fn notified_at(&self) -> Option<DateTime<Utc>> {
+        self.state.notified_at
+    }
+
+    /// 通知を出した（消した）時刻を手元のファイルに書く。書けなければ `Err`（呼び手は出し直しに任せる）。
+    pub fn set_notified_at(&mut self, at: Option<DateTime<Utc>>) -> anyhow::Result<()> {
+        let before = self.state.notified_at;
+        self.state.notified_at = at;
+        self.store.save(&self.state).inspect_err(|_| {
+            self.state.notified_at = before;
+        })
     }
 
     /// 1 つの契機の結果を取り込む。**待っている状態を抜けたら真**（呼び手は「飛ばす」印を捨てる。D14）。
