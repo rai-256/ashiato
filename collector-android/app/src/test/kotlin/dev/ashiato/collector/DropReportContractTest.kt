@@ -13,9 +13,6 @@ import org.junit.Test
  * 欄名がずれると、サーバは断り、**破棄の報告は断られても取り除かない**ので未送信に居座り続ける（C2）。
  */
 class DropReportContractTest {
-    /** 積んだ時の契約の版（ST50）は全要求に付く欄で、`tools/check-contract-version.sh` が見る。この一覧は欄の名前の突き合わせ（check-openapi.sh）用 */
-    private val contractVersionField = "contract_version"
-
     // CONTRACT-FIELDS-BEGIN（tools/check-openapi.sh が docs/openapi.json と突き合わせる）
     private val contractFields = listOf(
         "id",
@@ -30,6 +27,8 @@ class DropReportContractTest {
         "hourly",
         "raw",
         "client_version",
+        // 積んだ時の契約の版（ST50）。全要求に付く
+        "contract_version",
     )
     // CONTRACT-FIELDS-END
 
@@ -38,7 +37,7 @@ class DropReportContractTest {
 
     private fun keys(r: DropReport): Set<String> {
         val json = Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject
-        return json.keys - contractVersionField
+        return json.keys
     }
 
     @Test
@@ -56,9 +55,9 @@ class DropReportContractTest {
             clientVersion = version,
         ).toReport("user-1", "device-1")
         assertEquals(contractFields.sorted(), keys(r).sorted())
-        // 原文も同じ欄（raw と、鍵に入れない client_version を除く）を持つ
+        // 原文も同じ欄（raw と、鍵に入れない client_version と、送る時の封筒の欄の contract_version を除く）を持つ
         val rawKeys = (Json.parseToJsonElement(r.raw) as JsonObject).keys
-        assertEquals((contractFields - "raw" - "client_version").sorted(), rawKeys.sorted())
+        assertEquals((contractFields - "raw" - "client_version" - "contract_version").sorted(), rawKeys.sorted())
     }
 
     @Test

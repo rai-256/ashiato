@@ -21,9 +21,10 @@ done
 # **終わりの 3 欄（ST41）は任意で、収集アプリは今は送らない**（docs/collector-contract.md「終わりの時刻」）ので除く。
 # 収集アプリが送るようにする Story は、ここから外して Kotlin 側の欄名を見る側に戻す。
 # `client_version`（ST49）は任意の欄だが、C-01 が送る（`IngestRequest.kt`）ので除かない。
-# **`contract_version`（ST50 / D1）も任意で、携帯が送るようになるまで（ST50 の携帯の Task）除く。** 生存信号・破棄の報告も同じ。
+# `contract_version`（ST50 / D1）は任意の欄だが、C-01 が全要求に載せる（ST50 の Task 10）ので除かない。生存信号・破棄の報告も同じ。
+# 収集アプリ 2 本の欄が S-01 の欄に全部あること（逆向き）は tools/check-contract-version.sh の検査 6 が見る
 for field in $(jq -r '.components.schemas.IngestRequest.properties | keys[]' docs/openapi.json \
-  | grep -vxE 'end_time|end_tz_offset_min|end_tz_id|contract_version'); do
+  | grep -vxE 'end_time|end_tz_offset_min|end_tz_id'); do
   grep -q "\b$field\b" "$kt" || { echo "  NG 要求の欄 $field を収集側が送っていない（$kt）"; bad=1; }
 done
 # --- 生存信号（ST02 / FR-78）
@@ -36,7 +37,7 @@ kt_fields=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$hbtest" \
   | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
 # `network`（ST09 / D7）は**任意の欄**で、無いときは欄ごと送らない（Kotlin は `EncodeDefault.NEVER`）。
 # 常に出る欄の一覧には混ぜず、収集側が名前を持っていることだけを別に見る。
-api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' docs/openapi.json | grep -vxE 'network|contract_version' | sort)
+api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' docs/openapi.json | grep -vx network | sort)
 hbkt=collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt
 jq -e '.components.schemas.HeartbeatRequest.properties.network' docs/openapi.json >/dev/null \
   && grep -q 'const val NETWORK = "network"' "$hbkt" \
@@ -70,7 +71,7 @@ droptest=collector-android/app/src/test/kotlin/dev/ashiato/collector/DropReportC
 kt_drop=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$droptest" | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
 # `client_version`（ST49）は任意の欄（版の無い下書きの報告は欄ごと送らない）。`DropReportContractTest` は版を持つ下書きで
 # 直列化して一覧に含めるので、ここも除かない
-api_drop=$(jq -r '.components.schemas.DropReportRequest.properties | keys[]' docs/openapi.json | grep -vx contract_version | sort)
+api_drop=$(jq -r '.components.schemas.DropReportRequest.properties | keys[]' docs/openapi.json | sort)
 if [ "$kt_drop" != "$api_drop" ]; then
   echo "  NG 破棄の報告の欄が契約とずれている"
   diff <(echo "$api_drop") <(echo "$kt_drop") | sed 's/^/     /'

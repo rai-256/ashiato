@@ -7,6 +7,8 @@
 #      version が印の版より大きくなければ落とす。印が 0 個なら比べない。印があるのに写しを取り出せなければ落とす
 #   4. 配った印の版にある封筒の例（crates/server/tests/fixtures/contract/）が今の木で変わっている・消えていれば落とす
 #   5. docs/collector-contract.md の「## 送信契約の版の履歴」の表に今の version の行が無ければ落とす
+#   6. 写しの収集アプリ 2 本の欄が、同じ口の S-01 の欄に全部あること（収集アプリの欄 ⊆ S-01 の欄。無ければ
+#      S-01 は `unknown_field` で断り、行は手元に残り続ける。final review R4）
 # 収集アプリ 2 本の欄のずれは、それぞれの単体試験（St50EnvelopeShapeTest・st50_envelope_shape）が落とす。
 # CI は rust の job の check-released-migrations.sh の隣に置く（印を取り寄せているのはその job だけ）。
 # 使い方: check-contract-version.sh [--write | --self-test]
@@ -36,6 +38,13 @@ def norm: if has("type") then ((.type | if type == "array" then . else [.] end) 
 LINES_JQ='
 def lines(p): to_entries[] | .key as $g | .value | to_entries[] | "\(p).\($g).\(.key)=\(.value | tojson)";
 (.s01 | lines("s01")), (.android | lines("android")), (.windows | lines("windows"))'
+
+# 収集アプリの口 → S-01 の型。S-01 に無い欄を "<部>.<口>.<欄>" で出す（知らない口は全部の欄を出す）
+SUBSET_JQ='
+{"ingest": "IngestRequest", "heartbeat": "HeartbeatRequest", "drops": "DropReportRequest", "media_missing": "MediaMissingRequest"} as $m
+| . as $c | ("android", "windows") as $app | ($c[$app] // {}) | to_entries[] | .key as $g
+| ($c.s01[$m[$g] // ""] // {}) as $srv | .value | keys[] | select(. as $f | $srv | has($f) | not)
+| "\($app).\($g).\(.)"'
 
 S01_LINES_JQ='to_entries[] | .key as $g | .value | to_entries[] | "\($g).\(.key)=\(.value | tojson)"'
 
@@ -83,6 +92,14 @@ check_tree() {
       in_sec && $0 ~ "^\\|[[:space:]]*" v "[[:space:]]*\\|" { found = 1 }
       END { exit found ? 0 : 1 }' "$CONTRACT_DOC"; then
     echo "  NG $CONTRACT_DOC の「## 送信契約の版の履歴」の表に今の版（$ver）の行が無い"
+    bad=1
+  fi
+
+  # 6. 収集アプリの欄 ⊆ S-01 の欄
+  local extra
+  extra="$(jq -r "$SUBSET_JQ" "$COPY")"
+  if [ -n "$extra" ]; then
+    echo "  NG 収集アプリが送る欄が S-01 に無い（unknown_field で断られる）: $(printf '%s' "$extra" | tr '\n' ' ')"
     bad=1
   fi
 
@@ -184,6 +201,11 @@ commit_all() { git -C "$T" add -A && git -C "$T" commit -q -m "$1"; }
 tag_beta() { git -C "$T" tag v0.1.0-beta.1; }
 # 写しを jq で直す（"." で終わる式は無い。$1 = jq の式）
 edit_copy() { jq -S "$1" "$T/$COPY" >"$T/copy.tmp" && mv "$T/copy.tmp" "$T/$COPY"; }
+# S-01 と携帯の両方に欄 new_field を足す（S-01 に無い欄は検査 6 が落とす）
+add_field_both() {
+  jq '.components.schemas.IngestRequest.properties.new_field = {"type": "string"}' "$T/$OPENAPI" >"$T/o.tmp" && mv "$T/o.tmp" "$T/$OPENAPI"
+  edit_copy '.s01.IngestRequest.new_field = {type: ["string"], required: false} | .android.ingest.new_field = {type: ["string"], required: false}'
+}
 # 版を $1 に上げる（3 つの定数・写し・履歴の行）
 bump_all() {
   sed -i "s/= [0-9][0-9]*/= $1/" "$T/$SERVER_CONST" "$T/$WINDOWS_CONST" "$T/$ANDROID_CONST"
@@ -223,12 +245,18 @@ edit_copy '.android.ingest.id.required = true | .android.ingest.id.type = ["inte
 expect_msg "android.ingest.id"
 
 new_tree; tag_beta
-edit_copy '.android.ingest.new_field = {type: ["string"], required: false}'; bump_all 2; commit_all add-and-bump
+add_field_both; bump_all 2; commit_all add-and-bump
 echo "== Scenario: 版を上げれば欄を足しても通る"; expect 0
 
 new_tree
-edit_copy '.android.ingest.new_field = {type: ["string"], required: false}'; commit_all add-android-field
+add_field_both; commit_all add-android-field
 echo "== Scenario: 配った印が無い間は欄を足しても通る"; expect 0
+
+new_tree
+edit_copy '.windows.heartbeat.extra = {type: ["string"], required: false}'; commit_all app-only-field
+echo "== 収集アプリが S-01 に無い欄を送ると、印が無くても落ちる"; expect_msg "windows.heartbeat.extra"
+bump_all 2; commit_all app-only-field-bumped
+expect_msg "S-01 に無い"
 
 new_tree
 echo 'pub const CONTRACT_VERSION: u32 = 2;' >"$T/$WINDOWS_CONST"; commit_all const-differs
