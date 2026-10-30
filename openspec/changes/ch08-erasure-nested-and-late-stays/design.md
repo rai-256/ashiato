@@ -36,13 +36,14 @@ ST23（`openspec/changes/archive/2026-10-30-st23-record-erasure/`）は archive 
 ### D1. 変えるのは 4 つの振る舞いだけ（Q1・C6）
 
 戻す口（D4）・作り直しで隠した重なる滞在の本文の消去（D2・D3）・L の印の付け替え（D3）・1 日の一覧（D6・D7・D8）。起動時の手当て（D5）は D2 の関数を使う。
-ST23 の既存の試験は、次の 3 本を除いてそのまま通す（spec review R6）:
+ST23 の既存の試験は、次の 4 本を除いてそのまま通す（spec review R6）:
 
 | 試験 | なぜ変わるか | 直し方 | tasks |
 |---|---|---|---|
 | `web/e2e/st23-purge.spec.ts` の「後から届いた 2 件…」 | Q3 で文面が変わる | 期待の文面を「後から 2 件も本文ごと消した」に | 6.1 |
 | `crates/server/src/stay_tests.rs` の `stay_day_view_empty_day_is_all_no_record` | `DayEntry` を全項目のリテラルで書いていて、`nested` を足すとコンパイルできない | `nested: None` を足すだけ（主張は変えない） | 5.1 |
 | `crates/server/src/purge_late_tests.rs` の `purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorable` | 本文ごと消した A にすっぽり入る B を戻して成功を assert する。Q2 で B は戻せなくなる | B を A から**はみ出して滞在になる**形（探り A3 と同じ）に置き直し、主張（別の滞在に隠れた書庫の行が B の戻すを塞がない）は残す | 3.1 |
+| `crates/server/src/purge_tests.rs` の `purge_range_reader_allowlist` | 戻した滞在が一覧に残るかを見る前の重なりの読み（`deletion.rs:purge_scope`）が、消した時間帯を読む口として増える | 許可の一覧に `deletion.rs:purge_scope` を足すだけ（主張「読む口は一覧の中だけ」は変えない） | 3.1 |
 
 ### D2（仮）. 作り直しが隠した重なる滞在の見分けと消し方（Q8・C1〜C4）
 
