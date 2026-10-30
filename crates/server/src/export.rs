@@ -356,6 +356,50 @@ const HEARTBEAT_COLUMNS: &[(&str, &str)] = &[
         "network",
         "送る契機の時点で接続があったか（空なら分からない）",
     ),
+    (
+        "collector_version",
+        "信号を積んだ時に動いていた収集アプリの申告（空なら申告なし）",
+    ),
+];
+
+const UPDATE_HISTORY_COLUMNS: &[(&str, &str)] = &[
+    ("seq", "書いた順の番号（時計は戻りうるので、並びはこれで決める）"),
+    ("at", "行を書いた時刻（UTC）"),
+    ("component", "版が変わった部品（S-01）"),
+    ("via", "書いた経路（migrate: 移行の道具 / startup: 起動）"),
+    ("from_version", "前の版（空なら記録の始まり）"),
+    ("to_version", "今の版"),
+    (
+        "outcome",
+        "移行の結果（attempted: 試み / applied: 当てた / nothing_to_apply: 当てる版無し / failed: 落ちた / backup_failed: 退避の失敗）",
+    ),
+    ("applied_versions", "当てた移行の版の名前"),
+    ("failed_version", "落ちた移行の版の名前（落ちていなければ空）"),
+    ("sqlstate", "落ちた理由の SQLSTATE（落ちていなければ空）"),
+];
+
+/// 表ではない読み口のファイル（ビュー）。表の分類の走査（`CATALOG`）には載らず、写しの取引の中で読む（ST51 / D11）。
+pub struct ViewFile {
+    pub file: &'static str,
+    pub view: &'static str,
+    pub columns: &'static [(&'static str, &'static str)],
+}
+
+pub const VIEW_FILES: &[ViewFile] = &[ViewFile {
+    file: "collector_version_changes.jsonl",
+    view: "collector_version_change",
+    columns: COLLECTOR_VERSION_CHANGE_COLUMNS,
+}];
+
+const COLLECTOR_VERSION_CHANGE_COLUMNS: &[(&str, &str)] = &[
+    ("user_id", "利用者の識別子"),
+    ("device_id", "信号を出した端末（空なら端末の無い信号）"),
+    ("component", "収集アプリの部品（C-01: 携帯 / C-02: PC）"),
+    ("from_version", "前の版"),
+    ("to_version", "今の版"),
+    ("emitted_at", "版が変わった信号を収集側が作った時刻（UTC）"),
+    ("received_at", "その信号を受け取った時刻（UTC）"),
+    ("logical_source", "その信号のソースの名前"),
 ];
 
 const COVERAGE_SPAN_COLUMNS: &[(&str, &str)] = &[
@@ -535,6 +579,15 @@ pub const CATALOG: &[(&str, Class)] = &[
             view: "satellite",
             excluded_columns: &[],
             columns: SATELLITE_COLUMNS,
+        },
+    ),
+    (
+        "update_history",
+        Class::Include {
+            file: "update_history.jsonl",
+            view: "update_history",
+            excluded_columns: &[],
+            columns: UPDATE_HISTORY_COLUMNS,
         },
     ),
     (
@@ -746,12 +799,17 @@ pub fn missing_view_columns(inv: &Inventory) -> Vec<(String, String)> {
         .map(|(t, c)| (t.as_str(), c.as_str()))
         .collect();
     let mut out = Vec::new();
-    for (_, class) in CATALOG {
-        if let Class::Include { view, columns, .. } = class {
-            for (name, _) in *columns {
-                if !have.contains(&(*view, *name)) {
-                    out.push(((*view).to_string(), (*name).to_string()));
-                }
+    let views = CATALOG
+        .iter()
+        .filter_map(|(_, c)| match c {
+            Class::Include { view, columns, .. } => Some((*view, *columns)),
+            Class::Exclude { .. } => None,
+        })
+        .chain(VIEW_FILES.iter().map(|v| (v.view, v.columns)));
+    for (view, columns) in views {
+        for (name, _) in columns {
+            if !have.contains(&(view, *name)) {
+                out.push((view.to_string(), (*name).to_string()));
             }
         }
     }

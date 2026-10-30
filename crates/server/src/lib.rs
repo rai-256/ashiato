@@ -100,6 +100,9 @@ mod export_ledger_tests;
 mod export_overlap_tests;
 #[cfg(test)]
 mod export_tests;
+/// 書き出しの更新の履歴・収集アプリの版の変化・生存信号の版（ST51 / design D11）。
+#[cfg(test)]
+mod export_update_history_tests;
 /// 書き出しの「次の記録」の引きを窓関数にする change（CH02）。まっさらな DB で新旧を突き合わせる。
 #[cfg(test)]
 mod export_window_tests;

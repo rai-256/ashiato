@@ -16,7 +16,7 @@ use zip::{AesMode, CompressionMethod, ZipWriter};
 use super::doc::{self, FileStat};
 use super::{
     excluded_sql, Bloom, Class, ExcludedSql, ExportConfig, ExportError, FailKind, Passphrase,
-    CATALOG,
+    CATALOG, VIEW_FILES,
 };
 
 const TIME_FORMAT: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"";
@@ -88,6 +88,10 @@ fn order_sql(file: &str) -> &'static str {
         "events.jsonl" | "event_versions.jsonl" => "t.event_time, t.id",
         "sources.jsonl" => "t.logical_source",
         "drop_report_hours.jsonl" => "t.report_id, t.hour",
+        "update_history.jsonl" => "t.seq",
+        "collector_version_changes.jsonl" => {
+            "t.user_id, t.component, t.device_id, t.emitted_at, t.received_at"
+        }
         "feeling_target_kinds.jsonl" => "t.kind",
         _ => "t.id",
     }
@@ -294,6 +298,20 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
             columns,
             select,
             count,
+        });
+    }
+    for v in VIEW_FILES {
+        out.push(Plan {
+            file: v.file,
+            view: v.view,
+            columns: v.columns,
+            select: format!(
+                "SELECT {}, NULL::uuid FROM core.{} t ORDER BY {}",
+                row_sql("t", v.columns, types, v.view),
+                v.view,
+                order_sql(v.file)
+            ),
+            count: Some(format!("SELECT count(*) FROM core.{}", v.view)),
         });
     }
     out
