@@ -124,11 +124,13 @@ async fn purge_nested_hidden_by_rebuild_counts_as_late() {
 async fn purge_nested_late_count_of_nested_goes_to_the_parent() {
     let app = app().await;
     let user = testdb::user();
-    let a = stay(&app.pool, user, "10:00", "11:00").await;
-    purge(&app.pool, a).await;
+    // 後からの位置は、そのとき本文ごと消してあった B の操作に付く（A はまだ消していない）。
+    // その後で A を本文ごと消すと B は入れ子になり、B の操作の件数が A の区間に足される。
     let b = stay(&app.pool, user, "10:15", "10:45").await;
     purge(&app.pool, b).await;
     send_one(&app, location(user, "10:30", 35.1)).await;
+    let a = stay(&app.pool, user, "10:00", "11:00").await;
+    purge(&app.pool, a).await;
 
     let rows = erased(&app.pool, user).await;
 
@@ -217,6 +219,30 @@ async fn purge_nested_stay_over_two_spans_goes_under_the_earlier_one() {
         Some(vec![b])
     );
     assert_eq!(rows[1].nested, None);
+}
+
+// 親の選び方: 長い区間でも、ほかの本文ごと消した区間の和に覆われるなら入れ子になり、短い 2 つが区間として残る（D6 の 2）
+#[tokio::test]
+async fn purge_nested_long_stay_covered_by_shorter_union_is_nested() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let x = stay(&pool, user, "10:10", "10:50").await;
+    let s1 = stay(&pool, user, "10:00", "10:30").await;
+    let s2 = stay(&pool, user, "10:25", "11:00").await;
+    purge(&pool, x).await;
+    purge(&pool, s1).await;
+    purge(&pool, s2).await;
+
+    let rows = erased(&pool, user).await;
+
+    assert_eq!(rows.len(), 2, "本文ごと消した区間が 3 つ並んでいる");
+    assert_eq!(rows[0].purge_stay_id, Some(s1));
+    assert_eq!(rows[1].purge_stay_id, Some(s2));
+    let nested_ids: Vec<_> = rows
+        .iter()
+        .flat_map(|r| r.nested.iter().flatten().map(|n| n.stay_ids.clone()))
+        .collect();
+    assert_eq!(nested_ids, vec![vec![x]]);
 }
 
 // まとめの規則: 重なるか隣り合う本文を消していない入れ子は 1 つにまとめ、識別子を全部持つ

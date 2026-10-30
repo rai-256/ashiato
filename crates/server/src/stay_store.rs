@@ -1735,29 +1735,40 @@ pub async fn day_view(
     };
 
     // 本文ごと消した滞在のうち、ほかの本文ごと消した区間の和に覆われるものは区間にせず入れ子にする（D6 の 2）。
-    // 長いものから（同じ長さなら先に消した方から）区間に残し、覆われたものを入れ子にする。
-    // 時間が同じなら先に消した方が親になり、互いに覆い合っても親が 1 つ残る。
-    let mut purged_rows: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = hidden_rows
+    // 残っているほかの区間の和に覆われるものを、消した順の遅い方（`txid` の大きい方）から 1 つずつ外す。
+    // 時間が同じなら後に消した方が入れ子になり、互いに覆い合っても親が 1 つ残る。
+    let mut kept: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = hidden_rows
         .iter()
         .filter(|r| r.purged)
         .map(|r| (r, r.start_at.max(d0), r.end_at.min(upper)))
         .filter(|(_, s, e)| s < e)
         .collect();
-    purged_rows.sort_by_key(|(r, s, e)| {
+    kept.sort_by_key(|(r, _, _)| {
         (
-            std::cmp::Reverse(*e - *s),
             r.operation_id.and_then(|op| op_rank.get(&op).copied()),
             r.id,
         )
     });
+    let mut nested_purged: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = Vec::new();
+    while let Some(i) = (0..kept.len()).rev().find(|&i| {
+        let mut others: Vec<ErasedSpan> = kept
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| *k != i)
+            .map(|(_, (_, s, e))| ErasedSpan {
+                start: *s,
+                end: *e,
+                stay_ids: Vec::new(),
+            })
+            .collect();
+        others.sort_by_key(|s| s.start);
+        subtract_spans(kept[i].1, kept[i].2, &others).is_empty()
+    }) {
+        nested_purged.push(kept.remove(i));
+    }
     let mut purged_spans: Vec<ErasedSpan> = Vec::new();
     let mut parents: Vec<DayEntry> = Vec::new();
-    let mut nested_purged: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = Vec::new();
-    for (row, start, end) in purged_rows {
-        if subtract_spans(start, end, &purged_spans).is_empty() {
-            nested_purged.push((row, start, end));
-            continue;
-        }
+    for (row, start, end) in kept {
         parents.push(DayEntry {
             purged: true,
             purge_stay_id: Some(row.id),
@@ -1769,8 +1780,8 @@ pub async fn day_view(
             end,
             stay_ids: Vec::new(),
         });
-        purged_spans.sort_by_key(|s| s.start);
     }
+    purged_spans.sort_by_key(|s| s.start);
     // 親は重なりの大きい区間 → 始まりの早い区間（D6 の 3）
     for (row, start, end) in nested_purged {
         if let Some(i) = parent_of(&parents, start, end) {
