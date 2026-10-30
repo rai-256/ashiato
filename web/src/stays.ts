@@ -187,6 +187,8 @@ export interface PurgePreview {
   /** 消えずに残るものの名前（文面は `messages` が引く） */
   remains: string[];
   purged: boolean;
+  /** 時間が重なる一覧に出ている滞在の数（消えない。確認の一文に使う） */
+  visible_overlaps?: number;
 }
 
 const COUNT_KEYS = ["stays", "locations", "archive_locations", "archive_items", "versions"] as const;
@@ -211,6 +213,7 @@ export function isPurgePreview(v: unknown): v is PurgePreview {
     typeof o.copies === "number" &&
     Array.isArray(o.remains) &&
     o.remains.every((r) => typeof r === "string") &&
-    typeof o.purged === "boolean"
+    typeof o.purged === "boolean" &&
+    (o.visible_overlaps === undefined || typeof o.visible_overlaps === "number")
   );
 }
