@@ -123,7 +123,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 5: 収集アプリの版の変化のビュー
 
-- [ ] 5.1 Task 1.1 のビューの振る舞いを `version_change_tests.rs` で確かめる（生存信号は受け口か直接の INSERT で置く。発信の時刻と受信の時刻を指定する）:
+- [x] 5.1 Task 1.1 のビューの振る舞いを `version_change_tests.rs` で確かめる（生存信号は受け口か直接の INSERT で置く。発信の時刻と受信の時刻を指定する）:
   - `st51_view_one_change_on_update` — `// Scenario: 収集アプリを更新すると、版の変化が 1 行出る`
   - `st51_view_late_queued_no_false_change` — `// Scenario: 更新の前に溜まった信号が後から届いても、偽の変化は出ない`
   - `st51_view_first_is_start_not_change` — `// Scenario: 最初に版を持った信号は、変化として出ない`
