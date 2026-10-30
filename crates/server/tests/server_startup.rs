@@ -814,8 +814,11 @@ mod st48_migrate {
         after_a_second();
         let out = rig.migrate();
         assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        // 版の食い違いの種別（db_ahead など）は出さない。出すのは落ちた版の 1 行（種別 migrate_failed。ST51 D8）だけ
         assert!(
-            !stderr(&out).contains("kind="),
+            stderr(&out)
+                .lines()
+                .all(|l| !l.contains("kind=") || l.starts_with("error: kind=migrate_failed ")),
             "版の食い違いの種別を出した: {}",
             stderr(&out)
         );
@@ -1292,5 +1295,43 @@ mod st48_migrate {
                 .await
                 .unwrap();
         assert_eq!(in_ledger, 0, "落ちた版が版の記録にある");
+    }
+
+    // Scenario: migrate を走らせずに入れ替えた S-01 は、起動のときに 1 行を書く
+    #[tokio::test]
+    async fn st51_bin_startup_row_on_swap() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        let served = rig.serve();
+        assert!(served.healthy, "{}", stderr(&served.out));
+        let h = history(&rig).await;
+        let last = h.last().unwrap();
+        assert_eq!(h.len(), 3, "{h:?}");
+        assert_eq!(last.0, "nothing_to_apply", "{h:?}");
+        assert_eq!(last.1.as_deref(), Some(OTHER_STAMP));
+        assert_eq!(last.2, ashiato_server::BUILD_STAMP);
+    }
+
+    // Scenario: migrate の後に同じ組み立ての S-01 を起動しても、行は増えない
+    #[tokio::test]
+    async fn st51_bin_startup_after_migrate_no_row() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let before = history(&rig).await;
+        let served = rig.serve();
+        assert!(served.healthy, "{}", stderr(&served.out));
+        assert_eq!(history(&rig).await, before);
+    }
+
+    // Scenario: 版の検査で断られた起動は、何も書かない
+    #[tokio::test]
+    async fn st51_bin_startup_refused_writes_nothing() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        rig.add_future_row().await;
+        let before = history(&rig).await;
+        let served = rig.serve();
+        assert_refused_3(&served, "db_ahead");
+        assert_eq!(history(&rig).await, before);
     }
 }
