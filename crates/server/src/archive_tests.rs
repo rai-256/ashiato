@@ -48,6 +48,7 @@ const WORKER_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
     IngestRequest {
+        contract_version: None,
         id: uuid::Uuid::new_v4(),
         user_id,
         logical_source: "c03-youtube-watch".into(),
@@ -316,6 +317,7 @@ async fn archive_dedup_distinguishes_archive_results() {
 async fn store_heartbeat_keeps_the_http_idempotency_rule() {
     let pool = testdb::pool().await;
     let request = heartbeat::HeartbeatRequest {
+        contract_version: None,
         id: uuid::Uuid::new_v4(),
         user_id: testdb::user(),
         logical_source: "s01-archive-inbox".into(),

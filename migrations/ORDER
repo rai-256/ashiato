@@ -71,3 +71,5 @@
 202610251100_health_permission_source
 # ST51: 更新の履歴の表と門・生存信号の版の列・版の変化のビュー（design D4・D5・D6・D10）
 202610300900_update_history
+# ST50: 送信契約の版（記録と前の版の列・埋め戻し・読み口・門と前の版の錠）
+202610300030_contract_version

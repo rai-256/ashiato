@@ -775,6 +775,7 @@ async fn coverage_endpoint_returns_five_sources() {
 #[test]
 fn heartbeat_hash_is_pinned() {
     let req = heartbeat::HeartbeatRequest {
+        contract_version: None,
         id: uuid::Uuid::nil(),
         user_id: uuid::Uuid::nil(),
         logical_source: "pinned-source".into(),

@@ -198,14 +198,25 @@ class SegmentStore<T : Outboxable>(
      * 先頭から、取り除かれていない行を最大 `limit` 件。`skip` の識別子は飛ばす（数に入れない）。
      * **読み戻しでメモリに載るのは返す分だけ**（spec「読み戻しでメモリに載る件数は 1 回に載る件数を超えない」）。
      */
-    fun head(limit: Int, skip: Set<String> = emptySet()): List<Stored<T>> {
+    fun head(limit: Int, skip: Set<String> = emptySet(), maxVersion: Int = Int.MAX_VALUE): List<Stored<T>> {
         val out = ArrayList<Stored<T>>(minOf(limit, 256))
         if (limit <= 0) return out
         scan { entry ->
-            if (entry.item.id !in skip) out += entry
+            // 契約の版が `maxVersion` より新しい行は飛ばす（数に入れない。ST50 / D9）
+            if (entry.item.id !in skip && entry.item.contractVersion <= maxVersion) out += entry
             out.size < limit
         }
         return out
+    }
+
+    /** 契約の版が `version` より新しい行があるか。見つけたところで止める（ST50 / D9 の（a））。 */
+    fun hasVersionAbove(version: Int): Boolean {
+        var found = false
+        scan { entry ->
+            found = entry.item.contractVersion > version
+            !found
+        }
+        return found
     }
 
     /** 指定したソースで最も古い 1 件。全件をメモリに載せず、最初に見つけたところで止める。 */

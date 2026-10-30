@@ -280,6 +280,8 @@ pub fn signal(
         successes,
         raw: serde_json::to_string(&raw)?,
         client_version: Some(build_stamp.to_string()),
+        contract_version: crate::contract::CONTRACT_VERSION,
+        unknown: serde_json::Map::new(),
     })
 }
 

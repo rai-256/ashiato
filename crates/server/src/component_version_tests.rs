@@ -101,14 +101,14 @@ async fn run(pool: &PgPool, sql: &str) -> Option<String> {
     })
 }
 
-/// 親の今の値をそのまま履歴へ積む SQL（`version_no` は 1）。
+/// 親の今の値をそのまま履歴へ積む SQL（`version_no` は 1）。門は契約の版（ST50）も照らすので、それも写す。
 fn push_version_sql(event: Uuid, source: &str) -> String {
     format!(
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          SELECT id, user_id, '{source}', 1, event_time, content_hash, raw, payload,
-                collector_version, web_version, server_version
+                collector_version, web_version, server_version, contract_version
            FROM core.event WHERE id = '{event}';"
     )
 }

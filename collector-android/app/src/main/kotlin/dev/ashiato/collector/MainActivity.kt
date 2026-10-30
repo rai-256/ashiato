@@ -390,9 +390,12 @@ open class MainActivity : Activity() {
         startForegroundService(Intent(this, LocationService::class.java))
         sendToUsageAccessOnce()
         val state = unusedAppRestrictionsReader().read(this)
-        if (state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN) {
-            // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば閉じる）
-            showUnusedAppRestrictions(state)
+        val restricted = state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN
+        // S-01 の更新を待っている間だけ、手元に残している日数つきの 1 行を出す（ST50 / D6）
+        val notice = ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE)).notice
+        if (restricted || notice != null) {
+            // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
+            showStatus(state.takeIf { restricted }, notice)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
         } else {
             finish()
@@ -441,8 +444,11 @@ open class MainActivity : Activity() {
         if (!opened) Log.w(TAG, Telemetry.line("unused_app_restrictions_settings_missing", source = LOGICAL_SOURCE))
     }
 
-    /** 画面に 1 行（外れていない / 読めなかった）。外れていないときだけ「設定を開く」を添える。 */
-    private fun showUnusedAppRestrictions(state: UnusedAppRestrictionsState) {
+    /**
+     * 画面の行。休止の除外（外れていない / 読めなかった。外れていないときだけ「設定を開く」を添える）と、
+     * S-01 の更新を待っている間の 1 行。どちらも無ければ呼ばない。
+     */
+    private fun showStatus(state: UnusedAppRestrictionsState?, notice: ContractNotice?) {
         val density = resources.displayMetrics.density
         val pad = (PADDING_DP * density).toInt()
         val column = LinearLayout(this).apply {
@@ -458,11 +464,14 @@ open class MainActivity : Activity() {
             }
         }
         actionBar?.hide()
-        column.addView(
-            TextView(this).apply {
-                text = if (state == UnusedAppRestrictionsState.NOT_EXEMPT) NOT_EXEMPT_LINE else UNKNOWN_LINE
-            },
-        )
+        if (notice != null) column.addView(TextView(this).apply { text = notice.line })
+        if (state != null) {
+            column.addView(
+                TextView(this).apply {
+                    text = if (state == UnusedAppRestrictionsState.NOT_EXEMPT) NOT_EXEMPT_LINE else UNKNOWN_LINE
+                },
+            )
+        }
         if (state == UnusedAppRestrictionsState.NOT_EXEMPT) {
             column.addView(
                 Button(this).apply {

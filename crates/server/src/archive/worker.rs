@@ -1069,6 +1069,7 @@ fn build_request(
         serde_json::json!(super::PARSER_VERSION),
     );
     Ok(crate::IngestRequest {
+        contract_version: None,
         id: uuid::Uuid::new_v4(),
         user_id,
         logical_source: item.source,
@@ -1580,6 +1581,7 @@ pub async fn record_archive_heartbeat(
     crate::store_heartbeat(
         pool,
         crate::heartbeat::HeartbeatRequest {
+            contract_version: None,
             id: uuid::Uuid::new_v4(),
             user_id,
             logical_source: "s01-archive-inbox".into(),

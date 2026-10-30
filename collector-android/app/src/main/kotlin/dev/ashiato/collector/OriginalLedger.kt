@@ -54,6 +54,11 @@ data class OriginalEntry(
     @SerialName("record_id") val recordId: String,
     /** 最初に `409 record_missing` と返された時刻（エポックミリ秒）。返されていなければ null */
     @SerialName("missing_since") val missingSince: Long? = null,
+    /**
+     * 結びついた記録を積んだ時の契約の版（ST50 / D1）。**既定は 1**（版を持たない前の形の行）。
+     * [OriginalLedger.queue] が記録を積む時の版を写し、S-01 が受け付ける版より新しい行は送らない
+     */
+    @SerialName("contract_version") val contractVersion: Int = 1,
 )
 
 /**
@@ -71,7 +76,12 @@ data class OriginalEntry(
  *
  * 1 つの内容ハッシュに 1 行（同じ中身の別名は記録が 1 件のままなので、行も 1 つ）。
  */
-class OriginalLedger(private val file: File, private val log: (String) -> Unit = {}) {
+class OriginalLedger(
+    private val file: File,
+    private val log: (String) -> Unit = {},
+    /** いまの送信契約の版（記録を積む `Outbox` と同じ値。試験だけが差し替える） */
+    private val contractVersion: () -> Int = { CONTRACT_VERSION },
+) {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -120,12 +130,21 @@ class OriginalLedger(private val file: File, private val log: (String) -> Unit =
     fun queue(entry: OriginalEntry): Boolean {
         val existing = rows[entry.sha256]
         val next = when (existing) {
-            null -> entry
-            else -> existing.copy(
-                volume = entry.volume,
-                mediaId = entry.mediaId,
-                recordId = if (existing.state == ORIGINAL_AWAITING_RECORD) entry.recordId else existing.recordId,
-            ).takeIf { it != existing }
+            null -> entry.copy(contractVersion = contractVersion())
+            else -> {
+                val relinked = existing.state == ORIGINAL_AWAITING_RECORD
+                existing.copy(
+                    volume = entry.volume,
+                    mediaId = entry.mediaId,
+                    recordId = if (relinked) entry.recordId else existing.recordId,
+                    // 新しい記録に付け替わるとき、版もその記録を積む時の版にする（付け替えない行は積んだ時のまま）
+                    contractVersion = if (relinked && entry.recordId != existing.recordId) {
+                        contractVersion()
+                    } else {
+                        existing.contractVersion
+                    },
+                ).takeIf { it != existing }
+            }
         }
         val saved = next == null || write(added = next)
         if (saved && next != null) rows[entry.sha256] = next
@@ -220,7 +239,11 @@ data class MediaMissingReport(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("client_version") val clientVersion: String? = null,
-) : Outboxable
+    /** 積んだ時の契約の版（ST50 / D1）。**既定は 1** —— 版を持たない行は版 1。積む時に `Outbox.add` が焼き込む */
+    @SerialName("contract_version") override val contractVersion: Int = 1,
+) : Outboxable {
+    override fun withContractVersion(version: Int): MediaMissingReport = copy(contractVersion = version)
+}
 
 /** 原本の欠けを報告の置き場に積む。 */
 class OriginalMissingReporter(

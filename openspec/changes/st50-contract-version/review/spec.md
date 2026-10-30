@@ -164,7 +164,7 @@ spec の Scenario 63 本（record-envelope 34・device-collection 16・desktop-c
   中身も、FR-130 の★（docs/requirements.md:1063）と D8（design.md:107）では最初の配った印の前に足す欄は版 1 のままで、上げるのは印の後だけ。いずれにせよ ST51 は封筒の写し（`docs/contract/envelope.json`）の作り直しが要る（FR-121 の★ docs/requirements.md:1019 が生存信号に動いている版を足す。docs/stories/ST51.md:20）
 - kind: defer
 - 提案: 「ST51 が生存信号に欄を足すときは `tools/check-contract-version.sh --write` で写しを作り直し、最初の配った印の後なら版を上げる」と直し、ST51 の Story（tasks がまだ無い）へ deferred で渡す
-- 処置: deferred ST51 —— proposal の申し送りを「欄を足すときは --write で写しを作り直し、最初の配った印の後なら版を上げる。印の前は版 1 のまま」に直した
+- 処置: followup ST51 —— ST51 が tasks.md を持った（凍結）ので docs/handoff/ST51.md へ移した。proposal の申し送りを「欄を足すときは --write で写しを作り直し、最初の配った印の後なら版を上げる。印の前は版 1 のまま」に直した
 
 ## R15. spec に実装の置き場の名前が入っている
 - 成果物: openspec/changes/st50-contract-version/specs/record-envelope/spec.md

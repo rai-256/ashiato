@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{authorize, internal_at, App, Writer};
+use crate::{internal_at, App, Writer};
 
 /// 破棄の理由（spec の 4 つ）。**文字列で受けてから検査する** ——
 /// 型で受けると知らない理由が「形として読めない」に畳まれ、端末のログから区別できない。
@@ -61,6 +61,9 @@ pub struct DropReportRequest {
     /// 作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。**鍵にも `raw` にも入れない**（D11）
     #[serde(default)]
     pub client_version: Option<String>,
+    /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<i64>,
 }
 
 /// 受け取り時に断る理由。**アプリ層で閉じる**（`heartbeat::Invalid` と同じ向き）——
@@ -202,6 +205,10 @@ pub enum DropError {
     InvalidHourly,
     /// 同じ識別子で原文の違う報告が既にある（端末が識別子を使い回した）
     IdReused,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）。収集アプリが捨てない種別
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）
+    ContractUnsupported,
 }
 
 impl From<Invalid> for DropError {
@@ -243,10 +250,7 @@ async fn drop_one(
     item: &serde_json::Value,
     writer: Writer,
 ) -> Result<DropResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
     let req: DropReportRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,
         Err(_) => {
@@ -361,19 +365,35 @@ async fn drop_one(
     })
 }
 
+/// 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。起動時に `router` が組ませる。
+pub(crate) static DROP_FIELDS: crate::contract_version::KnownFields =
+    crate::contract_version::KnownFields::of::<DropReportRequest>();
+
 /// 破棄の報告をまとめて受け取る（FR-9 / design D7）。
 ///
 /// 400 は「1 件も受け付けなかった」ことを意味する（`/ingest` / `/heartbeat` と同じ約束）。
 /// **端末は断られた報告も捨てずに送り直す**（C2）ので、断るのは形の不正と登録簿に無いソースに限る。
 #[utoipa::path(post, path = "/drops", request_body = Vec<DropReportRequest>,
     responses((status = 200, body = Vec<DropResult>), (status = 400, body = Vec<DropResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn drops_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<DropResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<DropResult>>), crate::contract_version::Refusal> {
+    drops_post_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn drops_post_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<DropResult>>), crate::contract_version::Refusal> {
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
+    let writer = Writer::of(caller);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -382,9 +402,21 @@ pub async fn drops_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
+    let gate = crate::contract_version::ItemGate::new(&app, &caller, &DROP_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(drop_one(&app, item, writer).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => rejected(
+                crate::contract_version::sent_id(item),
+                match refusal {
+                    crate::contract_version::ItemRefusal::UnknownField => DropError::UnknownField,
+                    crate::contract_version::ItemRefusal::ContractUnsupported => {
+                        DropError::ContractUnsupported
+                    }
+                },
+            ),
+            None => drop_one(&app, item, writer).await?,
+        });
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK
@@ -414,6 +446,7 @@ mod tests {
     /// 10:00〜13:00（UTC）に 60 件ずつ、計 180 件の 90 日の破棄。
     fn req() -> DropReportRequest {
         DropReportRequest {
+            contract_version: None,
             id: uuid::Uuid::new_v4(),
             user_id: uuid::Uuid::nil(),
             logical_source: "t".into(),

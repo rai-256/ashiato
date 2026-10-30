@@ -27,13 +27,18 @@ class DropReportContractTest {
         "hourly",
         "raw",
         "client_version",
+        // 積んだ時の契約の版（ST50）。全要求に付く
+        "contract_version",
     )
     // CONTRACT-FIELDS-END
 
     /** 版を持つ下書き（ST49）。版の無い下書きの報告は `client_version` を欄ごと送らない（`St49DropDraftTest` が見る） */
     private val version = "0.1.0+0123456789abcdef0123456789abcdef01234567.debug"
 
-    private fun keys(r: DropReport) = (Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject).keys
+    private fun keys(r: DropReport): Set<String> {
+        val json = Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject
+        return json.keys
+    }
 
     @Test
     fun `直列化した破棄の報告の欄名が契約と一致する`() {
@@ -50,9 +55,9 @@ class DropReportContractTest {
             clientVersion = version,
         ).toReport("user-1", "device-1")
         assertEquals(contractFields.sorted(), keys(r).sorted())
-        // 原文も同じ欄（raw と、鍵に入れない client_version を除く）を持つ
+        // 原文も同じ欄（raw と、鍵に入れない client_version と、送る時の封筒の欄の contract_version を除く）を持つ
         val rawKeys = (Json.parseToJsonElement(r.raw) as JsonObject).keys
-        assertEquals((contractFields - "raw" - "client_version").sorted(), rawKeys.sorted())
+        assertEquals((contractFields - "raw" - "client_version" - "contract_version").sorted(), rawKeys.sorted())
     }
 
     @Test

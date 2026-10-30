@@ -13,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::media::IMAGE_SOURCES;
-use crate::{authorize, internal_at, App, Writer};
+use crate::{internal_at, App, Writer};
 
 /// 原本の欠けの理由（D11 の 7 つ）。**文字列で受けてから検査する**（`drops::REASONS` と同じ向き）。
 pub const REASONS: [&str; 7] = [
@@ -47,6 +47,9 @@ pub struct MediaMissingRequest {
     /// 作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。冪等の判定には使わない（D11）
     #[serde(default)]
     pub client_version: Option<String>,
+    /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<i64>,
 }
 
 /// 報告を断った理由。**受け取った値は載せない。**
@@ -65,6 +68,10 @@ pub enum MediaMissingError {
     MissingDevice,
     /// 同じ識別子で中身の違う報告が既にある（端末が識別子を使い回した）
     IdReused,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）。収集アプリが捨てない種別
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）
+    ContractUnsupported,
 }
 
 /// 送った 1 件ごとの結果。欄は `DropResult` と同じ（端末は同じ型で読む）。
@@ -121,10 +128,7 @@ async fn missing_one(
     item: &serde_json::Value,
     writer: Writer,
 ) -> Result<MediaMissingResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
     let Ok(req) = serde_json::from_value::<MediaMissingRequest>(item.clone()) else {
         // **元のエラーを載せない。** serde の文言は受け取った値を含むことがある
         tracing::warn!(
@@ -192,16 +196,32 @@ async fn missing_one(
     })
 }
 
+/// 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。起動時に `router` が組ませる。
+pub(crate) static MISSING_FIELDS: crate::contract_version::KnownFields =
+    crate::contract_version::KnownFields::of::<MediaMissingRequest>();
+
 /// 原本の欠けの報告をまとめて受け取る（design D11）。400 は「1 件も受け付けなかった」ことを意味する。
 #[utoipa::path(post, path = "/media/missing", request_body = Vec<MediaMissingRequest>,
     responses((status = 200, body = Vec<MediaMissingResult>), (status = 400, body = Vec<MediaMissingResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn missing_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), crate::contract_version::Refusal> {
+    missing_post_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn missing_post_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), crate::contract_version::Refusal> {
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
+    let writer = Writer::of(caller);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -210,9 +230,23 @@ pub async fn missing_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
+    let gate = crate::contract_version::ItemGate::new(&app, &caller, &MISSING_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(missing_one(&app, item, writer).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => rejected(
+                crate::contract_version::sent_id(item),
+                match refusal {
+                    crate::contract_version::ItemRefusal::UnknownField => {
+                        MediaMissingError::UnknownField
+                    }
+                    crate::contract_version::ItemRefusal::ContractUnsupported => {
+                        MediaMissingError::ContractUnsupported
+                    }
+                },
+            ),
+            None => missing_one(&app, item, writer).await?,
+        });
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK

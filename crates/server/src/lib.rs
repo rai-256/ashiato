@@ -53,6 +53,10 @@ mod clock_tests;
 /// 記録ごとの部品の版（ST49）の移行と門。
 #[cfg(test)]
 mod component_version_tests;
+/// 収集アプリとの契約の版と確かめる口（ST50 / design D4）。
+pub mod contract_version;
+#[cfg(test)]
+mod contract_version_tests;
 pub mod coverage;
 /// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
 pub mod day;
@@ -80,6 +84,9 @@ pub mod export;
 /// 書き出しの版の列と説明（ST49）。
 #[cfg(test)]
 mod export_component_version_tests;
+/// 書き出しの契約の版の列と説明書（ST50 / design D20）。
+#[cfg(test)]
+mod export_contract_version_tests;
 /// 書き出しと消した滞在の時間が終わりを列から読むこと（ST41）。
 #[cfg(test)]
 mod export_end_time_tests;
@@ -430,6 +437,8 @@ pub struct App {
     exports: export::ExportJobs,
     /// 原本の置き場 D-02 の設定（ST09 / design D10）。
     media: media::MediaConfig,
+    /// S-01 が受け付ける契約の版（ST50 / design D4）。本番は定数のまま。設定や環境変数では変えられない。
+    contract_version: u32,
 }
 
 impl App {
@@ -456,6 +465,16 @@ impl App {
             export: export::ExportConfig::from_env(),
             exports: export::ExportJobs::default(),
             media: media::MediaConfig::none(),
+            contract_version: contract_version::CONTRACT_VERSION,
+        }
+    }
+
+    /// 契約の版を差し替えた複製。**試験だけ**（版 2 以上の S-01 を作る。ST50 design D4）。
+    #[cfg(test)]
+    pub(crate) fn with_contract_version(self, contract_version: u32) -> Self {
+        Self {
+            contract_version,
+            ..self
         }
     }
 
@@ -747,6 +766,10 @@ pub enum IngestError {
     /// 終わりの 3 欄が一部だけ・ずれが範囲の外・タイムゾーン識別子が空か U+0000 を含む
     /// （ST41 / `ingest::Invalid::EndTime`）
     InvalidEndTime,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）。収集アプリが捨てない種別
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）。収集アプリが捨てない種別
+    ContractUnsupported,
     /// 既に格納された記録と同じ収集側の識別子で、別の記録が届いた（ST03 / 深掘り Q5）。
     ///
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
@@ -1085,6 +1108,8 @@ struct Stored {
     collector_version: Option<String>,
     web_version: Option<String>,
     server_version: Option<String>,
+    /// 記録の契約の版（ST50）。更新で動くので、前の値を履歴へ残すためにここで受ける
+    contract_version: Option<i32>,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -1181,10 +1206,7 @@ async fn ingest_one(
     writer: Writer,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 収集側が採番した id だけは、形が壊れていても拾えるなら結果に載せる（対応づけの助けになる）
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
 
     let req: IngestRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,
@@ -1249,6 +1271,9 @@ enum Settle {
 ///
 /// 取り込み器は要求を型のまま持っているので、ここを直に呼ぶ。JSON へ直して
 /// `ingest_one` で読み戻していたときは、百万件級の書庫で 1 件ごとに往復していた（final review R62）。
+///
+/// `writer` が `Writer::Collector`（収集アプリの資格情報で届いた 1 件。ST50 / D1）のときだけ、記録の契約の版を
+/// 1 件の欄の値（無ければ 1）にする。書庫の取り込み・滞在・画面では、契約の版は空のまま。
 async fn ingest_request(
     app: &App,
     mut req: IngestRequest,
@@ -1408,6 +1433,32 @@ async fn ingest_request(
         }
     }
     let hash = content_hash(&req);
+    // **記録の契約の版は、収集アプリの 1 件の欄の値（無ければ 1）。それ以外は空**（ST50 / D1・D10）。
+    // 内容の鍵には入れない。要求の見出しの版は使わない
+    // 版の範囲（1 以上・S-01 の版以下）は口の 1 件ごとの検査（`ItemGate`）が先に見ている。それでも列に収まらない値が
+    // 来たら、黙って版 1 にせず `contract_unsupported` で断る（捨てない側。final review R12）
+    let contract_version: Option<i32> = if matches!(writer, Writer::Collector) {
+        match req.contract_version {
+            None => Some(1),
+            Some(v) => match i32::try_from(v) {
+                Ok(n) if n >= 1 => Some(n),
+                _ => {
+                    // log-ok: 契約の版は整数の定数で、記録の値ではない（ST50 の規則）
+                    tracing::warn!(
+                        kind = "contract_unsupported",
+                        requested = v,
+                        "列に収まらない契約の版の 1 件を断った"
+                    );
+                    return Ok(IngestResult::rejected(
+                        Some(req.id),
+                        IngestError::ContractUnsupported,
+                    ));
+                }
+            },
+        }
+    } else {
+        None
+    };
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
     //
@@ -1558,9 +1609,9 @@ async fn ingest_request(
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-                 $22,$23,$24)
+                 $22,$23,$24,$25)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -1570,9 +1621,9 @@ async fn ingest_request(
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-                 $22,$23,$24)
+                 $22,$23,$24,$25)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -1606,6 +1657,7 @@ async fn ingest_request(
             .bind(&collector_version)
             .bind(&web_version)
             .bind(BUILD_STAMP)
+            .bind(contract_version)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
@@ -1637,6 +1689,7 @@ async fn ingest_request(
                 &hash,
                 &payload,
                 (&collector_version, &web_version),
+                contract_version,
             )
             .await?;
         } else if external_id.is_some() {
@@ -1758,14 +1811,14 @@ async fn load_stored(
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
                 end_time, end_tz_offset_min, end_tz_id,
-                collector_version, web_version, server_version
+                collector_version, web_version, server_version, contract_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
                 end_time, end_tz_offset_min, end_tz_id,
-                collector_version, web_version, server_version
+                collector_version, web_version, server_version, contract_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -1868,6 +1921,7 @@ async fn apply_external_update(
     hash: &str,
     payload: &serde_json::Value,
     (collector_version, web_version): (&Option<String>, &Option<String>),
+    contract_version: Option<i32>,
 ) -> Result<Update, (StatusCode, String)> {
     // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
     // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
@@ -1890,11 +1944,11 @@ async fn apply_external_update(
             raw, payload, source_updated_at, external_ref,
             tz_offset_min, tz_id, schema_version, unit_system, crs,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
                 $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19, $20
+                $18, $19, $20, $21
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -1917,6 +1971,7 @@ async fn apply_external_update(
     .bind(&stored.collector_version)
     .bind(&stored.web_version)
     .bind(&stored.server_version)
+    .bind(stored.contract_version)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -1941,7 +1996,8 @@ async fn apply_external_update(
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
                 unit_system = $10, crs = $11,
                 end_time = $12, end_tz_offset_min = $13, end_tz_id = $14,
-                collector_version = $15, web_version = $16, server_version = $17
+                collector_version = $15, web_version = $16, server_version = $17,
+                contract_version = $18
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1962,11 +2018,16 @@ async fn apply_external_update(
     .bind(collector_version)
     .bind(web_version)
     .bind(BUILD_STAMP)
+    .bind(contract_version)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
     Ok(Update::Applied)
 }
+
+/// 記録の 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。
+static INGEST_FIELDS: contract_version::KnownFields =
+    contract_version::KnownFields::of::<IngestRequest>();
 
 /// 記録をまとめて受け取る。同じ内容を再送しても行は増えない（FR-22）。
 ///
@@ -1979,13 +2040,25 @@ async fn apply_external_update(
 /// 正しい分は格納される —— 1 件の恒久的な失敗が後続を永久に止めないため。
 #[utoipa::path(post, path = "/ingest", request_body = Vec<IngestRequest>,
     responses((status = 200, body = Vec<IngestResult>), (status = 400, body = Vec<IngestResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn ingest(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<IngestResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
+    ingest_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn ingest_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
+    let writer = Writer::of(caller);
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -1999,9 +2072,21 @@ pub async fn ingest(
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
 
+    let gate = contract_version::ItemGate::new(&app, &caller, &INGEST_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(ingest_one(&app, item, writer).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => IngestResult::rejected(
+                contract_version::sent_id(item),
+                match refusal {
+                    contract_version::ItemRefusal::UnknownField => IngestError::UnknownField,
+                    contract_version::ItemRefusal::ContractUnsupported => {
+                        IngestError::ContractUnsupported
+                    }
+                },
+            ),
+            None => ingest_one(&app, item, writer).await?,
+        });
     }
 
     // **位置を受け入れた日の滞在を作り直す**（ST16 / Q6 / design D5）。まとめ送り 1 回につき、日ごと・利用者ごとに 1 回。
@@ -3099,6 +3184,10 @@ pub enum HeartbeatError {
     MissingBlockers,
     /// 取得の回数が負、または成功が試行を超える
     InvalidCounts,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）
+    ContractUnsupported,
 }
 
 impl From<heartbeat::Invalid> for HeartbeatError {
@@ -3126,10 +3215,7 @@ async fn heartbeat_one(
     app: &App,
     item: &serde_json::Value,
 ) -> Result<HeartbeatResult, (StatusCode, String)> {
-    let sent_id = item
-        .get("id")
-        .and_then(|v| v.as_str())
-        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let sent_id = crate::contract_version::sent_id(item);
 
     let req: heartbeat::HeartbeatRequest = match serde_json::from_value(item.clone()) {
         Ok(r) => r,
@@ -3252,6 +3338,10 @@ pub async fn store_heartbeat(
     .map_err(|(_, message)| anyhow::anyhow!(message))
 }
 
+/// 生存信号の 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。
+static HEARTBEAT_FIELDS: contract_version::KnownFields =
+    contract_version::KnownFields::of::<heartbeat::HeartbeatRequest>();
+
 /// 生存信号をまとめて受け取る（FR-78）。
 ///
 /// **`/ingest` と統合しない**（design D9）—— `/ingest` は記録のエンベロープ
@@ -3261,13 +3351,24 @@ pub async fn store_heartbeat(
 /// 400 は「1 件も受け付けなかった」ことを意味する（`/ingest` と同じ約束）。
 #[utoipa::path(post, path = "/heartbeat", request_body = Vec<heartbeat::HeartbeatRequest>,
     responses((status = 200, body = Vec<HeartbeatResult>), (status = 400, body = Vec<HeartbeatResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn heartbeat_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), (StatusCode, String)> {
-    authorize(&app, &headers).await?;
+) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
+    heartbeat_post_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn heartbeat_post_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -3276,9 +3377,23 @@ pub async fn heartbeat_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
+    let gate = contract_version::ItemGate::new(&app, &caller, &HEARTBEAT_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(heartbeat_one(&app, item).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => HeartbeatResult {
+                id: contract_version::sent_id(item),
+                duplicate: false,
+                accepted: false,
+                error: Some(match refusal {
+                    contract_version::ItemRefusal::UnknownField => HeartbeatError::UnknownField,
+                    contract_version::ItemRefusal::ContractUnsupported => {
+                        HeartbeatError::ContractUnsupported
+                    }
+                }),
+            },
+            None => heartbeat_one(&app, item).await?,
+        });
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK
@@ -4053,12 +4168,20 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 
 /// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
 pub fn router(app: App) -> Router {
+    // 収集アプリの 4 つの JSON の口が知る欄を、最初の要求の前に組む（ST50 / final review R11）
+    contract_version::warm_known_fields(&[
+        &INGEST_FIELDS,
+        &HEARTBEAT_FIELDS,
+        &drops::DROP_FIELDS,
+        &media_missing::MISSING_FIELDS,
+    ]);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .route("/ingest", post(ingest))
-        .route("/heartbeat", post(heartbeat_post))
-        .route("/drops", post(drops::drops_post))
-        .route("/media/missing", post(media_missing::missing_post))
+        .route("/contract", get(contract_version::contract_get))
+        .route("/ingest", post(ingest_route))
+        .route("/heartbeat", post(heartbeat_post_route))
+        .route("/drops", post(drops::drops_post_route))
+        .route("/media/missing", post(media_missing::missing_post_route))
         .route("/media/summary", get(media_summary::summary_get))
         // この経路だけ本文の上限が 1 GiB（ほかの経路の 2 MB は変えない。design D10）
         .route(
@@ -4307,6 +4430,7 @@ pub async fn run() -> anyhow::Result<()> {
 #[derive(Debug, utoipa::OpenApi)]
 #[openapi(
     paths(
+        contract_version::contract_get,
         ingest,
         heartbeat_post,
         drops::drops_post,
@@ -4454,6 +4578,7 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindCreated,
         attributes_store::KindError,
         attributes_store::KindErrorBody,
+        contract_version::ContractAnswer,
         web_session::LoginRequest,
         web_session::SessionState,
         satellite_admin::SatelliteOut,
