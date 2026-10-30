@@ -53,7 +53,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 2: 起動時の手当て（design D5。spec「本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在は、サーバの起動のたびに本文を消す」）
 
-- [ ] 2.1 `deletion.rs` に `purge_hidden_overlap_remedy(&pool) -> usize`（残った件数）を置く。design D5 の 4 つの条件（時刻を比べない）で対象を探し、利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で
+- [x] 2.1 `deletion.rs` に `purge_hidden_overlap_remedy(&pool) -> usize`（残った件数）を置く。design D5 の 4 つの条件（時刻を比べない）で対象を探し、利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で
   Task 1 の `purge_hidden_overlap` に渡し、失敗を飲み込んで `warn`（`kind = "purge_remedy"`・残った件数・SQLSTATE だけ）を出すところまでこの関数が持つ。
   `lib.rs` の `run()` は、`purged_without_span` のログの隣・待ち受けの前でこの関数を 1 回呼ぶだけ（`?` で伝えない）。
   Scenario: `起動すると本文ごと消した後に隠れて本文が残った重なる滞在の本文が消える` / `起動を繰り返しても台帳の行は増えない` / `本文ごと消す前から隠れていた端の滞在は起動しても本文が残る` /
