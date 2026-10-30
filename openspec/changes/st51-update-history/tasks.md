@@ -108,10 +108,10 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 4: 生存信号の受け口の `client_version`
 
-- [ ] 4.1 `HeartbeatRequest` に `#[serde(default)] pub client_version: Option<String>` を足し、INSERT で列 `collector_version` に入れる（空の文字列は NULL。U+0000 は取り除く。前後の空白は除かない。形を検査しない —— D6）。
+- [x] 4.1 `HeartbeatRequest` に `#[serde(default)] pub client_version: Option<String>` を足し、INSERT で列 `collector_version` に入れる（空の文字列は NULL。U+0000 は取り除く。前後の空白は除かない。形を検査しない —— D6）。
   書庫の取り込み器が積む生存信号は `None`（D13）。`docs/openapi.json` を再生成する。`docs/collector-contract.md` の生存信号の節に欄を足す（「積んだ時の版。原文にも同じ値」）
   検証: `./tools/check-openapi.sh` rc=0 / `bash -c 'jq -e ".components.schemas.HeartbeatRequest.properties | has(\"client_version\")" docs/openapi.json'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_hb_ && test "$(cargo test -p ashiato-server st51_hb_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'` rc=0
-- [ ] 4.2 `version_change_tests.rs`:
+- [x] 4.2 `version_change_tests.rs`:
   - `st51_hb_version_stored` — `// Scenario: 生存信号の版は、行に残る`
   - `st51_hb_without_version_accepted` — `// Scenario: 版の欄を持たない生存信号も受け付ける`
   - `st51_hb_malformed_version_accepted` — `// Scenario: 形の崩れた版でも、生存信号は断られない`
