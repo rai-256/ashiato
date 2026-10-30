@@ -155,10 +155,10 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 7: PC の収集アプリ（C-02）の生存信号の版
 
-- [ ] 7.1 `crates/collector-windows/src/heartbeat.rs` の信号を組む所で、ST49 の印を `client_version` の欄と原文の `client_version` の両方に入れる（D12）。溜めた行は読み戻した形のまま送る（欄が無ければ足さない）。
+- [x] 7.1 `crates/collector-windows/src/heartbeat.rs` の信号を組む所で、ST49 の印を `client_version` の欄と原文の `client_version` の両方に入れる（D12）。溜めた行は読み戻した形のまま送る（欄が無ければ足さない）。
   `heartbeat_raw_has_no_private_content` の鍵の一覧に `client_version` を足す。ST49 の試験「PC の生存信号には版が書き込まれない」を消す
   検証: `bash -c 'scripts/quiet-run cw -- cargo test -p ashiato-collector-windows --lib st51_c02_ && test "$(cargo test -p ashiato-collector-windows --lib st51_c02_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'` rc=0 / `bash -c 'scripts/quiet-run cw -- cargo test -p ashiato-collector-windows --lib'` rc=0（既存の試験が通る）
-- [ ] 7.2 `#[cfg(test)]` の試験:
+- [x] 7.2 `#[cfg(test)]` の試験:
   - `st51_c02_heartbeat_keeps_enqueued_version` — `// Scenario: PC の生存信号は、積んだときの版を欄と原文に持つ`（置き場を別の印で開き直して送る）
   - `st51_c02_old_heartbeat_sent_without_version` — `// Scenario: PC の版の欄を持たない溜めた生存信号は、版の無いまま送られる`
   - `st51_c02_heartbeat_first_after_start` — 起動の直後に生存信号を 1 件積む（`Schedule::new()` の最初の `due`。premises 1 を確かさ 4 に上げる）
