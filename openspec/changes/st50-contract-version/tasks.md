@@ -110,7 +110,7 @@
 
 ## Task 5: 配った版の封筒の例（版 1）を受け付け続ける
 
-- [ ] 5.1 `crates/server/tests/fixtures/contract/v1/` に、今の収集アプリ 2 本が送る形の例を置く（`ingest-c01-location.json`・`ingest-c02-window.json`・`ingest-end-time.json`（終わりの 3 欄つき）・`heartbeat-c01.json`・`heartbeat-c02.json`・`drops.json`・`media-missing.json`。
+- [x] 5.1 `crates/server/tests/fixtures/contract/v1/` に、今の収集アプリ 2 本が送る形の例を置く（`ingest-c01-location.json`・`ingest-c02-window.json`・`ingest-end-time.json`（終わりの 3 欄つき）・`heartbeat-c01.json`・`heartbeat-c02.json`・`drops.json`・`media-missing.json`。
   値は架空。`docs/collector-contract.md` の例と `CollectorContractFixture.kt` の形から作る）と、口の形の例 `wire.json`（`/contract` の道と答えの鍵・見出しの名前 `Ashiato-Contract-Version`・426 と本文の鍵。D4・D8）。`contract_version_tests.rs`:
   - `st50_released_v1_accepted` — `// Scenario: 版 1 の封筒の例は受け付けられる`（例を全部、見出しなしと見出し 1 で送り、版の検査と知らない欄の検査で断られないこと）
   - `st50_released_v1_end_time` — `// Scenario: ST41 の終わりの時刻を持つ記録は版 1 として受け付けられる`
