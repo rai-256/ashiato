@@ -2,10 +2,10 @@
 
 ## deep.md に積んだ未決（A）
 
-- **Q7（第 3 回・A / premise）更新の後に端末の時計が戻ったとき、版の変化をどう数えるか**（`review/code.md` R20 から）。
-  第 1 回 Q4（発信の時刻の順に並べる）の答えのままだと、更新の直後に端末の時計が戻ると、読み口 `core.collector_version_change` が更新 1 回を「新しい版 → 前の版」と「前の版 → 新しい版」の 2 行に見せる（全記録の書き出しにも 2 行出る）。
-  失うものは無い（読み口は生存信号から導くビューで、並べ方を変えれば過去の分まで出し直せる）が、本人の答えの前提が崩れる場合なので返した。推奨は「今のまま」（受信の順へ切り替えると、Q4 で避けると決めた「溜まって遅れて届いた信号」の偽の変化が出る）。
-  問いは `openspec/changes/st51-update-history/deep-questions-r3.json`、HTML は `docs/briefs/ST51-deep-r3.html`。今の見え方は印なしの試験 `st51_view_clock_back_after_update` が固定している
+- なし。finish の 1 回目で返した Q7（第 3 回。更新の後に端末の時計が戻ったとき、版の変化をどう数えるか。`review/code.md` R20）は、
+  本人が「今のまま（発信の時刻の順）。時計が戻ったときの 2 行の見え方を受け入れる」を選んだ（推奨と同じ側。`deep-answers-4.txt`）。
+  受け入れた見え方を collection-coverage の Scenario「更新の後に端末の時計が戻ると、更新 1 回が戻りと上げの 2 行に見える」に書き、
+  試験 `st51_view_clock_back_after_update` に印を付けて固定した。design の危険の行にも Q7 を書き足した。要件へ戻すものは無い
 
 ## 仮決め（B）と Ruling
 
@@ -32,7 +32,7 @@
 - 壊して落ちるのを確かめた: 起動の取引から更新の履歴の鍵を外す → `st51_migrate_concurrent_one_row` FAILED / `grants.sql` の REVOKE を消す → `st51_rows_cannot_be_rewritten` FAILED
 - rejected: R21（検査の前に落ちた回の試みなしの `failed` は design D8 の表の 7 行目どおり）・R22（同じ印の走らせ直しは版の変化でない。D2・D16（仮）。当てた版は ST48 の版の記録が持つ）・
   R26（件数と本文を別に引くのは書き出しの全部の表と同じ形。`pg_input_is_valid` は JSON でない原文で読み口を落とさない門）
-- escalated: R20 → deep.md Q7（上記）
+- escalated: R20 → deep.md Q7 → 答え「今のまま」で Scenario に固定（上記）
 - security review は指摘なし
 
 ## 通した検証コマンド
@@ -59,7 +59,9 @@ finish の直しの後に走らせ直したもの（HEAD の作業ツリー）: 
 `export_` 191 passed・`cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0・`cargo fmt --check` rc=0・`tools/check-immutable.sh` rc=0・
 `check_scenarios.py` OK・`check-shared-appends.sh` OK・`check_chain.py` OK・`review_triage.py` OK・`provisional.py check` rc=0
 
+Q7 の答えを写した後（finish の 2 回目）: `cargo test -p ashiato-server --lib st51_view_` 16 passed・`check_scenarios.py` OK・`check_agreed_tests.py` OK・`check_chain.py` OK・`openspec validate --strict` valid・`review_triage.py` OK
+
 ## 未処置の申し送り
 
 - `docs/handoff/ST58.md` の ST51 の節（退避から戻した後の 2 行の書き直し・落ちた版の名前と SQLSTATE の足し方・「戻した」の値を足すときの CHECK の作り替え）は ST58 が受ける。`check_chain.py` の未回収は 0 件
-- deep.md Q7 の答え待ち（上記）。答えが「今のまま」なら `st51_view_clock_back_after_update` に Scenario の印を付ける。並べ方を変えるならビューと試験を差し替える
+- なし（deep.md Q7 は答えを Scenario に写して閉じた）

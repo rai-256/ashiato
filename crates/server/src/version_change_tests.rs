@@ -442,7 +442,7 @@ async fn st51_view_column_before_raw() {
     assert_eq!(rows[0].3, COMMIT_A);
 }
 
-// 更新の後に端末の時計が戻ると、発信の時刻の順（Q4）のまま、更新 1 回が戻りと上げの 2 行に見える（今の見え方。deep.md Q7 の答え待ち）
+// Scenario: 更新の後に端末の時計が戻ると、更新 1 回が戻りと上げの 2 行に見える
 #[tokio::test]
 async fn st51_view_clock_back_after_update() {
     let pool = testdb::pool().await;

@@ -206,6 +206,7 @@ Task 2 の失敗の作り方と `record_startup` の配線（`lib.rs:4201`）、
 - kind: premise
 - 提案: 本人の Q4 の答えの前提（端末の発信の時刻は戻らない）が崩れる場合として人間へ返す。今の振る舞いのままにするなら、時計が戻ったときの見え方を Scenario に書いて固定する。変えるなら並べ方（発信の時刻が前の信号より戻ったら受信の順で並べる、など）を Q4 の補足として決める
 - 処置: escalated: deep.md 第 3 回 Q7（`deep-questions-r3.json`・`docs/briefs/ST51-deep-r3.html`）。失うものは無い（読み口はビュー）が、本人の Q4 の答えの前提が崩れる場合なので返した。今の見え方は印なしの試験 `st51_view_clock_back_after_update` が固定している
+  - 答え（2026-10-30、`deep-answers-4.txt`）: 今のまま。finish の 2 回目で、受け入れた見え方を collection-coverage の Scenario「更新の後に端末の時計が戻ると、更新 1 回が戻りと上げの 2 行に見える」に書き、`st51_view_clock_back_after_update` に印を付けた
 
 ## security review（f0b45f3..aaa4906）
 
