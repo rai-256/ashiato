@@ -814,14 +814,29 @@ mod st48_migrate {
         after_a_second();
         let out = rig.migrate();
         assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-        // 版の食い違いの種別（db_ahead など）は出さない。出すのは落ちた版の 1 行（種別 migrate_failed。ST51 D8）だけ
-        assert!(
-            stderr(&out)
-                .lines()
-                .all(|l| !l.contains("kind=") || l.starts_with("error: kind=migrate_failed ")),
-            "版の食い違いの種別を出した: {}",
-            stderr(&out)
+        // 版の食い違いの種別（db_ahead など）は出さない。出すのは落ちた版の 1 行（種別 migrate_failed。ST51 D8）だけで、
+        // その行は `error: kind=migrate_failed version=<版> [sqlstate=<5 字>]` の形に限る（後ろに別の種別を足させない）
+        let err = stderr(&out);
+        for mismatch in ["db_ahead", "db_behind", "ledger_unreadable"] {
+            assert!(!err.contains(mismatch), "版の食い違いの種別を出した: {err}");
+        }
+        let kinds: Vec<&str> = err.lines().filter(|l| l.contains("kind=")).collect();
+        assert_eq!(kinds.len(), 1, "種別の行は落ちた版の 1 行だけ: {err}");
+        let mut words = kinds[0].split(' ');
+        assert_eq!(words.next(), Some("error:"), "{err}");
+        assert_eq!(words.next(), Some("kind=migrate_failed"), "{err}");
+        assert_eq!(
+            words.next(),
+            Some("version=202610131200_export_ledger"),
+            "{err}"
         );
+        for rest in words {
+            let code = rest.strip_prefix("sqlstate=");
+            assert!(
+                code.is_some_and(|c| c.len() == 5 && c.chars().all(|ch| ch.is_ascii_alphanumeric())),
+                "落ちた版の行に余計な語がある: {err}"
+            );
+        }
         let recorded: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM migration_ledger.applied WHERE name = '202610131200_export_ledger'",
         )
@@ -1302,11 +1317,13 @@ mod st48_migrate {
     async fn st51_bin_startup_row_on_swap() {
         let rig = Rig::new().await;
         rig.with_other_stamp_row().await;
+        let before = history(&rig).await;
         let served = rig.serve();
         assert!(served.healthy, "{}", stderr(&served.out));
         let h = history(&rig).await;
         let last = h.last().unwrap();
-        assert_eq!(h.len(), 3, "{h:?}");
+        assert_eq!(h.len(), before.len() + 1, "起動で 1 行だけ足す: {h:?}");
+        assert_eq!(h[..before.len()], before[..], "前の行は変わらない");
         assert_eq!(last.0, "nothing_to_apply", "{h:?}");
         assert_eq!(last.1.as_deref(), Some(OTHER_STAMP));
         assert_eq!(last.2, ashiato_server::BUILD_STAMP);
