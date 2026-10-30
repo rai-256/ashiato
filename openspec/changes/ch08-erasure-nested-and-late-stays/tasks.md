@@ -85,7 +85,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 4: 確認の口の「一覧に出ている重なる滞在」（design D7。spec「本文ごと消す前に、消える件数と残るものを示す」）
 
-- [ ] 4.1 `deletion.rs` の `PurgeScope` と確認の口の応答（`lib.rs`）に `visible_overlaps` を足す（design D7 の数え方）。`counts`・消す口の `expected` の比べ・範囲は変えない。`docs/openapi.json` を生成し直す。
+- [x] 4.1 `deletion.rs` の `PurgeScope` と確認の口の応答（`lib.rs`）に `visible_overlaps` を足す（design D7 の数え方）。`counts`・消す口の `expected` の比べ・範囲は変えない。`docs/openapi.json` を生成し直す。
   消す口は `visible_overlaps` を比べない（design D7）。
   Scenario: `確認は一覧に出ている重なる滞在の件数を消える件数の外で返す` / `端が触れるだけの一覧に出ている滞在は重なる滞在に数えない` / `確認の後に一覧に出ている重なる滞在が増えても本文ごと消せる`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_visible_'` rc=0、
