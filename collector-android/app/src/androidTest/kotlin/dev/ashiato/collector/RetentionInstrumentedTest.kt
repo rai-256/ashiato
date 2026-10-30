@@ -280,7 +280,7 @@ class RetentionInstrumentedTest {
     }
 
     /**
-     * 端末の中の偽のサーバ。**`/ingest` `/heartbeat` `/drops` を全部受け付け**、届いた記録の識別子と出来事の時刻を覚える。
+     * 端末の中の偽のサーバ。**`/ingest` `/heartbeat` `/drops` を全部受け付け**、`/contract` にはいまの版で答え、届いた記録の識別子と出来事の時刻を覚える。
      */
     private class FakeServer : AutoCloseable {
         private val socket = ServerSocket(0)
@@ -331,8 +331,14 @@ class RetentionInstrumentedTest {
                 }
                 "/drops" -> dropCount.addAndGet(ids.size)
             }
-            val reply = ids.joinToString(",", "[", "]") { """{"id":null,"duplicate":false,"accepted":true,"error":null}""" }
-                .toByteArray(Charsets.UTF_8)
+            // 送る契機の頭の `GET /contract`（ST50 / D9）にはいまの版で答える。答えないと版が分からず何も送らない
+            val reply = (
+                if (path.startsWith("/contract")) {
+                    """{"contract_version":$CONTRACT_VERSION}"""
+                } else {
+                    ids.joinToString(",", "[", "]") { """{"id":null,"duplicate":false,"accepted":true,"error":null}""" }
+                }
+                ).toByteArray(Charsets.UTF_8)
             try {
                 s.getOutputStream().apply {
                     write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())
