@@ -520,7 +520,17 @@ fn idle_enter_and_leave_are_both_recorded() {
 #[derive(Debug, Default)]
 struct Capture(std::cell::RefCell<Vec<(String, String)>>);
 impl Transport for Capture {
-    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+    fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+        Ok(Reply {
+            status: 200,
+            body: format!(
+                r#"{{"contract_version":{}}}"#,
+                ashiato_collector_windows::contract::CONTRACT_VERSION
+            ),
+        })
+    }
+
+    fn post(&self, path: &str, body: &str, _version: u32) -> anyhow::Result<Reply> {
         self.0.borrow_mut().push((path.into(), body.into()));
         let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
             .map(|v| v.len())

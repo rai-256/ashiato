@@ -86,6 +86,15 @@ impl<T: Outboxable> Outbox<T> {
     /// 見回りが戻らない（deep.md 第 5 回 Q9。Windows 実機で 1 件約 1 ms）。
     /// 書けなかったものは溜まっているものに入れない（積み直す側が持つ）。
     pub fn add_many(&mut self, items: Vec<T>) -> anyhow::Result<()> {
+        self.add_many_at(items, crate::contract::CONTRACT_VERSION)
+    }
+
+    /// 積む 1 か所。**送信契約の版をここで行に焼き込む**（ST50 / design D1）。
+    /// 版を引数に取るのは、積んだ後に版が上がった状態を試験で作るため。
+    pub fn add_many_at(&mut self, mut items: Vec<T>, version: u32) -> anyhow::Result<()> {
+        for item in &mut items {
+            item.burn_contract_version(version);
+        }
         if items.is_empty() {
             return Ok(());
         }

@@ -29,6 +29,7 @@ use crate::clock_record::{skew_record, RecordContext};
 use crate::clock_worker::{ClockReading, ClockWorker, WorkerPoll};
 use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
+use crate::contract_gate::ContractGate;
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
@@ -36,7 +37,7 @@ use crate::history::contract::Visit;
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
 use crate::outage_notice::OutagePoller;
 use crate::outbox::Outbox;
-use crate::sender::{Sender, Transport};
+use crate::sender::{read_contract_answer, ContractAnswer, Sender, Transport};
 use crate::telemetry;
 use crate::time_sync::TimeSyncSource;
 
@@ -90,6 +91,8 @@ pub struct Runtime<'a> {
     beats: Outbox<HeartbeatRequest>,
     ingest: Sender,
     beat_sender: Sender,
+    /// 「S-01 の更新を待っている」状態（ST50 / design D9）
+    contract_gate: ContractGate,
     transport: &'a dyn Transport,
     reference: Arc<dyn ReferenceClock>,
     time_sync: Arc<dyn TimeSyncSource>,
@@ -250,6 +253,7 @@ impl<'a> Runtime<'a> {
             beats,
             ingest: Sender::ingest(),
             beat_sender: Sender::heartbeat(),
+            contract_gate: ContractGate::new(&cfg.state_dir),
             transport,
             reference,
             time_sync,
@@ -781,18 +785,31 @@ impl<'a> Runtime<'a> {
                 self.push(p);
             }
             self.save_engine_state();
-            self.send();
+            self.send_at(wall);
             self.last_send = Some(mono);
         }
     }
 
+    /// 直前の見回りの壁時計で送る（見回りの前なら今の時刻）。
     fn send(&mut self) {
+        let now = self.last_tick.map_or_else(Utc::now, |(wall, _)| wall);
+        self.send_at(now);
+    }
+
+    /// 送る契機の 1 回分。**頭で 1 回だけ `GET /contract` を引き**、記録と生存信号の両方に同じ答えを渡す
+    /// （design D18（仮）。答えは覚えない）。
+    fn send_at(&mut self, now: DateTime<Utc>) {
         let log = self.log;
         let mut log = |line: String| log(line);
-        if let Err(e) = self
+        let answer = read_contract_answer(&self.transport.get("/contract"));
+        let accepted = match answer {
+            ContractAnswer::Version(a) => Some(a),
+            _ => None,
+        };
+        let sent = self
             .ingest
-            .flush(&mut self.events, self.transport, &mut log)
-        {
+            .flush(&mut self.events, self.transport, accepted, &mut log);
+        if let Err(e) = sent {
             log(telemetry::line(
                 "send_failed",
                 None,
@@ -800,16 +817,22 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
-        if let Err(e) = self
+        let sent = self
             .beat_sender
-            .flush(&mut self.beats, self.transport, &mut log)
-        {
+            .flush(&mut self.beats, self.transport, accepted, &mut log);
+        if let Err(e) = sent {
             log(telemetry::line(
                 "send_failed",
                 None,
                 None,
                 Some(telemetry::error_kind(&e)),
             ));
+        }
+        let outcomes = [self.ingest.last_outcome(), self.beat_sender.last_outcome()];
+        if self.contract_gate.observe(answer, now, &outcomes, &mut log) {
+            // 待っている状態を抜けた。断られた印のせいで先頭に居座らせない（design D14）
+            self.ingest.clear_skipped();
+            self.beat_sender.clear_skipped();
         }
     }
 }
@@ -948,7 +971,17 @@ mod tests {
     }
 
     impl Transport for AcceptAll {
-        fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+        fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+            Ok(Reply {
+                status: 200,
+                body: format!(
+                    r#"{{"contract_version":{}}}"#,
+                    crate::contract::CONTRACT_VERSION
+                ),
+            })
+        }
+
+        fn post(&self, path: &str, body: &str, _version: u32) -> anyhow::Result<Reply> {
             self.bodies
                 .borrow_mut()
                 .push((path.to_string(), body.to_string()));
@@ -3168,9 +3201,17 @@ mod tests {
             inner: AcceptAll,
         }
         impl Transport for Switch {
-            fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+            fn get(&self, path: &str) -> anyhow::Result<Reply> {
                 if self.up.get() {
-                    self.inner.post(path, body)
+                    self.inner.get(path)
+                } else {
+                    anyhow::bail!("取り込み口が止まっている")
+                }
+            }
+
+            fn post(&self, path: &str, body: &str, version: u32) -> anyhow::Result<Reply> {
+                if self.up.get() {
+                    self.inner.post(path, body, version)
                 } else {
                     anyhow::bail!("取り込み口が止まっている")
                 }
@@ -3289,7 +3330,11 @@ mod tests {
         #[derive(Debug)]
         struct Down;
         impl Transport for Down {
-            fn post(&self, _: &str, _: &str) -> anyhow::Result<Reply> {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                anyhow::bail!("取り込み口が止まっている")
+            }
+
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
                 anyhow::bail!("取り込み口が止まっている")
             }
         }

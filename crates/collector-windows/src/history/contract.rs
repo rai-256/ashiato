@@ -332,6 +332,7 @@ impl IngestRequest {
             raw: visit.raw.clone(),
             payload: serde_json::to_value(&visit.payload)?,
             client_version: None,
+            contract_version: crate::contract::CONTRACT_VERSION,
             unknown: serde_json::Map::new(),
         })
     }

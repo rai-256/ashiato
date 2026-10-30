@@ -24,6 +24,7 @@ pub mod clock_record;
 pub mod clock_worker;
 pub mod config;
 pub mod contract;
+pub mod contract_gate;
 pub mod engine;
 pub mod exclusion;
 pub mod fsutil;

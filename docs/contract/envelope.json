@@ -652,6 +652,12 @@
           "boolean"
         ]
       },
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "device_id": {
         "required": true,
         "type": [
@@ -696,6 +702,12 @@
       }
     },
     "ingest": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "device_id": {
         "required": true,
         "type": [

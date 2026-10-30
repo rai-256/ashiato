@@ -328,9 +328,18 @@ pub struct IngestRequest {
     /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
+    /// 積んだ時の送信契約の版（ST50 / design D1）。**送る時に今の版で上書きしない。**
+    /// 版を持たない溜めの行（ST50 より前）は読み戻すと 1（D10）
+    #[serde(default = "one")]
+    pub contract_version: u32,
     /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**（ST49 design D3（仮））
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 版を持たない行の版（D10）。
+fn one() -> u32 {
+    1
 }
 
 impl IngestRequest {
@@ -361,6 +370,7 @@ impl IngestRequest {
             raw,
             payload: serde_json::to_value(payload)?,
             client_version: None,
+            contract_version: CONTRACT_VERSION,
             unknown: serde_json::Map::new(),
         })
     }
@@ -384,6 +394,9 @@ pub struct HeartbeatRequest {
     /// そのうち成功した回数。**試行を超えない**（超えると受け口が断る）
     pub successes: i32,
     pub raw: String,
+    /// 積んだ時の送信契約の版（`IngestRequest.contract_version` と同じ）
+    #[serde(default = "one")]
+    pub contract_version: u32,
 }
 
 /// 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する。
@@ -396,6 +409,12 @@ pub trait Outboxable: Serialize + serde::de::DeserializeOwned + Clone {
     fn sends_late(&self) -> bool {
         false
     }
+
+    /// 積んだ時の送信契約の版。
+    fn contract_version(&self) -> u32;
+
+    /// 積む 1 か所（`Outbox::add_many`）で版を焼き込む（design D1）。
+    fn burn_contract_version(&mut self, version: u32);
 }
 
 impl Outboxable for IngestRequest {
@@ -406,11 +425,27 @@ impl Outboxable for IngestRequest {
     fn sends_late(&self) -> bool {
         self.logical_source == crate::history::contract::LOGICAL_SOURCE
     }
+
+    fn contract_version(&self) -> u32 {
+        self.contract_version
+    }
+
+    fn burn_contract_version(&mut self, version: u32) {
+        self.contract_version = version;
+    }
 }
 
 impl Outboxable for HeartbeatRequest {
     fn id(&self) -> uuid::Uuid {
         self.id
+    }
+
+    fn contract_version(&self) -> u32 {
+        self.contract_version
+    }
+
+    fn burn_contract_version(&mut self, version: u32) {
+        self.contract_version = version;
     }
 }
 
@@ -712,8 +747,13 @@ mod tests {
         let mut req = IngestRequest::of(&payload, uuid::Uuid::nil(), "dev-1", at(), &zone())
             .expect("ウィンドウの契約の形");
         req.id = uuid::Uuid::nil();
+        // ST50 が足した版の欄は、この Scenario（履歴の追加で本文が変わらない）の外
+        let mut body = serde_json::to_value(&req).expect("直列化");
+        body.as_object_mut()
+            .expect("object")
+            .remove("contract_version");
         assert_eq!(
-            serde_json::to_value(&req).expect("直列化"),
+            body,
             serde_json::json!({
                 "id": "00000000-0000-0000-0000-000000000000",
                 "user_id": "00000000-0000-0000-0000-000000000000",
