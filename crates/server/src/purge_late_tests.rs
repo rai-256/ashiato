@@ -468,17 +468,21 @@ async fn purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorabl
     let pool = testdb::pool().await;
     let user = testdb::user();
     let (a, _) = scene_basic(&pool, user).await;
+    // B は A（10:00–11:00）からはみ出して滞在になる形（CH08 design D1 の表。探り A3）。すっぽり入ると戻す口が断る
     let b = scene_stay(
         &pool,
         user,
-        &format!("{DAY}T10:15:00+09:00"),
-        &format!("{DAY}T10:25:00+09:00"),
+        &format!("{DAY}T10:40:00+09:00"),
+        &format!("{DAY}T11:30:00+09:00"),
     )
     .await;
+    for hhmm in ["11:05", "11:10", "11:15", "11:20", "11:25", "11:30"] {
+        crate::purge_tests::scene_location(&pool, user, &format!("{DAY}T{hhmm}:00+09:00")).await;
+    }
     scene_erase(&pool, b).await;
     scene_erase(&pool, a).await;
     let source = "c03-legacy-location";
-    let when = format!("{DAY}T10:20:00+09:00");
+    let when = format!("{DAY}T10:50:00+09:00");
     let loc =
         crate::purge_tests::scene_event(&pool, user, source, &when, r#"{"lat":35.5,"lon":139.76}"#)
             .await;

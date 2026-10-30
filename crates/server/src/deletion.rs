@@ -22,6 +22,10 @@ pub enum RestoreError {
     UserMismatch,
     /// 戻すことになる記録に、本文を消したものがある（design D6。何も書かずに断る）。
     Purged,
+    /// 戻す滞在が、本文ごと消した時間帯と重なり、同じまとまりの中で作り直すと一覧に残らない（CH08 design D4 の 3）。
+    NotRestorable,
+    /// 戻せるかを確かめる作り直しが落ちた（CH08 design D4 の 4）。何も戻していない。
+    RebuildFailed(anyhow::Error),
     Database(sqlx::Error),
 }
 
@@ -95,7 +99,36 @@ impl EraseOutcome {
 pub struct RestoreOutcome {
     pub stays: u64,
     pub locations: u64,
+    /// commit の後に呼び出し側が作り直す日。本文ごと消した時間帯と重なる戻しは commit の前に作り直し済みで、空になる。
     pub rebuild_days: Vec<(uuid::Uuid, NaiveDate)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// 作り直しが隠した重なる滞在の、記録ごとの消去の台帳の `scope`（試験が不正な値を差し込んで消去を落とす口。CH08 design D2 / D5）。
+    /// 本番の組み立てには無く、`purge_hidden_overlap` はいつも `"event"` を書く。
+    pub(crate) static HIDDEN_LEDGER_SCOPE: std::cell::Cell<Option<&'static str>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn hidden_ledger_scope() -> &'static str {
+    #[cfg(test)]
+    if let Some(scope) = HIDDEN_LEDGER_SCOPE.with(std::cell::Cell::get) {
+        return scope;
+    }
+    "event"
+}
+
+/// 試験の間だけ `HIDDEN_LEDGER_SCOPE` を差し替えて `f` を走らせる（戻すのを忘れて後の試験に漏らさない）。
+#[cfg(test)]
+pub(crate) async fn with_hidden_ledger_scope<T>(
+    scope: &'static str,
+    f: impl std::future::Future<Output = T>,
+) -> T {
+    HIDDEN_LEDGER_SCOPE.with(|s| s.set(Some(scope)));
+    let out = f.await;
+    HIDDEN_LEDGER_SCOPE.with(|s| s.set(None));
+    out
 }
 
 /// 要求内の滞在を原因とする最新の `erase` だけを、一つの transaction で戻す。
@@ -204,14 +237,18 @@ pub async fn restore(
             restored_locations += 1;
         }
     }
-    tx.commit().await?;
-
     let mut rebuild_days = Vec::new();
+    let (mut ids, mut users, mut starts, mut ends) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for stay in stays {
         if !restored_causes.contains(&stay.id) {
             continue;
         }
         let (start, end) = stay_store::span_of(stay.event_time, &stay.payload);
+        ids.push(stay.id);
+        users.push(stay.user_id);
+        starts.push(start);
+        ends.push(end);
         let first = stay_store::jst_date(start);
         let last = stay_store::jst_date(end);
         for day in first.iter_days().take_while(|day| *day <= last) {
@@ -220,6 +257,43 @@ pub async fn restore(
             }
         }
     }
+
+    // 戻した滞在のうち、本文ごと消した時間帯と重なるもの（端が触れるだけは重ならない）を 1 回で引く（code review R23）
+    let overlapping: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT r.id
+           FROM unnest($1::uuid[], $2::uuid[], $3::timestamptz[], $4::timestamptz[])
+                AS r(id, user_id, start_at, end_at)
+          WHERE EXISTS (
+                  SELECT 1 FROM core.stay_erased_purge p
+                   WHERE p.user_id = r.user_id AND p.purged
+                     AND p.start_at < r.end_at AND p.end_at > r.start_at)",
+    )
+    .bind(&ids)
+    .bind(&users)
+    .bind(&starts)
+    .bind(&ends)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if !overlapping.is_empty() {
+        // 戻した結果が一覧に残るかを、同じまとまりの中で作り直して確かめる（CH08 design D4）。
+        for (user, day) in &rebuild_days {
+            stay_store::rebuild_day_in(&mut tx, *user, *day)
+                .await
+                .map_err(RestoreError::RebuildFailed)?;
+        }
+        let kept: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE id = ANY($1) AND deleted_at IS NULL",
+        )
+        .bind(&overlapping)
+        .fetch_one(&mut *tx)
+        .await?;
+        if usize::try_from(kept).ok() != Some(overlapping.len()) {
+            return Err(RestoreError::NotRestorable);
+        }
+        rebuild_days.clear();
+    }
+    tx.commit().await?;
 
     Ok(RestoreOutcome {
         stays: restored_stays,
@@ -529,6 +603,8 @@ pub struct PurgeScope {
     /// すでに本文を消した滞在。範囲は空・件数は 0。
     pub already_purged: bool,
     pub counts: PurgeCounts,
+    /// 指定した滞在の時間と重なる、一覧に出ている滞在の数（design D7。`counts` の外。端が触れるだけは数えない）
+    pub visible_overlaps: u32,
     members: Vec<Member>,
     versions: Vec<VersionRow>,
 }
@@ -596,9 +672,30 @@ pub async fn purge_scope(
         end,
         already_purged: stay.raw.is_empty(),
         counts: PurgeCounts::default(),
+        visible_overlaps: 0,
         members: Vec::new(),
         versions: Vec::new(),
     };
+    // 終わりの読み方は `core.stay_erased_purge` と同じ（本文を消していない行）。消す口は比べない（D7）
+    let visible: i64 = sqlx::query_scalar(
+        "SELECT count(*)
+           FROM core.event e
+          WHERE e.user_id = $1 AND e.id <> $2
+            AND e.logical_source = 's01-stay' AND e.origin = 'derived' AND e.deleted_at IS NULL
+            AND e.event_time < $4
+            AND $3 < coalesce(CASE WHEN e.end_time > e.event_time THEN e.end_time END,
+                              core.try_timestamptz(e.payload->>'end'),
+                              e.event_time + interval '1 microsecond')",
+    )
+    .bind(scope.user_id)
+    .bind(stay_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(&mut **tx)
+    .await?;
+    // 数えた件数は負にならず u32 に収まる。収まらなければ黙って丸めず、読めない値として断る
+    scope.visible_overlaps = u32::try_from(visible)
+        .map_err(|e| PurgeError::Database(sqlx::Error::Decode(Box::new(e))))?;
     if scope.already_purged {
         return Ok(scope);
     }
@@ -1123,4 +1220,315 @@ pub(crate) async fn purge_late_arrival(
     .await?;
     erase_bodies(tx, &[late.event_id]).await?;
     Ok(())
+}
+
+/// 作り直しが隠した、本文ごと消した時間帯と重なる滞在 1 件（`stay_store::rebuild_day` が渡す）。
+pub(crate) struct HiddenOverlap {
+    pub user_id: uuid::Uuid,
+    /// 本文を消す滞在（一覧に出ていた重なる滞在）
+    pub event_id: uuid::Uuid,
+    /// 読んだときの削除の印（読んだ後に変わっていたら作り直しごと巻き戻す）
+    pub deleted_by: Option<String>,
+    /// 作り直しの前の時間
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// 元の操作（`core.erasure_operation.id`）
+    pub parent_id: uuid::Uuid,
+    /// 元の操作の指定した滞在と、その時間帯
+    pub stay_id: uuid::Uuid,
+    pub parent_start: DateTime<Utc>,
+    pub parent_end: DateTime<Utc>,
+}
+
+/// 作り直しが隠した重なる滞在の本文を、呼び出し側のトランザクションの中で消す（CH08 design D2 / D3（仮）。`kind = 'late'`）。
+///
+/// 順は `purge` と同じ（門が commit の時に台帳の行を見る）: 操作の行（元の操作へ `parent_id` で結ぶ）→ 記録ごと・前の版ごとの
+/// 消去の台帳 → 範囲の行（滞在と前の版の時間）→ 本文（`erase_bodies`）→ `user:purged` への付け替えと削除の台帳の `erase`。
+/// `user:purged` は `core.stay_erased` に出ないので、この滞在の時間は消した時間帯の窓を広げない。
+pub(crate) async fn purge_hidden_overlap(
+    tx: &mut Transaction<'_, Postgres>,
+    hidden: HiddenOverlap,
+) -> anyhow::Result<()> {
+    let event_scope = hidden_ledger_scope();
+    let logical_source = stay::SOURCE;
+    let operation_id = uuid::Uuid::new_v4();
+    let versions: Vec<(i32, DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
+        "SELECT version_no, event_time, payload FROM core.event_version
+          WHERE event_id = $1 AND raw <> '' ORDER BY version_no",
+    )
+    .bind(hidden.event_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let n = versions.len();
+
+    // 1: 操作の台帳に 1 行（滞在 1 件・前の版 n 件）
+    sqlx::query(
+        "INSERT INTO core.erasure_operation
+           (id, user_id, kind, parent_id, stay_id, start_at, end_at,
+            stays, locations, archive_locations, archive_items, versions)
+         VALUES ($1, $2, 'late', $3, $4, $5, $6, 1, 0, 0, 0, $7)",
+    )
+    .bind(operation_id)
+    .bind(hidden.user_id)
+    .bind(hidden.parent_id)
+    .bind(hidden.stay_id)
+    .bind(hidden.parent_start)
+    .bind(hidden.parent_end)
+    .bind(n as i32)
+    .execute(&mut **tx)
+    .await?;
+
+    // 2: 記録ごと・前の版ごとの消去の台帳
+    ledger_erasures(
+        tx,
+        operation_id,
+        hidden.user_id,
+        event_scope,
+        &[hidden.event_id],
+        &[logical_source],
+    )
+    .await?;
+    ledger_erasures(
+        tx,
+        operation_id,
+        hidden.user_id,
+        "version",
+        &vec![hidden.event_id; n],
+        &vec![logical_source; n],
+    )
+    .await?;
+
+    // 3: 作り直しの前の時間と、前の版ごとの時間
+    let mut span_scopes = vec!["event"];
+    let mut span_versions = vec![None];
+    let mut span_starts = vec![hidden.start];
+    let mut span_ends = vec![hidden.end];
+    for (no, event_time, payload) in &versions {
+        let (from, to) = stay_store::span_of(*event_time, payload);
+        span_scopes.push("version");
+        span_versions.push(Some(*no));
+        span_starts.push(from);
+        span_ends.push(to);
+    }
+    sqlx::query(
+        "INSERT INTO core.erasure_span (operation_id, event_id, scope, version_no, start_at, end_at)
+         SELECT $1, $2, * FROM unnest($3::text[], $4::int[], $5::timestamptz[], $6::timestamptz[])",
+    )
+    .bind(operation_id)
+    .bind(hidden.event_id)
+    .bind(&span_scopes)
+    .bind(&span_versions)
+    .bind(&span_starts)
+    .bind(&span_ends)
+    .execute(&mut **tx)
+    .await?;
+
+    // 4: 本文（前の版 → 記録）
+    erase_bodies(tx, &[hidden.event_id]).await?;
+
+    // 5: 印を本人の「本文ごと消した」に付け替える（読んだときと印が同じ行だけ。作り直しの中では印なし、起動時の手当てでは作り直しの印）
+    let done = sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:purged'
+          WHERE id = $1 AND deleted_by IS NOT DISTINCT FROM $2",
+    )
+    .bind(hidden.event_id)
+    .bind(&hidden.deleted_by)
+    .execute(&mut **tx)
+    .await?;
+    if done.rows_affected() != 1 {
+        return Err(stay_store::MarkChanged.into());
+    }
+    ledger(
+        tx,
+        hidden.event_id,
+        hidden.user_id,
+        logical_source,
+        "erase",
+        hidden.stay_id,
+        "user:purged",
+    )
+    .await?;
+    Ok(())
+}
+
+/// 起動時の手当ての対象を引く文（CH08 design D5（仮）。時刻は比べない）。条件 1・3・4 を持つ。条件 2 と元の操作の選択は呼び出し側が時間で見る。
+///
+/// 条件 2 の**粗い絞り**として、同じ利用者の本人の操作（`kind = 'user'`）の時間帯と重なりうる行だけを引く（起動のたびに
+/// 吸収された滞在のほぼ全部を読まないため）。絞りは呼び出し側の `stay_store::span_of` による比べの**上位集合**でなければならない
+/// （D5 の対象を変えない）: 終わりは `span_of` の読む `payload->>'end'` を、読めなければ上限なしとし、列 `end_time` と
+/// 始まり + 1 マイクロ秒のうち最も遅いものとする（`span_of` の終わりより早くならない）。
+fn remedy_candidates_sql() -> &'static str {
+    "
+    SELECT e.id, e.user_id, e.event_time, e.payload, e.deleted_by
+      FROM core.event e
+     WHERE e.logical_source = 's01-stay' AND e.origin = 'derived'
+       AND e.deleted_by IN ('rebuild:absorbed', 'rebuild:erased-range')
+       AND e.raw <> ''
+       AND e.ingest_time <> e.deleted_at
+       AND NOT EXISTS (SELECT 1 FROM core.deletion_ledger d WHERE d.event_id = e.id)
+       AND EXISTS (
+             SELECT 1 FROM core.erasure_operation op
+              WHERE op.user_id = e.user_id AND op.kind = 'user'
+                AND e.event_time < op.end_at
+                AND op.start_at < GREATEST(
+                      e.event_time + interval '1 microsecond',
+                      e.end_time,
+                      coalesce(core.try_timestamptz(e.payload->>'end'), 'infinity'::timestamptz)))
+       AND ($1::uuid IS NULL OR e.user_id = $1)
+     ORDER BY e.user_id, e.event_time, e.id"
+}
+
+type RemedyCandidate = (
+    uuid::Uuid,
+    uuid::Uuid,
+    DateTime<Utc>,
+    serde_json::Value,
+    Option<String>,
+);
+
+/// 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す、サーバの起動時の手当て（CH08 design D5（仮））。
+/// 残った（消せなかった）件数を返す。失敗は飲み込み、`warn`（`kind = "purge_remedy"`・残った件数・SQLSTATE だけ）を出す。
+///
+/// 利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で `purge_hidden_overlap` に渡す。
+/// 本文を消した滞在は `raw = ''` で対象から外れるので、何度走っても台帳の行は増えない。
+/// 対象を引く文そのものが落ちたときは、数えられないので 0 を返して SQLSTATE だけ出す。
+pub async fn purge_hidden_overlap_remedy(pool: &PgPool) -> usize {
+    purge_hidden_overlap_remedy_using(pool, None).await
+}
+
+/// 1 人に絞り、記録ごとの消去の台帳の `scope` を差し替えて消去を落とせる口（試験用）。
+/// 試験の DB は並走する試験と共有なので、ほかの利用者の行に触れないよう利用者に絞る。
+#[cfg(test)]
+pub(crate) async fn purge_hidden_overlap_remedy_for_user(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    ledger_scope: &'static str,
+) -> usize {
+    with_hidden_ledger_scope(
+        ledger_scope,
+        purge_hidden_overlap_remedy_using(pool, Some(user)),
+    )
+    .await
+}
+
+async fn purge_hidden_overlap_remedy_using(pool: &PgPool, only_user: Option<uuid::Uuid>) -> usize {
+    // 利用者ごとの候補の件数は錠の前に持っておく（錠や SELECT で落ちても、残った件数を 0 にしない）
+    let users: sqlx::Result<Vec<(uuid::Uuid, i64)>> = sqlx::query_as(&format!(
+        "SELECT user_id, count(*) FROM ({}) c GROUP BY user_id ORDER BY user_id",
+        remedy_candidates_sql()
+    ))
+    .bind(only_user)
+    .fetch_all(pool)
+    .await;
+    let users = match users {
+        Ok(users) => users,
+        Err(e) => {
+            warn_remedy(None, sqlstate(&e));
+            return 0;
+        }
+    };
+    let mut remaining = 0;
+    for (user, candidates) in users {
+        match remedy_user(pool, user, candidates as usize).await {
+            Ok(()) => {}
+            Err((left, state)) => {
+                remaining += left;
+                warn_remedy(Some(left), state);
+            }
+        }
+    }
+    remaining
+}
+
+fn sqlstate(e: &sqlx::Error) -> String {
+    e.as_database_error()
+        .and_then(|d| d.code())
+        .map(|c| c.to_string())
+        .unwrap_or_default()
+}
+
+fn warn_remedy(left: Option<usize>, sqlstate: String) {
+    match left {
+        Some(count) => tracing::warn!(
+            kind = "purge_remedy",
+            count,
+            sqlstate = sqlstate.as_str(),
+            "作り直しで隠れた重なる滞在の本文を消せなかった（次の起動でもう一度消す）"
+        ),
+        None => tracing::warn!(
+            kind = "purge_remedy",
+            sqlstate = sqlstate.as_str(),
+            "作り直しで隠れた重なる滞在の対象を引けない（次の起動でもう一度引く）"
+        ),
+    }
+}
+
+/// 1 人ぶんを 1 トランザクションで消す。失敗は (残った件数, SQLSTATE) で返す（巻き戻る）。
+async fn remedy_user(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    candidates_before_lock: usize,
+) -> Result<(), (usize, String)> {
+    // 対象の一覧を作り終えるまでは、錠の前に数えた候補の件数を残りとして返す
+    let mut left = candidates_before_lock;
+    let result = async {
+        let mut tx = pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+            .bind(stay_store::LOCK_KEY)
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        // 錠を取ってから引き直す（待っている間に作り直しや別の手当てが進んでいても、いまの状態で決める）
+        let candidates: Vec<RemedyCandidate> = sqlx::query_as(remedy_candidates_sql())
+            .bind(Some(user))
+            .fetch_all(&mut *tx)
+            .await?;
+        left = candidates.len();
+        // 本文ごと消した操作（本人の操作）と、その時間帯
+        let windows: Vec<(uuid::Uuid, uuid::Uuid, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, stay_id, start_at, end_at FROM core.erasure_operation
+              WHERE user_id = $1 AND kind = 'user'",
+        )
+        .bind(user)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut targets = Vec::new();
+        for (id, user_id, event_time, payload, deleted_by) in candidates {
+            let (start, end) = stay_store::span_of(event_time, &payload);
+            // 元の操作: 重なりの大きいもの → 時間帯の始まりの早いもの → 操作の識別子（design D3）
+            let parent =
+                stay_store::pick_window(start, end, windows.iter().map(|w| (w, w.2, w.3, w.0)));
+            let Some(&(parent_id, stay_id, parent_start, parent_end)) = parent else {
+                continue;
+            };
+            targets.push(HiddenOverlap {
+                user_id,
+                event_id: id,
+                deleted_by,
+                start,
+                end,
+                parent_id,
+                stay_id,
+                parent_start,
+                parent_end,
+            });
+        }
+        left = targets.len();
+        for hidden in targets {
+            purge_hidden_overlap(&mut tx, hidden).await?;
+        }
+        tx.commit().await?;
+        anyhow::Ok(())
+    }
+    .await;
+    result.map_err(|e| {
+        let state = e
+            .downcast_ref::<sqlx::Error>()
+            .map(sqlstate)
+            .unwrap_or_default();
+        (left, state)
+    })
 }

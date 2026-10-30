@@ -13,6 +13,7 @@ import {
   type CriteriaTag,
   type PurgePreview,
   type DayEntry,
+  type NestedEntry,
   type DayView as DayData,
 } from "./stays";
 import {
@@ -265,14 +266,15 @@ function Entries({ view, scheme, future, feelings, reload }: { view: DayData; sc
   const action = (path: string, body: Record<string, unknown>, entryKey: string): void => {
     setActionError(null);
     fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then((res) => {
+      .then(async (res) => {
+        if (res.status === 409 && (await res.text().catch(() => "")).trim() === "not_restorable") throw new Error("not_restorable");
         if (!res.ok) throw new Error(`status_${res.status}`);
         setOpenId(null);
         setDetail(null);
         setRecords(null);
         reload();
       })
-      .catch(() => setActionError({ entryKey, message: m.actionFailed }));
+      .catch((e: unknown) => setActionError({ entryKey, message: e instanceof Error && e.message === "not_restorable" ? m.notRestorable : m.actionFailed }));
   };
   return (
     <>
@@ -325,6 +327,19 @@ function Entries({ view, scheme, future, feelings, reload }: { view: DayData; sc
   );
 }
 
+const ROW_BASE: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: SPACE.targetGap,
+  minHeight: MIN_TARGET_PX,
+  padding: `${SPACE.rowY}px ${SPACE.rowX}px`,
+  margin: `0 0 ${SPACE.rowGap}px`,
+  borderRadius: RADIUS.row,
+};
+
+/** 入れ子の行の字下げ（親の行より 1 段右。design D8） */
+const NEST_INDENT_PX = 24;
+
 function Row({
   entry,
   viewing,
@@ -360,19 +375,10 @@ function Row({
   // **種類は文字で区別し、しるし（線の輪の中に記号）は添えるだけ**（design D8 / 本人の決定 2026-10-12）。
   // 移動のしるしだけ差し色（本人の決定）。どのしるしも面の 3 段すべてに 3:1 以上（NFR-23）
   const mark = <span data-mark={entry.kind} aria-hidden="true" style={markStyle(entry.kind === "move" ? c.spark : c.muted)}>{m.mark[entry.kind]}</span>;
-  const base: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: SPACE.targetGap,
-    minHeight: MIN_TARGET_PX,
-    padding: `${SPACE.rowY}px ${SPACE.rowX}px`,
-    margin: `0 0 ${SPACE.rowGap}px`,
-    borderRadius: RADIUS.row,
-  };
   const entryKey = entry.id ?? entry.stay_ids?.join(",") ?? "";
   if (entry.kind === "stay") {
     return (
-      <li data-testid="row-stay" data-kind="stay" style={{ ...base, alignItems: "flex-start", gap: SPACE.inRow, background: tone(c.surface1), border: `1px solid ${tone(c.line)}` }}>
+      <li data-testid="row-stay" data-kind="stay" style={{ ...ROW_BASE, alignItems: "flex-start", gap: SPACE.inRow, background: tone(c.surface1), border: `1px solid ${tone(c.line)}` }}>
         {mark}
         <div style={{ flex: 1, minWidth: 0 }}>
         <button
@@ -397,17 +403,22 @@ function Row({
   if (entry.kind === "erased" && entry.purged === true) {
     // 本文ごと消した行。戻す操作も本文ごと消す操作も置かない（design D12）
     return (
-      <li data-testid="row-purged" data-kind="erased" data-purged="true" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
-        {mark}
-        <span>{m.purged(range)}</span>
-        {(entry.late_purged ?? 0) > 0 && <span data-testid="purged-late">{m.purgedLate(entry.late_purged ?? 0)}</span>}
-      </li>
+      <>
+        <li data-testid="row-purged" data-kind="erased" data-purged="true" style={{ ...ROW_BASE, flexWrap: "wrap", color: tone(c.muted) }}>
+          {mark}
+          <span>{m.purged(range)}</span>
+          {(entry.late_purged ?? 0) > 0 && <span data-testid="purged-late">{m.purgedLate(entry.late_purged ?? 0)}</span>}
+        </li>
+        {(entry.nested ?? []).map((n) => (
+          <NestedRow key={`nested-${n.start}-${n.purged ? "p" : "e"}-${n.stay_ids.join(",")}`} nested={n} viewing={viewing} scheme={scheme} mark={mark} onPurged={onPurged} />
+        ))}
+      </>
     );
   }
   if (entry.kind === "erased") {
     const purgeStay = entry.stay_ids?.[0];
     return (
-      <li data-testid="row-erased" data-kind="erased" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
+      <li data-testid="row-erased" data-kind="erased" style={{ ...ROW_BASE, flexWrap: "wrap", color: tone(c.muted) }}>
         {mark}
         <span>{m.erased(range)}</span>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={control(c)}>
@@ -419,7 +430,7 @@ function Row({
     );
   }
   return (
-    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, alignItems: "flex-start", color: tone(c.muted) }}>
+    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...ROW_BASE, alignItems: "flex-start", color: tone(c.muted) }}>
       {mark}
       <div style={{ flex: 1, minWidth: 0 }}>
         <button
@@ -436,6 +447,29 @@ function Row({
         <ReasonsView reasons={entry.reasons} scheme={scheme} />
         {open && <RecordsView load={records} viewing={viewing} scheme={scheme} />}
       </div>
+    </li>
+  );
+}
+
+/**
+ * 本文ごと消した区間の下の、字下げした行（design D8）。戻す口は持たない（本文ごと消した時間の中なので戻せない）。
+ * 消したままの行は「本文ごと消す」だけを置き、本文ごと消した後は口も文も出さない。
+ */
+function NestedRow({ nested, viewing, scheme, mark, onPurged }: { nested: NestedEntry; viewing: string; scheme: Scheme; mark: React.ReactElement; onPurged: () => void }): React.ReactElement {
+  const c = SCHEMES[scheme];
+  const range = m.range(clock(nested.start, viewing), clock(nested.end, viewing));
+  const purgeStay = nested.stay_ids[0];
+  return (
+    <li
+      data-testid="row-nested"
+      data-kind="erased"
+      data-purged={nested.purged ? "true" : "false"}
+      style={{ ...ROW_BASE, flexWrap: "wrap", marginLeft: NEST_INDENT_PX, color: tone(c.muted) }}
+    >
+      {mark}
+      <span>{nested.purged ? m.purged(range) : m.erased(range)}</span>
+      {!nested.purged && <span data-testid="nested-no-restore">{m.nestedNoRestore}</span>}
+      {!nested.purged && purgeStay !== undefined && <PurgeControl stayId={purgeStay} viewing={viewing} scheme={scheme} onPurged={onPurged} />}
     </li>
   );
 }
@@ -523,6 +557,9 @@ function PurgeControl({ stayId, viewing, scheme, onPurged }: { stayId: string; v
           {state.changed && <p data-testid="purge-changed" style={{ margin: 0 }}>{m.purgeChanged}</p>}
           <p style={{ margin: 0 }}>{m.purgeRange(m.range(clock(state.preview.range.start, viewing), clock(state.preview.range.end, viewing)))}</p>
           <p data-testid="purge-counts" style={{ margin: 0 }}>{m.purgeCounts(state.preview.counts)}</p>
+          {(state.preview.visible_overlaps ?? 0) > 0 && (
+            <p data-testid="purge-visible" style={{ margin: 0 }}>{m.purgeVisible(state.preview.visible_overlaps ?? 0)}</p>
+          )}
           <p data-testid="purge-remains" style={{ margin: 0 }}>{purgeRemainsText(state.preview)}</p>
           <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => setState({ at: "idle" })} style={control(c)}>{common.cancel}</button>
           <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => commit(state.preview)} style={{ ...destructiveStyle(c), marginLeft: SPACE.targetGap }}>{m.purge}</button>

@@ -362,7 +362,7 @@ test("確認を開いた後に位置が 1 件届いてから確認すると、�
 });
 
 // Scenario: 後から届いて本文を消した件数が行に出る
-test("本文ごと消した時間帯に位置が 2 件届くと、行に後から届いた 2 件も本文ごと消したと出る", async ({ page, request }) => {
+test("本文ごと消した時間帯に位置が 2 件届くと、行に後から 2 件も本文ごと消したと出る", async ({ page, request }) => {
   const made = await makeErasedDay(request);
   await purgeByApi(request, made.stayId);
   await ingest(request, [locationItem(made.date, 10 * 60 + 3, randomSpot()), locationItem(made.date, 10 * 60 + 7, randomSpot())]);
@@ -370,7 +370,7 @@ test("本文ごと消した時間帯に位置が 2 件届くと、行に後か�
 
   const purged = page.getByTestId("row-purged");
   await expect(purged).toHaveCount(1);
-  await expect(purged).toContainText("後から届いた 2 件も本文ごと消した");
+  await expect(purged).toContainText("後から 2 件も本文ごと消した");
 });
 
 // Scenario: この滞在を消すの確認は変わらない
