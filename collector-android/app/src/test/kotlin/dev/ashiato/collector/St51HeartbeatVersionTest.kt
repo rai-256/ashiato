@@ -62,10 +62,10 @@ class St51HeartbeatVersionTest {
     @Test
     fun heartbeatKeepsVersionFromAddTime() {
         val dir = tmp.newFolder("added")
-        // 印 v1 の収集アプリが積む。送る前に v2 の収集アプリへ入れ替わる（置き場は同じ。送る側は版を足さない）
+        // 印 v1 の収集アプリが積む。送る前に v2 の収集アプリへ入れ替わる（置き場は同じ）。
+        // 入れ替わった側の置き場は今の版 v2 を持つ —— 送るときに版を付け直すなら、body は v2 になって落ちる
         assertTrue(emitter(Outbox.inDir(dir, HeartbeatRequest.serializer()) {}, v1).emit())
-        val updated = Outbox.inDir(dir, HeartbeatRequest.serializer()) {}
-        assertTrue("入れ替わった側の版", v2 != v1)
+        val updated = Outbox.inDir(dir, HeartbeatRequest.serializer(), v2) {}
 
         val sent = sendFirst(updated)
 
