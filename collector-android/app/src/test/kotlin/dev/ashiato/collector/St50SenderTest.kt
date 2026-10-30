@@ -178,7 +178,7 @@ class St50SenderTest {
 
     /** 5 つの送り手（記録・生存信号・破棄の報告・原本の欠け・原本）にそれぞれ 1 行ずつ積んだ足場。 */
     private inner class FiveSenders {
-        val h = OriginalHarness(st)
+        val h = OriginalHarness(tmp.newFolder(), st)
         val posts = mutableMapOf<String, FakeTransport>()
         val beatOutbox = Outbox(
             SegmentStore(File(tmp.newFolder("beats"), "s"), HeartbeatRequest.serializer(), st.unreadable, st.log),
@@ -440,7 +440,7 @@ class St50SenderTest {
     // Scenario: 原本は記録を積んだ時の版で止まる
     @Test
     fun `版 2 の記録の原本は問い合わせの口が版 1 のあいだ送られず、欠けにもならない`() {
-        val h = OriginalHarness(st)
+        val h = OriginalHarness(tmp.newFolder(), st)
         h.photo(1, "photo-v2")
         h.scan()
         h.acceptRecords()
@@ -488,7 +488,7 @@ class St50SenderTest {
 
     @Test
     fun `原本の HEAD と PUT は行の版を見出しに載せる`() {
-        val h = OriginalHarness(st)
+        val h = OriginalHarness(tmp.newFolder(), st)
         h.photo(1, "photo-header")
         h.scan()
         h.acceptRecords()

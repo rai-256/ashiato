@@ -1382,7 +1382,7 @@ mod tests {
                 anyhow::bail!("止まっている")
             }
         }
-        let cfg = cfg();
+        let (cfg, _tmp) = cfg();
         let mut rt = Runtime::new(
             &cfg,
             zone(),
@@ -1409,7 +1409,6 @@ mod tests {
         let shown = toast.0.lock().unwrap().clone();
         assert_eq!(shown.len(), 1, "待っている間は 1 回だけ出す");
         assert!(shown[0].contains("サーバを更新してください"));
-        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     /// Scenario: 通知を出せなくても収集は止まらない
@@ -2852,9 +2851,12 @@ mod tests {
             inner: AcceptAll,
         }
         impl Transport for Switch {
-            fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+            fn get(&self, path: &str) -> anyhow::Result<Reply> {
+                self.inner.get(path)
+            }
+            fn post(&self, path: &str, body: &str, version: u32) -> anyhow::Result<Reply> {
                 if self.up.get() {
-                    self.inner.post(path, body)
+                    self.inner.post(path, body, version)
                 } else {
                     anyhow::bail!("取り込み口が止まっている")
                 }

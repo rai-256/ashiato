@@ -44,7 +44,7 @@ async fn st50_export_contract_version() {
     let plain = w
         .put("c01-location", &w.at("06:00"), json!({"t": "y"}), "y")
         .await;
-    let path = export_once(&w.pool).await;
+    let (_tmp, path) = export_once(&w.pool).await;
     let event = &scan(&path, "events.jsonl", &id.to_string())[0];
     assert_eq!(event["contract_version"], 2);
     let versions = scan(&path, "event_versions.jsonl", &id.to_string());
@@ -66,7 +66,7 @@ async fn st50_export_manual_describes() {
         .await;
     w.put_version(id, 1, &w.at("05:00"), json!({"t": "old"}))
         .await;
-    let path = export_once(&w.pool).await;
+    let (_tmp, path) = export_once(&w.pool).await;
     let readme = text(&path, "README.txt");
     let line = format!("contract_version — {MEANING}");
     for name in ["events.jsonl", "event_versions.jsonl"] {

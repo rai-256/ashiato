@@ -59,6 +59,3 @@ tempfile = "3"
 [target.'cfg(windows)'.dev-dependencies]
 # 実行時テストが通知の履歴の件数（`IVectorView::Size`）を読むため。本体の機能は増やさない
 windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation", "Foundation_Collections"] }
-
-[dev-dependencies]
-tempfile = "3"
