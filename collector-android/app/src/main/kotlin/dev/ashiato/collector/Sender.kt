@@ -212,6 +212,32 @@ class Sender<T : Outboxable>(
     }
 
     /**
+     * 次に送る 1 回分（版 ≤ [upTo] の行）。
+     *
+     * **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
+     * 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す。
+     * **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）。
+     */
+    private fun nextBatch(upTo: Int): List<Stored<T>> {
+        // 版で断られて飛ばしている行を 1 件だけ飛ばさずに当たり直す（final review R2）。止まっている間は待ちを抜けないので、
+        // 抜けた契機で印を捨てる（D14）だけでは S-01 を更新しても当たり直す契機が来ない
+        val probe = versionRejected.firstOrNull()
+        val fresh = outbox.headStored(MAX_BATCH, if (probe == null) skipped else skipped - probe, upTo)
+        if (probe != null && fresh.size < MAX_BATCH && fresh.none { it.item.id == probe }) {
+            // 飛ばさずに読んでも先頭の 1 回分に無く、読み切った = もう未送信に無い（上限で手放した）。待つ理由から外す
+            versionRejected.remove(probe)
+            skipped.remove(probe)
+        }
+        // 飛ばす印が無ければ同じ読み方になるので読み直さない（版 > A の行だけが残る間は、読み直すと未送信を毎契機 2 回
+        // 全部復号していた。final review R9）
+        if (fresh.isNotEmpty() || skipped.isEmpty()) return fresh
+        // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
+        val retry = outbox.headStored(MAX_BATCH, maxVersion = upTo)
+        if (retry.isNotEmpty()) skipped.clear()
+        return retry
+    }
+
+    /**
      * 1 回分を送る。
      *
      * [answer] は送る契機の頭に `GET /contract` で得た答え（ST50 / D9）。**版 A のときだけ**版 ≤ A の行から 1 回分を組み、
@@ -231,24 +257,8 @@ class Sender<T : Outboxable>(
         // 行の版は積んだ時のアプリの定数以下なので、A がいまの定数以上なら新しい行は無く、確かめなくてよい
         val ahead = limit != null && limit < currentVersion() && outbox.hasVersionAbove(limit)
         val upTo = limit ?: Int.MAX_VALUE
-        // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
-        // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
-        // **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）
-        // 版で断られて飛ばしている行を 1 件だけ飛ばさずに当たり直す（final review R2）。止まっている間は待ちを抜けないので、
-        // 抜けた契機で印を捨てる（D14）だけでは S-01 を更新しても当たり直す契機が来ない
-        val probe = versionRejected.firstOrNull()
-        val fresh = outbox.headStored(MAX_BATCH, if (probe == null) skipped else skipped - probe, upTo)
-        if (probe != null && fresh.size < MAX_BATCH && fresh.none { it.item.id == probe }) {
-            // 飛ばさずに読んでも先頭の 1 回分に無く、読み切った = もう未送信に無い（上限で手放した）。待つ理由から外す
-            versionRejected.remove(probe)
-            skipped.remove(probe)
-        }
-        // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）。
-        // 飛ばす印が無ければ同じ読み方になるので読み直さない（版 > A の行だけが残る間は、読み直すと未送信を毎契機 2 回
-        // 全部復号していた。final review R9）
-        val stored = if (fresh.isEmpty() && skipped.isNotEmpty()) outbox.headStored(MAX_BATCH, maxVersion = upTo) else fresh
+        val stored = nextBatch(upTo)
         if (stored.isEmpty()) return finish(Flushed(0, 0), ContractOutcome(ahead = ahead))
-        if (fresh.isEmpty()) skipped.clear()
         val batch = stored.map { it.item }
 
         // **型に通した欄に、行だけが持つ欄を足して送る**（ST49 / design D3（仮））。型に通しただけだと、この版が
