@@ -151,12 +151,24 @@ async fn st51_rows_cannot_be_rewritten() {
                     .is_some_and(|c| c == "42501");
             assert!(denied, "{who}: {sql}: {e}");
         }
-        // 切り詰め（所有者は門、アプリは権限が断る）
+        // 切り詰め（所有者は門 = 門の関数が RAISE した P0001 と文言、アプリは権限 = 42501 が断る）
         let e = sqlx::query("TRUNCATE core.update_history")
             .execute(pool)
             .await
             .unwrap_err();
-        assert!(e.as_database_error().is_some(), "{who}: TRUNCATE: {e}");
+        let code = e
+            .as_database_error()
+            .and_then(|d| d.code())
+            .map(|c| c.to_string());
+        if who == "owner" {
+            assert!(
+                denied_by_gate(&e),
+                "{who}: TRUNCATE を門が断っていない: {e}"
+            );
+            assert_eq!(code.as_deref(), Some("P0001"), "{who}: TRUNCATE: {e}");
+        } else {
+            assert_eq!(code.as_deref(), Some("42501"), "{who}: TRUNCATE: {e}");
+        }
     }
     // 所有者には門が断ったこと自体を見る（権限でなく）
     let e = sqlx::query("DELETE FROM core.update_history WHERE seq = $1")
@@ -182,12 +194,34 @@ async fn st51_rows_app_role_reads_and_inserts() {
         .fetch_one(&app)
         .await
         .unwrap();
-    sqlx::query(ONE_ROW).execute(&app).await.unwrap();
+    let seq: i64 = sqlx::query_scalar(&format!("{ONE_ROW} RETURNING seq"))
+        .fetch_one(&app)
+        .await
+        .unwrap();
     let after: i64 = sqlx::query_scalar("SELECT count(*) FROM core.update_history")
         .fetch_one(&app)
         .await
         .unwrap();
     assert!(after > before);
+    // 足した行そのものを、アプリの役割で読み戻す
+    let back: (String, String, Option<String>, String, String) = sqlx::query_as(
+        "SELECT component, via, from_version, to_version, outcome
+           FROM core.update_history WHERE seq = $1",
+    )
+    .bind(seq)
+    .fetch_one(&app)
+    .await
+    .unwrap();
+    assert_eq!(
+        back,
+        (
+            "S-01".to_string(),
+            "migrate".to_string(),
+            None,
+            "0.1.0+st51test".to_string(),
+            "applied".to_string()
+        )
+    );
 }
 
 // ====================================================================== 当てる処理が書く行（Task 2）
