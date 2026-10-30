@@ -35,7 +35,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 1: 作り直しが隠した重なる滞在の本文を同じまとまりで消す（design D2 / D3。spec「本文を消した記録は戻せず、作り直しも戻さない」「本文ごと消す操作は追記のみの台帳に 1 操作 1 行で残る」）
 
-- [ ] 1.1 `deletion.rs` に `purge_hidden_overlap(tx, …)` を置く（design D3 の 1〜5 の順。`kind = 'late'`・`parent_id` = 元の操作・`stays = 1`・前の版の数・記録ごとと前の版ごとの消去の台帳・L と前の版の範囲の行・`erase_bodies`・
+- [x] 1.1 `deletion.rs` に `purge_hidden_overlap(tx, …)` を置く（design D3 の 1〜5 の順。`kind = 'late'`・`parent_id` = 元の操作・`stays = 1`・前の版の数・記録ごとと前の版ごとの消去の台帳・L と前の版の範囲の行・`erase_bodies`・
   `user:purged` への付け替えと削除の台帳の `erase` の行）。`stay_store.rs` の `load_existing` が本文を消した滞在の操作の識別子を持ち、`rebuild_day` が `assign` の後に design D2 の 1〜3 で L を見分け、
   (a) 吸収される L は `absorb` の代わりに、(b) 引き継いで隠れる L は引き継がせずに新しい行を隠して作り、どちらも L を `purge_hidden_overlap` に渡す。元の操作は design D3 の順で選ぶ。
   Scenario: `作り直しで吸収された重なる滞在の本文も消える` / `作り直しで消した時間帯と重なるとして隠れた重なる滞在の本文も消える` / `作り直しで隠れた重なる滞在の前の版の本文も消える` /
@@ -46,7 +46,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
   場面は新しい `crates/server/src/purge_hidden_tests.rs` に作る。一覧に出ている L は「作り直しが落ちて残った滞在」として、位置を消した後に印を付けずに置く —— ST23 D17 の場面）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_hidden_'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_hidden_ -- --list 2>/dev/null | grep -c ": test$")" -ge 12'` rc=0
-- [ ] 1.2 ST23 の作り直し・本文ごと消す・後着の試験が変わらず通る（`rebuild_day` の書き換えで壊していない）。
+- [x] 1.2 ST23 の作り直し・本文ごと消す・後着の試験が変わらず通る（`rebuild_day` の書き換えで壊していない）。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server stay_'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server stay_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
