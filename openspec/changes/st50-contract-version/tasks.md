@@ -173,7 +173,7 @@
 
 ## Task 9: PC の「サーバを更新してください」の通知
 
-- [ ] 9.1 OS に依らない判定（止まった状態に入った・24 時間経った・抜けた → 出す / 出し直す / 消す。文言に日数。前に出した時刻を手元のファイルに持つ。D5。200 の読めない答えの数え始めの時刻も同じファイルに持ち、24 時間で（e）に入る・読める答えでだけ捨てる・（e）だけのときは網の確認を添えた文言。D22・D24（仮））を新しい `crates/collector-windows/src/contract_notice.rs` に置き、
+- [x] 9.1 OS に依らない判定（止まった状態に入った・24 時間経った・抜けた → 出す / 出し直す / 消す。文言に日数。前に出した時刻を手元のファイルに持つ。D5。200 の読めない答えの数え始めの時刻も同じファイルに持ち、24 時間で（e）に入る・読める答えでだけ捨てる・（e）だけのときは網の確認を添えた文言。D22・D24（仮））を新しい `crates/collector-windows/src/contract_notice.rs` に置き、
   `toast.rs` に札 `contract` の通知と消す口を足す（`outage` の札に触らない）。試験（`contract_notice::tests`）:
   - `st50_notice_first_time` — `// Scenario: 契約の版で止まると PC に通知が 1 回出る`
   - `st50_notice_daily` — `// Scenario: PC の通知は止まっている間 1 日に 1 回出直す`（時計を差し替え、5 分ごとに 2 日進める。出したのは 3 回・日数 0・1・2）
@@ -186,7 +186,7 @@
   - `st50_notice_unreadable_200_reset_by_readable` — `// Scenario: PC は読める答えを 1 回得ると読めない 200 の数え始めをやり直す`
   - `st50_notice_survives_restart` — `// Scenario: PC が再起動しても 24 時間経つまで通知は出直さない`（手元のファイルを残したまま判定を作り直す）
   検証: `CW st50_notice_` rc=0（`-- --list` で 10 本以上）/ `scripts/quiet-run clippy -- cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings` rc=0
-- [ ] 9.2 本物の Windows で札が 2 つ並ぶことを確かめる試験を `crates/collector-windows/tests/runtime_windows.rs` に足す（`st50_contract_toast_coexists_with_outage`。両方の札を出して `ToastNotificationManager::History` に 2 通あること、`contract` を消すと `outage` だけが残ること）。
+- [x] 9.2 本物の Windows で札が 2 つ並ぶことを確かめる試験を `crates/collector-windows/tests/runtime_windows.rs` に足す（`st50_contract_toast_coexists_with_outage`。両方の札を出して `ToastNotificationManager::History` に 2 通あること、`contract` を消すと `outage` だけが残ること）。
   検証: `bash -c 'grep -c "fn st50_contract_toast_coexists_with_outage" crates/collector-windows/tests/runtime_windows.rs | grep -qx 1'` rc=0。
   **終了条件は CI の `collector-windows-runtime` job（本物の Windows）が緑であること**（Linux では走らない。grep は置いたことだけを見る）
 
