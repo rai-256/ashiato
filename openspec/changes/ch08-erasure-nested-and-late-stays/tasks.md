@@ -68,7 +68,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 3: 戻す口の断り（design D4。spec「消したものを戻せる」）
 
-- [ ] 3.1 `stay_store.rs` の `rebuild_day` の本体を、呼び出し側のトランザクションで走る `rebuild_day_in(tx, …)` に切り出す（`rebuild_day` はそれを包むだけ。振る舞いは変えない）。
+- [x] 3.1 `stay_store.rs` の `rebuild_day` の本体を、呼び出し側のトランザクションで走る `rebuild_day_in(tx, …)` に切り出す（`rebuild_day` はそれを包むだけ。振る舞いは変えない）。
   `deletion.rs` の `restore` が、求めた滞在に本文ごと消した時間帯と重なる（端が触れるだけは除く）ものがあるときだけ、印を外した後に同じトランザクションで戻した日を作り直し、
   重なる滞在のどれかが `deleted_at IS NULL` で残っていなければ巻き戻して `RestoreError::NotRestorable` を返し、その作り直しが落ちたら巻き戻して `RestoreError::RebuildFailed` を返す（design D4 の 4）。
   `lib.rs` の `stays_restore` は 409 `not_restorable` / 503 `restore_rebuild_failed` を返し、作り直し済みの日を作り直さない。
