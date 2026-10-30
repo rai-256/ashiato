@@ -54,7 +54,11 @@ data class HeartbeatRequest(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val network: Boolean? = null,
-) : Outboxable
+    /** 積んだ時の契約の版（ST50 / D1）。**既定は 1** —— 版を持たない行は版 1。積む時に `Outbox.add` が焼き込む */
+    @SerialName("contract_version") override val contractVersion: Int = 1,
+) : Outboxable {
+    override fun withContractVersion(version: Int): HeartbeatRequest = copy(contractVersion = version)
+}
 
 /**
  * 取得できる状態かどうかと、その理由。

@@ -55,7 +55,11 @@ data class DropReport(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("client_version") val clientVersion: String? = null,
-) : Outboxable
+    /** 積んだ時の契約の版（ST50 / D1）。**既定は 1** —— 版を持たない行は版 1。積む時に `Outbox.add` が焼き込む */
+    @SerialName("contract_version") override val contractVersion: Int = 1,
+) : Outboxable {
+    override fun withContractVersion(version: Int): DropReport = copy(contractVersion = version)
+}
 
 /** 捨てた記録から報告を組むのに要るもの。**位置の値は取り出さない**（出来事の時刻とソースだけ）。 */
 interface Retainable : Outboxable {

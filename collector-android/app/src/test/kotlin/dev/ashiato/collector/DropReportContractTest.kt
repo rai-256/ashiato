@@ -13,6 +13,9 @@ import org.junit.Test
  * 欄名がずれると、サーバは断り、**破棄の報告は断られても取り除かない**ので未送信に居座り続ける（C2）。
  */
 class DropReportContractTest {
+    /** 積んだ時の契約の版（ST50）は全要求に付く欄で、`tools/check-contract-version.sh` が見る。この一覧は欄の名前の突き合わせ（check-openapi.sh）用 */
+    private val contractVersionField = "contract_version"
+
     // CONTRACT-FIELDS-BEGIN（tools/check-openapi.sh が docs/openapi.json と突き合わせる）
     private val contractFields = listOf(
         "id",
@@ -33,7 +36,8 @@ class DropReportContractTest {
     /** 版を持つ下書き（ST49）。版の無い下書きの報告は `client_version` を欄ごと送らない（`St49DropDraftTest` が見る） */
     private val version = "0.1.0+0123456789abcdef0123456789abcdef01234567.debug"
 
-    private fun keys(r: DropReport) = (Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject).keys
+    private fun keys(r: DropReport) =
+        (Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject).keys - contractVersionField
 
     @Test
     fun `直列化した破棄の報告の欄名が契約と一致する`() {

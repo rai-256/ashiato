@@ -1,6 +1,12 @@
 {
   "android": {
     "drops": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "count": {
         "required": true,
         "type": [
@@ -89,6 +95,12 @@
           "boolean"
         ]
       },
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "device_id": {
         "required": true,
         "type": [
@@ -140,6 +152,12 @@
       }
     },
     "ingest": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "crs": {
         "required": true,
         "type": [
@@ -244,6 +262,12 @@
       }
     },
     "media_missing": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
       "device_id": {
         "required": true,
         "type": [

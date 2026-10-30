@@ -158,6 +158,10 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
         reply(path, body.split("\"id\":").size - 1)
     }
 
+    /** 送る契機の頭の確かめ（ST50）。既定は S-01 が今の版を答える（既存の試験の前提を変えない） */
+    var contractReply: Outcome = Outcome.Responded(200, """{"contract_version":$CONTRACT_VERSION}""")
+    override fun newContractGet(): () -> Outcome = { contractReply }
+
     /** 途切れの問い合わせ（ST14）。**打った問い合わせの文字列を覚え**、答えは試験が決める（既定は届かない）。 */
     val outageQueries = mutableListOf<String>()
     var outageReply: Outcome = Outcome.Unreachable("test")

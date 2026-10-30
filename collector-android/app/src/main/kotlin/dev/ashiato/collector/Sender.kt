@@ -34,6 +34,12 @@ sealed interface Outcome {
 /** 取り込み口への 1 回の POST。試験では偽物に差し替える。 */
 fun interface Transport {
     fun post(bodyJson: String): Outcome
+
+    /**
+     * 要求の見出し `Ashiato-Contract-Version` に載せた行の版の最大 [contractVersion] を付けて送る（ST50 / D4・D9）。
+     * 見出しを付けられない偽物は [post] に落ちる。
+     */
+    fun post(bodyJson: String, contractVersion: Int): Outcome = post(bodyJson)
 }
 
 /**
@@ -64,6 +70,8 @@ class Sender<T : Outboxable>(
      * 時計のずれの測定が読むだけで、測るために送ることは無い。
      */
     private val responseDates: ResponseDateCache? = null,
+    /** いまの送信契約の版（試験だけが差し替える。ST50 / D9） */
+    private val currentVersion: () -> Int = { CONTRACT_VERSION },
     private val log: (String) -> Unit = {},
 ) {
     /**
@@ -80,6 +88,14 @@ class Sender<T : Outboxable>(
     data class Flushed(val sent: Int, val accepted: Int, val removed: Int = 0, val responded: Boolean = false)
 
     /**
+     * 直前の [flush] の、S-01 の更新を待つ理由に要る結果（ST50 / D9）。**[Flushed] に持たせない** ——
+     * 1 回の送りの数え（`Flushed`）の同値は、版の取り決めの前から変わらない。
+     */
+    @Volatile
+    var lastContract: ContractOutcome = ContractOutcome()
+        private set
+
+    /**
      * 1 回の送信で未送信から取り除いてよいもの。
      *
      * **受理された分と、恒久的に断られた分の両方**（ST03 / FR-10 の改訂）。
@@ -93,6 +109,10 @@ class Sender<T : Outboxable>(
         /** 受理された項目の識別子。**件数ではなく中身**を持つ（ソースごとに数え直すため。R27） */
         val acceptedIds: List<String>,
         val responded: Boolean = false,
+        /** 要求が 426 で断られた（ST50 / D4） */
+        val refused: Boolean = false,
+        /** 1 件以上が `unknown_field` か `contract_unsupported` で断られた（ST50 / D9 の（d）） */
+        val rejectedByVersion: Boolean = false,
     ) {
         val accepted: Int get() = acceptedIds.size
     }
@@ -125,6 +145,13 @@ class Sender<T : Outboxable>(
             "empty_external_id",
             "id_reused",
         )
+
+        /**
+         * 契約の版で断られた 1 件の種別（ST50 / D17）。**[PERMANENT_ERRORS] に入れない** —— S-01 を更新すれば通るので捨てない。
+         */
+        val VERSION_ERRORS = setOf("unknown_field", "contract_unsupported")
+
+        private const val HTTP_UPGRADE_REQUIRED = 426
     }
 
     /**
@@ -165,14 +192,43 @@ class Sender<T : Outboxable>(
     /** ひと組に載っているソースを、載った順に（ログの行の順を端末ごとに揺らがせない）。 */
     private fun sourcesOf(batch: List<T>): List<String> = batch.map { it.logicalSource }.distinct()
 
-    fun flush(): Flushed {
+    private fun finish(flushed: Flushed, contract: ContractOutcome): Flushed {
+        lastContract = contract
+        return flushed
+    }
+
+    /** 断られて飛ばす印を捨てる（S-01 の更新を待つ状態を抜けた契機。ST50 / D14）。 */
+    fun clearSkipped() {
+        skipped.clear()
+    }
+
+    /**
+     * 1 回分を送る。
+     *
+     * [answer] は送る契機の頭に `GET /contract` で得た答え（ST50 / D9）。**版 A のときだけ**版 ≤ A の行から 1 回分を組み、
+     * 見出しに載せた行の版の最大を入れる。それ以外の答え（404・読めない・一時的な失敗）は何も送らず、残す。
+     * `null` は確かめない呼び方（版の取り決めの前から使う試験）で、全部を送る。
+     */
+    fun flush(answer: ContractAnswer? = null): Flushed {
+        val limit = when (answer) {
+            null -> null
+            is ContractAnswer.Version -> answer.version
+            else -> {
+                log(Telemetry.line("send_held", source = null, error = answer.javaClass.simpleName.lowercase()))
+                return finish(Flushed(0, 0), ContractOutcome())
+            }
+        }
+        // **版 > A の行は送らない。捨てもせず、飛ばす印も付けない**（D9）。
+        // 行の版は積んだ時のアプリの定数以下なので、A がいまの定数以上なら新しい行は無く、確かめなくてよい
+        val ahead = limit != null && limit < currentVersion() && outbox.hasVersionAbove(limit)
+        val upTo = limit ?: Int.MAX_VALUE
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         // **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）
-        val fresh = outbox.headStored(MAX_BATCH, skipped)
+        val fresh = outbox.headStored(MAX_BATCH, skipped, upTo)
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
-        val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH) else fresh
-        if (stored.isEmpty()) return Flushed(0, 0)
+        val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH, maxVersion = upTo) else fresh
+        if (stored.isEmpty()) return finish(Flushed(0, 0), ContractOutcome(ahead = ahead))
         if (fresh.isEmpty()) skipped.clear()
         val batch = stored.map { it.item }
 
@@ -181,11 +237,12 @@ class Sender<T : Outboxable>(
         val body = JsonArray(
             stored.map { s -> withUnknownFields(s.json, ingestJson.encodeToJsonElement(serializer, s.item)) },
         ).toString()
-        val verdict = when (val outcome = transport.post(body)) {
+        val sentVersion = batch.maxOf { it.contractVersion }
+        val verdict = when (val outcome = transport.post(body, sentVersion)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
                 logEachSource("send_failed", batch, error = outcome.kind)
-                return Flushed(batch.size, 0)
+                return finish(Flushed(batch.size, 0), ContractOutcome(ahead = ahead))
             }
 
             is Outcome.Responded -> {
@@ -213,7 +270,13 @@ class Sender<T : Outboxable>(
         // **受理が 0 件のソースも 1 行残す** —— 行が無いのと 0 件なのを読み手に区別させない
         val ok = verdict.acceptedIds.toSet()
         logEachSource("accepted", batch.filter { it.id in ok }, sources = sourcesOf(batch))
-        return Flushed(batch.size, verdict.accepted, removed, responded)
+        val contract = ContractOutcome(
+            ahead = ahead,
+            posted = true,
+            refused = verdict.refused,
+            rejectedByVersion = verdict.rejectedByVersion,
+        )
+        return finish(Flushed(batch.size, verdict.accepted, removed, responded), contract)
     }
 
     /**
@@ -254,6 +317,11 @@ class Sender<T : Outboxable>(
             // 資格情報の不一致は**一時的**（合言葉を直せば通る）。捨てると記録が失われる
             logEachSource("send_failed", batch, error = "unauthorized")
             return Verdict(emptyList(), emptyList())
+        }
+        if (res.status == HTTP_UPGRADE_REQUIRED) {
+            // **要求の版が S-01 より新しい。1 件も取り除かない**（D17）。次の契機で確かめ直す
+            logEachSource("send_failed", batch, error = "contract_unsupported")
+            return Verdict(emptyList(), emptyList(), refused = true)
         }
         // **サーバが約束している状態符号は 200 と 400 だけ**（docs/collector-contract.md）。
         // それ以外（403 のトークン失効・WAF、408、413、429、5xx）は**一時的な失敗**として扱い、
@@ -308,6 +376,7 @@ class Sender<T : Outboxable>(
         // **捨てずに先頭を塞がない。**
         batch.forEachIndexed { i, item -> if (!results[i].accepted && !isPermanent(i)) skipped += item.id }
         return Verdict(
+            rejectedByVersion = results.any { !it.accepted && it.error in VERSION_ERRORS },
             remove = batch.filterIndexed { i, _ -> results[i].accepted || isPermanent(i) }.map { it.id },
             acceptedIds = batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id },
             responded = responded,

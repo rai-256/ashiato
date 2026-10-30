@@ -34,6 +34,12 @@ interface OriginalTransport {
 
     /** 本文は [body] のバイトのまま、[length] バイトの固定長で流す */
     fun put(sha256: String, length: Long, body: InputStream): Outcome
+
+    /** 見出し `Ashiato-Contract-Version` に行の版を載せる `HEAD`（ST50 / D4）。見出しを付けられない偽物は [head] に落ちる */
+    fun head(sha256: String, contractVersion: Int): Outcome = head(sha256)
+
+    /** 見出しに行の版を載せる `PUT`（ST50 / D4） */
+    fun put(sha256: String, length: Long, body: InputStream, contractVersion: Int): Outcome = put(sha256, length, body)
 }
 
 /** 端末のファイルを開いた結果。 */
@@ -114,15 +120,33 @@ class OriginalUploader(
     /** いま [run] が走っている（呼び手が重ねて起こさないための目安） */
     val busy: Boolean get() = running.get()
 
-    /** 送れるものを送る。送れた件数を返す。 */
-    fun run(): Int {
+    /**
+     * 送れるものを送る。送れた件数を返す。
+     *
+     * [answer] は送る契機の頭の `GET /contract` の答え（ST50 / D9）。**版 A のときだけ**版 ≤ A の行を送る。
+     * それ以外の答えは何も送らない。`null` は確かめない呼び方（試験）で、全部が送れる。
+     */
+    fun run(answer: ContractAnswer? = null): Int {
         if (!running.compareAndSet(false, true)) return 0
         try {
-            return if (mayOpenFiles()) pass() else 0
+            val limit = when (answer) {
+                null -> Int.MAX_VALUE
+                is ContractAnswer.Version -> answer.version
+                else -> return 0
+            }
+            return if (mayOpenFiles()) pass(limit) else 0
         } finally {
             running.set(false)
         }
     }
+
+    /** S-01 の更新を待つ理由に要る、直前の [run] の結果（ST50 / D9 の（a）（c））。 */
+    @Volatile
+    var lastContract: ContractOutcome = ContractOutcome()
+        private set
+
+    /** 版 > [version] の行が送り待ちにあるか（行は送らず、欠けにもしない）。台帳はメモリにあるので安い */
+    fun hasVersionAbove(version: Int): Boolean = ledger.ready().any { it.contractVersion > version }
 
     /** 位置の権限が無い間は、写真のファイルを開かない（Q15。開くと位置が 0.0 に塗られる） */
     private fun mayOpenFiles(): Boolean = when (env.access()) {
@@ -130,21 +154,25 @@ class OriginalUploader(
         MediaAccess.FULL, MediaAccess.PARTIAL -> true
     }
 
-    private fun pass(): Int {
+    private fun pass(limit: Int): Int {
         var sent = 0
+        var refused = false
+        var posted = false
         val tried = HashSet<String>()
         val failures = LinkedHashMap<String, Int>()
         var stopped = false
         while (!stopped) {
-            val row = next(tried)
+            val row = next(tried, limit)
             if (row == null) {
                 stopped = true
             } else {
                 tried += row.sha256
+                posted = true
                 when (val step = attempt(row)) {
                     Step.Sent -> sent++
                     Step.Settled -> Unit
                     is Step.Retry -> {
+                        if (step.kind == CONTRACT_UNSUPPORTED) refused = true
                         failures.merge(step.kind, 1, Int::plus)
                         scheduleRetry(row)
                         stopped = step.stop
@@ -152,6 +180,11 @@ class OriginalUploader(
                 }
             }
         }
+        lastContract = ContractOutcome(
+            ahead = limit != Int.MAX_VALUE && hasVersionAbove(limit),
+            posted = posted,
+            refused = refused,
+        )
         if (sent > 0) log(Telemetry.line("original_sent", source = null, count = sent))
         // 種別と件数だけ（ファイル名・位置・保存先・ハッシュは出さない。D21）
         failures.forEach { (kind, count) ->
@@ -173,12 +206,14 @@ class OriginalUploader(
     }
 
     /** 次に送る行。バックオフ中・今回すでに当たった行・従量制で送れない過去ぶんは飛ばす。 */
-    private fun next(tried: Set<String>): OriginalEntry? {
+    private fun next(tried: Set<String>, limit: Int): OriginalEntry? {
         val at = env.now().toEpochMilli()
         val metered = !env.unmetered()
         return ledger.ready()
             .asSequence()
             .filter { it.sha256 !in tried }
+            // 記録を積んだ時の版が S-01 の答えより新しい行は送らない。**欠けにもしない**（D9）
+            .filter { it.contractVersion <= limit }
             .filter { !(it.backlog && metered) }
             .filter { (backoff[it.sha256]?.nextAtMs ?: Long.MIN_VALUE) <= at }
             .minWithOrNull(ORDER)
@@ -224,9 +259,12 @@ private class OriginalExchange(
     }
 
     /** `HEAD`。続けてよければ null。 */
-    private fun headStep(row: OriginalEntry): Step? = when (val outcome = transport.head(row.sha256)) {
+    private fun headStep(row: OriginalEntry): Step? = when (
+        val outcome = transport.head(row.sha256, row.contractVersion)
+    ) {
         is Outcome.Unreachable -> Step.Retry("unreachable", stop = true)
         is Outcome.Responded -> when (outcome.status) {
+            HTTP_UPGRADE_REQUIRED -> Step.Retry(CONTRACT_UNSUPPORTED, stop = true)
             // 受け取り済み: 読まずに行を消す（入れ直した後に読み直して送り直さない。R9）
             HTTP_OK -> removed(row, Step.Settled)
             HTTP_NOT_FOUND -> null
@@ -275,7 +313,9 @@ private class OriginalExchange(
 
     /** 2 回目の読みで流して `PUT` する。 */
     private fun put(row: OriginalEntry, length: Long): Step = when (val opened = source.open(row)) {
-        is OriginalOpen.Opened -> when (val outcome = opened.input.use { transport.put(row.sha256, length, it) }) {
+        is OriginalOpen.Opened -> when (
+            val outcome = opened.input.use { transport.put(row.sha256, length, it, row.contractVersion) }
+        ) {
             is Outcome.Unreachable -> Step.Retry("unreachable", stop = true)
             is Outcome.Responded -> putResult(row, outcome.status, outcome.body)
         }
@@ -284,6 +324,8 @@ private class OriginalExchange(
 
     private fun putResult(row: OriginalEntry, status: Int, body: String): Step = when (status) {
         HTTP_OK, HTTP_CREATED -> removed(row, Step.Sent)
+        // 要求の版が S-01 より新しい。**行を残して試し直す**（欠けにしない。`record_missing` の 7 日の数えも始めない）
+        HTTP_UPGRADE_REQUIRED -> Step.Retry(CONTRACT_UNSUPPORTED, stop = true)
         HTTP_CONFLICT -> recordMissing(row)
         // 送っている途中で変わった（次の回の 1 回目で `changed` になる）か、S-01 が名前を決められなかった
         // （置き場の障害ではない）。どちらも欠けにせず行を残し、ほかの行は止めない
@@ -314,11 +356,15 @@ private class OriginalExchange(
         const val HTTP_CONFLICT = 409
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_LARGE = 413
+        const val HTTP_UPGRADE_REQUIRED = 426
 
         /** `422` の本文の語（`crates/server` の `media.rs`） */
         const val NAME_REFUSED = "name_refused"
     }
 }
+
+/** 426 の試し直しの種別（ログと状態の理由に使う） */
+private const val CONTRACT_UNSUPPORTED = "contract_unsupported"
 
 private const val HASH_BUFFER_BYTES = 64 * 1024
 

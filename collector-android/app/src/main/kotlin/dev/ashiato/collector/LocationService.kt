@@ -248,6 +248,10 @@ open class LocationService : Service() {
     protected open fun newOutageGet(): (String) -> Outcome =
         HttpTransport(Config.baseUrl, Config.apiToken, "/outages")::get
 
+    /** 送る契機の頭の確かめ（`GET /contract`。ST50 / D18（仮））。**試験だけが差し替える** */
+    protected open fun newContractGet(): () -> Outcome =
+        HttpTransport(Config.baseUrl, Config.apiToken, "/contract")::get
+
     /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */
     protected open fun newOutageExecutor(): ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -660,8 +664,8 @@ open class LocationService : Service() {
     }
 
     /** 原本の送りを走らせる。糸の中の例外はプロセスを落とすので、種別だけ残して次の契機へ回す（design D26） */
-    private fun runUploader(uploader: OriginalUploader) {
-        runCatching { uploader.run() }.onFailure {
+    private fun runUploader(uploader: OriginalUploader, answer: ContractAnswer?) {
+        runCatching { uploader.run(answer) }.onFailure {
             Log.i(TAG, Telemetry.line("original_upload_crashed", source = null, error = it.javaClass.simpleName))
         }
     }
@@ -959,6 +963,10 @@ open class LocationService : Service() {
                 now = { Instant.now() },
             ),
         ) { Log.i(TAG, it) }
+        val contractGate = ContractGate(
+            ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE)),
+        ) { Log.i(TAG, it) }
+        val contractGet = newContractGet()
         val drainer = Drainer(
             records = sender,
             recordsOutbox = outbox,
@@ -966,7 +974,16 @@ open class LocationService : Service() {
             drops = dropSender,
             ledger = ledger,
             missing = missingSender,
-            afterRecords = { if (!uploader.busy) originalThread.execute { runUploader(uploader) } },
+            contract = ContractGuard({ contractGet() }, contractGate),
+            originalsAhead = uploader::hasVersionAbove,
+            afterRecords = { answer ->
+                if (!uploader.busy) {
+                    originalThread.execute {
+                        runUploader(uploader, answer)
+                        if (uploader.lastContract.refused) contractGate.noteOriginalsRefused()
+                    }
+                }
+            },
             maintenance = { maintain(force = true) },
             log = { Log.i(TAG, it) },
         )
