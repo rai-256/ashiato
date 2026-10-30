@@ -280,7 +280,6 @@ pub fn signal(
         successes,
         raw: serde_json::to_string(&raw)?,
         client_version: Some(build_stamp.to_string()),
-        unknown: serde_json::Map::new(),
     })
 }
 

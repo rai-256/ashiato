@@ -384,9 +384,6 @@ pub struct HeartbeatRequest {
     /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
-    /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**
-    #[serde(flatten)]
-    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する。
