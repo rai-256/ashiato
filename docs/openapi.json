@@ -3588,7 +3588,7 @@
               "string",
               "null"
             ],
-            "description": "収集アプリの積んだ時の版（ST51 / design D6）。無い要求は `None`。形を検査しない・断らない。\n行の列は `collector_version`。冪等キーには混ぜない（版は原文にも同じ値で入る）"
+            "description": "収集アプリの積んだ時の版（ST51 / design D6）。欄の無い要求は「不明」。形を検査しない・断らない。\n行の列は `collector_version`。冪等キーには混ぜない（版は原文にも同じ値で入る）"
           },
           "device_id": {
             "type": [

@@ -30,7 +30,7 @@ pub struct HeartbeatRequest {
     /// `capturable` とは別に残す —— 圏外の写真は取れる状態のまま、接続が無かったことだけが行に残る
     #[serde(default)]
     pub network: Option<bool>,
-    /// 収集アプリの積んだ時の版（ST51 / design D6）。無い要求は `None`。形を検査しない・断らない。
+    /// 収集アプリの積んだ時の版（ST51 / design D6）。欄の無い要求は「不明」。形を検査しない・断らない。
     /// 行の列は `collector_version`。冪等キーには混ぜない（版は原文にも同じ値で入る）
     #[serde(default)]
     pub client_version: Option<String>,
