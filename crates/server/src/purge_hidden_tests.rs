@@ -145,6 +145,43 @@ async fn purge_hidden_absorbed_overlapping_stay_is_emptied() {
     );
 }
 
+// Scenario: 本人が消して戻したことのある重なる滞在は作り直しで隠れても本文が残る
+#[tokio::test]
+async fn purge_hidden_restored_stay_keeps_its_body() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    purged(&pool, user).await;
+    // CH08 の前の戻す口で戻された重なる滞在（削除の台帳に erase と restore がある）。
+    // CH08 の戻す口は一覧に戻らない求めを断るので、戻された状態は印と台帳で直に作る
+    let l = stay(&pool, user, "10:30", "11:30").await;
+    scene_erase(&pool, l).await;
+    sqlx::query("UPDATE core.event SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+        .bind(l)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 's01-stay', 'restore', $1, 'user')",
+    )
+    .bind(l)
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    rebuild(&pool, user).await;
+
+    let (hidden, mark) = mark_of(&pool, l).await;
+    assert!(hidden, "前提: 作り直しで隠れていない");
+    assert_ne!(
+        mark.as_deref(),
+        Some("user:purged"),
+        "確認なしに本文ごと消した"
+    );
+    assert!(kept(&pool, l).await, "戻されたことのある滞在の本文が消えた");
+}
+
 // Scenario: 作り直しで消した時間帯と重なるとして隠れた重なる滞在の本文も消える
 #[tokio::test]
 async fn purge_hidden_stay_hidden_by_another_erased_range_is_emptied() {

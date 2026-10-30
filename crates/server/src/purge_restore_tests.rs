@@ -172,12 +172,31 @@ async fn purge_restore_overhang_that_is_a_stay_can_be_restored() {
     let (code, body) = restore(&app, &[b]).await;
 
     assert_eq!(code, StatusCode::OK, "{body}");
-    let live: bool = sqlx::query_scalar("SELECT deleted_at IS NULL FROM core.event WHERE id = $1")
-        .bind(b)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
-    assert!(live, "B が一覧に戻る");
+    // 戻す口が同じまとまりで作り直した後の 1 日の並び（code review R15）。
+    // B の識別子を持つ「滞在」の区間がある。時間は作り直しで本文ごと消した時間の外（11:05 – 11:30）に縮む
+    let day = crate::stay_store::day_view(
+        &app.pool,
+        user,
+        testdb::date(DAY),
+        crate::purge_tests::at("2027-01-01T00:00:00+09:00"),
+    )
+    .await
+    .unwrap();
+    let spans: Vec<_> = day
+        .entries
+        .iter()
+        .filter(|e| e.kind == crate::stay_store::EntryKind::Stay && e.id == Some(b))
+        .map(|e| (e.start, e.end))
+        .collect();
+    assert_eq!(
+        spans,
+        vec![(
+            crate::purge_tests::at(&t("11:05")),
+            crate::purge_tests::at(&t("11:30"))
+        )],
+        "B の識別子を持つ滞在の区間: {:?}",
+        day.entries
+    );
 }
 
 // Scenario: 戻せない滞在を含む戻す求めは何も戻さない
@@ -220,10 +239,10 @@ async fn purge_restore_a_failing_rebuild_restores_nothing() {
     locations(&app.pool, user, &["11:05", "11:10"]).await;
     let b = stay(&app.pool, user, "10:40", "11:05").await;
     erase_b_then_purge_p(&app.pool, b, p).await;
-    crate::deletion::RESTORE_REBUILD_SCOPE.with(|s| *s.borrow_mut() = Some("no-such-scope"));
+    crate::stay_store::FAIL_REBUILD_IN.with(|f| f.set(true));
 
     let (code, body) = restore(&app, &[b]).await;
-    crate::deletion::RESTORE_REBUILD_SCOPE.with(|s| *s.borrow_mut() = None);
+    crate::stay_store::FAIL_REBUILD_IN.with(|f| f.set(false));
 
     assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     refused_state_holds(&app.pool, user, b).await;

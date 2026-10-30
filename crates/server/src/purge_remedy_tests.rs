@@ -145,11 +145,8 @@ async fn purge_remedy_startup_path_empties_every_users_overlapping_stay() {
     let apart = stay(&owner, users[0], "15:00", "15:30").await;
     scene_mark_rebuild(&owner, apart, "rebuild:absorbed").await;
 
-    assert_eq!(
-        deletion::purge_hidden_overlap_remedy(&app).await,
-        0,
-        "残った件数"
-    );
+    // 起動の並び（`run()` が待ち受けの前に呼ぶ `startup_upkeep`）を通す（code review R13）
+    assert_eq!(crate::startup_upkeep(app.clone()).await, 0, "残った件数");
 
     for l in hidden {
         assert!(emptied(&owner, l).await, "{l} の本文が空でない");
@@ -158,7 +155,7 @@ async fn purge_remedy_startup_path_empties_every_users_overlapping_stay() {
         kept(&owner, apart).await,
         "重ならない隠れた滞在の本文が消えた"
     );
-    assert_eq!(deletion::purge_hidden_overlap_remedy(&app).await, 0);
+    assert_eq!(crate::startup_upkeep(app.clone()).await, 0);
 }
 
 // Scenario: 起動を繰り返しても台帳の行は増えない

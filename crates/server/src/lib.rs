@@ -4146,6 +4146,34 @@ pub fn router(app: App) -> Router {
         .with_state(app)
 }
 
+/// 起動時の手入れ（待ち受けの前に `run()` が 1 回呼ぶ）。どれも失敗を飲み込んでログに残し、起動は止めない。
+/// 返すのは起動時の手当て（CH08 design D5）で残った件数。試験はここを通して「起動すると消える」を見る（code review R13）。
+pub(crate) async fn startup_upkeep(pool: sqlx::PgPool) -> usize {
+    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
+    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
+    match deletion::purged_without_span(&pool).await {
+        Ok(0) => {}
+        Ok(count) => tracing::warn!(
+            kind = "purge_span_missing",
+            count,
+            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
+        ),
+        Err(e) => tracing::warn!(
+            kind = "purge_span_missing",
+            sqlstate = e
+                .as_database_error()
+                .and_then(|d| d.code())
+                .as_deref()
+                .unwrap_or(""),
+            "範囲の行が無い滞在を数えられない"
+        ),
+    }
+
+    // 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す（CH08 / design D5）。
+    // 失敗は関数がログに残して飲み込む（起動は止めない。次の起動でもう一度消す）
+    deletion::purge_hidden_overlap_remedy(&pool).await
+}
+
 pub async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     std::panic::set_hook(Box::new(|info| {
@@ -4208,29 +4236,7 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(3);
     }
 
-    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
-    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
-    match deletion::purged_without_span(&pool).await {
-        Ok(0) => {}
-        Ok(count) => tracing::warn!(
-            kind = "purge_span_missing",
-            count,
-            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
-        ),
-        Err(e) => tracing::warn!(
-            kind = "purge_span_missing",
-            sqlstate = e
-                .as_database_error()
-                .and_then(|d| d.code())
-                .as_deref()
-                .unwrap_or(""),
-            "範囲の行が無い滞在を数えられない"
-        ),
-    }
-
-    // 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す（CH08 / design D5）。
-    // 失敗は関数がログに残して飲み込む（起動は止めない。次の起動でもう一度消す）
-    deletion::purge_hidden_overlap_remedy(&pool).await;
+    startup_upkeep(pool.clone()).await;
 
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。

@@ -285,6 +285,8 @@ pub(crate) struct Existing {
     /// 本文ごと消した滞在の、本文ごと消した操作（`core.erasure_operation.id`）。
     /// **範囲の行が無く、その日全体として読む窓（ST23 D14）には無い**。
     pub operation_id: Option<uuid::Uuid>,
+    /// 削除の台帳に行がある（本人が消したことか戻したことがある）。作り直しはこの滞在の本文を消さない（CH08 design D2 の 4）
+    pub ever_erased: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -295,6 +297,9 @@ struct ExistingRow {
     payload: serde_json::Value,
     deleted_at: Option<DateTime<Utc>>,
     deleted_by: Option<String>,
+    /// 作り直し（`load_existing`）だけが読む。1 日の並びは読まない
+    #[sqlx(default)]
+    ever_erased: bool,
 }
 
 /// 期間の読み方。**取り込みの口から入った滞在は形が崩れていることがある**ので、
@@ -338,8 +343,9 @@ async fn load_existing(
 ) -> sqlx::Result<Vec<Existing>> {
     let rough = from - Duration::days(2);
     let rows: Vec<ExistingRow> = sqlx::query_as(
-        "SELECT id, event_time, raw, payload, deleted_at, deleted_by
-           FROM core.event
+        "SELECT e.id, e.event_time, e.raw, e.payload, e.deleted_at, e.deleted_by,
+                EXISTS (SELECT 1 FROM core.deletion_ledger d WHERE d.event_id = e.id) AS ever_erased
+           FROM core.event e
           WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
             AND raw <> ''
             AND event_time < $3
@@ -377,6 +383,7 @@ async fn load_existing(
                 mark: Mark::of(r.deleted_at, r.deleted_by.as_deref()),
                 deleted_by: r.deleted_by,
                 operation_id: None,
+                ever_erased: r.ever_erased,
             })
         })
         .collect();
@@ -391,6 +398,7 @@ async fn load_existing(
             mark: Mark::UserDeleted,
             deleted_by,
             operation_id,
+            ever_erased: true,
         },
     ));
     existing.sort_by(|a, b| a.start.cmp(&b.start).then(a.id.cmp(&b.id)));
@@ -584,6 +592,22 @@ pub(crate) fn assign(fresh: &[Stay], existing: &[Existing], radius_m: i32) -> As
     Assignment { inherits, absorbed }
 }
 
+/// 元の操作・入れ子の親の選び方（CH08 design D3・D6 の 3）。`start`–`end` と**重なる**（端が触れるだけは含めない）窓
+/// `(値, 始まり, 終わり, 同順の決め手)` のうち、重なりの大きいもの → 始まりの早いもの → 決め手の小さいもの。
+/// 作り直し（`take_hidden_overlaps`）・起動時の手当て（`deletion::remedy_user`）・1 日の並び（`parent_of`）が使う。
+pub(crate) fn pick_window<T, K: Ord>(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    windows: impl IntoIterator<Item = (T, DateTime<Utc>, DateTime<Utc>, K)>,
+) -> Option<T> {
+    windows
+        .into_iter()
+        .filter(|(_, s, e, _)| start < *e && *s < end)
+        .map(|(v, s, e, k)| (std::cmp::Reverse(overlap((start, end), (s, e))), s, k, v))
+        .min_by(|a, b| (&a.0, a.1, &a.2).cmp(&(&b.0, b.1, &b.2)))
+        .map(|(_, _, _, v)| v)
+}
+
 /// 本人が消した時間帯と**少しでも**重なるか（Q12。触れるだけでも重なりとする —— 既定は厳しい側）。
 fn touches_erased(f: &Stay, erased: &[(DateTime<Utc>, DateTime<Utc>)]) -> bool {
     erased.iter().any(|(s, e)| f.start <= *e && *s <= f.end)
@@ -594,6 +618,7 @@ fn touches_erased(f: &Stay, erased: &[(DateTime<Utc>, DateTime<Utc>)]) -> bool {
 ///
 /// 本文を消す滞在は、作り直しの前に一覧に出ていて（`Mark::Live`）、時間が本文ごと消した時間帯と**重なり**（端が触れるだけは含めない）、
 /// この作り直しが隠すもの —— 吸収される、または引き継ぐ新しい滞在が消した時間帯に触れて隠れる。
+/// 本人が消したことか戻したことのある滞在（削除の台帳に行がある）は外す（起動時の手当ての D5 の 3 と同じ。Q2）。
 /// 後者は引き継がせず（`inherits` を外す）、新しい滞在を隠して作らせる。
 /// 操作の識別子の無い窓（範囲の行が無く、その日全体として読むもの）は使わない。
 /// 窓が複数なら重なりの大きいもの → 始まりの早いもの → 操作の識別子の順に選ぶ。
@@ -605,21 +630,17 @@ fn take_hidden_overlaps(
 ) -> Vec<(usize, usize)> {
     let mut hidden = Vec::new();
     for (j, l) in existing.iter().enumerate() {
-        if l.mark != Mark::Live {
+        if l.mark != Mark::Live || l.ever_erased {
             continue;
         }
-        let parent = existing
-            .iter()
-            .enumerate()
-            .filter(|(_, w)| w.operation_id.is_some() && l.start < w.end && w.start < l.end)
-            .min_by_key(|(_, w)| {
-                (
-                    std::cmp::Reverse(overlap((l.start, l.end), (w.start, w.end))),
-                    w.start,
-                    w.operation_id,
-                )
-            })
-            .map(|(k, _)| k);
+        let parent = pick_window(
+            l.start,
+            l.end,
+            existing
+                .iter()
+                .enumerate()
+                .filter_map(|(k, w)| w.operation_id.map(|op| (k, w.start, w.end, op))),
+        );
         let Some(parent) = parent else {
             continue;
         };
@@ -660,7 +681,10 @@ pub async fn rebuild_day(
     user: uuid::Uuid,
     day: NaiveDate,
 ) -> anyhow::Result<DayOutcome> {
-    rebuild_day_using(pool, user, day, "event").await
+    let mut tx = pool.begin().await?;
+    let out = rebuild_day_in(&mut tx, user, day).await?;
+    tx.commit().await?;
+    Ok(out)
 }
 
 /// 作り直しが隠した重なる滞在の、記録ごとの消去の台帳（`purge_hidden_overlap` の手順 2。本文を消す手順 4 より前）の
@@ -670,21 +694,15 @@ pub(crate) async fn rebuild_day_with_ledger_scope(
     pool: &PgPool,
     user: uuid::Uuid,
     day: NaiveDate,
-    ledger_scope: &str,
+    ledger_scope: &'static str,
 ) -> anyhow::Result<DayOutcome> {
-    rebuild_day_using(pool, user, day, ledger_scope).await
+    crate::deletion::with_hidden_ledger_scope(ledger_scope, rebuild_day(pool, user, day)).await
 }
 
-async fn rebuild_day_using(
-    pool: &PgPool,
-    user: uuid::Uuid,
-    day: NaiveDate,
-    ledger_scope: &str,
-) -> anyhow::Result<DayOutcome> {
-    let mut tx = pool.begin().await?;
-    let out = rebuild_day_in(&mut tx, user, day, ledger_scope).await?;
-    tx.commit().await?;
-    Ok(out)
+#[cfg(test)]
+thread_local! {
+    /// `rebuild_day_in` を錠の後で落とす口（戻す口の確かめの作り直しが落ちたときの 503 を試す。CH08 design D4）。
+    pub(crate) static FAIL_REBUILD_IN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// `rebuild_day` の本体。呼び出し側のトランザクションで走り、commit も rollback もしない
@@ -693,9 +711,12 @@ pub(crate) async fn rebuild_day_in(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
     day: NaiveDate,
-    ledger_scope: &str,
 ) -> anyhow::Result<DayOutcome> {
     lock(tx, user).await?;
+    #[cfg(test)]
+    if FAIL_REBUILD_IN.with(std::cell::Cell::get) {
+        anyhow::bail!("試験が差し込んだ作り直しの失敗");
+    }
     let c = ensure_criteria(tx, user).await?;
     let bounds = day_bounds(day);
     mark_late_arrivals(tx, user, &with_archive_sources(&c.sources), bounds, false).await?;
@@ -768,7 +789,6 @@ pub(crate) async fn rebuild_day_in(
                 parent_start: p.start,
                 parent_end: p.end,
             },
-            ledger_scope,
         )
         .await?;
     }
@@ -1551,15 +1571,15 @@ struct ErasedSpan {
 
 /// 入れ子の項目の親: 重なりのいちばん大きい本文ごと消した区間 → 始まりの早い区間（design D6 の 3）。
 fn parent_of(parents: &[DayEntry], start: DateTime<Utc>, end: DateTime<Utc>) -> Option<usize> {
-    parents
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| {
-            let overlap = p.end.min(end) - p.start.max(start);
-            (overlap > Duration::zero()).then_some((i, overlap, p.start))
-        })
-        .min_by_key(|(_, overlap, pstart)| (std::cmp::Reverse(*overlap), *pstart))
-        .map(|(i, _, _)| i)
+    // 同じ重なり・同じ始まりなら並びの先（消した順の早い方）
+    pick_window(
+        start,
+        end,
+        parents
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i, p.start, p.end, i)),
+    )
 }
 
 fn subtract_spans(
@@ -1884,6 +1904,8 @@ pub async fn day_view(
     let mut grouped: Vec<(usize, ErasedSpan)> = Vec::new();
     for span in covered_erased {
         let Some(parent) = parent_of(&parents, span.start, span.end) else {
+            // 親にならない窓（D10）だけに覆われる B は、黙って落とさず自分の「消した」の区間として並べる（code review R19）
+            fragments.push(span);
             continue;
         };
         if let Some((_, last)) = grouped
@@ -2020,6 +2042,7 @@ pub(crate) async fn absorb_for_test(
         mark: Mark::Live,
         deleted_by: None,
         operation_id: None,
+        ever_erased: false,
     };
     absorb(tx, user, &read_as_live, into, c.id).await
 }

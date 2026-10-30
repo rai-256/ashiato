@@ -105,17 +105,30 @@ pub struct RestoreOutcome {
 
 #[cfg(test)]
 thread_local! {
-    /// 戻せるかを確かめる作り直しの台帳の範囲（試験が不正な値を差し込んで作り直しを落とす口。CH08 design D4）。
-    pub(crate) static RESTORE_REBUILD_SCOPE: std::cell::RefCell<Option<&'static str>> =
-        const { std::cell::RefCell::new(None) };
+    /// 作り直しが隠した重なる滞在の、記録ごとの消去の台帳の `scope`（試験が不正な値を差し込んで消去を落とす口。CH08 design D2 / D5）。
+    /// 本番の組み立てには無く、`purge_hidden_overlap` はいつも `"event"` を書く。
+    pub(crate) static HIDDEN_LEDGER_SCOPE: std::cell::Cell<Option<&'static str>> =
+        const { std::cell::Cell::new(None) };
 }
 
-fn restore_rebuild_scope() -> &'static str {
+fn hidden_ledger_scope() -> &'static str {
     #[cfg(test)]
-    if let Some(scope) = RESTORE_REBUILD_SCOPE.with(|s| *s.borrow()) {
+    if let Some(scope) = HIDDEN_LEDGER_SCOPE.with(std::cell::Cell::get) {
         return scope;
     }
     "event"
+}
+
+/// 試験の間だけ `HIDDEN_LEDGER_SCOPE` を差し替えて `f` を走らせる（戻すのを忘れて後の試験に漏らさない）。
+#[cfg(test)]
+pub(crate) async fn with_hidden_ledger_scope<T>(
+    scope: &'static str,
+    f: impl std::future::Future<Output = T>,
+) -> T {
+    HIDDEN_LEDGER_SCOPE.with(|s| s.set(Some(scope)));
+    let out = f.await;
+    HIDDEN_LEDGER_SCOPE.with(|s| s.set(None));
+    out
 }
 
 /// 要求内の滞在を原因とする最新の `erase` だけを、一つの transaction で戻す。
@@ -225,26 +238,17 @@ pub async fn restore(
         }
     }
     let mut rebuild_days = Vec::new();
-    let mut overlapping = Vec::new();
+    let (mut ids, mut users, mut starts, mut ends) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for stay in stays {
         if !restored_causes.contains(&stay.id) {
             continue;
         }
         let (start, end) = stay_store::span_of(stay.event_time, &stay.payload);
-        // 本文ごと消した時間帯と重なるか（端が触れるだけは重ならない）
-        let overlaps: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-               SELECT 1 FROM core.stay_erased_purge
-                WHERE user_id = $1 AND purged AND start_at < $3 AND end_at > $2)",
-        )
-        .bind(stay.user_id)
-        .bind(start)
-        .bind(end)
-        .fetch_one(&mut *tx)
-        .await?;
-        if overlaps {
-            overlapping.push(stay.id);
-        }
+        ids.push(stay.id);
+        users.push(stay.user_id);
+        starts.push(start);
+        ends.push(end);
         let first = stay_store::jst_date(start);
         let last = stay_store::jst_date(end);
         for day in first.iter_days().take_while(|day| *day <= last) {
@@ -254,10 +258,27 @@ pub async fn restore(
         }
     }
 
+    // 戻した滞在のうち、本文ごと消した時間帯と重なるもの（端が触れるだけは重ならない）を 1 回で引く（code review R23）
+    let overlapping: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT r.id
+           FROM unnest($1::uuid[], $2::uuid[], $3::timestamptz[], $4::timestamptz[])
+                AS r(id, user_id, start_at, end_at)
+          WHERE EXISTS (
+                  SELECT 1 FROM core.stay_erased_purge p
+                   WHERE p.user_id = r.user_id AND p.purged
+                     AND p.start_at < r.end_at AND p.end_at > r.start_at)",
+    )
+    .bind(&ids)
+    .bind(&users)
+    .bind(&starts)
+    .bind(&ends)
+    .fetch_all(&mut *tx)
+    .await?;
+
     if !overlapping.is_empty() {
         // 戻した結果が一覧に残るかを、同じまとまりの中で作り直して確かめる（CH08 design D4）。
         for (user, day) in &rebuild_days {
-            stay_store::rebuild_day_in(&mut tx, *user, *day, restore_rebuild_scope())
+            stay_store::rebuild_day_in(&mut tx, *user, *day)
                 .await
                 .map_err(RestoreError::RebuildFailed)?;
         }
@@ -1224,12 +1245,11 @@ pub(crate) struct HiddenOverlap {
 /// 順は `purge` と同じ（門が commit の時に台帳の行を見る）: 操作の行（元の操作へ `parent_id` で結ぶ）→ 記録ごと・前の版ごとの
 /// 消去の台帳 → 範囲の行（滞在と前の版の時間）→ 本文（`erase_bodies`）→ `user:purged` への付け替えと削除の台帳の `erase`。
 /// `user:purged` は `core.stay_erased` に出ないので、この滞在の時間は消した時間帯の窓を広げない。
-/// `event_scope` は記録ごとの台帳の `scope`（通常は `"event"`。試験が CHECK 違反を起こす差し込み口）。
 pub(crate) async fn purge_hidden_overlap(
     tx: &mut Transaction<'_, Postgres>,
     hidden: HiddenOverlap,
-    event_scope: &str,
 ) -> anyhow::Result<()> {
+    let event_scope = hidden_ledger_scope();
     let logical_source = stay::SOURCE;
     let operation_id = uuid::Uuid::new_v4();
     let versions: Vec<(i32, DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
@@ -1373,7 +1393,7 @@ type RemedyCandidate = (
 /// 本文を消した滞在は `raw = ''` で対象から外れるので、何度走っても台帳の行は増えない。
 /// 対象を引く文そのものが落ちたときは、数えられないので 0 を返して SQLSTATE だけ出す。
 pub async fn purge_hidden_overlap_remedy(pool: &PgPool) -> usize {
-    purge_hidden_overlap_remedy_using(pool, None, "event").await
+    purge_hidden_overlap_remedy_using(pool, None).await
 }
 
 /// 1 人に絞り、記録ごとの消去の台帳の `scope` を差し替えて消去を落とせる口（試験用）。
@@ -1382,16 +1402,16 @@ pub async fn purge_hidden_overlap_remedy(pool: &PgPool) -> usize {
 pub(crate) async fn purge_hidden_overlap_remedy_for_user(
     pool: &PgPool,
     user: uuid::Uuid,
-    ledger_scope: &str,
+    ledger_scope: &'static str,
 ) -> usize {
-    purge_hidden_overlap_remedy_using(pool, Some(user), ledger_scope).await
+    with_hidden_ledger_scope(
+        ledger_scope,
+        purge_hidden_overlap_remedy_using(pool, Some(user)),
+    )
+    .await
 }
 
-async fn purge_hidden_overlap_remedy_using(
-    pool: &PgPool,
-    only_user: Option<uuid::Uuid>,
-    ledger_scope: &str,
-) -> usize {
+async fn purge_hidden_overlap_remedy_using(pool: &PgPool, only_user: Option<uuid::Uuid>) -> usize {
     // 利用者ごとの候補の件数は錠の前に持っておく（錠や SELECT で落ちても、残った件数を 0 にしない）
     let users: sqlx::Result<Vec<(uuid::Uuid, i64)>> = sqlx::query_as(&format!(
         "SELECT user_id, count(*) FROM ({}) c GROUP BY user_id ORDER BY user_id",
@@ -1409,7 +1429,7 @@ async fn purge_hidden_overlap_remedy_using(
     };
     let mut remaining = 0;
     for (user, candidates) in users {
-        match remedy_user(pool, user, candidates as usize, ledger_scope).await {
+        match remedy_user(pool, user, candidates as usize).await {
             Ok(()) => {}
             Err((left, state)) => {
                 remaining += left;
@@ -1448,7 +1468,6 @@ async fn remedy_user(
     pool: &PgPool,
     user: uuid::Uuid,
     candidates_before_lock: usize,
-    ledger_scope: &str,
 ) -> Result<(), (usize, String)> {
     // 対象の一覧を作り終えるまでは、錠の前に数えた候補の件数を残りとして返す
     let mut left = candidates_before_lock;
@@ -1480,13 +1499,8 @@ async fn remedy_user(
         for (id, user_id, event_time, payload, deleted_by) in candidates {
             let (start, end) = stay_store::span_of(event_time, &payload);
             // 元の操作: 重なりの大きいもの → 時間帯の始まりの早いもの → 操作の識別子（design D3）
-            let parent = windows
-                .iter()
-                .filter(|w| start < w.3 && w.2 < end)
-                .min_by_key(|w| {
-                    let overlap = end.min(w.3) - start.max(w.2);
-                    (std::cmp::Reverse(overlap), w.2, w.0)
-                });
+            let parent =
+                stay_store::pick_window(start, end, windows.iter().map(|w| (w, w.2, w.3, w.0)));
             let Some(&(parent_id, stay_id, parent_start, parent_end)) = parent else {
                 continue;
             };
@@ -1504,7 +1518,7 @@ async fn remedy_user(
         }
         left = targets.len();
         for hidden in targets {
-            purge_hidden_overlap(&mut tx, hidden, ledger_scope).await?;
+            purge_hidden_overlap(&mut tx, hidden).await?;
         }
         tx.commit().await?;
         anyhow::Ok(())

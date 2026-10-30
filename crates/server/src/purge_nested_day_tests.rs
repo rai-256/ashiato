@@ -315,3 +315,41 @@ async fn purge_nested_day_window_without_a_range_row_is_not_a_parent() {
     assert_eq!(nested[0].stay_ids, vec![b]);
     assert!(!nested[0].purged);
 }
+
+// 窓（design D10（仮））だけに覆われる本文を消していない滞在は、親が無くても黙って落とさず自分の「消した」の区間で並ぶ（code review R19）。
+#[tokio::test]
+async fn purge_nested_day_window_does_not_drop_an_erased_stay() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let b = stay(&pool, user, "14:00", "15:00").await;
+    scene_erase(&pool, b).await;
+    let window = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload, deleted_at, deleted_by)
+         VALUES ($1, $2, 's01-stay', $1::text, 'derived', $3, 540, 'Asia/Tokyo', 1, $1::text,
+                 '', '{}'::jsonb, now(), 'user')",
+    )
+    .bind(window)
+    .bind(user)
+    .bind(t("09:00"))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = erased(&pool, user).await;
+
+    assert_eq!(rows[0].purge_stay_id, Some(window), "{rows:?}");
+    assert!(rows[0].nested.is_none(), "窓が入れ子を持った: {rows:?}");
+    let own: Vec<_> = rows
+        .iter()
+        .filter(|r| r.stay_ids.as_deref() == Some(&[b][..]))
+        .map(|r| (r.start, r.end))
+        .collect();
+    assert_eq!(
+        own,
+        vec![(t("14:00"), t("15:00"))],
+        "消した滞在の行が無い: {rows:?}"
+    );
+}
