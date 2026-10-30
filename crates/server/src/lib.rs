@@ -186,6 +186,9 @@ mod purge_keep_tests;
 /// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
 #[cfg(test)]
 mod purge_late_tests;
+/// 起動時の手当て（本文ごと消した後に作り直しで隠れた重なる滞在の本文を消す）を本物の DB で見る（CH08 Task 2 / design D5）。
+#[cfg(test)]
+mod purge_remedy_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
@@ -4198,6 +4201,10 @@ pub async fn run() -> anyhow::Result<()> {
             "範囲の行が無い滞在を数えられない"
         ),
     }
+
+    // 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す（CH08 / design D5）。
+    // 失敗は関数がログに残して飲み込む（起動は止めない。次の起動でもう一度消す）
+    deletion::purge_hidden_overlap_remedy(&pool).await;
 
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。

@@ -1230,10 +1230,10 @@ pub(crate) async fn purge_hidden_overlap(
     // 4: 本文（前の版 → 記録）
     erase_bodies(tx, &[hidden.event_id]).await?;
 
-    // 5: 印を本人の「本文ごと消した」に付け替える（読んだときと印が同じ行だけ）
+    // 5: 印を本人の「本文ごと消した」に付け替える（読んだときと印が同じ行だけ。作り直しの中では印なし、起動時の手当てでは作り直しの印）
     let done = sqlx::query(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:purged'
-          WHERE id = $1 AND deleted_at IS NULL AND deleted_by IS NOT DISTINCT FROM $2",
+          WHERE id = $1 AND deleted_by IS NOT DISTINCT FROM $2",
     )
     .bind(hidden.event_id)
     .bind(&hidden.deleted_by)
@@ -1253,4 +1253,172 @@ pub(crate) async fn purge_hidden_overlap(
     )
     .await?;
     Ok(())
+}
+
+/// 起動時の手当ての対象を引く文（CH08 design D5（仮）。時刻は比べない）。条件 1・3・4 を持つ。条件 2 と元の操作の選択は呼び出し側が時間で見る。
+const REMEDY_CANDIDATES_SQL: &str = "
+    SELECT e.id, e.user_id, e.event_time, e.payload, e.deleted_by
+      FROM core.event e
+     WHERE e.logical_source = 's01-stay' AND e.origin = 'derived'
+       AND e.deleted_by IN ('rebuild:absorbed', 'rebuild:erased-range')
+       AND e.raw <> ''
+       AND e.ingest_time <> e.deleted_at
+       AND NOT EXISTS (SELECT 1 FROM core.deletion_ledger d WHERE d.event_id = e.id)
+       AND ($1::uuid IS NULL OR e.user_id = $1)
+     ORDER BY e.user_id, e.event_time, e.id";
+
+type RemedyCandidate = (
+    uuid::Uuid,
+    uuid::Uuid,
+    DateTime<Utc>,
+    serde_json::Value,
+    Option<String>,
+);
+
+/// 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す、サーバの起動時の手当て（CH08 design D5（仮））。
+/// 残った（消せなかった）件数を返す。失敗は飲み込み、`warn`（`kind = "purge_remedy"`・残った件数・SQLSTATE だけ）を出す。
+///
+/// 利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で `purge_hidden_overlap` に渡す。
+/// 本文を消した滞在は `raw = ''` で対象から外れるので、何度走っても台帳の行は増えない。
+/// 対象を引く文そのものが落ちたときは、数えられないので 0 を返して SQLSTATE だけ出す。
+pub async fn purge_hidden_overlap_remedy(pool: &PgPool) -> usize {
+    purge_hidden_overlap_remedy_using(pool, None, "event").await
+}
+
+/// 1 人に絞り、記録ごとの消去の台帳の `scope` を差し替えて消去を落とせる口（試験用）。
+/// 試験の DB は並走する試験と共有なので、ほかの利用者の行に触れないよう利用者に絞る。
+#[cfg(test)]
+pub(crate) async fn purge_hidden_overlap_remedy_for_user(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    ledger_scope: &str,
+) -> usize {
+    purge_hidden_overlap_remedy_using(pool, Some(user), ledger_scope).await
+}
+
+async fn purge_hidden_overlap_remedy_using(
+    pool: &PgPool,
+    only_user: Option<uuid::Uuid>,
+    ledger_scope: &str,
+) -> usize {
+    let users: sqlx::Result<Vec<uuid::Uuid>> = sqlx::query_scalar(&format!(
+        "SELECT DISTINCT user_id FROM ({REMEDY_CANDIDATES_SQL}) c ORDER BY user_id"
+    ))
+    .bind(only_user)
+    .fetch_all(pool)
+    .await;
+    let users = match users {
+        Ok(users) => users,
+        Err(e) => {
+            warn_remedy(None, sqlstate(&e));
+            return 0;
+        }
+    };
+    let mut remaining = 0;
+    for user in users {
+        match remedy_user(pool, user, ledger_scope).await {
+            Ok(()) => {}
+            Err((left, state)) => {
+                remaining += left;
+                warn_remedy(Some(left), state);
+            }
+        }
+    }
+    remaining
+}
+
+fn sqlstate(e: &sqlx::Error) -> String {
+    e.as_database_error()
+        .and_then(|d| d.code())
+        .map(|c| c.to_string())
+        .unwrap_or_default()
+}
+
+fn warn_remedy(left: Option<usize>, sqlstate: String) {
+    match left {
+        Some(count) => tracing::warn!(
+            kind = "purge_remedy",
+            count,
+            sqlstate = sqlstate.as_str(),
+            "作り直しで隠れた重なる滞在の本文を消せなかった（次の起動でもう一度消す）"
+        ),
+        None => tracing::warn!(
+            kind = "purge_remedy",
+            sqlstate = sqlstate.as_str(),
+            "作り直しで隠れた重なる滞在の対象を引けない（次の起動でもう一度引く）"
+        ),
+    }
+}
+
+/// 1 人ぶんを 1 トランザクションで消す。失敗は (残った件数, SQLSTATE) で返す（巻き戻る）。
+async fn remedy_user(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    ledger_scope: &str,
+) -> Result<(), (usize, String)> {
+    let mut left = 0;
+    let result = async {
+        let mut tx = pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+            .bind(stay_store::LOCK_KEY)
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        // 錠を取ってから引き直す（待っている間に作り直しや別の手当てが進んでいても、いまの状態で決める）
+        let candidates: Vec<RemedyCandidate> = sqlx::query_as(REMEDY_CANDIDATES_SQL)
+            .bind(Some(user))
+            .fetch_all(&mut *tx)
+            .await?;
+        // 本文ごと消した操作（本人の操作）と、その時間帯
+        let windows: Vec<(uuid::Uuid, uuid::Uuid, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, stay_id, start_at, end_at FROM core.erasure_operation
+              WHERE user_id = $1 AND kind = 'user'",
+        )
+        .bind(user)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut targets = Vec::new();
+        for (id, user_id, event_time, payload, deleted_by) in candidates {
+            let (start, end) = stay_store::span_of(event_time, &payload);
+            // 元の操作: 重なりの大きいもの → 時間帯の始まりの早いもの → 操作の識別子（design D3）
+            let parent = windows
+                .iter()
+                .filter(|w| start < w.3 && w.2 < end)
+                .min_by_key(|w| {
+                    let overlap = end.min(w.3) - start.max(w.2);
+                    (std::cmp::Reverse(overlap), w.2, w.0)
+                });
+            let Some(&(parent_id, stay_id, parent_start, parent_end)) = parent else {
+                continue;
+            };
+            targets.push(HiddenOverlap {
+                user_id,
+                event_id: id,
+                deleted_by,
+                start,
+                end,
+                parent_id,
+                stay_id,
+                parent_start,
+                parent_end,
+            });
+        }
+        left = targets.len();
+        for hidden in targets {
+            purge_hidden_overlap(&mut tx, hidden, ledger_scope).await?;
+        }
+        tx.commit().await?;
+        anyhow::Ok(())
+    }
+    .await;
+    result.map_err(|e| {
+        let state = e
+            .downcast_ref::<sqlx::Error>()
+            .map(sqlstate)
+            .unwrap_or_default();
+        (left, state)
+    })
 }
