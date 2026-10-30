@@ -1,0 +1,56 @@
+{
+  "title": "確認バッチ 20261030-1819",
+  "subtitle": "CH08 消した記録の一覧に包まれた滞在を残し、作り直しで隠れた滞在の本文も消す（ST23 Q7・Q8）",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261030-1819/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261030-1819 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261030-1819/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261030-1819/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261030-1819`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261030-1819 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261030-1819/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261030-182040-e917111（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "CH08-PD10",
+      "topic": "CH08 仮D10",
+      "kind": "check",
+      "question": "CH08 の仮の決定 D10: 範囲の行が無い本文を消した滞在の窓（operation_id 無し・その日全体）を、1 日の並びの入れ子の親にするか →「親にしない。窓は ST23 のとおり自分の本文ごと消した区間（後からの件数 0・入れ子なし）として並べ、ほかの区間と B は覆わない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: ほかの本文ごと消した区間・入れ子の B・後からの件数は、窓の無い日と同じ行に出る。窓も ST23 と同じ区間として残り、何も消えない・隠れない（失わない側の費用: 窓の日は本文ごと消した行が窓と通常の区間で重なって 2 行並ぶ（ST23 と同じ見え方））\n乗っている決定: D6, D2\n出所: review/code.md#R2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH08-F",
+      "topic": "CH08 違和感",
+      "kind": "check",
+      "question": "CH08「消した記録の一覧に包まれた滞在を残し、作り直しで隠れた滞在の本文も消す（ST23 Q7・Q8）」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / specs/record-deletion/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（11 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ CH08-nested（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261030-182040-e917111\\scenarios\\CH08-nested\\video.webm",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261030-1819/CH08-spec.html"
+    }
+  ]
+}

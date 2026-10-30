@@ -1,0 +1,25 @@
+{
+  "tag": "20261030-1819",
+  "run_id": "20261030-182040-e917111",
+  "commit": "e9171112cf6948b87d43dd8e818b648ab7853698",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261030-182040-e917111",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261030-182040-e917111",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "CH08-nested",
+      "story": "CH08",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/CH08-nested/video.webm",
+      "trace": "scenarios/CH08-nested/trace.zip"
+    }
+  ],
+  "uncovered_stories": []
+}
