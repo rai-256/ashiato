@@ -22,6 +22,10 @@ pub enum RestoreError {
     UserMismatch,
     /// 戻すことになる記録に、本文を消したものがある（design D6。何も書かずに断る）。
     Purged,
+    /// 戻す滞在が、本文ごと消した時間帯と重なり、同じまとまりの中で作り直すと一覧に残らない（CH08 design D4 の 3）。
+    NotRestorable,
+    /// 戻せるかを確かめる作り直しが落ちた（CH08 design D4 の 4）。何も戻していない。
+    RebuildFailed(anyhow::Error),
     Database(sqlx::Error),
 }
 
@@ -95,7 +99,23 @@ impl EraseOutcome {
 pub struct RestoreOutcome {
     pub stays: u64,
     pub locations: u64,
+    /// commit の後に呼び出し側が作り直す日。本文ごと消した時間帯と重なる戻しは commit の前に作り直し済みで、空になる。
     pub rebuild_days: Vec<(uuid::Uuid, NaiveDate)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// 戻せるかを確かめる作り直しの台帳の範囲（試験が不正な値を差し込んで作り直しを落とす口。CH08 design D4）。
+    pub(crate) static RESTORE_REBUILD_SCOPE: std::cell::RefCell<Option<&'static str>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn restore_rebuild_scope() -> &'static str {
+    #[cfg(test)]
+    if let Some(scope) = RESTORE_REBUILD_SCOPE.with(|s| *s.borrow()) {
+        return scope;
+    }
+    "event"
 }
 
 /// 要求内の滞在を原因とする最新の `erase` だけを、一つの transaction で戻す。
@@ -204,14 +224,27 @@ pub async fn restore(
             restored_locations += 1;
         }
     }
-    tx.commit().await?;
-
     let mut rebuild_days = Vec::new();
+    let mut overlapping = Vec::new();
     for stay in stays {
         if !restored_causes.contains(&stay.id) {
             continue;
         }
         let (start, end) = stay_store::span_of(stay.event_time, &stay.payload);
+        // 本文ごと消した時間帯と重なるか（端が触れるだけは重ならない）
+        let overlaps: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+               SELECT 1 FROM core.stay_erased_purge
+                WHERE user_id = $1 AND purged AND start_at < $3 AND end_at > $2)",
+        )
+        .bind(stay.user_id)
+        .bind(start)
+        .bind(end)
+        .fetch_one(&mut *tx)
+        .await?;
+        if overlaps {
+            overlapping.push(stay.id);
+        }
         let first = stay_store::jst_date(start);
         let last = stay_store::jst_date(end);
         for day in first.iter_days().take_while(|day| *day <= last) {
@@ -220,6 +253,26 @@ pub async fn restore(
             }
         }
     }
+
+    if !overlapping.is_empty() {
+        // 戻した結果が一覧に残るかを、同じまとまりの中で作り直して確かめる（CH08 design D4）。
+        for (user, day) in &rebuild_days {
+            stay_store::rebuild_day_in(&mut tx, *user, *day, restore_rebuild_scope())
+                .await
+                .map_err(RestoreError::RebuildFailed)?;
+        }
+        let kept: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE id = ANY($1) AND deleted_at IS NULL",
+        )
+        .bind(&overlapping)
+        .fetch_one(&mut *tx)
+        .await?;
+        if usize::try_from(kept).ok() != Some(overlapping.len()) {
+            return Err(RestoreError::NotRestorable);
+        }
+        rebuild_days.clear();
+    }
+    tx.commit().await?;
 
     Ok(RestoreOutcome {
         stays: restored_stays,

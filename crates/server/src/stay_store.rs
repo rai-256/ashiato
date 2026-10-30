@@ -682,22 +682,28 @@ async fn rebuild_day_using(
     ledger_scope: &str,
 ) -> anyhow::Result<DayOutcome> {
     let mut tx = pool.begin().await?;
-    lock(&mut tx, user).await?;
-    let c = ensure_criteria(&mut tx, user).await?;
-    let bounds = day_bounds(day);
-    mark_late_arrivals(
-        &mut tx,
-        user,
-        &with_archive_sources(&c.sources),
-        bounds,
-        false,
-    )
-    .await?;
-    let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
+    let out = rebuild_day_in(&mut tx, user, day, ledger_scope).await?;
+    tx.commit().await?;
+    Ok(out)
+}
 
-    let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
+/// `rebuild_day` の本体。呼び出し側のトランザクションで走り、commit も rollback もしない
+/// （戻す口が、戻した結果を同じまとまりの中で作り直して確かめる。CH08 design D4）。錠は同じ鍵を取り直すだけ。
+pub(crate) async fn rebuild_day_in(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    day: NaiveDate,
+    ledger_scope: &str,
+) -> anyhow::Result<DayOutcome> {
+    lock(tx, user).await?;
+    let c = ensure_criteria(tx, user).await?;
+    let bounds = day_bounds(day);
+    mark_late_arrivals(tx, user, &with_archive_sources(&c.sources), bounds, false).await?;
+    let (lo, hi) = settle_range(tx, user, &c, bounds).await?;
+
+    let points = load_points(&mut **tx, user, &c.sources, lo, hi).await?;
     let fresh = stay::detect(&points, &c);
-    let existing = load_existing(&mut tx, user, lo, hi).await?;
+    let existing = load_existing(tx, user, lo, hi).await?;
     let erased: Vec<_> = existing
         .iter()
         .filter(|e| e.mark == Mark::UserDeleted)
@@ -724,21 +730,21 @@ async fn rebuild_day_using(
                     continue;
                 }
                 if e.raw != raw {
-                    push_version(&mut tx, e.id).await?;
+                    push_version(tx, e.id).await?;
                 }
-                update_stay(&mut tx, e, f, &raw, hide).await?;
+                update_stay(tx, e, f, &raw, hide).await?;
                 out.updated += 1;
             }
             None => {
                 let id = uuid::Uuid::new_v4();
                 ids.push(id);
-                insert_stay(&mut tx, user, id, f, &raw, hide).await?;
+                insert_stay(tx, user, id, f, &raw, hide).await?;
                 out.created += 1;
             }
         }
     }
     for (j, into) in &plan.absorbed {
-        absorb(&mut tx, user, &existing[*j], into.map(|i| ids[i]), c.id).await?;
+        absorb(tx, user, &existing[*j], into.map(|i| ids[i]), c.id).await?;
         out.absorbed += 1;
     }
     for (j, parent) in hidden {
@@ -747,7 +753,7 @@ async fn rebuild_day_using(
             continue;
         };
         crate::deletion::purge_hidden_overlap(
-            &mut tx,
+            tx,
             crate::deletion::HiddenOverlap {
                 user_id: user,
                 event_id: l.id,
@@ -763,7 +769,6 @@ async fn rebuild_day_using(
         )
         .await?;
     }
-    tx.commit().await?;
     Ok(out)
 }
 

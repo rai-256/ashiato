@@ -189,6 +189,9 @@ mod purge_late_tests;
 /// 起動時の手当て（本文ごと消した後に作り直しで隠れた重なる滞在の本文を消す）を本物の DB で見る（CH08 Task 2 / design D5）。
 #[cfg(test)]
 mod purge_remedy_tests;
+/// 戻す口の断り（本文ごと消した時間帯と重なる消した滞在を、戻した結果で確かめて断る）を HTTP の口から見る（CH08 Task 3 / design D4）。
+#[cfg(test)]
+mod purge_restore_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
@@ -2211,7 +2214,7 @@ pub async fn stays_erase(
 /// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
 #[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
     responses((status = 200, body = RestoreResponse), (status = 401), (status = 404),
-        (status = 409)))]
+        (status = 409), (status = 503)))]
 pub async fn stays_restore(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2230,6 +2233,20 @@ pub async fn stays_restore(
                 (StatusCode::NOT_FOUND, "stay_not_found".into())
             }
             deletion::RestoreError::Purged => (StatusCode::CONFLICT, "purged_restore".into()),
+            deletion::RestoreError::NotRestorable => {
+                (StatusCode::CONFLICT, "not_restorable".into())
+            }
+            deletion::RestoreError::RebuildFailed(e) => {
+                tracing::error!(
+                    kind = "stay.rebuild",
+                    failure = %stay_store::failure_kind(&e),
+                    "戻せるかを確かめる作り直しに失敗（何も戻していない）"
+                );
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "restore_rebuild_failed".into(),
+                )
+            }
             deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
         })?;
 
