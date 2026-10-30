@@ -42,7 +42,8 @@ S01_LINES_JQ='to_entries[] | .key as $g | .value | to_entries[] | "\($g).\(.key)
 const_of() { sed -n 's/^[[:space:]]*\(pub \)\{0,1\}const \(val \)\{0,1\}CONTRACT_VERSION: [A-Za-z0-9]* = \([0-9][0-9]*\).*/\3/p' "$1" | head -1; }
 
 # 差分の欄の名前（"<部>.<口>.<欄>" の重複なし）
-drift_names() { diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | sed -n 's/^[<>] \([^=]*\)=.*/\1/p' | sort -u; }
+# diff は差があると rc=1 を返す（errexit と pipefail で台本が無言で止まらないよう吸う）
+drift_names() { { diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") || true; } | sed -n 's/^[<>] \([^=]*\)=.*/\1/p' | sort -u; }
 
 # 今いる git の木を検査する。0: 通る / 1: 落ちる
 check_tree() {
@@ -154,7 +155,9 @@ new_tree() {
   n=$((n + 1))
   T="$work/t$n"
   mkdir -p "$T/docs/contract" "$T/$(dirname "$SERVER_CONST")" "$T/$(dirname "$WINDOWS_CONST")" \
-    "$T/$(dirname "$ANDROID_CONST")" "$T/$FIXTURES/v1"
+    "$T/$(dirname "$ANDROID_CONST")" "$T/$FIXTURES/v1" "$T/tools"
+  # CI と同じ呼び方（別の bash・errexit が効く）で確かめるため、台本の写しを木に置く
+  cp "$ROOT/tools/check-contract-version.sh" "$T/tools/"
   git -C "$T" init -q
   git -C "$T" config user.email t@example.com
   git -C "$T" config user.name t
@@ -190,7 +193,7 @@ bump_all() {
 # 期待: $1=0 通る / 1 落ちる（印の echo は呼ぶ側に literal で置く。check_scenarios.py が literal を拾う）
 expect() {
   local want="$1" rc=0 out
-  out="$(cd "$T" && check_tree 2>&1)" || rc=$?
+  out="$(cd "$T" && bash tools/check-contract-version.sh 2>&1)" || rc=$?
   if [ "$rc" -ne "$want" ]; then
     echo "  FAIL: rc=$rc（期待 $want）"; printf '%s\n' "$out" | sed 's/^/    /'
     fail=1
@@ -199,7 +202,7 @@ expect() {
 # 落ちる場合は出力に $2 が含まれること（どの検査で落ちたかを見る）
 expect_msg() {
   local out rc=0
-  out="$(cd "$T" && check_tree 2>&1)" || rc=$?
+  out="$(cd "$T" && bash tools/check-contract-version.sh 2>&1)" || rc=$?
   if [ "$rc" -ne 1 ] || ! printf '%s\n' "$out" | grep -qF -- "$1"; then
     echo "  FAIL: rc=$rc で「$1」が出ない"; printf '%s\n' "$out" | sed 's/^/    /'
     fail=1
