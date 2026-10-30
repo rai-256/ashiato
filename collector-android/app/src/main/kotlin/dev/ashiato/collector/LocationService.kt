@@ -1009,6 +1009,7 @@ open class LocationService : Service() {
                 // 接続の有無はメディアだけ別の欄に載せる（D7）。取得可否には含めない
                 network = running.stages?.let { { hasNetwork(this) } },
                 onStored = { running.stages?.reset() },
+                version = BuildConfig.COMPONENT_VERSION,
             )
             // **起動時の 1 発も守る**（review/code.md の R36 / I7）。
             // `readCapability()`（端末を読む）も `outbox.add()`（filesDir への追記）も投げうる。

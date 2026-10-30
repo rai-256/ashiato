@@ -141,18 +141,13 @@ class St49OutboxTest {
         assertFalse("移した行に版が書き込まれた", sendFirst(into).containsKey("client_version"))
     }
 
-    // Scenario: 携帯の生存信号には版が書き込まれない
+    // 記録の溜めには同じ配線で印が書かれる（生存信号は ST51 が欄と原文に持たせる。`St51HeartbeatVersionTest`）
     @Test
-    fun heartbeatHasNoVersion() {
+    fun recordOutboxCarriesStamp() {
         val service = Robolectric.buildService(TestableLocationService::class.java, android.content.Intent())
             .create().startCommand(0, 1).get()
-        service.beatScheduler.fire()
         service.outboxForTest.add(req("rec-1"))
 
-        val beats = service.heartbeatOutboxForTest.headStored(10)
-        assertTrue("生存信号が積まれていない", beats.isNotEmpty())
-        assertTrue("生存信号に版が書き込まれた", beats.none { it.json?.containsKey("client_version") == true })
-        // 記録の溜めには同じ配線で印が書かれる（対の確認。印の値は組み立ての印）
         val record = service.outboxForTest.headStored(10).single { it.item.id == "rec-1" }
         assertEquals(BuildConfig.COMPONENT_VERSION, record.json!!["client_version"]!!.jsonPrimitive.content)
     }
