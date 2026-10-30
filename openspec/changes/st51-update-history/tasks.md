@@ -37,20 +37,20 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 1: 移行（更新の履歴の表と門・生存信号の版の列・版の変化のビュー）と付与
 
-- [ ] 1.1 `migrations/<YYYYMMDDHHMM>_update_history.sql` と `.down.sql` を作り、`migrations/ORDER` の末尾へ 1 行足す。前進側:
+- [x] 1.1 `migrations/<YYYYMMDDHHMM>_update_history.sql` と `.down.sql` を作り、`migrations/ORDER` の末尾へ 1 行足す。前進側:
   `core.update_history`（列と型と NULL の可否は `specs/distribution` の表どおり。`seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY`。`component = 'S-01'`・`via IN ('migrate','startup')`・
   `outcome IN ('attempted','applied','nothing_to_apply','failed','backup_failed')` の CHECK）、門 `core.reject_update_history_rewrite()`（BEFORE UPDATE OR DELETE の行の trigger と TRUNCATE の文の trigger。所有者でも断る —— `core.reject_heartbeat_rewrite` と同じ形）、
   `ALTER TABLE core.heartbeat ADD COLUMN IF NOT EXISTS collector_version text NULL`、ビュー `core.collector_version_change`（D5・D6。列は D11 の 8 つ。`c01-`・`c02-` の信号だけ、端末が空なら空の 1 つの並び。`pg_input_is_valid(raw, 'jsonb')` で原文を確かめてから読む）。
   `.down.sql` は逆順に消し、版の記録の自分の行を消す
   検証: `./tools/check-migrations.sh` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0
-- [ ] 1.2 `crates/server/src/grants.sql` の全部の表への付与の後ろに `REVOKE UPDATE, DELETE ON core.update_history FROM ashiato_app;` を足す（D10）。`update_history_tests.rs` に:
+- [x] 1.2 `crates/server/src/grants.sql` の全部の表への付与の後ろに `REVOKE UPDATE, DELETE ON core.update_history FROM ashiato_app;` を足す（D10）。`update_history_tests.rs` に:
   - `st51_form_fixed` — `// Scenario: 更新の履歴の置き場と列の形は、決めた形のまま変わらない`（information_schema の名前・型・NULL の可否を Requirement の表と一字一句で突き合わせる）
   - `st51_form_rejects_unknown_via` — `// Scenario: 決めていない値の行は入らない`
   - `st51_form_heartbeat_column` — 生存信号の `collector_version` が text・NULL 可（D4）
   - `st51_rows_cannot_be_rewritten` — `// Scenario: 更新の履歴の行は書き換えられない`（所有者とアプリの役割の両方で UPDATE・DELETE）
   - `st51_rows_app_role_reads_and_inserts` — `// Scenario: S-01 の実行時の役割は、更新の履歴を読み、足せる`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_form_ && test "$(cargo test -p ashiato-server st51_form_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_rows_ && test "$(cargo test -p ashiato-server st51_rows_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server app_role_tests && test "$(cargo test -p ashiato-server app_role_tests -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0（既存のアプリの役割の試験が通る）
-- [ ] 1.3 `tools/check-immutable.d/<YYYYMMDDHHMM>_st51-update-history.sh` を足す（README の形。`core` を作り直してから付与を当て直し、所有者と `app_psql` の両方から更新の履歴の UPDATE・DELETE・TRUNCATE を撃って断られることを見る）
+- [x] 1.3 `tools/check-immutable.d/<YYYYMMDDHHMM>_st51-update-history.sh` を足す（README の形。`core` を作り直してから付与を当て直し、所有者と `app_psql` の両方から更新の履歴の UPDATE・DELETE・TRUNCATE を撃って断られることを見る）
   検証: `./tools/check-immutable.sh` rc=0 / `./tools/check-shared-appends.sh` rc=0
 
 ## Task 2: migrate の終わりに更新の履歴を書く
