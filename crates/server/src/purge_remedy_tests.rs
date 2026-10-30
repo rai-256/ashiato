@@ -270,3 +270,40 @@ async fn purge_remedy_failure_leaves_the_body_and_the_next_startup_empties_it() 
     assert_eq!(remedy(&pool, user).await, 0);
     assert!(emptied(&pool, l).await, "次の起動で本文が空にならない");
 }
+
+// Scenario: 手当てが失敗しても起動は止まらず、次の起動で消える
+#[tokio::test]
+async fn purge_remedy_lock_timeout_reports_the_candidates_left() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    purged(&pool, user).await;
+    let l = absorbed_overlap(&pool, user).await;
+    // 作り直しが錠を持っている間に起動した（錠の待ちが 5 秒で切れる）
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let captured = Captured::default();
+    let sink = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || sink.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+
+    let left = remedy(&pool, user).await;
+
+    drop(guard);
+    holder.rollback().await.unwrap();
+    assert_eq!(left, 1, "錠で落ちたのに残った件数が 0");
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("count=1"), "{log}");
+    assert!(log.contains("sqlstate=\"55P03\""), "{log}");
+    assert!(kept(&pool, l).await);
+    assert_eq!(remedy(&pool, user).await, 0);
+    assert!(emptied(&pool, l).await);
+}

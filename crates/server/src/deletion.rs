@@ -1301,8 +1301,9 @@ async fn purge_hidden_overlap_remedy_using(
     only_user: Option<uuid::Uuid>,
     ledger_scope: &str,
 ) -> usize {
-    let users: sqlx::Result<Vec<uuid::Uuid>> = sqlx::query_scalar(&format!(
-        "SELECT DISTINCT user_id FROM ({REMEDY_CANDIDATES_SQL}) c ORDER BY user_id"
+    // 利用者ごとの候補の件数は錠の前に持っておく（錠や SELECT で落ちても、残った件数を 0 にしない）
+    let users: sqlx::Result<Vec<(uuid::Uuid, i64)>> = sqlx::query_as(&format!(
+        "SELECT user_id, count(*) FROM ({REMEDY_CANDIDATES_SQL}) c GROUP BY user_id ORDER BY user_id"
     ))
     .bind(only_user)
     .fetch_all(pool)
@@ -1315,8 +1316,8 @@ async fn purge_hidden_overlap_remedy_using(
         }
     };
     let mut remaining = 0;
-    for user in users {
-        match remedy_user(pool, user, ledger_scope).await {
+    for (user, candidates) in users {
+        match remedy_user(pool, user, candidates as usize, ledger_scope).await {
             Ok(()) => {}
             Err((left, state)) => {
                 remaining += left;
@@ -1354,9 +1355,11 @@ fn warn_remedy(left: Option<usize>, sqlstate: String) {
 async fn remedy_user(
     pool: &PgPool,
     user: uuid::Uuid,
+    candidates_before_lock: usize,
     ledger_scope: &str,
 ) -> Result<(), (usize, String)> {
-    let mut left = 0;
+    // 対象の一覧を作り終えるまでは、錠の前に数えた候補の件数を残りとして返す
+    let mut left = candidates_before_lock;
     let result = async {
         let mut tx = pool.begin().await?;
         sqlx::query("SET LOCAL lock_timeout = '5s'")
@@ -1372,6 +1375,7 @@ async fn remedy_user(
             .bind(Some(user))
             .fetch_all(&mut *tx)
             .await?;
+        left = candidates.len();
         // 本文ごと消した操作（本人の操作）と、その時間帯
         let windows: Vec<(uuid::Uuid, uuid::Uuid, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
             "SELECT id, stay_id, start_at, end_at FROM core.erasure_operation
