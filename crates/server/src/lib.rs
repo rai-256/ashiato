@@ -239,6 +239,9 @@ pub mod update_history;
 /// 更新の履歴の置き場・形・門・付与（ST51 / design D4 / D10）。
 #[cfg(test)]
 mod update_history_tests;
+/// 版の変わり目の受け口（ST51 / design D6 / D13）。
+#[cfg(test)]
+mod version_change_tests;
 /// 画面のログイン（ST28 / design D1 / D2 / D3）。
 pub mod web_session;
 #[cfg(test)]
@@ -3174,8 +3177,9 @@ async fn heartbeat_one(
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.heartbeat
            (id, user_id, logical_source, device_id, emitted_at,
-            capturable, blockers, attempts, successes, content_hash, raw, network)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            capturable, blockers, attempts, successes, content_hash, raw, network,
+            collector_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (user_id, logical_source, content_hash) DO NOTHING
          RETURNING id",
     )
@@ -3191,6 +3195,7 @@ async fn heartbeat_one(
     .bind(&hash)
     .bind(&req.raw)
     .bind(req.network)
+    .bind(req.component_version())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| internal_at("heartbeat.insert", e))?;

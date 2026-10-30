@@ -785,6 +785,7 @@ fn heartbeat_hash_is_pinned() {
         attempts: 360,
         successes: 230,
         network: None,
+        client_version: None,
         raw: r#"{"alive":true}"#.into(),
     };
     assert_eq!(
