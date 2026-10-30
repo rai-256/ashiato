@@ -108,4 +108,11 @@ async fn purge_visible_overlap_added_after_preview_does_not_block_purge() {
 
     assert_eq!(code, StatusCode::OK, "{body}");
     assert!(kept(&app.pool, l).await);
+    let listed: bool =
+        sqlx::query_scalar("SELECT deleted_at IS NULL FROM core.event WHERE id = $1")
+            .bind(l)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert!(listed, "L は一覧に出たまま（削除の印が付かない）");
 }
