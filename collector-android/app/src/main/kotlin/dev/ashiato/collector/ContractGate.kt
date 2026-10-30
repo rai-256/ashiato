@@ -201,6 +201,13 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
 }
 
 /**
+ * 7 日前の知らせへ添える案内。再起動の後は理由がメモリに無い（[ContractGate.known] が偽）ので、
+ * 確かめるまでは画面の行と同じ SharedPreferences の写しに頼る（D6・D24（仮））。
+ */
+fun contractHeadlineFor(gate: ContractGate, store: ContractWaitStore): String? =
+    if (gate.known) gate.reasons.headline else store.notice?.headline
+
+/**
  * 送る契機の頭の確かめと、その結果を状態へ取り込む係（D18（仮）。答えを覚えない）。
  * [probe] は `GET /contract` を打つ口（試験は偽物に差し替える）。
  */

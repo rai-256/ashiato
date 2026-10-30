@@ -380,4 +380,18 @@ class St50ContractNoticeTest {
         assertNotNull("7 日前の知らせが出ていない", text)
         assertTrue(text!!, text.contains(CONTRACT_NETWORK_HEADLINE))
     }
+
+    @Test
+    fun `再起動の後で確かめる前でも、写しが残っていれば 7 日前の知らせに案内を添える`() {
+        ContractWaitStore(prefs()).notice = ContractNotice(onlyUnreadable = false, days = 20)
+        val restarted = Process()
+        assertFalse(restarted.gate.known)
+        assertEquals(CONTRACT_UPDATE_HEADLINE, contractHeadlineFor(restarted.gate, restarted.store))
+    }
+
+    @Test
+    fun `写しが無く確かめてもいなければ案内は無い`() {
+        val fresh = Process()
+        assertNull(contractHeadlineFor(fresh.gate, fresh.store))
+    }
 }
