@@ -649,6 +649,7 @@ impl<'a> Runtime<'a> {
             &cap,
             attempts,
             successes,
+            &self.build_stamp,
         )
         .and_then(|sig| self.beats.add(sig))
         {
@@ -754,6 +755,7 @@ impl<'a> Runtime<'a> {
             &cap,
             attempts,
             successes,
+            &self.build_stamp,
         )
         .and_then(|sig| self.beats.add(sig))
         {
@@ -2935,35 +2937,133 @@ mod tests {
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
-    /// 生存信号の行には版の欄を書かない（積んだ行・送った要求の両方）。
+    /// 止めている間は送れない取り込み口（見回りの中の送信で置き場が空にならないように）
+    #[derive(Debug)]
+    struct Switch {
+        up: std::cell::Cell<bool>,
+        inner: AcceptAll,
+    }
+
+    impl Switch {
+        fn down() -> Self {
+            Self {
+                up: std::cell::Cell::new(false),
+                inner: AcceptAll::default(),
+            }
+        }
+    }
+
+    impl Transport for Switch {
+        fn post(&self, path: &str, body: &str, contract_version: u32) -> anyhow::Result<Reply> {
+            if self.up.get() {
+                self.inner.post(path, body, contract_version)
+            } else {
+                anyhow::bail!("取り込み口が止まっている")
+            }
+        }
+
+        fn get(&self, path: &str) -> anyhow::Result<Reply> {
+            self.inner.get(path)
+        }
+    }
+
+    /// 止めた取り込み口で 1 時間回し、生存信号を未送信に積んだままの組み立てを返す。
+    fn runtime_with_queued_beats<'a>(
+        cfg: &Config,
+        transport: &'a Switch,
+        stamp: &str,
+    ) -> Runtime<'a> {
+        let mut rt = Runtime::new(
+            cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap();
+        rt.set_build_stamp(stamp);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 3600, 60);
+        rt
+    }
+
+    fn queued_beat_lines(cfg: &Config) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(cfg.state_dir.join("heartbeat.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    /// 印 A で積んだ生存信号を、印 D の組み立てで開き直して送る。欄も原文も A のまま。
     ///
-    /// Scenario: PC の生存信号には版が書き込まれない
+    /// Scenario: PC の生存信号は、積んだときの版を欄と原文に持つ
     #[test]
-    fn st49_c02_heartbeat_has_no_version() {
-        /// 止めている間は送れない取り込み口（見回りの中の送信で置き場が空にならないように）
-        #[derive(Debug)]
-        struct Switch {
-            up: std::cell::Cell<bool>,
-            inner: AcceptAll,
-        }
-        impl Transport for Switch {
-            fn get(&self, path: &str) -> anyhow::Result<Reply> {
-                self.inner.get(path)
-            }
-            fn post(&self, path: &str, body: &str, version: u32) -> anyhow::Result<Reply> {
-                if self.up.get() {
-                    self.inner.post(path, body, version)
-                } else {
-                    anyhow::bail!("取り込み口が止まっている")
-                }
-            }
-        }
+    fn st51_c02_heartbeat_keeps_enqueued_version() {
         let held = cfg();
         let cfg = held.config();
-        let transport = Switch {
-            up: std::cell::Cell::new(false),
-            inner: AcceptAll::default(),
-        };
+        let transport = Switch::down();
+        {
+            let rt = runtime_with_queued_beats(cfg, &transport, STAMP_A);
+            assert!(rt.pending().1 >= 1, "生存信号が積まれていない");
+        }
+        let lines = queued_beat_lines(cfg);
+        assert!(!lines.is_empty(), "生存信号が置き場に積まれていない");
+        for l in &lines {
+            assert_eq!(l["client_version"], STAMP_A, "{l}");
+            let raw: serde_json::Value = serde_json::from_str(l["raw"].as_str().unwrap()).unwrap();
+            assert_eq!(raw["client_version"], STAMP_A, "{l}");
+        }
+        let (accept, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = runtime(cfg, Engine::new(Exclusions::default()), &accept, &reference);
+        rt.set_build_stamp(STAMP_D);
+        rt.send();
+        let beats = sent(&accept, "/heartbeat");
+        assert!(beats.len() >= lines.len(), "積んだ生存信号が送られていない");
+        for b in &beats {
+            assert_eq!(b["client_version"], STAMP_A, "{b}");
+            let raw: serde_json::Value = serde_json::from_str(b["raw"].as_str().unwrap()).unwrap();
+            assert_eq!(raw["client_version"], STAMP_A, "{b}");
+        }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 版の欄を持たない溜めた行は、今の版を足さずに送る。
+    ///
+    /// Scenario: PC の版の欄を持たない溜めた生存信号は、版の無いまま送られる
+    #[test]
+    fn st51_c02_old_heartbeat_sent_without_version() {
+        let held = cfg();
+        let cfg = held.config();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        let line = r#"{"id":"00000000-0000-0000-0000-0000000000a1","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c02-window","device_id":"dev-1","emitted_at":"2026-09-13T00:00:00.000Z","capturable":true,"blockers":[],"attempts":1,"successes":1,"raw":"{\"alive\":true}"}"#;
+        std::fs::write(cfg.state_dir.join("heartbeat.jsonl"), format!("{line}\n")).unwrap();
+        let (accept, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = runtime(cfg, Engine::new(Exclusions::default()), &accept, &reference);
+        rt.set_build_stamp(STAMP_D);
+        rt.send();
+        let beats = sent(&accept, "/heartbeat");
+        let old = beats
+            .iter()
+            .find(|b| b["id"] == "00000000-0000-0000-0000-0000000000a1")
+            .expect("古い行が送られていない");
+        assert!(old.get("client_version").is_none(), "{old}");
+        assert_eq!(old["raw"], r#"{"alive":true}"#);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 起動の直後に、生存信号が 1 件積まれる（`Schedule::new()` の最初の `due`）。
+    #[test]
+    fn st51_c02_heartbeat_first_after_start() {
+        let held = cfg();
+        let cfg = held.config();
+        let transport = Switch::down();
         let mut rt = Runtime::new(
             cfg,
             zone(),
@@ -2977,22 +3077,31 @@ mod tests {
             t(0),
         )
         .unwrap();
-        rt.set_build_stamp(STAMP_A);
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
-        run(&mut rt, &mut src, 0, 3600, 60);
-        // 送る前の未送信の置き場を読む（無ければ落ちる。1 行以上あることを確かめてから版の欄を見る）
-        let file = std::fs::read_to_string(cfg.state_dir.join("heartbeat.jsonl")).unwrap();
+        assert_eq!(rt.pending().1, 0, "起動だけでは積まれない");
+        rt.tick_at(&mut src, t(0), t(0));
+        assert_eq!(rt.pending().1, 1, "起動の直後の 1 件が積まれない");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 生存信号は未送信に溜まり、送る前に落とした後も残る。
+    #[test]
+    fn st51_c02_heartbeat_is_queued() {
+        let held = cfg();
+        let cfg = held.config();
+        let transport = Switch::down();
+        {
+            let rt = runtime_with_queued_beats(cfg, &transport, STAMP_A);
+            assert!(rt.pending().1 >= 1, "生存信号が溜まらない");
+        }
+        let (accept, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let rt = runtime(cfg, Engine::new(Exclusions::default()), &accept, &reference);
+        assert!(rt.pending().1 >= 1, "落とした後に生存信号が残っていない");
         assert!(
-            file.lines().count() >= 1,
-            "生存信号が置き場に積まれていない"
+            sent(&accept, "/heartbeat").is_empty(),
+            "開いただけで送られた"
         );
-        assert!(!file.contains("client_version"), "{file}");
-        transport.up.set(true);
-        rt.send();
-        let beats = sent(&transport.inner, "/heartbeat");
-        assert!(!beats.is_empty(), "生存信号が送られていない");
-        assert!(beats.iter().all(|b| b.get("client_version").is_none()));
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 

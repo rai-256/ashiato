@@ -394,6 +394,10 @@ pub struct HeartbeatRequest {
     /// そのうち成功した回数。**試行を超えない**（超えると受け口が断る）
     pub successes: i32,
     pub raw: String,
+    /// 積んだ時点の C-02 の組み立ての印（ST51 / design D12）。**送る時点の版で書き換えない**。
+    /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<String>,
     /// 積んだ時の送信契約の版（`IngestRequest.contract_version` と同じ）
     #[serde(default = "one")]
     pub contract_version: u32,
@@ -543,8 +547,8 @@ mod tests {
             capturable: false,
             blockers: vec!["x".into()],
         };
-        let beat =
-            crate::heartbeat::signal(uuid::Uuid::nil(), "dev", at(), &cap, 1, 0).expect("組み立て");
+        let beat = crate::heartbeat::signal(uuid::Uuid::nil(), "dev", at(), &cap, 1, 0, "0.1.0")
+            .expect("組み立て");
         json!({"ingest": envelope_shape(&full, &empty), "heartbeat": envelope_shape(&beat, &beat)})
     }
 

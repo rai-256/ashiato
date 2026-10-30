@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -18,7 +19,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.FileInputStream
 
 /**
  * 休止の対象のままの端末で、画面の 1 行と「設定を開く」が**本物の端末で見えて押せる**こと（ST13 / design D12（仮））。
@@ -35,6 +35,9 @@ class UnusedAppRestrictionsInstrumentedTest {
         Manifest.permission.ACCESS_COARSE_LOCATION,
         Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.POST_NOTIFICATIONS,
+        // 入口が位置の後に写真と動画の権限も求める（ST09 design D6）。許可済みにしないと権限の画面が 1 行を覆う ——
+        // suite の並びで先に写真の試験が許可を残したときだけ通っていた（単独で走らせると毎回落ちる）
+        *mediaPermissionsToAsk(android.os.Build.VERSION.SDK_INT).toTypedArray(),
     )
 
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -79,9 +82,10 @@ class UnusedAppRestrictionsInstrumentedTest {
         )
     }
 
+    // PFD を読み終えるまで持つ（AutoCloseInputStream）。fd だけを FileInputStream に渡すと、読む前に PFD が回収され
+    // finalizer が別のスレッドで fd を閉じる（FeelingReminderInstrumentedTest の CI の赤と同じ穴）
     private fun shell(cmd: String): String =
-        instrumentation.uiAutomation.executeShellCommand(cmd)
-            .let { FileInputStream(it.fileDescriptor) }
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(cmd))
             .use { it.readBytes().toString(Charsets.UTF_8) }
 
     private fun waitUntil(timeoutMs: Long = TIMEOUT_MS, check: () -> Boolean): Boolean {

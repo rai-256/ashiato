@@ -374,6 +374,7 @@ mod tests {
                 &crate::heartbeat::Capability::from_blockers(&std::collections::BTreeSet::new()),
                 1,
                 1,
+                "0.1.0",
             )
             .unwrap()
         };

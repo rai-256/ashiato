@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,7 +23,6 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.FileInputStream
 import java.util.regex.Pattern
 
 /**
@@ -52,8 +52,10 @@ class PermissionDeniedInstrumentedTest {
     private val device: UiDevice get() = UiDevice.getInstance(instrumentation)
     private val pkg: String get() = context.packageName
 
+    // PFD を読み終えるまで持つ（AutoCloseInputStream）。fd だけを FileInputStream に渡すと、読む前に PFD が回収され
+    // finalizer が別のスレッドで fd を閉じる（FeelingReminderInstrumentedTest の CI の赤と同じ穴）
     private fun shell(cmd: String): String =
-        FileInputStream(instrumentation.uiAutomation.executeShellCommand(cmd).fileDescriptor)
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(cmd))
             .use { it.readBytes().toString(Charsets.UTF_8) }
 
     /**

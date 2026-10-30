@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use super::{Class, CATALOG};
+use super::{Class, CATALOG, COLLECTOR_VERSION_CHANGES_FILE, UPDATE_HISTORY_FILE};
 
 /// 同じ内容の行を 1 件として読む規則（C3）。`core.event_folded`（`202609120943_version_and_ledger.sql`）の定義と
 /// 食い違わないことを、テストが `pg_get_viewdef` と突き合わせる。**ビューが変わったらここを合わせる。**
@@ -50,6 +50,19 @@ pub fn not_included() -> Vec<String> {
     out
 }
 
+/// ファイル全体の説明（列の説明では足りないもの。ST51）。名前は `export` の定数で引く（目録・並べ方と同じ定数）。
+fn file_note(name: &str) -> Option<&'static str> {
+    match name {
+        UPDATE_HISTORY_FILE => Some(
+            "S-01 が自分の版の変化を書いた。前の版が空なら記録の始まり。落ちた回の行は、退避から D-01 を戻すと消えることがある",
+        ),
+        COLLECTOR_VERSION_CHANGES_FILE => Some(
+            "生存信号から導いた。端末・部品ごとに発信の時刻の順に並べて、版が変わった所。収集アプリの申告で、S-01 は確かめていない",
+        ),
+        _ => None,
+    }
+}
+
 /// 説明書（日本語。外の道具なしで読める）。
 pub fn readme(
     export_id: &str,
@@ -76,6 +89,9 @@ pub fn readme(
         s.push_str(&format!("\n  {}\n", f.name));
         s.push_str(&format!("    元: {}\n", f.source));
         s.push_str(&format!("    行の数: {}\n", f.rows));
+        if let Some(note) = file_note(f.name) {
+            s.push_str(&format!("    説明: {note}\n"));
+        }
         s.push_str("    列:\n");
         for (col, meaning) in f.columns {
             s.push_str(&format!("      {col} — {meaning}\n"));

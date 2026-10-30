@@ -577,6 +577,17 @@ mod st48_migrate {
         }
 
         fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
+            self.migrate_with_env(dir, pg_dump, backup, &[])
+        }
+
+        /// `migrate_with` に、`env_clear()` の後に渡す環境変数を足したもの（本物の `pg_dump-docker.sh` が PATH などを要る）。
+        fn migrate_with_env(
+            &self,
+            dir: &Path,
+            pg_dump: &Path,
+            backup: Option<&str>,
+            extra: &[(&str, String)],
+        ) -> Output {
             let mut c = Command::new(env!("CARGO_BIN_EXE_ashiato-server"));
             c.arg("migrate")
                 .env_clear()
@@ -585,6 +596,9 @@ mod st48_migrate {
                 .env("PG_DUMP", pg_dump);
             if let Some(b) = backup {
                 c.env("MIGRATE_BACKUP", b);
+            }
+            for (k, v) in extra {
+                c.env(k, v);
             }
             c.output().unwrap()
         }
@@ -800,11 +814,29 @@ mod st48_migrate {
         after_a_second();
         let out = rig.migrate();
         assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-        assert!(
-            !stderr(&out).contains("kind="),
-            "版の食い違いの種別を出した: {}",
-            stderr(&out)
+        // 版の食い違いの種別（db_ahead など）は出さない。出すのは落ちた版の 1 行（種別 migrate_failed。ST51 D8）だけで、
+        // その行は `error: kind=migrate_failed version=<版> [sqlstate=<5 字>]` の形に限る（後ろに別の種別を足させない）
+        let err = stderr(&out);
+        for mismatch in ["db_ahead", "db_behind", "ledger_unreadable"] {
+            assert!(!err.contains(mismatch), "版の食い違いの種別を出した: {err}");
+        }
+        let kinds: Vec<&str> = err.lines().filter(|l| l.contains("kind=")).collect();
+        assert_eq!(kinds.len(), 1, "種別の行は落ちた版の 1 行だけ: {err}");
+        let mut words = kinds[0].split(' ');
+        assert_eq!(words.next(), Some("error:"), "{err}");
+        assert_eq!(words.next(), Some("kind=migrate_failed"), "{err}");
+        assert_eq!(
+            words.next(),
+            Some("version=202610131200_export_ledger"),
+            "{err}"
         );
+        for rest in words {
+            let code = rest.strip_prefix("sqlstate=");
+            assert!(
+                code.is_some_and(|c| c.len() == 5 && c.chars().all(|ch| ch.is_ascii_alphanumeric())),
+                "落ちた版の行に余計な語がある: {err}"
+            );
+        }
         let recorded: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM migration_ledger.applied WHERE name = '202610131200_export_ledger'",
         )
@@ -1043,5 +1075,289 @@ mod st48_migrate {
         rig.exec("UPDATE migration_ledger.form SET form = 2").await;
         let served = rig.serve_on_held_port();
         assert_refused_3(&served, "ledger_unreadable");
+    }
+
+    // ---- ST51: 更新の履歴（design D8・D15・Q6）。別の印の通った行を先に置き、bin の印と比べる ----
+
+    const OTHER_STAMP: &str = "0.1.0+aaaaaaaa";
+
+    /// 更新の履歴の（outcome, 前の版, 今の版, 落ちた版, SQLSTATE）を書いた順に。
+    async fn history(
+        rig: &Rig,
+    ) -> Vec<(
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    )> {
+        sqlx::query_as(
+            "SELECT outcome, from_version, to_version, failed_version, sqlstate
+               FROM core.update_history ORDER BY seq",
+        )
+        .fetch_all(rig.db.owner())
+        .await
+        .unwrap()
+    }
+
+    impl Rig {
+        /// 1 回通した DB に、別の印 `0.1.0+<commit A>` の通った行を置く（実行時に印を差し替える口は無い。D15）。
+        async fn with_other_stamp_row(&self) {
+            assert_ok(&self.migrate());
+            self.exec(&format!(
+                "INSERT INTO core.update_history (component, via, to_version, outcome)
+                 VALUES ('S-01', 'migrate', '{OTHER_STAMP}', 'applied')"
+            ))
+            .await;
+            after_a_second();
+        }
+
+        /// 最後の版の行を消し、版の記録へ入れるときの誤りの本文に値が入るようにする（その版が当て直しで落ちる）。
+        async fn make_last_version_fail_with_value(&self) -> &'static str {
+            let name = ashiato_server::MIGRATIONS.last().unwrap().0;
+            self.exec(&format!(
+                "CREATE FUNCTION public.st51_leak() RETURNS trigger AS $f$
+                 BEGIN RAISE EXCEPTION 'st51-secret-value'; END $f$ LANGUAGE plpgsql;
+                 CREATE TRIGGER st51_leak BEFORE INSERT ON migration_ledger.applied
+                   FOR EACH ROW EXECUTE FUNCTION public.st51_leak();
+                 DELETE FROM migration_ledger.applied WHERE name = '{name}'"
+            ))
+            .await;
+            name
+        }
+    }
+
+    // Scenario: 移行が落ちた migrate は終了コード 1 で終わり、標準エラーに行の値を出さない
+    #[tokio::test]
+    async fn st51_bin_migrate_failed_exit1_no_value() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        let name = rig.make_last_version_fail_with_value().await;
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), stderr(&out));
+        assert!(
+            !all.contains("st51-secret-value"),
+            "誤りの本文を出した: {all}"
+        );
+        assert!(all.contains(name) && all.contains("P0001"), "{all}");
+        let h = history(&rig).await;
+        assert_eq!(h[h.len() - 2].0, "attempted");
+        let last = &h[h.len() - 1];
+        assert_eq!(last.0, "failed");
+        assert_eq!(last.1.as_deref(), Some(OTHER_STAMP));
+        assert_eq!(last.3.as_deref(), Some(name));
+        assert_eq!(last.4.as_deref(), Some("P0001"));
+        let dump: String =
+            sqlx::query_scalar("SELECT string_agg(u::text, ' ') FROM core.update_history u")
+                .fetch_one(rig.db.owner())
+                .await
+                .unwrap();
+        assert!(!dump.contains("st51-secret-value"), "{dump}");
+    }
+
+    // Scenario: 退避に失敗した回は、版を当てていない行が残る
+    #[tokio::test]
+    async fn st51_bin_migrate_backup_failed_row() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        let failing = rig.fake_pg_dump("pg_dump_fail", false);
+        let out = rig.migrate_with(&rig.backups(), &failing, None);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        let h = history(&rig).await;
+        let n = h.len();
+        assert_eq!(h[n - 2].0, "attempted", "1 つ前の行は試み");
+        assert_eq!(h[n - 2].2, ashiato_server::BUILD_STAMP);
+        assert_eq!(h[n - 1].0, "backup_failed");
+        assert_eq!(h[n - 1].1.as_deref(), Some(OTHER_STAMP));
+        let applied: Vec<String> = sqlx::query_scalar(
+            "SELECT applied_versions FROM core.update_history ORDER BY seq DESC LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(applied.is_empty());
+    }
+
+    // Scenario: 知らない版の当たった DB で止まった migrate は、何も書かない
+    #[tokio::test]
+    async fn st51_bin_migrate_db_ahead_writes_nothing() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        rig.add_future_row().await;
+        let before = history(&rig).await;
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+        assert_eq!(history(&rig).await, before);
+    }
+
+    // bin の migrate の行の今の版は、その bin の組み立ての印と一致する（D15）
+    #[tokio::test]
+    async fn st51_bin_migrate_writes_compiled_stamp() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let h = history(&rig).await;
+        assert_eq!(h.len(), 1, "{h:?}");
+        assert_eq!(h[0].0, "applied");
+        assert_eq!(h[0].1, None);
+        assert_eq!(h[0].2, ashiato_server::BUILD_STAMP);
+    }
+
+    // Scenario: 移行が落ちて退避から D-01 を戻しても、通らなかった回の試みの行が残る
+    #[tokio::test]
+    async fn st51_bin_migrate_attempt_survives_restore() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // 試験の DB が compose の db と同じサーバであることを確かめる（違えば本物の退避で戻せない。飛ばさない）
+        let compose = Command::new("docker")
+            .args(["compose", "port", "db", "5432"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        let compose_port = String::from_utf8_lossy(&compose.stdout)
+            .trim()
+            .rsplit(':')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let test_port = env("DATABASE_OWNER_URL")
+            .rsplit_once('@')
+            .unwrap()
+            .1
+            .split('/')
+            .next()
+            .unwrap()
+            .rsplit(':')
+            .next()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            compose_port, test_port,
+            "試験の DB が compose の db と同じサーバでない（docker compose port db 5432 = {compose_port}）"
+        );
+
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        let name = rig.make_last_version_fail_with_value().await;
+        let mut extra: Vec<(&str, String)> = vec![("PATH", std::env::var("PATH").unwrap())];
+        // compose が読む変数も通す: CI は `.env` を置かず合言葉を job の環境で渡す（tools/ci-db-env.sh）。
+        // 落とすと `docker compose exec` が POSTGRES_PASSWORD の補間で落ち、退避が空になる
+        for k in [
+            "HOME",
+            "DOCKER_HOST",
+            "POSTGRES_PASSWORD",
+            "ASHIATO_DB_PORT",
+            "COMPOSE_FILE",
+            "COMPOSE_PROJECT_NAME",
+        ] {
+            if let Ok(v) = std::env::var(k) {
+                extra.push((k, v));
+            }
+        }
+        let real_dump = root.join("tools/pg_dump-docker.sh");
+        let out = rig.migrate_with_env(&rig.backups(), &real_dump, None, &extra);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        // 先に置いた行を作った migrate（偽の pg_dump）の退避と区別する: 本物の退避は中身がある
+        let dump = std::fs::read_dir(rig.backups())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "dump"))
+            .max()
+            .unwrap();
+        assert!(std::fs::metadata(&dump).unwrap().len() > 100, "{dump:?}");
+
+        // 取った退避を、空の別の DB へ db のコンテナの中の pg_restore で戻す
+        let target = Rig::new().await;
+        let owner = env("DATABASE_OWNER_URL");
+        let creds = owner
+            .split_once("://")
+            .unwrap()
+            .1
+            .split('@')
+            .next()
+            .unwrap();
+        let (user, password) = creds.split_once(':').unwrap();
+        let restore = Command::new("docker")
+            .args([
+                "compose",
+                "exec",
+                "-T",
+                "-e",
+                "PGPASSWORD",
+                "db",
+                "pg_restore",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "5432",
+                "--username",
+                user,
+                "--dbname",
+                &target.db.name,
+                "--no-owner",
+                "--no-privileges",
+            ])
+            .env("PGPASSWORD", password)
+            .current_dir(&root)
+            .stdin(std::fs::File::open(&dump).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            restore.status.success(),
+            "pg_restore が通らない: {}",
+            String::from_utf8_lossy(&restore.stderr)
+        );
+        let h = history(&target).await;
+        let last = h.last().unwrap();
+        assert_eq!(last.0, "attempted", "{h:?}");
+        assert_eq!(last.1.as_deref(), Some(OTHER_STAMP));
+        assert_eq!(last.2, ashiato_server::BUILD_STAMP);
+        let in_ledger: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
+                .bind(name)
+                .fetch_one(target.db.owner())
+                .await
+                .unwrap();
+        assert_eq!(in_ledger, 0, "落ちた版が版の記録にある");
+    }
+
+    // Scenario: migrate を走らせずに入れ替えた S-01 は、起動のときに 1 行を書く
+    #[tokio::test]
+    async fn st51_bin_startup_row_on_swap() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        let before = history(&rig).await;
+        let served = rig.serve();
+        assert!(served.healthy, "{}", stderr(&served.out));
+        let h = history(&rig).await;
+        let last = h.last().unwrap();
+        assert_eq!(h.len(), before.len() + 1, "起動で 1 行だけ足す: {h:?}");
+        assert_eq!(h[..before.len()], before[..], "前の行は変わらない");
+        assert_eq!(last.0, "nothing_to_apply", "{h:?}");
+        assert_eq!(last.1.as_deref(), Some(OTHER_STAMP));
+        assert_eq!(last.2, ashiato_server::BUILD_STAMP);
+    }
+
+    // Scenario: migrate の後に同じ組み立ての S-01 を起動しても、行は増えない
+    #[tokio::test]
+    async fn st51_bin_startup_after_migrate_no_row() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let before = history(&rig).await;
+        let served = rig.serve();
+        assert!(served.healthy, "{}", stderr(&served.out));
+        assert_eq!(history(&rig).await, before);
+    }
+
+    // Scenario: 版の検査で断られた起動は、何も書かない
+    #[tokio::test]
+    async fn st51_bin_startup_refused_writes_nothing() {
+        let rig = Rig::new().await;
+        rig.with_other_stamp_row().await;
+        rig.add_future_row().await;
+        let before = history(&rig).await;
+        let served = rig.serve();
+        assert_refused_3(&served, "db_ahead");
+        assert_eq!(history(&rig).await, before);
     }
 }

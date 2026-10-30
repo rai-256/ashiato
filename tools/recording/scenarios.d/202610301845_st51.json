@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST51": "画面にも収集アプリの見た目にも出るものが無い（proposal「画面・API・格子・途絶の判定は変えない」。Q5 の推奨・C9）。Android と Windows で変えたのは生存信号に積むときの版（client_version。欄と原文）だけで、通知・設定画面・トレイは変わらない。サーバの側は更新の履歴（D-01 の表）と書き出しの 2 つのファイルで、どちらも画面に出ない。生存信号に版が載ることは St51HeartbeatVersionTest（Android）と crates/collector-windows の heartbeat / runtime の試験が、更新の履歴と書き出しは crates/server の update_history_tests・export_update_history_tests・tests/server_startup.rs が見る"
+  }
+}

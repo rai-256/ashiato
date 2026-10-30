@@ -54,6 +54,13 @@ data class HeartbeatRequest(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val network: Boolean? = null,
+    /**
+     * 積んだときの収集アプリの版（ST51 / design D12）。**無いときは欄ごと送らない** ——
+     * 版の欄を足す前に積まれた行は、読み戻しても版の無いまま送る（今の版を付けない）。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("client_version") val clientVersion: String? = null,
     /** 積んだ時の契約の版（ST50 / D1）。**既定は 1** —— 版を持たない行は版 1。積む時に `Outbox.add` が焼き込む */
     @SerialName("contract_version") override val contractVersion: Int = 1,
 ) : Outboxable {
@@ -339,6 +346,8 @@ class HeartbeatEmitter(
     private val extraFields: () -> Map<String, JsonElement> = { emptyMap() },
     private val network: (() -> Boolean)? = null,
     private val onStored: () -> Unit = {},
+    /** 積む時点のこの収集アプリの版（`BuildConfig.COMPONENT_VERSION`）。欄と原文の `client_version` に入れる。null なら入れない（ST51 / D12） */
+    private val version: String? = null,
 ) {
     /** 1 件を積む。積めたかを返す。 */
     fun emit(): Boolean {
@@ -368,6 +377,7 @@ class HeartbeatEmitter(
             "device_id" to JsonPrimitive(deviceId),
         )
         if (connected != null) fixed["network"] = JsonPrimitive(connected)
+        if (version != null) fixed["client_version"] = JsonPrimitive(version)
         // 足す欄が決まった欄を上書きしない（原文の `capturable` と、要求の `capturable` が食い違わない）
         val fields = fixed + extraFields().filterKeys { it !in fixed }
         val request = HeartbeatRequest(
@@ -381,6 +391,7 @@ class HeartbeatEmitter(
             attempts = attempts,
             successes = successes,
             network = connected,
+            clientVersion = version,
             raw = ingestJson.encodeToString(JsonObject(fields)),
         )
         val stored = outbox.add(request)

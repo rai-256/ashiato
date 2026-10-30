@@ -26,7 +26,15 @@ fn main() -> anyhow::Result<()> {
     let body = match std::env::args().nth(1).as_deref() {
         Some("heartbeat") => {
             let cap = heartbeat::Capability::of(true, false);
-            serde_json::to_string(&[heartbeat::signal(user, "pc-01", at, &cap, 300, 120)?])?
+            serde_json::to_string(&[heartbeat::signal(
+                user,
+                "pc-01",
+                at,
+                &cap,
+                300,
+                120,
+                env!("ASHIATO_BUILD_STAMP"),
+            )?])?
         }
         Some("clock") => {
             // 取り込み口の基準（PC の時計が 1.2 秒進んでいる）と Windows の時刻同期の状態が両方取れた測定記録

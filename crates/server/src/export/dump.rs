@@ -16,7 +16,7 @@ use zip::{AesMode, CompressionMethod, ZipWriter};
 use super::doc::{self, FileStat};
 use super::{
     excluded_sql, Bloom, Class, ExcludedSql, ExportConfig, ExportError, FailKind, Passphrase,
-    CATALOG,
+    CATALOG, COLLECTOR_VERSION_CHANGES_FILE, UPDATE_HISTORY_FILE, VIEW_FILES,
 };
 
 const TIME_FORMAT: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"";
@@ -88,6 +88,12 @@ fn order_sql(file: &str) -> &'static str {
         "events.jsonl" | "event_versions.jsonl" => "t.event_time, t.id",
         "sources.jsonl" => "t.logical_source",
         "drop_report_hours.jsonl" => "t.report_id, t.hour",
+        UPDATE_HISTORY_FILE => "t.seq",
+        // 行の全部の列で並べる（同じ並びの行は中身も同じなので、書き出すたびに同じバイトになる）
+        COLLECTOR_VERSION_CHANGES_FILE => {
+            "t.user_id, t.component, t.device_id, t.emitted_at, t.received_at, \
+             t.logical_source, t.from_version, t.to_version"
+        }
         "feeling_target_kinds.jsonl" => "t.kind",
         _ => "t.id",
     }
@@ -280,13 +286,10 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
                 ),
                 None,
             ),
-            _ => (
-                format!(
-                    "SELECT {obj}, NULL::uuid FROM core.{view} t ORDER BY {}",
-                    order_sql(file)
-                ),
-                Some(format!("SELECT count(*) FROM core.{view}")),
-            ),
+            _ => {
+                out.push(whole_plan(file, view, columns, types));
+                continue;
+            }
         };
         out.push(Plan {
             file,
@@ -296,7 +299,30 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
             count,
         });
     }
+    for v in VIEW_FILES {
+        out.push(whole_plan(v.file, v.view, v.columns, types));
+    }
     out
+}
+
+/// 全行をそのまま出すファイルの計画（表も読み口も同じ形）。
+fn whole_plan(
+    file: &'static str,
+    view: &'static str,
+    columns: &'static [(&'static str, &'static str)],
+    types: &BTreeMap<(String, String), String>,
+) -> Plan {
+    Plan {
+        file,
+        view,
+        columns,
+        select: format!(
+            "SELECT {}, NULL::uuid FROM core.{view} t ORDER BY {}",
+            row_sql("t", columns, types, view),
+            order_sql(file)
+        ),
+        count: Some(format!("SELECT count(*) FROM core.{view}")),
+    }
 }
 
 /// 記録と前の版の、除いた後の件数。除く範囲の CTE は 1 回だけ評価される。

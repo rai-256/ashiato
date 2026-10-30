@@ -42,8 +42,9 @@ async fn app_role_privileges_reach_every_table() {
         for (privilege, want) in [
             ("SELECT", true),
             ("INSERT", true),
-            ("UPDATE", true),
-            ("DELETE", true),
+            // 更新の履歴は読むことと足すことだけ（ST51 / design D10）
+            ("UPDATE", name != "update_history"),
+            ("DELETE", name != "update_history"),
             ("TRUNCATE", false),
             ("REFERENCES", false),
             ("TRIGGER", false),

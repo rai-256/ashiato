@@ -4,13 +4,14 @@
 //! 比べ方は**名前の集合**だけ（並びの位置・名前の時刻では比べない。ORDER は時刻順でない）。
 //! 読む関数（`read_ledger`）は DB に何も書かない。当てる処理（`apply_migrations`）は記録を書く。
 
+use crate::update_history::{self, sqlstate_of, Attempt, Outcome};
 use sha2::{Digest as _, Sha256};
 use sqlx::pool::PoolConnection;
 use sqlx::{Connection as _, PgConnection, Postgres};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// 当てる処理の錠の鍵（セッションの助言錠。試験の足場が取っていた鍵と同じ数。design D11）。
-const LOCK_KEY: i64 = 4_820_251;
+pub(crate) const LOCK_KEY: i64 = 4_820_251;
 
 /// 当てた組み立ての版番号（design D8）。
 pub const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -76,6 +77,27 @@ impl MigrateError {
             )),
             _ => None,
         }
+    }
+}
+
+impl MigrateError {
+    /// 版が落ちた（終了コード 1）ときに標準エラーへ出す 1 行。種別・落ちた版の名前・SQLSTATE だけで、
+    /// DB の誤りの本文は持たない（ST51 / design D8）。退避の失敗は本文が anyhow の連鎖なので対象外（`None`）。
+    pub fn failure_line(&self) -> Option<String> {
+        let (kind, version, source) = match self {
+            Self::Version { name, source } => ("migrate_failed", Some(name.as_str()), source),
+            Self::Grants(source) => ("migrate_grants_failed", None, source),
+            Self::Db(source) => ("migrate_db_failed", None, source),
+            _ => return None,
+        };
+        let mut line = format!("error: kind={kind}");
+        if let Some(v) = version {
+            line.push_str(&format!(" version={v}"));
+        }
+        if let Some(code) = sqlstate_of(source) {
+            line.push_str(&format!(" sqlstate={code}"));
+        }
+        Some(line)
     }
 }
 
@@ -225,7 +247,7 @@ pub async fn read_ledger(pool: &sqlx::PgPool) -> Result<Ledger, sqlx::Error> {
 }
 
 /// `read_ledger` を 1 本の接続で行う（当てる処理が錠を持った接続で読む）。
-async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sqlx::Error> {
+pub(crate) async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sqlx::Error> {
     if !schema_exists(pool, "migration_ledger").await? {
         return Ok(if schema_exists(pool, "core").await? {
             Ledger::BeforeLedger
@@ -323,30 +345,101 @@ pub async fn apply_migrations(
 }
 
 /// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）と、版を当てた後に錠の中で流す
-/// 付与の SQL（`grants`。空なら流さない）を足したもの（design D4 の 5〜7）。
+/// 付与の SQL（`grants`。空なら流さない）を足したもの（design D4 の 5〜7）。更新の履歴は書かない。
 /// ahead・読めないなら `before_apply` も `grants` も流さずに返す。`before_apply` が失敗したら何も当てずに `Before` を返す。
 /// 錠を外せなかったら接続を pool に返さずに閉じる（セッションの助言錠は接続が閉じるまで残る）。
 pub async fn apply_migrations_with(
-    mut conn: PoolConnection<Postgres>,
+    conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
 ) -> Result<(), MigrateError> {
-    sqlx::query("SELECT pg_advisory_lock($1)")
+    apply_migrations_recorded(conn, versions, before_apply, grants, None)
+        .await
+        .map(|_| ())
+}
+
+/// `apply_migrations_with` に、更新の履歴を書く口を足したもの（ST51 / design D8・D16（仮））。
+/// `stamp`（この組み立ての印）があるとき、版の検査の後・退避の前に試みの行を、錠を外す前に結果の行を、
+/// 錠を持つこの接続で書く（ahead・読めないでは書かない）。書けなくても結果は変わらない（D9）。
+/// 当てた版の名前（ORDER の順）を返す。落ちたときの版の名前と SQLSTATE は `MigrateError` から取れる（本文は持ち出さない）。
+pub async fn apply_migrations_recorded(
+    mut conn: PoolConnection<Postgres>,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
+    stamp: Option<&str>,
+) -> Result<Vec<String>, MigrateError> {
+    let mut run = Run::default();
+    let locked = sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(LOCK_KEY)
         .execute(&mut *conn)
-        .await?;
-    let result = apply_locked(&mut conn, versions, before_apply, grants).await;
-    let unlocked: Result<bool, sqlx::Error> = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
-        .bind(LOCK_KEY)
-        .fetch_one(&mut *conn)
         .await;
-    if !matches!(unlocked, Ok(true)) {
-        // pool に戻すと錠を持った接続が生き残り、次の migrate が待ち続ける。pool から外して閉じる。
-        // 閉じるのに失敗しても落とせば切れる。元の結果を優先する
-        let _ = conn.detach().close().await;
+    let lock_held = locked.is_ok();
+    let result = match locked {
+        Ok(_) => apply_locked(&mut conn, versions, before_apply, grants, stamp, &mut run).await,
+        Err(e) => Err(MigrateError::Db(e)),
+    };
+    // 結果の行は錠を外す前に書く（錠を持つ接続で。pool の別の接続は自分の錠を待って止まる。R28）
+    if let Some(stamp) = stamp {
+        record_result(&mut conn, stamp, &run, &result).await;
     }
-    result
+    if lock_held {
+        let unlocked: Result<bool, sqlx::Error> =
+            sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
+                .bind(LOCK_KEY)
+                .fetch_one(&mut *conn)
+                .await;
+        if !matches!(unlocked, Ok(true)) {
+            // pool に戻すと錠を持った接続が生き残り、次の migrate が待ち続ける。pool から外して閉じる。
+            // 閉じるのに失敗しても落とせば切れる。元の結果を優先する
+            let _ = conn.detach().close().await;
+        }
+    }
+    result.map(|()| run.applied)
+}
+
+/// 1 回の当てる処理の経過（結果の行に書く）。
+#[derive(Default)]
+struct Run {
+    /// この回に当て終えた版（ORDER の順）。
+    applied: Vec<String>,
+    /// 試みの行をどうしたか。
+    attempt: Option<Attempt>,
+}
+
+async fn record_result(
+    conn: &mut PgConnection,
+    stamp: &str,
+    run: &Run,
+    result: &Result<(), MigrateError>,
+) {
+    let attempt = run.attempt.unwrap_or(Attempt::Unwritten);
+    let sqlstate;
+    let outcome = match result {
+        // 版の食い違いで止めた回は何も書かない（終了コード 3）
+        Err(MigrateError::Ahead { .. } | MigrateError::Unreadable(_)) => return,
+        Err(MigrateError::Before(_)) => Outcome::BackupFailed,
+        Err(MigrateError::Version { name, source }) => {
+            sqlstate = sqlstate_of(source);
+            Outcome::Failed {
+                applied: &run.applied,
+                failed_version: Some(name),
+                sqlstate: sqlstate.as_deref(),
+            }
+        }
+        Err(MigrateError::Grants(source) | MigrateError::Db(source)) => {
+            sqlstate = sqlstate_of(source);
+            Outcome::Failed {
+                applied: &run.applied,
+                failed_version: None,
+                sqlstate: sqlstate.as_deref(),
+            }
+        }
+        Ok(()) if run.applied.is_empty() => Outcome::NothingToApply,
+        Ok(()) => Outcome::Applied(&run.applied),
+    };
+    update_history::record_migrate(conn, stamp, attempt, &outcome).await;
 }
 
 async fn apply_locked(
@@ -354,6 +447,8 @@ async fn apply_locked(
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
+    stamp: Option<&str>,
+    run: &mut Run,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
     let (recorded, before_ledger) = match ledger {
@@ -369,6 +464,10 @@ async fn apply_locked(
             (names, false)
         }
     };
+    // 版の検査の後・退避の前。試みの行を commit してから退避を取る（退避に入るので、戻しても残る。Q6）
+    if let Some(stamp) = stamp {
+        run.attempt = Some(update_history::record_attempt(conn, stamp).await);
+    }
     before_apply().map_err(MigrateError::Before)?;
     sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
     warn_changed_fingerprints(conn, versions).await?;
@@ -382,6 +481,7 @@ async fn apply_locked(
                 name: (*name).to_string(),
                 source,
             })?;
+        run.applied.push((*name).to_string());
     }
     if !grants.is_empty() {
         sqlx::raw_sql(grants)

@@ -14,3 +14,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ashiato_owner IN SCHEMA core
   GRANT USAGE, SELECT ON SEQUENCES TO ashiato_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE ashiato_owner IN SCHEMA core
   GRANT EXECUTE ON FUNCTIONS TO ashiato_app;
+
+-- 更新の履歴は読むことと足すことだけ（ST51 / design D10）。全部の表への付与の後ろで UPDATE・DELETE を外す。
+-- 書き換えの門は所有者の接続でも断る。実行時の役割は起動の行を書く（D2）ので INSERT は残す。
+REVOKE UPDATE, DELETE ON core.update_history FROM ashiato_app;
