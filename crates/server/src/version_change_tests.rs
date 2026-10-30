@@ -620,3 +620,115 @@ async fn st51_view_null_device_one_sequence() {
     assert_eq!(rows[0].0, None);
     assert_eq!(rows[0].3, COMMIT_B);
 }
+
+// ---------------------------------------------------------------- 稼働状況と途切れ（D14）
+
+const LOCATION: &str = "c01-location";
+
+/// 起動して 31 分後（途切れの待ちが明けている）の、時刻を固定した App。
+fn app_at(pool: sqlx::PgPool, now: chrono::DateTime<chrono::Utc>) -> App {
+    App::for_test(pool, TOKEN)
+        .at(now)
+        .started(now - chrono::Duration::minutes(31))
+}
+
+async fn get_json(app: &App, uri: &str) -> serde_json::Value {
+    use axum::http::{header, Method, Request};
+    use tower::ServiceExt as _;
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let res = router(app.clone()).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK, "{uri}");
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+/// 位置の生存信号を送る。`id` と時刻と利用者は引数で固定する（2 つの D-01 で同じ入力にするため）。
+async fn put_location_heartbeat(
+    app: &App,
+    user: uuid::Uuid,
+    n: u128,
+    emitted: &str,
+    version: Option<&str>,
+) {
+    let mut one = hb(LOCATION, user, version);
+    one["id"] = serde_json::json!(uuid::Uuid::from_u128(n));
+    one["emitted_at"] = serde_json::json!(emitted);
+    let (_, Json(res)) = heartbeat_post(State(app.clone()), auth(), Json(serde_json::json!([one])))
+        .await
+        .expect("生存信号の受け口");
+    assert!(res[0].accepted, "受け付けられる: {:?}", res[0].error);
+}
+
+/// 稼働状況と途切れの応答（`/coverage` と `/outages`）を、`episode_id`（台帳の連番）を除いて 1 つの JSON にする。
+async fn coverage_and_outages(app: &App, user: uuid::Uuid) -> serde_json::Value {
+    let coverage = get_json(
+        app,
+        &format!("/coverage?from=2026-10-18&to=2026-10-21&user_id={user}"),
+    )
+    .await;
+    let mut outages = get_json(app, &format!("/outages?user_id={user}")).await;
+    if let Some(items) = outages["outages"].as_array_mut() {
+        for item in items {
+            item.as_object_mut().unwrap().remove("episode_id");
+        }
+    }
+    serde_json::json!({ "coverage": coverage, "outages": outages })
+}
+
+fn day_now() -> chrono::DateTime<chrono::Utc> {
+    "2026-10-20T12:00:00Z".parse().unwrap()
+}
+
+// Scenario: 版の欄が違うだけの生存信号は、同じ稼働状況になる
+#[tokio::test]
+async fn st51_coverage_same_with_or_without_version() {
+    let user = uuid::Uuid::new_v4();
+    let mut answers = Vec::new();
+    for version in [None, Some(COMMIT_A)] {
+        let db = testdb::isolated().await;
+        let pool = db.pool().await;
+        testdb::set_started_on(&pool, LOCATION, "2026-01-01").await;
+        let app = app_at(pool, day_now());
+        put_location_heartbeat(&app, user, 1, "2026-10-20T03:00:00Z", version).await;
+        put_location_heartbeat(&app, user, 2, "2026-10-20T09:00:00Z", version).await;
+        answers.push(coverage_and_outages(&app, user).await);
+    }
+    assert_eq!(answers[0], answers[1], "版の欄だけで応答が変わった");
+    let cells = answers[0]["coverage"].to_string();
+    assert!(cells.contains("2026-10-20"), "応答が空ではない: {cells}");
+}
+
+// Scenario: 更新の間の空きは、更新の履歴があっても途絶として出る
+#[tokio::test]
+async fn st51_coverage_outage_still_shown() {
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    testdb::set_started_on(&pool, LOCATION, "2026-01-01").await;
+    let user = uuid::Uuid::new_v4();
+    let app = app_at(pool.clone(), day_now());
+    // 想定間隔 6 時間の 3 倍（18 時間）を超えて途切れる。間に版の変化（収集アプリ）と更新の履歴（S-01）を置く
+    put_location_heartbeat(&app, user, 1, "2026-10-19T00:00:00Z", Some(COMMIT_A)).await;
+    put_location_heartbeat(&app, user, 2, "2026-10-19T01:00:00Z", Some(COMMIT_B)).await;
+    sqlx::query(
+        "INSERT INTO core.update_history (component, via, to_version, outcome)
+         VALUES ('S-01', 'startup', '0.1.0+st51outage', 'nothing_to_apply')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changes(&pool, user).await.len(), 1, "版の変化がある前提");
+
+    let answer = get_json(&app, &format!("/outages?user_id={user}")).await;
+    let outages = answer["outages"].as_array().expect("判定済み");
+    assert!(
+        outages.iter().any(|o| o["logical_source"] == LOCATION),
+        "位置のソースが途切れとして返らない: {answer}"
+    );
+}
