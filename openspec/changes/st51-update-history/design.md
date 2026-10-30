@@ -97,7 +97,8 @@ Q6 の答え（退避の前に「試み」の 1 行を書く）の書く条件�
 **書くかは試みの時に 1 回だけ決める**: 試みの行を書いた migrate は、終わりに比べ直さずに必ず結果の行を書く（review/spec.md R17）。試みの行を書けなかった回（表がまだ無い）だけ、結果の行は D2 の条件（直前の通った行と違えば）で書く。表があって試みを書かなかった回は結果の行も書かない。
 **試みから結果までは当てる処理の錠（`pg_advisory_lock`）の中**: `apply_migrations_with` が錠を外す前に、結果の行を書く口（試みの口と同じ引数の形）を呼ぶ。付与・版の記録の書き込みの失敗も、錠の中で返る前に書く。
 **試みと結果の行は、錠を持つ接続で書く**（pool の別の接続で `LOCK_KEY` を取ろうとすると、自分のセッションの錠を待って止まる。review/spec.md R28）。
-**起動の行を書く取引は、頭で同じ錠を待たずに取ろうとする**（`pg_try_advisory_xact_lock(LOCK_KEY)` を、D7 の更新の履歴の鍵の前に。review/spec.md R23・R24・R26・R27）:
+**起動の行を書く取引は、頭で同じ錠を待たずに取ろうとする**（`pg_try_advisory_xact_lock_shared(LOCK_KEY)` を、D7 の更新の履歴の鍵の前に。review/spec.md R23・R24・R26・R27。
+共有で取るのは、同時に起動した S-01 どうしが互いを migrate と取り違えないため。migrate は同じ数を排他で持つので、走っている間は取れない。起動どうしは D7 の鍵で 1 本ずつ書く —— review/code.md R28）:
 - 取れない（migrate が走っている）なら起動の行を書かず、D9 の警告（`update_history_unwritten`）を出して起動を続ける。待たないので、止まった migrate が起動を止めない（D9 のまま）
 - 取れたら、その取引の中で版の記録をもう一度読み（ST48 の比べ方）、自分の知らない版があれば起動の行を書かない。版の検査（錠なし）の後に別の組み立ての migrate が版を当て終えていても、古い組み立ての偽の戻りの行を凍結しない
   （その S-01 を止めるかは ST48 の起動の検査の受け持ちで、ST51 は変えない）
@@ -147,7 +148,8 @@ C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししてい
 
 更新の履歴を書く関数は印を引数に取り、`run_migrate` と `run` は ST49 が焼き込んだ S-01 の印を渡す。形は次のとおり:
 `update_history::record_attempt(conn, stamp) -> Attempt`（試みの行。D16（仮））・`record_migrate(conn, stamp, attempt, outcome)`（結果の行。試みの行を書いたかで比べ直すかが決まる）・
-`record_startup(conn, stamp, versions)`（起動の行。版の記録を読み直し、自分の知らない版があれば書かないために、この組み立ての版の並びを受ける）。
+`record_startup(conn, stamp, versions) -> Option<&'static str>`（起動の行。版の記録を読み直し、自分の知らない版があれば書かないために、この組み立ての版の並びを受ける。
+書かなかったときは警告に出した理由の語を返す —— 試験が別のスレッドの起動の警告を見るため。review/code.md R17）。
 migrate の側は `migration_ledger::apply_migrations_recorded(conn, versions, before_apply, grants, stamp: Option<&str>)` を新しく置き、
 当てる処理の錠を持つ同じ接続で、版の検査の後・退避の前に試みの行を、錠を外す前に結果の行を書く（pool の別の接続で書くと、自分が持つ錠を待って止まる。review/spec.md R28）。
 印の無い呼び出し（`apply_migrations_with`・`ashiato_server::migrate`）は `None` を渡し、行を書かない。

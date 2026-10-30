@@ -421,6 +421,62 @@ async fn st51_view_reads_raw_when_column_empty() {
     assert_eq!(rows[0].3, COMMIT_B);
 }
 
+// 欄と原文に違う版を持つ信号は、欄の版で数える（design D6「導くときは欄を先に読む」）
+#[tokio::test]
+async fn st51_view_column_before_raw() {
+    let pool = testdb::pool().await;
+    let user = uuid::Uuid::new_v4();
+    let src = view_source(&pool, "c01-").await;
+    Sig::new(user, &src, Some("d1"), "10:00")
+        .col(COMMIT_B)
+        .put(&pool)
+        .await;
+    Sig::new(user, &src, Some("d1"), "11:00")
+        .col(COMMIT_A)
+        .raw(raw_version(COMMIT_B))
+        .put(&pool)
+        .await;
+    let rows = changes(&pool, user).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].2.as_deref(), Some(COMMIT_B));
+    assert_eq!(rows[0].3, COMMIT_A);
+}
+
+// 更新の後に端末の時計が戻ると、発信の時刻の順（Q4）のまま、更新 1 回が戻りと上げの 2 行に見える（今の見え方。deep.md Q7 の答え待ち）
+#[tokio::test]
+async fn st51_view_clock_back_after_update() {
+    let pool = testdb::pool().await;
+    let user = uuid::Uuid::new_v4();
+    let src = view_source(&pool, "c01-").await;
+    Sig::new(user, &src, Some("d1"), "10:00")
+        .col(COMMIT_A)
+        .put(&pool)
+        .await;
+    // 更新の後の版 B。最初の信号は時計が戻って 09:30 と名乗る
+    Sig::new(user, &src, Some("d1"), "09:30")
+        .received("10:31")
+        .col(COMMIT_B)
+        .put(&pool)
+        .await;
+    Sig::new(user, &src, Some("d1"), "10:30")
+        .received("11:31")
+        .col(COMMIT_B)
+        .put(&pool)
+        .await;
+    let got: Vec<(Option<String>, String)> = changes(&pool, user)
+        .await
+        .into_iter()
+        .map(|r| (r.2, r.3))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (Some(COMMIT_B.to_string()), COMMIT_A.to_string()),
+            (Some(COMMIT_A.to_string()), COMMIT_B.to_string()),
+        ]
+    );
+}
+
 // Scenario: 原文が JSON でない信号があっても、読み口は失敗しない
 #[tokio::test]
 async fn st51_view_non_json_raw_ok() {

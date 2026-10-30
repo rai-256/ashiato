@@ -4200,7 +4200,9 @@ pub async fn run() -> anyhow::Result<()> {
     }
     // 版の検査を通った後・待ち受けの前に更新の履歴を書く（ST51 / D2・D8）。書けなくても起動は続ける（D9）
     match pool.acquire().await {
-        Ok(mut conn) => update_history::record_startup(&mut conn, BUILD_STAMP, MIGRATIONS).await,
+        Ok(mut conn) => {
+            update_history::record_startup(&mut conn, BUILD_STAMP, MIGRATIONS).await;
+        }
         // 接続を取れない。種別と SQLSTATE の出し方は書けなかった他の分岐と同じ口（理由は `acquire`）
         Err(e) => update_history::warn_unwritten("acquire", Some(&e)),
     }

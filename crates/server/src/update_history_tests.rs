@@ -145,10 +145,14 @@ async fn st51_rows_cannot_be_rewritten() {
             "DELETE FROM core.update_history WHERE seq = $1",
         ] {
             let e = sqlx::query(sql).bind(seq).execute(pool).await.unwrap_err();
-            let denied = denied_by_gate(&e)
-                || e.as_database_error()
+            // 所有者は門、アプリは権限（42501。権限の検査は門より先に走るので、REVOKE が無ければ門の P0001 になる）
+            let denied = if who == "owner" {
+                denied_by_gate(&e)
+            } else {
+                e.as_database_error()
                     .and_then(|d| d.code())
-                    .is_some_and(|c| c == "42501");
+                    .is_some_and(|c| c == "42501")
+            };
             assert!(denied, "{who}: {sql}: {e}");
         }
         // 切り詰め（所有者は門 = 門の関数が RAISE した P0001 と文言、アプリは権限 = 42501 が断る）
@@ -565,6 +569,32 @@ mod migrate_rows {
         let opts = (*db.owner().connect_options()).clone();
         let mut c1 = sqlx::PgConnection::connect_with(&opts).await.unwrap();
         let mut c2 = sqlx::PgConnection::connect_with(&opts).await.unwrap();
+        // 起動の書き込みを 2 つ同時に。版を替えて何回か走らせ、毎回 1 行だけ増えることを見る
+        for (i, stamp) in [B, C, B, C, B, C, B, C, B, C].into_iter().enumerate() {
+            let before = rows(db.owner()).await.len();
+            let (w1, w2) = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                tokio::join!(
+                    record_startup(&mut c1, stamp, crate::MIGRATIONS),
+                    record_startup(&mut c2, stamp, crate::MIGRATIONS),
+                )
+            })
+            .await
+            .unwrap();
+            // 同時に起動した S-01 どうしは互いを migrate と取り違えない（R28）
+            assert_eq!((w1, w2), (None, None), "{i}");
+            let all = rows(db.owner()).await;
+            assert_eq!(all.len(), before + 1, "{i}: 起動の書き込み 2 つで行が 2 行");
+            assert_eq!(all[all.len() - 1].to, stamp, "{i}");
+        }
+    }
+
+    // 結果の書き込みも 2 つ同時に書いて行は 1 つ（D7 の取引の頭の鍵）
+    #[tokio::test]
+    async fn st51_migrate_concurrent_results_one_row() {
+        let db = after_a(&[]).await;
+        let opts = (*db.owner().connect_options()).clone();
+        let mut c1 = sqlx::PgConnection::connect_with(&opts).await.unwrap();
+        let mut c2 = sqlx::PgConnection::connect_with(&opts).await.unwrap();
         let out = Outcome::NothingToApply;
         tokio::time::timeout(std::time::Duration::from_secs(60), async {
             tokio::join!(
@@ -683,16 +713,18 @@ mod migrate_rows {
             Some(B),
             move || {
                 // 起動の行を書く取引は錠を待たずに戻る（待つと migrate の錠を待って止まる）
-                on_other_thread(opts, |mut conn| {
+                let why = on_other_thread(opts, |mut conn| {
                     Box::pin(async move {
                         tokio::time::timeout(
                             std::time::Duration::from_secs(20),
                             record_startup(&mut conn, B, crate::MIGRATIONS),
                         )
                         .await
-                        .expect("起動の行を書く口が錠を待って止まった");
+                        .expect("起動の行を書く口が錠を待って止まった")
                     })
                 });
+                // 書かなかった理由は migrate が走っていること（種別 update_history_unwritten の警告に出す語）
+                assert_eq!(why, Some("migrate_running"));
                 Ok(())
             },
             crate::GRANTS,

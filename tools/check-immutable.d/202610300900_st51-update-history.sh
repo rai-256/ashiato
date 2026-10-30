@@ -21,6 +21,9 @@ for st51_who in owner app; do
       echo "  NG $st51_who から更新の履歴が書き換えられた: $st51_sql"; fail=1
     elif [ "$st51_who" = owner ] && [[ "$st51_out" != *"更新の履歴は書き換えられない"* ]]; then
       echo "  NG $st51_who の拒否が門の名指しでない: $st51_sql: $st51_out"; fail=1
+    elif [ "$st51_who" = app ] && [[ "$st51_out" != *"permission denied"* ]]; then
+      # 権限の検査は門より先に走る。REVOKE が無いと門の拒否になる（design D10）
+      echo "  NG $st51_who の拒否が権限でない: $st51_sql: $st51_out"; fail=1
     else
       echo "  OK $st51_who からの拒否: $st51_sql"
     fi

@@ -86,11 +86,7 @@ pub(crate) fn unwritten_seen() -> Vec<&'static str> {
 pub(crate) fn warn_unwritten(why: &'static str, e: Option<&sqlx::Error>) {
     #[cfg(test)]
     UNWRITTEN.with(|v| v.borrow_mut().push(why));
-    let sqlstate = e
-        .and_then(|e| e.as_database_error())
-        .and_then(|d| d.code())
-        .map(|c| c.to_string())
-        .unwrap_or_default();
+    let sqlstate = e.and_then(sqlstate_of).unwrap_or_default();
     // log-ok: 種別と理由の固定の語・SQLSTATE だけ（DB の誤りの本文と私的データは出さない）
     tracing::warn!(
         kind = UNWRITTEN_KIND,
@@ -111,6 +107,21 @@ async fn table_exists(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar("SELECT to_regclass('core.update_history') IS NOT NULL")
         .fetch_one(conn)
         .await
+}
+
+/// 表があれば `true`。無い・確かめられないときは警告を出して `false`（migrate の試みと結果の口が共有する）。
+async fn table_ready(conn: &mut PgConnection) -> bool {
+    match table_exists(conn).await {
+        Ok(true) => true,
+        Ok(false) => {
+            warn_unwritten("no_table", None);
+            false
+        }
+        Err(e) => {
+            warn_unwritten("db_error", Some(&e));
+            false
+        }
+    }
 }
 
 /// 書いた順で最後の通った行の今の版（D7）。
@@ -182,16 +193,8 @@ async fn write_in_tx(
 /// 版の検査を通った後・退避の前に、試みの行を書いて commit する（Q6・D16（仮））。
 /// 当てる処理の錠を持った接続で呼ぶ（版を当てる取引の外）。前の版と違うときだけ書く。
 pub async fn record_attempt(conn: &mut PgConnection, stamp: &str) -> Attempt {
-    match table_exists(conn).await {
-        Ok(true) => {}
-        Ok(false) => {
-            warn_unwritten("no_table", None);
-            return Attempt::Unwritten;
-        }
-        Err(e) => {
-            warn_unwritten("db_error", Some(&e));
-            return Attempt::Unwritten;
-        }
+    if !table_ready(conn).await {
+        return Attempt::Unwritten;
     }
     match write_in_tx(conn, "migrate", stamp, &Outcome::Attempted, false).await {
         Ok(true) => Attempt::Written,
@@ -217,16 +220,8 @@ pub async fn record_migrate(
         Attempt::Written => true,
         Attempt::Unwritten => false,
     };
-    match table_exists(conn).await {
-        Ok(true) => {}
-        Ok(false) => {
-            warn_unwritten("no_table", None);
-            return;
-        }
-        Err(e) => {
-            warn_unwritten("db_error", Some(&e));
-            return;
-        }
+    if !table_ready(conn).await {
+        return;
     }
     if let Err(e) = write_in_tx(conn, "migrate", stamp, outcome, always).await {
         warn_unwritten("db_error", Some(&e));
@@ -234,14 +229,27 @@ pub async fn record_migrate(
 }
 
 /// 起動の行を書く。版の検査の後・待ち受けの前に、実行時の役割の接続で呼ぶ（D2・D8）。
-/// 当てる処理の錠を待たずに取ろうとし、取れなければ（migrate が走っている）書かずに警告する。
+/// 当てる処理の錠を待たずに共有で取ろうとし、取れなければ（migrate が走っている）書かずに警告する。
+/// 共有なので、同時に起動した S-01 どうしは互いを migrate と取り違えない（更新の履歴の鍵で 1 本ずつ書く）。
 /// 取れたら版の記録を読み直し、自分の知らない版があれば書かない（R26）。前の版と違うときだけ書く。
-pub async fn record_startup(conn: &mut PgConnection, stamp: &str, versions: &[(&str, &str)]) {
-    match startup_tx(conn, stamp, versions).await {
-        Ok(None) => {}
-        Ok(Some(why)) => warn_unwritten(why, None),
-        Err(e) => warn_unwritten("db_error", Some(&e)),
-    }
+/// 書かなかった理由（警告に出した語）を返す。書いた・同じ版で書かなくてよいときは `None`。
+pub async fn record_startup(
+    conn: &mut PgConnection,
+    stamp: &str,
+    versions: &[(&str, &str)],
+) -> Option<&'static str> {
+    let why = match startup_tx(conn, stamp, versions).await {
+        Ok(None) => return None,
+        Ok(Some(why)) => {
+            warn_unwritten(why, None);
+            why
+        }
+        Err(e) => {
+            warn_unwritten("db_error", Some(&e));
+            "db_error"
+        }
+    };
+    Some(why)
 }
 
 /// `Ok(None)` は書いた（または同じ版で書かなくてよい）。`Ok(Some(why))` は書かなかった理由。
@@ -254,7 +262,7 @@ async fn startup_tx(
         return Ok(Some("no_table"));
     }
     let mut tx = conn.begin().await?;
-    let got: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+    let got: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock_shared($1)")
         .bind(LOCK_KEY)
         .fetch_one(&mut *tx)
         .await?;
