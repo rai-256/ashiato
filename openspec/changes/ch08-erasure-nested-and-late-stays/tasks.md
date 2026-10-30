@@ -127,11 +127,11 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 7: 仕上げ —— 全体の試験・Scenario の突き合わせ・共有の台本
 
-- [ ] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が design D1 の表の 3 本だけであることを PR の本文に書く。
+- [x] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が design D1 の表の 3 本だけであることを PR の本文に書く。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0、
   `python3 scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` rc=0、`bash tools/check-shared-appends.sh` rc=0、
   `openspec validate ch08-erasure-nested-and-late-stays --strict` rc=0
-- [ ] 7.2 既存の縦串が緑のまま（CH08 は縦串の節を足さない。CH08 の振る舞いは Task 1〜6 の試験が担保する）。
+- [x] 7.2 既存の縦串が緑のまま（CH08 は縦串の節を足さない。CH08 の振る舞いは Task 1〜6 の試験が担保する）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0
 
 ## 人間の確認待ち
