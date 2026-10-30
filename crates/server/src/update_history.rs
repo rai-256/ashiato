@@ -13,6 +13,9 @@ use crate::migration_ledger::{compare, read_ledger_on, Ledger, Verdict, LOCK_KEY
 use sqlx::{Connection as _, PgConnection};
 use std::collections::BTreeSet;
 
+/// 書けなかったときの警告の種別（D9）。種別の語はここにだけ置く（起動の接続を取れない分岐も同じ口を通る）。
+pub const UNWRITTEN_KIND: &str = "update_history_unwritten";
+
 /// 更新の履歴の鍵（取引の助言錠）。当てる処理の錠（`LOCK_KEY`）とは別の数。
 const HISTORY_KEY: i64 = 4_820_260;
 
@@ -79,7 +82,8 @@ pub(crate) fn unwritten_seen() -> Vec<&'static str> {
 }
 
 /// 書けなかったことを警告に出す。DB の誤りは SQLSTATE だけ（本文は出さない）。
-fn warn_unwritten(why: &'static str, e: Option<&sqlx::Error>) {
+/// `why` は固定の語（`no_table`・`db_error`・`migrate_running`・`db_ahead`・`ledger_unreadable`・`acquire`）。
+pub(crate) fn warn_unwritten(why: &'static str, e: Option<&sqlx::Error>) {
     #[cfg(test)]
     UNWRITTEN.with(|v| v.borrow_mut().push(why));
     let sqlstate = e
@@ -89,7 +93,7 @@ fn warn_unwritten(why: &'static str, e: Option<&sqlx::Error>) {
         .unwrap_or_default();
     // log-ok: 種別と理由の固定の語・SQLSTATE だけ（DB の誤りの本文と私的データは出さない）
     tracing::warn!(
-        kind = "update_history_unwritten",
+        kind = UNWRITTEN_KIND,
         why,
         sqlstate = sqlstate.as_str(),
         "更新の履歴を書けなかった（続ける）"

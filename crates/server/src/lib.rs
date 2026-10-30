@@ -4201,15 +4201,8 @@ pub async fn run() -> anyhow::Result<()> {
     // 版の検査を通った後・待ち受けの前に更新の履歴を書く（ST51 / D2・D8）。書けなくても起動は続ける（D9）
     match pool.acquire().await {
         Ok(mut conn) => update_history::record_startup(&mut conn, BUILD_STAMP, MIGRATIONS).await,
-        Err(e) => tracing::warn!(
-            kind = "update_history_unwritten",
-            sqlstate = e
-                .as_database_error()
-                .and_then(|d| d.code())
-                .as_deref()
-                .unwrap_or(""),
-            "更新の履歴を書けない（接続を取れない）"
-        ),
+        // 接続を取れない。種別と SQLSTATE の出し方は書けなかった他の分岐と同じ口（理由は `acquire`）
+        Err(e) => update_history::warn_unwritten("acquire", Some(&e)),
     }
 
     // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
