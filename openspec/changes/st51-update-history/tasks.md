@@ -178,7 +178,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 9: 稼働状況と途切れの判定が変わらない
 
-- [ ] 9.1 `version_change_tests.rs`:
+- [x] 9.1 `version_change_tests.rs`:
   - `st51_coverage_same_with_or_without_version` — `// Scenario: 版の欄が違うだけの生存信号は、同じ稼働状況になる`（2 つの D-01 の稼働状況と途切れの応答を JSON で比べる）
   - `st51_coverage_outage_still_shown` — `// Scenario: 更新の間の空きは、更新の履歴があっても途絶として出る`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_coverage_ && test "$(cargo test -p ashiato-server st51_coverage_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server outage_ && test "$(cargo test -p ashiato-server outage_ -- --list 2>/dev/null | grep -c ": test$")" -ge 40'` rc=0（既存の途切れの試験が通る）
