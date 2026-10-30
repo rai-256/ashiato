@@ -199,11 +199,11 @@ test("ST23 録画: 消した → 本文ごと消すの確認 → やめる → �
   });
 
   // 7. 後から位置が 2 件届く（spec「後から届いて本文を消した件数が行に出る」）
-  await test.step("7. その時間帯に位置が 2 件後から届く → 行に「後から届いた 2 件も本文ごと消した」", async () => {
+  await test.step("7. その時間帯に位置が 2 件後から届く → 行に「後から 2 件も本文ごと消した」（CH08 Q3 の文言）", async () => {
     await ingest(request, [locationItem(date, 10 * 60 + 3, randomSpot()), locationItem(date, 10 * 60 + 7, randomSpot())]);
     await openDay(page, date);
     await expect(purged).toHaveCount(1);
-    await expect(purged).toContainText("後から届いた 2 件も本文ごと消した");
+    await expect(purged).toContainText("後から 2 件も本文ごと消した");
     await hold(page, 2);
   });
 });
