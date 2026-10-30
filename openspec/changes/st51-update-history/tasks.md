@@ -141,10 +141,10 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 6: 書き出し
 
-- [ ] 6.1 `export.rs`: `core.update_history` を `Class::Include`（`update_history.jsonl`・全列）にし、`HEARTBEAT_COLUMNS` に `collector_version` を足し、読み口のファイル `collector_version_changes.jsonl` を写しの取引の中で書く（D11）。
+- [x] 6.1 `export.rs`: `core.update_history` を `Class::Include`（`update_history.jsonl`・全列）にし、`HEARTBEAT_COLUMNS` に `collector_version` を足し、読み口のファイル `collector_version_changes.jsonl` を写しの取引の中で書く（D11）。
   説明書に 3 つの説明（`specs/data-durability` の ADDED の文言）を足す。既存の `export_file_excludes_ledgers_and_derived_tables` の期待するファイルの一覧に 2 つを足す
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_export_ && test "$(cargo test -p ashiato-server st51_export_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server export_ && test "$(cargo test -p ashiato-server export_ -- --list 2>/dev/null | grep -c ": test$")" -ge 130'` rc=0（既存の書き出しの試験が通る）
-- [ ] 6.2 `export_update_history_tests.rs`:
+- [x] 6.2 `export_update_history_tests.rs`:
   - `st51_export_update_history_rows` — `// Scenario: 書き出しに更新の履歴の全行と全列が入る`
   - `st51_export_version_changes` — `// Scenario: 書き出しに収集アプリの版の変化が入る`
   - `st51_export_heartbeat_version_column` — `// Scenario: 書き出しの生存信号のファイルに版の列が入る`
