@@ -128,13 +128,13 @@
 
 ## Task 7: 封筒の形の写しと版の上げ忘れの検査（CI）
 
-- [ ] 7.1 収集アプリの直列化から欄を書き出す試験を足す（D7・D21）:
+- [x] 7.1 収集アプリの直列化から欄を書き出す試験を足す（D7・D21）:
   C-01 `St50EnvelopeShapeTest.kt`（記録・生存信号・破棄の報告・原本の欠けの 4 つ。全部の欄を埋めた 1 件と任意の欄を空にした 1 件を本物の直列化で JSON にし、最上位の鍵・JSON の型・必須を出す。
   `ASHIATO_ENVELOPE_OUT` があればそのファイルへ書き、無ければ `docs/contract/envelope.json` の `android` と比べる）、C-02 `contract::tests::st50_envelope_shape`（記録と生存信号。同じ形で `windows` と比べる）。
   比べる関数は、写しと違う形を渡されたら差分（欄の名前）を出して落ちることを PC の `st50_envelope_shape_detects_drift`（`// Scenario: 写しがコードとずれていると CI が落ちる`。写しの `windows.ingest` から欄を 1 つ消した形を渡す）で固定する。
   PC と携帯の定数 `CONTRACT_VERSION`（D12。値 1）はここで足す（S-01 の定数は 1.1。8.1・10.1 はこの定数を使い、作らない）。
   この 2 つの試験の検証は、写しを作る 7.2 の後に走らせる（7.2 の検証に入れてある）
-- [ ] 7.2 `tools/check-contract-version.sh` を作る（D7 の 1〜5。`--write` で `docs/contract/envelope.json` を作り直す。S-01 の側は `docs/openapi.json` の 4 つの型の `properties` と `required` から）。
+- [x] 7.2 `tools/check-contract-version.sh` を作る（D7 の 1〜5。`--write` で `docs/contract/envelope.json` を作り直す。S-01 の側は `docs/openapi.json` の 4 つの型の `properties` と `required` から）。
   `--self-test` は `$TMPDIR` の使い捨ての git の木で次を作り、落ちる / 通るを確かめる:
   - `echo "== Scenario: 収集アプリだけが欄を足して版を上げないと CI が落ちる"`（印 `v0.1.0-beta.1` を打った後に `android.ingest` に欄を足す）
   - `echo "== Scenario: 既存の欄の型や必須を変えて版を上げないと CI が落ちる"`
