@@ -185,7 +185,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 10: 申し送りと全体の検査
 
-- [ ] 10.1 `docs/handoff/ST58.md` の ST51 の節（上流が置いた）を読み、ST58 が読む `update_history` の列と `outcome` の値（`attempted` を含む）・戻した後の書き直しの前提（試みの行は戻しても残り、落ちた版の名前・SQLSTATE と「戻した」を ST58 が書く）が実装と合っているかを確かめる。食い違えば節に追記する
+- [x] 10.1 `docs/handoff/ST58.md` の ST51 の節（上流が置いた）を読み、ST58 が読む `update_history` の列と `outcome` の値（`attempted` を含む）・戻した後の書き直しの前提（試みの行は戻しても残り、落ちた版の名前・SQLSTATE と「戻した」を ST58 が書く）が実装と合っているかを確かめる。食い違えば節に追記する
   検証: `python3 scripts/check_chain.py .` rc=0
-- [ ] 10.2 全体の検査
+- [x] 10.2 全体の検査
   検証: `python3 scripts/check_scenarios.py . st51-update-history` rc=0 / `./tools/check-migrations.sh` rc=0 / `./tools/check-shared-appends.sh` rc=0
