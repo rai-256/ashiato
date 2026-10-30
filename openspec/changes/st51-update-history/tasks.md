@@ -98,9 +98,9 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 3: 起動のときに更新の履歴を書く
 
-- [ ] 3.1 `run` の版の検査（`startup_refusal`）の後・待ち受けの前に `record_startup(&pool, stamp)` を呼ぶ（D2・D8。実行時の役割の接続。書けなくても起動は続ける —— D9）
+- [x] 3.1 `run` の版の検査（`startup_refusal`）の後・待ち受けの前に `record_startup(&pool, stamp)` を呼ぶ（D2・D8。実行時の役割の接続。書けなくても起動は続ける —— D9）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run st -- cargo test -p ashiato-server --test server_startup st51_bin_startup_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_startup_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
-- [ ] 3.2 本物の bin の試験（`crates/server/tests/server_startup.rs`）:
+- [x] 3.2 本物の bin の試験（`crates/server/tests/server_startup.rs`）:
   - `st51_bin_startup_row_on_swap` — `// Scenario: migrate を走らせずに入れ替えた S-01 は、起動のときに 1 行を書く`（先に印 `<commit A>` の通った行を置き、bin を起動。`/healthz` 200 の後に行を見る）
   - `st51_bin_startup_after_migrate_no_row` — `// Scenario: migrate の後に同じ組み立ての S-01 を起動しても、行は増えない`
   - `st51_bin_startup_refused_writes_nothing` — `// Scenario: 版の検査で断られた起動は、何も書かない`
