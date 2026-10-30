@@ -25,6 +25,8 @@ pub struct WaitState {
 }
 
 /// 待っている理由（D9 の（a）〜（e））。
+// 設計の D9 の理由が（a）〜（e）と別々の事実なので、状態を持つ型にまとめず 1 つずつ持つ
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Reasons {
     /// （a）版 > A の行が未送信にある

@@ -65,6 +65,8 @@ pub fn read_contract_answer(reply: &anyhow::Result<Reply>) -> ContractAnswer {
 }
 
 /// 直前の `flush` が見た版の事情（design D9 の（a）（c）（d））。
+// 設計の D9 の理由が（a）〜（e）と別々の事実なので、状態を持つ型にまとめず 1 つずつ持つ
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SendOutcome {
     /// 1 回送った（要求を出した）
