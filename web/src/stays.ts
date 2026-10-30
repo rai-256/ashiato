@@ -11,6 +11,15 @@ import { isGaps, isReasons, isSummary, type Gap, type Reason, type Summary } fro
 
 export type EntryKind = "stay" | "move" | "no-record" | "erased" | "other";
 
+/** 本文ごと消した区間にすっぽり入る消した滞在（CH08 / design D6）。別の区間にはならず親の区間の下に出す。 */
+export interface NestedEntry {
+  start: string;
+  end: string;
+  stay_ids: string[];
+  /** 本文ごと消した滞在か（戻す口が無い） */
+  purged: boolean;
+}
+
 export interface DayEntry {
   kind: EntryKind;
   start: string;
@@ -24,6 +33,8 @@ export interface DayEntry {
   purge_stay_id?: string;
   /** 後から届いて本文を消した件数（本文ごと消した区間だけ） */
   late_purged?: number;
+  /** 本文ごと消した区間にすっぽり入る消した滞在（本文ごと消した区間だけ。無ければ入れ子なし） */
+  nested?: NestedEntry[];
   /** 消した行には無い（D7） */
   summary?: Summary;
   /** 記録なしの行にだけ。無ければ事情なし（D11） */
@@ -82,6 +93,7 @@ export function isDayView(v: unknown): v is DayView {
         (x.purged === undefined || typeof x.purged === "boolean") &&
         (x.purge_stay_id === undefined || typeof x.purge_stay_id === "string") &&
         (x.late_purged === undefined || typeof x.late_purged === "number") &&
+        (x.nested === undefined || isNested(x.nested)) &&
         (x.stay_ids === undefined || (Array.isArray(x.stay_ids) && x.stay_ids.every((id) => typeof id === "string"))) &&
         (x.summary === undefined || isSummary(x.summary)) &&
         (x.reasons === undefined || isReasons(x.reasons))
@@ -89,6 +101,24 @@ export function isDayView(v: unknown): v is DayView {
     }) &&
     (o.gaps === undefined || isGaps(o.gaps)) &&
     (o.browser_through === undefined || typeof o.browser_through === "string")
+  );
+}
+
+function isNested(v: unknown): v is NestedEntry[] {
+  return (
+    Array.isArray(v) &&
+    v.every((n) => {
+      const x = n as NestedEntry;
+      return (
+        typeof n === "object" &&
+        n !== null &&
+        typeof x.start === "string" &&
+        typeof x.end === "string" &&
+        typeof x.purged === "boolean" &&
+        Array.isArray(x.stay_ids) &&
+        x.stay_ids.every((id) => typeof id === "string")
+      );
+    })
   );
 }
 

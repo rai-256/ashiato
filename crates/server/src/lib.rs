@@ -186,6 +186,9 @@ mod purge_keep_tests;
 /// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
 #[cfg(test)]
 mod purge_late_tests;
+/// 1 日の並びの入れ子の項目と、後から本文を消した件数の足し込みを本物の DB で見る（CH08 Task 5 / design D6）。
+#[cfg(test)]
+mod purge_nested_day_tests;
 /// 起動時の手当て（本文ごと消した後に作り直しで隠れた重なる滞在の本文を消す）を本物の DB で見る（CH08 Task 2 / design D5）。
 #[cfg(test)]
 mod purge_remedy_tests;
@@ -4421,6 +4424,7 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,
+        stay_store::NestedEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
         day_records::DayRecord,

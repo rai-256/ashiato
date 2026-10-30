@@ -1507,6 +1507,19 @@ pub struct DayEntry {
     /// 後から届いて本文を消した件数（本文ごと消した区間だけ）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub late_purged: Option<u32>,
+    /// 本文ごと消した区間にすっぽり入る消した滞在（本文ごと消した区間だけ。空なら出さない。CH08 design D6）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested: Option<Vec<NestedEntry>>,
+}
+
+/// 本文ごと消した区間の入れ子の項目。別の区間にはならず、親の区間の下に添える。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct NestedEntry {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub stay_ids: Vec<uuid::Uuid>,
+    /// 本文ごと消した滞在か（戻す口が無い）
+    pub purged: bool,
 }
 
 impl DayEntry {
@@ -1521,6 +1534,7 @@ impl DayEntry {
             purged: false,
             purge_stay_id: None,
             late_purged: None,
+            nested: None,
         }
     }
 }
@@ -1530,6 +1544,19 @@ struct ErasedSpan {
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     stay_ids: Vec<uuid::Uuid>,
+}
+
+/// 入れ子の項目の親: 重なりのいちばん大きい本文ごと消した区間 → 始まりの早い区間（design D6 の 3）。
+fn parent_of(parents: &[DayEntry], start: DateTime<Utc>, end: DateTime<Utc>) -> Option<usize> {
+    parents
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let overlap = p.end.min(end) - p.start.max(start);
+            (overlap > Duration::zero()).then_some((i, overlap, p.start))
+        })
+        .min_by_key(|(_, overlap, pstart)| (std::cmp::Reverse(*overlap), *pstart))
+        .map(|(i, _, _)| i)
 }
 
 fn subtract_spans(
@@ -1684,20 +1711,57 @@ pub async fn day_view(
         .into_iter()
         .collect()
     };
-    let mut purged_spans: Vec<ErasedSpan> = Vec::new();
-    for row in hidden_rows.iter().filter(|r| r.purged) {
-        let (start, end) = (row.start_at.max(d0), row.end_at.min(upper));
-        if start >= end {
-            continue;
-        }
+    // 操作の順（本文ごと消す口は最初の書き込みの前に利用者の錠を取るので、`txid` の順が消した順）
+    let op_rank: HashMap<uuid::Uuid, usize> = if purged_ops.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT id FROM core.erasure_operation WHERE id = ANY($1) ORDER BY txid, id",
+        )
+        .bind(&purged_ops)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .enumerate()
+        .map(|(rank, id)| (id, rank))
+        .collect()
+    };
+    let late_of = |row: &HiddenRow| -> u32 {
         let late = row
             .operation_id
             .and_then(|op| late_by_op.get(&op).copied())
             .unwrap_or(0);
-        entries.push(DayEntry {
+        u32::try_from(late).unwrap_or(u32::MAX)
+    };
+
+    // 本文ごと消した滞在のうち、ほかの本文ごと消した区間の和に覆われるものは区間にせず入れ子にする（D6 の 2）。
+    // 長いものから（同じ長さなら先に消した方から）区間に残し、覆われたものを入れ子にする。
+    // 時間が同じなら先に消した方が親になり、互いに覆い合っても親が 1 つ残る。
+    let mut purged_rows: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = hidden_rows
+        .iter()
+        .filter(|r| r.purged)
+        .map(|r| (r, r.start_at.max(d0), r.end_at.min(upper)))
+        .filter(|(_, s, e)| s < e)
+        .collect();
+    purged_rows.sort_by_key(|(r, s, e)| {
+        (
+            std::cmp::Reverse(*e - *s),
+            r.operation_id.and_then(|op| op_rank.get(&op).copied()),
+            r.id,
+        )
+    });
+    let mut purged_spans: Vec<ErasedSpan> = Vec::new();
+    let mut parents: Vec<DayEntry> = Vec::new();
+    let mut nested_purged: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = Vec::new();
+    for (row, start, end) in purged_rows {
+        if subtract_spans(start, end, &purged_spans).is_empty() {
+            nested_purged.push((row, start, end));
+            continue;
+        }
+        parents.push(DayEntry {
             purged: true,
             purge_stay_id: Some(row.id),
-            late_purged: Some(u32::try_from(late).unwrap_or(u32::MAX)),
+            late_purged: Some(late_of(row)),
             ..DayEntry::plain(EntryKind::Erased, start, end)
         });
         purged_spans.push(ErasedSpan {
@@ -1705,10 +1769,28 @@ pub async fn day_view(
             end,
             stay_ids: Vec::new(),
         });
+        purged_spans.sort_by_key(|s| s.start);
     }
-    purged_spans.sort_by_key(|s| s.start);
+    // 親は重なりの大きい区間 → 始まりの早い区間（D6 の 3）
+    for (row, start, end) in nested_purged {
+        if let Some(i) = parent_of(&parents, start, end) {
+            let parent = &mut parents[i];
+            parent.late_purged = Some(parent.late_purged.unwrap_or(0).saturating_add(late_of(row)));
+            parent
+                .nested
+                .get_or_insert_with(Vec::new)
+                .push(NestedEntry {
+                    start,
+                    end,
+                    stay_ids: vec![row.id],
+                    purged: true,
+                });
+        }
+    }
 
     let mut fragments: Vec<ErasedSpan> = Vec::new();
+    // 差し引いて空になる、本文を消していない滞在（日ごとに判定する。D6 の 1）
+    let mut covered_erased: Vec<ErasedSpan> = Vec::new();
     for row in hidden_rows.into_iter().filter(|r| !r.purged) {
         let HiddenRow {
             id,
@@ -1748,7 +1830,15 @@ pub async fn day_view(
         };
         causes.sort_unstable();
         causes.dedup();
-        for (start, end) in subtract_spans(start, end, &purged_spans) {
+        let left = subtract_spans(start, end, &purged_spans);
+        if left.is_empty() {
+            covered_erased.push(ErasedSpan {
+                start,
+                end,
+                stay_ids: causes.clone(),
+            });
+        }
+        for (start, end) in left {
             fragments.push(ErasedSpan {
                 start,
                 end,
@@ -1756,6 +1846,42 @@ pub async fn day_view(
             });
         }
     }
+    // 親ごとに、始まりの順に、重なるか隣り合う本文を消していない滞在を 1 つにまとめる（D6 の 4）
+    covered_erased.sort_by_key(|f| f.start);
+    let mut grouped: Vec<(usize, ErasedSpan)> = Vec::new();
+    for span in covered_erased {
+        let Some(parent) = parent_of(&parents, span.start, span.end) else {
+            continue;
+        };
+        if let Some((_, last)) = grouped
+            .iter_mut()
+            .rev()
+            .find(|(p, _)| *p == parent)
+            .filter(|(_, last)| span.start <= last.end)
+        {
+            last.end = last.end.max(span.end);
+            last.stay_ids.extend(span.stay_ids);
+            last.stay_ids.sort_unstable();
+            last.stay_ids.dedup();
+        } else {
+            grouped.push((parent, span));
+        }
+    }
+    for (parent, span) in grouped {
+        parents[parent]
+            .nested
+            .get_or_insert_with(Vec::new)
+            .push(NestedEntry {
+                start: span.start,
+                end: span.end,
+                stay_ids: span.stay_ids,
+                purged: false,
+            });
+    }
+    for nested in parents.iter_mut().filter_map(|p| p.nested.as_mut()) {
+        nested.sort_by_key(|n| (n.start, n.end));
+    }
+    entries.extend(parents);
     fragments.sort_by_key(|f| f.start);
     let mut hidden: Vec<ErasedSpan> = Vec::new();
     for span in fragments {
