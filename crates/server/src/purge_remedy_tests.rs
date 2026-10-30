@@ -192,7 +192,21 @@ async fn purge_remedy_restored_then_hidden_stay_keeps_its_body() {
     // 本文ごと消した後に、本人が消して（台帳に erase）戻して（台帳に restore）、作り直しで吸収された
     let b = stay(&pool, user, "10:15", "10:45").await;
     scene_erase(&pool, b).await;
-    deletion::restore(&pool, &[b], None).await.unwrap();
+    // 戻す口は本文ごと消した時間にすっぽり入る B を断る（Task 3）ので、戻された状態は台帳と印で直に作る
+    sqlx::query("UPDATE core.event SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 's01-stay', 'restore', $1, 'user')",
+    )
+    .bind(b)
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
     scene_mark_rebuild(&pool, b, "rebuild:absorbed").await;
     assert!(kept(&pool, b).await, "前の状態で本文が残っていない");
 
