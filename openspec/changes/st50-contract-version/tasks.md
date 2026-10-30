@@ -192,7 +192,7 @@
 
 ## Task 10: 携帯の収集アプリ —— 焼き込み・確かめ・版で選んで送る・426・原本
 
-- [ ] 10.1 `IngestRequest.kt`・`Heartbeat.kt`・`DropReport.kt`・原本の欠けの 1 件に `contractVersion`（直列化の名前 `contract_version`・既定 1。版を持たない溜めの行を読み戻すと 1）を足す（定数は 7.1 の `CONTRACT_VERSION`）。欄を足したら `tools/check-contract-version.sh --write` で写しを作り直す。
+- [x] 10.1 `IngestRequest.kt`・`Heartbeat.kt`・`DropReport.kt`・原本の欠けの 1 件に `contractVersion`（直列化の名前 `contract_version`・既定 1。版を持たない溜めの行を読み戻すと 1）を足す（定数は 7.1 の `CONTRACT_VERSION`）。欄を足したら `tools/check-contract-version.sh --write` で写しを作り直す。
   未送信に積む 1 か所（記録・生存信号・破棄の報告・原本の欠け）と、原本の送り待ち（`originals.jsonl` の 1 行。記録を積んだ時の版を写す）で焼き込む（D1）。
   `Sender.kt` に「版 A / 受け付けない / 一時的な失敗」の答えを受け取り、版 ≤ A の行だけを載せ、見出しに載せた行の最大を入れる形を足す。426 は 1 件も取り除かず止まった状態、`unknown_field` / `contract_unsupported` は残す（`PERMANENT_ERRORS` を変えない。D17）。
   `OriginalUploader.kt` は版 > A の行を送らず、426 を「試し直す」に入れ、`record_missing` の 7 日の数えを始めない。`LocationService.kt` の送る契機の頭で 1 回 `GET /contract` を引き（`HttpTransport` に GET を足す）、5 つの送り手に同じ答えを渡す（D18（仮））。
