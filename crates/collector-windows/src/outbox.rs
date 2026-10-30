@@ -11,9 +11,19 @@
 //! 形は C-01 の `FileOutboxStore` と同じ **追記のみの JSONL**。
 //! **書きかけの行は読み飛ばして退避する** —— 1 行が壊れただけで
 //! 残り全部を捨てるのは、捨てないという約束に反する。
+use std::collections::HashMap;
+
 use anyhow::Context as _;
+use chrono::{DateTime, Utc};
 
 use crate::contract::Outboxable;
+
+/// 積んだ時刻の控えの 1 行（`<置き場>.enq.jsonl`。ST50 / final review R10）。
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Enqueued {
+    id: uuid::Uuid,
+    at: DateTime<Utc>,
+}
 
 /// 追記のみの JSONL に積む置き場。
 #[derive(Debug)]
@@ -21,6 +31,10 @@ pub struct Outbox<T> {
     path: std::path::PathBuf,
     pending: Vec<T>,
     broken: usize,
+    /// 行ごとの積んだ時刻（更新を促す通知の「未送信 n 日分」に使う。ST50 / design D5）。
+    /// **行そのものには書かない** —— 行は送る形のままで、知らない欄は S-01 に送り返される（ST49 D3（仮））ので
+    /// 欄を足すと `unknown_field` で断られる。控えに無い行（控えを書く前に積んだ・控えを書けなかった）は持たない
+    enqueued: HashMap<uuid::Uuid, DateTime<Utc>>,
 }
 
 impl<T: Outboxable> Outbox<T> {
@@ -61,15 +75,38 @@ impl<T: Outboxable> Outbox<T> {
             }
             f.sync_all().context("退避先を同期できない")?;
         }
+        let mut enqueued = HashMap::new();
+        let mut enq_lines = 0usize;
+        // 控えは日数の表示のためだけのもの。読めなければ持たないだけ（行は捨てない）
+        if let Ok(text) = std::fs::read_to_string(enq_path(&path)) {
+            for l in text.lines().filter(|l| !l.trim().is_empty()) {
+                enq_lines += 1;
+                if let Ok(e) = serde_json::from_str::<Enqueued>(l) {
+                    enqueued.entry(e.id).or_insert(e.at);
+                }
+            }
+        }
+        let ids: std::collections::HashSet<uuid::Uuid> =
+            pending.iter().map(Outboxable::id).collect();
+        enqueued.retain(|id, _| ids.contains(id));
         let out = Self {
             path,
             pending,
             broken: broken.len(),
+            enqueued,
         };
         if out.broken > 0 {
             out.rewrite()?;
+        } else if enq_lines != out.enqueued.len() {
+            // 送った行・壊れた行の控えが残っている。伸び続けないよう今の分だけに書き直す
+            out.rewrite_enqueued();
         }
         Ok(out)
+    }
+
+    /// 行を積んだ時刻（控えに無ければ `None`）。
+    pub fn enqueued_at(&self, id: &uuid::Uuid) -> Option<DateTime<Utc>> {
+        self.enqueued.get(id).copied()
     }
 
     /// 開いたときに退避した壊れた行の数（**ログに出す**。黙って退避しない）。
@@ -113,8 +150,45 @@ impl<T: Outboxable> Outbox<T> {
         f.write_all(text.as_bytes()).context("置き場へ書けない")?;
         // **同期する**（電源断で最後の追記が消えないように。R31）
         f.sync_data().context("置き場を同期できない")?;
+        self.note_enqueued(&items, Utc::now());
         self.pending.extend(items);
         Ok(())
+    }
+
+    /// 積んだ時刻を控えに追記する。**書けなくても積んだことは取り消さない**（控えは日数の表示だけに使い、
+    /// 無い行は出来事の時刻で代える）。書けなかった分はメモリには持つ。
+    fn note_enqueued(&mut self, items: &[T], at: DateTime<Utc>) {
+        let mut text = String::new();
+        for item in items {
+            self.enqueued.insert(item.id(), at);
+            if let Ok(line) = serde_json::to_string(&Enqueued { id: item.id(), at }) {
+                text.push_str(&line);
+                text.push('\n');
+            }
+        }
+        use std::io::Write as _;
+        let _best_effort = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(enq_path(&self.path))
+            .and_then(|mut f| f.write_all(text.as_bytes()));
+    }
+
+    /// 控えを今の行の分だけに書き直す（書けなくても行は残す。次に書き直すまで古い控えが残るだけ）。
+    fn rewrite_enqueued(&self) {
+        let mut text = String::new();
+        for i in &self.pending {
+            if let Some(at) = self.enqueued.get(&i.id()) {
+                if let Ok(line) = serde_json::to_string(&Enqueued {
+                    id: i.id(),
+                    at: *at,
+                }) {
+                    text.push_str(&line);
+                    text.push('\n');
+                }
+            }
+        }
+        let _best_effort = crate::fsutil::atomic_write(&enq_path(&self.path), text.as_bytes());
     }
 
     /// いま溜まっているもの。
@@ -139,7 +213,12 @@ impl<T: Outboxable> Outbox<T> {
             return Ok(());
         }
         self.pending.retain(|i| !ids.contains(&i.id()));
-        self.rewrite()
+        for id in ids {
+            self.enqueued.remove(id);
+        }
+        self.rewrite()?;
+        self.rewrite_enqueued();
+        Ok(())
     }
 
     fn rewrite(&self) -> anyhow::Result<()> {
@@ -152,6 +231,11 @@ impl<T: Outboxable> Outbox<T> {
         // 「書きかけの全件」にならない
         crate::fsutil::atomic_write(&self.path, text.as_bytes())
     }
+}
+
+/// 積んだ時刻の控えの置き場（`outbox.jsonl` → `outbox.enq.jsonl`）。
+fn enq_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_extension("enq.jsonl")
 }
 
 #[cfg(test)]
@@ -207,6 +291,49 @@ mod tests {
         o.remove(&[a.id()]).unwrap();
         let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         assert_eq!(o.snapshot(), &[b], "取り除いた結果が置き場に残っていない");
+    }
+
+    /// 積んだ時刻は行に書かず控えに持ち、再起動をまたいで残り、取り除いた行の分は消える（final review R10）。
+    /// 更新を促す通知の日数は「最も古い行を積んでからの日数」（design D5）で、出来事の時刻（古い訪問の履歴）ではない。
+    // Scenario: 契約の版で止まると PC に通知が 1 回出る
+    #[test]
+    fn st50_outbox_keeps_enqueued_time_outside_the_row() {
+        let tmp = tmp_dir();
+        let path = tmp.path().join("outbox.jsonl");
+        let before = Utc::now();
+        let (a, b) = (req(1), req(2));
+        {
+            let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+            o.add_many(vec![a.clone(), b.clone()]).unwrap();
+        }
+        // 行は送る形のまま（控えの欄を混ぜると S-01 に知らない欄として送り返される）
+        for line in std::fs::read_to_string(&path).unwrap().lines() {
+            let row: serde_json::Value = serde_json::from_str(line).unwrap();
+            let keys: Vec<&String> = row.as_object().unwrap().keys().collect();
+            let sent: serde_json::Value = serde_json::to_value(&a).unwrap();
+            assert_eq!(
+                keys.len(),
+                sent.as_object().unwrap().len(),
+                "行に欄が増えた: {keys:?}"
+            );
+        }
+        let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        let at = o.enqueued_at(&a.id).expect("再起動で積んだ時刻が消えた");
+        assert!(at >= before && at <= Utc::now());
+        assert!(
+            at > a.event_time.parse::<DateTime<Utc>>().unwrap(),
+            "出来事の時刻を返した"
+        );
+        o.remove(&[a.id]).unwrap();
+        assert_eq!(o.enqueued_at(&a.id), None);
+        let o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        assert!(o.enqueued_at(&b.id).is_some());
+        let enq = std::fs::read_to_string(path.with_extension("enq.jsonl")).unwrap();
+        assert_eq!(
+            enq.lines().count(),
+            1,
+            "取り除いた行の控えが残っている: {enq}"
+        );
     }
 
     /// **壊れた 1 行のために残りを捨てない**（捨てないという約束を守る）。

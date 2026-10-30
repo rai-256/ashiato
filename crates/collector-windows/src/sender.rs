@@ -75,7 +75,9 @@ pub struct SendOutcome {
     pub ahead: bool,
     /// 426 で断られた（c）
     pub refused: bool,
-    /// 1 件以上が `unknown_field` か `contract_unsupported` だった（d）
+    /// `unknown_field` か `contract_unsupported` で断られた行が、まだ未送信に残っている（d）。
+    /// **その回に断られたかでなく、残っているかで立てる** —— 断られた行を飛ばして新しい行が受け付けられた回に
+    /// 待ちを抜けると、通知が消えて次の契機で出直す（final review R2）
     pub rejected_by_version: bool,
 }
 
@@ -105,6 +107,9 @@ pub struct Flushed {
 pub struct Sender {
     path: &'static str,
     skipped: HashSet<uuid::Uuid>,
+    /// 契約の版で断られた（`unknown_field` / `contract_unsupported`）まま未送信に残っている行（final review R2）。
+    /// `skipped` にも入る。止まっている間も 1 契機に 1 件だけ当たり直し、受け付けられたら全部の印を外す
+    version_rejected: HashSet<uuid::Uuid>,
     last: SendOutcome,
 }
 
@@ -114,6 +119,7 @@ impl Sender {
         Self {
             path: "/ingest",
             skipped: HashSet::new(),
+            version_rejected: HashSet::new(),
             last: SendOutcome::default(),
         }
     }
@@ -123,6 +129,7 @@ impl Sender {
         Self {
             path: "/heartbeat",
             skipped: HashSet::new(),
+            version_rejected: HashSet::new(),
             last: SendOutcome::default(),
         }
     }
@@ -150,6 +157,10 @@ impl Sender {
     ) -> anyhow::Result<Flushed> {
         self.last = SendOutcome::default();
         let pending: Vec<T> = outbox.snapshot().to_vec();
+        // 版で断られた行のうち、もう未送信に無いもの（取り除いた・上限で手放した）は忘れる
+        let pending_ids: HashSet<uuid::Uuid> = pending.iter().map(Outboxable::id).collect();
+        self.version_rejected.retain(|id| pending_ids.contains(id));
+        self.last.rejected_by_version = !self.version_rejected.is_empty();
         let Some(a) = accepted_version else {
             return Ok(Flushed {
                 sent: 0,
@@ -171,10 +182,22 @@ impl Sender {
         if retry_all {
             self.skipped.clear();
         }
+        // 版で断られて飛ばしている行を、1 契機に 1 件だけ当たり直す（final review R2）。止まっている間は
+        // 待ちを抜けないので、抜けた契機で印を捨てる（D14）だけでは S-01 を更新しても当たり直す契機が来ない
+        let probe: Option<&T> = if retry_all {
+            None
+        } else {
+            eligible
+                .iter()
+                .copied()
+                .find(|i| self.version_rejected.contains(&i.id()) && self.skipped.contains(&i.id()))
+        };
         let mut candidates: Vec<&T> = if retry_all { eligible } else { fresh };
         // 後回しにするもの（履歴）は、そうでないものの後ろへ。どちらの中でも積んだ順のまま（R69）
         candidates.sort_by_key(|i| i.sends_late());
-        let batch: Vec<&T> = candidates.into_iter().take(MAX_BATCH).collect();
+        let room = MAX_BATCH - usize::from(probe.is_some());
+        let mut batch: Vec<&T> = candidates.into_iter().take(room).collect();
+        batch.extend(probe);
         if batch.is_empty() {
             return Ok(Flushed {
                 sent: 0,
@@ -245,9 +268,12 @@ impl Sender {
         };
 
         let mut remove = Vec::new();
+        let mut released = false;
         for (item, res) in batch.iter().zip(results.iter()) {
             if res.accepted {
                 remove.push(item.id());
+                // 版で断られた行が受け付けられた = S-01 が更新された。残りの印も外して次の契機で送る
+                released |= self.version_rejected.remove(&item.id());
             } else {
                 // **捨てない。** 生存信号は「動いていた」の証拠で、記録は取り直せない。
                 // 先頭に居座らせないために飛ばすだけにする（ST02 の review R18 / H-1）
@@ -256,7 +282,9 @@ impl Sender {
                     res.error.as_deref(),
                     Some("unknown_field" | "contract_unsupported")
                 ) {
-                    self.last.rejected_by_version = true;
+                    self.version_rejected.insert(item.id());
+                } else {
+                    self.version_rejected.remove(&item.id());
                 }
                 log(telemetry::line(
                     "send_rejected",
@@ -272,6 +300,13 @@ impl Sender {
         let still: std::collections::HashSet<uuid::Uuid> =
             outbox.snapshot().iter().map(|i| i.id()).collect();
         self.skipped.retain(|id| still.contains(id));
+        if released {
+            for id in self.version_rejected.drain() {
+                self.skipped.remove(&id);
+            }
+        }
+        self.version_rejected.retain(|id| still.contains(id));
+        self.last.rejected_by_version = !self.version_rejected.is_empty();
         log(telemetry::line("sent", Some(accepted), None, None));
         Ok(Flushed {
             sent: batch.len(),
@@ -963,6 +998,77 @@ mod tests {
         assert!(!gate.waiting() && s.skipped.is_empty());
         let sent: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[1]).unwrap();
         assert_eq!(sent[0]["contract_version"], 2, "積んだ版のまま送る");
+    }
+
+    /// 1 件ごとの結果を決め打つ（`Some(種別)` は断り）。
+    fn item_replies(items: &[Option<&str>]) -> Option<Reply> {
+        let items: Vec<serde_json::Value> = items
+            .iter()
+            .map(|e| {
+                serde_json::json!({"id": null, "duplicate": false, "accepted": e.is_none(),
+                                   "error": e})
+            })
+            .collect();
+        Some(Reply {
+            status: 200,
+            body: serde_json::to_string(&items).unwrap(),
+        })
+    }
+
+    /// 版で断られた行が残っている間は、新しい行が受け付けられても待ちを抜けない（final review R2）。
+    /// 抜けると通知と出した時刻が消え、次の契機で断られ直して通知が出直す（Q5 の「止まった時に 1 回」が崩れる）。
+    // Scenario: 契約の版で止まると PC に通知が 1 回出る
+    #[test]
+    fn st50_sender_version_rejected_rows_keep_waiting_while_new_rows_pass() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        let old = req(1);
+        o.add_many_at(vec![old.clone()], 1).unwrap();
+        let t = FakeTransport::with(vec![
+            // 1 回目: 古い S-01 が知らない欄で断る
+            item_replies(&[Some("unknown_field")]),
+            // 2 回目: 新しい行は受け付け、当たり直した古い行はまた断る
+            item_replies(&[None, Some("unknown_field")]),
+            // 3 回目（S-01 を更新した後）: 新しい行も当たり直した古い行も受け付ける
+            item_replies(&[None, None]),
+        ]);
+        t.contract
+            .borrow_mut()
+            .extend([version_reply(1), version_reply(1), version_reply(1)]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut gate = crate::contract_gate::ContractGate::new(dir.path());
+        let mut log = |_: String| {};
+        let now = chrono::Utc::now();
+        let mut s = Sender::ingest();
+
+        let (answer, _) = flush_after_check(&mut s, &mut o, &t);
+        assert!(!gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        assert!(gate.waiting(), "版で断られて待つ状態に入っていない");
+
+        o.add_many_at(vec![req(2)], 1).unwrap();
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.accepted, 1, "新しい行が送れていない");
+        assert!(
+            s.last_outcome().rejected_by_version,
+            "断られた行が残っているのに（d）が落ちた"
+        );
+        assert!(
+            !gate.observe(answer, now, &[s.last_outcome()], &mut log),
+            "新しい行が受け付けられただけで待ちを抜けた"
+        );
+        assert!(gate.waiting());
+        assert_eq!(o.snapshot().len(), 1, "断られた行を捨てた");
+        let second: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[1]).unwrap();
+        assert_eq!(second.len(), 2, "断られた行を 1 件だけ当たり直していない");
+
+        o.add_many_at(vec![req(3)], 1).unwrap();
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.accepted, 2);
+        assert!(o.is_empty());
+        assert!(!s.last_outcome().rejected_by_version);
+        assert!(
+            gate.observe(answer, now, &[s.last_outcome()], &mut log),
+            "断られた行が受け付けられたのに待ちを抜けない"
+        );
     }
 
     #[test]

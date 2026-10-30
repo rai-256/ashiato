@@ -256,7 +256,7 @@ impl<'a> Runtime<'a> {
             beats,
             ingest: Sender::ingest(),
             beat_sender: Sender::heartbeat(),
-            contract_gate: ContractGate::new(&cfg.state_dir),
+            contract_gate: ContractGate::open(&cfg.state_dir, &mut info),
             transport,
             reference,
             time_sync,
@@ -844,13 +844,20 @@ impl<'a> Runtime<'a> {
             self.beat_sender.clear_skipped();
         }
         if let Some(notice) = &self.contract_notice {
-            // 手元に残した最も古い行の時刻は、行の `event_time` の最小で代える（積んだ時刻は行に持たない）
+            // 手元に残した最も古い行を**積んだ時刻**（design D5。置き場の控え）。控えに無い行（控えを書く前に
+            // 積んだ・書けなかった）だけ出来事の時刻で代える —— ブラウザの履歴は古い訪問の時刻を持つので、
+            // 出来事の時刻の最小で代えると日数が大きく出る（final review R10）
             let oldest = self
                 .events
                 .snapshot()
                 .iter()
-                .filter_map(|r| DateTime::parse_from_rfc3339(&r.event_time).ok())
-                .map(|t| t.with_timezone(&Utc))
+                .filter_map(|r| {
+                    self.events.enqueued_at(&r.id).or_else(|| {
+                        DateTime::parse_from_rfc3339(&r.event_time)
+                            .ok()
+                            .map(|t| t.with_timezone(&Utc))
+                    })
+                })
                 .min();
             notice.after_send(&mut self.contract_gate, now, oldest, &mut log);
         }

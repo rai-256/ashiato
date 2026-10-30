@@ -38,7 +38,7 @@ pub struct Reasons {
     pub no_endpoint: bool,
     /// （c）直前の送信が 426 だった
     pub refused: bool,
-    /// （d）直前の送信で 1 件以上が `unknown_field` か `contract_unsupported` だった
+    /// （d）`unknown_field` か `contract_unsupported` で断られた行が未送信に残っている
     pub rejected: bool,
     /// （e）200 の読めない答えが 24 時間続いた
     pub unreadable_long: bool,
@@ -69,12 +69,31 @@ impl WaitStore {
         }
     }
 
-    /// 無い・読めないときは空（数え始めが無いものとして扱う）。
-    pub fn load(&self) -> WaitState {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+    /// 無い・読めないときは空（数え始めが無いものとして扱う）。**壊れていたらログに種別を残す**（final review R13）——
+    /// 黙って空にすると、24 時間の数えと通知を出した時刻が消えたことを後から追えない。
+    pub fn load(&self, log: &mut dyn FnMut(String)) -> WaitState {
+        let text = match std::fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return WaitState::default(),
+            Err(e) => {
+                log(telemetry::line(
+                    "contract_wait_unreadable",
+                    None,
+                    None,
+                    Some(telemetry::error_kind(&anyhow::Error::from(e))),
+                ));
+                return WaitState::default();
+            }
+        };
+        serde_json::from_str(&text).unwrap_or_else(|_| {
+            log(telemetry::line(
+                "contract_wait_unreadable",
+                None,
+                None,
+                Some("parse"),
+            ));
+            WaitState::default()
+        })
     }
 
     pub fn save(&self, state: &WaitState) -> anyhow::Result<()> {
@@ -93,9 +112,16 @@ pub struct ContractGate {
 }
 
 impl ContractGate {
+    /// 試験の足場（読めないファイルのログを捨てる）。
+    #[cfg(test)]
     pub fn new(state_dir: &std::path::Path) -> Self {
+        Self::open(state_dir, &mut |_| {})
+    }
+
+    /// 手元のファイルから状態を読み戻す。壊れていれば空で始め、`log` に種別を残す（R13）。
+    pub fn open(state_dir: &std::path::Path, log: &mut dyn FnMut(String)) -> Self {
         let store = WaitStore::new(state_dir);
-        let state = store.load();
+        let state = store.load(log);
         Self {
             store,
             state,
@@ -151,10 +177,12 @@ impl ContractGate {
                 self.reasons.no_endpoint = false;
                 self.reasons.unreadable_long = false;
                 self.reasons.ahead = outcomes.iter().any(|o| o.ahead);
-                // 送っていなければ、断られた行は無い（送れる行が無い）
+                // 送っていなければ、426 で断られた要求は無い
                 let posted = outcomes.iter().any(|o| o.posted);
                 self.reasons.refused = posted && outcomes.iter().any(|o| o.refused);
-                self.reasons.rejected = posted && outcomes.iter().any(|o| o.rejected_by_version);
+                // （d）は「版で断られた行がまだ未送信に残っている」。その回に送ったかに依らない —— 断られた行を飛ばして
+                // 新しい行が受け付けられた回に抜けると、通知と出した時刻が消えて次の契機で出直す（final review R2）
+                self.reasons.rejected = outcomes.iter().any(|o| o.rejected_by_version);
             }
             ContractAnswer::NoEndpoint => {
                 // A を得られない契機は理由を足すだけ。落とすのは Version の分岐だけ（D9）
@@ -197,6 +225,23 @@ mod tests {
         |_| {}
     }
 
+    /// 壊れた状態のファイルは空として読み、種別だけをログに残す（final review R13）。
+    #[test]
+    fn st50_gate_broken_wait_file_is_logged_and_read_as_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("contract-wait.json"), b"{not json").unwrap();
+        let mut lines = Vec::new();
+        let state = WaitStore::new(dir.path()).load(&mut |l| lines.push(l));
+        assert_eq!(state, WaitState::default());
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("contract_wait_unreadable"), "{lines:?}");
+        // 無いファイルは壊れていない（ログに出さない）
+        let empty = tempfile::TempDir::new().unwrap();
+        let mut none = Vec::new();
+        WaitStore::new(empty.path()).load(&mut |l| none.push(l));
+        assert!(none.is_empty(), "{none:?}");
+    }
+
     #[test]
     fn st50_gate_unreadable_waits_only_after_24_hours() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -226,7 +271,10 @@ mod tests {
         // 読める答えで数え直し、状態を抜ける
         let left = g.observe(ContractAnswer::Version(1), t(26), &[], &mut log);
         assert!(left && !g.waiting());
-        assert_eq!(WaitStore::new(dir.path()).load(), WaitState::default());
+        assert_eq!(
+            WaitStore::new(dir.path()).load(&mut quiet()),
+            WaitState::default()
+        );
     }
 
     #[test]
