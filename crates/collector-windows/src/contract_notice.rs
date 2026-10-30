@@ -274,13 +274,20 @@ mod tests {
         }
         let dir = tempfile::TempDir::new().unwrap();
         let toaster = Arc::new(Broken::default());
-        toaster.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        toaster
+            .fail
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let notice = ContractNotice::new(toaster.clone());
         let mut gate = ContractGate::new(dir.path());
         let mut lines = Vec::new();
-        let mut tick = |gate: &mut ContractGate, m: i64, lines: &mut Vec<String>| {
+        let tick = |gate: &mut ContractGate, m: i64, lines: &mut Vec<String>| {
             let mut log = |l: String| lines.push(l);
-            gate.observe(ContractAnswer::Version(1), at(m), &[ahead_outcome()], &mut log);
+            gate.observe(
+                ContractAnswer::Version(1),
+                at(m),
+                &[ahead_outcome()],
+                &mut log,
+            );
             notice.after_send(gate, at(m), Some(t0()), &mut log);
         };
         for m in (0..60).step_by(5) {
@@ -294,10 +301,14 @@ mod tests {
         };
         assert_eq!(skipped(&lines), 1, "{lines:?}");
         // 出せるようになったら出す。その後また出せなくなったら（24 時間後の出し直し）もう 1 行
-        toaster.fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        toaster
+            .fail
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         tick(&mut gate, 65, &mut lines);
         assert_eq!(toaster.shown.load(std::sync::atomic::Ordering::SeqCst), 1);
-        toaster.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        toaster
+            .fail
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         tick(&mut gate, 65 + 24 * 60, &mut lines);
         tick(&mut gate, 70 + 24 * 60, &mut lines);
         assert_eq!(skipped(&lines), 2, "{lines:?}");

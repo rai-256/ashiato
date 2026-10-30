@@ -279,6 +279,52 @@ async fn st50_header_ingest_426() {
     assert_eq!(events_of(&app, &source).await, 0, "何も格納しない");
 }
 
+/// 本文を読めない要求（壊れた JSON・content-type 無し）でも、新しすぎる版は 400 / 415 でなく 426（final review R8）。
+/// 版が受け付けられる見出しなら、本文の断りは今までどおり。合言葉が違えば 401 が先
+#[tokio::test]
+async fn st50_header_426_before_body_rejection() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    for uri in ["/ingest", "/heartbeat", "/drops", "/media/missing"] {
+        let req = |version: &str, token: &str, content_type: Option<&str>| {
+            let mut b = Request::builder()
+                .method(Method::POST)
+                .uri(uri)
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(CONTRACT_HEADER, version);
+            if let Some(ct) = content_type {
+                b = b.header(header::CONTENT_TYPE, ct);
+            }
+            b.body(Body::from("{not json")).unwrap()
+        };
+        let status = |r: Request<Body>| {
+            let app = app.clone();
+            async move { router(app).oneshot(r).await.unwrap().status() }
+        };
+        let broken = status(req("3", TOKEN, Some("application/json"))).await;
+        assert_eq!(broken, StatusCode::UPGRADE_REQUIRED, "{uri} 壊れた本文");
+        let no_type = status(req("3", TOKEN, None)).await;
+        assert_eq!(
+            no_type,
+            StatusCode::UPGRADE_REQUIRED,
+            "{uri} content-type 無し"
+        );
+        let ok_version = status(req("2", TOKEN, Some("application/json"))).await;
+        assert_eq!(
+            ok_version,
+            StatusCode::BAD_REQUEST,
+            "{uri} 受け付ける版の壊れた本文"
+        );
+        let ok_no_type = status(req("2", TOKEN, None)).await;
+        assert_eq!(
+            ok_no_type,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "{uri} 受け付ける版の content-type 無し"
+        );
+        let wrong = status(req("3", "wrong-token", Some("application/json"))).await;
+        assert_eq!(wrong, StatusCode::UNAUTHORIZED, "{uri} 合言葉が先");
+    }
+}
+
 // Scenario: 生存信号・破棄の報告・原本の欠けも新しすぎる版では 426 で断られる
 #[tokio::test]
 async fn st50_header_other_mouths_426() {

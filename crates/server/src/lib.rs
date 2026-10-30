@@ -2028,7 +2028,18 @@ pub async fn ingest(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
+    ingest_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn ingest_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
     let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
     let writer = Writer::of(caller);
 
     let items: Vec<serde_json::Value> = match body {
@@ -3329,7 +3340,18 @@ pub async fn heartbeat_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
+    heartbeat_post_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn heartbeat_post_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
     let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -4139,10 +4161,10 @@ pub fn router(app: App) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/contract", get(contract_version::contract_get))
-        .route("/ingest", post(ingest))
-        .route("/heartbeat", post(heartbeat_post))
-        .route("/drops", post(drops::drops_post))
-        .route("/media/missing", post(media_missing::missing_post))
+        .route("/ingest", post(ingest_route))
+        .route("/heartbeat", post(heartbeat_post_route))
+        .route("/drops", post(drops::drops_post_route))
+        .route("/media/missing", post(media_missing::missing_post_route))
         .route("/media/summary", get(media_summary::summary_get))
         // この経路だけ本文の上限が 1 GiB（ほかの経路の 2 MB は変えない。design D10）
         .route(

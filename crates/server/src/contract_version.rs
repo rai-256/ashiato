@@ -137,6 +137,15 @@ impl From<(StatusCode, String)> for Refusal {
     }
 }
 
+/// 本文を JSON として読めなかった（壊れた・大きすぎる・content-type が無い）。**見出しの検査の後に返す**（final review R8）——
+/// 口は本文を `Result<Json<_>, JsonRejection>` で受け、[`authorize_versioned`] の後に `?` で返す。
+/// 抽出子の断りをそのまま返すと、資格情報と見出しより先に 400 / 413 / 415 が決まり、新しすぎる版が 426 にならない
+impl From<axum::extract::rejection::JsonRejection> for Refusal {
+    fn from(e: axum::extract::rejection::JsonRejection) -> Self {
+        Self(Box::new(e.into_response()))
+    }
+}
+
 impl From<Unsupported> for Refusal {
     fn from(u: Unsupported) -> Self {
         Self(Box::new(u.into_response()))

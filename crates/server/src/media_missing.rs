@@ -212,7 +212,18 @@ pub async fn missing_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), crate::contract_version::Refusal> {
+    missing_post_route(State(app), headers, Ok(Json(body))).await
+}
+
+/// router が使う口。本文を読めなくても、資格情報と見出しの検査の後に断る（final review R8）。
+pub(crate) async fn missing_post_route(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Result<Json<serde_json::Value>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), crate::contract_version::Refusal> {
     let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    // 本文の断り（400 / 413 / 415）は資格情報と見出しの後（426 を先に。final review R8）
+    let Json(body) = body?;
     let writer = Writer::of(caller);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
