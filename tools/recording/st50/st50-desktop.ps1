@@ -101,6 +101,9 @@ $outbox = Join-Path $state 'outbox.jsonl'
 Wait-Until { (Test-Path $outbox) -and ((Get-Content $outbox -Raw -Encoding UTF8) -like '*メモ ST50*') } "未送信に「メモ ST50」が無い（$outbox）"
 Stop-Process -Id $collector.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
+# 止めた収集アプリの「動いている印」を消す。印が新しいうちは二重起動とみなして起動しない（R32。2 分半ほど）。
+# 止めたのはこの台本なので、もう 1 つは動いていない
+Remove-Item (Join-Path $state 'last-seen.txt') -Force -ErrorAction SilentlyContinue
 
 Show-RecCaption '5. サーバを更新した（版の答えが読める）。収集アプリを起こし直す'
 Set-ServerMode 'new'
