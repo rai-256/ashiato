@@ -144,10 +144,16 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
     var reasons: ContractReasons = ContractReasons()
         private set
 
-    /** 起動してから読める答えか 404 か読めない答えを 1 度でも得たか（理由はメモリにしか無いので、それまで「待っていない」は当てにならない） */
+    /**
+     * 起動してから読める答えを 1 度でも得たか（理由はメモリにしか無いので、それまで「待っていない」は当てにならない）。
+     * 404 と読めない答えでは立てない（PC の `reasons_known` と同じ。final review R3）
+     */
     @Volatile
     var known: Boolean = false
         private set
+
+    /** いまの理由で通知と画面の行を決めてよいか。待っているなら確か、待っていないは読める答えを得てからだけ確か（R3） */
+    val decided: Boolean get() = known || reasons.waiting
 
     val waiting: Boolean get() = reasons.waiting
 
@@ -171,19 +177,24 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
                 known = true
                 setUnreadableSince(null)
                 val posted = outcomes.any { it.posted }
+                // 原本の糸の印は、記録の送りが 426 だった契機でも**必ず読んで消す**（final review R7）——
+                // `||` の右に置くと短絡で残り、次の契機に（c）が立ち直る
+                val originals = originalsRefused.getAndSet(false)
                 reasons = ContractReasons(
                     ahead = outcomes.any { it.ahead },
-                    refused = (posted && outcomes.any { it.refused }) || originalsRefused.getAndSet(false),
-                    rejected = posted && outcomes.any { it.rejectedByVersion },
+                    refused = (posted && outcomes.any { it.refused }) || originals,
+                    // （d）は「版で断られた行がまだ未送信に残っている」。その回に送ったかに依らない（final review R2。
+                    // 断られた行を飛ばして新しい行が受け付けられた回に抜けると、通知と出した時刻が消えて次の契機で出直す）
+                    rejected = outcomes.any { it.rejectedByVersion },
                 )
             }
             ContractAnswer.NoEndpoint -> {
-                // A を得られない契機は理由を足すだけ。落とすのは読める答えの契機だけ（D9）
-                known = true
+                // A を得られない契機は理由を足すだけ。落とすのは読める答えの契機だけ（D9）。
+                // **known は立てない**（final review R3）—— 再起動の直後は前の理由がメモリに無い。読める答えだけが理由を全部決める
                 reasons = reasons.copy(noEndpoint = true)
             }
             ContractAnswer.Unreadable -> {
-                known = true
+                // known は立てない（R3）。24 時間に満たない読めない答えで「待っていない」と決めると、出ていた通知と画面の行が消える
                 val since = store.unreadableSinceMs ?: now.toEpochMilli().also { setUnreadableSince(it) }
                 val long = now.toEpochMilli() - since >= UNREADABLE_LIMIT.toMillis()
                 reasons = reasons.copy(unreadableLong = long)
@@ -201,11 +212,11 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
 }
 
 /**
- * 7 日前の知らせへ添える案内。再起動の後は理由がメモリに無い（[ContractGate.known] が偽）ので、
+ * 7 日前の知らせへ添える案内。再起動の後は理由がメモリに無い（[ContractGate.decided] が偽）ので、
  * 確かめるまでは画面の行と同じ SharedPreferences の写しに頼る（D6・D24（仮））。
  */
 fun contractHeadlineFor(gate: ContractGate, store: ContractWaitStore): String? =
-    if (gate.known) gate.reasons.headline else store.notice?.headline
+    if (gate.decided) gate.reasons.headline else store.notice?.headline
 
 /**
  * 送る契機の頭の確かめと、その結果を状態へ取り込む係（D18（仮）。答えを覚えない）。

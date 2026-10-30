@@ -197,6 +197,25 @@ class St50ContractNoticeTest {
         assertNotNull("24 時間経っても出ていない", posted())
     }
 
+    // Scenario: 再起動しても 24 時間経つまで通知は出直さない
+    @Test
+    fun `通知を出した後の再起動の直後に読めない 200 を得ても、通知も画面の行も消さない`() {
+        leaveAheadRow()
+        var p = Process().apply { probe = notFound }
+        p.tick()
+        val first = p.store.notifiedAtMs
+        assertNotNull("通知が出ていない", posted())
+
+        // 再起動の直後に公衆の Wi-Fi の入口（24 時間に満たない読めない 200）。前の理由はメモリに無い（final review R3）
+        advance(1 * hour)
+        p = Process().apply { probe = html }
+        p.tick()
+
+        assertNotNull("再起動の直後の読めない答えで通知が消えた", posted())
+        assertEquals(first, p.store.notifiedAtMs)
+        assertNotNull("画面の行の写しが消えた", p.store.notice)
+    }
+
     // Scenario: 止まっている間は 1 日に 1 回だけ通知が出直す
     @Test
     fun `5 分ごとに 2 日進めて、通知は止まった時と 1 日後と 2 日後の 3 回、欄には 1 通だけが残る`() {

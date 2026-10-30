@@ -658,7 +658,7 @@ open class LocationService : Service() {
             store("retention-alerted"),
             baseText = ongoingText(),
             log = logI,
-            // 再起動の後は理由がメモリに無い（known が偽）。確かめるまでは画面の行と同じ写し（store.notice）に頼る
+            // 再起動の後は理由がメモリに無い（decided が偽）。確かめるまでは画面の行と同じ写し（store.notice）に頼る
             contractHeadline = { contractHeadlineFor(contractGate, contractStore) },
         )
     }

@@ -277,8 +277,9 @@ class Drainer(
         val guard = contract
         if (guard != null && answer != null) {
             settleContract(guard, answer, outcomes)
-            // 再起動の直後は理由がメモリに無い。確かめを 1 度終えるまでは、通知を消すことも画面を消すこともしない
-            if (guard.gate.known) {
+            // 再起動の直後は理由がメモリに無い。読める答えを 1 度得るまでは、通知を消すことも画面を消すこともしない
+            // （待っている理由が立てば出す。404 が続く S-01 で再起動の後に知らせが止まらないように。final review R3）
+            if (guard.gate.decided) {
                 runCatching { onContract(guard.gate.reasons) }.onFailure {
                     log(Telemetry.line("contract_notice_crashed", source = null, error = it.javaClass.simpleName))
                 }

@@ -164,6 +164,14 @@ class Sender<T : Outboxable>(
     private val skipped = LinkedHashSet<String>()
 
     /**
+     * 契約の版で断られた（`unknown_field` / `contract_unsupported`）まま未送信に残っているはずの行（ST50 / final review R2）。
+     * [skipped] にも入る。**これが空でない間は（d）を立て続ける** —— その回に断られたかで立てると、断られた行を飛ばして
+     * 新しい行が受け付けられた回に待ちを抜け、通知と出した時刻が消えて次の契機で出直す。
+     * 止まっている間も 1 契機に 1 件だけ当たり直し、受け付けられたら全部の印を外す（PC の `Sender` と同じ形）。
+     */
+    private val versionRejected = LinkedHashSet<String>()
+
+    /**
      * ひと組の中の**ソースごとに 1 行**書く（tasks 1.2 / 独立レビュー R10 / code-verify R27）。
      *
      * 記録の置き場は**全ソースで 1 本**（既定 C11）なので、ひと組に 2 本以上のソースが混ざる ——
@@ -193,13 +201,14 @@ class Sender<T : Outboxable>(
     private fun sourcesOf(batch: List<T>): List<String> = batch.map { it.logicalSource }.distinct()
 
     private fun finish(flushed: Flushed, contract: ContractOutcome): Flushed {
-        lastContract = contract
+        lastContract = contract.copy(rejectedByVersion = versionRejected.isNotEmpty())
         return flushed
     }
 
     /** 断られて飛ばす印を捨てる（S-01 の更新を待つ状態を抜けた契機。ST50 / D14）。 */
     fun clearSkipped() {
         skipped.clear()
+        versionRejected.clear()
     }
 
     /**
@@ -225,7 +234,15 @@ class Sender<T : Outboxable>(
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         // **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）
-        val fresh = outbox.headStored(MAX_BATCH, skipped, upTo)
+        // 版で断られて飛ばしている行を 1 件だけ飛ばさずに当たり直す（final review R2）。止まっている間は待ちを抜けないので、
+        // 抜けた契機で印を捨てる（D14）だけでは S-01 を更新しても当たり直す契機が来ない
+        val probe = versionRejected.firstOrNull()
+        val fresh = outbox.headStored(MAX_BATCH, if (probe == null) skipped else skipped - probe, upTo)
+        if (probe != null && fresh.size < MAX_BATCH && fresh.none { it.item.id == probe }) {
+            // 飛ばさずに読んでも先頭の 1 回分に無く、読み切った = もう未送信に無い（上限で手放した）。待つ理由から外す
+            versionRejected.remove(probe)
+            skipped.remove(probe)
+        }
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
         val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH, maxVersion = upTo) else fresh
         if (stored.isEmpty()) return finish(Flushed(0, 0), ContractOutcome(ahead = ahead))
@@ -375,8 +392,21 @@ class Sender<T : Outboxable>(
         // 恒久的でない拒否は覚えて、次の契機では先に飛ばす（ST02 の R18 / H-1 と同じ解き方）——
         // **捨てずに先頭を塞がない。**
         batch.forEachIndexed { i, item -> if (!results[i].accepted && !isPermanent(i)) skipped += item.id }
+        // 版で断られた行を覚える。そのどれかが受け付けられた = S-01 が更新された。残りの印も外して次の契機で送る（R2）
+        var released = false
+        batch.forEachIndexed { i, item ->
+            when {
+                results[i].accepted -> released = versionRejected.remove(item.id) || released
+                results[i].error in VERSION_ERRORS -> versionRejected += item.id
+                else -> versionRejected.remove(item.id)
+            }
+        }
+        if (released) {
+            skipped.removeAll(versionRejected)
+            versionRejected.clear()
+        }
         return Verdict(
-            rejectedByVersion = results.any { !it.accepted && it.error in VERSION_ERRORS },
+            rejectedByVersion = versionRejected.isNotEmpty(),
             remove = batch.filterIndexed { i, _ -> results[i].accepted || isPermanent(i) }.map { it.id },
             acceptedIds = batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id },
             responded = responded,

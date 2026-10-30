@@ -391,13 +391,14 @@ class St50SenderTest {
     }
 
     // Scenario: S-01 を更新すると、止まっていた間に飛ばす印の付いた記録も先に送られる
+    // Scenario: 契約の版で止まると携帯に通知が 1 回出る
     @Test
-    fun `unknown_field で飛ばす印の付いた先頭の記録は、止まった状態を抜けた契機の後に飛ばされずに送られる`() {
+    fun `unknown_field で断られた記録が残る間は新しい記録が通っても止まったままで、S-01 の更新後に当たり直して抜ける`() {
         val v = versioned()
         v.outbox.add(req("x"))
         v.outbox.add(req("y"))
-        var verdict: (List<String>) -> Outcome = { ids ->
-            // x だけ unknown_field で断る
+        // x だけ unknown_field で断る古い S-01
+        val old: (List<String>) -> Outcome = { ids ->
             val results = ids.joinToString(
                 ",",
                 "[",
@@ -405,8 +406,9 @@ class St50SenderTest {
             ) { if (it == "x") """{"accepted":false,"error":"unknown_field"}""" else """{"accepted":true}""" }
             Outcome.Responded(200, results)
         }
+        var verdict = old
         val transport = FakeTransport { verdict(it) }
-        var probe: Outcome = Outcome.Responded(200, """{"contract_version":1}""")
+        val probe: Outcome = Outcome.Responded(200, """{"contract_version":1}""")
         val gate = ContractGate(ContractWaitStore(prefs()))
         val drainer = Drainer(
             records = sender(v.outbox, transport, currentVersion = 1),
@@ -423,18 +425,37 @@ class St50SenderTest {
         assertTrue(gate.reasons.rejected)
         assertEquals(listOf("x"), v.outbox.snapshot().map { it.id })
 
-        // S-01 が更新された。x が受け付けられるようになり、同じ契機の中では x は飛ばす印のせいで後回しにされうる
+        // まだ古い S-01。新しい z は受け付けられるが、x が残る間は止まったまま（final review R2。抜けると通知が出直す）
         v.outbox.add(req("z"))
-        verdict = acceptAll()
         drainer.tick()
-        assertFalse("受け付けられた契機で止まった状態を抜ける", gate.waiting)
+        assertEquals("止まっている間も x を 1 件だけ当たり直す", listOf("x", "z"), transport.posts.last().ids)
+        assertTrue("版で断られた行が残る間は抜けない", gate.waiting)
+        assertTrue(gate.reasons.rejected)
+        assertEquals(listOf("x"), v.outbox.snapshot().map { it.id })
 
-        // 次の契機: 飛ばす印が捨てられているので x が先頭から送られる
+        // S-01 が更新された。当たり直した x が受け付けられた契機で抜ける
+        verdict = acceptAll()
         v.outbox.add(req("w"))
         drainer.tick()
-        val last = transport.posts.last()
-        assertEquals("x", last.ids.first())
+        assertEquals("x", transport.posts.last().ids.first())
+        assertFalse("受け付けられた契機で止まった状態を抜ける", gate.waiting)
         assertEquals(0, v.outbox.size())
+    }
+
+    @Test
+    fun `版で断られた行が上限で手放されたら、次の契機で待つ理由から外れる`() {
+        val v = versioned()
+        v.outbox.add(req("x"))
+        val transport = FakeTransport(errorsFor("unknown_field"))
+        val s = sender(v.outbox, transport, currentVersion = 1)
+
+        s.flush(ContractAnswer.Version(1))
+        assertTrue(s.lastContract.rejectedByVersion)
+        // 保持の上限で x を手放した
+        assertTrue(v.outbox.remove(listOf("x")))
+
+        s.flush(ContractAnswer.Version(1))
+        assertFalse("もう未送信に無い行で止まり続けない", s.lastContract.rejectedByVersion)
     }
 
     // Scenario: 原本は記録を積んだ時の版で止まる
@@ -565,6 +586,35 @@ class St50SenderTest {
         guard.settle(guard.ask(), emptyList())
         assertFalse(gate.waiting)
         assertFalse(gate.observe(ContractAnswer.Transient, at, emptyList()))
+    }
+
+    @Test
+    fun `記録の送りも 426 だった契機に原本の印を読んで消し、次の契機で c が立ち直らない`() {
+        val gate = ContractGate(ContractWaitStore(prefs()))
+        val at = Instant.parse("2026-10-30T00:00:00Z")
+
+        gate.noteOriginalsRefused()
+        // 記録の送りが 426 の契機（短絡で原本の印が残らないこと。final review R7）
+        gate.observe(ContractAnswer.Version(1), at, listOf(ContractOutcome(posted = true, refused = true)))
+        assertTrue(gate.reasons.refused)
+
+        gate.observe(ContractAnswer.Version(1), at, listOf(ContractOutcome(posted = true)))
+        assertFalse("原本の印は前の契機で消えている", gate.reasons.refused)
+        assertFalse(gate.waiting)
+    }
+
+    @Test
+    fun `再起動の直後の 404 と読めない答えでは確かめたことにせず、404 なら待っている`() {
+        val at = Instant.parse("2026-10-30T00:00:00Z")
+        val a = ContractGate(ContractWaitStore(prefs()))
+        a.observe(ContractAnswer.Unreadable, at, emptyList())
+        assertFalse("24 時間未満の読めない答えでは確かめたことにしない（final review R3）", a.known)
+        assertFalse("待ってもいないので通知と画面の行を決めない", a.decided)
+
+        val b = ContractGate(ContractWaitStore(prefs()))
+        b.observe(ContractAnswer.NoEndpoint, at, emptyList())
+        assertFalse(b.known)
+        assertTrue("404 は待つ理由なので通知と画面の行を決めてよい", b.decided)
     }
 
     @Test
