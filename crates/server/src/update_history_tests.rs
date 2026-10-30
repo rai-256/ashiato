@@ -196,7 +196,7 @@ async fn st51_rows_app_role_reads_and_inserts() {
 mod migrate_rows {
     use crate::migration_ledger::{apply_migrations_recorded, MigrateError};
     use crate::testdb::TempDb;
-    use crate::update_history::{record_migrate, record_startup, Attempt, Outcome};
+    use crate::update_history::{record_migrate, record_startup, unwritten_seen, Attempt, Outcome};
     use sqlx::Connection as _;
 
     type V = (&'static str, &'static str);
@@ -319,40 +319,6 @@ mod migrate_rows {
         })
         .join()
         .unwrap()
-    }
-
-    #[derive(Clone, Default)]
-    struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-    impl std::io::Write for Captured {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    impl Captured {
-        fn start(&self) -> tracing::subscriber::DefaultGuard {
-            tracing::subscriber::set_default(
-                tracing_subscriber::fmt()
-                    .with_writer(self.clone())
-                    .with_ansi(false)
-                    .finish(),
-            )
-        }
-        fn text(&self) -> String {
-            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-        }
     }
 
     // Scenario: 新しい組み立ての migrate が版を当てると、当てた版の名前を持つ 1 行が残る
@@ -500,19 +466,12 @@ mod migrate_rows {
             ("999901010000_ok", "CREATE TABLE st51_ok (x int);"),
             ("999901010001_bad", "SELECT 1/0;"),
         ];
-        let log = Captured::default();
-        let guard = log.start();
         let e = run(&db, &versions, Some(A)).await.unwrap_err();
-        drop(guard);
         assert!(
             matches!(&e, MigrateError::Version { name, .. } if name == "999901010001_bad"),
             "{e}"
         );
-        assert!(
-            log.text().contains("update_history_unwritten"),
-            "{}",
-            log.text()
-        );
+        assert!(unwritten_seen().contains(&"no_table"));
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass('core.update_history') IS NOT NULL")
                 .fetch_one(db.owner())
@@ -721,15 +680,8 @@ mod migrate_rows {
     #[tokio::test]
     async fn st51_migrate_first_install_no_attempt() {
         let db = TempDb::create().await;
-        let log = Captured::default();
-        let guard = log.start();
         run(&db, &with(&[]), Some(A)).await.unwrap();
-        drop(guard);
-        assert!(
-            log.text().contains("update_history_unwritten"),
-            "{}",
-            log.text()
-        );
+        assert!(unwritten_seen().contains(&"no_table"));
         let got = rows(db.owner()).await;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].outcome, "applied");
@@ -775,16 +727,9 @@ mod migrate_rows {
         let mut conn = sqlx::PgConnection::connect_with(&(*db.owner().connect_options()).clone())
             .await
             .unwrap();
-        let log = Captured::default();
-        let guard = log.start();
         record_startup(&mut conn, B, crate::MIGRATIONS).await;
-        drop(guard);
         assert_eq!(rows(db.owner()).await.len(), before);
-        assert!(
-            log.text().contains("update_history_unwritten"),
-            "{}",
-            log.text()
-        );
+        assert_eq!(unwritten_seen().last(), Some(&"db_ahead"));
         // 知らない版が無ければ、同じ呼び方で起動の行が書かれる
         sqlx::query("DELETE FROM migration_ledger.applied WHERE name LIKE '9999%'")
             .execute(db.owner())

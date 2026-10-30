@@ -65,8 +65,23 @@ pub enum Attempt {
     Unwritten,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// 試験が「警告を出したか」を見る口。警告の取り込みは並走する試験と callsite の登録を取り合って落ちるので、
+    /// 同じ場所で、この試験のスレッドに理由の語を残す（本番の経路は変えない）。
+    static UNWRITTEN: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// 警告を出した理由の語（このスレッドで出した分。試験用）。
+#[cfg(test)]
+pub(crate) fn unwritten_seen() -> Vec<&'static str> {
+    UNWRITTEN.with(|v| v.borrow().clone())
+}
+
 /// 書けなかったことを警告に出す。DB の誤りは SQLSTATE だけ（本文は出さない）。
 fn warn_unwritten(why: &'static str, e: Option<&sqlx::Error>) {
+    #[cfg(test)]
+    UNWRITTEN.with(|v| v.borrow_mut().push(why));
     let sqlstate = e
         .and_then(|e| e.as_database_error())
         .and_then(|d| d.code())
