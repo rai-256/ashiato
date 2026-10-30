@@ -40,6 +40,8 @@ class Outbox<T : Outboxable>(
      * 読み戻しと `importLegacy`（古い形の取り込み）は書かない。
      */
     private val stampVersion: String? = null,
+    /** いまの送信契約の版。**積む時に行へ焼き込む**（ST50 / D1）。試験だけが差し替える */
+    private val contractVersion: () -> Int = { CONTRACT_VERSION },
 ) {
     /** 置き場に書けなかったもの。**書けるようになったら先に書く**（積んだ順を保つ） */
     private val unwritten = ArrayDeque<Stored<T>>()
@@ -48,7 +50,10 @@ class Outbox<T : Outboxable>(
      * 積む。**精度でも件数でもふるい落とさない**（ST01 design D11）。書けたかを返す。
      * 書けなくてもメモリには持つ（次に積むときに書き直す）。
      */
-    fun add(request: T): Boolean {
+    fun add(unstamped: T): Boolean {
+        // **積む 1 か所で版を焼き込む**。送るときは積んだ値のまま（更新の後も変えない。ST50 / D1）
+        @Suppress("UNCHECKED_CAST")
+        val request = unstamped.withContractVersion(contractVersion()) as T
         val ok = synchronized(this) {
             val enq = age()
             val json = stampVersion?.let { store.stamped(request, it) }
@@ -94,18 +99,24 @@ class Outbox<T : Outboxable>(
      * **全件をメモリに載せない**（spec「読み戻しでメモリに載る件数は 1 回に載る件数を超えない」）。
      */
     @Synchronized
-    fun head(limit: Int, skip: Set<String> = emptySet()): List<T> = headStored(limit, skip).map { it.item }
+    fun head(limit: Int, skip: Set<String> = emptySet(), maxVersion: Int = Int.MAX_VALUE): List<T> =
+        headStored(limit, skip, maxVersion).map { it.item }
 
     /** `head` の、行の JSON つき。送り出しが使う（行の JSON をそのまま送る。ST49 / design D3（仮））。 */
     @Synchronized
-    fun headStored(limit: Int, skip: Set<String> = emptySet()): List<Stored<T>> {
-        val out = ArrayList(store.head(limit, skip))
+    fun headStored(limit: Int, skip: Set<String> = emptySet(), maxVersion: Int = Int.MAX_VALUE): List<Stored<T>> {
+        val out = ArrayList(store.head(limit, skip, maxVersion))
         for (u in unwritten) {
             if (out.size >= limit) break
-            if (u.item.id !in skip) out += u
+            if (u.item.id !in skip && u.item.contractVersion <= maxVersion) out += u
         }
         return out
     }
+
+    /** 契約の版が `version` より新しい行が未送信にあるか（S-01 の更新を待つ理由の（a）。ST50 / D9）。 */
+    @Synchronized
+    fun hasVersionAbove(version: Int): Boolean =
+        unwritten.any { it.item.contractVersion > version } || store.hasVersionAbove(version)
 
     /** 最も古い未送信（積んだときの経過つき）。上限の見回りと知らせが使う。 */
     @Synchronized
@@ -180,6 +191,7 @@ class Outbox<T : Outboxable>(
             dir: File,
             serializer: KSerializer<T>,
             stampVersion: String? = null,
+            contractVersion: () -> Int = { CONTRACT_VERSION },
             log: (String) -> Unit,
         ): Outbox<T> {
             val clock = AgeClock(JvmDeviceClock, File(dir, "age-clock.txt"), log)
@@ -187,6 +199,7 @@ class Outbox<T : Outboxable>(
                 SegmentStore(File(dir, "segments"), serializer, File(dir, "unreadable.jsonl"), log),
                 age = clock::now,
                 stampVersion = stampVersion,
+                contractVersion = contractVersion,
             )
         }
     }

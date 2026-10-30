@@ -158,6 +158,10 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
         reply(path, body.split("\"id\":").size - 1)
     }
 
+    /** 送る契機の頭の確かめ（ST50）。既定は S-01 が今の版を答える（既存の試験の前提を変えない） */
+    var contractReply: Outcome = Outcome.Responded(200, """{"contract_version":$CONTRACT_VERSION}""")
+    override fun newContractGet(): () -> Outcome = { contractReply }
+
     /** 途切れの問い合わせ（ST14）。**打った問い合わせの文字列を覚え**、答えは試験が決める（既定は届かない）。 */
     val outageQueries = mutableListOf<String>()
     var outageReply: Outcome = Outcome.Unreachable("test")
@@ -493,6 +497,31 @@ class LocationServiceTest {
             block()
         } finally {
             Config.clearOverrideForTest()
+        }
+    }
+
+    /**
+     * 送る契機の頭の答えが口の無い 404・読めない 200 なら、本番の配線は 5 つの口のどこにも送らず、行を残す（ST50 / code-verify R17）。
+     * 送り手に答えを手で渡す試験（`St50SenderTest`）だけでは、`LocationService` が答えを送り手へ渡すことを見ていなかった。
+     *
+     * Scenario: 問い合わせの口が無い S-01 には何も送らない
+     * Scenario: 読めない答えの S-01 には何も送らない
+     */
+    @Test
+    fun `本番の配線は 404 と読めない 200 の答えでどの口にも送らず行を残す`() = withConfig {
+        listOf(
+            Outcome.Responded(404, ""),
+            Outcome.Responded(200, "<html>入口の画面</html>"),
+        ).forEachIndexed { i, answer ->
+            val service = start()
+            service.contractReply = answer
+            service.outboxForTest.add(fix("held-$i"))
+            service.scheduler.fire()
+            assertTrue("$answer の答えで送った: ${service.posted.map { it.first }}", service.posted.isEmpty())
+            assertTrue(
+                "$answer の答えで行が残っていない",
+                service.outboxForTest.snapshot().any { it.id == "held-$i" },
+            )
         }
     }
 

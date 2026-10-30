@@ -301,6 +301,8 @@ fn layout(
 #[derive(Debug)]
 enum Failure {
     Auth((StatusCode, String)),
+    /// 要求の契約の版が S-01 より新しい（または読めない）。`HEAD` は本文を持たない（ST50 / D4）
+    Contract(crate::contract_version::Unsupported),
     Malformed,
     TooLarge,
     Interrupted,
@@ -318,6 +320,7 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code) = match self {
             Self::Auth(r) | Self::Internal(r) => return r.into_response(),
+            Self::Contract(u) => return u.into_response(),
             Self::Malformed => (StatusCode::BAD_REQUEST, "malformed"),
             Self::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "too_large"),
             Self::Interrupted => (StatusCode::BAD_REQUEST, "interrupted"),
@@ -402,7 +405,7 @@ fn length_limit_hit(e: &axum::Error) -> bool {
            ("user_id" = uuid::Uuid, Query, description = "利用者")),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses((status = 201, description = "置いた"), (status = 200, description = "受け取り済み"),
-              (status = 400), (status = 401), (status = 409), (status = 413), (status = 422), (status = 503)))]
+              (status = 400), (status = 401), (status = 426), (status = 409), (status = 413), (status = 422), (status = 503)))]
 pub async fn put_original(
     State(app): State<App>,
     UrlPath(sha256): UrlPath<String>,
@@ -423,7 +426,7 @@ pub async fn put_original(
                         "原本を置けなかった"
                     );
                 }
-                Failure::Auth(_) | Failure::Internal(_) => {}
+                Failure::Auth(_) | Failure::Contract(_) | Failure::Internal(_) => {}
                 other => {
                     tracing::warn!(
                         kind = "original_refused",
@@ -448,7 +451,7 @@ impl Failure {
             Self::VideoNotAccepted => "video_not_accepted",
             Self::RecordMissing => "record_missing",
             Self::NameRefused(kind) | Self::Storage(kind) => kind,
-            Self::Auth(_) | Self::Internal(_) => "other",
+            Self::Auth(_) | Self::Contract(_) | Self::Internal(_) => "other",
         }
     }
 }
@@ -469,7 +472,9 @@ async fn put_inner(
     headers: &HeaderMap,
     req: Request,
 ) -> Result<StatusCode, Failure> {
-    authorize(app, headers).await.map_err(Failure::Auth)?;
+    let caller = authorize(app, headers).await.map_err(Failure::Auth)?;
+    crate::contract_version::check_header(app, &caller, headers, false)
+        .map_err(Failure::Contract)?;
     let sha256 = parse_sha(sha_param)?;
     let user_id = q.user_id.ok_or(Failure::Malformed)?;
     let limit = app.media.body_limit;
@@ -781,7 +786,7 @@ async fn file_sha256(path: &Path) -> std::io::Result<String> {
 #[utoipa::path(head, path = "/media/originals/{sha256}",
     params(("sha256" = String, Path, description = "原本の内容ハッシュ"),
            ("user_id" = uuid::Uuid, Query, description = "利用者")),
-    responses((status = 200), (status = 404), (status = 400), (status = 401)))]
+    responses((status = 200), (status = 404), (status = 400), (status = 401), (status = 426)))]
 pub async fn head_original(
     State(app): State<App>,
     UrlPath(sha256): UrlPath<String>,
@@ -789,7 +794,9 @@ pub async fn head_original(
     headers: HeaderMap,
 ) -> Response {
     let result: Result<bool, Failure> = async {
-        authorize(&app, &headers).await.map_err(Failure::Auth)?;
+        let caller = authorize(&app, &headers).await.map_err(Failure::Auth)?;
+        crate::contract_version::check_header(&app, &caller, &headers, true)
+            .map_err(Failure::Contract)?;
         let sha256 = parse_sha(&sha256)?;
         let user_id = q.user_id.ok_or(Failure::Malformed)?;
         received_and_on_disk(&app, user_id, &sha256).await

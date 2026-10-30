@@ -205,6 +205,10 @@ const EVENT_COLUMNS: &[(&str, &str)] = &[
         "server_version",
         "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
     ),
+    (
+        "contract_version",
+        "収集アプリが記録を積んだ時の送信契約の版（スキーマ版とは別の番号。収集アプリ以外が書いた記録は空）",
+    ),
     ("unit_system", "単位系"),
     ("crs", "座標系"),
     ("sensitivity", "感度（大きいほど厳しい）"),
@@ -250,6 +254,10 @@ const EVENT_VERSION_COLUMNS: &[(&str, &str)] = &[
     (
         "server_version",
         "その版の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
+    (
+        "contract_version",
+        "収集アプリが記録を積んだ時の送信契約の版（スキーマ版とは別の番号。収集アプリ以外が書いた記録は空）",
     ),
     ("unit_system", "単位系"),
     ("crs", "座標系"),

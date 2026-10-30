@@ -94,6 +94,10 @@ jobs:
           fi
       - run: ./tools/check-released-migrations.sh --self-test
       - run: ./tools/check-released-migrations.sh
+      # 送信契約の版の上げ忘れ（ST50 / design D7）。印を取り寄せたこの job に置く（別の job では印が 0 個に見えて黙って通る）。
+      # 収集アプリ 2 本の欄のずれは、それぞれの job の St50EnvelopeShapeTest・st50_envelope_shape が落とす
+      - run: ./tools/check-contract-version.sh --self-test
+      - run: ./tools/check-contract-version.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
       # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中

@@ -1,0 +1,836 @@
+{
+  "android": {
+    "drops": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "count": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "created_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "hourly": {
+        "required": true,
+        "type": [
+          "array"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "range_end": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "range_start": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "reason": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "heartbeat": {
+      "attempts": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "blockers": {
+        "required": true,
+        "type": [
+          "array"
+        ]
+      },
+      "capturable": {
+        "required": true,
+        "type": [
+          "boolean"
+        ]
+      },
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "emitted_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "network": {
+        "required": false,
+        "type": [
+          "boolean"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "successes": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "ingest": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "crs": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "event_time": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "external_id": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "external_ref": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "origin": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "payload": {
+        "required": true,
+        "type": [
+          "object"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "schema_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "source_updated_at": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "tz_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "tz_offset_min": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "unit_system": {
+        "required": true,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "media_missing": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "noticed_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "reason": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "sha256": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    }
+  },
+  "s01": {
+    "DropReportRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "contract_version": {
+        "required": false,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "count": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "created_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "device_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "hourly": {
+        "required": false,
+        "type": [
+          "array"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "range_end": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "range_start": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "reason": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "HeartbeatRequest": {
+      "attempts": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "blockers": {
+        "required": false,
+        "type": [
+          "array"
+        ]
+      },
+      "capturable": {
+        "required": true,
+        "type": [
+          "boolean"
+        ]
+      },
+      "contract_version": {
+        "required": false,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "device_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "emitted_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "network": {
+        "required": false,
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "successes": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "IngestRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "contract_version": {
+        "required": false,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "crs": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "device_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "end_time": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "end_tz_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "end_tz_offset_min": {
+        "required": false,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "event_time": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "external_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "external_ref": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "origin": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "payload": {
+        "required": true,
+        "type": [
+          "any"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "schema_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "source_updated_at": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "tz_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "tz_offset_min": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "unit_system": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "MediaMissingRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "contract_version": {
+        "required": false,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "device_id": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "noticed_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "reason": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "sha256": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    }
+  },
+  "version": 1,
+  "windows": {
+    "heartbeat": {
+      "attempts": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "blockers": {
+        "required": true,
+        "type": [
+          "array"
+        ]
+      },
+      "capturable": {
+        "required": true,
+        "type": [
+          "boolean"
+        ]
+      },
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "emitted_at": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "successes": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "ingest": {
+      "contract_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "device_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "event_time": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "external_id": {
+        "required": true,
+        "type": [
+          "null"
+        ]
+      },
+      "id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "logical_source": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "origin": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "payload": {
+        "required": true,
+        "type": [
+          "object"
+        ]
+      },
+      "raw": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "schema_version": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "source_updated_at": {
+        "required": false,
+        "type": [
+          "string"
+        ]
+      },
+      "tz_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      },
+      "tz_offset_min": {
+        "required": true,
+        "type": [
+          "integer"
+        ]
+      },
+      "user_id": {
+        "required": true,
+        "type": [
+          "string"
+        ]
+      }
+    }
+  }
+}

@@ -21,6 +21,8 @@ done
 # **終わりの 3 欄（ST41）は任意で、収集アプリは今は送らない**（docs/collector-contract.md「終わりの時刻」）ので除く。
 # 収集アプリが送るようにする Story は、ここから外して Kotlin 側の欄名を見る側に戻す。
 # `client_version`（ST49）は任意の欄だが、C-01 が送る（`IngestRequest.kt`）ので除かない。
+# `contract_version`（ST50 / D1）は任意の欄だが、C-01 が全要求に載せる（ST50 の Task 10）ので除かない。生存信号・破棄の報告も同じ。
+# 収集アプリ 2 本の欄が S-01 の欄に全部あること（逆向き）は tools/check-contract-version.sh の検査 6 が見る
 for field in $(jq -r '.components.schemas.IngestRequest.properties | keys[]' docs/openapi.json \
   | grep -vxE 'end_time|end_tz_offset_min|end_tz_id'); do
   grep -q "\b$field\b" "$kt" || { echo "  NG 要求の欄 $field を収集側が送っていない（$kt）"; bad=1; }

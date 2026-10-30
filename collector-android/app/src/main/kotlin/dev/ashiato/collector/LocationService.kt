@@ -81,6 +81,11 @@ open class LocationService : Service() {
     private lateinit var retention: Retention<IngestRequest>
     private lateinit var notifier: RetentionNotifier
 
+    /** 「S-01 の更新を待っている」状態（ST50 / D9）。7 日前の知らせと通知が同じ値を読む */
+    private val contractStore by lazy { ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE)) }
+    private val contractGate by lazy { ContractGate(contractStore) { Log.i(TAG, it) } }
+    private val contractNotifier by lazy { ContractNotifier(this, contractStore) { Log.i(TAG, it) } }
+
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
     private var lastMaintenanceMs = Long.MIN_VALUE
@@ -247,6 +252,10 @@ open class LocationService : Service() {
     /** `GET /outages` に問い合わせの文字列を付けて打つ口。**試験だけが差し替える**。 */
     protected open fun newOutageGet(): (String) -> Outcome =
         HttpTransport(Config.baseUrl, Config.apiToken, "/outages")::get
+
+    /** 送る契機の頭の確かめ（`GET /contract`。ST50 / D18（仮））。**試験だけが差し替える** */
+    protected open fun newContractGet(): () -> Outcome =
+        HttpTransport(Config.baseUrl, Config.apiToken, "/contract")::get
 
     /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */
     protected open fun newOutageExecutor(): ExecutorService = Executors.newSingleThreadExecutor()
@@ -649,6 +658,8 @@ open class LocationService : Service() {
             store("retention-alerted"),
             baseText = ongoingText(),
             log = logI,
+            // 再起動の後は理由がメモリに無い（decided が偽）。確かめるまでは画面の行と同じ写し（store.notice）に頼る
+            contractHeadline = { contractHeadlineFor(contractGate, contractStore) },
         )
     }
 
@@ -660,8 +671,8 @@ open class LocationService : Service() {
     }
 
     /** 原本の送りを走らせる。糸の中の例外はプロセスを落とすので、種別だけ残して次の契機へ回す（design D26） */
-    private fun runUploader(uploader: OriginalUploader) {
-        runCatching { uploader.run() }.onFailure {
+    private fun runUploader(uploader: OriginalUploader, answer: ContractAnswer?) {
+        runCatching { uploader.run(answer) }.onFailure {
             Log.i(TAG, Telemetry.line("original_upload_crashed", source = null, error = it.javaClass.simpleName))
         }
     }
@@ -959,6 +970,7 @@ open class LocationService : Service() {
                 now = { Instant.now() },
             ),
         ) { Log.i(TAG, it) }
+        val contractGet = newContractGet()
         val drainer = Drainer(
             records = sender,
             recordsOutbox = outbox,
@@ -966,7 +978,17 @@ open class LocationService : Service() {
             drops = dropSender,
             ledger = ledger,
             missing = missingSender,
-            afterRecords = { if (!uploader.busy) originalThread.execute { runUploader(uploader) } },
+            contract = ContractGuard({ contractGet() }, contractGate),
+            onContract = { reasons -> contractNotifier.update(reasons, oldestUnsentDays(outbox, ageClock::now)) },
+            originalsAhead = uploader::hasVersionAbove,
+            afterRecords = { answer ->
+                if (!uploader.busy) {
+                    originalThread.execute {
+                        runUploader(uploader, answer)
+                        if (uploader.lastContract.refused) contractGate.noteOriginalsRefused()
+                    }
+                }
+            },
             maintenance = { maintain(force = true) },
             log = { Log.i(TAG, it) },
         )
@@ -1311,13 +1333,10 @@ class AndroidRetentionAlerts(
         synchronized(ongoingLock) { manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text)) }
     }
 
-    override fun alert(days: Int): Boolean {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            service.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
-        if (!manager.areNotificationsEnabled()) return false
+    override fun alert(days: Int, contractHeadline: String?): Boolean {
+        val permitted = Build.VERSION.SDK_INT < 33 ||
+            service.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!permitted || !manager.areNotificationsEnabled()) return false
         manager.createNotificationChannel(
             NotificationChannel(LocationService.RETENTION_CHANNEL, "未送信の保持", NotificationManager.IMPORTANCE_DEFAULT),
         )
@@ -1326,7 +1345,10 @@ class AndroidRetentionAlerts(
             LocationService.RETENTION_NOTIFICATION_ID,
             Notification.Builder(service, LocationService.RETENTION_CHANNEL)
                 .setContentTitle("あしあと。未送信が $days 日たまっています")
-                .setContentText("自宅 PC に届いていません。あと $left 日で古いものから捨てます")
+                .setContentText(
+                    "自宅 PC に届いていません。あと $left 日で古いものから捨てます" +
+                        (contractHeadline?.let { "。$it" } ?: ""),
+                )
                 .setSmallIcon(android.R.drawable.stat_notify_error)
                 .setAutoCancel(true)
                 .build(),
