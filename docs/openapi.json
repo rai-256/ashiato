@@ -2009,6 +2009,9 @@
           },
           "409": {
             "description": ""
+          },
+          "503": {
+            "description": ""
           }
         }
       }
@@ -2707,6 +2710,16 @@
             "description": "後から届いて本文を消した件数（本文ごと消した区間だけ）",
             "minimum": 0
           },
+          "nested": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/NestedEntry"
+            },
+            "description": "本文ごと消した区間にすっぽり入る消した滞在（本文ごと消した区間だけ。空なら出さない。CH08 design D6）"
+          },
           "purge_stay_id": {
             "type": [
               "string",
@@ -2932,6 +2945,16 @@
             "format": "int32",
             "description": "後から届いて本文を消した件数（本文ごと消した区間だけ）",
             "minimum": 0
+          },
+          "nested": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/NestedEntry"
+            },
+            "description": "本文ごと消した区間にすっぽり入る消した滞在（本文ごと消した区間だけ。CH08 / design D6）"
           },
           "purge_stay_id": {
             "type": [
@@ -4515,6 +4538,37 @@
           }
         }
       },
+      "NestedEntry": {
+        "type": "object",
+        "description": "本文ごと消した区間の入れ子の項目。別の区間にはならず、親の区間の下に添える。",
+        "required": [
+          "start",
+          "end",
+          "stay_ids",
+          "purged"
+        ],
+        "properties": {
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purged": {
+            "type": "boolean",
+            "description": "本文ごと消した滞在か（戻す口が無い）"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stay_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
       "OutageItem": {
         "type": "object",
         "description": "途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**",
@@ -4949,6 +5003,7 @@
         "description": "`GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。",
         "required": [
           "counts",
+          "visible_overlaps",
           "range",
           "copies",
           "remains",
@@ -4977,6 +5032,12 @@
               "$ref": "#/components/schemas/PurgeRemain"
             },
             "description": "本文ごと消しても消えずに残るもの（いつも 4 つすべて）"
+          },
+          "visible_overlaps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "指定した滞在の時間と重なる、一覧に出ている滞在の数。`counts` の外（本文は消えない。消す口は比べない。design D7）",
+            "minimum": 0
           }
         }
       },

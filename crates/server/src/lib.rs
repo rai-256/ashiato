@@ -187,15 +187,30 @@ mod purge_compaction_tests;
 /// 1 日の並びに出る「本文ごと消した」の区間を本物の DB で見る（ST23 Task 9 / design D12）。
 #[cfg(test)]
 mod purge_day_tests;
+/// 作り直しが隠した、本文ごと消した時間帯と重なる滞在の本文の消去を本物の DB で見る（CH08 Task 1 / design D2・D3）。
+#[cfg(test)]
+mod purge_hidden_tests;
 /// 消えずに残るものと、本文を消しても変わらない稼働状況・後に消した記録の数を見る（ST23 Task 8 / design D10 / D18）。
 #[cfg(test)]
 mod purge_keep_tests;
 /// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
 #[cfg(test)]
 mod purge_late_tests;
+/// 1 日の並びの入れ子の項目と、後から本文を消した件数の足し込みを本物の DB で見る（CH08 Task 5 / design D6）。
+#[cfg(test)]
+mod purge_nested_day_tests;
+/// 起動時の手当て（本文ごと消した後に作り直しで隠れた重なる滞在の本文を消す）を本物の DB で見る（CH08 Task 2 / design D5）。
+#[cfg(test)]
+mod purge_remedy_tests;
+/// 戻す口の断り（本文ごと消した時間帯と重なる消した滞在を、戻した結果で確かめて断る）を HTTP の口から見る（CH08 Task 3 / design D4）。
+#[cfg(test)]
+mod purge_restore_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
+/// 確認の口の「一覧に出ている重なる滞在」を HTTP の口から見る（CH08 Task 4 / design D7）。
+#[cfg(test)]
+mod purge_visible_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -2311,7 +2326,7 @@ pub async fn stays_erase(
 /// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
 #[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
     responses((status = 200, body = RestoreResponse), (status = 401), (status = 404),
-        (status = 409)))]
+        (status = 409), (status = 503)))]
 pub async fn stays_restore(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2330,6 +2345,20 @@ pub async fn stays_restore(
                 (StatusCode::NOT_FOUND, "stay_not_found".into())
             }
             deletion::RestoreError::Purged => (StatusCode::CONFLICT, "purged_restore".into()),
+            deletion::RestoreError::NotRestorable => {
+                (StatusCode::CONFLICT, "not_restorable".into())
+            }
+            deletion::RestoreError::RebuildFailed(e) => {
+                tracing::error!(
+                    kind = "stay.rebuild",
+                    failure = %stay_store::failure_kind(&e),
+                    "戻せるかを確かめる作り直しに失敗（何も戻していない）"
+                );
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "restore_rebuild_failed".into(),
+                )
+            }
             deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
         })?;
 
@@ -2394,6 +2423,8 @@ const PURGE_REMAINS: [PurgeRemain; 4] = [
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PurgePreview {
     counts: deletion::PurgeCounts,
+    /// 指定した滞在の時間と重なる、一覧に出ている滞在の数。`counts` の外（本文は消えない。消す口は比べない。design D7）
+    visible_overlaps: u32,
     range: PurgeRange,
     /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）
     copies: u32,
@@ -2483,6 +2514,7 @@ pub async fn stays_purge_preview_get(
         .map_err(|e| purge_refusal(deletion::PurgeError::Database(e), "stays.purge_preview"))?;
     Ok(Json(PurgePreview {
         counts: scope.counts,
+        visible_overlaps: scope.visible_overlaps,
         range: PurgeRange {
             start: scope.start,
             end: scope.end,
@@ -4260,6 +4292,34 @@ pub fn router(app: App) -> Router {
         .with_state(app)
 }
 
+/// 起動時の手入れ（待ち受けの前に `run()` が 1 回呼ぶ）。どれも失敗を飲み込んでログに残し、起動は止めない。
+/// 返すのは起動時の手当て（CH08 design D5）で残った件数。試験はここを通して「起動すると消える」を見る（code review R13）。
+pub(crate) async fn startup_upkeep(pool: sqlx::PgPool) -> usize {
+    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
+    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
+    match deletion::purged_without_span(&pool).await {
+        Ok(0) => {}
+        Ok(count) => tracing::warn!(
+            kind = "purge_span_missing",
+            count,
+            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
+        ),
+        Err(e) => tracing::warn!(
+            kind = "purge_span_missing",
+            sqlstate = e
+                .as_database_error()
+                .and_then(|d| d.code())
+                .as_deref()
+                .unwrap_or(""),
+            "範囲の行が無い滞在を数えられない"
+        ),
+    }
+
+    // 本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す（CH08 / design D5）。
+    // 失敗は関数がログに残して飲み込む（起動は止めない。次の起動でもう一度消す）
+    deletion::purge_hidden_overlap_remedy(&pool).await
+}
+
 pub async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     std::panic::set_hook(Box::new(|info| {
@@ -4330,25 +4390,7 @@ pub async fn run() -> anyhow::Result<()> {
         Err(e) => update_history::warn_unwritten("acquire", Some(&e)),
     }
 
-    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
-    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
-    match deletion::purged_without_span(&pool).await {
-        Ok(0) => {}
-        Ok(count) => tracing::warn!(
-            kind = "purge_span_missing",
-            count,
-            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
-        ),
-        Err(e) => tracing::warn!(
-            kind = "purge_span_missing",
-            sqlstate = e
-                .as_database_error()
-                .and_then(|d| d.code())
-                .as_deref()
-                .unwrap_or(""),
-            "範囲の行が無い滞在を数えられない"
-        ),
-    }
+    startup_upkeep(pool.clone()).await;
 
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
@@ -4543,6 +4585,7 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,
+        stay_store::NestedEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
         day_records::DayRecord,
