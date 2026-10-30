@@ -1,0 +1,49 @@
+{
+  "tag": "20261030-2009",
+  "run_id": "20261030-201031-bc65a2b",
+  "commit": "bc65a2b094b9f04d356a7427f7de772089dbdfca",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261030-201031-bc65a2b",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261030-201031-bc65a2b",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "CH08-nested",
+      "story": "CH08",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/CH08-nested/video.webm",
+      "trace": "scenarios/CH08-nested/trace.zip"
+    },
+    {
+      "id": "ST50-contract-notice",
+      "story": "ST50",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST50-contract-notice/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST50-contract-notice-pc",
+      "story": "ST50",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "前半（Sandbox の操作）passed。後半: passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST50-contract-notice-pc/video.webm",
+      "trace": "scenarios/ST50-contract-notice-pc/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "ST51"
+  ]
+}
