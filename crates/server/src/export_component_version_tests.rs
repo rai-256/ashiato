@@ -408,10 +408,12 @@ async fn st49_export_existing_columns_are_kept() {
         for c in before {
             assert!(after.contains(c), "{file}: {c} が消えた");
         }
+        // 後の Story が足した列（ST50 の契約の版）は、ここで見る「ST49 が足した列」に数えない
+        const LATER: [&str; 1] = ["contract_version"];
         let added: Vec<&str> = after
             .iter()
             .copied()
-            .filter(|c| !before.contains(c))
+            .filter(|c| !before.contains(c) && !LATER.contains(c))
             .collect();
         assert!(
             !added.is_empty() && added.iter().all(|c| VERSIONS.contains(c)),

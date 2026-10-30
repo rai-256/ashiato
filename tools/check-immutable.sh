@@ -885,7 +885,8 @@ left=$(psql -c "SELECT count(*) FROM core.export_ledger WHERE export_id='$EXPORT
 # design D21（仮）。検査は tools/check-immutable.d/202610251000_st49-record-component-version.sh）。本人が書いた・派生させた記録の
 # 版は門の対象外（`OLD.origin <> 'collected'` は素通し）なので、ここでは開けている側に数える。
 open_cols="sensitivity deleted_at deleted_by collector_version web_version server_version"  # FR-50 / PERM-2 で開ける
-gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
+# ST50: 記録の契約の版は門（require_version_or_ledger）が見る —— 検査は tools/check-immutable.d/202610300030_st50-contract-version.sh
+gated_cols="raw payload content_hash contract_version"   # 門が消去の形と台帳だけを通す
 frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
              tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref
              end_time end_tz_offset_min end_tz_id"

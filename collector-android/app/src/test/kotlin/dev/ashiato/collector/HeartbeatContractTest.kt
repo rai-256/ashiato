@@ -30,6 +30,8 @@ class HeartbeatContractTest {
         "attempts",
         "successes",
         "raw",
+        // 積んだ時の契約の版（ST50）。全要求に付く
+        "contract_version",
     )
     // CONTRACT-FIELDS-END
 
@@ -48,7 +50,7 @@ class HeartbeatContractTest {
             raw = """{"alive":true}""",
         )
         val keys = (Json.parseToJsonElement(ingestJson.encodeToString(request)) as JsonObject).keys
-        assertEquals(contractFields.sorted(), keys.sorted())
+        assertEquals(contractFields.sorted(), (keys).sorted())
     }
 
     /** **`explicitNulls = true`** なので、省いた欄も鍵としては出る（契約どおり）。 */
@@ -65,6 +67,6 @@ class HeartbeatContractTest {
             raw = "{}",
         )
         val keys = (Json.parseToJsonElement(ingestJson.encodeToString(request)) as JsonObject).keys
-        assertEquals(contractFields.sorted(), keys.sorted())
+        assertEquals(contractFields.sorted(), (keys).sorted())
     }
 }

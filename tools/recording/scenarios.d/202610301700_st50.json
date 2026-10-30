@@ -1,0 +1,30 @@
+[
+  {
+    "id": "ST50-contract-notice",
+    "story": "ST50",
+    "platform": "android",
+    "spec": "tools/recording/st50/St50RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St50RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/ContractGate.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/ContractNotifier.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt",
+      "collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthStepSkip.kt"
+    ],
+    "note": "ST50（Android）: サーバが ST50 より古い（版を問い合わせる口が 404）→ 送らずに携帯に残し「サーバを更新してください（未送信 3 日分を携帯に残しています）」の通知 → あしあと。を開くと画面にも同じ 1 行 → サーバを更新した（版の答えが読める）→ 通知は消え、開き直すと 1 行は出ずに画面が閉じる。**古いサーバは撮らない**（録画用のサーバは ST50 の版を返す）—— 答えをアプリと同じ ContractGate → ContractNotifier に通し、画面の行も同じ置き場から読ませる。日数は録画のために 3 日として渡す。送る・送らないの判定は計測テストと St50SenderTest が持つ"
+  },
+  {
+    "id": "ST50-contract-notice-pc",
+    "story": "ST50",
+    "platform": "windows",
+    "desktop": "tools/recording/st50/st50-desktop.ps1",
+    "spec": "tools/recording/st50/st50-result.rec.ts",
+    "requires": [
+      "crates/collector-windows/src/contract_notice.rs",
+      "crates/collector-windows/src/contract_gate.rs",
+      "web/e2e/global-setup.ts",
+      "web/src/DayView.tsx"
+    ],
+    "note": "ST50（PC。`platform: windows`）: **前半**は Windows Sandbox の中に ST50 より古いサーバ（どの口も 404）を立てて収集アプリを向ける → 最初の送る契機で版が分からず、送らずに PC に残して「サーバを更新してください」のトースト → その間もフォルダ「メモ ST50」の記録が積まれる → サーバを更新した（`GET /contract` が版 1。受け取りは 503 にして記録を PC に残す）→ 起こし直した最初の送る契機で通知が消える（置き場の notified_at でも確かめる）。**後半**は 1 日の画面で、PC に残していた「メモ ST50」が、閉じた後に録画用のサーバへ送られて PC の記録として出るところ"
+  }
+]

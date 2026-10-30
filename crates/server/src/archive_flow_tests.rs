@@ -234,6 +234,7 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
     crate::store_one(
         &inbox.pool,
         crate::IngestRequest {
+            contract_version: None,
             id: uuid::Uuid::new_v4(),
             user_id: inbox.user,
             logical_source: "c01-location".into(),

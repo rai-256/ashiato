@@ -298,7 +298,11 @@ const ja = {
     restore: "戻す",
     /** 本文ごと消した区間の行（ST23 / design D12）。戻す操作も本文ごと消す操作も持たない */
     purged: (range: string): string => `本文ごと消した ${range}`,
-    purgedLate: (n: number): string => `後から届いた ${n} 件も本文ごと消した`,
+    purgedLate: (n: number): string => `後から ${n} 件も本文ごと消した`,
+    /** 本文ごと消した区間の下の消した行（CH08 / design D8） */
+    nestedNoRestore: "本文ごと消した時間の中なので戻せません",
+    notRestorable: "戻しても一覧に戻らないため、戻せません",
+    purgeVisible: (n: number): string => `一覧に出ている重なる滞在 ${n} 件は残ります。後で作り直しで隠れたら、その本文も消えます`,
     purge: "本文ごと消す",
     purgeLoading: "消える件数を数えています…",
     purgeFailed: (why: string): string => `消える件数を数えられませんでした（${why}）。何も消していません。`,

@@ -73,6 +73,7 @@ fn base() -> heartbeat::HeartbeatRequest {
         successes: 230,
         network: None,
         client_version: None,
+        contract_version: None,
         raw: r#"{"alive":true}"#.into(),
     }
 }

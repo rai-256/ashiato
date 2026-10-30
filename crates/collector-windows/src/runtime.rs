@@ -29,6 +29,8 @@ use crate::clock_record::{skew_record, RecordContext};
 use crate::clock_worker::{ClockReading, ClockWorker, WorkerPoll};
 use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
+use crate::contract_gate::ContractGate;
+use crate::contract_notice::ContractNotice;
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
@@ -36,7 +38,7 @@ use crate::history::contract::Visit;
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
 use crate::outage_notice::OutagePoller;
 use crate::outbox::Outbox;
-use crate::sender::{Sender, Transport};
+use crate::sender::{read_contract_answer, ContractAnswer, Sender, Transport};
 use crate::telemetry;
 use crate::time_sync::TimeSyncSource;
 
@@ -90,6 +92,8 @@ pub struct Runtime<'a> {
     beats: Outbox<HeartbeatRequest>,
     ingest: Sender,
     beat_sender: Sender,
+    /// 「S-01 の更新を待っている」状態（ST50 / design D9）
+    contract_gate: ContractGate,
     transport: &'a dyn Transport,
     reference: Arc<dyn ReferenceClock>,
     time_sync: Arc<dyn TimeSyncSource>,
@@ -101,6 +105,8 @@ pub struct Runtime<'a> {
     clock_worker: Option<ClockWorker>,
     /// 途切れの問い合わせ係。**時計の測定の契機で 1 回呼ぶ**（ST14 / design D11）。通知を出せない構成では持たない
     outage: Option<OutagePoller>,
+    /// 「サーバを更新してください」の通知係（ST50 / design D5）。付けなければ通知は出ない
+    contract_notice: Option<ContractNotice>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -250,6 +256,7 @@ impl<'a> Runtime<'a> {
             beats,
             ingest: Sender::ingest(),
             beat_sender: Sender::heartbeat(),
+            contract_gate: ContractGate::open(&cfg.state_dir, &mut info),
             transport,
             reference,
             time_sync,
@@ -257,6 +264,7 @@ impl<'a> Runtime<'a> {
             skew_trigger: ClockTrigger::Start,
             clock_worker: None,
             outage: None,
+            contract_notice: None,
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -289,6 +297,11 @@ impl<'a> Runtime<'a> {
     /// 途切れの問い合わせ係を付ける。**付けなければ問い合わせない**（通知を出せない構成）。
     pub fn set_outage_poller(&mut self, poller: OutagePoller) {
         self.outage = Some(poller);
+    }
+
+    /// 「サーバを更新してください」の通知係を付ける。**付けなければ通知は出ない**（収集は続く）。
+    pub fn set_contract_notice(&mut self, notice: ContractNotice) {
+        self.contract_notice = Some(notice);
     }
 
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
@@ -783,18 +796,41 @@ impl<'a> Runtime<'a> {
                 self.push(p);
             }
             self.save_engine_state();
-            self.send();
+            self.send_at(wall);
             self.last_send = Some(mono);
         }
     }
 
+    /// 直前の見回りの壁時計で送る（見回りの前なら今の時刻）。
     fn send(&mut self) {
+        let now = self.last_tick.map_or_else(Utc::now, |(wall, _)| wall);
+        self.send_at(now);
+    }
+
+    /// 送る契機の 1 回分。**頭で 1 回だけ `GET /contract` を引き**、記録と生存信号の両方に同じ答えを渡す
+    /// （design D18（仮）。答えは覚えない）。
+    fn send_at(&mut self, now: DateTime<Utc>) {
         let log = self.log;
         let mut log = |line: String| log(line);
-        if let Err(e) = self
+        let answer = read_contract_answer(&self.transport.get("/contract"));
+        let accepted = match answer {
+            ContractAnswer::Version(a) => Some(a),
+            held => {
+                // 送らずに残した契機を必ず 1 行残す（/code-review R22）。合言葉の誤り（401）も到達できないのも
+                // ここでは一時的な失敗になり、送る口の `send_failed` が出なくなる。携帯の `send_held` と同じ形
+                log(telemetry::line(
+                    "send_held",
+                    None,
+                    None,
+                    Some(contract_answer_kind(held)),
+                ));
+                None
+            }
+        };
+        let sent = self
             .ingest
-            .flush(&mut self.events, self.transport, &mut log)
-        {
+            .flush(&mut self.events, self.transport, accepted, &mut log);
+        if let Err(e) = sent {
             log(telemetry::line(
                 "send_failed",
                 None,
@@ -802,10 +838,10 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
-        if let Err(e) = self
+        let sent = self
             .beat_sender
-            .flush(&mut self.beats, self.transport, &mut log)
-        {
+            .flush(&mut self.beats, self.transport, accepted, &mut log);
+        if let Err(e) = sent {
             log(telemetry::line(
                 "send_failed",
                 None,
@@ -813,6 +849,43 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
+        let outcomes = [self.ingest.last_outcome(), self.beat_sender.last_outcome()];
+        if self.contract_gate.observe(answer, now, &outcomes, &mut log) {
+            // 待っている状態を抜けた。断られた印のせいで先頭に居座らせない（design D14）
+            self.ingest.clear_skipped();
+            self.beat_sender.clear_skipped();
+        }
+        if let Some(notice) = &self.contract_notice {
+            // 手元に残した最も古い行を**積んだ時刻**（design D5。置き場の控え）。控えに無い行（控えを書く前に
+            // 積んだ・書けなかった）だけ出来事の時刻で代える —— ブラウザの履歴は古い訪問の時刻を持つので、
+            // 出来事の時刻の最小で代えると日数が大きく出る（final review R10）
+            // 通知を出す契機でだけ数える（未送信を全部なめるので。/code-review R25）
+            let events = &self.events;
+            let oldest = || {
+                events
+                    .snapshot()
+                    .iter()
+                    .filter_map(|r| {
+                        events.enqueued_at(&r.id).or_else(|| {
+                            DateTime::parse_from_rfc3339(&r.event_time)
+                                .ok()
+                                .map(|t| t.with_timezone(&Utc))
+                        })
+                    })
+                    .min()
+            };
+            notice.after_send(&mut self.contract_gate, now, oldest, &mut log);
+        }
+    }
+}
+
+/// 送らずに残した契機のログの `error`（携帯の `send_held` と同じ語）。
+fn contract_answer_kind(answer: ContractAnswer) -> &'static str {
+    match answer {
+        ContractAnswer::Version(_) => "version",
+        ContractAnswer::NoEndpoint => "noendpoint",
+        ContractAnswer::Unreadable => "unreadable",
+        ContractAnswer::Transient => "transient",
     }
 }
 
@@ -950,7 +1023,17 @@ mod tests {
     }
 
     impl Transport for AcceptAll {
-        fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+        fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+            Ok(Reply {
+                status: 200,
+                body: format!(
+                    r#"{{"contract_version":{}}}"#,
+                    crate::contract::CONTRACT_VERSION
+                ),
+            })
+        }
+
+        fn post(&self, path: &str, body: &str, _version: u32) -> anyhow::Result<Reply> {
             self.bodies
                 .borrow_mut()
                 .push((path.to_string(), body.to_string()));
@@ -1300,6 +1383,130 @@ mod tests {
             1,
             "測り直しでは問い合わせない"
         );
+    }
+
+    /// Scenario: 契約の版で止まると PC に通知が 1 回出る
+    /// 送る契機の後に通知係が呼ばれ、待っている間は 2 回目の契機でも出し直さない。
+    #[test]
+    fn st50_runtime_notifies_once_when_waiting_for_server_update() {
+        #[derive(Debug, Default)]
+        struct Toast(std::sync::Mutex<Vec<String>>);
+        impl crate::contract_notice::ContractToaster for Toast {
+            fn show_contract(&self, xml: &str) -> anyhow::Result<()> {
+                self.0.lock().unwrap().push(xml.to_string());
+                Ok(())
+            }
+            fn dismiss_contract(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+        }
+        // 版 1 までしか受け付けない。送りは通らず、行は残る
+        #[derive(Debug)]
+        struct Old;
+        impl Transport for Old {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                Ok(Reply {
+                    status: 200,
+                    body: r#"{"contract_version":1}"#.to_string(),
+                })
+            }
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
+                anyhow::bail!("止まっている")
+            }
+        }
+        let (cfg, _tmp) = cfg();
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &Old,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap();
+        let toast = Arc::new(Toast::default());
+        rt.set_contract_notice(ContractNotice::new(toast.clone()));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 400, 10);
+        assert!(!rt.events.is_empty(), "送れない行が残っている");
+        let ahead = rt.events.snapshot()[0].clone();
+        rt.events.add_many_at(vec![ahead], 2).unwrap();
+        rt.send_at(t(10));
+        rt.send_at(t(20));
+        let shown = toast.0.lock().unwrap().clone();
+        assert_eq!(shown.len(), 1, "待っている間は 1 回だけ出す");
+        assert!(shown[0].contains("サーバを更新してください"));
+    }
+
+    /// 送る契機の頭の答えが口の無い 404・読めない 200 なら、記録も生存信号も 1 件も送らず残す（code-verify R17）。
+    /// 送り手に答えを手で渡す試験だけでは、契機が答えを送り手へ渡すこと（`send_at`）を見ていなかった
+    /// Scenario: 問い合わせの口が無い S-01 には PC も何も送らない
+    #[test]
+    fn st50_runtime_send_holds_everything_without_a_readable_answer() {
+        #[derive(Debug)]
+        struct Answers {
+            reply: Reply,
+            posts: std::sync::Mutex<usize>,
+        }
+        impl Transport for Answers {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                Ok(self.reply.clone())
+            }
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
+                *self.posts.lock().unwrap() += 1;
+                anyhow::bail!("送ってはいけない")
+            }
+        }
+        for reply in [
+            Reply {
+                status: 404,
+                body: String::new(),
+            },
+            Reply {
+                status: 200,
+                body: "<html>入口の画面</html>".to_string(),
+            },
+        ] {
+            let transport = Answers {
+                reply: reply.clone(),
+                posts: std::sync::Mutex::new(0),
+            };
+            let (cfg, _tmp) = cfg();
+            let mut rt = Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(t(0))),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+            )
+            .unwrap();
+            let mut src = FakeSource::new("editor");
+            rt.start_at(&src, t(0), t(0));
+            run(&mut rt, &mut src, 0, 700, 10);
+            rt.send_at(t(710));
+            assert!(
+                !rt.events.is_empty() && !rt.beats.is_empty(),
+                "{}: 記録と生存信号が積まれていない",
+                reply.status
+            );
+            assert_eq!(
+                *transport.posts.lock().unwrap(),
+                0,
+                "{} {:?} の答えで送った",
+                reply.status,
+                reply.body
+            );
+        }
     }
 
     /// Scenario: 通知を出せなくても収集は止まらない
@@ -2747,12 +2954,16 @@ mod tests {
     }
 
     impl Transport for Switch {
-        fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+        fn post(&self, path: &str, body: &str, contract_version: u32) -> anyhow::Result<Reply> {
             if self.up.get() {
-                self.inner.post(path, body)
+                self.inner.post(path, body, contract_version)
             } else {
                 anyhow::bail!("取り込み口が止まっている")
             }
+        }
+
+        fn get(&self, path: &str) -> anyhow::Result<Reply> {
+            self.inner.get(path)
         }
     }
 
@@ -3276,9 +3487,17 @@ mod tests {
             inner: AcceptAll,
         }
         impl Transport for Switch {
-            fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+            fn get(&self, path: &str) -> anyhow::Result<Reply> {
                 if self.up.get() {
-                    self.inner.post(path, body)
+                    self.inner.get(path)
+                } else {
+                    anyhow::bail!("取り込み口が止まっている")
+                }
+            }
+
+            fn post(&self, path: &str, body: &str, version: u32) -> anyhow::Result<Reply> {
+                if self.up.get() {
+                    self.inner.post(path, body, version)
                 } else {
                     anyhow::bail!("取り込み口が止まっている")
                 }
@@ -3397,7 +3616,11 @@ mod tests {
         #[derive(Debug)]
         struct Down;
         impl Transport for Down {
-            fn post(&self, _: &str, _: &str) -> anyhow::Result<Reply> {
+            fn get(&self, _: &str) -> anyhow::Result<Reply> {
+                anyhow::bail!("取り込み口が止まっている")
+            }
+
+            fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
                 anyhow::bail!("取り込み口が止まっている")
             }
         }

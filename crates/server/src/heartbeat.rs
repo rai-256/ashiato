@@ -36,6 +36,9 @@ pub struct HeartbeatRequest {
     pub client_version: Option<String>,
     /// 収集側から受け取った原文。**素通しで残す**（0003 と同じ理由で `text`）
     pub raw: String,
+    /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<i64>,
 }
 
 /// 受け取り時に断る理由。**アプリ層で閉じる**（`ingest::Invalid` と同じ向き）——
@@ -104,6 +107,7 @@ mod tests {
 
     fn req() -> HeartbeatRequest {
         HeartbeatRequest {
+            contract_version: None,
             id: uuid::Uuid::new_v4(),
             user_id: uuid::Uuid::nil(),
             logical_source: "t".into(),

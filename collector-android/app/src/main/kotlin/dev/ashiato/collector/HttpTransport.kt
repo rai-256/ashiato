@@ -36,7 +36,10 @@ class HttpTransport(
         runCatching { URL(this.baseUrl).let { u -> if (u.port >= 0) "${u.host}:${u.port}" else u.host } }.getOrNull()
     }
 
-    override fun post(bodyJson: String): Outcome {
+    override fun post(bodyJson: String): Outcome = post(bodyJson, CONTRACT_VERSION)
+
+    /** 見出し `Ashiato-Contract-Version` に載せた行の版の最大を付けて送る（ST50 / D4）。 */
+    override fun post(bodyJson: String, contractVersion: Int): Outcome {
         var conn: HttpURLConnection? = null
         val monoBefore = monoClock()
         return try {
@@ -47,6 +50,7 @@ class HttpTransport(
                 doOutput = true
                 setRequestProperty("content-type", "application/json")
                 setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty(CONTRACT_HEADER, contractVersion.toString())
             }
             conn.outputStream.use { it.write(bodyJson.toByteArray(Charsets.UTF_8)) }
             val status = conn.responseCode
@@ -69,7 +73,7 @@ class HttpTransport(
      * `GET`（途切れの問い合わせ。ST14 / design D12）。10 秒で打ち切る。
      * `path` に続けて `query`（`?device_id=…`）を付ける。時計の測定には使わないので値は載せない。
      */
-    fun get(query: String): Outcome {
+    fun get(query: String = ""): Outcome {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL("$baseUrl$path$query").openConnection() as HttpURLConnection).apply {
@@ -92,3 +96,6 @@ class HttpTransport(
         const val GET_TIMEOUT_MS = 10_000
     }
 }
+
+/** 要求が契約の版を載せる見出し（ST50 / D4）。 */
+const val CONTRACT_HEADER: String = "Ashiato-Contract-Version"

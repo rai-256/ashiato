@@ -14,6 +14,10 @@ use crate::LOGICAL_SOURCE;
 /// エンベロープの版（FR-26）。
 pub const SCHEMA_VERSION: i32 = 1;
 
+/// 送信契約の版（ST50 / design D12）。S-01 の `contract_version::CONTRACT_VERSION`・携帯の `CONTRACT_VERSION`・
+/// `docs/contract/envelope.json` の `version` と同じ値でなければならない（`tools/check-contract-version.sh` が突き合わせる）。
+pub const CONTRACT_VERSION: u32 = 1;
+
 /// 記録の種類。**`core.event` の 1 件がどの出来事なのか**（design D1）。
 ///
 /// `core.coverage_span.kind`（`stopped` / `dropped`）とは**別の語彙**にしてある ——
@@ -324,9 +328,18 @@ pub struct IngestRequest {
     /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
+    /// 積んだ時の送信契約の版（ST50 / design D1）。**送る時に今の版で上書きしない。**
+    /// 版を持たない溜めの行（ST50 より前）は読み戻すと 1（D10）
+    #[serde(default = "one")]
+    pub contract_version: u32,
     /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**（ST49 design D3（仮））
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 版を持たない行の版（D10）。
+fn one() -> u32 {
+    1
 }
 
 impl IngestRequest {
@@ -357,6 +370,7 @@ impl IngestRequest {
             raw,
             payload: serde_json::to_value(payload)?,
             client_version: None,
+            contract_version: CONTRACT_VERSION,
             unknown: serde_json::Map::new(),
         })
     }
@@ -384,6 +398,12 @@ pub struct HeartbeatRequest {
     /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
+    /// 積んだ時の送信契約の版（`IngestRequest.contract_version` と同じ）
+    #[serde(default = "one")]
+    pub contract_version: u32,
+    /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**（`IngestRequest.unknown` と同じ。code-verify R19）
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する。
@@ -396,6 +416,12 @@ pub trait Outboxable: Serialize + serde::de::DeserializeOwned + Clone {
     fn sends_late(&self) -> bool {
         false
     }
+
+    /// 積んだ時の送信契約の版。
+    fn contract_version(&self) -> u32;
+
+    /// 積む 1 か所（`Outbox::add_many`）で版を焼き込む（design D1）。
+    fn burn_contract_version(&mut self, version: u32);
 }
 
 impl Outboxable for IngestRequest {
@@ -406,11 +432,27 @@ impl Outboxable for IngestRequest {
     fn sends_late(&self) -> bool {
         self.logical_source == crate::history::contract::LOGICAL_SOURCE
     }
+
+    fn contract_version(&self) -> u32 {
+        self.contract_version
+    }
+
+    fn burn_contract_version(&mut self, version: u32) {
+        self.contract_version = version;
+    }
 }
 
 impl Outboxable for HeartbeatRequest {
     fn id(&self) -> uuid::Uuid {
         self.id
+    }
+
+    fn contract_version(&self) -> u32 {
+        self.contract_version
+    }
+
+    fn burn_contract_version(&mut self, version: u32) {
+        self.contract_version = version;
     }
 }
 
@@ -418,6 +460,142 @@ impl Outboxable for HeartbeatRequest {
 mod tests {
     use super::*;
     use crate::config::Zone;
+
+    // ---- 封筒の形の写し（ST50 / design D7・D21） ----
+
+    use serde_json::{json, Map, Value};
+    use std::collections::BTreeSet;
+    use std::path::PathBuf;
+
+    fn json_type(v: &Value) -> &'static str {
+        match v {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        }
+    }
+
+    /// 全部の欄を埋めた 1 件と任意の欄を空にした 1 件を直列化した鍵から、欄ごとの JSON の型（二つの和）と必須
+    /// （空にした 1 件にも出る欄）を作る。
+    fn envelope_shape<T: Serialize>(full: &T, empty: &T) -> Value {
+        let full = serde_json::to_value(full).expect("直列化");
+        let empty = serde_json::to_value(empty).expect("直列化");
+        let (full, empty) = (
+            full.as_object().expect("object"),
+            empty.as_object().expect("object"),
+        );
+        let mut fields = Map::new();
+        for key in full.keys().chain(empty.keys()).collect::<BTreeSet<_>>() {
+            let types: BTreeSet<&str> = [full.get(key), empty.get(key)]
+                .into_iter()
+                .flatten()
+                .map(json_type)
+                .collect();
+            fields.insert(
+                key.clone(),
+                json!({"type": types.into_iter().collect::<Vec<_>>(), "required": empty.contains_key(key)}),
+            );
+        }
+        Value::Object(fields)
+    }
+
+    /// 写しとコードの形の差分（欄の名前を出す）。無ければ空。
+    fn envelope_drift(door: &str, copy: &Value, actual: &Value) -> Vec<String> {
+        let (empty, copy_map, actual_map) = (Map::new(), copy.as_object(), actual.as_object());
+        let (copy_map, actual_map) = (copy_map.unwrap_or(&empty), actual_map.unwrap_or(&empty));
+        let mut out = vec![];
+        for key in copy_map
+            .keys()
+            .chain(actual_map.keys())
+            .collect::<BTreeSet<_>>()
+        {
+            match (copy_map.get(key), actual_map.get(key)) {
+                (Some(_), None) => out.push(format!(
+                    "{door}: 欄 {key} は写しにあるがコードの直列化に無い"
+                )),
+                (None, Some(_)) => out.push(format!(
+                    "{door}: 欄 {key} はコードの直列化にあるが写しに無い"
+                )),
+                (Some(a), Some(b)) if a != b => out.push(format!(
+                    "{door}: 欄 {key} の型か必須が写しと違う（写し {a} / コード {b}）"
+                )),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    fn envelope_copy_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/contract/envelope.json")
+    }
+
+    /// 実際に送る 2 つの口（記録・生存信号）の形。
+    fn windows_envelope() -> Value {
+        let payload = WindowPayload::new(RecordKind::Foreground, at());
+        let mut full =
+            IngestRequest::of(&payload, uuid::Uuid::nil(), "dev", at(), &zone()).expect("組み立て");
+        full.source_updated_at = Some(rfc3339(at()));
+        let empty = IngestRequest {
+            source_updated_at: None,
+            ..full.clone()
+        };
+        let cap = crate::heartbeat::Capability {
+            capturable: false,
+            blockers: vec!["x".into()],
+        };
+        let beat = crate::heartbeat::signal(uuid::Uuid::nil(), "dev", at(), &cap, 1, 0, "0.1.0")
+            .expect("組み立て");
+        json!({"ingest": envelope_shape(&full, &empty), "heartbeat": envelope_shape(&beat, &beat)})
+    }
+
+    /// `ASHIATO_ENVELOPE_OUT` があればそのファイルへ書く（`tools/check-contract-version.sh --write` が使う）。
+    /// 無ければ `docs/contract/envelope.json` の `windows` と比べて、違えば欄の名前を出して落ちる。
+    #[test]
+    fn st50_envelope_shape() {
+        let actual = windows_envelope();
+        if let Ok(out) = std::env::var("ASHIATO_ENVELOPE_OUT") {
+            std::fs::write(out, serde_json::to_string_pretty(&actual).expect("直列化"))
+                .expect("書き出し");
+            return;
+        }
+        let text = std::fs::read_to_string(envelope_copy_path())
+            .expect("docs/contract/envelope.json が読めない");
+        let copy: Value = serde_json::from_str(&text).expect("写しが JSON でない");
+        let drift: Vec<String> = ["ingest", "heartbeat"]
+            .iter()
+            .flat_map(|k| envelope_drift(&format!("windows.{k}"), &copy["windows"][k], &actual[k]))
+            .collect();
+        assert!(
+            drift.is_empty(),
+            "写しがコードとずれている（--write で作り直す）:\n{}",
+            drift.join("\n")
+        );
+    }
+
+    // Scenario: 写しがコードとずれていると CI が落ちる
+    #[test]
+    fn st50_envelope_shape_detects_drift() {
+        let text = std::fs::read_to_string(envelope_copy_path())
+            .expect("docs/contract/envelope.json が読めない");
+        let copy: Value = serde_json::from_str(&text).expect("写しが JSON でない");
+        let mut ingest = copy["windows"]["ingest"].clone();
+        ingest
+            .as_object_mut()
+            .expect("object")
+            .remove("source_updated_at");
+        let drift = envelope_drift("windows.ingest", &ingest, &windows_envelope()["ingest"]);
+        assert_eq!(drift.len(), 1, "{drift:?}");
+        assert!(drift[0].contains("source_updated_at"), "{drift:?}");
+        // 型が違う場合も欄の名前が出る
+        let mut ingest = copy["windows"]["ingest"].clone();
+        ingest["tz_id"]["type"] = json!(["integer"]);
+        let drift = envelope_drift("windows.ingest", &ingest, &windows_envelope()["ingest"]);
+        assert!(drift.iter().any(|d| d.contains("tz_id")), "{drift:?}");
+    }
 
     fn at() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::parse_from_rfc3339("2026-09-13T01:02:03.456Z")
@@ -576,8 +754,13 @@ mod tests {
         let mut req = IngestRequest::of(&payload, uuid::Uuid::nil(), "dev-1", at(), &zone())
             .expect("ウィンドウの契約の形");
         req.id = uuid::Uuid::nil();
+        // ST50 が足した版の欄は、この Scenario（履歴の追加で本文が変わらない）の外
+        let mut body = serde_json::to_value(&req).expect("直列化");
+        body.as_object_mut()
+            .expect("object")
+            .remove("contract_version");
         assert_eq!(
-            serde_json::to_value(&req).expect("直列化"),
+            body,
             serde_json::json!({
                 "id": "00000000-0000-0000-0000-000000000000",
                 "user_id": "00000000-0000-0000-0000-000000000000",
