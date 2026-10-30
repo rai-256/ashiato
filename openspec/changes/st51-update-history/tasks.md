@@ -167,10 +167,10 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 8: 携帯の収集アプリ（C-01）の生存信号の版
 
-- [ ] 8.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt` の `emit()` で、`BuildConfig.COMPONENT_VERSION` を欄と原文の `client_version` に入れる（D12）。
+- [x] 8.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt` の `emit()` で、`BuildConfig.COMPONENT_VERSION` を欄と原文の `client_version` に入れる（D12）。
   ST49 の試験「携帯の生存信号には版が書き込まれない」を消す
   検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St51HeartbeatVersionTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St51HeartbeatVersionTest*.xml | grep -c "<testcase ")" -ge 3'` rc=0 / `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*Heartbeat*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*Heartbeat*.xml | grep -c "<testcase ")" -ge 20'` rc=0（既存の生存信号の試験が通る）
-- [ ] 8.2 `St51HeartbeatVersionTest.kt`（Robolectric）:
+- [x] 8.2 `St51HeartbeatVersionTest.kt`（Robolectric）:
   - `// Scenario: 携帯の生存信号は、積んだときの版を欄と原文に持つ`（置き場に積んだ後、別の印の版を返す差し替えで送る）
   - `// Scenario: 版の欄を持たない溜めた生存信号は、版の無いまま送られる`
   - 起動の直後（`startBeating()`）に刻みを待たず 1 件積む（premises 1）
