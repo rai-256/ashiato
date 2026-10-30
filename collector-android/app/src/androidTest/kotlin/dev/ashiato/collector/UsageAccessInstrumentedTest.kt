@@ -113,8 +113,9 @@ class UsageAccessInstrumentedTest {
 
     /** いま前面にある Activity の名前（端末の言語に依らない材料）。 */
     private fun resumedActivity(): String =
-        java.io.FileInputStream(
-            instrumentation.uiAutomation.executeShellCommand("dumpsys activity activities").fileDescriptor,
+        // PFD を読み終えるまで持つ（fd だけを渡すと読む前に PFD が回収され、finalizer が別のスレッドで閉じる）
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand("dumpsys activity activities"),
         ).use { it.readBytes().toString(Charsets.UTF_8) }
             .lineSequence().firstOrNull { it.contains("mResumedActivity") }.orEmpty()
 
