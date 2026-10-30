@@ -217,7 +217,7 @@
 
 ## Task 11: 携帯の「サーバを更新してください」—— 画面と通知と 7 日前の知らせ
 
-- [ ] 11.1 新しい `ContractNotifier.kt`（チャンネル `contract`・通知 id・止まった状態に入った時に 1 回・24 時間ごとに出し直し・抜けたら消す。前に出した時刻と 200 の読めない答えの数え始めの時刻は `SharedPreferences`。D6・D22。（e）だけのときは網の確認を添えた文言）、
+- [x] 11.1 新しい `ContractNotifier.kt`（チャンネル `contract`・通知 id・止まった状態に入った時に 1 回・24 時間ごとに出し直し・抜けたら消す。前に出した時刻と 200 の読めない答えの数え始めの時刻は `SharedPreferences`。D6・D22。（e）だけのときは網の確認を添えた文言）、
   `MainActivity.kt` に止まった状態の間だけ出る 1 行（文言と日数）、`Retention.kt` の 7 日前の知らせの文言に止まった状態のとき「サーバを更新してください」を添える（（e）だけのときは「サーバを更新するか、つながっている網を確かめてください」。D24（仮））。試験（Robolectric）`St50ContractNoticeTest.kt`:
   - `// Scenario: 契約の版で止まると画面と通知に出る`（`MainActivity` の行と `ShadowNotificationManager` の 1 通）
   - `// Scenario: 画面には手元に残している日数が出る`
