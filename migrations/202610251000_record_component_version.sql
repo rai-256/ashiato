@@ -4,6 +4,8 @@
 -- この版のために ST41 の `202610231200_event_end_time.sql` を直した（`event_version_live` を作り直さない守りと md5 の許す値）。
 -- 2 回目の当てで ST41 の本体がこの版の上に当たるため。ST41 を当て済みの DB では記録の指紋と中身が違い、`migrate` のたびに
 -- 警告が出る（当て直さない。ST48 の design D7（仮））。配った印より前の版なので直してよい（ST48 Q1）。開発の DB は `STACK_RESET=1` で作り直すと消える
+-- 後の版（ST50 の `202610300030_contract_version`）のために、この版も同じ形で直した（`event_version_live` を作り直さない守りと
+-- 門・前の版の錠の md5 の許す値）。2 回目の当てでこの版が ST50 の上に当たるため。当て済みの DB で指紋の警告が出るのも同じ
 -- 値の形は検査しない（D8）ので CHECK は置かない。既存の行は埋めない（D12。NULL = 不明）。
 
 -- ------------------------------------------------------------------ 1. 列（どれも text NULL・既定値なし）
@@ -27,24 +29,35 @@ ALTER TABLE core.attribute_kind_name  ADD COLUMN IF NOT EXISTS server_version   
 CREATE OR REPLACE VIEW core.event_live AS
   SELECT * FROM core.event WHERE deleted_at IS NULL;
 
-CREATE OR REPLACE VIEW core.event_version_live AS
-  SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
-         v.event_time, v.content_hash, v.raw, v.payload,
-         v.source_updated_at, v.external_ref, v.superseded_at,
-         v.tz_offset_min, v.tz_id, v.schema_version, v.unit_system, v.crs,
-         e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
-         e.origin,
-         e.external_id,
-         v.end_time, v.end_tz_offset_min, v.end_tz_id,
-         v.collector_version, v.web_version, v.server_version
-    FROM core.event_version v
-    JOIN core.event e ON e.id = v.event_id
-   WHERE e.deleted_at IS NULL;
+-- 後の版（ST50 の契約の版）が列を足した後の当て直しでは、列を減らす作り直しになって落ちる。
+-- 部品の版の列をもう持っているビューは作り直さない（`202610231200_event_end_time.sql` と同じ型の守り）。
+DO $mig$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'core' AND table_name = 'event_version_live'
+                    AND column_name = 'collector_version') THEN
+    CREATE OR REPLACE VIEW core.event_version_live AS
+      SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
+             v.event_time, v.content_hash, v.raw, v.payload,
+             v.source_updated_at, v.external_ref, v.superseded_at,
+             v.tz_offset_min, v.tz_id, v.schema_version, v.unit_system, v.crs,
+             e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
+             e.origin,
+             e.external_id,
+             v.end_time, v.end_tz_offset_min, v.end_tz_id,
+             v.collector_version, v.web_version, v.server_version
+        FROM core.event_version v
+        JOIN core.event e ON e.id = v.event_id
+       WHERE e.deleted_at IS NULL;
+  END IF;
+END
+$mig$;
 
 -- ------------------------------------------------------------------ 3. 門と前の版の錠（D21（仮））。いまの本体を写して版の 3 列を足すだけ
 -- **写した元が変わっていたら落とす**（ST41 の R21 と同じ型）。下の 2 関数は本体ごと置き換えるので、ORDER でこの版より前の版が
 -- 関数を変えると、起動のたびにここの古い写しがそれを黙って戻す。当てる直前の本体が、写した元（ST41 の本体。この版の `.down.sql` が戻す本体も同じ）か
--- この版の本体（2 回目の当て）のどちらでもなければ止める。
+-- この版の本体（2 回目の当て）のどちらでもなければ止める。後の版（ST50 の契約の版。末尾の md5）の本体も写した元として受ける
+-- （当て直しで後の版の上に当たるため）。
 -- 直し方: 前の版の本体を写し直して版を足し、下の md5 を取り直す。
 DO $mig$
 DECLARE
@@ -52,8 +65,8 @@ DECLARE
   got text;
 BEGIN
   FOR f IN SELECT * FROM (VALUES
-      ('require_version_or_ledger', ARRAY['048663f9a11ebe059461fa00f5b0f86d'], 'e3651d3492ae1d0d7e9f3b3683a6a161'),
-      ('reject_version_rewrite',    ARRAY['297643252bd76e0f28239a983924434e'], 'f2caef81d5e0f36aac6a78918fab7bec')
+      ('require_version_or_ledger', ARRAY['048663f9a11ebe059461fa00f5b0f86d', '67356b71ef2238f2b097f54994ae6738'], 'e3651d3492ae1d0d7e9f3b3683a6a161'),
+      ('reject_version_rewrite',    ARRAY['297643252bd76e0f28239a983924434e', 'f931e414113fdd6ab8fdb193e1a7d3bf'], 'f2caef81d5e0f36aac6a78918fab7bec')
     ) AS t(name, copied_from, this_version)
   LOOP
     SELECT md5(prosrc) INTO got FROM pg_proc

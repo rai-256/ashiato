@@ -314,6 +314,13 @@
   },
   "s01": {
     "DropReportRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
       "contract_version": {
         "required": false,
         "type": [
@@ -470,6 +477,13 @@
       }
     },
     "IngestRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
       "contract_version": {
         "required": false,
         "type": [
@@ -602,6 +616,13 @@
       }
     },
     "MediaMissingRequest": {
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
       "contract_version": {
         "required": false,
         "type": [

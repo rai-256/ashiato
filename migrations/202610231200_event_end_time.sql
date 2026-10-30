@@ -89,8 +89,8 @@ DECLARE
   got text;
 BEGIN
   FOR f IN SELECT * FROM (VALUES
-      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c', 'e3651d3492ae1d0d7e9f3b3683a6a161', 'a72880a05b63eb368a16d428fcc7c8dd'], '048663f9a11ebe059461fa00f5b0f86d'),
-      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea', 'f2caef81d5e0f36aac6a78918fab7bec', 'c5fc9908f14d07cbe06d3f7858124ea0'], '297643252bd76e0f28239a983924434e'),
+      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c', 'e3651d3492ae1d0d7e9f3b3683a6a161', '67356b71ef2238f2b097f54994ae6738'], '048663f9a11ebe059461fa00f5b0f86d'),
+      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea', 'f2caef81d5e0f36aac6a78918fab7bec', 'f931e414113fdd6ab8fdb193e1a7d3bf'], '297643252bd76e0f28239a983924434e'),
       ('reject_claim_rewrite',        ARRAY['4006819958d70c2bdc8c124bfdbeef00'], '1d22cf9574bd9cc6662f713f55f936f6'),
       ('reject_feeling_rewrite',      ARRAY['75bb30cd8661c837b6b6bd49ca9b437c'], 'a114c7b157a8db84bf5bd5800ae02e8c'),
       ('reject_place_record_rewrite', ARRAY['8ada6d675534acc6dd73e49e22ffa5b6'], '2def13f291eb1997490f8537b10e7b4c')

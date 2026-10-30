@@ -1,6 +1,6 @@
 -- 戻し手順（202610300030_contract_version）。**不可逆** ——
 -- 契約の版の列を落とすので、この版の後に入った記録の契約の版は失われる（埋め戻しの 1 も）。
--- 逆順: 関数（門・前の版の錠）をいまの版に戻す → ビューを列の無い形に戻す → CHECK → 列 → 版の記録の行。
+-- 逆順: 関数（門・前の版の錠）を前の版（ST49 の `202610251000_record_component_version`）の本体に戻す → ビューを列の無い形に戻す → CHECK → 列 → 版の記録の行。
 CREATE OR REPLACE FUNCTION core.require_version_or_ledger() RETURNS trigger AS $fn$
 DECLARE
   content_changed boolean;
@@ -15,20 +15,26 @@ BEGIN
     OR NEW.payload      IS DISTINCT FROM OLD.payload
     OR NEW.event_time   IS DISTINCT FROM OLD.event_time
     OR NEW.end_time     IS DISTINCT FROM OLD.end_time
-    OR NEW.content_hash IS DISTINCT FROM OLD.content_hash;
+    OR NEW.content_hash IS DISTINCT FROM OLD.content_hash
+    OR NEW.collector_version IS DISTINCT FROM OLD.collector_version
+    OR NEW.web_version       IS DISTINCT FROM OLD.web_version
+    OR NEW.server_version    IS DISTINCT FROM OLD.server_version;
 
   IF NOT content_changed THEN
     RETURN NULL;   -- 論理削除・感度・更新時刻だけの書き換えは素通し（FR-50 / PERM-2）
   END IF;
 
-  -- 消去の形だけを台帳の側へ回す（R51）。出来事の時刻・終わりの時刻・冪等キーは消去でも動かない
+  -- 消去の形だけを台帳の側へ回す（R51）。出来事の時刻・終わりの時刻・冪等キー・作った部品の版は消去でも動かない
   -- （動かせるなら消去の顔で改竄できる）。payload も空でなければ消去ではない（R95）。
   is_erasure :=
         NEW.raw = '' AND OLD.raw <> ''
     AND NEW.payload = '{}'::jsonb
     AND NEW.event_time   = OLD.event_time
     AND NEW.end_time     IS NOT DISTINCT FROM OLD.end_time
-    AND NEW.content_hash = OLD.content_hash;
+    AND NEW.content_hash = OLD.content_hash
+    AND NEW.collector_version IS NOT DISTINCT FROM OLD.collector_version
+    AND NEW.web_version       IS NOT DISTINCT FROM OLD.web_version
+    AND NEW.server_version    IS NOT DISTINCT FROM OLD.server_version;
 
   IF is_erasure THEN
     IF NOT EXISTS (
@@ -47,7 +53,8 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  -- 履歴行の中身が「更新前の版」であることまで見る（R94）。終わりだけ違う履歴の 1 行で通させない。
+  -- 履歴行の中身が「更新前の版」であることまで見る（R94）。終わり・部品の版だけ違う履歴の 1 行で通させない。
+  -- 版は NULL がありうる（不明）ので `IS NOT DISTINCT FROM` で照合する（`=` を写すと版の無い記録の更新が全部落ちる）。
   IF NOT EXISTS (
     SELECT 1 FROM core.event_version v
      WHERE v.event_id = NEW.id AND v.txid = pg_current_xact_id()
@@ -56,6 +63,9 @@ BEGIN
        AND v.event_time   = OLD.event_time
        AND v.end_time     IS NOT DISTINCT FROM OLD.end_time
        AND v.content_hash = OLD.content_hash
+       AND v.collector_version IS NOT DISTINCT FROM OLD.collector_version
+       AND v.web_version       IS NOT DISTINCT FROM OLD.web_version
+       AND v.server_version    IS NOT DISTINCT FROM OLD.server_version
   ) THEN
     RAISE EXCEPTION '収集した記録の書き換えは、同じまとまりに**更新前の版**の履歴があるときだけ通る（FR-30 / 深掘り Q10）';
   END IF;
@@ -82,6 +92,9 @@ BEGIN
    OR NEW.schema_version    IS DISTINCT FROM OLD.schema_version
    OR NEW.unit_system       IS DISTINCT FROM OLD.unit_system
    OR NEW.crs               IS DISTINCT FROM OLD.crs
+   OR NEW.collector_version IS DISTINCT FROM OLD.collector_version
+   OR NEW.web_version       IS DISTINCT FROM OLD.web_version
+   OR NEW.server_version    IS DISTINCT FROM OLD.server_version
    OR NEW.superseded_at     IS DISTINCT FROM OLD.superseded_at
    OR NEW.txid              IS DISTINCT FROM OLD.txid
   THEN
@@ -118,7 +131,8 @@ CREATE VIEW core.event_version_live AS
          e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
          e.origin,
          e.external_id,
-         v.end_time, v.end_tz_offset_min, v.end_tz_id
+         v.end_time, v.end_tz_offset_min, v.end_tz_id,
+         v.collector_version, v.web_version, v.server_version
     FROM core.event_version v
     JOIN core.event e ON e.id = v.event_id
    WHERE e.deleted_at IS NULL;
