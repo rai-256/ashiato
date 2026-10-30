@@ -657,7 +657,19 @@ async fn put_location_heartbeat(
     emitted: &str,
     version: Option<&str>,
 ) {
-    let mut one = hb(LOCATION, user, version);
+    put_heartbeat(app, LOCATION, user, n, emitted, version).await;
+}
+
+/// `source` の生存信号を送る（端末は `hb` の `test-dev`）。
+async fn put_heartbeat(
+    app: &App,
+    source: &str,
+    user: uuid::Uuid,
+    n: u128,
+    emitted: &str,
+    version: Option<&str>,
+) {
+    let mut one = hb(source, user, version);
     one["id"] = serde_json::json!(uuid::Uuid::from_u128(n));
     one["emitted_at"] = serde_json::json!(emitted);
     let (_, Json(res)) = heartbeat_post(State(app.clone()), auth(), Json(serde_json::json!([one])))
@@ -696,13 +708,38 @@ async fn st51_coverage_same_with_or_without_version() {
         let pool = db.pool().await;
         testdb::set_started_on(&pool, LOCATION, "2026-01-01").await;
         let app = app_at(pool, day_now());
-        put_location_heartbeat(&app, user, 1, "2026-10-20T03:00:00Z", version).await;
-        put_location_heartbeat(&app, user, 2, "2026-10-20T09:00:00Z", version).await;
+        // 最後の信号から今（10-20 12:00）まで 27 時間 —— 想定間隔 6 時間の 3 倍（18 時間）を超え、途切れの側も比べる
+        put_location_heartbeat(&app, user, 1, "2026-10-19T03:00:00Z", version).await;
+        put_location_heartbeat(&app, user, 2, "2026-10-19T09:00:00Z", version).await;
         answers.push(coverage_and_outages(&app, user).await);
     }
     assert_eq!(answers[0], answers[1], "版の欄だけで応答が変わった");
     let cells = answers[0]["coverage"].to_string();
     assert!(cells.contains("2026-10-20"), "応答が空ではない: {cells}");
+    assert!(
+        cells.contains("2026-10-19"),
+        "信号のある日が応答にある: {cells}"
+    );
+    // 比べた途切れの判定は空どうしではない（位置のソースが、最後の信号の時刻から途切れている）
+    let outages = answers[0]["outages"]["outages"]
+        .as_array()
+        .expect("判定済み");
+    let location: Vec<_> = outages
+        .iter()
+        .filter(|o| o["logical_source"] == LOCATION)
+        .collect();
+    assert_eq!(
+        location.len(),
+        1,
+        "位置のソースが途切れとして返らない: {outages:?}"
+    );
+    assert_eq!(
+        location[0]["last_alive_at"]
+            .as_str()
+            .map(|t| t.parse::<chrono::DateTime<chrono::Utc>>().unwrap()),
+        Some("2026-10-19T09:00:00Z".parse().unwrap()),
+        "途切れの始まり"
+    );
 }
 
 // Scenario: 更新の間の空きは、更新の履歴があっても途絶として出る
@@ -713,22 +750,64 @@ async fn st51_coverage_outage_still_shown() {
     testdb::set_started_on(&pool, LOCATION, "2026-01-01").await;
     let user = uuid::Uuid::new_v4();
     let app = app_at(pool.clone(), day_now());
-    // 想定間隔 6 時間の 3 倍（18 時間）を超えて途切れる。間に版の変化（収集アプリ）と更新の履歴（S-01）を置く
+    // 位置の生存信号は 10-19 00:00 を最後に、今（10-20 12:00）まで 36 時間途切れる（想定間隔 6 時間の 3 倍 = 18 時間を超える）。
+    // 途切れの間（10-19 12:00）に、同じ端末の別の C-01 のソースが新しい版で信号を出す —— 収集アプリの版の変化が区間の中に立つ。
+    // 位置のソースの信号を区間の中に置くと途切れが終わるので、版の変化は別のソースで作る（ビューは端末・部品ごとの並び）
+    let other = view_source(&pool, "c01-").await;
     put_location_heartbeat(&app, user, 1, "2026-10-19T00:00:00Z", Some(COMMIT_A)).await;
-    put_location_heartbeat(&app, user, 2, "2026-10-19T01:00:00Z", Some(COMMIT_B)).await;
+    put_heartbeat(
+        &app,
+        &other,
+        user,
+        2,
+        "2026-10-19T12:00:00Z",
+        Some(COMMIT_B),
+    )
+    .await;
+    // S-01 の更新の履歴の行も区間の中（10-19 06:00）に置く
     sqlx::query(
-        "INSERT INTO core.update_history (component, via, to_version, outcome)
-         VALUES ('S-01', 'startup', '0.1.0+st51outage', 'nothing_to_apply')",
+        "INSERT INTO core.update_history (at, component, via, to_version, outcome)
+         VALUES ('2026-10-19T06:00:00Z', 'S-01', 'startup', '0.1.0+st51outage', 'nothing_to_apply')",
     )
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(changes(&pool, user).await.len(), 1, "版の変化がある前提");
+    let gap_start: chrono::DateTime<chrono::Utc> = "2026-10-19T00:00:00Z".parse().unwrap();
+    let in_gap = |t: chrono::DateTime<chrono::Utc>| gap_start < t && t < day_now();
+    let vc = changes(&pool, user).await;
+    assert_eq!(vc.len(), 1, "版の変化がある前提: {vc:?}");
+    assert_eq!(vc[0].1, "C-01");
+    assert_eq!(vc[0].3, COMMIT_B);
+    assert!(in_gap(vc[0].4), "版の変化が途切れの間にない: {vc:?}");
+    let history_at: Vec<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT at FROM core.update_history WHERE to_version = '0.1.0+st51outage'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(history_at.len(), 1, "{history_at:?}");
+    assert!(
+        in_gap(history_at[0]),
+        "更新の履歴の行が途切れの間にない: {history_at:?}"
+    );
 
     let answer = get_json(&app, &format!("/outages?user_id={user}")).await;
     let outages = answer["outages"].as_array().expect("判定済み");
-    assert!(
-        outages.iter().any(|o| o["logical_source"] == LOCATION),
+    let location: Vec<_> = outages
+        .iter()
+        .filter(|o| o["logical_source"] == LOCATION)
+        .collect();
+    assert_eq!(
+        location.len(),
+        1,
         "位置のソースが途切れとして返らない: {answer}"
+    );
+    // 途切れは位置の最後の信号から —— 更新の履歴の行も別のソースの版の変化も、途切れの始まりを動かさない
+    assert_eq!(
+        location[0]["last_alive_at"]
+            .as_str()
+            .map(|t| t.parse::<chrono::DateTime<chrono::Utc>>().unwrap()),
+        Some(gap_start),
+        "{answer}"
     );
 }
