@@ -216,6 +216,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/tmp-leak-check.sh --self-test
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
 ./tools/check-satellite-boundary.sh --self-test && ./tools/check-satellite-boundary.sh   # 本体が衛星のコードを読み込む部品を持たない（FR-77）
+./tools/check-contract-version.sh --self-test && ./tools/check-contract-version.sh   # 送信契約の版の上げ忘れ（ST50）。写しは docs/contract/envelope.json、作り直しは --write。手元にタグが無ければ印との比較は「0 個」で通る
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）

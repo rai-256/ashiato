@@ -28,6 +28,12 @@ interface Outboxable {
 }
 
 /**
+ * 送信契約の版（ST50 / design D12）。S-01 の `CONTRACT_VERSION`・PC の `CONTRACT_VERSION`・`docs/contract/envelope.json` の `version` と
+ * 同じ値でなければならない（`tools/check-contract-version.sh` が突き合わせる）。
+ */
+const val CONTRACT_VERSION: Int = 1
+
+/**
  * 取り込み口へ送る 1 件。**Rust 側（crates/server/src/ingest.rs）と同じ形**でなければならない。
  * 契約の正典は docs/collector-contract.md。片方だけ直すと、同じ 1 件が別物として入る。
  *
