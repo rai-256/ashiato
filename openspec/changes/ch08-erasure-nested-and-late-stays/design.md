@@ -43,7 +43,7 @@ ST23 の既存の試験は、次の 4 本を除いてそのまま通す（spec r
 | `web/e2e/st23-purge.spec.ts` の「後から届いた 2 件…」 | Q3 で文面が変わる | 期待の文面を「後から 2 件も本文ごと消した」に | 6.1 |
 | `crates/server/src/stay_tests.rs` の `stay_day_view_empty_day_is_all_no_record` | `DayEntry` を全項目のリテラルで書いていて、`nested` を足すとコンパイルできない | `nested: None` を足すだけ（主張は変えない） | 5.1 |
 | `crates/server/src/purge_late_tests.rs` の `purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorable` | 本文ごと消した A にすっぽり入る B を戻して成功を assert する。Q2 で B は戻せなくなる | B を A から**はみ出して滞在になる**形（探り A3 と同じ）に置き直し、主張（別の滞在に隠れた書庫の行が B の戻すを塞がない）は残す | 3.1 |
-| `crates/server/src/purge_tests.rs` の `purge_range_reader_allowlist` | 戻した滞在が一覧に残るかを見る前の重なりの読み（`deletion.rs:purge_scope`）が、消した時間帯を読む口として増える | 許可の一覧に `deletion.rs:purge_scope` を足すだけ（主張「読む口は一覧の中だけ」は変えない） | 3.1 |
+| `crates/server/src/purge_tests.rs` の `purge_range_reader_allowlist` | 滞在の終わり（`payload->>'end'`）を読む口が 2 つ増える: 確認の口の「一覧に出ている重なる滞在」の数え（`deletion.rs:purge_scope`。D7）と、起動時の手当ての対象の粗い絞り（`deletion.rs:remedy_candidates_sql`。D5。final review の直し） | 許可の一覧に 2 つを足すだけ（主張「読む口は一覧の中だけ」は変えない） | 4.1（D5 の絞りは final review の直し） |
 
 ### D2（仮）. 作り直しが隠した重なる滞在の見分けと消し方（Q8・C1〜C4）
 
@@ -112,6 +112,10 @@ L ごとに `deletion::purge_hidden_overlap(tx, …)`（新しい。`purge_late_
 3. `core.deletion_ledger` に R の行が 1 つも無い（本人が R を消したことも戻したことも無い）
 4. `R.ingest_time <> R.deleted_at`（作り直しが初めから隠して作った行ではない。`insert_stay` は両方を同じ `now()` にする。等しいかだけを見て、前後は比べない）
 
+対象を引く SQL（`deletion::remedy_candidates_sql`）は 1・3・4 に加えて、2 の**粗い絞り**（同じ利用者の `kind = 'user'` の操作の時間帯と重なりうる行だけ）を持つ。
+起動のたびに吸収された滞在のほぼ全部を読まないため。絞りは Rust の `span_of` で見る 2 の**上位集合**にする（終わりは `payload->>'end'` を、読めなければ上限なしとし、
+列 `end_time` と始まり + 1 マイクロ秒のうち最も遅いもの）ので、対象は変わらない。2 の判定と元の操作の選択は Rust の側に残す。
+
 元の操作の選び方は D3 と同じ。見つけた R を、利用者ごとに錠を取ったトランザクションで D2 の `purge_hidden_overlap` に渡す（規則を移行の SQL に書き写さない）。
 起動時の処理は `deletion::purge_hidden_overlap_remedy(&pool) -> usize`（残った件数）1 つにまとめ、失敗を飲み込んで `warn`（`kind = "purge_remedy"`・残った件数・SQLSTATE だけ）を出すところまで持たせる。
 `run()` はそれを `purged_without_span` のログの隣・待ち受けの前で 1 回呼ぶだけ（`?` で伝えない）。各トランザクションに `lock_timeout`（5 秒）を掛ける。
@@ -143,7 +147,7 @@ L ごとに `deletion::purge_hidden_overlap(tx, …)`（新しい。`purge_late_
    いまはここで捨てている断片を、親の区間に添える
 2. **本文ごと消した B**: 本文を消した滞在で、その日の中に切った時間が、**ほかの**本文ごと消した区間の和に覆われるもの。互いに覆う（時間が同じ）ときは、
    先に本文ごと消した方（操作の `txid` の小さい方。本文ごと消す口は最初の書き込みの前に利用者の錠を取るので、`txid` の順が消した順）を親、後の方を入れ子にする（spec に写した）。入れ子にした B は区間を作らず（`purged_spans` にも入れない）、その操作の後からの件数を親の区間の件数に足す
-3. **親の選び方**: B と重なりのいちばん大きい本文ごと消した区間 → 始まりの早い区間（D3 と同じ）
+3. **親の選び方**: B と重なりのいちばん大きい本文ごと消した区間 → 始まりの早い区間（D3 と同じ）。範囲の行が無い窓（`operation_id` が無い）は 2 と 3 に入れない（D10）
 4. 親ごとに、入れ子の項目を始まりの順に並べ、時間が重なるか隣り合う（いまの「消した」の行のまとめ方と同じ）本文を消していない B どうしを 1 つにまとめて識別子をすべて持たせる（spec に写した）。
    本文ごと消した B はまとめない（戻す口が無く、行ごとに「本文ごと消した」を出す）
 
@@ -178,13 +182,25 @@ L ごとに `deletion::purge_hidden_overlap(tx, …)`（新しい。`purge_late_
 | 何 | 置き場 | 関数名の前置き |
 |---|---|---|
 | D2・D3（作り直しの消去・台帳） | 新しい `crates/server/src/purge_hidden_tests.rs` | `purge_hidden_` |
-| D5（起動時の手当て） | 同じファイル | `purge_remedy_` |
-| D4（戻す口） | 同じファイル | `purge_restore_` |
-| D7（確認の口） | 同じファイル | `purge_visible_` |
-| D6（1 日の並び） | 新しい `crates/server/src/purge_nested_day_tests.rs` | `purge_nested_` |
+| D5（起動時の手当て） | 新しい `crates/server/src/purge_remedy_tests.rs` | `purge_remedy_` |
+| D4（戻す口） | 新しい `crates/server/src/purge_restore_tests.rs` | `purge_restore_` |
+| D7（確認の口） | 新しい `crates/server/src/purge_visible_tests.rs` | `purge_visible_` |
+| D6・D10（1 日の並び） | 新しい `crates/server/src/purge_nested_day_tests.rs` | `purge_nested_` |
 | 画面 | 新しい `web/e2e/ch08-nested.spec.ts` | — |
 
-`lib.rs` の試験のモジュールの並びに 2 行足す（CH05 も同じ並びに足す。rebase で解く）。試験の一時フォルダは CH03 の形に合わせる。
+`lib.rs` の試験のモジュールの並びに 5 行足す（CH05 も同じ並びに足す。rebase で解く）。初めは server の試験を 2 本のファイルに置く計画だったが、
+D ごとに 1 本に分けた（前置きは変えていない）。試験の一時フォルダは CH03 の形に合わせる。
+
+### D10（仮）. 範囲の行が無い本文を消した滞在の窓は 1 日の並びの入れ子の親にならない（D6 の補い。final review R2）
+
+範囲の行が無く、その日全体として読む本文を消した滞在（ST23 D14。`operation_id` が無い）は、D6 の 2〜3 の**どちら側にも入れない**:
+ほかの本文ごと消した区間を覆う側（入れ子を作る側）にも、親の候補（`parent_of`）にもせず、ST23 のとおり自分の「本文ごと消した」の区間（後からの件数 0・入れ子なし）として並べる。
+「消した」の断片を差し引く区間（`purged_spans`）には ST23 のとおり入れる —— 窓だけに覆われる本文を消していない B は、ST23 と同じく並ばない。
+
+D6 の並べ方は操作の `txid` の順で、操作の無い窓は先頭に来る。窓はその日全体を持つので、そのままではその日のほかの本文ごと消した区間とすべての入れ子の B を取り込み、
+後からの件数も窓の行に寄ってしまう。D2 が操作の無い窓を元の操作に使わないのと揃える（窓は操作を引けず、どの時間を消したのかも分からない）。
+
+**（仮）の中身**: 窓を親にしないこと。反転条件: 確認バッチで「窓の日のほかの行も窓の下にまとめたい」と返ったら、窓を最後の親の候補（ほかの区間に入らない B だけを持つ）にする。
 
 ## Risks / Trade-offs
 

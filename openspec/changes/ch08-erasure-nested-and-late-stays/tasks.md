@@ -4,7 +4,7 @@
 `defaults.md`（C1〜C7）→ `premises.md`（探り A1〜B2）→ `docs/changes/CH08.md`（壊してはいけないもの）→ `CLAUDE.md`。
 ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/specs/browsing-views/spec.md`・`openspec/changes/archive/2026-10-30-st23-record-erasure/design.md`。
 
-触るのは `crates/server/src/`（`stay_store.rs`・`deletion.rs`・`lib.rs`・新しい試験 2 本）・`docs/openapi.json`（生成物）・`web/src/`（`DayView.tsx`・`stays.ts`・`messages.ts`）・
+触るのは `crates/server/src/`（`stay_store.rs`・`deletion.rs`・`lib.rs`・新しい試験 5 本。design D9）・`docs/openapi.json`（生成物）・`web/src/`（`DayView.tsx`・`stays.ts`・`messages.ts`）・
 `web/e2e/`（新しい `ch08-nested.spec.ts` と、文面の変わる `st23-purge.spec.ts` の 1 本）。**移行は足さない**（design D5）。
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。DB を使う検査は `docker compose up -d db` と `tools/db-roles.sh` が前提（`docs/testing.md` §8）。
 
@@ -14,7 +14,8 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
   `scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
 - **この change が足す Scenario は 48 本**（`record-deletion` の MODIFIED に足した 28 本 + ADDED の 8 本 + `browsing-views` の MODIFIED に足した 12 本）。人間の確認待ちは 0 本。
   MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えない）。THEN を書き換えたのは「後から届いて本文を消した件数が行に出る」の 1 本だけで、その e2e を Task 6 で直す。
-  **書き直す ST23 の既存の試験は 3 本だけ**（design D1 の表）: `st23-purge.spec.ts` の文面（6.1）・`stay_tests.rs` の `DayEntry` のリテラル（5.1）・`purge_late_tests.rs` の入れ子の B を戻す試験（3.1）
+  **書き直す ST23 の既存の試験は 4 本だけ**（design D1 の表）: `st23-purge.spec.ts` の文面（6.1）・`stay_tests.rs` の `DayEntry` のリテラル（5.1）・`purge_late_tests.rs` の入れ子の B を戻す試験（3.1）・
+  `purge_tests.rs` の `purge_range_reader_allowlist` の許可の一覧（4.1。`payload->>'end'` を読む口が増える）
   THEN に主張が 2 つ以上ある Scenario は、試験が主張を 1 つずつ assert する
 - **件数つき検証**: 各項目の「検証:」は、`cargo test` を repo の根から `scripts/quiet-run` で走らせるもの（rc=0）と、`-- --list` で一致する試験の本数の下限を見るもの（rc=0）の 2 つを並べる。
   `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になるので、下限の方を必ず走らせる。絞り込みは 1 つずつ書く。一時ファイルは `"$TMPDIR"` の下に書く（`/tmp` の固定名に書かない）
@@ -127,7 +128,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 7: 仕上げ —— 全体の試験・Scenario の突き合わせ・共有の台本
 
-- [x] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が design D1 の表の 3 本だけであることを PR の本文に書く。
+- [x] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が design D1 の表の 4 本だけであることを PR の本文に書く。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0、
   `python3 scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` rc=0、`bash tools/check-shared-appends.sh` rc=0、
   `openspec validate ch08-erasure-nested-and-late-stays --strict` rc=0
