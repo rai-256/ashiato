@@ -131,14 +131,11 @@ impl ContractGate {
                 self.reasons.rejected = posted && outcomes.iter().any(|o| o.rejected_by_version);
             }
             ContractAnswer::NoEndpoint => {
+                // A を得られない契機は理由を足すだけ。落とすのは Version の分岐だけ（D9）
                 self.reasons.no_endpoint = true;
-                self.reasons.unreadable_long = false;
-                self.reasons.ahead = false;
             }
             ContractAnswer::Unreadable => {
                 let since = *self.state.unreadable_since.get_or_insert(now);
-                self.reasons.no_endpoint = false;
-                self.reasons.ahead = false;
                 self.reasons.unreadable_long =
                     now - since >= Duration::hours(UNREADABLE_LIMIT_HOURS);
             }
@@ -258,5 +255,21 @@ mod tests {
             g.observe(ContractAnswer::Transient, t(h), &[], &mut log);
         }
         assert!(!g.waiting());
+    }
+
+    #[test]
+    fn st50_gate_unreadable_does_not_leave_a_wait_it_cannot_resolve() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut g = ContractGate::new(dir.path());
+        let mut log = quiet();
+        g.observe(ContractAnswer::NoEndpoint, t(0), &[], &mut log);
+        assert!(g.reasons().no_endpoint);
+        // A を得られない契機は理由を足すだけ。待つ状態を抜けたことにしない
+        let left = g.observe(ContractAnswer::Unreadable, t(1), &[], &mut log);
+        assert!(!left && g.reasons().no_endpoint && g.waiting());
+        let left = g.observe(ContractAnswer::NoEndpoint, t(2), &[], &mut log);
+        assert!(!left && g.waiting());
+        let left = g.observe(ContractAnswer::Version(1), t(3), &[], &mut log);
+        assert!(left && !g.waiting());
     }
 }

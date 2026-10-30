@@ -939,18 +939,28 @@ mod tests {
         t.contract
             .borrow_mut()
             .extend([version_reply(2), version_reply(2)]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut gate = crate::contract_gate::ContractGate::new(dir.path());
+        let mut log = |_: String| {};
+        let now = chrono::Utc::now();
         let mut s = Sender::ingest();
-        flush_after_check(&mut s, &mut o, &t);
+        let (answer, _) = flush_after_check(&mut s, &mut o, &t);
         assert!(s.last_outcome().rejected_by_version);
         assert_eq!(o.len(), 2);
         assert_eq!(s.skipped.len(), 2, "飛ばす印が付いていない");
-        // 更新した S-01 に戻った契機で印を捨てる（design D14）
-        s.clear_skipped();
-        assert!(s.skipped.is_empty());
+        // 断られた契機では待つ状態に入り、印は捨てない
+        assert!(!gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        assert!(gate.waiting());
+        assert_eq!(s.skipped.len(), 2);
+        // 更新した S-01 に戻った契機: 送れて、待つ状態を抜ける。
+        // runtime と同じく、抜けたら印を捨てる（design D14）
         let (answer, f) = flush_after_check(&mut s, &mut o, &t);
         assert_eq!(answer, ContractAnswer::Version(2));
         assert_eq!(f.accepted, 2);
         assert!(o.is_empty());
+        assert!(gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        s.clear_skipped();
+        assert!(!gate.waiting() && s.skipped.is_empty());
         let sent: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[1]).unwrap();
         assert_eq!(sent[0]["contract_version"], 2, "積んだ版のまま送る");
     }
