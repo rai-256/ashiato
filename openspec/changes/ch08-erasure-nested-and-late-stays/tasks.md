@@ -95,7 +95,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 5: 1 日の並びの入れ子の項目と後からの件数（design D6。spec `browsing-views`「1 日の並びを読み出せる」）
 
-- [ ] 5.1 `stay_store.rs` の `DayEntry` に `nested`（`NestedEntry`: `start`・`end`・`stay_ids`・`purged`）を足し、`day_view` が design D6 の 1〜4 で入れ子の項目を作る
+- [x] 5.1 `stay_store.rs` の `DayEntry` に `nested`（`NestedEntry`: `start`・`end`・`stay_ids`・`purged`）を足し、`day_view` が design D6 の 1〜4 で入れ子の項目を作る
   （本文を消していない B は差し引いて空になる断片、本文ごと消した B はほかの本文ごと消した区間の和に覆われるもの。親は重なりの大きい区間 → 始まりの早い区間。入れ子にした本文ごと消した B の後からの件数は親に足す）。
   Task 1 の `kind = 'late'`・`stays = 1` の行は、いまの後からの件数の和にそのまま入る。`web/src/stays.ts` の型と検査に `nested` を足す。`docs/openapi.json` を生成し直す。
   `stay_tests.rs` の `stay_day_view_empty_day_is_all_no_record` の `DayEntry` のリテラルに `nested: None` を足す（design D1 の表。主張は変えない）。
