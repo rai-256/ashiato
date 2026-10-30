@@ -121,10 +121,12 @@ async fn export_dir_writes_under_the_chosen_dir() {
     assert!(!left[0].starts_with('.'));
     // 閉じた zip として読める
     let z = zip::ZipArchive::new(std::fs::File::open(&file).unwrap()).unwrap();
+    // 表のファイルに、表ではない読み口のファイル（VIEW_FILES。ST51）も数える
     let tables = export::CATALOG
         .iter()
         .filter(|(_, c)| matches!(c, export::Class::Include { .. }))
-        .count();
+        .count()
+        + export::VIEW_FILES.len();
     assert_eq!(z.len(), tables + 2); // 表のファイル（CATALOG の Include）と説明書と目録（D7）
 }
 

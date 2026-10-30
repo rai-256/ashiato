@@ -328,6 +328,7 @@ async fn store_heartbeat_keeps_the_http_idempotency_rule() {
         attempts: 2,
         successes: 2,
         network: None,
+        client_version: None,
         raw: r#"{"archive_inbox":true}"#.into(),
     };
     assert!(

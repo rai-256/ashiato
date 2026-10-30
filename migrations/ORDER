@@ -69,3 +69,5 @@
 202610240500_record_purge
 # ST11: 健康データの権限の記録の論理ソース（design D1）
 202610251100_health_permission_source
+# ST51: 更新の履歴の表と門・生存信号の版の列・版の変化のビュー（design D4・D5・D6・D10）
+202610300900_update_history

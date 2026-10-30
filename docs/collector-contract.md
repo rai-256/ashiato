@@ -630,6 +630,7 @@ FR-33 は**記録を生成したときにしか**稼働記録を書かないの�
 | `capturable` | そのソースを**取得できる状態か**（権限・センサ・接続）。**例外: メディアの 4 つのソースは接続を含めない**（`network` に別に載せる）。語彙は上の「生存信号の語彙」 | — |
 | `blockers` | 満たされていないもの。`permission` / `sensor` / `network`。**例外: メディアの 4 つのソースは `network` を `blockers` に入れない**（接続は `network` 欄に別に載せる）。語彙は上の「生存信号の語彙」 | `capturable=false` なのに空（`missing_blockers`） |
 | `network` | 任意。送る契機の時点で接続があったか（真偽値）。**メディアの 4 つのソースだけが載せる**。無ければ「分からない」（ST09 / design D7） | — |
+| `client_version` | 任意。収集アプリが信号を**積んだ時の版**（ST51 / design D6）。原文にも同じ値を入れる。形を検査せず断らない。空の文字列は「不明」、U+0000 は取り除く。無ければ「不明」。行の列は `collector_version` | — |
 | `attempts` | 前回の信号からの**取得の試行回数** | 欄が無い（`malformed`）/ 負（`invalid_counts`） |
 | `successes` | そのうち成功した回数 | `attempts` を超える（`invalid_counts`） |
 | `raw` | 原文。**バイト単位で素通し**される | 空 / U+0000 を含む（`invalid_raw`） |

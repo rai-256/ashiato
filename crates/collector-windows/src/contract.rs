@@ -380,6 +380,10 @@ pub struct HeartbeatRequest {
     /// そのうち成功した回数。**試行を超えない**（超えると受け口が断る）
     pub successes: i32,
     pub raw: String,
+    /// 積んだ時点の C-02 の組み立ての印（ST51 / design D12）。**送る時点の版で書き換えない**。
+    /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<String>,
 }
 
 /// 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する。

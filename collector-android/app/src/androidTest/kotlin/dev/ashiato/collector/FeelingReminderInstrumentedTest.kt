@@ -24,7 +24,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.FileInputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -70,10 +69,12 @@ class FeelingReminderInstrumentedTest {
 
     private fun at(h: Int, m: Int = 0): Instant = day.atTime(h, m).atZone(tokyo).toInstant()
 
-    private fun shell(cmd: String): String =
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
-            .let { FileInputStream(it.fileDescriptor) }
-            .use { it.readBytes().toString(Charsets.UTF_8) }
+    private val device: UiDevice get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
+    // `UiDevice.executeShellCommand` は出力の ParcelFileDescriptor を AutoCloseInputStream で読み終えるまで持つ。
+    // fd だけを FileInputStream に渡すと PFD は読む前に誰からも参照されなくなり、finalizer が別のスレッドで fd を閉じて
+    // 読みかけが「read interrupted by close() on another thread」で落ちる（CI の run 41039128338。logcat を待つ繰り返しで起きた）
+    private fun shell(cmd: String): String = device.executeShellCommand(cmd)
 
     @Before
     fun setUp() {
@@ -144,7 +145,6 @@ class FeelingReminderInstrumentedTest {
 
         assertNotNull("押す先が付いていない", n.contentIntent)
         // 本物の押し方: 通知の欄を開き、通知を押す（PendingIntent を自分で送るとバックグラウンドからの起動として止められる）
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.wakeUp()
         device.openNotification()
         assertTrue("通知が欄に出ない", device.wait(Until.hasObject(By.text("今日はどうでしたか")), 15_000))

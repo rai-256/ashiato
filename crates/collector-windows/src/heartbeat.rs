@@ -48,8 +48,17 @@ pub fn history_signal(
     cap: &Capability,
     attempts: i32,
     successes: i32,
+    build_stamp: &str,
 ) -> anyhow::Result<HeartbeatRequest> {
-    let mut signal = signal(user_id, device_id, at, cap, attempts, successes)?;
+    let mut signal = signal(
+        user_id,
+        device_id,
+        at,
+        cap,
+        attempts,
+        successes,
+        build_stamp,
+    )?;
     signal.logical_source = HISTORY_LOGICAL_SOURCE.into();
     Ok(signal)
 }
@@ -240,7 +249,8 @@ impl Default for Schedule {
 
 /// 信号 1 件を組み立てる。
 ///
-/// **原文に私的な内容を入れない**（載るのは稼働・取得可否・回数だけ）。
+/// **原文に私的な内容を入れない**（載るのは稼働・取得可否・回数・組み立ての印だけ）。
+/// 印は欄と原文の両方に入れる（ST51 / design D12）。
 pub fn signal(
     user_id: uuid::Uuid,
     device_id: &str,
@@ -248,6 +258,7 @@ pub fn signal(
     cap: &Capability,
     attempts: i32,
     successes: i32,
+    build_stamp: &str,
 ) -> anyhow::Result<HeartbeatRequest> {
     let raw = serde_json::json!({
         "alive": true,
@@ -255,6 +266,7 @@ pub fn signal(
         "blockers": cap.blockers,
         "attempts": attempts,
         "successes": successes,
+        "client_version": build_stamp,
     });
     Ok(HeartbeatRequest {
         id: uuid::Uuid::new_v4(),
@@ -267,6 +279,7 @@ pub fn signal(
         attempts,
         successes,
         raw: serde_json::to_string(&raw)?,
+        client_version: Some(build_stamp.to_string()),
     })
 }
 
@@ -321,7 +334,7 @@ mod tests {
         assert_eq!(HISTORY_EXPECTED_GAP_SEC, 86_400);
         let cap = Capability::from_blockers(&std::collections::BTreeSet::new());
         assert_eq!(
-            history_signal(uuid::Uuid::nil(), "pc", t(0), &cap, 1, 1)
+            history_signal(uuid::Uuid::nil(), "pc", t(0), &cap, 1, 1, "0.1.0+x")
                 .unwrap()
                 .logical_source,
             HISTORY_LOGICAL_SOURCE
@@ -373,7 +386,7 @@ mod tests {
         // **理由の無い「取れない」は作れない**（受け口が断る形を作らせない）
         let both = Capability::of(false, false);
         assert!(!both.capturable && both.blockers.len() == 2);
-        let sig = signal(uuid::Uuid::nil(), "dev", t(0), &both, 10, 3).unwrap();
+        let sig = signal(uuid::Uuid::nil(), "dev", t(0), &both, 10, 3, "0.1.0+x").unwrap();
         assert!(!sig.capturable && !sig.blockers.is_empty());
     }
 
@@ -397,6 +410,7 @@ mod tests {
             &Capability::of(true, true),
             c.attempts,
             c.successes,
+            "0.1.0+x",
         )
         .unwrap();
         assert_eq!((sig.attempts, sig.successes), (10, 6));
@@ -467,15 +481,23 @@ mod tests {
             &Capability::of(true, true),
             360,
             359,
+            "0.1.0+x",
         )
         .unwrap();
         let raw: serde_json::Value = serde_json::from_str(&sig.raw).unwrap();
         let keys: Vec<&String> = raw.as_object().unwrap().keys().collect();
         assert_eq!(
             keys,
-            ["alive", "attempts", "blockers", "capturable", "successes"]
-                .iter()
-                .collect::<Vec<_>>(),
+            [
+                "alive",
+                "attempts",
+                "blockers",
+                "capturable",
+                "client_version",
+                "successes"
+            ]
+            .iter()
+            .collect::<Vec<_>>(),
             "生存信号の原文に余計な項目がある"
         );
     }
