@@ -520,7 +520,17 @@ fn idle_enter_and_leave_are_both_recorded() {
 #[derive(Debug, Default)]
 struct Capture(std::cell::RefCell<Vec<(String, String)>>);
 impl Transport for Capture {
-    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+    fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+        Ok(Reply {
+            status: 200,
+            body: format!(
+                r#"{{"contract_version":{}}}"#,
+                ashiato_collector_windows::contract::CONTRACT_VERSION
+            ),
+        })
+    }
+
+    fn post(&self, path: &str, body: &str, _version: u32) -> anyhow::Result<Reply> {
         self.0.borrow_mut().push((path.into(), body.into()));
         let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
             .map(|v| v.len())
@@ -1274,6 +1284,43 @@ mod outage_toast {
         trigger(&mut poller);
         let h = wait_history(|h| h.is_empty());
         assert_eq!(h.len(), 0, "戻ると履歴から消える");
+
+        clear();
+    }
+
+    // Scenario: 更新を促す通知は途切れの通知を置き換えない
+    #[test]
+    fn st50_contract_toast_coexists_with_outage() {
+        use ashiato_collector_windows::contract_notice::{
+            toast_xml as contract_xml, ContractToaster,
+        };
+        use ashiato_collector_windows::toast::CONTRACT_TAG;
+
+        let _g = super::desktop();
+        let toaster = WindowsToaster::register_as(TEST_AUMID).unwrap();
+        clear();
+        let outages = match location_outage() {
+            OutageResult::Ready(v) => v,
+            _ => unreachable!(),
+        };
+        Toaster::show(&toaster, &toast_xml(&outages, true), true).unwrap();
+        toaster
+            .show_contract(&contract_xml(
+                "サーバを更新してください（未送信 0 日分を PC に残しています）",
+            ))
+            .unwrap();
+        let tags = |h: &[ToastNotification]| {
+            let mut t: Vec<String> = h.iter().map(|n| n.Tag().unwrap().to_string()).collect();
+            t.sort();
+            t
+        };
+        let h = wait_history(|h| h.len() == 2);
+        assert_eq!(tags(&h), vec![CONTRACT_TAG.to_string(), TAG.to_string()]);
+
+        // 更新を促す通知だけを消す。途切れの通知は残る
+        toaster.dismiss_contract().unwrap();
+        let h = wait_history(|h| h.len() == 1);
+        assert_eq!(tags(&h), vec![TAG.to_string()]);
 
         clear();
     }

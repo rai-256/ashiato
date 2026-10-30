@@ -26,8 +26,59 @@ pub struct Reply {
 
 /// 1 回の POST。**到達できなければ `Err`** —— 網の失敗と、サーバが返した応答は別物。
 pub trait Transport: std::fmt::Debug {
-    /// `path` は `/ingest` か `/heartbeat`。
-    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply>;
+    /// `path` は `/ingest` か `/heartbeat`。`contract_version` は要求の見出し
+    /// `Ashiato-Contract-Version` に載せる、その回に載せた行の版の最大（ST50 / design D9）。
+    fn post(&self, path: &str, body: &str, contract_version: u32) -> anyhow::Result<Reply>;
+
+    /// `path` は `/contract`（S-01 が受け付ける版を訊く。design D18（仮））。
+    fn get(&self, path: &str) -> anyhow::Result<Reply>;
+}
+
+/// `GET /contract` の答え（design D11）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContractAnswer {
+    /// S-01 が受け付ける版 A
+    Version(u32),
+    /// 口が無い（404）。受け付けないものとして扱い、すぐ更新を促す
+    NoEndpoint,
+    /// 200 だが読めない（本文が JSON でない・版が無い・正の整数でない）。送らずに残し、続いたら促す（D22）
+    Unreadable,
+    /// 到達できない・時間切れ・401・403・5xx・そのほか。更新が原因ではないので止まった状態にしない
+    Transient,
+}
+
+/// 確かめの返事を「版 A / 受け付けない / 一時的な失敗」に読む（design D11）。
+pub fn read_contract_answer(reply: &anyhow::Result<Reply>) -> ContractAnswer {
+    let Ok(reply) = reply else {
+        return ContractAnswer::Transient;
+    };
+    match reply.status {
+        404 => ContractAnswer::NoEndpoint,
+        200 => serde_json::from_str::<serde_json::Value>(&reply.body)
+            .ok()
+            .and_then(|v| v.get("contract_version")?.as_u64())
+            .filter(|n| *n >= 1)
+            .and_then(|n| u32::try_from(n).ok())
+            .map_or(ContractAnswer::Unreadable, ContractAnswer::Version),
+        _ => ContractAnswer::Transient,
+    }
+}
+
+/// 直前の `flush` が見た版の事情（design D9 の（a）（c）（d））。
+// 設計の D9 の理由が（a）〜（e）と別々の事実なので、状態を持つ型にまとめず 1 つずつ持つ
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SendOutcome {
+    /// 1 回送った（要求を出した）
+    pub posted: bool,
+    /// 版 > A の行が未送信にある（a）
+    pub ahead: bool,
+    /// 426 で断られた（c）
+    pub refused: bool,
+    /// `unknown_field` か `contract_unsupported` で断られた行が、まだ未送信に残っている（d）。
+    /// **その回に断られたかでなく、残っているかで立てる** —— 断られた行を飛ばして新しい行が受け付けられた回に
+    /// 待ちを抜けると、通知が消えて次の契機で出直す（final review R2）
+    pub rejected_by_version: bool,
 }
 
 /// 1 件ごとの結果（送った順に並ぶ。**位置で対応づける**）。
@@ -56,6 +107,10 @@ pub struct Flushed {
 pub struct Sender {
     path: &'static str,
     skipped: HashSet<uuid::Uuid>,
+    /// 契約の版で断られた（`unknown_field` / `contract_unsupported`）まま未送信に残っている行（final review R2）。
+    /// `skipped` にも入る。止まっている間も 1 契機に 1 件だけ当たり直し、受け付けられたら全部の印を外す
+    version_rejected: HashSet<uuid::Uuid>,
+    last: SendOutcome,
 }
 
 impl Sender {
@@ -64,6 +119,8 @@ impl Sender {
         Self {
             path: "/ingest",
             skipped: HashSet::new(),
+            version_rejected: HashSet::new(),
+            last: SendOutcome::default(),
         }
     }
 
@@ -72,43 +129,90 @@ impl Sender {
         Self {
             path: "/heartbeat",
             skipped: HashSet::new(),
+            version_rejected: HashSet::new(),
+            last: SendOutcome::default(),
         }
     }
 
+    /// 直前の `flush` が見た版の事情。
+    pub fn last_outcome(&self) -> SendOutcome {
+        self.last
+    }
+
+    /// 「飛ばす」印を捨てる。止まった状態を抜けた契機で呼ぶ（design D14）。
+    pub fn clear_skipped(&mut self) {
+        self.skipped.clear();
+    }
+
     /// 1 回送る。**受理された分だけを未送信から取り除く。**
+    ///
+    /// `accepted_version` は S-01 が受け付ける版 A。**版 ≤ A の行だけ**を送り、見出しには載せた行の最大を入れる。
+    /// 版 > A の行は捨ても飛ばしもしない（design D9）。`None`（答えが読めない契機）は何も送らない。
     pub fn flush<T: Outboxable>(
         &mut self,
         outbox: &mut Outbox<T>,
         transport: &dyn Transport,
+        accepted_version: Option<u32>,
         log: &mut dyn FnMut(String),
     ) -> anyhow::Result<Flushed> {
+        self.last = SendOutcome::default();
         let pending: Vec<T> = outbox.snapshot().to_vec();
-        let fresh: Vec<&T> = pending
+        // 版で断られた行のうち、もう未送信に無いもの（取り除いた・上限で手放した）は忘れる
+        let pending_ids: HashSet<uuid::Uuid> = pending.iter().map(Outboxable::id).collect();
+        self.version_rejected.retain(|id| pending_ids.contains(id));
+        self.last.rejected_by_version = !self.version_rejected.is_empty();
+        let Some(a) = accepted_version else {
+            return Ok(Flushed {
+                sent: 0,
+                accepted: 0,
+            });
+        };
+        self.last.ahead = pending.iter().any(|i| i.contract_version() > a);
+        let eligible: Vec<&T> = pending
             .iter()
+            .filter(|i| i.contract_version() <= a)
+            .collect();
+        let fresh: Vec<&T> = eligible
+            .iter()
+            .copied()
             .filter(|i| !self.skipped.contains(&i.id()))
             .collect();
         // 全部が「断られた分」なら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
-        let retry_all = fresh.is_empty() && !pending.is_empty();
+        let retry_all = fresh.is_empty() && !eligible.is_empty();
         if retry_all {
             self.skipped.clear();
         }
-        let mut candidates: Vec<&T> = if retry_all {
-            pending.iter().collect()
+        // 版で断られて飛ばしている行を、1 契機に 1 件だけ当たり直す（final review R2）。止まっている間は
+        // 待ちを抜けないので、抜けた契機で印を捨てる（D14）だけでは S-01 を更新しても当たり直す契機が来ない
+        let probe: Option<&T> = if retry_all {
+            None
         } else {
-            fresh
+            eligible
+                .iter()
+                .copied()
+                .find(|i| self.version_rejected.contains(&i.id()) && self.skipped.contains(&i.id()))
         };
+        let mut candidates: Vec<&T> = if retry_all { eligible } else { fresh };
         // 後回しにするもの（履歴）は、そうでないものの後ろへ。どちらの中でも積んだ順のまま（R69）
         candidates.sort_by_key(|i| i.sends_late());
-        let batch: Vec<&T> = candidates.into_iter().take(MAX_BATCH).collect();
+        let room = MAX_BATCH - usize::from(probe.is_some());
+        let mut batch: Vec<&T> = candidates.into_iter().take(room).collect();
+        batch.extend(probe);
         if batch.is_empty() {
             return Ok(Flushed {
                 sent: 0,
                 accepted: 0,
             });
         }
+        let header_version = batch
+            .iter()
+            .map(|i| i.contract_version())
+            .max()
+            .unwrap_or(a);
 
         let body = serde_json::to_string(&batch)?;
-        let reply = match transport.post(self.path, &body) {
+        self.last.posted = true;
+        let reply = match transport.post(self.path, &body, header_version) {
             Ok(r) => r,
             Err(e) => {
                 // **一時的な失敗。未送信はそのまま残す**（FR-10）
@@ -124,6 +228,21 @@ impl Sender {
                 });
             }
         };
+
+        // **426 は何も取り除かない**（捨てない側。飛ばす印も付けない。design D4・D17）
+        if reply.status == 426 {
+            self.last.refused = true;
+            log(telemetry::line(
+                "send_contract_unsupported",
+                Some(batch.len()),
+                None,
+                Some("426"),
+            ));
+            return Ok(Flushed {
+                sent: batch.len(),
+                accepted: 0,
+            });
+        }
 
         let results: Vec<ItemResult> = match serde_json::from_str::<Vec<ItemResult>>(&reply.body) {
             // **件数が合わない応答は読まない**（R21）。位置で対応づけるので、
@@ -149,13 +268,24 @@ impl Sender {
         };
 
         let mut remove = Vec::new();
+        let mut released = false;
         for (item, res) in batch.iter().zip(results.iter()) {
             if res.accepted {
                 remove.push(item.id());
+                // 版で断られた行が受け付けられた = S-01 が更新された。残りの印も外して次の契機で送る
+                released |= self.version_rejected.remove(&item.id());
             } else {
                 // **捨てない。** 生存信号は「動いていた」の証拠で、記録は取り直せない。
                 // 先頭に居座らせないために飛ばすだけにする（ST02 の review R18 / H-1）
                 self.skipped.insert(item.id());
+                if matches!(
+                    res.error.as_deref(),
+                    Some("unknown_field" | "contract_unsupported")
+                ) {
+                    self.version_rejected.insert(item.id());
+                } else {
+                    self.version_rejected.remove(&item.id());
+                }
                 log(telemetry::line(
                     "send_rejected",
                     Some(1),
@@ -170,6 +300,13 @@ impl Sender {
         let still: std::collections::HashSet<uuid::Uuid> =
             outbox.snapshot().iter().map(|i| i.id()).collect();
         self.skipped.retain(|id| still.contains(id));
+        if released {
+            for id in self.version_rejected.drain() {
+                self.skipped.remove(&id);
+            }
+        }
+        self.version_rejected.retain(|id| still.contains(id));
+        self.last.rejected_by_version = !self.version_rejected.is_empty();
         log(telemetry::line("sent", Some(accepted), None, None));
         Ok(Flushed {
             sent: batch.len(),
@@ -225,18 +362,32 @@ impl HttpTransport {
 }
 
 impl Transport for HttpTransport {
-    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+    fn post(&self, path: &str, body: &str, contract_version: u32) -> anyhow::Result<Reply> {
         let url = format!("{}{path}", self.base_url);
         let mut res = self
             .agent
             .post(&url)
             .header("authorization", &format!("Bearer {}", self.token))
+            .header("ashiato-contract-version", &contract_version.to_string())
             .header("content-type", "application/json")
             .send(body)
             // 網の失敗。**例外の文言は外へ出さない**（本文が混ざることがある）
             .map_err(|e| anyhow::anyhow!("post failed: {}", e))?;
         let status = res.status().as_u16();
         // **400 も本文を読む**（1 件ごとの結果がそこにある）
+        let body = res.body_mut().read_to_string().unwrap_or_default();
+        Ok(Reply { status, body })
+    }
+
+    fn get(&self, path: &str) -> anyhow::Result<Reply> {
+        let url = format!("{}{path}", self.base_url);
+        let mut res = self
+            .agent
+            .get(&url)
+            .header("authorization", &format!("Bearer {}", self.token))
+            .call()
+            .map_err(|e| anyhow::anyhow!("get failed: {}", e))?;
+        let status = res.status().as_u16();
         let body = res.body_mut().read_to_string().unwrap_or_default();
         Ok(Reply { status, body })
     }
@@ -319,6 +470,18 @@ mod tests {
         (tmp, path)
     }
 
+    thread_local! {
+        /// 試験の置き場。試験の最後（スレッドの終わり）まで持ち、落ちても消える
+        static DIRS: RefCell<Vec<tempfile::TempDir>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn kept_tmp_path() -> std::path::PathBuf {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("outbox.jsonl");
+        DIRS.with(|d| d.borrow_mut().push(dir));
+        path
+    }
+
     fn req(n: u32) -> IngestRequest {
         let at = chrono::DateTime::parse_from_rfc3339("2026-09-13T00:00:00Z")
             .unwrap()
@@ -345,6 +508,10 @@ mod tests {
         /// `None` = 到達できない
         replies: RefCell<Vec<Option<Reply>>>,
         seen: RefCell<Vec<String>>,
+        /// 見出しに載せた版
+        versions: RefCell<Vec<u32>>,
+        /// `GET /contract` の返事（`None` = 到達できない）。空なら 404
+        contract: RefCell<Vec<Option<Reply>>>,
     }
 
     impl FakeTransport {
@@ -352,13 +519,16 @@ mod tests {
             Self {
                 replies: RefCell::new(replies),
                 seen: RefCell::new(Vec::new()),
+                versions: RefCell::new(Vec::new()),
+                contract: RefCell::new(Vec::new()),
             }
         }
     }
 
     impl Transport for FakeTransport {
-        fn post(&self, _path: &str, body: &str) -> anyhow::Result<Reply> {
+        fn post(&self, _path: &str, body: &str, version: u32) -> anyhow::Result<Reply> {
             self.seen.borrow_mut().push(body.to_string());
+            self.versions.borrow_mut().push(version);
             let mut r = self.replies.borrow_mut();
             let next = if r.is_empty() { None } else { r.remove(0) };
             match next {
@@ -366,6 +536,40 @@ mod tests {
                 None => Err(anyhow::anyhow!("到達できない")),
             }
         }
+
+        fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+            let mut r = self.contract.borrow_mut();
+            if r.is_empty() {
+                return Ok(Reply {
+                    status: 404,
+                    body: String::new(),
+                });
+            }
+            match r.remove(0) {
+                Some(reply) => Ok(reply),
+                None => Err(anyhow::anyhow!("到達できない")),
+            }
+        }
+    }
+
+    fn version_reply(v: u32) -> Option<Reply> {
+        Some(Reply {
+            status: 200,
+            body: format!(r#"{{"contract_version":{v}}}"#),
+        })
+    }
+
+    fn at_version(n: u32, v: u32) -> IngestRequest {
+        let mut r = req(n);
+        r.contract_version = v;
+        r
+    }
+
+    fn app_names(body: &str) -> Vec<String> {
+        let sent: Vec<serde_json::Value> = serde_json::from_str(body).unwrap();
+        sent.iter()
+            .map(|i| i["payload"]["app_name"].as_str().unwrap().to_string())
+            .collect()
     }
 
     fn ok_reply(accepted: &[bool]) -> Option<Reply> {
@@ -393,7 +597,7 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&[true, false])]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(
             f,
             Flushed {
@@ -419,7 +623,7 @@ mod tests {
         o.add(req(1)).unwrap();
         o.add(req(2)).unwrap();
         let down = FakeTransport::with(vec![None]);
-        s.flush(&mut o, &down, &mut log).unwrap();
+        s.flush(&mut o, &down, Some(1), &mut log).unwrap();
         assert_eq!(o.len(), 2, "到達できないことを理由に捨てている");
 
         // 起動をまたいでも残る（プロセスが立て直されても消えない）
@@ -429,7 +633,7 @@ mod tests {
 
         // 戻ったら送られる
         let up = FakeTransport::with(vec![ok_reply(&[true, true])]);
-        let f = s.flush(&mut o, &up, &mut log).unwrap();
+        let f = s.flush(&mut o, &up, Some(1), &mut log).unwrap();
         assert_eq!(f.accepted, 2);
         assert!(o.is_empty());
         let sent: Vec<serde_json::Value> =
@@ -446,12 +650,12 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&[false]), ok_reply(&[true])]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        s.flush(&mut o, &t, &mut log).unwrap();
+        s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(o.len(), 1);
 
         // 新しい 1 件が積まれたら、そちらが先に送られる
         o.add(req(2)).unwrap();
-        s.flush(&mut o, &t, &mut log).unwrap();
+        s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         let second: Vec<serde_json::Value> =
             serde_json::from_str(&t.seen.borrow()[1]).expect("2 回目の本文");
         assert_eq!(second.len(), 1);
@@ -470,7 +674,7 @@ mod tests {
         })]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(f.accepted, 0);
         assert_eq!(o.len(), 1);
     }
@@ -485,7 +689,7 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&[true])]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(f.accepted, 0);
         assert_eq!(o.len(), 2, "ずれた応答で取り除いた");
     }
@@ -499,8 +703,8 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&[false]), ok_reply(&[true])]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        s.flush(&mut o, &t, &mut log).unwrap();
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        s.flush(&mut o, &t, Some(1), &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(f.sent, 1, "断られた分しか無いのに当たり直さない");
         assert!(o.is_empty());
     }
@@ -517,7 +721,7 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&accepted)]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(f.sent, MAX_BATCH);
         assert_eq!(o.len(), 50);
     }
@@ -537,7 +741,7 @@ mod tests {
         let t = FakeTransport::with(vec![ok_reply(&[true; MAX_BATCH])]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         assert_eq!(f.sent, MAX_BATCH);
         assert!(
             !o.snapshot().iter().any(|i| i.id == window.id),
@@ -549,6 +753,360 @@ mod tests {
             o.snapshot()[0].event_time,
             req(MAX_BATCH as u32 - 1).event_time
         );
+    }
+
+    /// 確かめの返事を読んで、その版で 1 回送る。
+    fn flush_after_check(
+        s: &mut Sender,
+        o: &mut Outbox<IngestRequest>,
+        t: &FakeTransport,
+    ) -> (ContractAnswer, Flushed) {
+        let answer = read_contract_answer(&t.get("/contract"));
+        let a = match answer {
+            ContractAnswer::Version(a) => Some(a),
+            _ => None,
+        };
+        let mut log = |_: String| {};
+        (answer, s.flush(o, t, a, &mut log).unwrap())
+    }
+
+    // Scenario: PC は S-01 が受け付ける版の行だけを送り、新しい版の行を残す
+    #[test]
+    fn st50_sender_sends_accepted_versions_only() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add_many_at(vec![req(1), req(2)], 1).unwrap();
+        o.add_many_at(vec![req(3)], 2).unwrap();
+        let t = FakeTransport::with(vec![ok_reply(&[true, true])]);
+        t.contract.borrow_mut().push(version_reply(1));
+        let mut s = Sender::ingest();
+        let (_, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.sent, 2);
+        assert_eq!(app_names(&t.seen.borrow()[0]), ["app-1", "app-2"]);
+        assert_eq!(o.len(), 1, "新しい版の行が残っていない");
+        assert_eq!(o.snapshot()[0].contract_version, 2);
+        assert!(s.last_outcome().ahead, "版 > A の行があるのに印が立たない");
+        assert_eq!(*t.versions.borrow(), [1], "見出しは載せた行の版");
+        assert!(s.skipped.is_empty(), "送っていない行に飛ばす印を付けている");
+    }
+
+    // Scenario: PC は積んだ時の版を 1 行ごとに持ち、更新の後も変えない
+    #[test]
+    fn st50_sender_burned_version_kept() {
+        let path = kept_tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        // 版 1 の時に積み、その後に版が上がった（送る側は積んだ版を上書きしない）
+        o.add_many_at(vec![req(1)], 1).unwrap();
+        o.add_many_at(vec![req(2)], 2).unwrap();
+        drop(o);
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
+        let t = FakeTransport::with(vec![ok_reply(&[true, true])]);
+        t.contract.borrow_mut().push(version_reply(2));
+        let mut s = Sender::ingest();
+        flush_after_check(&mut s, &mut o, &t);
+        let sent: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[0]).unwrap();
+        assert_eq!(sent[0]["contract_version"], 1, "更新の後に版が書き換わった");
+        assert_eq!(sent[1]["contract_version"], 2);
+        // 既定の積み方は今の版を焼く
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add(at_version(3, 99)).unwrap();
+        assert_eq!(
+            o.snapshot()[0].contract_version,
+            crate::contract::CONTRACT_VERSION
+        );
+    }
+
+    // Scenario: PC の版を持たない古い行は版 1 として送られる
+    #[test]
+    fn st50_sender_unversioned_row_is_v1() {
+        let path = kept_tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+        o.add(req(1)).unwrap();
+        drop(o);
+        // ST50 より前の形の行（版の欄が無い）に書き換える
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        v.as_object_mut().unwrap().remove("contract_version");
+        std::fs::write(&path, format!("{v}\n")).unwrap();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
+        assert_eq!(o.snapshot()[0].contract_version, 1);
+        let t = FakeTransport::with(vec![ok_reply(&[true])]);
+        t.contract.borrow_mut().push(version_reply(1));
+        let mut s = Sender::ingest();
+        flush_after_check(&mut s, &mut o, &t);
+        let sent: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[0]).unwrap();
+        assert_eq!(sent[0]["contract_version"], 1);
+        assert!(o.is_empty());
+    }
+
+    // Scenario: PC の要求の見出しは載せた行の版の最大になる
+    #[test]
+    fn st50_sender_header_is_batch_max() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add_many_at(vec![req(1)], 1).unwrap();
+        o.add_many_at(vec![req(2)], 2).unwrap();
+        o.add_many_at(vec![req(3)], 3).unwrap();
+        // A = 2: 版 1 と 2 が 1 回に混ざり、見出しは 2（A の 2 でも、行の 3 でもない）
+        let t = FakeTransport::with(vec![ok_reply(&[true, true])]);
+        t.contract.borrow_mut().push(version_reply(2));
+        let mut s = Sender::ingest();
+        flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(*t.versions.borrow(), [2]);
+        // A = 5 でも、載せた行の最大（3）。A ではない
+        let t = FakeTransport::with(vec![ok_reply(&[true])]);
+        t.contract.borrow_mut().push(version_reply(5));
+        flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(*t.versions.borrow(), [3]);
+    }
+
+    // Scenario: 問い合わせの口が無い S-01 には PC も何も送らない
+    #[test]
+    fn st50_sender_no_contract_endpoint() {
+        let readings = [
+            Some(Reply {
+                status: 404,
+                body: String::new(),
+            }),
+            Some(Reply {
+                status: 200,
+                body: "<html>sign in</html>".into(),
+            }),
+            Some(Reply {
+                status: 200,
+                body: r#"{"other":1}"#.into(),
+            }),
+            Some(Reply {
+                status: 200,
+                body: r#"{"contract_version":"2"}"#.into(),
+            }),
+            Some(Reply {
+                status: 200,
+                body: r#"{"contract_version":0}"#.into(),
+            }),
+        ];
+        let want = [
+            ContractAnswer::NoEndpoint,
+            ContractAnswer::Unreadable,
+            ContractAnswer::Unreadable,
+            ContractAnswer::Unreadable,
+            ContractAnswer::Unreadable,
+        ];
+        for (reading, want) in readings.into_iter().zip(want) {
+            let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+            o.add(req(1)).unwrap();
+            let t = FakeTransport::with(vec![ok_reply(&[true])]);
+            t.contract.borrow_mut().push(reading);
+            let mut s = Sender::ingest();
+            let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+            assert_eq!(answer, want);
+            assert_eq!(f.sent, 0);
+            assert!(t.seen.borrow().is_empty(), "読めない答えなのに送った");
+            assert_eq!(o.len(), 1, "行が減っている");
+        }
+    }
+
+    // Scenario: 426 で断られた PC の要求の行は 1 件も取り除かれない
+    #[test]
+    fn st50_sender_426_removes_nothing() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add_many_at(vec![req(1), req(2)], 1).unwrap();
+        let refused = Some(Reply {
+            status: 426,
+            body: r#"{"error":"contract_unsupported","contract_version":1}"#.into(),
+        });
+        let t = FakeTransport::with(vec![refused, ok_reply(&[true, true])]);
+        t.contract
+            .borrow_mut()
+            .extend([version_reply(1), version_reply(1)]);
+        let mut s = Sender::ingest();
+        let (_, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.accepted, 0);
+        assert_eq!(o.len(), 2);
+        assert!(s.last_outcome().refused);
+        assert!(s.skipped.is_empty(), "426 で飛ばす印を付けた");
+        // 印が無いので、次の回も同じ先頭から送られる
+        flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(app_names(&t.seen.borrow()[1]), ["app-1", "app-2"]);
+        assert!(o.is_empty());
+    }
+
+    // Scenario: 契約の版で止まっている間も PC は行を捨てない
+    #[test]
+    fn st50_sender_never_drops_when_held() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        // 100 日分（1 日 288 行）。半分は新しい版、半分は 404 の間に積んだ版 1
+        let rows: Vec<IngestRequest> = (0..100 * 288).map(req).collect();
+        let total = rows.len();
+        o.add_many_at(rows[..total / 2].to_vec(), 1).unwrap();
+        o.add_many_at(rows[total / 2..].to_vec(), 2).unwrap();
+        let mut s = Sender::ingest();
+        let mut log = |_: String| {};
+        for answer in [None, None] {
+            s.flush(&mut o, &FakeTransport::default(), answer, &mut log)
+                .unwrap();
+            assert_eq!(o.len(), total, "答えが読めない間に減った");
+        }
+        // 版 0 しか受け付けない（どの行も新しい）状態を何度繰り返しても減らない
+        for _ in 0..3 {
+            let t = FakeTransport::default();
+            let f = s.flush(&mut o, &t, Some(0), &mut log).unwrap();
+            assert_eq!(f.sent, 0);
+            assert!(t.seen.borrow().is_empty());
+            assert_eq!(o.len(), total);
+        }
+        assert!(s.last_outcome().ahead);
+    }
+
+    // Scenario: S-01 を更新すると PC に残っていた記録がそのまま入る
+    #[test]
+    fn st50_sender_resumes_after_update() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add_many_at(vec![req(1), req(2)], 2).unwrap();
+        let rejected = Some(Reply {
+            status: 200,
+            body: serde_json::json!([
+                {"id": null, "duplicate": false, "accepted": false, "error": "unknown_field"},
+                {"id": null, "duplicate": false, "accepted": false, "error": "contract_unsupported"}
+            ])
+            .to_string(),
+        });
+        let t = FakeTransport::with(vec![rejected, ok_reply(&[true, true])]);
+        // 1 回目は古い S-01（A = 2 と答えたが断られた）。2 回目は更新後
+        t.contract
+            .borrow_mut()
+            .extend([version_reply(2), version_reply(2)]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut gate = crate::contract_gate::ContractGate::new(dir.path());
+        let mut log = |_: String| {};
+        let now = chrono::Utc::now();
+        let mut s = Sender::ingest();
+        let (answer, _) = flush_after_check(&mut s, &mut o, &t);
+        assert!(s.last_outcome().rejected_by_version);
+        assert_eq!(o.len(), 2);
+        assert_eq!(s.skipped.len(), 2, "飛ばす印が付いていない");
+        // 断られた契機では待つ状態に入り、印は捨てない
+        assert!(!gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        assert!(gate.waiting());
+        assert_eq!(s.skipped.len(), 2);
+        // 更新した S-01 に戻った契機: 送れて、待つ状態を抜ける。
+        // runtime と同じく、抜けたら印を捨てる（design D14）
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(answer, ContractAnswer::Version(2));
+        assert_eq!(f.accepted, 2);
+        assert!(o.is_empty());
+        assert!(gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        s.clear_skipped();
+        assert!(!gate.waiting() && s.skipped.is_empty());
+        let sent: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[1]).unwrap();
+        assert_eq!(sent[0]["contract_version"], 2, "積んだ版のまま送る");
+    }
+
+    /// 1 件ごとの結果を決め打つ（`Some(種別)` は断り）。
+    fn item_replies(items: &[Option<&str>]) -> Option<Reply> {
+        let items: Vec<serde_json::Value> = items
+            .iter()
+            .map(|e| {
+                serde_json::json!({"id": null, "duplicate": false, "accepted": e.is_none(),
+                                   "error": e})
+            })
+            .collect();
+        Some(Reply {
+            status: 200,
+            body: serde_json::to_string(&items).unwrap(),
+        })
+    }
+
+    /// 版で断られた行が残っている間は、新しい行が受け付けられても待ちを抜けない（final review R2）。
+    /// 抜けると通知と出した時刻が消え、次の契機で断られ直して通知が出直す（Q5 の「止まった時に 1 回」が崩れる）。
+    // Scenario: 契約の版で止まると PC に通知が 1 回出る
+    #[test]
+    fn st50_sender_version_rejected_rows_keep_waiting_while_new_rows_pass() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        let old = req(1);
+        o.add_many_at(vec![old.clone()], 1).unwrap();
+        let t = FakeTransport::with(vec![
+            // 1 回目: 古い S-01 が知らない欄で断る
+            item_replies(&[Some("unknown_field")]),
+            // 2 回目: 新しい行は受け付け、当たり直した古い行はまた断る
+            item_replies(&[None, Some("unknown_field")]),
+            // 3 回目（S-01 を更新した後）: 新しい行も当たり直した古い行も受け付ける
+            item_replies(&[None, None]),
+        ]);
+        t.contract
+            .borrow_mut()
+            .extend([version_reply(1), version_reply(1), version_reply(1)]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut gate = crate::contract_gate::ContractGate::new(dir.path());
+        let mut log = |_: String| {};
+        let now = chrono::Utc::now();
+        let mut s = Sender::ingest();
+
+        let (answer, _) = flush_after_check(&mut s, &mut o, &t);
+        assert!(!gate.observe(answer, now, &[s.last_outcome()], &mut log));
+        assert!(gate.waiting(), "版で断られて待つ状態に入っていない");
+
+        o.add_many_at(vec![req(2)], 1).unwrap();
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.accepted, 1, "新しい行が送れていない");
+        assert!(
+            s.last_outcome().rejected_by_version,
+            "断られた行が残っているのに（d）が落ちた"
+        );
+        assert!(
+            !gate.observe(answer, now, &[s.last_outcome()], &mut log),
+            "新しい行が受け付けられただけで待ちを抜けた"
+        );
+        assert!(gate.waiting());
+        assert_eq!(o.snapshot().len(), 1, "断られた行を捨てた");
+        let second: Vec<serde_json::Value> = serde_json::from_str(&t.seen.borrow()[1]).unwrap();
+        assert_eq!(second.len(), 2, "断られた行を 1 件だけ当たり直していない");
+
+        o.add_many_at(vec![req(3)], 1).unwrap();
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(f.accepted, 2);
+        assert!(o.is_empty());
+        assert!(!s.last_outcome().rejected_by_version);
+        assert!(
+            gate.observe(answer, now, &[s.last_outcome()], &mut log),
+            "断られた行が受け付けられたのに待ちを抜けない"
+        );
+    }
+
+    #[test]
+    fn st50_sender_transient_is_not_held() {
+        for reply in [
+            None,
+            Some(Reply {
+                status: 401,
+                body: String::new(),
+            }),
+            Some(Reply {
+                status: 403,
+                body: String::new(),
+            }),
+            Some(Reply {
+                status: 503,
+                body: "<html>".into(),
+            }),
+        ] {
+            assert_eq!(
+                read_contract_answer(&reply.map_or_else(|| Err(anyhow::anyhow!("x")), Ok)),
+                ContractAnswer::Transient
+            );
+        }
+        let mut o: Outbox<IngestRequest> = Outbox::open(kept_tmp_path()).unwrap();
+        o.add_many_at(vec![req(1)], 2).unwrap();
+        let t = FakeTransport::default();
+        t.contract.borrow_mut().push(None);
+        let mut s = Sender::ingest();
+        let (answer, f) = flush_after_check(&mut s, &mut o, &t);
+        assert_eq!(answer, ContractAnswer::Transient);
+        assert_eq!(f.sent, 0);
+        assert_eq!(
+            s.last_outcome(),
+            SendOutcome::default(),
+            "止まった状態になった"
+        );
+        assert_eq!(o.len(), 1);
     }
 
     /// 1 回だけ応答する本物の HTTP の相手。受け取った要求の頭と本文を返す。
@@ -632,7 +1190,7 @@ mod tests {
         let mut s = Sender::ingest();
         let mut lines = Vec::new();
         let mut log = |l: String| lines.push(l);
-        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, Some(1), &mut log).unwrap();
         let seen = server.join().unwrap();
 
         assert!(

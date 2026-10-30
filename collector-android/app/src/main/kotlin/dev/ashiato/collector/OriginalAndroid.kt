@@ -52,17 +52,28 @@ class HttpOriginalTransport(
 ) : OriginalTransport {
     private val baseUrl = baseUrl.trimEnd('/')
 
-    override fun head(sha256: String): Outcome = call("HEAD", sha256) { null }
+    override fun head(sha256: String): Outcome = head(sha256, CONTRACT_VERSION)
 
-    override fun put(sha256: String, length: Long, body: InputStream): Outcome = call("PUT", sha256) { conn ->
-        conn.doOutput = true
-        conn.setFixedLengthStreamingMode(length)
-        conn.setRequestProperty("content-type", "application/octet-stream")
-        conn.outputStream.use { out -> body.copyTo(out) }
-        null
-    }
+    override fun head(sha256: String, contractVersion: Int): Outcome = call("HEAD", sha256, contractVersion) { null }
 
-    private fun call(method: String, sha256: String, send: (HttpURLConnection) -> Unit?): Outcome {
+    override fun put(sha256: String, length: Long, body: InputStream): Outcome =
+        put(sha256, length, body, CONTRACT_VERSION)
+
+    override fun put(sha256: String, length: Long, body: InputStream, contractVersion: Int): Outcome =
+        call("PUT", sha256, contractVersion) { conn ->
+            conn.doOutput = true
+            conn.setFixedLengthStreamingMode(length)
+            conn.setRequestProperty("content-type", "application/octet-stream")
+            conn.outputStream.use { out -> body.copyTo(out) }
+            null
+        }
+
+    private fun call(
+        method: String,
+        sha256: String,
+        contractVersion: Int,
+        send: (HttpURLConnection) -> Unit?,
+    ): Outcome {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL("$baseUrl/media/originals/$sha256?user_id=${userId()}")
@@ -72,6 +83,7 @@ class HttpOriginalTransport(
                 // 本文を送り終えてから受け口がハッシュを確かめて答えるまでの待ち
                 readTimeout = READ_TIMEOUT_MS
                 setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty(CONTRACT_HEADER, contractVersion.toString())
             }
             send(conn)
             val status = conn.responseCode

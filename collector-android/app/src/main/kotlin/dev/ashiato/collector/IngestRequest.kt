@@ -25,7 +25,22 @@ interface Outboxable {
      * **その 1 件が属するソース**を名乗るために要る。
      */
     val logicalSource: String
+
+    /**
+     * 積んだ時の送信契約の版（ST50 / design D1）。**積む 1 か所（`Outbox.add`）で焼き込み**、送るときは積んだ値のまま送る。
+     * 版を持たない前の形の行を読み戻すと 1。
+     */
+    val contractVersion: Int
+
+    /** 版だけを差し替えた写し（`Outbox.add` が焼き込みに使う。同じ型を返す）。 */
+    fun withContractVersion(version: Int): Outboxable
 }
+
+/**
+ * 送信契約の版（ST50 / design D12）。S-01 の `CONTRACT_VERSION`・PC の `CONTRACT_VERSION`・
+ * `docs/contract/envelope.json` の `version` と同じ値でなければならない（`tools/check-contract-version.sh` が突き合わせる）。
+ */
+const val CONTRACT_VERSION: Int = 1
 
 /**
  * 取り込み口へ送る 1 件。**Rust 側（crates/server/src/ingest.rs）と同じ形**でなければならない。
@@ -75,7 +90,11 @@ data class IngestRequest(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("client_version") val clientVersion: String? = null,
-) : Retainable
+    /** 積んだ時の契約の版（ST50 / D1）。**既定は 1** —— 版を持たない行（ST50 より前に積んだ）は版 1。積む時に `Outbox.add` が焼き込む */
+    @SerialName("contract_version") override val contractVersion: Int = 1,
+) : Retainable {
+    override fun withContractVersion(version: Int): IngestRequest = copy(contractVersion = version)
+}
 
 /**
  * 送った 1 件ごとの結果。**位置で対応づける**（docs/collector-contract.md §返る形）。

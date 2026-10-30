@@ -124,8 +124,11 @@ interface RetentionAlerts {
     /** 常駐の通知の本文を差し替える */
     fun ongoing(text: String)
 
-    /** 音の鳴る通知を 1 回出す。出せなかったら（権限が無い）false */
-    fun alert(days: Int): Boolean
+    /**
+     * 音の鳴る通知を 1 回出す。出せなかったら（権限が無い）false。
+     * [contractHeadline] は S-01 の更新を待っているときの案内（ST50 / D6・D24（仮））。本文へ添える
+     */
+    fun alert(days: Int, contractHeadline: String? = null): Boolean
 }
 
 /**
@@ -147,6 +150,8 @@ class RetentionNotifier(
     private val baseText: String,
     private val policy: () -> RetentionPolicy = { RetentionPolicy.current },
     private val log: (String) -> Unit = {},
+    /** S-01 の更新を待っている間の案内（待っていなければ null。ST50 / D6・D24（仮）） */
+    private val contractHeadline: () -> String? = { null },
 ) {
     private var lastText: String? = null
     private var blockedLogged = false
@@ -164,7 +169,7 @@ class RetentionNotifier(
         }
         if (elapsed != null && elapsed >= p.alertAgeMs) {
             if (!mark.exists()) {
-                if (alerts.alert(days)) {
+                if (alerts.alert(days, contractHeadline())) {
                     try {
                         mark.parentFile?.mkdirs()
                         mark.writeText(days.toString())
@@ -219,7 +224,16 @@ class Drainer(
     /** 原本の欠けの報告の送り手（ST09。D11）。**記録の上限の外の置き場**。無ければ送らない */
     private val missing: Sender<MediaMissingReport>? = null,
     /** 記録を送った後に呼ぶ（原本の送り手を起こす。ST09 / D9）。長くかかるので呼び先は自分の糸で走らせる */
-    private val afterRecords: () -> Unit = {},
+    private val afterRecords: (ContractAnswer?) -> Unit = {},
+    /**
+     * 契機の頭の `GET /contract` の確かめと、「S-01 の更新を待っている」状態（ST50 / D9・D18（仮））。
+     * 無ければ確かめず、全部を送る（版の取り決めの前から使う試験）。
+     */
+    private val contract: ContractGuard? = null,
+    /** 原本の送り待ちに版 > A の行があるか（D9 の（a））。台帳はメモリにあるので安い */
+    private val originalsAhead: (Int) -> Boolean = { false },
+    /** 契機の終わりに、いまの理由を渡す（画面と通知。ST50 / D6）。確かめを 1 度でも終えてから */
+    private val onContract: (ContractReasons) -> Unit = {},
     /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */
     private val maintenance: () -> Unit = {},
     private val log: (String) -> Unit = {},
@@ -229,36 +243,69 @@ class Drainer(
     /** 1 回の契機。記録を送った回数を返す。 */
     fun tick(): Int {
         var rounds = 0
+        // **確かめは 1 つの契機で 1 回**。続けて送る間も同じ答えを使い、覚えない（D18（仮））
+        val answer = contract?.let { runCatching { it.ask() }.getOrDefault(ContractAnswer.Transient) }
+        val outcomes = ArrayList<ContractOutcome>()
         while (true) {
             runCatching { maintenance() }.onFailure {
                 log(Telemetry.line("maintenance_crashed", source = null, error = it.javaClass.simpleName))
             }
             // **記録の送信が落ちても生存信号と破棄の報告は送る**（ST02 と同じ規律）
-            val flushed = runCatching { records.flush() }.onFailure {
+            val flushed = runCatching { records.flush(answer) }.onFailure {
                 log(Telemetry.line("flush_crashed", source = null, error = it.javaClass.simpleName))
             }.getOrNull()
-            runCatching { beats.flush() }.onFailure {
+            runCatching { beats.flush(answer) }.onFailure {
                 log(Telemetry.line("heartbeat_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
             // **送信に載せる前に凍結する**（spec「送ろうとした報告は書き換えられない」）
             runCatching {
                 ledger.freeze()
-                drops.flush()
+                drops.flush(answer)
             }.onFailure {
                 log(Telemetry.line("drops_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
-            runCatching { missing?.flush() }.onFailure {
+            runCatching { missing?.flush(answer) }.onFailure {
                 log(Telemetry.line("missing_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
+            outcomes += listOfNotNull(records, beats, drops, missing).map { it.lastContract }
             rounds++
             val keepGoing = flushed != null && flushed.responded && flushed.removed > 0 &&
                 rounds < maxRounds && recordsOutbox.hasMoreThan(MAX_BATCH)
             if (!keepGoing) break
         }
         if (rounds > 1) log(Telemetry.line("drained", source = null, count = rounds))
-        runCatching { afterRecords() }.onFailure {
+        val guard = contract
+        if (guard != null && answer != null) {
+            settleContract(guard, answer, outcomes)
+            // 再起動の直後は理由がメモリに無い。読める答えを 1 度得るまでは、通知を消すことも画面を消すこともしない
+            // （待っている理由が立てば出す。404 が続く S-01 で再起動の後に知らせが止まらないように。final review R3）
+            if (guard.gate.decided) {
+                runCatching { onContract(guard.gate.reasons) }.onFailure {
+                    log(Telemetry.line("contract_notice_crashed", source = null, error = it.javaClass.simpleName))
+                }
+            }
+        }
+        runCatching { afterRecords(answer) }.onFailure {
             log(Telemetry.line("originals_kick_crashed", source = null, error = it.javaClass.simpleName))
         }
         return rounds
+    }
+
+    /** 契機の結果を状態へ取り込む。**待っている状態を抜けたら、断られて飛ばす印を捨てる**（D14）。 */
+    private fun settleContract(guard: ContractGuard, answer: ContractAnswer, outcomes: List<ContractOutcome>) {
+        val withOriginals = if (answer is ContractAnswer.Version) {
+            outcomes + ContractOutcome(ahead = originalsAhead(answer.version))
+        } else {
+            outcomes
+        }
+        val left = runCatching { guard.settle(answer, withOriginals) }.onFailure {
+            log(Telemetry.line("contract_settle_crashed", source = null, error = it.javaClass.simpleName))
+        }.getOrDefault(false)
+        if (left) {
+            records.clearSkipped()
+            beats.clearSkipped()
+            drops.clearSkipped()
+            missing?.clearSkipped()
+        }
     }
 }

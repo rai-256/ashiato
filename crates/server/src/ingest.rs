@@ -59,6 +59,9 @@ pub struct IngestRequest {
     /// 内容の鍵・原文・解析済みの内容には入れない。
     #[serde(default)]
     pub client_version: Option<String>,
+    /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<i64>,
 }
 
 /// 登録簿が宣言する「外部識別子の粒度」（深掘り Q13 / Q18。`core.source.external_id_kind`）。
@@ -305,6 +308,7 @@ mod tests {
 
     fn req(id: uuid::Uuid, raw: &str) -> IngestRequest {
         IngestRequest {
+            contract_version: None,
             id,
             user_id: uuid::Uuid::nil(),
             logical_source: "test".into(),

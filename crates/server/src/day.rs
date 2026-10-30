@@ -13,7 +13,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::day_records::{self, Kind, Norm, Origin};
-use crate::stay_store::{self, day_bounds, jst_date, CriteriaTag, DayEntry, EntryKind};
+use crate::stay_store::{
+    self, day_bounds, jst_date, CriteriaTag, DayEntry, EntryKind, NestedEntry,
+};
 
 /// 要約に出すアプリ・ドメインの数（deep.md Q1。本人の決定）。
 pub const SUMMARY_TOP: usize = 3;
@@ -119,6 +121,9 @@ pub struct DayRow {
     /// 後から届いて本文を消した件数（本文ごと消した区間だけ）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub late_purged: Option<u32>,
+    /// 本文ごと消した区間にすっぽり入る消した滞在（本文ごと消した区間だけ。CH08 / design D6）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested: Option<Vec<NestedEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
     /// 「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。
@@ -708,6 +713,7 @@ pub async fn day(
             purged: e.purged,
             purge_stay_id: e.purge_stay_id,
             late_purged: e.late_purged,
+            nested: e.nested,
         });
     }
     for (s, e) in others {
@@ -723,6 +729,7 @@ pub async fn day(
                 purged: false,
                 purge_stay_id: None,
                 late_purged: None,
+                nested: None,
                 summary: Some(summarize(&norms, &segs, s, e)),
                 reasons: Vec::new(),
             });

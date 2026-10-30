@@ -1,0 +1,9 @@
+{
+  "contract_path": "/contract",
+  "contract_answer_key": "contract_version",
+  "header_name": "Ashiato-Contract-Version",
+  "unsupported_status": 426,
+  "unsupported_body_error_key": "error",
+  "unsupported_body_error_value": "contract_unsupported",
+  "unsupported_body_version_key": "contract_version"
+}
