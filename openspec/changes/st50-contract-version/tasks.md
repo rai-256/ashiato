@@ -119,7 +119,7 @@
 
 ## Task 6: 書き出しの列
 
-- [ ] 6.1 `export.rs` の `EVENT_COLUMNS` と `EVENT_VERSION_COLUMNS` に `("contract_version", "収集アプリが記録を積んだ時の送信契約の版（スキーマ版とは別の番号。収集アプリ以外が書いた記録は空）")` を `schema_version` の次に足す（D20）。
+- [x] 6.1 `export.rs` の `EVENT_COLUMNS` と `EVENT_VERSION_COLUMNS` に `("contract_version", "収集アプリが記録を積んだ時の送信契約の版（スキーマ版とは別の番号。収集アプリ以外が書いた記録は空）")` を `schema_version` の次に足す（D20）。
   `export_contract_version_tests.rs`:
   - `st50_export_contract_version` — `// Scenario: 書き出しの記録と前の版の行は契約の版を持つ`
   - `st50_export_manual_describes` — `// Scenario: 説明書は契約の版の列を説明する`
