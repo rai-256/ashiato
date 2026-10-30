@@ -19,7 +19,7 @@ import org.junit.Test
  */
 class HeartbeatContractTest {
     /** 積んだ時の契約の版（ST50）は全要求に付く欄で、`tools/check-contract-version.sh` が見る。この一覧は欄の名前の突き合わせ（check-openapi.sh）用 */
-    private val CONTRACT_VERSION_FIELD = "contract_version"
+    private val contractVersionField = "contract_version"
 
     // CONTRACT-FIELDS-BEGIN（tools/check-openapi.sh が docs/openapi.json と突き合わせる）
     private val contractFields = listOf(
@@ -51,7 +51,7 @@ class HeartbeatContractTest {
             raw = """{"alive":true}""",
         )
         val keys = (Json.parseToJsonElement(ingestJson.encodeToString(request)) as JsonObject).keys
-        assertEquals(contractFields.sorted(), (keys - CONTRACT_VERSION_FIELD).sorted())
+        assertEquals(contractFields.sorted(), (keys - contractVersionField).sorted())
     }
 
     /** **`explicitNulls = true`** なので、省いた欄も鍵としては出る（契約どおり）。 */
@@ -68,6 +68,6 @@ class HeartbeatContractTest {
             raw = "{}",
         )
         val keys = (Json.parseToJsonElement(ingestJson.encodeToString(request)) as JsonObject).keys
-        assertEquals(contractFields.sorted(), (keys - CONTRACT_VERSION_FIELD).sorted())
+        assertEquals(contractFields.sorted(), (keys - contractVersionField).sorted())
     }
 }

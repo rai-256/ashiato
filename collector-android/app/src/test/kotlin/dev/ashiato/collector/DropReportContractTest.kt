@@ -36,8 +36,10 @@ class DropReportContractTest {
     /** 版を持つ下書き（ST49）。版の無い下書きの報告は `client_version` を欄ごと送らない（`St49DropDraftTest` が見る） */
     private val version = "0.1.0+0123456789abcdef0123456789abcdef01234567.debug"
 
-    private fun keys(r: DropReport) =
-        (Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject).keys - contractVersionField
+    private fun keys(r: DropReport): Set<String> {
+        val json = Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject
+        return json.keys - contractVersionField
+    }
 
     @Test
     fun `直列化した破棄の報告の欄名が契約と一致する`() {

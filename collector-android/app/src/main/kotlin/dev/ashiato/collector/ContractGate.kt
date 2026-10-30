@@ -8,6 +8,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * `GET /contract` の答え（ST50 / design D9・D11・D18（仮））。送る契機の頭で 1 回引き、その契機の 5 つの送り手に同じ答えを渡す。
@@ -121,18 +122,12 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
 
     val waiting: Boolean get() = reasons.waiting
 
-    /** 原本の送り手が 426 で断られた（非同期。次の契機の頭で消える） */
-    @Volatile
-    private var originalsRefused = false
-
-    /** 契機の頭。前の契機に原本の送り手が付けた 426 を捨てる。 */
-    fun beginRound() {
-        originalsRefused = false
-    }
+    /** 原本の送り手が 426 で断られた（非同期。読める答えの契機の [observe] が読んで消す） */
+    private val originalsRefused = AtomicBoolean(false)
 
     /** 原本の送り手が 426 で断られた。 */
     fun noteOriginalsRefused() {
-        originalsRefused = true
+        originalsRefused.set(true)
     }
 
     /**
@@ -149,7 +144,7 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
                 val posted = outcomes.any { it.posted }
                 reasons = ContractReasons(
                     ahead = outcomes.any { it.ahead },
-                    refused = (posted && outcomes.any { it.refused }) || originalsRefused,
+                    refused = (posted && outcomes.any { it.refused }) || originalsRefused.getAndSet(false),
                     rejected = posted && outcomes.any { it.rejectedByVersion },
                 )
             }
@@ -187,7 +182,6 @@ class ContractGuard(
 ) {
     /** 契機の頭で 1 回引く。 */
     fun ask(): ContractAnswer {
-        gate.beginRound()
         return readContractAnswer(probe())
     }
 

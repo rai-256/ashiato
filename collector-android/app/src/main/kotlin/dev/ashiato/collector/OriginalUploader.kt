@@ -132,9 +132,9 @@ class OriginalUploader(
             val limit = when (answer) {
                 null -> Int.MAX_VALUE
                 is ContractAnswer.Version -> answer.version
-                else -> return 0
+                else -> null
             }
-            return if (mayOpenFiles()) pass(limit) else 0
+            return if (limit != null && mayOpenFiles()) pass(limit) else 0
         } finally {
             running.set(false)
         }

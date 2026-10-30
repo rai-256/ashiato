@@ -3,15 +3,12 @@ package dev.ashiato.collector
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
-import java.time.Instant
-import java.time.ZoneId
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,6 +18,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 携帯の収集アプリが、S-01 の受け付ける版の行だけを見出し付きで送り、新しい版の行と 426 で断られた行を残す（ST50 / D1・D9・D14・D17・D18）。
@@ -180,17 +180,30 @@ class St50SenderTest {
     private inner class FiveSenders {
         val h = OriginalHarness(st)
         val posts = mutableMapOf<String, FakeTransport>()
-        val beatOutbox = Outbox(SegmentStore(File(tmp.newFolder("beats"), "s"), HeartbeatRequest.serializer(), st.unreadable, st.log), st.age::now)
-        val dropOutbox = Outbox(SegmentStore(File(tmp.newFolder("drops"), "s"), DropReport.serializer(), st.unreadable, st.log), st.age::now)
+        val beatOutbox = Outbox(
+            SegmentStore(File(tmp.newFolder("beats"), "s"), HeartbeatRequest.serializer(), st.unreadable, st.log),
+            st.age::now
+        )
+        val dropOutbox = Outbox(
+            SegmentStore(File(tmp.newFolder("drops"), "s"), DropReport.serializer(), st.unreadable, st.log),
+            st.age::now
+        )
 
         init {
             h.photo(1, "photo-one")
             h.scan()
             h.acceptRecords() // 原本の送り待ちが ready になる
             st.records.add(req("rec"))
-            beatOutbox.add(HeartbeatRequest("hb", "user-1", LOGICAL_SOURCE, "device-1", "2026-09-08T00:00:00Z", true, emptyList(), 1, 1, "{}"))
+            beatOutbox.add(
+                HeartbeatRequest(
+                    "hb", "user-1", LOGICAL_SOURCE, "device-1", "2026-09-08T00:00:00Z", true, emptyList(), 1, 1, "{}",
+                )
+            )
             dropOutbox.add(
-                DropReport("dr", "user-1", LOGICAL_SOURCE, "device-1", "age", "2026-09-08T00:00:00Z", null, null, 1, emptyList(), "{}"),
+                DropReport(
+                    "dr", "user-1", LOGICAL_SOURCE, "device-1", "age", "2026-09-08T00:00:00Z",
+                    null, null, 1, emptyList(), "{}",
+                ),
             )
             h.reporter.report(h.env.originals.all().single(), OriginalMissingReason.VANISHED)
         }
@@ -199,16 +212,29 @@ class St50SenderTest {
 
         /** 5 つ全部に同じ答えを渡して 1 回ずつ送らせる。 */
         fun flushAll(answer: ContractAnswer) {
-            Sender(st.records, transport("ingest"), IngestRequest.serializer(), dropPermanentlyRejected = true).flush(answer)
+            Sender(
+                st.records,
+                transport("ingest"),
+                IngestRequest.serializer(),
+                dropPermanentlyRejected = true
+            ).flush(answer)
             Sender(beatOutbox, transport("heartbeat"), HeartbeatRequest.serializer()).flush(answer)
             Sender(dropOutbox, transport("drops"), DropReport.serializer()).flush(answer)
             Sender(h.missing, transport("media_missing"), MediaMissingReport.serializer()).flush(answer)
             h.uploader.run(answer)
         }
 
-        fun sentAnything(): Boolean = posts.values.any { it.posts.isNotEmpty() } || h.transport.heads.isNotEmpty() || h.transport.puts.isNotEmpty()
+        fun sentAnything(): Boolean = posts.values.any {
+            it.posts.isNotEmpty()
+        } || h.transport.heads.isNotEmpty() || h.transport.puts.isNotEmpty()
 
-        fun unsentCounts() = listOf(st.records.size(), beatOutbox.size(), dropOutbox.size(), h.missing.size(), h.env.originals.ready().size)
+        fun unsentCounts() = listOf(
+            st.records.size(),
+            beatOutbox.size(),
+            dropOutbox.size(),
+            h.missing.size(),
+            h.env.originals.ready().size
+        )
     }
 
     // Scenario: 問い合わせの口が無い S-01 には何も送らない
@@ -227,7 +253,14 @@ class St50SenderTest {
     // Scenario: 読めない答えの S-01 には何も送らない
     @Test
     fun `200 で版を整数で持たない本文なら 5 つの送り手のどれも送らない`() {
-        listOf("<html>login</html>", "{}", """{"contract_version":"1"}""", """{"contract_version":0}""", """{"contract_version":1.5}""", "[]")
+        listOf(
+            "<html>login</html>",
+            "{}",
+            """{"contract_version":"1"}""",
+            """{"contract_version":0}""",
+            """{"contract_version":1.5}""",
+            "[]"
+        )
             .forEach { body ->
                 val answer = readContractAnswer(Outcome.Responded(200, body))
                 assertEquals(body, ContractAnswer.Unreadable, answer)
@@ -253,6 +286,9 @@ class St50SenderTest {
         val five = FiveSenders()
         val before = five.unsentCounts()
         val gate = ContractGate(ContractWaitStore(prefs()))
+        // 200 の読めない答えで数え始めを立ててから、一時的な失敗を挟む
+        val since = Instant.parse("2026-10-30T00:00:00Z")
+        gate.observe(ContractAnswer.Unreadable, since, emptyList())
 
         answers.forEach { answer ->
             five.flushAll(answer)
@@ -262,8 +298,8 @@ class St50SenderTest {
         assertFalse(five.sentAnything())
         assertEquals(before, five.unsentCounts())
         assertFalse(gate.waiting)
-        // 200 の読めない答えが挟まっていた数え始めも、一時的な失敗では捨てない
-        assertNull(ContractWaitStore(prefs()).unreadableSinceMs)
+        // 数え始めも、一時的な失敗では捨てない
+        assertEquals(since.toEpochMilli(), ContractWaitStore(prefs()).unreadableSinceMs)
     }
 
     // Scenario: 426 で断られた要求の行は 1 件も取り除かれない
@@ -271,7 +307,12 @@ class St50SenderTest {
     fun `426 で断られた要求の行は 1 件も取り除かれず、次の契機で確かめ直す`() {
         val v = versioned()
         listOf("a", "b", "c").forEach { v.outbox.add(req(it)) }
-        val refuse = FakeTransport { Outcome.Responded(426, """{"error":"contract_unsupported","contract_version":1}""") }
+        val refuse = FakeTransport {
+            Outcome.Responded(
+                426,
+                """{"error":"contract_unsupported","contract_version":1}"""
+            )
+        }
         val s = sender(v.outbox, refuse)
 
         val flushed = s.flush(ContractAnswer.Version(2))
@@ -298,7 +339,10 @@ class St50SenderTest {
         assertEquals(listOf("a", "b"), v.outbox.snapshot().map { it.id })
         assertEquals(1, flushed.removed)
         assertTrue(s.lastContract.rejectedByVersion)
-        assertFalse("PERMANENT_ERRORS を変えない", "unknown_field" in Sender.PERMANENT_ERRORS || "contract_unsupported" in Sender.PERMANENT_ERRORS)
+        assertFalse(
+            "PERMANENT_ERRORS を変えない",
+            "unknown_field" in Sender.PERMANENT_ERRORS || "contract_unsupported" in Sender.PERMANENT_ERRORS
+        )
     }
 
     // Scenario: 契約の版で残した記録も 90 日を超えると捨てられ、破棄として報告される
@@ -354,7 +398,11 @@ class St50SenderTest {
         v.outbox.add(req("y"))
         var verdict: (List<String>) -> Outcome = { ids ->
             // x だけ unknown_field で断る
-            val results = ids.joinToString(",", "[", "]") { if (it == "x") """{"accepted":false,"error":"unknown_field"}""" else """{"accepted":true}""" }
+            val results = ids.joinToString(
+                ",",
+                "[",
+                "]"
+            ) { if (it == "x") """{"accepted":false,"error":"unknown_field"}""" else """{"accepted":true}""" }
             Outcome.Responded(200, results)
         }
         val transport = FakeTransport { verdict(it) }
@@ -489,10 +537,34 @@ class St50SenderTest {
         assertTrue(restarted.waiting)
         assertTrue(restarted.reasons.onlyUnreadable)
 
-        val left = restarted.observe(ContractAnswer.Version(1), t0.plusSeconds(25 * 3600), listOf(ContractOutcome(posted = true)))
+        val left = restarted.observe(
+            ContractAnswer.Version(1),
+            t0.plusSeconds(25 * 3600),
+            listOf(ContractOutcome(posted = true))
+        )
         assertTrue("読める答えで抜ける", left)
         assertNull(ContractWaitStore(prefs()).unreadableSinceMs)
         assertFalse(restarted.waiting)
+    }
+
+    // Scenario: 426 で断られた要求の行は 1 件も取り除かれない
+    @Test
+    fun `原本の送り手だけが 426 を受けた契機の次の契機でも、更新を待つ理由の c が立つ`() {
+        val gate = ContractGate(ContractWaitStore(prefs()))
+        val guard = ContractGuard({ Outcome.Responded(200, """{"contract_version":1}""") }, gate)
+        val at = Instant.parse("2026-10-30T00:00:00Z")
+
+        // 契機 1 の終わりに、原本の糸（非同期）が 426 を受けて印を付ける
+        guard.settle(guard.ask(), listOf(ContractOutcome(posted = true)))
+        gate.noteOriginalsRefused()
+        // 契機 2 の頭の確かめ（印を消してはならない）と終わりの取り込み
+        guard.settle(guard.ask(), emptyList())
+
+        assertTrue(gate.reasons.refused)
+        // 印は 1 度読んだら消える（次の読める答えの契機では立たない）
+        guard.settle(guard.ask(), emptyList())
+        assertFalse(gate.waiting)
+        assertFalse(gate.observe(ContractAnswer.Transient, at, emptyList()))
     }
 
     @Test

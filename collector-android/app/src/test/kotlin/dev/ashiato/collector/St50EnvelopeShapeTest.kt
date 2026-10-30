@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -15,6 +14,7 @@ import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * 収集アプリが**実際に直列化する**封筒の欄を書き出す（ST50 / design D7・D21）。
@@ -57,13 +57,23 @@ class St50EnvelopeShapeTest {
 
     private fun androidEnvelope(): JsonObject {
         val ingestFull = IngestRequest(
-            id = "i", userId = "u", logicalSource = LOGICAL_SOURCE, externalId = "e", deviceId = "d", origin = "collected",
-            eventTime = full, tzOffsetMin = 540, tzId = "Asia/Tokyo", schemaVersion = 1, unitSystem = "si", crs = "EPSG:4326",
+            id = "i", userId = "u", logicalSource = LOGICAL_SOURCE, externalId = "e", deviceId = "d",
+            origin = "collected",
+            eventTime = full, tzOffsetMin = 540, tzId = "Asia/Tokyo", schemaVersion = 1, unitSystem = "si",
+            crs = "EPSG:4326",
             sourceUpdatedAt = full, externalRef = "r", raw = "{}", payload = buildJsonObject { put("k", 1) },
         )
-        val ingestEmpty = ingestFull.copy(externalId = null, deviceId = null, unitSystem = null, crs = null, sourceUpdatedAt = null, externalRef = null)
+        val ingestEmpty = ingestFull.copy(
+            externalId = null,
+            deviceId = null,
+            unitSystem = null,
+            crs = null,
+            sourceUpdatedAt = null,
+            externalRef = null
+        )
         val beatFull = HeartbeatRequest(
-            id = "i", userId = "u", logicalSource = LOGICAL_SOURCE, deviceId = "d", emittedAt = full, capturable = false,
+            id = "i", userId = "u", logicalSource = LOGICAL_SOURCE, deviceId = "d", emittedAt = full,
+            capturable = false,
             blockers = listOf("permission"), attempts = 1, successes = 0, raw = "{}", network = true,
         )
         val beatEmpty = beatFull.copy(deviceId = null, network = null)
@@ -73,7 +83,13 @@ class St50EnvelopeShapeTest {
         )
         val dropEmpty = dropFull.copy(rangeStart = null, rangeEnd = null, hourly = emptyList())
         val missing = MediaMissingReport(
-            id = "i", userId = "u", deviceId = "d", logicalSource = LOGICAL_SOURCE, sha256 = "s", reason = "changed", noticedAt = full,
+            id = "i",
+            userId = "u",
+            deviceId = "d",
+            logicalSource = LOGICAL_SOURCE,
+            sha256 = "s",
+            reason = "changed",
+            noticedAt = full,
         )
         return buildJsonObject {
             put("ingest", shape(IngestRequest.serializer(), ingestFull, ingestEmpty))
@@ -130,6 +146,9 @@ class St50EnvelopeShapeTest {
         val ingest = androidEnvelope()["ingest"] as JsonObject
         assertEquals("""{"required":true,"type":["null","string"]}""", ingest["crs"].toString().replace(" ", ""))
         assertEquals("""{"required":true,"type":["string"]}""", ingest["raw"].toString().replace(" ", ""))
-        assertEquals("""{"required":false,"type":["boolean"]}""", (androidEnvelope()["heartbeat"] as JsonObject)["network"].toString().replace(" ", ""))
+        assertEquals(
+            """{"required":false,"type":["boolean"]}""",
+            (androidEnvelope()["heartbeat"] as JsonObject)["network"].toString().replace(" ", "")
+        )
     }
 }
