@@ -19,7 +19,6 @@ const test = base.extend({
   },
 });
 
-
 const USER = "00000000-0000-0000-0000-000000000000";
 const FIRST_DAY = "2020-01-01";
 const MINUTE_MS = 60_000;
@@ -30,13 +29,6 @@ const TAG = Math.random().toString(36).slice(2, 8);
 
 interface Entry {
   kind: string;
-  start: string;
-  end: string;
-  id?: string;
-  stay_ids?: string[];
-  purged?: boolean;
-  purge_stay_id?: string;
-  late_purged?: number;
 }
 
 async function entriesOf(request: APIRequestContext, date: string): Promise<Entry[]> {
@@ -98,13 +90,10 @@ async function ingest(request: APIRequestContext, items: unknown[]): Promise<voi
   ).toEqual([]);
 }
 
-
-
 async function erase(request: APIRequestContext, stayId: string): Promise<void> {
   const res = await request.post("/api/stays/erase", { data: { stay_id: stayId } });
   expect(res.ok(), "POST /stays/erase").toBe(true);
 }
-
 
 /** 時間を決めた滞在を直に足す（派生の滞在。位置は送らない。隣り合う・重なる滞在は位置からは作れないので）。 */
 async function ingestStay(request: APIRequestContext, date: string, fromMinute: number, toMinute: number): Promise<string> {
@@ -129,7 +118,6 @@ async function ingestStay(request: APIRequestContext, date: string, fromMinute: 
   return id;
 }
 
-
 interface Preview {
   counts: { stays: number; locations: number; archive_locations: number; archive_items: number; versions: number };
   copies: number;
@@ -149,7 +137,6 @@ async function purgeByApi(request: APIRequestContext, stayId: string): Promise<v
   expect(res.ok(), "POST /stays/purge").toBe(true);
 }
 
-
 async function openDay(page: Page, date: string): Promise<void> {
   await page.goto(`/#/day/${date}`);
   await page.reload();
@@ -157,9 +144,6 @@ async function openDay(page: Page, date: string): Promise<void> {
   await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
   await expect(page.getByTestId("day-error")).toHaveCount(0);
 }
-
-
-
 
 /**
  * 本文ごと消した時間の下の入れ子の行・入れ子の行の口・戻す口の断り・後からの件数・確認の一文（CH08 Task 6 / design D8）を、

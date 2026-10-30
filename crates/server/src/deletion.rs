@@ -672,7 +672,9 @@ pub async fn purge_scope(
     .bind(end)
     .fetch_one(&mut **tx)
     .await?;
-    scope.visible_overlaps = visible as u32;
+    // 数えた件数は負にならず u32 に収まる。収まらなければ黙って丸めず、読めない値として断る
+    scope.visible_overlaps = u32::try_from(visible)
+        .map_err(|e| PurgeError::Database(sqlx::Error::Decode(Box::new(e))))?;
     if scope.already_purged {
         return Ok(scope);
     }
@@ -1330,7 +1332,13 @@ pub(crate) async fn purge_hidden_overlap(
 }
 
 /// 起動時の手当ての対象を引く文（CH08 design D5（仮）。時刻は比べない）。条件 1・3・4 を持つ。条件 2 と元の操作の選択は呼び出し側が時間で見る。
-const REMEDY_CANDIDATES_SQL: &str = "
+///
+/// 条件 2 の**粗い絞り**として、同じ利用者の本人の操作（`kind = 'user'`）の時間帯と重なりうる行だけを引く（起動のたびに
+/// 吸収された滞在のほぼ全部を読まないため）。絞りは呼び出し側の `stay_store::span_of` による比べの**上位集合**でなければならない
+/// （D5 の対象を変えない）: 終わりは `span_of` の読む `payload->>'end'` を、読めなければ上限なしとし、列 `end_time` と
+/// 始まり + 1 マイクロ秒のうち最も遅いものとする（`span_of` の終わりより早くならない）。
+fn remedy_candidates_sql() -> &'static str {
+    "
     SELECT e.id, e.user_id, e.event_time, e.payload, e.deleted_by
       FROM core.event e
      WHERE e.logical_source = 's01-stay' AND e.origin = 'derived'
@@ -1338,8 +1346,17 @@ const REMEDY_CANDIDATES_SQL: &str = "
        AND e.raw <> ''
        AND e.ingest_time <> e.deleted_at
        AND NOT EXISTS (SELECT 1 FROM core.deletion_ledger d WHERE d.event_id = e.id)
+       AND EXISTS (
+             SELECT 1 FROM core.erasure_operation op
+              WHERE op.user_id = e.user_id AND op.kind = 'user'
+                AND e.event_time < op.end_at
+                AND op.start_at < GREATEST(
+                      e.event_time + interval '1 microsecond',
+                      e.end_time,
+                      coalesce(core.try_timestamptz(e.payload->>'end'), 'infinity'::timestamptz)))
        AND ($1::uuid IS NULL OR e.user_id = $1)
-     ORDER BY e.user_id, e.event_time, e.id";
+     ORDER BY e.user_id, e.event_time, e.id"
+}
 
 type RemedyCandidate = (
     uuid::Uuid,
@@ -1377,7 +1394,8 @@ async fn purge_hidden_overlap_remedy_using(
 ) -> usize {
     // 利用者ごとの候補の件数は錠の前に持っておく（錠や SELECT で落ちても、残った件数を 0 にしない）
     let users: sqlx::Result<Vec<(uuid::Uuid, i64)>> = sqlx::query_as(&format!(
-        "SELECT user_id, count(*) FROM ({REMEDY_CANDIDATES_SQL}) c GROUP BY user_id ORDER BY user_id"
+        "SELECT user_id, count(*) FROM ({}) c GROUP BY user_id ORDER BY user_id",
+        remedy_candidates_sql()
     ))
     .bind(only_user)
     .fetch_all(pool)
@@ -1445,7 +1463,7 @@ async fn remedy_user(
             .execute(&mut *tx)
             .await?;
         // 錠を取ってから引き直す（待っている間に作り直しや別の手当てが進んでいても、いまの状態で決める）
-        let candidates: Vec<RemedyCandidate> = sqlx::query_as(REMEDY_CANDIDATES_SQL)
+        let candidates: Vec<RemedyCandidate> = sqlx::query_as(remedy_candidates_sql())
             .bind(Some(user))
             .fetch_all(&mut *tx)
             .await?;

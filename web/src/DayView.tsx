@@ -375,11 +375,10 @@ function Row({
   // **種類は文字で区別し、しるし（線の輪の中に記号）は添えるだけ**（design D8 / 本人の決定 2026-10-12）。
   // 移動のしるしだけ差し色（本人の決定）。どのしるしも面の 3 段すべてに 3:1 以上（NFR-23）
   const mark = <span data-mark={entry.kind} aria-hidden="true" style={markStyle(entry.kind === "move" ? c.spark : c.muted)}>{m.mark[entry.kind]}</span>;
-  const base = ROW_BASE;
   const entryKey = entry.id ?? entry.stay_ids?.join(",") ?? "";
   if (entry.kind === "stay") {
     return (
-      <li data-testid="row-stay" data-kind="stay" style={{ ...base, alignItems: "flex-start", gap: SPACE.inRow, background: tone(c.surface1), border: `1px solid ${tone(c.line)}` }}>
+      <li data-testid="row-stay" data-kind="stay" style={{ ...ROW_BASE, alignItems: "flex-start", gap: SPACE.inRow, background: tone(c.surface1), border: `1px solid ${tone(c.line)}` }}>
         {mark}
         <div style={{ flex: 1, minWidth: 0 }}>
         <button
@@ -405,7 +404,7 @@ function Row({
     // 本文ごと消した行。戻す操作も本文ごと消す操作も置かない（design D12）
     return (
       <>
-        <li data-testid="row-purged" data-kind="erased" data-purged="true" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
+        <li data-testid="row-purged" data-kind="erased" data-purged="true" style={{ ...ROW_BASE, flexWrap: "wrap", color: tone(c.muted) }}>
           {mark}
           <span>{m.purged(range)}</span>
           {(entry.late_purged ?? 0) > 0 && <span data-testid="purged-late">{m.purgedLate(entry.late_purged ?? 0)}</span>}
@@ -419,7 +418,7 @@ function Row({
   if (entry.kind === "erased") {
     const purgeStay = entry.stay_ids?.[0];
     return (
-      <li data-testid="row-erased" data-kind="erased" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
+      <li data-testid="row-erased" data-kind="erased" style={{ ...ROW_BASE, flexWrap: "wrap", color: tone(c.muted) }}>
         {mark}
         <span>{m.erased(range)}</span>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={control(c)}>
@@ -431,7 +430,7 @@ function Row({
     );
   }
   return (
-    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, alignItems: "flex-start", color: tone(c.muted) }}>
+    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...ROW_BASE, alignItems: "flex-start", color: tone(c.muted) }}>
       {mark}
       <div style={{ flex: 1, minWidth: 0 }}>
         <button

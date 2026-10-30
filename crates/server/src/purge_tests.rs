@@ -1972,8 +1972,10 @@ fn purge_range_reader_allowlist() {
     collect(&root, &root, &mut found);
 
     let allowed: BTreeSet<String> = [
-        // 戻した滞在が一覧に残るかを見る前の、本文ごと消した時間帯との重なり（`core.stay_erased_purge` と同じ終わりの読み方）
+        // 確認の口の「一覧に出ている重なる滞在」の数え（CH08 design D7 / tasks 4.1。`core.stay_erased_purge` と同じ終わりの読み方）
         "deletion.rs:purge_scope",
+        // 起動時の手当ての対象の粗い絞り（本人の操作の時間帯と重なりうる行。最後は `span_of` で比べる。消した時間帯の読みではない）
+        "deletion.rs:remedy_candidates_sql",
         // 生きた滞在の粗い絞り（消した時間帯の読みではない）
         "stay_store.rs:load_existing",
         "stay_store.rs:day_view",

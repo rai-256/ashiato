@@ -273,3 +273,45 @@ async fn purge_nested_unpurged_neighbours_are_merged_and_purged_ones_are_not() {
     assert!(!nested[0].purged);
     assert!(nested[1].purged && nested[2].purged);
 }
+
+// 範囲の行が無い本文を消した滞在（ST23 D14。その日全体として読む窓）は入れ子の親にならない（design D10（仮））。
+// 窓は ST23 のとおり自分の区間として並び、ほかの本文ごと消した区間とその入れ子の項目を取り込まない。
+#[tokio::test]
+async fn purge_nested_day_window_without_a_range_row_is_not_a_parent() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let b = stay(&pool, user, "10:15", "10:45").await;
+    scene_erase(&pool, b).await;
+    let a = stay(&pool, user, "10:00", "11:00").await;
+    purge(&pool, a).await;
+    let window = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload, deleted_at, deleted_by)
+         VALUES ($1, $2, 's01-stay', $1::text, 'derived', $3, 540, 'Asia/Tokyo', 1, $1::text,
+                 '', '{}'::jsonb, now(), 'user')",
+    )
+    .bind(window)
+    .bind(user)
+    .bind(t("15:00"))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = erased(&pool, user).await;
+
+    let ids: Vec<_> = rows.iter().map(|r| r.purge_stay_id).collect();
+    assert_eq!(ids, vec![Some(window), Some(a)], "{rows:?}");
+    assert_eq!(
+        (rows[0].start, rows[0].end),
+        (t("00:00"), at("2026-10-02T00:00:00+09:00"))
+    );
+    assert!(rows[0].nested.is_none(), "窓が入れ子を持った: {rows:?}");
+    assert_eq!(rows[0].late_purged, Some(0));
+    assert_eq!((rows[1].start, rows[1].end), (t("10:00"), t("11:00")));
+    let nested = rows[1].nested.as_ref().expect("入れ子の項目が無い");
+    assert_eq!(nested.len(), 1);
+    assert_eq!(nested[0].stay_ids, vec![b]);
+    assert!(!nested[0].purged);
+}

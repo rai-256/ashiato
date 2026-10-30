@@ -128,6 +128,39 @@ async fn purge_remedy_empties_the_overlapping_stay_hidden_after_the_purge() {
     assert_eq!(span, 1, "滞在の時間の範囲の行が無い");
 }
 
+// Scenario: 起動すると本文ごと消した後に隠れて本文が残った重なる滞在の本文が消える
+// `run()` が呼ぶ口そのもの（利用者で絞らない・サーバと同じ役割の接続）で、利用者ごとに消えることを見る。
+// 利用者で絞らない手当ては並走する試験の行も消すので、共有の DB でなく使い捨ての DB で走らせる。
+#[tokio::test]
+async fn purge_remedy_startup_path_empties_every_users_overlapping_stay() {
+    let db = testdb::isolated_with_app().await;
+    let (owner, app) = (db.owner.clone(), db.app.clone());
+    let users = [testdb::user(), testdb::user()];
+    let mut hidden = Vec::new();
+    for user in users {
+        purged(&owner, user).await;
+        hidden.push(absorbed_overlap(&owner, user).await);
+    }
+    // 本文ごと消した時間帯と重ならない、隠れた滞在（粗い絞りで外れ、本文が残る）
+    let apart = stay(&owner, users[0], "15:00", "15:30").await;
+    scene_mark_rebuild(&owner, apart, "rebuild:absorbed").await;
+
+    assert_eq!(
+        deletion::purge_hidden_overlap_remedy(&app).await,
+        0,
+        "残った件数"
+    );
+
+    for l in hidden {
+        assert!(emptied(&owner, l).await, "{l} の本文が空でない");
+    }
+    assert!(
+        kept(&owner, apart).await,
+        "重ならない隠れた滞在の本文が消えた"
+    );
+    assert_eq!(deletion::purge_hidden_overlap_remedy(&app).await, 0);
+}
+
 // Scenario: 起動を繰り返しても台帳の行は増えない
 #[tokio::test]
 async fn purge_remedy_repeated_startups_add_no_ledger_rows() {
@@ -245,6 +278,17 @@ async fn purge_remedy_log_carries_only_the_count() {
         DAY.to_string(),
         "35.68".into(),
         "139.76".into(),
+        // 時刻（日本時間と UTC。滞在・前の版・本文ごと消した時間帯の端）
+        "10:00".into(),
+        "10:20".into(),
+        "10:30".into(),
+        "11:00".into(),
+        "11:30".into(),
+        "01:00".into(),
+        "01:20".into(),
+        "01:30".into(),
+        "02:00".into(),
+        "02:30".into(),
     ] {
         assert!(!log.contains(&secret), "{secret} がログに出た: {log}");
     }

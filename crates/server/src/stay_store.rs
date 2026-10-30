@@ -663,8 +663,8 @@ pub async fn rebuild_day(
     rebuild_day_using(pool, user, day, "event").await
 }
 
-/// 作り直しが隠した重なる滞在の消去の台帳（最後の書き込みの手前）の CHECK 違反を起こし、
-/// 本文が空になった後でも作り直しごと rollback されることを試す口。
+/// 作り直しが隠した重なる滞在の、記録ごとの消去の台帳（`purge_hidden_overlap` の手順 2。本文を消す手順 4 より前）の
+/// CHECK 違反を起こし、操作の行（手順 1）と作り直しの書き込みを済ませた後でも作り直しごと rollback されることを試す口。
 #[cfg(test)]
 pub(crate) async fn rebuild_day_with_ledger_scope(
     pool: &PgPool,
@@ -749,9 +749,12 @@ pub(crate) async fn rebuild_day_in(
     }
     for (j, parent) in hidden {
         let (l, p) = (&existing[j], &existing[parent]);
-        let Some(parent_id) = p.operation_id else {
-            continue;
-        };
+        // `take_hidden_overlaps` は操作の識別子を持つ窓だけを選ぶ。崩れていたら黙って飛ばさず、作り直しごと巻き戻す
+        let parent_id = p.operation_id.ok_or_else(|| {
+            anyhow::anyhow!(
+                "作り直しが本文を消す滞在の元の操作が無い（take_hidden_overlaps の前提が崩れた）"
+            )
+        })?;
         crate::deletion::purge_hidden_overlap(
             tx,
             crate::deletion::HiddenOverlap {
@@ -1737,12 +1740,14 @@ pub async fn day_view(
     // 本文ごと消した滞在のうち、ほかの本文ごと消した区間の和に覆われるものは区間にせず入れ子にする（D6 の 2）。
     // 残っているほかの区間の和に覆われるものを、消した順の遅い方（`txid` の大きい方）から 1 つずつ外す。
     // 時間が同じなら後に消した方が入れ子になり、互いに覆い合っても親が 1 つ残る。
-    let mut kept: Vec<(&HiddenRow, DateTime<Utc>, DateTime<Utc>)> = hidden_rows
+    // **操作の識別子の無い窓**（範囲の行が無く、その日全体として読むもの。ST23 D14）は入れ子にも親にもせず、
+    // ST23 のとおり自分の区間として並べる（design D10（仮））。その日のほかの区間をすべて覆ってしまうため。
+    let (mut kept, windows): (Vec<_>, Vec<_>) = hidden_rows
         .iter()
         .filter(|r| r.purged)
         .map(|r| (r, r.start_at.max(d0), r.end_at.min(upper)))
         .filter(|(_, s, e)| s < e)
-        .collect();
+        .partition(|(r, _, _)| r.operation_id.is_some());
     kept.sort_by_key(|(r, _, _)| {
         (
             r.operation_id.and_then(|op| op_rank.get(&op).copied()),
@@ -1781,6 +1786,23 @@ pub async fn day_view(
             stay_ids: Vec::new(),
         });
     }
+    // 窓も「消した」の断片から差し引く（ST23 と同じ）。親の候補（`parents`）には入れない
+    let windows: Vec<DayEntry> = windows
+        .into_iter()
+        .map(|(row, start, end)| {
+            purged_spans.push(ErasedSpan {
+                start,
+                end,
+                stay_ids: Vec::new(),
+            });
+            DayEntry {
+                purged: true,
+                purge_stay_id: Some(row.id),
+                late_purged: Some(late_of(row)),
+                ..DayEntry::plain(EntryKind::Erased, start, end)
+            }
+        })
+        .collect();
     purged_spans.sort_by_key(|s| s.start);
     // 親は重なりの大きい区間 → 始まりの早い区間（D6 の 3）
     for (row, start, end) in nested_purged {
@@ -1893,6 +1915,7 @@ pub async fn day_view(
         nested.sort_by_key(|n| (n.start, n.end));
     }
     entries.extend(parents);
+    entries.extend(windows);
     fragments.sort_by_key(|f| f.start);
     let mut hidden: Vec<ErasedSpan> = Vec::new();
     for span in fragments {

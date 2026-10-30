@@ -136,12 +136,12 @@ async fn purge_hidden_absorbed_overlapping_stay_is_emptied() {
         .await
         .into_iter()
         .filter(|e| e.kind == EntryKind::Erased)
+        .map(|e| (e.start, e.end))
         .collect();
-    assert!(
-        erased
-            .iter()
-            .all(|e| (e.start, e.end) == (t("10:00"), t("11:00"))),
-        "10:30 – 11:30 の「消した」の区間がある: {erased:?}"
+    assert_eq!(
+        erased,
+        vec![(t("10:00"), t("11:00"))],
+        "本文ごと消した区間だけが並ばない（10:30 – 11:30 の「消した」の区間がある）"
     );
 }
 
