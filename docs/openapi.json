@@ -2417,7 +2417,7 @@
             "type": "integer",
             "format": "int32",
             "description": "S-01 が受け付ける一番新しい契約の版（その版以下を全部受け付ける）",
-            "minimum": 0
+            "minimum": 1
           }
         }
       },

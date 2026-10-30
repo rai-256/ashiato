@@ -368,6 +368,10 @@ async fn drop_one(
     })
 }
 
+/// 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。起動時に `router` が組ませる。
+pub(crate) static DROP_FIELDS: crate::contract_version::KnownFields =
+    crate::contract_version::KnownFields::of::<DropReportRequest>();
+
 /// 破棄の報告をまとめて受け取る（FR-9 / design D7）。
 ///
 /// 400 は「1 件も受け付けなかった」ことを意味する（`/ingest` / `/heartbeat` と同じ約束）。
@@ -390,7 +394,7 @@ pub async fn drops_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
-    let gate = crate::contract_version::ItemGate::new::<DropReportRequest>(&app, &caller);
+    let gate = crate::contract_version::ItemGate::new(&app, &caller, &DROP_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
         results.push(match gate.check(item) {

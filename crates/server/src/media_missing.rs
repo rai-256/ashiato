@@ -199,6 +199,10 @@ async fn missing_one(
     })
 }
 
+/// 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。起動時に `router` が組ませる。
+pub(crate) static MISSING_FIELDS: crate::contract_version::KnownFields =
+    crate::contract_version::KnownFields::of::<MediaMissingRequest>();
+
 /// 原本の欠けの報告をまとめて受け取る（design D11）。400 は「1 件も受け付けなかった」ことを意味する。
 #[utoipa::path(post, path = "/media/missing", request_body = Vec<MediaMissingRequest>,
     responses((status = 200, body = Vec<MediaMissingResult>), (status = 400, body = Vec<MediaMissingResult>),
@@ -218,7 +222,7 @@ pub async fn missing_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
-    let gate = crate::contract_version::ItemGate::new::<MediaMissingRequest>(&app, &caller);
+    let gate = crate::contract_version::ItemGate::new(&app, &caller, &MISSING_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
         results.push(match gate.check(item) {

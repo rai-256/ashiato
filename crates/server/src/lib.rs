@@ -1417,11 +1417,30 @@ async fn ingest_request(
     let hash = content_hash(&req);
     // **記録の契約の版は、収集アプリの 1 件の欄の値（無ければ 1）。それ以外は空**（ST50 / D1・D10）。
     // 内容の鍵には入れない。要求の見出しの版は使わない
-    let contract_version: Option<i32> = matches!(writer, Writer::Collector).then(|| {
-        req.contract_version
-            .and_then(|v| i32::try_from(v).ok())
-            .unwrap_or(1)
-    });
+    // 版の範囲（1 以上・S-01 の版以下）は口の 1 件ごとの検査（`ItemGate`）が先に見ている。それでも列に収まらない値が
+    // 来たら、黙って版 1 にせず `contract_unsupported` で断る（捨てない側。final review R12）
+    let contract_version: Option<i32> = if matches!(writer, Writer::Collector) {
+        match req.contract_version {
+            None => Some(1),
+            Some(v) => match i32::try_from(v) {
+                Ok(n) if n >= 1 => Some(n),
+                _ => {
+                    // log-ok: 契約の版は整数の定数で、記録の値ではない（ST50 の規則）
+                    tracing::warn!(
+                        kind = "contract_unsupported",
+                        requested = v,
+                        "列に収まらない契約の版の 1 件を断った"
+                    );
+                    return Ok(IngestResult::rejected(
+                        Some(req.id),
+                        IngestError::ContractUnsupported,
+                    ));
+                }
+            },
+        }
+    } else {
+        None
+    };
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
     //
@@ -1988,6 +2007,10 @@ async fn apply_external_update(
     Ok(Update::Applied)
 }
 
+/// 記録の 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。
+static INGEST_FIELDS: contract_version::KnownFields =
+    contract_version::KnownFields::of::<IngestRequest>();
+
 /// 記録をまとめて受け取る。同じ内容を再送しても行は増えない（FR-22）。
 ///
 /// 要求は**配列**（まとめ送り。design D9）。1 件だけの裸のオブジェクトも受け取る ——
@@ -2020,7 +2043,7 @@ pub async fn ingest(
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
 
-    let gate = contract_version::ItemGate::new::<IngestRequest>(&app, &caller);
+    let gate = contract_version::ItemGate::new(&app, &caller, &INGEST_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
         results.push(match gate.check(item) {
@@ -3287,6 +3310,10 @@ pub async fn store_heartbeat(
     .map_err(|(_, message)| anyhow::anyhow!(message))
 }
 
+/// 生存信号の 1 件が知る欄（1 回だけ組む。ST50 / final review R11）。
+static HEARTBEAT_FIELDS: contract_version::KnownFields =
+    contract_version::KnownFields::of::<heartbeat::HeartbeatRequest>();
+
 /// 生存信号をまとめて受け取る（FR-78）。
 ///
 /// **`/ingest` と統合しない**（design D9）—— `/ingest` は記録のエンベロープ
@@ -3311,7 +3338,7 @@ pub async fn heartbeat_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
-    let gate = contract_version::ItemGate::new::<heartbeat::HeartbeatRequest>(&app, &caller);
+    let gate = contract_version::ItemGate::new(&app, &caller, &HEARTBEAT_FIELDS);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
         results.push(match gate.check(item) {
@@ -4102,6 +4129,13 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 
 /// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
 pub fn router(app: App) -> Router {
+    // 収集アプリの 4 つの JSON の口が知る欄を、最初の要求の前に組む（ST50 / final review R11）
+    contract_version::warm_known_fields(&[
+        &INGEST_FIELDS,
+        &HEARTBEAT_FIELDS,
+        &drops::DROP_FIELDS,
+        &media_missing::MISSING_FIELDS,
+    ]);
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/contract", get(contract_version::contract_get))

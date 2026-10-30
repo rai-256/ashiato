@@ -45,6 +45,7 @@ pub fn requested_version(headers: &HeaderMap) -> Result<u32, Unreadable> {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ContractAnswer {
     /// S-01 が受け付ける一番新しい契約の版（その版以下を全部受け付ける）
+    #[schema(minimum = 1)]
     pub contract_version: u32,
 }
 
@@ -150,12 +151,42 @@ pub async fn authorize_versioned(app: &App, headers: &HeaderMap) -> Result<Calle
 }
 
 /// 型が知る最上位の欄の名前。`utoipa` の schema から作る（手で並べない。D2）。
+/// 要求の経路では呼ばない —— 口ごとの [`KnownFields`] が 1 回だけ組み、[`warm_known_fields`] が起動時に組ませる。
 pub fn known_fields<T: utoipa::PartialSchema>() -> Vec<String> {
     use utoipa::openapi::{RefOr, Schema};
     match T::schema() {
         RefOr::T(Schema::Object(o)) => o.properties.keys().cloned().collect(),
         // 型が object の schema でないなら、知る欄を数えられない。空にすると全部を断ってしまうので落とす
         _ => unreachable!("1 件の型は object の schema を持つ"),
+    }
+}
+
+/// 口ごとの「型が知る欄」の一覧。**1 回だけ組む**（要求ごとに utoipa の schema を組み直さない。final review R11）。
+/// 口の近くに `static` で置き、[`ItemGate::new`] に渡す。
+#[derive(Debug)]
+pub struct KnownFields {
+    cell: std::sync::OnceLock<Vec<String>>,
+    build: fn() -> Vec<String>,
+}
+
+impl KnownFields {
+    pub const fn of<T: utoipa::PartialSchema>() -> Self {
+        Self {
+            cell: std::sync::OnceLock::new(),
+            build: known_fields::<T>,
+        }
+    }
+
+    pub fn get(&'static self) -> &'static [String] {
+        self.cell.get_or_init(self.build)
+    }
+}
+
+/// 起動時（router を組む時）に、口ごとの一覧を組んでおく。型が object の schema を持たないと、
+/// 最初の要求でなく起動の時に落ちる（`known_fields` の `unreachable!` を要求の経路から外す。final review R11）。
+pub fn warm_known_fields(all: &[&'static KnownFields]) {
+    for k in all {
+        k.get();
     }
 }
 
@@ -176,20 +207,16 @@ pub enum ItemRefusal {
 #[derive(Debug)]
 pub struct ItemGate {
     strict: bool,
-    known: Vec<String>,
+    known: &'static [String],
     supported: u32,
 }
 
 impl ItemGate {
-    pub fn new<T: utoipa::PartialSchema>(app: &App, caller: &Caller) -> Self {
+    pub fn new(app: &App, caller: &Caller, known: &'static KnownFields) -> Self {
         let strict = matches!(caller, Caller::ApiToken);
         Self {
             strict,
-            known: if strict {
-                known_fields::<T>()
-            } else {
-                Vec::new()
-            },
+            known: if strict { known.get() } else { &[] },
             supported: app.contract_version,
         }
     }
@@ -199,7 +226,7 @@ impl ItemGate {
         if !self.strict {
             return None;
         }
-        let refusal = if has_unknown_field(item, &self.known) {
+        let refusal = if has_unknown_field(item, self.known) {
             ItemRefusal::UnknownField
         } else if !self.item_version_ok(item) {
             ItemRefusal::ContractUnsupported

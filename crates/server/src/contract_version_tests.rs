@@ -778,6 +778,29 @@ async fn st50_item_version_ingest_not_positive() {
     assert_eq!(events_of(&app, &source).await, 2);
 }
 
+// 口の検査を通らずに格納の本体へ届いた、列（integer）に収まらない版は、黙って版 1 にせず断る（final review R12）
+#[tokio::test]
+async fn st50_item_version_out_of_column_range_is_refused_not_v1() {
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let source = testdb::source(&app.pool, "st50-item-range", 21_600).await;
+    let user = testdb::user();
+    let item = with(
+        media_item(user, &source, "range"),
+        "contract_version",
+        serde_json::json!(i64::from(i32::MAX) + 1),
+    );
+    let req: IngestRequest = serde_json::from_value(item).unwrap();
+    let res = ingest_request(&app, req, Writer::Collector, Settle::InTx)
+        .await
+        .unwrap();
+    assert!(!res.accepted);
+    assert_eq!(
+        serde_json::to_value(res.error).unwrap(),
+        serde_json::json!("contract_unsupported")
+    );
+    assert_eq!(events_of(&app, &source).await, 0, "版 1 として入った");
+}
+
 // ---- 記録の契約の版・移行・錠（Task 4 / D1・D10・D19（仮）・D20）-----------------------------------
 
 const ST50_NAME: &str = "202610300030_contract_version";
