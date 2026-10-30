@@ -234,6 +234,9 @@ pub mod testdb;
 /// 試験の足場の繋ぎ先（回の database）を本物の DB で見る（CH04）。
 #[cfg(test)]
 mod testdb_tests;
+/// 更新の履歴の置き場・形・門・付与（ST51 / design D4 / D10）。
+#[cfg(test)]
+mod update_history_tests;
 /// 画面のログイン（ST28 / design D1 / D2 / D3）。
 pub mod web_session;
 #[cfg(test)]
