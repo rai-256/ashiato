@@ -35,6 +35,9 @@ class UnusedAppRestrictionsInstrumentedTest {
         Manifest.permission.ACCESS_COARSE_LOCATION,
         Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.POST_NOTIFICATIONS,
+        // 入口が位置の後に写真と動画の権限も求める（ST09 design D6）。許可済みにしないと権限の画面が 1 行を覆う ——
+        // suite の並びで先に写真の試験が許可を残したときだけ通っていた（単独で走らせると毎回落ちる）
+        *mediaPermissionsToAsk(android.os.Build.VERSION.SDK_INT).toTypedArray(),
     )
 
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()

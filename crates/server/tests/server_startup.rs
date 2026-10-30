@@ -1239,7 +1239,16 @@ mod st48_migrate {
         rig.with_other_stamp_row().await;
         let name = rig.make_last_version_fail_with_value().await;
         let mut extra: Vec<(&str, String)> = vec![("PATH", std::env::var("PATH").unwrap())];
-        for k in ["HOME", "DOCKER_HOST"] {
+        // compose が読む変数も通す: CI は `.env` を置かず合言葉を job の環境で渡す（tools/ci-db-env.sh）。
+        // 落とすと `docker compose exec` が POSTGRES_PASSWORD の補間で落ち、退避が空になる
+        for k in [
+            "HOME",
+            "DOCKER_HOST",
+            "POSTGRES_PASSWORD",
+            "ASHIATO_DB_PORT",
+            "COMPOSE_FILE",
+            "COMPOSE_PROJECT_NAME",
+        ] {
             if let Ok(v) = std::env::var(k) {
                 extra.push((k, v));
             }
