@@ -145,7 +145,12 @@ C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししてい
 
 ### D15. 組み立ての印を実行時に差し替える口を作らない。試験は前の行を置いて比べる
 
-更新の履歴を書く関数は印を引数に取り（`update_history::record_migrate(conn, stamp, outcome)`・`record_startup(conn, stamp)`）、`run_migrate` と `run` は ST49 が焼き込んだ S-01 の印を渡す。
+更新の履歴を書く関数は印を引数に取り、`run_migrate` と `run` は ST49 が焼き込んだ S-01 の印を渡す。形は次のとおり:
+`update_history::record_attempt(conn, stamp) -> Attempt`（試みの行。D16（仮））・`record_migrate(conn, stamp, attempt, outcome)`（結果の行。試みの行を書いたかで比べ直すかが決まる）・
+`record_startup(conn, stamp, versions)`（起動の行。版の記録を読み直し、自分の知らない版があれば書かないために、この組み立ての版の並びを受ける）。
+migrate の側は `migration_ledger::apply_migrations_recorded(conn, versions, before_apply, grants, stamp: Option<&str>)` を新しく置き、
+当てる処理の錠を持つ同じ接続で、版の検査の後・退避の前に試みの行を、錠を外す前に結果の行を書く（pool の別の接続で書くと、自分が持つ錠を待って止まる。review/spec.md R28）。
+印の無い呼び出し（`apply_migrations_with`・`ashiato_server::migrate`）は `None` を渡し、行を書かない。
 本物の bin を走らせる試験（`crates/server/tests/server_startup.rs` の `Rig`）は、所有者の接続で「別の印 `0.1.0+<commit A>` の通った行」を先に置き、bin の印を `<commit B>` として比べる。
 実行時の環境変数で印を変える口は作らない（S-01 の版を偽れる口になる）。
 
