@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use super::{Class, CATALOG};
+use super::{Class, CATALOG, COLLECTOR_VERSION_CHANGES_FILE, UPDATE_HISTORY_FILE};
 
 /// 同じ内容の行を 1 件として読む規則（C3）。`core.event_folded`（`202609120943_version_and_ledger.sql`）の定義と
 /// 食い違わないことを、テストが `pg_get_viewdef` と突き合わせる。**ビューが変わったらここを合わせる。**
@@ -50,13 +50,13 @@ pub fn not_included() -> Vec<String> {
     out
 }
 
-/// ファイル全体の説明（列の説明では足りないもの。ST51）。
+/// ファイル全体の説明（列の説明では足りないもの。ST51）。名前は `export` の定数で引く（目録・並べ方と同じ定数）。
 fn file_note(name: &str) -> Option<&'static str> {
     match name {
-        "update_history.jsonl" => Some(
+        UPDATE_HISTORY_FILE => Some(
             "S-01 が自分の版の変化を書いた。前の版が空なら記録の始まり。落ちた回の行は、退避から D-01 を戻すと消えることがある",
         ),
-        "collector_version_changes.jsonl" => Some(
+        COLLECTOR_VERSION_CHANGES_FILE => Some(
             "生存信号から導いた。端末・部品ごとに発信の時刻の順に並べて、版が変わった所。収集アプリの申告で、S-01 は確かめていない",
         ),
         _ => None,

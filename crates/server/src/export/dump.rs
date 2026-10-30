@@ -16,7 +16,7 @@ use zip::{AesMode, CompressionMethod, ZipWriter};
 use super::doc::{self, FileStat};
 use super::{
     excluded_sql, Bloom, Class, ExcludedSql, ExportConfig, ExportError, FailKind, Passphrase,
-    CATALOG, VIEW_FILES,
+    CATALOG, COLLECTOR_VERSION_CHANGES_FILE, UPDATE_HISTORY_FILE, VIEW_FILES,
 };
 
 const TIME_FORMAT: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"";
@@ -88,8 +88,8 @@ fn order_sql(file: &str) -> &'static str {
         "events.jsonl" | "event_versions.jsonl" => "t.event_time, t.id",
         "sources.jsonl" => "t.logical_source",
         "drop_report_hours.jsonl" => "t.report_id, t.hour",
-        "update_history.jsonl" => "t.seq",
-        "collector_version_changes.jsonl" => {
+        UPDATE_HISTORY_FILE => "t.seq",
+        COLLECTOR_VERSION_CHANGES_FILE => {
             "t.user_id, t.component, t.device_id, t.emitted_at, t.received_at"
         }
         "feeling_target_kinds.jsonl" => "t.kind",

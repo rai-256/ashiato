@@ -378,6 +378,11 @@ const UPDATE_HISTORY_COLUMNS: &[(&str, &str)] = &[
     ("sqlstate", "落ちた理由の SQLSTATE（落ちていなければ空）"),
 ];
 
+/// 更新の履歴のファイルの名前（ST51）。目録の分類・説明書の説明・並べ方はこの定数で引く（名前を 1 か所で持つ）。
+pub const UPDATE_HISTORY_FILE: &str = "update_history.jsonl";
+/// 収集アプリの版の変化のファイルの名前（ST51）。同上。
+pub const COLLECTOR_VERSION_CHANGES_FILE: &str = "collector_version_changes.jsonl";
+
 /// 表ではない読み口のファイル（ビュー）。表の分類の走査（`CATALOG`）には載らず、写しの取引の中で読む（ST51 / D11）。
 #[derive(Debug)]
 pub struct ViewFile {
@@ -387,7 +392,7 @@ pub struct ViewFile {
 }
 
 pub const VIEW_FILES: &[ViewFile] = &[ViewFile {
-    file: "collector_version_changes.jsonl",
+    file: COLLECTOR_VERSION_CHANGES_FILE,
     view: "collector_version_change",
     columns: COLLECTOR_VERSION_CHANGE_COLUMNS,
 }];
@@ -585,7 +590,7 @@ pub const CATALOG: &[(&str, Class)] = &[
     (
         "update_history",
         Class::Include {
-            file: "update_history.jsonl",
+            file: UPDATE_HISTORY_FILE,
             view: "update_history",
             excluded_columns: &[],
             columns: UPDATE_HISTORY_COLUMNS,
