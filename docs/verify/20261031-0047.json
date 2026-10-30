@@ -1,0 +1,182 @@
+{
+  "title": "確認バッチ 20261031-0047",
+  "subtitle": "ST51 版の変わり目が、更新の履歴として残る",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261031-0047/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261031-0047 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261031-0047/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261031-0047/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261031-0047`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261031-0047 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261031-0047/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画: 撮っていない —— このバッチの Story（ST51）に録画のシナリオが無い"
+  ],
+  "questions": [
+    {
+      "id": "ST51-PD1",
+      "topic": "ST51 仮D1",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D1: 収集アプリは生存信号のどれに自分の版を載せるか →「すべての生存信号に、その信号を積んだ時に動いていた版を載せる」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 載せる回がいちばん多い側。起動直後だけ・変化のときだけに絞る側は、その 1 件が欠けると版が残らない（失わない側の費用: 1 件 60 バイトほど。1 端末あたりソースの数 × 1 日 4 件）\n出所: review/deep.md#R2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-PD2",
+      "topic": "ST51 仮D2",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D2: S-01 の版の変化をどこで知って 1 行を書くか →「migrate の終わり（通った・落ちた）と、版の検査を通った後・待ち受けの前の S-01 の起動の両方。直前の行と版が違うときだけ書く」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 書く口がいちばん多い側。migrate を走らせずに入れ替えた起動も、移行が落ちた回も残る（失わない側の費用: 起動のときに 1 行を読んで比べる問い合わせ 1 本）\n出所: review/deep.md#R5",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-PD3",
+      "topic": "ST51 仮D3",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D3: S-01 の版の変化の行の置き場と、全記録の書き出しに入れるか →「記録の schema core の追記のみの表に置き、書き出しに分類して入れる」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: D-01 の守り（書き換えの門・権限）と書き出しに乗るので、DB を書き出しから作り直しても履歴が残る（失わない側の費用: 表 1 つと書き出しの分類 1 行）\n出所: review/deep.md#R3",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-PD4",
+      "topic": "ST51 仮D4",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D4: 版の変化の行の列と生存信号の版の欄の形を固定するか →「名前・型・NULL の可否を Requirement の表で固定し、版をまたいで変えない（ST48 の版の記録と同じ）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 凍結した行の形が後から変わらないので、書き直しが起きない（失わない側の費用: Requirement の表 1 つと形を確かめる試験 1 本）\n出所: review/deep.md#R11",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-PD5",
+      "topic": "ST51 仮D5",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D5: 収集アプリの版の変化を、生存信号から導くか、変化の行を別の表へ追記するか →「生存信号から導くビュー（core.collector_version_change）にし、変化の行を凍結しない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 版を載せた生存信号の行が残るので、並べ方を後から直しても過去の分まで出し直せる。届いた順の乱れで誤った行が凍結されない（失わない側の費用: 読むたびの窓関数 1 本（生存信号は 1 端末 1 日数十件））\n出所: review/deep.md#R6",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-PD16",
+      "topic": "ST51 仮D16",
+      "kind": "check",
+      "question": "ST51 の仮の決定 D16: 退避の前に書く「試み」の行を、どの migrate で書くか →「結果の行と同じ条件（直前の通った行の版と自分の版が違う回）でだけ書く。書くかは試みの時に 1 回だけ決め、試みを書いた回は結果の行を比べ直さずに当てる処理の錠の中で必ず書く。起動の行の取引は同じ錠を待たずに取ろうとし、取れなければ書かない・取れたら版の記録を読み直す。前の版の計算には数えない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 版が変わる migrate は全部、試みと結果の 2 行になり、戻しても試みが残る。書かないのは版の変わらない走らせ直しと、migrate の途中の起動の行だけで、後者の版の変化は同じ組み立てなら migrate の組が持つ（失わない側の費用: 版の変わる migrate 1 回あたり 1 行と、退避の前の比べる問い合わせ 1 本、起動の取引の版の記録の読み直し 1 本）\n乗っている決定: D2, D7\n出所: deep.md#Q6",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-AD16",
+      "topic": "ST51 答えで直した D16",
+      "kind": "check",
+      "question": "ST51 の D16「」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st51-update-history/deep.md の D16・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-AQ6",
+      "topic": "ST51 答えで直した Q6",
+      "kind": "check",
+      "question": "ST51 の Q6「」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st51-update-history/deep.md の Q6・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST51-F",
+      "topic": "ST51 違和感",
+      "kind": "check",
+      "question": "ST51「版の変わり目が、更新の履歴として残る」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/collection-coverage/spec.md / specs/desktop-collection/spec.md / specs/device-collection/spec.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（8 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q7）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261031-0047/ST51-spec.html"
+    }
+  ]
+}
