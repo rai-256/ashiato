@@ -30,6 +30,10 @@ pub struct HeartbeatRequest {
     /// `capturable` とは別に残す —— 圏外の写真は取れる状態のまま、接続が無かったことだけが行に残る
     #[serde(default)]
     pub network: Option<bool>,
+    /// 収集アプリの積んだ時の版（ST51 / design D6）。欄の無い要求は「不明」。形を検査しない・断らない。
+    /// 行の列は `collector_version`。冪等キーには混ぜない（版は原文にも同じ値で入る）
+    #[serde(default)]
+    pub client_version: Option<String>,
     /// 収集側から受け取った原文。**素通しで残す**（0003 と同じ理由で `text`）
     pub raw: String,
     /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
@@ -71,6 +75,11 @@ impl HeartbeatRequest {
         }
         Ok(())
     }
+
+    /// 行の `collector_version` に入れる値。空の文字列は「不明」（`None`）、U+0000 は取り除く（D6）
+    pub fn component_version(&self) -> Option<String> {
+        crate::ingest::normalize_component_version(self.client_version.as_deref())
+    }
 }
 
 /// 冪等キー。**原文と発信の時刻とソースだけから作る**（`ingest::content_hash` と同じ作り）——
@@ -109,6 +118,7 @@ mod tests {
             attempts: 360,
             successes: 230,
             network: None,
+            client_version: None,
             raw: r#"{"alive":true}"#.into(),
         }
     }

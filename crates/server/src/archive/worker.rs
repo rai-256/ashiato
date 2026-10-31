@@ -1592,6 +1592,8 @@ pub async fn record_archive_heartbeat(
             attempts,
             successes,
             network: None,
+            // S-01 自身の版の変化は更新の履歴が持つ（ST51 / D13）
+            client_version: None,
             raw,
         },
     )

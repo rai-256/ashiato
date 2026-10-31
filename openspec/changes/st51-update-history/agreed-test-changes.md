@@ -1,0 +1,1 @@
+- Scenario: 版の中身が当たらないと、終了コード 1 で終わる — 期待（版の食い違いの種別を出さない）は同じ。ST51 の D8 で migrate が落ちた版の 1 行（`error: kind=migrate_failed version=… sqlstate=…`）を出すようになったので、「kind= を一切含まない」を「食い違いの種別を含まない（migrate_failed の 1 行は可）」に書き直した

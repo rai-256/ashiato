@@ -332,6 +332,7 @@ open class LocationService : Service() {
 
     /**
      * 区切りファイルの未送信の置き場。`stamp` を渡した置き場だけが、積むときに収集アプリの版を書く（ST49 / design D13）。
+     * 生存信号の置き場は `stamp` を渡さないが、生存信号は `HeartbeatEmitter` が積むときに版を欄と原文へ入れる（ST51 / design D12）。
      * 生存信号の置き場は**記録とは別**で上限の対象にしない（捨てない。C1 / design D13）。破棄の報告の置き場も上限の外
      * （C2）で、版は下書きが先に持つ（D15）。仕組み（追記・読めない行の退避）は記録とまったく同じものを使う。
      */
@@ -1031,6 +1032,7 @@ open class LocationService : Service() {
                 // 接続の有無はメディアだけ別の欄に載せる（D7）。取得可否には含めない
                 network = running.stages?.let { { hasNetwork(this) } },
                 onStored = { running.stages?.reset() },
+                version = BuildConfig.COMPONENT_VERSION,
             )
             // **起動時の 1 発も守る**（review/code.md の R36 / I7）。
             // `readCapability()`（端末を読む）も `outbox.add()`（filesDir への追記）も投げうる。

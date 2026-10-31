@@ -1,6 +1,6 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない
+### Requirement: PC の収集アプリは、記録と生存信号を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない
 
 THE SYSTEM SHALL C-02 が記録を未送信に積むとき、その時点の C-02 の組み立ての印を部品の版の欄に書き込む。
 THE SYSTEM SHALL C-02 が生存信号を未送信に積むとき、その時点の C-02 の組み立ての印を、生存信号の欄 `client_version` と原文の `client_version` の両方に書き込む（★ ST51）。
@@ -53,3 +53,14 @@ THE SYSTEM SHALL C-02 の組み立ての印を、組み立てのたびに作り�
 
 - **WHEN** 印 `0.1.0+<commit A>` の C-02 が送ったブラウザ履歴の訪問を、印 `0.1.0+<commit D>` の C-02 が読み直して、題名の変わった記録を積む
 - **THEN** 積んだ要求の部品の版は `0.1.0+<commit D>`
+
+## REMOVED Requirements
+
+### Requirement: PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない
+
+**Reason**: ST51 は生存信号にも積んだときの版を書き込む（design（ST51）D1（仮））ので、ST49 の Scenario「PC の生存信号には版が書き込まれない」が偽になる。
+OpenSpec は MODIFIED で既存の Scenario を落とせない（`openspec validate` が拒む）ので、名前を変えて書き直した（ST21 の前例に倣う）。
+
+**Migration**: 同じ条項と Scenario を ADDED の「PC の収集アプリは、記録と生存信号を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」に移した。
+変えたのは生存信号の条項（積んだときの版を欄と原文に書き込む）と、Scenario「PC の生存信号には版が書き込まれない」を外して生存信号の版の Scenario 2 本に差し替えたことだけ。
+ほかの Scenario は名前も本文も同じなので、ST49 のテストの印はそのまま当たる。

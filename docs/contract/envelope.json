@@ -418,6 +418,13 @@
           "boolean"
         ]
       },
+      "client_version": {
+        "required": false,
+        "type": [
+          "null",
+          "string"
+        ]
+      },
       "contract_version": {
         "required": false,
         "type": [
@@ -695,6 +702,12 @@
         "required": true,
         "type": [
           "boolean"
+        ]
+      },
+      "client_version": {
+        "required": true,
+        "type": [
+          "string"
         ]
       },
       "contract_version": {

@@ -5,10 +5,10 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.FileInputStream
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,8 +48,10 @@ class ForegroundServiceTypeInstrumentedTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val pkg: String get() = context.packageName
 
+    // PFD を読み終えるまで持つ（AutoCloseInputStream）。fd だけを FileInputStream に渡すと、読む前に PFD が回収され
+    // finalizer が別のスレッドで fd を閉じる（FeelingReminderInstrumentedTest の CI の赤と同じ穴）
     private fun shell(cmd: String): String =
-        FileInputStream(instrumentation.uiAutomation.executeShellCommand(cmd).fileDescriptor)
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(cmd))
             .use { it.readBytes().toString(Charsets.UTF_8) }
 
     /** 前提は**テストの外**が作る（`@NeedsPristinePermissions`）。ここは確かめるだけ。 */

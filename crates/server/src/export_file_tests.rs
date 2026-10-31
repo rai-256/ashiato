@@ -23,8 +23,8 @@ use crate::testdb;
 /// 書き出しに渡す合言葉（`export_tests::pass()` と同じ）。テストの中だけに置く。
 const PASS: &str = "pw-for-test-0123456789";
 
-/// D7 の 16 個の項目（ST29 で衛星の登録簿が加わった）。
-const ENTRIES: [&str; 16] = [
+/// D7 の 18 個の項目（ST29 で衛星の登録簿、ST51 で更新の履歴と収集アプリの版の変化が加わった）。
+const ENTRIES: [&str; 18] = [
     "events.jsonl",
     "event_versions.jsonl",
     "sources.jsonl",
@@ -39,6 +39,8 @@ const ENTRIES: [&str; 16] = [
     "drop_reports.jsonl",
     "drop_report_hours.jsonl",
     "satellites.jsonl",
+    "update_history.jsonl",
+    "collector_version_changes.jsonl",
     "README.txt",
     "manifest.json",
 ];
@@ -450,7 +452,9 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
                 "capturable",
                 "blockers",
                 // ST09 D7: 接続の有無は出す列（回数と原文は今までどおり出ない）
-                "network"
+                "network",
+                // ST51 D11: 収集アプリの申告の版は出す列
+                "collector_version"
             ]
             .map(String::from)
         )

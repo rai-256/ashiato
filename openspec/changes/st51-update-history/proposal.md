@@ -35,8 +35,8 @@
 
 - `distribution`: S-01 の版の変化が更新の履歴に 1 行残る・更新の履歴の置き場と列の形・更新の履歴は書き換えられない（ADDED 3 つ）
 - `collection-coverage`: 生存信号が積んだ時の収集アプリの版を持つ・収集アプリの版の変化を生存信号から導いて読める・版を足しても稼働状況と途切れの判定は変わらない（ADDED 3 つ）
-- `device-collection`: ST49 の「携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」を MODIFIED（生存信号にも積む時点の版を書き込む）
-- `desktop-collection`: ST49 の「PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」を MODIFIED（同上）
+- `device-collection`: ST49 の「携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」を REMOVED し、「携帯の収集アプリは、記録と生存信号を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」として ADDED（MODIFIED では Scenario を外せないため。ST21 の前例）（生存信号にも積む時点の版を書き込む）
+- `desktop-collection`: ST49 の「PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」を REMOVED し、「PC の収集アプリは、記録と生存信号を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない」として ADDED（MODIFIED では Scenario を外せないため。ST21 の前例）（同上）
 - `data-durability`: 「書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない」を MODIFIED（ファイルの一覧に 2 つ足す）・書き出しが更新の履歴と版の変化と生存信号の版を説明つきで持つ（ADDED 1 つ）
 
 **capability の照合**: INDEX.md の capability 表は ST51 を `collection-coverage` と `distribution` に割り当てていた。更新の履歴（S-01）は `distribution`、生存信号の版と導いた変化は `collection-coverage` で合っている。
