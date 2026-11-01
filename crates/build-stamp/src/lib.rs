@@ -58,7 +58,7 @@ fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
         None => {}
         Some(suffix) if suffix.starts_with("beta.") => {
             let n = suffix.strip_prefix("beta.")?.parse::<u8>().ok()?;
-            if !(1..=98).contains(&n) || suffix.strip_prefix("beta.")?.starts_with('0') {
+            if !(1..=89).contains(&n) || suffix.strip_prefix("beta.")?.starts_with('0') {
                 return None;
             }
         }
@@ -332,6 +332,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for given in [
             "0.1.0-rc.1",
+            "0.1.0-beta.90",
             "0.1.0-beta.99",
             "0.1.0-beta.0",
             "0.1.0-dev.2026111",

@@ -99,3 +99,22 @@
 ### 追加回帰確認
 
 - `scripts/quiet-run cargo-test-fix2 -- cargo test`: rc=101（1847 passed / 1 failed / 3 ignored）。失敗は今回の変更箇所外の `archive_reparse_persistent_store_failure_is_ledgered_and_throttled` で、PostgreSQL の deadlock (`40P01`) により `unwrap()` が失敗したもの。版検査・build-stamp の対象検証はすべて rc=0 だった。
+
+## Fix round 3
+
+### 対応した指摘
+
+- F14: Rust の `build-stamp` が受け付ける beta 番号を 1〜89 に統一し、携帯・画面・`version.sh` と同じ境界にした。`version-table.tsv` に最大有効値 `0.4.0-beta.89` を追加し、`beta.90` を不正形の回帰ケースに加えた。
+
+### 検証
+
+- `scripts/quiet-run build-stamp-test -- cargo test -p ashiato-build-stamp st52_version_rejects_invalid_shapes`: rc=0、1/1 PASS。
+- `tools/release/version.sh --self-test`: rc=0。
+- `scripts/quiet-run unit-f14 -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable`: rc=0、BUILD SUCCESSFUL。
+- `scripts/quiet-run build-stamp-suite-f14 -- cargo test -p ashiato-build-stamp`: rc=0、11/11 PASS。
+- `scripts/quiet-run cargo-test-f14 -- cargo test`: rc=0。
+- `git diff --check`: PASS。
+
+### 自己レビュー
+
+変更は F14 の対象である Rust の beta 範囲、境界表、回帰テストに限定した。解決済み指摘および final review の確認対象は変更していない。
