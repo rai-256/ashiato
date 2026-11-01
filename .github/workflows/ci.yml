@@ -152,6 +152,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
+      # 画面の印の節は自分で npm ci と vite build を走らせる。vite 7 は node 20.19 / 22.12 以上が要るので、web の job と同じ版に固定する
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
       - run: ./tools/check-build-stamp.sh tool
       - run: ./tools/check-build-stamp.sh server
       - run: ./tools/check-build-stamp.sh windows
@@ -354,6 +357,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
+      # build.sh が画面を npm ci → vite build してサーバに取り込む（web の job と同じ node の版）
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
       - run: tools/release/package.sh linux "$RUNNER_TEMP/package-linux"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-linux, path: "${{ runner.temp }}/package-linux" }
@@ -366,8 +372,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with: { targets: x86_64-pc-windows-gnu }
-      - run: bash tools/release/package.sh windows "$env:RUNNER_TEMP/package-windows"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
+      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
+        shell: bash
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows, path: "${{ runner.temp }}/package-windows" }
 
@@ -424,6 +433,11 @@ jobs:
       - run: ./tools/check-tmp-hygiene.sh
       - run: ./tools/check-version.sh --self-test
       - run: ./tools/check-version.sh
+      # ST52: 配る判定の台本の軽い自己試験（使い捨ての git の木・偽の gh。重い組み立ては持たない。D8 / final review R9）
+      - run: ./tools/release/version.sh --self-test
+      - run: ./tools/release/check-guards.sh --self-test
+      - run: ./tools/release/package.sh --self-test
+      - run: ./tools/release/draft.sh --self-test
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる

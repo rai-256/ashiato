@@ -31,6 +31,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
+      # build.sh が画面を npm ci → vite build してサーバに取り込む（web の job と同じ node の版。final review R1）
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
       - run: tools/release/build.sh server-linux "$RUNNER_TEMP/release"
         env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
       - run: tools/release/build.sh apk "$RUNNER_TEMP/release"
@@ -46,10 +49,14 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with: { targets: x86_64-pc-windows-gnu }
-      - run: bash tools/release/build.sh server-windows "$env:RUNNER_TEMP/release"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
+      - run: tools/release/build.sh server-windows "$RUNNER_TEMP/release"
+        shell: bash
         env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
-      - run: bash tools/release/build.sh collector-windows "$env:RUNNER_TEMP/release"
+      - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/release"
+        shell: bash
         env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-windows, path: "${{ runner.temp }}/release" }

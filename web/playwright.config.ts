@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { execFileSync } from "node:child_process";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -17,6 +18,15 @@ import { defineConfig, devices } from "@playwright/test";
 declare const process: { env: Record<string, string | undefined> };
 
 const PORT = Number(process.env.WEB_PORT ?? 5180);
+
+// サーバ（tools/stack.sh が立てる）の待ち受け。**tools/ports.sh と同じ規則で組む** —— stack.sh も BIND を
+// `127.0.0.1:<ports.sh の ASHIATO_HTTP_PORT>` に上書きするので、`.env` の BIND や CI の env に頼ると食い違う
+// （ST52 final review R2: CI の e2e には BIND が無く、サーバが配る画面の e2e が必ず落ちていた）。
+// 試験の側（worker）は環境変数 ASHIATO_E2E_SERVER_BIND で受ける。
+const SERVER_BIND = execFileSync("bash", ["-c", '. ../tools/ports.sh && printf "127.0.0.1:%s" "$ASHIATO_HTTP_PORT"'], {
+  encoding: "utf8",
+}).trim();
+process.env.ASHIATO_E2E_SERVER_BIND = SERVER_BIND;
 
 export default defineConfig({
   testDir: "./e2e",

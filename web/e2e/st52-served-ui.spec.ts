@@ -7,9 +7,10 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 test("組み込んだ画面をサーバから開ける", async ({ page }) => {
   // Scenario: 配ったサーバだけで、Node を入れずに画面が開く
-  const bind = process.env.BIND;
+  // サーバの待ち受けは playwright.config.ts が tools/ports.sh と同じ規則で組んで渡す（BIND の env に頼らない。R2）
+  const bind = process.env.ASHIATO_E2E_SERVER_BIND;
   const password = process.env.WEB_PASSWORD;
-  if (!bind || !password) throw new Error("BIND と WEB_PASSWORD が必要");
+  if (!bind || !password) throw new Error("ASHIATO_E2E_SERVER_BIND（playwright.config.ts が組む）と WEB_PASSWORD が必要");
   const origin = `http://${bind}`;
   const requested: string[] = [];
   page.on("request", (request) => requested.push(request.url()));
