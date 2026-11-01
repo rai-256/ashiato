@@ -101,7 +101,14 @@ fn write_web_assets() {
     let dist = env::var_os("ASHIATO_WEB_DIST").map(PathBuf::from);
     let files = match dist.as_deref() {
         None => Vec::new(),
-        Some(path) if path.is_dir() => collect_files(path),
+        Some(path) if path.is_dir() => {
+            println!("cargo:rerun-if-changed={}", path.display());
+            let files = collect_files(path);
+            for (_, file) in &files {
+                println!("cargo:rerun-if-changed={}", file.display());
+            }
+            files
+        }
         Some(path) => panic!("ASHIATO_WEB_DIST がディレクトリでない: {}", path.display()),
     };
     if env::var("ASHIATO_RELEASE").as_deref() == Ok("1") && files.is_empty() {

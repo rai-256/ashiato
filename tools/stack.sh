@@ -68,7 +68,7 @@ if [ "$check_only" = 0 ] && { [ ! -f "$web/index.html" ] \
   web="web/dist"
 fi
 [ "$check_only" = 1 ] || web_abs="$(cd "$web" && pwd)"
-if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock; }; then
+if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock "$web"; }; then
   echo "== サーバを build（$server が無いか、ソースより古い）"
   if [ "$check_only" = 1 ]; then
     cargo build -q --release -p ashiato-server --bin ashiato-server

@@ -30,7 +30,7 @@ fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
         .unwrap()
 }
 
-async fn response(app: &App, req: Request<Body>) -> axum::response::Response<Body> {
+fn test_router(app: &App) -> axum::Router {
     router_with_assets(
         app.clone(),
         web_assets::Assets::from_static(&[
@@ -46,9 +46,10 @@ async fn response(app: &App, req: Request<Body>) -> axum::response::Response<Bod
             ),
         ]),
     )
-    .oneshot(req)
-    .await
-    .unwrap()
+}
+
+async fn response(app: &App, req: Request<Body>) -> axum::response::Response<Body> {
+    test_router(app).oneshot(req).await.unwrap()
 }
 
 async fn empty_response(app: &App, req: Request<Body>) -> axum::response::Response<Body> {
@@ -64,6 +65,12 @@ async fn st52_web_headers() {
     let app = App::for_test(testdb::pool().await, TOKEN);
     let res = response(&app, request(Method::GET, "/", Body::empty())).await;
     assert_eq!(res.status(), StatusCode::OK);
+    let asset = response(&app, request(Method::GET, "/assets/app.js", Body::empty())).await;
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert_eq!(asset.headers()[header::CONTENT_TYPE], "text/javascript");
+    let missing = response(&app, request(Method::GET, "/missing.js", Body::empty())).await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    assert_eq!(missing.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(
         res.headers()[header::CONTENT_TYPE],
         "text/html; charset=utf-8"
@@ -80,47 +87,124 @@ async fn st52_web_api_prefix() {
     // Scenario: /api の道は、今の API と同じ応答と認可になる
     let app = App::for_test(testdb::pool().await, TOKEN);
     let prefixed = response(&app, request(Method::GET, "/api/contract", Body::empty())).await;
-    let direct = router(app.clone())
-        .oneshot(request(Method::GET, "/contract", Body::empty()))
-        .await
-        .unwrap();
+    let direct = response(&app, request(Method::GET, "/contract", Body::empty())).await;
     assert_eq!(prefixed.status(), direct.status());
     assert_eq!(
         prefixed.into_body().collect().await.unwrap().to_bytes(),
         direct.into_body().collect().await.unwrap().to_bytes()
     );
 
+    let prefixed_health = response(&app, request(Method::GET, "/api/healthz", Body::empty())).await;
+    let direct_health = response(&app, request(Method::GET, "/healthz", Body::empty())).await;
+    assert_eq!(prefixed_health.status(), StatusCode::OK);
+    assert_eq!(direct_health.status(), StatusCode::OK);
+    assert_eq!(
+        prefixed_health
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+        direct_health
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+    );
+
     let unauthorized = response(&app, request(Method::GET, "/api/events", Body::empty())).await;
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+    let unauthorized_direct = response(&app, request(Method::GET, "/events", Body::empty())).await;
+    assert_eq!(unauthorized_direct.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn st52_web_access_log() {
     // Scenario: /api の道で読んだ画面の読み出しも、今と同じ読み出しの記録が残る
     let seen = Seen::default();
-    let app = App::for_test(testdb::pool().await, TOKEN).with_access_sink(seen.clone());
-    let res = response(&app, request(Method::GET, "/api/events", Body::empty())).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(seen.0.lock().unwrap().last().unwrap().route, "/events");
+    let password = "st52-web-password";
+    let app = App::for_test(testdb::pool().await, TOKEN)
+        .with_web_login(password, 0)
+        .with_access_sink(seen.clone());
+    let login = response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/session")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "password": password }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::NO_CONTENT);
+    let cookie = login.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    for uri in ["/api/events", "/events"] {
+        let res = response(
+            &app,
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .header(header::COOKIE, cookie.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+    let entries: Vec<_> = seen
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry.route == "/events")
+        .cloned()
+        .collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0], entries[1]);
 }
 
 #[tokio::test]
 async fn st52_web_collector_paths() {
     // Scenario: 収集アプリの送り先の道は、今のまま受ける
     let app = App::for_test(testdb::pool().await, TOKEN);
-    let body = Body::from("[]");
+    let source = testdb::source(&app.pool, "st52-heartbeat", 21_600).await;
+    let user = testdb::user();
+    let body = Body::from(
+        serde_json::json!([{
+            "id": uuid::Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": source,
+            "device_id": "st52-device",
+            "emitted_at": "2026-05-01T00:00:00Z",
+            "capturable": true,
+            "blockers": [],
+            "attempts": 1,
+            "successes": 1,
+            "raw": "{\"alive\":true}"
+        }])
+        .to_string(),
+    );
     let prefixed = response(
         &app,
         Request::builder()
             .method(Method::POST)
-            .uri("/api/heartbeat")
+            .uri("/heartbeat")
             .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
             .header(header::CONTENT_TYPE, "application/json")
             .body(body)
             .unwrap(),
     )
     .await;
-    assert_ne!(prefixed.status(), StatusCode::NOT_FOUND);
+    assert_eq!(prefixed.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -133,12 +217,7 @@ async fn st52_web_without_assets() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    assert_eq!(
-        router(app)
-            .oneshot(request(Method::GET, "/healthz", Body::empty()))
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::OK
-    );
+    let health = empty_response(&app, request(Method::GET, "/healthz", Body::empty())).await;
+    assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(health.into_body().collect().await.unwrap().to_bytes(), "ok");
 }

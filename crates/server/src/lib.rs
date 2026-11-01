@@ -4203,26 +4203,40 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 
 /// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
 pub fn router(app: App) -> Router {
-    #[cfg(test)]
-    {
-        api_router(app)
-    }
-    #[cfg(not(test))]
-    {
-        router_with_assets(app, web_assets::generated())
-    }
+    router_with_assets(app, web_assets::generated())
 }
 
 pub(crate) fn router_with_assets(app: App, assets: web_assets::Assets) -> Router {
-    let api = api_router(app);
-    let direct = Router::merge(Router::new(), api.clone());
-    nest_api(direct, api)
+    let api = api_router(app)
         .fallback(web_assets::fallback)
-        .layer(axum::Extension(assets))
+        .layer(axum::Extension(assets));
+    Router::new()
+        .fallback_service(api)
+        .layer(axum::middleware::from_fn(strip_api_prefix))
+        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
 }
 
-fn nest_api(outer: Router, api: Router) -> Router {
-    Router::nest(outer, "/api", api)
+async fn strip_api_prefix(
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if let Some(path) = req.uri().path().strip_prefix("/api") {
+        if path.is_empty() || path.starts_with('/') {
+            let path = if path.is_empty() { "/" } else { path };
+            let path_and_query = match req.uri().query() {
+                Some(query) => format!("{path}?{query}"),
+                None => path.to_owned(),
+            };
+            *req.uri_mut() = path_and_query
+                .parse()
+                .expect("/api を剥がした URI は正しい形");
+        }
+    }
+    next.run(req).await
 }
 
 fn api_router(app: App) -> Router {
@@ -4309,11 +4323,6 @@ fn api_router(app: App) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             web_session::refresh_cookie,
-        ))
-        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
-        .layer(SetResponseHeaderLayer::overriding(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-store"),
         ))
         .with_state(app);
 
