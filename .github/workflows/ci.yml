@@ -51,7 +51,7 @@ jobs:
           has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
           has '^(crates/|Cargo\.)|^\.github/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
           # 組み立ての印の作り方（ST49 / design D5・D6）。触ったときだけ本物の組み立てで印を見る（review/code.md R23）
-          has '^(crates/build-stamp/|crates/server/build\.rs|crates/collector-windows/build\.rs|collector-android/app/build\.gradle\.kts|tools/check-build-stamp\.sh|Cargo\.)|^\.github/' && echo "stamp=true" >> "$GITHUB_OUTPUT" || echo "stamp=false" >> "$GITHUB_OUTPUT"
+          has '^(crates/build-stamp/|crates/server/build\.rs|crates/collector-windows/build\.rs|collector-android/app/build\.gradle\.kts|web/build-stamp\.ts|web/vite\.config\.ts|tools/release/|tools/check-build-stamp\.sh|Cargo\.)|^\.github/' && echo "stamp=true" >> "$GITHUB_OUTPUT" || echo "stamp=false" >> "$GITHUB_OUTPUT"
           echo "--- 判定 ---"; cat "$GITHUB_OUTPUT"
 
   rust:
@@ -154,6 +154,7 @@ jobs:
       - run: ./tools/check-build-stamp.sh server
       - run: ./tools/check-build-stamp.sh windows
       - run: ./tools/check-build-stamp.sh android
+      - run: ./tools/check-build-stamp.sh release
 
   # C-02 の**実行時テスト**（ST07 design D25 / 2026-09-14）。windows-latest は対話セッションで動くので、
   # テストが自分で窓（WinForms / Edge）を出し、本物の前景・入力・アドレスバーを読ませて記録を数える。
@@ -376,6 +377,8 @@ jobs:
       # CH03: 試験が一時フォルダを手で作る書き方（落ちた試験の後に残り /tmp を埋める）が無いこと
       - run: ./tools/check-tmp-hygiene.sh --self-test
       - run: ./tools/check-tmp-hygiene.sh
+      - run: ./tools/check-version.sh --self-test
+      - run: ./tools/check-version.sh
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる

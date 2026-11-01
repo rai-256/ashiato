@@ -19,6 +19,49 @@ val localProps = Properties().apply {
 fun credential(name: String): String =
     (project.findProperty(name) as String?) ?: localProps.getProperty(name, "")
 
+private data class ParsedBuildVersion(val major: Int, val minor: Int, val patch: Int, val suffix: String?)
+
+private fun parseBuildVersion(value: String): ParsedBuildVersion {
+    val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-8]\\d|dev\\.\\d{8}))?$").matchEntire(value)
+        ?: throw GradleException("版番号の形が違う: $value")
+    return ParsedBuildVersion(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt(), match.groupValues[4].ifEmpty { null })
+}
+
+private fun versionCodeFor(value: String): Int {
+    val parsed = parseBuildVersion(value)
+    if (parsed.minor > 99) throw GradleException("MINOR が上限を超えた: ${parsed.minor}")
+    if (parsed.patch > 99) throw GradleException("PATCH が上限を超えた: ${parsed.patch}")
+    val tail = when {
+        parsed.suffix == null -> 99
+        parsed.suffix.startsWith("-dev.") -> 0
+        else -> parsed.suffix.removePrefix("-beta.").toInt()
+    }
+    return parsed.major * 1_000_000 + parsed.minor * 10_000 + parsed.patch * 100 + tail
+}
+
+private fun sourceVersionFrom(cargoToml: String): String =
+    Regex("(?ms)^\\[workspace\\.package\\].*?^version\\s*=\\s*\"([^\"]+)\"").find(cargoToml)?.groupValues?.get(1)
+        ?: throw GradleException("Cargo.toml の [workspace.package] version が無い")
+
+val cargoToml = providers.fileContents(rootProject.layout.projectDirectory.file("../Cargo.toml")).asText
+val sourceVersion = cargoToml.map { text -> sourceVersionFrom(text) }
+val buildVersionProvider = providers.environmentVariable("ASHIATO_BUILD_VERSION").orElse("")
+val buildVersionInput = buildVersionProvider.get().trim()
+val resolvedBuildVersion = if (buildVersionInput.isEmpty()) {
+    sourceVersion.get()
+} else {
+    val source = sourceVersion.get()
+    val sourceParsed = parseBuildVersion(source)
+    val givenParsed = parseBuildVersion(buildVersionInput)
+    if (sourceParsed.major != givenParsed.major || sourceParsed.minor != givenParsed.minor || sourceParsed.patch != givenParsed.patch) {
+        throw GradleException("版番号の出所が一致しない: 出所 $source、渡した版番号 $buildVersionInput")
+    }
+    buildVersionInput
+}
+/* Keep the environment provider in the configuration inputs even when its value is empty. */
+providers.environmentVariable("ASHIATO_BUILD_VERSION")
+val resolvedVersionCode = versionCodeFor(resolvedBuildVersion)
+
 // **Robolectric の android-all を Gradle が取る**（CH03。`tools/tmp-leak-check.sh android` が CI で落ちた）。
 // Robolectric が自分で取ると（`MavenArtifactFetcher`）、試験の JVM の `java.io.tmpdir` に数字だけの名前の
 // staging のフォルダ（Guava `Files.createTempDir`）を SDK ごとに作り、中身ごと残す（`deleteOnExit` は空でない
@@ -49,8 +92,9 @@ android {
         applicationId = "dev.ashiato.collector"
         minSdk = 30          // Health Connect と scoped storage の前提
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = resolvedVersionCode
+        versionName = resolvedBuildVersion
+        applicationIdSuffix = if (resolvedBuildVersion.contains("-dev.")) ".dev" else null
 
         // 接続先と資格情報は**コミットしない**（製造準備 A-2）。
         // ~/.gradle/gradle.properties か -P で渡す。既定は空で、空のまま動かすと送信は行われない。
@@ -105,6 +149,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = if (System.getenv("ASHIATO_APK_UNSIGNED") == "1") {
+                null
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
     }
 }
 
@@ -209,7 +262,7 @@ val buildCommit: Provider<String> = providers.environmentVariable("ASHIATO_BUILD
     .map { it.trim() }
     .filter { it.isNotEmpty() }
     .orElse(gitOutput("rev-parse", "HEAD").map { Regex("^[0-9a-f]{40}$").matchEntire(it)?.value ?: "unknown" })
-val buildDirty: Provider<Boolean> = gitOutput("status", "--porcelain", "--", "collector-android").map { it.isNotEmpty() }
+val buildDirty: Provider<Boolean> = gitOutput("status", "--porcelain", "--", "collector-android", "Cargo.toml").map { it.isNotEmpty() }
 // 構成キャッシュは script の参照を持てないので、値は引数で渡す（lambda から `android` を読まない）
 fun componentVersion(versionName: String, isDebug: Boolean): Provider<String> =
     buildCommit.zip(buildDirty) { commit, dirty ->
@@ -219,7 +272,7 @@ fun componentVersion(versionName: String, isDebug: Boolean): Provider<String> =
 androidComponents {
     onVariants { variant ->
         // release の variant だけ `.debug` を付けない
-        val stamp = componentVersion(android.defaultConfig.versionName.orEmpty(), isDebug = variant.buildType != "release")
+        val stamp = componentVersion(resolvedBuildVersion, isDebug = variant.buildType != "release")
         variant.buildConfigFields?.put(
             "COMPONENT_VERSION",
             stamp.map { com.android.build.api.variant.BuildConfigField("String", "\"$it\"", "組み立ての印（ST49）") },
@@ -228,6 +281,20 @@ androidComponents {
             generateNetworkSecurityConfig,
             GenerateNetworkSecurityConfig::outputDir,
         )
+    }
+}
+
+tasks.register("verifyVersionCodeTable") {
+    inputs.file(rootProject.file("../tools/release/version-table.tsv"))
+    doLast {
+        rootProject.file("../tools/release/version-table.tsv").useLines { lines ->
+            lines.map(String::trim).filter { it.isNotEmpty() && !it.startsWith("#") }.forEach { line ->
+                val columns = line.split(Regex("\\s+"))
+                if (columns.size != 2 || versionCodeFor(columns[0]).toString() != columns[1]) {
+                    throw GradleException("version-table.tsv の計算結果が違う: $line")
+                }
+            }
+        }
     }
 }
 

@@ -19,7 +19,7 @@ function fakeGit(opts: { head?: string | Error; status?: string | Error }): Git 
 }
 
 describe("web build stamp", () => {
-  const base = { version: "0.1.0", env: {} };
+  const base = { cargoToml: '[workspace.package]\nversion = "0.1.0"\n', env: {} };
 
   it("clean production: no suffix", () => {
     const s = webBuildStamp({ ...base, production: true, git: fakeGit({ head: `${HEAD}\n`, status: "" }) });
@@ -27,8 +27,9 @@ describe("web build stamp", () => {
     expect(s).toMatch(STAMP);
   });
 
-  it("uncommitted change of web/ adds .dirty, then .debug when not production", () => {
-    const s = webBuildStamp({ ...base, production: false, git: fakeGit({ head: HEAD, status: " M web/src/App.tsx\n" }) });
+  // Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ
+  it("uncommitted source-of-truth change adds .dirty", () => {
+    const s = webBuildStamp({ ...base, production: false, git: fakeGit({ head: HEAD, status: " M Cargo.toml\n" }) });
     expect(s).toBe(`0.1.0+${HEAD}.dirty.debug`);
     expect(s).toMatch(STAMP);
   });
@@ -51,13 +52,33 @@ describe("web build stamp", () => {
 
   it("ASHIATO_BUILD_COMMIT wins over git", () => {
     const env = { ASHIATO_BUILD_COMMIT: "f".repeat(40) };
-    const s = webBuildStamp({ version: "0.1.0", env, production: true, git: fakeGit({ head: HEAD, status: "" }) });
+    const s = webBuildStamp({ ...base, env, production: true, git: fakeGit({ head: HEAD, status: "" }) });
     expect(s).toBe(`0.1.0+${"f".repeat(40)}`);
   });
 
   it("an empty ASHIATO_BUILD_COMMIT falls through to git", () => {
-    const s = webBuildStamp({ version: "0.1.0", env: { ASHIATO_BUILD_COMMIT: "" }, production: true, git: fakeGit({ head: HEAD, status: "" }) });
+    const s = webBuildStamp({ ...base, env: { ASHIATO_BUILD_COMMIT: "" }, production: true, git: fakeGit({ head: HEAD, status: "" }) });
     expect(s).toBe(`0.1.0+${HEAD}`);
+  });
+
+  // Scenario: 携帯と画面の印の版番号も、根の出所の版から読む
+  it("reads the version from the workspace Cargo.toml", () => {
+    const s = webBuildStamp({
+      cargoToml: '[workspace.package]\nversion = "0.9.0"\n',
+      production: true,
+      git: fakeGit({ head: HEAD, status: "" }),
+    });
+    expect(s).toBe(`0.9.0+${HEAD}`);
+  });
+
+  it("ASHIATO_BUILD_VERSION accepts a matching prerelease", () => {
+    const s = webBuildStamp({
+      ...base,
+      env: { ASHIATO_BUILD_VERSION: "0.1.0-beta.2" },
+      production: true,
+      git: fakeGit({ head: HEAD, status: "" }),
+    });
+    expect(s).toBe(`0.1.0-beta.2+${HEAD}`);
   });
 });
 

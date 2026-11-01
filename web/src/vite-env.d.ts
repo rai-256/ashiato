@@ -10,3 +10,7 @@ declare module "node:child_process" {
     options: { encoding: "utf8"; stdio: string[]; env: Record<string, string | undefined> },
   ): string;
 }
+
+declare module "node:fs" {
+  export function readFileSync(path: string | URL, encoding: "utf8"): string;
+}

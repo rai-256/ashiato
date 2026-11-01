@@ -7,7 +7,7 @@
 #           環境変数 ASHIATO_BUILD_COMMIT が git の HEAD より先に使われることも見る（design D5）
 # 各節の終わりで「部品のソースの道」（design D5）も本物の組み立てで見る: ほかの部品の木だけの変更は .dirty にせず、
 # 部品の道の別の場所（S-01 の migrations/・crates/build-stamp、C-02 の crates/build-stamp）の変更は .dirty にする（review/code.md R16）
-# 版番号は決め打ちしない: Rust の 2 つは Cargo.toml の [workspace.package] の version、C-01 は build.gradle.kts の versionName と比べる
+# 版番号は決め打ちしない: 4 つとも Cargo.toml の [workspace.package] の version と比べる
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -16,7 +16,7 @@ section="${1:-}"
 STAMP_RE='[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?'
 
 case "$section" in
-  tool | server | windows | android) ;;
+  tool | server | windows | android | release) ;;
   *) echo "usage: $0 tool|server|windows|android（節が無い: '$section'）"; exit 2;;
 esac
 
@@ -111,9 +111,8 @@ fi
 if [ "$section" = android ]; then
   clone="$work/clone"
   git clone -q --local --no-hardlinks "$root" "$clone"
-  # 宣言した版番号（build.gradle.kts の versionName）
-  av="$(sed -n 's/^ *versionName *= *"\([^"]*\)".*/\1/p' collector-android/app/build.gradle.kts | head -n1)"
-  [ -n "$av" ] || fail "collector-android/app/build.gradle.kts に versionName が無い"
+  # 宣言した版番号（根の Cargo.toml）
+  av="$cargo_version"
   # 使い捨ての木の中の gradle。構成キャッシュとビルドキャッシュを付けても、印が古いまま残らないことを見る
   android_stamps() { # <ラベル> -> "<debug> <release>"
     (cd "$clone/collector-android" && ./gradlew -q --configuration-cache --build-cache :app:generateDebugBuildConfig :app:generateReleaseBuildConfig >&2) \
@@ -167,6 +166,32 @@ if [ "$section" = android ]; then
   got="$(android_stamps ほかの部品の変更後の組み立て)" || exit 1
   read -r dd _ <<<"$got"
   case "$dd" in "$av+$head_c.debug") echo "OK: crates/server の変更 -> $dd";; *) fail "ほかの部品（crates/server）の変更で印が変わった: $dd";; esac
+  exit 0
+fi
+
+# release は 4 部品を同じ出所・同じ ASHIATO_BUILD_VERSION で組み立てる入口。
+if [ "$section" = release ]; then
+  clone="$work/clone"
+  git clone -q --local --no-hardlinks "$root" "$clone"
+  expected_version="$cargo_version"
+  if [ -n "${ASHIATO_BUILD_VERSION:-}" ]; then
+    expected_version="$ASHIATO_BUILD_VERSION"
+    (cd "$root" && tools/release/version.sh check "$expected_version" >/dev/null)
+  fi
+  head="$(git -C "$clone" rev-parse HEAD)"
+  (cd "$clone/web" && NPM_CONFIG_CACHE="$work/npm-cache" npm ci --ignore-scripts >/dev/null && npm run build >/dev/null)
+  (cd "$clone" && cargo build -q --release -p ashiato-server --bin ashiato-server)
+  (cd "$clone" && cargo build -q --release -p ashiato-collector-windows)
+  (cd "$clone/collector-android" && ./gradlew -q :app:assembleRelease)
+  grep -R -Fq "$expected_version+$head" "$clone/web/dist" || fail "画面の release 印を読めない"
+  apk="$(find "$clone/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"
+  "$root/tools/release/check-artifacts.sh" apk-version "$apk" | grep -Fq "versionName='$expected_version'" || fail "携帯の release 版番号を読めない"
+  echo "== Scenario: 渡した版番号は、4 つの部品の印に同じ値で入り、印は .dirty を持たない"
+  echo "== Scenario: 版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ"
+  echo "== Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する"
+  echo "== Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する"
+  echo "== Scenario: 携帯と画面の印の版番号も、根の出所の版から読む"
+  echo "== Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ"
   exit 0
 fi
 

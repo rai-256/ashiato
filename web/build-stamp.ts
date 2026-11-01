@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 /**
  * 画面（V-01）の組み立ての印（ST49 / design D5・D6）。`<版番号>+<commit 40 桁|unknown>[.dirty][.debug]`。
@@ -9,7 +10,7 @@ import { execFileSync } from "node:child_process";
 declare const process: { env: Record<string, string | undefined> };
 
 /** この部品のソースの道（リポジトリの根から。cwd に依らない pathspec）。 */
-const SOURCE_PATH = ":/web";
+const SOURCE_PATHS = [":/web", ":/Cargo.toml"];
 
 /** git を呼ぶ関数。引数を渡して標準出力を返し、失敗したら投げる。試験は偽のものを渡す。 */
 export type Git = (args: string[]) => string;
@@ -23,12 +24,34 @@ export const execGit: Git = (args) =>
   });
 
 export interface StampInput {
-  /** `web/package.json` の `version` */
-  version: string;
+  /** 根の Cargo.toml の内容。未指定時はリポジトリのファイルを読む。 */
+  cargoToml?: string;
   /** `vite build`（production）だけ `.debug` を付けない */
   production: boolean;
   git?: Git;
   env?: Record<string, string | undefined>;
+}
+
+function sourceVersion(cargoToml: string): string {
+  const match = /^\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(cargoToml);
+  if (!match?.[1]) throw new Error("Cargo.toml の [workspace.package] version が無い");
+  return match[1];
+}
+
+function versionShape(value: string): { base: string } | undefined {
+  const match = /^(\d+\.\d+\.\d+)(?:-beta\.([1-9]|[1-8]\d)|-dev\.\d{8})?$/.exec(value);
+  return match ? { base: match[1] } : undefined;
+}
+
+function resolvedVersion(source: string, env: Record<string, string | undefined>): string {
+  const sourceParsed = versionShape(source);
+  if (!sourceParsed) throw new Error(`Cargo.toml の版番号が不正: ${source}`);
+  const given = env.ASHIATO_BUILD_VERSION?.trim();
+  if (!given) return source;
+  const givenParsed = versionShape(given);
+  if (!givenParsed) throw new Error(`ASHIATO_BUILD_VERSION の形が不正: ${given}`);
+  if (givenParsed.base !== sourceParsed.base) throw new Error(`版番号の出所が一致しない: 出所 ${source}、渡した版番号 ${given}`);
+  return given;
 }
 
 /** commit の出所は環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`。 */
@@ -45,13 +68,15 @@ function commitOf(git: Git, env: Record<string, string | undefined>): string {
 
 function isDirty(git: Git): boolean {
   try {
-    return git(["status", "--porcelain", "--", SOURCE_PATH]).trim() !== "";
+    return SOURCE_PATHS.some((path) => git(["status", "--porcelain", "--", path]).trim() !== "");
   } catch {
     return false;
   }
 }
 
-export function webBuildStamp({ version, production, git = execGit, env = process.env }: StampInput): string {
+export function webBuildStamp({ cargoToml, production, git = execGit, env = process.env }: StampInput): string {
+  const source = cargoToml ?? readFileSync(new URL("../Cargo.toml", import.meta.url), "utf8");
+  const version = resolvedVersion(sourceVersion(source), env);
   const commit = commitOf(git, env);
   return `${version}+${commit}${isDirty(git) ? ".dirty" : ""}${production ? "" : ".debug"}`;
 }
