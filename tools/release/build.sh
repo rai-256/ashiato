@@ -5,13 +5,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
 usage() { echo "使い方: $0 <server-linux|server-windows|collector-windows|apk> <出力の置き場>|--self-test" >&2; exit 2; }
 
-version="${ASHIATO_BUILD_VERSION:-}"
-if [[ -n "$version" ]]; then
-  "$root/tools/release/version.sh" check "$version" >/dev/null
-fi
-version="${version:-$($root/tools/release/version.sh source)}"
+version=""
 out=""
 web_dist=""
+
+resolve_version() {
+  version="${ASHIATO_BUILD_VERSION:-}"
+  if [[ -n "$version" ]]; then
+    "$root/tools/release/version.sh" check "$version" >/dev/null
+  else
+    version="$($root/tools/release/version.sh source)"
+  fi
+}
 
 build_web() {
   web_dist="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-web.XXXXXX")"
@@ -28,20 +33,24 @@ cleanup_build_tmp() {
 build_server() {
   local target="${1:-}" binary="ashiato-server"
   build_web
-  if [[ -n "$target" ]]; then
+  if [[ -n "$target" && "$target" != native ]]; then
     cargo_args=(--target "$target")
-    binary+=".exe"
   else
     cargo_args=()
+  fi
+  if [[ -n "$target" ]]; then
+    binary+=".exe"
   fi
   (cd "$root" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 ASHIATO_WEB_DIST="$web_dist" \
     cargo build --release -p ashiato-server --bin ashiato-server "${cargo_args[@]}")
   mkdir -p "$out"
   local target_dir="${CARGO_TARGET_DIR:-$root/target}"
-  local src="$target_dir/${target:+$target/}release/$binary"
+  local target_dir_name="${target:+$target/}"
+  [[ "$target" == native ]] && target_dir_name=""
+  local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "サーバの実行ファイルが無い: $src"
-  if [[ "$target" == *windows* ]]; then
-    (cd "$(dirname "$src")" && zip -q -j "$out/ashiato-server-$version-windows-x86_64.zip" "$binary")
+  if [[ "$target" == *windows* || "$binary" == *.exe ]]; then
+    archive_windows "$out/ashiato-server-$version-windows-x86_64.zip" "$src"
   else
     tar -czf "$out/ashiato-server-$version-linux-x86_64.tar.gz" -C "$(dirname "$src")" "$binary"
   fi
@@ -50,24 +59,54 @@ build_server() {
 
 build_collector() {
   local target="${1:-}" binary="ashiato-collector-windows"
-  if [[ -n "$target" ]]; then
+  if [[ -n "$target" && "$target" != native ]]; then
     cargo_args=(--target "$target")
-    binary+=".exe"
   else
     cargo_args=()
   fi
+  [[ -n "$target" ]] && binary+=".exe"
   (cd "$root" && ASHIATO_BUILD_VERSION="$version" cargo build --release -p ashiato-collector-windows "${cargo_args[@]}")
   mkdir -p "$out"
   local target_dir="${CARGO_TARGET_DIR:-$root/target}"
-  local src="$target_dir/${target:+$target/}release/$binary"
+  local target_dir_name="${target:+$target/}"
+  [[ "$target" == native ]] && target_dir_name=""
+  local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "PC の収集アプリが無い: $src"
-  (cd "$(dirname "$src")" && zip -q -j "$out/ashiato-collector-windows-$version-x86_64.zip" "$binary")
+  archive_windows "$out/ashiato-collector-windows-$version-x86_64.zip" "$src"
+}
+
+archive_windows() {
+  local archive="$1" file="$2"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$(dirname "$file")" && zip -q -j "$archive" "$(basename "$file")")
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    local ps_file="$file" ps_archive="$archive"
+    command -v cygpath >/dev/null 2>&1 && ps_file="$(cygpath -w "$file")" && ps_archive="$(cygpath -w "$archive")"
+    powershell.exe -NoProfile -NonInteractive -Command \
+      "Compress-Archive -LiteralPath '$ps_file' -DestinationPath '$ps_archive' -Force"
+  elif command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -NonInteractive -Command \
+      "Compress-Archive -LiteralPath '$file' -DestinationPath '$archive' -Force"
+  else
+    die "Windows の zip を作る道具が無い（zip / PowerShell）"
+  fi
+}
+
+windows_target() {
+  # Windows runner は native cargo が .exe を出す。WSL 等の Linux runner は
+  # 呼び出し側が指定した cross target を使う（既定は GNU toolchain）。
+  if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* || "${OS:-}" == Windows_NT ]]; then
+    printf '%s' native
+  else
+    printf '%s' "${ASHIATO_WINDOWS_TARGET:-x86_64-pc-windows-gnu}"
+  fi
 }
 
 build_apk() {
   mkdir -p "$out"
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 \
-    ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q :app:assembleRelease)
+    ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+      -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleRelease)
   local apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
   [[ -f "$apk" ]] || die "APK が無い: $apk"
   cp "$apk" "$out/ashiato-collector-$version.apk"
@@ -79,8 +118,8 @@ build_one() {
   mkdir -p "$out"
   case "$kind" in
     server-linux) build_server "" ;;
-    server-windows) build_server "x86_64-pc-windows-gnu" ;;
-    collector-windows) build_collector "x86_64-pc-windows-gnu" ;;
+    server-windows) build_server "$(windows_target)" ;;
+    collector-windows) build_collector "$(windows_target)" ;;
     apk) build_apk ;;
     *) usage ;;
   esac
@@ -90,9 +129,10 @@ self_test() {
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/release-build.XXXXXX")"
   trap 'rm -rf "$work"' RETURN
+  resolve_version
   echo "== Scenario: release の組み立ては、画面を取り込んだ Linux サーバと APK を作る"
-  ASHIATO_BUILD_VERSION="0.1.0" build_one server-linux "$work/out"
-  ASHIATO_BUILD_VERSION="0.1.0" build_one apk "$work/out"
+  ASHIATO_BUILD_VERSION="0.1.0" "$0" server-linux "$work/out"
+  ASHIATO_BUILD_VERSION="0.1.0" "$0" apk "$work/out"
   [[ -s "$work/out/ashiato-server-0.1.0-linux-x86_64.tar.gz" ]]
   [[ -s "$work/out/ashiato-collector-0.1.0.apk" ]]
   tar -tzf "$work/out/ashiato-server-0.1.0-linux-x86_64.tar.gz" | grep -Fxq ashiato-server
@@ -101,4 +141,5 @@ self_test() {
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
 [[ $# == 2 ]] || usage
+resolve_version
 build_one "$1" "$2"
