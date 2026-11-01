@@ -191,5 +191,5 @@
 - [ ] 12.1 **下書きのリリース**（D16・P16）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を走らせ、作る前と後で `git ls-remote --tags origin 'v*' | wc -l` が同じこと、下書きに 4 つの配布物が並び先行公開の印が付いていることを見る。見た後に下書きを消す。
   印が増えたら、その印を消さずに止めて上流へ返す（ルールセットはまだ無い）。P16 の確かさを 4 にする
 - [ ] 12.2 **Environment の守り**（P12・D21（仮））: 使い捨ての Environment `st52-probe`（配る対象: 枝 `main` だけ）に使い捨ての Secret を置き、PR の枝から読もうとする workflow を 1 回だけ走らせて読めないことを見て、Environment を消す。P12 の確かさを 4 にする。読めたら鍵を置かず、Q2 を人間に聞き直す
-- [ ] 12.3 **ルールセットの読み**（D2（仮））: `tools/release/check-guards.sh rules --repo rai-256/ashiato2`（ルールセットの一覧と詳細を読む。印の名前は要らない。final review R4）を、Actions の `GITHUB_TOKEN` 相当の読みの権限で走らせ、規則が無いことを読めるか（rc≠0 で「規則が無い」と出るか、権限で読めないか）を見る。読めなければ D2 の反転条件で上流へ返す。結果を P18 として書く
+- [ ] 12.3 **ルールセットの読み**（D2（仮））: `tools/release/check-guards.sh rules --repo rai-256/ashiato2` を、Actions の `GITHUB_TOKEN` 相当の読みの権限で走らせ、規則が無いことを読めるか（rc≠0 で「規則が無い」と出るか、権限で読めないか）を見る。読めなければ D2 の反転条件で上流へ返す。結果を P18 として書く
 - [ ] 12.4 **手順書**: `docs/release.md` を読み、鍵を作る・Environment とルールセットを入れる手順が、本人の手元でそのまま進められること（入れるのは ST53 の後の最初の印の前。ST52 の確認では入れなくてよい）
