@@ -178,7 +178,7 @@
 
 ## Task 11: 手順書と申し送り
 
-- [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
+- [x] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
   最初の印を main の commit に打つ・開発版の公開を始める（`ASHIATO_NIGHTLY_PUBLISH`）・壊れた版は次の版で直す・修正の枝の切り方と消し方・本人の環境を移す（D4）・
   正式版を出した後に出所の版を次の版に上げる（Q6 の推奨。開発版が出したばかりの正式版より古く見えないように）・確認バッチの確かめの手順（下の「人間の確認待ち」のコマンド）。`docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「出所は `Cargo.toml` の workspace の `version`。ほかは読む（ST52）」と書く。
   `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22・Q13。本物の公開・正式な鍵での署名・本人のサーバの切り替え））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
