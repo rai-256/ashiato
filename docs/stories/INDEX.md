@@ -88,7 +88,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 | capability | 何の能力か | 積む Story |
 |---|---|---|
-| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST49, ST50 |
+| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST49, ST50, ST52 |
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST51, ST56 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST51, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
@@ -490,3 +490,9 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   ST51 の表題・価値・完了の判定を直し、版を記録に付ける版と同じ形で比べるので requires に ST49 を足した（C1 / C3）
 > - 扉 33 の期限を扉 32 と同じ「配布の経路に切り替える日」にし、ST52 の requires に ST51 を足した（C4）。layer は ST51〜ST58 が 1 つずつ後ろへずれる。
 >   上の 2026-10-25 の「ST58（更新を入れる）の前に ST51（扉 #33）」は当時の組み方
+
+> **訂正（2026-11-01、ST52 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `record-envelope` に ST52 を足した。ST49 の「組み立ての印は、版番号・commit・…を持ち、組み立てのたびに作り直す」の版番号を 1 つの出所（`Cargo.toml` の workspace の `version`）と組み立ての時に渡す版番号から決めるように、
+>   ST50 の「封筒の形が変わったのに送信契約の版が上がっていなければ CI が落ちる」の「最後の配った印」を今の木の祖先の印のうち版番号の最も大きいものに、それぞれ MODIFIED する
+>   （申し送り `docs/handoff/ST52.md` の「出所を 1 つにしたら、そこから読むように替える」「型を変えるなら一緒に変える」）。後続の振る舞いの前倒しではない
