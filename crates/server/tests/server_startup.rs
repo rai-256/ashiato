@@ -27,7 +27,7 @@ struct CustomServerBinary {
 fn custom_server_binary() -> CustomServerBinary {
     let target = tempfile::tempdir().unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let version = format!("{}-beta.2", env!("CARGO_PKG_VERSION"));
+    let version = custom_server_version();
     let build = Command::new("cargo")
         .args([
             "build",
@@ -51,6 +51,10 @@ fn custom_server_binary() -> CustomServerBinary {
         path: target.path().join("debug/ashiato-server"),
         _target: target,
     }
+}
+
+fn custom_server_version() -> String {
+    format!("{}-beta.2", env!("CARGO_PKG_VERSION"))
 }
 
 /// URL の `@<host>:<port>/` の port を、この worktree の DB のものに差し替える。
@@ -1062,7 +1066,8 @@ mod st48_migrate {
                 .await
                 .unwrap();
         assert!(!versions.is_empty());
-        assert!(versions.iter().all(|v| v == "0.1.0-beta.2"), "{versions:?}");
+        let expected = custom_server_version();
+        assert!(versions.iter().all(|v| v == &expected), "{versions:?}");
     }
 
     // Scenario: 渡した版番号で組んだサーバが知らない版で止まると、self の行は渡した版番号を持つ
@@ -1073,7 +1078,10 @@ mod st48_migrate {
         assert_ok(&rig.migrate_custom_version(&custom.path));
         rig.add_future_row().await;
         let err = assert_refused_3(&rig.serve_custom_on_held_port(&custom.path), "db_ahead");
-        assert!(err.contains("  self: 0.1.0-beta.2 "), "{err}");
+        assert!(
+            err.contains(&format!("  self: {} ", custom_server_version())),
+            "{err}"
+        );
     }
 
     // Scenario: 渡した版番号で組んだサーバの更新の履歴の今の版は、渡した版番号で始まる
@@ -1088,7 +1096,10 @@ mod st48_migrate {
         .fetch_one(rig.db.owner())
         .await
         .unwrap();
-        assert!(current.starts_with("0.1.0-beta.2+"), "{current}");
+        assert!(
+            current.starts_with(&format!("{}+", custom_server_version())),
+            "{current}"
+        );
     }
 
     // Scenario: 新しい版で当てた DB に古い版のサーバを起動すると、起動しない

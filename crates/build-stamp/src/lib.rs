@@ -298,16 +298,22 @@ mod tests {
 
     #[test]
     fn st52_version_given_version_starts_stamp_version() {
+        // Scenario: 版番号を渡した組み立ての印は、渡した版番号で始まる
+        let (d, head) = tree();
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::env::set_var(VERSION_ENV, "0.1.0-beta.2");
-        assert_eq!(version("0.1.0").unwrap(), "0.1.0-beta.2");
+        let given = "0.1.0-beta.2";
+        std::env::set_var(VERSION_ENV, given);
+        let resolved = version("0.1.0").unwrap();
+        let stamp = stamp(&resolved, "release", d.path(), &[]);
         std::env::remove_var(VERSION_ENV);
+        assert_eq!(stamp, format!("{given}+{head}"));
     }
 
     #[test]
     fn st52_version_rejects_different_source_version() {
+        // Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -320,10 +326,16 @@ mod tests {
 
     #[test]
     fn st52_version_rejects_invalid_shapes() {
+        // Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for given in ["0.1", "0.1.0-beta.0", "0.1.0-beta.99", "0.1.0-dev.202611"] {
+        for given in [
+            "0.1.0-rc.1",
+            "0.1.0-beta.99",
+            "0.1.0-beta.0",
+            "0.1.0-dev.2026111",
+        ] {
             std::env::set_var(VERSION_ENV, given);
             let error = version("0.1.0").unwrap_err();
             assert!(error.contains("0.1.0"), "{given}: {error}");
