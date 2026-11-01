@@ -51,11 +51,11 @@
 
 ## Task 2: 版の出所を 1 つにする（Rust の 2 部品と版の記録）
 
-- [ ] 2.1 `crates/build-stamp` に `version(source)`（D12）を足す。`ASHIATO_BUILD_VERSION` が空でなければ形（`<出所の版>`・`-beta.<1〜98>`・`-dev.<8 桁>`）と出所との一致を見て返し、違えば `Err`（出所の版と渡した版番号の両方を含む文）。
+- [x] 2.1 `crates/build-stamp` に `version(source)`（D12）を足す。`ASHIATO_BUILD_VERSION` が空でなければ形（`<出所の版>`・`-beta.<1〜98>`・`-dev.<8 桁>`）と出所との一致を見て返し、違えば `Err`（出所の版と渡した版番号の両方を含む文）。
   `rerun_lines` に `cargo:rerun-if-env-changed=ASHIATO_BUILD_VERSION` を足す。試験（`crates/build-stamp/src/lib.rs` の `#[cfg(test)]`、名前は `st52_`）:
   `// Scenario: 版番号を渡した組み立ての印は、渡した版番号で始まる`・`// Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する`（関数の段）・`// Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する`（関数の段。4 つの値を全部）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-build-stamp st52_ && test "$(cargo test -p ashiato-build-stamp st52_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
-- [ ] 2.2 `crates/server/build.rs` と `crates/collector-windows/build.rs` を `version(env!("CARGO_PKG_VERSION"))` の結果で印を組むように替え、`Err` なら `panic!`、`cargo:rustc-env=ASHIATO_VERSION=<版番号>` を出す。
+- [x] 2.2 `crates/server/build.rs` と `crates/collector-windows/build.rs` を `version(env!("CARGO_PKG_VERSION"))` の結果で印を組むように替え、`Err` なら `panic!`、`cargo:rustc-env=ASHIATO_VERSION=<版番号>` を出す。
   `migration_ledger::BUILD_VERSION` を `env!("ASHIATO_VERSION")` にする。`db_ahead` の `self:` の行と更新の履歴（ST51）は印と `BUILD_VERSION` を読むので、そのまま同じ版番号になる。
   `crates/server/tests/server_startup.rs` に、`ASHIATO_BUILD_VERSION=<出所>-beta.2` で組んだ bin を使う 3 本:
   `st52_bin_ledger_build_version`（`// Scenario: 渡した版番号で組んだサーバの版の記録は、渡した版番号を持つ`）・`st52_bin_db_ahead_self`（`// Scenario: 渡した版番号で組んだサーバが知らない版で止まると、self の行は渡した版番号を持つ`）・
