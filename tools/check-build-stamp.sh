@@ -38,6 +38,13 @@ rust_stamp_re="$(re_quote "$cargo_version")\+([0-9a-f]{40}|unknown)(\.dirty)?(\.
 need_shape() { # <ラベル> <印>
   printf '%s' "$2" | grep -Eq "^${STAMP_RE}\$" || fail "$1: 印の形が違う: '$2'"
 }
+exact_stamp_in() { # <ラベル> <正規表現> <ファイルまたはディレクトリ>
+  local label="$1" pattern="$2" path="$3" stamps count
+  stamps="$(grep -RhoE "$pattern" "$path" 2>/dev/null | sort -u || true)"
+  count="$(printf '%s\n' "$stamps" | grep -c . || true)"
+  [ "$count" = 1 ] || fail "$label: 印が $count 個: $stamps"
+  printf '%s' "$stamps"
+}
 
 if [ "$section" = tool ]; then
   mkdir -p "$work/probe/src"
@@ -184,8 +191,8 @@ if [ "$section" = release ]; then
   (cd "$clone" && cargo build -q --release -p ashiato-server --bin ashiato-server)
   (cd "$clone" && cargo build -q --release -p ashiato-collector-windows)
   (cd "$clone/collector-android" && ./gradlew -q :app:assembleRelease)
-  grep -R -Fq "$expected_version+$head" "$clone/web/dist" || fail "画面の release 印を読めない"
-  ! grep -R -E 'dirty|debug' "$clone/web/dist" >/dev/null || fail "画面の release 印に .dirty または .debug がある"
+  web_stamp="$(exact_stamp_in "画面の release 印" "$release_stamp_re" "$clone/web/dist")"
+  [ "$web_stamp" = "$expected_version+$head" ] || fail "画面の release 印が違う: $web_stamp"
   server_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-server" | grep -Eo "$release_stamp_re" | sort -u)"
   [ "$server_stamp" = "$expected_version+$head" ] || fail "サーバの release 印が違う: $server_stamp"
   windows_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo "$release_stamp_re" | sort -u)"
@@ -194,9 +201,8 @@ if [ "$section" = release ]; then
   apk_info="$($root/tools/release/check-artifacts.sh apk-version "$apk")" || fail "携帯の release 版番号を読めない"
   grep -Fq "versionName='$expected_version'" <<<"$apk_info" || fail "携帯の release 版番号が出所と違う: $apk_info"
   release_build_config="$clone/collector-android/app/build/generated/source/buildConfig/release/dev/ashiato/collector/BuildConfig.java"
-  grep -Fq "${expected_version}+$head\"" "$release_build_config" || fail "携帯の release 印が違う"
-  ! grep -Fq '.dirty' "$release_build_config" || fail "携帯の release 印に .dirty がある"
-  ! grep -Fq '.debug' "$release_build_config" || fail "携帯の release 印に .debug がある"
+  android_stamp="$(exact_stamp_in "携帯の release 印" "$release_stamp_re" "$release_build_config")"
+  [ "$android_stamp" = "$expected_version+$head" ] || fail "携帯の release 印が違う: $android_stamp"
   [ -z "$(git -C "$clone" status --porcelain)" ] || fail "release 組み立て後の git status が空でない"
   echo "== Scenario: 渡した版番号は、4 つの部品の印に同じ値で入り、印は .dirty を持たない"
 
@@ -207,13 +213,18 @@ if [ "$section" = release ]; then
   (cd "$no_env" && env -u ASHIATO_BUILD_VERSION cargo build -q --release -p ashiato-server --bin ashiato-server)
   (cd "$no_env" && env -u ASHIATO_BUILD_VERSION cargo build -q --release -p ashiato-collector-windows)
   (cd "$no_env/collector-android" && env -u ASHIATO_BUILD_VERSION ./gradlew -q :app:assembleRelease)
-  grep -R -Fq "$cargo_version+$no_env_head" "$no_env/web/dist" || fail "env 無しの画面の印が出所と違う"
+  no_env_web="$(exact_stamp_in "env 無しの画面の印" "$(re_quote "$cargo_version")\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?" "$no_env/web/dist")"
+  [ "$no_env_web" = "$cargo_version+$no_env_head" ] || fail "env 無しの画面の印が出所と違う: $no_env_web"
   no_env_server="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-server" | grep -Eo "$rust_stamp_re" | sort -u)"
   [ "$no_env_server" = "$cargo_version+$no_env_head" ] || fail "env 無しのサーバの印が出所と違う: $no_env_server"
   no_env_windows="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo "$rust_stamp_re" | sort -u)"
   [ "$no_env_windows" = "$cargo_version+$no_env_head" ] || fail "env 無しの PC の印が出所と違う: $no_env_windows"
   no_env_apk="$(find "$no_env/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"
-  "$root/tools/release/check-artifacts.sh" apk-version "$no_env_apk" | grep -Fq "versionName='$cargo_version'" || fail "env 無しの携帯の版が出所と違う"
+  no_env_apk_info="$($root/tools/release/check-artifacts.sh apk-version "$no_env_apk")" || fail "env 無しの携帯の版番号を読めない"
+  grep -Fq "versionName='$cargo_version'" <<<"$no_env_apk_info" || fail "env 無しの携帯の版が出所と違う: $no_env_apk_info"
+  no_env_build_config="$no_env/collector-android/app/build/generated/source/buildConfig/release/dev/ashiato/collector/BuildConfig.java"
+  no_env_android="$(exact_stamp_in "env 無しの携帯の印" "$(re_quote "$cargo_version")\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?" "$no_env_build_config")"
+  [ "$no_env_android" = "$cargo_version+$no_env_head" ] || fail "env 無しの携帯の印が出所と違う: $no_env_android"
   echo "== Scenario: 版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ"
 
   if (cd "$clone" && ASHIATO_BUILD_VERSION=0.5.0-beta.1 cargo build -q --release -p ashiato-server --bin ashiato-server); then
@@ -235,9 +246,14 @@ if [ "$section" = release ]; then
   source_head="$(git -C "$source_clone" rev-parse HEAD)"
   (cd "$source_clone/web" && NPM_CONFIG_CACHE="$work/npm-cache-source" npm ci --ignore-scripts >/dev/null && env -u ASHIATO_BUILD_VERSION npm run build >/dev/null)
   (cd "$source_clone/collector-android" && env -u ASHIATO_BUILD_VERSION ./gradlew -q :app:assembleRelease)
-  grep -R -Fq "0.9.0+$source_head" "$source_clone/web/dist" || fail "出所変更後の画面の印が 0.9.0 でない"
+  source_web="$(exact_stamp_in "出所変更後の画面の印" "0\\.9\\.0\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?" "$source_clone/web/dist")"
+  [ "$source_web" = "0.9.0+$source_head" ] || fail "出所変更後の画面の印が 0.9.0 でない: $source_web"
   source_apk="$(find "$source_clone/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"
-  "$root/tools/release/check-artifacts.sh" apk-version "$source_apk" | grep -Fq "versionName='0.9.0'" || fail "出所変更後の携帯の版が 0.9.0 でない"
+  source_apk_info="$($root/tools/release/check-artifacts.sh apk-version "$source_apk")" || fail "出所変更後の携帯の版番号を読めない"
+  grep -Fq "versionName='0.9.0'" <<<"$source_apk_info" || fail "出所変更後の携帯の版が 0.9.0 でない: $source_apk_info"
+  source_build_config="$source_clone/collector-android/app/build/generated/source/buildConfig/release/dev/ashiato/collector/BuildConfig.java"
+  source_android="$(exact_stamp_in "出所変更後の携帯の印" "0\\.9\\.0\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?" "$source_build_config")"
+  [ "$source_android" = "0.9.0+$source_head" ] || fail "出所変更後の携帯の印が 0.9.0 でない: $source_android"
   echo "== Scenario: 携帯と画面の印の版番号も、根の出所の版から読む"
 
   dirty_clone="$work/dirty-source"
@@ -246,9 +262,11 @@ if [ "$section" = release ]; then
   dirty_head="$(git -C "$dirty_clone" rev-parse HEAD)"
   (cd "$dirty_clone/web" && NPM_CONFIG_CACHE="$work/npm-cache-dirty" npm ci --ignore-scripts >/dev/null && env -u ASHIATO_BUILD_VERSION npm run build >/dev/null)
   (cd "$dirty_clone/collector-android" && env -u ASHIATO_BUILD_VERSION ./gradlew -q :app:assembleRelease)
-  grep -R -Fq "0.9.0+$dirty_head.dirty" "$dirty_clone/web/dist" || fail "未 commit の出所変更で画面の印が .dirty でない"
+  dirty_web="$(exact_stamp_in "未 commit の出所変更後の画面の印" "0\\.9\\.0\\+([0-9a-f]{40}|unknown)\\.dirty" "$dirty_clone/web/dist")"
+  [ "$dirty_web" = "0.9.0+$dirty_head.dirty" ] || fail "未 commit の出所変更で画面の印が .dirty でない: $dirty_web"
   dirty_build_config="$dirty_clone/collector-android/app/build/generated/source/buildConfig/release/dev/ashiato/collector/BuildConfig.java"
-  grep -Fq "0.9.0+$dirty_head.dirty" "$dirty_build_config" || fail "未 commit の出所変更で携帯の印が .dirty でない"
+  dirty_android="$(exact_stamp_in "未 commit の出所変更後の携帯の印" "0\\.9\\.0\\+([0-9a-f]{40}|unknown)\\.dirty" "$dirty_build_config")"
+  [ "$dirty_android" = "0.9.0+$dirty_head.dirty" ] || fail "未 commit の出所変更で携帯の印が .dirty でない: $dirty_android"
   echo "== Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ"
   exit 0
 fi

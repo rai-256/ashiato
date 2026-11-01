@@ -71,3 +71,31 @@
 ### Fix round 1 の自己レビュー
 
 4 部品すべてについて、渡した版・env 無しの出所版・未 commit の Cargo.toml による dirty を判定していることを確認した。APK の versionCode は APK 内の versionName から `version.sh code` を通して比較する。今回の変更に関する追加の懸念はない。
+
+## Fix round 2
+
+### 対応した指摘
+
+- F1: `tools/check-build-stamp.sh release` の画面・携帯の印を部分一致から一意な完全な印の抽出へ変更し、env 無し・出所変更後 commit・未 commit の各ケースでも画面と携帯の印を commit/dirty まで判定するようにした。サーバ・PC・APK の既存判定と合わせ、各 Scenario の印を判定後に出力する。
+- F4/F12: Gradle の beta 番号の許容範囲を 1〜89 に戻し、`version.sh` と Web の規則および versionCode の正式版 tail=99 と揃えた。
+
+### 検証
+
+- `bash -n tools/check-build-stamp.sh` / `git diff --check`: PASS。
+- `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable`: rc=0、BUILD SUCCESSFUL。
+- `scripts/quiet-run apk-range -- tools/release/check-artifacts.sh --self-test-gradle-range`: rc=0。
+- `tools/check-version.sh --self-test && tools/check-version.sh`: rc=0。
+- `scripts/quiet-run stamp-release-fix2 -- tools/check-build-stamp.sh release`: rc=0、6つの release Scenario の判定完了。
+- `scripts/quiet-run stamp-android-fix2 -- tools/check-build-stamp.sh android`: rc=0。
+
+### TDD Evidence
+
+既存の self-test / release 検査を回帰テストとして実行した。今回の修正は検査の網羅性と beta 境界の回帰であり、新しい Scenario の追加は不要だった。
+
+### 自己レビュー
+
+変更は指摘された2ファイルに限定した。CI の setup-node 指摘は final review の確認対象として変更していない。
+
+### 追加回帰確認
+
+- `scripts/quiet-run cargo-test-fix2 -- cargo test`: rc=101（1847 passed / 1 failed / 3 ignored）。失敗は今回の変更箇所外の `archive_reparse_persistent_store_failure_is_ledgered_and_throttled` で、PostgreSQL の deadlock (`40P01`) により `unwrap()` が失敗したもの。版検査・build-stamp の対象検証はすべて rc=0 だった。
