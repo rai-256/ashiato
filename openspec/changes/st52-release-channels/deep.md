@@ -68,7 +68,7 @@
 ## 第 2 回（2026-11-01 起票）—— 仮で進めた決定のうち、別の席が否とした 2 件
 
 > merge gate（PR #223）の前に、別の席（`provisional-review.md`）が仮の決定 9 件を確かめ直し、D1・D22 を否とした。
-> どちらも台帳から外し（`provisional.py resolve`）、design の見出しの（仮）を外して「未決（Q<n> の答え待ち）」にした。
+> どちらも台帳から外し（`provisional.py resolve`）、design の見出しの（仮）を外して「未決」にした（Q12・Q13 の答えは下に記録）。
 > 問いは `deep-questions-r2.json`、渡した形は `docs/briefs/ST52-deep-r2.html`。
 > 答え（`deep-answers-3.txt`、2026-11-01）: **2 問とも本人が選び、どちらも推奨と同じ側**。補足なし。
 
