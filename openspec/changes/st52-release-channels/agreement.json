@@ -1,13 +1,13 @@
 {
   "status": "accepted",
   "digest": "df0023305e0c04f9299b11054343303c029f2448e3e736c831865046a120091d",
-  "head": "cf2afacacc66a7a903ce5bca8bf610c181e30602",
-  "answers": "deep-answers-1.txt",
+  "head": "3c345e456be41fb2f80319bde597f7c0b51db0fe",
+  "answers": "deep-answers-2.txt",
   "picked": "合意する",
   "notes": [
     "IMP-01: 補足: st53で"
   ],
-  "at": "2026-11-01T11:35:40Z",
+  "at": "2026-11-01T12:47:34Z",
   "impacts": {
     "IMP-01": {
       "answer": "後の Story で扱う",
@@ -99,6 +99,13 @@
     {
       "at": "2026-11-01T11:35:40Z",
       "head": "cf2afacacc66a7a903ce5bca8bf610c181e30602",
+      "id": "IMP-01",
+      "answer": "後の Story で扱う",
+      "closed": true
+    },
+    {
+      "at": "2026-11-01T12:47:34Z",
+      "head": "3c345e456be41fb2f80319bde597f7c0b51db0fe",
       "id": "IMP-01",
       "answer": "後の Story で扱う",
       "closed": true
