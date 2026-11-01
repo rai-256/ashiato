@@ -344,6 +344,49 @@ jobs:
       # DB の版の食い違いで止まるときの手順と、回ごとの project（ST48）。smoke が作ったサーバを使う
       - run: SERVER_BIN=target/debug/ashiato-server ./tools/check-db-version-stop.sh
 
+  package-linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with: { distribution: temurin, java-version: "21" }
+      - run: tools/release/package.sh linux "$RUNNER_TEMP/package-linux"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-linux, path: "${{ runner.temp }}/package-linux" }
+
+  package-windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with: { targets: x86_64-pc-windows-gnu }
+      - run: bash tools/release/package.sh windows "$env:RUNNER_TEMP/package-windows"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows, path: "${{ runner.temp }}/package-windows" }
+
+  package-artifacts:
+    needs: [changes, package-linux, package-windows]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { pattern: package-*, path: package }
+      - run: |
+          mkdir -p package/all
+          find package/package-linux package/package-windows -maxdepth 1 -type f -exec cp {} package/all/ \;
+          tools/release/check-artifacts.sh package/all --allow-debug-key --expect-version "$(tools/release/version.sh source)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: release-package, path: package/all }
+
   # 要件 → Story の鎖と、stories.json からの再生成との一致（scripts/check_chain.py）。
   # scripts/ は .harness2/scripts への symlink で、.harness2 は runner には無い。private なので token が要る:
   # fine-grained PAT（harness2 の Contents: read）を secrets.HARNESS2_TOKEN に置く。
