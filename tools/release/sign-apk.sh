@@ -4,16 +4,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
 usage() { echo "使い方: $0 <apk> <official|dev> <出力> | --self-test" >&2; exit 2; }
+. "$root/tools/release/android-tools.sh"
 keytool_en() { keytool -J-Duser.language=en -J-Duser.country=US "$@"; }
 
-apksigner_bin() {
-  if command -v apksigner >/dev/null 2>&1; then command -v apksigner; return; fi
-  find "${ANDROID_HOME:-}"/build-tools -name apksigner -type f -print -quit 2>/dev/null | head -n1
-}
+apksigner_bin() { android_tool apksigner || true; }
 
 apk_id() {
   local analyzer
-  analyzer="$(command -v apkanalyzer || true)"
+  analyzer="$(android_tool apkanalyzer || true)"
   [[ -n "$analyzer" ]] || die "apkanalyzer が無い"
   "$analyzer" manifest application-id "$1" 2>/dev/null || die "APK の識別子を読めない"
 }
@@ -48,6 +46,8 @@ sign_apk() {
 self_test() {
   local work="$(mktemp -d "${TMPDIR:-/tmp}/sign-apk.XXXXXX")"
   trap "rm -rf '$work'" EXIT
+  # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
+  local src; src="$("$root/tools/release/version.sh" source)"
   local password='self-test-password' official_b64 dev_b64 official_cert dev_cert apk_official apk_dev apk_debug
   printf '%s\n' "$password" | "$root/tools/release/make-key.sh" official "$work/official.jks"
   printf '%s\n' "$password" | "$root/tools/release/make-key.sh" dev "$work/dev.jks"
@@ -55,10 +55,10 @@ self_test() {
   dev_b64="$(base64 -w0 "$work/dev.jks")"
   local build_out="$work/build"
   mkdir -p "$build_out"
-  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION=0.1.0 ASHIATO_APK_UNSIGNED=1 "$root/scripts/quiet-run" sign-build-official -- "$root/tools/release/build.sh" apk "$build_out"
-  mv "$build_out/ashiato-collector-0.1.0.apk" "$work/official-unsigned.apk"
-  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION=0.1.0-dev.20261101 ASHIATO_APK_UNSIGNED=1 "$root/scripts/quiet-run" sign-build-dev -- "$root/tools/release/build.sh" apk "$build_out"
-  mv "$build_out/ashiato-collector-0.1.0-dev.20261101.apk" "$work/dev-unsigned.apk"
+  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$src" ASHIATO_APK_UNSIGNED=1 "$root/scripts/quiet-run" sign-build-official -- "$root/tools/release/build.sh" apk "$build_out"
+  mv "$build_out/ashiato-collector-$src.apk" "$work/official-unsigned.apk"
+  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$src-dev.20261101" ASHIATO_APK_UNSIGNED=1 "$root/scripts/quiet-run" sign-build-dev -- "$root/tools/release/build.sh" apk "$build_out"
+  mv "$build_out/ashiato-collector-$src-dev.20261101.apk" "$work/dev-unsigned.apk"
   echo "== Scenario: 正式版の APK は、正式な識別子と正式な鍵で署名されている"
   ASHIATO_SIGNING_KEYSTORE_B64="$official_b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-official ASHIATO_SIGNING_KEY_PASSWORD="$password" \
     "$0" "$work/official-unsigned.apk" official "$work/official.apk"
@@ -83,8 +83,8 @@ self_test() {
   if env -u ASHIATO_SIGNING_KEYSTORE_B64 "$0" "$work/official-unsigned.apk" official "$work/missing.apk" >/dev/null 2>&1; then die '鍵無しで署名した'; fi
   [[ ! -e "$work/missing.apk" ]]
   echo "== Scenario: PR の組み立ての APK は debug の鍵で署名される"
-  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION=0.1.0 "$root/scripts/quiet-run" sign-build-debug -- "$root/tools/release/build.sh" apk "$build_out"
-  apk_debug="$build_out/ashiato-collector-0.1.0.apk"
+  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$src" "$root/scripts/quiet-run" sign-build-debug -- "$root/tools/release/build.sh" apk "$build_out"
+  apk_debug="$build_out/ashiato-collector-$src.apk"
   local apk_cert debug_cert
   apk_cert="$("$(apksigner_bin)" verify --print-certs "$apk_debug" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
   debug_cert="$(keytool_en -list -v -keystore "${HOME}/.android/debug.keystore" -storepass android 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"

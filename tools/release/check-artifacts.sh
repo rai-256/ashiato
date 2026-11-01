@@ -3,18 +3,13 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
+. "$root/tools/release/android-tools.sh"
 usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] | check <置き場> [...] | apk-version <apk...> | --self-test" >&2; exit 2; }
 
 apk_version() {
   local apk="$1" dump aapt_cmd
   [ -f "$apk" ] || die "APK が無い: $apk"
-  if command -v aapt2 >/dev/null 2>&1; then
-    aapt_cmd="$(command -v aapt2)"
-  elif command -v aapt >/dev/null 2>&1; then
-    aapt_cmd="$(command -v aapt)"
-  else
-    aapt_cmd="$(find "${ANDROID_HOME:-/nonexistent}" -type f \( -name aapt2 -o -name aapt \) -perm -111 2>/dev/null | sort -V | tail -n1)"
-  fi
+  aapt_cmd="$(android_tool aapt2 || android_tool aapt || true)"
   [ -n "$aapt_cmd" ] || die "aapt が無い"
   dump="$($aapt_cmd dump badging "$apk")"
   local line version_code version_name expected_code
@@ -50,9 +45,9 @@ artifact_stamp() {
 }
 
 check_apk_fields() {
-  local apk="$1" text field value
-  command -v apkanalyzer >/dev/null 2>&1 || die "apkanalyzer が無いので APK の BuildConfig を検査できない"
-  text="$(apkanalyzer dex code --class dev.ashiato.collector.BuildConfig "$apk" 2>/dev/null)" \
+  local apk="$1" text field value analyzer
+  analyzer="$(android_tool apkanalyzer)" || die "apkanalyzer が無いので APK の BuildConfig を検査できない"
+  text="$("$analyzer" dex code --class dev.ashiato.collector.BuildConfig "$apk" 2>/dev/null)" \
     || die "$(basename "$apk") の BuildConfig が読めない"
   local found=0
   while IFS='|' read -r field value; do
@@ -99,8 +94,9 @@ check_artifacts() {
     apk="$dir/ashiato-collector-${expected_version}.apk"
     check_apk_fields "$apk"
     if [[ "$allow_debug" != 1 ]]; then
-      command -v apksigner >/dev/null 2>&1 || die "apksigner が無い"
-      cert="$(apksigner verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+      local signer
+      signer="$(android_tool apksigner)" || die "apksigner が無い"
+      cert="$("$signer" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
       [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
     fi
   fi
@@ -123,75 +119,99 @@ range_self_test() {
   echo "OK: 桁を超えた版番号を Gradle の版検査が拒否した"
 }
 
+# 自己試験が追跡中の lib.rs を一時に書き換えている間だけ控えを持ち、どこで終わっても戻す（final review R16）
+SELF_TEST_WORK=""
+SELF_TEST_LIB_BACKUP=""
+SELF_TEST_LIB="$root/crates/server/src/lib.rs"
+self_test_cleanup() {
+  if [[ -n "$SELF_TEST_LIB_BACKUP" ]]; then
+    cp "$SELF_TEST_LIB_BACKUP" "$SELF_TEST_LIB"
+    SELF_TEST_LIB_BACKUP=""
+  fi
+  [[ -z "$SELF_TEST_WORK" ]] || rm -rf "$SELF_TEST_WORK"
+}
+
 self_test() {
   local work; work="$(mktemp -d "${TMPDIR:-/tmp}/artifact-self-test.XXXXXX")"
-  trap "rm -f '$root/crates/server/src/.st52-release-self-test-dirty'; rm -rf '$work'" EXIT
+  SELF_TEST_WORK="$work"
+  trap self_test_cleanup EXIT
+  trap 'self_test_cleanup; exit 130' INT TERM
+  # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
+  local v; v="$("$root/tools/release/version.sh" source)"
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"
   echo "== Scenario: 配布物が 1 つでも欠ければ公開しない"
-  printf '0.1.0+0000000000000000000000000000000000000000' > "$work/missing-stamp"
-  tar -czf "$out/ashiato-server-0.1.0-linux-x86_64.tar.gz" -C "$work" missing-stamp
-  (cd "$work" && zip -q "$out/ashiato-server-0.1.0-windows-x86_64.zip" missing-stamp)
+  printf '%s+0000000000000000000000000000000000000000' "$v" > "$work/missing-stamp"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp
+  (cd "$work" && zip -q "$out/ashiato-server-$v-windows-x86_64.zip" missing-stamp)
   cp "$work/missing-stamp" "$work/classes.dex"
-  (cd "$work" && zip -q "$out/ashiato-collector-0.1.0.apk" classes.dex)
-  if output=$(check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 2>&1); then return 1; fi
-  grep -Fq 'ashiato-collector-windows-0.1.0-x86_64.zip' <<<"$output"
+  (cd "$work" && zip -q "$out/ashiato-collector-$v.apk" classes.dex)
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq "ashiato-collector-windows-$v-x86_64.zip" <<<"$output"
   rm -f "$out"/*
   echo "== 実物の release 成果物を組み立てる"
-  ASHIATO_BUILD_VERSION=0.1.0 "$root/tools/release/build.sh" server-linux "$real"
-  ASHIATO_BUILD_VERSION=0.1.0 "$root/tools/release/build.sh" apk "$real"
+  ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$real"
+  ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$real"
   # C-02 の release rlib から印を読み、Windows runner の成果物と同じ形の写しにする。
   local stamp
   (cd "$root" && cargo build --release -p ashiato-collector-windows >/dev/null)
-  stamp="$(strings -n 8 "${CARGO_TARGET_DIR:-$root/target}/release/libashiato_collector_windows.rlib" | grep -Eo '0\.1\.0\+[0-9a-f]{40}' | sort -u)"
+  stamp="$(strings -n 8 "${CARGO_TARGET_DIR:-$root/target}/release/libashiato_collector_windows.rlib" | grep -Eo "${v//./\\.}\+[0-9a-f]{40}" | sort -u)"
   [[ -n "$stamp" ]] || die 'C-02 の rlib から組み立ての印が読めない'
   printf '%s' "$stamp" > "$work/stamp"
-  (cd "$work" && zip -q "$real/ashiato-server-0.1.0-windows-x86_64.zip" stamp)
-  (cd "$work" && zip -q "$real/ashiato-collector-windows-0.1.0-x86_64.zip" stamp)
+  (cd "$work" && zip -q "$real/ashiato-server-$v-windows-x86_64.zip" stamp)
+  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp)
   cp "$real"/* "$out/"
   expected_names=(
-    ashiato-server-0.1.0-linux-x86_64.tar.gz
-    ashiato-server-0.1.0-windows-x86_64.zip
-    ashiato-collector-0.1.0.apk
-    ashiato-collector-windows-0.1.0-x86_64.zip
+    ashiato-server-$v-linux-x86_64.tar.gz
+    ashiato-server-$v-windows-x86_64.zip
+    ashiato-collector-$v.apk
+    ashiato-collector-windows-$v-x86_64.zip
   )
   mapfile -t actual_names < <(find "$out" -maxdepth 1 -type f -printf '%f\n' | sort)
   mapfile -t sorted_expected < <(printf '%s\n' "${expected_names[@]}" | sort)
   [[ "${actual_names[*]}" == "${sorted_expected[*]}" ]] || die "release の配布物の名前または個数が違う"
   echo "== Scenario: .dirty の印を持つ配布物があれば公開しない"
-  local server_src="$root/crates/server/src/lib.rs" server_backup="$work/server-lib.rs"
-  cp "$server_src" "$server_backup"
-  printf '%s\n' '// self-test dirty' >> "$server_src"
-  if ! CARGO_TARGET_DIR="$work/dirty-target" ASHIATO_BUILD_VERSION=0.1.0 "$root/tools/release/build.sh" server-linux "$work/dirty"; then
-    cp "$server_backup" "$server_src"
-    return 1
-  fi
-  cp "$server_backup" "$server_src"
-  cp "$work/dirty/ashiato-server-0.1.0-linux-x86_64.tar.gz" "$out/"
-  if output=$(check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 2>&1); then return 1; fi
-  grep -Fq 'ashiato-server-0.1.0-linux-x86_64.tar.gz' <<<"$output" || { echo "$output"; return 1; }
+  cp "$SELF_TEST_LIB" "$work/server-lib.rs"
+  SELF_TEST_LIB_BACKUP="$work/server-lib.rs"
+  printf '%s\n' '// self-test dirty' >> "$SELF_TEST_LIB"
+  local dirty_rc=0
+  CARGO_TARGET_DIR="$work/dirty-target" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$work/dirty" || dirty_rc=$?
+  cp "$SELF_TEST_LIB_BACKUP" "$SELF_TEST_LIB"
+  SELF_TEST_LIB_BACKUP=""
+  [[ "$dirty_rc" == 0 ]] || return 1
+  cp "$work/dirty/ashiato-server-$v-linux-x86_64.tar.gz" "$out/"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq "ashiato-server-$v-linux-x86_64.tar.gz" <<<"$output" || { echo "$output"; return 1; }
   grep -Fq '.dirty' <<<"$output" || { echo "$output"; return 1; }
-  cp "$real/ashiato-server-0.1.0-linux-x86_64.tar.gz" "$out/"
+  cp "$real/ashiato-server-$v-linux-x86_64.tar.gz" "$out/"
   echo "== Scenario: .debug の印を持つ配布物があれば公開しない"
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION=0.1.0 ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
     -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleDebug)
-  cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$out/ashiato-collector-0.1.0.apk"
-  if output=$(check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 2>&1); then return 1; fi
-  grep -Fq 'ashiato-collector-0.1.0.apk' <<<"$output"
+  cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$out/ashiato-collector-$v.apk"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq "ashiato-collector-$v.apk" <<<"$output"
   grep -Fq '.debug' <<<"$output"
-  cp "$real/ashiato-collector-0.1.0.apk" "$out/"
+  cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 資格情報を焼き込んだ APK があれば公開せず、値を示さない"
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION=0.1.0 ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
     -Pashiato.baseUrl= -Pashiato.apiToken=secret-token-for-test -Pashiato.userId= :app:assembleRelease)
-  cp "$root/collector-android/app/build/outputs/apk/release/app-release.apk" "$out/ashiato-collector-0.1.0.apk"
-  if output=$(check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 2>&1); then return 1; fi
+  cp "$root/collector-android/app/build/outputs/apk/release/app-release.apk" "$out/ashiato-collector-$v.apk"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq API_TOKEN <<<"$output" || { echo "$output"; return 1; }
   if grep -Fq secret-token-for-test <<<"$output"; then
     echo "資格情報の値が検査出力に漏れた" >&2
     return 1
   fi
-  cp "$real/ashiato-collector-0.1.0.apk" "$out/"
+  cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 綺麗な release で資格情報の無い配布物は、検査を通る"
-  check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 >/dev/null
+  check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
+  # --allow-debug-key 無しの経路: 署名の指紋を apksigner（PATH に無ければ SDK の下）で読んで比べる（final review R7）
+  local signer cert
+  signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
+  cert="$("$signer" verify --print-certs "$out/ashiato-collector-$v.apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+  [[ -n "$cert" ]] || die '署名の指紋を読めない'
+  ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
+  if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
   local nightly="$work/nightly"; mkdir -p "$nightly"
   echo "== Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る"
   printf '0.4.0-dev.20261102+0000000000000000000000000000000000000000' > "$work/stamp"
@@ -209,7 +229,7 @@ self_test() {
     rm -f "$nightly/$apk_name"
   done
   echo "== Scenario: 1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ"
-  check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 >/dev/null
+  check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
   echo "OK: 実物の release、欠落、印、資格情報、名前、チャンネルを検査した"
 }
 
