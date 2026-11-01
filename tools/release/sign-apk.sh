@@ -43,8 +43,9 @@ sign_apk() {
   [[ "$channel" == dev ]] && expect_var=ASHIATO_EXPECT_DEV_CERT_SHA256
   expect_cert="$(normalize_cert "${!expect_var:-}")"
   [[ -n "$expect_cert" ]] || die "$expect_var（このチャンネルの鍵の指紋）が無い"
-  key_cert="$(ASHIATO_SIGN_STOREPASS="$store_password" keytool_en -exportcert -keystore "$tmp_keystore" -alias "$key_alias" \
-    -storepass:env ASHIATO_SIGN_STOREPASS 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  # keytool が落ちても（alias 違いなど）黙って終えず、空の入力の sha256 として下の die に理由を出させる（re-review の Minor）
+  key_cert="$( { ASHIATO_SIGN_STOREPASS="$store_password" keytool_en -exportcert -keystore "$tmp_keystore" -alias "$key_alias" \
+    -storepass:env ASHIATO_SIGN_STOREPASS 2>/dev/null || true; } | sha256sum | cut -d' ' -f1)"
   [[ -n "$key_cert" && "$key_cert" != e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ]] || die "署名の鍵の証明書を読めない"
   [[ "$key_cert" == "$expect_cert" ]] || die "署名の鍵がチャンネル $channel の鍵でない（指紋が $expect_var と違う）"
   mkdir -p "$(dirname "$output")"
