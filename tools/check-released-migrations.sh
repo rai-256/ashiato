@@ -14,8 +14,13 @@ order_names() { grep -Ev '^[[:space:]]*(#|$)'; }
 
 # 今いる git の木を検査する。0: 通る / 1: 落ちる
 check_tree() {
-  local tags all_tags tag name bad=0
-  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = true ]; then
+  local tags all_tags tag name bad=0 shallow
+  # 問い合わせが失敗したら浅くないとはみなさない（ST52 final review R17）
+  if ! shallow="$(git rev-parse --is-shallow-repository)"; then
+    echo "履歴が浅いかを確かめられない"
+    return 1
+  fi
+  if [ "$shallow" = true ]; then
     echo "履歴が浅いので配った印を数えられない"
     return 1
   fi

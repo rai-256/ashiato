@@ -68,7 +68,10 @@ order_versions() {
 }
 
 require_full_history() {
-  [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" != true ]] || die "履歴が浅い"
+  local shallow
+  # 問い合わせが失敗したら浅くないとはみなさない（final review R17）
+  shallow=$(git rev-parse --is-shallow-repository) || die "履歴が浅いかを確かめられない"
+  [[ "$shallow" != true ]] || die "履歴が浅い"
 }
 
 main_ref() {
@@ -83,19 +86,21 @@ main_ref() {
 }
 
 plan() {
-  local tag=${1:-} commit main version expected base branch
+  local tag=${1:-} commit main version base want ref found=
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-8][0-9]|9[0-8]))?$ ]] || die "印の形が違う: $tag"
   require_full_history
   commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null) || die "印が無い: $tag"
   version=${tag#v}
-  expected=$(source_version)
   check_version "$version" >/dev/null
   main=$(main_ref)
   if ! git merge-base --is-ancestor "$commit" "$main"; then
-    branch=$(git for-each-ref --format='%(refname:short)' --contains "$commit" 'refs/heads/release/*' | head -n1 || true)
-    if [[ "$branch" != "release/${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1)" ]]; then
-      die "印の commit が main の祖先でない"
-    fi
+    # CI の clone には手元の枝が無く、修正の枝は refs/remotes/origin/release/* にだけある（final review R3）
+    want="release/${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1)"
+    while IFS= read -r ref; do
+      ref=${ref#refs/heads/}; ref=${ref#refs/remotes/origin/}
+      [[ "$ref" == "$want" ]] && found=1
+    done < <(git for-each-ref --format='%(refname)' --contains "$commit" 'refs/heads/release/*' 'refs/remotes/origin/release/*')
+    [[ -n "$found" ]] || die "印の commit が main の祖先でない"
     [[ "$version" != *-beta.* ]] || die "ベータ版の修正の枝は許さない"
     base=$(git describe --tags --abbrev=0 --exclude '*-*' --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
     [[ -n "$base" ]] || die "修正の枝の元の印が無い"
@@ -118,7 +123,7 @@ nightly_plan() {
   event=${GITHUB_EVENT_NAME:-schedule}
   now=${ASHIATO_NOW:-}
   if [[ -n "$now" ]]; then date=$(TZ=Asia/Tokyo date -d "$now" +%Y%m%d); else date=$(TZ=Asia/Tokyo date +%Y%m%d); fi
-  if tag=$(git rev-parse --verify refs/tags/nightly 2>/dev/null); then
+  if tag=$(git rev-parse --verify 'refs/tags/nightly^{commit}' 2>/dev/null); then
     nightly=$tag
   else
     nightly=
@@ -202,6 +207,12 @@ self_test() {
   formal_base=$(git -C "$t" rev-parse HEAD)
   echo "== Scenario: 修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる"
   out=$(cd "$t" && tools/release/version.sh plan v0.4.1); grep -q 'channel=release' <<<"$out"; grep -q 'prerelease=false' <<<"$out"
+  # CI と同じ形の clone（手元の枝は無く、修正の枝は refs/remotes/origin/release/* だけ。印を detached で checkout）でも通る
+  git clone -q "file://$t" "$work/ci-clone"; git -C "$work/ci-clone" checkout -q --detach v0.4.1
+  git -C "$work/ci-clone" for-each-ref --format='%(refname)' refs/heads | while IFS= read -r ref; do git -C "$work/ci-clone" update-ref -d "$ref"; done
+  [[ -z "$(git -C "$work/ci-clone" for-each-ref refs/heads)" ]] || return 1
+  out=$(cd "$work/ci-clone" && tools/release/version.sh plan v0.4.1) || { echo "$out"; return 1; }
+  grep -q 'channel=release' <<<"$out" || return 1
   echo "== Scenario: 修正の枝で移行を足した印は公開しない"
   printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
   git -C "$t" add Cargo.toml; git -C "$t" commit -q -m migration-version
@@ -228,6 +239,10 @@ self_test() {
 
   git -C "$t" tag -d v0.4.0 >/dev/null
   git -C "$t" tag nightly; echo "== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
+  # 注釈つきの印でも commit で比べる（final review R18）
+  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag -a -m nightly nightly
+  out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out" || return 1
+  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag nightly
   git -C "$t" checkout -q main; echo y > "$t/y"; git -C "$t" add y; git -C "$t" commit -q -m advance; echo "== Scenario: main が進んだ日は、開発版を作り直す"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on ASHIATO_NOW=2026-11-01T15:00:00Z tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"; grep -q 'version=0.4.0-dev.20261102' <<<"$out"
   echo "== Scenario: 予定の実行が落ちた次の回に、同じ変更を拾う"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=schedule tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"
   git -C "$t" tag -d nightly >/dev/null; echo "== Scenario: 印 nightly がまだ無ければ、作り直す"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"
