@@ -247,6 +247,8 @@ mod source_acquisition_tests;
 pub mod sources;
 #[cfg(test)]
 mod sources_tests;
+#[cfg(test)]
+mod st52_web_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -267,6 +269,7 @@ mod update_history_tests;
 /// 版の変わり目の受け口（ST51 / design D6 / D13）。
 #[cfg(test)]
 mod version_change_tests;
+pub mod web_assets;
 /// 画面のログイン（ST28 / design D1 / D2 / D3）。
 pub mod web_session;
 #[cfg(test)]
@@ -4200,6 +4203,29 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 
 /// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
 pub fn router(app: App) -> Router {
+    #[cfg(test)]
+    {
+        api_router(app)
+    }
+    #[cfg(not(test))]
+    {
+        router_with_assets(app, web_assets::generated())
+    }
+}
+
+pub(crate) fn router_with_assets(app: App, assets: web_assets::Assets) -> Router {
+    let api = api_router(app);
+    let direct = Router::merge(Router::new(), api.clone());
+    nest_api(direct, api)
+        .fallback(web_assets::fallback)
+        .layer(axum::Extension(assets))
+}
+
+fn nest_api(outer: Router, api: Router) -> Router {
+    Router::nest(outer, "/api", api)
+}
+
+fn api_router(app: App) -> Router {
     // 収集アプリの 4 つの JSON の口が知る欄を、最初の要求の前に組む（ST50 / final review R11）
     contract_version::warm_known_fields(&[
         &INGEST_FIELDS,
@@ -4207,7 +4233,7 @@ pub fn router(app: App) -> Router {
         &drops::DROP_FIELDS,
         &media_missing::MISSING_FIELDS,
     ]);
-    Router::new()
+    let api = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/contract", get(contract_version::contract_get))
         .route("/ingest", post(ingest_route))
@@ -4289,7 +4315,9 @@ pub fn router(app: App) -> Router {
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
-        .with_state(app)
+        .with_state(app);
+
+    api
 }
 
 /// 起動時の手入れ（待ち受けの前に `run()` が 1 回呼ぶ）。どれも失敗を飲み込んでログに残し、起動は止めない。

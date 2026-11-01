@@ -57,6 +57,22 @@ fn custom_server_version() -> String {
     format!("{}-beta.2", env!("CARGO_PKG_VERSION"))
 }
 
+/// Scenario: 配る組み立てで画面が無ければ、サーバの組み立てが失敗する
+#[test]
+fn st52_bin_release_needs_web() {
+    let target = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let build = Command::new("cargo")
+        .args(["build", "-q", "-p", "ashiato-server"])
+        .current_dir(root)
+        .env("ASHIATO_RELEASE", "1")
+        .env_remove("ASHIATO_WEB_DIST")
+        .env("CARGO_TARGET_DIR", target.path())
+        .output()
+        .unwrap();
+    assert!(!build.status.success(), "画面なしの配る組み立てが成功した");
+}
+
 /// URL の `@<host>:<port>/` の port を、この worktree の DB のものに差し替える。
 /// port は `tools/ports.sh`（規則の唯一の持ち主。`testdb.rs` も同じく呼ぶ）から得る。
 fn with_worktree_port(url: &str) -> String {

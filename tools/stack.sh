@@ -60,11 +60,6 @@ fi
 # 直す前の画面とサーバを見て緑になる（CH01 review/code.md R11 で実測）
 newer_src() { [ -n "$(find "${@:2}" -newer "$1" -print -quit 2>/dev/null)" ]; }   # newer_src <成果物> <ソース…> → 0 = ソースの方が新しい
 server="${SERVER_BIN:-target/release/ashiato-server}"
-if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock; }; then
-  echo "== サーバを build（$server が無いか、ソースより古い）"
-  cargo build -q --release -p ashiato-server --bin ashiato-server
-  server="target/release/ashiato-server"
-fi
 web="${WEB_DIST:-web/dist}"
 if [ "$check_only" = 0 ] && { [ ! -f "$web/index.html" ] \
      || { [ -z "${WEB_DIST:-}" ] && newer_src "$web/index.html" web/src web/index.html web/package-lock.json web/vite.config.ts; }; }; then
@@ -73,6 +68,15 @@ if [ "$check_only" = 0 ] && { [ ! -f "$web/index.html" ] \
   web="web/dist"
 fi
 [ "$check_only" = 1 ] || web_abs="$(cd "$web" && pwd)"
+if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock; }; then
+  echo "== サーバを build（$server が無いか、ソースより古い）"
+  if [ "$check_only" = 1 ]; then
+    cargo build -q --release -p ashiato-server --bin ashiato-server
+  else
+    ASHIATO_WEB_DIST="$web_abs" cargo build -q --release -p ashiato-server --bin ashiato-server
+  fi
+  server="target/release/ashiato-server"
+fi
 
 if [ "${STACK_RESET:-}" = "1" ]; then
   echo "== DB を作り直す（STACK_RESET=1）"; docker compose down -v >/dev/null 2>&1 || true

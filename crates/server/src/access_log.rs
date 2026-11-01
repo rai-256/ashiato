@@ -150,6 +150,11 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
         .get::<MatchedPath>()
         .map(|m| m.as_str().to_owned())
         .unwrap_or_default();
+    let route = route
+        .strip_prefix("/api")
+        .filter(|path| path.starts_with('/') || path.is_empty())
+        .unwrap_or(&route)
+        .to_owned();
     if route == "/healthz" || route == "/session" {
         return next.run(req).await;
     }
