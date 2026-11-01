@@ -21,6 +21,17 @@
 - `tools/check-build-stamp.sh release`: PASS
 - `tools/check-build-stamp.sh android`: PASS
 
+## Task gate 証跡
+
+`scripts/verify-run 3.1`、`3.2`、`3.3`、`3.4` を最終 commit 後の木で実行し、すべて PASS。証跡は `openspec/changes/st52-release-channels/evidence.jsonl` に記録された。
+
+- 3.1: versionCode 表、beta APK (`versionCode=10002`)、桁超過 Gradle 検査の 3 件が PASS。
+- 3.2: build-stamp Vitest 11/11 と `npm run build` が PASS。
+- 3.3: `check-version.sh --self-test` と通常検査が PASS。
+- 3.4: release / android の build-stamp 検査が PASS。
+
+検証環境の `node-compile-cache` が verify-run の一時領域に残ったという注意が出たが、検証の終了コードはすべて 0 だった。
+
 ## TDD Evidence
 
 - RED: `npx vitest run src/__tests__/buildStamp.test.ts` は、実装前に npm cache の EROFS で停止した。後に依存を一時 cache へ導入し、指定入口で 11/11 PASS を確認した。
