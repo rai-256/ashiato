@@ -19,7 +19,8 @@
 - **本人の決定（下流は変えない）**: Q1 本人の携帯には収集アプリがまだ入っておらず記録も無い（入れ直しも署名の引き継ぎも要らない。最初に入れるのは ST56 の後の正式な鍵の版）/ Q2 正式な鍵は印 `v*` と main にだけ開いた Environment で CI が署名 / Q3 versionCode は版番号から計算 /
   Q4 ST54 まで、開発版に携帯の APK を入れない（開発版はサーバ 2 つと PC の収集アプリの 3 つ）/ Q5 ST52 は下書きのリリースで確かめ、本物の印と開発版の公開は ST53 の後 / Q6 出所は `Cargo.toml` の workspace の `version`、ベータは印から・開発版は日付から渡す /
   Q7 サーバは Windows と Linux の x86_64 / Q8 画面はサーバの実行ファイルに組み込む / Q9 コードを触った PR ごとに 3 部品を組む / Q10 開発版の印は `nightly`（`v*` の外）/ Q11 開発版は正式な鍵と別の鍵（控えは USB に 1 部。作って置くのは ST54）。
-  仮: D1（祖先の印だけを数え、最後の印は版番号で選ぶ）・D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D22（完了の判定は下書きと使い捨ての鍵で見る）・D23（開発版の携帯の APK の道具は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54）。
+  未決（第 2 回の答え待ち。別の席が仮を否とした）: D1（Q12）・D22（Q13）。
+  仮: D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D23（開発版の携帯の APK の道具は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54）。
   （第 1 回は推奨で先に書き、推奨と違った Q1・Q4 の答えを上流が写してから下流へ渡す）
 - **名前は統一する**: 環境変数 `ASHIATO_BUILD_VERSION`（渡す版番号）・`ASHIATO_VERSION`（`build.rs` が出す、組み立ての版番号）・`ASHIATO_WEB_DIST`（取り込む画面の置き場）・`ASHIATO_RELEASE=1`（配る組み立て。PR の `package` も立てる）・`ASHIATO_APK_UNSIGNED=1`（携帯の APK を署名せずに組む。`release.yml` の組み立ての job だけ。`nightly.yml` は ST54 まで携帯の APK を組まない）・`ASHIATO_EXPECT_CERT_SHA256`（署名の指紋の期待値。Environment の変数 `ASHIATO_CERT_SHA256` から）、
   道具は `tools/release/{version,build,package,check-artifacts,sign-apk,make-key,draft,check-guards}.sh`・`tools/release/version-table.tsv` と `tools/check-version.sh`、workflow は `release.yml`・`nightly.yml`（と `ci.yml` の `package` の job）、
@@ -86,7 +87,7 @@
   `決めた形でない版番号を渡すと、組み立てが失敗する`（サーバの組み立てで 4 つの値）、`携帯と画面の印の版番号も、根の出所の版から読む`（携帯の側。出所を `0.9.0` にして commit した写しの木）・`根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（携帯の側。gradle の印のソースの道に根の `Cargo.toml` を足す）を見る。`ci.yml` の `build-stamp` の job に `./tools/check-build-stamp.sh release` を足し、`changes` の `stamp` の式に `web/build-stamp\.ts|web/vite\.config\.ts|tools/release/` を足す
   検証: `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh release'` rc=0 / `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh android'` rc=0（ST49 の節が出所の変更の後も通る）
 
-## Task 4: 配った印の検査が祖先の印だけを数える（ST48・ST50 の台本。D1（仮））
+## Task 4: 配った印の検査が祖先の印だけを数える（ST48・ST50 の台本。D1（Q12 の答え待ち））
 
 - [ ] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。`--self-test` に `// Scenario` の echo つきで
   `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`開発版の印は、配った印に数えない`（distribution。`nightly` だけの木で通る。送信契約の側は 4.2）を足す。既存の 7 本はそのまま
@@ -171,7 +172,7 @@
 - [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
   最初の印を main の commit に打つ・開発版の公開を始める（`ASHIATO_NIGHTLY_PUBLISH`）・壊れた版は次の版で直す・修正の枝の切り方と消し方・本人の環境を移す（D4）・
   正式版を出した後に出所の版を次の版に上げる（Q6 の推奨。開発版が出したばかりの正式版より古く見えないように）・確認バッチの確かめの手順（下の「人間の確認待ち」のコマンド）。`docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「出所は `Cargo.toml` の workspace の `version`。ほかは読む（ST52）」と書く。
-  `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22（仮）））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
+  `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22（Q13 の答え待ち）））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
   検証: `bash -c 'for h in "鍵を作る" "USB に 1 部" "ルールセット" "最初の印" "ASHIATO_NIGHTLY_PUBLISH" "ASHIATO_CERT_SHA256" "修正の枝" "本人の環境を移す"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'grep -q "ASHIATO_NIGHTLY_PUBLISH" docs/handoff/ST53.md && grep -q "R11" docs/handoff/ST54.md && grep -q "D5" docs/handoff/ST58.md'` rc=0 / `python3 scripts/check_scenarios.py . st52-release-channels` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
