@@ -95,3 +95,5 @@
   - Q2: 正式な鍵の置き場に「署名のための写しを GitHub の Environment（印と main にだけ開く。取り出せないので控えにはならない）」を足した（review/spec.md R6）
   - Q11: 開発版の鍵は正式な鍵と別（開発版の Environment に置き、控えは USB に 1 部）を足した。使い始めるのは開発版に携帯の APK を入れる ST54 から（Q4）
   - Q1: 「いまの C-01 は debug の鍵で入っているので、本人の端末も 1 回だけ入れ直す」は、本人の携帯にまだ入っていないので当たらないと訂正した
+- FR-104: ★ 2026-11-01 補足で「開発版（nightly）のリリースには ST54 まで C-01 を並べない」を足した（Q4）
+- 整合の確認は `docs/audit/2026-11-01-st52-door34-consistency.md`（C1〜C7・K1・K2）。この change への写しは C6（次の spec の段が `spec --answers Q1,Q4,Q11` で写す。nightly の「1 つでも組めなければ公開しない」の数え方と、開発版の Environment・鍵の検査を ST54 へ渡すかを一緒に決める）。C2 で、扉 34 の「印と main」は上限で、D21（仮）の「印 `v*` だけ」が正と書いた。K1（`tools/verify-prep.sh` が本人の携帯に debug 鍵の版を入れうる）は change で拾う
