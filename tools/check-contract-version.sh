@@ -301,19 +301,26 @@ echo "== Scenario: 版の履歴に今の版の行が無いと CI が落ちる"; 
 
 # 最後の印は作成日時でなく版番号で選び、正式版をベータ版より優先する
 new_tree
+base="$(git -C "$T" rev-list --max-parents=0 HEAD)"
 git -C "$T" tag v0.4.0-beta.10
 git -C "$T" commit --allow-empty -q -m later; git -C "$T" tag v0.4.0-beta.9
+git -C "$T" checkout -qb release/0.3 "$base"; git -C "$T" commit --allow-empty -q -m release-fix; git -C "$T" tag v0.3.1
+git -C "$T" checkout -q -
 edit_copy '.android.ingest.id.required = false'; commit_all current-change
 echo "== Scenario: 最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印"; expect_msg "印 v0.4.0-beta.10"
 echo "== Scenario: 最後の配った印は、ベータ版の番号を数として比べて選ぶ"; expect_msg "印 v0.4.0-beta.10"
 
 new_tree
-git -C "$T" tag v0.4.0-beta.2; git -C "$T" commit --allow-empty -q -m release; git -C "$T" tag v0.4.0
+git -C "$T" tag v0.4.0; git -C "$T" tag v0.4.0-beta.2
 edit_copy '.android.ingest.id.required = false'; commit_all current-change
-echo "== Scenario: 同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ"; expect_msg "印 v0.4.0"
+echo "== Scenario: 同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ"; expect_msg "印 v0.4.0（"
 
 new_tree; git -C "$T" tag nightly
 echo "== Scenario: 開発版の印 nightly は、最後の配った印に数えない"; expect 0
+
+# 送信契約側でも開発版の印を配った印に数えない
+new_tree; git -C "$T" tag nightly
+echo "== Scenario: 開発版の印は、配った印に数えない"; expect 0
 
 new_tree; tag_beta; git -C "$T" commit --allow-empty -q -m next
 git clone -q --depth=1 "file://$T" "$work/shallow"

@@ -14,11 +14,18 @@ order_names() { grep -Ev '^[[:space:]]*(#|$)'; }
 
 # 今いる git の木を検査する。0: 通る / 1: 落ちる
 check_tree() {
-  local tags tag name bad=0
+  local tags all_tags tag name bad=0
   if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = true ]; then
     echo "履歴が浅いので配った印を数えられない"
     return 1
   fi
+  all_tags="$(git tag --list 'v[0-9]*')"
+  for tag in $all_tags; do
+    if ! git rev-parse --verify "$tag^{commit}" >/dev/null 2>&1; then
+      echo "  NG 印 $tag の commit を読み取れない（タグの取り寄せが足りない可能性）"
+      return 1
+    fi
+  done
   tags="$(git tag --merged HEAD --list 'v[0-9]*')"
   if [ -z "$tags" ]; then
     echo "配った印が 0 個（タグ v* が無い）: 検査する対象が無い"
@@ -118,15 +125,14 @@ new_tree; tag_v1
 echo "-- changed" >>"$T/migrations/202001010000_a.down.sql"; commit_all edit-down
 echo "Scenario: 配った版にある移行の戻し手順は、変えても通る"; expect 0
 
-# 印の指す commit が無い木: 印の ref だけ置いて、commit の実体は持たない
+# 印の指す commit が無い木: 元の台本どおり、印の ref だけ置いて commit の実体は持たない
 new_tree
-git -C "$T" rm -q migrations/ORDER; commit_all no-order; tag_v1
-printf '# c\n202001010000_a\n\n202001010001_b\n' >"$T/migrations/ORDER"; commit_all restore-order
+echo 0123456789abcdef0123456789abcdef01234567 >"$T/.git/refs/tags/v1.0.0"
 echo "Scenario: 配った印の版を読めなければ、検査は通らない"; expect 1
 
-# 祖先でない印は数えず、開発版の印も配った印にしない
-new_tree; tag_v1
-git -C "$T" checkout -qb side; echo side >"$T/side"; git -C "$T" add side; git -C "$T" commit -q -m side; git -C "$T" tag v9.0.0
+# 祖先でない印は数えず、枝の祖先の印は数え、開発版の印も配った印にしない
+new_tree; git -C "$T" tag v0.3.0
+git -C "$T" checkout -qb side; echo side >"$T/side"; git -C "$T" add side; git -C "$T" commit -q -m side; git -C "$T" tag v0.3.1
 git -C "$T" checkout -q -; echo "Scenario: 今の木の祖先でない印は、配った移行の検査で数えない"; expect 0
 echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; git -C "$T" checkout -q side; expect 0
 new_tree; git -C "$T" tag nightly
