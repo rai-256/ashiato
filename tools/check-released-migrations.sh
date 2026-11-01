@@ -132,9 +132,26 @@ echo "Scenario: 配った印の版を読めなければ、検査は通らない"
 
 # 祖先でない印は数えず、枝の祖先の印は数え、開発版の印も配った印にしない
 new_tree; git -C "$T" tag v0.3.0
-git -C "$T" checkout -qb side; echo side >"$T/side"; git -C "$T" add side; git -C "$T" commit -q -m side; git -C "$T" tag v0.3.1
-git -C "$T" checkout -q -; echo "Scenario: 今の木の祖先でない印は、配った移行の検査で数えない"; expect 0
-echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; git -C "$T" checkout -q side; expect 0
+git -C "$T" checkout -qb side
+echo 'CREATE TABLE side_only();' >"$T/migrations/202001010002_side.sql"
+echo 'DROP TABLE side_only;' >"$T/migrations/202001010002_side.down.sql"
+echo 202001010002_side >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m side-migration; git -C "$T" tag v0.3.1
+git -C "$T" checkout -q -
+echo 'CREATE TABLE main_only();' >"$T/migrations/202001010002_side.sql"
+echo 'DROP TABLE main_only;' >"$T/migrations/202001010002_side.down.sql"
+echo 202001010002_side >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m main-migration
+echo "Scenario: 今の木の祖先でない印は、配った移行の検査で数えない"; expect 0
+
+new_tree; git -C "$T" tag v0.3.0
+git -C "$T" checkout -qb main-with-beta
+echo 'CREATE TABLE beta_only();' >"$T/migrations/202001010002_beta.sql"
+echo 'DROP TABLE beta_only;' >"$T/migrations/202001010002_beta.down.sql"
+echo 202001010002_beta >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m beta-migration; git -C "$T" tag v0.4.0-beta.1
+git -C "$T" checkout -qb release/0.3 v0.3.0
+echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; expect 0
 new_tree; git -C "$T" tag nightly
 echo "Scenario: 開発版の印は、配った印に数えない"; expect 0
 
