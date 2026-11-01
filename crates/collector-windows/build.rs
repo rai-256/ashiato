@@ -12,12 +12,15 @@ const STAMP_SOURCES: &[&str] = &[
 
 fn main() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let version =
+        ashiato_build_stamp::version(env!("CARGO_PKG_VERSION")).unwrap_or_else(|e| panic!("{e}"));
     let stamp = ashiato_build_stamp::stamp(
-        env!("CARGO_PKG_VERSION"),
+        &version,
         &env::var("PROFILE").unwrap_or_default(),
         &repo,
         STAMP_SOURCES,
     );
     ashiato_build_stamp::emit_rerun(&repo, STAMP_SOURCES);
     println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
+    println!("cargo:rustc-env=ASHIATO_VERSION={version}");
 }

@@ -331,7 +331,7 @@ async fn st48_apply_row_has_fingerprint_and_build() {
     for (name, sha, version, commit, recent) in rows {
         let sql = crate::MIGRATIONS.iter().find(|v| v.0 == name).unwrap().1;
         assert_eq!(sha, sha256_hex(sql), "{name}");
-        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(version, env!("ASHIATO_VERSION"));
         assert_eq!(commit, env!("ASHIATO_BUILD_COMMIT"));
         // 書いた定数どうしでなく、組み立てに渡した値そのものと比べる（review/code.md R20）。
         // 渡した値は別の名前で受ける —— cargo は build script の `rustc-env` を試験の実行時の環境にも入れるので、

@@ -31,8 +31,10 @@ fn main() {
 
     // 組み立ての印（ST49 / design D5・D6）。ST48 の台帳が読む `ASHIATO_BUILD_COMMIT` も同じ commit で出し続ける
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let version =
+        ashiato_build_stamp::version(env!("CARGO_PKG_VERSION")).unwrap_or_else(|e| panic!("{e}"));
     let (stamp, commit) = ashiato_build_stamp::stamp_with_commit(
-        env!("CARGO_PKG_VERSION"),
+        &version,
         &env::var("PROFILE").unwrap_or_default(),
         &repo,
         STAMP_SOURCES,
@@ -40,6 +42,7 @@ fn main() {
     ashiato_build_stamp::emit_rerun(&repo, STAMP_SOURCES);
     println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
     println!("cargo:rustc-env=ASHIATO_BUILD_COMMIT={commit}");
+    println!("cargo:rustc-env=ASHIATO_VERSION={version}");
 
     let text = fs::read_to_string(&order)
         .unwrap_or_else(|e| panic!("{} を読めない: {e}", order.display()));

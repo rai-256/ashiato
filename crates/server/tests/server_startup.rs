@@ -3,6 +3,7 @@
 //! 管理者・所有者の接続ではサーバは起動せず、終了コード 2 と理由の種別（値ではなく種別）で終わる。
 #![allow(clippy::unwrap_used)]
 
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn env(name: &str) -> String {
@@ -16,6 +17,40 @@ fn env(name: &str) -> String {
 fn raw_env(name: &str) -> String {
     std::env::var(name)
         .unwrap_or_else(|_| panic!("{name} が無い。.env を読み込む（set -a; . ./.env; set +a）"))
+}
+
+struct CustomServerBinary {
+    _target: tempfile::TempDir,
+    path: PathBuf,
+}
+
+fn custom_server_binary() -> CustomServerBinary {
+    let target = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let version = format!("{}-beta.2", env!("CARGO_PKG_VERSION"));
+    let build = Command::new("cargo")
+        .args([
+            "build",
+            "-q",
+            "-p",
+            "ashiato-server",
+            "--bin",
+            "ashiato-server",
+        ])
+        .current_dir(&root)
+        .env("ASHIATO_BUILD_VERSION", &version)
+        .env("CARGO_TARGET_DIR", target.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "カスタム版のサーバを組めない: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    CustomServerBinary {
+        path: target.path().join("debug/ashiato-server"),
+        _target: target,
+    }
 }
 
 /// URL の `@<host>:<port>/` の port を、この worktree の DB のものに差し替える。
@@ -576,6 +611,18 @@ mod st48_migrate {
             self.migrate_with(&self.backups(), &pg_dump, None)
         }
 
+        fn migrate_custom_version(&self, binary: &Path) -> Output {
+            let pg_dump = self.fake_pg_dump("pg_dump_custom", true);
+            Command::new(binary)
+                .arg("migrate")
+                .env_clear()
+                .env("DATABASE_OWNER_URL", self.db.owner_url())
+                .env("MIGRATE_BACKUP_DIR", self.backups())
+                .env("PG_DUMP", pg_dump)
+                .output()
+                .unwrap()
+        }
+
         fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
             self.migrate_with_env(dir, pg_dump, backup, &[])
         }
@@ -964,6 +1011,29 @@ mod st48_migrate {
                 healthy,
             }
         }
+
+        fn serve_custom_on_held_port(&self, binary: &Path) -> Served {
+            let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = held.local_addr().unwrap().port();
+            let mut cmd = Command::new(binary);
+            cmd.env_clear()
+                .env("API_TOKEN", TEST_TOKEN)
+                .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env(
+                    "DATABASE_URL",
+                    with_database(&env("DATABASE_URL"), &self.db.name),
+                )
+                .env("BIND", format!("127.0.0.1:{port}"))
+                .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let out = wait_exit(cmd.spawn().unwrap());
+            drop(held);
+            Served {
+                out,
+                healthy: false,
+            }
+        }
     }
 
     /// 拒否の共通: 終了コード 3・1 行目が `error: kind=<kind>`・待ち受けを開いていない。
@@ -977,6 +1047,48 @@ mod st48_migrate {
         );
         assert!(!served.healthy, "待ち受けを開いている");
         err
+    }
+
+    // Scenario: 渡した版番号で組んだサーバの版の記録は、渡した版番号を持つ
+    #[tokio::test]
+    async fn st52_bin_ledger_build_version() {
+        let custom = custom_server_binary();
+        let rig = Rig::new().await;
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_ok(&out);
+        let versions: Vec<String> =
+            sqlx::query_scalar("SELECT build_version FROM migration_ledger.applied ORDER BY name")
+                .fetch_all(rig.db.owner())
+                .await
+                .unwrap();
+        assert!(!versions.is_empty());
+        assert!(versions.iter().all(|v| v == "0.1.0-beta.2"), "{versions:?}");
+    }
+
+    // Scenario: 渡した版番号で組んだサーバが知らない版で止まると、self の行は渡した版番号を持つ
+    #[tokio::test]
+    async fn st52_bin_db_ahead_self() {
+        let custom = custom_server_binary();
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        rig.add_future_row().await;
+        let err = assert_refused_3(&rig.serve_custom_on_held_port(&custom.path), "db_ahead");
+        assert!(err.contains("  self: 0.1.0-beta.2 "), "{err}");
+    }
+
+    // Scenario: 渡した版番号で組んだサーバの更新の履歴の今の版は、渡した版番号で始まる
+    #[tokio::test]
+    async fn st52_bin_update_history_version() {
+        let custom = custom_server_binary();
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let current: String = sqlx::query_scalar(
+            "SELECT to_version FROM core.update_history ORDER BY seq DESC LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(current.starts_with("0.1.0-beta.2+"), "{current}");
     }
 
     // Scenario: 新しい版で当てた DB に古い版のサーバを起動すると、起動しない
