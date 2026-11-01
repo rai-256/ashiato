@@ -137,12 +137,12 @@
 
 ## Task 7: 携帯の APK の署名と鍵を作る台本
 
-- [ ] 7.1 `tools/release/make-key.sh <official|dev> <出力の置き場>`（D3（仮））と `make-key.sh verify <keystore>`: 合言葉は標準入力から。`--self-test` は
+- [x] 7.1 `tools/release/make-key.sh <official|dev> <出力の置き場>`（D3（仮））と `make-key.sh verify <keystore>`: 合言葉は標準入力から。`--self-test` は
   `鍵を作る台本は、決めた種類・長さ・有効期限の鍵だけを作る`・`鍵を作る台本は、決めた長さに満たない鍵を確かめで落とす`（`keytool` で 2048 bit の鍵を作って `verify` に当てる）。
   Play App Signing に持ち込める鍵の条件の一次情報（公式文書の URL と引用）を `premises.md` に P17 として足す（確かさ 2。条件が D3 より厳しければ実装を止めて上流へ返す）
   検証: `bash -c 'scripts/quiet-run key -- tools/release/make-key.sh --self-test'` rc=0 / `bash -c 'grep -q "^| P17 " openspec/changes/st52-release-channels/premises.md'` rc=0
 
-- [ ] 7.2 `tools/release/sign-apk.sh <apk> <official|dev> <出力>`（D18）: 環境変数の鍵（base64）を `$TMPDIR` に戻して `apksigner sign` を当て、終わりに消す。鍵が無ければ rc≠0。
+- [x] 7.2 `tools/release/sign-apk.sh <apk> <official|dev> <出力>`（D18）: 環境変数の鍵（base64）を `$TMPDIR` に戻して `apksigner sign` を当て、終わりに消す。鍵が無ければ rc≠0。
   開発版は識別子が `dev.ashiato.collector.dev` の APK にだけ、正式版はそうでない APK にだけ当てる（取り違えは rc≠0）。`--self-test` は使い捨ての鍵 2 つ（`make-key.sh` で作る）で:
   `正式版の APK は、正式な識別子と正式な鍵で署名されている`・`識別子とチャンネルの鍵を取り違えると、署名しない`・`開発版の APK は、.dev の識別子と開発版の鍵で署名されている`・`鍵が置き場に無ければ、署名しない APK を公開しない`・`PR の組み立ての APK は debug の鍵で署名される`（PR の形の `build.sh apk` の APK の証明書が `~/.android/debug.keystore` のもの）
   検証: `bash -c 'scripts/quiet-run sign -- tools/release/sign-apk.sh --self-test'` rc=0
