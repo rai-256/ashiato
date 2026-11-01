@@ -124,7 +124,8 @@ range_self_test() {
 }
 
 self_test() {
-  local work="$TMPDIR"/artifact-self-test.XXXXXX; work="$(mktemp -d "$work")"; trap 'rm -f "$root/crates/server/src/.st52-release-self-test-dirty"; rm -rf "$work"' RETURN
+  local work; work="$(mktemp -d "${TMPDIR:-/tmp}/artifact-self-test.XXXXXX")"
+  trap "rm -f '$root/crates/server/src/.st52-release-self-test-dirty'; rm -rf '$work'" EXIT
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"
   echo "== Scenario: 配布物が 1 つでも欠ければ公開しない"
   printf '0.1.0+0000000000000000000000000000000000000000' > "$work/missing-stamp"
@@ -147,6 +148,15 @@ self_test() {
   (cd "$work" && zip -q "$real/ashiato-server-0.1.0-windows-x86_64.zip" stamp)
   (cd "$work" && zip -q "$real/ashiato-collector-windows-0.1.0-x86_64.zip" stamp)
   cp "$real"/* "$out/"
+  expected_names=(
+    ashiato-server-0.1.0-linux-x86_64.tar.gz
+    ashiato-server-0.1.0-windows-x86_64.zip
+    ashiato-collector-0.1.0.apk
+    ashiato-collector-windows-0.1.0-x86_64.zip
+  )
+  mapfile -t actual_names < <(find "$out" -maxdepth 1 -type f -printf '%f\n' | sort)
+  mapfile -t sorted_expected < <(printf '%s\n' "${expected_names[@]}" | sort)
+  [[ "${actual_names[*]}" == "${sorted_expected[*]}" ]] || die "release の配布物の名前または個数が違う"
   echo "== Scenario: .dirty の印を持つ配布物があれば公開しない"
   local server_src="$root/crates/server/src/lib.rs" server_backup="$work/server-lib.rs"
   cp "$server_src" "$server_backup"
@@ -174,8 +184,11 @@ self_test() {
     -Pashiato.baseUrl= -Pashiato.apiToken=secret-token-for-test -Pashiato.userId= :app:assembleRelease)
   cp "$root/collector-android/app/build/outputs/apk/release/app-release.apk" "$out/ashiato-collector-0.1.0.apk"
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 2>&1); then return 1; fi
-  grep -Fq API_TOKEN <<<"$output"
-  ! grep -Fq secret-token-for-test <<<"$output"
+  grep -Fq API_TOKEN <<<"$output" || { echo "$output"; return 1; }
+  if grep -Fq secret-token-for-test <<<"$output"; then
+    echo "資格情報の値が検査出力に漏れた" >&2
+    return 1
+  fi
   cp "$real/ashiato-collector-0.1.0.apk" "$out/"
   echo "== Scenario: 綺麗な release で資格情報の無い配布物は、検査を通る"
   check_artifacts "$out" --allow-debug-key --expect-version 0.1.0 >/dev/null

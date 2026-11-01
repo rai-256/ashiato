@@ -128,14 +128,18 @@ build_one() {
 self_test() {
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/release-build.XXXXXX")"
-  trap 'rm -rf "$work"' RETURN
-  resolve_version
+  trap "rm -rf '$work'" EXIT
   echo "== Scenario: release の組み立ては、画面を取り込んだ Linux サーバと APK を作る"
   ASHIATO_BUILD_VERSION="0.1.0" "$0" server-linux "$work/out"
   ASHIATO_BUILD_VERSION="0.1.0" "$0" apk "$work/out"
   [[ -s "$work/out/ashiato-server-0.1.0-linux-x86_64.tar.gz" ]]
   [[ -s "$work/out/ashiato-collector-0.1.0.apk" ]]
   tar -tzf "$work/out/ashiato-server-0.1.0-linux-x86_64.tar.gz" | grep -Fxq ashiato-server
+  local server_text apk_build_config
+  server_text="$(tar -xOzf "$work/out/ashiato-server-0.1.0-linux-x86_64.tar.gz" ashiato-server | strings)"
+  grep -Fq '0.1.0+' <<<"$server_text"
+  apk_build_config="$(apkanalyzer dex code --class dev.ashiato.collector.BuildConfig "$work/out/ashiato-collector-0.1.0.apk")"
+  grep -Eq '\.field public static final (BASE_URL|API_TOKEN|USER_ID):.* = ""' <<<"$apk_build_config"
   echo "OK: Linux サーバと APK の名前と中身を確認した"
 }
 
