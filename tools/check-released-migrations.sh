@@ -3,7 +3,7 @@
 # 配った印（タグ v*）の版にある移行は、名前も前進側の中身も変えない・消さない。
 # 配った版を持つ他人の DB は、その移行を当て済みで、後から変えても当て直されない。
 # 直したければ直さずに新しい版を足す。戻し手順（.down.sql）は見ない。
-# 印が 0 個なら通す。印があるのに commit や ORDER を取り出せなければ落とす（CI の取り寄せの不足）。
+# 印が 0 個なら通す。浅い木では印を数えずに落とす。
 # 使い方: check-released-migrations.sh [--self-test]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,7 +15,11 @@ order_names() { grep -Ev '^[[:space:]]*(#|$)'; }
 # 今いる git の木を検査する。0: 通る / 1: 落ちる
 check_tree() {
   local tags tag name bad=0
-  tags="$(git tag --list 'v[0-9]*')"
+  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = true ]; then
+    echo "履歴が浅いので配った印を数えられない"
+    return 1
+  fi
+  tags="$(git tag --merged HEAD --list 'v[0-9]*')"
   if [ -z "$tags" ]; then
     echo "配った印が 0 個（タグ v* が無い）: 検査する対象が無い"
     return 0
@@ -116,7 +120,29 @@ echo "Scenario: 配った版にある移行の戻し手順は、変えても通�
 
 # 印の指す commit が無い木: 印の ref だけ置いて、commit の実体は持たない
 new_tree
-echo 0123456789abcdef0123456789abcdef01234567 >"$T/.git/refs/tags/v1.0.0"
+git -C "$T" rm -q migrations/ORDER; commit_all no-order; tag_v1
+printf '# c\n202001010000_a\n\n202001010001_b\n' >"$T/migrations/ORDER"; commit_all restore-order
 echo "Scenario: 配った印の版を読めなければ、検査は通らない"; expect 1
+
+# 祖先でない印は数えず、開発版の印も配った印にしない
+new_tree; tag_v1
+git -C "$T" checkout -qb side; echo side >"$T/side"; git -C "$T" add side; git -C "$T" commit -q -m side; git -C "$T" tag v9.0.0
+git -C "$T" checkout -q -; echo "Scenario: 今の木の祖先でない印は、配った移行の検査で数えない"; expect 0
+echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; git -C "$T" checkout -q side; expect 0
+new_tree; git -C "$T" tag nightly
+echo "Scenario: 開発版の印は、配った印に数えない"; expect 0
+
+# タグだけを取り寄せた浅い木は、印が見えても検査を続けない
+new_tree; tag_v1; echo next >"$T/next"; commit_all next
+git clone -q --depth=1 "file://$T" "$work/shallow"
+git -C "$work/shallow" fetch -q --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+mkdir -p "$work/shallow/tools"
+cp "$ROOT/tools/check-released-migrations.sh" "$work/shallow/tools/check-released-migrations.sh"
+echo "Scenario: 浅い木では、配った移行の検査は通らない"
+if out=$(cd "$work/shallow" && tools/check-released-migrations.sh 2>&1); then
+  echo "  FAIL: 浅い木で検査が通った"; fail=1
+elif ! grep -q '履歴が浅い' <<<"$out"; then
+  echo "  FAIL: 浅い木の出力に「履歴が浅い」が無い"; printf '%s\n' "$out"; fail=1
+fi
 
 [ "$fail" -eq 0 ] && echo "check-released-migrations self-test OK" || { echo "check-released-migrations self-test NG"; exit 1; }

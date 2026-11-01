@@ -104,12 +104,16 @@ check_tree() {
   fi
 
   # 3・4. 配った印
+  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = true ]; then
+    echo "履歴が浅いので配った印を数えられない"
+    return 1
+  fi
   local tags tag latest old old_ver
-  tags="$(git tag --list 'v[0-9]*' --sort=-creatordate)"
+  tags="$(git tag --merged HEAD --list 'v[0-9]*')"
   if [ -z "$tags" ]; then
     echo "配った印が 0 個（タグ v* が無い）: 印との比較はしない"
   else
-    latest="$(printf '%s\n' "$tags" | head -1)"
+    latest="$(printf '%s\n' "$tags" | tools/release/version.sh order | tail -n1)"
     if ! old="$(git show "$latest:$COPY" 2>/dev/null)"; then
       echo "  NG 最後の印 $latest の $COPY を取り出せない（タグの取り寄せが足りない、または印の版に写しが無い）"
       bad=1
@@ -172,9 +176,11 @@ new_tree() {
   n=$((n + 1))
   T="$work/t$n"
   mkdir -p "$T/docs/contract" "$T/$(dirname "$SERVER_CONST")" "$T/$(dirname "$WINDOWS_CONST")" \
-    "$T/$(dirname "$ANDROID_CONST")" "$T/$FIXTURES/v1" "$T/tools"
+    "$T/$(dirname "$ANDROID_CONST")" "$T/$FIXTURES/v1" "$T/tools/release"
   # CI と同じ呼び方（別の bash・errexit が効く）で確かめるため、台本の写しを木に置く
   cp "$ROOT/tools/check-contract-version.sh" "$T/tools/"
+  cp "$ROOT/tools/release/version.sh" "$T/tools/release/"
+  cp "$ROOT/tools/release/version-table.tsv" "$T/tools/release/"
   git -C "$T" init -q
   git -C "$T" config user.email t@example.com
   git -C "$T" config user.name t
@@ -292,5 +298,31 @@ echo "== Scenario: ベータ版の印も配った印として比べる"; expect_
 new_tree
 sed -i '/^| 1 | /d' "$T/$CONTRACT_DOC"; commit_all no-history-row
 echo "== Scenario: 版の履歴に今の版の行が無いと CI が落ちる"; expect_msg "版の履歴"
+
+# 最後の印は作成日時でなく版番号で選び、正式版をベータ版より優先する
+new_tree
+git -C "$T" tag v0.4.0-beta.10
+git -C "$T" commit --allow-empty -q -m later; git -C "$T" tag v0.4.0-beta.9
+edit_copy '.android.ingest.id.required = false'; commit_all current-change
+echo "== Scenario: 最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印"; expect_msg "印 v0.4.0-beta.10"
+echo "== Scenario: 最後の配った印は、ベータ版の番号を数として比べて選ぶ"; expect_msg "印 v0.4.0-beta.10"
+
+new_tree
+git -C "$T" tag v0.4.0-beta.2; git -C "$T" commit --allow-empty -q -m release; git -C "$T" tag v0.4.0
+edit_copy '.android.ingest.id.required = false'; commit_all current-change
+echo "== Scenario: 同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ"; expect_msg "印 v0.4.0"
+
+new_tree; git -C "$T" tag nightly
+echo "== Scenario: 開発版の印 nightly は、最後の配った印に数えない"; expect 0
+
+new_tree; tag_beta; git -C "$T" commit --allow-empty -q -m next
+git clone -q --depth=1 "file://$T" "$work/shallow"
+git -C "$work/shallow" fetch -q --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+echo "== Scenario: 浅い木では、送信契約の版の検査は通らない"
+if out=$(cd "$work/shallow" && bash tools/check-contract-version.sh 2>&1); then
+  echo "  FAIL: 浅い木で検査が通った"; fail=1
+elif ! grep -q '履歴が浅い' <<<"$out"; then
+  echo "  FAIL: 浅い木の出力に「履歴が浅い」が無い"; printf '%s\n' "$out"; fail=1
+fi
 
 [ "$fail" -eq 0 ] && echo "check-contract-version self-test OK" || { echo "check-contract-version self-test NG"; exit 1; }
