@@ -17,8 +17,11 @@ jobs:
       - id: plan
         run: |
           tools/release/version.sh plan "$GITHUB_REF_NAME" | tee plan.txt
-          grep '^version=' plan.txt >> "$GITHUB_OUTPUT"
-          grep '^prerelease=' plan.txt >> "$GITHUB_OUTPUT"
+          {
+            grep '^channel=' plan.txt
+            grep '^version=' plan.txt
+            grep '^prerelease=' plan.txt
+          } >> "$GITHUB_OUTPUT"
   package-linux:
     needs: plan
     runs-on: ubuntu-24.04
