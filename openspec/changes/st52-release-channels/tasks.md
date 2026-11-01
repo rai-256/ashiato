@@ -149,7 +149,7 @@
 
 ## Task 8: 緊急の修正の枝の判定（D6（仮））
 
-- [ ] 8.1 `tools/release/version.sh plan` に修正の枝の例外（D6）を足す: 印の commit が main の祖先でなく、`release/<MAJOR>.<MINOR>` の枝の上にあり、正式版の印で、枝の元の正式版の印と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ通す。
+- [x] 8.1 `tools/release/version.sh plan` に修正の枝の例外（D6）を足す: 印の commit が main の祖先でなく、`release/<MAJOR>.<MINOR>` の枝の上にあり、正式版の印で、枝の元の正式版の印と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ通す。
   `--self-test` に `修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる`・`修正の枝で移行を足した印は公開しない`・`修正の枝で封筒の形を変えた印は公開しない`・`修正の枝からベータ版は出さない` を足す
   検証: `tools/release/version.sh --self-test` rc=0
 
