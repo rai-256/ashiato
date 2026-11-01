@@ -1,0 +1,140 @@
+{
+  "status": "accepted",
+  "digest": "c96fd568455d789285d9a5338ce471b9018cb6b7446721a6bc5f57f178713a07",
+  "head": "3c345e456be41fb2f80319bde597f7c0b51db0fe",
+  "answers": "deep-answers-2.txt",
+  "picked": "合意する",
+  "notes": [
+    "IMP-01: 補足: st53で"
+  ],
+  "at": "2026-11-01T12:47:34Z",
+  "impacts": {
+    "IMP-01": {
+      "answer": "後の Story で扱う",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "deferred",
+      "plan": {
+        "to": "ST53",
+        "residual": "本物の鍵を Environment に置いた時から、印の作成を限るまで、この経路が開く",
+        "scope": "正式な鍵と、それで署名する携帯の APK",
+        "interim": {
+          "kind": "this_story",
+          "text": "ST52 は本物の鍵を作らず、確かめは使い捨ての鍵と下書きのリリースで行う（D22（仮））。本物の鍵を置くのは最初の印を打つ前で、ST53 の後",
+          "refs": {
+            "requirements": [
+              "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない"
+            ],
+            "decisions": [
+              "D22",
+              "Q5"
+            ]
+          }
+        },
+        "owner": "本人（ST53 の深掘りで答える）",
+        "due": "ST53 の上流の合意まで",
+        "safe_now": "ST52 の間は Environment に本物の鍵が無いので、読まれて困る値が無い"
+      },
+      "handoff": {
+        "key": "ST52/IMP-01",
+        "severity": "high",
+        "title": "印を push できる人が、main を通さずに正式な鍵を読めるかもしれない",
+        "text": "正式な鍵の置き場（Environment release）は印の名前 v* だけを見て開く。main の祖先かどうかは workflow の中の判定が確かめ、印の作成を止める規則は無い（ルールセットは削除と付け替えだけ、pre-push は feat/st* の枝だけ）。印の push で走る workflow が印の commit の定義なら、main に入っていない commit で書き換えた workflow に v* の印を打つと、その workflow が正式な鍵を読める。鍵が外に出ると、配った APK の更新を他人が作れる。D21（仮）が main に開かない理由（AI が書いた変更から鍵を読ませない）と同じ経路が、印の側に残る。 本人が鍵を置く手順（docs/release.md。D19）は Environment と Secrets を置く工程をルールセットより前に並べ、そのルールセットは印の作成に効かない。「ルールセットが無ければ公開しない」の判定も、書き換えられる同じ workflow の中にある。",
+        "plan": {
+          "to": "ST53",
+          "residual": "本物の鍵を Environment に置いた時から、印の作成を限るまで、この経路が開く",
+          "scope": "正式な鍵と、それで署名する携帯の APK",
+          "interim": {
+            "kind": "this_story",
+            "text": "ST52 は本物の鍵を作らず、確かめは使い捨ての鍵と下書きのリリースで行う（D22（仮））。本物の鍵を置くのは最初の印を打つ前で、ST53 の後",
+            "refs": {
+              "requirements": [
+                "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない"
+              ],
+              "decisions": [
+                "D22",
+                "Q5"
+              ]
+            }
+          },
+          "owner": "本人（ST53 の深掘りで答える）",
+          "due": "ST53 の上流の合意まで",
+          "safe_now": "ST52 の間は Environment に本物の鍵が無いので、読まれて困る値が無い"
+        },
+        "source": "openspec/changes/st52-release-channels/go.json の impact.findings[IMP-01]",
+        "sha": "883639fe19f8a5a120c941fc347821f40982e69687bb0d03b455a83cd1cc4d5f"
+      }
+    }
+  },
+  "minor_accepted": [
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "印を打つ順を判定が見ないので、ベータ版の DB から同じ版の正式版へ移れないことがある"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "公開に失敗した印も「配った印」に数えられ、その版の移行が凍結される"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "開発版が止まったことは、予定の実行のログにしか出ない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "画面の版を package.json から読む 2 か所が、tasks の直す先に無い"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "開発版の印 nightly を動かすと、手で git fetch --tags した clone が rc=1 になる"
+    }
+  ],
+  "imp_history": [
+    {
+      "at": "2026-11-01T11:35:40Z",
+      "head": "cf2afacacc66a7a903ce5bca8bf610c181e30602",
+      "id": "IMP-01",
+      "answer": "後の Story で扱う",
+      "closed": true
+    },
+    {
+      "at": "2026-11-01T12:47:34Z",
+      "head": "3c345e456be41fb2f80319bde597f7c0b51db0fe",
+      "id": "IMP-01",
+      "answer": "後の Story で扱う",
+      "closed": true
+    }
+  ],
+  "carried": [
+    {
+      "from": "df0023305e0c04f9299b11054343303c029f2448e3e736c831865046a120091d",
+      "because": [
+        "D21",
+        "D23",
+        "Q1",
+        "Q11",
+        "Q4"
+      ],
+      "at": "2026-11-01T13:18:04Z"
+    },
+    {
+      "from": "dcc1188183dbdf686fcd9272db06cb36fa633c0b84e7948240b0f766845d3301",
+      "because": [
+        "D24",
+        "D6",
+        "Q1",
+        "Q11",
+        "Q12",
+        "Q13",
+        "Q4"
+      ],
+      "at": "2026-11-01T14:48:44Z"
+    }
+  ]
+}
