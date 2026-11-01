@@ -67,22 +67,22 @@
 
 ## Task 3: 版の出所を 1 つにする（携帯と画面）と版の検査
 
-- [ ] 3.1 `collector-android/app/build.gradle.kts`: `versionName` と `versionCode` の文字の値を消し、根の `Cargo.toml` の `[workspace.package] version` を `providers.fileContents` で読み、`ASHIATO_BUILD_VERSION`（`providers.environmentVariable`）を D12 と同じ規則で受け、versionCode を D11 の式で計算する（範囲外は `GradleException`）。
+- [x] 3.1 `collector-android/app/build.gradle.kts`: `versionName` と `versionCode` の文字の値を消し、根の `Cargo.toml` の `[workspace.package] version` を `providers.fileContents` で読み、`ASHIATO_BUILD_VERSION`（`providers.environmentVariable`）を D12 と同じ規則で受け、versionCode を D11 の式で計算する（範囲外は `GradleException`）。
   開発版（`-dev.`）だけ `applicationIdSuffix = ".dev"`。`ASHIATO_APK_UNSIGNED=1` の release は `signingConfig` を当てない（D18）、無ければ今どおり debug 鍵（`ASHIATO_RELEASE=1` は署名に効かない）。組み立ての印（ST49 の `COMPONENT_VERSION`）の版番号もこの値にする。
   式は `build.gradle.kts` の中の関数に置く（D11）。2 つの式（`version.sh code` と gradle）が同じ値を出すことは、
   版番号と versionCode の表 `tools/release/version-table.tsv` を両方が読んで固定する: `version.sh --self-test` が表の全行を `code` に当て、gradle の試験の task `verifyVersionCodeTable`（`build.gradle.kts` に足す。表の全行を gradle の式に当て、違えば落ちる）が同じ表を当てる
   検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable && test "$(grep -vc "^#" tools/release/version-table.tsv)" -ge 8'` rc=0 /
   `bash -c 'ASHIATO_BUILD_VERSION="$(tools/release/version.sh source)-beta.2" scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'` rc=0（`// Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値`。`check-artifacts.sh` の `apk-version` は Task 6 で作る。先に Task 6.2 の `apk-version` の口だけを作ってよい）/
   `tools/release/check-artifacts.sh --self-test-gradle-range` rc=0（`// Scenario: 桁を超える版番号では、携帯の組み立てが失敗する`。使い捨ての写しの木で出所を `0.100.0` にして `:app:assembleDebug` が rc≠0）
-- [ ] 3.2 `web/build-stamp.ts` と `web/vite.config.ts`: 版番号を `package.json` でなく根の `Cargo.toml` から読み、`ASHIATO_BUILD_VERSION` を同じ規則で受ける（形が違えば `vite build` が落ちる）。`web/package.json` の `version` を消す。
+- [x] 3.2 `web/build-stamp.ts` と `web/vite.config.ts`: 版番号を `package.json` でなく根の `Cargo.toml` から読み、`ASHIATO_BUILD_VERSION` を同じ規則で受ける（形が違えば `vite build` が落ちる）。`web/package.json` の `version` を消す。
   画面の印の「ソースの道」に根の `Cargo.toml` を足す（`:/web` と `:/Cargo.toml`）。`web/src/__tests__/build-stamp.test.ts` に `// Scenario: 携帯と画面の印の版番号も、根の出所の版から読む`（画面の側。偽の `Cargo.toml` の中身を渡す）と
   `// Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（画面の側。偽の git が `Cargo.toml` の未 commit の変更を返す）
   検証: `bash -c 'cd web && npx vitest run src/__tests__/build-stamp.test.ts'` rc=0 / `bash -c 'cd web && npm run build'` rc=0
-- [ ] 3.3 `tools/check-version.sh`（`--self-test` つき。D12）: 手書きの版番号（`build.gradle.kts` の文字の `versionName = "`・`versionCode = <数>`、`web/package.json` の `version`）・出所の版の形（`0.<数>.<数>`）を見る。
+- [x] 3.3 `tools/check-version.sh`（`--self-test` つき。D12）: 手書きの版番号（`build.gradle.kts` の文字の `versionName = "`・`versionCode = <数>`、`web/package.json` の `version`）・出所の版の形（`0.<数>.<数>`）を見る。
   `--self-test` は使い捨ての木で `携帯の組み立ての設定に版番号を手で書くと、版の検査が落ちる`・`画面の package.json に版番号を書くと、版の検査が落ちる`・`出所の版の MAJOR が 0 でないと、版の検査が落ちる`・`出所の版が MAJOR.MINOR.PATCH の形でないと、版の検査が落ちる` を走らせる。
   `ci.yml` の `chain` の job に `./tools/check-version.sh --self-test` と `./tools/check-version.sh` を足す
   検証: `tools/check-version.sh --self-test` rc=0 / `tools/check-version.sh` rc=0
-- [ ] 3.4 `tools/check-build-stamp.sh` を出所の変更に合わせる（C-01 の版番号を `build.gradle.kts` の `versionName` でなく `Cargo.toml` と比べる）。節 `release` を足し、使い捨ての写しの木で `ASHIATO_BUILD_VERSION=<出所>-beta.2` を渡して 4 つの部品を release で組み、
+- [x] 3.4 `tools/check-build-stamp.sh` を出所の変更に合わせる（C-01 の版番号を `build.gradle.kts` の `versionName` でなく `Cargo.toml` と比べる）。節 `release` を足し、使い捨ての写しの木で `ASHIATO_BUILD_VERSION=<出所>-beta.2` を渡して 4 つの部品を release で組み、
   印がどれも `<出所>-beta.2+<HEAD>` で `.dirty`・`.debug` が無く、組み立ての後の `git status --porcelain` が空なことを見る（`// Scenario: 渡した版番号は、4 つの部品の印に同じ値で入り、印は .dirty を持たない`）。
   同じ節で、渡さずに組んだ 4 つの印の版番号が出所の版と同じこと（`版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ`）、出所と違う版番号でサーバの `cargo build` が落ちること（`出所の版と違う版番号を渡すと、組み立てが失敗する`）、
   `決めた形でない版番号を渡すと、組み立てが失敗する`（サーバの組み立てで 4 つの値）、`携帯と画面の印の版番号も、根の出所の版から読む`（携帯の側。出所を `0.9.0` にして commit した写しの木）・`根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（携帯の側。gradle の印のソースの道に根の `Cargo.toml` を足す）を見る。`ci.yml` の `build-stamp` の job に `./tools/check-build-stamp.sh release` を足し、`changes` の `stamp` の式に `web/build-stamp\.ts|web/vite\.config\.ts|tools/release/` を足す
