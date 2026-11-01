@@ -108,7 +108,7 @@
 
 ## Task 5: サーバが組み込んだ画面を配る
 
-- [ ] 5.1 `crates/server/build.rs` に画面の取り込み（D13）: `ASHIATO_WEB_DIST` の中のファイルの表を `OUT_DIR/web_assets.rs` に書く（空なら空の表。`rerun-if-env-changed` と、置き場があればその中のファイル）。`ASHIATO_RELEASE=1` で空なら `panic!`。
+- [x] 5.1 `crates/server/build.rs` に画面の取り込み（D13）: `ASHIATO_WEB_DIST` の中のファイルの表を `OUT_DIR/web_assets.rs` に書く（空なら空の表。`rerun-if-env-changed` と、置き場があればその中のファイル）。`ASHIATO_RELEASE=1` で空なら `panic!`。
   新しい `crates/server/src/web_assets.rs` と `router()` の変更（`/api` を剥がす層・`fallback` に画面）。`crates/server/src/st52_web_tests.rs`（`router()` に偽の表を渡す口で試す。組み立ての表を差し替える口は試験の構成だけ）:
   - `st52_web_headers` — `// Scenario: 画面のファイルには、今と同じ守りの見出しが付く`
   - `st52_web_api_prefix` — `// Scenario: /api の道は、今の API と同じ応答と認可になる`
@@ -117,9 +117,9 @@
   - `st52_web_without_assets` — `// Scenario: 画面を組み込まない組み立てでは、/ は 404 で API は動く`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st52_web_ && test "$(cargo test -p ashiato-server st52_web_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 /
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server access_log'` rc=0（読み出しの記録が `/api` の道でも今と同じに当たる既存の試験）/ `./tools/check-openapi.sh` rc=0
-- [ ] 5.2 `crates/server/tests/server_startup.rs` に `st52_bin_release_needs_web`（`// Scenario: 配る組み立てで画面が無ければ、サーバの組み立てが失敗する`。使い捨ての `CARGO_TARGET_DIR` で `ASHIATO_RELEASE=1`・`ASHIATO_WEB_DIST` 無しの `cargo build -p ashiato-server` が rc≠0）
+- [x] 5.2 `crates/server/tests/server_startup.rs` に `st52_bin_release_needs_web`（`// Scenario: 配る組み立てで画面が無ければ、サーバの組み立てが失敗する`。使い捨ての `CARGO_TARGET_DIR` で `ASHIATO_RELEASE=1`・`ASHIATO_WEB_DIST` 無しの `cargo build -p ashiato-server` が rc≠0）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st52_bin_release && test "$(cargo test -p ashiato-server --test server_startup st52_bin_release -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
-- [ ] 5.3 `tools/stack.sh`（D20）: 画面の `vite build` をサーバの組み立ての前に移し、`ASHIATO_WEB_DIST` を渡してサーバを組む。`vite preview` は今の `WEB_PORT` のまま。
+- [x] 5.3 `tools/stack.sh`（D20）: 画面の `vite build` をサーバの組み立ての前に移し、`ASHIATO_WEB_DIST` を渡してサーバを組む。`vite preview` は今の `WEB_PORT` のまま。
   `web/e2e/st52-served-ui.spec.ts`（`// Scenario: 配ったサーバだけで、Node を入れずに画面が開く`）: 環境変数 `BIND` から絶対 URL `http://$BIND/` を組んで開き（`baseURL` の `WEB_PORT` を使わない）、合言葉でログインし、`/api/coverage` の応答を待って稼働状況の格子が見える（`toBeVisible`）。
   開いた間の要求の URL がどれも `$BIND` の番号であることも見る
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- st52-served-ui.spec.ts'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- login.spec.ts stack.spec.ts'` rc=0（既存の e2e が `vite preview` のまま通る）
