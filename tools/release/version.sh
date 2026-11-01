@@ -15,7 +15,7 @@ source_version() {
 
 parse_version() {
   local value="$1"
-  if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9][0-9]?)|-dev\.[0-9]{8})?$ ]]; then
+  if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9]|[1-8][0-9])|-dev\.[0-9]{8})?$ ]]; then
     MAJOR=${BASH_REMATCH[1]}; MINOR=${BASH_REMATCH[2]}; PATCH=${BASH_REMATCH[3]}
     SUFFIX=${BASH_REMATCH[4]}
     BETA=${BASH_REMATCH[5]}
@@ -54,7 +54,7 @@ version_sort_key() {
   local kind=2 number=99
   [[ "$SUFFIX" == -beta.* ]] && { kind=1; number=$BETA; }
   [[ "$SUFFIX" == -dev.* ]] && { kind=0; number=0; }
-  printf '%09d.%09d.%09d.%03d.%s\n' "$MAJOR" "$MINOR" "$PATCH" "$kind" "$number"
+  printf '%09d.%09d.%09d.%03d.%03d\n' "$MAJOR" "$MINOR" "$PATCH" "$kind" "$number"
 }
 
 order_versions() {
@@ -72,12 +72,19 @@ require_full_history() {
 }
 
 main_ref() {
-  git rev-parse --verify refs/remotes/origin/main 2>/dev/null || git rev-parse --verify refs/heads/main 2>/dev/null || git rev-parse HEAD
+  local ref
+  if ref=$(git rev-parse --verify refs/remotes/origin/main 2>/dev/null); then
+    echo "$ref"
+  elif ref=$(git rev-parse --verify refs/heads/main 2>/dev/null); then
+    echo "$ref"
+  else
+    die "main の参照が無い"
+  fi
 }
 
 plan() {
   local tag=${1:-} commit main version expected base branch
-  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]?)?$ ]] || die "印の形が違う: $tag"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-8][0-9]))?$ ]] || die "印の形が違う: $tag"
   require_full_history
   commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null) || die "印が無い: $tag"
   version=${tag#v}
@@ -144,7 +151,9 @@ self_test() {
   echo "== Scenario: 同じ版の開発版は、毎日同じ versionCode になる"
   [[ "$(version_code 0.4.0-dev.20261101)" == "$(version_code 0.4.0-dev.20261102)" ]] || return 1
   echo "== Scenario: 桁を超える版番号では、versionCode の計算が失敗する"
-  ! (version_code 0.100.0 >/dev/null 2>&1) && ! (version_code 0.1.100 >/dev/null 2>&1) || return 1
+  if (version_code 0.100.0 >/dev/null 2>&1); then return 1; fi
+  if (version_code 0.1.100 >/dev/null 2>&1); then return 1; fi
+  if (version_code 0.4.0-beta.99 >/dev/null 2>&1); then return 1; fi
 
   local work t base out rc
   work=$(mktemp -d "${TMPDIR:-/tmp}/version-self-test.XXXXXX")
@@ -159,10 +168,23 @@ self_test() {
   git -C "$t" tag v0.4.0
   echo "== Scenario: 正式版の印は、通常のリリースと判定される"; out=$(cd "$t" && tools/release/version.sh plan v0.4.0); grep -q 'channel=release' <<<"$out"; grep -q 'version=0.4.0' <<<"$out"
   echo "== Scenario: ベータ版の印で、先行公開のリリースになる"; git -C "$t" tag v0.4.0-beta.2; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.2); grep -q 'channel=beta' <<<"$out"
-  echo "== Scenario: 印の版と出所の版が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1; ! (cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 >/dev/null 2>&1)
-  echo "== Scenario: main の祖先でない commit の印は公開しない"; git -C "$t" checkout -qb other; echo x > "$t/x"; git -C "$t" add x; git -C "$t" commit -q -m other; git -C "$t" tag v0.4.0-beta.3; ! (cd "$t" && tools/release/version.sh plan v0.4.0-beta.3 2>&1 | grep -q '祖先でない')
-  echo "== Scenario: 決めた形でない印は、どのチャンネルにも配らない"; for version in v0.4.0-rc.1 v0.4 release-0.4.0; do ! (cd "$t" && tools/release/version.sh plan "$version" >/dev/null 2>&1); done
-  git -C "$t" checkout -q main; git clone -q --depth=1 "file://$t" "$work/shallow"; echo "== Scenario: 浅い木では、印の判定は通らない"; ! (cd "$work/shallow" && tools/release/version.sh plan v0.4.0 2>&1 | grep -q '履歴が浅い')
+  echo "== Scenario: 印の版と出所の版が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1
+  if (cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 >/dev/null 2>&1); then return 1; fi
+  echo "== Scenario: main の祖先でない commit の印は公開しない"; git -C "$t" checkout -qb other; echo x > "$t/x"; git -C "$t" add x; git -C "$t" commit -q -m other; git -C "$t" tag v0.4.0-beta.3
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.3 2>&1); then return 1; fi
+  grep -q '祖先でない' <<<"$out" || return 1
+  echo "== Scenario: 決めた形でない印は、どのチャンネルにも配らない"; for version in v0.4.0-rc.1 v0.4 release-0.4.0 v0.4.0-beta.99; do
+    if (cd "$t" && tools/release/version.sh plan "$version" >/dev/null 2>&1); then return 1; fi
+  done
+  git -C "$t" checkout -q main; git clone -q --depth=1 "file://$t" "$work/shallow"; echo "== Scenario: 浅い木では、印の判定は通らない"
+  if out=$(cd "$work/shallow" && tools/release/version.sh plan v0.4.0 2>&1); then return 1; fi
+  grep -q '履歴が浅い' <<<"$out" || return 1
+
+  ordered=$(printf '%s\n' v0.4.0 v0.4.0-beta.10 v0.4.0-beta.9 v0.4.0-beta.2 | (cd "$t" && tools/release/version.sh order))
+  [[ "$ordered" == $'v0.4.0-beta.2\nv0.4.0-beta.9\nv0.4.0-beta.10\nv0.4.0' ]] || return 1
+  git clone -q "file://$t" "$work/no-main"; git -C "$work/no-main" checkout -qb test-no-main; git -C "$work/no-main" branch -D main >/dev/null; git -C "$work/no-main" update-ref -d refs/remotes/origin/main
+  if out=$(cd "$work/no-main" && tools/release/version.sh plan v0.4.0 2>&1); then return 1; fi
+  grep -q 'main の参照が無い' <<<"$out" || return 1
 
   git -C "$t" tag -d v0.4.0 >/dev/null
   git -C "$t" tag nightly; echo "== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
@@ -173,7 +195,10 @@ self_test() {
   echo "== Scenario: 公開の設定が入っていなければ、手で起こした作り直しも公開しない"; out=$(cd "$t" && unset ASHIATO_NIGHTLY_PUBLISH && GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"; grep -q 'publish=no' <<<"$out"
   git -C "$t" tag v0.4.0
   echo "== Scenario: 出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan); grep -q '出所の版を上げる必要' <<<"$out"
-  git clone -q --depth=1 "file://$t" "$work/nightly-shallow"; echo "== Scenario: 浅い木では、開発版の作り直しの判定は通らない"; ! (cd "$work/nightly-shallow" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan 2>&1 | grep -q '履歴が浅い')
+  git clone -q --depth=1 "file://$t" "$work/nightly-shallow"; echo "== Scenario: 浅い木では、開発版の作り直しの判定は通らない"
+  if out=$(cd "$work/nightly-shallow" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan 2>&1); then return 1; fi
+  grep -q '履歴が浅い' <<<"$out" || return 1
+  ! grep -q '^build=' <<<"$out" || return 1
 }
 
 case "${1:-}" in
