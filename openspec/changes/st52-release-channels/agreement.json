@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "dcc1188183dbdf686fcd9272db06cb36fa633c0b84e7948240b0f766845d3301",
+  "digest": "c96fd568455d789285d9a5338ce471b9018cb6b7446721a6bc5f57f178713a07",
   "head": "3c345e456be41fb2f80319bde597f7c0b51db0fe",
   "answers": "deep-answers-2.txt",
   "picked": "合意する",
@@ -122,6 +122,19 @@
         "Q4"
       ],
       "at": "2026-11-01T13:18:04Z"
+    },
+    {
+      "from": "dcc1188183dbdf686fcd9272db06cb36fa633c0b84e7948240b0f766845d3301",
+      "because": [
+        "D24",
+        "D6",
+        "Q1",
+        "Q11",
+        "Q12",
+        "Q13",
+        "Q4"
+      ],
+      "at": "2026-11-01T14:48:44Z"
     }
   ]
 }
