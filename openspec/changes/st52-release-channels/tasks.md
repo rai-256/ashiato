@@ -126,10 +126,10 @@
 
 ## Task 6: 配る組み立ての台本と配布物の検査
 
-- [ ] 6.1 `tools/release/build.sh <server-linux|server-windows|collector-windows|apk> <出力の置き場>`（D14・D17）: 画面を `vite build` してサーバに取り込む・release で組む・D17 の名前で包む。`ASHIATO_BUILD_VERSION` があれば渡す。
+- [x] 6.1 `tools/release/build.sh <server-linux|server-windows|collector-windows|apk> <出力の置き場>`（D14・D17）: 画面を `vite build` してサーバに取り込む・release で組む・D17 の名前で包む。`ASHIATO_BUILD_VERSION` があれば渡す。
   Windows の 2 つは Windows の runner（と WSL からの Windows 側の cargo）で走る形にする（`bash` は Git Bash）。`--self-test` は Linux で `server-linux` と `apk` を組み、名前と中身を見る（Windows の 2 つの本物の通しは Task 9.2 の `package` の job が CI で見る）
   検証: `bash -c 'scripts/quiet-run pkg -- tools/release/build.sh --self-test'` rc=0
-- [ ] 6.2 `tools/release/check-artifacts.sh <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>]`（D7・D23（仮））と口 `apk-version <apk>`: チャンネルの配布物がそろう（既定と `release`・`beta` は 4 つ、`nightly` は携帯の APK を除く 3 つで、APK があれば落とす）・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ（`nightly` は APK が無いので指紋と `BuildConfig` を見ず、期待値は空でよい。D23（仮））。
+- [x] 6.2 `tools/release/check-artifacts.sh <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>]`（D7・D23（仮））と口 `apk-version <apk>`: チャンネルの配布物がそろう（既定と `release`・`beta` は 4 つ、`nightly` は携帯の APK を除く 3 つで、APK があれば落とす）・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ（`nightly` は APK が無いので指紋と `BuildConfig` を見ず、期待値は空でよい。D23（仮））。
   `--self-test` は、Linux で本物に組んだ 2 つ（Task 6.1 の `server-linux` と `apk`）と、Windows の 2 つの写し（Linux で組んだ C-02 の rlib から読んだ組み立ての印の文字列を、D17 の名前の zip に詰めたもの —— 検査は印の文字列と名前しか読まないので形は同じ）でそろえた置き場と、資格情報 `secret-token-for-test` を `-Pashiato.apiToken` で焼き込んだ APK・debug の APK・未 commit の変更で組んだサーバ）に当てる:
   `配布物が 1 つでも欠ければ公開しない`・`.dirty の印を持つ配布物があれば公開しない`・`.debug の印を持つ配布物があれば公開しない`・`資格情報を焼き込んだ APK があれば公開せず、値を示さない`（出力に `secret-token-for-test` が無いことも見る）・`綺麗な release で資格情報の無い配布物は、検査を通る`・
   `1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ`・`開発版の配布物の検査は、携帯の APK を除く 3 つで通る`（`server-linux` と Windows の 2 つの写しを `0.4.0-dev.20261102` で用意し、`ASHIATO_EXPECT_CERT_SHA256` を空にして `--channel nightly` が rc=0）・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`（`ashiato-collector-dev-0.4.0-dev.20261102.apk` と `ashiato-collector-0.4.0-dev.20261102.apk` をそれぞれ足して rc≠0 と名前）
