@@ -27,8 +27,9 @@ ST52 で用意した配布手順。実際に配布元へ設定を入れたり、
 ST53 の確認後、最初の正式版の印を打つ前に本人が設定する。
 
 - `release` Environment は deployment branch policy を tag `v*` **だけ**にする。`main` には開かない（D21（仮））。
-- `release` の Secret に正式な keystore と合言葉を置く。Environment の値の名前だけを手順やログに出し、値は出さない。
-- `release` の変数 `ASHIATO_CERT_SHA256` に正式な証明書の SHA-256 指紋を置く。workflow はこれを `ASHIATO_EXPECT_CERT_SHA256` として署名検査に渡す。
+- `release` の Secret に、workflow が読む次の4つを同じ名前で置く: `ASHIATO_SIGNING_KEYSTORE_B64`（keystore を base64 にした値）、`ASHIATO_SIGNING_STORE_PASSWORD`、`ASHIATO_SIGNING_KEY_ALIAS`、`ASHIATO_SIGNING_KEY_PASSWORD`。値は手順やログに出さない。
+- keystore は `base64 -w0 <正式なkeystore>` の出力を `ASHIATO_SIGNING_KEYSTORE_B64` に登録する（macOS など `-w` が無い環境では改行を除いた base64 を登録する）。
+- `release` の変数 `ASHIATO_CERT_SHA256` に正式な証明書の SHA-256 指紋を置く。keystore と alias を用意した安全な端末で、`keytool -exportcert -keystore <正式なkeystore> -alias "$ASHIATO_SIGNING_KEY_ALIAS" -storepass:env ASHIATO_SIGNING_STORE_PASSWORD | sha256sum | cut -d' ' -f1` の出力（値そのものはログやチャットに貼らない）を登録する。workflow はこれを `ASHIATO_EXPECT_CERT_SHA256` として署名検査に渡す。
 - `nightly` Environment は branch `main` **だけ**に開く。ST52 では鍵、Secret、`ASHIATO_CERT_SHA256` を置かない。携帯の開発版鍵を作って置くのは ST54 の作業とする。
 - 開発版の公開設定はリポジトリ変数 `ASHIATO_NIGHTLY_PUBLISH=on` にする。設定が無い間は nightly の公開を行わない。
 
@@ -51,10 +52,21 @@ ST53 の確認後、最初の正式版の印を打つ前に本人が設定する
 
 ```bash
 git switch -c release/0.1 <正式版の印>
+# Cargo.toml の workspace version を 0.1.1 に上げて commit
+# （版番号を上げた commit を修正の枝に先に置く）
+<エディタで Cargo.toml の workspace version を 0.1.1 に変更>
+git add Cargo.toml
+git commit -m "chore: 次の版番号へ上げる"
 # 修正、テスト、commit
-tools/release/version.sh plan v0.1.1
+git add <修正したファイル>
+git commit -m "fix: 正式版の不具合を修正"
+git push -u origin release/0.1
 git tag v0.1.1
+tools/release/version.sh plan v0.1.1
 git push origin v0.1.1
+# release workflow の完了と配布物を確認してから枝を消す
+run_id="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh run watch "$run_id" --exit-status
 git switch main
 git branch -d release/0.1
 git push origin --delete release/0.1

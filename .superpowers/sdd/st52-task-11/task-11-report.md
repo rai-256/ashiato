@@ -29,3 +29,20 @@
 ## 自己レビュー
 
 `git diff --check` は成功した。Task の指定文字列、申し送りの `ASHIATO_NIGHTLY_PUBLISH` / `R11` / `D5`、版番号の出所、ST52 では本物の鍵や公開を行わない境界を確認した。追加の懸念はない。
+
+## Fix round 1
+
+### 対応内容
+
+- F1: 修正の枝の手順を、workspace version の更新 commit、修正 commit、枝 push、印の push、release workflow の完了待ち、枝削除の順に修正した。`version.sh plan` は印を作った後、印を push する前に実行する形にした。
+- F2: `docs/handoff/ST54.md` の R11 申し送りを、移行の名前変更・削除では `Ahead` で起動・移行が止まり、中身の変更では警告だけで DB の形がずれること、nightly 印を毎日動かすと `git fetch --tags` が rc=1 になる原因は DB ではなく印の上書きであることに修正した。
+- F3: `release` workflow が読む4つの Secret 名、keystore の base64 化、`ASHIATO_CERT_SHA256` の `keytool` による SHA-256 指紋取得手順を追加した。
+
+### Fix 検証
+
+- `scripts/verify-run 11.1` — 3項目すべて PASS / rc=0。`check_scenarios.py` は既存警告を出したが `scenarios: OK`。
+- `git diff --check` — 成功。
+
+### Fix 自己レビュー
+
+F1〜F3 の指摘対象だけを変更し、`tasks.md`、コード、既存の合意済みテスト期待値は変更していない。追加の懸念はない。
