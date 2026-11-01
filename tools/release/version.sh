@@ -99,7 +99,8 @@ plan() {
     [[ "$version" != *-beta.* ]] || die "ベータ版の修正の枝は許さない"
     base=$(git describe --tags --abbrev=0 --exclude '*-*' --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
     [[ -n "$base" ]] || die "修正の枝の元の印が無い"
-    git diff --quiet "$base" "$commit" -- migrations/ORDER docs/contract/envelope.json || die "修正の枝で移行または封筒が変わった"
+    git diff --quiet "$base" "$commit" -- migrations/ORDER || die "修正の枝で migrations/ORDER が元の印と違う"
+    git diff --quiet "$base" "$commit" -- docs/contract/envelope.json || die "修正の枝で docs/contract/envelope.json が元の印と違う"
   fi
   local channel=release prerelease=false
   [[ "$version" == *-beta.* ]] && { channel=beta; prerelease=true; }
@@ -202,7 +203,7 @@ self_test() {
   printf '202611020001_fix.sql\n' >> "$t/migrations/ORDER"
   git -C "$t" add migrations/ORDER; git -C "$t" commit -q -m migration; git -C "$t" tag v0.4.2
   if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
-  grep -q '移行または封筒' <<<"$out" || return 1
+  grep -q 'migrations/ORDER' <<<"$out" || return 1
   git -C "$t" reset -q --hard "$formal_base"
   git -C "$t" tag -d v0.4.2 >/dev/null
   printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
@@ -210,7 +211,10 @@ self_test() {
   git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m envelope; git -C "$t" tag v0.4.2
   echo "== Scenario: 修正の枝で封筒の形を変えた印は公開しない"
   if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
+  grep -q 'docs/contract/envelope.json' <<<"$out" || return 1
   echo "== Scenario: 修正の枝からベータ版は出さない"
+  git -C "$t" reset -q --hard "$formal_base"
+  git -C "$t" tag -d v0.4.2 >/dev/null
   printf '[workspace.package]\nversion = "0.4.3"\n' > "$t/Cargo.toml"
   git -C "$t" add Cargo.toml; git -C "$t" commit -q -m beta-version
   git -C "$t" tag v0.4.3-beta.1
