@@ -42,8 +42,8 @@ jobs:
           files="$(git diff --name-only "$BASE" "$HEAD")"
           echo "--- 変わったもの ---"; printf '%s\n' "$files"
           has() { printf '%s\n' "$files" | grep -qE "$1"; }
-          # docs / openspec / *.md 以外が 1 つでもあれば「コード」
-          if printf '%s\n' "$files" | grep -vE '^(docs/|openspec/)|\.md$' | grep -q .; then
+          # 判定の正本は tools/release/changes.sh に置く。
+          if printf '%s\n' "$files" | tools/release/changes.sh code; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
