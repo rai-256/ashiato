@@ -108,6 +108,9 @@ build_apk() {
     ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
       -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleRelease)
   local apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
+  if [[ "${ASHIATO_APK_UNSIGNED:-}" == 1 ]]; then
+    apk="$root/collector-android/app/build/outputs/apk/release/app-release-unsigned.apk"
+  fi
   [[ -f "$apk" ]] || die "APK が無い: $apk"
   cp "$apk" "$out/ashiato-collector-$version.apk"
 }

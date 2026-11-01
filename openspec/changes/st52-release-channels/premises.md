@@ -42,6 +42,8 @@
 | C8 | 配る組み立ての印（ST49）に `.dirty` と `.debug` が無いことと、3 部品の版が印と一致することを、リリースの workflow と PR の組み立て（Q9）が確かめる | 「3 部品の版の食い違いを CI が落とす」の機械の形 | 完了の判定・R12 |
 | C9 | 緊急の修正の枝は FR-105 の例外にだけ切り、正式版の印を打ったら消す | 要件の本文どおり | FR-105 |
 
+| P17 | Play App Signing に持ち込む鍵は、少なくとも 25 年の有効期限を持つ必要がある | Q12 | Android Developers の公式文書（https://developer.android.com/studio/publish/app-signing）。「A validity period of 25 years or more is recommended.」を確認し、Google Play の鍵には 2033 年 10 月 22 日より後の期限が必要と記載されていることを確認した | RSA 4096・10000 日（D3）はこの条件を満たす。D3 より厳しい種類・長さの条件は示されていない | 公式文書 | 2 |
+
 ## 他の Story へ回すもの
 
 - PC の収集アプリには後戻りを止めるもの（携帯の versionCode にあたるもの）が無い。新しい版から古い版へ入れ直すと、新しい版が積んだ未送信の新しい欄を古い版が落として送る → ST58（R14）
