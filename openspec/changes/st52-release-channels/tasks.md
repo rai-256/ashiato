@@ -172,7 +172,7 @@
 
 ## Task 10: 下書きのリリースを作る台本（印を打たない）
 
-- [ ] 10.1 `tools/release/draft.sh <run-id> <版番号>`（D16）: `gh run download` → `check-artifacts.sh --allow-debug-key` → `gh release create --draft [--prerelease] --target main`。`--self-test` は偽の `gh` で
+- [x] 10.1 `tools/release/draft.sh <run-id> <版番号>`（D16）: `gh run download` → `check-artifacts.sh --allow-debug-key` → `gh release create --draft [--prerelease] --target main`。`--self-test` は偽の `gh` で
   `確かめの組み立ては、印を作らずに下書きのリリースになる`・`確かめの組み立ても、配布物が欠ければ下書きを作らない` を走らせる。本物の配布元では走らせない（末尾の「人間の確認待ち」で走らせる）
   検証: `tools/release/draft.sh --self-test` rc=0
 
