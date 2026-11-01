@@ -5,15 +5,30 @@ root="${CHECK_GUARDS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 die() { echo "NG: $*" >&2; return 1; }
 repo="${GITHUB_REPOSITORY:-rai-256/ashiato2}"
 
+# 印 v* の削除と付け替えを拒むルールセットがあるか（final review R4）。
+# `rules/tags/<印>` の API は無いので、ルールセットの一覧と各ルールセットの詳細を読む。
+# 数えるのは target=tag・enforcement=active・include に refs/tags/v*（か ~ALL）があり、exclude に当たらないもの。
+# 当たるルールセットの規則を合わせて、deletion と update（または non_fast_forward）がそろえば通る。
 rules() {
-  local json tag="${GITHUB_REF_NAME:-}"
-  if [[ -z "$tag" ]]; then
-    die '公開する印が無い'
-    return 1
-  fi
-  json="$(gh api "repos/$repo/rules/tags/$tag" 2>/dev/null)" || die "印 $tag の規則を読めない"
-  grep -Eq '"type"[[:space:]]*:[[:space:]]*"deletion"' <<<"$json" || die "印 $tag の削除を拒む規則が無い"
-  grep -Eq '"type"[[:space:]]*:[[:space:]]*"(update|non_fast_forward)"' <<<"$json" || die "印 $tag の付け替えを拒む規則が無い"
+  local list id detail types="" ids
+  list="$(gh api "repos/$repo/rulesets?per_page=100" 2>/dev/null)" || { die 'ルールセットの一覧を読めない'; return 1; }
+  ids="$(python3 -c 'import json,sys
+for r in json.load(sys.stdin):
+    if r.get("target") == "tag" and r.get("enforcement") == "active":
+        print(r["id"])' <<<"$list")" || { die 'ルールセットの一覧の形が違う'; return 1; }
+  for id in $ids; do
+    detail="$(gh api "repos/$repo/rulesets/$id" 2>/dev/null)" || { die "ルールセット $id を読めない"; return 1; }
+    types+="$(python3 -c 'import json,sys
+r = json.load(sys.stdin)
+ref = (r.get("conditions") or {}).get("ref_name") or {}
+inc, exc = ref.get("include") or [], ref.get("exclude") or []
+covers = lambda pats: any(p in ("~ALL", "refs/tags/v*", "refs/tags/*") for p in pats)
+if r.get("target") == "tag" and r.get("enforcement") == "active" and covers(inc) and not covers(exc):
+    for rule in r.get("rules") or []:
+        print(rule.get("type", ""))' <<<"$detail")"$'\n'
+  done
+  grep -qx deletion <<<"$types" || { die '印 v* の削除を拒む規則が無い'; return 1; }
+  grep -Eqx 'update|non_fast_forward' <<<"$types" || { die '印 v* の付け替えを拒む規則が無い'; return 1; }
 }
 
 environments() {
@@ -79,7 +94,8 @@ self_test() {
   fakegh="$work/gh"; cat >"$fakegh" <<'EOF'
 #!/usr/bin/env bash
   case "$*" in
-  *rules/tags*) cat "${GH_RULES_JSON:?}" ;;
+  *rulesets/[0-9]*) id="${!#}"; id="${id##*/}"; cat "${GH_RULESETS_DIR:?}/$id.json" ;;
+  *rulesets*) cat "${GH_RULESETS_DIR:?}/list.json" ;;
   *environments/release*) cat "${GH_ENV_RELEASE_JSON:?}" ;;
   *environments/nightly*) cat "${GH_ENV_NIGHTLY_JSON:?}" ;;
   *) exit 1 ;;
@@ -87,12 +103,34 @@ esac
 EOF
   chmod +x "$fakegh"
   export PATH="$work:$PATH"
+  # ルールセットの偽の配布元（一覧 list.json と詳細 <id>.json）。GITHUB_REF_NAME は渡さない（要らない）
+  rulesets() {
+    local dir="$work/rulesets-$1" target="$2" enforcement="$3" include="$4" rules_json="$5"
+    mkdir -p "$dir"
+    printf '[{"id":7,"name":"tags","target":"%s","enforcement":"%s"}]\n' "$target" "$enforcement" >"$dir/list.json"
+    printf '{"id":7,"target":"%s","enforcement":"%s","conditions":{"ref_name":{"include":[%s],"exclude":[]}},"rules":%s}\n' \
+      "$target" "$enforcement" "$include" "$rules_json" >"$dir/7.json"
+    printf '%s' "$dir"
+  }
+  local both='[{"type":"deletion"},{"type":"update"}]' dir
   echo "== Scenario: 印の規則が入っていなければ、公開しない"
-  printf '[{"type":"deletion"}]\n' >"$work/bad.json"
-  if PATH="$work:$PATH" GH_RULES_JSON="$work/bad.json" GITHUB_REF_NAME=v1.2.3 "$0" rules --repo fake/repo >/dev/null 2>&1; then die '規則無しを通した'; fi
+  printf '[]\n' >"$work/empty-list.json"; mkdir -p "$work/rulesets-none"; cp "$work/empty-list.json" "$work/rulesets-none/list.json"
+  if env -u GITHUB_REF_NAME GH_RULESETS_DIR="$work/rulesets-none" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null 2>&1; then die 'ルールセット無しを通した'; fi
+  dir="$(rulesets delete-only tag active '"refs/tags/v*"' '[{"type":"deletion"}]')"
+  if env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null 2>&1; then die '付け替えの規則無しを通した'; fi
+  dir="$(rulesets branch branch active '"refs/heads/main"' "$both")"
+  if env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null 2>&1; then die '枝のルールセットを印の規則とみなした'; fi
+  dir="$(rulesets other-tags tag active '"refs/tags/release-*"' "$both")"
+  if env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null 2>&1; then die 'v* に当たらないルールセットを通した'; fi
+  dir="$(rulesets disabled tag disabled '"refs/tags/v*"' "$both")"
+  if env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null 2>&1; then die '止めてあるルールセットを通した'; fi
   echo "== Scenario: 印の規則が入っていれば、公開の前の確かめを通る"
-  printf '[{"type":"deletion"},{"type":"update"}]\n' >"$work/good.json"
-  PATH="$work:$PATH" GH_RULES_JSON="$work/good.json" GITHUB_REF_NAME=v1.2.3 "$0" rules --repo fake/repo >/dev/null
+  dir="$(rulesets good tag active '"refs/tags/v*"' "$both")"
+  env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null
+  # --repo は前にも後にも置ける。non_fast_forward も付け替えを拒む規則として数える
+  env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" --repo fake/repo rules >/dev/null
+  dir="$(rulesets nff tag active '"~ALL"' '[{"type":"deletion"},{"type":"non_fast_forward"}]')"
+  env -u GITHUB_REF_NAME GH_RULESETS_DIR="$dir" PATH="$work:$PATH" "$0" rules --repo fake/repo >/dev/null
   printf '{"branch_policies":[{"type":"tag","name":"v*"}]}\n' >"$work/release-env.json"
   printf '{"branch_policies":[{"type":"branch","name":"main"}]}\n' >"$work/nightly-env.json"
   echo "== Scenario: 鍵の置き場は、印と main のそれぞれにだけ開いている"
@@ -113,7 +151,6 @@ EOF
   echo "== Scenario: 文書だけの PR では、配る形の組み立てを飛ばす"
   if code_change_requires_package docs/readme.md openspec/changes/x/spec.md; then die '文書変更をコード変更と判定した'; fi
   if grep -q 'grep -vE' "$root/.github/workflows/ci.yml"; then die 'code 判定の正本が YAML に残っている'; fi
-  if sed 's#tools/release/changes.sh code#tools/release/not-changes.sh code#' "$root/.github/workflows/ci.yml" | grep -q 'tools/release/changes.sh code'; then die 'YAML の code 判定を検査できない'; fi
   echo "== Scenario: 開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない"
   if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$root/.github/workflows/nightly.yml"; then die 'nightly に APK の手順がある'; fi
   echo "== Scenario: 開発版の作り直しは、日本時間の 0:00 に起きる"
@@ -127,12 +164,22 @@ EOF
   printf '\n      - run: tools/release/build.sh apk out\n' >>"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'APK のある偽 nightly を通した'; fi
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
+  # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
+  cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
+  sed 's#tools/release/changes.sh code#tools/release/not-changes.sh code#' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'YAML の code 判定が台本を呼ばないのを通した'; fi
   workflow
   echo "OK: rules・Environment・workflow の守りを検査した"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; exit 0; }
-kind="${1:-}"; shift || true
-if [[ "$kind" == --repo ]]; then kind=rules; set -- --repo "$repo" "$@"; fi
-while [[ $# -gt 0 ]]; do case "$1" in --repo) repo="$2"; shift 2;; *) die "不明な引数: $1";; esac; done
-case "$kind" in rules) rules;; environments) environments;; workflows) workflow;; *) echo "使い方: $0 <rules|environments|workflows> [--repo <owner/name>]" >&2; exit 2;; esac
+usage() { echo "使い方: $0 <rules|environments|workflows> [--repo <owner/name>]（--repo は前後どちらでもよい）" >&2; exit 2; }
+kind=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) [[ $# -ge 2 && -n "$2" ]] || usage; repo="$2"; shift 2 ;;
+    rules|environments|workflows) [[ -z "$kind" ]] || usage; kind="$1"; shift ;;
+    *) usage ;;
+  esac
+done
+case "$kind" in rules) rules;; environments) environments;; workflows) workflow;; *) usage;; esac

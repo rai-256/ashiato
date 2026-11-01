@@ -35,7 +35,7 @@ ST53 の確認後、最初の正式版の印を打つ前に本人が設定する
 
 ## 4. ルールセット
 
-最初の印の前に、印 `v*` の削除と付け替え（update / non-fast-forward）を拒むルールセットを入れる。`tools/release/check-guards.sh rules --repo <owner/name>` で削除と付け替えの両方を確認する。ルールセットを確認できない場合は公開を進めない。
+最初の印の前に、印 `v*` の削除と付け替え（update / non-fast-forward）を拒むルールセットを入れる（対象は tag、include に `refs/tags/v*`、状態は active）。`tools/release/check-guards.sh rules --repo <owner/name>`（`--repo` は前後どちらに置いてもよい）で削除と付け替えの両方を確認する。台本はルールセットの一覧と各ルールセットの詳細（`GET /repos/<owner>/<name>/rulesets` と `/rulesets/<id>`）を読むので、印を打つ前でも確かめられ、印の名前は要らない。ルールセットを確認できない場合は公開を進めない。
 
 ## 5. 最初の印と開発版の公開
 
@@ -83,12 +83,14 @@ ST53 の確認後、正式版の公開が完了してから本人が行う。ま
 PR の CI が緑になった後、使い捨ての値と下書きで次を本人が確認する。本物の印、正式な鍵、本人のサーバの切り替えは行わない。
 
 ```bash
-tools/release/draft.sh <run-id> 0.1.0-beta.1
 before="$(git ls-remote --tags origin 'v*' | wc -l)"
+tools/release/draft.sh <run-id> --prerelease
 # 下書きの配布物と先行公開の印を確認し、確認後に下書きを削除する
 after="$(git ls-remote --tags origin 'v*' | wc -l)"
 test "$before" = "$after"
 tools/release/check-guards.sh rules --repo <owner/name>
 ```
+
+`draft.sh` は PR の `package` の run（`<run-id>`）の配布物を取り寄せる。PR の組み立ては出所の版（`tools/release/version.sh source`）で組むので、下書きの名前は `v<出所の版>` になり、`--prerelease` を付けたときだけ先行公開の下書きになる。印は数える前（`before=`）に数え、下書きを作った後と比べる。
 
 使い捨ての Environment で、PR の枝から `release` 相当の Secret が読めないことも確認してから Environment を削除する。読めた場合は鍵を置かず、Q2 の判断へ戻す。
