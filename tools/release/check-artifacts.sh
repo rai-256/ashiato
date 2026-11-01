@@ -39,9 +39,10 @@ artifact_stamp() {
   selected="$(grep -E '\.dirty(\.debug)?$' <<<"$stamp" || true)"
   [[ -n "$selected" ]] || selected="$(grep -E '\.debug$' <<<"$stamp" || true)"
   [[ -n "$selected" ]] && stamp="$selected"
-  [[ "$(wc -l <<<"$stamp")" == 1 ]] || die "組み立ての版番号が 1 つでない: $(basename "$artifact")"
+  # .dirty / .debug は数より先に理由として示す（増分の debug 組み立てで古い dex の印が残り、2 つになることがある）
   if grep -Fq '.dirty' <<<"$stamp"; then die "$(basename "$artifact") に .dirty の印がある"; fi
   if grep -Fq '.debug' <<<"$stamp"; then die "$(basename "$artifact") に .debug の印がある"; fi
+  [[ "$(wc -l <<<"$stamp")" == 1 ]] || die "組み立ての版番号が 1 つでない: $(basename "$artifact")"
 }
 
 check_apk_fields() {
