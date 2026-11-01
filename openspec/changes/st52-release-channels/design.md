@@ -69,6 +69,7 @@ ST52 は PC の収集アプリを入れる操作を持たない。止めるか�
 
 `tools/release/version.sh plan <印>` は、印の commit が main の祖先でないとき、その commit が `release/<MAJOR>.<MINOR>` の枝の上にあり、印が正式版で、枝の元の印
 （`git describe --tags --abbrev=0 --match 'v<MAJOR>.<MINOR>.*' <印>^`。正式版の印に限る）と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ公開を許す。
+`migrations/` は ORDER だけでなく中身（各版の `.sql`）も比べる —— ORDER が同じでも配った移行の中身を書き換えた印は、当てた DB で当て直されないまま配られる（review/code.md R24。決定の向きは同じで、比べる範囲だけを「移行の形」の文字どおりに広げた）。
 - 失わない側: 枝で移行や封筒を変えられないだけで、main では今どおり変えられる。直したい欠陥が移行に要るなら、main で直して次の版を出す
 - 反転条件: 移行を含む緊急の修正が本当に要る事態が起きたら、その移行を main にも同じ名前・中身で入れる規則を足して許す。**反転するなら D1（本人の決定。Q12）の「祖先でない印の移行は凍結に入れなくても失われない」が崩れるので、D1 の数え方を本人に聞き直す**（review/spec.md R31）
 - 台帳: `provisional.jsonl` の D6（source: review/deep.md#R9）。D1 がこの決定に乗る（台帳の D6 の行は追記のみで書き換えないので、ここに書く）
