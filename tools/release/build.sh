@@ -106,8 +106,10 @@ windows_target() {
 
 build_apk() {
   mkdir -p "$out"
+  # Kotlin の増分の組み立ては BuildConfig の定数を埋め込んだ古い class を組み直さないことがあり、
+  # 前の commit の印が APK に残る（実測 2026-11-02: LocationService.class に前の commit の印）。配る APK は増分にしない
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 \
-    ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+    ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
       -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleRelease)
   local apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
   if [[ "${ASHIATO_APK_UNSIGNED:-}" == 1 ]]; then

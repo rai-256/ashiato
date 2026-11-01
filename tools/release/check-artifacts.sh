@@ -185,7 +185,7 @@ self_test() {
   grep -Fq '.dirty' <<<"$output" || { echo "$output"; return 1; }
   cp "$real/ashiato-server-$v-linux-x86_64.tar.gz" "$out/"
   echo "== Scenario: .debug の印を持つ配布物があれば公開しない"
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
     -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleDebug)
   cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$out/ashiato-collector-$v.apk"
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
@@ -193,7 +193,7 @@ self_test() {
   grep -Fq '.debug' <<<"$output"
   cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 資格情報を焼き込んだ APK があれば公開せず、値を示さない"
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
     -Pashiato.baseUrl= -Pashiato.apiToken=secret-token-for-test -Pashiato.userId= :app:assembleRelease)
   cp "$root/collector-android/app/build/outputs/apk/release/app-release.apk" "$out/ashiato-collector-$v.apk"
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
