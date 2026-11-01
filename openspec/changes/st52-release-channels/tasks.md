@@ -1,6 +1,6 @@
 # ST52 実装タスク — 3 つの部品を 1 つの版で、3 つのチャンネルに配る
 
-読む順: `deep.md`（**本人の答え Q1〜Q11**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `specs/record-envelope/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。
+読む順: `deep.md`（**本人の答え Q1〜Q13**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `specs/record-envelope/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。
 
 **前提**: requires の ST48・ST49・ST51 は archive 済みで main にある（下流の入口が main を取り込む）。版の記録（`crates/server/src/migration_ledger.rs`）・組み立ての印（`crates/build-stamp`・`web/build-stamp.ts`・`build.gradle.kts`）・
 更新の履歴（`crates/server/src/update_history.rs`）・配った印の検査 2 本（`tools/check-released-migrations.sh`・`tools/check-contract-version.sh`）がそこにある。
@@ -12,16 +12,16 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 携帯の versionCode は…`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 107 本**（`distribution` 84・`record-envelope` 23）。うち **ST52 が新しく印を置くのは 76 本**（`distribution` の ADDED 67 と、MODIFIED の
-  `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`、`record-envelope` の MODIFIED で足した 7 本）—— **全部このファイルのどこかの Task が名指しする**。
+- **この change の Scenario は 111 本**（`distribution` 87・`record-envelope` 24）。うち **ST52 が新しく印を置くのは 80 本**（`distribution` の ADDED 69 と、MODIFIED の
+  `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`浅い木では、配った移行の検査は通らない`、`record-envelope` の MODIFIED で足した 8 本）—— **全部このファイルのどこかの Task が名指しする**。
   残りの 31 本は MODIFIED で本文をそのまま写した Scenario で、印は ST48（版の記録の試験の 8 本と `check-released-migrations.sh --self-test` の 7 本）・ST49（`crates/build-stamp` と `check-build-stamp.sh` の 6 本）・ST50（`check-contract-version.sh --self-test` の 10 本）が持つ。**消さない**。
   そのうち `版の記録の 1 行は、名前・指紋・時刻・組み立ての版番号と commit を持つ` は THEN を変えた（Task 2.2 で試験の比べる値を直す）
 - **本人の決定（下流は変えない）**: Q1 本人の携帯には収集アプリがまだ入っておらず記録も無い（入れ直しも署名の引き継ぎも要らない。最初に入れるのは ST56 の後の正式な鍵の版）/ Q2 正式な鍵は印 `v*` と main にだけ開いた Environment で CI が署名 / Q3 versionCode は版番号から計算 /
   Q4 ST54 まで、開発版に携帯の APK を入れない（開発版はサーバ 2 つと PC の収集アプリの 3 つ）/ Q5 ST52 は下書きのリリースで確かめ、本物の印と開発版の公開は ST53 の後 / Q6 出所は `Cargo.toml` の workspace の `version`、ベータは印から・開発版は日付から渡す /
-  Q7 サーバは Windows と Linux の x86_64 / Q8 画面はサーバの実行ファイルに組み込む / Q9 コードを触った PR ごとに 3 部品を組む / Q10 開発版の印は `nightly`（`v*` の外）/ Q11 開発版は正式な鍵と別の鍵（控えは USB に 1 部。作って置くのは ST54）。
-  未決（第 2 回の答え待ち。別の席が仮を否とした）: D1（Q12）・D22（Q13）。
-  仮: D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D23（開発版の携帯の APK の道具は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54）。
-  （第 1 回は推奨で先に書き、推奨と違った Q1・Q4 の答えを上流が写してから下流へ渡す）
+  Q7 サーバは Windows と Linux の x86_64 / Q8 画面はサーバの実行ファイルに組み込む / Q9 コードを触った PR ごとに 3 部品を組む / Q10 開発版の印は `nightly`（`v*` の外）/ Q11 開発版は正式な鍵と別の鍵（控えは USB に 1 部。作って置くのは ST54）/
+  Q12 配った印の検査は祖先の印だけを数え、CI はその job を完全な履歴で取り、浅い木では落ちる（D1）/ Q13 ST52 の完了の判定は下書きのリリースと使い捨ての鍵で見て、本物の公開・正式な鍵・本人の環境の切り替えは ST53 の確認で見る（D22）。
+  仮: D24（`version.sh plan`・`nightly-plan` も浅い木では落ち、判定の job は完全な履歴で取る）・D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D23（開発版の携帯の APK の道具は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54）。
+  （第 1 回は推奨で先に書き、推奨と違った Q1・Q4 の答えを上流が写してから下流へ渡す。第 2 回の Q12・Q13 は、別の席が仮を否とした D1・D22 を本人が決めたもの）
 - **名前は統一する**: 環境変数 `ASHIATO_BUILD_VERSION`（渡す版番号）・`ASHIATO_VERSION`（`build.rs` が出す、組み立ての版番号）・`ASHIATO_WEB_DIST`（取り込む画面の置き場）・`ASHIATO_RELEASE=1`（配る組み立て。PR の `package` も立てる）・`ASHIATO_APK_UNSIGNED=1`（携帯の APK を署名せずに組む。`release.yml` の組み立ての job だけ。`nightly.yml` は ST54 まで携帯の APK を組まない）・`ASHIATO_EXPECT_CERT_SHA256`（署名の指紋の期待値。Environment の変数 `ASHIATO_CERT_SHA256` から）、
   道具は `tools/release/{version,build,package,check-artifacts,sign-apk,make-key,draft,check-guards}.sh`・`tools/release/version-table.tsv` と `tools/check-version.sh`、workflow は `release.yml`・`nightly.yml`（と `ci.yml` の `package` の job）、
   Environment は `release`・`nightly`、リポジトリの変数は `ASHIATO_NIGHTLY_PUBLISH`、配布物の名前は design D17
@@ -38,12 +38,13 @@
 
 - [ ] 1.1 `tools/release/version.sh` を作る（D11・D8・D9）。口は `source`・`check <版番号>`・`code <版番号>`・`order`・`plan <印>`・`nightly-plan`・`--self-test`。
   `plan` は `channel=`・`version=`・`version_code=`・`prerelease=` の行を出し、形・出所との一致・main の祖先（D6 の修正の枝の例外を含む。Task 8 で中身を足す。ここでは「祖先でなければ落とす」まで）を見る。
+  `plan` と `nightly-plan` は、祖先を見る前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（D24（仮）。`nightly-plan` は `build=` の行を出さない）。
   `nightly-plan` は `build=yes|no`・`publish=yes|no`（環境変数 `ASHIATO_NIGHTLY_PUBLISH` が `on` のときだけ yes。`on` でなく予定の実行なら `build=no`。D15）・`version=` を出し、日付は `TZ=Asia/Tokyo`（試験は `ASHIATO_NOW`（UTC の ISO 8601）で時計を渡す）。
   `--self-test` は使い捨ての git の木で次の Scenario を走らせる:
   - `携帯の versionCode は…` の要件: `versionCode は版番号から決まり、ベータ < 正式 < 次の版の順になる`・`同じ版の開発版は、毎日同じ versionCode になる`・`桁を超える版番号では、versionCode の計算が失敗する`（表 `tools/release/version-table.tsv` の全行を `code` に当てる）
   - チャンネル: `正式版の印は、通常のリリースと判定される`・`ベータ版の印で、先行公開のリリースになる`・`印の版と出所の版が違えば公開しない`・
-    `main の祖先でない commit の印は公開しない`・`決めた形でない印は、どのチャンネルにも配らない`
-  - 開発版: `nightly と main の HEAD が同じ日は、開発版を作らない`・`main が進んだ日は、開発版を作り直す`・`予定の実行が落ちた次の回に、同じ変更を拾う`・`印 nightly がまだ無ければ、作り直す`・`公開の設定が入っていなければ、予定の実行は組まずに終える`・`公開の設定が入っていなければ、手で起こした作り直しも公開しない`・`出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない`（`nightly-plan` は起きた種類を `GITHUB_EVENT_NAME` で受ける。D15）
+    `main の祖先でない commit の印は公開しない`・`決めた形でない印は、どのチャンネルにも配らない`・`浅い木では、印の判定は通らない`（使い捨ての木を `git clone --depth=1 file://…` した木で rc≠0 かつ出力に「履歴が浅い」）
+  - 開発版: `浅い木では、開発版の作り直しの判定は通らない`（同じ形の浅い木で rc≠0・出力に「履歴が浅い」・`build=` の行が無い）・`nightly と main の HEAD が同じ日は、開発版を作らない`・`main が進んだ日は、開発版を作り直す`・`予定の実行が落ちた次の回に、同じ変更を拾う`・`印 nightly がまだ無ければ、作り直す`・`公開の設定が入っていなければ、予定の実行は組まずに終える`・`公開の設定が入っていなければ、手で起こした作り直しも公開しない`・`出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない`（`nightly-plan` は起きた種類を `GITHUB_EVENT_NAME` で受ける。D15）
   検証: `tools/release/version.sh --self-test` rc=0 / `bash -c 'test "$(tools/release/version.sh code 0.3.0-beta.2)" = 30002 && test "$(tools/release/version.sh code 1.0.0)" = 1000099'` rc=0
 - [ ] 1.2 `CLAUDE.md` の「構成」の `tools` の行に `release/`（配る道具）を足す
   検証: `bash -c 'grep -q "release/" CLAUDE.md'` rc=0
@@ -87,16 +88,23 @@
   `決めた形でない版番号を渡すと、組み立てが失敗する`（サーバの組み立てで 4 つの値）、`携帯と画面の印の版番号も、根の出所の版から読む`（携帯の側。出所を `0.9.0` にして commit した写しの木）・`根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（携帯の側。gradle の印のソースの道に根の `Cargo.toml` を足す）を見る。`ci.yml` の `build-stamp` の job に `./tools/check-build-stamp.sh release` を足し、`changes` の `stamp` の式に `web/build-stamp\.ts|web/vite\.config\.ts|tools/release/` を足す
   検証: `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh release'` rc=0 / `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh android'` rc=0（ST49 の節が出所の変更の後も通る）
 
-## Task 4: 配った印の検査が祖先の印だけを数える（ST48・ST50 の台本。D1（Q12 の答え待ち））
+## Task 4: 配った印の検査が祖先の印だけを数え、浅い木では落ちる（ST48・ST50 の台本と CI の checkout。D1・Q12）
 
-- [ ] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。`--self-test` に `// Scenario` の echo つきで
-  `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`開発版の印は、配った印に数えない`（distribution。`nightly` だけの木で通る。送信契約の側は 4.2）を足す。既存の 7 本はそのまま
+- [ ] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。印を数える前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（「印が 0 個なら通す」の分かれより前。D1）。`--self-test` に `// Scenario` の echo つきで
+  `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`開発版の印は、配った印に数えない`（distribution。`nightly` だけの木で通る。送信契約の側は 4.2）・
+  `浅い木では、配った移行の検査は通らない`（使い捨ての木を `git clone --depth=1 file://…` し、`git fetch --depth=1 origin '+refs/tags/v*:refs/tags/v*'` で印だけを取り寄せた木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 7 本はそのまま
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
 - [ ] 4.2 `tools/check-contract-version.sh`: 同じく `--merged HEAD` に替え、「最後の印」を `tools/release/version.sh order` の最大で選ぶ（`--sort=-creatordate` を消す）。封筒の例の凍結（全部の印との比べ）も `--merged HEAD` の集合にする。
-  `--self-test` に `最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印`・`最後の配った印は、ベータ版の番号を数として比べて選ぶ`・`同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ`・`開発版の印 nightly は、最後の配った印に数えない`・`開発版の印は、配った印に数えない`（送信契約の側）を足す。既存の 10 本はそのまま
+  印を数える前の浅い木の止めも 4.1 と同じに置く。
+  `--self-test` に `最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印`・`最後の配った印は、ベータ版の番号を数として比べて選ぶ`・`同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ`・`開発版の印 nightly は、最後の配った印に数えない`・`開発版の印は、配った印に数えない`（送信契約の側）・
+  `浅い木では、送信契約の版の検査は通らない`（4.1 と同じ浅い木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 10 本はそのまま
   検証: `tools/check-contract-version.sh --self-test` rc=0 / `tools/check-contract-version.sh` rc=0
 - [ ] 4.3 `docs/handoff/ST52.md` の 3 項目の下に「ST52 で処置した」を 1 行ずつ書く（型 `v[0-9]*` は変えず、数える印を祖先に絞った・版番号の出所を `Cargo.toml` から読むように替えた）
   検証: `bash -c 'test "$(grep -c "ST52 で処置した" docs/handoff/ST52.md)" -ge 3'` rc=0
+- [ ] 4.4 `.github/workflows/ci.yml` の `rust` の job（D1・Q12）: checkout に `fetch-depth: 0` を足す。印を取り寄せる手順の `git fetch` から `--depth=1` を外す（完全な木に `--depth=1` を当てると浅くなり、4.1・4.2 の止めで落ちる。premises P17）。
+  `ls-remote` で `v*` があるときだけ取り寄せる形と、読めなければ落とす形はそのまま。止め（4.1・4.2）と同じ PR で入れる
+  検証: `bash -c 'awk "/^  rust:/{f=1} f&&/^  [a-z-]+:/&&!/^  rust:/{f=0} f" .github/workflows/ci.yml > "$TMPDIR/rust.yml" && grep -q "fetch-depth: 0" "$TMPDIR/rust.yml" && ! grep -q -- "--depth=1" "$TMPDIR/rust.yml"'` rc=0 /
+  `bash -c 'd="${TMPDIR:?}/sh" && git clone -q --depth=1 "file://$PWD" "$d" && git -C "$d" fetch -q --depth=1 origin "+refs/tags/v*:refs/tags/v*" 2>/dev/null; cp -r tools/. "$d/tools/" && cd "$d" && for t in check-released-migrations check-contract-version; do out="$(tools/$t.sh 2>&1)" && exit 1; grep -q "履歴が浅い" <<<"$out" || exit 1; done'` rc=0（今の木を深さ 1 で clone し、作業木の台本を写して走らせる。印が 0 個の今の木でも 2 本とも「履歴が浅い」で落ちることを見る —— 今の台本は浅い木で rc=0 になる）
 
 ## Task 5: サーバが組み込んだ画面を配る
 
@@ -157,9 +165,10 @@
   `check-guards.sh --self-test` に `コードを触った PR では、配る形の組み立てが走る`・`文書だけの PR では、配る形の組み立てを飛ばす` を、`package.sh --self-test` に `配る形を壊した PR は、その PR の CI で落ちる`（`build.sh` の 1 つを落とす偽の木で rc≠0）を足す
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/package.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
 - [ ] 9.3 `release.yml`・`nightly.yml`（D8・D9・D10・D14・D15・D18）。`nightly.yml` の `schedule` は `cron: "0 15 * * *"`。組み立ての job は `contents: read`（`release.yml` の携帯の APK は `ASHIATO_APK_UNSIGNED=1`。`nightly.yml` は ST54 まで携帯の APK を組まない。Q4・D23（仮））、`publish` だけが `contents: write` と `environment:`、`nightly` の `publish` は `if: vars.ASHIATO_NIGHTLY_PUBLISH == 'on'` も持つ。
+  `release.yml` で `version.sh plan` を、`nightly.yml` で `version.sh nightly-plan` を走らせる job の checkout は `fetch-depth: 0`（D24（仮）・D14。浅い木では判定が「履歴が浅い」で落ちる）。
   `release.yml` の `publish` は `check-guards.sh rules` → `sign-apk.sh` → `check-artifacts.sh`（`ASHIATO_EXPECT_CERT_SHA256` は Environment の変数 `ASHIATO_CERT_SHA256`）→ `gh release create`。`nightly.yml` の `publish` は `check-artifacts.sh --channel nightly` → D15 の入れ替え（署名しない）。
   `check-guards.sh workflows` は `nightly.yml` に携帯の APK の組み立て（`build.sh apk`）と `sign-apk.sh` の呼び出しが無いことも見る。`check-guards.sh --self-test` に `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない`（APK の job を足した偽の `nightly.yml` で rc≠0）・`開発版の作り直しは、日本時間の 0:00 に起きる`・`公開の設定が無ければ、印 nightly を動かす手順は走らない` を足す
-  検証: `tools/release/check-guards.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
+  検証: `tools/release/check-guards.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'for p in "release.yml:version.sh plan" "nightly.yml:version.sh nightly-plan"; do f=".github/workflows/${p%%:*}"; k="${p#*:}"; awk -v k="$k" "/^  [A-Za-z0-9_-]+:\$/{if(index(b,k)&&index(b,\"fetch-depth: 0\"))ok=1;b=\"\"} {b=b \$0 \"\\n\"} END{if(index(b,k)&&index(b,\"fetch-depth: 0\"))ok=1; exit !ok}" "$f" || exit 1; done'` rc=0（判定を走らせる job の中に `fetch-depth: 0` がある）
 
 ## Task 10: 下書きのリリースを作る台本（印を打たない）
 
@@ -172,7 +181,7 @@
 - [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
   最初の印を main の commit に打つ・開発版の公開を始める（`ASHIATO_NIGHTLY_PUBLISH`）・壊れた版は次の版で直す・修正の枝の切り方と消し方・本人の環境を移す（D4）・
   正式版を出した後に出所の版を次の版に上げる（Q6 の推奨。開発版が出したばかりの正式版より古く見えないように）・確認バッチの確かめの手順（下の「人間の確認待ち」のコマンド）。`docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「出所は `Cargo.toml` の workspace の `version`。ほかは読む（ST52）」と書く。
-  `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22（Q13 の答え待ち）））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
+  `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22・Q13。本物の公開・正式な鍵での署名・本人のサーバの切り替え））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
   検証: `bash -c 'for h in "鍵を作る" "USB に 1 部" "ルールセット" "最初の印" "ASHIATO_NIGHTLY_PUBLISH" "ASHIATO_CERT_SHA256" "修正の枝" "本人の環境を移す"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'grep -q "ASHIATO_NIGHTLY_PUBLISH" docs/handoff/ST53.md && grep -q "R11" docs/handoff/ST54.md && grep -q "D5" docs/handoff/ST58.md'` rc=0 / `python3 scripts/check_scenarios.py . st52-release-channels` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）

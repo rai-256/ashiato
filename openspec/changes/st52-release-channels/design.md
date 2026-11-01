@@ -24,15 +24,25 @@
 
 ## Decisions
 
-### D1. 配った印の検査は、今の木の祖先にある印だけを数え、最後の印は版番号で選ぶ（未決。Q12 の答え待ち）
+### D1. 配った印の検査は、今の木の祖先にある印だけを数え、最後の印は版番号で選ぶ。CI はその job を完全な履歴で取り、浅い木では検査が落ちる
 
-> 仮で進めたが、別の席（`provisional-review.md` の D1）が否とした: CI の浅い checkout では `git tag --merged HEAD` が空になり検査が黙って通る（`.github/workflows/ci.yml:68-69`・`:93`）、かつ「祖先でない印は凍結に入れなくても失われない」は D6（仮）に乗る。台帳から外し、`deep.md` の Q12 で人間に返した。下の本文は推奨で書いた案のまま
+> 本人の決定（`deep.md` の Q12、2026-11-01。推奨と同じ側）。一度は仮で進めたが、別の席（`provisional-review.md` の D1）が否とした ——
+> CI の浅い checkout では `git tag --merged HEAD` が空になり検査が黙って通る（`.github/workflows/ci.yml:68-69`・`:93`。premises P17）、かつ「祖先でない印は凍結に入れなくても失われない」は D6（仮）に乗る。
+> そこで人間に返し、本人が「祖先の印だけを数え、CI はその job を完全な履歴で取る」を選んだ。仮ではない（台帳に載せない）
 
 `check-released-migrations.sh` は `git tag --merged HEAD --list 'v[0-9]*'` を数える。`check-contract-version.sh` は同じ集合から「最後の印」を、作った日時（`--sort=-creatordate`）ではなく版番号の順で選ぶ。
 順は D11 の `tools/release/version.sh order`（versionCode の式と同じ並び。ベータ < 正式、ベータは N の順）で決め、`git` の `versionsort.suffix` の設定に頼らない（手元の設定で順が変わる）。
 - 選ばなかった案: 全部の印を数える（今のまま）。修正の枝の上では、後から main で打ったベータの印の移行が「消した」で落ちる。main の上では、後から打った修正の印が「最後」になり、ベータで上げた送信契約の版との比べが抜ける（review/deep.md R9）
 - 反転条件: 修正の枝を merge して main に戻す運用にするなら（FR-105 は「一時的に切る」で戻さない）、祖先の判定は変わらないが、修正の枝の印も main の祖先に入るので、版番号の順で選ぶことだけが効く
 - ST48・ST50 の申し送り「型を変えるなら一緒に変える」に当たるので、ST52 が 2 本の台本と自己試験を直す（印の型 `v[0-9]*` 自体は変えない）
+- **浅い木では落ちる**（Q12）: 2 本の台本は、印を数える前に `git rev-parse --is-shallow-repository` を見て、`true` なら rc≠0 で「履歴が浅いので配った印を数えられない」と示して終える（Scenario と試験は「履歴が浅い」の文字を見る）。
+  この止めは「配った印が 0 個なら通す」の分かれより前に置く（後に置くと、浅くて 0 個に見える木が通ってしまう）。手元の完全な木と、自己試験の使い捨ての木は浅くないので、今の振る舞いは変わらない
+- **CI は完全な履歴で取る**（Q12）: `ci.yml` の `rust` の job の checkout を `fetch-depth: 0` にする。印を取り寄せる手順（`git ls-remote` で `v*` があるときだけ `git fetch`）は残すが、`--depth=1` を外す ——
+  完全な木に `git fetch --depth=1` を当てると木が浅くなる（premises P17 で走らせて確かめた）ので、残すと上の止めで毎回落ちる。`fetch-depth: 0` が印も取り寄せることは公式文書だけ（確かさ 2）なので、印の取り寄せは消さずに重ねる
+- 同じ型の判定（`version.sh plan`・`nightly-plan`）への当て方は D24（仮）。Q12 が聞いたのは配った印を数える 2 本の検査と `rust` の job だけ
+- **前提: D6（仮）**: 「祖先でない印（緊急の修正の枝の印）の移行は、main の凍結に入れなくても失われない」は、修正の枝で移行と封筒の形を変えない（D6）ことに乗る。D6 が反転して修正の枝で移行を許すなら（D6 の反転条件）、
+  その移行を main にも同じ名前・中身で入れる規則が凍結の抜けを埋めるので、D1 の数え方も一緒に見直す
+- もう 1 つの選ばなかった案（Q12）: 全部の印を数え、修正の枝の印だけを型で外す（祖先の判定に頼らないが、印の型の規則が 1 つ増え、ST48・ST50 の申し送りに当たる）
 
 ### D2（仮）. 配った印 `v*` は消さない・動かさない。ルールセットで拒み、公開の前に確かめる
 
@@ -60,8 +70,8 @@ ST52 は PC の収集アプリを入れる操作を持たない。止めるか�
 `tools/release/version.sh plan <印>` は、印の commit が main の祖先でないとき、その commit が `release/<MAJOR>.<MINOR>` の枝の上にあり、印が正式版で、枝の元の印
 （`git describe --tags --abbrev=0 --match 'v<MAJOR>.<MINOR>.*' <印>^`。正式版の印に限る）と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ公開を許す。
 - 失わない側: 枝で移行や封筒を変えられないだけで、main では今どおり変えられる。直したい欠陥が移行に要るなら、main で直して次の版を出す
-- 反転条件: 移行を含む緊急の修正が本当に要る事態が起きたら、その移行を main にも同じ名前・中身で入れる規則を足して許す
-- 台帳: `provisional.jsonl` の D6（source: review/deep.md#R9）
+- 反転条件: 移行を含む緊急の修正が本当に要る事態が起きたら、その移行を main にも同じ名前・中身で入れる規則を足して許す。**反転するなら D1（本人の決定。Q12）の「祖先でない印の移行は凍結に入れなくても失われない」が崩れるので、D1 の数え方を本人に聞き直す**（review/spec.md R31）
+- 台帳: `provisional.jsonl` の D6（source: review/deep.md#R9）。D1 がこの決定に乗る（台帳の D6 の行は追記のみで書き換えないので、ここに書く）
 
 ### D7. 配布物の検査は `tools/release/check-artifacts.sh` の 1 本に集め、PR と公開の両方が通す
 
@@ -119,6 +129,7 @@ gradle（Kotlin DSL）は組み立ての中で shell を呼ばずに同じ式を
   `ASHIATO_BUILD_VERSION` を渡さず（出所の版で）`tools/release/build.sh` で組み、`check-artifacts.sh --allow-debug-key` を通し、`actions/upload-artifact` で置く。`permissions` は `contents: read` のまま
 - `release.yml`: `on: push: tags: ['v*']`。組み立ての job は `contents: read`、`publish` の job だけ `contents: write` と `environment: release`
 - `nightly.yml`: `on: schedule` と `workflow_dispatch`。`publish` の job だけ `contents: write` と `environment: nightly`。ST54 まで携帯の APK を組まず、署名もしない（Q4・D23（仮））
+- `release.yml` で `version.sh plan` を、`nightly.yml` で `version.sh nightly-plan` を走らせる job の checkout は `fetch-depth: 0`（D24（仮））
 - Windows の組み立ては 1 回あたり数分で、公開リポジトリでは標準の実行は課金されない（P6）。`package` は Windows の 2 つを 1 つの job にまとめる（runner の起動を 1 回に）
 
 ### D15. 開発版の公開はリポジトリの変数 `ASHIATO_NIGHTLY_PUBLISH` が `on` のときだけ
@@ -168,15 +179,18 @@ ST52 の e2e（`web/e2e/st52-served-ui.spec.ts`）だけが `$BIND` の `/` を�
 - 反転条件: main の上で正式な鍵を使う job が要るとわかったら（例: 正式版の再署名）、その job の理由を書いて `main` を足す
 - 台帳: `provisional.jsonl` の D21（source: review/spec.md#R10。Q2 に依る）
 
-### D22. ST52 の完了の判定は、下書きのリリースと使い捨ての鍵で確かめた形で見る（未決。Q13 の答え待ち）
+### D22. ST52 の完了の判定は、下書きのリリースと使い捨ての鍵で確かめた形で見る
 
-> 仮で進めたが、別の席（`provisional-review.md` の D22）が否とした: この読み替えは Q5 だけでなく Q2（正式な鍵で署名）と Q1（携帯に入っていない）にも乗るのに、台帳と反転条件が Q5 しか挙げていなかった。台帳から外し、`deep.md` の Q13 で人間に返した。下の本文は推奨で書いた案のまま
+> 本人の決定（`deep.md` の Q13、2026-11-01。推奨と同じ側）。一度は仮で進めたが、別の席（`provisional-review.md` の D22）が否とした ——
+> この読み替えは Q5 だけでなく Q2（正式な鍵で署名）と Q1（携帯に入っていない）にも乗るのに、台帳と反転条件が Q5 しか挙げていなかった。
+> そこで人間に返し、本人が「下書きと使い捨ての鍵で読み替え、残りは ST53 の確認で見る」を選んだ。仮ではない（台帳に載せない）。完了の判定の文面は record の段で `stories.json` → `docs/stories/ST52.md` に写してある
 
 Q5・Q2 の答えのもとでは、ST52 の確認バッチで本物の印は打たれず、正式な鍵はまだ作られず、本人のサーバは切り替わらない（本人の携帯には Q1 の答えのとおり収集アプリがまだ入っていない）。そこで ST52 の完了の判定（`docs/stories/ST52.md`）を次のように読む:
 「印を付けると並ぶ」→ 印の判定（`version.sh plan`）と 4 つの配布物の組み立てが通り、下書きのリリースに 4 つが並ぶ（D16）／「正式な鍵で署名されている」→ 署名の手順が使い捨ての鍵で通り、鍵を Environment に置けば印の push で署名される／
 「自分の環境をその版で動かす」→ ST53 の確認の後に本人がサーバを移す手順が `docs/release.md` にある（D4・D19。携帯は ST56 の後に最初から正式な鍵の版を入れる。Q1）。本物の公開・正式な鍵・本人の環境の切り替えは ST53 の確認で見る（`docs/handoff/ST53.md`）。
-- 反転条件: Q5 で「ST52 の確認バッチで本人が打つ」が選ばれたら、この読み替えを外し、本物の印の公開を確認バッチで見る。Q1・Q2 の答えが変わったときも同じく読み直す。答えが推奨のままなら record の段が `stories.json` の完了の判定をこの形に書き直す
-- 台帳: なし（`provisional.jsonl` の D22 は resolve 済み。Q13 の答え待ち。source: review/spec.md#R7。Q1・Q2・Q5 に依る）
+- 依る答え: Q1・Q2・Q5（と Q13）。見直す条件: Q5 が「ST52 の確認バッチで本人が打つ」に変わったら、この読み替えを外し、本物の印の公開を確認バッチで見る。Q2 が変わって正式な鍵を ST52 の中で作って置くことになったら、「正式な鍵で署名」を本物の鍵で見る。
+  Q1 が変わって本人の携帯に収集アプリが入っていると分かったら、「自分の環境」に携帯の切り替えを足して読み直す。どれのときも `stories.json` の完了の判定を一緒に書き直す
+- 台帳: なし（本人の決定。`provisional.jsonl` の D22 は resolve 済み。source: review/spec.md#R7）
 
 ### D23（仮）. 開発版の携帯の APK の道具は ST52 が作って確かめ、開発版のリリースに載せるのは ST54
 
@@ -187,6 +201,16 @@ Q4 の答え（ST54 まで開発版に携帯の APK を入れない）と Q11 �
 - 失わない側: 何も配らないので、開発版の鍵も識別子もまだ外に出ていない（Q11 の `exported` はまだ起きない）。道具を ST54 へ回す側へも、作った台本を使わなければ移れる
 - 反転条件: ST54 の上流が開発版の携帯の APK の作り方（識別子・鍵の形）を変えると決めたら、ST52 の道具をその形に直すか外す
 - 台帳: `provisional.jsonl` の D23（source: deep.md#Q4。Q4・Q11 に依る）
+
+### D24（仮）. 祖先を見る印の判定（`version.sh plan`・`nightly-plan`）も、完全な履歴で走らせ、浅い木では落ちる
+
+印の commit が main の祖先かを見る `version.sh plan`（D8・D6）と、`v<出所の版>` が main の祖先かを見る `version.sh nightly-plan`（D9）は、祖先を見る前に `git rev-parse --is-shallow-repository` が `true` なら
+rc≠0 で「履歴が浅い」と示して終え、`build=` の行を出さない（`nightly-plan` は浅い木を「印が無い」と読んで組む側へ倒れない）。`release.yml`・`nightly.yml` でこれらを走らせる job の checkout は `fetch-depth: 0` にする。
+Q12 の答え（D1）と同じ型の穴で、別の席（review/spec.md R29）が見つけた。Q12 の問いは配った印を数える 2 本の検査だけを聞いたので、ここは仮で同じ向きに当てる。
+- 失わない側: 止めがあれば、浅い木では判定が落ちて何も組まず何も公開しない（次の実行で直せる）。止めが無いと、`nightly-plan` は出したばかりの正式版より古い版番号の開発版を組んで公開しうる（外に出る）
+- 費用: 台本の止め 1 つと workflow の 1 行ずつ（取り寄せが少し遅くなる）
+- 反転条件: `release.yml`・`nightly.yml` の判定を、祖先を見ない形（印の型だけで決める）に替えるなら外す。D1（Q12）が覆ったら一緒に見直す
+- 台帳: `provisional.jsonl` の D24（source: review/spec.md#R29。Q12 に依る）
 
 ## Risks / Trade-offs
 
@@ -200,9 +224,9 @@ Q4 の答え（ST54 まで開発版に携帯の APK を入れない）と Q11 �
 ## Migration Plan
 
 - 版の出所の切り替え（gradle・vite が `Cargo.toml` を読む）は 1 つの PR で入る。切り替えの前後で印の版番号は `0.1.0` のまま変わらない
-- 配った印が 0 個なので、D1 の型の書き換えは今の main の検査結果を変えない
+- 配った印が 0 個なので、D1 の型の書き換えは今の main の検査結果を変えない。CI の checkout を完全な履歴にすることと浅い木の止め（D1）は同じ PR で入れる（止めだけが先に入ると、今の浅い checkout で毎回落ちる）
 - 戻すとき: `release.yml`・`nightly.yml` を消し、`ci.yml` の `package` を外せば今に戻る。版の出所は手書きに戻さない（戻すと K3 に戻る）
 
 ## Open Questions
 
-（無し。Q1〜Q11 の答えは `deep.md`。推奨と違った Q1・Q4 はこの版に写した。Q11 は推奨と同じ）
+（無し。Q1〜Q13 の答えは `deep.md`。推奨と違った Q1・Q4 と、第 2 回の Q12（D1）・Q13（D22）はこの版に写した。Q11 は推奨と同じ）

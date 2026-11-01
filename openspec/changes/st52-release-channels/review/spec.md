@@ -82,7 +82,7 @@ $ python3 scripts/spec_overlap.py candidates . st52-release-channels
 - 根拠: docs/stories/ST52.md:55（「`v0.x.y` の印を付けると、配布元の正式版に 3 部品が同じ版で並び…」）・:57（「携帯の APK は正式な鍵で署名されている」）・:14（「自分の環境をその版で動かしたい」）/ deep-questions.json Q5 の推奨の detail（「ST52 の完了の判定のうち「印を付けると並ぶ」は下書きで確かめ、本物の公開は ST53 の確認で見る」）/ design.md:19-22（Non-Goals: 本物の印を打たない・本人の携帯もサーバも移さない・鍵を作らない）/ tasks.md:167-170（確認バッチは下書きと手順書を読むだけ）。下書きの APK は PR の組み立てで debug 鍵（design.md:128）
 - kind: conflict
 - 提案: 推奨のまま答えが来たら、record の段で完了の判定を「印の判定と 3 部品の組み立てを下書きのリリースで確かめる」「正式な鍵で署名する手順が使い捨ての鍵で通り、鍵を置けば印で署名される」に書き換える（本物の公開・正式な鍵・本人の環境の切り替えは ST53 の確認へ送る）。答えが「ST52 で公開を始める」なら今の本文のままでよい。どちらでも、archive の判定の前に完了の判定と spec を合わせる
-- 処置: fixed D22 仮 —— 推奨のもとでの完了の判定の読み替え（下書き・使い捨ての鍵・手順書）を D22（仮）に置き、Q5 に依る反転条件と record の段での stories.json の書き直しを書いた。provisional.jsonl に載せた
+- 処置: escalated Q13 —— 一度は D22（仮）として provisional.jsonl に載せたが、別の席（provisional-review.md の D22）が否とし、台帳から外して第 2 回の Q13 で人間に返した。本人の答え（2026-11-01）は「下書きと使い捨ての鍵で読み替え、残りは ST53 の確認で見る」で、design の D22（本人の決定。依る答え Q1・Q2・Q5）に写し、完了の判定は record の段で stories.json → ST52.md に写した
 
 ## R8. 観測できる振る舞いが design にだけある（D17 の配布物の名前・D18 の識別子とチャンネルの取り違えで公開しない・D12 の OpenAPI の版）
 - 成果物: openspec/changes/st52-release-channels/design.md
@@ -273,3 +273,203 @@ $ python3 scripts/spec_overlap.py candidates . st52-release-channels
 - kind: technical
 - 提案: 「印の配布物の検査は、指紋の期待値が空なら落ちる」の Scenario を spec（「携帯の APK は、チャンネルごとに決めた識別子と鍵で署名する」か「配る組み立ては綺麗で…」の Requirement）に足し、6.2 の自己試験に割り当てる。合意を引き継がせたいなら、release/beta の側を D23 の節に書き足すのではなく（D23 の中身ではない）、仮の決定として台帳に別に立てる（例 D24（仮）。反転は期待値の検査を外せば戻る）か、本人の確認に回す
 - 処置: fixed D23 —— D7 と 6.2 から「`release`・`beta` で期待値が空なら落とす」の文を消した。今までの D7（`--allow-debug-key` でなければ指紋が期待値と同じ）で、空の期待値は一致しないので落ちる —— 新しい振る舞いではなく、足した文は言い直しだった。残るのは `--channel nightly` で指紋と `BuildConfig` を見ない部分だけで、D23（仮）の中身
+
+---
+
+# 第 2 回の答えの写し（spec --answers Q1,Q4,Q11,Q12,Q13。2026-11-01）
+
+## 機械の検査（最初に写す）
+
+```
+$ openspec validate st52-release-channels --strict
+Change 'st52-release-channels' is valid
+
+$ python3 scripts/check_chain.py .
+  要件 171 件 / Story 58 本 / 扉 35 項
+  [ok]   どれかの Story に拾われた要件: 169/171 件
+  [ok]   INDEX の「Story の対象外」: NFR-11, NFR-8
+chain: OK (0 件 / 未回収 0 件 / warn 0 件)
+
+$ python3 scripts/check_scenarios.py . st52-release-channels
+  [FAIL] 担保の無い Scenario: …（この change の新しい Scenario。全部 st52-release-channels/specs の中。浅い木の 2 本を含む）
+scenarios: FAIL (担保なし 78 件 / 名無しの確認待ち 0 件)
+
+$ python3 scripts/review_triage.py . st52-release-channels
+  指摘 43 件 / 仮決め 9 件 / 要件へ戻すもの 1 件
+  [FAIL] deep.md R9: loss=discarded は人間に返すもの。fixed で閉じられない（escalated にするか、…provisional.py add で provisional.jsonl に載せる）
+  [FAIL] deep.md R9: loss=discarded は人間に返すもの。fixed にできない（…）
+triage: FAIL (2 件)
+
+$ python3 scripts/spec_overlap.py candidates . st52-release-channels
+[]
+```
+
+- `scenarios: FAIL 78` は上流の段では予定どおり（印は下流が置く）。78 は tasks.md:15-16 の「ST52 が新しく印を置くのは 78 本」と一致し、`grep -c '^#### Scenario:'` は distribution 85・record-envelope 24（計 109。tasks.md:15 と一致）
+- `triage: FAIL 2` は R28 にする
+
+## 観点 6（spec --answers Q1,Q4,Q11,Q12,Q13）の確かめた範囲
+
+- 前の段の合意の版（9e3deed3）から HEAD までの committed の差分（specs・design・proposal・tasks は `D1（仮）`→`D1（Q12 の答え待ち）`、`D22（仮）`→`未決` の括弧書きの差し替えだけ）と、この段の未 commit の差分（`git diff`。6 ファイル、+60 / -26）を全部読んだ
+- Q1・Q4・Q11: 変わっていない。上の committed の差分にも未 commit の差分にも、この 3 問の写し（design.md:20-21・D7・D23、spec distribution :119・:209 の導出元と本文、tasks.md:19-21 の決定の行）を変える行は無い。tasks.md の決定の行は Q12・Q13 を末尾に足しただけで Q1〜Q11 の文は同じ
+- Q12: 写った。design D1（:27-44。見出しから「未決」を外し、浅い木の止め :38-39・CI の `fetch-depth: 0` と `--depth=1` の除去 :40-41・前提 D6 :42-43）、spec distribution :504 の IF 条項と Scenario「浅い木では、配った移行の検査は通らない」:552-555、record-envelope :69 の IF 条項と Scenario「浅い木では、送信契約の版の検査は通らない」:151-155、tasks 4.1・4.2（止めと自己試験）・4.4（`ci.yml` の `rust` の job と浅い clone での検証）、proposal :30-32・:107-111・:65、Migration Plan :215（同じ PR）、premises P17（確かさ 4。手元で再現した）。
+  deep.md の Q12 の帰結が言う「tasks 4.1・4.2 に浅い clone の木で同じ台本を走らせる検証を足す」は、4.1・4.2 の自己試験（浅い木の Scenario）と 4.4 の 2 本目の検証（今の木を深さ 1 で clone して作業木の台本を走らせる）に分かれて入っている。
+  4.4 の 2 本目の検証を今の台本で走らせると、2 本とも rc=0（`--is-shallow-repository`=true の木で、印 0 個として通る）なので、今は検証が落ちる —— 実装の前後を区別する（ただし R30）。
+  D6 を前提に明記したのは D1 の側だけで、D6 の側には無い（R31）。CI の別の job（`release.yml`・`nightly.yml` の判定）は Q12 の答えの型が当たるのに触れていない（R29）
+- Q13: 写った。design D22（:181-191。見出しから「未決」を外し、依る答え Q1・Q2・Q5 と、それぞれが変わったときの見直す条件と `stories.json` の書き直し）、tasks 11.1（ST53 の申し送りの括弧書きを D22・Q13 と残りの 3 つに）。観測できる振る舞いは持たない（spec に写すものは無い）。Story への写しは観点 5
+- 答え以外の変更: なし。未 commit の差分の各行は Q12（D1・浅い木の IF と Scenario 2 本・4.1/4.2/4.4・proposal 3 か所・Migration Plan・P17 と premises の見出しの文）か Q13（D22・11.1）の写しか、それに伴う変更（Scenario の数 107→109・76→78、読む順の Q1〜Q13、決定の行、Open Questions の 1 行、Task 4 の題）。新しい決定も台帳の追加も無い
+
+## 観点 1: deep の決定が正典に写っているか
+
+- Q12・Q13 は上の観点 6 のとおり。数値を含む決定は無い（`fetch-depth: 0` は design と tasks 4.4 の検証の grep にある）
+- 「要件へ戻すもの」: deep.md は Q12・Q13 とも「要件に効かない」とし、`docs/requirements.md` の改訂は第 1 回の分（扉 34・FR-104 の ★ 2026-11-01）から変わっていない
+- 指摘は R31（D6 の側の前提の記述）
+
+## 観点 2: Scenario が検証可能か
+
+- 新しい 2 本（distribution :552・record-envelope :151）は R30
+
+## 観点 3: 置き場の誤り
+
+- 該当なし（確かめた範囲: この段で足した spec の 2 つの IF 条項と Scenario 2 本に実装の名前（関数・台本・`git` の引数）が無いこと、design D1 の `fetch-depth: 0`・`--is-shallow-repository` は実装の手段で、観測できる振る舞い（浅い木で落ちる）は spec の IF 条項と Scenario にあること、proposal の Capabilities と `specs/` が distribution・record-envelope の 2 つで一致すること）
+
+## 観点 4: tasks が検証を持つか
+
+- 4.1・4.2・4.4 はコマンドと rc の終了条件を持つ。4.4 は止め（4.1・4.2）の後に置かれ、Migration Plan が同じ PR を求める（依存順は合う）
+- 指摘は R30（4.4 の検証の区別の弱さ）と R29（release.yml・nightly.yml の checkout）
+
+## 観点 5: Story が要件の現在の本文と一致しているか
+
+- 呼び出し元が「観点 7 で」と挙げた Story との一致は、この定義では観点 5 なのでここで見た
+- 該当なし（確かめた範囲: `check_chain.py` OK（観点 8 の再生成との一致を含む）。`docs/stories/ST52.md` の「完了の判定」4 行（下書きのリリースに同じ版で並ぶ・本物の印は ST53 の確認の後／画面を配る／版の出所が 1 つで使い捨ての鍵で署名の手順が通る・正式な鍵は ST53 の確認／移す手順が `docs/release.md` にある・切り替えは ST53 の後・携帯は ST56 の後）は design D22（:186-188）の読み替えの 3 つと同じことを言い、Q1（携帯に入っていない）・Q2・Q5 とも矛盾しない。「価値」の「自分の環境をその版で動かしたい」は Story の願いで、完了の判定が ST53 へ送ることを明記している（前の段の R7 の型の食い違いは残っていない）。satisfies（FR-104・FR-105・FR-107・NFR-25）の外の要件を、この段の specs の差分は満たそうとしていない）
+- 申し送りの側の古い印は R32
+
+## 観点 7: 走っている change との前提関係
+
+観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## R28. review/deep.md R9 の処置「fixed D1 仮」が、D1 を台帳から外して本人の決定（Q12）にした後も残り、triage が落ちる
+- 成果物: openspec/changes/st52-release-channels/review/deep.md
+- 根拠: `python3 scripts/review_triage.py . st52-release-channels` → `[FAIL] deep.md R9: loss=discarded は人間に返すもの。fixed で閉じられない` ほか 1 件、`triage: FAIL (2 件)`。review/deep.md の R9 は `loss: discarded`・`処置: fixed D1 仮 —— … provisional.jsonl に載せた`。provisional.jsonl の末尾は D1 を `resolved: True`（Q12 で人間に返した）にしており、deep.md の「問いの出所」も `Q12 ← provisional-review.md の D1（否）・review/deep.md R9` と書く。
+  同じ型で review/spec.md R7（:85）の `処置: fixed D22 仮 —— … provisional.jsonl に載せた` も、D22 が resolve 済み・Q13 で本人が決めた今は古い（R7 は loss を持たないので triage は落ちない）
+- kind: technical
+- 提案: review/deep.md R9 の処置を `escalated Q12 —— …`（D1 は本人の決定）に、review/spec.md R7 の処置を `escalated Q13 —— …`（D22 は本人の決定。完了の判定は record の段で stories.json に写した）に書き換え、triage を通す
+- 処置: fixed review/deep.md —— R9 の処置を `escalated Q12` に、review/spec.md R7 の処置を `escalated Q13` に書き換えた
+
+## R29. Q12 と同じ「浅い木で祖先が空になり黙って通る」型が、`release.yml`・`nightly.yml` の判定（`version.sh plan` の main の祖先・修正の枝、`nightly-plan` の出所の版の正式版の印）に残り、2 つの workflow の checkout の深さが決まっていない
+- 成果物: openspec/changes/st52-release-channels/design.md
+- 根拠: spec distribution :115（印 `v*` を main の祖先の commit に付いたときだけ公開する）・:253（`v<出所の版>` が main の祖先にあれば開発版を組まずに終える）、design.md:69-70（D6: 印の commit が main の祖先か・`git describe --tags --abbrev=0 --match … <印>^`）・:92（`nightly-plan` は `v<出所の版>` が main の祖先なら `build=no`）。
+  `grep -n 'fetch-depth\|checkout' design.md tasks.md` の当たりは D1（:40）と 4.4（:103-105）の `rust` の job だけで、D14・D15・tasks 9.3（:166-169）は `release.yml`・`nightly.yml` の checkout の深さに触れない。`actions/checkout` の既定は深さ 1（premises P17 と同じ前提）。
+  `nightly-plan` はまだ無い台本だが、design.md:92 の書き方（祖先にあれば `build=no`）のままなら、浅い木で祖先の判定が空になると `build=no` の条件が満たされず、組む側の既定の経路に倒れうる（出したばかりの正式版より古く見える開発版を組み、:253 の守りが黙って外れる）。`version.sh plan` は main の祖先を辿れず、main の上の正しい印も公開を断る側に倒れうる（最初の本物の印は ST53 の後）
+- kind: technical
+- 提案: Q12 の答え（その job を完全な履歴で取り、浅い木では落ちる）を同じ型の判定へ当てる。design D14/D15 と tasks 9.3 に、`plan`・`nightly-plan` を走らせる job の checkout を `fetch-depth: 0` にすることと、`version.sh plan`/`nightly-plan` も祖先を見る前に浅い木なら rc≠0 で落ちることを書き、spec に Scenario 1 本（浅い木では印の判定が通らない）を足して 2.x の `--self-test` に割り当てる。要件は変わらない
+- 処置: fixed D24 仮 —— Q12 の答え（祖先を見る判定は完全な履歴で走らせ、浅い木では落ちる）と同じ向きを、Q12 が聞いていない `version.sh plan`・`nightly-plan` に仮で当てた（失わない側。provisional.jsonl の D24、rests_on Q12）。design D24（仮）と D14、spec distribution の 2 つの Requirement に浅い木の IF 条項と Scenario 2 本（`浅い木では、印の判定は通らない`・`浅い木では、開発版の作り直しの判定は通らない`）、tasks 1.1（止めと自己試験）と 9.3（`fetch-depth: 0` と検証）、Scenario の数 111/80
+
+## R30. 浅い木の Scenario 2 本の THEN が「rc≠0」と「履歴が浅いことが示される」を束ね、後者は何を見れば真かが無い。tasks の検証は rc≠0 だけを見る
+- 成果物: openspec/changes/st52-release-channels/specs/distribution/spec.md
+- 根拠: distribution :555・record-envelope :155「**THEN** 終了コードは 0 でなく、履歴が浅いことが示される（印が 0 個として通らない）」。示す先（標準エラー・標準出力）も文言も spec に無い（design.md:38 は「履歴が浅いので配った印を数えられない」と示すと書くが、design は正典に残らない）。
+  tasks 4.1（:94）・4.2（:99）の自己試験は「rc≠0」、4.4 の 2 本目の検証（:106）は `! tools/check-released-migrations.sh && ! tools/check-contract-version.sh` で、どの理由で落ちても通る（例: 作業木から写した台本が clone の木の別の検査で落ちても緑）。また `d="$TMPDIR/sh"` は `TMPDIR` が無いと `/sh` を指す
+- kind: technical
+- 提案: THEN を「終了コードは 0 でなく、出力に『浅い』を含む」のように観測できる 1 つの主張にする（または rc と表示を別の Scenario に分ける）。4.1・4.2 の自己試験と 4.4 の検証は、その文字を grep で見る（`out=$(tools/… 2>&1); [ $? -ne 0 ] && grep -q 浅い <<<"$out"`）。`$TMPDIR` は `${TMPDIR:?}` か `mktemp -d` にする
+- 処置: fixed 4.4 —— 浅い木の Scenario の THEN を「出力に「履歴が浅い」を含む」に揃え（4 本）、tasks 4.1・4.2・1.1 の自己試験と 4.4 の検証が rc≠0 と「履歴が浅い」の文字の両方を見るようにし、`${TMPDIR:?}` にした
+
+## R31. D1（本人の決定）が D6（仮）に乗ることは D1 の節にだけあり、D6 の反転条件と台帳の D6 には無い。確認バッチで D6 を覆しても D1 の見直しへ辿れない
+- 成果物: openspec/changes/st52-release-channels/design.md
+- 根拠: design.md:42-43（D1「前提: D6（仮）…D6 が反転して修正の枝で移行を許すなら…D1 の数え方も一緒に見直す」）。一方 D6 の節の反転条件 design.md:72（「移行を含む緊急の修正が本当に要る事態が起きたら、その移行を main にも同じ名前・中身で入れる規則を足して許す」）は D1 に触れず、provisional.jsonl の D6 も `rests_on: []` で、keeps・反転に D1 が無い。
+  provisional-review.md の D1 の否の根拠 (b) は「keeps は D6 に乗るのに rests_on に無かった」で、Q12 の推奨は「D6 を前提に明記」。D1 は台帳から外れたので rests_on で結べず、残る手がかりは D6 の側の文だけになる。D6（仮）は確認バッチで人間が見るもので、そこで覆ると、D1（仮でない）の「祖先でない印は凍結に入れなくても失われない」が崩れるのに、聞き直しが起きない
+- kind: technical
+- 提案: design D6 の反転条件に「反転するなら D1（本人の決定。Q12）の数え方が崩れるので、D1 を本人に聞き直す」を 1 行足す（台帳の D6 の文も同じ向きに直せるなら直す）
+- 処置: fixed D6 —— D6（仮）の反転条件に「反転するなら D1（本人の決定。Q12）を本人に聞き直す」を足し、台帳の行は追記のみで書き換えないことと D1 が D6 に乗ることを D6 の台帳の行の説明に書いた
+
+## R32. `docs/handoff/ST53.md:8` の IMP-01 の塊が「D22（仮）」のまま
+- 成果物: docs/handoff/ST53.md
+- 根拠: `docs/handoff/ST53.md:8`「…確かめは使い捨ての鍵と下書きのリリースで行う（D22（仮））」。D22 は provisional.jsonl で resolve 済みで、design.md:181-191 は「仮ではない（台帳に載せない）」・本人の決定（Q13）。この塊は `<!-- imp-handoff … sha256:… -->` で囲まれ、:13「この塊は機械が書く —— 手で直すと merge gate が止める」。出所は go.json の impact.findings[IMP-01]（第 1 回の合意の時点の文）
+- kind: defer
+- 提案: 手で直さない。ST53 の深掘りで IMP-01 を引き受けるときに「D22 は Q13 で本人が決めた（仮ではない）」と読み替えるよう、record の段が機械で塊を書き直すか、ST53 の GO 資料の側で注記する
+- 処置: deferred ST53 —— 塊は機械が書くもので手で直さない。ST53 には tasks.md がまだ無いので、ST53 の上流が IMP-01 を引き受けるときに「D22 は Q13 で本人が決めた（仮ではない）」と読む
+
+---
+
+# 再確認（R28〜R32 の処置の後。spec --answers Q1,Q4,Q11,Q12,Q13。2026-11-01）
+
+## 機械の検査
+
+```
+$ openspec validate st52-release-channels --strict
+Change 'st52-release-channels' is valid
+$ python3 scripts/check_chain.py .
+chain: OK (0 件 / 未回収 0 件 / warn 0 件)
+$ python3 scripts/check_scenarios.py . st52-release-channels
+scenarios: FAIL (担保なし 80 件 / 名無しの確認待ち 0 件)
+$ python3 scripts/review_triage.py . st52-release-channels   （R31 の kind を書き換える前）
+  指摘 48 件 / 仮決め 8 件 / 要件へ戻すもの 1 件
+  [FAIL] spec.md R31: kind=premise は人間に返すもの。fixed にできない
+triage: FAIL (1 件)
+```
+
+- `grep -c '^#### Scenario:'` は distribution 87・record-envelope 24（計 111）、担保待ち 80 は tasks.md:15-16 の「111 本」「80 本」と一致する
+
+## 処置の確かめ
+
+- R28: 直った。review/deep.md R9 は `escalated Q12`、review/spec.md R7 は `escalated Q13`。triage の R9 の 2 件は消えた
+- R29: 直った（R33・R34 の細部を除く）。design D1「同じ型の判定にも当てる」と D14 の 1 行、spec distribution の 2 つの Requirement の IF 条項と Scenario「浅い木では、印の判定は通らない」(:122)・「浅い木では、開発版の作り直しの判定は通らない」(:265)、tasks 1.1（止めと 2 本の自己試験の割り当て）、9.3（`fetch-depth: 0` と検証）
+- R30: 直った。浅い木の Scenario 4 本の THEN が「出力に「履歴が浅い」を含む」に揃い、4.1・4.2・1.1 の自己試験と 4.4 の検証が rc と文字の両方を見る。4.4 は `${TMPDIR:?}`、`out=… && exit 1; grep -q "履歴が浅い"` の形で、浅さ以外の失敗では通らない
+- R31: 直った。design D6 の反転条件に「反転するなら D1 を本人に聞き直す」、台帳の行の説明に D1 が D6 に乗ること。
+  **kind を premise から technical に書き換えた**: flow-gates の premise は「既決の前提が崩れた」。R31 で崩れた前提は無く（D1 も D6 もそのまま成り立つ）、D6 の側から D1 へ辿る参照が欠けていただけで、直しても本人の答えは変わらず、失うものも無い
+- R32: deferred ST53 で妥当（機械の塊。手で直さない）
+
+## 観点 6 の見直し（R29・R31 の処置の分）
+
+- R29 の拡張は**答え以外の変更**に数えた。Q12 の問いは「配った移行の凍結（ST48）と送信契約の版の検査（ST50）が配った印を数えるとき」で、答えの「その job」は `rust` の job。`version.sh plan`・`nightly-plan` は印を数える検査ではなく、問いにも答えにも出てこない。
+  plan の main の祖先の判定は、Q12 でどちらの側が選ばれても同じ穴を持っていた（R29 は Q12 の帰結ではなく、独立の指摘）。足したのは別の 2 つの Requirement の IF 条項と Scenario 2 本で、数え直しのような帳尻ではない
+- 置き場は D1（本人の決定。仮でない）と D14（仮の印なし）なので、`答え以外の変更の決定:` の行は書かない（合意は引き継がれない）。
+  呼び出し元の選択肢: この拡張を D1・D14 から外し、失わない側の仮の決定（例 D24（仮）。反転は止めと `fetch-depth: 0` を外せば戻る。依る: Q12・P17）として台帳に立てて書き直せば、D6（仮）の反転条件の 1 行と合わせて仮だけの変更になり、`答え以外の変更の決定: D24 D6` で引き継げる形になる。どちらにするかは呼び出し元が決める
+- R31 の D6（仮）の反転条件の 1 行も答え以外の変更（D6 の中身）。R30 の THEN の揃え直しは Q12 の Scenario の写しの精度で、答え以外には数えない
+
+## R33. 新しい Scenario「浅い木では、開発版の作り直しの判定は通らない」の THEN の字が崩れ、3 つの主張を束ねる。tasks と design で「返さない」ものが食い違う
+- 成果物: openspec/changes/st52-release-channels/specs/distribution/spec.md
+- 根拠: specs/distribution/spec.md:268「**THEN** 終了コードは 0 でなく、出力に「履歴が浅い」を含むで、「組む」も「公開する」も返さない」（「含むで」。rc・出力・返さないの 3 つ）。返さないものが、tasks.md:41（1.1）と design D1 では「`build=` を出さない」、tasks.md:46（1.1 の割り当て）では「`build=yes` を出さない」で、spec は「『組む』も『公開する』も」（`publish=` も含む）
+- kind: technical
+- 提案: THEN を「終了コードは 0 でなく、出力に「履歴が浅い」を含む」に揃え（他の 3 本と同じ）、「組む・公開するを返さない」は要るなら別の Scenario にする。返さないものは `build=` と `publish=` のどちらも出さない、に 1.1 の 2 か所と design D1 を揃える
+- 処置: fixed 1.1 —— THEN を「終了コードは 0 でなく、出力に「履歴が浅い」を含み、`build=` の行は無い」に直し、Requirement の IF 条項・design D24（仮）・tasks 1.1 も「`build=` の行を出さない」に揃えた
+
+## R34. 9.3 の新しい検証は、ファイルのどこかに `fetch-depth: 0` があれば通り、判定を走らせる job の checkout かを見ない
+- 成果物: openspec/changes/st52-release-channels/tasks.md
+- 根拠: tasks.md:171 の末尾「`bash -c 'for f in .github/workflows/release.yml .github/workflows/nightly.yml; do grep -q "fetch-depth: 0" "$f" || exit 1; done'`」。4.4 の検証は awk で `rust` の job を切り出して見ている（tasks.md:107）のと揃っていない。`plan` を走らせない job（例: 組み立ての job）にだけ `fetch-depth: 0` があっても通り、判定の job が浅いままなら、spec の浅い木の止めで公開・作り直しが毎回落ちる（黙って通りはしないが、検証が見たいものを見ていない）
+- kind: technical
+- 提案: `check-guards.sh workflows` に「`version.sh plan` / `nightly-plan` を呼ぶ job の checkout は `fetch-depth: 0`」の検査を足し、その `--self-test` に崩した workflow で落ちる場合を置く（9.3 の検証はそれで足りる）。または 4.4 と同じく job を切り出して grep する
+- 処置: fixed 9.3 —— 検証を、`version.sh plan` / `nightly-plan` を含む job の塊の中に `fetch-depth: 0` があるかを見る形に替えた（偽の workflow 2 つで、job の外にだけあると rc=1・判定の job にあると rc=0 を確かめた）
+
+---
+
+# 再々確認（R29 の拡張を D24（仮）へ移し、R33・R34 に処置を付けた後。2026-11-01）
+
+## 機械の検査
+
+```
+$ openspec validate st52-release-channels --strict
+Change 'st52-release-channels' is valid
+$ python3 scripts/check_chain.py .
+chain: OK (0 件 / 未回収 0 件 / warn 0 件)
+$ python3 scripts/check_scenarios.py . st52-release-channels
+scenarios: FAIL (担保なし 80 件 / 名無しの確認待ち 0 件)
+$ python3 scripts/review_triage.py . st52-release-channels
+triage: OK
+```
+
+- Scenario は distribution 87・record-envelope 24（計 111）で、担保待ち 80 は tasks.md:15-16 と一致する
+
+## 処置の確かめ
+
+- R29: 直った。design D24（仮）（:205-213）が `plan`・`nightly-plan` の浅い木の止めと、`release.yml`・`nightly.yml` の判定の job の `fetch-depth: 0` を持つ。失わない側・費用・反転条件（D1 が覆ったら一緒に見直す）も書かれている。
+  provisional.jsonl の末尾の D24 は `rests_on: ["Q12"]`・`source: review/spec.md#R29`。D1 に残るのは :42 の指し先の 1 行だけで、D14 の :132 の行も「（D24（仮））」を指す。
+  spec distribution の導出元は :120・:263 とも D24（仮）を指し、Q12 を名指していない。tasks.md:23 の仮の一覧、1.1（:41）・9.3（:168）も D24（仮）を指す
+- R33: 直った。:268 の THEN は「終了コードは 0 でなく、出力に「履歴が浅い」を含み、`build=` の行は無い」になった。IF 条項 :261・D24・tasks 1.1（:41 と Scenario の割り当て）も「`build=` の行」で揃っている。
+  主張は 3 つのまま（rc・出力・`build=` の行）だが、割り当ての試験が 3 つとも見ると書かれ、表記の食い違いは無くなった
+- R34: 直った。9.3 の検証（tasks.md:171 の末尾）を偽の workflow で走らせた。`fetch-depth: 0` が判定の job の外（`build` の job）にだけあると rc=1、判定の job（`publish`）にもあると rc=0（`/tmp/st52-93.DUrF` に置いた写しの台本で。この一時フォルダは消していない）
+
+## 観点 6 の見直し（答え以外の変更の決定）
+
+- 答え以外の変更は D24（仮）の新設とそれに伴うもの、および D6（仮）の反転条件の 1 行。
+  D24 に伴うものは、spec distribution の IF 条項 2 つと Scenario 2 本、Scenario の数 109→111・78→80、tasks 1.1・9.3、tasks の仮の一覧、D14 の 1 行。
+  D1 の :42（「同じ型の判定への当て方は D24（仮）。Q12 が聞いたのは…だけ」）と D14 の :132（「…`fetch-depth: 0`（D24（仮））」）は、D24 を指し示す行で、D1・D14 の決定そのもの（数え方・`rust` の job の取り方、workflow の分け方と権限）は変えていない。中身は D24 のものと読み、仮でない決定の変更には数えない
+- よって `答え以外の変更の決定: D24 D6`

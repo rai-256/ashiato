@@ -27,8 +27,9 @@
 - **配る組み立ては綺麗で、資格情報を持たない**（C1・C8）: 印に `.dirty` / `.debug` があるもの、携帯の APK に接続先や資格情報が焼き込まれたものは公開しない
 - **配れる形を PR ごとに確かめる**（Q9 の推奨）: コードを触った PR ごとに、公開せずに 3 部品の配布物を組み、版がそろうかを見る
 - **配った印 `v*` は消さない・動かさない**（D2（仮））: GitHub のルールセットで拒み、公開の前にルールセットが入っていることを確かめる
-- **配った印の検査（ST48・ST50）が数える印を、今の木の祖先にあるものに絞る**（D1（Q12 の答え待ち））: 緊急の修正の枝の印で、main の検査が誤って落ちる・送信契約の版の上げ忘れを見逃すことを防ぐ。
+- **配った印の検査（ST48・ST50）が数える印を、今の木の祖先にあるものに絞る**（D1・Q12）: 緊急の修正の枝の印で、main の検査が誤って落ちる・送信契約の版の上げ忘れを見逃すことを防ぐ。
   「最後の印」は日付でなく、祖先にある印のうち版番号が最も大きいもの
+  CI はその job を完全な履歴（`fetch-depth: 0`）で取り、履歴が浅い木では 2 本の検査が印を数える前に落ちる（浅い checkout で祖先の判定が空になり、検査が黙って通るのを止める）
 - **緊急の修正の枝は移行と封筒の形を変えない**（D6（仮））: 修正の枝の正式版の印は、枝を切った元の印と `migrations/ORDER` と封筒の形の写しが同じときだけ公開する
 
 **BREAKING ではない**: 収集アプリの送り先の道・API・記録の形は変えない。開発の起動（`tools/dev.sh` / `tools/stack.sh`）と e2e は `vite preview` のまま動く。
@@ -43,9 +44,9 @@
 ### Modified Capabilities
 
 - `distribution`: 版の出所・versionCode・チャンネルと印・配る組み立ての検査・署名・開発版の作り直し・下書きのリリース・サーバが画面を配る・PR ごとの組み立て・印の取り下げの禁止・緊急の修正の枝（ADDED 11）。
-  ST48 の「DB に当てた移行の版を、DB の中に記録する」を MODIFIED（当てた組み立ての版番号は印と同じ版番号。review/spec.md R1）と、「配った移行は、名前も中身も変えられない」を MODIFIED（今の木の祖先にある印だけを数える。D1（Q12 の答え待ち））
+  ST48 の「DB に当てた移行の版を、DB の中に記録する」を MODIFIED（当てた組み立ての版番号は印と同じ版番号。review/spec.md R1）と、「配った移行は、名前も中身も変えられない」を MODIFIED（今の木の祖先にある印だけを数える。D1・Q12）
 - `record-envelope`: ST49 の「組み立ての印は、版番号・commit・…を持ち、組み立てのたびに作り直す」を MODIFIED（印の版番号は 1 つの出所から決まり、配る組み立てでは渡した版番号）。
-  ST50 の「封筒の形が変わったのに送信契約の版が上がっていなければ CI が落ちる」を MODIFIED（最後の配った印は、祖先にある印のうち版番号が最も大きいもの。D1（Q12 の答え待ち））
+  ST50 の「封筒の形が変わったのに送信契約の版が上がっていなければ CI が落ちる」を MODIFIED（最後の配った印は、祖先にある印のうち版番号が最も大きいもの。D1・Q12）
 
 **capability の照合**: INDEX.md の capability 表は ST52 を `distribution` に割り当てていた。リリースとチャンネル・署名・開発版・サーバが画面を配ることは `distribution` で合っている。
 組み立ての印の版番号（ST49）と送信契約の版の検査（ST50）は `record-envelope` にあり、ST52 はその 2 つの Requirement の「版番号の出所」と「数える印」を書き換える（申し送り `docs/handoff/ST52.md` の「型を変えるなら一緒に変える」「出所を 1 つにしたら、そこから読むように替える」）。
@@ -61,7 +62,7 @@
 - サーバが画面を配る: `crates/server/src/lib.rs`（router に `/api` の剥がしと組み込んだ画面）、新しい `crates/server/src/web_assets.rs`、`crates/server/build.rs`（`ASHIATO_WEB_DIST` を組み込む）
 - 配る道具: 新しい `tools/release/`（`version.sh`・`version-table.tsv`・`build.sh`・`package.sh`・`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh`・`draft.sh`・`check-guards.sh`）、新しい `tools/check-version.sh`
 - CI: `.github/workflows/ci.yml`（`package` の job。PR ごとに 3 部品を組む）、新しい `.github/workflows/release.yml`（印の push）・`.github/workflows/nightly.yml`（予定の実行）。どちらも `contents: write` を自分の job だけに持つ
-- 検査の型の書き換え: `tools/check-released-migrations.sh`（ST48）・`tools/check-contract-version.sh`（ST50）の印の列挙を、祖先の印と版番号の順に替え、自己試験に修正の枝の場合を足す
+- 検査の型の書き換え: `tools/check-released-migrations.sh`（ST48）・`tools/check-contract-version.sh`（ST50）の印の列挙を、祖先の印と版番号の順に替え、浅い木で落ちる止めを足し、自己試験に修正の枝と浅い木の場合を足す。`.github/workflows/ci.yml` の `rust` の job の checkout を完全な履歴にし、印の取り寄せから `--depth=1` を外す
 - 文書: 新しい `docs/release.md`（鍵を作る・Environment とルールセットを入れる・最初の印を打つ手順）、`docs/production-prep.md`（バージョンの単一情報源の行）、`docs/requirements.md` の扉 34 と FR-104（record の段が ★ 2026-11-01 で改訂済み。Q2 の Environment・Q11 の開発版の鍵・Q1 の入れ直しの訂正・Q4 の開発版の例外）
 - 申し送り: `docs/handoff/ST53.md`（最初の印と開発版の公開の始め方）、`docs/handoff/ST54.md`（開発版の DB の扱い。review/deep.md R11。開発版の携帯の APK と開発版の鍵は record の段が書いた節。Q4・Q11・D23（仮））、`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））
 - **走っている change との重なり**: `openspec/changes/` で archive 以外は `st51-update-history` だけで、main では archive 済み（#221）。ST51 が足した更新の履歴は、S-01 の組み立ての印をそのまま「今の版」に書く（正典 distribution「S-01 の版が変わると、更新の履歴に 1 行残る」）ので、

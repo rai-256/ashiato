@@ -1,7 +1,7 @@
 # ST52 の前提（外の形式・振る舞い）
 
 問いを立てる前に確かめたもの。確かさは story-upstream の 1〜5（1 言っただけ / 2 出所を示した / 3 辿った / 4 走らせた / 5 実物で再現した）。
-失われるもの（`loss`）のある問い（Q1・Q2・Q3・Q5・Q11）が依る前提は、Q1 が P2・P3・P4、Q2 が P2・P6、Q3 が P5・P13、Q5 が P6・P11、Q11 が P2・P3 で、どれも確かさ 4 以上。P8・P12・P16 は推奨の側の守りの前提で（外れても、失う側の選択は変わらない）、2 のまま tasks で 4 に上げる。
+失われるもの（`loss`）のある問い（Q1・Q2・Q3・Q5・Q11、第 2 回の Q12）が依る前提は、Q1 が P2・P3・P4、Q2 が P2・P6、Q3 が P5・P13、Q5 が P6・P11、Q11 が P2・P3、Q12 が P17 で、どれも確かさ 4 以上。P8・P12・P16 は推奨の側の守りの前提で（外れても、失う側の選択は変わらない）、2 のまま tasks で 4 に上げる。
 
 | # | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
 |---|---|---|---|---|---|---|
@@ -21,6 +21,7 @@
 | P14 | 印を動かすと、それを取った clone の `git fetch --tags` が rc=1 になる（`git fetch` は rc=0 で、手元の印は古いまま） | Q10 | deep-review が使い捨ての repo で試した（2026-11-01、git 2.53.0。`! [rejected] nightly -> nightly (would clobber existing tag)`） | rc=1 | 実物 | 4 |
 | P15 | 配布版の APK（接続先と資格情報を渡さずに組んだもの）は送信せず、取得は続けて未送信に積み、90 日 / 2 GB で捨てる | Q1 | `collector-android/app/build.gradle.kts:57-61`（組み立ての時に property から焼き込む）・`Config.kt:18-29`（揃わなければ `isComplete=false`）・`LocationService.kt:927-930`（送らずに積む）・`Retention.kt:12-16` を辿った | そのとおり。設定させる口は ST56（FR-128） | 実物（repo） | 3 |
 | P16 | 下書き（draft）のリリースは書き手にしか見えず、公開するまで印を作らない | Q5 の推奨 | https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository 。tasks で下書きを作って印が増えないことを確かめる | 文書どおり（未走行） | 公式文書 | 2 |
+| P17 | CI の `rust` の job は深さ 1 で checkout し（`.github/workflows/ci.yml:68-69`）、印だけを `git fetch --depth=1` で取り寄せる（`:93`）。この木では `git tag --list` は印を見るが `git tag --merged HEAD` は空になり、`git rev-parse --is-shallow-repository` は `true` を返す。完全な clone に `git fetch --depth=1` で印を取り寄せると、その木も浅くなる。`actions/checkout` の `fetch-depth: 0` は全部の履歴と印を取る | Q12（祖先の印の数え方が CI で黙って空にならないか）・D1 | 使い捨ての repo（3 commit、HEAD の 1 つ前に印 `v0.1.0`）を `git clone --depth=1 file://…` し、CI と同じ `git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`。完全な clone にも同じ fetch を当てた。さらに今の木を深さ 1 で clone して今の `tools/check-released-migrations.sh` を走らせた | 浅い木: `--is-shallow-repository`=true・`--list`=v0.1.0・`--merged HEAD`=空。完全な木: `--merged HEAD`=v0.1.0、`--depth=1` の fetch の後は `--is-shallow-repository`=true。今の台本は浅い木で rc=0（印 0 個として通る）。`fetch-depth: 0` が印も取ることは公式文書（https://github.com/actions/checkout の README「`fetch-depth: 0` … all history for all branches and tags」）だけ | 実物（git 2.53.0、2026-11-01）・公式文書 | 4（`fetch-depth: 0` が印を取ることだけは 2。D1 は印の取り寄せを消さずに重ねるので、これに依らない） |
 
 ## 触らなかったもの
 

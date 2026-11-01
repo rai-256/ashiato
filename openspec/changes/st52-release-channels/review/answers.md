@@ -1,6 +1,8 @@
-spec-digest: 22ca5e2bdb45e45f75ba4d3777e22e7d2c56e0106a5d427d40f8c99601351774
+spec-digest: 6e1ff467d42ac6e33d973509fd2edd982a30b8ad7ac504a325c8cb3fe3a2505f
 - Q1: 写った
 - Q4: 写った
 - Q11: 写った
-答え以外の変更: あり（D23（仮）の新設と、それに伴う開発版の配布物の検査の `--channel nightly`（携帯の APK を除く 3 つ・APK があれば落とす・APK が無いので指紋と BuildConfig を見ず期待値は空でよい）・Scenario 3 本（開発版の配布物の 2 本と開発版の workflow が APK を組まない 1 本）と Scenario の数・nightly.yml は携帯の APK を組まず署名しない・`.dev` と開発版の署名の道具は ST52 が使い捨ての鍵で確かめる・`nightly` に鍵と指紋の変数を置かない・ST54 への申し送り・台帳 D23。spec の「正式な鍵は開発版の作り直しの実行にも渡さない」（D21（仮）の帰結））
-答え以外の変更の決定: D23 D21
+- Q12: 写った
+- Q13: 写った
+答え以外の変更: あり（D24（仮）の新設と、それに伴う `version.sh plan`・`nightly-plan` の浅い木の止めと `release.yml`・`nightly.yml` の判定の job の `fetch-depth: 0`、spec distribution の IF 条項 2 つと Scenario 2 本、Scenario の数 109→111・78→80、tasks 1.1・9.3 と仮の一覧、D1・D14 から D24 を指す 1 行ずつ。D6（仮）の反転条件に「反転するなら D1 を本人に聞き直す」を足した）
+答え以外の変更の決定: D24 D6
