@@ -163,11 +163,11 @@ fn content_type(path: &str) -> &'static str {
     match Path::new(path).extension().and_then(|ext| ext.to_str()) {
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
-        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("jpg" | "jpeg") => "image/jpeg",
         Some("webp") => "image/webp",
         Some("ico") => "image/x-icon",
         Some("woff") => "font/woff",

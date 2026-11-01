@@ -4247,7 +4247,7 @@ fn api_router(app: App) -> Router {
         &drops::DROP_FIELDS,
         &media_missing::MISSING_FIELDS,
     ]);
-    let api = Router::new()
+    Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/contract", get(contract_version::contract_get))
         .route("/ingest", post(ingest_route))
@@ -4324,9 +4324,7 @@ fn api_router(app: App) -> Router {
             app.clone(),
             web_session::refresh_cookie,
         ))
-        .with_state(app);
-
-    api
+        .with_state(app)
 }
 
 /// 起動時の手入れ（待ち受けの前に `run()` が 1 回呼ぶ）。どれも失敗を飲み込んでログに残し、起動は止めない。

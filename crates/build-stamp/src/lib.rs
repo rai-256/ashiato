@@ -314,7 +314,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let given = "0.1.0-beta.2";
         std::env::set_var(VERSION_ENV, given);
-        let resolved = version("0.1.0").unwrap();
+        let resolved = version("0.1.0").expect("渡した版番号を受ける");
         let stamp = stamp(&resolved, "release", d.path(), &[]);
         std::env::remove_var(VERSION_ENV);
         assert_eq!(stamp, format!("{given}+{head}"));
@@ -327,7 +327,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::env::set_var(VERSION_ENV, "0.2.0-beta.2");
-        let error = version("0.1.0").unwrap_err();
+        let error = version("0.1.0").expect_err("出所と違う版番号を拒む");
         std::env::remove_var(VERSION_ENV);
         assert!(error.contains("0.1.0"), "{error}");
         assert!(error.contains("0.2.0-beta.2"), "{error}");
@@ -347,7 +347,7 @@ mod tests {
             "0.1.0-beta.+5",
         ] {
             std::env::set_var(VERSION_ENV, given);
-            let error = version("0.1.0").unwrap_err();
+            let error = version("0.1.0").expect_err("決めた形でない版番号を拒む");
             assert!(error.contains("0.1.0"), "{given}: {error}");
             assert!(error.contains(given), "{given}: {error}");
         }
