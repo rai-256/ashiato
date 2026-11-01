@@ -3,35 +3,37 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <run-id> [--prerelease]|--self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <run-id> <版番号>|--self-test" >&2; exit 2; }
 
-# PR の package は ASHIATO_BUILD_VERSION を渡さず出所の版で組む（D14）ので、版番号は出所の版から取る
-# （final review R5）。先行公開の種類は --prerelease で選ぶ。
+# 下書きの印の名前は渡した版番号（v<版番号>）で、-beta. を含めば先行公開にする（D16）。
+# 配布物は PR の package の組み立てで、PR の package は ASHIATO_BUILD_VERSION を渡さず出所の版で組む（D14）。
+# だから配布物の検査は出所の版と比べる（final review R5）。渡す版番号の MAJOR.MINOR.PATCH は出所の版と同じでなければならない。
 draft_release() (
-  local run_id="$1" prerelease="$2" version work tag name
+  local run_id="$1" version="$2" src work tag name prerelease=0
   [[ "$run_id" =~ ^[0-9]+$ ]] || die "run-id が不正: $run_id"
-  version="$("$root/tools/release/version.sh" source)"
   "$root/tools/release/version.sh" check "$version" >/dev/null
+  src="$("$root/tools/release/version.sh" source)"
 
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-draft.XXXXXX")"
   trap "rm -rf '$work'" EXIT
   tag="v$version"
+  [[ "$version" == *-beta.* ]] && prerelease=1
 
   gh run download "$run_id" --name release-package --dir "$work"
-  "$root/tools/release/check-artifacts.sh" "$work" --allow-debug-key --expect-version "$version"
+  "$root/tools/release/check-artifacts.sh" "$work" --allow-debug-key --expect-version "$src"
 
   # 載せるのは check-artifacts が見た 4 つの配布物だけ（置き場の他のファイルは載せない。final review R22）
   local -a files=()
   for name in \
-    "ashiato-server-${version}-linux-x86_64.tar.gz" \
-    "ashiato-server-${version}-windows-x86_64.zip" \
-    "ashiato-collector-windows-${version}-x86_64.zip" \
-    "ashiato-collector-${version}.apk"; do
+    "ashiato-server-${src}-linux-x86_64.tar.gz" \
+    "ashiato-server-${src}-windows-x86_64.zip" \
+    "ashiato-collector-windows-${src}-x86_64.zip" \
+    "ashiato-collector-${src}.apk"; do
     files+=("$work/$name")
   done
   # 本文を渡す（TTY から走らせても gh が本文を対話で聞かない。final review R22）
   local -a args=(release create "$tag" "${files[@]}" --title "$tag" --draft --target main
-    --notes "ST52 の確かめの下書き（PR の組み立て run $run_id の配布物）。公開しない")
+    --notes "ST52 の確かめの下書き。配布物は PR の package（出所の版 $src）の組み立て（run $run_id）。公開しない")
   [[ "$prerelease" == 1 ]] && args+=(--prerelease)
   gh "${args[@]}"
 )
@@ -86,19 +88,21 @@ FIELDS
 EOF
   chmod +x "$fake_bin/apkanalyzer"
 
-  # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
+  # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）。
+  # 偽の gh の配布物は PR の package と同じく出所の版の名前で作る（R5）
   local version
   version="$("$root/tools/release/version.sh" source)"
   export DRAFT_SELF_TEST_VERSION="$version"
 
   echo "== Scenario: 確かめの組み立ては、印を作らずに下書きのリリースになる"
-  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 --prerelease
+  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 "${version}-beta.1"
   [[ "$(wc -l <"$calls")" == 1 ]] || die '下書きの要求が 1 つでない'
-  grep -Fq "release create v$version " "$calls" || die '下書きの release create が無い'
+  grep -Fq "release create v${version}-beta.1 " "$calls" || die '下書きの release create が無い'
   grep -Fq -- '--draft' "$calls" || die 'draft 指定が無い'
   grep -Fq -- '--prerelease' "$calls" || die 'prerelease 指定が無い'
   grep -Fq -- '--target main' "$calls" || die 'main target 指定が無い'
   grep -Fq -- '--notes' "$calls" || die '本文の指定が無い'
+  grep -Fq "出所の版 $version" "$calls" || die '本文に配布物の出所の版が無い'
   ! grep -Eq 'tag|publish' "$calls" || die '印または公開の要求が出た'
   [[ "$(tr ' ' '\n' <"$calls" | grep -cE '\.(tar\.gz|zip|apk)$')" == 4 ]] || die '載せる配布物が 4 つでない'
   for name in "ashiato-server-$version-linux-x86_64.tar.gz" "ashiato-server-$version-windows-x86_64.zip" \
@@ -107,13 +111,15 @@ EOF
   done
   ! grep -Fq 'extra.txt' "$calls" || die '検査していないファイルを載せた'
   : >"$calls"
-  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 >/dev/null
-  ! grep -Fq -- '--prerelease' "$calls" || die '--prerelease を付けないのに先行公開にした'
+  # 正式版の形の版番号では先行公開にしない
+  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 "$version" >/dev/null
+  grep -Fq "release create v$version " "$calls" || die '正式版の形の下書きの release create が無い'
+  ! grep -Fq -- '--prerelease' "$calls" || die '正式版の形の版番号で先行公開にした'
 
   echo "== Scenario: 確かめの組み立ても、配布物が欠ければ下書きを作らない"
   : >"$calls"
   if DRAFT_SELF_TEST_CALLS="$calls" DRAFT_SELF_TEST_MISSING_APK=1 PATH="$fake_bin:$PATH" \
-      "$0" 42 --prerelease >/dev/null 2>&1; then
+      "$0" 42 "${version}-beta.1" >/dev/null 2>&1; then
     die '配布物が欠けたのに成功した'
   fi
   [[ ! -s "$calls" ]] || die '配布物が欠けたのに配布元へ要求を出した'
@@ -121,8 +127,5 @@ EOF
 }
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
-case "$#:${2:-}" in
-  1:) draft_release "$1" 0 ;;
-  2:--prerelease) draft_release "$1" 1 ;;
-  *) usage ;;
-esac
+[[ $# == 2 ]] || usage
+draft_release "$1" "$2"

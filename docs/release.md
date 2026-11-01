@@ -85,13 +85,13 @@ PR の CI が緑になった後、使い捨ての値と下書きで次を本人�
 
 ```bash
 before="$(git ls-remote --tags origin 'v*' | wc -l)"
-tools/release/draft.sh <run-id> --prerelease
+tools/release/draft.sh <run-id> 0.1.0-beta.1
 # 下書きの配布物と先行公開の印を確認し、確認後に下書きを削除する
 after="$(git ls-remote --tags origin 'v*' | wc -l)"
 test "$before" = "$after"
 tools/release/check-guards.sh rules --repo <owner/name>
 ```
 
-`draft.sh` は PR の `package` の run（`<run-id>`）の配布物を取り寄せる。PR の組み立ては出所の版（`tools/release/version.sh source`）で組むので、下書きの名前は `v<出所の版>` になり、`--prerelease` を付けたときだけ先行公開の下書きになる。印は数える前（`before=`）に数え、下書きを作った後と比べる。
+`draft.sh` は PR の `package` の run（`<run-id>`）の配布物を取り寄せ、渡した版番号の名前（`v0.1.0-beta.1`）で下書きを作る。版番号が `-beta.` を含むので先行公開の下書きになる。PR の組み立ては出所の版（`tools/release/version.sh source`）で組むので、配布物の検査は出所の版と比べ、下書きの本文にその旨を書く。渡す版番号の `MAJOR.MINOR.PATCH` は出所の版と同じにする。印は下書きを作る前（`before=`）に数え、作った後と比べる。
 
 使い捨ての Environment で、PR の枝から `release` 相当の Secret が読めないことも確認してから Environment を削除する。読めた場合は鍵を置かず、Q2 の判断へ戻す。
