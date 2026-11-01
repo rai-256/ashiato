@@ -108,15 +108,15 @@ THE SYSTEM SHALL この式を、配った携帯の APK の versionCode の付け
 WHEN 印 `v<MAJOR>.<MINOR>.<PATCH>` が配布元に push される THE SYSTEM SHALL その版を通常のリリース（正式版）として公開する。
 WHEN 印 `v<MAJOR>.<MINOR>.<PATCH>-beta.<N>` が push される THE SYSTEM SHALL その版を先行公開（pre-release）のリリース（ベータ版）として公開する。
 THE SYSTEM SHALL 開発版を、印 `nightly` の付いた 1 つの先行公開のリリースとして持ち、作り直すたびに印をその commit へ動かし、リリースの配布物を入れ替える（開発版のリリースは 1 つだけ）。
-THE SYSTEM SHALL 1 つのリリースに、サーバ（画面を含む。Windows x86_64 向けと Linux x86_64 向けの 2 つ）・携帯の収集アプリの APK・PC の収集アプリ（Windows x86_64 向け）を、同じ版番号で並べる。
-THE SYSTEM SHALL 配布物の名前を `ashiato-server-<版番号>-windows-x86_64.zip`・`ashiato-server-<版番号>-linux-x86_64.tar.gz`・`ashiato-collector-<版番号>.apk`（開発版は `ashiato-collector-dev-<版番号>.apk`）・`ashiato-collector-windows-<版番号>-x86_64.zip` にし、版をまたいで変えない（後の Story が版の確認で名前を読む）。
+THE SYSTEM SHALL 1 つのリリースに、サーバ（画面を含む。Windows x86_64 向けと Linux x86_64 向けの 2 つ）・携帯の収集アプリの APK・PC の収集アプリ（Windows x86_64 向け）を、同じ版番号で並べる。ただし開発版のリリースには、ST54 まで携帯の収集アプリの APK を並べず、残りの 3 つ（サーバの 2 つと PC の収集アプリ）を同じ版番号で並べる。
+THE SYSTEM SHALL 配布物の名前を `ashiato-server-<版番号>-windows-x86_64.zip`・`ashiato-server-<版番号>-linux-x86_64.tar.gz`・`ashiato-collector-<版番号>.apk`（開発版は `ashiato-collector-dev-<版番号>.apk`。開発版に並べるのは ST54 から）・`ashiato-collector-windows-<版番号>-x86_64.zip` にし、版をまたいで変えない（後の Story が版の確認で名前を読む）。
 THE SYSTEM SHALL 印の版番号（`v` を除いたもの）の MAJOR.MINOR.PATCH が、印の commit の出所の版と違えば公開しない。
-THE SYSTEM SHALL 配布物が 1 つでも組めなければ公開しない（正式版とベータ版はリリースを作らない。開発版は前の版のリリースを残す）。
+THE SYSTEM SHALL 配布物が 1 つでも組めなければ公開しない（正式版とベータ版はリリースを作らない。開発版は前の版のリリースを残す）。開発版は ST54 まで、携帯の APK を除く 3 つを数え、携帯の APK が置き場にあれば公開しない。
 THE SYSTEM SHALL 印 `v*` を、main の祖先の commit に付いたときだけ公開する。例外は、緊急の修正の枝 `release/<MAJOR>.<MINOR>` の上の正式版の印で、その規則は「緊急の修正の枝は、配った版から切り、移行と封筒の形を変えない」が持つ。
 THE SYSTEM SHALL 配った移行の凍結と送信契約の版の検査が数える「配った印」を `v[0-9]*` の印に限り、開発版の印 `nightly` を数えない。
 THE SYSTEM SHALL チャンネルごとの枝を持たない（正式版もベータ版も開発版も main から作る）。
 
-導出元: FR-104, FR-105。深掘り Q7・Q10（推奨）。premises の C2・C7・C9。review/deep.md R8。
+導出元: FR-104（★ 2026-11-01。開発版のリリースには ST54 まで C-01 を並べない）, FR-105。深掘り Q7・Q10（推奨）・Q4（本人の答え: ST54 まで、開発版に携帯の APK を入れない）。premises の C2・C7・C9。review/deep.md R8。D23（仮）。
 
 #### Scenario: 正式版の印は、通常のリリースと判定される
 - **GIVEN** 出所の版が `0.4.0` の main の commit
@@ -127,6 +127,16 @@ THE SYSTEM SHALL チャンネルごとの枝を持たない（正式版もベー
 - **GIVEN** 版番号 `0.4.0` を渡して組み立てた配布物の置き場
 - **WHEN** 配布物の検査を走らせる
 - **THEN** 配布物は `ashiato-server-0.4.0-windows-x86_64.zip`・`ashiato-server-0.4.0-linux-x86_64.tar.gz`・`ashiato-collector-0.4.0.apk`・`ashiato-collector-windows-0.4.0-x86_64.zip` の 4 つで、どの組み立ての印の版番号も `0.4.0`
+
+#### Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る
+- **GIVEN** 版番号 `0.4.0-dev.20261102` を渡して組み立てた、サーバの 2 つと PC の収集アプリの配布物の置き場（署名の指紋の期待値は空）
+- **WHEN** 開発版の配布物の検査を走らせる
+- **THEN** 検査の終了コードは 0
+
+#### Scenario: 開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す
+- **GIVEN** 上の 3 つに、`ashiato-collector-dev-0.4.0-dev.20261102.apk` か `ashiato-collector-0.4.0-dev.20261102.apk` のどちらかを足した置き場
+- **WHEN** 開発版の配布物の検査を走らせる
+- **THEN** どちらの場合も検査は 0 でない終了コードで終わり、足した APK の名前が示される
 
 #### Scenario: ベータ版の印で、先行公開のリリースになる
 - **GIVEN** 出所の版が `0.4.0` の main の commit
@@ -189,15 +199,15 @@ THE SYSTEM SHALL 公開しなかったときに、どの配布物のどの検査
 ### Requirement: 携帯の APK は、チャンネルごとに決めた識別子と鍵で署名する
 
 THE SYSTEM SHALL 正式版とベータ版の携帯の APK を、アプリ識別子 `dev.ashiato.collector` と正式な鍵で署名する。
-THE SYSTEM SHALL 開発版の携帯の APK を、アプリ識別子 `dev.ashiato.collector.dev` と、正式な鍵と別の開発版の鍵で署名する。
-THE SYSTEM SHALL 正式な鍵を、印 `v*` の push の実行にだけ開いた置き場（配布用の Environment）から、開発版の鍵を開発版の予定の実行と main からの実行にだけ開いた置き場（開発版の Environment）から読み、PR の実行（同じリポジトリの枝からの PR を含む）には渡さない。
+THE SYSTEM SHALL 開発版の携帯の APK に署名するときは、アプリ識別子 `dev.ashiato.collector.dev` と、正式な鍵と別の開発版の鍵で署名する（開発版のリリースに携帯の APK を並べ、開発版の鍵を作って置くのは ST54 から。扉 34）。
+THE SYSTEM SHALL 正式な鍵を、印 `v*` の push の実行にだけ開いた置き場（配布用の Environment）から、開発版の鍵を開発版の予定の実行と main からの実行にだけ開いた置き場（開発版の Environment）から読み、PR の実行（同じリポジトリの枝からの PR を含む）には渡さない。正式な鍵は開発版の作り直しの実行にも渡さない。
 THE SYSTEM SHALL PR の組み立ての携帯の APK を debug の鍵で署名し、正式な鍵も開発版の鍵も使わない。
 IF 署名する鍵が置き場に無い THEN THE SYSTEM SHALL 署名しない APK を公開せず、そのリリースを公開しない。
 THE SYSTEM SHALL 鍵を作る台本で、正式な鍵と開発版の鍵を RSA 4096 bit・有効期限 25 年以上で作り、作った鍵の種類・長さ・有効期限を読み直して確かめ、満たさなければ失敗する。
 
 THE SYSTEM SHALL 開発版の識別子 `dev.ashiato.collector.dev` の APK に正式な鍵を、そうでない APK に開発版の鍵を当てようとしたら、署名せずに失敗する。
-導出元: 扉 34（識別子と署名鍵）。FR-106（開発版は別のアプリ）。深掘り Q2・Q4・Q11（推奨）。premises P2・P8・P12。review/deep.md R2・R3・R13。review/spec.md R10。
-D3（仮）・D21（仮）。鍵の置き場は扉 34 の「手元の USB と拠点外の 2 か所」に GitHub の Environment を足す（Q2 の推奨。Environment の値は GitHub から取り出せないので、控えの代わりにはならない）。
+導出元: 扉 34（識別子と署名鍵）。FR-106（開発版は別のアプリ）。深掘り Q2・Q11（本人の答え。推奨と同じ）・Q4（本人の答え: ST54 まで、開発版に携帯の APK を入れない）。premises P2・P8・P12。review/deep.md R2・R3・R13。review/spec.md R10。
+D3（仮）・D21（仮）・D23（仮）。鍵の置き場は扉 34 の「手元の USB と拠点外の 2 か所」に GitHub の Environment を足す（Q2。扉 34 ★ 2026-11-01。Environment の値は GitHub から取り出せないので、控えの代わりにはならない）。
 
 #### Scenario: 正式版の APK は、正式な識別子と正式な鍵で署名されている
 - **GIVEN** 使い捨ての正式な鍵
@@ -237,7 +247,7 @@ D3（仮）・D21（仮）。鍵の置き場は扉 34 の「手元の USB と拠
 ### Requirement: 開発版は、幹にその日の変更があった日だけ作り直す
 
 THE SYSTEM SHALL 開発版の作り直しを、日本時間の毎日 0:00 に起こす。
-WHEN 開発版の作り直しが起きる THE SYSTEM SHALL 印 `nightly` の commit と main の HEAD が同じなら何も組まずに終わり、違えば main の HEAD から 3 部品を組んで開発版を作り直す。
+WHEN 開発版の作り直しが起きる THE SYSTEM SHALL 印 `nightly` の commit と main の HEAD が同じなら何も組まずに終わり、違えば main の HEAD から開発版の部品（ST54 までは携帯の収集アプリを除く、サーバと PC の収集アプリの 2 部品。深掘り Q4）を組んで開発版を作り直す。
 THE SYSTEM SHALL 開発版の版番号を `<出所の版>-dev.<作り直した日の日本時間の YYYYMMDD>` にする。
 WHILE 本人が開発版の公開の設定を入れていない THE SYSTEM SHALL 予定の実行で何も組まず、何も公開せず、印 `nightly` も動かさない（手で起こした作り直しだけが組み、そのときも公開しない）。
 IF 出所の版の正式版の印 `v<出所の版>` が main の祖先にある THEN THE SYSTEM SHALL 開発版を組まずに終え、出所の版を次の版に上げる必要があることを示す（開発版が、出したばかりの正式版より古い版番号を名乗らないように。深掘り Q6 の推奨）。
@@ -283,6 +293,10 @@ THE SYSTEM SHALL 予定の実行が 1 回落ちても、次の回に `nightly` �
 - **GIVEN** 開発版の公開の設定が入った配布元で、出所の版が `0.4.0` のまま、main の祖先に印 `v0.4.0` があり、その後に main へ commit が足された木
 - **WHEN** 開発版の作り直しの判定を走らせる
 - **THEN** 判定は「組まない」を返し、出所の版を上げる必要があることが示される
+
+#### Scenario: 開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない
+- **WHEN** 開発版の作り直しの workflow を読む
+- **THEN** 携帯の APK を組む手順も、APK に署名する手順も無い。どちらかがあれば、workflow の検査は 0 でない終了コードで終わる
 
 #### Scenario: 開発版の作り直しは、日本時間の 0:00 に起きる
 - **WHEN** 開発版の作り直しの予定を読む

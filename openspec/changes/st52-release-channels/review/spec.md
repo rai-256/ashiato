@@ -192,3 +192,84 @@ $ python3 scripts/spec_overlap.py candidates . st52-release-channels
 作業木の枝は origin/main より古い（ST51 の archive #221 が入っていない）が、`diff <(git show origin/main:openspec/specs/distribution/spec.md) openspec/specs/distribution/spec.md` の差は ST51 が足した 3 つの Requirement（origin/main の 284 行目以降）だけで、この change が MODIFIED する Requirement の外。origin/main の `openspec/changes/` に archive 以外の change は無い。
 - 処置: fixed proposal.md —— ADDED を 11 に、MODIFIED の列挙に版の記録を足し、requires の説明に ST50 を足し、道具の一覧に `sign-apk.sh`・`package.sh`・`version-table.tsv` を足した。Requirement の本文に「部品」は 4 つの組み立て（サーバ・画面・携帯・PC）だと書いた
 
+
+---
+
+# spec --answers Q1,Q4,Q11 の段のレビュー（2026-11-01）
+
+機械の検査（作業木。HEAD 3881e93c からの未 commit の差分を含む）:
+- `openspec validate st52-release-channels --strict`: valid
+- `check_chain.py .`: OK（0 件 / 未回収 0 / warn 0）
+- `check_scenarios.py . st52-release-channels`: FAIL（担保なし 74 件。tasks.md:15 の「ST52 が新しく印を置くのは 74 本」と同じ数で、実装の前の既定）
+- `review_triage.py . st52-release-channels`: OK（指摘 36 / 仮決め 7 / 要件へ戻すもの 1）
+- `spec_overlap.py candidates . st52-release-channels`: `[]`（0 件）
+
+## R21. Q1・Q4 の推奨の文が 3 か所に残る（名前の統一の行・台帳の D22・作り直しの Requirement の部品の数）
+- 成果物: openspec/changes/st52-release-channels/tasks.md
+- 根拠: tasks.md:24「`ASHIATO_APK_UNSIGNED=1`（携帯の APK を署名せずに組む。`release.yml`・`nightly.yml` の組み立ての job だけ）」—— 同じ差分で design.md:143（D18）と tasks.md:158（9.3）は「`release.yml` の組み立ての job だけ」「`nightly.yml` は ST54 まで携帯の APK を組まない」に直している。
+  provisional.jsonl:8 の D22 の `question`「Q5・Q2・Q1 の推奨のもとで…」—— design.md:171 の D22 の本文は「Q5・Q2 の答えのもとでは…（本人の携帯には Q1 の答えのとおり収集アプリがまだ入っていない）」に直したが、台帳（確認バッチで人間が見る）は推奨の前提のまま。
+  specs/distribution/spec.md:245「違えば main の HEAD から 3 部品を組んで開発版を作り直す（ST54 までは携帯の収集アプリを組まず、サーバと PC の収集アプリだけ）」—— 「3 部品」（サーバ・携帯・PC。spec.md:3・:359 の数え方）を組むと言った同じ文で携帯を組まないと言う
+- kind: technical
+- 提案: tasks.md:24 を「`release.yml` の組み立ての job だけ（`nightly.yml` は ST54 まで携帯の APK を組まない）」に、台帳 D22 の `question` を design の D22 と同じ前提（Q5・Q2 の答えと Q1 の答え）に、spec.md:245 を「main の HEAD から開発版の部品（ST54 まではサーバと PC の収集アプリの 2 部品）を組んで作り直す」に直す
+- 処置: fixed tasks.md —— tasks.md の名前の統一の行を `release.yml` だけに、台帳 D22 の `question` を Q5・Q2 の答えと Q1 の答えの前提に、spec の作り直しの Requirement を「開発版の部品（ST54 まではサーバと PC の収集アプリの 2 部品）」に直した
+
+## R22. 新しい Scenario「開発版のリリースの配布物は、ST54 まで携帯の APK を除く 3 つ」が 2 つの主張を束ね、足す「携帯の APK」が何かを決めていない
+- 成果物: openspec/changes/st52-release-channels/specs/distribution/spec.md
+- 根拠: spec.md:131-134 の THEN「検査の終了コードは 0 で、同じ置き場に携帯の APK を足して走らせると、検査は 0 でない終了コードで終わり、その APK の名前が示される」—— 通す側（3 つで rc=0）と断る側（APK があれば rc≠0）の 2 つ（R13 と同じ型。片方だけ作っても印 1 つで緑になる）。
+  足す APK の名前が無い: 開発版の名前 `ashiato-collector-dev-<版番号>.apk`（spec.md:112）だけを断る実装でも、正式の名前 `ashiato-collector-<版番号>.apk` や名前の違う `*.apk` が置き場にあれば通りうる。spec.md:114 は「携帯の APK が置き場にあれば公開しない」で、名前を問わない
+- kind: technical
+- 提案: 「開発版の配布物の検査は、携帯の APK を除く 3 つで通る」と「開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す」に分け、後者の GIVEN に `ashiato-collector-dev-0.4.0-dev.20261102.apk` と `ashiato-collector-0.4.0-dev.20261102.apk` のどちらでも落ちることを書く（tasks 6.2 の名指しも 2 本に）
+- 処置: fixed specs/distribution/spec.md —— Scenario を「開発版の配布物の検査は、携帯の APK を除く 3 つで通る」と「開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す」に分け、後者に開発版の名前と正式の名前の 2 つの APK を書いた。tasks 6.2 の名指しも 2 本にした
+
+## R23. 「開発版は ST54 まで携帯の APK を組まない」は Requirement の本文と design だけにあり、Scenario も検査も無い
+- 成果物: openspec/changes/st52-release-channels/specs/distribution/spec.md
+- 根拠: spec.md:245（「ST54 までは携帯の収集アプリを組まず」）・design.md:119（D14）・tasks.md:158（9.3）。Scenario は spec.md:131 の配布物の検査（公開の前に置き場の APK を断る）だけで、`nightly.yml` が APK の job を持たないことは見ない。
+  tasks.md:150 の `check-guards.sh workflows` が `nightly.yml` から見るのは cron と `publish` の `if:` と書く権限の置き場だけ、9.3 の自己試験に足す Scenario も「0:00 に起きる」「公開の設定が無ければ印を動かさない」だけ。
+  `nightly.yml` に APK の job があっても公開の前に落ちるので配布物には出ないが、そのときは開発版が毎回公開されなくなり（C7 で前の版のまま）、組む Actions の分も使う
+- kind: technical
+- 提案: Scenario「開発版の作り直しの workflow は、ST54 まで携帯の APK を組む job を持たない」を足し、`check-guards.sh workflows` と 9.3 の `--self-test` に割り当てる（APK の組み立て・`sign-apk.sh` の呼び出しが `nightly.yml` にあれば rc≠0）
+- 処置: fixed 9.3 —— Scenario「開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない」を足し、`check-guards.sh workflows` と 9.3 の `--self-test` に割り当てた
+
+## R24. `nightly` の公開の手順は `--allow-debug-key` なしで `check-artifacts.sh --channel nightly` を呼ぶが、指紋の期待値を `nightly` に置かない —— APK の無い置き場で指紋と資格情報の検査をどう扱うかが書かれていない
+- 成果物: openspec/changes/st52-release-channels/tasks.md
+- 根拠: tasks.md:159「`nightly.yml` の `publish` は `check-artifacts.sh --channel nightly` → D15 の入れ替え（署名しない）」/ tasks.md:123（6.2）「（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ」・「APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空」/ design.md:146（D18）「`nightly` の変数は開発版の鍵と一緒に ST54 が置く」。
+  `nightly` の実行では `ASHIATO_EXPECT_CERT_SHA256` が空で、APK も無い。6.2 の自己試験（tasks.md:126）は `--channel nightly` を当てるが、期待値が空のときの振る舞いを決めていないので、「期待値が空なら落とす」と作れば開発版の公開が毎回落ち、「APK が無ければ指紋を見ない」と作るかは実装の判断になる
+- kind: technical
+- 提案: D7 と 6.2 に「`--channel nightly` は APK を期待しないので、指紋と `BuildConfig` の検査を当てない（`ASHIATO_EXPECT_CERT_SHA256` が空でよい）。`--channel release|beta` で期待値が空なら落とす」を書き、6.2 の自己試験に期待値を空にした `--channel nightly` の rc=0 を足す
+- 処置: fixed D23 —— D7 と 6.2 に「`--channel nightly` は指紋と `BuildConfig` を見ず期待値は空でよい」を書き（release・beta の言い直しは R27 で消した）、6.2 の自己試験は期待値を空にした `--channel nightly` で rc=0 を見る
+
+## R25. tasks 11.1 は「`docs/handoff/ST54.md` に D23 の道具を 1 行足す」と書くが、この段で既に足してある。11.1 の検証の grep は今のまま通る
+- 成果物: openspec/changes/st52-release-channels/tasks.md
+- 根拠: tasks.md:174「`docs/handoff/ST54.md`（…D23（仮）で ST52 が用意した道具を 1 行足す）」/ 作業木の docs/handoff/ST54.md:16-17（「ST52 が用意するもの（ST52 の design D23（仮））…」「ST54 がやるもの…」。この差分で足した）。
+  tasks.md:175 の検証 `grep -q "ST52" docs/handoff/ST53.md && grep -q "ST52" docs/handoff/ST54.md && grep -q "ST52" docs/handoff/ST58.md` は、ST53 が 5 件・ST54 が 4 件（HEAD でも 3 件）で既に当たり、効くのは ST58（0 件）だけ（R15 と同じ型）
+- kind: technical
+- 提案: 11.1 の ST54 の分を「開発版の DB の扱い（R11）の節を足す。開発版の携帯の APK と鍵の節（Q4・Q11・D23）は上流が書いた。実装が道具の名前を変えたら直す」にし、検証を節の見出しか固有の語（例 `grep -q "R11" docs/handoff/ST54.md`・`grep -q "D5" docs/handoff/ST58.md`）で見る
+- 処置: fixed 11.1 —— ST54 の分を「開発版の DB の扱いの節を足す（携帯の APK と鍵の節は上流が書いた）」にし、検証を `ASHIATO_NIGHTLY_PUBLISH`（ST53）・`R11`（ST54）・`D5`（ST58）の固有の語に替えた（どれも今は当たらない）
+
+## R26. ST54 への申し送りが「検査の期待を 4 つに戻す」だけで、正典に残る時限の例外（Requirement の本文 4 文と Scenario 1 本）を ST54 が書き直すことを名指さない
+- 成果物: docs/handoff/ST54.md
+- 根拠: docs/handoff/ST54.md:17「`tools/release/check-artifacts.sh --channel nightly` の期待を 4 つに戻す（FR-104 ★ 2026-11-01 の例外を外す）」。
+  archive で `openspec/specs/distribution/spec.md` に入るのは spec.md:111（「ただし開発版のリリースには、ST54 まで…並べず」）・:112（「開発版に並べるのは ST54 から」）・:114（「開発版は ST54 まで…携帯の APK が置き場にあれば公開しない」）・:245（「ST54 までは携帯の収集アプリを組まず」）と Scenario「開発版のリリースの配布物は、ST54 まで携帯の APK を除く 3 つ」。
+  ST54 が台本の期待だけを 4 つに戻すと、この Scenario の印の試験（tasks 6.2）が落ちるか、Scenario を残したまま試験を外すことになる。「ST54 まで」は Story の番号で、正典の文が自分で期限切れを知る手段は無い
+- kind: technical
+- 提案: 申し送りの「ST54 がやるもの」に「distribution の『印（タグ）の名前で、3 つのチャンネルに分けて配る』『開発版は、幹にその日の変更があった日だけ作り直す』を MODIFIED で書き直し、上の 4 文の『ST54 まで』の例外と Scenario を外す（開発版も 4 つ）」を足す
+- 処置: fixed D23 —— D23（仮）の申し送り先 `docs/handoff/ST54.md` の「ST54 がやるもの」に、正典 distribution の 2 つの Requirement を MODIFIED で書き直して「ST54 まで」の例外の文と Scenario 3 本を外すことを足した
+
+## 観点 6（spec --answers Q1,Q4,Q11）の確かめた範囲
+
+- 推奨で書いた版（HEAD 3881e93c）からの差分（`git diff`。7 ファイル、+60 / -41）を全部読んだ。結果は `review/answers.md`
+- Q1: 写った（design.md:20・:171・:173、proposal.md:35、tasks.md:19、premises.md:28）。推奨の残りは台帳 D22 の `question`（R21）
+- Q4: 写った（spec.md:111・:112・:114・:245・Scenario :131、design D7・D10・D14・D17・D18・D19・D23、tasks 6.2・9.3・11.1、proposal.md:18・:20、ST54 の申し送り）。推奨の残りは tasks.md:24 と spec.md:245 の「3 部品」（R21）
+- Q11: 写った（spec.md:197「正式な鍵と別の開発版の鍵」、design.md:151「控えは USB に 1 部」と「ST54 が `make-key.sh dev` で作って `nightly` に置く」、tasks 11.1、proposal.md:25、tasks.md:21）。呼び出し元の注意どおり、答えのファイルの「補足: st53で」は IMP-01 のもので、Q11 の写しとして探していない
+- 整合の確認 `docs/audit/2026-11-01-st52-door34-consistency.md` の C6 が名指した箇所を 1 つずつ当てた: 入れ直し（proposal:35・design:20・tasks:19・premises:28）は全部直った。Q4 の箇所のうち、design:146（今の :147）・spec:109/:112（今の :111/:114）・:192（今の :197）は直った。`applicationIdSuffix`（tasks.md:69）・Scenario「開発版の APK は、.dev の識別子と開発版の鍵で署名されている」・取り違えの Scenario・`sign-apk.sh` の開発版の自己試験（tasks.md:137-138）・D3 の開発版の鍵・spec の台本が開発版の鍵も作る文・開発版の Environment の検査は、D23（仮）で ST52 に残した（使い捨ての鍵で確かめる道具）。C6 が「一緒に決めるもの」とした nightly の数え方は spec.md:114 と新しい Scenario、開発版の Environment と鍵の検査の渡し方は D23 と ST54 の申し送りで決めた。C6 が挙げていない残りは R21 の tasks.md:24
+- 答え以外の変更: D23（仮）の新設とそれに伴う変更（`--channel` の口・Scenario 1 本・数 104→105 と 73→74・D7/D17/D18/D19・tasks 6.2/9.3/11.1・ST54 の申し送り 2 行・台帳 D23）と、spec.md:198 に足した「正式な鍵は開発版の作り直しの実行にも渡さない」。後者は D21（仮）の本文（design.md:160-164「正式な鍵を使うのは `release.yml` の `publish` だけで、main の上の実行には正式な鍵の要る job が無い」「`nightly` は…枝 `main` に開く」）の帰結として書かれていると読み、D21 に当てた。どちらも仮
+- 振る舞いを変えない出所の注記の更新（spec の導出元の「Q2・Q11（推奨）」→「本人の答え。推奨と同じ」、「Q2 の推奨」→「Q2。扉 34 ★ 2026-11-01」、proposal.md:65 の扉 34 と FR-104 を「改訂済み」に、design の Open Questions・tasks.md:23 の注記）は、第 2 回の答えの記録と record の段の済みを写したもので、決定の変更には数えていない
+
+## R27. R24 の直しで足した「`release`・`beta` で指紋の期待値が空なら落とす」は、design（仮でない D7）と tasks の説明にしか無く、Scenario も自己試験の割り当ても無い。D23（仮）の中身でもない
+- 成果物: openspec/changes/st52-release-channels/design.md
+- 根拠: design.md の D7（「`release`・`beta` で `--allow-debug-key` でなく期待値が空なら落とす。Q4・D23（仮）」）/ tasks.md 6.2 の説明（「`release`・`beta` で期待値が空なら落とす」）。6.2 の `--self-test` が名指す Scenario に、期待値が空の `release`・`beta` を断るものは無い（名指すのは nightly の 2 本と既存の 6 本）。
+  `grep -n "期待値" specs/distribution/spec.md` は :132（nightly の Scenario の GIVEN「署名の指紋の期待値は空」）だけで、Requirement にも Scenario にも release/beta の側は無い（観測できる振る舞いが design にだけある。R8 と同じ型。archive で正典から落ちる）。
+  D23（仮）の節（design.md の D23）は nightly の検査と道具の範囲だけを言い、release/beta の指紋の検査に触れない。D7 の括弧の末尾の「D23（仮）」は nightly の部分の出所としては当たるが、release/beta の部分は D23 からは出てこない（強いて言えば D18 の「署名した後に指紋を確かめてから公開する」の帰結で、D18 も仮でない）
+- kind: technical
+- 提案: 「印の配布物の検査は、指紋の期待値が空なら落ちる」の Scenario を spec（「携帯の APK は、チャンネルごとに決めた識別子と鍵で署名する」か「配る組み立ては綺麗で…」の Requirement）に足し、6.2 の自己試験に割り当てる。合意を引き継がせたいなら、release/beta の側を D23 の節に書き足すのではなく（D23 の中身ではない）、仮の決定として台帳に別に立てる（例 D24（仮）。反転は期待値の検査を外せば戻る）か、本人の確認に回す
+- 処置: fixed D23 —— D7 と 6.2 から「`release`・`beta` で期待値が空なら落とす」の文を消した。今までの D7（`--allow-debug-key` でなければ指紋が期待値と同じ）で、空の期待値は一致しないので落ちる —— 新しい振る舞いではなく、足した文は言い直しだった。残るのは `--channel nightly` で指紋と `BuildConfig` を見ない部分だけで、D23（仮）の中身

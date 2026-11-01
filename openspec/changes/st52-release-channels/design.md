@@ -17,7 +17,8 @@
 
 **Non-Goals**:
 - 最初の本物の印 `v0.1.0-beta.1` を打つこと・開発版の公開を始めること（Q5 の推奨。ST53 の後に本人が打つ。`docs/handoff/ST53.md`）
-- 本人の携帯を配布版へ切り替えること（Q1 の推奨。ST56 の後）。本人のサーバを配布版へ移すこと（D4（仮）。印を打った後の確認）
+- 本人の携帯を配布版へ切り替えること。Q1 の答え（本人の携帯にはまだ入っておらず、記録も集めていない）で、切り替えも入れ直しも署名の引き継ぎも要らない。最初に入れるのは ST56 の後の正式な鍵の版。本人のサーバを配布版へ移すこと（D4（仮）。印を打った後の確認）
+- 開発版のリリースに携帯の APK を並べること・開発版の鍵を作って置くこと（Q4・Q11。ST54。ST52 が用意する範囲は D23（仮））
 - インストーラ（ST55）・開発版と正式版を並べて入れる仕組みと開発版の DB の扱い（ST54）・更新の確認と適用（ST57・ST58）・許諾の同梱（ST53）
 - 鍵そのものを作ること・GitHub の Environment とルールセットを入れること（本人の手。手順は `docs/release.md`）
 
@@ -62,7 +63,7 @@ ST52 は PC の収集アプリを入れる操作を持たない。止めるか�
 
 ### D7. 配布物の検査は `tools/release/check-artifacts.sh` の 1 本に集め、PR と公開の両方が通す
 
-検査すること: 4 つの配布物がそろう（名前は D17）・どれも組み立ての印を持ち、版番号が 1 つで、`.dirty` / `.debug` が無い（C8）・APK の `BuildConfig` の `BASE_URL`・`API_TOKEN`・`USER_ID` が空（C1）。
+検査すること: チャンネルの配布物がそろう（名前は D17。正式版とベータ版は 4 つ、開発版は ST54 まで携帯の APK を除く 3 つで、APK があれば落とす。`--channel nightly` で切り替える。`--channel nightly` は APK を期待しないので、署名の指紋と `BuildConfig` の検査を当てず、`ASHIATO_EXPECT_CERT_SHA256` が空でよい。Q4・D23（仮））・どれも組み立ての印を持ち、版番号が 1 つで、`.dirty` / `.debug` が無い（C8）・APK の `BuildConfig` の `BASE_URL`・`API_TOKEN`・`USER_ID` が空（C1）。
 印の読み方は `tools/check-build-stamp.sh` と同じ（Rust は実行ファイルを `strings`、APK は `apkanalyzer`／`aapt2` で `versionName` と、dex から `BuildConfig` の定数を読む）。
 空でない資格情報は項目の名前だけを示し、値を出さない。PR の job はこれを `--allow-debug-key` で走らせる（署名の鍵だけを見ない）。
 
@@ -82,7 +83,7 @@ workflow の YAML に判定の論理を書かない（YAML は手元で試せな
 
 ### D10. 3 部品がそろったときだけ公開する
 
-`release.yml` と `nightly.yml` は、組み立ての job（サーバの Linux 向け・サーバの Windows 向け・PC の収集アプリ・携帯の APK）が全部成功した後の 1 つの `publish` の job だけが配布元に書く（`needs` で全部を待つ）。
+`release.yml` と `nightly.yml` は、組み立ての job（サーバの Linux 向け・サーバの Windows 向け・PC の収集アプリ・携帯の APK。`nightly.yml` は ST54 まで携帯の APK を組まない。Q4）が全部成功した後の 1 つの `publish` の job だけが配布元に書く（`needs` で全部を待つ）。
 `publish` は `check-artifacts.sh` を通してから `gh release create`（正式版・ベータ版）か、`nightly` の配布物の入れ替え（D15）をする。1 つでも落ちれば `publish` は走らず、開発版は前の版のまま残る（C7）。
 
 ### D11. 版番号の計算は `tools/release/version.sh` の 1 か所、gradle は同じ式を持ち、試験で突き合わせる
@@ -115,7 +116,7 @@ gradle（Kotlin DSL）は組み立ての中で shell を呼ばずに同じ式を
 - `ci.yml`（今の 1 本）に `package` の job を足す（Q9）: `changes` の `code` が true のときだけ。Linux の runner でサーバ（Linux 向け）・携帯の APK（`ASHIATO_RELEASE=1` の release を debug 鍵で署名）、Windows の runner でサーバ（Windows 向け）・PC の収集アプリを、
   `ASHIATO_BUILD_VERSION` を渡さず（出所の版で）`tools/release/build.sh` で組み、`check-artifacts.sh --allow-debug-key` を通し、`actions/upload-artifact` で置く。`permissions` は `contents: read` のまま
 - `release.yml`: `on: push: tags: ['v*']`。組み立ての job は `contents: read`、`publish` の job だけ `contents: write` と `environment: release`
-- `nightly.yml`: `on: schedule` と `workflow_dispatch`。`publish` の job だけ `contents: write` と `environment: nightly`
+- `nightly.yml`: `on: schedule` と `workflow_dispatch`。`publish` の job だけ `contents: write` と `environment: nightly`。ST54 まで携帯の APK を組まず、署名もしない（Q4・D23（仮））
 - Windows の組み立ては 1 回あたり数分で、公開リポジトリでは標準の実行は課金されない（P6）。`package` は Windows の 2 つを 1 つの job にまとめる（runner の起動を 1 回に）
 
 ### D15. 開発版の公開はリポジトリの変数 `ASHIATO_NIGHTLY_PUBLISH` が `on` のときだけ
@@ -134,20 +135,20 @@ gradle（Kotlin DSL）は組み立ての中で shell を呼ばずに同じ式を
 
 ### D17. 配布物の名前
 
-`ashiato-server-<版番号>-windows-x86_64.zip`・`ashiato-server-<版番号>-linux-x86_64.tar.gz`・`ashiato-collector-<版番号>.apk`（開発版は `ashiato-collector-dev-<版番号>.apk`）・`ashiato-collector-windows-<版番号>-x86_64.zip`。
+`ashiato-server-<版番号>-windows-x86_64.zip`・`ashiato-server-<版番号>-linux-x86_64.tar.gz`・`ashiato-collector-<版番号>.apk`（開発版は `ashiato-collector-dev-<版番号>.apk`。開発版に並べるのは ST54 から。名前は ST52 が決めておく）・`ashiato-collector-windows-<版番号>-x86_64.zip`。
 サーバの zip にはサーバの実行ファイルだけを入れる（画面は中に取り込んである。D13）。名前は ST57・ST58 が版の確認で読むので、版をまたいで変えない（spec の「印（タグ）の名前で、3 つのチャンネルに分けて配る」に置いた）。
 
 ### D18. 携帯の APK の署名は、Environment の付いた公開の job の中だけで当てる
 
-組み立ての job は鍵を持たない。携帯の release の APK を、PR の `package` では debug 鍵で、`release.yml`・`nightly.yml` の組み立てでは**署名せずに**作る。署名しない切り替えは `ASHIATO_APK_UNSIGNED=1` で、`release.yml`・`nightly.yml` の組み立ての job だけが立てる。
+組み立ての job は鍵を持たない。携帯の release の APK を、PR の `package` では debug 鍵で、`release.yml` の組み立てでは**署名せずに**作る（`nightly.yml` は ST54 まで携帯の APK を組まない。Q4）。署名しない切り替えは `ASHIATO_APK_UNSIGNED=1` で、`release.yml` の組み立ての job だけが立てる。
 `ASHIATO_RELEASE=1`（配る組み立て。画面の取り込みが要る・資格情報を渡さない）とは分ける —— PR の `package` は `ASHIATO_RELEASE=1` で配るときと同じ手順を通し、署名だけ debug 鍵にする（review/spec.md R9）。
 署名は `publish` の job（Environment の付いた job）の中だけで、`apksigner sign` を当てる。鍵は Environment の Secrets（鍵の置き場を base64・`ASHIATO_SIGNING_STORE_PASSWORD`・`ASHIATO_SIGNING_KEY_ALIAS`・`ASHIATO_SIGNING_KEY_PASSWORD`）から `$RUNNER_TEMP` に戻し、job の終わりに消す。
-鍵の Secrets が空なら `tools/release/sign-apk.sh` は 0 でない終了コードで終わり、`publish` はリリースを作らない（署名しない APK を公開しない）。署名した後に `check-artifacts.sh`（署名の証明書の指紋が鍵のものか・識別子がチャンネルのものか）を通してから公開する。指紋の期待値は秘密でないので、Environment の変数 `ASHIATO_CERT_SHA256`（`release` と `nightly` にそれぞれ）に置き、`check-artifacts.sh` は環境変数 `ASHIATO_EXPECT_CERT_SHA256` で受ける。
-開発版の識別子は `ASHIATO_BUILD_VERSION` が `-dev.` を持つときだけ `applicationIdSuffix = ".dev"`（Q4 の推奨）。これで鍵は Environment の付いた job の中にだけ現れる。
+鍵の Secrets が空なら `tools/release/sign-apk.sh` は 0 でない終了コードで終わり、`publish` はリリースを作らない（署名しない APK を公開しない）。署名した後に `check-artifacts.sh`（署名の証明書の指紋が鍵のものか・識別子がチャンネルのものか）を通してから公開する。指紋の期待値は秘密でないので、Environment の変数 `ASHIATO_CERT_SHA256`（ST52 は `release` に。`nightly` の変数は開発版の鍵と一緒に ST54 が置く）に置き、`check-artifacts.sh` は環境変数 `ASHIATO_EXPECT_CERT_SHA256` で受ける。
+開発版の識別子は `ASHIATO_BUILD_VERSION` が `-dev.` を持つときだけ `applicationIdSuffix = ".dev"`（扉 34）。この設定と `sign-apk.sh` の開発版の側は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54（Q4・D23（仮））。これで鍵は Environment の付いた job の中にだけ現れる。
 
 ### D19. 最初の印と開発版の公開を始める手順は `docs/release.md` に置き、ST53 に申し送る
 
-`docs/release.md` は次を持つ: 鍵を作る（D3）・控えを USB と拠点外に置く（扉 34）・Environment `release`（配る対象: 印 `v*` だけ。D21（仮））と `nightly`（枝 `main`）を作り Secrets と指紋の変数 `ASHIATO_CERT_SHA256` を置く・開発版の鍵の控えを USB に 1 部置く（Q11 の推奨）・ルールセット（D2）を入れる・最初の印を main の commit に打つ・
+`docs/release.md` は次を持つ: 鍵を作る（D3）・控えを USB と拠点外に置く（扉 34）・Environment `release`（配る対象: 印 `v*` だけ。D21（仮））を作り Secrets と指紋の変数 `ASHIATO_CERT_SHA256` を置く・`nightly`（枝 `main`）を作る（ST52 では鍵を置かない）・開発版の鍵（正式な鍵と別。控えは USB に 1 部。Q11）は ST54 が開発版に携帯の APK を載せるときに `make-key.sh dev` で作って `nightly` に置く（手順だけを書く）・ルールセット（D2）を入れる・最初の印を main の commit に打つ・
 開発版の公開を始める（D15）・壊れた版を出したら次の版で直す（D2）・修正の枝の切り方と消し方（D6）・本人の環境を移す（D4）。`docs/handoff/ST53.md` に「最初の印と開発版の公開は ST53 の確認の後に本人が始める（ST52 Q5）」を書く。
 
 ### D20. 縦串（`tools/stack.sh`）は画面を先に組み、サーバにも取り込ませる
@@ -167,11 +168,21 @@ ST52 の e2e（`web/e2e/st52-served-ui.spec.ts`）だけが `$BIND` の `/` を�
 
 ### D22（仮）. ST52 の完了の判定は、下書きのリリースと使い捨ての鍵で確かめた形で見る
 
-Q5・Q2・Q1 の推奨のもとでは、ST52 の確認バッチで本物の印は打たれず、正式な鍵はまだ作られず、本人の環境は切り替わらない。そこで ST52 の完了の判定（`docs/stories/ST52.md`）を次のように読む:
+Q5・Q2 の答えのもとでは、ST52 の確認バッチで本物の印は打たれず、正式な鍵はまだ作られず、本人のサーバは切り替わらない（本人の携帯には Q1 の答えのとおり収集アプリがまだ入っていない）。そこで ST52 の完了の判定（`docs/stories/ST52.md`）を次のように読む:
 「印を付けると並ぶ」→ 印の判定（`version.sh plan`）と 4 つの配布物の組み立てが通り、下書きのリリースに 4 つが並ぶ（D16）／「正式な鍵で署名されている」→ 署名の手順が使い捨ての鍵で通り、鍵を Environment に置けば印の push で署名される／
-「自分の環境をその版で動かす」→ ST53 の確認の後に本人が移す手順が `docs/release.md` にある（D4・D19）。本物の公開・正式な鍵・本人の環境の切り替えは ST53 の確認で見る（`docs/handoff/ST53.md`）。
+「自分の環境をその版で動かす」→ ST53 の確認の後に本人がサーバを移す手順が `docs/release.md` にある（D4・D19。携帯は ST56 の後に最初から正式な鍵の版を入れる。Q1）。本物の公開・正式な鍵・本人の環境の切り替えは ST53 の確認で見る（`docs/handoff/ST53.md`）。
 - 反転条件: Q5 で「ST52 の確認バッチで本人が打つ」が選ばれたら、この読み替えを外し、本物の印の公開を確認バッチで見る。答えが推奨のままなら record の段が `stories.json` の完了の判定をこの形に書き直す
 - 台帳: `provisional.jsonl` の D22（source: review/spec.md#R7。Q5 に依る）
+
+### D23（仮）. 開発版の携帯の APK の道具は ST52 が作って確かめ、開発版のリリースに載せるのは ST54
+
+Q4 の答え（ST54 まで開発版に携帯の APK を入れない）と Q11 の答え（開発版は正式な鍵と別の鍵）を合わせて、ST52 の範囲を次のように切る:
+- ST52 が作る: gradle の `.dev`（`-dev.` の版番号のときだけ）・`sign-apk.sh` の開発版の側と取り違えの止め・`make-key.sh dev`・配布物の名前 `ashiato-collector-dev-<版番号>.apk`（D17）。どれも使い捨ての鍵の `--self-test` で閉じ、配布元には何も出さない
+- ST52 がしない: `nightly.yml` で携帯の APK を組む・署名する。開発版の鍵を作る・`nightly` の Environment に鍵と指紋の変数を置く（ST54。`docs/handoff/ST54.md`）
+- 開発版の配布物の検査（`check-artifacts.sh --channel nightly`）は、携帯の APK を除く 3 つを期待し、APK があれば落とす（FR-104 ★ 2026-11-01 の例外を機械で守る。ST54 が外す）
+- 失わない側: 何も配らないので、開発版の鍵も識別子もまだ外に出ていない（Q11 の `exported` はまだ起きない）。道具を ST54 へ回す側へも、作った台本を使わなければ移れる
+- 反転条件: ST54 の上流が開発版の携帯の APK の作り方（識別子・鍵の形）を変えると決めたら、ST52 の道具をその形に直すか外す
+- 台帳: `provisional.jsonl` の D23（source: deep.md#Q4。Q4・Q11 に依る）
 
 ## Risks / Trade-offs
 
@@ -190,4 +201,4 @@ Q5・Q2・Q1 の推奨のもとでは、ST52 の確認バッチで本物の印�
 
 ## Open Questions
 
-（無し。Q1〜Q11 の答えは record の段が書く。推奨と違えば `spec --answers` が直す）
+（無し。Q1〜Q11 の答えは `deep.md`。推奨と違った Q1・Q4 はこの版に写した。Q11 は推奨と同じ）

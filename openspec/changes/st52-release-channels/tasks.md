@@ -12,16 +12,16 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 携帯の versionCode は…`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 104 本**（`distribution` 81・`record-envelope` 23）。うち **ST52 が新しく印を置くのは 73 本**（`distribution` の ADDED 64 と、MODIFIED の
+- **この change の Scenario は 107 本**（`distribution` 84・`record-envelope` 23）。うち **ST52 が新しく印を置くのは 76 本**（`distribution` の ADDED 67 と、MODIFIED の
   `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`、`record-envelope` の MODIFIED で足した 7 本）—— **全部このファイルのどこかの Task が名指しする**。
   残りの 31 本は MODIFIED で本文をそのまま写した Scenario で、印は ST48（版の記録の試験の 8 本と `check-released-migrations.sh --self-test` の 7 本）・ST49（`crates/build-stamp` と `check-build-stamp.sh` の 6 本）・ST50（`check-contract-version.sh --self-test` の 10 本）が持つ。**消さない**。
   そのうち `版の記録の 1 行は、名前・指紋・時刻・組み立ての版番号と commit を持つ` は THEN を変えた（Task 2.2 で試験の比べる値を直す）
-- **本人の決定（下流は変えない）**: Q1 本人の携帯は ST52 で切り替えない（ST56 の後）/ Q2 正式な鍵は印 `v*` と main にだけ開いた Environment で CI が署名 / Q3 versionCode は版番号から計算 /
-  Q4 開発版の APK は `dev.ashiato.collector.dev` / Q5 ST52 は下書きのリリースで確かめ、本物の印と開発版の公開は ST53 の後 / Q6 出所は `Cargo.toml` の workspace の `version`、ベータは印から・開発版は日付から渡す /
-  Q7 サーバは Windows と Linux の x86_64 / Q8 画面はサーバの実行ファイルに組み込む / Q9 コードを触った PR ごとに 3 部品を組む / Q10 開発版の印は `nightly`（`v*` の外）/ Q11 開発版は別の鍵。
-  仮: D1（祖先の印だけを数え、最後の印は版番号で選ぶ）・D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D22（完了の判定は下書きと使い捨ての鍵で見る）。
-  （第 1 回は推奨で先に書いた。本人の答えが違えば上流がここを書き直してから下流へ渡す）
-- **名前は統一する**: 環境変数 `ASHIATO_BUILD_VERSION`（渡す版番号）・`ASHIATO_VERSION`（`build.rs` が出す、組み立ての版番号）・`ASHIATO_WEB_DIST`（取り込む画面の置き場）・`ASHIATO_RELEASE=1`（配る組み立て。PR の `package` も立てる）・`ASHIATO_APK_UNSIGNED=1`（携帯の APK を署名せずに組む。`release.yml`・`nightly.yml` の組み立ての job だけ）・`ASHIATO_EXPECT_CERT_SHA256`（署名の指紋の期待値。Environment の変数 `ASHIATO_CERT_SHA256` から）、
+- **本人の決定（下流は変えない）**: Q1 本人の携帯には収集アプリがまだ入っておらず記録も無い（入れ直しも署名の引き継ぎも要らない。最初に入れるのは ST56 の後の正式な鍵の版）/ Q2 正式な鍵は印 `v*` と main にだけ開いた Environment で CI が署名 / Q3 versionCode は版番号から計算 /
+  Q4 ST54 まで、開発版に携帯の APK を入れない（開発版はサーバ 2 つと PC の収集アプリの 3 つ）/ Q5 ST52 は下書きのリリースで確かめ、本物の印と開発版の公開は ST53 の後 / Q6 出所は `Cargo.toml` の workspace の `version`、ベータは印から・開発版は日付から渡す /
+  Q7 サーバは Windows と Linux の x86_64 / Q8 画面はサーバの実行ファイルに組み込む / Q9 コードを触った PR ごとに 3 部品を組む / Q10 開発版の印は `nightly`（`v*` の外）/ Q11 開発版は正式な鍵と別の鍵（控えは USB に 1 部。作って置くのは ST54）。
+  仮: D1（祖先の印だけを数え、最後の印は版番号で選ぶ）・D2（`v*` は消さない・動かさない）・D3（鍵は RSA 4096・25 年以上）・D4（本人のサーバは印の直後に移す）・D5（PC の後戻りは ST58）・D6（修正の枝は移行と封筒を変えない）・D21（配布用の Environment は印 `v*` にだけ開く）・D22（完了の判定は下書きと使い捨ての鍵で見る）・D23（開発版の携帯の APK の道具は ST52 が作って使い捨ての鍵で確かめ、開発版のリリースに載せるのは ST54）。
+  （第 1 回は推奨で先に書き、推奨と違った Q1・Q4 の答えを上流が写してから下流へ渡す）
+- **名前は統一する**: 環境変数 `ASHIATO_BUILD_VERSION`（渡す版番号）・`ASHIATO_VERSION`（`build.rs` が出す、組み立ての版番号）・`ASHIATO_WEB_DIST`（取り込む画面の置き場）・`ASHIATO_RELEASE=1`（配る組み立て。PR の `package` も立てる）・`ASHIATO_APK_UNSIGNED=1`（携帯の APK を署名せずに組む。`release.yml` の組み立ての job だけ。`nightly.yml` は ST54 まで携帯の APK を組まない）・`ASHIATO_EXPECT_CERT_SHA256`（署名の指紋の期待値。Environment の変数 `ASHIATO_CERT_SHA256` から）、
   道具は `tools/release/{version,build,package,check-artifacts,sign-apk,make-key,draft,check-guards}.sh`・`tools/release/version-table.tsv` と `tools/check-version.sh`、workflow は `release.yml`・`nightly.yml`（と `ci.yml` の `package` の job）、
   Environment は `release`・`nightly`、リポジトリの変数は `ASHIATO_NIGHTLY_PUBLISH`、配布物の名前は design D17
 - **workflow の YAML に判定の論理を書かない**（D8）。判定は `tools/release/*.sh` に置き、`--self-test` が使い捨ての git の木・偽の `gh`（`PATH` の先に置く台本）で確かめる
@@ -120,10 +120,10 @@
 - [ ] 6.1 `tools/release/build.sh <server-linux|server-windows|collector-windows|apk> <出力の置き場>`（D14・D17）: 画面を `vite build` してサーバに取り込む・release で組む・D17 の名前で包む。`ASHIATO_BUILD_VERSION` があれば渡す。
   Windows の 2 つは Windows の runner（と WSL からの Windows 側の cargo）で走る形にする（`bash` は Git Bash）。`--self-test` は Linux で `server-linux` と `apk` を組み、名前と中身を見る（Windows の 2 つの本物の通しは Task 9.2 の `package` の job が CI で見る）
   検証: `bash -c 'scripts/quiet-run pkg -- tools/release/build.sh --self-test'` rc=0
-- [ ] 6.2 `tools/release/check-artifacts.sh <置き場> [--allow-debug-key] [--expect-version <版番号>]`（D7）と口 `apk-version <apk>`: 4 つがそろう・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ。
+- [ ] 6.2 `tools/release/check-artifacts.sh <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>]`（D7・D23（仮））と口 `apk-version <apk>`: チャンネルの配布物がそろう（既定と `release`・`beta` は 4 つ、`nightly` は携帯の APK を除く 3 つで、APK があれば落とす）・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ（`nightly` は APK が無いので指紋と `BuildConfig` を見ず、期待値は空でよい。D23（仮））。
   `--self-test` は、Linux で本物に組んだ 2 つ（Task 6.1 の `server-linux` と `apk`）と、Windows の 2 つの写し（Linux で組んだ C-02 の rlib から読んだ組み立ての印の文字列を、D17 の名前の zip に詰めたもの —— 検査は印の文字列と名前しか読まないので形は同じ）でそろえた置き場と、資格情報 `secret-token-for-test` を `-Pashiato.apiToken` で焼き込んだ APK・debug の APK・未 commit の変更で組んだサーバ）に当てる:
   `配布物が 1 つでも欠ければ公開しない`・`.dirty の印を持つ配布物があれば公開しない`・`.debug の印を持つ配布物があれば公開しない`・`資格情報を焼き込んだ APK があれば公開せず、値を示さない`（出力に `secret-token-for-test` が無いことも見る）・`綺麗な release で資格情報の無い配布物は、検査を通る`・
-  `1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ`
+  `1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ`・`開発版の配布物の検査は、携帯の APK を除く 3 つで通る`（`server-linux` と Windows の 2 つの写しを `0.4.0-dev.20261102` で用意し、`ASHIATO_EXPECT_CERT_SHA256` を空にして `--channel nightly` が rc=0）・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`（`ashiato-collector-dev-0.4.0-dev.20261102.apk` と `ashiato-collector-0.4.0-dev.20261102.apk` をそれぞれ足して rc≠0 と名前）
   検証: `bash -c 'scripts/quiet-run pkg -- tools/release/check-artifacts.sh --self-test'` rc=0
 
 ## Task 7: 携帯の APK の署名と鍵を作る台本
@@ -155,9 +155,9 @@
   最後の 1 つの job で 4 つを集めて `check-artifacts.sh --allow-debug-key --expect-version "$(tools/release/version.sh source)"` を通して `actions/upload-artifact` で置く。`permissions: contents: read` のまま。
   `check-guards.sh --self-test` に `コードを触った PR では、配る形の組み立てが走る`・`文書だけの PR では、配る形の組み立てを飛ばす` を、`package.sh --self-test` に `配る形を壊した PR は、その PR の CI で落ちる`（`build.sh` の 1 つを落とす偽の木で rc≠0）を足す
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/package.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
-- [ ] 9.3 `release.yml`・`nightly.yml`（D8・D9・D10・D14・D15・D18）。`nightly.yml` の `schedule` は `cron: "0 15 * * *"`。組み立ての job は `contents: read` と `ASHIATO_APK_UNSIGNED=1`、`publish` だけが `contents: write` と `environment:`、`nightly` の `publish` は `if: vars.ASHIATO_NIGHTLY_PUBLISH == 'on'` も持つ。
-  `publish` は `check-guards.sh rules`（`release.yml` だけ）→ `sign-apk.sh` → `check-artifacts.sh`（`ASHIATO_EXPECT_CERT_SHA256` は Environment の変数 `ASHIATO_CERT_SHA256`）→ `gh release create`（`nightly` は D15 の入れ替え）。
-  `check-guards.sh --self-test` に `開発版の作り直しは、日本時間の 0:00 に起きる`・`公開の設定が無ければ、印 nightly を動かす手順は走らない` を足す
+- [ ] 9.3 `release.yml`・`nightly.yml`（D8・D9・D10・D14・D15・D18）。`nightly.yml` の `schedule` は `cron: "0 15 * * *"`。組み立ての job は `contents: read`（`release.yml` の携帯の APK は `ASHIATO_APK_UNSIGNED=1`。`nightly.yml` は ST54 まで携帯の APK を組まない。Q4・D23（仮））、`publish` だけが `contents: write` と `environment:`、`nightly` の `publish` は `if: vars.ASHIATO_NIGHTLY_PUBLISH == 'on'` も持つ。
+  `release.yml` の `publish` は `check-guards.sh rules` → `sign-apk.sh` → `check-artifacts.sh`（`ASHIATO_EXPECT_CERT_SHA256` は Environment の変数 `ASHIATO_CERT_SHA256`）→ `gh release create`。`nightly.yml` の `publish` は `check-artifacts.sh --channel nightly` → D15 の入れ替え（署名しない）。
+  `check-guards.sh workflows` は `nightly.yml` に携帯の APK の組み立て（`build.sh apk`）と `sign-apk.sh` の呼び出しが無いことも見る。`check-guards.sh --self-test` に `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない`（APK の job を足した偽の `nightly.yml` で rc≠0）・`開発版の作り直しは、日本時間の 0:00 に起きる`・`公開の設定が無ければ、印 nightly を動かす手順は走らない` を足す
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
 
 ## Task 10: 下書きのリリースを作る台本（印を打たない）
@@ -168,11 +168,11 @@
 
 ## Task 11: 手順書と申し送り
 
-- [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は USB に 1 部 —— Q11 の推奨）・Environment `release`（印 `v*` だけ。D21（仮））/ `nightly`（枝 `main`）と Secrets と指紋の変数 `ASHIATO_CERT_SHA256`・ルールセット・
+- [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
   最初の印を main の commit に打つ・開発版の公開を始める（`ASHIATO_NIGHTLY_PUBLISH`）・壊れた版は次の版で直す・修正の枝の切り方と消し方・本人の環境を移す（D4）・
   正式版を出した後に出所の版を次の版に上げる（Q6 の推奨。開発版が出したばかりの正式版より古く見えないように）・確認バッチの確かめの手順（下の「人間の確認待ち」のコマンド）。`docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「出所は `Cargo.toml` の workspace の `version`。ほかは読む（ST52）」と書く。
-  `docs/handoff/ST53.md`（最初の印と開発版の公開は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22（仮）））・`docs/handoff/ST54.md`（開発版の DB の扱い。review/deep.md R11）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
-  検証: `bash -c 'for h in "鍵を作る" "USB に 1 部" "ルールセット" "最初の印" "ASHIATO_NIGHTLY_PUBLISH" "ASHIATO_CERT_SHA256" "修正の枝" "本人の環境を移す"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'grep -q "ST52" docs/handoff/ST53.md && grep -q "ST52" docs/handoff/ST54.md && grep -q "ST52" docs/handoff/ST58.md'` rc=0 / `python3 scripts/check_scenarios.py . st52-release-channels` rc=0
+  `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22（仮）））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
+  検証: `bash -c 'for h in "鍵を作る" "USB に 1 部" "ルールセット" "最初の印" "ASHIATO_NIGHTLY_PUBLISH" "ASHIATO_CERT_SHA256" "修正の枝" "本人の環境を移す"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'grep -q "ASHIATO_NIGHTLY_PUBLISH" docs/handoff/ST53.md && grep -q "R11" docs/handoff/ST54.md && grep -q "D5" docs/handoff/ST58.md'` rc=0 / `python3 scripts/check_scenarios.py . st52-release-channels` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
 
