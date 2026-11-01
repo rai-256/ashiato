@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use axum::http::{header, HeaderValue, StatusCode, Uri};
+use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
 
@@ -45,7 +45,8 @@ pub fn generated() -> Assets {
     Assets(Arc::from(entries))
 }
 
-pub async fn fallback(Extension(assets): Extension<Assets>, uri: Uri) -> Response {
+/// 画面のファイルを返す。無い道は 404。ある道でも GET / HEAD 以外は 405（route の既定と同じ。final review R14）。
+pub async fn fallback(Extension(assets): Extension<Assets>, method: Method, uri: Uri) -> Response {
     let path = if uri.path() == "/" {
         "/index.html"
     } else {
@@ -54,6 +55,13 @@ pub async fn fallback(Extension(assets): Extension<Assets>, uri: Uri) -> Respons
     let Some(asset) = assets.find(path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    if method != Method::GET && method != Method::HEAD {
+        let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
+        response
+            .headers_mut()
+            .insert(header::ALLOW, HeaderValue::from_static("GET,HEAD"));
+        return response;
+    }
     let mut response = Response::new(axum::body::Body::from(asset.body));
     response.headers_mut().insert(
         header::CONTENT_TYPE,

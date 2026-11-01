@@ -221,3 +221,40 @@ async fn st52_web_without_assets() {
     assert_eq!(health.status(), StatusCode::OK);
     assert_eq!(health.into_body().collect().await.unwrap().to_bytes(), "ok");
 }
+
+#[tokio::test]
+async fn st52_web_assets_only_get_and_head() {
+    // 画面のファイルは GET / HEAD だけで返す。他の method は 405、無い道は 404（final review R14）
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let head = response(&app, request(Method::HEAD, "/", Body::empty())).await;
+    assert_eq!(head.status(), StatusCode::OK);
+    assert!(head
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .is_empty());
+    for (method, uri) in [
+        (Method::POST, "/"),
+        (Method::PUT, "/assets/app.js"),
+        (Method::DELETE, "/index.html"),
+    ] {
+        let res = response(&app, request(method.clone(), uri, Body::empty())).await;
+        assert_eq!(
+            res.status(),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{method} {uri}"
+        );
+        assert_eq!(res.headers()[header::ALLOW], "GET,HEAD");
+        assert_ne!(
+            res.headers()
+                .get(header::CONTENT_TYPE)
+                .map(|v| v.as_bytes()),
+            Some(b"text/html; charset=utf-8".as_slice()),
+            "{method} {uri} が画面を返した"
+        );
+    }
+    let missing = response(&app, request(Method::POST, "/missing.js", Body::empty())).await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
