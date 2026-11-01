@@ -97,7 +97,7 @@ plan() {
       die "印の commit が main の祖先でない"
     fi
     [[ "$version" != *-beta.* ]] || die "ベータ版の修正の枝は許さない"
-    base=$(git describe --tags --abbrev=0 --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
+    base=$(git describe --tags --abbrev=0 --exclude '*-*' --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
     [[ -n "$base" ]] || die "修正の枝の元の印が無い"
     git diff --quiet "$base" "$commit" -- migrations/ORDER docs/contract/envelope.json || die "修正の枝で移行または封筒が変わった"
   fi
@@ -155,7 +155,7 @@ self_test() {
   if (version_code 0.1.100 >/dev/null 2>&1); then return 1; fi
   if (version_code 0.4.0-beta.99 >/dev/null 2>&1); then return 1; fi
 
-  local work t base out rc
+  local work t base out rc release_base formal_base
   work=$(mktemp -d "${TMPDIR:-/tmp}/version-self-test.XXXXXX")
   trap 'rm -rf "$work"' RETURN
   t="$work/tree"; mkdir -p "$t/tools/release" "$t/migrations" "$t/docs/contract"
@@ -185,6 +185,37 @@ self_test() {
   git clone -q "file://$t" "$work/no-main"; git -C "$work/no-main" checkout -qb test-no-main; git -C "$work/no-main" branch -D main >/dev/null; git -C "$work/no-main" update-ref -d refs/remotes/origin/main
   if out=$(cd "$work/no-main" && tools/release/version.sh plan v0.4.0 2>&1); then return 1; fi
   grep -q 'main の参照が無い' <<<"$out" || return 1
+
+  git -C "$t" checkout -q -b release/0.4 v0.4.0
+  release_base=$(git -C "$t" rev-parse HEAD)
+  echo '{"version":2}' > "$t/docs/contract/envelope.json"
+  git -C "$t" add docs/contract/envelope.json; git -C "$t" commit -q -m beta-base; git -C "$t" tag v0.4.1-beta.1
+  printf '[workspace.package]\nversion = "0.4.1"\n' > "$t/Cargo.toml"
+  echo '{}' > "$t/docs/contract/envelope.json"
+  git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m hotfix; git -C "$t" tag v0.4.1
+  formal_base=$(git -C "$t" rev-parse HEAD)
+  echo "== Scenario: 修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる"
+  out=$(cd "$t" && tools/release/version.sh plan v0.4.1); grep -q 'channel=release' <<<"$out"; grep -q 'prerelease=false' <<<"$out"
+  echo "== Scenario: 修正の枝で移行を足した印は公開しない"
+  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
+  git -C "$t" add Cargo.toml; git -C "$t" commit -q -m migration-version
+  printf '202611020001_fix.sql\n' >> "$t/migrations/ORDER"
+  git -C "$t" add migrations/ORDER; git -C "$t" commit -q -m migration; git -C "$t" tag v0.4.2
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
+  grep -q '移行または封筒' <<<"$out" || return 1
+  git -C "$t" reset -q --hard "$formal_base"
+  git -C "$t" tag -d v0.4.2 >/dev/null
+  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
+  echo '{"version":2,"extra":true}' > "$t/docs/contract/envelope.json"
+  git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m envelope; git -C "$t" tag v0.4.2
+  echo "== Scenario: 修正の枝で封筒の形を変えた印は公開しない"
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
+  echo "== Scenario: 修正の枝からベータ版は出さない"
+  printf '[workspace.package]\nversion = "0.4.3"\n' > "$t/Cargo.toml"
+  git -C "$t" add Cargo.toml; git -C "$t" commit -q -m beta-version
+  git -C "$t" tag v0.4.3-beta.1
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.3-beta.1 2>&1); then return 1; fi
+  git -C "$t" checkout -q main
 
   git -C "$t" tag -d v0.4.0 >/dev/null
   git -C "$t" tag nightly; echo "== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
