@@ -16,8 +16,15 @@ apk_version() {
   fi
   [ -n "$aapt_cmd" ] || die "aapt が無い"
   dump="$($aapt_cmd dump badging "$apk")"
-  grep -Eq "package: .*versionCode='[0-9]+' .*versionName='[^']+'" <<<"$dump" || die "APK の版番号が読めない: $apk"
-  echo "OK: $(grep -Eo "versionCode='[0-9]+' versionName='[^']+'" <<<"$dump" | head -n1)"
+  local line version_code version_name expected_code
+  line="$(grep -Eo "versionCode='[0-9]+' versionName='[^']+'" <<<"$dump" | head -n1)"
+  [ -n "$line" ] || die "APK の版番号が読めない: $apk"
+  version_code="${line#versionCode=\'}"; version_code="${version_code%%\'*}"
+  version_name="${line#*versionName=\'}"; version_name="${version_name%\'}"
+  expected_code="$("$root/tools/release/version.sh" code "$version_name")" || die "APK の versionName が不正: $version_name"
+  echo "== Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値"
+  [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
+  echo "OK: $line"
 }
 
 range_self_test() {
@@ -26,9 +33,13 @@ range_self_test() {
   trap 'rm -rf "$work"' RETURN
   clone="$work/clone"
   git clone -q --local --no-hardlinks "$root" "$clone"
-  if (cd "$clone/collector-android" && ASHIATO_BUILD_VERSION=0.100.0 ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug); then
-    "$root/tools/release/version.sh" code 0.100.0 >/dev/null 2>&1 && die "桁を超えた版番号の検査が成功した"
+  echo "== Scenario: 桁を超える版番号では、携帯の組み立てが失敗する"
+  sed -i 's/^version = "[^"]*"/version = "0.100.0"/' "$clone/Cargo.toml"
+  local output
+  if output=$(cd "$clone/collector-android" && ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug 2>&1); then
+    die "桁を超えた版番号の検査が成功した"
   fi
+  grep -Fq 'MINOR が上限を超えた' <<<"$output" || die "Gradle が MINOR 超過以外の理由で失敗した: $output"
   echo "OK: 桁を超えた版番号を Gradle の版検査が拒否した"
 }
 

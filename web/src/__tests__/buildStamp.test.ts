@@ -10,9 +10,9 @@ import { buildPlaceRecord, ingestPlaceItem } from "../places";
 const STAMP = /^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$/;
 const HEAD = "0123456789abcdef0123456789abcdef01234567";
 
-function fakeGit(opts: { head?: string | Error; status?: string | Error }): Git {
+function fakeGit(opts: { head?: string | Error; status?: string | Error; statusByPath?: Record<string, string | Error> }): Git {
   return (args) => {
-    const r = args[0] === "rev-parse" ? opts.head : opts.status;
+    const r = args[0] === "rev-parse" ? opts.head : opts.statusByPath?.[args.at(-1) ?? ""] ?? opts.status;
     if (r instanceof Error) throw r;
     return r ?? "";
   };
@@ -29,7 +29,7 @@ describe("web build stamp", () => {
 
   // Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ
   it("uncommitted source-of-truth change adds .dirty", () => {
-    const s = webBuildStamp({ ...base, production: false, git: fakeGit({ head: HEAD, status: " M Cargo.toml\n" }) });
+    const s = webBuildStamp({ ...base, production: false, git: fakeGit({ head: HEAD, status: "", statusByPath: { ":/Cargo.toml": " M Cargo.toml\n" } }) });
     expect(s).toBe(`0.1.0+${HEAD}.dirty.debug`);
     expect(s).toMatch(STAMP);
   });

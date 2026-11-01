@@ -45,3 +45,29 @@
 
 - Kotlin daemon は sandbox 外の `/home/yosis/.local/share/kotlin` へ一時ファイルを書けず警告を出したが、Gradle は fallback compiler で成功した。
 - npm は既定 cache が read-only のため、検証時のみ repo 内の一時 cache を使った。生成した依存物は追跡対象外である。
+
+## Fix round 1
+
+### 対応した指摘
+
+- F1: `check-build-stamp.sh release` が、4 部品の release 印・dirty/debug 無し・組み立て後の clean status、env 無し、出所不一致、形不正、0.9.0 の出所変更、未 commit の出所変更を実際に判定してから各 Scenario の印を出すようにした。
+- F2: Gradle self-test が clone の `Cargo.toml` を `0.100.0` に変更し、env 無しで失敗することと `MINOR が上限を超えた` の理由を確認するようにした。
+- F3: `apk-version` が `version.sh code` と APK の `versionCode` を比較し、2 本の Scenario 印を判定箇所に置いた。
+- F4: Gradle の beta 番号を 1〜99 に揃えた。
+- F5: Web の偽 git が `:/Cargo.toml` pathspec のときだけ未 commit 変更を返すようにした。
+
+### Fix round 1 の検証
+
+- `npx vitest run src/__tests__/buildStamp.test.ts`: 11/11 PASS。
+- `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable`: rc=0。
+- `scripts/quiet-run apk-range -- tools/release/check-artifacts.sh --self-test-gradle-range`: rc=0。
+- APK assemble + `check-artifacts.sh apk-version`: rc=0、`versionCode='10002' versionName='0.1.0-beta.2'`。
+- `scripts/quiet-run stamp-release-final -- tools/check-build-stamp.sh release`: rc=0。
+- `scripts/quiet-run stamp-android -- tools/check-build-stamp.sh android`: rc=0。
+- `tools/check-version.sh --self-test` / `tools/check-version.sh`: rc=0。
+- `scripts/quiet-run web-build -- bash -c 'cd web && npm run build'`: rc=0。
+- `python3 scripts/check_scenarios.py .`: 今回の Task 3 の印は認識された。全 change では下流 Task の未実装 Scenario 46 件が残るため rc=1（今回の範囲外）。
+
+### Fix round 1 の自己レビュー
+
+4 部品すべてについて、渡した版・env 無しの出所版・未 commit の Cargo.toml による dirty を判定していることを確認した。APK の versionCode は APK 内の versionName から `version.sh code` を通して比較する。今回の変更に関する追加の懸念はない。

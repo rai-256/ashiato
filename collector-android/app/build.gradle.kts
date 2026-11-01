@@ -22,7 +22,7 @@ fun credential(name: String): String =
 private data class ParsedBuildVersion(val major: Int, val minor: Int, val patch: Int, val suffix: String?)
 
 private fun parseBuildVersion(value: String): ParsedBuildVersion {
-    val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-8]\\d|dev\\.\\d{8}))?$").matchEntire(value)
+    val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-9]\\d|dev\\.\\d{8}))?$").matchEntire(value)
         ?: throw GradleException("版番号の形が違う: $value")
     return ParsedBuildVersion(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt(), match.groupValues[4].ifEmpty { null })
 }
