@@ -80,6 +80,16 @@ describe("web build stamp", () => {
     });
     expect(s).toBe(`0.1.0-beta.2+${HEAD}`);
   });
+
+  // ベータ番号は 1〜98（spec。final review R8）。99・0・符号つきは拒む
+  it("ASHIATO_BUILD_VERSION accepts beta.98 and rejects beta.99", () => {
+    const stampWith = (given: string) =>
+      webBuildStamp({ ...base, env: { ASHIATO_BUILD_VERSION: given }, production: true, git: fakeGit({ head: HEAD, status: "" }) });
+    expect(stampWith("0.1.0-beta.98")).toBe(`0.1.0-beta.98+${HEAD}`);
+    for (const given of ["0.1.0-beta.99", "0.1.0-beta.0", "0.1.0-beta.+5"]) {
+      expect(() => stampWith(given)).toThrow(given);
+    }
+  });
 });
 
 describe("the three assemblies carry the embedded stamp", () => {

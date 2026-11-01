@@ -1,8 +1,9 @@
-# version	versionCode
+# version	versionCode（- は拒む版番号。version.sh と gradle の verifyVersionCodeTable が同じ表で確かめる）
 0.3.0-beta.2	30002
 0.4.0-beta.1	40001
 0.4.0-beta.2	40002
 0.4.0-beta.89	40089
+0.4.0-beta.98	40098
 0.3.0	30099
 0.3.1	30199
 0.4.0	40099
@@ -10,3 +11,6 @@
 1.0.0	1000099
 0.4.0-dev.20261101	40000
 0.4.0-dev.20261102	40000
+0.4.0-beta.99	-
+0.4.0-beta.0	-
+0.4.0-beta.+5	-

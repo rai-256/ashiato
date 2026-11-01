@@ -39,7 +39,7 @@ function sourceVersion(cargoToml: string): string {
 }
 
 function versionShape(value: string): { base: string } | undefined {
-  const match = /^(\d+\.\d+\.\d+)(?:-beta\.([1-9]|[1-8]\d)|-dev\.\d{8})?$/.exec(value);
+  const match = /^(\d+\.\d+\.\d+)(?:-beta\.([1-9]|[1-8]\d|9[0-8])|-dev\.\d{8})?$/.exec(value);
   return match ? { base: match[1] } : undefined;
 }
 

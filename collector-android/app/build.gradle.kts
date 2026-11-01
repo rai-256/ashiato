@@ -22,7 +22,7 @@ fun credential(name: String): String =
 private data class ParsedBuildVersion(val major: Int, val minor: Int, val patch: Int, val suffix: String?)
 
 private fun parseBuildVersion(value: String): ParsedBuildVersion {
-    val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-8]\\d|dev\\.\\d{8}))?$").matchEntire(value)
+    val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-8]\\d|beta\\.9[0-8]|dev\\.\\d{8}))?$").matchEntire(value)
         ?: throw GradleException("版番号の形が違う: $value")
     return ParsedBuildVersion(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt(), match.groupValues[4].ifEmpty { null })
 }
@@ -290,6 +290,13 @@ tasks.register("verifyVersionCodeTable") {
         rootProject.file("../tools/release/version-table.tsv").useLines { lines ->
             lines.map(String::trim).filter { it.isNotEmpty() && !it.startsWith("#") }.forEach { line ->
                 val columns = line.split(Regex("\\s+"))
+                if (columns.size == 2 && columns[1] == "-") {
+                    // 拒む版番号（beta.99 など。final review R8）
+                    if (runCatching { versionCodeFor(columns[0]) }.isSuccess) {
+                        throw GradleException("version-table.tsv の拒む版番号を受けた: $line")
+                    }
+                    return@forEach
+                }
                 if (columns.size != 2 || versionCodeFor(columns[0]).toString() != columns[1]) {
                     throw GradleException("version-table.tsv の計算結果が違う: $line")
                 }

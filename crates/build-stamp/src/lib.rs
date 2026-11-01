@@ -57,8 +57,17 @@ fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
     match suffix {
         None => {}
         Some(suffix) if suffix.starts_with("beta.") => {
-            let n = suffix.strip_prefix("beta.")?.parse::<u8>().ok()?;
-            if !(1..=89).contains(&n) || suffix.strip_prefix("beta.")?.starts_with('0') {
+            // 数字だけかを先に見る（`u8` の parse は `+5` も通す。final review R12）
+            let digits = suffix.strip_prefix("beta.")?;
+            if digits.is_empty()
+                || !digits.chars().all(|c| c.is_ascii_digit())
+                || digits.starts_with('0')
+            {
+                return None;
+            }
+            // N は 1〜98（spec。99 は正式版の versionCode の末尾。final review R8）
+            let n = digits.parse::<u8>().ok()?;
+            if !(1..=98).contains(&n) {
                 return None;
             }
         }
@@ -332,10 +341,10 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for given in [
             "0.1.0-rc.1",
-            "0.1.0-beta.90",
             "0.1.0-beta.99",
             "0.1.0-beta.0",
             "0.1.0-dev.2026111",
+            "0.1.0-beta.+5",
         ] {
             std::env::set_var(VERSION_ENV, given);
             let error = version("0.1.0").unwrap_err();
@@ -343,6 +352,20 @@ mod tests {
             assert!(error.contains(given), "{given}: {error}");
         }
         std::env::remove_var(VERSION_ENV);
+    }
+
+    #[test]
+    fn st52_version_accepts_beta_up_to_98() {
+        // ベータ番号は 1〜98（spec。final review R8）。99 と符号つきは上の試験が拒む
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for given in ["0.1.0-beta.1", "0.1.0-beta.90", "0.1.0-beta.98"] {
+            std::env::set_var(VERSION_ENV, given);
+            let resolved = version("0.1.0");
+            std::env::remove_var(VERSION_ENV);
+            assert_eq!(resolved.as_deref(), Ok(given));
+        }
     }
 
     #[test]

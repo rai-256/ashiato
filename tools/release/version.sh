@@ -15,7 +15,7 @@ source_version() {
 
 parse_version() {
   local value="$1"
-  if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9]|[1-8][0-9])|-dev\.[0-9]{8})?$ ]]; then
+  if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9]|[1-8][0-9]|9[0-8])|-dev\.[0-9]{8})?$ ]]; then
     MAJOR=${BASH_REMATCH[1]}; MINOR=${BASH_REMATCH[2]}; PATCH=${BASH_REMATCH[3]}
     SUFFIX=${BASH_REMATCH[4]}
     BETA=${BASH_REMATCH[5]}
@@ -84,7 +84,7 @@ main_ref() {
 
 plan() {
   local tag=${1:-} commit main version expected base branch
-  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-8][0-9]))?$ ]] || die "印の形が違う: $tag"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-8][0-9]|9[0-8]))?$ ]] || die "印の形が違う: $tag"
   require_full_history
   commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null) || die "印が無い: $tag"
   version=${tag#v}
@@ -145,6 +145,10 @@ self_test() {
   local table="$ROOT/tools/release/version-table.tsv" line version expected
   while IFS=$'\t' read -r version expected; do
     [[ -z "$version" || "$version" == \#* ]] && continue
+    if [[ "$expected" == - ]]; then
+      if (version_code "$version" >/dev/null 2>&1); then die "version-table.tsv: 拒むはずの $version を受けた"; fi
+      continue
+    fi
     [[ "$(version_code "$version")" == "$expected" ]] || die "version-table.tsv: $version"
   done < "$table"
   echo "== Scenario: versionCode は版番号から決まり、ベータ < 正式 < 次の版の順になる"
@@ -169,6 +173,7 @@ self_test() {
   git -C "$t" tag v0.4.0
   echo "== Scenario: 正式版の印は、通常のリリースと判定される"; out=$(cd "$t" && tools/release/version.sh plan v0.4.0); grep -q 'channel=release' <<<"$out"; grep -q 'version=0.4.0' <<<"$out"
   echo "== Scenario: ベータ版の印で、先行公開のリリースになる"; git -C "$t" tag v0.4.0-beta.2; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.2); grep -q 'channel=beta' <<<"$out"
+  git -C "$t" tag v0.4.0-beta.98; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.98); grep -q 'version_code=40098' <<<"$out"
   echo "== Scenario: 印の版と出所の版が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1
   if (cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 >/dev/null 2>&1); then return 1; fi
   echo "== Scenario: main の祖先でない commit の印は公開しない"; git -C "$t" checkout -qb other; echo x > "$t/x"; git -C "$t" add x; git -C "$t" commit -q -m other; git -C "$t" tag v0.4.0-beta.3
