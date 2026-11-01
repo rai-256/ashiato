@@ -90,18 +90,18 @@
 
 ## Task 4: 配った印の検査が祖先の印だけを数え、浅い木では落ちる（ST48・ST50 の台本と CI の checkout。D1・Q12）
 
-- [ ] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。印を数える前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（「印が 0 個なら通す」の分かれより前。D1）。`--self-test` に `// Scenario` の echo つきで
+- [x] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。印を数える前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（「印が 0 個なら通す」の分かれより前。D1）。`--self-test` に `// Scenario` の echo つきで
   `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`開発版の印は、配った印に数えない`（distribution。`nightly` だけの木で通る。送信契約の側は 4.2）・
   `浅い木では、配った移行の検査は通らない`（使い捨ての木を `git clone --depth=1 file://…` し、`git fetch --depth=1 origin '+refs/tags/v*:refs/tags/v*'` で印だけを取り寄せた木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 7 本はそのまま
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
-- [ ] 4.2 `tools/check-contract-version.sh`: 同じく `--merged HEAD` に替え、「最後の印」を `tools/release/version.sh order` の最大で選ぶ（`--sort=-creatordate` を消す）。封筒の例の凍結（全部の印との比べ）も `--merged HEAD` の集合にする。
+- [x] 4.2 `tools/check-contract-version.sh`: 同じく `--merged HEAD` に替え、「最後の印」を `tools/release/version.sh order` の最大で選ぶ（`--sort=-creatordate` を消す）。封筒の例の凍結（全部の印との比べ）も `--merged HEAD` の集合にする。
   印を数える前の浅い木の止めも 4.1 と同じに置く。
   `--self-test` に `最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印`・`最後の配った印は、ベータ版の番号を数として比べて選ぶ`・`同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ`・`開発版の印 nightly は、最後の配った印に数えない`・`開発版の印は、配った印に数えない`（送信契約の側）・
   `浅い木では、送信契約の版の検査は通らない`（4.1 と同じ浅い木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 10 本はそのまま
   検証: `tools/check-contract-version.sh --self-test` rc=0 / `tools/check-contract-version.sh` rc=0
-- [ ] 4.3 `docs/handoff/ST52.md` の 3 項目の下に「ST52 で処置した」を 1 行ずつ書く（型 `v[0-9]*` は変えず、数える印を祖先に絞った・版番号の出所を `Cargo.toml` から読むように替えた）
+- [x] 4.3 `docs/handoff/ST52.md` の 3 項目の下に「ST52 で処置した」を 1 行ずつ書く（型 `v[0-9]*` は変えず、数える印を祖先に絞った・版番号の出所を `Cargo.toml` から読むように替えた）
   検証: `bash -c 'test "$(grep -c "ST52 で処置した" docs/handoff/ST52.md)" -ge 3'` rc=0
-- [ ] 4.4 `.github/workflows/ci.yml` の `rust` の job（D1・Q12）: checkout に `fetch-depth: 0` を足す。印を取り寄せる手順の `git fetch` から `--depth=1` を外す（完全な木に `--depth=1` を当てると浅くなり、4.1・4.2 の止めで落ちる。premises P17）。
+- [x] 4.4 `.github/workflows/ci.yml` の `rust` の job（D1・Q12）: checkout に `fetch-depth: 0` を足す。印を取り寄せる手順の `git fetch` から `--depth=1` を外す（完全な木に `--depth=1` を当てると浅くなり、4.1・4.2 の止めで落ちる。premises P17）。
   `ls-remote` で `v*` があるときだけ取り寄せる形と、読めなければ落とす形はそのまま。止め（4.1・4.2）と同じ PR で入れる
   検証: `bash -c 'awk "/^  rust:/{f=1} f&&/^  [a-z-]+:/&&!/^  rust:/{f=0} f" .github/workflows/ci.yml > "$TMPDIR/rust.yml" && grep -q "fetch-depth: 0" "$TMPDIR/rust.yml" && ! grep -q -- "--depth=1" "$TMPDIR/rust.yml"'` rc=0 /
   `bash -c 'd="${TMPDIR:?}/sh" && git clone -q --depth=1 "file://$PWD" "$d" && git -C "$d" fetch -q --depth=1 origin "+refs/tags/v*:refs/tags/v*" 2>/dev/null; cp -r tools/. "$d/tools/" && cd "$d" && for t in check-released-migrations check-contract-version; do out="$(tools/$t.sh 2>&1)" && exit 1; grep -q "履歴が浅い" <<<"$out" || exit 1; done'` rc=0（今の木を深さ 1 で clone し、作業木の台本を写して走らせる。印が 0 個の今の木でも 2 本とも「履歴が浅い」で落ちることを見る —— 今の台本は浅い木で rc=0 になる）
