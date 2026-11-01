@@ -104,7 +104,13 @@ check_tree() {
   fi
 
   # 3・4. 配った印
-  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = true ]; then
+  # 問い合わせが失敗したら浅くないとはみなさない（check-released-migrations.sh と同じ。/code-review R35）
+  local shallow
+  if ! shallow="$(git rev-parse --is-shallow-repository)"; then
+    echo "履歴が浅いかを確かめられない"
+    return 1
+  fi
+  if [ "$shallow" = true ]; then
     echo "履歴が浅いので配った印を数えられない"
     return 1
   fi

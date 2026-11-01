@@ -19,6 +19,15 @@ draft_release() (
   tag="v$version"
   [[ "$version" == *-beta.* ]] && prerelease=1
 
+  # run の出所を確かめる（公開の repo では fork の PR も ci を走らせ release-package を上げる。fork のコードで組んだものを
+  # この repo の下書きに載せない。security-review R31）。この repo の枝から走り、成功した ci の run だけを受ける
+  local run_info head_repo repo conclusion workflow
+  run_info="$(gh api "repos/{owner}/{repo}/actions/runs/$run_id" \
+    --jq '[(.head_repository.full_name // "-"), .repository.full_name, (.conclusion // "-"), .name] | @tsv')" || die "run $run_id を読めない"
+  IFS=$'\t' read -r head_repo repo conclusion workflow <<<"$run_info"
+  [[ -n "$repo" && "$head_repo" == "$repo" ]] || die "run $run_id はこの repo の枝の組み立てでない（$head_repo）"
+  [[ "$workflow" == ci ]] || die "run $run_id は ci の run でない（$workflow）"
+  [[ "$conclusion" == success ]] || die "run $run_id は成功していない（$conclusion）"
   gh run download "$run_id" --name release-package --dir "$work"
   "$root/tools/release/check-artifacts.sh" "$work" --allow-debug-key --expect-version "$src"
 
@@ -67,6 +76,11 @@ if [[ "${1:-}" == run && "${2:-}" == download ]]; then
   rm -f "$out/stamp" "$out/classes.dex"
   # 検査していないファイルが置き場にあっても、下書きには載らないこと（R22）
   printf 'x\n' >"$out/extra.txt"
+  exit 0
+fi
+if [[ "${1:-}" == api ]]; then
+  [[ "${2:-}" == "repos/{owner}/{repo}/actions/runs/42" ]] || exit 23
+  printf '%s\n' "${DRAFT_SELF_TEST_RUN:-o/ashiato	o/ashiato	success	ci}"
   exit 0
 fi
 if [[ "${1:-}" == release && "${2:-}" == create ]]; then
@@ -123,6 +137,17 @@ EOF
     die '配布物が欠けたのに成功した'
   fi
   [[ ! -s "$calls" ]] || die '配布物が欠けたのに配布元へ要求を出した'
+
+  # fork の PR・ci 以外・成功していない run の配布物は載せない（security-review R31）
+  local run out
+  for run in $'fork/ashiato\to/ashiato\tsuccess\tci' $'o/ashiato\to/ashiato\tsuccess\tnightly' $'o/ashiato\to/ashiato\tfailure\tci'; do
+    : >"$calls"
+    if out="$(DRAFT_SELF_TEST_CALLS="$calls" DRAFT_SELF_TEST_RUN="$run" PATH="$fake_bin:$PATH" "$0" 42 "${version}-beta.1" 2>&1)"; then
+      die "出所の確かめを通らない run で成功した: $run"
+    fi
+    grep -Fq 'run 42 は' <<<"$out" || die "出所の確かめ以外の理由で落ちた: $out"
+    [[ ! -s "$calls" ]] || die "出所の確かめを通らない run で下書きを作った: $run"
+  done
   echo "OK: 下書きの先行公開と配布物欠落時の停止を確認した"
 }
 

@@ -60,6 +60,15 @@ self_test() {
     -alias old -keyalg RSA -keysize 4096 -validity 10000 -startdate '2024/01/01 00:00:00' \
     -dname 'CN=old' >/dev/null 2>&1
   printf '%s\n' "$password" | "$0" verify "$work/old.jks"
+  # 25 年に満たない鍵は、長さが足りていても落とす（下限そのものを固定する。code_verify R27）
+  keytool_en -genkeypair -noprompt -keystore "$work/brief.jks" -storepass "$password" -keypass "$password" \
+    -alias brief -keyalg RSA -keysize 4096 -validity 9000 \
+    -dname 'CN=brief' >/dev/null 2>&1
+  local brief_out
+  if brief_out="$(printf '%s\n' "$password" | "$0" verify "$work/brief.jks" 2>&1)"; then
+    die "有効期限が 25 年に満たない鍵を受け入れた"
+  fi
+  grep -q '25 年未満' <<<"$brief_out" || die "25 年に満たない鍵の理由が違う: $brief_out"
   echo "OK: 鍵の種類・長さ・有効期限を検査した"
 }
 

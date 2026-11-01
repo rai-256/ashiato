@@ -78,6 +78,13 @@ workflow() {
   if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$nightly"; then die 'nightly に APK 組み立てまたは署名がある'; return 1; fi
   job_block "$release" plan | grep -q 'version.sh plan' && job_block "$release" plan | grep -q 'fetch-depth: 0' || die 'release の判定 job が shallow checkout'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' && job_block "$nightly" plan | grep -q 'fetch-depth: 0' || die 'nightly の判定 job が shallow checkout'
+  # 配る組み立ての重い自己試験は package-linux（Rust・Java・node・Android SDK がそろう job）で走らせる（code_verify R29）
+  local heavy
+  for heavy in check-artifacts.sh sign-apk.sh make-key.sh; do
+    job_block "$ci" package-linux | grep -q "tools/release/$heavy --self-test" || die "ci の package-linux で $heavy の自己試験が走らない"
+  done
+  # 署名の台本にも期待の指紋を渡す（鍵の取り違えを署名の前に止める。code_verify R26）
+  [[ "$(job_block "$release" publish | grep -c 'ASHIATO_EXPECT_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}\|ASHIATO_EXPECT_CERT_SHA256: "\${{ vars.ASHIATO_CERT_SHA256 }}"')" -ge 2 ]] || die 'release の署名または検査に期待の指紋が渡らない'
   [[ "$(job_block "$release" publish | grep -c 'contents: write')" == 1 ]] || die 'release publish の書く権限が無い'
   [[ "$(job_block "$nightly" publish | grep -c 'contents: write')" == 1 ]] || die 'nightly publish の書く権限が無い'
   [[ "$(grep -h -c 'contents: write' "$release" "$nightly" | awk '{s += $1} END {print s+0}')" == 2 ]] || die '書く権限が publish 以外にもある'

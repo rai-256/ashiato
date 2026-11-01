@@ -80,6 +80,7 @@ jobs:
           ASHIATO_SIGNING_STORE_PASSWORD: ${{ secrets.ASHIATO_SIGNING_STORE_PASSWORD }}
           ASHIATO_SIGNING_KEY_ALIAS: ${{ secrets.ASHIATO_SIGNING_KEY_ALIAS }}
           ASHIATO_SIGNING_KEY_PASSWORD: ${{ secrets.ASHIATO_SIGNING_KEY_PASSWORD }}
+          ASHIATO_EXPECT_CERT_SHA256: ${{ vars.ASHIATO_CERT_SHA256 }}
       - run: |
           tools/release/check-artifacts.sh release/all --channel "${{ needs.plan.outputs.channel }}" --expect-version "${{ needs.plan.outputs.version }}"
         env: { ASHIATO_EXPECT_CERT_SHA256: "${{ vars.ASHIATO_CERT_SHA256 }}" }

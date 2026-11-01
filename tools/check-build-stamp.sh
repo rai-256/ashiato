@@ -180,17 +180,17 @@ fi
 if [ "$section" = release ]; then
   clone="$work/clone"
   git clone -q --local --no-hardlinks "$root" "$clone"
-  expected_version="$cargo_version"
-  if [ -n "${ASHIATO_BUILD_VERSION:-}" ]; then
-    expected_version="$ASHIATO_BUILD_VERSION"
-    (cd "$root" && tools/release/version.sh check "$expected_version" >/dev/null)
-  fi
+  # 版番号は呼び手の環境に頼らず自分で渡す（渡さなければ次の「版番号を渡さない組み立て」と同じものを見てしまう。
+  # code_verify R25・/code-review R33）。呼び手が渡したときはその値を使う
+  expected_version="${ASHIATO_BUILD_VERSION:-$cargo_version-beta.2}"
+  (cd "$root" && tools/release/version.sh check "$expected_version" >/dev/null)
+  [ "$expected_version" != "$cargo_version" ] || fail "release 節の版番号が出所の版と同じ（渡した値の経路を見られない）: $expected_version"
   release_stamp_re="$(re_quote "$expected_version")\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?"
   head="$(git -C "$clone" rev-parse HEAD)"
-  (cd "$clone/web" && NPM_CONFIG_CACHE="$work/npm-cache" npm ci --ignore-scripts >/dev/null && npm run build >/dev/null)
-  (cd "$clone" && cargo build -q --release -p ashiato-server --bin ashiato-server)
-  (cd "$clone" && cargo build -q --release -p ashiato-collector-windows)
-  (cd "$clone/collector-android" && ./gradlew -q :app:assembleRelease)
+  (cd "$clone/web" && NPM_CONFIG_CACHE="$work/npm-cache" npm ci --ignore-scripts >/dev/null && ASHIATO_BUILD_VERSION="$expected_version" npm run build >/dev/null)
+  (cd "$clone" && ASHIATO_BUILD_VERSION="$expected_version" cargo build -q --release -p ashiato-server --bin ashiato-server)
+  (cd "$clone" && ASHIATO_BUILD_VERSION="$expected_version" cargo build -q --release -p ashiato-collector-windows)
+  (cd "$clone/collector-android" && ASHIATO_BUILD_VERSION="$expected_version" ./gradlew -q :app:assembleRelease)
   web_stamp="$(exact_stamp_in "画面の release 印" "$release_stamp_re" "$clone/web/dist")"
   [ "$web_stamp" = "$expected_version+$head" ] || fail "画面の release 印が違う: $web_stamp"
   server_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-server" | grep -Eo "$release_stamp_re" | sort -u)"
@@ -198,8 +198,8 @@ if [ "$section" = release ]; then
   windows_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo "$release_stamp_re" | sort -u)"
   [ "$windows_stamp" = "$expected_version+$head" ] || fail "PC の release 印が違う: $windows_stamp"
   apk="$(find "$clone/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"
-  apk_info="$($root/tools/release/check-artifacts.sh apk-version "$apk")" || fail "携帯の release 版番号を読めない"
-  grep -Fq "versionName='$expected_version'" <<<"$apk_info" || fail "携帯の release 版番号が出所と違う: $apk_info"
+  apk_info="$($root/tools/release/check-artifacts.sh apk-version --expect-version "$expected_version" "$apk")" || fail "携帯の release 版番号が渡した版番号と違う"
+  grep -Fq "versionName='$expected_version'" <<<"$apk_info" || fail "携帯の release 版番号が渡した版番号と違う: $apk_info"
   release_build_config="$clone/collector-android/app/build/generated/source/buildConfig/release/dev/ashiato/collector/BuildConfig.java"
   android_stamp="$(exact_stamp_in "携帯の release 印" "$release_stamp_re" "$release_build_config")"
   [ "$android_stamp" = "$expected_version+$head" ] || fail "携帯の release 印が違う: $android_stamp"
@@ -232,7 +232,8 @@ if [ "$section" = release ]; then
   fi
   echo "== Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する"
 
-  for invalid in 0.4.0-rc.1 0.4.0-beta.99 0.4.0-beta.0 0.4.0-dev.2026111; do
+  # 出所の版の上で形だけを崩す（別の版にすると出所との照合で落ち、形の検査を見られない。/code-review R34）
+  for invalid in "$cargo_version-rc.1" "$cargo_version-beta.99" "$cargo_version-beta.0" "$cargo_version-dev.2026111"; do
     if (cd "$clone" && ASHIATO_BUILD_VERSION="$invalid" cargo build -q --release -p ashiato-server --bin ashiato-server); then
       fail "形が違う版番号の組み立てが成功した: $invalid"
     fi

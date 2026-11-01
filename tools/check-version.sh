@@ -6,7 +6,7 @@ die() { echo "NG: $*" >&2; exit 1; }
 
 check_tree() {
   local tree="$1" cargo gradle package
-  cargo="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p;}' "$tree/Cargo.toml" | head -n1)"
+  cargo="$("$root/tools/release/version.sh" source "$tree/Cargo.toml")"
   if [[ ! "$cargo" =~ ^0\.[0-9]+\.[0-9]+$ ]]; then
     echo "NG: 出所の版番号が 0.MAJOR.PATCH の形でない: ${cargo:-<なし>}" >&2
     return 1

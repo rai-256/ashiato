@@ -157,7 +157,9 @@ echo 202001010002_beta >>"$T/migrations/ORDER"
 git -C "$T" add -A; git -C "$T" commit -q -m beta-migration; git -C "$T" tag v0.4.0-beta.1
 git -C "$T" checkout -qb release/0.3 v0.3.0
 echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; expect 0
+# nightly の版の移行を後から変えても通る（nightly を配った印に数えれば落ちる。code_verify R28）
 new_tree; git -C "$T" tag nightly
+echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit-after-nightly
 echo "Scenario: 開発版の印は、配った印に数えない"; expect 0
 
 # タグだけを取り寄せた浅い木は、印が見えても検査を続けない

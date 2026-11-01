@@ -68,12 +68,18 @@ if [ "$check_only" = 0 ] && { [ ! -f "$web/index.html" ] \
   web="web/dist"
 fi
 [ "$check_only" = 1 ] || web_abs="$(cd "$web" && pwd)"
-if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock "$web"; }; then
-  echo "== サーバを build（$server が無いか、ソースより古い）"
+# 既定のバイナリが画面を組み込んで組んだものかは、時刻だけでは分からない（画面なしの cargo build が後から上書きする。
+# /code-review R32）。画面を組み込んで組んだときだけ印に画面の置き場を書き、印が無い・置き場が違う・バイナリが印より新しいなら作り直す
+web_mark="target/release/.ashiato-server.web-dist"
+no_web_in_bin() { [ "$check_only" = 0 ] && [ -z "${SERVER_BIN:-}" ] \
+  && { [ "$(cat "$web_mark" 2>/dev/null)" != "$web_abs" ] || newer_src "$web_mark" "$server"; }; }
+if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock "$web"; } || no_web_in_bin; then
+  echo "== サーバを build（$server が無いか、ソースより古いか、画面を組み込んでいない）"
   if [ "$check_only" = 1 ]; then
     cargo build -q --release -p ashiato-server --bin ashiato-server
   else
     ASHIATO_WEB_DIST="$web_abs" cargo build -q --release -p ashiato-server --bin ashiato-server
+    printf '%s\n' "$web_abs" > "$web_mark"
   fi
   server="target/release/ashiato-server"
 fi

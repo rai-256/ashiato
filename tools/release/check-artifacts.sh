@@ -4,10 +4,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
 . "$root/tools/release/android-tools.sh"
-usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] | check <置き場> [...] | apk-version <apk...> | --self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | --self-test" >&2; exit 2; }
 
 apk_version() {
-  local apk="$1" dump aapt_cmd
+  local apk="$1" want="${2:-}" dump aapt_cmd
   [ -f "$apk" ] || die "APK が無い: $apk"
   aapt_cmd="$(android_tool aapt2 || android_tool aapt || true)"
   [ -n "$aapt_cmd" ] || die "aapt が無い"
@@ -19,6 +19,11 @@ apk_version() {
   version_name="${line#*versionName=\'}"; version_name="${version_name%\'}"
   expected_code="$("$root/tools/release/version.sh" code "$version_name")" || die "APK の versionName が不正: $version_name"
   echo "== Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値"
+  if [ -n "$want" ]; then
+    # 渡した版番号と比べる（APK 自身の versionName から計算するだけでは、渡した値を無視しても通る。code_verify R25）
+    [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
+    expected_code="$("$root/tools/release/version.sh" code "$want")"
+  fi
   [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
   echo "OK: $line"
 }
@@ -213,6 +218,10 @@ self_test() {
   ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
   if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
+  # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
+  (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
+  if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
+  grep -Fq '渡した版番号と違う' <<<"$output" || { echo "$output"; return 1; }
   local nightly="$work/nightly"; mkdir -p "$nightly"
   echo "== Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る"
   printf '0.4.0-dev.20261102+0000000000000000000000000000000000000000' > "$work/stamp"
@@ -235,7 +244,9 @@ self_test() {
 }
 
 case "${1:-}" in
-  apk-version) shift; [ "$#" -ge 1 ] || die "APK が無い"; for apk in "$@"; do apk_version "$apk"; done ;;
+  apk-version) shift; want=
+    if [ "${1:-}" = --expect-version ]; then [ "$#" -ge 2 ] || usage; want="$2"; shift 2; fi
+    [ "$#" -ge 1 ] || die "APK が無い"; for apk in "$@"; do apk_version "$apk" "$want"; done ;;
   --self-test) self_test ;;
   check) shift; [ "$#" -ge 1 ] || die "置き場が無い"; check_artifacts "$@" ;;
   --self-test-gradle-range) range_self_test ;;

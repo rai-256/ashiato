@@ -3,7 +3,7 @@
 # コミットされた docs/openapi.json とコードがずれたら落とす。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-source_version=$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' Cargo.toml | head -n1)
+source_version=$(tools/release/version.sh source)
 echo "== Scenario: API の契約の版は、渡した版番号に依らず出所の版"
 ASHIATO_BUILD_VERSION="${source_version}-beta.2" cargo run -q -p ashiato-server --bin openapi \
   | jq -e --arg source "$source_version" '.info.version == $source' >/dev/null

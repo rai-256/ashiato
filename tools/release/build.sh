@@ -154,5 +154,7 @@ self_test() {
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
 [[ $# == 2 ]] || usage
+# 組み立てが途中で落ちても、画面の写しの一時の置き場を残さない（/code-review R37）
+trap cleanup_build_tmp EXIT
 resolve_version
 build_one "$1" "$2"

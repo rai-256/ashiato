@@ -230,7 +230,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
-      - run: cargo build --release -p ashiato-server --bin ashiato-server
+      # サーバは tools/stack.sh が画面を組み込んで組む（先に画面なしで組むと 2 度組むだけ。/code-review R39）
       - run: npm ci
         working-directory: web
       - run: npx playwright install --with-deps chromium
@@ -363,6 +363,11 @@ jobs:
       - run: tools/release/package.sh linux "$RUNNER_TEMP/package-linux"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-linux, path: "${{ runner.temp }}/package-linux" }
+      # ST52: 配る組み立ての重い自己試験（印・資格情報・名前・署名・鍵の Scenario。chain の job は軽いものだけ。code_verify R29）。
+      # build.sh の自己試験は check-artifacts.sh の自己試験が同じ組み立てを含む
+      - run: tools/release/check-artifacts.sh --self-test
+      - run: tools/release/sign-apk.sh --self-test
+      - run: tools/release/make-key.sh --self-test
 
   package-windows:
     needs: changes

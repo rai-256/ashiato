@@ -32,7 +32,8 @@ export interface StampInput {
   env?: Record<string, string | undefined>;
 }
 
-function sourceVersion(cargoToml: string): string {
+/** 根の Cargo.toml の `[workspace.package]` の版（画面の側の唯一の読み方。e2e もこれを使う。/code-review R40） */
+export function sourceVersion(cargoToml: string): string {
   const match = /^\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(cargoToml);
   if (!match?.[1]) throw new Error("Cargo.toml の [workspace.package] version が無い");
   return match[1];

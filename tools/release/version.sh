@@ -5,20 +5,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() { echo "NG: $*" >&2; exit 1; }
 usage() {
-  echo "使い方: $0 source|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|--self-test" >&2
+  echo "使い方: $0 source [<Cargo.toml>]|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|--self-test" >&2
   exit 2
 }
 
+# 出所の版を読む唯一の bash の入口（既定は根の Cargo.toml。検査の使い捨ての木は道を渡す。/code-review R40）
 source_version() {
-  sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' "$ROOT/Cargo.toml" | head -n1
+  sed -n '/^\[workspace\.package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p;}' "${1:-$ROOT/Cargo.toml}" | head -n1
 }
 
 parse_version() {
   local value="$1"
   if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9]|[1-8][0-9]|9[0-8])|-dev\.[0-9]{8})?$ ]]; then
-    MAJOR=${BASH_REMATCH[1]}; MINOR=${BASH_REMATCH[2]}; PATCH=${BASH_REMATCH[3]}
+    # 先頭の 0 を 8 進数と読まない（Kotlin・Rust・TS と同じ 10 進数。/code-review R36）
+    MAJOR=$((10#${BASH_REMATCH[1]})); MINOR=$((10#${BASH_REMATCH[2]})); PATCH=$((10#${BASH_REMATCH[3]}))
     SUFFIX=${BASH_REMATCH[4]}
-    BETA=${BASH_REMATCH[5]}
+    BETA=${BASH_REMATCH[5]:+$((10#${BASH_REMATCH[5]}))}
     return 0
   fi
   return 1
@@ -105,6 +107,8 @@ plan() {
     base=$(git describe --tags --abbrev=0 --exclude '*-*' --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
     [[ -n "$base" ]] || die "修正の枝の元の印が無い"
     git diff --quiet "$base" "$commit" -- migrations/ORDER || die "修正の枝で migrations/ORDER が元の印と違う"
+    # 配った移行の中身も変えない（ORDER が同じでも、当てた DB の移行は当て直されない。code_verify R24）
+    git diff --quiet "$base" "$commit" -- migrations/ || die "修正の枝で migrations/ の中身が元の印と違う"
     git diff --quiet "$base" "$commit" -- docs/contract/envelope.json || die "修正の枝で docs/contract/envelope.json が元の印と違う"
   fi
   local channel=release prerelease=false
@@ -164,6 +168,9 @@ self_test() {
   if (version_code 0.100.0 >/dev/null 2>&1); then return 1; fi
   if (version_code 0.1.100 >/dev/null 2>&1); then return 1; fi
   if (version_code 0.4.0-beta.99 >/dev/null 2>&1); then return 1; fi
+  # 先頭の 0 は 10 進数で読む（gradle・Rust と同じ値。/code-review R36）
+  [[ "$(version_code 0.010.0)" == 100099 && "$(version_code 0.08.0)" == 80099 ]] || return 1
+  [[ "$(version_sort_key 0.08.0)" == "$(version_sort_key 0.8.0)" ]] || return 1
 
   local work t base out rc release_base formal_base
   work=$(mktemp -d "${TMPDIR:-/tmp}/version-self-test.XXXXXX")
@@ -173,6 +180,7 @@ self_test() {
   cp "$ROOT/tools/release/version-table.tsv" "$t/tools/release/version-table.tsv"
   printf '[workspace.package]\nversion = "0.4.0"\n' > "$t/Cargo.toml"
   : > "$t/migrations/ORDER"; echo '{}' > "$t/docs/contract/envelope.json"
+  echo 'CREATE TABLE init();' > "$t/migrations/202601010000_init.sql"
   git -C "$t" init -q; git -C "$t" config user.email t@example.com; git -C "$t" config user.name t
   git -C "$t" add .; git -C "$t" commit -q -m base; base=$(git -C "$t" rev-parse HEAD); git -C "$t" branch main
   git -C "$t" tag v0.4.0
@@ -222,6 +230,14 @@ self_test() {
   grep -q 'migrations/ORDER' <<<"$out" || return 1
   git -C "$t" reset -q --hard "$formal_base"
   git -C "$t" tag -d v0.4.2 >/dev/null
+  # ORDER は同じで、配った移行の中身だけを書き換えた印も公開しない（code_verify R24）
+  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
+  echo 'ALTER TABLE init ADD COLUMN x int;' >> "$t/migrations/202601010000_init.sql"
+  git -C "$t" add Cargo.toml migrations; git -C "$t" commit -q -m migration-content; git -C "$t" tag v0.4.2
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
+  grep -q 'migrations/ の中身' <<<"$out" || return 1
+  git -C "$t" reset -q --hard "$formal_base"
+  git -C "$t" tag -d v0.4.2 >/dev/null
   printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
   echo '{"version":2,"extra":true}' > "$t/docs/contract/envelope.json"
   git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m envelope; git -C "$t" tag v0.4.2
@@ -257,7 +273,7 @@ self_test() {
 }
 
 case "${1:-}" in
-  source) source_version ;;
+  source) [[ $# -le 2 ]] || usage; source_version "${2:-}" ;;
   check) [[ $# == 2 ]] || usage; check_version "$2" ;;
   code) [[ $# == 2 ]] || usage; version_code "$2" ;;
   order) order_versions ;;

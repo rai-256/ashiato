@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { sourceVersion } from "../build-stamp";
 
 /**
  * 画面が送る記録の 1 件の `client_version`（ST49 / design D20）。本物の画面から気分・場所・個人属性の主張を 1 件ずつ送り、
@@ -12,10 +13,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 test.describe.configure({ timeout: 90_000 });
 
-const version = /^\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(
-  readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8"),
-)?.[1];
-if (!version) throw new Error("Cargo.toml の出所の版番号が無い");
+const version = sourceVersion(readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8"));
 
 /** D5 の正規表現 */
 const STAMP = /^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$/;

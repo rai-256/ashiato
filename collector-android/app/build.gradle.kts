@@ -58,8 +58,6 @@ val resolvedBuildVersion = if (buildVersionInput.isEmpty()) {
     }
     buildVersionInput
 }
-/* Keep the environment provider in the configuration inputs even when its value is empty. */
-providers.environmentVariable("ASHIATO_BUILD_VERSION")
 val resolvedVersionCode = versionCodeFor(resolvedBuildVersion)
 
 // **Robolectric の android-all を Gradle が取る**（CH03。`tools/tmp-leak-check.sh android` が CI で落ちた）。
