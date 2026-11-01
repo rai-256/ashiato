@@ -36,7 +36,7 @@
 
 ## Task 1: 版番号の計算の台本（`tools/release/version.sh`）
 
-- [ ] 1.1 `tools/release/version.sh` を作る（D11・D8・D9）。口は `source`・`check <版番号>`・`code <版番号>`・`order`・`plan <印>`・`nightly-plan`・`--self-test`。
+- [x] 1.1 `tools/release/version.sh` を作る（D11・D8・D9）。口は `source`・`check <版番号>`・`code <版番号>`・`order`・`plan <印>`・`nightly-plan`・`--self-test`。
   `plan` は `channel=`・`version=`・`version_code=`・`prerelease=` の行を出し、形・出所との一致・main の祖先（D6 の修正の枝の例外を含む。Task 8 で中身を足す。ここでは「祖先でなければ落とす」まで）を見る。
   `plan` と `nightly-plan` は、祖先を見る前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（D24（仮）。`nightly-plan` は `build=` の行を出さない）。
   `nightly-plan` は `build=yes|no`・`publish=yes|no`（環境変数 `ASHIATO_NIGHTLY_PUBLISH` が `on` のときだけ yes。`on` でなく予定の実行なら `build=no`。D15）・`version=` を出し、日付は `TZ=Asia/Tokyo`（試験は `ASHIATO_NOW`（UTC の ISO 8601）で時計を渡す）。
@@ -46,7 +46,7 @@
     `main の祖先でない commit の印は公開しない`・`決めた形でない印は、どのチャンネルにも配らない`・`浅い木では、印の判定は通らない`（使い捨ての木を `git clone --depth=1 file://…` した木で rc≠0 かつ出力に「履歴が浅い」）
   - 開発版: `浅い木では、開発版の作り直しの判定は通らない`（同じ形の浅い木で rc≠0・出力に「履歴が浅い」・`build=` の行が無い）・`nightly と main の HEAD が同じ日は、開発版を作らない`・`main が進んだ日は、開発版を作り直す`・`予定の実行が落ちた次の回に、同じ変更を拾う`・`印 nightly がまだ無ければ、作り直す`・`公開の設定が入っていなければ、予定の実行は組まずに終える`・`公開の設定が入っていなければ、手で起こした作り直しも公開しない`・`出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない`（`nightly-plan` は起きた種類を `GITHUB_EVENT_NAME` で受ける。D15）
   検証: `tools/release/version.sh --self-test` rc=0 / `bash -c 'test "$(tools/release/version.sh code 0.3.0-beta.2)" = 30002 && test "$(tools/release/version.sh code 1.0.0)" = 1000099'` rc=0
-- [ ] 1.2 `CLAUDE.md` の「構成」の `tools` の行に `release/`（配る道具）を足す
+- [x] 1.2 `CLAUDE.md` の「構成」の `tools` の行に `release/`（配る道具）を足す
   検証: `bash -c 'grep -q "release/" CLAUDE.md'` rc=0
 
 ## Task 2: 版の出所を 1 つにする（Rust の 2 部品と版の記録）
