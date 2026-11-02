@@ -31,3 +31,7 @@ OpenAPI から operation を動的に取得し、router と middleware を通し
 ## 懸念
 
 並列実行時の共有 DB 行数不変 assertion は、他の DB 試験が同時に行を追加すると競合する。Task の要求する「呼ぶ前後の行数不変」を保持するため assertion は削っていない。ハーネスの Task 検証コマンドは対象試験単独なので PASS する。
+
+## Task gate 証跡
+
+`scripts/verify-run 2.1` を実行し、指定された 2 つの検証コマンドがいずれも rc=0 / PASS になった。証跡は `openspec/changes/st44-collector-credential-scope/evidence.jsonl` に記録されている。
