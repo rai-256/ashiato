@@ -155,7 +155,7 @@
 
 ## Task 9: 守りの確かめの台本と workflow（PR ごとの組み立て・印のリリース・開発版）
 
-- [ ] 9.1 `tools/release/check-guards.sh <rules|environments|workflows> [--repo <owner/name>]`（D2（仮）・D21（仮）・Q2）: `rules` は `gh api repos/<repo>/rules/tags/<印>` を読み、`deletion` と `update` が当たっていなければ rc≠0。
+- [x] 9.1 `tools/release/check-guards.sh <rules|environments|workflows> [--repo <owner/name>]`（D2（仮）・D21（仮）・Q2）: `rules` は `gh api repos/<repo>/rules/tags/<印>` を読み、`deletion` と `update` が当たっていなければ rc≠0。
   `environments` は `release` の配る対象が印 `v*` だけ、`nightly` が枝 `main` だけかを見る。`workflows` は `.github/workflows/` を読み、`changes` の出し分けの式・`nightly.yml` の cron と `publish` の `if:`・書く権限の置き場（`publish` の job だけ）を見る。
   `--self-test` は偽の `gh` と偽の変わったファイルの一覧で `印の規則が入っていなければ、公開しない`・`印の規則が入っていれば、公開の前の確かめを通る`・`鍵の置き場は、印と main のそれぞれにだけ開いている`（開いているとき・開きすぎているときの両方）を走らせる
   （`workflows` の Scenario は 9.2・9.3 で workflow を書いてから足す）
