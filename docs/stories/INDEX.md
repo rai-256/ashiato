@@ -88,20 +88,20 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 | capability | 何の能力か | 積む Story |
 |---|---|---|
-| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST49, ST50, ST52 |
+| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST44, ST49, ST50, ST52 |
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST51, ST56 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST51, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
 | `derived-records` | 派生（滞在） | ST16, ST24, ST49 |
-| `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST49 |
+| `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST44, ST49 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
 | `record-deletion` | 削除 | ST22, ST23, ST49 |
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51 |
-| `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
+| `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST44, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
 
 > **訂正（2026-10-21、ST29 の spec）**: `data-durability` に ST29 を足した。ST29 は衛星の登録簿と資格情報の表を足し、書き出しは分類の無い表があると始まらない（正典）。
@@ -356,6 +356,12 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 ## 訂正の記録
 
 （`check_chain.py` が「Story の対象外」の節を後ろまで読むので、訂正の注記はこの節に分けた。★ 2026-10-11）
+
+> **訂正（2026-11-02、ST44 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `record-envelope`・`subjective-log`・`satellite-platform` に ST44 を足した。正典の「すべての API 要求は資格情報を要求する」に例外の 3 つ（生存確認・ログイン・ログアウト）を書き、
+>   ST17 の通知の判断（「ST29 までは収集アプリの資格情報でも主観の中身は読める」）と ST29 の衛星の操作（「API の合言葉で通るいまある口の範囲は変えない（ST44）」）の導出元を、締めた後の形に MODIFIED する。後続の振る舞いの前倒しではない
+> - `device-collection`・`desktop-collection` は ST44 の割り当てに残すが、Q1 の推奨（いまの API の合言葉を締める）では収集アプリの振る舞いは変わらず、delta を持たない
 
 > **追加（2026-10-25、配布と更新の改訂）**
 >
