@@ -600,7 +600,7 @@ echo "normal: 場所を $(printf '%s' "$registered" | jq '.places | length') 件
 
 # ================================================================ Story ごとの節（tools/seed.d/）
 # **Story の節はこのファイルに書き足さない。** `tools/seed.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
-# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・AUTH・BIND・work はそのまま使える。**ここへ届くのは MODE=normal のときだけ**（empty・error は上で抜ける）。他の MODE に要る節は本体を直す chore / fix で）。
+# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・AUTH（送る）・READ（読む。画面のログインの印。ST44）・BIND・work はそのまま使える。**ここへ届くのは MODE=normal のときだけ**（empty・error は上で抜ける）。他の MODE に要る節は本体を直す chore / fix で）。
 # このファイルの末尾を並走する Story が取り合い、どの 2 本を合わせても衝突していた（2026-10-15 実測）。
 # feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
 for part in tools/seed.d/*.sh; do
