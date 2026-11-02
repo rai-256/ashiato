@@ -50,6 +50,7 @@ MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate   # 縦串の DB は毎
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
+READ=(-H "$(tools/web-login.sh "http://$BIND")")
 # 書庫の取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）。
 # 取り込み器は 1 秒ごとに登録簿を読むので、この後の待ちは長くて 1 秒
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
@@ -110,7 +111,7 @@ echo "   → $R2"
 echo "$R2" | grep -q '"duplicate":true'
 
 echo "== 6. 取り出す（論理削除を効かせたビュー越し）"
-N=$(curl -sf "${AUTH[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)
+N=$(curl -sf "${READ[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)
 echo "   → $N 件"
 [ "$N" -eq 1 ] || { echo "1 件のはずが $N 件"; exit 1; }
 
@@ -145,7 +146,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$BIND/ingest" \
 code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
   -o /dev/null -w '%{http_code}' "http://$BIND/events")
 [ "$code" = "401" ] || { echo "違う合言葉で $code"; exit 1; }
-[ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)" -eq 1 ] \
+[ "$(curl -sf "${READ[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)" -eq 1 ] \
   || { echo "断ったはずの要求で行が増えている"; exit 1; }
 
 # ------------------------------------------------------------------ ST12（書庫の実経路）
@@ -181,19 +182,19 @@ marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
   -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid AND shape_hash = '$SHAPE'")
 [ "$marks" = "1" ] || { echo "同じ形の印が $marks 行ある（確認待ちのファイルの数だけ積まれている）"; exit 1; }
 # 画面と同じく `user_id` を付けずに読む（R47。必須にしていたときは 400 だった）
-curl -sf "${AUTH[@]}" "http://$BIND/archives/status" >/dev/null \
+curl -sf "${READ[@]}" "http://$BIND/archives/status" >/dev/null \
   || { echo "/archives/status が user_id 無しで読めない（画面の箱が必ず失敗になる）"; exit 1; }
 for _ in $(seq 1 15); do
-  status=$(curl -sf "${AUTH[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
+  status=$(curl -sf "${READ[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
   if printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null; then break; fi
   sleep 1
 done
 printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null \
   || { echo "書庫の最終日が /archives/status に出ない: $status"; exit 1; }
-before=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+before=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
 cp "$ASHIATO_INBOX_DIR/取り込み済み/takeout-smoke.zip" "$ASHIATO_INBOX_DIR/takeout-smoke-again.zip"
 sleep 3
-after=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+after=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
 [ "$before" = "$after" ] || { echo "別名の同じ書庫で稼働状況の件数が増えた: $before -> $after"; exit 1; }
 echo "   → 最終日 2026-09-12 / 件数 $after（別名でも不変）"
 
@@ -547,12 +548,12 @@ echo "   → $day"
 [ "$day" = "1" ] || { echo "重複で件数が増えたか、行が消えた: $day"; exit 1; }
 
 echo "== 22. 実データ経路が読み出し口から見える（完了の判定 1 行目）"
-[ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | jq '[.[]|select(.logical_source=="c01-location")]|length')" = "11" ] \
+[ "$(curl -sf "${READ[@]}" "http://$BIND/events" | jq '[.[]|select(.logical_source=="c01-location")]|length')" = "11" ] \
   || { echo "読み出し口に 11 件見えない"; exit 1; }
 
 # **読み出し口越しでも原文がそのまま返る**（review R11）。
 # DB を直に引く手順 19 とは別の経路 —— JSON へ載せ直すときに二重にエスケープされうる
-got=$(curl -sf "${AUTH[@]}" "http://$BIND/events" \
+got=$(curl -sf "${READ[@]}" "http://$BIND/events" \
   | jq -r '.[]|select(.id=="eeeeeee1-0000-4000-8000-000000000000")|.raw')
 [ "$got" = "$weird_raw" ] || {
   echo "読み出し口で原文が変わっている"
@@ -608,7 +609,7 @@ n=$(psql -c "SELECT count(*) FROM core.heartbeat WHERE logical_source='c01-photo
 [ "$n" = "1" ] || { echo "生存信号が $n 行ある"; exit 1; }
 
 echo "== 26. 稼働状況がその日を「動いていた・記録なし」で返す（FR-54 / design D6）"
-cov=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-03-01&to=2026-03-01")
+cov=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-03-01&to=2026-03-01")
 state=$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-photo")|.days[0].state')
 echo "   → c01-photo 2026-03-01 = $state"
 [ "$state" = "alive_no_record" ] || { echo "②のはずが $state"; exit 1; }
@@ -623,7 +624,7 @@ echo "   → c01-photo 2026-03-01 = $state"
   || { echo "Must の 5 ソースが返っていない"; exit 1; }
 
 echo "== 27. 達成日数と分母、確定か暫定かが返る（NFR-13 / 第 7 回 Q27）"
-ach=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage/achievement")
+ach=$(curl -sf "${READ[@]}" "http://$BIND/coverage/achievement")
 echo "   → $(printf '%s' "$ach" | jq -c '{verdict, confirmed, not_started: (.not_started|length)}')"
 [ "$(printf '%s' "$ach" | jq '.sources|length')" = "5" ] || { echo "5 本ぶん返っていない"; exit 1; }
 # 達成日数と分母の両方が返る
@@ -904,7 +905,7 @@ stay_items=$(for i in $(seq 0 20); do
 done | jq -s -c .)
 code=$(post "$stay_items")
 [ "$code" = "200" ] || { echo "位置の記録が $code で断られた"; exit 1; }
-day=$(curl -sf "${AUTH[@]}" "http://$BIND/stays?date=2026-08-20&user_id=$STAY_USER")
+day=$(curl -sf "${READ[@]}" "http://$BIND/stays?date=2026-08-20&user_id=$STAY_USER")
 echo "   → $(printf '%s' "$day" | jq -c '[.entries[] | .kind]')"
 printf '%s' "$day" | jq -e '[.entries[] | select(.kind == "stay")] | length == 1' >/dev/null \
   || { echo "滞在が 1 件出ていない: $day"; exit 1; }
@@ -946,7 +947,7 @@ code=$(droppost "$drop"); echo "   → $code / $(jq -c '[.[] | {accepted, duplic
 [ "$(droppost "$drop")" = "200" ] || { echo "破棄の報告の再送が通らない"; exit 1; }
 jq -e '.[0].duplicate == true and .[0].accepted == true' /tmp/smoke.body >/dev/null \
   || { echo "再送が重複と判定されていない: $(cat /tmp/smoke.body)"; exit 1; }
-cov=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-08-25&to=2026-08-25")
+cov=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-08-25&to=2026-08-25")
 cell=$(printf '%s' "$cov" | jq -c '.[] | select(.logical_source=="c01-location") | .days[0]
                                    | {state, dropped_count, dropped_ranges}')
 echo "   → c01-location 2026-08-25 = $cell"
@@ -967,7 +968,7 @@ echo "== 42. 住所を 2 回変えると 3 つの主張が残る（ST19 / FR-44 
 # **別の利用者で送る**（上の段が数えている既定の利用者の記録を増やさない）
 ATTR_USER="19191919-0000-4000-8000-000000000019"
 # 読み出しの先頭で住所と職業が置かれる（design D7）。その識別子を引く
-attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+attrs=$(curl -sf "${READ[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
 ADDRESS=$(printf '%s' "$attrs" | jq -r '.kinds[] | select(.name == "住所") | .id')
 [ -n "$ADDRESS" ] && [ "$ADDRESS" != "null" ] \
   || { echo "最初の読み出しで「住所」が置かれていない: $attrs"; exit 1; }
@@ -997,7 +998,7 @@ code=$(post "$attr_items")
 [ "$(jq -r '[.[] | select(.duplicate)] | length' /tmp/smoke.body)" = "3" ] \
   || { echo "再送が重複として返っていない: $(cat /tmp/smoke.body)"; exit 1; }
 
-attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+attrs=$(curl -sf "${READ[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
 echo "   → $(printf '%s' "$attrs" | jq -c '[.kinds[] | {name, n: (.claims | length)}]')"
 printf '%s' "$attrs" | jq -e --arg k "$ADDRESS" \
   '.kinds[] | select(.id == $k) | (.claims | length) == 3 and .current.value == "東京都 目黒区"' >/dev/null \
@@ -1011,15 +1012,15 @@ printf '%s' "$attrs" | jq -e --arg k "$ADDRESS" \
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
        -d '{"name":"副業"}' "http://$BIND/attributes/kinds")
 [ "$code" = "401" ] || { echo "/attributes/kinds が合言葉なしで $code"; exit 1; }
-kid=$(curl -sf "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+kid=$(curl -sf "${READ[@]}" -H 'content-type: application/json' -X POST \
       -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副業\"}" \
       "http://$BIND/attributes/kinds" | jq -r .id)
 [ -n "$kid" ] && [ "$kid" != "null" ] || { echo "種類を足せない"; exit 1; }
-code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+code=$(curl -s -o /dev/null -w '%{http_code}' "${READ[@]}" -H 'content-type: application/json' -X POST \
        -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副収入\"}" \
        "http://$BIND/attributes/kinds/$kid/names")
 [ "$code" = "204" ] || { echo "名前を変えられない（$code）"; exit 1; }
-attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+attrs=$(curl -sf "${READ[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
 printf '%s' "$attrs" | jq -e --arg k "$kid" \
   '[.kinds[] | select(.id == $k) | .name] == ["副収入"]' >/dev/null \
   || { echo "名前を変えた種類が読み出しに出ていない: $attrs"; exit 1; }
@@ -1035,7 +1036,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/attributes")
 # **別の利用者で送る**（上の段が数えている利用者の記録を増やさない）。
 # 記録の本文は text で送る。乱数は 22 文字以上（design D3）
 PLACE_USER="21212121-0000-4000-8000-000000000021"
-place_post() { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
+place_post() { curl -s "${READ[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
                  -w '%{http_code}' -X POST "http://$BIND/places" -d "$1"; }
 # 場所の記録 1 件を送る: place_rec <記録の識別子> <原文（JSON のテキスト）>
 place_rec() {
@@ -1061,7 +1062,7 @@ place_items=$(for i in $(seq 0 20); do
     "$(printf '21000%03d-0000-4000-8000-000000000000' "$i")" "$PLACE_USER" 0 "$i"
 done | jq -s -c .)
 [ "$(post "$place_items")" = "200" ] || { echo "位置の記録が断られた"; exit 1; }
-cands=$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER")
+cands=$(curl -sf "${READ[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER")
 echo "   → $(printf '%s' "$cands" | jq -c '[.candidates[] | {lat, lon, n: .stays.count}]')"
 printf '%s' "$cands" | jq -e '.candidates | length == 1 and (.[0].stays.count == 1)' >/dev/null \
   || { echo "居た所が 1 つ出ていない: $cands"; exit 1; }
@@ -1072,7 +1073,7 @@ PLACE_ID="21210000-0000-4000-8000-000000000001"
 [ "$(place_post "{\"id\":\"$PLACE_ID\",\"user_id\":\"$PLACE_USER\"}")" = "200" ] \
   || { echo "器が作れない: $(cat /tmp/smoke.body)"; exit 1; }
 # 同じ識別子を別の利用者が取ろうとすると 400 place_id_taken
-code=$(curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body -w '%{http_code}' \
+code=$(curl -s "${READ[@]}" -H 'content-type: application/json' -o /tmp/smoke.body -w '%{http_code}' \
        -X POST "http://$BIND/places" -d "{\"id\":\"$PLACE_ID\",\"user_id\":\"00000000-0000-0000-0000-000000000000\"}")
 [ "$code" = "400" ] && [ "$(jq -r .error /tmp/smoke.body)" = "place_id_taken" ] \
   || { echo "他人の識別子が $code で断られていない: $(cat /tmp/smoke.body)"; exit 1; }
@@ -1098,7 +1099,7 @@ place_rec "21210000-0000-4000-8000-0000000000c2" \
   "$(place_raw 21210000-0000-4000-8000-0000000000c2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU5 \
      "{\"field\":\"coord\",\"lat\":35.6815,\"lon\":$CLON,\"change\":\"fix\",\"valid_from\":null,\"supersedes\":\"$COORD1\"}")"
 
-pl=$(curl -sf "${AUTH[@]}" "http://$BIND/places?user_id=$PLACE_USER")
+pl=$(curl -sf "${READ[@]}" "http://$BIND/places?user_id=$PLACE_USER")
 echo "   → $(printf '%s' "$pl" | jq -c '[.places[] | {id, name, radius_m, change: .coord.change, prev: (.previous_names | length)}]')"
 printf '%s' "$pl" | jq -e --arg id "$PLACE_ID" '
   (.places | length) == 1 and .places[0].id == $id and .places[0].name == "本社" and .places[0].radius_m == 200
@@ -1108,7 +1109,7 @@ printf '%s' "$pl" | jq -e --arg id "$PLACE_ID" '
   and .places[0].stays.count == 1' >/dev/null \
   || { echo "名前・広さ・座標を変えたあとの場所が合わない: $pl"; exit 1; }
 # 登録した場所が居た所から外れる（名前の無い居た所は残らない）
-[ "$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER" | jq '.candidates | length')" = "0" ] \
+[ "$(curl -sf "${READ[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER" | jq '.candidates | length')" = "0" ] \
   || { echo "登録した場所がまだ居た所に出ている"; exit 1; }
 echo "OK place id unchanged"
 
@@ -1117,8 +1118,8 @@ echo "OK place id unchanged"
 # smoke は起動と後始末を自分で持つので、待ち続ける `tools/stack.sh up` を検証に使わない（spec-review R10）。
 echo "== 44. 偽データ（seed normal）を当てて、場所が 2 つ以上・名前の無い居た所が 1 つ以上"
 tools/seed.sh normal
-seed_places=$(curl -fsS "${AUTH[@]}" "http://$BIND/places")
-seed_cands=$(curl -fsS "${AUTH[@]}" "http://$BIND/places/candidates")
+seed_places=$(curl -fsS "${READ[@]}" "http://$BIND/places")
+seed_cands=$(curl -fsS "${READ[@]}" "http://$BIND/places/candidates")
 [ "$(printf '%s' "$seed_places" | jq '.places | length')" -ge 2 ] || { echo "偽データの場所が 2 つ無い: $seed_places"; exit 1; }
 [ "$(printf '%s' "$seed_cands" | jq '.candidates | length')" -ge 1 ] || { echo "名前の無い居た所が無い: $seed_cands"; exit 1; }
 echo "OK seed places"

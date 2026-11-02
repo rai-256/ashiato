@@ -178,7 +178,7 @@ done
 # 本人が消した滞在: まだ消していなければ消す（消した後の 2 回目は何もしない。位置の記録は書き換えない）
 deleted_stay=$(printf '%s' "$stays_0914" | jq -r '.[0] | select(.mark == null) | .id')
 if [ -n "$deleted_stay" ]; then
-  curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/stays/erase" -d "{\"stay_id\":\"$deleted_stay\"}" >/dev/null \
+  curl -sS -f "${READ[@]}" -X POST "http://$BIND/stays/erase" -d "{\"stay_id\":\"$deleted_stay\"}" >/dev/null \
     || { echo "normal: 09-14 の滞在を消せない"; exit 1; }
 fi
 
@@ -199,7 +199,7 @@ others=$(docker compose exec -T db psql -qtAX -U ashiato -d ashiato -c \
 # 読み戻して形を確かめる: 30 日 / 使い始める前 2 / 未記入 9 / 記録あり 19、書き直し・前と後・吸収・消した滞在。
 # 窓の中に seed 以外の記録（確認バッチで人間が書いたもの）があれば、日の状態の件数はそれで動くので数えず、
 # seed が入れた記録だけで決まる形（下限）を確かめる。
-fb=$(curl -sf "${AUTH[@]}" "http://$BIND/feelings?from=2026-09-04&to=2026-10-03") \
+fb=$(curl -sf "${READ[@]}" "http://$BIND/feelings?from=2026-09-04&to=2026-10-03") \
   || { echo "normal: 主観を読み出せない"; exit 1; }
 if [ "$others" -eq 0 ]; then
   shape='(.days | length) == 30 and .first_day == "2026-09-06"

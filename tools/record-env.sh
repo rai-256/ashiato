@@ -38,13 +38,15 @@ free_port() { # $1 から上へ、WSL 側でも REC_AVOID_PORTS（Windows 側）
 # 本人の作業（tools/archive-shape.sh で形を見て印を置く）はターミナルの操作で、画面からは押せないので、ここで済ませる。
 # 標準出力の最後の 1 行が要約（ready の INFO_archive）。
 archive_prepare() {
-  local api="$1" uid token admin shape status i
-  uid="$ASHIATO_ARCHIVE_USER_ID"; token="$(sed -n 's/^API_TOKEN=//p' .env)"
+  local api="$1" uid admin shape status i
+  uid="$ASHIATO_ARCHIVE_USER_ID"
   admin="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
   q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
   # 取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）
   q "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox'" >/dev/null
-  st() { curl -sf -H "authorization: Bearer $token" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
+  local read_header
+  read_header="$(tools/web-login.sh "http://127.0.0.1:$api")"
+  st() { curl -sf -H "$read_header" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P
 src,dst=P.Path(sys.argv[1]),sys.argv[2]
 with zipfile.ZipFile(dst+".part","w") as z:

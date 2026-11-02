@@ -17,7 +17,7 @@ feel_res=$(jq -n --arg id "$FEEL_ID" --arg user "$FEEL_USER" --arg raw "$FEEL_RA
   | curl -fsS "${AUTH[@]}" -H "content-type: application/json" -X POST "http://$BIND/ingest" --data-binary @-)
 printf '%s' "$feel_res" | jq -e 'length == 1 and .[0].accepted == true' >/dev/null \
   || { echo "主観が入らなかった: $feel_res"; exit 1; }
-feel_read=$(curl -fsS "${AUTH[@]}" "http://$BIND/feelings?from=$FEEL_DAY&to=$FEEL_DAY&user_id=$FEEL_USER")
+feel_read=$(curl -fsS "${READ[@]}" "http://$BIND/feelings?from=$FEEL_DAY&to=$FEEL_DAY&user_id=$FEEL_USER")
 printf '%s' "$feel_read" | jq -e --arg id "$FEEL_ID" '
   .days[0].status == "recorded" and (.days[0].day.records | length) == 1
   and .days[0].day.latest.before.id == $id and .days[0].day.latest.before.scales[0].value == 1

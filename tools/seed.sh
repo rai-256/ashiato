@@ -19,6 +19,7 @@ MODE="${1:-normal}"
 BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"   # tools/dev.sh のサーバと同じ口（Story の worktree では 19000+2×NN）
 API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN" -H 'content-type: application/json')
+READ=(-H "$(tools/web-login.sh "http://$BIND")" -H 'content-type: application/json')
 
 case "$MODE" in
   normal) N=9  ;;
@@ -423,14 +424,14 @@ INSERT INTO core.archive_ledger_source (ledger_id, logical_source, inserted_coun
 SELECT id, 'c03-youtube-watch', 1, '2026-09-16T03:00:00Z' FROM ledger ON CONFLICT DO NOTHING;"
 echo "normal: 書庫の視聴履歴と読めた台帳を入れた"
 
-attrs_get() { curl -sf "${AUTH[@]}" "http://$BIND/attributes"; }
+attrs_get() { curl -sf "${READ[@]}" "http://$BIND/attributes"; }
 
 # **まず読み出して住所と職業を置く**（design D7 の初期化）。
 # 先に「住所」を足そうとすると、初期化が先に置いた住所と名前が重なって 400 になる
 attrs=$(attrs_get) || { echo "normal: 個人属性を読み出せない"; exit 1; }
 for name in 副業 同居 生年月日; do
   if ! printf '%s' "$attrs" | jq -e --arg n "$name" '[.kinds[].name] | index($n)' >/dev/null; then
-    curl -sf "${AUTH[@]}" -X POST "http://$BIND/attributes/kinds" -d "{\"name\":\"$name\"}" >/dev/null \
+    curl -sf "${READ[@]}" -X POST "http://$BIND/attributes/kinds" -d "{\"name\":\"$name\"}" >/dev/null \
       || { echo "normal: 種類「$name」を足せない"; exit 1; }
   fi
 done
@@ -579,7 +580,7 @@ for k, names in enumerate([["本社", "職場"], ["自宅"]]):
 print(json.dumps({"places": places, "items": out}, ensure_ascii=False))
 PY
 for pid in $(jq -r '.places[]' "$work/places.json"); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" -X POST "http://$BIND/places" -d "{\"id\":\"$pid\"}")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${READ[@]}" -X POST "http://$BIND/places" -d "{\"id\":\"$pid\"}")
   [ "$code" = "200" ] || { echo "normal: 場所の器 $pid を作れない（$code）"; exit 1; }
 done
 place_total=$(jq '.items | length' "$work/places.json")
@@ -588,8 +589,8 @@ got=$(jq -c .items "$work/places.json" | curl -sS "${AUTH[@]}" -X POST "http://$
 [ "$got" -eq "$place_total" ] \
   || { echo "normal: 場所の記録 $place_total 件のうち $got 件しか受け入れられなかった"; exit 1; }
 # 入れた数と読めた数を断言する（個人属性と同じ。受理数だけでは読み出しから消えても気付かない）
-registered=$(curl -sf "${AUTH[@]}" "http://$BIND/places")
-cands=$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates")
+registered=$(curl -sf "${READ[@]}" "http://$BIND/places")
+cands=$(curl -sf "${READ[@]}" "http://$BIND/places/candidates")
 printf '%s' "$registered" | jq -e '(.places | length) == 2 and ([.places[] | .name] | sort) == ["職場","自宅"]
   and ([.places[] | select(.name == "職場") | .previous_names | length] == [1])' >/dev/null \
   || { echo "normal: 場所が 2 つ読めない（名前の変更が前の値に出ていない）: $registered"; exit 1; }
