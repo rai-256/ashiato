@@ -47,7 +47,7 @@
 ### D2（仮）. 配った印 `v*` は消さない・動かさない。ルールセットで拒み、公開の前に確かめる
 
 配布元のリポジトリのルールセット（対象: 印 `refs/tags/v*`、規則: 削除・更新の禁止。迂回する者を置かない）を本人が入れる（`docs/release.md` の手順）。`release.yml` は公開の前に
-`tools/release/check-guards.sh rules` で `gh api repos/{owner}/{repo}/rules/tags/<印>` を読み、`deletion` と `update`（non_fast_forward を含む）の規則が当たっていなければ公開しない。
+`tools/release/check-guards.sh rules` で `gh api repos/{owner}/{repo}/rulesets` の一覧と各 ruleset の詳細を読み、印 `v*` に当たる有効な tag の ruleset に `deletion` と `update`（または non_fast_forward）の規則が無ければ公開しない（`rules/tags/<印>` の API は無い。final review R4）。
 - 選ばなかった案: 規約で守る。消した時点で凍結が黙って外れ、気づく手段が無い
 - 反転条件: GitHub の API でルールセットを読めない（権限の不足）と分かったら、公開の前の確かめを、本人が入れた後に 1 回だけ人間が見る手順に替える
 
@@ -69,6 +69,7 @@ ST52 は PC の収集アプリを入れる操作を持たない。止めるか�
 
 `tools/release/version.sh plan <印>` は、印の commit が main の祖先でないとき、その commit が `release/<MAJOR>.<MINOR>` の枝の上にあり、印が正式版で、枝の元の印
 （`git describe --tags --abbrev=0 --match 'v<MAJOR>.<MINOR>.*' <印>^`。正式版の印に限る）と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ公開を許す。
+`migrations/` は ORDER だけでなく中身（各版の `.sql`）も比べる —— ORDER が同じでも配った移行の中身を書き換えた印は、当てた DB で当て直されないまま配られる（review/code.md R24。決定の向きは同じで、比べる範囲だけを「移行の形」の文字どおりに広げた）。
 - 失わない側: 枝で移行や封筒を変えられないだけで、main では今どおり変えられる。直したい欠陥が移行に要るなら、main で直して次の版を出す
 - 反転条件: 移行を含む緊急の修正が本当に要る事態が起きたら、その移行を main にも同じ名前・中身で入れる規則を足して許す。**反転するなら D1（本人の決定。Q12）の「祖先でない印の移行は凍結に入れなくても失われない」が崩れるので、D1 の数え方を本人に聞き直す**（review/spec.md R31）
 - 台帳: `provisional.jsonl` の D6（source: review/deep.md#R9）。D1 がこの決定に乗る（台帳の D6 の行は追記のみで書き換えないので、ここに書く）
@@ -218,7 +219,7 @@ Q12 の答え（D1）と同じ型の穴で、別の席（review/spec.md R29）�
 - [組み立ての job と `publish` の job の間で配布物を受け渡すので、組み立ての job を書き換えた PR が `publish` に別物を渡す] → `publish` は印の push と main の予定の実行でだけ走り、PR からは起きない。`publish` は受け取った配布物を `check-artifacts.sh` で見てから署名・公開する
 - [下書きのリリースは書き手には見え、`gh release create --draft` が印を作るかは試していない（P16。確かさ 2）] → tasks 10.1 で下書きを作り、`git ls-remote --tags origin 'v*'` が増えないことを確かめてから確認バッチに出す。増えたら、その印を消す前に人間に返す（D2 のルールセットはまだ入っていない）
 - [APK の `BuildConfig` の定数を dex から読む道具（`apkanalyzer dex code`）の出力の形が SDK で変わる] → `check-artifacts.sh --self-test` は本物の組み立てでできた APK（資格情報あり・なし）に当てる
-- [ルールセットを読む API（`rules/tags/<印>`）を `GITHUB_TOKEN` で読めるか未確認] → D2 の反転条件。tasks 9.3 で確かめる
+- [ルールセットを読む API（`rulesets` の一覧と詳細）を `GITHUB_TOKEN` で読めるか未確認] → D2 の反転条件。tasks 9.3 で確かめる
 - [Windows でサーバを DB に繋いで画面を配るところは試していない（premises の触らなかったもの）] → ST52 の Windows の確かめは組み立てと起動の入口まで（ST55 が受ける）。画面が開くことは Linux の組み立てで e2e が見る
 
 ## Migration Plan

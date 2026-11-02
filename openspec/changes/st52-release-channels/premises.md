@@ -22,6 +22,7 @@
 | P15 | 配布版の APK（接続先と資格情報を渡さずに組んだもの）は送信せず、取得は続けて未送信に積み、90 日 / 2 GB で捨てる | Q1 | `collector-android/app/build.gradle.kts:57-61`（組み立ての時に property から焼き込む）・`Config.kt:18-29`（揃わなければ `isComplete=false`）・`LocationService.kt:927-930`（送らずに積む）・`Retention.kt:12-16` を辿った | そのとおり。設定させる口は ST56（FR-128） | 実物（repo） | 3 |
 | P16 | 下書き（draft）のリリースは書き手にしか見えず、公開するまで印を作らない | Q5 の推奨 | https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository 。tasks で下書きを作って印が増えないことを確かめる | 文書どおり（未走行） | 公式文書 | 2 |
 | P17 | CI の `rust` の job は深さ 1 で checkout し（`.github/workflows/ci.yml:68-69`）、印だけを `git fetch --depth=1` で取り寄せる（`:93`）。この木では `git tag --list` は印を見るが `git tag --merged HEAD` は空になり、`git rev-parse --is-shallow-repository` は `true` を返す。完全な clone に `git fetch --depth=1` で印を取り寄せると、その木も浅くなる。`actions/checkout` の `fetch-depth: 0` は全部の履歴と印を取る | Q12（祖先の印の数え方が CI で黙って空にならないか）・D1 | 使い捨ての repo（3 commit、HEAD の 1 つ前に印 `v0.1.0`）を `git clone --depth=1 file://…` し、CI と同じ `git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`。完全な clone にも同じ fetch を当てた。さらに今の木を深さ 1 で clone して今の `tools/check-released-migrations.sh` を走らせた | 浅い木: `--is-shallow-repository`=true・`--list`=v0.1.0・`--merged HEAD`=空。完全な木: `--merged HEAD`=v0.1.0、`--depth=1` の fetch の後は `--is-shallow-repository`=true。今の台本は浅い木で rc=0（印 0 個として通る）。`fetch-depth: 0` が印も取ることは公式文書（https://github.com/actions/checkout の README「`fetch-depth: 0` … all history for all branches and tags」）だけ | 実物（git 2.53.0、2026-11-01）・公式文書 | 4（`fetch-depth: 0` が印を取ることだけは 2。D1 は印の取り寄せを消さずに重ねるので、これに依らない） |
+| P18 | Play App Signing に持ち込む鍵は、25 年以上の有効期間が推奨される | D3（仮） | Android Developers の公式文書（https://developer.android.com/studio/publish/app-signing）。「A validity period of 25 years or more is recommended.」および Google Play の鍵には 2033 年 10 月 22 日より後の期限が必要との記載を確認した | RSA 4096・10000 日（D3）はこの推奨を満たす。D3 より厳しい種類・長さの条件は示されていない | 公式文書 | 2 |
 
 ## 触らなかったもの
 
@@ -41,6 +42,7 @@
 | C7 | リリースは 3 部品がそろったときだけ公開する（1 つでも組めなければ下書きのまま・開発版は前の版のまま） | 欠けた版を出さない側 | FR-104 |
 | C8 | 配る組み立ての印（ST49）に `.dirty` と `.debug` が無いことと、3 部品の版が印と一致することを、リリースの workflow と PR の組み立て（Q9）が確かめる | 「3 部品の版の食い違いを CI が落とす」の機械の形 | 完了の判定・R12 |
 | C9 | 緊急の修正の枝は FR-105 の例外にだけ切り、正式版の印を打ったら消す | 要件の本文どおり | FR-105 |
+
 
 ## 他の Story へ回すもの
 

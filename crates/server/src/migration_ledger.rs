@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) const LOCK_KEY: i64 = 4_820_251;
 
 /// 当てた組み立ての版番号（design D8）。
-pub const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const BUILD_VERSION: &str = env!("ASHIATO_VERSION");
 
 /// 当てた組み立ての commit（`build.rs` が決める。design D8）。
 pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");

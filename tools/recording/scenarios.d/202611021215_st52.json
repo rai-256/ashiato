@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST52": "画面の見た目と操作を変えていない。web の差分は組み立ての印の版の出所（web/build-stamp.ts が Cargo.toml を読む）・vite/vitest/playwright の設定・e2e の 2 本だけで、利用者に見える違いは「サーバが組み込んだ画面を、Node を入れずにサーバから開ける」ことだけ。それは web/e2e/st52-served-ui.spec.ts（本物のブラウザで配ったサーバから /#/coverage を開き、要求がすべて同じ origin に行く）が見る。撮れば既存の ST06/ST22 の画面と同じものが映る"
+  }
+}

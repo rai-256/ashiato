@@ -36,7 +36,7 @@
 
 ## Task 1: 版番号の計算の台本（`tools/release/version.sh`）
 
-- [ ] 1.1 `tools/release/version.sh` を作る（D11・D8・D9）。口は `source`・`check <版番号>`・`code <版番号>`・`order`・`plan <印>`・`nightly-plan`・`--self-test`。
+- [x] 1.1 `tools/release/version.sh` を作る（D11・D8・D9）。口は `source`・`check <版番号>`・`code <版番号>`・`order`・`plan <印>`・`nightly-plan`・`--self-test`。
   `plan` は `channel=`・`version=`・`version_code=`・`prerelease=` の行を出し、形・出所との一致・main の祖先（D6 の修正の枝の例外を含む。Task 8 で中身を足す。ここでは「祖先でなければ落とす」まで）を見る。
   `plan` と `nightly-plan` は、祖先を見る前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（D24（仮）。`nightly-plan` は `build=` の行を出さない）。
   `nightly-plan` は `build=yes|no`・`publish=yes|no`（環境変数 `ASHIATO_NIGHTLY_PUBLISH` が `on` のときだけ yes。`on` でなく予定の実行なら `build=no`。D15）・`version=` を出し、日付は `TZ=Asia/Tokyo`（試験は `ASHIATO_NOW`（UTC の ISO 8601）で時計を渡す）。
@@ -46,16 +46,16 @@
     `main の祖先でない commit の印は公開しない`・`決めた形でない印は、どのチャンネルにも配らない`・`浅い木では、印の判定は通らない`（使い捨ての木を `git clone --depth=1 file://…` した木で rc≠0 かつ出力に「履歴が浅い」）
   - 開発版: `浅い木では、開発版の作り直しの判定は通らない`（同じ形の浅い木で rc≠0・出力に「履歴が浅い」・`build=` の行が無い）・`nightly と main の HEAD が同じ日は、開発版を作らない`・`main が進んだ日は、開発版を作り直す`・`予定の実行が落ちた次の回に、同じ変更を拾う`・`印 nightly がまだ無ければ、作り直す`・`公開の設定が入っていなければ、予定の実行は組まずに終える`・`公開の設定が入っていなければ、手で起こした作り直しも公開しない`・`出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない`（`nightly-plan` は起きた種類を `GITHUB_EVENT_NAME` で受ける。D15）
   検証: `tools/release/version.sh --self-test` rc=0 / `bash -c 'test "$(tools/release/version.sh code 0.3.0-beta.2)" = 30002 && test "$(tools/release/version.sh code 1.0.0)" = 1000099'` rc=0
-- [ ] 1.2 `CLAUDE.md` の「構成」の `tools` の行に `release/`（配る道具）を足す
+- [x] 1.2 `CLAUDE.md` の「構成」の `tools` の行に `release/`（配る道具）を足す
   検証: `bash -c 'grep -q "release/" CLAUDE.md'` rc=0
 
 ## Task 2: 版の出所を 1 つにする（Rust の 2 部品と版の記録）
 
-- [ ] 2.1 `crates/build-stamp` に `version(source)`（D12）を足す。`ASHIATO_BUILD_VERSION` が空でなければ形（`<出所の版>`・`-beta.<1〜98>`・`-dev.<8 桁>`）と出所との一致を見て返し、違えば `Err`（出所の版と渡した版番号の両方を含む文）。
+- [x] 2.1 `crates/build-stamp` に `version(source)`（D12）を足す。`ASHIATO_BUILD_VERSION` が空でなければ形（`<出所の版>`・`-beta.<1〜98>`・`-dev.<8 桁>`）と出所との一致を見て返し、違えば `Err`（出所の版と渡した版番号の両方を含む文）。
   `rerun_lines` に `cargo:rerun-if-env-changed=ASHIATO_BUILD_VERSION` を足す。試験（`crates/build-stamp/src/lib.rs` の `#[cfg(test)]`、名前は `st52_`）:
   `// Scenario: 版番号を渡した組み立ての印は、渡した版番号で始まる`・`// Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する`（関数の段）・`// Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する`（関数の段。4 つの値を全部）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-build-stamp st52_ && test "$(cargo test -p ashiato-build-stamp st52_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
-- [ ] 2.2 `crates/server/build.rs` と `crates/collector-windows/build.rs` を `version(env!("CARGO_PKG_VERSION"))` の結果で印を組むように替え、`Err` なら `panic!`、`cargo:rustc-env=ASHIATO_VERSION=<版番号>` を出す。
+- [x] 2.2 `crates/server/build.rs` と `crates/collector-windows/build.rs` を `version(env!("CARGO_PKG_VERSION"))` の結果で印を組むように替え、`Err` なら `panic!`、`cargo:rustc-env=ASHIATO_VERSION=<版番号>` を出す。
   `migration_ledger::BUILD_VERSION` を `env!("ASHIATO_VERSION")` にする。`db_ahead` の `self:` の行と更新の履歴（ST51）は印と `BUILD_VERSION` を読むので、そのまま同じ版番号になる。
   `crates/server/tests/server_startup.rs` に、`ASHIATO_BUILD_VERSION=<出所>-beta.2` で組んだ bin を使う 3 本:
   `st52_bin_ledger_build_version`（`// Scenario: 渡した版番号で組んだサーバの版の記録は、渡した版番号を持つ`）・`st52_bin_db_ahead_self`（`// Scenario: 渡した版番号で組んだサーバが知らない版で止まると、self の行は渡した版番号を持つ`）・
@@ -67,22 +67,22 @@
 
 ## Task 3: 版の出所を 1 つにする（携帯と画面）と版の検査
 
-- [ ] 3.1 `collector-android/app/build.gradle.kts`: `versionName` と `versionCode` の文字の値を消し、根の `Cargo.toml` の `[workspace.package] version` を `providers.fileContents` で読み、`ASHIATO_BUILD_VERSION`（`providers.environmentVariable`）を D12 と同じ規則で受け、versionCode を D11 の式で計算する（範囲外は `GradleException`）。
+- [x] 3.1 `collector-android/app/build.gradle.kts`: `versionName` と `versionCode` の文字の値を消し、根の `Cargo.toml` の `[workspace.package] version` を `providers.fileContents` で読み、`ASHIATO_BUILD_VERSION`（`providers.environmentVariable`）を D12 と同じ規則で受け、versionCode を D11 の式で計算する（範囲外は `GradleException`）。
   開発版（`-dev.`）だけ `applicationIdSuffix = ".dev"`。`ASHIATO_APK_UNSIGNED=1` の release は `signingConfig` を当てない（D18）、無ければ今どおり debug 鍵（`ASHIATO_RELEASE=1` は署名に効かない）。組み立ての印（ST49 の `COMPONENT_VERSION`）の版番号もこの値にする。
   式は `build.gradle.kts` の中の関数に置く（D11）。2 つの式（`version.sh code` と gradle）が同じ値を出すことは、
   版番号と versionCode の表 `tools/release/version-table.tsv` を両方が読んで固定する: `version.sh --self-test` が表の全行を `code` に当て、gradle の試験の task `verifyVersionCodeTable`（`build.gradle.kts` に足す。表の全行を gradle の式に当て、違えば落ちる）が同じ表を当てる
   検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable && test "$(grep -vc "^#" tools/release/version-table.tsv)" -ge 8'` rc=0 /
   `bash -c 'ASHIATO_BUILD_VERSION="$(tools/release/version.sh source)-beta.2" scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'` rc=0（`// Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値`。`check-artifacts.sh` の `apk-version` は Task 6 で作る。先に Task 6.2 の `apk-version` の口だけを作ってよい）/
   `tools/release/check-artifacts.sh --self-test-gradle-range` rc=0（`// Scenario: 桁を超える版番号では、携帯の組み立てが失敗する`。使い捨ての写しの木で出所を `0.100.0` にして `:app:assembleDebug` が rc≠0）
-- [ ] 3.2 `web/build-stamp.ts` と `web/vite.config.ts`: 版番号を `package.json` でなく根の `Cargo.toml` から読み、`ASHIATO_BUILD_VERSION` を同じ規則で受ける（形が違えば `vite build` が落ちる）。`web/package.json` の `version` を消す。
+- [x] 3.2 `web/build-stamp.ts` と `web/vite.config.ts`: 版番号を `package.json` でなく根の `Cargo.toml` から読み、`ASHIATO_BUILD_VERSION` を同じ規則で受ける（形が違えば `vite build` が落ちる）。`web/package.json` の `version` を消す。
   画面の印の「ソースの道」に根の `Cargo.toml` を足す（`:/web` と `:/Cargo.toml`）。`web/src/__tests__/build-stamp.test.ts` に `// Scenario: 携帯と画面の印の版番号も、根の出所の版から読む`（画面の側。偽の `Cargo.toml` の中身を渡す）と
   `// Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（画面の側。偽の git が `Cargo.toml` の未 commit の変更を返す）
   検証: `bash -c 'cd web && npx vitest run src/__tests__/build-stamp.test.ts'` rc=0 / `bash -c 'cd web && npm run build'` rc=0
-- [ ] 3.3 `tools/check-version.sh`（`--self-test` つき。D12）: 手書きの版番号（`build.gradle.kts` の文字の `versionName = "`・`versionCode = <数>`、`web/package.json` の `version`）・出所の版の形（`0.<数>.<数>`）を見る。
+- [x] 3.3 `tools/check-version.sh`（`--self-test` つき。D12）: 手書きの版番号（`build.gradle.kts` の文字の `versionName = "`・`versionCode = <数>`、`web/package.json` の `version`）・出所の版の形（`0.<数>.<数>`）を見る。
   `--self-test` は使い捨ての木で `携帯の組み立ての設定に版番号を手で書くと、版の検査が落ちる`・`画面の package.json に版番号を書くと、版の検査が落ちる`・`出所の版の MAJOR が 0 でないと、版の検査が落ちる`・`出所の版が MAJOR.MINOR.PATCH の形でないと、版の検査が落ちる` を走らせる。
   `ci.yml` の `chain` の job に `./tools/check-version.sh --self-test` と `./tools/check-version.sh` を足す
   検証: `tools/check-version.sh --self-test` rc=0 / `tools/check-version.sh` rc=0
-- [ ] 3.4 `tools/check-build-stamp.sh` を出所の変更に合わせる（C-01 の版番号を `build.gradle.kts` の `versionName` でなく `Cargo.toml` と比べる）。節 `release` を足し、使い捨ての写しの木で `ASHIATO_BUILD_VERSION=<出所>-beta.2` を渡して 4 つの部品を release で組み、
+- [x] 3.4 `tools/check-build-stamp.sh` を出所の変更に合わせる（C-01 の版番号を `build.gradle.kts` の `versionName` でなく `Cargo.toml` と比べる）。節 `release` を足し、使い捨ての写しの木で `ASHIATO_BUILD_VERSION=<出所>-beta.2` を渡して 4 つの部品を release で組み、
   印がどれも `<出所>-beta.2+<HEAD>` で `.dirty`・`.debug` が無く、組み立ての後の `git status --porcelain` が空なことを見る（`// Scenario: 渡した版番号は、4 つの部品の印に同じ値で入り、印は .dirty を持たない`）。
   同じ節で、渡さずに組んだ 4 つの印の版番号が出所の版と同じこと（`版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ`）、出所と違う版番号でサーバの `cargo build` が落ちること（`出所の版と違う版番号を渡すと、組み立てが失敗する`）、
   `決めた形でない版番号を渡すと、組み立てが失敗する`（サーバの組み立てで 4 つの値）、`携帯と画面の印の版番号も、根の出所の版から読む`（携帯の側。出所を `0.9.0` にして commit した写しの木）・`根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ`（携帯の側。gradle の印のソースの道に根の `Cargo.toml` を足す）を見る。`ci.yml` の `build-stamp` の job に `./tools/check-build-stamp.sh release` を足し、`changes` の `stamp` の式に `web/build-stamp\.ts|web/vite\.config\.ts|tools/release/` を足す
@@ -90,25 +90,25 @@
 
 ## Task 4: 配った印の検査が祖先の印だけを数え、浅い木では落ちる（ST48・ST50 の台本と CI の checkout。D1・Q12）
 
-- [ ] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。印を数える前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（「印が 0 個なら通す」の分かれより前。D1）。`--self-test` に `// Scenario` の echo つきで
+- [x] 4.1 `tools/check-released-migrations.sh`: 印の列挙を `git tag --merged HEAD --list 'v[0-9]*'` に替える。印を数える前に `git rev-parse --is-shallow-repository` が `true` なら rc≠0 で「履歴が浅い」と示して終える（「印が 0 個なら通す」の分かれより前。D1）。`--self-test` に `// Scenario` の echo つきで
   `今の木の祖先でない印は、配った移行の検査で数えない`・`修正の枝の上では、枝の祖先の印を数える`・`開発版の印は、配った印に数えない`（distribution。`nightly` だけの木で通る。送信契約の側は 4.2）・
   `浅い木では、配った移行の検査は通らない`（使い捨ての木を `git clone --depth=1 file://…` し、`git fetch --depth=1 origin '+refs/tags/v*:refs/tags/v*'` で印だけを取り寄せた木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 7 本はそのまま
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
-- [ ] 4.2 `tools/check-contract-version.sh`: 同じく `--merged HEAD` に替え、「最後の印」を `tools/release/version.sh order` の最大で選ぶ（`--sort=-creatordate` を消す）。封筒の例の凍結（全部の印との比べ）も `--merged HEAD` の集合にする。
+- [x] 4.2 `tools/check-contract-version.sh`: 同じく `--merged HEAD` に替え、「最後の印」を `tools/release/version.sh order` の最大で選ぶ（`--sort=-creatordate` を消す）。封筒の例の凍結（全部の印との比べ）も `--merged HEAD` の集合にする。
   印を数える前の浅い木の止めも 4.1 と同じに置く。
   `--self-test` に `最後の配った印は、打った日時でなく祖先の中で版番号の最も大きい印`・`最後の配った印は、ベータ版の番号を数として比べて選ぶ`・`同じ版のベータ版と正式版では、正式版を最後の配った印に選ぶ`・`開発版の印 nightly は、最後の配った印に数えない`・`開発版の印は、配った印に数えない`（送信契約の側）・
   `浅い木では、送信契約の版の検査は通らない`（4.1 と同じ浅い木で rc≠0 かつ出力に「履歴が浅い」）を足す。既存の 10 本はそのまま
   検証: `tools/check-contract-version.sh --self-test` rc=0 / `tools/check-contract-version.sh` rc=0
-- [ ] 4.3 `docs/handoff/ST52.md` の 3 項目の下に「ST52 で処置した」を 1 行ずつ書く（型 `v[0-9]*` は変えず、数える印を祖先に絞った・版番号の出所を `Cargo.toml` から読むように替えた）
+- [x] 4.3 `docs/handoff/ST52.md` の 3 項目の下に「ST52 で処置した」を 1 行ずつ書く（型 `v[0-9]*` は変えず、数える印を祖先に絞った・版番号の出所を `Cargo.toml` から読むように替えた）
   検証: `bash -c 'test "$(grep -c "ST52 で処置した" docs/handoff/ST52.md)" -ge 3'` rc=0
-- [ ] 4.4 `.github/workflows/ci.yml` の `rust` の job（D1・Q12）: checkout に `fetch-depth: 0` を足す。印を取り寄せる手順の `git fetch` から `--depth=1` を外す（完全な木に `--depth=1` を当てると浅くなり、4.1・4.2 の止めで落ちる。premises P17）。
+- [x] 4.4 `.github/workflows/ci.yml` の `rust` の job（D1・Q12）: checkout に `fetch-depth: 0` を足す。印を取り寄せる手順の `git fetch` から `--depth=1` を外す（完全な木に `--depth=1` を当てると浅くなり、4.1・4.2 の止めで落ちる。premises P17）。
   `ls-remote` で `v*` があるときだけ取り寄せる形と、読めなければ落とす形はそのまま。止め（4.1・4.2）と同じ PR で入れる
   検証: `bash -c 'awk "/^  rust:/{f=1} f&&/^  [a-z-]+:/&&!/^  rust:/{f=0} f" .github/workflows/ci.yml > "$TMPDIR/rust.yml" && grep -q "fetch-depth: 0" "$TMPDIR/rust.yml" && ! grep -q -- "--depth=1" "$TMPDIR/rust.yml"'` rc=0 /
   `bash -c 'd="${TMPDIR:?}/sh" && git clone -q --depth=1 "file://$PWD" "$d" && git -C "$d" fetch -q --depth=1 origin "+refs/tags/v*:refs/tags/v*" 2>/dev/null; cp -r tools/. "$d/tools/" && cd "$d" && for t in check-released-migrations check-contract-version; do out="$(tools/$t.sh 2>&1)" && exit 1; grep -q "履歴が浅い" <<<"$out" || exit 1; done'` rc=0（今の木を深さ 1 で clone し、作業木の台本を写して走らせる。印が 0 個の今の木でも 2 本とも「履歴が浅い」で落ちることを見る —— 今の台本は浅い木で rc=0 になる）
 
 ## Task 5: サーバが組み込んだ画面を配る
 
-- [ ] 5.1 `crates/server/build.rs` に画面の取り込み（D13）: `ASHIATO_WEB_DIST` の中のファイルの表を `OUT_DIR/web_assets.rs` に書く（空なら空の表。`rerun-if-env-changed` と、置き場があればその中のファイル）。`ASHIATO_RELEASE=1` で空なら `panic!`。
+- [x] 5.1 `crates/server/build.rs` に画面の取り込み（D13）: `ASHIATO_WEB_DIST` の中のファイルの表を `OUT_DIR/web_assets.rs` に書く（空なら空の表。`rerun-if-env-changed` と、置き場があればその中のファイル）。`ASHIATO_RELEASE=1` で空なら `panic!`。
   新しい `crates/server/src/web_assets.rs` と `router()` の変更（`/api` を剥がす層・`fallback` に画面）。`crates/server/src/st52_web_tests.rs`（`router()` に偽の表を渡す口で試す。組み立ての表を差し替える口は試験の構成だけ）:
   - `st52_web_headers` — `// Scenario: 画面のファイルには、今と同じ守りの見出しが付く`
   - `st52_web_api_prefix` — `// Scenario: /api の道は、今の API と同じ応答と認可になる`
@@ -117,19 +117,19 @@
   - `st52_web_without_assets` — `// Scenario: 画面を組み込まない組み立てでは、/ は 404 で API は動く`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st52_web_ && test "$(cargo test -p ashiato-server st52_web_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 /
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server access_log'` rc=0（読み出しの記録が `/api` の道でも今と同じに当たる既存の試験）/ `./tools/check-openapi.sh` rc=0
-- [ ] 5.2 `crates/server/tests/server_startup.rs` に `st52_bin_release_needs_web`（`// Scenario: 配る組み立てで画面が無ければ、サーバの組み立てが失敗する`。使い捨ての `CARGO_TARGET_DIR` で `ASHIATO_RELEASE=1`・`ASHIATO_WEB_DIST` 無しの `cargo build -p ashiato-server` が rc≠0）
+- [x] 5.2 `crates/server/tests/server_startup.rs` に `st52_bin_release_needs_web`（`// Scenario: 配る組み立てで画面が無ければ、サーバの組み立てが失敗する`。使い捨ての `CARGO_TARGET_DIR` で `ASHIATO_RELEASE=1`・`ASHIATO_WEB_DIST` 無しの `cargo build -p ashiato-server` が rc≠0）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st52_bin_release && test "$(cargo test -p ashiato-server --test server_startup st52_bin_release -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
-- [ ] 5.3 `tools/stack.sh`（D20）: 画面の `vite build` をサーバの組み立ての前に移し、`ASHIATO_WEB_DIST` を渡してサーバを組む。`vite preview` は今の `WEB_PORT` のまま。
+- [x] 5.3 `tools/stack.sh`（D20）: 画面の `vite build` をサーバの組み立ての前に移し、`ASHIATO_WEB_DIST` を渡してサーバを組む。`vite preview` は今の `WEB_PORT` のまま。
   `web/e2e/st52-served-ui.spec.ts`（`// Scenario: 配ったサーバだけで、Node を入れずに画面が開く`）: 環境変数 `BIND` から絶対 URL `http://$BIND/` を組んで開き（`baseURL` の `WEB_PORT` を使わない）、合言葉でログインし、`/api/coverage` の応答を待って稼働状況の格子が見える（`toBeVisible`）。
   開いた間の要求の URL がどれも `$BIND` の番号であることも見る
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- st52-served-ui.spec.ts'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- login.spec.ts stack.spec.ts'` rc=0（既存の e2e が `vite preview` のまま通る）
 
 ## Task 6: 配る組み立ての台本と配布物の検査
 
-- [ ] 6.1 `tools/release/build.sh <server-linux|server-windows|collector-windows|apk> <出力の置き場>`（D14・D17）: 画面を `vite build` してサーバに取り込む・release で組む・D17 の名前で包む。`ASHIATO_BUILD_VERSION` があれば渡す。
+- [x] 6.1 `tools/release/build.sh <server-linux|server-windows|collector-windows|apk> <出力の置き場>`（D14・D17）: 画面を `vite build` してサーバに取り込む・release で組む・D17 の名前で包む。`ASHIATO_BUILD_VERSION` があれば渡す。
   Windows の 2 つは Windows の runner（と WSL からの Windows 側の cargo）で走る形にする（`bash` は Git Bash）。`--self-test` は Linux で `server-linux` と `apk` を組み、名前と中身を見る（Windows の 2 つの本物の通しは Task 9.2 の `package` の job が CI で見る）
   検証: `bash -c 'scripts/quiet-run pkg -- tools/release/build.sh --self-test'` rc=0
-- [ ] 6.2 `tools/release/check-artifacts.sh <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>]`（D7・D23（仮））と口 `apk-version <apk>`: チャンネルの配布物がそろう（既定と `release`・`beta` は 4 つ、`nightly` は携帯の APK を除く 3 つで、APK があれば落とす）・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ（`nightly` は APK が無いので指紋と `BuildConfig` を見ず、期待値は空でよい。D23（仮））。
+- [x] 6.2 `tools/release/check-artifacts.sh <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>]`（D7・D23（仮））と口 `apk-version <apk>`: チャンネルの配布物がそろう（既定と `release`・`beta` は 4 つ、`nightly` は携帯の APK を除く 3 つで、APK があれば落とす）・印の版番号が 1 つ（と期待の値）・`.dirty` / `.debug` が無い・APK の `BASE_URL`・`API_TOKEN`・`USER_ID` が空・（`--allow-debug-key` でなければ）署名の指紋が `ASHIATO_EXPECT_CERT_SHA256` と同じ（`nightly` は APK が無いので指紋と `BuildConfig` を見ず、期待値は空でよい。D23（仮））。
   `--self-test` は、Linux で本物に組んだ 2 つ（Task 6.1 の `server-linux` と `apk`）と、Windows の 2 つの写し（Linux で組んだ C-02 の rlib から読んだ組み立ての印の文字列を、D17 の名前の zip に詰めたもの —— 検査は印の文字列と名前しか読まないので形は同じ）でそろえた置き場と、資格情報 `secret-token-for-test` を `-Pashiato.apiToken` で焼き込んだ APK・debug の APK・未 commit の変更で組んだサーバ）に当てる:
   `配布物が 1 つでも欠ければ公開しない`・`.dirty の印を持つ配布物があれば公開しない`・`.debug の印を持つ配布物があれば公開しない`・`資格情報を焼き込んだ APK があれば公開せず、値を示さない`（出力に `secret-token-for-test` が無いことも見る）・`綺麗な release で資格情報の無い配布物は、検査を通る`・
   `1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ`・`開発版の配布物の検査は、携帯の APK を除く 3 つで通る`（`server-linux` と Windows の 2 つの写しを `0.4.0-dev.20261102` で用意し、`ASHIATO_EXPECT_CERT_SHA256` を空にして `--channel nightly` が rc=0）・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`（`ashiato-collector-dev-0.4.0-dev.20261102.apk` と `ashiato-collector-0.4.0-dev.20261102.apk` をそれぞれ足して rc≠0 と名前）
@@ -137,34 +137,34 @@
 
 ## Task 7: 携帯の APK の署名と鍵を作る台本
 
-- [ ] 7.1 `tools/release/make-key.sh <official|dev> <出力の置き場>`（D3（仮））と `make-key.sh verify <keystore>`: 合言葉は標準入力から。`--self-test` は
+- [x] 7.1 `tools/release/make-key.sh <official|dev> <出力の置き場>`（D3（仮））と `make-key.sh verify <keystore>`: 合言葉は標準入力から。`--self-test` は
   `鍵を作る台本は、決めた種類・長さ・有効期限の鍵だけを作る`・`鍵を作る台本は、決めた長さに満たない鍵を確かめで落とす`（`keytool` で 2048 bit の鍵を作って `verify` に当てる）。
   Play App Signing に持ち込める鍵の条件の一次情報（公式文書の URL と引用）を `premises.md` に P17 として足す（確かさ 2。条件が D3 より厳しければ実装を止めて上流へ返す）
   検証: `bash -c 'scripts/quiet-run key -- tools/release/make-key.sh --self-test'` rc=0 / `bash -c 'grep -q "^| P17 " openspec/changes/st52-release-channels/premises.md'` rc=0
 
-- [ ] 7.2 `tools/release/sign-apk.sh <apk> <official|dev> <出力>`（D18）: 環境変数の鍵（base64）を `$TMPDIR` に戻して `apksigner sign` を当て、終わりに消す。鍵が無ければ rc≠0。
+- [x] 7.2 `tools/release/sign-apk.sh <apk> <official|dev> <出力>`（D18）: 環境変数の鍵（base64）を `$TMPDIR` に戻して `apksigner sign` を当て、終わりに消す。鍵が無ければ rc≠0。
   開発版は識別子が `dev.ashiato.collector.dev` の APK にだけ、正式版はそうでない APK にだけ当てる（取り違えは rc≠0）。`--self-test` は使い捨ての鍵 2 つ（`make-key.sh` で作る）で:
   `正式版の APK は、正式な識別子と正式な鍵で署名されている`・`識別子とチャンネルの鍵を取り違えると、署名しない`・`開発版の APK は、.dev の識別子と開発版の鍵で署名されている`・`鍵が置き場に無ければ、署名しない APK を公開しない`・`PR の組み立ての APK は debug の鍵で署名される`（PR の形の `build.sh apk` の APK の証明書が `~/.android/debug.keystore` のもの）
   検証: `bash -c 'scripts/quiet-run sign -- tools/release/sign-apk.sh --self-test'` rc=0
 
 ## Task 8: 緊急の修正の枝の判定（D6（仮））
 
-- [ ] 8.1 `tools/release/version.sh plan` に修正の枝の例外（D6）を足す: 印の commit が main の祖先でなく、`release/<MAJOR>.<MINOR>` の枝の上にあり、正式版の印で、枝の元の正式版の印と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ通す。
+- [x] 8.1 `tools/release/version.sh plan` に修正の枝の例外（D6）を足す: 印の commit が main の祖先でなく、`release/<MAJOR>.<MINOR>` の枝の上にあり、正式版の印で、枝の元の正式版の印と `migrations/ORDER`・`docs/contract/envelope.json` が同じときだけ通す。
   `--self-test` に `修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる`・`修正の枝で移行を足した印は公開しない`・`修正の枝で封筒の形を変えた印は公開しない`・`修正の枝からベータ版は出さない` を足す
   検証: `tools/release/version.sh --self-test` rc=0
 
 ## Task 9: 守りの確かめの台本と workflow（PR ごとの組み立て・印のリリース・開発版）
 
-- [ ] 9.1 `tools/release/check-guards.sh <rules|environments|workflows> [--repo <owner/name>]`（D2（仮）・D21（仮）・Q2）: `rules` は `gh api repos/<repo>/rules/tags/<印>` を読み、`deletion` と `update` が当たっていなければ rc≠0。
+- [x] 9.1 `tools/release/check-guards.sh <rules|environments|workflows> [--repo <owner/name>]`（D2（仮）・D21（仮）・Q2）: `rules` は `gh api repos/<repo>/rules/tags/<印>` を読み、`deletion` と `update` が当たっていなければ rc≠0。
   `environments` は `release` の配る対象が印 `v*` だけ、`nightly` が枝 `main` だけかを見る。`workflows` は `.github/workflows/` を読み、`changes` の出し分けの式・`nightly.yml` の cron と `publish` の `if:`・書く権限の置き場（`publish` の job だけ）を見る。
   `--self-test` は偽の `gh` と偽の変わったファイルの一覧で `印の規則が入っていなければ、公開しない`・`印の規則が入っていれば、公開の前の確かめを通る`・`鍵の置き場は、印と main のそれぞれにだけ開いている`（開いているとき・開きすぎているときの両方）を走らせる
   （`workflows` の Scenario は 9.2・9.3 で workflow を書いてから足す）
   検証: `tools/release/check-guards.sh --self-test` rc=0
-- [ ] 9.2 `ci.yml` に `package` の job（D14）: `changes` の `code` が true のときだけ。手順は `tools/release/package.sh <linux|windows> <置き場>`（`build.sh` を呼び、`ASHIATO_RELEASE=1`・`ASHIATO_BUILD_VERSION` を渡さない）に置き、Linux の job で `server-linux` と `apk`、Windows の job で `server-windows` と `collector-windows` を組み、
+- [x] 9.2 `ci.yml` に `package` の job（D14）: `changes` の `code` が true のときだけ。手順は `tools/release/package.sh <linux|windows> <置き場>`（`build.sh` を呼び、`ASHIATO_RELEASE=1`・`ASHIATO_BUILD_VERSION` を渡さない）に置き、Linux の job で `server-linux` と `apk`、Windows の job で `server-windows` と `collector-windows` を組み、
   最後の 1 つの job で 4 つを集めて `check-artifacts.sh --allow-debug-key --expect-version "$(tools/release/version.sh source)"` を通して `actions/upload-artifact` で置く。`permissions: contents: read` のまま。
   `check-guards.sh --self-test` に `コードを触った PR では、配る形の組み立てが走る`・`文書だけの PR では、配る形の組み立てを飛ばす` を、`package.sh --self-test` に `配る形を壊した PR は、その PR の CI で落ちる`（`build.sh` の 1 つを落とす偽の木で rc≠0）を足す
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/package.sh --self-test` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
-- [ ] 9.3 `release.yml`・`nightly.yml`（D8・D9・D10・D14・D15・D18）。`nightly.yml` の `schedule` は `cron: "0 15 * * *"`。組み立ての job は `contents: read`（`release.yml` の携帯の APK は `ASHIATO_APK_UNSIGNED=1`。`nightly.yml` は ST54 まで携帯の APK を組まない。Q4・D23（仮））、`publish` だけが `contents: write` と `environment:`、`nightly` の `publish` は `if: vars.ASHIATO_NIGHTLY_PUBLISH == 'on'` も持つ。
+- [x] 9.3 `release.yml`・`nightly.yml`（D8・D9・D10・D14・D15・D18）。`nightly.yml` の `schedule` は `cron: "0 15 * * *"`。組み立ての job は `contents: read`（`release.yml` の携帯の APK は `ASHIATO_APK_UNSIGNED=1`。`nightly.yml` は ST54 まで携帯の APK を組まない。Q4・D23（仮））、`publish` だけが `contents: write` と `environment:`、`nightly` の `publish` は `if: vars.ASHIATO_NIGHTLY_PUBLISH == 'on'` も持つ。
   `release.yml` で `version.sh plan` を、`nightly.yml` で `version.sh nightly-plan` を走らせる job の checkout は `fetch-depth: 0`（D24（仮）・D14。浅い木では判定が「履歴が浅い」で落ちる）。
   `release.yml` の `publish` は `check-guards.sh rules` → `sign-apk.sh` → `check-artifacts.sh`（`ASHIATO_EXPECT_CERT_SHA256` は Environment の変数 `ASHIATO_CERT_SHA256`）→ `gh release create`。`nightly.yml` の `publish` は `check-artifacts.sh --channel nightly` → D15 の入れ替え（署名しない）。
   `check-guards.sh workflows` は `nightly.yml` に携帯の APK の組み立て（`build.sh apk`）と `sign-apk.sh` の呼び出しが無いことも見る。`check-guards.sh --self-test` に `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない`（APK の job を足した偽の `nightly.yml` で rc≠0）・`開発版の作り直しは、日本時間の 0:00 に起きる`・`公開の設定が無ければ、印 nightly を動かす手順は走らない` を足す
@@ -172,13 +172,13 @@
 
 ## Task 10: 下書きのリリースを作る台本（印を打たない）
 
-- [ ] 10.1 `tools/release/draft.sh <run-id> <版番号>`（D16）: `gh run download` → `check-artifacts.sh --allow-debug-key` → `gh release create --draft [--prerelease] --target main`。`--self-test` は偽の `gh` で
+- [x] 10.1 `tools/release/draft.sh <run-id> <版番号>`（D16）: `gh run download` → `check-artifacts.sh --allow-debug-key` → `gh release create --draft [--prerelease] --target main`。`--self-test` は偽の `gh` で
   `確かめの組み立ては、印を作らずに下書きのリリースになる`・`確かめの組み立ても、配布物が欠ければ下書きを作らない` を走らせる。本物の配布元では走らせない（末尾の「人間の確認待ち」で走らせる）
   検証: `tools/release/draft.sh --self-test` rc=0
 
 ## Task 11: 手順書と申し送り
 
-- [ ] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
+- [x] 11.1 `docs/release.md`（D19）: 鍵を作る（`make-key.sh`）・控え（正式な鍵は扉 34 の USB と拠点外の 2 か所と紙の合言葉、開発版の鍵は正式な鍵と別で USB に 1 部 —— Q11。作って `nightly` に置くのは ST54 で、ここには手順だけ）・Environment `release`（印 `v*` だけ。D21（仮））と Secrets と指紋の変数 `ASHIATO_CERT_SHA256` / `nightly`（枝 `main`。ST52 では鍵を置かない）・ルールセット・
   最初の印を main の commit に打つ・開発版の公開を始める（`ASHIATO_NIGHTLY_PUBLISH`）・壊れた版は次の版で直す・修正の枝の切り方と消し方・本人の環境を移す（D4）・
   正式版を出した後に出所の版を次の版に上げる（Q6 の推奨。開発版が出したばかりの正式版より古く見えないように）・確認バッチの確かめの手順（下の「人間の確認待ち」のコマンド）。`docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「出所は `Cargo.toml` の workspace の `version`。ほかは読む（ST52）」と書く。
   `docs/handoff/ST53.md`（最初の印と開発版の公開（`ASHIATO_NIGHTLY_PUBLISH`）は ST53 の後に本人が始める・`docs/release.md` の手順・ST52 の完了の判定の残り（D22・Q13。本物の公開・正式な鍵での署名・本人のサーバの切り替え））・`docs/handoff/ST54.md`（開発版の DB の扱いの節を足す。review/deep.md R11。開発版の携帯の APK と鍵の節（Q4・Q11・D23（仮））は上流が書いた。実装が道具の名前を変えたら直す）・`docs/handoff/ST58.md`（PC の後戻り。R14・D5（仮））に 1 節ずつ足す
@@ -191,5 +191,5 @@
 - [ ] 12.1 **下書きのリリース**（D16・P16）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を走らせ、作る前と後で `git ls-remote --tags origin 'v*' | wc -l` が同じこと、下書きに 4 つの配布物が並び先行公開の印が付いていることを見る。見た後に下書きを消す。
   印が増えたら、その印を消さずに止めて上流へ返す（ルールセットはまだ無い）。P16 の確かさを 4 にする
 - [ ] 12.2 **Environment の守り**（P12・D21（仮））: 使い捨ての Environment `st52-probe`（配る対象: 枝 `main` だけ）に使い捨ての Secret を置き、PR の枝から読もうとする workflow を 1 回だけ走らせて読めないことを見て、Environment を消す。P12 の確かさを 4 にする。読めたら鍵を置かず、Q2 を人間に聞き直す
-- [ ] 12.3 **ルールセットの読み**（D2（仮））: `tools/release/check-guards.sh rules --repo rai-256/ashiato` を、Actions の `GITHUB_TOKEN` 相当の読みの権限で走らせ、規則が無いことを読めるか（rc≠0 で「規則が無い」と出るか、権限で読めないか）を見る。読めなければ D2 の反転条件で上流へ返す。結果を P18 として書く
+- [ ] 12.3 **ルールセットの読み**（D2（仮））: `tools/release/check-guards.sh rules --repo rai-256/ashiato2` を、Actions の `GITHUB_TOKEN` 相当の読みの権限で走らせ、規則が無いことを読めるか（rc≠0 で「規則が無い」と出るか、権限で読めないか）を見る。読めなければ D2 の反転条件で上流へ返す。結果を P18 として書く
 - [ ] 12.4 **手順書**: `docs/release.md` を読み、鍵を作る・Environment とルールセットを入れる手順が、本人の手元でそのまま進められること（入れるのは ST53 の後の最初の印の前。ST52 の確認では入れなくてよい）

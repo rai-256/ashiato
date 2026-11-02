@@ -8,6 +8,79 @@ use std::process::Command;
 
 /// 組み立ての commit を渡す環境変数（空でなければ `git` より先に使う）。
 pub const COMMIT_ENV: &str = "ASHIATO_BUILD_COMMIT";
+/// 組み立てに渡す版番号。
+pub const VERSION_ENV: &str = "ASHIATO_BUILD_VERSION";
+
+/// 出所の版番号と、組み立てに渡された版番号を検査する。
+pub fn version(source: &str) -> Result<String, String> {
+    let Some(given) = std::env::var(VERSION_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(source.to_string());
+    };
+    let source_parts = parse_version(source).ok_or_else(|| {
+        format!("版番号の出所が決めた形でない: 出所 {source}、渡した版番号 {given}")
+    })?;
+    let given_parts = parse_version(&given)
+        .ok_or_else(|| format!("版番号が決めた形でない: 出所 {source}、渡した版番号 {given}"))?;
+    if source_parts.base != given_parts.base {
+        return Err(format!(
+            "版番号の出所が一致しない: 出所 {source}、渡した版番号 {given}"
+        ));
+    }
+    Ok(given)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedVersion<'a> {
+    base: (&'a str, &'a str, &'a str),
+}
+
+fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
+    let (base, suffix) = value
+        .split_once('-')
+        .map_or((value, None), |(b, s)| (b, Some(s)));
+    let mut numbers = base.split('.');
+    let base = (numbers.next()?, numbers.next()?, numbers.next()?);
+    if numbers.next().is_some()
+        || base.0.is_empty()
+        || base.1.is_empty()
+        || base.2.is_empty()
+        || !base.0.chars().all(|c| c.is_ascii_digit())
+        || !base.1.chars().all(|c| c.is_ascii_digit())
+        || !base.2.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    match suffix {
+        None => {}
+        Some(suffix) if suffix.starts_with("beta.") => {
+            // 数字だけかを先に見る（`u8` の parse は `+5` も通す。final review R12）
+            let digits = suffix.strip_prefix("beta.")?;
+            if digits.is_empty()
+                || !digits.chars().all(|c| c.is_ascii_digit())
+                || digits.starts_with('0')
+            {
+                return None;
+            }
+            // N は 1〜98（spec。99 は正式版の versionCode の末尾。final review R8）
+            let n = digits.parse::<u8>().ok()?;
+            if !(1..=98).contains(&n) {
+                return None;
+            }
+        }
+        Some(suffix) if suffix.starts_with("dev.") => {
+            let date = suffix.strip_prefix("dev.")?;
+            if date.len() != 8 || !date.chars().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+        }
+        Some(_) => return None,
+    }
+    Some(ParsedVersion { base })
+}
 
 /// 印を組む。形は `<version>+<commit>[.dirty][.debug]`。
 /// `.dirty` は `source_paths` の下に未 commit の変更（未追跡を含む）があるときだけ、`.debug` は `profile` が `release` でないとき。
@@ -46,7 +119,10 @@ pub fn emit_rerun(repo: &Path, source_paths: &[&str]) {
 }
 
 fn rerun_lines(repo: &Path, source_paths: &[&str]) -> Vec<String> {
-    let mut lines = vec![format!("cargo:rerun-if-env-changed={COMMIT_ENV}")];
+    let mut lines = vec![
+        format!("cargo:rerun-if-env-changed={COMMIT_ENV}"),
+        format!("cargo:rerun-if-env-changed={VERSION_ENV}"),
+    ];
     // 存在しない道を出すと cargo は毎回作り直すので、あるものだけを出す
     let mut watch: Vec<PathBuf> = Vec::new();
     if let (Some(git_dir), Some(common_dir)) = (
@@ -230,6 +306,69 @@ mod tests {
     }
 
     #[test]
+    fn st52_version_given_version_starts_stamp_version() {
+        // Scenario: 版番号を渡した組み立ての印は、渡した版番号で始まる
+        let (d, head) = tree();
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let given = "0.1.0-beta.2";
+        std::env::set_var(VERSION_ENV, given);
+        let resolved = version("0.1.0").expect("渡した版番号を受ける");
+        let stamp = stamp(&resolved, "release", d.path(), &[]);
+        std::env::remove_var(VERSION_ENV);
+        assert_eq!(stamp, format!("{given}+{head}"));
+    }
+
+    #[test]
+    fn st52_version_rejects_different_source_version() {
+        // Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::env::set_var(VERSION_ENV, "0.2.0-beta.2");
+        let error = version("0.1.0").expect_err("出所と違う版番号を拒む");
+        std::env::remove_var(VERSION_ENV);
+        assert!(error.contains("0.1.0"), "{error}");
+        assert!(error.contains("0.2.0-beta.2"), "{error}");
+    }
+
+    #[test]
+    fn st52_version_rejects_invalid_shapes() {
+        // Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for given in [
+            "0.1.0-rc.1",
+            "0.1.0-beta.99",
+            "0.1.0-beta.0",
+            "0.1.0-dev.2026111",
+            "0.1.0-beta.+5",
+        ] {
+            std::env::set_var(VERSION_ENV, given);
+            let error = version("0.1.0").expect_err("決めた形でない版番号を拒む");
+            assert!(error.contains("0.1.0"), "{given}: {error}");
+            assert!(error.contains(given), "{given}: {error}");
+        }
+        std::env::remove_var(VERSION_ENV);
+    }
+
+    #[test]
+    fn st52_version_accepts_beta_up_to_98() {
+        // ベータ番号は 1〜98（spec。final review R8）。99 と符号つきは上の試験が拒む
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for given in ["0.1.0-beta.1", "0.1.0-beta.90", "0.1.0-beta.98"] {
+            std::env::set_var(VERSION_ENV, given);
+            let resolved = version("0.1.0");
+            std::env::remove_var(VERSION_ENV);
+            assert_eq!(resolved.as_deref(), Ok(given));
+        }
+    }
+
+    #[test]
     fn st49_stamp_rerun_paths_follow_worktree_git_dir() {
         let (d, _head) = tree();
         let wt = tempfile::tempdir().expect("tempdir");
@@ -260,6 +399,7 @@ mod tests {
         has(common.join("refs/heads/feat"));
         has(fs::canonicalize(wt_path.join("crates/a")).expect("canon"));
         assert!(lines.contains(&format!("cargo:rerun-if-env-changed={COMMIT_ENV}")));
+        assert!(lines.contains(&format!("cargo:rerun-if-env-changed={VERSION_ENV}")));
     }
 
     #[test]
