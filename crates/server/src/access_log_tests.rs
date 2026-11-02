@@ -348,6 +348,7 @@ async fn access_log_middleware_session_routes_each_write_one_row() {
         vec![entry("web_session", "/session", "GET", "ok", 200)]
     );
 
+    // ST44 D12（仮）: API の合言葉ではログインの状態も読めない（もとは 200 / ok）。行は API の合言葉・403 で残る
     let res = router(app.clone())
         .oneshot(bearer(Method::GET, "/session", Body::empty()))
         .await
