@@ -108,11 +108,11 @@
 
 ## Task 6: e2e と録画の読む求めをログインの印にする
 
-- [ ] 6.1 `web/e2e/*.spec.ts` のうち `Authorization: Bearer` で**読む**求め（`ch08-nested`・`st49-client-version`・`feel-ch01`・`feel`・`places`・`feel-parts`・`settings-satellites`・`st23-purge` から `grep -n Bearer` で拾う）を、
+- [x] 6.1 `web/e2e/*.spec.ts` のうち `Authorization: Bearer` で**読む**求め（`ch08-nested`・`st49-client-version`・`feel-ch01`・`feel`・`places`・`feel-parts`・`settings-satellites`・`st23-purge` から `grep -n Bearer` で拾う）を、
   `global-setup.ts` が残す `storageState`（`e2e/.auth/state.json`）の印を読んで見出し `cookie` で付ける形に替える（共通の補助を `web/e2e/auth.ts` に 1 つ置く。`page.request` に任せない。design D13）。送る求めは `Bearer` のまま。
   `web/e2e/feel.spec.ts:16` の注記（「画面の外の要求には付かない」ので Bearer）を、送る求めだけ Bearer・読む求めは見出しの印、に直す。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e'` rc=0 / `bash -c 'cd web && npm run typecheck'` rc=0
-- [ ] 6.2 `tools/recording` の録画（`st17/st17-feel.rec.ts`・`ch01/ch01-feel.rec.ts`・`ch08/ch08-nested.rec.ts`・`st23/st23-purge.rec.ts`・`playwright.recording.config.ts`）の読む求めを同じ形に替える（`web/e2e/auth.ts` の補助を使う）。
+- [x] 6.2 `tools/recording` の録画（`st17/st17-feel.rec.ts`・`ch01/ch01-feel.rec.ts`・`ch08/ch08-nested.rec.ts`・`st23/st23-purge.rec.ts`・`playwright.recording.config.ts`）の読む求めを同じ形に替える（`web/e2e/auth.ts` の補助を使う）。
   送る求めの `BEARER` は残す。注記（「画面の外から `/api` を直に叩く要求は API の合言葉で通す」）を送る求めだけに直す。
   あわせて新しい `tools/check-api-token-reads.sh <ファイルかフォルダ…>` を置く: 渡したファイルの中で API の合言葉を付ける求め（`Bearer`・`BEARER`・`AUTH[@]` と同じ行か同じ呼び出し）の口が、許可の一覧の 9 つの口でなければ、ファイルと行を出して rc 1。
   `--self-test` で、許可の一覧の口（`/ingest`）は通し・外の口（`/events`）は落とすことを確かめる（台本を読み違えて全部を通す形を止める）。
