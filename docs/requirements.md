@@ -975,6 +975,8 @@
   正式版と並べて入れられ、開発版が正式版の記録・自動起動・通知を取り合わない。開発版の S-01 は正式版と別の D-01 に繋ぐ。
   開発版は公開されているが、**サポートしないことを配布元に明記する**（本人の言葉:「公開はされてるので無理やりも使えるけど」）。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C13。C-02 は自動起動の項目（`ashiato-collector.cmd`）と通知の差出人（`dev.ashiato.collector`）が固定で、同じ PC で取り合う
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C11（AI の推奨）。**開発版の S-01 と D-01 は、正式版と別のサービスの名前・別の状態の置き場（FR-109）・別の待ち受けで動かす。**
+  開発版も公開する配布物なので、Docker を入れさせない（§5「配布の方針」）。ST54 の D8（仮。開発版の DB を `docker compose` で立てる手順書）は、ST55 のインストーラができるまでのつなぎ
 - **FR-107**: WHEN 1 日の終わりに、幹にその日の変更がある THE SYSTEM SHALL 開発版を作り直す。
   変更の無い日は作らない（Q11。CI の枠を食う。Windows の実行は 2 倍で数えられ、過去に枠が尽きた）。
 - **FR-108**: WHEN 利用者が S-01 のインストールを始める THE SYSTEM SHALL 配布物に同梱した PostgreSQL（D-01）と S-01 を OS のサービスとして登録し、PC の起動時から動かす。
@@ -992,22 +994,33 @@
   ★ 2026-11-03 閉じる。旧い未決「S-01 を Windows 向けに組み立てられるかは試していない」は ST52 が閉じた（`openspec/specs/distribution/spec.md` の `ashiato-server-<版番号>-windows-x86_64.zip`）。
   **配る形で移行を当ててサーバを起こす試験を、Windows の CI に 1 本持つ**（Q4。推奨と同じ）。開発と試験の DB はいまの Docker（WSL の中）のままで、PostgreSQL のメジャー版を揃える（FR-132）。
   いまの Docker の DB の記録は配る形へ移さない（Q5。推奨と同じ。本人の答え: 移したい記録は無い）。Docker の DB は開発と試験のためだけに残る
-- **FR-109**: THE SYSTEM SHALL S-01 が持ち続ける状態のすべて（D-01・D-02・移行の前の退避・拠点内のバックアップ・書き出し・DB の合言葉・設定）を、S-01 と D-01 のサービスのアカウントだけが書ける PC 全体の置き場（Windows では `ProgramData` の下）に置く。
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C3 / C5 / C7 / C8 / K4 と `docs/briefs/req-native-postgres-r3.html` の Q1・Q2・Q4（どれも推奨と同じ）。
+  **配る D-01 も製造準備の既定値で作る**（C7。AI の推奨）: ログの 3 つの設定（`log_statement=none` など。`docs/production-prep.md` の「プラットフォーム既定値の棚卸し」）・待ち受けを `127.0.0.1` に限る・手元の接続にも合言葉を求める（`trust` を残さない。FR-110 の合言葉が効くように）。
+  **インストーラは、インストールした本人のダウンロードと取り込み待ちのフォルダに、サービスのアカウントの読み（取り込み待ちは読み書き）を足す**（Q1）。「Takeout はダウンロードするだけで入る」（正典 external-ingestion）をサービスでも続ける。
+  **S-01 の更新（と、その中で移行が失敗したときの自動の戻し）は、更新のたびに管理者の確認（UAC）を 1 回出して行う**（Q2）。上の「管理者の権限を 1 回」はインストールのときの数。
+  **本人の環境を配った版へ切り替えるのは、ST55 が済んでから、そのインストーラで入れて行う**（Q4）。ST53 の後に Docker の DB のまま切り替えない（Q5 の「移さない」と合わせる。`docs/release.md` §7）。
+  下調べの P3 は ST55 の上流の枝 `docs/st55-upstream`（commit `4f068c66`）の `premises.md` にある（K4。main には無い）。結果の逐語は上のとおり
+- **FR-109**: THE SYSTEM SHALL S-01 が持ち続ける状態のすべて（D-01・D-02・移行の前の退避・拠点内のバックアップ・書き出し・DB の合言葉・設定）を、S-01 と D-01 のサービスのアカウントだけが書け、それとインストールした本人だけが読める PC 全体の置き場（Windows では `ProgramData` の下）に置く。
   ★ 2026-11-03 訂正。配布の方針の改訂（`docs/briefs/req-native-postgres-r2.html` の Q1）。サーバもデータベースもサービスにしたので、置き場は本人のフォルダでなく PC 全体の置き場にする
   （問いの文脈に置き、本人が選んだ。サービス専用のアカウントだけが書ける、は AI の推奨）。同梱した PostgreSQL はデータをこの置き場に直に置くので、コンテナのボリュームの問題は無くなった。
   旧い本文（2026-10-25）: 「… を、コンテナの実行環境の外の Windows のフォルダに置く。」
   ★ 2026-11-03 閉じる。旧い未決「Docker Desktop で PostgreSQL のデータを Windows のフォルダに置いて初期化・fsync が通るかは試していない」は、Docker Desktop を使わなくなったので問いごと無くなった。
   ★ Q4。コンテナの中のボリュームは、実行環境を入れ直す・消すと一緒に消えることがあり、利用者は実行環境を ashiato のおまけと見て片付けうる。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C9 / K2。D-01 と D-02 だけでは、移行の前の退避（FR-119 の戻し先）が更新の最中に消えうる。
+  ★ 2026-11-03 訂正。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C4（AI の推奨）。読む側も絞る —— `ProgramData` の下は既定で同じ PC のほかのアカウントに読みを許しうる（未確認）。DB の合言葉も置くので、改訂前の `%LOCALAPPDATA%`（本人のプロファイルの中）と正典の Unix の 0700 / 0600 と同じ強さに揃える。
+  本人が読めるのは、書き出しと原本を開くため。旧い本文（2026-11-03 の最初の改訂）は「サービスのアカウントだけが書ける PC 全体の置き場」
 - **FR-110**: WHEN S-01 のインストールが D-01 を初めて作る THE SYSTEM SHALL DB の合言葉を自動で生成し、その PC の中にだけ置く。
   ★ Q5。DB の合言葉は人が覚える必要が無い。固定値を持たない（ST28 / design D19 と同じ）。
 - **FR-111**: WHEN S-01 のインストールが最後に達する THE SYSTEM SHALL 画面の合言葉を利用者に設定させる。
   ★ Q5。画面の合言葉を設定する口はどの Story も持っていなかった（2026-10-04 に見つけた穴。配布の前までに要る）。
+  ★ 2026-11-03 補足。後から変える口は FR-133（整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C9）
 - **FR-112**: WHILE 更新の確認が有効である THE SYSTEM SHALL 利用者のチャンネルに新しい版があるかを、S-01 の更新係・C-01・C-02 のそれぞれで 1 日 1 回、配布元に確かめる。
   認証なしの問い合わせは IP ごとに 1 時間 60 回まで（EXT-P）なので、1 日 1 回なら当たらない。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C1。**S-01 の版を確かめるのは、D-01 に繋がらない別のプロセス（更新係）にする。**
   正典は「サーバに外部の宛先へ記録を送る部品（HTTP の送り手）を持たせない」を、部品を持つかどうかで固定している（`openspec/specs/data-sensitivity/spec.md`・`tools/check-offsite.sh`）。
   S-01 に問い合わせの部品を足すと、その守りを開けることになる。更新係は記録を持たないので、問い合わせの部品を持っても記録は外へ出せない。S-01 は更新係が書いた結果を読むだけ。
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C8（AI の推奨）。S-01 と D-01 をサービスにしたので、**更新係は S-01 とも D-01 とも別のサービスのアカウントで動き、結果を自分の置き場に書く**（S-01 はそこを読むだけ。FR-109 の置き場には書かない）。
+  更新を入れるのは本人で、そのとき管理者の確認を 1 回出す（FR-108 の 2026-11-03 の補足）
 - **FR-113**: WHEN 利用者のチャンネルに新しい版が見つかる THE SYSTEM SHALL V-01 と C-01 の画面、C-02 の通知に「更新あり」を出す。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C11。C-02 には画面が無く、表に出るのはトーストの通知だけ
 - **FR-114**: WHEN 利用者が「更新あり」を押す THE SYSTEM SHALL 新しい版を落とし、入れる操作（Android のインストール画面・Windows のインストーラ・S-01 の更新の手順）を開く。
@@ -1104,6 +1117,10 @@
   ★ 2026-11-03 追加。配布の方針の改訂（`docs/briefs/req-native-postgres-r1.html` の Q3・Q4。どちらも推奨と同じ）。17 のあいだはマイナー版の差し替え（データはそのまま）だけを配る。
   開発と試験はいまの `docker-compose.yml`（`postgres:17-alpine`）のまま。
   [NEEDS CLARIFICATION: メジャー版を上げるときのデータの移し方（新旧の版を持って pg_upgrade か、書き出して入れ直すか）。どちらも FR-119 の退避の形に乗せる。期限: 配る PostgreSQL のメジャー版を初めて上げる前（17 の公式の支援は 2029 年 11 月まで）]
+- **FR-133**: THE SYSTEM SHALL 画面の合言葉と、収集アプリが使う共有の値（FR-128）を、V-01 にログインした後の設定から変えられるようにする。
+  ★ 2026-11-03 追加。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C9 と `docs/briefs/req-native-postgres-r3.html` の Q3（本人が選んだ。推奨はサーバの管理用のコマンドだった）。
+  設定はサービスのアカウントだけが書ける置き場に入る（FR-109）ので、いまの `.env` を書き換える手順（`docs/network.md` §4）は配る形では使えない。FR-111 はインストールの最後に決める口だけだった。
+  問いに書いた弱み: 携帯から画面に入れると、携帯を落としたときにその携帯からも変えられる。**変えるときは今の画面の合言葉を入れ直させる**（AI の推奨。ログインしたままの携帯を拾われても、合言葉を知らなければ変えられない）
 
 ### 3.2 追加機能（Should Have）
 
@@ -1281,8 +1298,9 @@
   網の外に出ない手段（Tailscale のファイル送信・USB など）で自宅 PC の置き場へ運ぶことを含む**（2 か月ごと。EXT-M）。
   Google の推定した訪問と移動手段は C-01 の位置からは作れないので、書き出さなかった期間は端末から消えれば戻らない。
   クラウドのドライブを経由しないのは、位置の全履歴の写しが外へ出るため。運ぶ仕組みはシステムが作らない。
-- **NFR-25**: 版番号は、一般向けの配布（§5「配布の方針」の S-01 の配り方の選び直し）までは **0.x** とし、選び直した後の最初の正式版を **1.0** とする。
+- **NFR-25**: 版番号は、一般向けの配布までは **0.x** とし、一般向けの配布の最初の正式版を **1.0** とする。
   ★ 2026-10-25 追加。配布と更新の深掘り Q10（推奨と同じ側）。0.x は「形が変わりうる」の合図として読まれる。
+  ★ 2026-11-03 訂正。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C10。旧い本文は「一般向けの配布（§5「配布の方針」の S-01 の配り方の選び直し）まで」。配り方の選び直しは 2026-11-03 に済んだが、一般向けの配布はまだなので、合図を「一般向けの配布」だけにした
 - **NFR-26**: 配布物に入る依存の許諾は、**C-01（gradle / maven）を含めて**機械の検査で AGPL-3.0（と追加の許可）との両立を確かめる。
   ★ 2026-10-25 追加。いまの `tools/check-licenses.sh` は Rust と Node だけを見て、Android は対象外（design D15 で「公開前に決める」）。
   `play-services-location` はプロプライエタリで、追加の許可（§5）が受ける。許可の外のプロプライエタリな依存が入ったら検査が止める。
@@ -1487,6 +1505,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 ### 技術的制約
 
 - D-01 は **PostgreSQL**（本人の指定）。版は実装時に決める
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C14。メジャー版は 17（FR-132）
 - S-01 と D-01/D-02 は自宅の Windows PC 上で動く。C-01 は Android、C-02 は Windows
   ★ 2026-11-03 補足。S-01 と D-01/D-02 は Linux の PC にも入れられるようにする（FR-131）。Windows の配布を先に通し、Linux は一般向けの配布の前まで
 - **S-01 / D-01 / D-02 は自宅に置く（オンプレ）。クラウドに置かない。**
@@ -1538,7 +1557,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 
 ### 配布の方針（2026-10-25 決定）
 
-配布と更新の要件（FR-104〜FR-132）の前提。2026-10-24〜25 の会話で本人が決めた（推奨を示し、本人が選んだ）。2026-11-03 に D-01 の置き方を改訂した（FR-108・FR-131・FR-132）。
+配布と更新の要件（FR-104〜FR-133）の前提。2026-10-24〜25 の会話で本人が決めた（推奨を示し、本人が選んだ）。2026-11-03 に D-01 の置き方を改訂した（FR-108・FR-109・FR-131〜FR-133）。
 
 - **インストーラーの見た目より、更新の経路を先に通す。** 「作る → 配る → 更新する → 移行を当てる → 失敗したら戻す」を先に動かし、
   本人の環境をその経路に切り替える。整ったインストーラーの見た目と利用者向けの説明は、一般向けの配布の直前に回す。
@@ -1607,7 +1626,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-P | GitHub の REST API は、認証なしの問い合わせを 1 時間 60 回までに限る | https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api | "The primary rate limit for unauthenticated requests is 60 requests per hour." | 2026-10-25 | 2027-04-25 | FR-112（1 日 1 回なら当たらない） |
 | EXT-Q | Microsoft Store に MSIX で出すと、署名は無料で Store が行い、SmartScreen の警告が出ない | https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options | "Microsoft re-signs your package automatically, meaning users never see a SmartScreen warning and you never need to purchase or renew a certificate." / "Create a free developer account at https://storedeveloper.microsoft.com." | 2026-10-25 | 2027-04-25 | §5「配布の方針」の C-02 の署名（一般向けの第一候補） |
 | EXT-R | 署名の無い配布物には SmartScreen の強い警告が出る。Azure Artifact Signing は個人では米国とカナダに限られる | https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options | "Strong SmartScreen block; enterprises may block entirely" / "Individual developers are currently limited to the USA and Canada." | 2026-10-25 | 2027-04-25 | §5「配布の方針」の C-02 の署名（当面は署名しない・Artifact Signing を採れない理由） |
-| EXT-S | PostgreSQL の Windows 版には、インストーラの無い zip（EDB が配る）があり、ほかのアプリのインストーラに含める用途を想定している。PostgreSQL の許諾は再配布を許す | https://www.postgresql.org/download/windows/ ・ https://www.postgresql.org/about/licence/ | "Advanced users can also download a zip archive of the binaries, without the installer. This download is intended for users who wish to include Postgres as part of another application installer." / "Permission to use, copy, modify, and distribute this software and its documentation for any purpose, without fee, and without a written agreement is hereby granted" | 2026-11-03 | 2027-05-03 | FR-108。zip の置き場（EDB）には再配布の条件が書かれていない（"These archives are provided as a convenience for expert users."）。zip に入る PostgreSQL 以外の部品の許諾は ST55 が揃える。★ 2026-11-03、Docker Desktop の規約の行（旧 EXT-O。Health Connect の EXT-O と番号が重なっていた）を外した |
+| EXT-S | PostgreSQL の Windows 版には、インストーラの無い zip（EDB が配る）があり、ほかのアプリのインストーラに含める用途を想定している。PostgreSQL の許諾は再配布を許す | https://www.postgresql.org/download/windows/ ・ https://www.postgresql.org/about/licence/ | "Advanced users can also download a zip archive of the binaries, without the installer. This download is intended for users who wish to include Postgres as part of another application installer." / "Permission to use, copy, modify, and distribute this software and its documentation for any purpose, without fee, and without a written agreement is hereby granted" | 2026-11-03 | 2027-05-03 | FR-108・FR-127。zip の置き場（EDB）には再配布の条件が書かれていない（"These archives are provided as a convenience for expert users."）。PostgreSQL と zip に入るほかの部品の許諾は、同梱する Story（ST55）が FR-127 の一覧と NFR-26 の検査に足す（整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C12）。★ 2026-11-03、Docker Desktop の規約の行（旧 EXT-O。Health Connect の EXT-O と番号が重なっていた）を外した |
 
 > EXT-E は「表示される範囲」の記述だが、**Chromium はローカルの履歴データベースからも 90 日で削除する** ——
 > `components/history/core/browser/history_backend.h`: "The number of days old a history entry can be before it is considered \"old\" and is deleted." `kExpireDaysThreshold = 90`
