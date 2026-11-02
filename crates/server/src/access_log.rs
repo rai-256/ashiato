@@ -177,12 +177,12 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
     // 1 つ目の判定の結果を持ち回り、2 つ目で読み直さない（ST44 final review R4）
     let verdict = match caller {
         Some(Caller::ApiToken) if !collector_allows(req.method(), &route) => Verdict::Forbidden,
-        Some(Caller::ApiToken) | Some(Caller::WebSession) if is_ingest(&route) => {
+        Some(Caller::ApiToken | Caller::WebSession) if is_ingest(&route) => {
             return next.run(req).await;
         }
         // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
         Some(Caller::Satellite { .. }) => Verdict::Forbidden,
-        Some(Caller::ApiToken) | Some(Caller::WebSession) => Verdict::Pass,
+        Some(Caller::ApiToken | Caller::WebSession) => Verdict::Pass,
         None => Verdict::Unauthorized,
     };
     let (outcome, status) = match verdict {
