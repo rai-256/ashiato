@@ -65,6 +65,7 @@
 
 - FR-127 に ★ 2026-11-02 補足: 「同じ印」で示すのは正式版・ベータ版だけ、開発版と PR の組み立ては 40 桁の commit で示す（Q7・review/spec.md R14・D16（仮））。許諾は配布物の中にだけ置き、画面からは開けない（Q6・Q9）
 - §5「配布の方針」に ★ 2026-11-02 追加: C-01 の許諾を読む画面（Q6。期限: Play ストアへ出す前）と、V-01 のソースの場所と許諾へのリンク（Q9。期限: 一般向けの配布の前）を `[NEEDS CLARIFICATION]` で残した。受ける Story はまだ無い（/requirements から足す）
+- 整合の確認（`docs/audit/2026-11-02-st53-consistency.md`。14 件）の処置で、FR-127 ★ の範囲（main への push も commit・どの commit かは D9（仮））と §5 の「NFR-26 の検査が止める」の範囲（K1）を直し、`docs/release.md`（鍵を置く前に IMP-01・IMP-02 を判断し直す。C1）・`docs/handoff/ST53.md`・`docs/production-prep.md` を答えに合わせた。design・spec の「答え待ち」の印（C11）は合意に結び付くので、この段では直さない
 
 ## Story へ戻したもの（record の段。2026-11-02）
 
