@@ -771,21 +771,24 @@ async fn authorize(
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
         }
     }
-    let given = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or_default();
     // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
     // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
     // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
     // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
     tracing::warn!(
         kind = "unauthorized",
-        credential_present = !given.is_empty(),
+        credential_present = credential_present(headers),
         "資格情報が一致しない"
     );
     Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
+}
+
+/// 401 のログの `credential_present`。`authorization` か `cookie` の見出しが付いていたか（値は見ない。製造準備 A-2）。
+/// `authorize` と読み出しの記録の middleware が**同じ条件**で出す（ST44 final review R5）——
+/// 画面の印の期限切れも、ずれた API の合言葉も「資格情報は有った」として、「何も付いていない」と分ける。
+pub(crate) fn credential_present(headers: &HeaderMap) -> bool {
+    headers.contains_key(axum::http::header::AUTHORIZATION)
+        || headers.contains_key(axum::http::header::COOKIE)
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——

@@ -15,7 +15,9 @@ use axum::{
 use uuid::Uuid;
 
 use crate::web_session::Caller;
-use crate::{collector_scope::collector_allows, decided, internal_at, App, Authn};
+use crate::{
+    collector_scope::collector_allows, credential_present, decided, internal_at, App, Authn,
+};
 
 /// 記録の経路（D8）。`x-forwarded-for` があれば網越し（`tailscale serve` が付ける）。
 /// **同じ PC のプロセスは偽れる**（spec の注記）。
@@ -142,6 +144,17 @@ fn is_ingest(route: &str) -> bool {
     matches!(route, "/ingest" | "/heartbeat" | "/drops")
 }
 
+/// middleware の判定。行の `outcome` と応答の両方をこれから決める。
+#[derive(Clone, Copy)]
+enum Verdict {
+    /// ハンドラへ渡す
+    Pass,
+    /// 403（一覧の外の API の合言葉・衛星）
+    Forbidden,
+    /// 401（資格情報が認められなかった）
+    Unauthorized,
+}
+
 /// 1 求め 1 行を**ハンドラの前**に書く。書けなければハンドラを呼ばずに 500（D8）。
 /// `/healthz` と `/session`（ハンドラが判定の場で自分で書く）はここを通らない。
 pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Response {
@@ -161,16 +174,21 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
         }
     };
     let method = req.method().as_str().to_owned();
-    let credential_present =
-        req.headers().get("authorization").is_some() || req.headers().get("cookie").is_some();
-    let (outcome, status) = match caller {
-        Some(Caller::ApiToken) if !collector_allows(req.method(), &route) => ("forbidden", 403),
+    // 1 つ目の判定の結果を持ち回り、2 つ目で読み直さない（ST44 final review R4）
+    let verdict = match caller {
+        Some(Caller::ApiToken) if !collector_allows(req.method(), &route) => Verdict::Forbidden,
         Some(Caller::ApiToken) | Some(Caller::WebSession) if is_ingest(&route) => {
             return next.run(req).await;
         }
-        Some(Caller::Satellite { .. }) => ("forbidden", 403),
-        Some(Caller::ApiToken) | Some(Caller::WebSession) => ("ok", 200),
-        None => ("unauthorized", 401),
+        // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
+        Some(Caller::Satellite { .. }) => Verdict::Forbidden,
+        Some(Caller::ApiToken) | Some(Caller::WebSession) => Verdict::Pass,
+        None => Verdict::Unauthorized,
+    };
+    let (outcome, status) = match verdict {
+        Verdict::Pass => ("ok", 200),
+        Verdict::Forbidden => ("forbidden", 403),
+        Verdict::Unauthorized => ("unauthorized", 401),
     };
     let entry = AccessEntry::for_caller(
         caller,
@@ -183,23 +201,17 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
     if let Err(e) = app.access.write(entry).await {
         return e.into_response();
     }
-    match caller {
-        Some(Caller::ApiToken) if outcome == "forbidden" => {
-            return (StatusCode::FORBIDDEN, "forbidden").into_response();
-        }
-        Some(Caller::Satellite { .. }) => {
-            // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
-            return (StatusCode::FORBIDDEN, "forbidden").into_response();
-        }
-        None => {
+    match verdict {
+        Verdict::Pass => {}
+        Verdict::Forbidden => return (StatusCode::FORBIDDEN, "forbidden").into_response(),
+        Verdict::Unauthorized => {
             tracing::warn!(
                 kind = "unauthorized",
-                credential_present,
+                credential_present = credential_present(req.headers()),
                 "資格情報が一致しない"
             );
             return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
         }
-        Some(Caller::WebSession) | Some(Caller::ApiToken) => {}
     }
     next.run(req).await
 }
