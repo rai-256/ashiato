@@ -1094,6 +1094,7 @@
 - **FR-127**: THE SYSTEM SHALL 配布物に、本体の許諾（AGPL-3.0 と追加の許可。§5）と、配布物に入る依存の許諾の一覧を同梱する。
   **本体を公開する = 配布が発生する**（§5 商用化の方針）。対応するソースは、同じ印（タグ）のリポジトリで示す。
   ★ 2026-10-25 補足。整合の確認（`docs/audit/2026-10-25-consistency.md`）の K4。追加の許可を足す Story は、`LICENSE`・`README.md`・`CONTRIBUTING.md`・ソースの SPDX（`AGPL-3.0-only`）・`tools/check-licenses.sh` の許可一覧を一緒に直す
+  ★ 2026-11-02 補足。ST53 の深掘り Q7（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）と spec レビュー R14（design D16（仮））。**「同じ印」で示すのは正式版・ベータ版（印 `v*`）だけ。開発版と PR の組み立ては、組み立ての 40 桁の commit で示す**（開発版の印 `nightly` は毎日動き、PR の組み立てには印が無いので、印では対応するソースを指せない）。配布物の中の許諾は、携帯の APK の中（`assets/licenses/`）とサーバ・PC の配布物の中にだけ置き、画面からは開けない（携帯の画面は Play ストアへ出す前、サーバの画面は一般向けの配布の前に決める。§5「配布の方針」の未決。ST53 の深掘り Q6・Q9）
 - **FR-128**: WHEN 収集アプリ（C-01 / C-02）を入れた後に初めて起動する THE SYSTEM SHALL 接続先（S-01）と資格情報を利用者に設定させる。
   ★ 2026-10-25 追加。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C3。いまの C-01 は接続先・資格情報・利用者識別子を組み立ての時に APK へ焼き込み（`build.gradle.kts` の `buildConfigField`）、
   C-02 は環境変数を自動起動の `.cmd` に平文で書く。1 つの APK を全員に配る（FR-104）と、配った APK は送信を始めない。
@@ -1572,8 +1573,10 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
   一般向けの配布の前に、専用の WSL 環境か、Windows に直接入れる形かを選び直す」。その未決を「Windows に直接入れる形」で閉じた（`docs/briefs/req-native-postgres-r1.html`・`-r2.html`）。
   直接入れる形は PostgreSQL の同梱・サービス化・メジャー版の移し替えを自前で持つ（2026-10-25 に 4〜6 Story 相当と見積もった）。
   S-01 をコンテナに入れない理由（整合の確認 `docs/audit/2026-10-25-consistency.md` の C2。loopback の守り）は変わらない
+  ★ 2026-11-02 追加。ST53 の深掘り Q9（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。S-01 の画面（V-01）は、対応するソースの場所（同じ版の印のリポジトリ）と許諾へのリンクを出さない。[NEEDS CLARIFICATION: V-01 にソースの場所と許諾へのリンクを出すか（受ける Story はまだ無い。/requirements から足す）。期限: 一般向けの配布の前]
 - **C-01 は配布元に APK を置いて直に配る。** いずれ Play ストアへ（本人の言葉:「まだ2でいいと思います。いずれは1を」）。
   Play のトラックは 3 つのチャンネルにそのまま使える。代わりに位置（バックグラウンド）と写真の全件の権限で審査が厳しい
+  ★ 2026-11-02 追加。ST53 の深掘り Q6（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。C-01 の許諾（FR-127）は APK の中に置くだけで、アプリの画面からは開けない。[NEEDS CLARIFICATION: C-01 に許諾の一覧を読む画面を足すか（受ける Story はまだ無い。/requirements から足す）。期限: Play ストアへ出す前]
 - **C-02 は当面、Windows の署名をしない**（本人の言葉:「一旦は署名なしで」）。署名の無い配布物には SmartScreen の強い警告が出る（EXT-R）。
   一般向けの配布では **Microsoft Store（MSIX）を第一候補**にする（個人の登録は無料で、Store が署名し直す。EXT-Q）。
   その前に、C-02 の動き（スタートアップへの登録・ほかのアプリの窓と閲覧履歴を読む）が MSIX で成り立つかを確かめる。
