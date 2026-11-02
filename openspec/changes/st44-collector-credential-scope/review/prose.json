@@ -1,0 +1,20 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 94,
+ "applied": [
+  "impact.overview",
+  "walkthroughs[W1].scene",
+  "walkthroughs[W1].exceptions[0].text",
+  "walkthroughs[W2].scene",
+  "walkthroughs[W2].why",
+  "points[collector.3].text",
+  "points[collector.5].text",
+  "points[deny.2].text",
+  "points[tools.2].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
