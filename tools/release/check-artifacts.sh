@@ -151,6 +151,8 @@ self_test() {
     || die 'apksigner 37 の形の指紋を読めない'
   [[ "$(printf 'Signer (minSdkVersion=24, maxSdkVersion=32) certificate DN: CN=x\nSigner (minSdkVersion=24, maxSdkVersion=32) certificate SHA-256 digest: %s\nSigner (minSdkVersion=24, maxSdkVersion=32) certificate SHA-1 digest: 00\n' "$fp" | apk_cert_from_print_certs)" == "$fp" ]] \
     || die 'apksigner の SDK 範囲付きの形の指紋を読めない'
+  [[ "$(printf 'V2 Scheme Signer: certificate DN: CN=x\nV2 Scheme Signer: certificate SHA-256 digest: %s\nV2 Scheme Signer: certificate SHA-1 digest: 00\n' "$fp" | apk_cert_from_print_certs)" == "$fp" ]] \
+    || die 'apksigner の署名者名が変わる形の指紋を読めない'
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"

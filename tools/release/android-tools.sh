@@ -20,11 +20,10 @@ android_tool() {
 }
 
 # `apksigner verify --print-certs` の出力（標準入力）から、最初の署名者の証明書の SHA-256（小文字 64 桁）を取り出す。
-# 出力の形は build-tools の版や SDK 範囲で変わる: `Signer #1 certificate SHA-256 digest: <hex>`、
-# `Signer (minSdkVersion=…, maxSdkVersion=…) certificate SHA-256 digest: <hex>`、
-# `V2 Signer: certificate SHA-256 digest: <hex>` のいずれも、この 1 つの関数で読む。
+# 出力の署名者名は build-tools の版や SDK 範囲で変わる。署名者名を列挙せず、最初の
+# `certificate SHA-256 digest` 行だけを読む（最初の行が最初の署名者の証明書）。
 apk_cert_from_print_certs() {
-  sed -nE 's/^(Signer (#[0-9]+|\(.*\))|V[0-9.]+ Signer:) certificate SHA-256 digest: ([0-9A-Fa-f:]+)$/\3/p' | head -n1 | tr -d ':' | tr 'A-F' 'a-f'
+  sed -nE 's/^.* certificate SHA-256 digest: ([0-9A-Fa-f:]+)$/\1/p' | head -n1 | tr -d ':' | tr 'A-F' 'a-f'
 }
 
 # APK の最初の署名者の証明書の SHA-256。読めなければ空で返す（判定は呼び出し側）
