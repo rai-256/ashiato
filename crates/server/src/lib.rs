@@ -50,6 +50,9 @@ mod attributes_tests;
 mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
+pub mod collector_scope;
+#[cfg(test)]
+mod collector_scope_tests;
 /// 記録ごとの部品の版（ST49）の移行と門。
 #[cfg(test)]
 mod component_version_tests;
@@ -418,6 +421,9 @@ pub async fn run_migrate() -> anyhow::Result<()> {
 /// 取り込み器の内部の App が持つ画面の合言葉。**HTTP に出さない**ので使われない（ログインの口を通らない）。
 #[cfg_attr(test, allow(dead_code))]
 const INTERNAL_WEB_PASSWORD: &str = "archive-internal-not-served";
+/// 内部の App のログインの印の鍵。ログインの口を通らないので印は作られない（`INTERNAL_WEB_PASSWORD` と同じ）。
+#[cfg_attr(test, allow(dead_code))]
+const INTERNAL_WEB_SESSION_KEY: &str = "archive-internal-session-key";
 
 #[derive(Clone, Debug)]
 pub struct App {
@@ -465,10 +471,11 @@ impl App {
         pool: sqlx::PgPool,
         token: String,
         web_password: &str,
+        session_key: &str,
         session_max_age_days: u32,
     ) -> Self {
         Self {
-            login: web_session::WebLogin::new(&token, web_password, session_max_age_days),
+            login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
             token,
@@ -525,7 +532,13 @@ impl App {
     /// テスト用。作り直しの口は本物を使う。画面の合言葉は試験の既定値、失敗の待ちは 0。
     #[cfg(test)]
     pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
-        let mut app = Self::new(pool, token.into(), "test-web-password-0123456789", 0);
+        let mut app = Self::new(
+            pool,
+            token.into(),
+            "test-web-password-0123456789",
+            "test-session-key-0123456789",
+            0,
+        );
         app.login.failure_delay = std::time::Duration::ZERO;
         app
     }
@@ -533,9 +546,25 @@ impl App {
     /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
     #[cfg(test)]
     pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
-        let mut login = web_session::WebLogin::new(&self.token, web_password, session_max_age_days);
+        let mut login = web_session::WebLogin::new(
+            self.login.session_key_for_test(),
+            web_password,
+            session_max_age_days,
+        );
         login.failure_delay = self.login.failure_delay;
         Self { login, ..self }
+    }
+
+    /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
+    #[cfg(test)]
+    pub(crate) fn with_session_key(self, session_key: &str) -> Self {
+        let login = self.login.with_session_key_for_test(session_key);
+        Self { login, ..self }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn web_password_for_test(&self) -> &str {
+        self.login.password_for_test()
     }
 
     /// いまの時刻。試験は `at()` で差し込める。
@@ -745,21 +774,29 @@ async fn authorize(
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
         }
     }
-    let given = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or_default();
     // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
     // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
     // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
     // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
     tracing::warn!(
         kind = "unauthorized",
-        credential_present = !given.is_empty(),
+        credential_present = credential_present(headers),
         "資格情報が一致しない"
     );
     Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
+}
+
+/// 401 のログの `credential_present`。空でない `Bearer` か、このサーバの印の cookie が付いていたか（値は見ない。製造準備 A-2）。
+/// `authorize` と読み出しの記録の middleware が**同じ条件**で出す（ST44 final review R5）——
+/// 画面の印の期限切れも、ずれた API の合言葉も「資格情報は有った」として、「何も付いていない」と分ける。
+/// 同じ host のほかの cookie（tailscale・vite）や `Bearer` でない見出しは資格情報に数えない（/code-review R23）。
+pub(crate) fn credential_present(headers: &HeaderMap) -> bool {
+    let bearer = headers
+        .get_all(axum::http::header::AUTHORIZATION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| v.strip_prefix("Bearer ").is_some_and(|t| !t.is_empty()));
+    bearer || web_session::cookie_token(headers).is_some()
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——
@@ -1024,7 +1061,13 @@ fn internal_app(pool: sqlx::PgPool) -> App {
     #[cfg(test)]
     let app = App::for_test(pool, "archive-store");
     #[cfg(not(test))]
-    let app = App::new(pool, "archive-store".into(), INTERNAL_WEB_PASSWORD, 0);
+    let app = App::new(
+        pool,
+        "archive-store".into(),
+        INTERNAL_WEB_PASSWORD,
+        INTERNAL_WEB_SESSION_KEY,
+        0,
+    );
     app
 }
 
@@ -3363,6 +3406,7 @@ pub async fn store_heartbeat(
         pool.clone(),
         "archive-heartbeat".into(),
         INTERNAL_WEB_PASSWORD,
+        INTERNAL_WEB_SESSION_KEY,
         0,
     );
     heartbeat_one(
@@ -4380,6 +4424,20 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(2);
     }
     let web_password = web_password.unwrap_or_default();
+    let session_key = std::env::var("WEB_SESSION_KEY").ok();
+    if let Err(refusal) =
+        web_session::check_web_session_key(session_key.as_deref(), &token, &web_password)
+    {
+        tracing::error!(
+            kind = "web_session_key",
+            reason = refusal.reason(),
+            "起動しない"
+        );
+        // log-ok: reason() は自分で名付けた &'static str（鍵の値は出さない）。起動前の拒否を端末にも出す
+        eprintln!("error: kind=web_session_key reason={}", refusal.reason());
+        std::process::exit(2);
+    }
+    let session_key = session_key.unwrap_or_default();
     // ログインの期限（日。0 = なし。design D18）
     let session_max_age_days = web_session::session_max_age_days(
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
@@ -4476,10 +4534,16 @@ pub async fn run() -> anyhow::Result<()> {
             "原本の置き場を用意できない"
         );
     }
-    let state = App::new(pool, token, &web_password, session_max_age_days)
-        .with_reading(reading)
-        .with_warmup(warmup)
-        .with_media(media);
+    let state = App::new(
+        pool,
+        token,
+        &web_password,
+        &session_key,
+        session_max_age_days,
+    )
+    .with_reading(reading)
+    .with_warmup(warmup)
+    .with_media(media);
     // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
     // 書き出しの台帳だけを握る（App の全体を仕事の寿命まで持たない。/code-review R28）
     let exports = state.exports.clone();

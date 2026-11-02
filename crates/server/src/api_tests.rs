@@ -24,7 +24,7 @@ fn auth() -> HeaderMap {
 }
 
 /// 生存信号 1 件ぶんの JSON。
-fn hb(source: &str, user: uuid::Uuid, emitted: &str) -> serde_json::Value {
+pub(crate) fn hb(source: &str, user: uuid::Uuid, emitted: &str) -> serde_json::Value {
     serde_json::json!({
         "id": uuid::Uuid::new_v4(),
         "user_id": user,
@@ -40,7 +40,13 @@ fn hb(source: &str, user: uuid::Uuid, emitted: &str) -> serde_json::Value {
 }
 
 /// 記録 1 件ぶんの JSON。
-fn ev(source: &str, user: uuid::Uuid, event_time: &str, tz: &str, raw: &str) -> serde_json::Value {
+pub(crate) fn ev(
+    source: &str,
+    user: uuid::Uuid,
+    event_time: &str,
+    tz: &str,
+    raw: &str,
+) -> serde_json::Value {
     serde_json::json!({
         "id": uuid::Uuid::new_v4(),
         "user_id": user,

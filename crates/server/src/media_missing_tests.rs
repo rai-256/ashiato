@@ -16,7 +16,7 @@ async fn app() -> App {
     App::for_test(testdb::pool().await, TOKEN)
 }
 
-fn sha() -> String {
+pub(crate) fn sha() -> String {
     format!(
         "{:x}",
         sha2::Sha256::digest(uuid::Uuid::new_v4().as_bytes())
@@ -25,7 +25,7 @@ fn sha() -> String {
 
 use sha2::Digest as _;
 
-fn report(user: uuid::Uuid, sha: &str, reason: &str) -> serde_json::Value {
+pub(crate) fn report(user: uuid::Uuid, sha: &str, reason: &str) -> serde_json::Value {
     serde_json::json!({
         "id": uuid::Uuid::new_v4(), "user_id": user, "logical_source": "c01-photo",
         "device_id": "phone-01", "sha256": sha, "reason": reason,

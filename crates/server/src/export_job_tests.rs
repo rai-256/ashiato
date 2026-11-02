@@ -65,6 +65,11 @@ pub(crate) fn request(
 }
 
 pub(crate) async fn call(app: &App, req: Request<Body>) -> (StatusCode, String) {
+    let req = if req.headers().contains_key(header::AUTHORIZATION) {
+        testdb::as_web_session(app, req).await
+    } else {
+        req
+    };
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let body = res.into_body().collect().await.unwrap().to_bytes();

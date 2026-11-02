@@ -13,4 +13,7 @@ STACK_RESET=1 setsid tools/stack.sh up >/tmp/st25-6.1-stack.log 2>&1 & s=$!
 trap "kill -- -$s 2>/dev/null; wait $s 2>/dev/null" EXIT
 for i in $(seq 1 1800); do grep -q "^画面:" /tmp/st25-6.1-stack.log && break; kill -0 $s 2>/dev/null || break; sleep 1; done
 grep -q "^画面:" /tmp/st25-6.1-stack.log || { tail -20 /tmp/st25-6.1-stack.log; exit 1; }
-tools/seed.sh normal && tools/seed.sh normal && curl -sf -H "authorization: Bearer $API_TOKEN" "http://$BIND/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"
+# 読む求めは画面のログインの印で（ST44）。ログインに失敗したら、空の見出しで 401 → jq の失敗にせず、ここで止める
+cookie="$(tools/web-login.sh "http://$BIND")" && [ -n "$cookie" ] \
+  || { echo "error: 画面にログインできない（.env の WEB_PASSWORD と http://$BIND のサーバを見る）" >&2; exit 1; }
+tools/seed.sh normal && tools/seed.sh normal && curl -sf -H "$cookie" "http://$BIND/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"

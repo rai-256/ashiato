@@ -30,6 +30,7 @@ pub const COOKIE_NAME: &str = "ashiato_session";
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
 /// 画面の合言葉の下限（D16（仮））。
 const MIN_WEB_PASSWORD_LEN: usize = 16;
+const MIN_WEB_SESSION_KEY_LEN: usize = 16;
 /// 雛形の合言葉の頭（`.env.example`。D16（仮））。
 const PLACEHOLDER_PREFIX: &str = "change-me";
 /// 失敗を数える窓と上限（D17（仮））。
@@ -68,6 +69,25 @@ pub enum WebPasswordRefusal {
     SameAsApiToken,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebSessionKeyRefusal {
+    Missing,
+    TooShort,
+    SameAsApiToken,
+    SameAsWebPassword,
+}
+
+impl WebSessionKeyRefusal {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::TooShort => "too_short",
+            Self::SameAsApiToken => "same_as_api_token",
+            Self::SameAsWebPassword => "same_as_web_password",
+        }
+    }
+}
+
 impl WebPasswordRefusal {
     pub fn reason(self) -> &'static str {
         match self {
@@ -94,10 +114,28 @@ pub fn check_web_password(
     }
 }
 
-/// 合言葉の世代の印（D3）。HMAC-SHA256、鍵は `API_TOKEN`（DB の写しだけでは合言葉の候補を確かめられない）。
-pub fn secret_tag(api_token: &str, web_password: &str) -> Vec<u8> {
+pub fn check_web_session_key(
+    key: Option<&str>,
+    api_token: &str,
+    web_password: &str,
+) -> Result<(), WebSessionKeyRefusal> {
+    match key {
+        None | Some("") => Err(WebSessionKeyRefusal::Missing),
+        Some(key) if key.chars().count() < MIN_WEB_SESSION_KEY_LEN => {
+            Err(WebSessionKeyRefusal::TooShort)
+        }
+        Some(key) if token_matches(key, api_token) => Err(WebSessionKeyRefusal::SameAsApiToken),
+        Some(key) if token_matches(key, web_password) => {
+            Err(WebSessionKeyRefusal::SameAsWebPassword)
+        }
+        Some(_) => Ok(()),
+    }
+}
+
+/// 合言葉の世代の印（D7）。HMAC-SHA256、鍵は `WEB_SESSION_KEY`。
+pub fn secret_tag(session_key: &str, web_password: &str) -> Vec<u8> {
     // HMAC はどの長さの鍵も受ける
-    let mut mac = Hmac::<Sha256>::new_from_slice(api_token.as_bytes())
+    let mut mac = Hmac::<Sha256>::new_from_slice(session_key.as_bytes())
         .unwrap_or_else(|_| unreachable!("HMAC は任意の長さの鍵を受ける"));
     mac.update(b"ashiato-web-session-v1");
     mac.update(web_password.as_bytes());
@@ -158,6 +196,8 @@ pub fn session_max_age_days(var: Option<&str>) -> anyhow::Result<u32> {
 /// ログインの設定と状態。`App` が持つ。
 #[derive(Clone, Debug)]
 pub struct WebLogin {
+    #[cfg(test)]
+    session_key: String,
     password: String,
     tag: Vec<u8>,
     /// 0 = 期限なし（D18）。
@@ -168,19 +208,39 @@ pub struct WebLogin {
 }
 
 impl WebLogin {
-    pub fn new(api_token: &str, web_password: &str, max_age_days: u32) -> Self {
+    pub fn new(session_key: &str, web_password: &str, max_age_days: u32) -> Self {
         Self {
+            #[cfg(test)]
+            session_key: session_key.to_owned(),
             password: web_password.to_owned(),
-            tag: secret_tag(api_token, web_password),
+            tag: secret_tag(session_key, web_password),
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn password_for_test(&self) -> &str {
+        &self.password
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session_key_for_test(&self) -> &str {
+        &self.session_key
+    }
+
+    /// 鍵だけを差し替えた複製。合言葉・期限・失敗の待ちは保つ（鍵を変えて起動し直したときと同じ）。
+    #[cfg(test)]
+    pub(crate) fn with_session_key_for_test(&self, session_key: &str) -> Self {
+        let mut login = Self::new(session_key, &self.password, self.max_age_days);
+        login.failure_delay = self.failure_delay;
+        login
+    }
 }
 
 /// cookie ヘッダから印を取り出す。
-fn cookie_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn cookie_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -421,9 +481,10 @@ pub async fn session_delete(
     Ok(res)
 }
 
-/// ログインの状態。印か API の合言葉で認められれば、その種類を返す。
+/// ログインの状態。画面の印で認められれば、その種類を返す。API の合言葉と衛星の資格情報では 403。
 #[utoipa::path(get, path = "/session",
-    responses((status = 200, body = SessionState), (status = 401)))]
+    responses((status = 200, body = SessionState), (status = 401),
+        (status = 403, description = "API の合言葉では通らない")))]
 pub async fn session_get(
     State(app): State<App>,
     headers: HeaderMap,
@@ -462,6 +523,24 @@ pub async fn session_get(
             return Err(e);
         }
     };
+    // 種類が増えたらここで止まるよう、`_` の無い match にする（design D6）
+    match caller {
+        // API の合言葉ではログインの状態も読めない（design D12（仮））。
+        // 衛星は authorize が先に 403 で返すので届かないが、届いても同じく断る
+        Caller::ApiToken | Caller::Satellite { .. } => {
+            app.access
+                .write(session_entry(
+                    &headers,
+                    Some(caller),
+                    "GET",
+                    "forbidden",
+                    StatusCode::FORBIDDEN,
+                ))
+                .await?;
+            return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        }
+        Caller::WebSession => {}
+    }
     app.access
         .write(session_entry(
             &headers,
@@ -496,7 +575,7 @@ mod tests {
     #[test]
     fn login_failure_delay_default_is_1_second() {
         assert_eq!(
-            WebLogin::new("t", "p", 0).failure_delay,
+            WebLogin::new("session-key", "p", 0).failure_delay,
             Duration::from_secs(1)
         );
     }

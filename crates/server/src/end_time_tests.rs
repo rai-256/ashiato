@@ -1786,11 +1786,15 @@ impl crate::access_log::AccessSink for Capture {
 
 async fn routed(
     capture: &Capture,
-    req: axum::http::Request<axum::body::Body>,
+    mut req: axum::http::Request<axum::body::Body>,
 ) -> axum::http::StatusCode {
     use tower::ServiceExt as _;
     let app =
         crate::App::for_test(testdb::pool().await, API_TOKEN).with_access_sink(capture.clone());
+    if req.headers().contains_key("authorization") {
+        req = testdb::as_web_session(&app, req).await;
+        capture.0.lock().unwrap().clear();
+    }
     crate::router(app).oneshot(req).await.unwrap().status()
 }
 
@@ -1842,8 +1846,9 @@ async fn st41_range_offset_period_in_query_string() {
     let encoded = format!(
         "/events?from=2026-10-02T00:00:00%2B09:00&to=2026-10-02T01:00:00%2B09:00&source={source}"
     );
+    let encoded_req = testdb::as_web_session(&app, get_req(&encoded, true)).await;
     let res = crate::router(app.clone())
-        .oneshot(get_req(&encoded, true))
+        .oneshot(encoded_req)
         .await
         .unwrap();
     assert_eq!(res.status(), axum::http::StatusCode::OK);
@@ -1856,10 +1861,8 @@ async fn st41_range_offset_period_in_query_string() {
     let bare = format!(
         "/events?from=2026-10-02T00:00:00+09:00&to=2026-10-02T01:00:00+09:00&source={source}"
     );
-    let res = crate::router(app)
-        .oneshot(get_req(&bare, true))
-        .await
-        .unwrap();
+    let bare_req = testdb::as_web_session(&app, get_req(&bare, true)).await;
+    let res = crate::router(app).oneshot(bare_req).await.unwrap();
     assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
 }
 

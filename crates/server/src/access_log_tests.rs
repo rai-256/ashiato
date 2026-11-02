@@ -59,7 +59,15 @@ async fn tee_app(password: &str) -> (App, Arc<Mutex<Vec<AccessEntry>>>) {
     (app, seen)
 }
 
-async fn send(app: &App, req: Request<Body>) -> Response<Body> {
+async fn send(app: &App, mut req: Request<Body>) -> Response<Body> {
+    if req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == format!("Bearer {TOKEN}"))
+    {
+        req = testdb::as_web_session(app, req).await;
+    }
     router(app.clone()).oneshot(req).await.unwrap()
 }
 
@@ -212,11 +220,14 @@ async fn access_log_middleware_ingest_is_not_logged() {
         "payload": {},
     }]);
 
-    let res = send(
-        &app,
-        bearer(Method::POST, "/ingest", Body::from(body.to_string())),
-    )
-    .await;
+    let res = router(app.clone())
+        .oneshot(bearer(
+            Method::POST,
+            "/ingest",
+            Body::from(body.to_string()),
+        ))
+        .await
+        .unwrap();
     assert_eq!(res.status(), StatusCode::OK, "取り込まれる");
 
     assert!(seen.lock().unwrap().is_empty(), "行は増えない");
@@ -337,11 +348,15 @@ async fn access_log_middleware_session_routes_each_write_one_row() {
         vec![entry("web_session", "/session", "GET", "ok", 200)]
     );
 
-    let res = send(&app, bearer(Method::GET, "/session", Body::empty())).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    // ST44 D12（仮）: API の合言葉ではログインの状態も読めない（もとは 200 / ok）。行は API の合言葉・403 で残る
+    let res = router(app.clone())
+        .oneshot(bearer(Method::GET, "/session", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         take(),
-        vec![entry("api_token", "/session", "GET", "ok", 200)]
+        vec![entry("api_token", "/session", "GET", "forbidden", 403)]
     );
 
     let logout = |c: Option<&str>| {
@@ -406,7 +421,10 @@ async fn access_log_middleware_write_failure_returns_no_records() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let app = seed.with_access_sink(FailingSink);
-    let res = send(&app, bearer(Method::GET, "/events", Body::empty())).await;
+    let res = router(app.clone())
+        .oneshot(bearer(Method::GET, "/events", Body::empty()))
+        .await
+        .unwrap();
     assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(
         !body_string(res).await.contains(&marker),
@@ -428,7 +446,9 @@ async fn access_log_middleware_rows_are_not_in_event_reads() {
     .await
     .unwrap();
 
-    let res = send(&app, bearer(Method::GET, "/events", Body::empty())).await;
+    let cookie = testdb::web_cookie(&app, app.web_password_for_test()).await;
+    let req = get_with_cookie("/events", cookie.strip_prefix("ashiato_session=").unwrap());
+    let res = router(app.clone()).oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     assert!(!body_string(res).await.contains(&marker));
 }

@@ -21,7 +21,7 @@ fn now() -> chrono::DateTime<chrono::Utc> {
 }
 
 /// 資格情報の要らない口（method, path）。
-fn is_exempt(method: &Method, path: &str) -> bool {
+pub(crate) fn is_exempt(method: &Method, path: &str) -> bool {
     path == "/healthz" || (path == "/session" && matches!(*method, Method::POST | Method::DELETE))
 }
 

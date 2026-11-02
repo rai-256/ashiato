@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test as base, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { readAuthHeaders } from "./auth";
 
 declare const process: { env: Record<string, string | undefined> };
+const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
 
 /**
- * 試験の中で `/api` を直に叩く `request` は、API の合言葉（Bearer）で通す（`places.spec.ts` と同じ。既定の `storageState` は
- * 先に走る login の e2e のログアウトで失効していることがあり、それに依らない）。画面（`page`）には何も付けない。
+ * 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。画面（`page`）には何も付けない。
  */
 const test = base.extend({
   request: async ({ playwright, baseURL }, use) => {
     const ctx = await playwright.request.newContext({
       baseURL,
       storageState: { cookies: [], origins: [] },
-      extraHTTPHeaders: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` },
+      extraHTTPHeaders: readAuthHeaders(),
     });
     await use(ctx);
     await ctx.dispose();
@@ -82,7 +83,7 @@ function locationItem(date: string, minute: number, spot: Spot): Record<string, 
 }
 
 async function ingest(request: APIRequestContext, items: unknown[]): Promise<void> {
-  const res = await request.post("/api/ingest", { data: items });
+  const res = await request.post("/api/ingest", { headers: BEARER, data: items });
   const body = (await res.json()) as { accepted: boolean; error: string | null }[];
   expect(
     body.filter((r) => !r.accepted),

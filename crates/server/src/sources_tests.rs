@@ -27,7 +27,8 @@ async fn call(app: &App, user: uuid::Uuid, auth: bool) -> (StatusCode, String) {
         .method(Method::GET)
         .uri(format!("/sources?user_id={user}"));
     if auth {
-        req = req.header(header::AUTHORIZATION, format!("Bearer {TOKEN}"));
+        let cookie = testdb::web_cookie(app, app.web_password_for_test()).await;
+        req = req.header(header::COOKIE, cookie);
     }
     let res = router(app.clone())
         .oneshot(req.body(Body::empty()).unwrap())

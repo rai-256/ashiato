@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
+import { readAuthHeaders } from "./auth";
 
 /**
  * S-3 の滞在の行・暦・通知の時刻の設定（ST17 / tasks 9.2 / design D10・D13・D14）。本物のブラウザ・本物のサーバ。
@@ -14,7 +15,7 @@ test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
 // `@types/node` は入れない（playwright.config.ts と同じ）
 declare const process: { env: Record<string, string | undefined> };
 
-/** 試験の中で `/api` を直に叩く要求は API の合言葉（Bearer）で通す（ログインの印は `secure` で、画面の外の要求には付かない）。 */
+/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
 
 const DAY_MS = 86_400_000;
@@ -246,7 +247,7 @@ interface FeelingsRead {
   days: { date: string; status: string; stays: { stay: string; records: { scales: { id: string; value: number }[] }[] }[] }[];
 }
 async function readFeelings(page: Page, from: string, to: string): Promise<FeelingsRead> {
-  const res = await page.request.get(`/api/feelings?from=${from}&to=${to}`, { headers: BEARER });
+  const res = await page.request.get(`/api/feelings?from=${from}&to=${to}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   return (await res.json()) as FeelingsRead;
 }
@@ -311,7 +312,7 @@ test("前の日から続く滞在の行の「快」を押して読み直すと�
 
 /** 通知の時刻を既定の 21:00 へ戻す（台帳は追記のみなので、戻す行を足す）。 */
 async function resetReminder(page: Page): Promise<void> {
-  const res = await page.request.post("/api/feelings/reminder", { headers: BEARER, data: { at: "21:00" } });
+  const res = await page.request.post("/api/feelings/reminder", { headers: readAuthHeaders(), data: { at: "21:00" } });
   expect(res.status()).toBe(200);
 }
 
@@ -331,7 +332,7 @@ test("通知の時刻を 22:30 にして保存すると、画面のいまの時�
     await expect(page.getByTestId("feel-reminder-current")).toHaveText("いまの通知の時刻: 22:30");
     await expect(page.getByTestId("feel-reminder-ok")).toHaveText("通知の時刻を 22:30 にしました");
 
-    const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: BEARER });
+    const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: readAuthHeaders() });
     expect(decision.status()).toBe(200);
     expect(((await decision.json()) as { at: string }).at).toBe("22:30");
   } finally {
