@@ -120,10 +120,10 @@
 
 ## Task 7: 確認の手順書・道具・文書を締めた後の形に
 
-- [ ] 7.1 `tools/verify-prep.sh`（確認の手順書の `curl`。`/stays/rebuild` など読む・作り直す求め）と `tools/st25-seed-check.sh`（`/day` の読み）を、`tools/web-login.sh` で印を取って付ける形に替える。
+- [x] 7.1 `tools/verify-prep.sh`（確認の手順書の `curl`。`/stays/rebuild` など読む・作り直す求め）と `tools/st25-seed-check.sh`（`/day` の読み）を、`tools/web-login.sh` で印を取って付ける形に替える。
   手順書の文に「読む・作り直すのは画面の合言葉でログインして（`tools/web-login.sh`）。API の合言葉は送るだけ」を足す。
   検証: `tools/check-api-token-reads.sh tools/verify-prep.sh tools/st25-seed-check.sh tools/smoke.sh tools/smoke.d tools/seed.sh tools/seed.d tools/record-env.sh` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -n tools/st25-seed-check.sh` rc=0
-- [ ] 7.2 `docs/network.md` §4（電話を落としたとき）を design D14 の形に書き直す: 落とした電話の値でできること（送る・記録の中身を返さない 4 つの読み）とできないこと、締め出す順、`API_TOKEN` を変えてもログインは切れないこと、
+- [x] 7.2 `docs/network.md` §4（電話を落としたとき）を design D14 の形に書き直す: 落とした電話の値でできること（送る・記録の中身を返さない 4 つの読み）とできないこと、締め出す順、`API_TOKEN` を変えてもログインは切れないこと、
   画面のログインを締め出すのは `WEB_PASSWORD` か `WEB_SESSION_KEY` を変えること。§4 の冒頭の「ST29 まで全読みのまま」の注記を ST44 で締めた、に直す。§6 の秘密の数に `WEB_SESSION_KEY` を足す。
   `docs/collector-contract.md` に「## API の合言葉で通る口（ST44）」の節（9 つの一覧・一覧の外は 403（携帯は `server_403`・PC は `send_unauthorized`）・新しい口は一覧に足すまで断る）を足す。
   `bin/openapi.rs` で許可の一覧の外の口に 403 の応答を足し、`docs/openapi.json` を作り直す（design D15）。
