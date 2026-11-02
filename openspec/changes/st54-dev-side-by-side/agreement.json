@@ -1,13 +1,11 @@
 {
-  "status": "rejected",
+  "status": "accepted",
   "digest": "569a20ed46359f833558b1c62e5d29e0ed21984a604c4179240e3d0df2da8e66",
-  "head": "365d28e8bda1909eac25691778a45d0fbcfa7bff",
-  "answers": "deep-answers-2.txt",
+  "head": "b1c1306585c127447c7092048a7b22a206757cbf",
+  "answers": "deep-answers-3.txt",
   "picked": "合意する",
-  "notes": [
-    "IMP-02: 未回答（読んだだけでは閉じない）"
-  ],
-  "at": "2026-11-02T16:11:29Z",
+  "notes": [],
+  "at": "2026-11-02T16:14:27Z",
   "impacts": {
     "IMP-01": {
       "answer": "直した・確かめた結果に同意する",
@@ -76,15 +74,43 @@
       }
     },
     "IMP-02": {
-      "answer": "(未回答)",
-      "closed": false,
-      "recognized": false,
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true,
+      "recognized": true,
       "accepted": false,
-      "proceed": false,
-      "release": null,
-      "why": "未回答（読んだだけでは閉じない）"
+      "proceed": true,
+      "release": "ok",
+      "resolution": {
+        "ok": true,
+        "base": "8952eea815577e89e322d6726e5df2523897eba5",
+        "changed": [
+          {
+            "item": "決定 D3",
+            "before": "1135249b5bb2",
+            "after": "3b2008cae1c0",
+            "diff": [
+              "@@ -11 +11,2 @@",
+              " - 選ばなかった案（Q3 の選択肢 2）: 手順書と既定の名前で分けるだけ。取り違えると正式版の DB が先に進み、正式版のサーバが起動しなくなる",
+              "+- 更新の失敗からの戻し（ST58。FR-119）への申し送り: `docs/handoff/ST58.md` は今、`migrate` の終了コードを 1（移行の失敗。その回の退避がある）と 3（退避を取らずに止まった）だけで分け、戻すのは 1 の回だけと書く。終了コード 4 もその回の退避を取らないので、`rc≠0` を一律に移行の失敗と扱うと前の回の退避（それ以後の記録を含まない）を戻しうる。この change が申し送りに「終了コード 4（`kind=channel_mismatch`。系統が違うので退避も何も書かずに止まった）の回は退避から戻さず、終了コード 3 の回と同じく前の版のまま起動し直す。DB には何も書いていない」を書き足す（tasks 3.2）。第 1 回の合意で IMP-02 を「仕様を直す」と答えた（`deep.md`「仕様への違和感」）"
+            ]
+          }
+        ],
+        "text": "D3 に ST58 への申し送りの中身（終了コード 4 の回は退避から戻さず、3 の回と同じく前の版のまま起動し直す）を書き、tasks 3.2 で下流が docs/handoff/ST58.md に書き足す。ST58 の requires に ST54 を足したので、ST58 の上流はこの申し送りが main に入ってから始まる。ST58 が申し送りに従って作るかは、ST58 の上流と合意で確かめる。 申し送りの節はまだ書かれていない（下流の tasks 3.2 が書く）。"
+      }
     }
   },
+  "minor_accepted": [
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "仕様は、開発版の DB の記録を正式版へ移す手順を定めていない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "PC の開発版に別の置き場を渡すと、除外なしで過去の閲覧履歴を全件送る"
+    }
+  ],
   "imp_history": [
     {
       "at": "2026-11-02T14:33:41Z",
@@ -113,6 +139,20 @@
       "id": "IMP-02",
       "answer": "(未回答)",
       "closed": false
+    },
+    {
+      "at": "2026-11-02T16:14:27Z",
+      "head": "b1c1306585c127447c7092048a7b22a206757cbf",
+      "id": "IMP-01",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-02T16:14:27Z",
+      "head": "b1c1306585c127447c7092048a7b22a206757cbf",
+      "id": "IMP-02",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
     }
   ]
 }
