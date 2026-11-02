@@ -73,7 +73,7 @@
 
 ## Task 3: 呼び出し元の種類を見る判定を `_` の無い `match` に
 
-- [ ] 3.1 `crates/server/src/contract_version.rs` の `matches!(caller, Caller::ApiToken)` 2 か所（見出しの門・知らない欄の検査の `strict`）を、`Caller::ApiToken => 掛ける`・`Caller::WebSession | Caller::Satellite { .. } => 掛けない` の `match` に替える（design D6。振る舞いは変えない）。
+- [x] 3.1 `crates/server/src/contract_version.rs` の `matches!(caller, Caller::ApiToken)` 2 か所（見出しの門・知らない欄の検査の `strict`）を、`Caller::ApiToken => 掛ける`・`Caller::WebSession | Caller::Satellite { .. } => 掛けない` の `match` に替える（design D6。振る舞いは変えない）。
   `crates/server/src` で `Caller` の種類を `matches!` で見ている箇所が、試験と `access_log.rs` の衛星の判定のほかに残らないこと。
   検証: `CT st50_` rc=0（`-- --list` で 20 本以上）/ `bash -c '! grep -n "matches!(caller, Caller::ApiToken)" crates/server/src/contract_version.rs'` rc=0
 
