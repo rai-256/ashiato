@@ -12,7 +12,7 @@ change: `openspec/changes/st44-collector-credential-scope/`。満たす要件は
 ## 深掘りで本人が決めること（A。いまは推奨で書いた）
 
 - **Q1**（loss: exported）: いまの API の合言葉そのものを送るだけに締める（推奨。design D1）。代替は収集アプリ用の合言葉を新しく作って `API_TOKEN` を全部読めるまま残す
-- **Q2**（loss: uncaptured）: 配り方は共有の 1 本のまま締め、端末ごとの発行と「どの資格情報で届いたか」の欄は ST56 が作る（推奨。design D2）。推奨のまま答えが来たら、record の段が PERM-10 の★を足す
+- **Q2**（loss: uncaptured）: 配り方は共有の 1 本のまま（**本人の選択。推奨「端末ごとに発行し ST56 が作る」と違う**。design D2）。端末ごとの発行も「どの資格情報で届いたか」の欄も作らない。どの端末の資格情報で届いたかはずっと持たない。要件は FR-128 ★ 2026-11-02
 - **Q3**（B）: 画面のログインで通る範囲は変えない（推奨。design D3）
 
 ## 仮決め（B。`provisional.jsonl`）
@@ -39,6 +39,6 @@ D7（印の鍵をサーバだけの値に）・D9（資格情報を求めない�
 ## レビュー
 
 - 深掘りの独立検査（`review/deep.md`）: 10 件 —— escalated 6（Q1・Q2 に写した）・fixed 3（D10 仮・proposal・D5）・rejected 1
-- spec レビュー（`review/spec.md`）: 14 件 —— fixed 11（D9 の 401 を先に返す形・偽データの道具の書き直し・D10 の Scenario・導出元の食い違いなど）・escalated 1（Q2 の要件の★の担い手）・deferred 2（ST56・ST37）
+- spec レビュー（`review/spec.md`）: 14 件 —— fixed 11（D9 の 401 を先に返す形・偽データの道具の書き直し・D10 の Scenario・導出元の食い違いなど）・escalated 1（Q2 の要件の★の担い手。Q2 の答えで PERM-10 の★は不要に）・rejected 2（ST56・ST37 への申し送り。Q2 で共有の 1 本を選んだので中身が無い）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

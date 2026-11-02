@@ -20,9 +20,9 @@
 - **試験の名前の接頭辞は `st44_`**。サーバの DB の試験は新しい `crates/server/src/collector_scope_tests.rs`（Task 1〜3）に置き、`lib.rs` の他の `*_tests` と同じ形で `#[cfg(test)] mod …;` を足す。
   起動の試験は `crates/server/tests/server_startup.rs` の `st44_` の関数（Task 4）
 - **許可の一覧の試験は必ず `router()` を通す**（`tower::ServiceExt::oneshot`）。ハンドラを直に呼ぶと middleware を通らず、一覧が掛からない（design D4）
-- **本人の決定（下流は変えない）**: Q1 いまの API の合言葉（`API_TOKEN`）を送るだけに締める（新しい資格情報を作らない）/ Q2 配り方は共有の 1 本のまま。端末ごとの発行は ST56 / Q3 画面のログインで通る範囲は変えない。
+- **本人の決定（下流は変えない）**: Q1 いまの API の合言葉（`API_TOKEN`）を送るだけに締める（新しい資格情報を作らない）/ Q2 配り方は共有の 1 本のまま（端末ごとには発行しない。どの資格情報で届いたかの欄も作らない）/ Q3 画面のログインで通る範囲は変えない。
   仮: D8（印の鍵は環境変数 `WEB_SESSION_KEY`・無ければ起動しない）・D11（API の合言葉と印の両方を付けた求めは API の合言葉）・D12（`GET /session` は API の合言葉で 403）。
-  （第 1 回は推奨で先に書いた。本人の答えが違えば上流がここを書き直してから下流へ渡す）
+  （第 1 回は推奨で先に書いた。本人の答えは Q2 だけが推奨と違い、上流が書き直した）
 - **名前は統一する**: 許可の一覧と判定の関数は `crates/server/src/collector_scope.rs` の `COLLECTOR_ALLOWED: &[(Method, &str)]` と `collector_allows(method: &Method, matched_path: &str) -> bool`。
   環境変数 `WEB_SESSION_KEY`、起動の拒否 `kind=web_session_key reason=missing|too_short|same_as_api_token|same_as_web_password`。ログインの道具 `tools/web-login.sh`
 - **許可の一覧は 9 つ**（design D4）: `POST /ingest`・`POST /heartbeat`・`POST /drops`・`POST /media/missing`・`PUT /media/originals/{sha256}`・`GET /contract`・`HEAD /media/originals/{sha256}`・`GET /feelings/reminder`・`GET /outages`。

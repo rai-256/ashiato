@@ -101,6 +101,7 @@
 - 提案: 推奨のまま答えが来たら、PERM-10★ の「端末は送り手の申告のまま」を改める ★（日付つき）を requirements.md に入れる担い手を決めて書く。
   ST44 で入れるなら「要件へ戻すもの」として deep.md / proposal に挙げ、ST56 に任せるなら D2 の申し送りに「要件の★も ST56 の /requirements で」と書く
 - 処置: escalated —— Q2 自身が「選んだら要件に★を足す」と本人に示している（Q2 の答え待ち）。推奨のまま答えが来たら record の段が PERM-10 の★にその日の日付の★を足す、と design D2 と deep.md の Q2 の由来に書いた。ST44 の spec と試験はこの★に依らない
+  → 答え（2026-11-02）: 本人は Q2 で「共有の 1 本のまま」を選んだ。書き手の粒度は変えないので PERM-10 の★は足さない。配り方は FR-128 ★ 2026-11-02 が持つ（record の段が足した）。design D2 を書き直した（spec --answers Q2）
 
 ## R10. ST56 への申し送り（端末ごとの資格情報・どの資格情報で届いたかの欄・種類を増やすときの振り分け）の受け皿
 - 成果物: openspec/changes/st44-collector-credential-scope/design.md（D2・D6）/ proposal.md:65-66

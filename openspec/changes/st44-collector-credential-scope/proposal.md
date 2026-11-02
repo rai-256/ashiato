@@ -20,10 +20,11 @@
   無い・短い・ほかの 2 つと同じなら起動しない。**`API_TOKEN` を変えても画面のログインは切れなくなり**、`WEB_SESSION_KEY` か画面の合言葉を変えると全部が切れる。入れ替えた最初の起動で、それまでのログインは 1 回だけ全部切れる
 - **資格情報を求めない口は 3 つだけ**（深掘りの AI の既定。design D9）: 生存確認（`GET /healthz`）・ログイン（`POST /session`）・ログアウト（`DELETE /session`）。正典の「すべての API 要求は資格情報を要求する」にこの 3 つを例外として書き、
   API の説明（`docs/openapi.json`）に載る全部の口を資格情報なしで呼んで確かめる試験を置く
-- **呼び出し元の種類を見る判定は `_` の無い `match`**（深掘りの AI の既定。design D6）: 契約の版の門（`contract_version.rs` の 2 か所の `matches!`）と許可の一覧。種類が増えたら（ST56 の端末ごとの資格情報など）振り分けを決めないとコンパイルが落ちる
+- **呼び出し元の種類を見る判定は `_` の無い `match`**（深掘りの AI の既定。design D6）: 契約の版の門（`contract_version.rs` の 2 か所の `matches!`）と許可の一覧。種類が増えたら（後の Story が資格情報の種類を足したとき）振り分けを決めないとコンパイルが落ちる
 - **道具は画面の合言葉でログインして読む**（Q1 の推奨の費用。design D13）: 縦串（`tools/smoke.sh` と `smoke.d/`）・e2e（`web/e2e`）・録画（`tools/recording`）・確認の手順書（`tools/verify-prep.sh`）・`tools/st25-seed-check.sh` の**読む**求めを、
   ログインの印を見出しで付ける形に替える（読む求めには Bearer を付けない。design D11（仮））。送る求めは API の合言葉のまま
-- **配り方は共有の 1 本のまま締める**（Q2 の推奨。design D2）: 端末ごとの発行・取り消しと、どの資格情報で届いたかを記録に書く欄は ST56 が作る（申し送り。書き手の列を作る ST37 にも置き場を申し送る）
+- **配り方は共有の 1 本のまま締める**（Q2 の本人の答え。design D2）: 端末ごとの発行・取り消しも、どの資格情報で届いたかを記録に書く欄も作らない（ST44 でも後の Story でも。FR-128 ★ 2026-11-02）。
+  落とした電話を締め出すには、値を変えて携帯と PC の収集アプリを全部設定し直す（いまの手順のまま）
 - 文書: `docs/network.md` §4（電話を落としたとき）を締めた後の形に、`docs/collector-contract.md` に 403 と許可の一覧を、`.env.example` に `WEB_SESSION_KEY` を書く
 
 **BREAKING**（道具と手順だけ。配った収集アプリは変わらない）: `API_TOKEN` で記録を読んでいた台本・手順（本人が手で打つ `curl` を含む）は 403 になる。画面の合言葉でログインして読む。
@@ -62,8 +63,7 @@
   `WEB_SESSION_KEY` を渡す側（`.env.example`・`tools/env-init.sh`・`tools/record-env.sh`・`tools/ci-db-env.sh`・`tools/smoke.sh`・`tools/stack.sh`・`tools/dev.sh`・`tools/check-panic-log.sh`）、
   新しい `tools/smoke.d/<作成時刻>_st44-collector-scope.sh`
 - 文書: `docs/network.md`（§4 電話を落としたとき・§6 の秘密の数）、`docs/collector-contract.md`（403 と許可の一覧）
-- 申し送り（`deferred`。どちらも tasks.md がまだ無い）: ST56（端末ごとの資格情報の発行・取り消しと、どの資格情報で届いたかを記録と読み出しの記録に書く欄。種類を増やすときは許可の一覧と契約の版の門の `match` に振り分けを足す）、
-  ST37（書き手の列を作るとき、資格情報の識別子の置き場を空けておく）。review/spec.md の処置に書く
+- 申し送り: 無し。深掘り Q2 で共有の 1 本を選んだので、端末ごとの資格情報（ST56）と資格情報の識別子の置き場（ST37）の申し送りは出さない（review/spec.md R10・R11 は `rejected`）
 - **走っている change との重なり**（差し戻さない。後から main に入る側が rebase で解く）:
   - **ST52**（`st52-release-channels`。上流）: 同じ `crates/server/src/lib.rs` の `router` に `/api` の剥がしと組み込んだ画面を足す。許可の一覧は剥がした後の道（`MatchedPath`）で引くので、画面を配る経路から届く求めにも同じ判定が掛かる。
     ST52 は公開する APK の `BuildConfig` の `API_TOKEN` が空であることを検査する —— 名前は変わらないので ST52 の検査は変えなくてよい。`.env.example`・`docs/network.md` は両方が書き足すので、後から入る側が写す
