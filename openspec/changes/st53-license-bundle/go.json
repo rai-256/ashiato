@@ -1,0 +1,2335 @@
+{
+ "purpose": "最初の本物の版を配る前に、4 つの配布物（サーバの Linux 版・Windows 版、PC の収集アプリ、携帯の APK）に、本体の許諾（Google のライブラリと組み合わせて配ってよいという追加の許可つき）・依存の許諾の一覧・対応するソースの場所が入るようになる。許可の外の部品が依存に入れば CI が落ちる。正式な署名の鍵は本人の承認なしには公開の job に渡らない形を作ってから置けるようになる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "許可の正本から、検査と配布物までの流れ",
+  "text": "許可の正本（英文 1 ファイル。名指し 4 つ）\n  ├─→ LICENSE の先頭に写す ─→ 1 字違えば CI が落ちる\n  └─→ 名指し 4 つ ─→ 携帯の依存の検査（名指しの外の非オープンソースは CI が落ちる）\nソースの表示（503 ファイル）─→ 表示の検査\n組み立ての台本 ─→ 4 つの配布物 ＋ LICENSE / THIRD-PARTY-NOTICES.txt / SOURCE.txt\n                    └─→ 配布物の検査（欠ければ公開しない）\n印 v* ─→ 公開の job ─(本人の承認)─→ 正式な鍵で署名 ─→ 公開",
+  "alt": "許可の文の正本 1 つから LICENSE と携帯の依存の検査が名指しを読み、組み立てが 4 つの配布物に許諾の 3 点を入れ、公開の job は本人の承認の後にだけ正式な鍵を受け取る。"
+ },
+ "before_after": [
+  {
+   "area": "本体の許諾（LICENSE）",
+   "before": "AGPL-3.0 の全文だけ",
+   "after": "先頭に、名指しした Google のライブラリ 4 つと組み合わせて配ってよいという追加の許可（英文）。その後に AGPL-3.0 の全文"
+  },
+  {
+   "area": "ソースの先頭の表示",
+   "before": "AGPL-3.0-only（506 ファイル）",
+   "after": "AGPL-3.0-only WITH AdditionRef-ashiato-play-services（503 ファイル。移行の 3 つは元のまま）"
+  },
+  {
+   "area": "依存の許諾の検査",
+   "before": "サーバと画面の依存だけ。携帯は見ていない。他人の AGPL も通る",
+   "after": "携帯の依存も見る。名指しの外の非オープンソース・他人の GPL / AGPL は CI が落ちる"
+  },
+  {
+   "area": "配布物の中身",
+   "before": "実行ファイル（APK）が 1 つだけ",
+   "after": "許諾・依存の一覧・ソースの場所の 3 点が加わる（APK は中の assets/licenses/）"
+  },
+  {
+   "area": "正式な鍵を置く手順",
+   "before": "鍵と Secrets を置く工程が先。エージェントの資格情報は管理者のまま",
+   "after": "エージェントの資格情報を絞る → 本人を必須の承認者に付ける → 鍵、の順"
+  },
+  {
+   "area": "確認バッチの準備",
+   "before": "繋いだ最初の端末（実機でも）に開発用の APK を入れる",
+   "after": "エミュレータにだけ入れる。実機には入れない"
+  }
+ ],
+ "features": [
+  {
+   "id": "permission",
+   "title": "追加の許可の文",
+   "summary": "AGPL-3.0 に、名指しした Google のライブラリ 4 つと組み合わせて配ってよいという許可を英文で足す。",
+   "points": [
+    {
+     "id": "permission.1",
+     "kind": "normal",
+     "text": "許可の文の正本は英文の 1 ファイル（LICENSES/AdditionRef-ashiato-play-services.txt）。LICENSE の先頭にそのまま写し、その後に AGPL-3.0 の全文を変えずに置く。README には日本語の参考訳（正本は英語）を置く。",
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+      ],
+      "scenarios": [
+       "追加の許可の正本は、深掘りで決めた英文と同じ",
+       "LICENSE の先頭は追加の許可の正本と同じ",
+       "README のライセンスの節は、追加の許可と正本の言葉を示す"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "permission.2",
+     "kind": "normal",
+     "text": "許可が受けるのは、位置の取得に使う play-services-location と、それが引く -base・-basement・-tasks の 4 つだけ（どれも com.google.android.gms）。版は問わないが、改変したものは含まず、Google のライブラリのソースは求めない。",
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+      ],
+      "scenarios": [
+       "許可の文の名指しは、位置のライブラリとそれが引く 3 つだけ"
+      ],
+      "decisions": [
+       "Q2",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "permission.3",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "許可の文は付けて配った版にそのまま付いて出回り、取り消せない。名指しを広げるのは次の版で足すことになるが、配った版の文は残る。",
+     "examples": [
+      {
+       "wrong": "後で文を直せば、配った版の許可も直る",
+       "right": "配った版は配ったときの文のまま。直した文は次の版から"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+      ],
+      "decisions": [
+       "Q1",
+       "Q2"
+      ]
+     }
+    },
+    {
+     "id": "permission.4",
+     "kind": "exception",
+     "text": "LICENSE の先頭が正本と 1 字でも違う、または AGPL-3.0 の全文が今のものと違うと、許諾の文の検査が CI を落とす。CONTRIBUTING.md には貢献も同じ許諾で配ることを足すが、CLA の受け入れ条件は変えない。",
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+      ],
+      "scenarios": [
+       "LICENSE の許可の文を正本と変えると、許諾の文の検査が落ちる",
+       "LICENSE の AGPL の全文を変えると、許諾の文の検査が落ちる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "headers",
+   "title": "ソースの許諾の表示",
+   "summary": "ソースと部品の許諾の欄を、追加の許可を含む 1 つの式にそろえ、違うものは CI が止める。",
+   "points": [
+    {
+     "id": "headers.1",
+     "kind": "normal",
+     "text": "ソースの先頭の表示と、Cargo.toml・web/package.json（と lock の根）・API の契約の写しの許諾の欄を AGPL-3.0-only WITH AdditionRef-ashiato-play-services にする。",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ],
+      "scenarios": [
+       "API の契約の写しは、部品と同じ許諾の式を持つ"
+      ],
+      "decisions": [
+       "Q5"
+      ]
+     }
+    },
+    {
+     "id": "headers.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "DB"
+     ],
+     "text": "書き換えるのは 506 ではなく 503 ファイル。移行の 3 つは AGPL-3.0-only のまま残す。移行は中身の指紋を DB に記録していて、表示の 1 行を変えるだけで、その版を当てたどの DB でも起動のたびに警告が出続けるため。許可は LICENSE が木の全体に掛けるので、この 3 つにも及ぶ。",
+     "examples": [
+      {
+       "wrong": "506 ファイルが全部新しい式になる",
+       "right": "503 が新しい式。移行の 3 つと gradle の wrapper の 2 つ（Apache-2.0）は元の表示のまま、検査の例外の一覧に名前で載る"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ],
+      "scenarios": [
+       "例外の一覧のファイルは、元の表示のままで表示の検査を通る",
+       "例外の一覧のファイルでも、許す値と違う表示なら表示の検査が落ちる"
+      ],
+      "decisions": [
+       "D4",
+       "Q5"
+      ]
+     }
+    },
+    {
+     "id": "headers.3",
+     "kind": "exception",
+     "text": "表示の検査は追跡しているファイルの先頭 25 行の SPDX-License-Identifier: だけを見る。symlink は辿らない。表示を持たないファイルは見ないので、表示を消して写した他人のコードは止められない。",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ],
+      "scenarios": [
+       "決めた許諾の表示でないソースがあれば、表示の検査が落ちる",
+       "表示の検査は symlink の先を読まない"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "depcheck",
+   "title": "依存の許諾の検査（携帯を含む）",
+   "summary": "サーバ・画面・携帯の 3 つの依存の許諾を機械で確かめ、許可の外が入れば CI が落ちる。",
+   "points": [
+    {
+     "id": "depcheck.1",
+     "kind": "normal",
+     "text": "携帯の節を新しく作る。配る APK に入る依存の部品ごとに POM の許諾を読み（無ければ親の POM）、対応表で SPDX の名前に直す。名前を 2 つ持つ部品は、どちらか 1 つが許可されていれば通る。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "今の携帯の依存は、許諾の検査を通る",
+       "許諾の名前を 2 つ持つ部品は、どれか 1 つが許可されていれば通る",
+       "POM が許諾を持たない部品は、親の POM の許諾で判定する"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "depcheck.2",
+     "kind": "normal",
+     "text": "オープンソースでない部品は、許可の正本に名指しされた 4 つだけを通す。名指しは正本のファイルから読み、検査は自分で一覧を持たない。正本から 1 行消せば、その部品で落ちる。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ",
+       "名指しの一覧を正本から消すと、その部品で許諾の検査が落ちる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "depcheck.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "名指しの外の Google のライブラリ（地図・広告など）を足すと CI が落ちる。使うには、許可の正本に名指しを足した次の版を出すことになる（許可の文が変わる）。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "名指しの外の Google のライブラリを足すと、許諾の検査が落ちる",
+       "対応表に無い許諾の名前の部品があれば、許諾の検査が落ちる"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "id": "depcheck.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "許可の一覧から AGPL-3.0-only を外す。自分の部品（workspace の crate と画面の根）は名前と決めた式の組で通し、他人の GPL / AGPL の部品はどれも落ちる。ほかの 17 の値は変えない。今の依存で落ちるものは見つかっていない（Rust 357・Node 306 部品を読んだ）。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "他人の部品の AGPL の許諾は、許諾の検査が落とす",
+       "自分の部品は、決めた許諾の式で許諾の検査を通る",
+       "許可の一覧は、AGPL-3.0-only を外したほかは前と同じ"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "depcheck.5",
+     "kind": "exception",
+     "text": "節の対象が見つからない（node_modules が無い・gradle が依存を解決できない）ときは、通さずに落ちる。そのため CI では、画面の job が Rust と画面の節を、配る形を組む job が携帯の節を走らせる。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "検査する対象が無い節は、通さずに落ちる",
+       "node_modules が無ければ、画面の節は通さずに落ちる"
+      ],
+      "decisions": [
+       "D15"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "bundle",
+   "title": "配布物に入る許諾の 3 点",
+   "summary": "4 つの配布物に LICENSE・依存の一覧・ソースの場所を入れ、欠けた配布物は公開しない。",
+   "points": [
+    {
+     "id": "bundle.1",
+     "kind": "normal",
+     "text": "tar / zip の根に LICENSE・THIRD-PARTY-NOTICES.txt・SOURCE.txt の 3 つを入れる。携帯の APK では中の assets/licenses/ に置く。組み立ての台本で入れるので、正式版・ベータ版だけでなく開発版・PR の組み立てにも入る。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ"
+      ],
+      "decisions": [
+       "D8",
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "bundle.2",
+     "kind": "normal",
+     "text": "依存の一覧は部品ごとに名前・版・許諾の式・全文と著作権の表示を書く。サーバと PC の収集アプリには Rust の標準ライブラリの項、サーバには画面に入る Node の部品（開発だけの部品は除く）、APK には Google のライブラリが中に持つ第三者の一覧も入る。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "Rust の実行ファイルの依存の一覧は、標準ライブラリを含む",
+       "サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない",
+       "携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "bundle.3",
+     "kind": "exception",
+     "text": "3 点のどれかが無い・LICENSE が木の LICENSE と違う配布物は、配布物の検査で落ちて公開されない。許諾の全文も著作権の表示も見つからない部品があれば、一覧を組まずに組み立てが落ちる。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "許諾のファイルが欠けた配布物は、公開しない",
+       "配布物の LICENSE が木の LICENSE と違えば、公開しない",
+       "許諾の全文も著作権の表示も見つからない部品があれば、組み立てが落ちる"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "bundle.4",
+     "kind": "caution",
+     "tags": [
+      "Android"
+     ],
+     "text": "携帯のアプリに許諾を読む画面は作らない。APK の中に置くだけで、本人がアプリから開く口は無い。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "Q6",
+       "D13"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "source",
+   "title": "対応するソースの場所（SOURCE.txt）",
+   "summary": "正式版・ベータ版は印で、それ以外は組み立ての commit でソースの場所を示す。",
+   "points": [
+    {
+     "id": "source.1",
+     "kind": "normal",
+     "text": "SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<版>、開発版・PR の組み立てなら 40 桁の commit を持つ。印は公開の workflow が渡す。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "正式版の配布物のソースの場所は、その版の印",
+       "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+      ],
+      "decisions": [
+       "Q7",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "source.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "開発版の SOURCE.txt には nightly の文字を書かない。印 nightly は翌日に別の commit へ動くので、動かない commit を書く。要件 FR-127 の「同じ印で示す」とはこの点で違い、record の段が要件に補足を入れる。",
+     "examples": [
+      {
+       "wrong": "開発版の SOURCE.txt は「Ref: nightly」",
+       "right": "開発版の SOURCE.txt は「Commit: <その日の組み立ての 40 桁>」"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "Q7",
+       "D16"
+      ]
+     }
+    },
+    {
+     "id": "source.3",
+     "kind": "exception",
+     "text": "公開の組み立てに渡された印が v<版番号> と違えば、配布物を作らずに落ちる。配布物の検査は、正式版・ベータ版の検査で印を、PR・下書き・開発版の検査で組み立ての印と同じ commit を求め、合わなければ公開しない。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "印が版番号と違う公開の組み立ては、配布物を作らずに落ちる",
+       "PR の組み立てと下書きの配布物の検査は、commit のソースの場所で通る",
+       "ソースの場所がチャンネルの決まりと合わない配布物は、公開しない"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "source.4",
+     "kind": "exception",
+     "text": "サーバの画面（ブラウザで開くもの）には、ソースの場所も許諾へのリンクも出さない。一般向けに配る前に足すことを、要件の未決として残す。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "Q9",
+       "D13"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "approval",
+   "title": "正式な鍵を読む公開は本人の承認を経る",
+   "summary": "鍵を置く前に、本人を必須の承認者に付け、エージェントの資格情報を管理の権限の無いものに替える。",
+   "points": [
+    {
+     "id": "approval.1",
+     "kind": "normal",
+     "tags": [
+      "Security"
+     ],
+     "text": "配布用の Environment release に本人を必須の承認者として付け、管理者が承認を飛ばせない設定にする。承認されるまで公開の job は始まらず、正式な鍵も渡らない。本人が印を打って本人が承認する運用は止めない。",
+     "refs": {
+      "requirements": [
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ],
+      "scenarios": [
+       "承認者の無い配布用の Environment では、公開の前の確かめが落ちる",
+       "管理者が承認を飛ばせる設定では、公開の前の確かめが落ちる",
+       "本人が承認者で管理者が飛ばせなければ、公開の前の確かめを通る",
+       "本人が承認者にいなければ、公開の前の確かめが落ちる"
+      ],
+      "decisions": [
+       "Q3",
+       "D3",
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "approval.2",
+     "kind": "normal",
+     "tags": [
+      "Security"
+     ],
+     "text": "エージェントの資格情報を、権限を細かく絞った token（枝・印の push、PR・issue、workflow のファイル、Actions の読み）に替える。管理・Environment・公開の承認・Secrets の権限は持たせない。手順の順は「資格情報 → 承認者 → 鍵」。",
+     "refs": {
+      "requirements": [
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ],
+      "scenarios": [
+       "管理者の資格情報では、エージェントの資格情報の確かめが落ちる",
+       "管理者でない資格情報では、エージェントの資格情報の確かめを通る"
+      ],
+      "decisions": [
+       "D3",
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "approval.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Security"
+     ],
+     "text": "公開の job の中で確かめる手順（approvals）は守りの本体ではない。job は印の commit の workflow で走るので、書き換えられれば効かない。守りの本体は GitHub が job を始める前に効く承認で、本人が承認の画面で「印の commit が main にあり PR を通って入った」ことを見ずに押せば、守りは無いのと同じ。",
+     "refs": {
+      "requirements": [
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ],
+      "scenarios": [
+       "公開の job は、署名の前に承認者を確かめる"
+      ],
+      "decisions": [
+       "D3",
+       "D11"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "firstrelease",
+   "title": "最初の本物の公開と、確認バッチで見るもの",
+   "summary": "最初の本物の印・正式な鍵・本人のサーバの切り替えは、ST53 が main に入った後に本人が行う。",
+   "points": [
+    {
+     "id": "firstrelease.1",
+     "kind": "normal",
+     "text": "ST53 の確認バッチでは、PR の配布物から作った下書きのリリースで許諾の 3 点と守りを見る。本物の印・正式な鍵・本人のサーバの切り替えは、main に入った後に本人が docs/release.md の手順で行い、最後に公開した版を取り寄せて配布物の検査に通す。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ],
+      "decisions": [
+       "Q4",
+       "D12"
+      ]
+     }
+    },
+    {
+     "id": "firstrelease.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "ST52 が書いた「本物の公開は ST53 の確認で見る」とは変わる。確認バッチの中で印を打つと、その版は main の祖先の commit なので ST53 の許可も一覧も入らずに出回るため。ST52 の完了の判定の文は record の段が書き直す。",
+     "refs": {
+      "decisions": [
+       "Q4",
+       "D12"
+      ]
+     }
+    },
+    {
+     "id": "firstrelease.3",
+     "kind": "exception",
+     "text": "ST53 より前に PR の成果物として置かれた配布物（許諾なし。今 14 件、90 日で消える）は、main に入った後に本人が消す手順を docs/release.md に置く。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "verifyprep",
+   "title": "確認バッチの準備はエミュレータにだけ入れる",
+   "summary": "開発用の鍵の APK を、本人の携帯（実機）に入れないようにする。",
+   "points": [
+    {
+     "id": "verifyprep.1",
+     "kind": "normal",
+     "tags": [
+      "Android"
+     ],
+     "text": "準備の台本は、adb が返す端末のうち名前が emulator- で始まるものにだけ開発用の APK を入れる。実機が繋がっていても入れない。",
+     "refs": {
+      "requirements": [
+       "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+      ],
+      "scenarios": [
+       "実機とエミュレータが繋がっていれば、エミュレータにだけ入れる",
+       "準備の台本は、端末を選ぶ手順を通して APK を入れる"
+      ],
+      "decisions": [
+       "Q8",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "verifyprep.2",
+     "kind": "exception",
+     "text": "エミュレータが無ければ何も入れず、手順書に「入れていない」ことと手で入れるコマンドを書く。この修正が入るまでの確認では、準備の間に本人の携帯を繋がない。",
+     "refs": {
+      "requirements": [
+       "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+      ],
+      "scenarios": [
+       "実機だけが繋がっていれば、何も入れない"
+      ],
+      "decisions": [
+       "Q8",
+       "D14"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "highlights": [
+  "permission.3",
+  "headers.2",
+  "depcheck.3",
+  "approval.3",
+  "source.2",
+  "firstrelease.2"
+ ],
+ "out_of_scope": [
+  {
+   "text": "携帯のアプリに許諾を読む画面（Play ストアへ出す前に足す。要件の未決として残す）",
+   "refs": {
+    "decisions": [
+     "Q6"
+    ]
+   }
+  },
+  {
+   "text": "サーバの画面にソースの場所と許諾を出すこと（一般向けの配布の前に足す。要件の未決として残す）",
+   "refs": {
+    "decisions": [
+     "Q9",
+     "D13"
+    ]
+   }
+  },
+  {
+   "text": "最初の本物の印・正式な鍵を置くこと・本人のサーバの切り替え（main に入った後に本人が行う）",
+   "refs": {
+    "decisions": [
+     "Q4",
+     "D12"
+    ]
+   }
+  },
+  {
+   "text": "F-Droid 向けに位置のライブラリを置き換えること・衛星向けの契約と SDK の許諾（ST42）",
+   "refs": {}
+  }
+ ],
+ "open": [
+  {
+   "text": "仮の決定の台帳（provisional.jsonl）の D5 は「先頭 5 行の SPDX だけを見る」と書き、design と spec は「先頭 25 行」と書く。gradle の wrapper の表示が 16・18 行目にあるので、5 行では例外の 2 つが見えない。どちらが正しいかを spec の段が揃える必要がある（この段は直さない）",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "requirements": [
+     "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+    ],
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "POM の許諾の名前と SPDX の名前の対応表の中身・親の POM を辿る深さ（5）",
+   "refs": {
+    "decisions": [
+     "D7"
+    ]
+   }
+  },
+  {
+   "text": "依存の一覧の項の並び（名前の順）と全文の取り出し先（部品の LICENSE ファイル → 無ければ SPDX の全文）",
+   "refs": {
+    "decisions": [
+     "D8"
+    ]
+   }
+  },
+  {
+   "text": "検査を CI のどの job に置くか（画面の job・配る形を組む job・全 PR で走る job）",
+   "refs": {
+    "decisions": [
+     "D15"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "追加の許可",
+   "def": "GNU AGPL 第 7 条で、著作者が AGPL の条件に足して与える許可。ここでは名指しした Google のライブラリと組み合わせて配ることを許す"
+  },
+  {
+   "term": "正本",
+   "def": "許可の文の元になる 1 つのファイル。LICENSE の先頭と携帯の依存の検査は、ここから写し・読む"
+  },
+  {
+   "term": "名指し",
+   "def": "許可が受ける Google のライブラリを、group:name の座標で 1 つずつ書いた一覧（今は 4 つ）"
+  },
+  {
+   "term": "必須の承認者",
+   "def": "GitHub の Environment の設定。指定した人が画面で承認するまで、その Environment を使う job は始まらず Secrets も渡らない"
+  },
+  {
+   "term": "印",
+   "def": "git の tag。v<版> を push すると公開の workflow が走る"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "最初のベータ版を公開する前に、鍵を置く順を踏む",
+   "trigger": "ST53 が main に入った。最初のベータ版 0.1.0-beta.1 を配りたいが、正式な鍵を置いた後で、エージェントが main に無い commit から鍵を読めないかが気になる。",
+   "steps": [
+    {
+     "do": "docs/release.md §3 のとおり、エージェント用に権限を絞った token を作って差し替え、check-guards.sh agent-credential --repo rai-256/ashiato を走らせる",
+     "see": "rc=0（今の資格情報は管理者でない）"
+    },
+    {
+     "do": "§4 で Environment release に自分を必須の承認者として付け、管理者の飛ばしを外し、check-guards.sh approvals --repo rai-256/ashiato を走らせる",
+     "see": "rc=0"
+    },
+    {
+     "do": "§5 で鍵と Secrets を置き、main の commit に印 v0.1.0-beta.1 を打つ",
+     "see": "公開の job が「承認待ち」で止まり、承認の画面に印の commit が出る"
+    },
+    {
+     "do": "その commit が main にあり PR を通って入ったことを見て承認する",
+     "see": "4 つの配布物が並ぶ"
+    },
+    {
+     "do": "手順の最後の 2 行（gh release download と check-artifacts.sh --channel beta --expect-version 0.1.0-beta.1）を走らせる",
+     "see": "rc=0。tar を開くと LICENSE・THIRD-PARTY-NOTICES.txt・SOURCE.txt（Ref: v0.1.0-beta.1）がある"
+    }
+   ],
+   "outcome": "配った最初の版に許可と許諾の一覧が入っていて、鍵は自分が承認した job にだけ渡ったと確かめられる",
+   "without": "実行ファイルだけの版が許可の文なしで出回り（取り消せない）、印を打てる資格情報なら誰でも鍵を読める経路が開いたままになる",
+   "refs": {
+    "requirements": [
+     "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+     "正式な鍵を読む公開は、本人の承認を経る"
+    ],
+    "scenarios": [
+     "4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ",
+     "本人が承認者で管理者が飛ばせなければ、公開の前の確かめを通る"
+    ],
+    "decisions": [
+     "Q3",
+     "Q4",
+     "D3",
+     "D12"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "携帯に地図のライブラリを足そうとしたら CI が止める",
+   "trigger": "携帯の収集アプリに地図を出したくなり、AI が play-services-maps を依存に足した PR を出した。",
+   "steps": [
+    {
+     "do": "PR の CI を見る",
+     "see": "配る形を組む job の依存の許諾の検査が、com.google.android.gms:play-services-maps と「Android Software Development Kit License」を示して落ちている"
+    },
+    {
+     "do": "使うなら、許可の正本の Listed libraries: に 1 行足す（LICENSE の先頭も一緒に直る）",
+     "see": "検査は通るが、許可の文が変わる。次に配る版から、広げた許可で出回る"
+    }
+   ],
+   "outcome": "許可の外の非オープンソースの部品が、気づかないうちに配布物へ入ることはない（検査が見る携帯の依存について）。広げるかは本人が決める",
+   "without": "地図のライブラリが許可の外のまま APK に入って配られ、その版の配布が AGPL と両立するかの解釈が割れたまま残る",
+   "refs": {
+    "requirements": [
+     "配布物に入る依存の許諾を、携帯の依存も含めて検査する",
+     "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+    ],
+    "scenarios": [
+     "名指しの外の Google のライブラリを足すと、許諾の検査が落ちる"
+    ],
+    "decisions": [
+     "Q2",
+     "D2"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "名指しの外の Google のライブラリを足したとき",
+   "feature": "depcheck",
+   "scene": "AI が携帯の依存に Google のライブラリを 1 つ足した PR を出す。CI の依存の許諾の検査がどう判定するか。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "携帯の依存の部品ごとの判定（部品の名前は説明用）",
+    "head": [
+     "足した部品",
+     "POM の許諾",
+     "名指しにあるか",
+     "結果"
+    ],
+    "rows": [
+     [
+      "play-services-location",
+      "Android Software Development Kit License",
+      "ある",
+      "通る（非オープンソースとして通した 4 つに数える）"
+     ],
+     [
+      "play-services-maps",
+      "Android Software Development Kit License",
+      "無い",
+      "CI が落ち、座標と許諾の名前を示す"
+     ],
+     [
+      "androidx.core:core",
+      "The Apache Software License, Version 2.0",
+      "（見ない）",
+      "Apache-2.0 として通る"
+     ],
+     [
+      "対応表に無い許諾名の部品",
+      "（表に無い名前）",
+      "（見ない）",
+      "CI が落ちる。表に 1 行足すまで止まる"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "名指しの 4 つだけ",
+     "outcome": "ok",
+     "result": "検査は通り、「通した PROPRIETARY」に 4 つの座標が出る"
+    },
+    {
+     "label": "名指しの外の gms の部品を足した",
+     "outcome": "problem",
+     "result": "CI が落ちる。使うには許可の正本を広げ、次の版から広げた許可で配る"
+    }
+   ],
+   "why": "許可が受けるのは名指しした部品だけで、検査はその名指しを許可の正本から読む。許可の外の非オープンソースの部品を配ると、許可の無い組み合わせを配ることになるため、入る前に止める。",
+   "conditions": {
+    "occurs_when": [
+     "配る APK に入る依存（releaseRuntimeClasspath）に、名指しの外の非オープンソースの部品が入る"
+    ],
+    "not_when": [
+     "試験だけの依存（配る APK に入らない）",
+     "許諾がオープンソースの部品"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。地図のライブラリを足す予定があるわけではない",
+     "refs": {}
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "requirements": [
+     "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+    ],
+    "scenarios": [
+     "名指しの外の Google のライブラリを足すと、許諾の検査が落ちる",
+     "対応表に無い許諾の名前の部品があれば、許諾の検査が落ちる"
+    ],
+    "decisions": [
+     "Q2",
+     "D2",
+     "D7"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "配布物ごとに SOURCE.txt に何が書かれるか",
+   "feature": "source",
+   "scene": "本人が手元にある配布物から対応するソースを取りに行こうとする。どの配布物でも同じ commit に辿り着けるか。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "組み立ての種類ごとの SOURCE.txt（版番号は説明用）",
+    "head": [
+     "組み立て",
+     "SOURCE.txt",
+     "後から同じものを取れるか"
+    ],
+    "rows": [
+     [
+      "正式版 v0.4.0 の公開",
+      "Ref: v0.4.0",
+      "取れる（印は消せず動かせない）"
+     ],
+     [
+      "ベータ版 v0.4.0-beta.1 の公開",
+      "Ref: v0.4.0-beta.1",
+      "取れる"
+     ],
+     [
+      "開発版（毎日）",
+      "Commit: <40 桁>",
+      "取れる（commit は動かない）"
+     ],
+     [
+      "PR の組み立て",
+      "Commit: <GitHub が PR のために作る merge commit>",
+      "確かめていない（IMP-06）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "開発版",
+     "outcome": "ok",
+     "result": "nightly の印は翌日動くが、SOURCE.txt の commit は動かないので同じソースを取れる"
+    },
+    {
+     "label": "PR を閉じた後の PR の組み立て",
+     "outcome": "problem",
+     "result": "書かれた merge commit を取れるかは確かめていない。取れなければ、配った成果物のソースの場所が辿れない"
+    }
+   ],
+   "why": "要件は「同じ印で示す」と言うが、開発版の印は動き、PR の組み立てには印が無い。動かない commit で示すことにした。",
+   "conditions": {
+    "occurs_when": [
+     "PR の組み立ての成果物を、PR を閉じた後に誰かが落とした"
+    ],
+    "not_when": [
+     "正式版・ベータ版・開発版の配布物"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。実際の版番号の構成は確かめていない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-06"
+   ],
+   "refs": {
+    "requirements": [
+     "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+    ],
+    "scenarios": [
+     "正式版の配布物のソースの場所は、その版の印",
+     "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+    ],
+    "decisions": [
+     "Q7",
+     "D9",
+     "D16"
+    ]
+   }
+  },
+  {
+   "id": "W3",
+   "title": "main に無い commit に印を打たれたとき",
+   "feature": "approval",
+   "scene": "正式な鍵を置いた後、本人でない誰か（本人の資格情報で動くエージェントを含む）が、main に入っていない commit で workflow を書き換え、印 v0.5.0 を push する。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "印が push された後に何が起きるか",
+    "head": [
+     "",
+     "公開の job",
+     "正式な鍵"
+    ],
+    "rows": [
+     [
+      "ST53 の前（ST52 のまま）",
+      "印の名前だけで始まる",
+      "書き換えた workflow が読める"
+     ],
+     [
+      "ST53 の後（承認者あり・資格情報を絞った）",
+      "本人が承認するまで始まらない",
+      "承認されるまで渡らない"
+     ],
+     [
+      "ST53 の後でも、管理者の token がエージェントから読める場合",
+      "その token で承認者を外す・承認できる",
+      "読まれうる（IMP-02）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "エージェントの資格情報が絞られ、本人の管理者の資格情報に届かない",
+     "outcome": "ok",
+     "result": "job は承認待ちで止まり、本人が commit を見て拒めば鍵は渡らない"
+    },
+    {
+     "label": "本人の管理者の token が同じ OS の利用者の gh の設定に残っている",
+     "outcome": "problem",
+     "result": "エージェントがその token で承認者の規則を外すか承認すれば、鍵が読まれる"
+    }
+   ],
+   "why": "守りの本体は GitHub が job を始める前に効く承認で、承認できるのは承認の権限を持つ資格情報だけ。エージェントの資格情報を絞っても、エージェントが別の管理者の資格情報に手が届くなら分けられない。",
+   "conditions": {
+    "occurs_when": [
+     "本人の管理者の資格情報が、エージェントの動く OS の利用者から読める"
+    ],
+    "not_when": [
+     "本人の管理者の操作をブラウザか別の利用者だけで行い、エージェントの動く利用者の gh に管理者の token が無い"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。誰かが実際に印を打ったわけではない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-01",
+    "IMP-02"
+   ],
+   "refs": {
+    "requirements": [
+     "正式な鍵を読む公開は、本人の承認を経る"
+    ],
+    "scenarios": [
+     "管理者の資格情報では、エージェントの資格情報の確かめが落ちる",
+     "公開の job は、署名の前に承認者を確かめる"
+    ],
+    "decisions": [
+     "Q3",
+     "D3",
+     "D11"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "配布物 4 つに、追加の許可つきの LICENSE・依存の許諾の一覧・ソースの場所が入り、携帯を含む依存の許諾とソースの表示を CI が確かめるようになる（組み立ての台本を通した配布物と、表示を持つファイルについて）。正式な鍵は本人を必須の承認者に付け、エージェントの資格情報を絞った後に置く手順になる。できなくなること: 他人の GPL / AGPL や名指しの外の非オープンソースの部品を依存に足すこと、古い表示のままのファイルを足すこと、エージェントの資格情報での管理の操作（と、絞り方によっては CI の走らせ直し。IMP-03）、確認バッチの準備が実機に APK を入れること。絞った資格情報の外に本人の管理者の資格情報が残る場合の守りは、この仕様では決まっていない（IMP-02）。",
+  "problem": "本人が最初の本物の版を配ろうとしたとき、配布物には実行ファイルしか入っておらず、AGPL の本体が非オープンソースの Google のライブラリと組み合わさった APK を、許可の文も許諾の一覧も無いまま配ることになる。配った版は取り消せない。同時に、正式な鍵を Environment に置くと、印を push できる資格情報（いまは管理者のエージェントも含む）で main に無い commit から鍵を読める経路が開く（ST52 IMP-01）。",
+  "depth": "full",
+  "depth_why": "止める規則（許可の外の部品・表示・欠けた配布物・承認の無い公開で止める）と、既存の振る舞いの変化（許可の一覧から AGPL を外す・準備の端末の選び方）を持つ",
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "file",
+    "name": "LICENSE と追加の許可の正本",
+    "change": "LICENSE の先頭に許可の文が入り、正本のファイルが新しくできる",
+    "searched": "LICENSE・LICENSES/ の名前で repo を検索し、LICENSE を読む台本（check-artifacts.sh の比べ）と README・CONTRIBUTING を読んだ",
+    "refs": {
+     "requirements": [
+      "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "code",
+    "name": "ソースの先頭の許諾の表示（503 ファイル）と部品の許諾の欄",
+    "change": "AGPL-3.0-only を、追加の許可を含む式に書き換える。移行の 3 つは除く",
+    "searched": "git ls-files の全ファイルの先頭 25 行の SPDX-License-Identifier: を数え（508 = 506 + wrapper 2）、移行の中身を読む側（migration_ledger.rs の指紋）を読んだ",
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "code",
+    "name": "依存の許諾の検査（tools/check-licenses.sh）",
+    "change": "節を引数で選ぶ・携帯の節を作る・許可の一覧から AGPL-3.0-only を外す",
+    "searched": "check-licenses の名前で ci.yml・CONTRIBUTING・docs/testing.md を検索し、呼び出し方（引数なし）を読んだ",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "file",
+    "name": "4 つの配布物の中身",
+    "change": "tar / zip の根と APK の assets/licenses/ に 3 つのファイルが増える",
+    "searched": "build.sh・check-artifacts.sh を読み、配布物の中身を全部読む処理（組み立ての印の取り出し）を探した",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "auth",
+    "name": "Environment release の承認者とエージェントの資格情報",
+    "change": "必須の承認者が付き、エージェントの gh の資格情報が権限を絞った token に替わる",
+    "searched": "ハーネスの台本（scripts/）の gh の呼び出しを全部拾い、要る権限を突き合わせた。gh の資格情報の置き場を gh auth status で見た",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ]
+    }
+   },
+   {
+    "id": "T6",
+    "kind": "lifecycle",
+    "name": "確認バッチの準備（tools/verify-prep.sh）の端末の選び方",
+    "change": "最初の端末ではなく、emulator- の端末にだけ入れる",
+    "searched": "verify-prep.sh の名前で検索し、その行を切り出して使う check-db-version-stop.sh を読んだ",
+    "refs": {
+     "requirements": [
+      "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T2",
+    "who": "サーバの起動時の移行の台帳（migration_ledger.rs の指紋）",
+    "role": "reads",
+    "assumes": "当てた移行のファイルの中身は変わらない（変われば起動のたびに警告）",
+    "holds": "yes",
+    "affects": "移行の 3 つを書き換えれば、本人のサーバ・開発と確認の DB で警告が出続ける。D4 で除いたので成り立つ",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T4",
+    "who": "配布物の検査の組み立ての印の取り出し（check-artifacts.sh の artifact_stamp）",
+    "role": "reads",
+    "assumes": "tar / zip の中の全ファイルを読んで、<版>+<40 桁> の印がちょうど 1 つ",
+    "holds": "yes",
+    "affects": "SOURCE.txt の「Commit: <40 桁>」は <版>+ の前置きを持たないので、印の数は増えない",
+    "basis": "observed",
+    "evidence": [
+     "E2"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T6",
+    "who": "DB の版の停止の検査（check-db-version-stop.sh）",
+    "role": "reads",
+    "assumes": "verify-prep.sh の project= の行と run.sh を書く塊が、今の形で残っている",
+    "holds": "yes",
+    "affects": "端末の選び方の行だけを替え、その 2 か所を壊さないことを tasks 9.1 が求める",
+    "basis": "observed",
+    "evidence": [
+     "E3"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T5",
+    "who": "ハーネスの CI の走らせ直し（scripts/story_ci.py・scripts/verify_batch.sh の gh run rerun --failed）",
+    "role": "writes",
+    "assumes": "エージェントの資格情報で、落ちた CI の job を走らせ直せる",
+    "holds": "no",
+    "affects": "D3 の権限（Actions は読みだけ）では走らせ直しが断られると読む。不安定なだけの赤が ci-fix の AI か人間に回る。verify_batch.sh は失敗を黙って捨てる",
+    "basis": "derived",
+    "evidence": [
+     "E4",
+     "E5",
+     "E6"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ],
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "D5",
+    "target": "T5",
+    "who": "本人の管理者の gh の資格情報（エージェントと同じ OS の利用者に置かれている）",
+    "role": "reads",
+    "assumes": "エージェントの資格情報を替えれば、エージェントは管理と承認の権限に届かない",
+    "holds": "unknown",
+    "affects": "管理者の token が同じ利用者の gh の設定に残れば、エージェントはそれで承認者を外す・承認できる",
+    "basis": "derived",
+    "evidence": [
+     "E7",
+     "E8"
+    ],
+    "leads_to": [
+     "IMP-02",
+     "S5"
+    ],
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3",
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "D6",
+    "target": "T3",
+    "who": "CI の web の job（ci.yml の ../tools/check-licenses.sh。引数なし）",
+    "role": "reads",
+    "assumes": "引数なしで走らせると Rust と画面の節だけを見る",
+    "holds": "yes",
+    "affects": "変更の後、引数なしは 3 節全部で、gradle の無い web の job では携帯の節が「対象が無い」で落ちる。tasks 10.1 が呼び出しを rust node に替える",
+    "basis": "observed",
+    "evidence": [
+     "E9"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T4",
+    "who": "公開の job（release.yml の publish）",
+    "role": "reads",
+    "assumes": "Actions の GITHUB_TOKEN で environments/release の保護の規則を読める（approvals が通る）",
+    "holds": "unknown",
+    "affects": "読めなければ、正当な公開も署名の前で止まる",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E10"
+    ],
+    "leads_to": [
+     "IMP-04",
+     "S4"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T1",
+    "who": "GitHub のリポジトリの画面の許諾の判定",
+    "role": "reads",
+    "assumes": "LICENSE が AGPL-3.0 の全文だけ",
+    "holds": "unknown",
+    "affects": "先頭に許可の文があると、画面が許諾を AGPL-3.0 でなく Other と出すかもしれない",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E11"
+    ],
+    "leads_to": [
+     "IMP-05"
+    ]
+   },
+   {
+    "id": "D9",
+    "target": "T5",
+    "who": "ハーネスの PR・issue の操作（publish.sh の gh pr ready・gh issue create と PR 本文の PATCH、merge_gate の gh pr comment、auto_merge の gh pr merge）",
+    "role": "writes",
+    "assumes": "エージェントの資格情報で PR と issue を作り・書き換え・merge できる",
+    "holds": "yes",
+    "affects": "D3 の権限（Contents・Pull requests・Issues の読み書き）で足りると読む（走らせていない。確認バッチ 11.2 で絞った token を使うときに分かる）",
+    "basis": "derived",
+    "evidence": [
+     "E15",
+     "E16"
+    ],
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "D10",
+    "target": "T4",
+    "who": "ST54（開発版に携帯の APK を足し、開発版の配布物の検査の期待を 4 つに戻す）",
+    "role": "writes",
+    "assumes": "開発版の携帯の APK も組み立ての台本（build.sh apk）を通して組まれ、許諾の 3 点と commit の SOURCE.txt を持つ",
+    "holds": "yes",
+    "affects": "ST54 が build.sh を通さずに APK を組めば、開発版の APK が 3 点を欠き、配布物の検査（--channel nightly）が落ちる。検査が止めるので黙っては出ない",
+    "basis": "derived",
+    "evidence": [
+     "E17"
+    ],
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "D8",
+      "D13"
+     ]
+    }
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/server/src/migration_ledger.rs:331",
+    "quote": "fn fingerprint(sql: &str) -> String {"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": "tools/release/check-artifacts.sh:35",
+    "quote": "*.tar.gz) text=\"$(tar -xOzf \"$artifact\" 2>/dev/null | strings || true)\" ;;"
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": "tools/check-db-version-stop.sh:48",
+    "quote": "verify-prep.sh の「project 名を決める行」と「run.sh を書く部分」だけを取り出し"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": "scripts/verify_batch.sh:244",
+    "quote": "gh run rerun \"$id\" --failed >/dev/null 2>&1"
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": "scripts/story_ci.py:45",
+    "quote": "subprocess.run([\"gh\", \"run\", \"rerun\", str(i), \"--failed\"]"
+   },
+   {
+    "id": "E6",
+    "source": "design",
+    "loc": "openspec/changes/st53-license-bundle/design.md:64",
+    "quote": "- Actions の読み"
+   },
+   {
+    "id": "E7",
+    "source": "design",
+    "loc": "openspec/changes/st53-license-bundle/design.md:215",
+    "quote": "エージェントの token も本人の利用者として動く"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": "AGENTS.md:58",
+    "quote": "Claude（`claude -p`）は sandbox を設定していない"
+   },
+   {
+    "id": "E9",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:211",
+    "quote": "../tools/check-licenses.sh"
+   },
+   {
+    "id": "E10",
+    "source": "design",
+    "loc": "openspec/changes/st53-license-bundle/design.md:160",
+    "quote": "Actions の `GITHUB_TOKEN` で `environments/release` を読めないと分かったら"
+   },
+   {
+    "id": "E11",
+    "source": "design",
+    "loc": "openspec/changes/st53-license-bundle/design.md:212",
+    "quote": "GitHub の許諾の判定が `LICENSE` を「Other」と出す"
+   },
+   {
+    "id": "E12",
+    "source": "design",
+    "loc": "openspec/changes/st53-license-bundle/premises.md:23",
+    "quote": "取れるかは、確認バッチ 11.1 で閉じた PR の merge commit を"
+   },
+   {
+    "id": "E13",
+    "source": "ops",
+    "loc": "tools/verify-prep.sh:61",
+    "quote": "adb -s \"$device\" install -r \"$apk\""
+   },
+   {
+    "id": "E14",
+    "source": "ops",
+    "loc": "tools/check-licenses.sh:9",
+    "quote": "AGPL-3.0-only,Apache-2.0 WITH LLVM-exception"
+   },
+   {
+    "id": "E15",
+    "source": "ops",
+    "loc": "scripts/publish.sh:57",
+    "quote": "gh issue create --title"
+   },
+   {
+    "id": "E16",
+    "source": "ops",
+    "loc": "scripts/publish.sh:68",
+    "quote": "gh api -X PATCH \"repos/$repo/pulls/$pr\""
+   },
+   {
+    "id": "E17",
+    "source": "story",
+    "loc": "docs/handoff/ST54.md:17",
+    "quote": "`tools/release/check-artifacts.sh --channel nightly` の期待を 4 つに戻す"
+   }
+  ],
+  "lost": [
+   {
+    "before": "他人の AGPL-3.0-only の部品を依存に足せた（許可の一覧にあった）",
+    "after": "依存の許諾の検査が CI を落とす。使うなら一覧に戻し、その部品に許可が及ばないことを README に書く",
+    "who": "依存を足す AI と本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "before": "名指しの外の Google のライブラリ（地図・広告など）を携帯に足せた（携帯の依存は見ていなかった）",
+    "after": "CI が落ちる。使うには許可の文を広げた次の版を出す",
+    "who": "携帯の依存を足す AI と本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    }
+   },
+   {
+    "before": "新しいファイルを AGPL-3.0-only の表示で足せた",
+    "after": "表示の検査が CI を落とす。新しい式で書く",
+    "who": "ファイルを足す AI",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ]
+    }
+   },
+   {
+    "before": "手元で引数なしの check-licenses.sh が Rust と画面だけを見て通った",
+    "after": "引数なしは携帯の節も走らせ、gradle が使えない所では落ちる。手元の行は rust node を付ける",
+    "who": "手元で検査する AI と本人",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "decisions": [
+      "D15"
+     ]
+    }
+   },
+   {
+    "before": "エージェントが gh の管理者の資格情報で、Environment・ルールセットの設定や CI の走らせ直しをできた",
+    "after": "管理の操作は本人の手になる。CI の走らせ直しができるかは、絞った token の権限次第（IMP-03）",
+    "who": "ハーネスのエージェント",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "before": "確認バッチの準備が、繋いだ実機に開発用の APK を自動で入れた",
+    "after": "エミュレータにだけ入れる。実機で見たいときは示されたコマンドで手で入れる",
+    "who": "確認バッチをする本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+     ],
+     "decisions": [
+      "Q8"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "印を打って本人が承認すると、4 つの配布物が許諾の 3 点つきで並ぶ。PR ごとに許諾の検査と配る形の組み立てが走る",
+    "cannot": "許可の外の部品や古い表示のファイルを入れた PR を緑で merge する。本人の承認なしに正式な鍵で署名する",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する",
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "scenarios": [
+      "4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "次の版でも同じ 3 点が入る。名指しを広げた許可の文は次の版から付く",
+    "cannot": "配った版の許可の文と SOURCE.txt を後から直す（配った版は配ったときのまま）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける",
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "Q1",
+      "Q7"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "サーバを前の版へ戻す。DB と API は変えないので、許諾の変更は戻しを妨げない",
+    "cannot": "ST53 より前の組み立て（PR の成果物・下書き）に戻すと、その配布物には許諾の 3 点が無い。この分析で見つけたのはそれだけ",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "既にある DB はそのまま使える。移行の 3 つを書き換えないので、指紋の警告は出ない",
+    "cannot": "この分析では見つけていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ],
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "正式版・ベータ版・開発版・PR の組み立てが、それぞれの決まりの SOURCE.txt を持つ。確認バッチの準備は実機に開発用の鍵の版を入れない",
+    "cannot": "閉じた PR の組み立ての SOURCE.txt の commit を後から取れるかは確かめていない（IMP-06）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+      "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+     ],
+     "decisions": [
+      "D9",
+      "D16"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "本人が承認者の規則を外してしまっても、公開の job の approvals が署名と公開の前で止める。ただし止まるのは鍵が job に渡った後で、approvals が GITHUB_TOKEN で設定を読めることも確かめていない（IMP-04）。印の commit の workflow を書き換えていれば効かない",
+    "cannot": "印の commit の workflow が書き換えられていれば、job の中の確かめは効かない。守りは承認の画面で本人が見ることに乗る",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3",
+      "D11"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "拒否",
+    "rule": "LICENSE の先頭が許可の正本と 1 字でも違う・AGPL の全文が違うと、許諾の文の検査が CI を落とす",
+    "target": "片方だけを直す・写し間違える",
+    "legit": "許可の文を正当に直すときも、正本・LICENSE・検査の中の英文の定数を同時に直す必要がある（揃えれば通る）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "拒否",
+    "rule": "決めた式でもなく例外の一覧にも無い SPDX の表示を持つファイルがあれば、表示の検査が CI を落とす",
+    "target": "他人の GPL のコードを表示ごと写す・古い表示のまま足す",
+    "legit": "第三者の MIT などのコードを表示ごと正当に写して取り込むときも落ちる。例外の一覧に足すか LICENSES/ の置き方を決めるまで止まる",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "拒否",
+    "rule": "名指しの外の非オープンソース・対応表に無い許諾名・許諾の読めない部品・他人の GPL / AGPL が依存にあれば、依存の許諾の検査が CI を落とす",
+    "target": "許可の外の部品が配布物に入る",
+    "legit": "オープンソースの部品でも、POM の許諾の名前が対応表に無い書き方（表記ゆれ）なら落ちる。表に 1 行足すまで止まる",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "停止",
+    "rule": "3 点のどれかが無い・LICENSE が違う・一覧の必須の項が無い・SOURCE.txt が決まりに合わない配布物は公開しない。全文も著作権の表示も見つからない部品があれば組み立てを落とす",
+    "target": "許諾の無い配布物の公開",
+    "legit": "新しい依存が LICENSE のファイルも作者の欄も持たないと、正当な依存でも組み立てが落ちる。tools/licenses/texts/ に全文を足すまで止まる",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "D8",
+      "D9"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "停止",
+    "rule": "本人の承認まで公開の job を始めず、job の中でも approvals が通らなければ署名も公開もしない",
+    "target": "main に無い commit に打った印から鍵を読む",
+    "legit": "公開の job の GITHUB_TOKEN が承認者の設定を読めなければ、本人の正当な公開も署名の前で止まる（確かめていない）",
+    "blocks_legit": "unknown",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "制約",
+    "rule": "エージェントの資格情報は管理と公開の承認の権限を持たない",
+    "target": "エージェントが承認者の規則を外す・自分で承認する",
+    "legit": "ハーネスが CI の赤を走らせ直す操作（gh run rerun）も、絞り方によっては止まる",
+    "blocks_legit": "unknown",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "R7",
+    "kind": "制約",
+    "rule": "確認バッチの準備は emulator- の端末にだけ APK を入れ、実機には入れない",
+    "target": "開発用の鍵の版が本人の携帯に入る",
+    "legit": "実機で確かめたいときは、示されたコマンドで手で入れられる",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+     ],
+     "decisions": [
+      "D14"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R2",
+    "goal": "他所の MIT のコードを一部写して取り込みたい",
+    "initial": "写すファイルの先頭に SPDX-License-Identifier: MIT がある",
+    "action": "ファイルを表示ごと repo に足して PR を出す",
+    "trigger": "決めた式でなく例外の一覧にも無い表示",
+    "result": "表示の検査が CI を落とす",
+    "lost": "その PR をそのまま merge すること",
+    "decision": "例外の一覧に足すか、LICENSES/ に許諾を置く形を決める（D5 の反転条件）",
+    "occurs_when": [
+     "写したファイルが先頭 25 行に自分の表示を持つ"
+    ],
+    "not_when": [
+     "写したファイルが表示を持たない（この場合は検査が見ない）"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R3",
+    "goal": "オープンソースの新しい依存を携帯に足したい",
+    "initial": "部品の POM の許諾の名前が、対応表に無い書き方（例: Apache License 2.0）",
+    "action": "依存を足して PR を出す",
+    "trigger": "対応表に無い許諾の名前",
+    "result": "依存の許諾の検査が CI を落とし、座標と名前を示す",
+    "lost": "表に 1 行足すまで merge できない",
+    "decision": "対応表に 1 行足す（AI が直せる。人間の判断は要らない）",
+    "occurs_when": [
+     "POM の許諾の名前が表に無い"
+    ],
+    "not_when": [
+     "表にある名前（今の依存は全部ある）"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "S3",
+    "rule": "R4",
+    "goal": "Rust の新しい依存を足して組み立てたい",
+    "initial": "部品の置き場に LICENSE のファイルが無く、Cargo.toml に authors も無い",
+    "action": "依存を足して配る形を組む",
+    "trigger": "全文も著作権の表示も見つからない部品",
+    "result": "依存の一覧を組まずに組み立てが落ちる",
+    "lost": "tools/licenses/texts/ に全文を足すまで配る形を組めない",
+    "decision": "全文を足す（AI が直せる）",
+    "occurs_when": [
+     "部品が許諾のファイルも作者の欄も持たず、texts/ にも全文が無い"
+    ],
+    "not_when": [
+     "部品が LICENSE のファイルか作者の欄を持つ"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "D8"
+     ]
+    }
+   },
+   {
+    "id": "S4",
+    "rule": "R5",
+    "goal": "本人が最初のベータ版を公開したい",
+    "initial": "release に本人が必須の承認者として付き、管理者の飛ばしは外してある",
+    "action": "印を打ち、承認の画面で承認する",
+    "trigger": "公開の job の approvals が GITHUB_TOKEN で environments/release を読む",
+    "result": "読めなければ approvals が 0 でない終了コードで終わり、署名も公開もしない",
+    "lost": "正当な公開そのもの",
+    "decision": "D11 の反転条件（job では走らせず、印を打つ前の手順だけに置く）にするか（IMP-04）",
+    "occurs_when": [
+     "Actions の GITHUB_TOKEN に Environment の保護の規則を読む権限が無い"
+    ],
+    "not_when": [
+     "GITHUB_TOKEN で読める（確認バッチ 11.3 で確かめる）"
+    ],
+    "basis": "unconfirmed",
+    "imp": "IMP-04",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "scenarios": [
+      "公開の job は、署名の前に承認者を確かめる"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "S5",
+    "rule": "R6",
+    "goal": "PR の CI が不安定なだけの理由で赤になり、ハーネスに走らせ直させたい",
+    "initial": "エージェントの資格情報を、D3 の権限（Actions は読みだけ）の token に替えた",
+    "action": "ハーネスが gh run rerun --failed を呼ぶ",
+    "trigger": "エージェントの資格情報は管理と承認の権限を持たない（Actions の書きも持たない）",
+    "result": "走らせ直しが断られる（と読む）。verify_batch.sh は失敗を捨てるので、赤のまま ci-fix の AI か人間に回る",
+    "lost": "不安定なテストを機械が 1 回走らせ直して済ませること",
+    "decision": "token に Actions の書きを足すか（IMP-03）",
+    "occurs_when": [
+     "絞った token が Actions の書きを持たない"
+    ],
+    "not_when": [
+     "Actions の書きを持たせた"
+    ],
+    "basis": "derived",
+    "imp": "IMP-03",
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "from": "ST52/IMP-01",
+    "severity": "high",
+    "status": "open",
+    "title": "印を push できる人が main を通さずに正式な鍵を読めるかもしれない（ST52 から）",
+    "text": "ST52 から申し送られた判断。この Story は Environment release に本人を必須の承認者として付け、エージェントの資格情報を管理と承認の権限の無いものに替えてから鍵を置く手順にして、この経路を閉じる（Q3 の推奨）。閉じるかは、本人が承認の画面で印の commit を見ることと、承認の仕組みが文書どおりに効くこと（未走行）に乗る。",
+    "basis": "derived",
+    "unknowns": [
+     "承認するまで job が始まらず Secrets も渡らないこと（P8）、印の push の workflow が印の commit の定義で走ること（P11）、権限を絞った token が承認できないこと（P12 の後半）は公式文書の確かさ 2 で、走らせていない（確認バッチ 11.2 で確かめる）",
+     "本人の管理者の資格情報がエージェントから届かないか（IMP-02）"
+    ],
+    "derived": "必須の承認者が付けば、承認まで公開の job は始まらず鍵も渡らない（spec）。承認できる資格情報を本人だけが持つなら、main に無い commit の印でも、本人が承認の画面で見て拒める",
+    "undefined": "承認の画面で本人が何を見て判断するかは手順の文書（docs/release.md）にだけあり、機械は確かめない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "推奨のとおり、承認者と資格情報の切り替えを鍵より先に入れる（この Story の仕様）"
+     },
+     {
+      "label": "承認者だけを付ける（管理者の資格情報が規則を外せる）"
+     },
+     {
+      "label": "手元で署名する（印を打つだけで並ぶ、が満たせない）"
+     }
+    ],
+    "verify": "確認バッチ 11.2: 使い捨ての Environment に本人を承認者として付け、main に無い枝の commit からその Environment を使う workflow を走らせて、承認まで job が始まらないこと・絞った token で承認が断られることを見る",
+    "deps": [
+     "D5"
+    ],
+    "evidence": [
+     "E7"
+    ],
+    "if_accepted": {
+     "residual": "本人が承認の画面で印の commit を見ずに承認すれば、鍵は読まれる。IMP-02 が閉じるまでは、エージェントが本人の管理者の資格情報で承認者を外せる。11.2 は絞った token が断られることを見るだけで、管理者の token が残っていないことは見ない",
+     "scope": "正式な鍵と、それで署名する携帯の APK の全部（正式版とベータ版）",
+     "recheck": {
+      "owner": "本人",
+      "due": "ST54 の上流の合意まで"
+     }
+    },
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "scenarios": [
+      "本人が承認者で管理者が飛ばせなければ、公開の前の確かめを通る",
+      "管理者の資格情報では、エージェントの資格情報の確かめが落ちる"
+     ],
+     "decisions": [
+      "Q3",
+      "D3",
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "high",
+    "status": "open",
+    "title": "本人の管理者の資格情報がエージェントと同じ OS の利用者に残ると、資格情報を替えても分けられない",
+    "text": "仕様は「エージェントの資格情報」を絞り、今の資格情報が管理者でないことを確かめる（agent-credential）。しかしエージェントは本人と同じ OS の利用者で動き、Claude には sandbox が無い。いま、この利用者の gh の login（~/.config/gh/hosts.yml。scopes は repo・workflow）が本人の管理者の資格情報そのもので、git の push も gh auth git-credential を通ってそれを使う。切り替えの後もこの利用者に管理者の token が残れば、エージェントはそれで承認者の規則を外す・保留の公開を承認でき、鍵が読まれる。agent-credential は今使っている 1 つの資格情報しか見ない。",
+    "basis": "derived",
+    "unknowns": [
+     "本人が切り替えの後、管理者の操作をどこで行うつもりか（ブラウザだけか、gh の 2 つ目の account か）",
+     "切り替えの手順が、gh の active account と git の credential helper（gh auth git-credential）をどう差し替えるか。仕様にも手順にも無い",
+     "Codex の sandbox の中から gh の設定のファイルが読めるか（確かめていない）"
+    ],
+    "derived": "agent-credential は今の資格情報の権限だけを見る（D11）。エージェントは本人の利用者として動く（design の Risks）。Claude は sandbox を設定していない（AGENTS.md）。よって同じ利用者の設定に管理者の token が残れば、エージェントはそれを使える",
+    "undefined": "本人の管理者の資格情報をどこに置くか（ブラウザだけ・別の OS の利用者・別の端末）。仕様も手順も決めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "管理者の操作はブラウザだけで行い、エージェントの動く利用者の gh には管理者の token を置かない。手順に書き、agent-credential が gh の全部の account（と GH_TOKEN）を見る。ただし同じ OS の利用者のままなので、ブラウザのセッションや環境変数の経路は残る"
+     },
+     {
+      "label": "エージェントを別の OS の利用者で動かす"
+     },
+     {
+      "label": "このまま受け入れ、鍵を置く前に本人が判断し直す"
+     }
+    ],
+    "verify": "切り替えの後に、エージェントのセッションから gh auth status（全部の account）と gh の設定のファイルを見て、管理者の権限を持つ token が 1 つも無いことを確かめる",
+    "deps": [
+     "D5"
+    ],
+    "evidence": [
+     "E7",
+     "E8"
+    ],
+    "if_accepted": {
+     "residual": "エージェントが同じ利用者の設定から本人の管理者の token を読めば、承認者を外して正式な鍵を読める",
+     "scope": "正式な鍵と、それで署名する携帯の APK の全部",
+     "recheck": {
+      "owner": "本人",
+      "due": "ST54 の上流の合意まで"
+     }
+    },
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "scenarios": [
+      "管理者でない資格情報では、エージェントの資格情報の確かめを通る"
+     ],
+     "decisions": [
+      "Q3",
+      "D3",
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "medium",
+    "status": "open",
+    "title": "絞った token の権限では、ハーネスの CI の走らせ直しが断られるかもしれない",
+    "text": "D3 がエージェントに持たせる権限は Actions の「読み」まで。ハーネスは CI の赤を 1 回だけ走らせ直す（story_ci.py・verify_batch.sh の gh run rerun --failed）。走らせ直しには Actions の書きが要ると読むので、切り替えの後は不安定なだけの赤も ci-fix の AI か人間に回る。verify_batch.sh は失敗を黙って捨てる（story_ci.py は走らせ直せた run を数える）。",
+    "basis": "derived",
+    "unknowns": [
+     "gh run rerun は Actions の書きが要ると読む（知識。走らせていない）",
+     "Actions の書きを足すと、公開の承認（別の権限）には届かないと読むが確かめていない。nightly の Environment（ST54 で開発版の鍵が載る）に対して何が変わるかは見ていない"
+    ],
+    "derived": "D3 の権限の一覧に Actions の書きは無い（E6）。ハーネスは走らせ直しを呼ぶ（E4・E5）",
+    "undefined": "ハーネスが必要とする権限の全部。D3 は merge と PR 本文の PATCH だけを挙げている",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "D3 の権限に Actions の書きを足す（承認の権限は足さない）"
+     },
+     {
+      "label": "走らせ直せないことを受け入れる"
+     }
+    ],
+    "verify": "確認バッチ 11.2 と同じ場で、§3 の権限の token で gh run rerun <id> --failed を試す",
+    "deps": [
+     "D4"
+    ],
+    "evidence": [
+     "E4",
+     "E5",
+     "E6"
+    ],
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "公開の job から承認者の設定を読めないと、正当な公開も署名の前で止まる",
+    "text": "公開の job は署名の前に approvals を走らせ、Actions の GITHUB_TOKEN で environments/release を読む。読めなければ approvals は落ち、本人が承認した正当な公開も署名されない。",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "GITHUB_TOKEN で Environment の保護の規則を読めるか（確認バッチ 11.3 で確かめる）"
+    ],
+    "derived": "公開の job は approvals を通らなければ署名も公開もしない（spec）",
+    "undefined": "公開の job の GITHUB_TOKEN に何の権限を与えるか",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "D11 の反転条件: job では走らせず、印を打つ前の手順にだけ置く"
+     },
+     {
+      "label": "workflow の permissions で読める権限を足す（足せるなら）"
+     }
+    ],
+    "verify": "確認バッチ 11.3: 使い捨ての Environment を release の代わりに読ませ、rc を見る",
+    "deps": [
+     "D7"
+    ],
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "正式な鍵を読む公開は、本人の承認を経る"
+     ],
+     "scenarios": [
+      "公開の job は、署名の前に承認者を確かめる"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "low",
+    "status": "open",
+    "title": "GitHub の画面が許諾を AGPL-3.0 でなく Other と出すかもしれない",
+    "text": "LICENSE の先頭に許可の文を置くので、GitHub の許諾の判定が AGPL-3.0 と読めず Other と出るかもしれない。README が最初の節で許諾を名指しする。",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "GitHub の判定の結果（確認バッチ 11.4 で見る）"
+    ],
+    "derived": "LICENSE は AGPL の全文だけではなくなる（spec）",
+    "undefined": "画面の表示を受け入れるか",
+    "feasibility": "unverified",
+    "deps": [
+     "D8"
+    ],
+    "evidence": [
+     "E11"
+    ],
+    "refs": {
+     "requirements": [
+      "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "IMP-06",
+    "severity": "medium",
+    "status": "open",
+    "title": "閉じた PR の組み立ての SOURCE.txt が指す commit を、後から取れるか分からない",
+    "text": "PR の組み立ては GitHub が PR のために作る merge commit で組まれ、SOURCE.txt はその commit を書く。PR を閉じた後にその commit を取れなければ、90 日置かれる PR の成果物のソースの場所が辿れない。",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "閉じた PR の merge commit を git fetch で取れるか（確認バッチ 11.1 で確かめる）"
+    ],
+    "derived": "PR の組み立ての SOURCE.txt は組み立ての印の commit を書く（spec）。PR の CI は checkout に ref を渡さない（premises P14）",
+    "undefined": "取れなかったときの書き方（D9 の反転条件は head の commit に替える）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "D9 の反転条件: PR の組み立てでは head の commit を書く"
+     },
+     {
+      "label": "取れることを確かめてそのまま"
+     }
+    ],
+    "verify": "確認バッチ 11.1: merge の後に、その Commit: の commit を git fetch origin <commit> で取る",
+    "deps": [],
+    "evidence": [
+     "E12"
+    ],
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+     ],
+     "decisions": [
+      "D9",
+      "D16"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "この change の 45 本の Scenario が全部通る",
+    "refs": {
+     "requirements": [
+      "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける",
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる",
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する",
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+      "正式な鍵を読む公開は、本人の承認を経る",
+      "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+     ]
+    }
+   },
+   {
+    "text": "IMP-01 と IMP-02 に本人が答えている（鍵を置く前の守りの範囲を本人が決めた）",
+    "refs": {
+     "decisions": [
+      "Q3"
+     ]
+    }
+   },
+   {
+    "text": "確認バッチ 11.1〜11.4 で、下書きのリリースの 3 点・承認の効き方・GITHUB_TOKEN で読めるか・GitHub の許諾の表示を見て、premises の確かさを上げた（外れたら鍵を置かず聞き直す）",
+    "refs": {
+     "decisions": [
+      "Q4",
+      "D11",
+      "D12"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "組み立ての台本（tools/release/build.sh）で作る 4 つの配布物。正式版・ベータ版・開発版・PR の組み立てのどれも",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ]
+     }
+    },
+    {
+     "text": "配る携帯の APK に入る依存（releaseRuntimeClasspath）と、サーバ・PC の収集アプリ・画面の依存",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "許可が受けるのは、名指しした Google のライブラリ 4 つだけ（改変したものは含まない）",
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける"
+      ]
+     }
+    },
+    {
+     "text": "表示の検査が見るのは、追跡しているファイル（symlink を除く）の先頭 25 行に表示を持つものだけ",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ]
+     }
+    },
+    {
+     "text": "SOURCE.txt に印を書くのは正式版・ベータ版の公開の組み立てだけ。それ以外は commit",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ]
+     }
+    },
+    {
+     "text": "公開の承認の守りは、本人が承認の画面で印の commit を見ることと、エージェントが管理者の資格情報に届かないことに乗る",
+     "refs": {
+      "requirements": [
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ]
+     }
+    },
+    {
+     "text": "準備が APK を入れるのは emulator- で始まり device の状態の端末だけ",
+     "refs": {
+      "requirements": [
+       "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "移行の 3 つ（AGPL-3.0-only のまま）と gradle の wrapper の 2 つ（Apache-2.0）の表示",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    },
+    {
+     "text": "表示を持たずに写したコード（表示の検査は見ない）・試験だけの依存",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる",
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "text": "携帯の許諾の画面・サーバの画面のソースの場所・最初の本物の公開",
+     "refs": {
+      "decisions": [
+       "Q4",
+       "Q6",
+       "Q9"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "管理者の資格情報がエージェントから届く限り、承認者の守りは分けられない（IMP-02）",
+     "refs": {
+      "requirements": [
+       "正式な鍵を読む公開は、本人の承認を経る"
+      ]
+     }
+    },
+    {
+     "text": "ST53 より前の PR の成果物は許諾なしで、消すまで（か 90 日）残る",
+     "refs": {
+      "decisions": [
+       "D10"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "spec の 6 本の Requirement と design の D1〜D16 を、移行の台帳・配布物の検査の印の取り出し・準備の台本を切り出す検査・CI の呼び出し・ハーネスの gh の呼び出しに当てた",
+     "refs": {
+      "requirements": [
+       "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける",
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる",
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する",
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ",
+       "正式な鍵を読む公開は、本人の承認を経る",
+       "確認バッチの準備は、エミュレータにだけ携帯の APK を入れる"
+      ],
+      "decisions": [
+       "D1",
+       "D2",
+       "D3",
+       "D12",
+       "D13",
+       "D14",
+       "D15"
+      ]
+     }
+    },
+    {
+     "text": "表示を持つファイルを数えた（508 = 書き換え 503 ＋ 移行 3 ＋ wrapper 2。docs/ と openspec/ には無い）",
+     "refs": {
+      "requirements": [
+       "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "GitHub の承認・権限の実際の効き方",
+     "why": "配布元に書かない（確認バッチ 11.2・11.3 で走らせる）"
+    },
+    {
+     "text": "npm と SPDX 2.x の道具が AdditionRef- を読めるか",
+     "why": "tasks 2.1 の npm ci と build で確かめる。この段では走らせていない"
+    },
+    {
+     "text": "依存の一覧の実際の大きさと APK の大きさの増え方",
+     "why": "組み立てていない（design の Risks は数百 KB と見積もる）"
+    },
+    {
+     "text": "ST54 が開発版の APK を組む形と、開発版の Environment に鍵を置く時期と、この Story の資格情報の切り替えの前後関係",
+     "why": "ST54 の上流はまだ無い。申し送り（docs/handoff/ST54.md）を読んだだけ"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "API・記録の形・収集アプリの送り先",
+     "why": "この Story は変えない"
+    },
+    {
+     "text": "走っている他の change",
+     "why": "archive 以外はこの change だけ"
+    }
+   ]
+  }
+ }
+}
