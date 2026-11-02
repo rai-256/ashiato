@@ -39,13 +39,3 @@ apk_cert_diag() {
   printf 'apksigner=%s 版=%s\n' "$signer" "$("$signer" --version 2>&1 || true)"
   "$signer" verify --print-certs "$apk" 2>&1 | tail -n 8 || true
 }
-
-# AGP が debug 鍵を作る置き場（AGP の AndroidLocations と同じ順: ANDROID_USER_HOME →
-# ANDROID_PREFS_ROOT / ANDROID_SDK_HOME の下の .android → ~/.android）。~/.android の決め打ちは runner で外れうる
-debug_keystore_path() {
-  if [[ -n "${ANDROID_USER_HOME:-}" ]]; then printf '%s/debug.keystore\n' "$ANDROID_USER_HOME"
-  elif [[ -n "${ANDROID_PREFS_ROOT:-}" ]]; then printf '%s/.android/debug.keystore\n' "$ANDROID_PREFS_ROOT"
-  elif [[ -n "${ANDROID_SDK_HOME:-}" ]]; then printf '%s/.android/debug.keystore\n' "$ANDROID_SDK_HOME"
-  else printf '%s/.android/debug.keystore\n' "$HOME"
-  fi
-}
