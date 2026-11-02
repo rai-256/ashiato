@@ -50,6 +50,9 @@ mod attributes_tests;
 mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
+pub mod collector_scope;
+#[cfg(test)]
+mod collector_scope_tests;
 /// 記録ごとの部品の版（ST49）の移行と門。
 #[cfg(test)]
 mod component_version_tests;

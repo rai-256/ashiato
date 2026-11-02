@@ -204,45 +204,23 @@ async fn web_session_endpoint_failure_waits_and_state_reports_caller() {
             .unwrap(),
     )
     .await;
-    let body = axum::body::to_bytes(by_bearer.into_body(), 4096)
-        .await
-        .unwrap();
-    assert_eq!(&body[..], br#"{"credential":"api_token"}"#);
+    // ST44 の許可の一覧にないため、API の合言葉によるセッション読み出しは403。
+    assert_eq!(by_bearer.status(), StatusCode::FORBIDDEN);
 }
 
-/// Scenario: API の合言葉での読み書きは変わらない
+/// Scenario: API の合言葉ではログインの状態も読めない
 #[tokio::test]
-async fn web_session_endpoint_api_token_reads_and_writes() {
+async fn web_session_endpoint_api_token_cannot_read_session() {
     let app = app_with(&random_password(), 0).await;
-    let source = testdb::source(&app.pool, "wsapi", 21_600).await;
-    let id = uuid::Uuid::new_v4();
-    let body = serde_json::json!([{
-        "id": id, "user_id": testdb::user(), "logical_source": source, "external_id": null,
-        "device_id": "test-dev", "origin": "collected", "event_time": "2026-03-01T03:00:00Z",
-        "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
-        "raw": r#"{"a":1}"#, "payload": {},
-    }]);
     let bearer = format!("Bearer {TOKEN}");
-    let post = Request::builder()
-        .method(Method::POST)
-        .uri("/ingest")
-        .header(header::AUTHORIZATION, &bearer)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
-    let res = send(&app, post).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    // ST44 の許可の一覧にないため、API の合言葉によるセッション読み出しは403。
     let get = Request::builder()
-        .uri("/events")
+        .uri("/session")
         .header(header::AUTHORIZATION, &bearer)
         .body(Body::empty())
         .unwrap();
     let res = send(&app, get).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(res.into_body(), 64 << 20)
-        .await
-        .unwrap();
-    assert!(String::from_utf8_lossy(&bytes).contains(&id.to_string()));
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
 /// Scenario: 既定では日が経ってもログインは切れない

@@ -15,7 +15,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::web_session::Caller;
-use crate::{decided, internal_at, App, Authn};
+use crate::{collector_scope::collector_allows, decided, internal_at, App, Authn};
 
 /// 記録の経路（D8）。`x-forwarded-for` があれば網越し（`tailscale serve` が付ける）。
 /// **同じ PC のプロセスは偽れる**（spec の注記）。
@@ -160,29 +160,46 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
     };
-    let satellite = matches!(caller, Some(Caller::Satellite { .. }));
-    if caller.is_some() && !satellite && is_ingest(&route) {
-        return next.run(req).await;
-    }
+    let method = req.method().as_str().to_owned();
+    let credential_present =
+        req.headers().get("authorization").is_some() || req.headers().get("cookie").is_some();
     let (outcome, status) = match caller {
+        Some(Caller::ApiToken) if !collector_allows(req.method(), &route) => ("forbidden", 403),
+        Some(Caller::ApiToken) | Some(Caller::WebSession) if is_ingest(&route) => {
+            return next.run(req).await;
+        }
         Some(Caller::Satellite { .. }) => ("forbidden", 403),
-        Some(_) => ("ok", 200),
+        Some(Caller::ApiToken) | Some(Caller::WebSession) => ("ok", 200),
         None => ("unauthorized", 401),
     };
     let entry = AccessEntry::for_caller(
         caller,
         via_of(req.headers()),
         route,
-        req.method().as_str().to_owned(),
+        method,
         outcome,
         status,
     );
     if let Err(e) = app.access.write(entry).await {
         return e.into_response();
     }
-    if satellite {
-        // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
-        return (StatusCode::FORBIDDEN, "forbidden").into_response();
+    match caller {
+        Some(Caller::ApiToken) if outcome == "forbidden" => {
+            return (StatusCode::FORBIDDEN, "forbidden").into_response();
+        }
+        Some(Caller::Satellite { .. }) => {
+            // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
+            return (StatusCode::FORBIDDEN, "forbidden").into_response();
+        }
+        None => {
+            tracing::warn!(
+                kind = "unauthorized",
+                credential_present,
+                "資格情報が一致しない"
+            );
+            return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        }
+        Some(Caller::WebSession) | Some(Caller::ApiToken) => {}
     }
     next.run(req).await
 }

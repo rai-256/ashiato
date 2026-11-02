@@ -462,6 +462,18 @@ pub async fn session_get(
             return Err(e);
         }
     };
+    if let Caller::ApiToken = caller {
+        app.access
+            .write(session_entry(
+                &headers,
+                Some(caller),
+                "GET",
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+    }
     app.access
         .write(session_entry(
             &headers,
