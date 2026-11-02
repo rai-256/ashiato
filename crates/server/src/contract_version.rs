@@ -97,8 +97,9 @@ pub fn check_header(
     headers: &HeaderMap,
     bodyless: bool,
 ) -> Result<(), Unsupported> {
-    if !matches!(caller, Caller::ApiToken) {
-        return Ok(());
+    match caller {
+        Caller::ApiToken => {}
+        Caller::WebSession | Caller::Satellite { .. } => return Ok(()),
     }
     let refuse = |requested: Option<u32>| {
         // log-ok: 契約の版は整数の定数で、記録の値ではない（ST50 の規則）
@@ -223,7 +224,10 @@ pub struct ItemGate {
 
 impl ItemGate {
     pub fn new(app: &App, caller: &Caller, known: &'static KnownFields) -> Self {
-        let strict = matches!(caller, Caller::ApiToken);
+        let strict = match caller {
+            Caller::ApiToken => true,
+            Caller::WebSession | Caller::Satellite { .. } => false,
+        };
         Self {
             strict,
             known: if strict { known.get() } else { &[] },
