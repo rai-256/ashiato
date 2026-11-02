@@ -3,7 +3,7 @@
 # 配った印（タグ v*）の版にある移行は、名前も前進側の中身も変えない・消さない。
 # 配った版を持つ他人の DB は、その移行を当て済みで、後から変えても当て直されない。
 # 直したければ直さずに新しい版を足す。戻し手順（.down.sql）は見ない。
-# 印が 0 個なら通す。印があるのに commit や ORDER を取り出せなければ落とす（CI の取り寄せの不足）。
+# 印が 0 個なら通す。浅い木では印を数えずに落とす。
 # 使い方: check-released-migrations.sh [--self-test]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,8 +14,24 @@ order_names() { grep -Ev '^[[:space:]]*(#|$)'; }
 
 # 今いる git の木を検査する。0: 通る / 1: 落ちる
 check_tree() {
-  local tags tag name bad=0
-  tags="$(git tag --list 'v[0-9]*')"
+  local tags all_tags tag name bad=0 shallow
+  # 問い合わせが失敗したら浅くないとはみなさない（ST52 final review R17）
+  if ! shallow="$(git rev-parse --is-shallow-repository)"; then
+    echo "履歴が浅いかを確かめられない"
+    return 1
+  fi
+  if [ "$shallow" = true ]; then
+    echo "履歴が浅いので配った印を数えられない"
+    return 1
+  fi
+  all_tags="$(git tag --list 'v[0-9]*')"
+  for tag in $all_tags; do
+    if ! git rev-parse --verify "$tag^{commit}" >/dev/null 2>&1; then
+      echo "  NG 印 $tag の commit を読み取れない（タグの取り寄せが足りない可能性）"
+      return 1
+    fi
+  done
+  tags="$(git tag --merged HEAD --list 'v[0-9]*')"
   if [ -z "$tags" ]; then
     echo "配った印が 0 個（タグ v* が無い）: 検査する対象が無い"
     return 0
@@ -114,9 +130,49 @@ new_tree; tag_v1
 echo "-- changed" >>"$T/migrations/202001010000_a.down.sql"; commit_all edit-down
 echo "Scenario: 配った版にある移行の戻し手順は、変えても通る"; expect 0
 
-# 印の指す commit が無い木: 印の ref だけ置いて、commit の実体は持たない
+# 印の指す commit が無い木: 元の台本どおり、印の ref だけ置いて commit の実体は持たない
 new_tree
 echo 0123456789abcdef0123456789abcdef01234567 >"$T/.git/refs/tags/v1.0.0"
 echo "Scenario: 配った印の版を読めなければ、検査は通らない"; expect 1
+
+# 祖先でない印は数えず、枝の祖先の印は数え、開発版の印も配った印にしない
+new_tree; git -C "$T" tag v0.3.0
+git -C "$T" checkout -qb side
+echo 'CREATE TABLE side_only();' >"$T/migrations/202001010002_side.sql"
+echo 'DROP TABLE side_only;' >"$T/migrations/202001010002_side.down.sql"
+echo 202001010002_side >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m side-migration; git -C "$T" tag v0.3.1
+git -C "$T" checkout -q -
+echo 'CREATE TABLE main_only();' >"$T/migrations/202001010002_side.sql"
+echo 'DROP TABLE main_only;' >"$T/migrations/202001010002_side.down.sql"
+echo 202001010002_side >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m main-migration
+echo "Scenario: 今の木の祖先でない印は、配った移行の検査で数えない"; expect 0
+
+new_tree; git -C "$T" tag v0.3.0
+git -C "$T" checkout -qb main-with-beta
+echo 'CREATE TABLE beta_only();' >"$T/migrations/202001010002_beta.sql"
+echo 'DROP TABLE beta_only;' >"$T/migrations/202001010002_beta.down.sql"
+echo 202001010002_beta >>"$T/migrations/ORDER"
+git -C "$T" add -A; git -C "$T" commit -q -m beta-migration; git -C "$T" tag v0.4.0-beta.1
+git -C "$T" checkout -qb release/0.3 v0.3.0
+echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; expect 0
+# nightly の版の移行を後から変えても通る（nightly を配った印に数えれば落ちる。code_verify R28）
+new_tree; git -C "$T" tag nightly
+echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit-after-nightly
+echo "Scenario: 開発版の印は、配った印に数えない"; expect 0
+
+# タグだけを取り寄せた浅い木は、印が見えても検査を続けない
+new_tree; tag_v1; echo next >"$T/next"; commit_all next
+git clone -q --depth=1 "file://$T" "$work/shallow"
+git -C "$work/shallow" fetch -q --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+mkdir -p "$work/shallow/tools"
+cp "$ROOT/tools/check-released-migrations.sh" "$work/shallow/tools/check-released-migrations.sh"
+echo "Scenario: 浅い木では、配った移行の検査は通らない"
+if out=$(cd "$work/shallow" && tools/check-released-migrations.sh 2>&1); then
+  echo "  FAIL: 浅い木で検査が通った"; fail=1
+elif ! grep -q '履歴が浅い' <<<"$out"; then
+  echo "  FAIL: 浅い木の出力に「履歴が浅い」が無い"; printf '%s\n' "$out"; fail=1
+fi
 
 [ "$fail" -eq 0 ] && echo "check-released-migrations self-test OK" || { echo "check-released-migrations self-test NG"; exit 1; }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
-import pkg from "../package.json" with { type: "json" };
+import { readFileSync } from "node:fs";
+import { sourceVersion } from "../build-stamp";
 
 /**
  * 画面が送る記録の 1 件の `client_version`（ST49 / design D20）。本物の画面から気分・場所・個人属性の主張を 1 件ずつ送り、
@@ -11,6 +12,8 @@ import pkg from "../package.json" with { type: "json" };
 declare const process: { env: Record<string, string | undefined> };
 
 test.describe.configure({ timeout: 90_000 });
+
+const version = sourceVersion(readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8"));
 
 /** D5 の正規表現 */
 const STAMP = /^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$/;
@@ -61,8 +64,7 @@ async function seedVisit(request: APIRequestContext): Promise<{ lat: number; lon
 }
 
 // Scenario: 画面が送る気分・場所・個人属性の主張の 1 件は、画面の組み立ての印を持つ
-test("気分・場所・個人属性の主張を 1 件ずつ送ると、どの本文の要素も同じ印の client_version を持ち、版番号は web/package.json のもの", async ({ page, request }) => {
-  const version = pkg.version;
+test("気分・場所・個人属性の主張を 1 件ずつ送ると、どの本文の要素も同じ印の client_version を持ち、版番号は根の Cargo.toml のもの", async ({ page, request }) => {
   const seen: string[] = [];
   const check = (body: { client_version?: unknown }[]): void => {
     expect(body.length).toBeGreaterThan(0);

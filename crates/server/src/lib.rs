@@ -247,6 +247,8 @@ mod source_acquisition_tests;
 pub mod sources;
 #[cfg(test)]
 mod sources_tests;
+#[cfg(test)]
+mod st52_web_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -267,6 +269,7 @@ mod update_history_tests;
 /// 版の変わり目の受け口（ST51 / design D6 / D13）。
 #[cfg(test)]
 mod version_change_tests;
+pub mod web_assets;
 /// 画面のログイン（ST28 / design D1 / D2 / D3）。
 pub mod web_session;
 #[cfg(test)]
@@ -4200,6 +4203,43 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 
 /// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
 pub fn router(app: App) -> Router {
+    router_with_assets(app, web_assets::generated())
+}
+
+pub(crate) fn router_with_assets(app: App, assets: web_assets::Assets) -> Router {
+    let api = api_router(app)
+        .fallback(web_assets::fallback)
+        .layer(axum::Extension(assets));
+    Router::new()
+        .fallback_service(api)
+        .layer(axum::middleware::from_fn(strip_api_prefix))
+        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
+}
+
+async fn strip_api_prefix(
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if let Some(path) = req.uri().path().strip_prefix("/api") {
+        if path.is_empty() || path.starts_with('/') {
+            let path = if path.is_empty() { "/" } else { path };
+            let path_and_query = match req.uri().query() {
+                Some(query) => format!("{path}?{query}"),
+                None => path.to_owned(),
+            };
+            *req.uri_mut() = path_and_query
+                .parse()
+                .expect("/api を剥がした URI は正しい形");
+        }
+    }
+    next.run(req).await
+}
+
+fn api_router(app: App) -> Router {
     // 収集アプリの 4 つの JSON の口が知る欄を、最初の要求の前に組む（ST50 / final review R11）
     contract_version::warm_known_fields(&[
         &INGEST_FIELDS,
@@ -4283,11 +4323,6 @@ pub fn router(app: App) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             web_session::refresh_cookie,
-        ))
-        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
-        .layer(SetResponseHeaderLayer::overriding(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-store"),
         ))
         .with_state(app)
 }

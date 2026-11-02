@@ -1,0 +1,92 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 0, persist-credentials: false }
+      - id: plan
+        run: |
+          tools/release/version.sh plan "$GITHUB_REF_NAME" | tee plan.txt
+          {
+            grep '^channel=' plan.txt
+            grep '^version=' plan.txt
+            grep '^prerelease=' plan.txt
+          } >> "$GITHUB_OUTPUT"
+  package-linux:
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with: { distribution: temurin, java-version: "21" }
+      # build.sh が画面を npm ci → vite build してサーバに取り込む（web の job と同じ node の版。final review R1）
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      - run: tools/release/build.sh server-linux "$RUNNER_TEMP/release"
+        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+      - run: tools/release/build.sh apk "$RUNNER_TEMP/release"
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_APK_UNSIGNED: "1"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: release-linux, path: "${{ runner.temp }}/release" }
+  package-windows:
+    needs: plan
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
+      - run: tools/release/build.sh server-windows "$RUNNER_TEMP/release"
+        shell: bash
+        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+      - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/release"
+        shell: bash
+        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: release-windows, path: "${{ runner.temp }}/release" }
+  publish:
+    needs: [plan, package-linux, package-windows]
+    runs-on: ubuntu-24.04
+    environment:
+      name: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 0, persist-credentials: true }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { pattern: release-*, path: release }
+      - run: mkdir -p release/all && find release/release-linux release/release-windows -maxdepth 1 -type f -exec cp {} release/all/ \;
+      - run: tools/release/check-guards.sh rules
+      - run: tools/release/sign-apk.sh "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.apk" official "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.signed.apk" && mv "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.signed.apk" "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.apk"
+        env:
+          ASHIATO_SIGNING_KEYSTORE_B64: ${{ secrets.ASHIATO_SIGNING_KEYSTORE_B64 }}
+          ASHIATO_SIGNING_STORE_PASSWORD: ${{ secrets.ASHIATO_SIGNING_STORE_PASSWORD }}
+          ASHIATO_SIGNING_KEY_ALIAS: ${{ secrets.ASHIATO_SIGNING_KEY_ALIAS }}
+          ASHIATO_SIGNING_KEY_PASSWORD: ${{ secrets.ASHIATO_SIGNING_KEY_PASSWORD }}
+          ASHIATO_EXPECT_CERT_SHA256: ${{ vars.ASHIATO_CERT_SHA256 }}
+      - run: |
+          tools/release/check-artifacts.sh release/all --channel "${{ needs.plan.outputs.channel }}" --expect-version "${{ needs.plan.outputs.version }}"
+        env: { ASHIATO_EXPECT_CERT_SHA256: "${{ vars.ASHIATO_CERT_SHA256 }}" }
+      - run: |
+          args=()
+          if [[ "${{ needs.plan.outputs.prerelease }}" == true ]]; then args+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" release/all/* --title "$GITHUB_REF_NAME" "${args[@]}"
+    env:
+      GH_TOKEN: ${{ github.token }}
