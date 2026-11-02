@@ -16,7 +16,15 @@ with TemporaryDirectory() as directory:
     )
     denied = {
         "post.ts": 'request.post("/api/events", { headers: BEARER });\n',
+        "post-with-header.ts": (
+            'request.post("/api/events", { extraHTTPHeaders: BEARER });\n'
+        ),
         "context.ts": (
+            'const ctx = await playwright.request.newContext({ extraHTTPHeaders: BEARER });\n'
+            'await ctx.get("/api/events");\n'
+        ),
+        "context-after-assignment.ts": (
+            'const unrelated = "not a context";\n'
             'const ctx = await playwright.request.newContext({ extraHTTPHeaders: BEARER });\n'
             'await ctx.get("/api/events");\n'
         ),
@@ -57,6 +65,10 @@ ALLOWED = {
 TOKEN = re.compile(r"\b(?:BEARER|AUTH\[@\]|API_TOKEN)\b")
 HTTP_METHOD = re.compile(r"\.(get|head|post|put|patch|delete|fetch)\s*\(", re.I)
 URL = re.compile(r"[\"'`](/api/[^\"'`?${} ]+)")
+CONTEXT = re.compile(
+    r"(?m)^\s*(?:const\s+|let\s+|var\s+)?(\w+)\s*=\s*"
+    r"(?:await\s+)?(?:[\w.]+\.)?newContext\s*\("
+)
 
 def allowed(method: str, path: str) -> bool:
     method = method.upper()
@@ -65,33 +77,35 @@ def allowed(method: str, path: str) -> bool:
         method in {"PUT", "HEAD"} and path.startswith("/api/media/originals/")
     )
 
+def call_body(source: str, open_paren: int) -> str:
+    depth = 0
+    quote = None
+    escaped = False
+    end = len(source)
+    for index in range(open_paren, len(source)):
+        char = source[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in "\"'`":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    return source[open_paren:end]
+
 def calls(source: str):
     for match in HTTP_METHOD.finditer(source):
         start = match.start()
-        open_paren = match.end() - 1
-        depth = 0
-        quote = None
-        escaped = False
-        end = len(source)
-        for index in range(open_paren, len(source)):
-            char = source[index]
-            if quote:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == quote:
-                    quote = None
-            elif char in "\"'`":
-                quote = char
-            elif char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-                if depth == 0:
-                    end = index + 1
-                    break
-        body = source[open_paren:end]
+        body = call_body(source, match.end() - 1)
         method = match.group(1).upper()
         if method == "FETCH":
             method_match = re.search(r"\bmethod\s*:\s*[\"']([A-Za-z]+)", body, re.I)
@@ -104,13 +118,13 @@ def check(path: Path) -> int:
     source = path.read_text(encoding="utf-8")
     bad = 0
     inherited_contexts = set()
-    for context in re.finditer(r"(?:const\s+)?(\w+)\s*=.*?newContext\s*\((.*?)\)", source, re.S):
-        if TOKEN.search(context.group(2)):
+    for context in CONTEXT.finditer(source):
+        body = call_body(source, context.end() - 1)
+        if TOKEN.search(body):
             inherited_contexts.add(context.group(1))
     for offset, method, mouth, has_token in calls(source):
         line = source.count("\n", 0, offset) + 1
-        call_start = source.rfind("\n", 0, offset) + 1
-        receiver = re.search(r"(\w+)\s*$", source[call_start:offset])
+        receiver = re.search(r"(\w+)\s*$", source[max(0, offset - 200):offset])
         inherited = receiver and receiver.group(1) in inherited_contexts
         if has_token or inherited:
             if not allowed(method, mouth):
