@@ -1,6 +1,7 @@
 # 整合の確認（2026-11-02・ST53 の深掘り第 1 回の答えを FR-127 と §5「配布の方針」へ戻した改訂）
 
-- 基準: `a5926cf9ec3399504c76be6aaced4636dfd3d006`..`71fd0bb10a1df7c386d38e28abfa4f14ce768541`
+- 基準: `197909d07265838382625f3283d6dc58391f2f5b`..`e7c030264503ed96e6357de90ad57e5e929f79e4`
+- （2026-11-02 に origin/main（#228。ST44）へ rebase したので、基準を載せ替え後の commit に読み替えた。旧 `a5926cf9`..`71fd0bb1`。差は main の取り込みだけで、その改訂（FR-128・PERM-10）は `2026-11-02-st44-fr128-consistency.md` が確かめており、ST53 の改訂（FR-127・§5「配布の方針」）と交差しない）
 
 対象は commit 71fd0bb1 が足した 3 つの ★（`docs/requirements.md:1072` の FR-127 ★ 2026-11-02 補足、`:1526` の V-01 のソースの場所と許諾 ★、`:1530` の C-01 の許諾を読む画面 ★）と、
 同じ commit が直した `docs/stories/stories.json`（→ `ST52.md`・`ST53.md` の完了の判定）と `docs/stories/INDEX.md` の訂正（2026-11-02）。
