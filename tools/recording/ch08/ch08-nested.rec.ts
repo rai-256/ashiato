@@ -18,7 +18,6 @@ declare const process: { env: Record<string, string | undefined> };
 
 /** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
-const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const USER = "00000000-0000-0000-0000-000000000000";
 const MINUTE_MS = 60_000;
@@ -34,7 +33,7 @@ interface Entry {
 }
 
 async function entriesOf(request: APIRequestContext, date: string): Promise<Entry[]> {
-  const res = await request.get(`/api/day?date=${date}`, { headers: READ });
+  const res = await request.get(`/api/day?date=${date}`, { headers: readAuthHeaders() });
   expect(res.status(), `GET /day ${date}: ${await res.text()}`).toBe(200);
   return ((await res.json()) as { entries: Entry[] }).entries;
 }
@@ -111,17 +110,17 @@ async function ingestStay(request: APIRequestContext, date: string, fromMinute: 
 /** 滞在を足して消す（先に消してから重ねる滞在を足す。生きたまま重ねると取り込みの作り直しが吸収する。spec と同じ）。 */
 async function eraseStay(request: APIRequestContext, date: string, from: number, to: number): Promise<string> {
   const id = await ingestStay(request, date, from, to);
-  const res = await request.post("/api/stays/erase", { headers: READ, data: { stay_id: id } });
+  const res = await request.post("/api/stays/erase", { headers: readAuthHeaders(), data: { stay_id: id } });
   expect(res.ok(), "POST /stays/erase").toBe(true);
   return id;
 }
 
 /** 画面を通さずに本文ごと消す（確認の口と同じ件数を添える）。 */
 async function purgeByApi(request: APIRequestContext, stayId: string): Promise<void> {
-  const pre = await request.get(`/api/stays/purge/preview?stay_id=${stayId}`, { headers: READ });
+  const pre = await request.get(`/api/stays/purge/preview?stay_id=${stayId}`, { headers: readAuthHeaders() });
   expect(pre.ok(), "GET /stays/purge/preview").toBe(true);
   const { counts } = (await pre.json()) as { counts: unknown };
-  const res = await request.post("/api/stays/purge", { headers: READ, data: { stay_id: stayId, expected: counts } });
+  const res = await request.post("/api/stays/purge", { headers: readAuthHeaders(), data: { stay_id: stayId, expected: counts } });
   expect(res.ok(), "POST /stays/purge").toBe(true);
 }
 

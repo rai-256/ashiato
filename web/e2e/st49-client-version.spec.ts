@@ -20,7 +20,6 @@ const version = sourceVersion(readFileSync(new URL("../../Cargo.toml", import.me
 const STAMP = /^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$/;
 const USER = "00000000-0000-0000-0000-000000000000";
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
-const READ = readAuthHeaders();
 const TAG = Math.random().toString(36).slice(2, 8);
 const DAY_MS = 86_400_000;
 const JST_MS = 9 * 3_600_000;
@@ -39,7 +38,7 @@ async function ingestBodyOf(page: Page, press: () => Promise<void>): Promise<{ c
 async function seedVisit(request: APIRequestContext): Promise<{ lat: number; lon: number }> {
   const lat = round7(rand(5, 25));
   const lon = round7(rand(100, 125));
-  const events = (await (await request.get("/api/events", { headers: READ })).json()) as { logical_source: string; event_time: string }[];
+  const events = (await (await request.get("/api/events", { headers: readAuthHeaders() })).json()) as { logical_source: string; event_time: string }[];
   const times = events.filter((r) => r.logical_source === "c01-location").map((r) => Date.parse(r.event_time));
   const earliest = times.length === 0 ? Date.now() : Math.min(...times);
   const start = Math.floor((earliest + JST_MS) / DAY_MS) * DAY_MS - JST_MS - DAY_MS + 3_600_000;

@@ -16,7 +16,6 @@ declare const process: { env: Record<string, string | undefined> };
 test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
 
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
-const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const DAY_MS = 86_400_000;
 
@@ -38,7 +37,7 @@ interface Stored {
   phase: "before" | "after";
 }
 async function stored(page: Page, day: string): Promise<Stored[]> {
-  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: READ });
+  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { days: { day: { records: Stored[] } }[] };
   return body.days[0]?.day.records ?? [];

@@ -17,7 +17,6 @@ declare const process: { env: Record<string, string | undefined> };
 
 /** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
-const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const USER = "00000000-0000-0000-0000-000000000000";
 const MINUTE_MS = 60_000;
@@ -36,7 +35,7 @@ interface Entry {
 }
 
 async function entriesOf(request: APIRequestContext, date: string): Promise<Entry[]> {
-  const res = await request.get(`/api/day?date=${date}`, { headers: READ });
+  const res = await request.get(`/api/day?date=${date}`, { headers: readAuthHeaders() });
   expect(res.status(), `GET /day ${date}: ${await res.text()}`).toBe(200);
   return ((await res.json()) as { entries: Entry[] }).entries;
 }

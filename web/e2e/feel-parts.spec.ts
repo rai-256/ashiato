@@ -17,7 +17,6 @@ declare const process: { env: Record<string, string | undefined> };
 
 /** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
-const READ = readAuthHeaders();
 
 const DAY_MS = 86_400_000;
 const USER = "00000000-0000-0000-0000-000000000000";
@@ -248,7 +247,7 @@ interface FeelingsRead {
   days: { date: string; status: string; stays: { stay: string; records: { scales: { id: string; value: number }[] }[] }[] }[];
 }
 async function readFeelings(page: Page, from: string, to: string): Promise<FeelingsRead> {
-  const res = await page.request.get(`/api/feelings?from=${from}&to=${to}`, { headers: READ });
+  const res = await page.request.get(`/api/feelings?from=${from}&to=${to}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   return (await res.json()) as FeelingsRead;
 }
@@ -313,7 +312,7 @@ test("前の日から続く滞在の行の「快」を押して読み直すと�
 
 /** 通知の時刻を既定の 21:00 へ戻す（台帳は追記のみなので、戻す行を足す）。 */
 async function resetReminder(page: Page): Promise<void> {
-  const res = await page.request.post("/api/feelings/reminder", { headers: READ, data: { at: "21:00" } });
+  const res = await page.request.post("/api/feelings/reminder", { headers: readAuthHeaders(), data: { at: "21:00" } });
   expect(res.status()).toBe(200);
 }
 
@@ -333,7 +332,7 @@ test("通知の時刻を 22:30 にして保存すると、画面のいまの時�
     await expect(page.getByTestId("feel-reminder-current")).toHaveText("いまの通知の時刻: 22:30");
     await expect(page.getByTestId("feel-reminder-ok")).toHaveText("通知の時刻を 22:30 にしました");
 
-    const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: READ });
+    const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: readAuthHeaders() });
     expect(decision.status()).toBe(200);
     expect(((await decision.json()) as { at: string }).at).toBe("22:30");
   } finally {

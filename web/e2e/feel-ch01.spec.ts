@@ -91,7 +91,6 @@ test("要求が届かない状態で滞在の行の「快」を押すと、届�
 
 // ---------------------------------------------------------------- 開いたまま日の終わりをまたぐ（書く。実行ごとに乱数で選んだ日）
 
-const READ = readAuthHeaders();
 const DAY_MS = 86_400_000;
 const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.request().method() === "POST";
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
@@ -107,7 +106,7 @@ interface Stored {
   phase: "before" | "after";
 }
 async function stored(page: Page, day: string): Promise<Stored[]> {
-  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: READ });
+  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { days: { day: { records: Stored[] } }[] };
   return body.days[0]?.day.records ?? [];
