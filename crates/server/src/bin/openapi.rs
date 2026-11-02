@@ -2,17 +2,18 @@
 //! API の契約を標準出力に書き出す。`docs/openapi.json` との差分を CI が見る。
 #![allow(clippy::print_stdout)] // ここは標準出力が出口
 
+use ashiato_server::collector_scope::collector_allows;
+use axum::http::Method;
 use utoipa::{
     openapi::{path::Operation, RefOr, Response},
     OpenApi as _,
 };
 
-fn collector_allowed(method: &str, path: &str) -> bool {
-    ashiato_server::collector_scope::COLLECTOR_ALLOWED
-        .iter()
-        .any(|(allowed_method, allowed_path)| {
-            allowed_method.as_str().eq_ignore_ascii_case(method) && *allowed_path == path
-        })
+/// 資格情報を求めない口（`access_log::middleware` と `/session` の口が自分で判定する。ST44 D9）。
+/// ここは API の合言葉でも 403 にならないので、一覧の外の 403 を契約に足さない。
+fn is_exempt(method: &Method, path: &str) -> bool {
+    path == "/healthz"
+        || (path == "/session" && (*method == Method::POST || *method == Method::DELETE))
 }
 
 fn add_forbidden_response(operation: &mut Operation) {
@@ -23,44 +24,24 @@ fn add_forbidden_response(operation: &mut Operation) {
         .or_insert_with(|| RefOr::T(Response::new("API の合言葉では通らない")));
 }
 
+/// 許可の一覧の外の口に 403 を足す。判定はサーバと同じ `collector_allows` を直に使う（写しを持たない。ST44 final review R14）。
 fn add_collector_scope_responses(document: &mut utoipa::openapi::OpenApi) {
     for (path, item) in &mut document.paths.paths {
-        if path == "/healthz" {
-            // /healthz は API の合言葉でも通るため、一覧外の拒否には当たらない。
-            continue;
-        }
-        if !collector_allowed("get", path) {
-            if let Some(operation) = item.get.as_mut() {
-                add_forbidden_response(operation);
+        let operations = [
+            (Method::GET, item.get.as_mut()),
+            (Method::HEAD, item.head.as_mut()),
+            (Method::POST, item.post.as_mut()),
+            (Method::PUT, item.put.as_mut()),
+            (Method::PATCH, item.patch.as_mut()),
+            (Method::DELETE, item.delete.as_mut()),
+            (Method::OPTIONS, item.options.as_mut()),
+            (Method::TRACE, item.trace.as_mut()),
+        ];
+        for (method, operation) in operations {
+            let Some(operation) = operation else { continue };
+            if is_exempt(&method, path) || collector_allows(&method, path) {
+                continue;
             }
-        }
-        if !collector_allowed("head", path) {
-            if let Some(operation) = item.head.as_mut() {
-                add_forbidden_response(operation);
-            }
-        }
-        if !collector_allowed("post", path) && path != "/session" {
-            if let Some(operation) = item.post.as_mut() {
-                add_forbidden_response(operation);
-            }
-        }
-        if !collector_allowed("put", path) {
-            if let Some(operation) = item.put.as_mut() {
-                add_forbidden_response(operation);
-            }
-        }
-        if let Some(operation) = item.patch.as_mut() {
-            add_forbidden_response(operation);
-        }
-        if path != "/session" {
-            if let Some(operation) = item.delete.as_mut() {
-                add_forbidden_response(operation);
-            }
-        }
-        if let Some(operation) = item.options.as_mut() {
-            add_forbidden_response(operation);
-        }
-        if let Some(operation) = item.trace.as_mut() {
             add_forbidden_response(operation);
         }
     }
