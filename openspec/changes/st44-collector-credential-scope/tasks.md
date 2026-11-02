@@ -97,10 +97,10 @@
 
 ## Task 5: 縦串は画面の合言葉でログインして読む
 
-- [ ] 5.1 新しい `tools/web-login.sh <base_url>`: `POST <base>/session` に `{"password": "$WEB_PASSWORD"}` を送り、応答の `Set-Cookie` から印を取り出して `cookie: <名前>=<値>` の 1 行を標準出力に出す。失敗なら何も出さず rc 1（合言葉も印もログに出さない。design D13）。
+- [x] 5.1 新しい `tools/web-login.sh <base_url>`: `POST <base>/session` に `{"password": "$WEB_PASSWORD"}` を送り、応答の `Set-Cookie` から印を取り出して `cookie: <名前>=<値>` の 1 行を標準出力に出す。失敗なら何も出さず rc 1（合言葉も印もログに出さない。design D13）。
   `--self-test` で、手元の小さな http の応答（`Set-Cookie` を返すもの）から値を取り出せること・204 以外で rc 1 になることを確かめる。
   検証: `tools/web-login.sh --self-test` rc=0
-- [ ] 5.2 `tools/smoke.sh` で、サーバが待ち受けた後に `READ=(-H "$(tools/web-login.sh "http://$BIND")")` を 1 回作り、**読む**求め（`/events`・`/stays*`・`/coverage*`・`/day*`・`/feelings`・`/export*`・`/places*`・`/attributes*`・`/sources`・`/archives/status`・`/media/summary` など）の `"${AUTH[@]}"` を `"${READ[@]}"` に替える。
+- [x] 5.2 `tools/smoke.sh` で、サーバが待ち受けた後に `READ=(-H "$(tools/web-login.sh "http://$BIND")")` を 1 回作り、**読む**求め（`/events`・`/stays*`・`/coverage*`・`/day*`・`/feelings`・`/export*`・`/places*`・`/attributes*`・`/sources`・`/archives/status`・`/media/summary` など）の `"${AUTH[@]}"` を `"${READ[@]}"` に替える。
   規則は許可の一覧の側で決める: 一覧の 9 つ（送る求めと `/contract`・`/outages`・`/feelings/reminder`（GET）・`HEAD /media/originals`）だけ `AUTH`、それ以外（読む・書く・作り直す。`POST /stays/*`・`POST /places`・`POST /attributes/kinds` など）は `READ`。
   `tools/smoke.d/*.sh` の既存の節、縦串と `tools/stack.sh` が呼ぶ偽データ（`tools/seed.sh`・`tools/seed.d/*.sh`）、`tools/record-env.sh`（`/archives/status`）も同じ規則で替える（行の書き換えだけ。節を足さない。design D13）。
   新しい `tools/smoke.d/<作成時刻>_st44-collector-scope.sh` に、外から `curl` で: API の合言葉で `/events` が 403・`/outages` と `/feelings/reminder?date=…` が 200・印だけで `/events` が 200・資格情報なしで `/healthz` 200 を見る節を置く（`echo "== ST44: …"`）。
