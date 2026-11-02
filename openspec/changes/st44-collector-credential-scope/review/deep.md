@@ -47,7 +47,7 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - loss: discarded
 - 提案: Q1 案 2（収集アプリ用の合言葉を新しく作る）と Q2 の「端末ごと」（ST56 で新しい種類になる）の `irreversible` に、「`Caller::ApiToken` だけを見る契約の門と `/contract` を新しい種類へ移し忘れると、収集アプリの新しい欄が 200 で受け付けられたまま捨てられる」と書く。
   どちらの案でも効く既定として、「`Caller` の種類を見る判定は `matches!` でなく `_` の無い `match` にする（種類が増えたらコンパイルが落ちる）」を Q1 の AI の既定に足し、ST56 への申し送りにも書く
-- 処置: fixed: Q1 の context の AI の既定に「呼び出し元の種類を見る判定は `_` の無い `match`」を足した（どの案でも効く）。ST56 への申し送りは record の段で書く
+- 処置: escalated —— Q1 の context の AI の既定に「呼び出し元の種類を見る判定は `_` の無い `match`」を足した（どの案でも効く。design D6）。ST56 への申し送りは review/spec.md R10
 
 ## R2. Q1 案 1 の「全部を読む合言葉はサーバの外に 1 つも残らない」は誤り。`API_TOKEN` は画面の合言葉の世代の印の HMAC の鍵で、収集アプリに残る
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
@@ -57,7 +57,7 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - 提案: 案 1 では、送るだけに締めた `API_TOKEN` が、携帯の APK と PC の台本に残り続ける。DB の写し（`web_session` の行）と落とした電話の値がそろうと、画面の合言葉を手元で総当たりでき、全部を読める。
   案 1 の `irreversible` をこの事実に直す。あわせて、AI の既定に「secret_tag の鍵をサーバだけが持つ値に替える（替えた時点で全部のログインが 1 回切れるだけで、記録は失わない）」を足すか、残る道として context に書く。
   案 2 で `API_TOKEN` を替えると、全部のブラウザのログインも切れる。これも案 2 の detail に足す
-- 処置: fixed: Q1 の context に `secret_tag` の鍵の事実を書き、AI の既定に「印の鍵をサーバだけが持つ値に替える」を足した。案 1 の irreversible をそれを前提にした文に、案 2 の detail に「全部のブラウザのログインも切れる」を足した
+- 処置: escalated —— Q1 の context に `secret_tag` の鍵の事実を書き、AI の既定に「印の鍵をサーバだけが持つ値に替える」を足した（design D7・D8（仮））。案 1 の irreversible をそれを前提にした文に、案 2 の detail に「全部のブラウザのログインも切れる」を足した
 
 ## R3. Q1 は失わない側（案 1）が Story の範囲内で要件どおりなので、A でなく B（仮）にできる。案 2 は要件にない 4 つ目の資格情報を足す
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
@@ -65,7 +65,7 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - kind: conflict
 - 提案: 失う側（exported）は案 2 にしか無い。案 1 の費用は道具の書き直しで、範囲を越えず要件も変えない。
   費用が許せるなら、案 1 を既定にした仮（台帳 D<n>）に落とし、問いから外す。高すぎると判断して A のまま残すなら、上の件数を案 1 の detail に書き、案 2 の detail に「PERM-10★ の 3 種に 4 つ目を足す（要件の本文を変える）」と書く
-- 処置: rejected: A のまま残す。案 1 の費用（道具の書き直し）は R4 の前提（Playwright が印を付けるか）で増減し、本人が台本から全部を読む手段を失うことは本人の使い方に効く。件数を案 1 の detail に、「要件の資格情報に 4 つ目を足す」を案 2 の detail と context に書いた
+- 処置: rejected: A のまま残す。案 1 の費用（道具の書き直し。`tools/smoke.sh:25` の `AUTH` を使う 30 か所と smoke.d・e2e 8 ファイル・録画 5 ファイル）は R4 の前提で増減し、本人が台本から全部を読む手段を失うことは本人の使い方に効く。案 2 は `docs/requirements.md:1185-1186` の資格情報の 3 種に 4 つ目を足す。件数を案 1 の detail に、「要件の資格情報に 4 つ目を足す」を案 2 の detail と context に書いた
 
 ## R4. 案 1 の「道具は画面の合言葉でログインして読む」は、`Secure` の cookie を http の道具が付けるかに依る。premises.md は「外の形式に依る決定なし」としている
 - 成果物: openspec/changes/st44-collector-credential-scope/premises.md
@@ -83,7 +83,7 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - 提案: Q1 案 2 の `irreversible` と、Q2 の「共有の 1 本のまま」「ST56 まで共有」の detail に、次を書く。
   「サーバの値を替えてから入れ直すまでの間、携帯は 90 日・2 GB まで溜め、それを越えた分は捨てる。端末は 401 を本人に知らせない。気付く手がかりは画面の格子の途絶だけ」。
   案 2 を選んだ場合の既定（切り替えの間、旧い値でも送るだけは通す、など）を、AI の既定か仮として足す
-- 処置: fixed: Q1 案 2 の irreversible と、Q2 の context（共有の 1 本）・推奨と「共有の 1 本のまま」の irreversible に、入れ直すまでの間に 90 日・2 GB を越えた分を捨てること・端末が知らせないこと・途絶の通知も出ないことを書いた
+- 処置: escalated —— Q1 案 2 の irreversible と、Q2 の context（共有の 1 本）・推奨と「共有の 1 本のまま」の irreversible に、入れ直すまでの間に 90 日・2 GB を越えた分を捨てること・端末が知らせないこと・途絶の通知も出ないことを書いた
 
 ## R6. Q2 の「端末ごとに発行した後の記録は、どの資格情報で届いたかを持てる」は、選択肢のどれでも担い手がいない。記録の行と読み出しの記録のどちらにも、識別子を書く欄が無い
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
@@ -92,7 +92,7 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - loss: uncaptured
 - 提案: Q2 の各案に、識別子を書く場所と作る Story を書く。書く場所は 2 つ: 記録の行（`core.event`。凍結されるので、届いた時に書くしかない）と、読み出しの記録（追記のみ）の行。
   作る Story は、書き手の列を作る ST37 への申し送りか、ST56 の範囲に含めるか。どちらも無いと、推奨を選んでも「偽の記録を後から見分ける」は成り立たない（できるのは取り消しだけ）
-- 処置: fixed: Q2 の why に「届いた時に書くしかない」、context に欄がいまは無いこと、各案に欄を作る Story（推奨は ST56、ST37 へ置き場を申し送る）を書いた
+- 処置: escalated —— Q2 の why に「届いた時に書くしかない」、context に欄がいまは無いこと、各案に欄を作る Story（推奨は ST56、ST37 へ置き場を申し送る）を書いた（design D2）
 
 ## R7. Q2 の context が、PERM-10★ の「端末は送り手の申告のまま」と、監査 C3 の「1 つの APK を全員に配る」前提を引いていない
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
@@ -101,14 +101,14 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - 提案: Q2 の context に 2 行足す。
   (1) 要件は、書き手を「本体」までとし、端末を申告のままとすることを既に受け入れている。端末ごと（資格情報ごと）に残す案は、FR-24 / 扉 #13 の粒度を上げる（要件の本文を変える）ので、選んだら要件の★を足す。
   (2) APK は 1 つで全員に配る（FR-104）ので、資格情報は組み立てでなく入れた後に入る（ST56）。ST56 までは開発の組み立て（`-P`）だけが値を持つ
-- 処置: fixed: Q2 の context に PERM-10★ の「端末は申告のまま」（選んだら要件に★）と、FR-104 の 1 つの APK・ST56 までは `-P` の組み立てだけが値を持つことを書いた
+- 処置: escalated —— Q2 の context に PERM-10★ の「端末は申告のまま」（選んだら要件に★）と、FR-104 の 1 つの APK・ST56 までは `-P` の組み立てだけが値を持つことを書いた
 
 ## R8. ST29 が ST44 に残した「`ashsat_` で始まらない違う Bearer と有効な印の組は、印で通る」が一覧に無い
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
 - 根拠: openspec/changes/archive/2026-10-27-st29-satellite-credentials/design.md:235（「`ashsat_` で始まらない `Bearer` の扱いは変えない（ST44 の範囲）」）/ 同 :254（「厳しくするなら ST44 が収集アプリの合言葉と一緒に決める」）/ crates/server/src/lib.rs:683-688
 - kind: conflict
 - 提案: 失うものは無い（印は有効なので、読めるのは本人の画面と同じ範囲）。AI の既定として Q1 の context に 1 行書く。いまのまま印で通すか、ST29 の D19 に揃えて 401 にするかを決めて、申し送りを閉じる
-- 処置: fixed: Q1 の context の AI の既定に「衛星の形でない違う Bearer と有効な印の組は、いまのまま印で通す」を足した
+- 処置: fixed D10 仮 —— Q1 の context の AI の既定に「衛星の形でない違う Bearer と有効な印の組は、いまのまま印で通す」を足し、design の D10（仮）と反転条件・provisional.jsonl に写した
 
 ## R9. Q1 の既定に挙がった正典の書き直しが 2 つだけ。ST44 を名指しして「変えない」と書いた節がほかにもある。案 2 では書き直さない節もある
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
@@ -116,11 +116,11 @@ Q3 は B として成り立っている（推奨あり・失うものなし。�
 - kind: technical
 - 提案: Q1 の既定の「正典の書き直し」を、上の 4 か所の一覧に直す（collection-coverage は確かめ済みとして挙げる）。
   案 2 では `API_TOKEN` の振る舞いが変わらないので、data-sensitivity:119 と Scenario「API の合言葉での読み書きは変わらない」は残る。「書き直す」は案 1 のときだけ、と書き分ける
-- 処置: fixed: Q1 の context の正典の書き直しを 4 か所に直し、collection-coverage は整合、案 2 では data-sensitivity の 2 つが残ると書き分けた
+- 処置: fixed proposal.md —— Q1 の context の正典の書き直しを 4 か所に直し、collection-coverage は整合、案 2 では data-sensitivity の 2 つが残ると書き分けた。spec の段で proposal の Capabilities と specs に写した
 
 ## R10. Q1 の既定の理由「401 だと収集アプリが『合言葉がずれた』と区別できない」は、PC の収集アプリには当てはまらない（401 と 403 を同じ種別でログに出す）
 - 成果物: openspec/changes/st44-collector-credential-scope/deep-questions.json
 - 根拠: crates/collector-windows/src/sender.rs:254（`401 | 403 => "send_unauthorized"`）/ collector-android/app/src/main/kotlin/dev/ashiato/collector/Sender.kt:345-361（携帯は 401 を `unauthorized`、403 を `server_403` に分ける）
 - kind: premise
 - 提案: 403 にする既定は変えない。理由を「サーバの読み出しの記録と携帯のログで分かれる。PC の収集アプリは同じ種別に出す」に直す。PC の側で分けるかは、ST44 の範囲の外として 1 行書く
-- 処置: fixed: 403 の既定の理由を「読み出しの記録と携帯のログで分かれる。PC は同じ種別（分けるのは範囲の外）」に直した
+- 処置: fixed D5 —— 403 の既定の理由を「読み出しの記録と携帯のログで分かれる。PC は同じ種別（分けるのは範囲の外）」に直した
