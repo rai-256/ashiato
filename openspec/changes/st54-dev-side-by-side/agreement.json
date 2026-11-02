@@ -1,0 +1,48 @@
+{
+  "status": "rejected",
+  "digest": "32009b89be5d529d7e3de3e4c5e55dada004a6df66aa8b5e7312d727983a0caa",
+  "head": "8952eea815577e89e322d6726e5df2523897eba5",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [
+    "IMP-01: 仕様を直す（差し戻し）",
+    "IMP-02: 仕様を直す（差し戻し）"
+  ],
+  "at": "2026-11-02T14:33:41Z",
+  "impacts": {
+    "IMP-01": {
+      "answer": "仕様を直す",
+      "closed": false,
+      "recognized": true,
+      "accepted": false,
+      "proceed": false,
+      "release": null,
+      "why": "仕様を直す（差し戻し）"
+    },
+    "IMP-02": {
+      "answer": "仕様を直す",
+      "closed": false,
+      "recognized": true,
+      "accepted": false,
+      "proceed": false,
+      "release": null,
+      "why": "仕様を直す（差し戻し）"
+    }
+  },
+  "imp_history": [
+    {
+      "at": "2026-11-02T14:33:41Z",
+      "head": "8952eea815577e89e322d6726e5df2523897eba5",
+      "id": "IMP-01",
+      "answer": "仕様を直す",
+      "closed": false
+    },
+    {
+      "at": "2026-11-02T14:33:41Z",
+      "head": "8952eea815577e89e322d6726e5df2523897eba5",
+      "id": "IMP-02",
+      "answer": "仕様を直す",
+      "closed": false
+    }
+  ]
+}
