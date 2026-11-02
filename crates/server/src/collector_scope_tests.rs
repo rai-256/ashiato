@@ -32,6 +32,17 @@ async fn app() -> (App, Arc<Mutex<Vec<AccessEntry>>>) {
     });
     (app, seen)
 }
+
+async fn isolated_app() -> (testdb::TestDb, App, Arc<Mutex<Vec<AccessEntry>>>) {
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = App::for_test(pool.clone(), TOKEN).with_access_sink(Tee {
+        real: Arc::new(PgAccessSink(pool)),
+        seen: seen.clone(),
+    });
+    (db, app, seen)
+}
 fn req(method: Method, uri: &str, body: Option<&str>) -> Request<Body> {
     let mut b = Request::builder()
         .method(method)
@@ -368,7 +379,7 @@ async fn st44_routes_without_credentials() {
 #[tokio::test]
 async fn st44_routes_api_token_outside_403() {
     // Scenario: API の合言葉では許可の一覧の外の口はすべて断られる
-    let (app, seen) = app().await;
+    let (_db, app, seen) = isolated_app().await;
     let pool = app.pool.clone();
     let before = protected_row_counts(&pool).await;
     let operations = contract_operations();
@@ -426,6 +437,7 @@ async fn st44_routes_api_token_outside_403() {
         .iter()
         .map(|entry| (entry.method.clone(), entry.route.clone()))
         .collect();
+    assert_eq!(rows.len(), called.len());
     assert_eq!(logged, called);
     assert!(rows.iter().all(|entry| {
         entry.credential == "api_token" && entry.outcome == "forbidden" && entry.status == 403

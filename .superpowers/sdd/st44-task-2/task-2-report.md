@@ -35,3 +35,21 @@ OpenAPI から operation を動的に取得し、router と middleware を通し
 ## Task gate 証跡
 
 `scripts/verify-run 2.1` を実行し、指定された 2 つの検証コマンドがいずれも rc=0 / PASS になった。証跡は `openspec/changes/st44-collector-credential-scope/evidence.jsonl` に記録されている。
+
+## Fix round 1
+
+### 対応
+
+- F1: `st44_routes_api_token_outside_403` だけを `testdb::isolated()` の DB 上で組み立てる `isolated_app` に切り替え、並列実行時に他試験の共有 DB 更新が行数比較へ混入しないようにした。
+- F2: 拒否ログの行数が拒否した口数と一致する `rows.len() == called.len()` の検証を追加した。
+
+### 検証
+
+- `scripts/quiet-run fix-focused -- cargo test -p ashiato-server st44_routes_`: rc=0。ログ内で 3/3 PASS。
+- `scripts/verify-run 2.1`: 2 件とも PASS。st44_routes_ は 3 本、every_route_refuses_satellite は 1 本を実行。
+- `scripts/quiet-run full-server-fix -- cargo test -p ashiato-server`: rc=0。1872 passed, 0 failed, 3 ignored、および起動試験 37 passed。
+- `HX_CHANGE=st44-collector-credential-scope python3 scripts/check_scenarios.py .`: 今回追加した 2 印は認識されたが、change 全体の既存未担保 Scenario 5 件で FAIL。今回の修正範囲外。
+
+### 自己レビュー
+
+F1 の DB 隔離用 `TestDb` は戻り値で保持し、App のプールが使用中に破棄されないことを確認した。F2 は集合の一致に加えて行数を比較するため、二重記録を検出できる。追加の懸念はない。
