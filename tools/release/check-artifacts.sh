@@ -102,7 +102,9 @@ check_artifacts() {
     if [[ "$allow_debug" != 1 ]]; then
       local signer
       signer="$(android_tool apksigner)" || die "apksigner が無い"
-      cert="$("$signer" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+      # apksigner は build-tools の版によって証明書情報を標準エラーへ出すことがある。
+      # どちらでも同じ証明書行だけを取り出し、値は出力しない。
+      cert="$("$signer" verify --print-certs "$apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
       [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
     fi
   fi
@@ -213,7 +215,7 @@ self_test() {
   # --allow-debug-key 無しの経路: 署名の指紋を apksigner（PATH に無ければ SDK の下）で読んで比べる（final review R7）
   local signer cert
   signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
-  cert="$("$signer" verify --print-certs "$out/ashiato-collector-$v.apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+  cert="$("$signer" verify --print-certs "$out/ashiato-collector-$v.apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
   [[ -n "$cert" ]] || die '署名の指紋を読めない'
   ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
   if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
