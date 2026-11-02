@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test as base, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { readAuthHeaders } from "./auth";
 
 declare const process: { env: Record<string, string | undefined> };
+const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
 
 /**
  * 試験の中で `/api` を直に叩く `request` は、API の合言葉（Bearer）で通す（`places.spec.ts` と同じ。既定の `storageState` は
@@ -12,7 +14,7 @@ const test = base.extend({
     const ctx = await playwright.request.newContext({
       baseURL,
       storageState: { cookies: [], origins: [] },
-      extraHTTPHeaders: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` },
+      extraHTTPHeaders: readAuthHeaders(),
     });
     await use(ctx);
     await ctx.dispose();
@@ -82,7 +84,7 @@ function locationItem(date: string, minute: number, spot: Spot): Record<string, 
 }
 
 async function ingest(request: APIRequestContext, items: unknown[]): Promise<void> {
-  const res = await request.post("/api/ingest", { data: items });
+  const res = await request.post("/api/ingest", { headers: BEARER, data: items });
   const body = (await res.json()) as { accepted: boolean; error: string | null }[];
   expect(
     body.filter((r) => !r.accepted),
@@ -91,7 +93,7 @@ async function ingest(request: APIRequestContext, items: unknown[]): Promise<voi
 }
 
 async function erase(request: APIRequestContext, stayId: string): Promise<void> {
-  const res = await request.post("/api/stays/erase", { data: { stay_id: stayId } });
+  const res = await request.post("/api/stays/erase", { headers: BEARER, data: { stay_id: stayId } });
   expect(res.ok(), "POST /stays/erase").toBe(true);
 }
 
@@ -133,7 +135,7 @@ async function preview(request: APIRequestContext, stayId: string): Promise<Prev
 /** 画面を通さずに本文ごと消す（確認の口と同じ件数を添える）。 */
 async function purgeByApi(request: APIRequestContext, stayId: string): Promise<void> {
   const { counts } = await preview(request, stayId);
-  const res = await request.post("/api/stays/purge", { data: { stay_id: stayId, expected: counts } });
+  const res = await request.post("/api/stays/purge", { headers: BEARER, data: { stay_id: stayId, expected: counts } });
   expect(res.ok(), "POST /stays/purge").toBe(true);
 }
 

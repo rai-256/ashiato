@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { readAuthHeaders } from "../../../web/e2e/auth.js";
 
 /**
  * 録画専用（人間が後から動画で見る）。CH08「本文ごと消した時間と重なる滞在」を 1 本の流れで撮る:
@@ -17,6 +18,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 /** 画面の外から `/api` を直に叩く要求は API の合言葉（Bearer）で通す（録画では `tools/record-env.sh` が渡す）。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
+const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const USER = "00000000-0000-0000-0000-000000000000";
 const MINUTE_MS = 60_000;
@@ -32,7 +34,7 @@ interface Entry {
 }
 
 async function entriesOf(request: APIRequestContext, date: string): Promise<Entry[]> {
-  const res = await request.get(`/api/day?date=${date}`, { headers: BEARER });
+  const res = await request.get(`/api/day?date=${date}`, { headers: READ });
   expect(res.status(), `GET /day ${date}: ${await res.text()}`).toBe(200);
   return ((await res.json()) as { entries: Entry[] }).entries;
 }
@@ -116,7 +118,7 @@ async function eraseStay(request: APIRequestContext, date: string, from: number,
 
 /** 画面を通さずに本文ごと消す（確認の口と同じ件数を添える）。 */
 async function purgeByApi(request: APIRequestContext, stayId: string): Promise<void> {
-  const pre = await request.get(`/api/stays/purge/preview?stay_id=${stayId}`, { headers: BEARER });
+  const pre = await request.get(`/api/stays/purge/preview?stay_id=${stayId}`, { headers: READ });
   expect(pre.ok(), "GET /stays/purge/preview").toBe(true);
   const { counts } = (await pre.json()) as { counts: unknown };
   const res = await request.post("/api/stays/purge", { headers: BEARER, data: { stay_id: stayId, expected: counts } });

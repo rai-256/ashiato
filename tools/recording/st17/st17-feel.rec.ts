@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
+import { readAuthHeaders } from "../../../web/e2e/auth.js";
 
 /**
  * 録画専用（人間が後から動画で見る）。ST17「その日どう感じたかを残す」を、幅 360 px・暗で撮る:
@@ -18,8 +19,9 @@ declare const process: { env: Record<string, string | undefined> };
 
 test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
 
-/** 画面の外から `/api` を直に叩く要求は API の合言葉（Bearer）で通す（e2e と同じ。録画では `tools/record-env.sh` が渡す）。 */
+/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
+const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const DAY_MS = 86_400_000;
 
@@ -41,7 +43,7 @@ interface Stored {
   note: string | null;
 }
 async function records(page: Page, day: string): Promise<Stored[]> {
-  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: BEARER });
+  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: READ });
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { days: { day: { records: Stored[] } }[] };
   return body.days[0]?.day.records ?? [];
@@ -218,7 +220,7 @@ test("ST17 録画: その日どう感じたかを残す（押した瞬間に保�
       expect(res.status()).toBe(200);
       await expect(page.getByTestId("feel-reminder-current")).toHaveText("いまの通知の時刻: 22:30");
       await expect(page.getByTestId("feel-reminder-ok")).toHaveText("通知の時刻を 22:30 にしました");
-      const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: BEARER });
+      const decision = await page.request.get(`/api/feelings/reminder?date=${day}`, { headers: READ });
       expect(decision.status()).toBe(200);
       expect(((await decision.json()) as { at: string }).at).toBe("22:30");
       await hold(page, 2);

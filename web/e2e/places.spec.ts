@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test as base, type APIRequestContext, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import type { Candidate, Place, PreviousCoord } from "../src/places";
+import { readAuthHeaders } from "./auth";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -14,7 +15,7 @@ const test = base.extend({
     const ctx = await playwright.request.newContext({
       baseURL,
       storageState: { cookies: [], origins: [] },
-      extraHTTPHeaders: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` },
+      extraHTTPHeaders: readAuthHeaders(),
     });
     await use(ctx);
     await ctx.dispose();
@@ -56,7 +57,7 @@ interface Spot {
 }
 
 async function ingest(request: APIRequestContext, items: unknown[]): Promise<void> {
-  const res = await request.post("/api/ingest", { data: items });
+  const res = await request.post("/api/ingest", { headers: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` }, data: items });
   const body = (await res.json()) as { accepted: boolean; error: string | null }[];
   expect(
     body.filter((r) => !r.accepted),
@@ -163,7 +164,7 @@ function placeItem(place: string, body: Record<string, unknown>): unknown {
 /** 画面の「登録する」と同じ求め（器 → 名前・初めての座標・広さ）を API から送る。場所の識別子を返す。 */
 async function registerViaApi(request: APIRequestContext, name: string, at: Spot, radius = 100): Promise<string> {
   const id = crypto.randomUUID();
-  expect((await request.post("/api/places", { data: { id } })).ok()).toBe(true);
+  expect((await request.post("/api/places", { headers: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` }, data: { id } })).ok()).toBe(true);
   await ingest(request, [
     placeItem(id, { field: "name", name }),
     placeItem(id, { field: "coord", lat: at.lat, lon: at.lon, change: "first", valid_from: null, supersedes: null }),
