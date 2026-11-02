@@ -48,7 +48,9 @@ archive_prepare() {
   web_password="$(sed -n 's/^WEB_PASSWORD=//p' .env)" || return 1
   [ -n "$web_password" ] || return 1
   export WEB_PASSWORD="$web_password"
-  read_header="$(tools/web-login.sh "http://127.0.0.1:$api")"
+  # ログインに失敗したら、ここで止める（`||` の中なので errexit は効かない。後の curl の 401 で落ちると原因が分からない）
+  read_header="$(tools/web-login.sh "http://127.0.0.1:$api")" || { echo "error: 書庫の用意で画面にログインできない" >&2; return 1; }
+  [ -n "$read_header" ] || return 1
   st() { curl -sf -H "$read_header" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P
 src,dst=P.Path(sys.argv[1]),sys.argv[2]
@@ -226,7 +228,8 @@ EOF
     echo "BASE_URL=http://127.0.0.1:$web"
     # 画面のログインが無い木（ST28 より前）では渡さない
     if grep -q '^WEB_PASSWORD=' .env; then echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"; fi
-    # 録画の spec が画面の外から `/api` を直に読む（書いた件数を数える）ときの Bearer。e2e と同じ名前で渡す
+    # 録画の spec が画面の外から `/api` へ送る（記録を足す）ときの Bearer。e2e と同じ名前で渡す。
+    # 読む求めは API の合言葉では断られる（ST44）ので、spec は storageState のログインの印（web/e2e/auth.ts）で読む
     echo "PASS_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
     # 録画の間（各工程の後の停止 / 操作の間隔）。録画用の spec と設定が読む。変えるなら呼ぶ側で REC_HOLD_MS / REC_SLOWMO_MS
     echo "PASS_REC_HOLD_MS=${REC_HOLD_MS:-1200}"; echo "INFO_rec_hold_ms=${REC_HOLD_MS:-1200}"
