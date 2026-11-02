@@ -29,5 +29,23 @@ apk_cert_from_print_certs() {
 # APK の最初の署名者の証明書の SHA-256。読めなければ空で返す（判定は呼び出し側）
 apk_cert_sha256() {
   local signer="$1" apk="$2"
-  "$signer" verify --print-certs "$apk" 2>/dev/null | apk_cert_from_print_certs
+  # apksigner の失敗で pipefail の呼び出し側が理由を出さずに止まらないよう、失敗は空で返す（2026-11-02 CI で無言の rc=1）
+  { "$signer" verify --print-certs "$apk" 2>/dev/null || true; } | apk_cert_from_print_certs
+}
+
+# 読めなかったときに出す手掛かり（apksigner の在処・版・出力の末尾）。証明書の指紋は秘密ではない
+apk_cert_diag() {
+  local signer="$1" apk="$2"
+  printf 'apksigner=%s 版=%s\n' "$signer" "$("$signer" --version 2>&1 || true)"
+  "$signer" verify --print-certs "$apk" 2>&1 | tail -n 8 || true
+}
+
+# AGP が debug 鍵を作る置き場（AGP の AndroidLocations と同じ順: ANDROID_USER_HOME →
+# ANDROID_PREFS_ROOT / ANDROID_SDK_HOME の下の .android → ~/.android）。~/.android の決め打ちは runner で外れうる
+debug_keystore_path() {
+  if [[ -n "${ANDROID_USER_HOME:-}" ]]; then printf '%s/debug.keystore\n' "$ANDROID_USER_HOME"
+  elif [[ -n "${ANDROID_PREFS_ROOT:-}" ]]; then printf '%s/.android/debug.keystore\n' "$ANDROID_PREFS_ROOT"
+  elif [[ -n "${ANDROID_SDK_HOME:-}" ]]; then printf '%s/.android/debug.keystore\n' "$ANDROID_SDK_HOME"
+  else printf '%s/.android/debug.keystore\n' "$HOME"
+  fi
 }

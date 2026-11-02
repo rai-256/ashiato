@@ -115,10 +115,16 @@ self_test() {
   echo "== Scenario: PR の組み立ての APK は debug の鍵で署名される"
   GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$src" quiet_build "$work/build-debug.log" "$root/tools/release/build.sh" apk "$build_out"
   apk_debug="$build_out/ashiato-collector-$src.apk"
-  local apk_cert debug_cert
-  apk_cert="$(apk_cert_sha256 "$(apksigner_bin)" "$apk_debug")"
-  debug_cert="$(keytool_en -list -v -keystore "${HOME}/.android/debug.keystore" -storepass android 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
-  [[ -n "$apk_cert" && "$apk_cert" == "$debug_cert" ]] || die 'debug 鍵の APK ではない'
+  local apk_cert debug_cert debug_ks signer
+  [[ -f "$apk_debug" ]] || die "debug の組み立ての APK が無い: $apk_debug"
+  signer="$(apksigner_bin)"; [[ -n "$signer" ]] || die 'apksigner が見つからない'
+  apk_cert="$(apk_cert_sha256 "$signer" "$apk_debug")"
+  [[ -n "$apk_cert" ]] || die "debug の組み立ての APK の指紋を読めない: $(apk_cert_diag "$signer" "$apk_debug")"
+  debug_ks="$(debug_keystore_path)"
+  [[ -f "$debug_ks" ]] || die "debug 鍵が無い: $debug_ks（ANDROID_USER_HOME=${ANDROID_USER_HOME:-} HOME=$HOME）"
+  debug_cert="$({ keytool_en -list -v -keystore "$debug_ks" -storepass android 2>&1 || true; } | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
+  [[ -n "$debug_cert" ]] || die "debug 鍵の指紋を読めない: $debug_ks"
+  [[ "$apk_cert" == "$debug_cert" ]] || die "debug 鍵の APK ではない（APK $apk_cert / 鍵 $debug_cert / $debug_ks）"
   echo "OK: 正式版・開発版・取り違え・鍵無し・debug 鍵を検査した"
 }
 
