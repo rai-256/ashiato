@@ -12,6 +12,7 @@ export DATABASE_OWNER_URL="$(ashiato_db_url "${DATABASE_OWNER_URL:?.env を読�
 export BIND="127.0.0.1:${ASHIATO_HTTP_PORT}"   # port は worktree ごと（.env の BIND の port より優先。ST05）
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
+export WEB_SESSION_KEY="${WEB_SESSION_KEY:-smoke-session-key-0123456789abcdef}"
 ARCHIVE_USER="00000000-0000-0000-0000-000000000000"
 ARCHIVE_ROOT=$(mktemp -d)
 export ASHIATO_ARCHIVE_USER_ID="$ARCHIVE_USER"

@@ -10,6 +10,7 @@ export DATABASE_OWNER_URL="$(ashiato_db_url "${DATABASE_OWNER_URL:?.env を読�
 export BIND="127.0.0.1:${ASHIATO_HTTP_PORT}"   # port は worktree ごと（.env の BIND の port より優先。ST05）
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
+export WEB_SESSION_KEY="${WEB_SESSION_KEY:-dev-session-key-0123456789abcdef}"
 
 echo "== 依存を揃える"
 cargo fetch -q

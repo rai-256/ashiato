@@ -3,7 +3,7 @@
 # **ワークフローにも配布物にも字面の合言葉を置かない。** job が終われば消える。
 set -euo pipefail
 : "${GITHUB_ENV:?GitHub Actions の中で走らせる}"
-for name in POSTGRES_PASSWORD OWNER_DB_PASSWORD APP_DB_PASSWORD WEB_PASSWORD; do
+for name in POSTGRES_PASSWORD OWNER_DB_PASSWORD APP_DB_PASSWORD WEB_PASSWORD WEB_SESSION_KEY; do
   value="$(openssl rand -hex 24)"
   echo "::add-mask::$value"
   echo "$name=$value" >> "$GITHUB_ENV"

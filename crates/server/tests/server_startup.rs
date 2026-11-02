@@ -112,6 +112,7 @@ fn start_with(database_url: &str) -> Output {
         .env("DATABASE_URL", database_url)
         .env("API_TOKEN", "test-token-0123456789abcdef")
         .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+        .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
         .env("BIND", "127.0.0.1:0")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -183,12 +184,14 @@ fn server_startup_refuses_privileged_role() {
 
 const TEST_TOKEN: &str = "test-token-0123456789abcdef";
 const TEST_WEB_PASSWORD: &str = "test-web-password-0123456789";
+const TEST_SESSION_KEY: &str = "test-session-key-0123456789";
 
 fn server_cmd() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ashiato-server"));
     c.env_clear()
         .env("API_TOKEN", TEST_TOKEN)
         .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+        .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     c
@@ -382,6 +385,60 @@ fn assert_web_password_refused(out: &Output, reason: &str, secrets: &[&str]) {
     for secret in secrets {
         assert!(!all.contains(secret), "合言葉の値が出ている");
     }
+}
+
+fn start_with_session_key(key: Option<&str>, api_token: &str, web_password: &str) -> Output {
+    let mut command = server_cmd();
+    let c = command
+        .env("API_TOKEN", api_token)
+        .env("WEB_PASSWORD", web_password)
+        .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
+        .env("BIND", "0.0.0.0:0");
+    let mut c = c;
+    match key {
+        Some(key) => c.env("WEB_SESSION_KEY", key),
+        None => c.env_remove("WEB_SESSION_KEY"),
+    };
+    wait_exit(c.spawn().unwrap())
+}
+
+fn assert_session_key_refused(out: &Output, reason: &str, secrets: &[&str]) {
+    assert_kind_refused(out, "web_session_key");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        all.contains(&format!("reason={reason}")),
+        "理由が無い: {all}"
+    );
+    for secret in secrets {
+        assert!(!all.contains(secret), "秘密の値が出ている");
+    }
+}
+
+/// Scenario: ログインの印の鍵が無いと起動しない
+#[test]
+fn st44_session_key_missing_refuses() {
+    let out = start_with_session_key(None, TEST_TOKEN, TEST_WEB_PASSWORD);
+    assert_session_key_refused(&out, "missing", &[TEST_TOKEN, TEST_WEB_PASSWORD]);
+}
+
+/// Scenario: ログインの印の鍵が短いか、ほかの合言葉と同じだと起動しない
+#[test]
+fn st44_session_key_short_or_same_refuses() {
+    let short = "short-session";
+    let out = start_with_session_key(Some(short), TEST_TOKEN, TEST_WEB_PASSWORD);
+    assert_session_key_refused(&out, "too_short", &[short, TEST_TOKEN, TEST_WEB_PASSWORD]);
+    let out = start_with_session_key(Some(TEST_TOKEN), TEST_TOKEN, TEST_WEB_PASSWORD);
+    assert_session_key_refused(&out, "same_as_api_token", &[TEST_TOKEN, TEST_WEB_PASSWORD]);
+    let out = start_with_session_key(Some(TEST_WEB_PASSWORD), TEST_TOKEN, TEST_WEB_PASSWORD);
+    assert_session_key_refused(
+        &out,
+        "same_as_web_password",
+        &[TEST_TOKEN, TEST_WEB_PASSWORD],
+    );
 }
 
 /// Scenario: 画面の合言葉が API の合言葉と同じだと起動しない
@@ -1039,6 +1096,7 @@ mod st48_migrate {
             cmd.env_clear()
                 .env("API_TOKEN", TEST_TOKEN)
                 .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
                 .env(
                     "DATABASE_URL",
                     with_database(&env("DATABASE_URL"), &self.db.name),

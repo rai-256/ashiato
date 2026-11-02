@@ -12,6 +12,38 @@ use crate::testdb;
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
+#[test]
+fn st44_session_key_validation_rejects_missing_short_and_duplicates() {
+    assert_eq!(
+        web_session::check_web_session_key(None, TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::Missing)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(Some("short"), TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::TooShort)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(Some(TOKEN), TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::SameAsApiToken)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("web-password-0123456789"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Err(web_session::WebSessionKeyRefusal::SameAsWebPassword)
+    );
+}
+
+#[test]
+fn st44_secret_tag_uses_session_key() {
+    assert_ne!(
+        web_session::secret_tag("api-one-0123456789", "password-0123456789"),
+        web_session::secret_tag("api-two-0123456789", "password-0123456789")
+    );
+}
+
 fn random_password() -> String {
     format!("pw-{}", uuid::Uuid::new_v4())
 }

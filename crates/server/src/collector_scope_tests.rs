@@ -323,6 +323,53 @@ async fn st44_scope_web_session_unchanged() {
         );
     }
 }
+
+#[tokio::test]
+async fn st44_api_token_change_keeps_login() {
+    // Scenario: API の合言葉を変えてもログインは切れない
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    let old = App::for_test(pool.clone(), "old-api-token-0123456789");
+    let cookie = testdb::web_cookie(&old, old.web_password_for_test()).await;
+    let current = App::for_test(pool, "new-api-token-0123456789");
+    assert_eq!(
+        send(&current, cookie_req(cookie, "/events")).await.0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn st44_session_key_change_revokes() {
+    // Scenario: ログインの印の鍵を変えると、それまでのログインはすべて使えなくなる
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    let first = App::for_test(pool.clone(), TOKEN);
+    let cookie = testdb::web_cookie(&first, first.web_password_for_test()).await;
+    let changed = first.with_session_key("changed-session-key-0123456789");
+    assert_eq!(
+        send(&changed, cookie_req(cookie, "/events")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn st44_secret_tag_not_from_api_token() {
+    // Scenario: API の合言葉と DB の写しだけでは画面の合言葉を確かめられない
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    let app = App::for_test(pool.clone(), TOKEN);
+    let _ = testdb::web_cookie(&app, app.web_password_for_test()).await;
+    let stored: Vec<u8> = sqlx::query_scalar(
+        "SELECT secret_tag FROM core.web_session ORDER BY issued_at DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_ne!(
+        stored,
+        web_session::secret_tag(TOKEN, app.web_password_for_test())
+    );
+}
 #[tokio::test]
 async fn st44_scope_wrong_bearer_with_cookie() {
     // Scenario: 一致しない Bearer とログインの印を両方付けた読み出しは印で通る

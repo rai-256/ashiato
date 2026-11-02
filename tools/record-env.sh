@@ -100,6 +100,7 @@ DATABASE_OWNER_URL=postgres://ashiato_owner:$ow@127.0.0.1:$db/ashiato
 BIND=127.0.0.1:$api
 API_TOKEN=$(r_)
 WEB_PASSWORD=$(r_)
+WEB_SESSION_KEY=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF
@@ -116,6 +117,7 @@ COMPOSE_PROJECT_NAME=$PROJECT
 DATABASE_URL=postgres://${old_user}:${old_pw}@127.0.0.1:$db/ashiato
 BIND=127.0.0.1:$api
 API_TOKEN=$(r_)
+WEB_SESSION_KEY=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF

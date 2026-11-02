@@ -468,10 +468,11 @@ impl App {
         pool: sqlx::PgPool,
         token: String,
         web_password: &str,
+        session_key: &str,
         session_max_age_days: u32,
     ) -> Self {
         Self {
-            login: web_session::WebLogin::new(&token, web_password, session_max_age_days),
+            login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
             token,
@@ -528,7 +529,13 @@ impl App {
     /// テスト用。作り直しの口は本物を使う。画面の合言葉は試験の既定値、失敗の待ちは 0。
     #[cfg(test)]
     pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
-        let mut app = Self::new(pool, token.into(), "test-web-password-0123456789", 0);
+        let mut app = Self::new(
+            pool,
+            token.into(),
+            "test-web-password-0123456789",
+            "test-session-key-0123456789",
+            0,
+        );
         app.login.failure_delay = std::time::Duration::ZERO;
         app
     }
@@ -536,7 +543,18 @@ impl App {
     /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
     #[cfg(test)]
     pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
-        let mut login = web_session::WebLogin::new(&self.token, web_password, session_max_age_days);
+        let mut login = web_session::WebLogin::new(
+            self.login.session_key_for_test(),
+            web_password,
+            session_max_age_days,
+        );
+        login.failure_delay = self.login.failure_delay;
+        Self { login, ..self }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_session_key(self, session_key: &str) -> Self {
+        let mut login = web_session::WebLogin::new(session_key, self.login.password_for_test(), 0);
         login.failure_delay = self.login.failure_delay;
         Self { login, ..self }
     }
@@ -1032,7 +1050,13 @@ fn internal_app(pool: sqlx::PgPool) -> App {
     #[cfg(test)]
     let app = App::for_test(pool, "archive-store");
     #[cfg(not(test))]
-    let app = App::new(pool, "archive-store".into(), INTERNAL_WEB_PASSWORD, 0);
+    let app = App::new(
+        pool,
+        "archive-store".into(),
+        INTERNAL_WEB_PASSWORD,
+        "archive-internal-session-key",
+        0,
+    );
     app
 }
 
@@ -3371,6 +3395,7 @@ pub async fn store_heartbeat(
         pool.clone(),
         "archive-heartbeat".into(),
         INTERNAL_WEB_PASSWORD,
+        "archive-internal-session-key",
         0,
     );
     heartbeat_one(
@@ -4388,6 +4413,20 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(2);
     }
     let web_password = web_password.unwrap_or_default();
+    let session_key = std::env::var("WEB_SESSION_KEY").ok();
+    if let Err(refusal) =
+        web_session::check_web_session_key(session_key.as_deref(), &token, &web_password)
+    {
+        tracing::error!(
+            kind = "web_session_key",
+            reason = refusal.reason(),
+            "起動しない"
+        );
+        // log-ok: reason() は自分で名付けた &'static str（鍵の値は出さない）。起動前の拒否を端末にも出す
+        eprintln!("error: kind=web_session_key reason={}", refusal.reason());
+        std::process::exit(2);
+    }
+    let session_key = session_key.unwrap_or_default();
     // ログインの期限（日。0 = なし。design D18）
     let session_max_age_days = web_session::session_max_age_days(
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
@@ -4484,10 +4523,16 @@ pub async fn run() -> anyhow::Result<()> {
             "原本の置き場を用意できない"
         );
     }
-    let state = App::new(pool, token, &web_password, session_max_age_days)
-        .with_reading(reading)
-        .with_warmup(warmup)
-        .with_media(media);
+    let state = App::new(
+        pool,
+        token,
+        &web_password,
+        &session_key,
+        session_max_age_days,
+    )
+    .with_reading(reading)
+    .with_warmup(warmup)
+    .with_media(media);
     // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
     // 書き出しの台帳だけを握る（App の全体を仕事の寿命まで持たない。/code-review R28）
     let exports = state.exports.clone();
