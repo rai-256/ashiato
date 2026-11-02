@@ -89,7 +89,7 @@
 
 - 16 文字以上・`API_TOKEN` とも `WEB_PASSWORD` とも違う値。どれかに当たれば `kind=web_session_key reason=<missing|too_short|same_as_api_token|same_as_web_password>` を出して `exit 2`（画面の合言葉の検査 `check_web_password` と同じ形）
 - 渡す側: `.env.example`（雛形と説明）・`tools/env-init.sh`（新しい `.env` に乱数で作る。**既にある `.env` に行が無ければ乱数の 1 行を足す** —— 合言葉の行を変えない今の約束のまま、無い行を足すだけ）・
-  `tools/record-env.sh`（録画の `.env`）・`tools/ci-db-env.sh`（CI の乱数）・`tools/smoke.sh`・`tools/stack.sh`・`tools/dev.sh`・`tools/check-panic-log.sh`（`API_TOKEN` と同じく、無ければ台本の中の既定の値）
+  `tools/record-env.sh`（録画の `.env`）・`tools/ci-db-env.sh`（CI の乱数）・`tools/smoke.sh`・`tools/stack.sh`・`tools/dev.sh`・`tools/check-panic-log.sh`（`API_TOKEN` と同じく、無ければ台本の中の既定の値）。ただし日々の起動の入口の `dev.sh`・`stack.sh` は既定値を持たず止まる（D16（仮）。final の後の review R17）
 - 本人の機械は、新しいサーバに入れ替える前に `.env` へ 1 行足す（Migration Plan。`docs/network.md` §6 の秘密の数を 5 つに）
 - 反転条件: 更新の経路（ST53〜ST58 の自動の更新）が `.env` に行を足せず、入れ替えの後にサーバが起動しない事例が出たら、サーバが最初の起動で乱数の鍵を作り、DB の外の置き場（権限 0600 のファイル）に残す形へ移る（どちらでも DB の写しと収集アプリの値だけでは確かめられない）
 - 代替: 鍵を DB に置く（DB の写しだけで確かめられ、意味が無い）・`APP_DB_PASSWORD` を鍵に流用する（DB の合言葉を替えるとログインが切れ、2 つの用途が結び付く）
@@ -144,6 +144,14 @@
 ### D15. API の説明に 403 を書く
 
 - `docs/openapi.json` の、許可の一覧の外の口に `403`（API の合言葉では通らない）の応答を足す（`bin/openapi.rs` の `responses`）。`tools/check-openapi.sh` が通ること
+
+### D16（仮）. 日々の起動の入口（`tools/dev.sh`・`tools/stack.sh`）は印の鍵に既定値を持たず、無ければ止まる
+
+- D8 の「渡す側」のうち `dev.sh`・`stack.sh` は、`API_TOKEN` と同じ「無ければ台本の既定の値」をやめ、`WEB_PASSWORD` と同じ `:?` で理由（`tools/env-init.sh` で足す）を出して止まる（review/code.md R17・R19）。
+  既定値のままだと、`WEB_SESSION_KEY` の無い `.env`（本人の main の checkout・`.env.example` を写したもの）で起動したとき、repo に載った鍵で印を作り、D7 と R2 で塞いだ「DB の写しから画面の合言葉を確かめられる」状態が戻る
+- 使い捨ての DB を作る `tools/smoke.sh`・`tools/check-panic-log.sh` は既定値のまま（その DB は走らせた後に消え、本人の記録を持たない）
+- CI は `tools/ci-db-env.sh` が乱数で渡す。`tools/verify-prep.sh` は `stack.sh` の前に `env-init.sh` を呼ぶので、鍵の無い `.env` には乱数の 1 行が足される。録画の `.env` は `record-env.sh` が毎回鍵つきで書く
+- 反転条件: ハーネスの検証の経路（verify-prep・録画・check-db-version-stop）が鍵の無い `.env` で `stack.sh` を呼んで止まる事例が出たら、`stack.sh` が起動の前に `env-init.sh` を呼んで足す形へ移る（どちらでも公開の鍵では起動しない）
 
 ## Risks / Trade-offs
 

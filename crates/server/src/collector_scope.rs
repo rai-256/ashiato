@@ -22,3 +22,12 @@ pub fn collector_allows(method: &Method, matched_path: &str) -> bool {
             allowed_method == method && *allowed_path == matched_path
         })
 }
+
+/// 資格情報を求めない口（ST44 D9）。API の合言葉でも 403 にならない。
+/// `bin/openapi.rs` が契約の 403 を足さない口をここから引く（写しを持たない。/code-review R24）。
+/// `access_log::middleware` が `/session` を丸ごと通すのは「ハンドラが自分で行を書く」からで、
+/// `GET /session` は資格情報を求め、`session_get` が自分で 403 を返す（D12（仮））。
+pub fn credential_exempt(method: &Method, matched_path: &str) -> bool {
+    matched_path == "/healthz"
+        || (matched_path == "/session" && (*method == Method::POST || *method == Method::DELETE))
+}

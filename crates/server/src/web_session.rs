@@ -240,7 +240,7 @@ impl WebLogin {
 }
 
 /// cookie ヘッダから印を取り出す。
-fn cookie_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn cookie_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -481,9 +481,10 @@ pub async fn session_delete(
     Ok(res)
 }
 
-/// ログインの状態。印か API の合言葉で認められれば、その種類を返す。
+/// ログインの状態。画面の印で認められれば、その種類を返す。API の合言葉と衛星の資格情報では 403。
 #[utoipa::path(get, path = "/session",
-    responses((status = 200, body = SessionState), (status = 401)))]
+    responses((status = 200, body = SessionState), (status = 401),
+        (status = 403, description = "API の合言葉では通らない")))]
 pub async fn session_get(
     State(app): State<App>,
     headers: HeaderMap,

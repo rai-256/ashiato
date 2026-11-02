@@ -2,19 +2,12 @@
 //! API の契約を標準出力に書き出す。`docs/openapi.json` との差分を CI が見る。
 #![allow(clippy::print_stdout)] // ここは標準出力が出口
 
-use ashiato_server::collector_scope::collector_allows;
+use ashiato_server::collector_scope::{collector_allows, credential_exempt};
 use axum::http::Method;
 use utoipa::{
     openapi::{path::Operation, RefOr, Response},
     OpenApi as _,
 };
-
-/// 資格情報を求めない口（`access_log::middleware` と `/session` の口が自分で判定する。ST44 D9）。
-/// ここは API の合言葉でも 403 にならないので、一覧の外の 403 を契約に足さない。
-fn is_exempt(method: &Method, path: &str) -> bool {
-    path == "/healthz"
-        || (path == "/session" && (*method == Method::POST || *method == Method::DELETE))
-}
 
 fn add_forbidden_response(operation: &mut Operation) {
     operation
@@ -39,7 +32,8 @@ fn add_collector_scope_responses(document: &mut utoipa::openapi::OpenApi) {
         ];
         for (method, operation) in operations {
             let Some(operation) = operation else { continue };
-            if is_exempt(&method, path) || collector_allows(&method, path) {
+            // 資格情報を求めない口は API の合言葉でも 403 にならないので足さない（ST44 D9）
+            if credential_exempt(&method, path) || collector_allows(&method, path) {
                 continue;
             }
             add_forbidden_response(operation);

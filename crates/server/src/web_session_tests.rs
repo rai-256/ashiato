@@ -34,6 +34,57 @@ fn st44_session_key_validation_rejects_missing_short_and_duplicates() {
         ),
         Err(web_session::WebSessionKeyRefusal::SameAsWebPassword)
     );
+    // 下限 16 文字の境界の両側（spec の「15 文字の値」。code_verify R18）
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("session-key-015"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Err(web_session::WebSessionKeyRefusal::TooShort)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("session-key-0016"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn st44_credential_present_counts_only_bearer_and_session_cookie() {
+    use axum::http::{header, HeaderMap, HeaderValue};
+    let h = |pairs: &[(header::HeaderName, &'static str)]| {
+        let mut m = HeaderMap::new();
+        for (k, v) in pairs {
+            m.append(k.clone(), HeaderValue::from_static(v));
+        }
+        m
+    };
+    assert!(!crate::credential_present(&h(&[])));
+    // 同じ host のほかの cookie と Bearer でない見出しは数えない（/code-review R23）
+    assert!(!crate::credential_present(&h(&[(
+        header::COOKIE,
+        "ts_session=abc; other=1"
+    )])));
+    assert!(!crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Basic dXNlcjpwYXNz"
+    )])));
+    assert!(!crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Bearer "
+    )])));
+    assert!(crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Bearer wrong-token"
+    )])));
+    assert!(crate::credential_present(&h(&[(
+        header::COOKIE,
+        "other=1; ashiato_session=expired"
+    )])));
 }
 
 #[test]

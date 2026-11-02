@@ -1621,7 +1621,7 @@
         "tags": [
           "web_session"
         ],
-        "summary": "ログインの状態。印か API の合言葉で認められれば、その種類を返す。",
+        "summary": "ログインの状態。画面の印で認められれば、その種類を返す。API の合言葉と衛星の資格情報では 403。",
         "operationId": "session_get",
         "responses": {
           "200": {

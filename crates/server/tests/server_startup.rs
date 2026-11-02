@@ -427,7 +427,9 @@ fn st44_session_key_missing_refuses() {
 /// Scenario: ログインの印の鍵が短いか、ほかの合言葉と同じだと起動しない
 #[test]
 fn st44_session_key_short_or_same_refuses() {
-    let short = "short-session";
+    // spec の WHEN は「15 文字の値」。下限 16 のすぐ下で断る（code_verify R18）
+    let short = "short-session15";
+    assert_eq!(short.chars().count(), 15);
     let out = start_with_session_key(Some(short), TEST_TOKEN, TEST_WEB_PASSWORD);
     assert_session_key_refused(&out, "too_short", &[short, TEST_TOKEN, TEST_WEB_PASSWORD]);
     let out = start_with_session_key(Some(TEST_TOKEN), TEST_TOKEN, TEST_WEB_PASSWORD);

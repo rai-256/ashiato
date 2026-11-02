@@ -50,7 +50,10 @@ MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate   # 縦串の DB は毎
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
-READ=(-H "$(tools/web-login.sh "http://$BIND")")
+# 画面の合言葉でログインした印で読む（ST44 D13）。失敗は理由を出して止まる（/code-review R22）
+login_header="$(tools/web-login.sh "http://$BIND")" && [ -n "$login_header" ] \
+  || { echo "error: 画面にログインできない（$BIND の WEB_PASSWORD がこの環境の値と同じか確かめる）" >&2; exit 1; }
+READ=(-H "$login_header")
 # 書庫の取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）。
 # 取り込み器は 1 秒ごとに登録簿を読むので、この後の待ちは長くて 1 秒
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \

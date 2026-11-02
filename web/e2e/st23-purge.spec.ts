@@ -149,7 +149,7 @@ async function onlyStay(request: APIRequestContext, date: string): Promise<Entry
 }
 
 async function erase(request: APIRequestContext, stayId: string): Promise<void> {
-  const res = await request.post("/api/stays/erase", { headers: readAuthHeaders(), data: { stay_id: stayId } });
+  const res = await request.post("/api/stays/erase", { data: { stay_id: stayId } });
   expect(res.ok(), "POST /stays/erase").toBe(true);
 }
 
@@ -225,7 +225,7 @@ async function preview(request: APIRequestContext, stayId: string): Promise<Prev
 /** 画面を通さずに本文ごと消す（確認の口と同じ件数を添える）。 */
 async function purgeByApi(request: APIRequestContext, stayId: string): Promise<void> {
   const { counts } = await preview(request, stayId);
-  const res = await request.post("/api/stays/purge", { headers: readAuthHeaders(), data: { stay_id: stayId, expected: counts } });
+  const res = await request.post("/api/stays/purge", { data: { stay_id: stayId, expected: counts } });
   expect(res.ok(), "POST /stays/purge").toBe(true);
 }
 

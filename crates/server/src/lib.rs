@@ -786,12 +786,17 @@ async fn authorize(
     Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
 }
 
-/// 401 のログの `credential_present`。`authorization` か `cookie` の見出しが付いていたか（値は見ない。製造準備 A-2）。
+/// 401 のログの `credential_present`。空でない `Bearer` か、このサーバの印の cookie が付いていたか（値は見ない。製造準備 A-2）。
 /// `authorize` と読み出しの記録の middleware が**同じ条件**で出す（ST44 final review R5）——
 /// 画面の印の期限切れも、ずれた API の合言葉も「資格情報は有った」として、「何も付いていない」と分ける。
+/// 同じ host のほかの cookie（tailscale・vite）や `Bearer` でない見出しは資格情報に数えない（/code-review R23）。
 pub(crate) fn credential_present(headers: &HeaderMap) -> bool {
-    headers.contains_key(axum::http::header::AUTHORIZATION)
-        || headers.contains_key(axum::http::header::COOKIE)
+    let bearer = headers
+        .get_all(axum::http::header::AUTHORIZATION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| v.strip_prefix("Bearer ").is_some_and(|t| !t.is_empty()));
+    bearer || web_session::cookie_token(headers).is_some()
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——

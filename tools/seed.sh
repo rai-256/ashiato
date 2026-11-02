@@ -19,7 +19,6 @@ MODE="${1:-normal}"
 BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"   # tools/dev.sh のサーバと同じ口（Story の worktree では 19000+2×NN）
 API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN" -H 'content-type: application/json')
-READ=(-H "$(tools/web-login.sh "http://$BIND")" -H 'content-type: application/json')
 
 case "$MODE" in
   normal) N=9  ;;
@@ -28,6 +27,11 @@ case "$MODE" in
   error)  N=9  ;;
   *) echo "使い方: $0 [normal|max|empty|error]"; exit 2 ;;
 esac
+
+# 画面の合言葉でログインした印で読む（ST44 D13）。失敗は理由を出して止まる（使い方の判定の後。/code-review R22）
+login_header="$(tools/web-login.sh "http://$BIND")" && [ -n "$login_header" ] \
+  || { echo "error: 画面にログインできない（$BIND の WEB_PASSWORD がこの環境の値と同じか確かめる）" >&2; exit 1; }
+READ=(-H "$login_header" -H 'content-type: application/json')
 
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
   "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
