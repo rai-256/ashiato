@@ -187,9 +187,41 @@ async fn st44_scope_allowlist_is_nine() {
 async fn st44_scope_sends_pass() {
     // Scenario: API の合言葉で記録・生存信号・破棄の報告・原本の欠けを送れる
     let (app, _) = app().await;
-    for u in ["/ingest", "/heartbeat", "/drops", "/media/missing"] {
-        let (s, b) = send(&app, req(Method::POST, u, Some("{}"))).await;
-        assert_ne!(s, StatusCode::FORBIDDEN, "{u}: {b}");
+    let user = testdb::user();
+    let source = testdb::source(&app.pool, "st44-send", 21_600).await;
+    let sha = crate::media_missing_tests::sha();
+    let sends = [
+        (
+            "/ingest",
+            crate::api_tests::ev(
+                &source,
+                user,
+                "2026-10-01T00:00:00Z",
+                "Asia/Tokyo",
+                r#"{"st44":"ingest"}"#,
+            ),
+        ),
+        (
+            "/heartbeat",
+            crate::api_tests::hb(&source, user, "2026-10-01T00:00:00Z"),
+        ),
+        (
+            "/drops",
+            crate::drops_tests::report(&source, user, "2026-10-01", &[(0, 1)]),
+        ),
+        (
+            "/media/missing",
+            crate::media_missing_tests::report(user, &sha, "vanished"),
+        ),
+    ];
+    for (u, item) in sends {
+        let body = serde_json::json!([item]).to_string();
+        let (s, b) = send(&app, req(Method::POST, u, Some(&body))).await;
+        assert_eq!(s, StatusCode::OK, "{u}: {b}");
+        let results: Vec<serde_json::Value> = serde_json::from_str(&b).unwrap();
+        assert_eq!(results.len(), 1, "{u}: {b}");
+        assert_eq!(results[0]["accepted"], true, "{u}: {b}");
+        assert_eq!(results[0]["duplicate"], false, "{u}: {b}");
     }
 }
 #[tokio::test]
@@ -227,37 +259,102 @@ async fn st44_scope_feelings_reminder() {
     // Scenario: API の合言葉で気分の通知の判断を読める
     // Scenario: 収集アプリの資格情報で通知の判断を読める
     let (app, seen) = app().await;
-    let (s, _) = send(
+    let user = testdb::user();
+    let note = "st44-ひみつのひとこと";
+    let (_, written) = crate::feelings_ingest_tests::write_day(
+        &crate::feelings_ingest_tests::app().await,
+        user,
+        "2026-10-01",
+        "2026-10-01T21:30:00+09:00",
+        crate::feelings_ingest_tests::valence(2),
+        Some(note),
+    )
+    .await;
+    assert_eq!(
+        serde_json::to_value(&written).unwrap()["accepted"],
+        true,
+        "ひとことと尺度を持つ記録を置けない"
+    );
+    seen.lock().unwrap().clear();
+    let (s, b) = send(
         &app,
-        req(Method::GET, "/feelings/reminder?date=2026-10-01", None),
+        req(
+            Method::GET,
+            &format!("/feelings/reminder?date=2026-10-01&user_id={user}"),
+            None,
+        ),
     )
     .await;
     assert_eq!(s, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&b).unwrap();
+    let mut keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["at", "recorded"]);
+    assert_eq!(v["recorded"], true);
+    assert!(v["at"].is_string());
+    assert!(
+        !b.contains(note) && !b.contains("valence"),
+        "通知の判断に主観の中身が入っている"
+    );
     row(&seen, "/feelings/reminder", "GET", "ok", 200);
+}
+async fn reminder_at(app: &App, user: uuid::Uuid) -> (i64, serde_json::Value) {
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.feeling_reminder WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    let decision = crate::feelings::reminder_decision(
+        &app.pool,
+        user,
+        chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+    )
+    .await
+    .unwrap();
+    (rows, serde_json::to_value(decision).unwrap()["at"].clone())
 }
 #[tokio::test]
 async fn st44_scope_feelings_reminder_post_403() {
     // Scenario: 収集アプリの資格情報では通知の時刻を変えられない
     let (app, seen) = app().await;
+    let user = testdb::user();
+    let before = reminder_at(&app, user).await;
     let (s, b) = send(
         &app,
         req(
             Method::POST,
             "/feelings/reminder",
-            Some(r#"{"at":"09:00"}"#),
+            Some(&serde_json::json!({"at": "22:30", "user_id": user}).to_string()),
         ),
     )
     .await;
     assert_eq!((s, b.as_str()), (StatusCode::FORBIDDEN, "forbidden"));
     row(&seen, "/feelings/reminder", "POST", "forbidden", 403);
+    let after = reminder_at(&app, user).await;
+    assert_eq!(before, after, "通知の時刻が変わった");
+    assert_ne!(after.1, "22:30");
 }
 #[tokio::test]
 async fn st44_scope_outages() {
     // Scenario: API の合言葉で途絶の判定を読める
     let (app, seen) = app().await;
-    let (s, b) = send(&app, req(Method::GET, "/outages", None)).await;
+    // 判定を待つ時間（`OUTAGE_WARMUP`）を試験の時計で過ぎた状態にする
+    let now = chrono::Utc::now();
+    let app = app.at(now).started(now - chrono::Duration::minutes(31));
+    let (s, b) = send(
+        &app,
+        req(
+            Method::GET,
+            &format!("/outages?user_id={}", testdb::user()),
+            None,
+        ),
+    )
+    .await;
     assert_eq!(s, StatusCode::OK);
-    assert!(b.contains("judged_at"));
+    let v: serde_json::Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["status"], "ready", "{b}");
+    assert!(v["outages"].is_array(), "途切れたソースの一覧が無い: {b}");
     row(&seen, "/outages", "GET", "ok", 200);
 }
 #[tokio::test]
@@ -313,15 +410,33 @@ async fn st44_scope_web_session_unchanged() {
     let (app, _) = app().await;
     let c = testdb::web_cookie(&app, app.web_password_for_test()).await;
     for u in [
-        "/stays",
+        "/stays?date=2026-10-01",
         "/events",
         "/feelings?from=2026-10-01&to=2026-10-01",
     ] {
-        assert_ne!(
-            send(&app, cookie_req(c.clone(), u)).await.0,
-            StatusCode::FORBIDDEN
-        );
+        let status = send(&app, cookie_req(c.clone(), u)).await.0;
+        assert!(status.is_success(), "{u}: {status}");
     }
+    let source = testdb::source(&app.pool, "st44-web-ingest", 21_600).await;
+    let body = serde_json::json!([crate::api_tests::ev(
+        &source,
+        testdb::user(),
+        "2026-10-01T00:00:00Z",
+        "Asia/Tokyo",
+        r#"{"st44":"web"}"#,
+    )])
+    .to_string();
+    let r = Request::builder()
+        .method(Method::POST)
+        .uri("/ingest")
+        .header(header::COOKIE, c)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body))
+        .unwrap();
+    let (status, b) = send(&app, r).await;
+    assert!(status.is_success(), "/ingest: {status} {b}");
+    let results: Vec<serde_json::Value> = serde_json::from_str(&b).unwrap();
+    assert_eq!(results[0]["accepted"], true, "{b}");
 }
 
 #[tokio::test]
