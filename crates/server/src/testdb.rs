@@ -50,6 +50,18 @@ pub async fn web_cookie(app: &crate::App, password: &str) -> String {
         .to_owned()
 }
 
+/// Bearer で書かれていた既存の router 試験を、画面のログインの印で送る求めに変える。
+pub async fn as_web_session(
+    app: &crate::App,
+    mut req: axum::http::Request<axum::body::Body>,
+) -> axum::http::Request<axum::body::Body> {
+    let cookie = web_cookie(app, app.web_password_for_test()).await;
+    req.headers_mut().remove(axum::http::header::AUTHORIZATION);
+    req.headers_mut()
+        .insert(axum::http::header::COOKIE, cookie.parse().unwrap());
+    req
+}
+
 /// この worktree のテスト用 DB の port。**規則は `tools/ports.sh` だけが持つ**ので、それを呼んで得る
 /// （`ASHIATO_DB_PORT` > main の checkout・`-st<NN>`・`-verify`・それ以外の worktree の台帳）。
 /// 並行して走る Story・change のテストが、別の木の DB に繋がらないようにする（2026-09-30・2026-10-21）。

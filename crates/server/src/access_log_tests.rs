@@ -66,11 +66,7 @@ async fn send(app: &App, mut req: Request<Body>) -> Response<Body> {
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v == format!("Bearer {TOKEN}"))
     {
-        let password = app.web_password_for_test().to_owned();
-        let cookie = testdb::web_cookie(app, &password).await;
-        req.headers_mut().remove(header::AUTHORIZATION);
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
+        req = testdb::as_web_session(app, req).await;
     }
     router(app.clone()).oneshot(req).await.unwrap()
 }

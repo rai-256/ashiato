@@ -64,13 +64,12 @@ pub(crate) fn request(
     b.body(body.map_or_else(Body::empty, Body::from)).unwrap()
 }
 
-pub(crate) async fn call(app: &App, mut req: Request<Body>) -> (StatusCode, String) {
-    if req.headers().contains_key(header::AUTHORIZATION) {
-        let cookie = testdb::web_cookie(app, app.web_password_for_test()).await;
-        req.headers_mut().remove(header::AUTHORIZATION);
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
-    }
+pub(crate) async fn call(app: &App, req: Request<Body>) -> (StatusCode, String) {
+    let req = if req.headers().contains_key(header::AUTHORIZATION) {
+        testdb::as_web_session(app, req).await
+    } else {
+        req
+    };
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let body = res.into_body().collect().await.unwrap().to_bytes();
