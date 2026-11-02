@@ -64,7 +64,7 @@
 
 ## Task 2: 資格情報なしと API の合言葉だけで全部の口を呼ぶ試験
 
-- [ ] 2.1 `collector_scope_tests.rs` に、口の一覧を `ApiDoc::openapi()` の `paths` と方法から作り `/healthz` を足す関数を置く（`satellite_routes_tests.rs` の `contract_operations` と同じ取り方。手で並べない。design D9）。道の `{sha256}`・`{id}`・`{cid}` は形の合う値で埋める。
+- [x] 2.1 `collector_scope_tests.rs` に、口の一覧を `ApiDoc::openapi()` の `paths` と方法から作り `/healthz` を足す関数を置く（`satellite_routes_tests.rs` の `contract_operations` と同じ取り方。手で並べない。design D9）。道の `{sha256}`・`{id}`・`{cid}` は形の合う値で埋める。
   - `st44_routes_without_credentials` — `// Scenario: 資格情報を求めない口は生存確認・ログイン・ログアウトの 3 つだけ`（引数も本文も付けない。`/healthz` 200・`DELETE /session` 204・`POST /session` は合言葉の欄の無い JSON で 401・ほかの全部が 401。D9 の middleware の 401 が前提）
   - `st44_routes_api_token_outside_403` — `// Scenario: API の合言葉では許可の一覧の外の口はすべて断られる`（一覧の外の全部が 403、行が口ごとに 1 行増える。呼ぶ前と後で `core.event`・滞在・場所・属性・衛星・書き出しの行の数が同じ）
   - `st44_routes_allowlist_in_contract`（`COLLECTOR_ALLOWED` の 9 つが全部、契約に載る口と方法であること。名前の打ち間違いで一覧が黙って空振りしない）
