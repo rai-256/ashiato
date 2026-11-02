@@ -34,13 +34,13 @@ C-02 の `ASHIATO_BASE_URL` は loopback のままでよい。
 
 ## 4. 電話を落としたとき
 
-収集側の合言葉（`API_TOKEN`）は ST29 まで全読みのまま（Q4）。★ 2026-10-11（2026-10-11 の整合の確認）: 要件の改訂で ST29 の範囲が変わる（資格情報は衛星ごと。PERM-10★ / PERM-14）。中身はそのまま有効。収集アプリは衛星ではないので（要件 §1.3）、宛先の「ST29」をどの Story に付け替えるかは `/stories` で決める。落とした電話・古い APK の合言葉で読まれた記録は戻らない。次の順で締め出す:
+落とした電話の値で**できること**は、偽の記録を混ぜて送ることと、記録の中身を返さない次の 4 つの読みだけ: `GET /contract`、`GET /feelings/reminder`、`GET /outages`、`HEAD /media/originals/{sha256}`。**できないこと**は、記録・滞在・気分の読み出し、書き出し、消去。落とした電話・古い APK の合言葉で既に読まれた記録は戻らない。次の順で締め出す:
 
 1. 網（管理画面）から**その電話のノードを外す**
-2. `.env` の `API_TOKEN` を変えて、APK と C-02 を入れ直す
-3. `.env` の `WEB_PASSWORD`（画面の合言葉）を変えて、サーバを起動し直す
+2. `.env` の `API_TOKEN` を変えて、APK と C-02 を入れ直す（入れ直すまで携帯は溜め続け、90 日・2 GB を越えた分は捨てる。端末は 401 を本人に知らせない）
+3. 画面のログインが落とした電話のブラウザに残っていれば、`.env` の `WEB_PASSWORD` または `WEB_SESSION_KEY` を変えて、サーバを起動し直す
 
-ログインは期限で切れない（Q6）。**画面の合言葉を変えると、すべての端末のログインが無効になる**。`API_TOKEN` を変えた時点でも全端末のログインは切れる（design D3）。
+ログインは期限で切れない（Q6）。**画面の合言葉を変えると、すべての端末のログインが無効になる**。`API_TOKEN` を変えても画面のログインは切れない。画面のログインを締め出すのは `WEB_PASSWORD` または `WEB_SESSION_KEY` を変えること。
 端末を落としたときの締め出しの手段は、期限の代わりにこれだけ。
 
 ## 5. 画面を出す機械名に信頼できないサービスを同居させない
@@ -54,7 +54,7 @@ C-02 の `ASHIATO_BASE_URL` は loopback のままでよい。
 
 1. `pg_dump` で退避する（`tools/db-roles.sh` は所有を移すだけで行を変えないが、実データの DB に対する初めての操作なので）。
    ★ 2026-10-11: 3 の `ashiato-server migrate` も当てる前に自動で退避する（`MIGRATE_BACKUP_DIR`。手元に `pg_dump` が無ければ `PG_DUMP` で場所を指す）。1 は `db-roles.sh` の前の退避として残す
-2. `.env` に 4 つの秘密（`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` / `WEB_PASSWORD`。`openssl rand -hex 24`）を足し、
+2. `.env` に 5 つの秘密（`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` / `WEB_PASSWORD` / `WEB_SESSION_KEY`。`openssl rand -hex 24`）を足し、
    `DATABASE_URL` をアプリの役割に、`DATABASE_OWNER_URL` を足す（`.env.example` を見る）
 3. `tools/db-roles.sh` → `ashiato-server migrate` → サーバ
 4. `tailscale serve` の口を https に置き換え、http と開発用の画面の口を消す（§1）→ `tools/check-exposure.sh`

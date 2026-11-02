@@ -132,12 +132,12 @@ cat > "$out/manifest.md" <<EOF
 
 画面 \`http://127.0.0.1:5180\`（\`WEB_PORT\` で変えられる）/ API は \`.env\` の BIND（既定 \`127.0.0.1:18787\`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは \`docs/screens.md\`。
 
-画面を開くと合言葉のログインが出る（\`.env\` の \`WEB_PASSWORD\`。\`API_TOKEN\` とは別の値）。
+画面を開くと合言葉のログインが出る（\`.env\` の \`WEB_PASSWORD\`。\`API_TOKEN\` とは別の値）。読む・作り直すのは画面の合言葉でログインして（\`tools/web-login.sh\`）。API の合言葉は送るだけ。
 
 スマホ・端末から届かせるなら \`https://<手元の網のホスト名>:<port>\`（\`tailscale serve\` の HTTPS。手順は \`docs/network.md\`）（\`.env\` の \`ALLOWED_HOSTS\`） ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
 
 確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）——
-作り直し: \`curl -sS -H "authorization: Bearer \$API_TOKEN" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{"radius_m":30}'\`（戻すときは \`100\`。範囲外の値は 400 で、基準も滞在も変わらない）。
+作り直し: \`cookie="\$(tools/web-login.sh http://127.0.0.1:18787)"; curl -sS -H "\$cookie" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{"radius_m":30}'\`（戻すときは \`100\`。範囲外の値は 400 で、基準も滞在も変わらない）。
 位置が変わっていないこと: \`$dbq "select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'"\`（作り直しの前後で同じ値）。
 
 Android: $android_note。接続先は \`~/.gradle/gradle.properties\` の \`ashiato.baseUrl\`（\`collector-android/README.md\`）。

@@ -7,6 +7,20 @@
 > 衛星（要件 §1.3 の P-xx）が従う契約は別に作る（衛星の基盤の Story（/stories で立てる））。書き手（FR-24 / FR-92）・
 > 終わりの時刻（FR-91）・衛星の溜めと再送（FR-99）はそこで決まり、この文書の欄はまだそれを持たない。
 
+## API の合言葉で通る口（ST44）
+
+API の合言葉（`API_TOKEN`）で通る口は次の 9 つだけ。これ以外の口は 403 で断る（携帯は `server_403`、PC は `send_unauthorized` として扱う）。新しい口を収集アプリが使うときは、この一覧に足すまで断る。
+
+- `POST /ingest`
+- `POST /heartbeat`
+- `POST /drops`
+- `POST /media/missing`
+- `PUT /media/originals/{sha256}`
+- `GET /contract`
+- `HEAD /media/originals/{sha256}`
+- `GET /feelings/reminder`
+- `GET /outages`
+
 ## 送る形
 
 `POST /ingest` に**記録の配列**を送る（まとめ送り。design D9）。
