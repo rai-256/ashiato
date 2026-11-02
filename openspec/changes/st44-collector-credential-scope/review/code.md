@@ -308,3 +308,8 @@ fix の担当（finish）が走らせたもの: `cargo clippy -p ashiato-server 
 `tools/smoke.sh` rc=0、`npm run test:e2e -- places st23-purge ch08-nested`（59 passed）rc=0、`npm run typecheck` rc=0、
 `scripts/verify-run` 4.2・5.1・6.2・7.1・7.2 PASS、`check_scenarios.py` OK、`check-openapi.sh`・`check-contract-version.sh`・`check-panic-log.sh`・`check-shared-appends.sh` rc=0。
 変異: 鍵の下限を 15 / 17 → 試験が落ちる（R18）、smoke.sh の `READ[@]` を `AUTH[@]` に戻す → `check-api-token-reads.sh` rc=1（R16）。全体の `cargo test -p ashiato-server` と全 e2e は走らせていない（CI が持つ）。
+
+## finish の scoped re-review（04703a4e。1 回）
+
+独立の reviewer（`pr-review-toolkit:code-reviewer`）: R16〜R28 は全部 ADDRESSED、R20 の rejected は妥当（record-env.sh `up()` が毎回書き直す・check-verify-env-reset.sh の `cmp` の Scenario・`stack.sh` の `:?`）。dev.sh・stack.sh の呼び出し元（CI の 3 job・check-db-version-stop・verify-prep・record-env・st25-seed-check・playwright の webServer）はどれも鍵を渡す。Critical なし。
+新しい Important 1 件 —— `check-api-token-reads.sh` は `\` で続く複数行の curl と `$BASE/<口>` の形を黙って飛ばす（R16 の空振りの残り。今の 4 か所は許可の口）。fix は 1 回なので直さず、Task 7 の ledger に Ruling つきで park し、PR 本文の申し送りに書いた。
