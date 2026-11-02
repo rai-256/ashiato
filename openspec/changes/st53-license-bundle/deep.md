@@ -175,3 +175,6 @@
 - C1（Q14）: tasks 11.1 に、push し直す前の head と閉じた PR の head を `git fetch origin <sha>` で取れるかの確かめを足し、P14 を head の前提に書き直す（取れなければ上流へ返す）
 - C4（Q10・Q11）: D4 の失わない理由「表示は後から書き換えられる」を、Q10 の「最初の印から後は前進側の 2 つを直せないことを受け入れる」に直す。D4・D5 の「未決」と spec・tasks の「答え待ち」「（仮）」を外す
 - C9: spec の「それ以外の組み立て（開発版・PR の組み立て）」に main への push を足す
+- → 対応（spec --answers Q10〜Q15。2026-11-03）: C1〜C5・C9 の仕様の側を design D4・D5・D7・D8・D9・D16、spec、tasks 2.x・4.x・5.3・6.1・7.1・11.1、proposal、premises P14 に写した。
+  `check-artifacts.sh --allow-debug-key` は PR と main への push を分けられないので、main への push も比べを外す形を D17（仮）にした。
+  go.json の walkthrough（W2）と IMP-06 は spec の段では直さない（GO 資料は reading の段が直す）

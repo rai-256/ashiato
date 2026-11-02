@@ -15,7 +15,10 @@
   Q3 Environment `release` に本人を必須の承認者として付け、エージェントの資格情報を管理と承認の権限の無いものに替えてから鍵を置く / Q4 最初の本物の公開は ST53 が main に入った後に本人が行う（確認バッチは下書き）/
   Q5 ソースと部品の表示を `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に / Q6 携帯の許諾は APK の中に置くだけ（画面は作らない）/ Q7 正式版・ベータ版は印、それ以外は commit でソースの場所を示す /
   Q8 確認バッチの準備はエミュレータにだけ APK を入れる / Q9 サーバの画面にソースの場所を出さない。
-  仮: D4（移行の 3 ファイルは書き換えない）・D5（表示の検査は先頭 25 行・symlink を辿らない）・D6（自分の部品は名前で通し、`AGPL-3.0-only` を許可の一覧から外す）・D7（POM と対応表）・D8（依存の一覧の作り方）・D9（`ASHIATO_SOURCE_REF`）・D10（PR の成果物の掃除）・D11（`approvals` の中身）・D16（開発版と PR の組み立ては commit で示す）。
+  第 2 回: Q10 移行の 3 ファイルは書き換えず例外に載せる（最初の印から後は前進側の 2 つを直せないことを受け入れる。D4）/ Q11 表示の検査は先頭 25 行・表示の無いファイルは見ない・例外は wrapper の 2 つと移行の 3 つ（D5）/
+  Q12 携帯の POM に許諾が 2 つ以上並べば AND で読む。`@pom` を取り寄せ、取れなければ落とす（D7）/ Q13 携帯の依存の一覧は検査と同じ出力から（D8）/
+  Q14 PR の組み立ての `SOURCE.txt` は PR の head の commit、組み立ての印との比べは debug の鍵を許す検査だけ外す（D9）/ Q15 開発版と main への push は main の commit、PR は head の commit（D16）。
+  仮: D6（自分の部品は名前で通し、`AGPL-3.0-only` を許可の一覧から外す）・D10（PR の成果物の掃除）・D11（`approvals` の中身）・D17（main への push も debug の鍵を許す検査では commit を形だけ見る）。
   （第 1 回は推奨で先に書いた。推奨と違った答えは、上流が写してから下流へ渡す）
 - **名前は統一する**: 正本 `LICENSES/AdditionRef-ashiato-play-services.txt`、式 `AGPL-3.0-only WITH AdditionRef-ashiato-play-services`、配布物の 3 点 `LICENSE`・`THIRD-PARTY-NOTICES.txt`・`SOURCE.txt`（APK は `assets/licenses/`）、
   道具 `tools/check-spdx.sh <license|headers>`・`tools/check-licenses.sh [rust|node|android]`・`tools/licenses/pom-license-names.tsv`・`tools/licenses/texts/<SPDX>.txt`・`tools/release/notices.sh <server|collector-windows|apk|source>`・`tools/verify-prep-device.sh`、
@@ -51,11 +54,11 @@
 ## Task 2: ソースと部品の許諾の表示
 
 - [ ] 2.1 `crates/server/src/coverage/tests/mod.rs` の 21 行目の表示を先頭の行へ移す。`git ls-files -s` を起点に、mode が `120000` でないファイルの先頭 25 行にある `SPDX-License-Identifier: AGPL-3.0-only` を `SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換える（Q5）。
-  移行の 3 つ（`migrations/202609211400_browser_history_record_id.sql`・`.down.sql`・`migrations/202610181200_media_capture.sql`）は書き換えない（D4（仮））。gradle の wrapper の 2 つ（`Apache-2.0`）にも触らない。
+  移行の 3 つ（`migrations/202609211400_browser_history_record_id.sql`・`.down.sql`・`migrations/202610181200_media_capture.sql`）は書き換えない（D4・Q10）。gradle の wrapper の 2 つ（`Apache-2.0`）にも触らない。
   根の `Cargo.toml` の workspace の `license`、`web/package.json` の `license`、`web/package-lock.json` の `packages[""].license` を同じ式にする。
   `docs/openapi.json` は、`src/bin/openapi.rs` で作り直す（`info.license.identifier` が同じ式になる）
   検証: `tools/check-spdx.sh headers` rc=0 / `bash -c 'n=$(git ls-files -s | awk "\$1 != \"120000\" {print \$4}" | grep -v -e "^migrations/" -e "^collector-android/gradlew" -e "^docs/" -e "^openspec/" | while read -r f; do head -n 25 "$f" | grep -q "SPDX-License-Identifier: AGPL-3.0-only *\$" && echo "$f"; done | wc -l); test "$n" -eq 0'` rc=0（例外の外に古い表示が 1 つも残っていない）/ `tools/check-openapi.sh` rc=0 / `bash -c 'cd web && npm ci && npm run build'` rc=0 / `bash -c 'cargo metadata --format-version 1 --no-deps --offline | python3 -c "import json,sys; s={p[\"license\"] for p in json.load(sys.stdin)[\"packages\"]}; sys.exit(s != {\"AGPL-3.0-only WITH AdditionRef-ashiato-play-services\"})"'` rc=0
-- [ ] 2.2 `tools/check-spdx.sh headers` を作る（D5（仮））。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
+- [ ] 2.2 `tools/check-spdx.sh headers` を作る（D5・Q11）。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
   決めた式でもなく、台本の中の例外の一覧（パスと許す値の組。wrapper の 2 つは `Apache-2.0`、移行の 3 つは `AGPL-3.0-only`）にも合わなければ、rc≠0 でパスと値を示す。通したときは、例外として通したファイルを `  例外: <パス> <値>` の形で 1 行ずつ出す。引数が無ければ `license` と `headers` の両方を走らせる。
   `--self-test` に、使い捨ての木で次の 4 つを足す。
   - `決めた許諾の表示でないソースがあれば、表示の検査が落ちる`（`GPL-3.0-only` の Rust のファイルを足す）
@@ -84,35 +87,37 @@
 
 ## Task 4: 携帯の依存の許諾（POM の書き出しと Android の節）
 
-- [ ] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7（仮））。
-  - `releaseRuntimeClasspath` の解決済みの部品（`ModuleComponentIdentifier`）ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決する
+- [ ] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7・Q12）。
+  - `releaseRuntimeClasspath` の解決済みの部品（`ModuleComponentIdentifier`）ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決する（online なら gradle が `.pom` を取り寄せて cache に置く。`--offline` で cache に無ければ解決に失敗して task が落ちる。部品を飛ばさない）
   - `<licenses>` の `<name>`・`<url>` を読む。空なら `<parent>` を辿る（深さの上限 5）
   - property `ashiato.pomOut` の置き場に、`group:name:version<TAB>名前<TAB>URL<TAB>出所` の行を書く。出所は、部品自身の POM なら `self`、親から読んだなら `parent`。許諾が無ければ名前を `-` にする
   - property `ashiato.extraRepo` があれば、その置き場を maven の置き場として先に足す（自己試験の使い捨ての置き場のため。配る組み立ては渡さない）
   依存は足さない。
-  検証: `bash -c 'out="$TMPDIR/poms.tsv"; scripts/quiet-run poms -- ./collector-android/gradlew -p collector-android --offline -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$out" && grep -q "^com.google.android.gms:play-services-location:" "$out" && test "$(cut -f1 "$out" | sort -u | wc -l)" -ge 50'` rc=0
-- [ ] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7（仮））。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
+  検証（取り寄せる段 → 読む段）: `bash -c 'out="$TMPDIR/poms.tsv"; off="$TMPDIR/poms-offline.tsv"; scripts/quiet-run poms -- ./collector-android/gradlew -p collector-android -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$out" && scripts/quiet-run poms-offline -- ./collector-android/gradlew -p collector-android --offline -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$off" && cmp "$out" "$off" && grep -q "^com.google.android.gms:play-services-location:" "$out" && test "$(cut -f1 "$out" | sort -u | wc -l)" -ge 50'` rc=0
+- [ ] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7・Q12）。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
   `tools/check-licenses.sh` の Android の節を作り、今の echo を消す。
-  - 4.1 の task を `--offline` で走らせる（`ASHIATO_GRADLEW` で gradlew の場所を差し替えられる）
+  - 4.1 の task を走らせる（`--offline` を付けない。cache に無い `.pom` は取り寄せる。`ASHIATO_GRADLEW` で gradlew の場所を差し替えられる）
   - 名前を表で直し、`PROPRIETARY` は正本の `Listed libraries:`（D2）の `group:name` にある部品だけを通す
+  - 1 つの部品が名前を 2 つ以上持てば、全部の名前が許可の一覧にあるか名指しに当たるときだけ通す（AND。1 つでも外れれば、その名前を示して落とす）
   - 表に無い名前・許諾の無い部品・名指しの外の `PROPRIETARY` は、座標と名前を示して落とす
   - task が落ちたか出力が空なら、「対象が無い」と示して落とす
   - 最後に、通した `PROPRIETARY` の部品を 1 行ずつ `  通した PROPRIETARY: <group>:<name>:<version>` の形で出す
   `ASHIATO_LICENSES_POM_LIST`（偽の依存の一覧）と `ASHIATO_LICENSES_ADDITION`（偽の正本）で入力を差し替えられるようにする。
-  `--self-test` に次の 5 つを足す。
+  `--self-test` に次の 6 つを足す。
   - `名指しの外の Google のライブラリを足すと、許諾の検査が落ちる`
   - `対応表に無い許諾の名前の部品があれば、許諾の検査が落ちる`
-  - `許諾の名前を 2 つ持つ部品は、どれか 1 つが許可されていれば通る`
+  - `許諾の名前を 2 つ持つ部品は、片方でも許可の外なら許諾の検査が落ちる`
+  - `許諾の名前を 2 つ持つ部品は、両方が許可されていれば通る`
   - `名指しの一覧を正本から消すと、その部品で許諾の検査が落ちる`
   - `検査する対象が無い節は、通さずに落ちる`（`ASHIATO_GRADLEW=false`）
-  検証: `tools/check-licenses.sh --self-test` rc=0
+  検証: `tools/check-licenses.sh --self-test` rc=0 / `bash -c 'tools/check-licenses.sh --self-test 2>&1 | grep -c "== Scenario: 許諾の名前を 2 つ持つ部品は、\(片方でも許可の外なら許諾の検査が落ちる\|両方が許可されていれば通る\)" | grep -qx 2'` rc=0
 - [ ] 4.3 今の木で Android の節を走らせ、`今の携帯の依存は、許諾の検査を通る` と `今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ` を確かめる（印は `tools/check-licenses.sh` の Android の節の中の `echo "== Scenario: …"`）。
   `POM が許諾を持たない部品は、親の POM の許諾で判定する` は、`tools/check-licenses.sh --self-test` の中で、使い捨ての maven の置き場（許諾の無い POM とその親の POM と空の jar）を作り、`-Pashiato.extraRepo` でその部品を足した使い捨ての写しの木で 4.1 の task を走らせて確かめる（出所が `parent` の行ができ、Android の節が Apache-2.0 として通す）。gradle が使えない環境では、この Scenario は「対象が無い」で落ちる（飛ばさない）
   検証: `bash -c 'scripts/quiet-run lic-android -- tools/check-licenses.sh android && test "$(tools/check-licenses.sh android 2>&1 | grep -c "^  通した PROPRIETARY: com.google.android.gms:")" -eq 4'` rc=0 / `bash -c 'scripts/quiet-run lic-self -- tools/check-licenses.sh --self-test && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する"'` rc=0
 
 ## Task 5: 依存の一覧とソースの場所を組む台本（`tools/release/notices.sh`）
 
-- [ ] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8（仮））。
+- [ ] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8・Q13）。
   - `cargo tree -p <crate> -e normal --target <triple>` の部品を集め、各部品の置き場の `LICENSE*`・`COPYING*`・`NOTICE*` を写す
   - 部品の許諾のファイルが無ければ、`tools/licenses/texts/<SPDX>.txt` の全文と `authors` を書く。どちらも無ければ落とす
   - Rust の標準ライブラリの項 `rust-std`（`MIT OR Apache-2.0`。全文と著作権の表示は sysroot の `share/doc/rust/`）を足す。sysroot に無ければ落とす
@@ -123,37 +128,39 @@
   - `許諾の全文も著作権の表示も見つからない部品があれば、組み立てが落ちる`（許諾のファイルも `authors` も無く、`tools/licenses/texts/` にも無い式の偽の部品。出力のファイルができないことも見る）
   - `サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない`（今の木の `server` の出力に `== react ` があり `== vitest ` が無い）
   検証: `bash -c 'o="$TMPDIR/n.txt"; tools/release/notices.sh collector-windows "$o" --target x86_64-pc-windows-gnu && grep -q "^== rust-std " "$o" && grep -q "^License: MIT OR Apache-2.0" "$o" && test "$(grep -c "^== " "$o")" -ge 20'` rc=0
-- [ ] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8（仮））: Task 4.1 の task の出力の部品の項を書く。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
+- [ ] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8・Q13）: Task 4.1 の task の出力の部品の項を書く（検査と同じ部品の集合）。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
   名指しの gms の 4 つは、aar の `third_party_licenses.txt` を `third_party_licenses.json` の `start`・`length` で切り出し、`(gms の中の第三者)` の見出しで足す
   検証: `bash -c 'o="$TMPDIR/a.txt"; scripts/quiet-run notices-apk -- tools/release/notices.sh apk "$o" && grep -q "^== com.google.android.gms:play-services-location " "$o" && grep -q "(gms の中の第三者)" "$o"'` rc=0
-- [ ] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9（仮））: `SOURCE.txt` の 3 行を書く。
+- [ ] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9・D16・Q14・Q15）: `SOURCE.txt` の 3 行を書く。
   - `ASHIATO_SOURCE_REF` が `v<版番号>` なら `Ref: v<版番号>` を書く
   - `ASHIATO_SOURCE_REF` が空でなく `v<版番号>` と違えば落とす
-  - `ASHIATO_SOURCE_REF` が空なら `Commit: <40 桁>` を書く
+  - `ASHIATO_SOURCE_REF` が空なら `Commit: <40 桁>` を書く。`<commit>` は呼び出し元（6.1）が渡す。40 桁の 16 進でなければ落とし、`SOURCE.txt` を作らない
   `Repository:` は `ASHIATO_SOURCE_REPO`（既定 `https://github.com/rai-256/ashiato`）。
-  `--self-test` は `正式版の配布物のソースの場所は、その版の印`・`開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit`（`nightly` の文字が無い）・`印が版番号と違う公開の組み立ては、配布物を作らずに落ちる`（rc≠0 で `SOURCE.txt` ができない）を走らせる
-  検証: `tools/release/notices.sh --self-test` rc=0
+  `--self-test` は `正式版の配布物のソースの場所は、その版の印`・`開発版と main への push の配布物のソースの場所は、組み立てた commit`（`nightly` の文字が無い）・`PR の組み立ての配布物のソースの場所は、PR の head の commit`・`PR の組み立ての head の commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる`・`印が版番号と違う公開の組み立ては、配布物を作らずに落ちる`（rc≠0 で `SOURCE.txt` ができない）を走らせる。
+  開発版・main への push と PR の 2 つの Scenario は、6.1 の `build.sh` の commit の選び方（`ASHIATO_SOURCE_COMMIT` があればそれ、無ければ `git rev-parse HEAD`）を同じ関数で当てる（関数を `build.sh` と自己試験で共有する）
+  検証: `tools/release/notices.sh --self-test` rc=0 / `bash -c 'tools/release/notices.sh --self-test 2>&1 | grep -c "== Scenario: \(開発版と main への push の配布物\|PR の組み立ての配布物のソースの場所は\|PR の組み立ての head の commit が\)" | grep -qx 3'` rc=0
 
 ## Task 6: 配布物に 3 点を入れる（`build.sh`・gradle・`release.yml`）
 
-- [ ] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `git rev-parse HEAD`）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
+- [ ] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `ASHIATO_SOURCE_COMMIT` があればそれ、無ければ `git rev-parse HEAD`。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
   `build_apk` は 3 点を一時の置き場に組み（5.2・5.3）、`-Pashiato.licenseAssets=<置き場>` で gradle に渡す。`build.gradle.kts` は、その property があるときだけ `release` の assets の source set に `licenses/` として足す（D13）。
-  `release.yml` の `package-linux`・`package-windows` の組み立ての手順に `ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を渡す。`nightly.yml` と `ci.yml` は渡さない
-  検証: `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-linux -- tools/release/build.sh server-linux "$o" && t=$(ls "$o"/ashiato-server-*-linux-x86_64.tar.gz) && tar -tzf "$t" | sort | tr "\n" " " | grep -q "LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt ashiato-server"'` rc=0 / `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-apk -- tools/release/build.sh apk "$o" && unzip -l "$o"/ashiato-collector-*.apk | grep -c "assets/licenses/\(LICENSE\|THIRD-PARTY-NOTICES.txt\|SOURCE.txt\)$" | grep -qx 3'` rc=0 / `bash -c 'grep -c "ASHIATO_SOURCE_REF: \${{ github.ref_name }}" .github/workflows/release.yml | grep -qx 4 && ! grep -q ASHIATO_SOURCE_REF .github/workflows/nightly.yml .github/workflows/ci.yml'` rc=0
+  `release.yml` の `package-linux`・`package-windows` の組み立ての手順に `ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を渡す。`nightly.yml` と `ci.yml` は渡さない。
+  `ci.yml` の `package-linux`・`package-windows` の `package.sh` の手順に `ASHIATO_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}` を渡す（PR では head の commit、main への push では空。D9・Q14）。`release.yml` と `nightly.yml` は渡さない
+  検証: `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-linux -- tools/release/build.sh server-linux "$o" && t=$(ls "$o"/ashiato-server-*-linux-x86_64.tar.gz) && tar -tzf "$t" | sort | tr "\n" " " | grep -q "LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt ashiato-server"'` rc=0 / `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-apk -- tools/release/build.sh apk "$o" && unzip -l "$o"/ashiato-collector-*.apk | grep -c "assets/licenses/\(LICENSE\|THIRD-PARTY-NOTICES.txt\|SOURCE.txt\)$" | grep -qx 3'` rc=0 / `bash -c 'grep -c "ASHIATO_SOURCE_REF: \${{ github.ref_name }}" .github/workflows/release.yml | grep -qx 4 && ! grep -q ASHIATO_SOURCE_REF .github/workflows/nightly.yml .github/workflows/ci.yml'` rc=0 / `bash -c 'grep -c "ASHIATO_SOURCE_COMMIT: \${{ github.event.pull_request.head.sha }}" .github/workflows/ci.yml | grep -qx 2 && ! grep -q ASHIATO_SOURCE_COMMIT .github/workflows/release.yml .github/workflows/nightly.yml'` rc=0
 
 ## Task 7: 配布物の検査に 3 点を足す（`check-artifacts.sh`）
 
-- [ ] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8（仮）・D9（仮））。
+- [ ] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8・D9・D17（仮））。
   - 3 点があること（tar / zip の根、APK の `assets/licenses/`）
   - `LICENSE` が木の `LICENSE` と同じこと
   - サーバと PC の収集アプリの一覧に `== rust-std ` の項があること
   - APK の一覧に `(gms の中の第三者)` があること
-  - `SOURCE.txt` が、`--allow-debug-key` が無く `--channel release|beta` なら `Ref: v<期待する版番号>`、それ以外（`--allow-debug-key` の PR と下書き・`--channel nightly`）なら組み立ての印の commit と同じ `Commit:` を持つこと（D9（仮））。既定のチャンネル（`release`）と `draft.sh`・`ci.yml` の呼び出しは変えない
+  - `SOURCE.txt` が、`--allow-debug-key` が無く `--channel release|beta` なら `Ref: v<期待する版番号>`、`--channel nightly` なら組み立ての印の commit と同じ `Commit:`、`--allow-debug-key`（PR・main への push と下書き）なら 40 桁の 16 進の `Commit:` を持つこと（組み立ての印とは比べない。D9・D17（仮））。既定のチャンネル（`release`）と `draft.sh`・`ci.yml` の呼び出しは変えない
   欠けたら、欠けたファイルと配布物の名前を示して rc≠0。
   `--self-test` に、手で組んだ小さな配布物（偽の実行ファイルの tar / zip と、3 点を `assets/licenses/` に入れた zip。APK の版と署名の検査は通さず、3 点の検査の関数だけを当てる）で次の 4 つを足す。
   - `許諾のファイルが欠けた配布物は、公開しない`（tar から `THIRD-PARTY-NOTICES.txt` を抜く）
   - `配布物の LICENSE が木の LICENSE と違えば、公開しない`（tar の `LICENSE` を AGPL の全文だけにする）
-  - `PR の組み立てと下書きの配布物の検査は、commit のソースの場所で通る`（`--allow-debug-key` で `Commit:` の配布物が rc=0）
+  - `PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る`（`--allow-debug-key` で、組み立ての印と違う 40 桁の `Commit:` の配布物が rc=0）
   - `ソースの場所がチャンネルの決まりと合わない配布物は、公開しない`（`--channel beta` で `Commit:`）
   - `Rust の実行ファイルの依存の一覧は、標準ライブラリを含む`（`rust-std` の項を抜いたら rc≠0、あれば通る）
   - `携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む`（第三者の見出しを抜いたら rc≠0）
@@ -217,7 +224,9 @@
 
 - [ ] 11.1 **下書きのリリースで許諾の 3 点を見る**（Q4・D12）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を走らせる。
   作る前と後で `git ls-remote --tags origin 'v*' | wc -l` が同じこと、4 つの配布物を落として 3 点があり、`SOURCE.txt` が `Commit:` を持つことを見る。APK は `unzip -l` で `assets/licenses/` を見る。見た後に下書きを消す。
-  PR を閉じた後（merge の後）に、その `Commit:` の commit を `git fetch origin <commit>` で取れるかを見て、P14 の確かさを 4 にする。取れなければ D9（仮）の反転条件で上流へ返す
+  `SOURCE.txt` の `Commit:` が、その run の PR の head の commit（`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha`）と同じで、組み立ての印の commit（合成の merge commit）と違うことを見る。
+  PR の head を後から取れるか（P14。FR-127 ★ 2026-11-03）: 使い捨ての PR を開いて `package` を 1 回組ませ、その `SOURCE.txt` の commit を控える → 枝を rebase して force-push し直す → PR を merge せずに閉じる → 別の空の clone で、控えた commit（push し直す前の head）と最後の head の両方を `git fetch origin <commit>` で取れるかを見る。最後に枝と成果物を消す。
+  取れれば P14 の確かさを 4 にする。取れなければ D9 の反転条件で上流へ返す（A）
 - [ ] 11.2 **承認者が job を止めることと、権限を絞った token が承認できないこと**（P8・P11・P12 後半・D3・D11（仮））: 使い捨ての Environment `st53-probe` に本人を必須の承認者として付け、使い捨ての Secret を置く。
   main に無い枝の commit に、その Environment を使う workflow を足して 1 回だけ走らせ、承認するまで job が始まらず Secret が読まれないことを見る。
   さらに、`docs/release.md` §3 の権限で作った token で、その保留中の実行の承認（`gh api -X POST repos/rai-256/ashiato/actions/runs/<id>/pending_deployments`）を試み、断られることを見る。最後に Environment と枝と token を消す。

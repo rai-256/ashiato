@@ -50,12 +50,12 @@ THE SYSTEM SHALL `README.md` のライセンスの節に、追加の許可が付
 THE SYSTEM SHALL 本体のソースの先頭の許諾の表示と、部品の許諾の欄（根の `Cargo.toml` の workspace の `license`・`web/package.json` の `license`・`web/package-lock.json` の根の `license`）を、`AGPL-3.0-only WITH AdditionRef-ashiato-play-services` にする。
 API の契約の写し（`docs/openapi.json`）の許諾の欄も同じ式にする。
 THE SYSTEM SHALL 次の 2 種類は、表示を書き換えない。
-- 移行のファイル（`migrations/` の 3 つ。中身の指紋を DB に記録しているため）は `AGPL-3.0-only` のまま
+- 移行のファイル（`migrations/` の 3 つ。中身の指紋を DB に記録しているため）は `AGPL-3.0-only` のまま。最初の印から後は、前進側の 2 つ（`.sql`）の表示を直せない（配った移行の凍結の検査が中身の差を落とす）
 - 第三者のファイル（gradle の wrapper の `collector-android/gradlew`・`gradlew.bat`。Apache-2.0）はそのまま
 THE SYSTEM SHALL ソースの許諾の表示の検査を持つ。検査は、追跡しているファイル（symlink は辿らない）の先頭 25 行にある `SPDX-License-Identifier:` を読む。決めた式でもなく、上の例外の一覧（パスと許す値の組）にも合わない表示があれば、CI を落とす。
 
-導出元: FR-127 ★ 2026-10-25（追加の許可を足す Story は、ソースの SPDX を一緒に直す）。深掘り Q5（第 1 回の推奨）。premises P4・P5・P6。review/deep.md R8・R11。review/spec.md R3・R16。D4（Q10 の答え待ち）・D5（Q11 の答え待ち）。
-§5 の「他人の GPL / AGPL のコードを取り込むと、その部分に許可が及ばない」について。repo に写したコードは依存の検査に現れない。写したコードが先頭 25 行に自分の許諾の表示を持っていれば、この検査が止める（表示を持たないものは止められない。D5（Q11 の答え待ち））。
+導出元: FR-127 ★ 2026-10-25（追加の許可を足す Story は、ソースの SPDX を一緒に直す）。深掘り Q5（第 1 回の推奨）。premises P4・P5・P6。review/deep.md R8・R11。review/spec.md R3・R16。深掘り Q10・Q11（第 2 回）。D4・D5。§5 ★ 2026-11-03。
+§5 の「他人の GPL / AGPL のコードを取り込むと、その部分に許可が及ばない」について。repo に写したコードは依存の検査に現れない。写したコードが先頭 25 行に自分の許諾の表示を持っていれば、この検査が止める（表示を持たないものは止められない。D5・Q11）。
 
 #### Scenario: 決めた許諾の表示でないソースがあれば、表示の検査が落ちる
 - **GIVEN** 先頭に `// SPDX-License-Identifier: GPL-3.0-only` を持つ Rust のファイルを 1 つ足した使い捨ての木
@@ -83,14 +83,15 @@ THE SYSTEM SHALL ソースの許諾の表示の検査を持つ。検査は、追
 ### Requirement: 配布物に入る依存の許諾を、携帯の依存も含めて検査する
 
 THE SYSTEM SHALL 依存の許諾の検査に、Rust・画面（Node）・携帯（gradle / maven）の 3 つの節を持たせる。携帯の節は、配る携帯の APK に入る依存（`releaseRuntimeClasspath`）の部品ごとに POM の許諾を読む。
-POM が許諾を持たなければ、親の POM を辿って読む。読んだ許諾の名前は、対応表で SPDX の名前に直す。1 つの部品が許諾の名前を 2 つ以上持てば、どれか 1 つが許可されていれば通す。
+POM が許諾を持たなければ、親の POM を辿って読む。読んだ許諾の名前は、対応表で SPDX の名前に直す。1 つの部品が許諾の名前を 2 つ以上持てば、全部の名前が許可されているか名指しに当たるときだけ通す（1 つでも許可の外なら落とす）。
+IF 依存の POM を取り寄せられない（ネットワークにも gradle の cache にも無い） THEN THE SYSTEM SHALL その部品を飛ばさず、検査を落とす。
 THE SYSTEM SHALL オープンソースの許諾でない部品のうち、追加の許可の正本の `Listed libraries:` に名指しされた部品だけを通す。名指しの一覧は正本のファイルから読み、検査の中に写しを持たない。
 IF 携帯の依存に、名指しの外のオープンソースでない部品・許諾を読めない部品・対応表に無い許諾の名前の部品のどれかがある THEN THE SYSTEM SHALL 検査を落とし、その部品の座標と許諾の名前を示す。
 THE SYSTEM SHALL 許可の一覧から `AGPL-3.0-only` を外す。自分の部品（workspace の crate と画面の根）は、名前と決めた許諾の式の組で通す。他人の部品の GPL / AGPL の許諾は、どれも検査が落とす。
 THE SYSTEM SHALL ほかの許可の一覧は減らさない。一覧は `MIT`・`MIT-0`・`Apache-2.0`・`BSD-2-Clause`・`BSD-3-Clause`・`ISC`・`Unicode-3.0`・`Unicode-DFS-2016`・`Zlib`・`CC0-1.0`・`MPL-2.0`・`0BSD`・`Apache-2.0 WITH LLVM-exception`・`CDLA-Permissive-2.0`・`BlueOak-1.0.0`・`CC-BY-4.0`・`Python-2.0` のまま。
 IF ある節の検査する対象が見つからない（`web/node_modules` が無い・gradle が依存を解決できない） THEN THE SYSTEM SHALL その節を通さず、対象が無いことを示して検査を落とす。
 
-導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7（Q12 の答え待ち）。
+導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7。深掘り Q12（第 2 回）。
 壊してはいけないもの: 依存の許諾の検査の既存の許可一覧（`AGPL-3.0-only` を外すのは、自分の部品を名前で通す形に替えるためで、今の依存は 1 つも落ちない。P3）。
 
 #### Scenario: 今の携帯の依存は、許諾の検査を通る
@@ -111,10 +112,15 @@ IF ある節の検査する対象が見つからない（`web/node_modules` が�
 - **WHEN** 依存の許諾の検査の携帯の節を当てる
 - **THEN** 検査は 0 でない終了コードで終わり、その部品の座標と許諾の名前が示される
 
-#### Scenario: 許諾の名前を 2 つ持つ部品は、どれか 1 つが許可されていれば通る
-- **GIVEN** 許諾の名前が `The Apache Software License, Version 2.0` と、対応表で許可の一覧の外の名前に直るものの 2 つを持つ部品の、偽の依存の一覧
+#### Scenario: 許諾の名前を 2 つ持つ部品は、片方でも許可の外なら許諾の検査が落ちる
+- **GIVEN** 許諾の名前が `The Apache Software License, Version 2.0` と `Android Software Development Kit License` の 2 つを持つ、名指しの外の部品の偽の依存の一覧
 - **WHEN** 依存の許諾の検査の携帯の節を当てる
-- **THEN** その部品は Apache-2.0 として通る
+- **THEN** 検査は 0 でない終了コードで終わり、その部品の座標と `Android Software Development Kit License` が示される
+
+#### Scenario: 許諾の名前を 2 つ持つ部品は、両方が許可されていれば通る
+- **GIVEN** 許諾の名前が `The Apache Software License, Version 2.0` と `The MIT License` の 2 つを持つ部品の、偽の依存の一覧
+- **WHEN** 依存の許諾の検査の携帯の節を当てる
+- **THEN** 検査の終了コードは 0
 
 #### Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する
 - **GIVEN** 許諾を持たない POM と、Apache-2.0 の許諾を持つその親の POM を置いた、使い捨ての maven の置き場から解決する依存
@@ -160,15 +166,16 @@ THE SYSTEM SHALL `THIRD-PARTY-NOTICES.txt` の依存に、次のものを入れ�
 - PC の収集アプリ: 実行ファイルに入る Rust の部品と、Rust の標準ライブラリ（`rust-std`）
 - 携帯の APK: `releaseRuntimeClasspath` の部品と、名指しの Google のライブラリが中に持つ第三者の一覧（各 aar の `third_party_licenses.txt` の中身。見出し `(gms の中の第三者)`）
 IF ある部品の許諾の全文も著作権の表示も見つからない THEN THE SYSTEM SHALL 依存の一覧を組まずに、組み立てを落とす。
-THE SYSTEM SHALL `SOURCE.txt` に、リポジトリの場所を書く。正式版・ベータ版の公開の組み立てでは、それに加えて印 `v<版番号>` を書く。それ以外の組み立て（開発版・PR の組み立て）では、組み立ての印の 40 桁の commit を書く。
+THE SYSTEM SHALL `SOURCE.txt` に、リポジトリの場所を書く。正式版・ベータ版の公開の組み立てでは、それに加えて印 `v<版番号>` を書く。それ以外の組み立てでは 40 桁の commit を書く。開発版と main への push の組み立てでは組み立てた main の commit、PR の組み立てでは PR の head の commit を書く。
 IF 公開の組み立てに渡された印が `v<版番号>` と違う THEN THE SYSTEM SHALL 配布物を作らずに組み立てを落とす。
-THE SYSTEM SHALL 3 つのファイルを組み立ての台本の中で入れる。正式版・ベータ版だけでなく、開発版・PR の組み立てにも同じ手順で入れる。
+THE SYSTEM SHALL 3 つのファイルを組み立ての台本の中で入れる。正式版・ベータ版だけでなく、開発版・main への push・PR の組み立てにも同じ手順で入れる。
 IF 配布物のどれかに 3 つのファイルのどれかが無い、`LICENSE` が木の `LICENSE` と違う、サーバと PC の収集アプリの一覧に `rust-std` の項が無い、または携帯の APK の一覧に Google のライブラリの第三者の一覧が無い THEN THE SYSTEM SHALL 配布物の検査を落とし、その配布物を公開しない。
 THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見る。合わなければ検査を落とす。
 - 正式版・ベータ版として公開する配布物の検査（debug の鍵を許さない、チャンネルが `release` か `beta` の検査）: `v<期待する版番号>`
-- PR の組み立てと下書きの配布物の検査（debug の鍵を許す検査）と、開発版の検査: 組み立ての印の commit
+- 開発版の検査（チャンネルが `nightly` の検査）: 組み立ての印と同じ commit
+- debug の鍵を許す検査（PR・main への push の組み立てと下書きの配布物の検査）: 40 桁の commit。組み立ての印とは比べない（PR の組み立ての印は GitHub が作る merge の commit を持ち、`SOURCE.txt` の head の commit と一致しない）
 
-導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8（Q13 の答え待ち）・D9（Q14 の答え待ち）。
+導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8・D9・D16・D17（仮）。深掘り Q13・Q14・Q15（第 2 回）。FR-127 ★ 2026-11-02・★ 2026-11-03。
 動く印 `nightly` は翌日に別の commit を指すので、開発版の写しには動かない commit を書く（Q7）。配った写しに書いた場所は、後から直せない。
 
 #### Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ
@@ -212,13 +219,23 @@ THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見�
 - **WHEN** `SOURCE.txt` を組む
 - **THEN** 手順は 0 でない終了コードで終わり、`SOURCE.txt` はできない
 
-#### Scenario: 開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit
-- **GIVEN** 印の無い組み立て（開発版か PR の組み立て）
+#### Scenario: 開発版と main への push の配布物のソースの場所は、組み立てた commit
+- **GIVEN** 印も PR の head の commit も渡されない組み立て（開発版か main への push の組み立て）
 - **WHEN** 配布物の `SOURCE.txt` を読む
 - **THEN** `SOURCE.txt` はリポジトリの場所と、組み立ての印と同じ 40 桁の commit を持ち、`nightly` の文字を持たない
 
-#### Scenario: PR の組み立てと下書きの配布物の検査は、commit のソースの場所で通る
-- **GIVEN** `SOURCE.txt` が組み立ての印と同じ commit を持つ配布物の置き場
+#### Scenario: PR の組み立ての配布物のソースの場所は、PR の head の commit
+- **GIVEN** 組み立ての印と違う 40 桁の commit を PR の head の commit として渡した組み立て
+- **WHEN** 配布物の `SOURCE.txt` を読む
+- **THEN** `SOURCE.txt` はリポジトリの場所と、渡した head の commit を持ち、組み立ての印の commit を持たない
+
+#### Scenario: PR の組み立ての head の commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる
+- **GIVEN** PR の head の commit として `main` を渡した組み立て
+- **WHEN** `SOURCE.txt` を組む
+- **THEN** 手順は 0 でない終了コードで終わり、`SOURCE.txt` はできない
+
+#### Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る
+- **GIVEN** `SOURCE.txt` が組み立ての印と違う 40 桁の commit（PR の head）を持つ配布物の置き場
 - **WHEN** debug の鍵を許す配布物の検査（PR の組み立てと下書きの検査）を当てる
 - **THEN** 検査の終了コードは 0
 

@@ -68,28 +68,27 @@ Administration・Environments・Deployments・Secrets は持たせない。
 - 選ばなかった案（Q3 の他の選択肢）: 承認者だけ（管理者の資格情報が規則を外せる）、手元で署名（FR-104 の「印を付けるだけで並ぶ」を満たさない）
 - 承認するときに本人が見るもの（`docs/release.md`）: 承認の画面に出る印の commit が main の祖先で、PR を通って入ったこと。見ずに押すと、守りは無いのと同じ（Risks）
 
-### D4. 移行の 3 ファイルは、許諾の表示を書き換えない（未決。Q10 の答え待ち）
+### D4. 移行の 3 ファイルは、許諾の表示を書き換えない
 
-> 仮で進めたが、別の席（`provisional-review.md` の D4）が否とした: Q4 の答えで ST53 が main に入った直後に最初の印 `v*` を打つと、配った移行の凍結の検査（`tools/check-released-migrations.sh:52-54`）が前進側 2 つの中身の差を落とすので、「いつでも書き換えて例外から外せる」は成り立たない。配った版のソースとサーバの実行ファイル（`crates/server/build.rs:114`）に WITH の無い表示が残る。台帳から外し、`deep.md` の Q10 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q10（第 2 回）の本人の答え。経緯: 仮で進めたが別の席（`provisional-review.md` の D4）が否とし（「いつでも書き換えられる」は最初の印の後に成り立たない）、Q10 で本人が「書き換えない」を選んだ
 
 移行は中身の sha256 を DB に記録している（`migration_ledger.rs` の `fingerprint`）。表示の 1 行を書き換えると、既にその版を当てたどの DB（本人のサーバ・開発と確認の DB）でも、起動のたびに「記録した指紋と中身が違う版がある」の警告が出続ける。
-印 `v*` はまだ 0 個で、配った移行の凍結（`check-released-migrations.sh`）には当たらない。それでも警告は残る。
-3 つは `AGPL-3.0-only` のまま、表示の検査の例外の一覧に名前で載せる。`LICENSE`（D1）は木の全体に掛かるので、許可はこの 3 つにも及ぶ。
-- 失わない理由: 表示は後から書き換えられる。指紋の警告を受け入れるなら、いつでも 3 行を書き換えて例外から外せる
-- 反転条件: 移行の指紋を、表示の行を除いて計算する形に変える Story が来たら、書き換えて例外から外す
-- Q5 の推奨の文は「506 ファイル」と書いていた。spec の段で、指紋のことが分かって移行の 3 つを外した（書き換えるのは 503）。Q5 の答えが推奨のままでも、この D4 が答えの上に乗る例外として残る（review/spec.md R9。GO 資料で見せる）。Q5 で本人が「全部を書き換える」と補足したら、D4 を外す
+3 つは `AGPL-3.0-only` のまま、表示の検査の例外の一覧に名前で載せる。`LICENSE`（D1）は木の全体に掛かるので、許可はこの 3 つにも及ぶ。追加の許可が要るのは APK に入るコードで、移行は APK に入らない（サーバの実行ファイルにだけ入る。`crates/server/build.rs:73`）。
+- 受け入れたこと（Q10）: 最初の印 `v*` を打つと、配った移行の凍結の検査（`tools/check-released-migrations.sh:52-54`）が前進側の 2 つ（`.sql`）の中身の差を落とすので、その後はこの 2 つの表示を直せない。配った版のソースとサーバの実行ファイル（`crates/server/build.rs:114` の `include_str!`）に、WITH の無い表示が残る。戻し手順の `.down.sql` は凍結の検査の外（`check-released-migrations.sh:5`）で、後からも書き換えられる（§5 ★ 2026-11-03）
+- 選ばなかった案（Q10 の他の選択肢）: 最初の印の前に書き換えて指紋の警告を受け入れる・指紋の計算から SPDX の行を除く形に変えてから書き換える（ST48 の決めた形の改訂で範囲を越える）
+- Q5 の答え（推奨のまま「506 ファイル」）に対し、この D4 が答えの上に乗る例外として残る（書き換えるのは 503。review/spec.md R9）
 
-### D5. 表示の検査は先頭 25 行の `SPDX-License-Identifier:` を見る。取り込んだコードは、表示を持つものだけを止める（未決。Q11 の答え待ち）
+### D5. 表示の検査は先頭 25 行の `SPDX-License-Identifier:` を見る。取り込んだコードは、表示を持つものだけを止める
 
-> 仮で進めたが、別の席（`provisional-review.md` の D5）が否とした: 例外の一覧（移行の 3 つ）は D4 の決定そのものを含むのに、台帳の rests_on に D4 が無かった。台帳の文は「先頭 5 行」のまま古かった（本文の 25 行が spec レビュー R3 の後の形）。台帳から外し、`deep.md` の Q11 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q11（第 2 回）の本人の答え（先頭 25 行・表示の無いファイルは見ない・例外は Q10 に従う）。経緯: 仮で進めたが別の席（`provisional-review.md` の D5）が否とし（例外の一覧が D4 に乗るのに台帳に無かった）、Q11 で本人が決めた
 
 `tools/check-spdx.sh` は `git ls-files -s` を読み、mode が `120000`（symlink）のものを飛ばす。残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
 窓を 25 行にするのは、gradle の wrapper の表示が 18 行目・16 行目にあるため（review/spec.md R3）。`crates/server/src/coverage/tests/mod.rs` は表示が 21 行目の `mod` の並びの後にあり、書き換えるときに先頭へ移す。
-値が決めた式でなく、例外の一覧（`tools/check-spdx.sh` の中の、パスと許す値の組。gradle の wrapper の 2 つと移行の 3 つ）にも無ければ落とす。
+値が決めた式でなく、例外の一覧（`tools/check-spdx.sh` の中の、パスと許す値の組）にも無ければ落とす。例外の一覧は Q10（D4）の答えに乗り、gradle の wrapper の 2 つ（`Apache-2.0`）と移行の 3 つ（`AGPL-3.0-only`）の 5 つ。
 表示の無いファイルは見ない（表示を全部に求めると、生成物・設定・文書の数百のファイルに見出しを足すことになる）。
 §5 の「取り込んだコード」は、依存の検査では見えない。他所の表示を持ったまま写したファイルは、この検査が止める。表示を持たないものは止められない（Risks）。
-- 失わない理由: 検査を広げる（表示を全部に求める・表示の無いファイルを一覧にする）のは後からできる
-- 反転条件: 第三者のコードを写して取り込む必要が出たら、例外の一覧に足すか、`LICENSES/` に許諾を置く形を決める
+- 選ばなかった案（Q11 の他の選択肢）: 表示の無いファイルも一覧にして落とす（数百のファイルに見出しを足す）
+- 第三者のコードを写して取り込む必要が出たら、例外の一覧に足すか、`LICENSES/` に許諾を置く形を決める
 
 ### D6（仮）. 自分の部品は、名前と決めた式の組で通す。許可の一覧から `AGPL-3.0-only` を外す
 
@@ -102,53 +101,59 @@ Node の節は、根（`web/package.json` の `name`）を同じ条件で通す�
 - 失わない理由: 今の依存で落ちるものは無い（P3: Rust 357 部品・Node 306 部品に他人の GPL / AGPL は 0）。他人の AGPL が要る日には、一覧に戻せる
 - 反転条件: 他人の AGPL-3.0 の部品を使うと決めたら、その部品に許可が及ばないことを README に書き、一覧に `AGPL-3.0-only` を戻す
 
-### D7. 携帯の依存の許諾は、gradle の task が書き出した POM から読み、名前を対応表で SPDX に直す（未決。Q12 の答え待ち）
+### D7. 携帯の依存の許諾は、gradle の task が取り寄せた POM から読み、名前を対応表で SPDX に直す。名前が 2 つ以上なら全部を見る（AND）
 
-> 仮で進めたが、別の席（`provisional-review.md` の D7）が否とした: 名前が 2 つ以上並ぶ部品を「どれか 1 つが許可の一覧にあれば通す（OR）」と読むのは通す側（公開する側）で、「落ちる側に倒れる」と合わない。両方が掛かる部品を通すと名指しの外のプロプライエタリが APK に入り、配った後に戻らない。「POM は gradle の cache に入っている」も誤り（`androidx.core/*`・`com.google.android.gms/*` は `.aar` だけ）。台帳から外し、`deep.md` の Q12 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q12（第 2 回）の本人の答え（AND で読む）。経緯: 仮で「どれか 1 つが許可の一覧にあれば通す（OR）」としていたが、別の席（`provisional-review.md` の D7）が否とした（OR は通す側に倒れ、両方が掛かる部品を通すと名指しの外のプロプライエタリが APK に入る。「POM は gradle の cache に入っている」も誤り）
 
 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す。
 task は `releaseRuntimeClasspath` の解決済みの部品ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決し、`<licenses>` が空なら `<parent>` を辿る（深さの上限 5）。
 結果は `group:name:version<TAB>許諾の名前<TAB>URL` の行にして、引数で渡された置き場に書く。名前が 2 つ以上あれば 1 行ずつ書く。
-POM は依存の解決のときに gradle の cache に入っているので、`--offline` で動く（P2 と同じ形）。
+POM は依存の解決のときには cache に入らない（`androidx.core/*`・`com.google.android.gms/*` は `.aar` だけ。provisional-review.md の D7）。そこで段を 2 つに分ける。
+- 取り寄せる段（online）: task が `@pom` の detached configuration を解決し、gradle が `.pom` を取り寄せて cache に置く。CI の `package-linux`（新しい runner で cache が空）と、手元の最初の 1 回はこの段を通る。`tools/check-licenses.sh android` は既定でこの段から走らせる
+- 読む段（`--offline`）: 取り寄せた後は、同じ task を `--offline` で走らせて同じ出力を得る。cache に無い `.pom` があれば、task は解決に失敗して落ちる（取れない部品を飛ばさない。組み立ても検査も落ちる側に倒れる）
 `tools/check-licenses.sh` の Android の節は、この出力を読む。許諾の名前は `tools/licenses/pom-license-names.tsv`（`POM の名前<TAB>SPDX の名前`）で直す。
 - 表に無い名前は落とす
 - `Android Software Development Kit License` は SPDX の名前に直さない。表で `PROPRIETARY` に対応させ、名指し（D2）でだけ通す
-- 1 つの部品が名前を 2 つ以上持てば、どれか 1 つが許可の一覧にあれば通す（`OR` と読む）
+- 1 つの部品が名前を 2 つ以上持てば、全部の名前が許可の一覧にあるか名指し（D2）に当たるときだけ通す（`AND` と読む）。1 つでも表に無い・許可の外・名指しの外なら落とす。本当に選べる 2 つ（デュアルライセンス）の部品が来たら、対応表か例外でどちらを選んだかを書いて通す（今の依存では 2 つ以上を持つ部品は 0。provisional-review.md の D7）
 Google の `oss-licenses-plugin` は使わない。実行時に `play-services-oss-licenses` を引き、それは名指しの外の gms 群の部品なので、自分の検査で落ちる（review/deep.md の C 表）。
-- 失わない理由: 道具は替えられる。対応表は足すだけ
-- 反転条件: gradle の detached configuration が POM を解決できない部品が出たら、cache の `files-2.1/<group>/<name>/<version>/*/<name>-<version>.pom` を直に読む形に替える
+- 選ばなかった案（Q12 の他の選択肢）: OR で読む（名指しの外のプロプライエタリを通しうる）・2 つ以上並んだら全部を落として部品ごとに人が決める
 
-### D8. 依存の一覧は配布物ごとに組み立ての時に作る。全文は部品が持つ許諾のファイルを優先し、無ければ SPDX の全文を使う（未決。Q13 の答え待ち）
+### D8. 依存の一覧は配布物ごとに組み立ての時に作る。全文は部品が持つ許諾のファイルを優先し、無ければ SPDX の全文を使う
 
-> 仮で進めたが、別の席（`provisional-review.md` の D8）が否とした: 携帯の入力は D7 の task の出力で D7 に乗るのに、台帳の rests_on に D7 が無かった。中身（多めに入れる側に倒す）には失うものは見つかっていない。台帳から外し、`deep.md` の Q13 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q13（第 2 回）の本人の答え（携帯の部品は検査と同じ出力から。ほかはこの案のまま）。経緯: 仮で進めたが別の席（`provisional-review.md` の D8）が否とし（携帯の入力が D7 に乗るのに台帳に無かった）、Q13 で本人が決めた
 
 新しい `tools/release/notices.sh <server|collector-windows|apk> <出力のファイル> [--target <triple>]` が `THIRD-PARTY-NOTICES.txt` を組む。部品の集め方は次のとおり。
 - Rust: `cargo tree -p <crate> -e normal --target <triple> --prefix none --format '{p}'` の部品を集める（build と dev の依存は除く）。各部品の `manifest_path` の置き場から `LICENSE*`・`COPYING*`・`NOTICE*` を写す
 - Rust の標準ライブラリ: 名前 `rust-std`、版は `rustc --version`、許諾は `MIT OR Apache-2.0`。全文は sysroot の `share/doc/rust/licenses/MIT.txt` と `Apache-2.0.txt`、著作権の表示は `COPYRIGHT-library.html` から取る。無ければ組み立てを落とす
 - Node（サーバだけ）: `web/package-lock.json` の `packages` のうち、`dev: true` でないもの（根を除く）。全文は `web/node_modules/<名前>/` の `LICENSE*`。`build.sh` が `npm ci` した後に呼ぶ
-- 携帯: D7 の task の出力の部品。全文は、部品の jar / aar の `META-INF/LICENSE*`・`NOTICE*`、無ければ `tools/licenses/texts/<SPDX>.txt`。
+- 携帯: D7 の task の出力の部品（検査と一覧が同じ部品の集合を見る。Q13）。全文は、部品の jar / aar の `META-INF/LICENSE*`・`NOTICE*`、無ければ `tools/licenses/texts/<SPDX>.txt`。
   名指しの gms の 4 つは、aar の根の `third_party_licenses.txt` を `third_party_licenses.json` の位置で切り出し、`(gms の中の第三者)` の見出しを付けて足す
 部品の許諾のファイルが無いときは、`tools/licenses/texts/<SPDX>.txt` の全文に、部品の `authors`（Rust）か `author`（Node）を著作権の表示として添える。どちらも無ければ組み立てを落とす。
 各項の形（`== <名前> <版>` → `License: <式>` → 全文）と、組めない部品で落ちることは spec にある。項の並びは名前の順にする（組み立てごとに同じ中身になる）。
-- 失わない理由: 一覧は多めに入れる側に倒す（`cargo tree` は target の部品を全部数える。実際に結び付かない部品が入っても、欠けるよりよい）。形は次の版で変えられる。欠けた版は直せない（R10）
+- 多めに入れる側に倒す（`cargo tree` は target の部品を全部数える。実際に結び付かない部品が入っても、欠けるよりよい）。欠けた版は直せない（R10）
+- 選ばなかった案（Q13 の他の選択肢）: 携帯の部品を検査と別の出所（`gradlew :app:dependencies` の木）から作る（検査と一覧で部品の集合がずれうる）
 - 反転条件: 一覧が大きくなり、配布物の大きさで困ったら、Apache-2.0 の全文を 1 回だけ書き、各項は名前の参照にする
 
-### D9. `SOURCE.txt` の印は環境変数 `ASHIATO_SOURCE_REF` で渡す。無ければ組み立ての commit を書く（未決。Q14 の答え待ち）
+### D9. `SOURCE.txt` の印は `ASHIATO_SOURCE_REF`、PR の head の commit は `ASHIATO_SOURCE_COMMIT` で渡す。どちらも無ければ組み立ての commit を書く
 
-> 仮で進めたが、別の席（`provisional-review.md` の D9）が否とした: PR の組み立てで書く合成の merge commit（`.github/workflows/ci.yml:355` の checkout は `ref` を渡さない）を PR を閉じた後も取れるかは P14 の確かさ 2 のままで、確かめ（確認バッチ 11.1）より前に PR の成果物（90 日、誰でも落とせる）が出る。取れなければ落とされた写しのソースの場所は直せない。台帳から外し、`deep.md` の Q14 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q14（第 2 回）の本人の答え（PR の組み立てでは head の commit を書き、組み立ての印との比べはその場合だけ外す）。経緯: 仮で「無ければ組み立ての commit（PR では合成の merge commit）」としていたが、別の席（`provisional-review.md` の D9）が否とした（合成の merge commit を PR を閉じた後に取れるかは確かめておらず、その前に PR の成果物が出る）
 
 `release.yml` の組み立ての job は、`ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を `build.sh` に渡す。
 `build.sh` は、その値が `v<ASHIATO_BUILD_VERSION>` と同じときだけ印として書く。違えば組み立てを落とす。
-渡されないとき（PR・開発版・下書き）は、`git rev-parse HEAD` の 40 桁を書く。
+`ci.yml` の `package-linux`・`package-windows` は、`ASHIATO_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}` を `package.sh` → `build.sh` に渡す。PR の組み立てではこれが PR の head の commit になり、`build.sh` はそれを書く（40 桁の 16 進でなければ落とす）。
+main への push（`ci.yml` の `push: { branches: [main] }`）では値が空になり、`ASHIATO_SOURCE_REF` も無いので、`git rev-parse HEAD` の 40 桁（main の commit）を書く。開発版（`nightly.yml`。どちらも渡さない）も同じで、main の commit を書く（FR-127 ★ 2026-11-03）。
 `SOURCE.txt` の中身は次の 3 行。
 - `Repository: https://github.com/rai-256/ashiato`（`ASHIATO_SOURCE_REPO` で上書きできる。既定は配布元）
 - `Ref: v<版>` か `Commit: <40 桁>`
 - 対応するソースの取り方（`git clone` と `git checkout <印か commit>`）
-`check-artifacts.sh` は、`--allow-debug-key` が無く `--channel release|beta` なら `Ref: v<--expect-version>` を求める。それ以外（`--allow-debug-key` を付ける PR の `package-artifacts`・`draft.sh` と、`--channel nightly`）なら、配布物の組み立ての印（ST52 の `artifact_stamp`）の commit と同じ `Commit:` を求める。
+`check-artifacts.sh` の `SOURCE.txt` の決まり:
+- `--allow-debug-key` が無く `--channel release|beta`: `Ref: v<--expect-version>`
+- `--channel nightly`: 配布物の組み立ての印（ST52 の `artifact_stamp`）の commit と同じ `Commit:`
+- `--allow-debug-key`（PR の `package-artifacts` と `draft.sh`。`draft.sh:32`）: `Commit:` が 40 桁の 16 進であることだけを見て、組み立ての印との比べは外す（PR では組み立ての印が合成の merge commit を、`SOURCE.txt` が head の commit を持ち、一致しない。Q14）
 既定のチャンネルは `release` のまま変えない（ST52 の呼び出しを壊さない。review/spec.md R1）。
-PR の組み立ての commit は、GitHub が PR のために作る合成の merge commit（`refs/pull/<n>/merge`）になる。PR を閉じた後もその commit を取れるかは確かめていない（premises P14・確かさ 2。人間の確認待ち 11.1 で確かめる）。
-- 失わない理由: 書き方は次の版で変えられる。開発版の写しは本人の手元で毎日入れ替わる（Q7）
-- 反転条件: 配布元の名前が変わったら、`ASHIATO_SOURCE_REPO` の既定を変える。閉じた PR の merge commit を取れないと分かったら、PR の組み立てでは PR の head の commit（`github.event.pull_request.head.sha`）を `SOURCE.txt` に書き、組み立ての印との比べはその場合だけ外す
+PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.1 で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
+- 選ばなかった案（Q14 の他の選択肢）: 合成の merge commit のまま確かめを待つ・merge の前に確かめてから決める
+- 反転条件: 配布元の名前が変わったら、`ASHIATO_SOURCE_REPO` の既定を変える。11.1 で閉じた PR の head か、push し直す前の head を取れないと分かったら、上流へ返す（A。取れない写しのソースの場所は直せない）
 
 ### D10（仮）. 許諾なしで置かれた PR の成果物は、ST53 が main に入った後に消す
 
@@ -207,16 +212,21 @@ CI の置き場は次のとおり。
 `package-linux` は `changes` の `code` が true のときだけ走る。依存も表示もコードの変更でしか変わらないので、文書だけの PR では飛ばしてよい。
 `check-spdx.sh`（`license` と `headers`）は軽いので、`chain` の job（全 PR で走る）にも置く。`LICENSE` を文書だけの PR で書き換えても止まる。`check-licenses.sh` は、節を選んだときも、選んだ節の対象が無ければ落ちる。
 
-### D16. 開発版と PR の組み立ては、FR-127 の「同じ印」ではなく組み立ての commit でソースを示す（未決。Q15 の答え待ち）
+### D16. 開発版・main への push・PR の組み立ては、FR-127 の「同じ印」ではなく 40 桁の commit でソースを示す
 
-> 仮で進めたが、別の席（`provisional-review.md` の D16）が否とした: 「組み立ての commit で示す（D9）」のとおり D9 に乗るのに、台帳の rests_on は Q7 だけだった。台帳から外し、`deep.md` の Q15 で人間に返した。下の本文は推奨で書いた案のまま
+> 深掘り Q7（第 1 回）と Q15（第 2 回）の本人の答え（開発版は main の commit、PR は Q14 で選んだ commit）。review/spec.md R14。経緯: 仮で「組み立ての commit」としていたが、別の席（`provisional-review.md` の D16）が否とし（D9 に乗るのに台帳に無かった）、Q15 で本人が決めた
 
-> Q7 の推奨（答え待ち）。review/spec.md R14。
+FR-127 は「対応するソースは、同じ印（タグ）のリポジトリで示す」と言う。開発版の印 `nightly` は毎日動き、main への push と PR の組み立てには印が無いので、字面どおりには示せない。
+正式版・ベータ版は印 `v*`（動かない。ST52 の D2）で示す。開発版と main への push は組み立てた main の commit、PR の組み立ては PR の head の commit（D9）で示す。要件の字面との差は FR-127 ★ 2026-11-02・★ 2026-11-03 が補っている。
+- commit は印より狭く、動かない
+- 選ばなかった案（Q15 の他の選択肢）: 開発版にも動かない印（`nightly-YYYYMMDD` など）を打ち、その印で示す（印が毎日 1 つ増え、ST52 の印の決まりに型が 1 つ足される）
 
-FR-127 は「対応するソースは、同じ印（タグ）のリポジトリで示す」と言う。開発版の印 `nightly` は毎日動き、PR の組み立てには印が無いので、この 2 つは字面どおりには示せない。正式版・ベータ版は印 `v*`（動かない。ST52 の D2）、それ以外は組み立ての印の 40 桁の commit で示す（D9）。
-要件の字面との差は、record の段が FR-127 に ★ で補う（`deep.md` の「record の段へ渡すもの」）。
-- 失わない理由: 開発版と PR の成果物は本人の手元と 90 日の成果物にだけあり、書き方は次の組み立てから変えられる。commit は印より狭く、動かない
-- 反転条件: Q7 の答えが「全部、印で示す」なら、開発版の `SOURCE.txt` に `Ref: nightly` を書き、検査の決まりもそれに合わせる。開発版にも動かない印（`nightly-YYYYMMDD` など）を打つと決めたら、その印を書く
+### D17（仮）. main への push の組み立ても、`--allow-debug-key` の検査では `SOURCE.txt` の commit を形だけ見る
+
+`ci.yml` の `package-artifacts` は、PR でも main への push でも同じ `check-artifacts.sh --allow-debug-key` を走らせる（`ci.yml:400`）。引数だけでは PR と main への push を分けられないので、D9 の「比べを外す」は main への push の組み立てにも及ぶ。
+main への push の `SOURCE.txt` は、`build.sh` が `git rev-parse HEAD`（main の commit。組み立ての印と同じ）を書くので中身は変わらない。弱まるのは検査だけ（印の commit と食い違っても落ちない）。
+- 失わない理由: 書く中身は main の commit のまま。検査の分け方は台本の中だけで、後から足せる
+- 反転条件: main への push の成果物の `SOURCE.txt` が組み立ての印と食い違ったことが分かったら、`check-artifacts.sh` に `--source-commit <40 桁>` を足し、`ci.yml` が `${{ github.event.pull_request.head.sha || github.sha }}` を渡して全部の組み立てで比べる
 
 ## Risks / Trade-offs
 
@@ -227,6 +237,7 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 - **エージェントの token も本人の利用者として動く**。承認者の名前では本人とエージェントを分けられない。分けるのは権限（Deployments を持たない）だけ
 - **表示の無い写したコードは止まらない**（D5）。§5 の「NFR-26 の検査が止める」は、依存と表示を持つファイルについてだけ成り立つ
 - **`check-guards.sh` の配布元の既定は `rai-256/ashiato2`**（ST52）。Actions では `GITHUB_REPOSITORY` が入るので正しいが、手元では `--repo rai-256/ashiato` を付ける。`docs/release.md` のコマンドは `--repo` を付けて書く
+- **PR の配布物の中身は、`SOURCE.txt` の head の commit から組んだものと一字一句同じとは限らない**（Q14 の答えの帰結）。PR の組み立ては合成の merge commit（head と、その時の main を合わせたもの）を checkout して組み、組み立ての印も merge commit を持つ。`SOURCE.txt` が指す head と、組んだソースの差は、その時の main が head に無い分だけ。merge commit は配布物の中の組み立ての印に残る
 - **一覧が大きい**: 携帯の APK の一覧は gms の中の第三者（約 370 KB。R7）を含む。APK の大きさの増え方は数百 KB で、受け入れる
 
 ## Migration Plan
@@ -236,3 +247,4 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 ## Open Questions
 
 - Q1〜Q4（A）の本人の答え。答えが推奨と違えば `spec --answers` が D1〜D3・D12 を書き直す
+- 閉じた PR の head と、push し直す前の head を後から取れるか（premises P14。人間の確認待ち 11.1。取れなければ D9 の反転条件で上流へ返す）
