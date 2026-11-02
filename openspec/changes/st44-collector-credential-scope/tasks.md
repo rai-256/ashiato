@@ -79,7 +79,7 @@
 
 ## Task 4: 画面のログインの印の鍵を `WEB_SESSION_KEY` に替える
 
-- [ ] 4.1 `web_session::secret_tag` の鍵を `API_TOKEN` から印の鍵に替え（HMAC の内容は変えない。design D7）、`WebLogin::new` と `App::new` に印の鍵の引数を足す（書庫の中の `App`（`lib.rs` の `INTERNAL_WEB_PASSWORD` の近く）は使われない固定の値でよい）。
+- [x] 4.1 `web_session::secret_tag` の鍵を `API_TOKEN` から印の鍵に替え（HMAC の内容は変えない。design D7）、`WebLogin::new` と `App::new` に印の鍵の引数を足す（書庫の中の `App`（`lib.rs` の `INTERNAL_WEB_PASSWORD` の近く）は使われない固定の値でよい）。
   `web_session::check_web_session_key(key, api_token, web_password) -> Result<(), WebSessionKeyRefusal>`（無い・16 文字未満・API の合言葉と同じ・画面の合言葉と同じ）を `check_web_password` と同じ形で置き、`run` で画面の合言葉の検査の直後に呼ぶ
   （拒否なら `kind=web_session_key reason=<種別>` を出して `exit 2`。値は出さない。D8（仮））。試験の `App` を作る補助（各 `*_tests.rs` の `app_with` など）に試験用の鍵を渡す。
   - `crates/server/tests/server_startup.rs`: `st44_session_key_missing_refuses` — `// Scenario: ログインの印の鍵が無いと起動しない` / `st44_session_key_short_or_same_refuses` — `// Scenario: ログインの印の鍵が短いか、ほかの合言葉と同じだと起動しない`（3 つの値。出力に鍵・API の合言葉・画面の合言葉の値が無い）。
@@ -89,7 +89,7 @@
     `st44_secret_tag_not_from_api_token` — `// Scenario: API の合言葉と DB の写しだけでは画面の合言葉を確かめられない`（ログインした後の `core.web_session.secret_tag` と、`API_TOKEN` を鍵にして作った印が一致しない）
   検証: `CS st44_session_key_` rc=0（`-- --list` で 2 本以上）/ `CS server_startup` rc=0（`-- --list` で 9 本以上）/ `CT st44_api_token_change_keeps_login` rc=0（`-- --list` で 1 本以上）/
   `CT st44_session_key_change_revokes` rc=0（`-- --list` で 1 本以上）/ `CT st44_secret_tag_not_from_api_token` rc=0（`-- --list` で 1 本以上）/ `CT web_session` rc=0（`-- --list` で 15 本以上）
-- [ ] 4.2 `WEB_SESSION_KEY` を渡す側を直す（design D8（仮））: `.env.example`（雛形 `change-me-…` と説明。16 文字以上・ほかの 2 つと違う値・変えると全部のログインが切れる）、
+- [x] 4.2 `WEB_SESSION_KEY` を渡す側を直す（design D8（仮））: `.env.example`（雛形 `change-me-…` と説明。16 文字以上・ほかの 2 つと違う値・変えると全部のログインが切れる）、
   `tools/env-init.sh`（新しい `.env` に乱数で作る。**既にある `.env` に `WEB_SESSION_KEY=` の行が無ければ乱数の 1 行を足す**。ほかの行は 1 文字も変えない）、`tools/record-env.sh`（録画の `.env` の 2 か所）、
   `tools/ci-db-env.sh`（乱数の名前の列に足す）、`tools/smoke.sh`・`tools/stack.sh`・`tools/dev.sh`・`tools/check-panic-log.sh`（`API_TOKEN` と同じく、無ければ台本の中の既定の値で export）。
   `tools/env-init.sh` の行を足す振る舞いは、使い捨ての木で確かめる台本 `tools/check-env-init-session-key.sh` に置く（行の無い `.env` に足す・ある行を変えない・2 回走らせても 1 行）。
