@@ -44,7 +44,10 @@ archive_prepare() {
   q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
   # 取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）
   q "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox'" >/dev/null
-  local read_header
+  local read_header web_password
+  web_password="$(sed -n 's/^WEB_PASSWORD=//p' .env)" || return 1
+  [ -n "$web_password" ] || return 1
+  export WEB_PASSWORD="$web_password"
   read_header="$(tools/web-login.sh "http://127.0.0.1:$api")"
   st() { curl -sf -H "$read_header" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P

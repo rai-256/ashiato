@@ -25,10 +25,15 @@ login() {
 }
 
 self_test() {
-  local root port pid good
-  root=$(mktemp -d)
-  cleanup() { kill "${pid:-0}" 2>/dev/null || true; rm -rf "$root"; }
-  python3 - "$root/port" >"$root/server.log" 2>&1 <<'PY' &
+  local port good
+  self_test_root=$(mktemp -d)
+  self_test_pid=''
+  cleanup() {
+    [ -z "$self_test_pid" ] || kill "$self_test_pid" 2>/dev/null || true
+    [ -z "$self_test_root" ] || rm -rf "$self_test_root"
+  }
+  trap cleanup EXIT
+  python3 - "$self_test_root/port" >"$self_test_root/server.log" 2>&1 <<'PY' &
 import http.server, pathlib, sys
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -43,13 +48,12 @@ server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
 pathlib.Path(sys.argv[1]).write_text(str(server.server_port))
 server.serve_forever()
 PY
-  pid=$!
-  for _ in $(seq 1 50); do [ -s "$root/port" ] && break; sleep 0.01; done
-  port=$(cat "$root/port")
+  self_test_pid=$!
+  for _ in $(seq 1 100); do [ -s "$self_test_root/port" ] && break; sleep 0.01; done
+  port=$(cat "$self_test_root/port")
   good=$(WEB_PASSWORD='self-test-password' login "http://127.0.0.1:$port")
-  if [ "$good" != 'cookie: self_test_session=opaque-value' ]; then cleanup; return 1; fi
-  if WEB_PASSWORD='self-test-password' login "http://127.0.0.1:$port/bad" >/dev/null; then cleanup; return 1; fi
-  cleanup
+  if [ "$good" != 'cookie: self_test_session=opaque-value' ]; then return 1; fi
+  if WEB_PASSWORD='self-test-password' login "http://127.0.0.1:$port/bad" >/dev/null; then return 1; fi
 }
 
 if [ "${1:-}" = --self-test ]; then
