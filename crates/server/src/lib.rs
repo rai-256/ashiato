@@ -541,6 +541,11 @@ impl App {
         Self { login, ..self }
     }
 
+    #[cfg(test)]
+    pub(crate) fn web_password_for_test(&self) -> &str {
+        self.login.password_for_test()
+    }
+
     /// いまの時刻。試験は `at()` で差し込める。
     pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
         #[cfg(test)]

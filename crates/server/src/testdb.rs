@@ -22,6 +22,34 @@
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::str::FromStr;
 
+/// router 経由の既存試験が、収集アプリの資格情報ではなく画面の読み出し権限を使うための印。
+pub async fn web_cookie(app: &crate::App, password: &str) -> String {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt as _;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/session")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({ "password": password }).to_string(),
+        ))
+        .unwrap();
+    let response = crate::router(app.clone()).oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    response
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 /// この worktree のテスト用 DB の port。**規則は `tools/ports.sh` だけが持つ**ので、それを呼んで得る
 /// （`ASHIATO_DB_PORT` > main の checkout・`-st<NN>`・`-verify`・それ以外の worktree の台帳）。
 /// 並行して走る Story・change のテストが、別の木の DB に繋がらないようにする（2026-09-30・2026-10-21）。

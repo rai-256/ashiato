@@ -695,7 +695,10 @@ async fn get_json(app: &App, uri: &str) -> serde_json::Value {
     let req = Request::builder()
         .method(Method::GET)
         .uri(uri)
-        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+        .header(
+            header::COOKIE,
+            testdb::web_cookie(app, app.web_password_for_test()).await,
+        )
         .body(axum::body::Body::empty())
         .unwrap();
     let res = router(app.clone()).oneshot(req).await.unwrap();

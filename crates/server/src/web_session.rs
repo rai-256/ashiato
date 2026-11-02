@@ -177,6 +177,11 @@ impl WebLogin {
             limiter: Arc::default(),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn password_for_test(&self) -> &str {
+        &self.password
+    }
 }
 
 /// cookie ヘッダから印を取り出す。

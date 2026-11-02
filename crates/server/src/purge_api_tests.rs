@@ -45,6 +45,13 @@ async fn send(
     let req = b
         .body(body.map_or_else(Body::empty, |v| Body::from(v.to_string())))
         .unwrap();
+    let mut req = req;
+    if req.headers().contains_key(header::AUTHORIZATION) {
+        let cookie = testdb::web_cookie(app, app.web_password_for_test()).await;
+        req.headers_mut().remove(header::AUTHORIZATION);
+        req.headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+    }
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();

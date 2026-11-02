@@ -33,6 +33,11 @@ async fn restore(app: &App, stays: &[Uuid]) -> (StatusCode, String) {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({"stay_ids": stays}).to_string()))
         .unwrap();
+    let mut req = req;
+    let cookie = testdb::web_cookie(app, app.web_password_for_test()).await;
+    req.headers_mut().remove(header::AUTHORIZATION);
+    req.headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
