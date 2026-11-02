@@ -344,10 +344,15 @@ async fn st44_session_key_change_revokes() {
     let db = testdb::isolated().await;
     let pool = db.pool().await;
     let first = App::for_test(pool.clone(), TOKEN);
-    let cookie = testdb::web_cookie(&first, first.web_password_for_test()).await;
+    let first_cookie = testdb::web_cookie(&first, first.web_password_for_test()).await;
+    let second_cookie = testdb::web_cookie(&first, first.web_password_for_test()).await;
     let changed = first.with_session_key("changed-session-key-0123456789");
     assert_eq!(
-        send(&changed, cookie_req(cookie, "/events")).await.0,
+        send(&changed, cookie_req(first_cookie, "/events")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(&changed, cookie_req(second_cookie, "/events")).await.0,
         StatusCode::UNAUTHORIZED
     );
 }

@@ -36,3 +36,10 @@
 
 - `scripts/verify-run 4.1`: rc=0。4.1 の指定 6 コマンドを `evidence.jsonl` に PASS として記録。
 - `scripts/verify-run 4.2`: rc=0。4.2 の指定 2 コマンドを `evidence.jsonl` に PASS として記録。
+
+## Fix report（review 1 / F1）
+
+- `st44_session_key_change_revokes` を修正し、同じ鍵で発行した 2 つの cookie を、鍵変更後にそれぞれ `401 Unauthorized` になることを検証するようにした。
+- テスト: `scripts/quiet-run f1-lib -- bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st44_session_key_change_revokes'` — rc=0、1 passed / 0 failed。
+- 正式検証: `scripts/verify-run 4.1` — rc=0、証跡を現行木で更新。
+- 全体テスト: `cargo test -p ashiato-server` — 1876 passed / 1 failed。失敗は既存の `archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart`（走査回数が 4 回に届かない: 3）で、今回の変更範囲外。
