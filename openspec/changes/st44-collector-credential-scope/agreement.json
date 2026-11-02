@@ -1,0 +1,26 @@
+{
+  "status": "accepted",
+  "digest": "002188ab4be2367bcd0aa3464915eea2ccbde800f97d68889df1bd5bbebb9e72",
+  "head": "63d5480fed91b596909661c5164315451144745a",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-02T14:24:03Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "道具がログインするたびに、期限の無い印が残る"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "自動のインストールと更新が、ログインの印の鍵を作るかは決まっていない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "締めていないサーバへ戻すと、締めが黙って外れ、切ったはずのログインが戻る"
+    }
+  ]
+}
