@@ -30,7 +30,7 @@
 - kind: conflict
 - loss: exported
 - 提案: Q2 に「除外の登録をどうするか」を足す（開発版も正式版の除外を読む / 開発版は除外を写してから始める / 除外が無ければ開発版は起動しない など）。置き場を分けると、除外のほかに履歴の取得の印（`browser-history/last_success.json`）も新しくなり、開発版が初回の全件の取り込みをする（R11）。一度記録して送った本文は、開発版の D-01 から消す口が無い（本文ごと消す口は正式版の画面の操作だけ）。携帯も Android が置き場を分ける（C1）ので、携帯の収集アプリに本人が登録した設定があれば同じ族として並べる
-- 処置: fixed deep-questions.json —— Q2 の推奨を「除外の登録は正式版の置き場のものを読む」に直し、選択肢 2・3 に除外が効かない失うものを書いた。初回の全件の取り込みは context に書いた
+- 処置: escalated —— Q2 の推奨を「除外の登録は正式版の置き場のものを読む」に直し、選択肢 2・3 に除外が効かない失うものを書いて、Q2 として人間に渡した（初回の全件の取り込みは context）。spec の段は推奨で D2 に書いた
 
 ## R3. Q2 の why「どの選択肢でも取り合いは防げ、作り直せば戻る」が誤り。選択肢 3 は防がず、同じ置き場では正式版の PC の収集アプリが**起動しない**
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
@@ -38,14 +38,14 @@
 - kind: premise
 - loss: discarded
 - 提案: why の文を「選択肢 3 では、同じ置き場を渡すとログオンで先に立った方だけが動き、もう一方は黙って終わる。開発版が先に立つと、正式版の未送信と以後の記録が開発版のサーバへ送られ、Q4 の作り直しで消える」に直す。選択肢 3 に `irreversible` を書く（失わない側の選択肢 1・2 が安いので、問いは B のままでよいが、選択肢 3 を「作り直せば戻る」と並べない）
-- 処置: fixed deep-questions.json —— Q2 の why を二重起動の止めの振る舞いに直し、選択肢 3 に irreversible を書いた
+- 処置: escalated —— Q2 の why を二重起動の止めの振る舞いに直し、選択肢 3 に irreversible を書いて、Q2 として人間に渡した
 
 ## R4. Q4 の選択肢に、ST52 R11 の申し送りが書いた「DB を書き換えず次の版で直す」側が無い。選択肢 2 の `irreversible` は失うものでなく費用
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
 - 根拠: docs/handoff/ST54.md の「ST52 R11」の節（「不整合を検出して原因を記録し、無理に DB を書き換えず次の版で直す手順を組み込む」）/ deep-questions.json Q4 の選択肢 1（DB を作り直し、記録を捨てる）・選択肢 2（nightly の移行も凍結）/ crates/server/src/migration_ledger.rs:178-189（`Ahead` は名前の集合の比べで決まる）
 - kind: irreversible
 - 提案: 選択肢を 1 つ足す:「止まった開発版の DB はそのまま置き、main 側で直す（名前を変えた・消した移行は台帳に旧名の対応を残す・中身の直しは直しの移行を開発版の DB にも当てる）。直るまで開発版のサーバは止まったまま」。失わない側で、選択肢 2 より安い（凍結の検査を変えず、ST52 Q10 の本人の答え「nightly は配った印に数えない」も変えない）。選択肢 2 の `irreversible`「直しの移行が DB に残り続ける」は 4 つの loss のどれでもない（行は失われない）ので、`detail` の費用に移す。選択肢 2 は ST52 Q10 の本人の答えと正典 distribution:197・635 を変えることも detail に書く
-- 処置: fixed deep-questions.json —— Q4 に「DB は書き換えず main 側で直す」を足して推奨にした。凍結の選択肢の irreversible は detail の費用へ移し、ST52 Q10 と正典を変えることを書いた
+- 処置: escalated —— Q4 に「DB は書き換えず main 側で直す」を足して推奨にし、凍結の選択肢の irreversible は detail の費用へ移し、ST52 Q10 と正典を変えることを書いて、Q4（A・loss discarded）として人間に渡した。spec の段は推奨で D4 と D5（仮）に書いた
 
 ## R5. Q4 の context の頻度（「中身を直した commit が 42。多くは merge の前の直し」）は、開発版の DB が実際にずれる回数を示していない。main の上での直しは 9 回、うち 4 回は 10-27〜10-31
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
@@ -67,7 +67,7 @@
 - kind: irreversible
 - loss: exported
 - 提案: premises に「開発版の鍵は `make-key.sh dev` で RSA 4096・10000 日」の行を足し、`tools/release/make-key.sh --self-test` を走らせて 4 にする。開発版は Play へ出さないなら P18 の条件は効かないことも書く。そのうえで形を C（聞かずに決める。D3 と同じ）に置くか、形に選ぶ幅があれば A の問いにする。鍵を替えると開発版を入れた携帯は消して入れ直しで、送らない間（ST56 まで）に手元に溜めた記録が全部消える（`discarded` も伴う）ことを書く
-- 処置: fixed premises.md —— P15（make-key.sh --self-test rc=0・RSA 4096・10000 日）を足した。鍵を作る時と確かめ方は Q9（A・loss exported）で問い、鍵を替えると手元の未送信が消えることを Q9 の context に書いた
+- 処置: escalated —— P15（make-key.sh --self-test rc=0・RSA 4096・10000 日）を足した。鍵を作る時と確かめ方は Q9（A・loss exported）で人間に問い、鍵を替えると手元の未送信が消えることを Q9 の context に書いた
 
 ## R8. 完了の判定（「開発版のリリースに『サポートしない』と書いてある」）と Q9 の推奨は、まだ起きていない本物の公開に乗る。ST52 Q5 の本人の答え（開発版の公開は ST53 の後）と衝突する。Q9 は失う側があるのに open
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
@@ -93,14 +93,14 @@
   - クッキー: crates/server/src/web_session.rs:28・196（`ashiato_session`、`Domain` 無し・`Path=/`）。クッキーはポートで分かれない（RFC 6265 §8.5）ので、同じ host の正式版と開発版の画面は 1 つのクッキーを上書きし合い、片方にログインするともう片方がログアウトする
 - kind: daily
 - 提案: 失うものは無い（実行ファイルの上書きは R1・R2 の答えしだい）ので、B として推奨つきで足すか、C に並べる: 開発版の実行ファイル名に `-dev` を付ける・開発版の `MIGRATE_BACKUP_DIR` の既定を分ける・開発版の D-01 の器とポートを `tools/ports.sh` の範囲の外に決める・開発版のクッキー名を分ける。クッキーの振る舞いは外の形式なので premises に行を足す（確かさは実物のブラウザで 2 つを開いて上げる）
-- 処置: fixed premises.md —— C6（実行ファイル名・退避の置き場）・C7（クッキー名。P17 を足した）・C8（DB の器とポート）に置いた
+- 処置: fixed D8 仮 —— 実行ファイル名・退避の置き場（C6）・クッキー名（C7。P17）・DB の器とポートとサーバの既定の待ち受け（C2・C8）を design の D8（仮）にまとめ、provisional.jsonl に載せた
 
 ## R11. 日常に効く選択が一覧に無い: 携帯は常駐の通知が 2 つ・位置の取得が 2 本になり、PC の開発版は初回に履歴を全件取り込む
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
 - 根拠: collector-android/app/src/main/AndroidManifest.xml:19-29（`FOREGROUND_SERVICE_LOCATION`・`FOREGROUND_SERVICE_SPECIAL_USE`。開発版も同じ常駐を立てる）/ premises.md P1・C1（識別子だけを変え、全部の収集をそのまま持つ）/ crates/collector-windows/src/main.rs:117（開発版も履歴を読む）と置き場を分けたときの `browser-history/last_success.json` の不在（R2）/ `python3 scripts/upstream_misses.py report` の 2026-10-17-st08-browser-history Q9（初回の取り込み 15 万件で見回りが 148 秒止まった）
 - kind: daily
 - 提案: B を 1 つ足す:「開発版の携帯の収集アプリは、正式版と同じ全部の収集を常に動かすか（電池と常駐の通知が 2 倍）/ 本人が選んだ収集だけを動かすか」。PC は「開発版の初回の履歴の取り込みの量」を detail に書く。Q7（見分け方）の推奨で常駐の通知の題も分かるかを確かめる
-- 処置: fixed deep-questions.json —— Q10（開発版の携帯が動かす収集。B）を足し、Q7 の context に常駐の通知を、Q2 の context に初回の全件の取り込みを書いた
+- 処置: escalated —— Q10（開発版の携帯が動かす収集。仮でよい問い）を足して人間に渡し、Q7 の context に常駐の通知を、Q2 の context に初回の全件の取り込みを書いた
 
 ## R12. Q3 の why「開発版のサーバが正式版の DB に繋がると、main の新しい移行を当てて先に進めます」はサーバの振る舞いと合わない。先に進めるのは `migrate` だけ
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
