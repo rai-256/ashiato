@@ -514,17 +514,23 @@ pub async fn session_get(
             return Err(e);
         }
     };
-    if let Caller::ApiToken = caller {
-        app.access
-            .write(session_entry(
-                &headers,
-                Some(caller),
-                "GET",
-                "forbidden",
-                StatusCode::FORBIDDEN,
-            ))
-            .await?;
-        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+    // 種類が増えたらここで止まるよう、`_` の無い match にする（design D6）
+    match caller {
+        // API の合言葉ではログインの状態も読めない（design D12（仮））。
+        // 衛星は authorize が先に 403 で返すので届かないが、届いても同じく断る
+        Caller::ApiToken | Caller::Satellite { .. } => {
+            app.access
+                .write(session_entry(
+                    &headers,
+                    Some(caller),
+                    "GET",
+                    "forbidden",
+                    StatusCode::FORBIDDEN,
+                ))
+                .await?;
+            return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        }
+        Caller::WebSession => {}
     }
     app.access
         .write(session_entry(
