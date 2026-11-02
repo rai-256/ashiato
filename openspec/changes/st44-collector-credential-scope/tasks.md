@@ -36,7 +36,7 @@
 
 ## Task 1: 許可の一覧と、一覧の外の 403（サーバ）
 
-- [ ] 1.1 新しい `crates/server/src/collector_scope.rs` に `COLLECTOR_ALLOWED`（9 つ）と `collector_allows` を置く（一覧に**ある**ものだけ真。design D4）。
+- [x] 1.1 新しい `crates/server/src/collector_scope.rs` に `COLLECTOR_ALLOWED`（9 つ）と `collector_allows` を置く（一覧に**ある**ものだけ真。design D4）。
   `access_log::middleware` で、判定（`decided`）の直後・衛星の 403 と同じ並びに `match caller` を書き、`Some(Caller::ApiToken)` で `collector_allows(method, route)` が偽なら
   `AccessEntry::for_caller(caller, via, route, method, "forbidden", 403)` を書いてハンドラを呼ばずに `403 forbidden` を返す（D5。本文を読まない）。一覧の中の取り込みは今どおり行を書かない（`is_ingest` を変えない）。
   あわせて middleware で `None`（資格情報が無いか一致しない）なら、行を書いた直後にハンドラを呼ばず `401 unauthorized` を返す（引数や本文を読む前に断る。`authorize` の `kind=unauthorized` の warn も同じ場所で出す。design D9）。
@@ -57,7 +57,7 @@
   - `st44_scope_wrong_bearer_with_cookie` — `// Scenario: 一致しない Bearer とログインの印を両方付けた読み出しは印で通る`（読み出しの記録の行の種類が画面のログイン。D10（仮））
   - `st44_scope_allowed_reads_logged` — `// Scenario: API の合言葉で通知に要る読みをすると、読み出しの記録に 1 行残る`（`/contract`・`/feelings/reminder`・`/outages` で `api_token`・200 の行が 1 行ずつ。D5）
   検証: `CT st44_scope_` rc=0（`-- --list` で 15 本以上）
-- [ ] 1.2 router を通して API の合言葉で記録を読んでいる既存の試験を、読む求めだけログインの印に替える（`grep -ln 'Bearer' crates/server/src/*_tests.rs` のうち `router(` か `send(` を使うもの。少なくとも `web_session_tests.rs`・`access_log_tests.rs`・`purge_api_tests.rs`・`version_change_tests.rs`・`satellite_*_tests.rs`）。
+- [x] 1.2 router を通して API の合言葉で記録を読んでいる既存の試験を、読む求めだけログインの印に替える（`grep -ln 'Bearer' crates/server/src/*_tests.rs` のうち `router(` か `send(` を使うもの。少なくとも `web_session_tests.rs`・`access_log_tests.rs`・`purge_api_tests.rs`・`version_change_tests.rs`・`satellite_*_tests.rs`）。
   `web_session_tests.rs` の `web_session_endpoint_api_token_reads_and_writes`（印「API の合言葉での読み書きは変わらない」）は消し、`GET /session` を API の合言葉で `{"credential":"api_token"}` と読む断言を 403 に替える（D12（仮））。
   ハンドラを直に呼ぶ試験は変えない（middleware を通らない）。期待を 200 から 403 に替えた試験は、その理由（ST44 の許可の一覧）を 1 行のコメントで残す。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 / `bash -c '! grep -rn "Scenario: API の合言葉での読み書きは変わらない" crates web tools'` rc=0
