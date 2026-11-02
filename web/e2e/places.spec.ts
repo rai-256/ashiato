@@ -6,8 +6,7 @@ import { readAuthHeaders } from "./auth";
 declare const process: { env: Record<string, string | undefined> };
 
 /**
- * 試験の中で `/api` を直に叩く `request` は、API の合言葉（Bearer）で通す。既定の `storageState`（ログインの印）は、
- * 先に走る login の e2e のログアウトで失効していることがあり、それに依らない（ST28 の認証との合わせ。`tools/stack.sh` と同じ既定値）。
+ * 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける（ST28 の認証との合わせ）。
  * 画面（`page`）には何も付けない。
  */
 const test = base.extend({

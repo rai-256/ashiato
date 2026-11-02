@@ -7,8 +7,7 @@ const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-01
 const READ = readAuthHeaders();
 
 /**
- * 試験の中で `/api` を直に叩く `request` は、API の合言葉（Bearer）で通す（`places.spec.ts` と同じ。既定の `storageState` は
- * 先に走る login の e2e のログアウトで失効していることがあり、それに依らない）。画面（`page`）には何も付けない。
+ * 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。画面（`page`）には何も付けない。
  */
 const test = base.extend({
   request: async ({ playwright, baseURL }, use) => {

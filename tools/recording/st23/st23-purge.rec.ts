@@ -15,7 +15,7 @@ import { readAuthHeaders } from "../../../web/e2e/auth.js";
  */
 declare const process: { env: Record<string, string | undefined> };
 
-/** 画面の外から `/api` を直に叩く要求は API の合言葉（Bearer）で通す（録画では `tools/record-env.sh` が渡す）。 */
+/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
 const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
