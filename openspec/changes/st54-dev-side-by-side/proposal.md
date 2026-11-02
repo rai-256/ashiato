@@ -67,5 +67,6 @@ PC の収集アプリは、自動起動の項目（`ashiato-collector.cmd`）と
 - 配る道具: `.github/workflows/nightly.yml`（携帯の APK・署名・説明文）・`tools/release/check-artifacts.sh`（開発版も 4 つ）・`tools/release/check-guards.sh`（workflow の検査を反転）・`tools/release/draft.sh`（開発版の下書き）・新しい `tools/release/nightly-notes.md`
 - 新しい台本: `tools/android-side-by-side.sh`（エミュレータに 2 つを並べて入れる）
 - 文書: `docs/release.md`（開発版の鍵・`nightly` の Environment・開発版の DB・`git fetch --tags --force`・LINEAGE の書き方）
+- 申し送り: `docs/handoff/ST58.md` に「`migrate` の終了コード 4 の回は退避から戻さない」を書き足す（D3・tasks 3.2。第 1 回の合意の IMP-02）。届くように **ST58 の requires に ST54 を足した**（`docs/stories/stories.json` → `ST58.md`・`INDEX.md` の行と訂正の記録。layer は 7 のまま。review/spec.md R18）
 - **走っている change との重なり**: `openspec/changes/` で archive 以外はこの change だけ（`spec_overlap.py candidates` は空）。重なりは無い
 - **要件へ戻すもの（record の段が本人の答えの後に判断する）**: FR-104 の ★ 2026-11-01 の「開発版（nightly）のリリースには ST54 まで C-01 を並べない」は、この Story の後は当たらない。Q9 を推奨のまま答えるなら、完了の判定に 3 つ（開発版のリリースに携帯の APK が並ぶ・開発版の鍵で署名されている・「サポートしない」の文）を足す（D10）

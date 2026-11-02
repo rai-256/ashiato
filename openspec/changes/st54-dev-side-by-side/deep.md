@@ -80,4 +80,6 @@
 ## 仕様への違和感（第 1 回の合意）
 
 - IMP-01 を「仕様を直す」: ブラウザの履歴の取り込み（`crates/collector-windows/src/history/collect.rs:315` の近く）も、渡された置き場の `exclusions.json` から除外を読むようにする。それを確かめる Scenario を足し、tasks 6.1（か新しい手順）にその口を書く（IMP-01 の options の 1 つ目と verify）
+  → 対応: Requirement「PC の収集アプリの開発版は、置き場と端末識別子を自分で分け、除外の登録は渡された置き場のものを読む」の除外の条項を「前景の窓の記録でもブラウザの履歴の取り込みでも」に直し、Scenario「開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む」を足した。design D2 に除外を読む口が 2 つ（`main.rs:81` と `history/collect.rs:315`）あり、`HistoryCollector::new` が除外の置き場を引数で受けて `Runtime::with_history` が設定の `exclusions_path` を渡すことを書いた。tasks 6.1 にその口と `runtime.rs` の試験（IMP-01 の verify の形）を足し、件数の下限を 10 本にした
 - IMP-02 を「仕様を直す」: この change の tasks に、ST58 への申し送り（`docs/handoff/ST58.md`）へ「migrate の終了コード 4（系統が違うので退避を取らずに止まった）の回は退避から戻さない」を書き足す手順を足す（IMP-02 の options の 2 つ目）
+  → 対応: design D3 に ST58 への申し送り（終了コード 4 の回は退避から戻さず、3 の回と同じく前の版のまま起動し直す）を書き、tasks に 3.2（`docs/handoff/ST58.md` の末尾に節を書き足す。検証は節と「終了コード 4」「channel_mismatch」の有無、既存の ST48 の節が残ること）を足した。申し送りそのものは下流の 3.2 が書く

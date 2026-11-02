@@ -12,11 +12,11 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 89 本**（MODIFIED の 2 つの Requirement に 13 本・名前を変えて移した 2 つの Requirement に 23 本・新しい 10 の Requirement に 53 本）。うち **ST54 が新しく印を置くのは 60 本**（署名・下書きと、名前を変えて移した 2 つで足した 7 本と、新しい 10 の Requirement の 53 本）—— **全部このファイルのどこかの Task が名指しする**。
+- **この change の Scenario は 90 本**（MODIFIED の 2 つの Requirement に 13 本・名前を変えて移した 2 つの Requirement に 23 本・新しい 10 の Requirement に 54 本）。うち **ST54 が新しく印を置くのは 61 本**（署名・下書きと、名前を変えて移した 2 つで足した 7 本と、新しい 10 の Requirement の 54 本）—— **全部このファイルのどこかの Task が名指しする**。
   残りの 29 本は ST52 の本文をそのまま写した Scenario で、印は ST52 の試験（`version.sh`・`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh`・`check-guards.sh`・`draft.sh` の `--self-test`）が持つ。**消さない**
 - **ST52 の印のうち 3 つは消す**（REMOVED にした Requirement の Scenario で、移した先に無い。振る舞いが反対になる）: `開発版の配布物の検査は、携帯の APK を除く 3 つで通る`・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`（`check-artifacts.sh --self-test`）・
   `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない`（`check-guards.sh --self-test`）。試験そのものを新しい Scenario の向きに書き直す（Task 10）。古い印を残すと、`check_scenarios.py` が正典に無い印として拾う
-- **本人の決定（下流は変えない）**: Q1 系統は組み立てのときの版番号で決める / Q2 PC の開発版は置き場の下に `dev`・端末識別子に `-dev`・除外は渡された置き場から読む / Q3 DB の系統の印があり、違う側は何も書かずに止まる /
+- **本人の決定（下流は変えない）**: Q1 系統は組み立てのときの版番号で決める / Q2 PC の開発版は置き場の下に `dev`・端末識別子に `-dev`・除外は渡された置き場から読む（前景の窓もブラウザの履歴も。IMP-01）/ Q3 DB の系統の印があり、違う側は何も書かずに止まる /
   Q4 開発版の DB がずれたら止まって原因を示し、DB は書き換えず main 側で直す / Q5 印 `nightly` は動かす方式のまま（手順書に `git fetch --tags --force`）/ Q6 開発版の収集アプリは開発版のサーバにだけ送る /
   Q7 名前に「開発版」を付ける（アイコンは同じ）/ Q8 説明文の先頭に書き、公開のたびに書き直す / Q9 下書きのリリースと使い捨ての鍵で確かめる / Q10 開発版も全部の収集を動かす。
   仮: D5（開発版に載った移行の変更を CI で落とす）・D7（正式版の収集アプリも開発版のサーバに送らない）・D8（開発版のサーバの既定と DB の器・実行ファイル名）。
@@ -62,6 +62,9 @@
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st54_bin_ && test "$(cargo test -p ashiato-server --test server_startup st54_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0 /
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server migration_ledger'` rc=0（ST48 の既存の試験が通る）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st48_'` rc=0
+- [ ] 3.2 更新の失敗からの戻し（ST58。FR-119）への申し送りを書き足す（D3。IMP-02）: `docs/handoff/ST58.md` の末尾に節 `## st54-dev-side-by-side D3 — 終了コード 4 も「移行の失敗」ではない（この回の退避は無い）` を足し、
+  「`migrate` は DB の系統が自分と違うと、退避も版の適用も付与も更新の履歴の行も書かずに終了コード 4（標準エラーの 1 行目 `error: kind=channel_mismatch`）で止まる。FR-119 の戻しは終了コード 1 の回だけにし、終了コード 4 の回も 3 の回と同じく**退避から戻さず**、前の版のまま起動し直す（`rc≠0` を一律に移行の失敗と扱うと、前の回の退避を戻してそれ以後の記録を失う）」と、出所（この change の `design.md` D3・`go.json` の IMP-02）を書く。今ある節は変えない（書き足すだけ）
+  検証: `bash -c 'f=docs/handoff/ST58.md; grep -q "^## st54-dev-side-by-side D3" "$f" && grep -q "終了コード 4" "$f" && grep -q "channel_mismatch" "$f" && grep -q "^## st48-db-version-guard R21" "$f"'` rc=0
 
 ## Task 4: 旧名の対応 `migrations/LINEAGE`（D4）
 
@@ -87,12 +90,14 @@
 ## Task 6: PC の収集アプリの開発版の名前と置き場（D1・D2・D8（仮））
 
 - [ ] 6.1 `Runtime` と `main.rs` が `channel(env!("ASHIATO_VERSION"))` を持つ（試験は差し替える）。`autostart::entry_name(channel)`（開発版は `ashiato-collector-dev.cmd`）・`toast::aumid(channel)`（開発版は `dev.ashiato.collector.dev`）・`toast::display_name(channel)`（開発版は `ashiato 開発版`）にし、正式版は今の値。
-  `Config::from_lookup` に系統を渡し、開発版は `state_dir = <渡された置き場>/dev`・端末識別子の末尾に `-dev`（すでに `-dev` で終われば付けない）・`exclusions_path = <渡された置き場>/exclusions.json`。`main.rs` の除外の読み込みは `exclusions_path`。自動起動の `.cmd` には渡された値（掘る前・付ける前）を書く。
+  `Config::from_lookup` に系統を渡し、開発版は `state_dir = <渡された置き場>/dev`・端末識別子の末尾に `-dev`（すでに `-dev` で終われば付けない）・`exclusions_path = <渡された置き場>/exclusions.json`。除外を読む口は 2 つとも `exclusions_path` を読む（D2）: `main.rs` の前景の窓の除外の読み込みと、ブラウザの履歴の取り込み（`HistoryCollector::new` が除外の登録の置き場を引数で受け、`Runtime::with_history` が設定の `exclusions_path` を渡す。今の `history/collect.rs:315` の `state_dir.join("exclusions.json")` をやめる）。自動起動の `.cmd` には渡された値（掘る前・付ける前）を書く。
   試験（`config.rs`・`autostart.rs`・`toast.rs`・`main.rs` の `#[cfg(test)]`、名前は `st54_`）: `// Scenario: 版番号を渡さずに組んだ部品は正式版として振る舞う`・`// Scenario: 開発版の PC の収集アプリは、開発版の自動起動の項目と差出人を使う`・
   `// Scenario: 開発版は、渡された置き場の下の dev を置き場にする`・`// Scenario: 開発版の自動起動の項目は、渡された置き場と端末識別子をそのまま書く`・`// Scenario: すでに -dev で終わる端末識別子には、重ねて付けない`・
   `// Scenario: 系統の名前の環境変数を渡しても、系統は変わらない`（PC の側。`ASHIATO_CHANNEL=official` を渡しても項目は `ashiato-collector-dev.cmd`）・・`// Scenario: 正式版は、渡された置き場と端末識別子をそのまま使う`・
   `// Scenario: 開発版は、渡された置き場の除外の登録を読む`（`main.rs` が使う、設定の `exclusions_path` から除外を読み込む関数を通して `Engine` に題名 `パスワード管理` の前景を通し、記録に題名が無い）・`// Scenario: 正式版と同じ置き場を渡しても、開発版と正式版は両方起動する`（二重起動の印を正式版の置き場と `<置き場>/dev` で両方取れ、2 つの未送信の道が別）
-  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_ && test "$(cargo test -p ashiato-collector-windows st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 9'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` rc=0（既存の試験が通る）
+  試験（`runtime.rs` の `#[cfg(test)]`、名前は `st54_`）: `// Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む`（開発版の系統で設定を読み、`exclusions.json` は**渡された置き場に直接**書く —— `write_rules` は `cfg.state_dir`（開発版では `<置き場>/dev`）に書くので使わない。取り込みの前に `<置き場>/dev/exclusions.json` が無いことを assert し、`history_runtime` と偽の読み手で `example.test/1`・`example.test/2` の訪問を取り込んで送り、送る本文に `example.test/1` が無く `example.test/2` がある。直していない `collect.rs:315` では落ちる）。
+  `Runtime` に除外の登録の置き場を持たせる（今は `state_dir` だけ。`Runtime::new` で設定の `exclusions_path` を受け、`with_history` がそれを `HistoryCollector::new` に渡す）。`HistoryCollector::new` を呼ぶほかの口（`history/collect.rs:844` の試験の土台・`tests/runtime_windows.rs:1443`）と、`Config` を直書きする試験（`runtime.rs` の `cfg()`・`examples/browser_history_smoke.rs:172`・`tests/runtime_windows.rs:585`・`:654`）も合わせる。`tests/runtime_windows.rs` は `#![cfg(windows)]` で Linux の検証では組まれないので、Task 8 の Windows の検証で組めることを見る
+  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_ && test "$(cargo test -p ashiato-collector-windows st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` rc=0（既存の試験が通る）
 - [ ] 6.2 `tools/release/build.sh collector-windows` が、版番号に `-dev.` を含むとき zip の中の実行ファイルを `ashiato-collector-windows-dev.exe` にする（D8（仮））。`--self-test` に
   `echo "== Scenario: 開発版の PC の収集アプリの配布物の実行ファイルは、-dev の名前を持つ"`（組み立てを偽の実行ファイルに差し替え、`0.4.0-dev.20261102` と `0.4.0` の zip の中の名前を読む）を足す
   検証: `tools/release/build.sh --self-test` rc=0

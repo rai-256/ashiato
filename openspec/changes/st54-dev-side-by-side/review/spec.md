@@ -221,3 +221,70 @@ specs の導出元に出る FR-104・FR-105・FR-107 は ST52 の Requirement �
 ## 観点 7: 走っている change との前提関係
 
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+---
+
+# 第 2 回（合意の差し戻しの直し。IMP-01・IMP-02）
+
+範囲: 第 1 回の合意で「仕様を直す」と答えた IMP-01・IMP-02 の直し（`git diff HEAD -- openspec/changes/st54-dev-side-by-side` の deep.md・design.md D2/D3・spec.md の PC の開発版の Requirement・tasks.md 冒頭/3.2/6.1）と、同じ型の漏れ。R1〜R15 の処置済みの部分は見ていない。
+
+## 機械の検査（2026-11-02）
+
+- `openspec validate st54-dev-side-by-side --strict` → `Change 'st54-dev-side-by-side' is valid`
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（観点 8 を含む）
+- `python3 scripts/check_scenarios.py . st54-dev-side-by-side` → `scenarios: FAIL (担保なし 61 件 / 名無しの確認待ち 0 件)`（spec 段では印がまだ無いので想定どおり。件数 61 は tasks 冒頭の「ST54 が新しく印を置くのは 61 本」と一致）
+- `python3 scripts/review_triage.py . st54-dev-side-by-side` → `triage: OK`（指摘 27 件 / 仮決め 2 件）
+- `python3 scripts/spec_overlap.py candidates . st54-dev-side-by-side` → `[]`
+- 勘定: `grep -c '^#### Scenario:' specs/distribution/spec.md` = 90。MODIFIED 2 Requirement に 13 本・ADDED 12 Requirement に 77 本（= 移した 2 つの 23 + 新しい 10 の 54）。90 − 61 = 29（ST52 の写し）。tasks 冒頭の 90 / 61 / 29 は合う。6.1 の名指しは 10 本で、`-ge 10` と合う
+
+## R16. tasks 6.1 の新しい試験は、直していないコードでも緑になりうる。`history_exclusion_added_later` と「同じ組み方」で `write_rules` を使うと、除外は `<置き場>/dev` に書かれる
+- 成果物: openspec/changes/st54-dev-side-by-side/tasks.md
+- 根拠: tasks.md:98（「既存の `history_exclusion_added_later` と同じ組み方」）/ `crates/collector-windows/src/runtime.rs:3925-3931`（`write_rules` は `cfg.state_dir.join("exclusions.json")` に書く）・`runtime.rs:4156-4165`（`history_exclusion_added_later` は `write_rules(&cfg, …)` で除外を置く）/
+  開発版の設定では `state_dir = <置き場>/dev`（spec.md:298・design.md:41）。そこへ書けば、直していない `history/collect.rs:315`（`state_dir.join("exclusions.json")`）がそれを読み、`example.test/1` は送られず試験は通る —— IMP-01 を直さないまま緑になる。Scenario の GIVEN（spec.md:331「`<置き場>/dev` には除外の登録が無く」）を試験が守る手段を tasks が書いていない
+- kind: technical
+- 提案: 6.1 の試験の記述に「除外は `write_rules` を使わず、渡された置き場（`cfg.state_dir` の親）の `exclusions.json` に直接書く」「取り込みの前に `<置き場>/dev/exclusions.json` が無いことを assert する」を足す。組み方の手本は `history_exclusion_url_matches_history`（`runtime.rs:4086`。初回の取り込みで除外を見る）の方が近い
+- 処置: fixed tasks.md —— 6.1 の試験の記述を「`exclusions.json` は渡された置き場に直接書き、`write_rules` は使わない」「取り込みの前に `<置き場>/dev/exclusions.json` が無いことを assert する」「直していない `collect.rs:315` では落ちる」にした
+
+## R17. tasks 6.1 が `HistoryCollector::new` の引数を変えると書くが、他の呼び出し口と `Runtime` が置き場を持つことを挙げていない。Windows だけで組む試験の壊れは Linux の検証に出ない
+- 成果物: openspec/changes/st54-dev-side-by-side/tasks.md
+- 根拠: tasks.md:93（「`HistoryCollector::new` が除外の登録の置き場を引数で受け、`Runtime::with_history` が設定の `exclusions_path` を渡す」）/
+  呼び出し口は `runtime.rs:310`（`with_history`）のほかに `history/collect.rs:844`（試験の土台）と `tests/runtime_windows.rs:1443`（`#![cfg(windows)]`。`tests/runtime_windows.rs:19`）/
+  `with_history(mut self, reader)` は `cfg` を受けず、`Runtime` は `state_dir` だけを持つ（`runtime.rs:284`）ので、`Runtime::new` で `cfg.exclusions_path` も持たせる必要がある /
+  6.1 の検証（tasks.md:99）は Linux の `cargo test -p ashiato-collector-windows` で、`runtime_windows.rs` を組まない。壊れは CI の Windows の job（`.github/workflows/ci.yml:191`）と 8.1 で初めて出る。
+  なお `Config` に `exclusions_path` を足すこと自体（前の版から 6.1 にある）でも、`tests/runtime_windows.rs:585`・`:654` の構造体の直書きが組めなくなる（`examples/browser_history_smoke.rs:172`・`runtime.rs:955` は Linux の `cargo test` が組むので出る）
+- kind: technical
+- 提案: 6.1 に「`Runtime::new` が `cfg.exclusions_path` を `state_dir` と同じく持つ」「`HistoryCollector::new` の呼び出し口 3 つ（`runtime.rs` の `with_history`・`collect.rs` の試験の土台・`tests/runtime_windows.rs` の `fetch_history_until`）と `Config` の直書き 4 つを直す」を書く。Windows 側の組みは 8.1（CI の Windows の job）で確かめる、と 6.1 の検証に添える
+- 処置: fixed tasks.md —— 6.1 に、`Runtime::new` が設定の `exclusions_path` を持ち `with_history` が渡すこと、`HistoryCollector::new` のほかの呼び出し口（`collect.rs:844`・`tests/runtime_windows.rs:1443`）と `Config` の直書き（`runtime.rs` の `cfg()`・`examples/browser_history_smoke.rs:172`・`tests/runtime_windows.rs:585`・`:654`）を合わせること、Windows だけで組む試験は Task 8 の Windows の検証で組めることを見る、を書いた
+
+## R18. ST58 の requires の鎖に ST54 が無い。ST58 の上流が ST54 の merge より先に始まると、3.2 の申し送りは ST58 に届かず、IMP-02 は塞がらない
+- 成果物: openspec/changes/st54-dev-side-by-side/tasks.md（3.2）・docs/stories/ST58.md（requires）
+- 根拠: tasks.md:65-67（申し送りは下流の 3.2 が `docs/handoff/ST58.md` に書く = ST54 の feat の PR が merge されて初めて main に載る）/
+  `docs/stories/ST58.md:5` `requires: [ST57, ST48, ST51]`・`ST57.md:5` `requires: [ST52, ST55]`・INDEX.md:75-81（ST55 → ST52・ST28、ST51 → ST02・ST49。どこからも ST54 に届かない）/
+  `docs/handoff/README.md` の規則 4・5（上流は開始時に `story_brief.py` で handoff を読み、途中では入れない）/ go.json IMP-02 の `if_accepted.residual`（ST58 が終了コード 4 を移行の失敗と扱って作ると、古い退避を戻して以後の記録を失う）
+- kind: technical
+- 提案: 呼び出し元が `docs/stories/ST58.md` の requires に ST54 を足す（順の付け方で、要件は変わらない）。足さないなら、3.2 に「ST58 の上流がすでに始まっていれば、申し送りの代わりに ST58 の change の戻しの判定が終了コード 4 で戻さないことを確かめ、無ければ deep の問いとして立てる」を添える
+- 処置: fixed proposal.md —— Impact に申し送りと requires の追加を書き、`stories.json` の ST58 の requires に ST54 を足して `make_story.py` で再生成し、`INDEX.md` の ST58 の行と訂正の記録（2026-11-02）を足した（layer は 7 のまま。要件は変わらない）
+
+## 観点 1（IMP-01・IMP-02 の差し戻しが写ったか）
+
+- IMP-01: 写った。Requirement の条項（spec.md:299「前景の窓の記録でもブラウザの履歴の取り込みでも」）・新しい Scenario（spec.md:330-333）・design D2 の 2 つの読み込み口（design.md:41。`main.rs:81` と `history/collect.rs:315` は実コードの行と一致）・tasks 6.1（tasks.md:93・98）・導出元（spec.md:303）。go.json IMP-01 の options の 1 つ目と verify（`runtime.rs` の試験・`<置き場>/dev` に置かない）と同じことを言う。試験が直しを落とせるかは R16
+- IMP-02: 写った。design D3 の申し送りの箇条（design.md:60）と tasks 3.2（tasks.md:65-67）。3.2 の検証の grep 4 つは、今の `docs/handoff/ST58.md` に「終了コード 4」「channel_mismatch」「`## st54-dev-side-by-side D3`」が無く、`## st48-db-version-guard R21` がある（3 行目）ことを確かめた —— 書き足す前は落ち、書き足せば通り、既存の節を消すと落ちる。`kind=channel_mismatch` と終了コード 4 は spec.md:404・414 と一致。3.2 は 3.1 の後で依存順も合う。届くかは R18
+- 数値: 新しい Scenario に置く値（`example.test/1`・`example.test/2`）は試験の偽の読み手の URL（`runtime.rs:2307` `https://example.test/{id}`）で作れる。除外の記録（`history/contract.rs:237-252` `Visit::excluded`）は URL を持たないので、「本文に `example.test/1` が無い」は除外の件数の記録と矛盾しない
+
+## 観点 2: 該当なし（確かめた範囲: 新しい Scenario 1 本。WHEN「初めて取り込んで送る」・THEN「送る本文に 1 の訪問が無く 2 の訪問がある」は送った本文で決まる。THEN の後半は「何も送らない」実装を落とす対照で、主張は「選んで除く」1 つ。Requirement の書き直した条項は 2 つの読み込み口を言い、Scenario が 1 本ずつ持つ）
+
+## 観点 3: 該当なし（確かめた範囲: 足した文の置き場。spec に入った名前はファイル名 `exclusions.json` と環境変数だけで、`HistoryCollector`・`collect.rs` などの実装の名前は design D2 と tasks にだけある。D3 の申し送りの箇条は他の Story への手順で、観測できる振る舞いではない）
+
+## 観点 4: R16・R17。ほかは該当なし（確かめた範囲: 6.1 の `-ge 10` は 6.1 が名指す 10 本と一致。ただし同じ crate の `st54_` の絞りは 7.1 の `st54_channel*`（`-ge 5`）も数えるので、7.1 の後は 6.1 の下限だけでは 6.1 の試験の欠けを落とせない —— 前の版の `-ge 9` から同じで、印の欠けは 11.2 の `check_scenarios.py` が落とすので指摘にはしない。3.2 は検証のコマンドと終了条件を持つ）
+
+## 観点 5: R18。ほかは該当なし（確かめた範囲: `check_chain.py` OK。直しは ST54 の satisfies（FR-106）と除外の FR-83 の範囲で、要件を足していない）
+
+## 観点 6: 該当なし（mode なし。`--answers` ではない）
+
+## 観点 7: 走っている change との前提関係
+
+観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## 同じ型の漏れ（除外の登録を state_dir から読むほかの口）
+
+該当なし（確かめた範囲: `crates/collector-windows` の `exclusions.json` / `Exclusions::load` の呼び出しは `main.rs:81` と `history/collect.rs:315`（`:598` で読む）の 2 つだけで、design D2 の 2 つと一致。`state_dir` の下のほかのファイル（`last-seen.txt`・`counters*.json`・`outage-notice.json`・`contract-wait.json`・`engine.json`・`collector.log`・`browser-history/`）は収集アプリが自分で書くもので、本人の登録ではない。携帯の収集アプリ（`collector-android/app/src/main`）に除外の登録は無い。`exclusions.json` を書く道具・手順書は repo に無い（`crates/collector-windows/README.md:37` が置き場の表に挙げるだけ）
