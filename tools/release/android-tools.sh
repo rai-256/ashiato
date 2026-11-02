@@ -18,3 +18,17 @@ android_tool() {
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"
 }
+
+# `apksigner verify --print-certs` の出力（標準入力）から、最初の署名者の証明書の SHA-256（小文字 64 桁）を取り出す。
+# 出力の形は build-tools の版で変わる: 36.x までは `Signer #1 certificate SHA-256 digest: <hex>`、
+# 37.0.0 からは `V2 Signer: certificate SHA-256 digest: <hex>`（実測 2026-11-02。CI の runner が 37 を持ち、
+# `Signer #1` だけを読んだ自己試験が「署名の指紋を読めない」で落ちた）。どちらの形も、この 1 つの関数で読む。
+apk_cert_from_print_certs() {
+  sed -nE 's/^(Signer #[0-9]+|V[0-9.]+ Signer:) certificate SHA-256 digest: ([0-9A-Fa-f:]+)$/\2/p' | head -n1 | tr -d ':' | tr 'A-F' 'a-f'
+}
+
+# APK の最初の署名者の証明書の SHA-256。読めなければ空で返す（判定は呼び出し側）
+apk_cert_sha256() {
+  local signer="$1" apk="$2"
+  "$signer" verify --print-certs "$apk" 2>/dev/null | apk_cert_from_print_certs
+}

@@ -88,8 +88,8 @@ self_test() {
   echo "== Scenario: 開発版の APK は、.dev の識別子と開発版の鍵で署名されている"
   ASHIATO_SIGNING_KEYSTORE_B64="$dev_b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
     "$0" "$work/dev-unsigned.apk" dev "$work/dev.apk"
-  official_cert="$("$(apksigner_bin)" verify --print-certs "$work/official.apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
-  dev_cert="$("$(apksigner_bin)" verify --print-certs "$work/dev.apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+  official_cert="$(apk_cert_sha256 "$(apksigner_bin)" "$work/official.apk")"
+  dev_cert="$(apk_cert_sha256 "$(apksigner_bin)" "$work/dev.apk")"
   official_cert="$(tr -d ':' <<<"$official_cert" | tr 'A-F' 'a-f')"
   dev_cert="$(tr -d ':' <<<"$dev_cert" | tr 'A-F' 'a-f')"
   [[ -n "$official_cert" && "$official_cert" == "$official_key_cert" ]]
@@ -116,7 +116,7 @@ self_test() {
   GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$src" quiet_build "$work/build-debug.log" "$root/tools/release/build.sh" apk "$build_out"
   apk_debug="$build_out/ashiato-collector-$src.apk"
   local apk_cert debug_cert
-  apk_cert="$("$(apksigner_bin)" verify --print-certs "$apk_debug" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+  apk_cert="$(apk_cert_sha256 "$(apksigner_bin)" "$apk_debug")"
   debug_cert="$(keytool_en -list -v -keystore "${HOME}/.android/debug.keystore" -storepass android 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
   [[ -n "$apk_cert" && "$apk_cert" == "$debug_cert" ]] || die 'debug 鍵の APK ではない'
   echo "OK: 正式版・開発版・取り違え・鍵無し・debug 鍵を検査した"

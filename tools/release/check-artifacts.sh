@@ -102,9 +102,7 @@ check_artifacts() {
     if [[ "$allow_debug" != 1 ]]; then
       local signer
       signer="$(android_tool apksigner)" || die "apksigner が無い"
-      # apksigner は build-tools の版によって証明書情報を標準エラーへ出すことがある。
-      # どちらでも同じ証明書行だけを取り出し、値は出力しない。
-      cert="$("$signer" verify --print-certs "$apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+      cert="$(apk_cert_sha256 "$signer" "$apk")"
       [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
     fi
   fi
@@ -144,6 +142,13 @@ self_test() {
   SELF_TEST_WORK="$work"
   trap self_test_cleanup EXIT
   trap 'self_test_cleanup; exit 130' INT TERM
+  # apksigner の出力の形は build-tools の版で違う（36.x: `Signer #1 …`、37.0.0: `V2 Signer: …`。CI の runner は 37）。
+  # 手元の SDK の版に依らず、両方の形を読めることを固定の文字列で確かめる
+  local fp=54b02d70bc1ee41c22df5c9bccafd3bc2de77a99e2b14c16ff15842beeb2136c
+  [[ "$(printf 'Signer #1 certificate DN: CN=x\nSigner #1 certificate SHA-256 digest: %s\nSigner #1 certificate SHA-1 digest: 00\n' "$fp" | apk_cert_from_print_certs)" == "$fp" ]] \
+    || die 'apksigner 36 の形の指紋を読めない'
+  [[ "$(printf 'V2 Signer: certificate DN: CN=x\nV2 Signer: certificate SHA-256 digest: %s\nV2 Signer: certificate SHA-1 digest: 00\n' "$fp" | apk_cert_from_print_certs)" == "$fp" ]] \
+    || die 'apksigner 37 の形の指紋を読めない'
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"
@@ -215,7 +220,7 @@ self_test() {
   # --allow-debug-key 無しの経路: 署名の指紋を apksigner（PATH に無ければ SDK の下）で読んで比べる（final review R7）
   local signer cert
   signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
-  cert="$("$signer" verify --print-certs "$out/ashiato-collector-$v.apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+  cert="$(apk_cert_sha256 "$signer" "$out/ashiato-collector-$v.apk")"
   [[ -n "$cert" ]] || die '署名の指紋を読めない'
   ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
   if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
