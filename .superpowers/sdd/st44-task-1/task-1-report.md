@@ -48,3 +48,9 @@
 15 本すべてが純粋な `collector_allows` のみを見ず router を通ること、一覧集合が 9 組と一致すること、共通の Cookie 変換 helper が使われることを確認した。Task 1 の範囲外の open finding（D9 の欠けた引数、原本 HEAD の axum依存確認）は変更していない。
 
 `python3 scripts/check_scenarios.py .` は Task 2〜4 が担保する 7 Scenario の未担保で FAIL。Task 1 の Scenario 印は追加済みで、この失敗は今回の open finding ではない。
+
+### Fix round 2 report
+
+- F3 の不足していた件数証跡を `evidence.jsonl` に追記した。
+- `cargo test -p ashiato-server st44_scope_ -- --list 2>/dev/null | grep -c ': test$'` — rc=0、`15`（要求の15本以上）。
+- F3 以外の open finding（D9 の欠けた引数、原本 HEAD の router 経路確認）は変更していない。
