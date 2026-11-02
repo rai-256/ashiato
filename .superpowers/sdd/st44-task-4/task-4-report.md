@@ -31,3 +31,8 @@
 ## 自己レビュー
 
 指定された範囲に限定して実装。鍵の値はログ・応答・DB の secret_tag 以外には出していない。懸念なし。
+
+## Task gate 証跡
+
+- `scripts/verify-run 4.1`: rc=0。4.1 の指定 6 コマンドを `evidence.jsonl` に PASS として記録。
+- `scripts/verify-run 4.2`: rc=0。4.2 の指定 2 コマンドを `evidence.jsonl` に PASS として記録。
