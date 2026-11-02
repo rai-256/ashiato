@@ -109,14 +109,14 @@
 - kind: defer
 - 提案: ST56 へ: 画面での端末ごとの発行・取り消しと入れた後の設定の口、記録の行と読み出しの記録の行にどの資格情報で届いたかを書く欄、
   `Caller` に種類を足すときは許可の一覧（D4）と契約の版の門の `match`（D6）に振り分けを足すこと
-- 処置: deferred ST56
+- 処置: rejected: 深掘り Q2 で本人が「共有の 1 本のまま」を選んだ（`deep-answers-1.txt` の Q2、`docs/requirements.md` FR-128 ★ 2026-11-02「端末ごとには発行しない」）。端末ごとの発行も、どの資格情報で届いたかの欄も作らないので申し送る中身が無い。共有の値を設定させる口は FR-128 の本文が ST56 に既に持たせている（整合の確認 docs/audit/2026-11-02-st44-fr128-consistency.md の C2。2026-11-02 に deferred ST56 から改めた）
 
 ## R11. ST37 への申し送り（書き手の列を作るとき、資格情報の識別子の置き場を空けておく）の受け皿
 - 成果物: openspec/changes/st44-collector-credential-scope/design.md（D2）/ proposal.md:66
 - 根拠: design.md:47（「ST37 への申し送り（`deferred ST37`）」）/ review/deep.md R6（記録の行は凍結されるので届いた時に書くしかない。docs/stories/ST37.md:4 は layer 3 で ST56 より先に形が決まる）
 - kind: defer
 - 提案: ST37 へ: 書き手の列を作るとき、収集アプリの資格情報の識別子を書く欄の置き場を空けておく（ST56 が埋める）
-- 処置: deferred ST37
+- 処置: rejected: 深掘り Q2 で本人が「共有の 1 本のまま」を選び、どの端末の資格情報で届いたかはずっと持たない（`deep-answers-1.txt` の Q2、`docs/requirements.md` FR-128 ★ 2026-11-02）。埋める者のいない欄を ST37 に空けさせない（整合の確認 docs/audit/2026-11-02-st44-fr128-consistency.md の C2。2026-11-02 に deferred ST37 から改めた）
 
 ## R12. 本文だけが言っていて Scenario が言っていないこと（鍵の値を出さない・一覧の中の読みを残す）
 - 成果物: openspec/changes/st44-collector-credential-scope/specs/data-sensitivity/spec.md / design.md（D5）

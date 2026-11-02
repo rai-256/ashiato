@@ -24,3 +24,6 @@
 ## 要件へ戻すもの
 
 - FR-128: 資格情報の配り方を「ST29 / ST44 の深掘りで決める」としていたのを、Q2 の答えで決めた —— 携帯と PC で共有する 1 本のまま。ST56 は共有の値を入れる口だけを作る
+- PERM-10: ★ 2026-10-11 の「収集側の配り方の宛先は /stories で決める」を閉じる ★ 2026-11-02 補足（共有の 1 本。FR-128 へ）
+- 整合の確認 `docs/audit/2026-11-02-st44-fr128-consistency.md`: FR-128 の★に選んだ側の帰結と「設定のしかたは ST56 の深掘りで決める」を足し（C4・C6）、ST56 の完了の判定を共有の合言葉を変えたときの形に直した（C1）。
+  `review/spec.md` R10・R11 の `deferred ST56` / `deferred ST37`（推奨の側の申し送り）は `rejected:` に改めた（C2）。design D2・proposal・specs・tasks・go.json の写しは次の `spec --answers Q2` が行う（C3）
