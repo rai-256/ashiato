@@ -131,6 +131,6 @@
 
 ## Task 8: 全体を通す
 
-- [ ] 8.1 Scenario の担保・書き換え禁止・縦串を通して確かめる。
+- [x] 8.1 Scenario の担保・書き換え禁止・縦串を通して確かめる。
   検証: `python3 scripts/check_scenarios.py . st44-collector-credential-scope` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 /
   `./tools/check-immutable.sh` rc=0 / `./tools/check-panic-log.sh` rc=0
