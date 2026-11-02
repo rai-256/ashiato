@@ -421,6 +421,9 @@ pub async fn run_migrate() -> anyhow::Result<()> {
 /// 取り込み器の内部の App が持つ画面の合言葉。**HTTP に出さない**ので使われない（ログインの口を通らない）。
 #[cfg_attr(test, allow(dead_code))]
 const INTERNAL_WEB_PASSWORD: &str = "archive-internal-not-served";
+/// 内部の App のログインの印の鍵。ログインの口を通らないので印は作られない（`INTERNAL_WEB_PASSWORD` と同じ）。
+#[cfg_attr(test, allow(dead_code))]
+const INTERNAL_WEB_SESSION_KEY: &str = "archive-internal-session-key";
 
 #[derive(Clone, Debug)]
 pub struct App {
@@ -552,10 +555,10 @@ impl App {
         Self { login, ..self }
     }
 
+    /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
     pub(crate) fn with_session_key(self, session_key: &str) -> Self {
-        let mut login = web_session::WebLogin::new(session_key, self.login.password_for_test(), 0);
-        login.failure_delay = self.login.failure_delay;
+        let login = self.login.with_session_key_for_test(session_key);
         Self { login, ..self }
     }
 
@@ -1057,7 +1060,7 @@ fn internal_app(pool: sqlx::PgPool) -> App {
         pool,
         "archive-store".into(),
         INTERNAL_WEB_PASSWORD,
-        "archive-internal-session-key",
+        INTERNAL_WEB_SESSION_KEY,
         0,
     );
     app
@@ -3398,7 +3401,7 @@ pub async fn store_heartbeat(
         pool.clone(),
         "archive-heartbeat".into(),
         INTERNAL_WEB_PASSWORD,
-        "archive-internal-session-key",
+        INTERNAL_WEB_SESSION_KEY,
         0,
     );
     heartbeat_one(

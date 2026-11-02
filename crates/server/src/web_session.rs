@@ -229,6 +229,14 @@ impl WebLogin {
     pub(crate) fn session_key_for_test(&self) -> &str {
         &self.session_key
     }
+
+    /// 鍵だけを差し替えた複製。合言葉・期限・失敗の待ちは保つ（鍵を変えて起動し直したときと同じ）。
+    #[cfg(test)]
+    pub(crate) fn with_session_key_for_test(&self, session_key: &str) -> Self {
+        let mut login = Self::new(session_key, &self.password, self.max_age_days);
+        login.failure_delay = self.failure_delay;
+        login
+    }
 }
 
 /// cookie ヘッダから印を取り出す。

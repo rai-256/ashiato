@@ -394,7 +394,6 @@ fn start_with_session_key(key: Option<&str>, api_token: &str, web_password: &str
         .env("WEB_PASSWORD", web_password)
         .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
         .env("BIND", "0.0.0.0:0");
-    let mut c = c;
     match key {
         Some(key) => c.env("WEB_SESSION_KEY", key),
         None => c.env_remove("WEB_SESSION_KEY"),
