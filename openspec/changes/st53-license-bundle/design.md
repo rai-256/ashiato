@@ -151,9 +151,9 @@ main への push（`ci.yml` の `push: { branches: [main] }`）では値が空�
 - `--channel nightly`: 配布物の組み立ての印（ST52 の `artifact_stamp`）の commit と同じ `Commit:`
 - `--allow-debug-key`（PR の `package-artifacts` と `draft.sh`。`draft.sh:32`）: `Commit:` が 40 桁の 16 進であることだけを見て、組み立ての印との比べは外す（PR では組み立ての印が合成の merge commit を、`SOURCE.txt` が head の commit を持ち、一致しない。Q14）
 既定のチャンネルは `release` のまま変えない（ST52 の呼び出しを壊さない。review/spec.md R1）。
-PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.1 で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
+PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.5（確認バッチの中、ST53 が main に入る前）で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
 - 選ばなかった案（Q14 の他の選択肢）: 合成の merge commit のまま確かめを待つ・merge の前に確かめてから決める
-- 反転条件: 配布元の名前が変わったら、`ASHIATO_SOURCE_REPO` の既定を変える。11.1 で閉じた PR の head か、push し直す前の head を取れないと分かったら、上流へ返す（A。取れない写しのソースの場所は直せない）
+- 反転条件: 配布元の名前が変わったら、`ASHIATO_SOURCE_REPO` の既定を変える。11.5 で閉じた PR の head か、push し直す前の head を取れないと分かったら、上流へ返す（A。取れない写しのソースの場所は直せない）
 
 ### D10（仮）. 許諾なしで置かれた PR の成果物は、ST53 が main に入った後に消す
 
@@ -247,4 +247,4 @@ main への push の `SOURCE.txt` は、`build.sh` が `git rev-parse HEAD`（ma
 ## Open Questions
 
 - Q1〜Q4（A）の本人の答え。答えが推奨と違えば `spec --answers` が D1〜D3・D12 を書き直す
-- 閉じた PR の head と、push し直す前の head を後から取れるか（premises P14。人間の確認待ち 11.1。取れなければ D9 の反転条件で上流へ返す）
+- 閉じた PR の head と、push し直す前の head を後から取れるか（premises P14。人間の確認待ち 11.5。取れなければ D9 の反転条件で上流へ返す）

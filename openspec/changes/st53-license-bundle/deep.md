@@ -99,6 +99,18 @@
 - 否の根拠: 「組み立ての commit で示す（D9）」のとおり D9 に乗るのに、rests_on は Q7 だけだった。Q7（答え済み）との向きは合っている
 - 答え: Q14 の答えに従う（開発版は main の commit、PR は Q14 で選んだ commit）
 
+## 第 3 回（2026-11-03 起票）—— Q14 の答えを写した後に見つかった前提
+
+> `spec --answers Q10〜Q15` の spec-review（`review/spec.md` R17・R18）が、Q14 の問いに書いていなかった帰結を見つけた（premise）。
+> 問いは `deep-questions-r3.json`、渡す形は `docs/briefs/ST53-deep-r3.html`。答えは `spec --answers Q16` で design D9・D16・D17（仮）と spec・tasks に写す。
+
+### Q16. PR の配布物を head から組むか（Q14 の前提。review/spec.md R17・R18）
+
+- 問い: PR の組み立て（`package-linux`・`package-windows`）を、合成の merge commit からではなく PR の head の commit そのものから組むようにするか
+- 推奨: head から組む（checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}`）。組んだソース・組み立ての印・`SOURCE.txt` が一致し、比べはすべての組み立てで残る。D17（仮）は要らない
+- 出所: R17（`SOURCE.txt` の head と組んだ木が、その時の main の差だけ食い違う。FR-127 の対応するソース）・R18（D17 の前提「PR と main への push を分けられない」は誤り。`ci.yml:34`）
+- 答え: (未回答)
+
 ## 影響の判断（第 1 回の合意）
 
 重大な IMP への本人の答え（`deep-answers-1.txt` の逐語）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。

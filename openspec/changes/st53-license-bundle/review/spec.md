@@ -162,3 +162,98 @@ triage の「要件へ戻すもの 0 件」について: proposal（Impact の�
 - 観点 7: 該当なし（spec_overlap.py candidates が 0 件。origin/main の `openspec/changes/` は `archive/` だけで、走っている change はこの change だけ）
 - 処置: fixed specs/distribution/spec.md —— 束ねていた 4 つを分けた（LICENSE の先頭 / AGPL の全文、例外は「例外として通した 5 つ」の出力 1 つに、携帯の rc / 通した 4 つ、4 つの配布物の 3 点 / LICENSE の一致）
 
+
+---
+
+# 第 2 回の答えの写し（`spec --answers Q10,Q11,Q12,Q13,Q14,Q15`。2026-11-03）
+
+対象: commit `d69bee48`（`git diff 58924f30 d69bee48 -- openspec/changes/st53-license-bundle/`）。答えの写しの判定は `review/answers.md`。ここには今回の差分の範囲の指摘だけを足す。
+
+## 機械の検査（第 2 回）
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st53-license-bundle --strict` | `Change 'st53-license-bundle' is valid`（rc=0） |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（rc=0） |
+| `python3 scripts/check_scenarios.py . st53-license-bundle` | `scenarios: FAIL (担保なし 48 件 / 名無しの確認待ち 0 件)`（rc=1）。48 件はどれもこの change の ADDED の Scenario（実装の前なので期待どおり）。48 本の名前を全部 tasks.md に grep して欠け 0 |
+| `python3 scripts/review_triage.py . st53-license-bundle` | `triage: OK`（指摘 27 件 / 仮決め 6 件 / 要件へ戻すもの 2 件） |
+| `python3 scripts/spec_overlap.py candidates . st53-license-bundle` | `[]`（0 件） |
+
+答え以外の変更の分け方（書いた側の申告 (a)〜(d) への判定。理由はここに書き、`review/answers.md` には決まった行だけを書く）:
+- (a) D17（仮）: 答え以外の変更。中身は design.md:224-229 の D17 の節にある。仮なので合意は引き継がれる。ただし Q14 の答えの「その場合だけ外す」を広げている（R18）
+- (b) Scenario「許諾の名前を 2 つ持つ部品は、両方が許可されていれば通る」は D7 の AND の定義（design.md:117「全部の名前が許可の一覧にあるか名指しに当たるときだけ通す」）の通る側、「PR の組み立ての head の commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる」は D9 の本文（design.md:143「40 桁の 16 進でなければ落とす」）。どちらも答えの写しで、答え以外の変更に数えない
+- (c) Risks の「PR の配布物の中身は head から組んだものと一字一句同じとは限らない」（design.md:240）: 振る舞いを変えない、Q14 の答えの帰結の記述。答え以外の変更には数えないが、答えの前提に関わるので R17 で人間に返す
+- (d) Open Questions の P14 の行（design.md:250）: D9 の本文（design.md:154）と P14 の再掲。答え以外の変更に数えない
+
+## R17. Q14 の推奨の選択肢は、選んだ後に分かった 2 つの帰結を見せずに選ばれている（組んだソースと head が違う・前の head を後から取れるか）
+- 成果物: openspec/changes/st53-license-bundle/design.md（D9・Risks）/ premises.md（P14）/ tasks.md（11.1）
+- 根拠:
+  - 組んだソースと head が違う: `.github/workflows/ci.yml:355`・`:377` の `package-linux`・`package-windows` の checkout は `ref` を渡さないので、合成の merge commit（head とその時の main を合わせたもの）から組む。`SOURCE.txt` は head を指す（design.md:143）。design.md:240 の Risks がこの差を書いている。FR-127（docs/requirements.md:1070）は「対応するソース」を示すと言い、開発版の Scenario（spec.md:222）は「組み立ての印と同じ commit」を求めるのに、PR の組み立てだけ `SOURCE.txt` と組んだ木が一致しない。`deep-questions-r2.json` の Q14 の context は「配布物の組み立ての印は checkout した commit（PR では合成の merge commit）を持つ」と、組む木が merge commit であることは書くが、その結果 `SOURCE.txt` が組んだ木の対応するソースを指さなくなることは、context にも推奨の選択肢の detail にも書いていない
+  - 前の head を後から取れるか: 推奨の detail は「閉じた後も `refs/pull/<n>/head` で残る見込みが高い」。record の段の整合の確認 C1 が、この repo の PR の枝は rebase して push し直すので、push し直す前の head は辿れなくなるかもしれないことを見つけた（design.md:154、premises.md:23 の P14 は確かさ 2）。確かめは 11.1（merge の後。tasks.md:225-230）で、その前に PR の成果物（90 日、誰でも落とせる）が出る。別の席が D9 を否とした理由（`provisional.jsonl` の D9 の reason「確かめは確認バッチ 11.1（merge の後）で、その前に成果物が出る」）と同じ形が、merge commit から head に替えた後も残っている
+- kind: premise
+- 処置: escalated —— 帰結 1（組んだ木と head の食い違い）を deep.md の Q16（`deep-questions-r3.json`、premise・exported）で人間に返した。帰結 2（前の head を後から取れるか）は、Q14 で本人が「確認バッチで確かめる」を選んでいるので問い直さず、探りを `package` に依らない 11.5 に分け、確認バッチの中・ST53 が main に入る前に置いた（R20 と同じ直し）
+- 提案: 2 つの帰結を Q14 の答えの前提として本人に見せ、答えを保つか聞く。判断の材料として次を添える。
+  (1) `package-linux`・`package-windows` の checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を渡せば、組んだ木・組み立ての印・`SOURCE.txt` が head で一致し、比べを外す分岐も D17 も要らなくなる（代わりに PR の配布物は、その時の main と合わせた結果を映さない。ほかの job は merge の checkout のまま）。
+  (2) 「push し直す前の head を、閉じた後に別の clone から fetch できるか」の探りは ST53 のコードを要しない（使い捨ての PR → force-push → 閉じる → fetch）ので、merge の前に走らせて P14 を確かさ 4 にできる（Q14 の第 3 の選択肢に近い）
+
+## R18. D17（仮）の前提「引数だけでは PR と main への push を分けられない」は成り立たず、答えの「その場合だけ外す」を main への push に広げている
+- 成果物: openspec/changes/st53-license-bundle/design.md:224-229（D17）/ specs/distribution/spec.md:176 / tasks.md（7.1）
+- 根拠: 本人の答えは「PR の組み立てでは head の commit を書き、組み立ての印との比べは**その場合だけ**外す」（deep-answers-2.txt の Q14）。spec.md:176 は「debug の鍵を許す検査（PR・main への push の組み立てと下書き）: 組み立ての印とは比べない」で、main への push でも比べない。D17 は分けられない理由を `ci.yml:400` が同じ引数だからとするが、ci.yml は既に `${{ github.event.pull_request.base.sha || github.event.before }}`（`.github/workflows/ci.yml:34`）の形で PR と push を 1 つの式で分けている。D17 自身の反転条件（design.md:229）が、`--source-commit "${{ github.event.pull_request.head.sha || github.sha }}"` を渡して全部の組み立てで比べる形を書いており、費用は台本の引数 1 つと ci.yml の 1 行。`draft.sh` は 11.1 が既に使う `gh api …/actions/runs/<id> --jq .head_sha` で同じ値を取れる
+- kind: technical
+- 処置: escalated —— Q16 に乗る（どちらの選択肢でも D17 は外す。head から組むなら比べを外す分岐ごと要らず、合わせた木から組むなら `--source-commit` の案）。Q16 の答えを `spec --answers Q16` で写すときに D17 を `provisional.py resolve` で外す
+- 提案: D17 を外し、`check-artifacts.sh` に `--source-commit <40 桁>` を足して、`--allow-debug-key` の検査でも `SOURCE.txt` の `Commit:` をその値と比べる（PR は head、main への push は `github.sha` = 組み立ての印）。spec.md:176 と tasks 7.1・6.1 の検証をそれに合わせる。R17 の (1) を採るなら、比べを外す分岐ごと要らない
+
+## R19. 今回足した Requirement の文のうち、Scenario が言っていないもの
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:87・176
+- 根拠:
+  - spec.md:87「IF 依存の POM を取り寄せられない THEN その部品を飛ばさず、検査を落とす」（Q12 の推奨の detail「`--offline` で取れなければ組み立てを落とす」・C5）に Scenario が無い。近い Scenario「検査する対象が無い節は、通さずに落ちる」（spec.md:148。tasks 4.2 は `ASHIATO_GRADLEW=false`）は gradle 全体が落ちる場合で、task が解決できない部品を黙って飛ばす実装（例: lenient な解決）でも緑になる。tasks 4.1 の検証（tasks.md:96）は online → `--offline` の出力の `cmp` で、欠けた `.pom` で落ちることは試さない
+  - spec.md:176「debug の鍵を許す検査: 40 桁の commit」には通る側の Scenario（spec.md:237）しか無い。`--allow-debug-key` で `Ref: v…` や 40 桁でない `Commit:` を持つ配布物が落ちる Scenario が無く、`SOURCE.txt` の中身を見ない実装でも緑になる（落ちる側の Scenario「ソースの場所がチャンネルの決まりと合わない配布物は、公開しない」は `--channel beta` だけ）
+- kind: technical
+- 処置: fixed 4.3 —— Scenario「POM を取り寄せられない部品があれば、許諾の検査が落ちる」（4.3 の使い捨ての置き場に `.pom` の無い部品を足して `--offline`）と「debug の鍵を許す検査でも、commit でないソースの場所の配布物は落ちる」（7.1）を足し、自己試験と検証の grep に名指した
+- 提案: Scenario「取り寄せられない POM の部品があれば、許諾の検査が落ちる」（4.3 の `-Pashiato.extraRepo` の使い捨ての置き場に、`.pom` を置かない部品を足して `--offline` で走らせ、rc≠0 とその座標が出る）と、「debug の鍵を許す検査でも、40 桁の commit でないソースの場所は落ちる」を足し、tasks 4.2 / 4.3・7.1 の自己試験に名指す。R18 で比べを戻すなら、後者は「head の commit と違う `Commit:` は落ちる」にする
+
+## R20. 11.1 の P14 の探りは、書いたままでは `package` が組まれない場合があり、merge の後に置く理由も無い
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:228-230（11.1）
+- 根拠: 手順は「使い捨ての PR を開いて `package` を 1 回組ませ、その `SOURCE.txt` の commit を控える」。`package-linux` は `needs.changes.outputs.code == 'true'`（`.github/workflows/ci.yml:352`）のときだけ走り、`tools/release/changes.sh` の `code` は `docs/`・`openspec/`・`*.md` 以外のファイルが変わったときだけ真になる。使い捨ての PR が文書だけなら `package` は飛び、控える `SOURCE.txt` ができない。また、控えたいのは push し直す前の head の commit（`git rev-parse HEAD`）で、それは `SOURCE.txt` が無くても分かる
+- kind: technical
+- 処置: fixed 11.5 —— P14 の探りを 11.1 から外して 11.5 にし、`SOURCE.txt` も `package` も経ずに `git rev-parse HEAD` で head を控える形にした。確認バッチの中・ST53 が main に入る前に置き、取れなければ main に入れない。design D9・Open Questions・premises P14 の参照を 11.5 に直した
+- 提案: 11.1 を 2 つに分ける。P14 の探り（PR を開く → head を控える → rebase して force-push → 閉じる → 別の clone で両方を `git fetch origin <commit>`）は `package` も ST53 のコードも要らないので、`SOURCE.txt` を経ずに head を控える形に書き、R17 の (2) のとおり merge の前に置けるかを決める。`package` を組ませる側を残すなら、使い捨ての PR が `docs/`・`openspec/`・`*.md` の外のファイルに触ることを手順に書く
+
+## R21. 5.3 の自己試験が当てる「commit の選び方の関数」の置き場が書かれておらず、6.1 より前に検証できない
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:140-141（5.3）
+- 根拠: 今回足した 5.3 の本文は「開発版・main への push と PR の 2 つの Scenario は、6.1 の `build.sh` の commit の選び方（`ASHIATO_SOURCE_COMMIT` があればそれ、無ければ `git rev-parse HEAD`）を同じ関数で当てる（関数を `build.sh` と自己試験で共有する）」で、関数をどのファイルに置くかを言わない。関数が 6.1 の `build.sh` に入るなら、5.3 の検証（`tools/release/notices.sh --self-test` の 3 本の grep）は 6.1 を済ませるまで通らず、tasks の並び（5.3 → 6.1）と依存の向きが逆になる
+- kind: technical
+- 処置: fixed 5.3 —— commit の選び方を `tools/release/notices.sh commit` の副コマンドに置き、6.1 の `build.sh` はそれを呼ぶと書いた。5.3 の自己試験はこの副コマンドを当てるので 6.1 を待たない
+- 提案: 関数を `tools/release/notices.sh`（か、両方が読む小さな台本）に置き、6.1 の `build.sh` はそれを呼ぶ、と 5.3 に置き場を書く。または 2 本の Scenario の検証を 6.1 へ移す
+
+## 第 2 回の観点ごとの該当なし
+
+- 観点 1: 該当なし（確かめた範囲: Q10→D4・spec.md:53・tasks 2.1、Q11→D5・spec.md:55・tasks 2.2、Q12→D7・spec.md:86-87・Scenario 2 本・tasks 4.1/4.2、Q13→D8・tasks 5.2、Q14→D9・spec.md:169-176・Scenario 3 本・tasks 5.3/6.1/7.1/11.1、Q15→D16・spec.md:169。C1〜C5・C9 の仕様の側も同じ場所にある。go.json の W2・IMP-06 は reading の段が直すので見ていない。「答え待ち」「D<n>（仮）」の印は、第 2 回の 6 件には残っていない。「最初の印から後は前進側の 2 つを直せない」の Scenario は、正典 `openspec/specs/distribution/spec.md:203` の「配った版にある移行の中身を変えると、検査が落ちる」が持つ）
+- 観点 3: 該当なし（確かめた範囲: 今回の差分の design D4・D5・D7・D8・D9・D16・D17 のうち、受け付ける / 断る判定は spec に上がっている（AND・取り寄せられなければ落とす・head の commit・40 桁でなければ落とす・debug の鍵の検査の決まり）。proposal の Capabilities は変わっていない）
+- 観点 5: 該当なし（確かめた範囲: check_chain.py OK。docs/stories/ST53.md の完了の判定は record の段が C9 で「開発版・main への push・PR」に直していて、spec.md:169 と合う）
+- 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## 第 2 回の処置の確かめ（R19〜R21。2026-11-03）
+
+R20（11.5 に分け、`git rev-parse HEAD` で head を控え、ST53 が main に入る前に置く）と R21（`notices.sh commit` の副コマンドに置き、6.1 はそれを呼ぶ）は、指摘を満たす。R19 は 2 つとも Scenario が足されたが、次の R22・R23 が残る。
+
+## R22. Scenario「POM を取り寄せられない部品があれば、許諾の検査が落ちる」の GIVEN では、部品を飛ばす実装でも別の理由で落ちて緑になる
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:148-151 / tasks.md:116
+- 根拠: GIVEN は「使い捨ての maven の置き場に jar だけを置き `.pom` を置かない部品」。gradle の maven の置き場は、既定では POM か Gradle Module Metadata（`.module`）から部品を見つける（`artifact()` の metadata source は既定に入らない）ので、`.pom` も `.module` も無い部品は `releaseRuntimeClasspath` の解決の段で「見つからない」で落ちる。4.1 の task が `@pom` の detached configuration の失敗を黙って飛ばす実装（R19 が挙げた lenient な解決）でも、その前に依存の解決が落ちるので、この Scenario は rc≠0 で緑になる（tasks.md:116 の「lenient な解決で部品を黙って飛ばす実装はここで落ちる」は成り立たない）。実際に起きる形は、依存は解決できるのに `.pom` が手元に無い場合（`~/.gradle/caches/modules-2/files-2.1/androidx.core/core/*/*/` は `core-1.17.0.aar` だけ、`com.google.android.gms/play-services-location` も `.aar` だけ。2026-11-03 に ls で確かめた）
+- kind: technical
+- 処置: fixed 4.3 —— GIVEN を「`.module` と jar はあるが `.pom` が無い部品（依存の解決は通る）」にし、THEN に「POM を取れないことが示される（依存の解決の失敗ではない）」を足した。4.3 の手順も同じ形にし、`Could not find` でないことを見る
+- 提案: GIVEN を「依存の解決はできるが `.pom` を取れない部品」に直す。例: 使い捨ての置き場に `.module`（Gradle Module Metadata）と jar を置き `.pom` を置かない部品を足す。依存は `.module` で解決でき、`@pom` の解決だけが落ちる。THEN に「出力にその部品の行が無いまま rc=0 にならない」ことと、示す文が依存の解決の失敗（`Could not find`）ではなく POM を取れないことであるのを足す
+
+## R23. debug の鍵を許す検査の「40 桁の commit」のうち、40 桁でない `Commit:` を落とすことは Scenario が言っていない
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:247-250 / tasks.md（7.1）
+- 根拠: 足した Scenario は `Ref: v0.4.0` が落ちることだけを見る。spec の決まり（spec.md:181「debug の鍵を許す検査: 40 桁の commit」）と D9（「`Commit:` が 40 桁の 16 進であることだけを見て」）の、形の検査そのもの（`Commit: main`・短い commit）は、`Commit:` で始まるかだけを見る実装でも緑になる。R19 が挙げた 2 つの例のうち、後の方が残っている
+- kind: technical
+- 処置: fixed 7.1 —— Scenario の GIVEN を `Ref: v0.4.0`・`Commit: main`・7 桁の `Commit:` の 3 つにし、3 つとも落ちることを求めた。7.1 の自己試験も同じ 3 つにした
+- 提案: 同じ Scenario の GIVEN を `Commit: main`（または 7 桁の短い commit）に替えるか、もう 1 本足して 7.1 の自己試験に名指す（7.1 の検証の数も合わせる）。R18 / Q16 の答えで比べを戻すなら、この Scenario は「渡した commit と違う `Commit:` は落ちる」に置き換わる
+
+## R24. 名前の統一の行が、5.3 で足した副コマンド `commit` を持たない
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:24
+- 根拠: tasks.md:24 の「名前は統一する」は `tools/release/notices.sh <server|collector-windows|apk|source>` で、R21 の処置で 5.3 に足した `notices.sh commit`（6.1 の `build.sh` が呼ぶ）が無い。下流がこの行を道具の名前の正本として読むと、副コマンドの名前が揺れる
+- kind: technical
+- 処置: fixed tasks.md —— 「名前は統一する」の `notices.sh` の副コマンドに `commit` を足した
+- 提案: tasks.md:24 を `<server|collector-windows|apk|source|commit>` にする
