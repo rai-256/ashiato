@@ -1,0 +1,242 @@
+{
+  "title": "ST53 の深掘り 第 2 回",
+  "subtitle": "仮で進めた決定のうち、別の席が「仮のままにできない」とした 6 件（Q10〜Q15）",
+  "note": "第 1 回の答えのあと、AI が「失うものは無い」と見て仮で進めた決定が 9 件ありました。merge の前に別の席がそれを確かめ直し、6 件（design の D4・D5・D7・D8・D9・D16）を否としました。この 6 件は AI が決めずに聞きます。Q10・Q12・Q14 が本体で、Q11・Q13・Q15 はそれぞれ Q10・Q12・Q14 の答えに乗ります。選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q10",
+      "topic": "移行の 2 ファイルの許諾の表示を、最初の印の前に書き換えるか",
+      "kind": "irreversible",
+      "loss": "exported",
+      "multi": false,
+      "allow_free": true,
+      "question": "移行のうち表示が `AGPL-3.0-only` のままの 2 つ（`migrations/202609211400_browser_history_record_id.sql`・`migrations/202610181200_media_capture.sql`。戻し手順の `.down.sql` を含めて 3 ファイル）を、最初の印 `v*` を打つ前に `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換えますか。",
+      "why": "AI は「書き換えない。表示はいつでも書き換えて例外から外せる」と仮で決めていました（design D4）。ところが配った移行の凍結の検査（`tools/check-released-migrations.sh:52-54`）は、印 `v*` の版にある移行の前進側の中身の差を落とします。Q4 の答えのとおり ST53 が main に入った直後に本人が最初の印を打つと、その時点からこの 2 つは**書き換えられなくなります**。配った版のソース（とサーバの実行ファイル。`crates/server/build.rs:114` の `include_str!`）には、追加の許可の無い表示が残ります（別の席が確かめた）。",
+      "context": "書き換えると、移行の中身の指紋（`migration_ledger.rs` の sha256）が変わり、既にこの 2 つを当てたどの DB（本人のサーバ・開発と確認の DB）でも、起動のたびに「記録した指紋と中身が違う版がある（当て直さない）」の警告が出続けます（`migration_ledger.rs:518-530`。記録を付け替える口は無い）。追加の許可は Google Play 開発者サービスと組み合わせる携帯の APK のためのもので、移行は APK に入りません。`LICENSE`（D1）は木の全体に掛かります。移行の指紋を表示の行を除いて計算する形に変えるのは、ST48 の決めた形の改訂で ST53 の範囲を越えます。",
+      "options": [
+        {
+          "label": "書き換えない（AGPL-3.0-only のまま、表示の検査の例外に名前で載せる）",
+          "detail": "D4 の案のまま。指紋の警告は出ない。追加の許可が要るのは APK に入るコードで、移行は APK に入らないので、実際に許可の及ばない組み合わせは生まれない。代わりに、最初の印から後はこの 2 つの表示を直せず、配った版のソースとサーバの実行ファイルに WITH の無い表示が残る",
+          "irreversible": "最初の印の後は、この 2 つの表示を書き換えると凍結の検査に落ちる（直すには凍結の規則の例外が要る）",
+          "recommended": true
+        },
+        {
+          "label": "最初の印の前に書き換え、指紋の警告は受け入れる",
+          "detail": "3 ファイルの先頭 1 行を書き換え、例外の一覧から移行を外す（例外は gradle の wrapper の 2 つだけになる）。既に当てた DB では起動のたびに警告が 2 行出続ける。手順の文書に「この 2 つの警告は ST53 の表示の書き換えによるもの」と書く",
+          "irreversible": "警告は記録を付け替える口ができるまで消えない（本当の書き換えの警告と見分けにくくなる）"
+        },
+        {
+          "label": "最初の印の前に、指紋の計算から先頭の SPDX の行を除く形に変えてから書き換える",
+          "detail": "警告を出さずに表示をそろえられる。ST48 の指紋の決まりを変えるので、この Story の範囲を越える（change か別の Story で先にやり、それまで最初の印を待つ）"
+        }
+      ],
+      "family": {
+        "name": "配った後は書き換えられないファイルに、追加の許可の表示を付けるか",
+        "siblings": [
+          {"case": "移行の前進側 2 つ（`.sql`）の表示", "decided": "未決 Q10"},
+          {"case": "移行の戻し手順（`.down.sql`）の表示。凍結の外", "decided": "未決 Q10（前進側に合わせる）"},
+          {"case": "表示の検査の例外の一覧に移行を載せるか", "decided": "未決 Q11（Q10 に従う）"},
+          {"case": "gradle の wrapper の 2 つ（他人の `Apache-2.0`）", "decided": "design D5（書き換えない。第三者のファイル）"},
+          {"case": "送信契約の写し・API の契約の写しなど、凍結される生成物の表示", "decided": "design D4 の本文（`docs/openapi.json` は作り直す。凍結は移行だけ）"},
+          {"case": "506 → 503 の件数と Q5 の答え（推奨のまま）の食い違い", "decided": "deep.md の「答えと仮の決定の関係」（Q10 の答えで書き直す）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "D4 の「失わない」は「印 `v*` はまだ 0 個」（design.md:74）だけに乗り、Q4 の答え（最初の印は ST53 が main に入った直後）と凍結の検査（`check-released-migrations.sh`）を突き合わせなかった。premises に「最初の印をいつ打つか」と「印の後に凍るファイル」の行が無かった",
+        "prevention": "配った後に凍るファイル（移行・契約の写し）を書き換えるか決める問いでは、premises に「最初の印の時期」と「凍結の検査の対象」を書き、keeps が時期に乗るなら rests_on にその Q を挙げる"
+      }
+    },
+    {
+      "id": "Q11",
+      "topic": "表示の検査の例外の一覧と見る窓（Q10 に乗る）",
+      "kind": "premise",
+      "multi": false,
+      "allow_free": true,
+      "question": "表示の検査（`tools/check-spdx.sh headers`）を、先頭 25 行の `SPDX-License-Identifier:` だけを見て表示の無いファイルは見ない形にし、例外の一覧は Q10 の答えに従って決めますか。",
+      "why": "AI は D5 を仮で決めていましたが、例外の一覧（「gradle の wrapper の 2 つと移行の 3 つ」。design.md:84）は D4（Q10）の決定そのものを含むのに、台帳の rests_on に D4 がありませんでした。Q10 が「書き換える」になれば、D5 の例外の一覧も変わります。また台帳の文は「先頭 5 行」のまま古く、design・spec・tasks は spec レビュー R3 の処置の後で「先頭 25 行」です（`collector-android/gradlew:18`・`gradlew.bat:16`・`crates/server/src/coverage/tests/mod.rs:21` は 5 行の窓に入らない）。検査の範囲そのもの（表示の無いファイルを見ない）には、別の席は失うものを見つけていません。",
+      "context": "repo の中の第三者のファイルは gradle の wrapper の 2 つだけです（review/deep.md 手順 5）。表示を全部のファイルに求めると、生成物・設定・文書の数百のファイルに見出しを足すことになります。表示を持たずに写したコードは、どの形でも機械では止まりません（要件 §5 ★ 2026-11-02 訂正 K1）。",
+      "options": [
+        {
+          "label": "先頭 25 行・表示の無いファイルは見ない・例外は Q10 に従う",
+          "detail": "Q10 が「書き換えない」なら例外は wrapper の 2 つと移行の 3 つ、「書き換える」系なら wrapper の 2 つだけ。台帳の古い「5 行」は使わない",
+          "recommended": true
+        },
+        {
+          "label": "表示の無いファイルも一覧にして落とす（検査を広げる）",
+          "detail": "表示の無いファイル全部に見出しを足すか、見ないファイルの型の一覧を持つ。数百のファイルに触る"
+        }
+      ],
+      "family": {
+        "name": "仮の決定が、別の仮の決定の中身に乗っているのに rests_on に無い",
+        "siblings": [
+          {"case": "D5 の例外の一覧が D4 に乗る", "decided": "未決 Q11"},
+          {"case": "D8 の携帯の部品が D7 に乗る", "decided": "未決 Q13"},
+          {"case": "D16 の commit の書き方が D9 に乗る", "decided": "未決 Q15"},
+          {"case": "D11 が D3 に乗る", "decided": "design D11（仮。別の席が確か。D3 は仮でない）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "spec レビュー R3 の処置で design・spec・tasks の窓を 25 行に直したが、台帳（`provisional.jsonl`）の chosen を直さず、例外の一覧が D4 に乗ることも `--rests-on` に渡さなかった。台帳の道具は design の本文と台帳の文の食い違いを見ない",
+        "prevention": "spec の段で design の D<n>（仮）を書き換えたら、同じ commit で台帳の行を作り直す。`provisional.py add` が `--chosen`・`--keeps` に出てくる D<n> を拾い、`--rests-on` に無ければ落とす"
+      }
+    },
+    {
+      "id": "Q12",
+      "topic": "携帯の依存の POM に許諾が 2 つ以上並ぶとき、どう読むか",
+      "kind": "irreversible",
+      "loss": "exported",
+      "multi": false,
+      "allow_free": true,
+      "question": "携帯の依存の許諾の検査（`tools/check-licenses.sh` の Android の節）で、1 つの部品の POM の `<licenses>` に名前が 2 つ以上並んだとき、「どれか 1 つが許可の一覧にあれば通す（OR）」と「全部が許可の一覧にあるか名指しに当たるときだけ通す（AND）」のどちらで読みますか。",
+      "why": "AI は D7 で「OR と読む。落ちる側（公開しない側）に倒れる」と仮で決めていましたが、OR は通す側（公開する側）の読み方で、keeps と合いません。POM に 2 つ並ぶとき、選べる（OR）のか両方が掛かる（AND）のかは POM の形式からは決まりません。両方が掛かる部品（例: `Apache-2.0` と `Android Software Development Kit License` を並べる部品）を OR で通すと、名指し（D2）の外のプロプライエタリが APK に入り、その版は配った後に戻りません（別の席が確かめた）。",
+      "context": "今の依存では起きません。`releaseRuntimeClasspath` の 55 部品のうち、`<license>` が 1 つのものが 52、0 のもの（guava の 3 つ。親を辿る）が 3 で、2 つ以上のものは 0（別の席が 2026-11-02 に POM を取って数えた）。別の席は前提の誤りも 1 つ見つけています: design.md:107 の「POM は依存の解決のときに gradle の cache に入っている」は誤りで、`androidx.core/*` と `com.google.android.gms/*` には `.aar` しか無く、反転条件の「cache の `.pom` を直に読む」には読むものがありません。`@pom` の detached configuration が `--offline` で解決できるかは走らせていません（解決できなければ組み立てが落ちる側に倒れる）。",
+      "options": [
+        {
+          "label": "AND で読む（全部が許可の一覧にあるか、名指しに当たるときだけ通す）",
+          "detail": "落ちる側に倒れる。費用は同じ台本の 1 行。本当に選べる 2 つ（デュアルライセンス）の部品が来たら、対応表か例外で 1 つを選んだと書く。あわせて design の「POM は cache に入っている」を「`@pom` を解決して取り寄せる。`--offline` で取れなければ組み立てを落とす」に直す",
+          "recommended": true
+        },
+        {
+          "label": "OR で読む（D7 の案のまま）",
+          "detail": "デュアルライセンスの部品を手を入れずに通せる。両方が掛かる部品が来たとき、名指しの外のプロプライエタリを通しうる",
+          "irreversible": "その部品を含む APK を配った後は、配った写しから外せない"
+        },
+        {
+          "label": "2 つ以上並んだら落とし、部品ごとに人が対応表で決める",
+          "detail": "どちらの読み方にも寄せない。今は 0 部品なので費用は無い。並ぶ部品が来るたびに対応表に 1 行足す"
+        }
+      ],
+      "family": {
+        "name": "許諾の名前を読み違えて、許可の外の部品を配る",
+        "siblings": [
+          {"case": "POM に名前が 2 つ以上並ぶ", "decided": "未決 Q12"},
+          {"case": "POM に名前が無い（親を辿る）", "decided": "design D7（深さの上限 5。辿れなければ落とす）"},
+          {"case": "対応表に無い名前", "decided": "design D7（落とす）"},
+          {"case": "`Android Software Development Kit License`", "decided": "design D7・D2（`PROPRIETARY` に対応させ、名指しでだけ通す）"},
+          {"case": "POM を `--offline` で取れない", "decided": "未決 Q12（推奨では組み立てを落とす）"},
+          {"case": "Rust・Node の部品の `OR` の式", "decided": "design D6（SPDX の式の `OR` は選べる意味で、今の検査のまま）"},
+          {"case": "依存の一覧（THIRD-PARTY-NOTICES）が携帯の部品を何から作るか", "decided": "未決 Q13（Q12 に従う）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec-review",
+        "why": "spec レビューは D7 の本文の「OR と読む」と keeps の「落ちる側に倒れる」を並べて読まず、向きの食い違いを拾わなかった。POM が cache にあるという前提も、cache の中を見て確かめていなかった",
+        "prevention": "仮の決定の keeps が「落ちる側に倒れる」と言うとき、spec レビューは本文の判定のどの分岐が通す側かを 1 つずつ確かめる。依存の道具の前提は premises に置き、cache の中身を `ls` した結果で確かさを付ける"
+      }
+    },
+    {
+      "id": "Q13",
+      "topic": "依存の一覧の携帯の部品（Q12 に乗る）",
+      "kind": "premise",
+      "multi": false,
+      "allow_free": true,
+      "question": "配布物ごとの依存の一覧（`THIRD-PARTY-NOTICES.txt`）の携帯の部品を、Q12 の答えで決まる検査の task の出力から作り、ほかの部分は D8 の案（多めに入れる側に倒す）のままにしますか。",
+      "why": "AI は D8 を仮で決めていましたが、携帯の入力は「D7 の task の出力の部品」（design.md:121）で、D7（Q12）に乗るのに台帳の rests_on にありませんでした。Q12 の答えで D7 が変われば、D8 の携帯の部分も変わります。中身（多めに入れる側に倒す）には、別の席は失うものを見つけていません。",
+      "context": "画面の dev でない部品は react・react-dom・scheduler の 3 つで、`git ls-files web` に第三者の資産（字形・画像）はありません。Rust の build の依存は自分の `ashiato-build-stamp` だけです。名指しの gms の 4 つは Q2（答え済み）。",
+      "options": [
+        {
+          "label": "Q12 の答えに従う（携帯の部品は検査と同じ出力から。ほかは D8 の案のまま）",
+          "detail": "検査と一覧が同じ部品の集合を見る。Q12 で読み方や POM の取り方が変われば、一覧もそれに合わせる",
+          "recommended": true
+        },
+        {
+          "label": "携帯の部品は検査と別の出所（例: `gradlew :app:dependencies` の木）から作る",
+          "detail": "検査の読み方に一覧が引きずられない。代わりに検査と一覧で部品の集合がずれうる"
+        }
+      ],
+      "family": {
+        "name": "仮の決定が、別の仮の決定の中身に乗っているのに rests_on に無い",
+        "siblings": [
+          {"case": "D5 の例外の一覧が D4 に乗る", "decided": "未決 Q11"},
+          {"case": "D8 の携帯の部品が D7 に乗る", "decided": "未決 Q13"},
+          {"case": "D16 の commit の書き方が D9 に乗る", "decided": "未決 Q15"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "design の D8 の本文に「D7 の task の出力」と書いたのに、`provisional.py add` の `--rests-on` に D7 を渡さなかった。台帳の道具は本文と rests_on の食い違いを見ない",
+        "prevention": "`provisional.py add` が design の D<n> の節の本文に出てくる D<m>（仮）を拾い、`--rests-on` に無ければ落とす"
+      }
+    },
+    {
+      "id": "Q14",
+      "topic": "PR の組み立ての SOURCE.txt に、どの commit を書くか",
+      "kind": "irreversible",
+      "loss": "exported",
+      "multi": false,
+      "allow_free": true,
+      "question": "PR の組み立て（`ci.yml` の `package-linux` など）の配布物の `SOURCE.txt` に、GitHub が PR のために作る合成の merge commit（`refs/pull/<n>/merge`。今の checkout の既定）と、PR の head の commit（`github.event.pull_request.head.sha`）のどちらを書きますか。",
+      "why": "AI は D9 で「無ければ組み立ての commit を書く」と仮で決め、PR では合成の merge commit になる（`.github/workflows/ci.yml:355` の checkout は `ref` を渡さない）ことを、PR を閉じた後も取れるか確かめずに（premises P14・確かさ 2）確認バッチ 11.1 に回していました。PR の成果物は公開リポジトリで 90 日、誰でも落とせる側として扱っています（review/deep.md R5）。取れなかった場合、もう落とされた写しのソースの場所は直せません。それまでの間に ST53 の PR 自身と後の PR がこの形の成果物を出します（別の席が確かめた）。",
+      "context": "正式版・ベータ版（印 `v*`）と開発版（main の commit。`nightly.yml:33-51` は `ASHIATO_SOURCE_REF` を渡さない）の部分には、別の席は失うものを見つけていません。head の commit も、PR を閉じた後に `refs/pull/<n>/head` で取れるかは確かさ 4 に上げていません（一般には PR の head は閉じた後も残る）。配布物の組み立ての印（ST52 の `artifact_stamp`）は checkout した commit（PR では合成の merge commit）を持つので、head を書くなら「組み立ての印の commit と同じ」の比べは PR の組み立てだけ外します。",
+      "options": [
+        {
+          "label": "PR の組み立てでは head の commit を書き、組み立ての印との比べはその場合だけ外す",
+          "detail": "D9 の反転条件そのもの。費用は `ci.yml` の環境変数 1 つと検査の分岐 1 つ。head は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。確認バッチ 11.1 で、閉じた PR の head を `git fetch origin <commit>` で取れるかを確かめる",
+          "recommended": true
+        },
+        {
+          "label": "合成の merge commit のまま（D9 の案）。確認バッチ 11.1 で取れるかを確かめる",
+          "detail": "組み立ての印と `SOURCE.txt` が同じ commit を指す。取れないと分かったら head に替えるが、それまでに出た成果物の写しは直せない",
+          "irreversible": "それまでに落とされた PR の成果物の `SOURCE.txt` は、取れない commit を指したまま残る"
+        },
+        {
+          "label": "merge の前に確認バッチ 11.1 を走らせ、取れるかを確かめてから決める",
+          "detail": "使い捨ての PR を開いて閉じ、merge commit と head の両方を `git fetch` で試す。確かめるまで ST53 を main に入れない"
+        }
+      ],
+      "family": {
+        "name": "配布物が示すソースの場所が、後から取れなくなる",
+        "siblings": [
+          {"case": "PR の組み立ての合成の merge commit", "decided": "未決 Q14"},
+          {"case": "PR の head の commit が閉じた後も取れるか", "decided": "未決 Q14（推奨では確認バッチ 11.1 で確かめる）"},
+          {"case": "開発版の印 `nightly` が毎日動く", "decided": "deep.md Q7（開発版は 40 桁の commit）"},
+          {"case": "main への push の組み立て", "decided": "design D9（main の commit。main の履歴は消えない）"},
+          {"case": "正式版・ベータ版の印が消される・動かされる", "decided": "ST52 の design D2（ルールセットで拒む）"},
+          {"case": "配布元のリポジトリの名前が変わる", "decided": "design D9（`ASHIATO_SOURCE_REPO` の既定を変える）"},
+          {"case": "開発版と PR の組み立てを何で示すか（FR-127 の「同じ印」との差）", "decided": "未決 Q15（Q14 に従う）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "P14（合成の merge commit を PR を閉じた後も取れる）を確かさ 2 のまま、失わない理由に使った。確かめを確認バッチ 11.1（merge の後）に回し、その前に出る成果物を数えていなかった",
+        "prevention": "keeps が確かさ 3 以下の前提に乗る仮の決定は、その前提を確かめる前に外へ出る写しがあるかを premises に書き、あれば仮にしない（A として聞く）"
+      }
+    },
+    {
+      "id": "Q15",
+      "topic": "開発版と PR の組み立てを commit で示す（Q14 に乗る）",
+      "kind": "premise",
+      "multi": false,
+      "allow_free": true,
+      "question": "開発版と PR の組み立ての配布物を、FR-127 の「同じ印」ではなく 40 桁の commit で示す（FR-127 ★ 2026-11-02 補足のとおり）とき、PR の組み立てで書く commit は Q14 の答えに従いますか。",
+      "why": "AI は D16 を仮で決めていましたが、「それ以外は組み立ての印の 40 桁の commit で示す（D9）」（design.md:204）のとおり D9（Q14）に乗るのに、台帳の rests_on は Q7 だけで D9 がありませんでした。Q14 で PR の組み立てを head の commit に替えれば、D16 の「組み立ての commit で示す」の中身も変わります。Q7（答え済み）との向きは合っています。",
+      "context": "FR-127 の ★ 2026-11-02 補足は「どの commit を書くか —— PR では GitHub が作る merge の commit か PR の head か —— は ST53 の design D9 が持ち、後から取れるかを確かめて決める」と書いており、Q14 の答えで要件の本文は変わりません。",
+      "options": [
+        {
+          "label": "Q14 の答えに従う（開発版は main の commit、PR は Q14 で選んだ commit）",
+          "detail": "D16 の文を「組み立ての commit」から「開発版は組み立ての commit、PR は Q14 の commit」に直す",
+          "recommended": true
+        },
+        {
+          "label": "開発版にも動かない印（`nightly-YYYYMMDD` など）を打ち、その印で示す",
+          "detail": "FR-127 の「同じ印」に字面で合う。印の数が毎日 1 つ増え、ST52 の印の決まり（`v*` と `nightly`）に型が 1 つ足される。PR は Q14 のまま"
+        }
+      ],
+      "family": {
+        "name": "仮の決定が、別の仮の決定の中身に乗っているのに rests_on に無い",
+        "siblings": [
+          {"case": "D5 の例外の一覧が D4 に乗る", "decided": "未決 Q11"},
+          {"case": "D8 の携帯の部品が D7 に乗る", "decided": "未決 Q13"},
+          {"case": "D16 の commit の書き方が D9 に乗る", "decided": "未決 Q15"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "spec レビュー R14 の処置で D16 を足したとき、cost に「D9 の書き方のまま」と書いたのに `--rests-on` には Q7 だけを渡した",
+        "prevention": "`provisional.py add` が `--cost`・`--keeps` に出てくる D<n> を拾い、`--rests-on` に無ければ落とす"
+      }
+    }
+  ]
+}

@@ -17,7 +17,7 @@ ST52 で、印を付けると 4 つの配布物（サーバの Linux 版・Windo
   文は `LICENSES/AdditionRef-ashiato-play-services.txt` を正本にし、`LICENSE` の先頭にもそのまま写す。日本語の参考訳は README に置く。
   `LICENSE` の先頭と正本のファイルが 1 字でも違えば、検査が落ちる
 - **ソースの許諾の表示を書き換える**（Q5 の推奨・FR-127 ★）: `AGPL-3.0-only` を宣言しているソースと、`Cargo.toml`・`web/package.json`（と lock の根）の表示を `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` にする。
-  API の契約の写し（`docs/openapi.json`）は作り直す。ただし**移行の 3 ファイルは書き換えない**（D4（仮））。移行は中身の指紋を DB に記録しているので、書き換えるとどの DB でも指紋の警告が出続ける。
+  API の契約の写し（`docs/openapi.json`）は作り直す。ただし**移行の 3 ファイルは書き換えない**（D4（Q10 の答え待ち））。移行は中身の指紋を DB に記録しているので、書き換えるとどの DB でも指紋の警告が出続ける。
   そのため件数は、推奨の文の 506 ではなく 503 になる。新しい検査（`tools/check-spdx.sh`）は、決めた表示でない見出しを持つファイルを落とす。例外は、gradle の wrapper の 2 つと移行の 3 つだけ
 - **携帯の依存も許諾の検査に入れる**（NFR-26・Q2）: `tools/check-licenses.sh` に Android の節を作る。配る APK に入る依存（`releaseRuntimeClasspath`）の POM の許諾を読み、SPDX の名前に対応させる。
   オープンソースの許諾でない部品は、追加の許可の正本に名指しした 4 つだけを通す。名指しは正本のファイルから読み、検査は自分で一覧を持たない。名指しの外の部品・許諾の読めない部品・対応表に無い許諾名の部品が入れば、CI が落ちる
@@ -71,6 +71,6 @@ Q8（`tools/verify-prep.sh`）は確認バッチの作業ツリーの準備で�
 - CI: `.github/workflows/ci.yml`（`web` の job は `check-licenses.sh rust node`、`package-linux` に `check-licenses.sh android` と `check-spdx.sh`）、`.github/workflows/release.yml`（`publish` で `check-guards.sh approvals`、印を `ASHIATO_SOURCE_REF` で組み立てへ渡す）
 - 確認バッチの準備: `tools/verify-prep.sh`（端末の選び方）、新しい `tools/verify-prep-device.sh`（選び方と自己試験）
 - 文書: `docs/release.md`（順の入れ替え・資格情報の切り替え・承認者・最初の公開の後の確かめ・PR の成果物の掃除・ST53 の確認バッチ）、`docs/testing.md`（検査の行）、`docs/production-prep.md`（依存の許諾の検査の行）、`CLAUDE.md`（構成の `tools` の行）
-- record の段に渡すもの（spec の段は直さない。`deep.md` の「record の段へ渡すもの」）: `docs/stories/ST52.md` の完了の判定の書き直し（Q4）、`docs/stories/ST53.md` の完了の判定に承認者・`SOURCE.txt`・確認バッチの準備を足すこと（review/spec.md R13）、FR-127 に ★ で開発版・PR の組み立ては commit で示すと補うこと（Q7・D16（仮））、`docs/requirements.md` の未決 2 つ（Q6 の携帯の許諾の画面・Q9 のサーバの画面のソースの場所）
+- record の段に渡すもの（spec の段は直さない。`deep.md` の「record の段へ渡すもの」）: `docs/stories/ST52.md` の完了の判定の書き直し（Q4）、`docs/stories/ST53.md` の完了の判定に承認者・`SOURCE.txt`・確認バッチの準備を足すこと（review/spec.md R13）、FR-127 に ★ で開発版・PR の組み立ては commit で示すと補うこと（Q7・D16（Q15 の答え待ち））、`docs/requirements.md` の未決 2 つ（Q6 の携帯の許諾の画面・Q9 のサーバの画面のソースの場所）
 - **走っている change との重なり**: `openspec/changes/` で archive 以外は、この change だけ。重なりは無い
 - 本人の手（下流は配布元に書かない）: エージェントの資格情報の切り替え、Environment の承認者、ルールセット、鍵、最初の印、PR の成果物の削除

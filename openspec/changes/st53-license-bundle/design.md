@@ -68,7 +68,9 @@ Administration・Environments・Deployments・Secrets は持たせない。
 - 選ばなかった案（Q3 の他の選択肢）: 承認者だけ（管理者の資格情報が規則を外せる）、手元で署名（FR-104 の「印を付けるだけで並ぶ」を満たさない）
 - 承認するときに本人が見るもの（`docs/release.md`）: 承認の画面に出る印の commit が main の祖先で、PR を通って入ったこと。見ずに押すと、守りは無いのと同じ（Risks）
 
-### D4（仮）. 移行の 3 ファイルは、許諾の表示を書き換えない
+### D4. 移行の 3 ファイルは、許諾の表示を書き換えない（未決。Q10 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D4）が否とした: Q4 の答えで ST53 が main に入った直後に最初の印 `v*` を打つと、配った移行の凍結の検査（`tools/check-released-migrations.sh:52-54`）が前進側 2 つの中身の差を落とすので、「いつでも書き換えて例外から外せる」は成り立たない。配った版のソースとサーバの実行ファイル（`crates/server/build.rs:114`）に WITH の無い表示が残る。台帳から外し、`deep.md` の Q10 で人間に返した。下の本文は推奨で書いた案のまま
 
 移行は中身の sha256 を DB に記録している（`migration_ledger.rs` の `fingerprint`）。表示の 1 行を書き換えると、既にその版を当てたどの DB（本人のサーバ・開発と確認の DB）でも、起動のたびに「記録した指紋と中身が違う版がある」の警告が出続ける。
 印 `v*` はまだ 0 個で、配った移行の凍結（`check-released-migrations.sh`）には当たらない。それでも警告は残る。
@@ -77,7 +79,9 @@ Administration・Environments・Deployments・Secrets は持たせない。
 - 反転条件: 移行の指紋を、表示の行を除いて計算する形に変える Story が来たら、書き換えて例外から外す
 - Q5 の推奨の文は「506 ファイル」と書いていた。spec の段で、指紋のことが分かって移行の 3 つを外した（書き換えるのは 503）。Q5 の答えが推奨のままでも、この D4 が答えの上に乗る例外として残る（review/spec.md R9。GO 資料で見せる）。Q5 で本人が「全部を書き換える」と補足したら、D4 を外す
 
-### D5（仮）. 表示の検査は先頭 25 行の `SPDX-License-Identifier:` を見る。取り込んだコードは、表示を持つものだけを止める
+### D5. 表示の検査は先頭 25 行の `SPDX-License-Identifier:` を見る。取り込んだコードは、表示を持つものだけを止める（未決。Q11 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D5）が否とした: 例外の一覧（移行の 3 つ）は D4 の決定そのものを含むのに、台帳の rests_on に D4 が無かった。台帳の文は「先頭 5 行」のまま古かった（本文の 25 行が spec レビュー R3 の後の形）。台帳から外し、`deep.md` の Q11 で人間に返した。下の本文は推奨で書いた案のまま
 
 `tools/check-spdx.sh` は `git ls-files -s` を読み、mode が `120000`（symlink）のものを飛ばす。残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
 窓を 25 行にするのは、gradle の wrapper の表示が 18 行目・16 行目にあるため（review/spec.md R3）。`crates/server/src/coverage/tests/mod.rs` は表示が 21 行目の `mod` の並びの後にあり、書き換えるときに先頭へ移す。
@@ -98,7 +102,9 @@ Node の節は、根（`web/package.json` の `name`）を同じ条件で通す�
 - 失わない理由: 今の依存で落ちるものは無い（P3: Rust 357 部品・Node 306 部品に他人の GPL / AGPL は 0）。他人の AGPL が要る日には、一覧に戻せる
 - 反転条件: 他人の AGPL-3.0 の部品を使うと決めたら、その部品に許可が及ばないことを README に書き、一覧に `AGPL-3.0-only` を戻す
 
-### D7（仮）. 携帯の依存の許諾は、gradle の task が書き出した POM から読み、名前を対応表で SPDX に直す
+### D7. 携帯の依存の許諾は、gradle の task が書き出した POM から読み、名前を対応表で SPDX に直す（未決。Q12 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D7）が否とした: 名前が 2 つ以上並ぶ部品を「どれか 1 つが許可の一覧にあれば通す（OR）」と読むのは通す側（公開する側）で、「落ちる側に倒れる」と合わない。両方が掛かる部品を通すと名指しの外のプロプライエタリが APK に入り、配った後に戻らない。「POM は gradle の cache に入っている」も誤り（`androidx.core/*`・`com.google.android.gms/*` は `.aar` だけ）。台帳から外し、`deep.md` の Q12 で人間に返した。下の本文は推奨で書いた案のまま
 
 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す。
 task は `releaseRuntimeClasspath` の解決済みの部品ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決し、`<licenses>` が空なら `<parent>` を辿る（深さの上限 5）。
@@ -112,7 +118,9 @@ Google の `oss-licenses-plugin` は使わない。実行時に `play-services-o
 - 失わない理由: 道具は替えられる。対応表は足すだけ
 - 反転条件: gradle の detached configuration が POM を解決できない部品が出たら、cache の `files-2.1/<group>/<name>/<version>/*/<name>-<version>.pom` を直に読む形に替える
 
-### D8（仮）. 依存の一覧は配布物ごとに組み立ての時に作る。全文は部品が持つ許諾のファイルを優先し、無ければ SPDX の全文を使う
+### D8. 依存の一覧は配布物ごとに組み立ての時に作る。全文は部品が持つ許諾のファイルを優先し、無ければ SPDX の全文を使う（未決。Q13 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D8）が否とした: 携帯の入力は D7 の task の出力で D7 に乗るのに、台帳の rests_on に D7 が無かった。中身（多めに入れる側に倒す）には失うものは見つかっていない。台帳から外し、`deep.md` の Q13 で人間に返した。下の本文は推奨で書いた案のまま
 
 新しい `tools/release/notices.sh <server|collector-windows|apk> <出力のファイル> [--target <triple>]` が `THIRD-PARTY-NOTICES.txt` を組む。部品の集め方は次のとおり。
 - Rust: `cargo tree -p <crate> -e normal --target <triple> --prefix none --format '{p}'` の部品を集める（build と dev の依存は除く）。各部品の `manifest_path` の置き場から `LICENSE*`・`COPYING*`・`NOTICE*` を写す
@@ -125,7 +133,9 @@ Google の `oss-licenses-plugin` は使わない。実行時に `play-services-o
 - 失わない理由: 一覧は多めに入れる側に倒す（`cargo tree` は target の部品を全部数える。実際に結び付かない部品が入っても、欠けるよりよい）。形は次の版で変えられる。欠けた版は直せない（R10）
 - 反転条件: 一覧が大きくなり、配布物の大きさで困ったら、Apache-2.0 の全文を 1 回だけ書き、各項は名前の参照にする
 
-### D9（仮）. `SOURCE.txt` の印は環境変数 `ASHIATO_SOURCE_REF` で渡す。無ければ組み立ての commit を書く
+### D9. `SOURCE.txt` の印は環境変数 `ASHIATO_SOURCE_REF` で渡す。無ければ組み立ての commit を書く（未決。Q14 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D9）が否とした: PR の組み立てで書く合成の merge commit（`.github/workflows/ci.yml:355` の checkout は `ref` を渡さない）を PR を閉じた後も取れるかは P14 の確かさ 2 のままで、確かめ（確認バッチ 11.1）より前に PR の成果物（90 日、誰でも落とせる）が出る。取れなければ落とされた写しのソースの場所は直せない。台帳から外し、`deep.md` の Q14 で人間に返した。下の本文は推奨で書いた案のまま
 
 `release.yml` の組み立ての job は、`ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を `build.sh` に渡す。
 `build.sh` は、その値が `v<ASHIATO_BUILD_VERSION>` と同じときだけ印として書く。違えば組み立てを落とす。
@@ -197,7 +207,9 @@ CI の置き場は次のとおり。
 `package-linux` は `changes` の `code` が true のときだけ走る。依存も表示もコードの変更でしか変わらないので、文書だけの PR では飛ばしてよい。
 `check-spdx.sh`（`license` と `headers`）は軽いので、`chain` の job（全 PR で走る）にも置く。`LICENSE` を文書だけの PR で書き換えても止まる。`check-licenses.sh` は、節を選んだときも、選んだ節の対象が無ければ落ちる。
 
-### D16（仮）. 開発版と PR の組み立ては、FR-127 の「同じ印」ではなく組み立ての commit でソースを示す
+### D16. 開発版と PR の組み立ては、FR-127 の「同じ印」ではなく組み立ての commit でソースを示す（未決。Q15 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D16）が否とした: 「組み立ての commit で示す（D9）」のとおり D9 に乗るのに、台帳の rests_on は Q7 だけだった。台帳から外し、`deep.md` の Q15 で人間に返した。下の本文は推奨で書いた案のまま
 
 > Q7 の推奨（答え待ち）。review/spec.md R14。
 

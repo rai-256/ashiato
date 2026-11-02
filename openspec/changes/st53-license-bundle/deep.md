@@ -48,6 +48,55 @@
 - 問い: サーバの画面（ブラウザで開くもの）に、ソースの場所（同じ版の印のリポジトリ）と許諾へのリンクを出しますか。
 - 答え: (推奨のまま: 出さない。一般向けの配布の前に足すことを、要件の未決として残す（/requirements から足す。受ける Story はまだ無い）)
 
+## 第 2 回（2026-11-03 起票）—— 仮で進めた決定のうち、別の席が否とした 6 件
+
+> merge gate（PR #230）の前に、別の席（`provisional-review.md`）が仮の決定 9 件を確かめ直し、D4・D5・D7・D8・D9・D16 を否とした（D6・D10・D11 は確か）。
+> 6 件とも台帳から外し（`provisional.py resolve`）、design の見出しの（仮）を外して「未決（Q<n> の答え待ち）」にした。
+> Q10・Q12・Q14 が本体で、Q11・Q13・Q15 はそれぞれの答えに乗る（rests_on の漏れだけで否になったもの）。
+> 問いは `deep-questions-r2.json`、渡した形は `docs/briefs/ST53-deep-r2.html`。
+
+### Q10. 移行の 2 ファイルの許諾の表示を、最初の印の前に書き換えるか（design D4）
+
+- 問い: 移行のうち表示が `AGPL-3.0-only` のままの 2 つ（と戻し手順の 1 つ）を、最初の印 `v*` を打つ前に `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換えるか
+- 推奨: 書き換えない（例外の一覧に名前で載せる）。追加の許可が要るのは APK に入るコードで、移行は APK に入らない。最初の印から後はこの 2 つの表示を直せないことを受け入れる
+- 否の根拠: Q4 の答えで ST53 が main に入った直後に最初の印を打つと、`tools/check-released-migrations.sh:52-54` が前進側の中身の差を落とすので、「いつでも書き換えて例外から外せる」は成り立たない。配った版のソースとサーバの実行ファイル（`crates/server/build.rs:114`）に WITH の無い表示が残る（exported）。書き換える側にも指紋の警告（`migration_ledger.rs:518-530`）の費用がある
+- 答え: (未回答)
+
+### Q11. 表示の検査の例外の一覧と見る窓（design D5。Q10 に乗る）
+
+- 問い: 表示の検査を先頭 25 行の `SPDX-License-Identifier:` だけを見て表示の無いファイルは見ない形にし、例外の一覧は Q10 の答えに従って決めるか
+- 推奨: そうする（Q10 が「書き換えない」なら例外は gradle の wrapper の 2 つと移行の 3 つ、書き換える側なら wrapper の 2 つだけ）
+- 否の根拠: 例外の一覧が D4 の決定そのものを含むのに rests_on に D4 が無かった。台帳の文は「先頭 5 行」のまま古かった。検査の範囲そのものには失うものは見つかっていない
+- 答え: (未回答)
+
+### Q12. 携帯の依存の POM に許諾が 2 つ以上並ぶとき、どう読むか（design D7）
+
+- 問い: 1 つの部品の POM の `<licenses>` に名前が 2 つ以上並んだとき、OR（どれか 1 つが許可の一覧にあれば通す）と AND（全部が許可の一覧にあるか名指しに当たるときだけ通す）のどちらで読むか
+- 推奨: AND で読む。あわせて「POM は cache に入っている」を「`@pom` を解決して取り寄せ、`--offline` で取れなければ組み立てを落とす」に直す
+- 否の根拠: OR は通す側（公開する側）の読み方で、keeps の「落ちる側に倒れる」と合わない。両方が掛かる部品を通すと名指し（D2）の外のプロプライエタリが APK に入り、配った後に戻らない（exported）。今の 55 部品で 2 つ以上並ぶものは 0。POM が gradle の cache にあるという前提も誤り
+- 答え: (未回答)
+
+### Q13. 依存の一覧の携帯の部品（design D8。Q12 に乗る）
+
+- 問い: 依存の一覧（`THIRD-PARTY-NOTICES.txt`）の携帯の部品を、Q12 の答えで決まる検査の task の出力から作り、ほかは D8 の案のままにするか
+- 推奨: Q12 の答えに従う（検査と一覧が同じ部品の集合を見る）
+- 否の根拠: 携帯の入力は D7 の task の出力（design D8）で D7 に乗るのに rests_on に D7 が無かった。中身（多めに入れる側に倒す）には失うものは見つかっていない
+- 答え: (未回答)
+
+### Q14. PR の組み立ての SOURCE.txt に、どの commit を書くか（design D9）
+
+- 問い: PR の組み立ての配布物の `SOURCE.txt` に、合成の merge commit（`refs/pull/<n>/merge`。今の checkout の既定）と PR の head の commit のどちらを書くか
+- 推奨: PR の組み立てでは head の commit（`github.event.pull_request.head.sha`）を書き、組み立ての印との比べはその場合だけ外す。確認バッチ 11.1 で閉じた PR の head を取れるかを確かめる
+- 否の根拠: 合成の merge commit（`.github/workflows/ci.yml:355` の checkout は `ref` を渡さない）を PR を閉じた後も取れるかは P14 の確かさ 2 のまま。確かめ（確認バッチ 11.1）より前に、90 日誰でも落とせる PR の成果物が出る。取れなければ落とされた写しのソースの場所は直せない（exported）
+- 答え: (未回答)
+
+### Q15. 開発版と PR の組み立てを commit で示す（design D16。Q14 に乗る）
+
+- 問い: 開発版と PR の組み立てを FR-127 の「同じ印」ではなく 40 桁の commit で示すとき、PR の組み立てで書く commit は Q14 の答えに従うか
+- 推奨: Q14 の答えに従う（開発版は main の commit、PR は Q14 で選んだ commit）。FR-127 の ★ 2026-11-02 補足はどの commit かを design D9 に預けているので、要件の本文は変わらない
+- 否の根拠: 「組み立ての commit で示す（D9）」のとおり D9 に乗るのに、rests_on は Q7 だけだった。Q7（答え済み）との向きは合っている
+- 答え: (未回答)
+
 ## 影響の判断（第 1 回の合意）
 
 重大な IMP への本人の答え（`deep-answers-1.txt` の逐語）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。
@@ -87,6 +136,12 @@
 - Q4 ← R1（本物の公開を確認の中で見るか後か）
 - Q6 ← R5（PR の成果物にも同じものが入る）・R7（Rust の標準ライブラリと aar の中の第三者）・R10（全文と著作権の表示を C にした）
 - Q7 ← R6（開発版の動く印）
+- Q10 ← provisional-review.md の D4（否）・review/deep.md R11・review/spec.md R9
+- Q11 ← provisional-review.md の D5（否）・review/deep.md R8・review/spec.md R3
+- Q12 ← provisional-review.md の D7（否）・review/deep.md R7
+- Q13 ← provisional-review.md の D8（否）・review/deep.md R7
+- Q14 ← provisional-review.md の D9（否）・review/deep.md R5・R6・review/spec.md R15（premises P14）
+- Q15 ← provisional-review.md の D16（否）・review/spec.md R14
 
 ## record の段へ渡すもの（spec の段から。答えに合わせて行う）
 

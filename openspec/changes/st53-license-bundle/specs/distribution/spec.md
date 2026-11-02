@@ -54,8 +54,8 @@ THE SYSTEM SHALL 次の 2 種類は、表示を書き換えない。
 - 第三者のファイル（gradle の wrapper の `collector-android/gradlew`・`gradlew.bat`。Apache-2.0）はそのまま
 THE SYSTEM SHALL ソースの許諾の表示の検査を持つ。検査は、追跡しているファイル（symlink は辿らない）の先頭 25 行にある `SPDX-License-Identifier:` を読む。決めた式でもなく、上の例外の一覧（パスと許す値の組）にも合わない表示があれば、CI を落とす。
 
-導出元: FR-127 ★ 2026-10-25（追加の許可を足す Story は、ソースの SPDX を一緒に直す）。深掘り Q5（第 1 回の推奨）。premises P4・P5・P6。review/deep.md R8・R11。review/spec.md R3・R16。D4（仮）・D5（仮）。
-§5 の「他人の GPL / AGPL のコードを取り込むと、その部分に許可が及ばない」について。repo に写したコードは依存の検査に現れない。写したコードが先頭 25 行に自分の許諾の表示を持っていれば、この検査が止める（表示を持たないものは止められない。D5（仮））。
+導出元: FR-127 ★ 2026-10-25（追加の許可を足す Story は、ソースの SPDX を一緒に直す）。深掘り Q5（第 1 回の推奨）。premises P4・P5・P6。review/deep.md R8・R11。review/spec.md R3・R16。D4（Q10 の答え待ち）・D5（Q11 の答え待ち）。
+§5 の「他人の GPL / AGPL のコードを取り込むと、その部分に許可が及ばない」について。repo に写したコードは依存の検査に現れない。写したコードが先頭 25 行に自分の許諾の表示を持っていれば、この検査が止める（表示を持たないものは止められない。D5（Q11 の答え待ち））。
 
 #### Scenario: 決めた許諾の表示でないソースがあれば、表示の検査が落ちる
 - **GIVEN** 先頭に `// SPDX-License-Identifier: GPL-3.0-only` を持つ Rust のファイルを 1 つ足した使い捨ての木
@@ -90,7 +90,7 @@ THE SYSTEM SHALL 許可の一覧から `AGPL-3.0-only` を外す。自分の部�
 THE SYSTEM SHALL ほかの許可の一覧は減らさない。一覧は `MIT`・`MIT-0`・`Apache-2.0`・`BSD-2-Clause`・`BSD-3-Clause`・`ISC`・`Unicode-3.0`・`Unicode-DFS-2016`・`Zlib`・`CC0-1.0`・`MPL-2.0`・`0BSD`・`Apache-2.0 WITH LLVM-exception`・`CDLA-Permissive-2.0`・`BlueOak-1.0.0`・`CC-BY-4.0`・`Python-2.0` のまま。
 IF ある節の検査する対象が見つからない（`web/node_modules` が無い・gradle が依存を解決できない） THEN THE SYSTEM SHALL その節を通さず、対象が無いことを示して検査を落とす。
 
-導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7（仮）。
+導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7（Q12 の答え待ち）。
 壊してはいけないもの: 依存の許諾の検査の既存の許可一覧（`AGPL-3.0-only` を外すのは、自分の部品を名前で通す形に替えるためで、今の依存は 1 つも落ちない。P3）。
 
 #### Scenario: 今の携帯の依存は、許諾の検査を通る
@@ -168,7 +168,7 @@ THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見�
 - 正式版・ベータ版として公開する配布物の検査（debug の鍵を許さない、チャンネルが `release` か `beta` の検査）: `v<期待する版番号>`
 - PR の組み立てと下書きの配布物の検査（debug の鍵を許す検査）と、開発版の検査: 組み立ての印の commit
 
-導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8（仮）・D9（仮）。
+導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8（Q13 の答え待ち）・D9（Q14 の答え待ち）。
 動く印 `nightly` は翌日に別の commit を指すので、開発版の写しには動かない commit を書く（Q7）。配った写しに書いた場所は、後から直せない。
 
 #### Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ
