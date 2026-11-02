@@ -164,7 +164,7 @@ function placeItem(place: string, body: Record<string, unknown>): unknown {
 /** 画面の「登録する」と同じ求め（器 → 名前・初めての座標・広さ）を API から送る。場所の識別子を返す。 */
 async function registerViaApi(request: APIRequestContext, name: string, at: Spot, radius = 100): Promise<string> {
   const id = crypto.randomUUID();
-  expect((await request.post("/api/places", { headers: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` }, data: { id } })).ok()).toBe(true);
+  expect((await request.post("/api/places", { headers: readAuthHeaders(), data: { id } })).ok()).toBe(true);
   await ingest(request, [
     placeItem(id, { field: "name", name }),
     placeItem(id, { field: "coord", lat: at.lat, lon: at.lon, change: "first", valid_from: null, supersedes: null }),

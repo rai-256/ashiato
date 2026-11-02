@@ -111,7 +111,7 @@ async function ingestStay(request: APIRequestContext, date: string, fromMinute: 
 /** 滞在を足して消す（先に消してから重ねる滞在を足す。生きたまま重ねると取り込みの作り直しが吸収する。spec と同じ）。 */
 async function eraseStay(request: APIRequestContext, date: string, from: number, to: number): Promise<string> {
   const id = await ingestStay(request, date, from, to);
-  const res = await request.post("/api/stays/erase", { headers: BEARER, data: { stay_id: id } });
+  const res = await request.post("/api/stays/erase", { headers: READ, data: { stay_id: id } });
   expect(res.ok(), "POST /stays/erase").toBe(true);
   return id;
 }
@@ -121,7 +121,7 @@ async function purgeByApi(request: APIRequestContext, stayId: string): Promise<v
   const pre = await request.get(`/api/stays/purge/preview?stay_id=${stayId}`, { headers: READ });
   expect(pre.ok(), "GET /stays/purge/preview").toBe(true);
   const { counts } = (await pre.json()) as { counts: unknown };
-  const res = await request.post("/api/stays/purge", { headers: BEARER, data: { stay_id: stayId, expected: counts } });
+  const res = await request.post("/api/stays/purge", { headers: READ, data: { stay_id: stayId, expected: counts } });
   expect(res.ok(), "POST /stays/purge").toBe(true);
 }
 

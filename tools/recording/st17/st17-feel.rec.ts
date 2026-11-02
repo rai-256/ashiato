@@ -19,8 +19,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
 
-/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
-const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
+/** 読む要求は storageState のログインの印を見出しに付ける。 */
 const READ = readAuthHeaders();
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const DAY_MS = 86_400_000;
@@ -270,7 +269,7 @@ test("ST17 録画: その日どう感じたかを残す（押した瞬間に保�
     });
   } finally {
     // 通知の時刻を既定の 21:00 へ戻す（台帳は追記のみなので、戻す行を足す。e2e と同じ）
-    const res = await page.request.post("/api/feelings/reminder", { headers: BEARER, data: { at: "21:00" } });
+    const res = await page.request.post("/api/feelings/reminder", { headers: READ, data: { at: "21:00" } });
     expect(res.status()).toBe(200);
   }
 });

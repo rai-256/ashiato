@@ -313,7 +313,7 @@ test("前の日から続く滞在の行の「快」を押して読み直すと�
 
 /** 通知の時刻を既定の 21:00 へ戻す（台帳は追記のみなので、戻す行を足す）。 */
 async function resetReminder(page: Page): Promise<void> {
-  const res = await page.request.post("/api/feelings/reminder", { headers: BEARER, data: { at: "21:00" } });
+  const res = await page.request.post("/api/feelings/reminder", { headers: READ, data: { at: "21:00" } });
   expect(res.status()).toBe(200);
 }
 
