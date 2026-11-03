@@ -288,3 +288,96 @@ specs の導出元に出る FR-104・FR-105・FR-107 は ST52 の Requirement �
 ## 同じ型の漏れ（除外の登録を state_dir から読むほかの口）
 
 該当なし（確かめた範囲: `crates/collector-windows` の `exclusions.json` / `Exclusions::load` の呼び出しは `main.rs:81` と `history/collect.rs:315`（`:598` で読む）の 2 つだけで、design D2 の 2 つと一致。`state_dir` の下のほかのファイル（`last-seen.txt`・`counters*.json`・`outage-notice.json`・`contract-wait.json`・`engine.json`・`collector.log`・`browser-history/`）は収集アプリが自分で書くもので、本人の登録ではない。携帯の収集アプリ（`collector-android/app/src/main`）に除外の登録は無い。`exclusions.json` を書く道具・手順書は repo に無い（`crates/collector-windows/README.md:37` が置き場の表に挙げるだけ）
+
+---
+
+# 第 3 回（spec --answers Q11,Q12,Q13,Q14。深掘り第 2 回の答えの写し）
+
+範囲: `git diff HEAD -- openspec/changes/st54-dev-side-by-side docs/briefs/ST54-pr.md`（design D5・D7・D8・D12（仮）・D13（仮）・Risks・Migration Plan、proposal、provisional.jsonl、spec の「収集アプリは、自分と同じ系統のサーバにだけ送る」と導出元 3 つ、tasks 冒頭・2.1・Task 5〜7・9.2、PR 本文）。整合の確認 `docs/audit/2026-11-03-st54-q12-consistency.md` の C1・C4〜C8 の写しを含む。R1〜R18 の処置済みの部分は見ていない。
+
+## 機械の検査（2026-11-03）
+
+- `openspec validate st54-dev-side-by-side --strict` → `Change 'st54-dev-side-by-side' is valid`
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（観点 8 を含む）
+- `python3 scripts/check_scenarios.py . st54-dev-side-by-side` → `scenarios: FAIL (担保なし 70 件 / 名無しの確認待ち 0 件)`（spec 段では印がまだ無いので想定どおり。70 は tasks 冒頭の「ST54 が新しく印を置くのは 70 本」と一致）
+- `python3 scripts/review_triage.py . st54-dev-side-by-side` → **`triage: FAIL (1 件)`**「deep.md R10: design.md の D8 に「仮」の印が無い」（R19）
+- `python3 scripts/spec_overlap.py candidates . st54-dev-side-by-side` → `[]`
+- 勘定: `grep -c '^#### Scenario:' specs/distribution/spec.md` = 99。MODIFIED 2 Requirement に 13 本、移した 2 つに 23 本（12 + 11）、新しい 10 の Requirement に 63 本（3+3+3+7+19+8+4+10+4+2）。tasks に名前が一字一句ある Scenario は 70 本、無い 29 本は全部 ST52 の写し（署名・下書き・印・作り直し）。tasks 冒頭の 99 / 70 / 29 は合う。7.1 の名指しは 10 本で `-ge 10`、9.2 の名指しは 7 本で `-ge 7` と合う
+
+## R19. review_triage が FAIL する: review/deep.md R10 の処置「fixed D8 仮」が、Q14 で本人が決めて（仮）の外れた D8 を指したまま
+- 成果物: openspec/changes/st54-dev-side-by-side/review/deep.md（R10 の処置）・design.md（D8）
+- 根拠: `python3 scripts/review_triage.py . st54-dev-side-by-side` → `[FAIL] deep.md R10: design.md の D8 に「仮」の印が無い` / review/deep.md:96「処置: fixed D8 仮」・:94「kind: daily」/ scripts/review_triage.py:167-181（kind=daily は `fixed D<n> 仮` か escalated でしか閉じられず、`fixed D<n> 仮` は design の D<n> を含む行に「仮」を求める）/ design.md の D8 を含む行に「仮」は 0 行（D5・D7 は `design.md:193` などの「D7・D12（仮）」の行でたまたま通っている）/ provisional.jsonl の D8 は `resolved: true`（深掘り第 2 回 Q14 で人間に返した）
+- kind: technical
+- 提案: R10 の処置を「escalated —— 推奨で D8（仮）に書いたが、別の席が否とし深掘り第 2 回 Q14 で本人が決めた（系統で選び、値はこのまま）」の形に直し、`review_triage.py` が OK に戻ることを確かめる。D8 に（仮）を戻すのは誤り（本人の決定）
+- 処置: fixed review/deep.md —— R10 の処置を「escalated —— D8（仮）にまとめたが別の席が否とし、深掘り第 2 回 Q14 で本人が決めた。D8 は仮でない」に直した。D8 に（仮）は戻さない
+
+## R20. Requirement が携帯にも課す「24 時間ごとの出し直し」と「404・読めない 200・401 は系統の判定に使わない」に、携帯の Scenario が無い
+- 成果物: openspec/changes/st54-dev-side-by-side/specs/distribution/spec.md
+- 根拠: spec.md:346「携帯は画面の行と通知、PC は通知で、**どちらも**状態に入った契機で 1 回、続く間は前に出してから 24 時間ごとに出し直す」・spec.md:344「404・200 で読めない本文・401 などの答えは系統の判定に使わず」（主語は収集アプリ全体）/ 出し直しの Scenario は PC の 1 本だけ（spec.md:407、GIVEN「PC の収集アプリ」）、404・読めない答えの Scenario も PC の 2 本だけ（spec.md:417・422、GIVEN「開発版の PC の収集アプリ」）/ 携帯は `ContractGate.kt`・`ContractNotifier` の別実装（tasks 9.2、design D12「`ContractNotifier.update` を…もう 1 つ持つ」）で、PC の試験は携帯の振る舞いを落とせない / design D12 が出し直しを選んだ理由（design.md:172「取り違えに気づく手がかりが 83 日目の 1 回だけにならない」）は携帯の 90 日の上限に効くもので、担保が無いのは効く側の方
+- kind: technical
+- 提案: 携帯の Scenario を 2 本足す:「系統の違いの知らせは、携帯でも続く間 24 時間ごとに出し直す」（23 時間後は出さず 24 時間後に 1 回）・「契約の問い合わせが 404 か読めない 200 なら、携帯の収集アプリは系統の違いの知らせを出さない」。9.2 の名指しに足し、`-ge 7` を `-ge 9`、tasks 冒頭の 99 / 70 / 63 を 101 / 72 / 65 に直す
+- 処置: fixed 9.2 —— 携帯の Scenario「系統の違いの知らせは、携帯でも続く間 24 時間ごとに出し直す」「契約の問い合わせが 404 か読めない 200 なら、携帯の収集アプリは系統の違いの知らせを出さない」を足し、tasks 9.2 に名指しして下限を `-ge 9` に、冒頭の勘定を直した
+
+## R21. 「契約の版を読めない答えでは、系統の違いの知らせを出さない」の THEN が「ST50 の今の扱いのまま」で観測の言葉でなく、2 つの答え × 3 つの主張を 1 本に束ねている
+- 成果物: openspec/changes/st54-dev-side-by-side/specs/distribution/spec.md
+- 根拠: spec.md:422-425 GIVEN「200 で HTML の本文…を返す偽のサーバと、401 を返す偽のサーバ」・THEN「どちらも札 `channel` の通知は出ず、ログに `channel_mismatch` は無く、**ST50 の今の扱い（読めない 200 は 24 時間の待ち・401 は一時的な失敗）のまま**」—— 「今の扱いのまま」は何を測るかを言っていない（24 時間の待ちは 1 回の契機では観測できず、WHEN は「送る契機が 1 回来る」）。401 の側と読めない 200 の側の片方だけを試験しても、名前の印は 1 本で緑になる
+  同じ型: spec.md:437-440「携帯の上限の 7 日前の知らせに、系統の違いの案内を添える」は GIVEN に自分と相手の系統が無く、THEN が「（相手が `official` のとき）」の条件つき —— 相手が `dev` の側を試験しても印は通る
+- kind: technical
+- 提案: 読めない 200 と 401 を 2 本に分け、THEN を観測できる形（「札 `channel` の通知は出ず、`channel_mismatch` のログも無く、契約の版の待ちの状態（ST50 の `contract-wait.json`）に入った／入らない」など）にする。7 日前の Scenario は GIVEN に「開発版の携帯の収集アプリと、見出し `Ashiato-Channel: official` で答えるサーバ」を書き、THEN の条件を外す。本数が変われば tasks 7.1 の `-ge 10` と冒頭の勘定も直す
+- 処置: fixed 7.1 —— 読めない 200 と 401 を 2 本に分け、THEN を札 `channel`・`contract` の通知の有無・`channel_mismatch` のログ・契約の版の待ちの理由 / 状態で書いた。7 日前の Scenario は GIVEN に自分と相手の系統を書き、THEN の条件を外した。tasks 7.1 の下限と勘定を直した
+
+## R22. D12（仮）の観測できる振る舞い（再起動を跨いで 24 時間を数える・札を分けて片方だけ消す）が design にだけあり、Scenario が無い
+- 成果物: openspec/changes/st54-dev-side-by-side/design.md（D12）・specs/distribution/spec.md
+- 根拠: design.md:170「前に出した時刻は ST50 と同じ手元の置き場に持つ（**再起動しても 24 時間経つまで出し直さない**）」・design.md:169「ST50 の札・id と分けるのは…**片方を消すときにもう片方を消さない**ため」/ spec の出し直しの Scenario（spec.md:407-410）は再起動を跨がず、404 の Scenario（spec.md:417-420）は 2 つの札が並ぶ状態も片方を消す契機も持たない / `openspec archive` は main specs しか更新しないので、design にだけある振る舞いは正典から落ち、実装が時刻を記憶に持っても（再起動のたびに通知が出ても）spec は落ちない
+- kind: technical
+- 提案: 「系統の違いの知らせの時刻は、収集アプリを起こし直しても引き継ぐ」（出した 1 時間後に起こし直して契機が来ても出し直さない）を Requirement の条項と Scenario に足す。札の分離は「系統の違いの知らせを消しても、契約の版の待ちの知らせは消えない」の形で足すか、足さないなら D12 から観測の言い方を外す。D12 が仮なので Scenario も仮のまま書いてよい
+- 処置: fixed D12 仮 —— Requirement に「起こし直しても 24 時間経つまで出し直さない」「片方を消してももう片方は消さない」の条項を足し、Scenario「系統の違いの知らせの時刻は、収集アプリを起こし直しても引き継ぐ」「系統の違いの知らせを消しても、サーバを更新してくださいの知らせは消えない」を足して tasks 7.1 に名指しした
+
+## R23. 「系統の違うサーバからも、携帯の収集アプリは途絶の判定を今どおり引く」の GIVEN が系統の違いの状態に入っておらず、今のコードのままで緑になり、読む口を止めた実装も落とせない
+- 成果物: openspec/changes/st54-dev-side-by-side/specs/distribution/spec.md
+- 根拠: spec.md:442-445 GIVEN「開発版の携帯の収集アプリと、契約の問い合わせに見出し `Ashiato-Channel: official` を付けて答える偽のサーバ」・WHEN「途絶の判定を問い合わせる契機が来る」・THEN「`GET /outages` が今どおり引かれる」—— 送る契機（契約の問い合わせ）が先に来ることを GIVEN も WHEN も言わないので、収集アプリが系統の違いを知る前の状態で試験できる。その形では、送る契機で得た `ChannelMismatch` を読む口のゲートにも使う実装（D13 の反対側）でも通る / design.md:180（D13 が選んだのは「系統の違いで止めない」）
+- kind: technical
+- 提案: GIVEN を「送る契機で系統の違いを知り、送らずにいる（系統の違いの知らせを出した）開発版の携帯の収集アプリ」にし、THEN に「`GET /outages` が引かれる」を残す
+- 処置: fixed 9.2 —— GIVEN を「送る契機で系統の違いを知り、送らずにいる（知らせを出した）」にし、THEN を「同じ偽のサーバに `GET /outages` が引かれる」にした
+
+## 観点 1（第 2 回の答えが写ったか）
+
+- Q11: 写った。design D5 の頭書き（design.md:80）・「Q5 に乗る」（基準の印が 1 つで `--force` が要るのは Q5 による。日付つきの印に変わったら見直す）・反転条件・選ばなかった案、spec の導出元（spec.md の D5 の Requirement）、tasks 冒頭・Task 5 の見出し、proposal。Scenario の言うこと（印 `nightly` 1 つの版と比べる）は前の版のままで、答えと同じ
+- Q12: 写った。spec.md:343 の WHEN 条項（自分の系統と違えば送らない。向きを限らない）と、両向きの Scenario（PC・携帯それぞれ「正式版の…は、開発版のサーバに何も送らず手元に残す」）、design D7 の逆向きの箇条・残るもの（携帯の 90 日の上限）・反転条件（Q12 を変えるなら聞き直す）、FR-106 ★ と一致
+- Q13: 写った。spec.md:346 の WHILE 条項の文「送り先が開発版のサーバです。送り先を確かめてください」/「送り先が正式版のサーバです。…」は答えの文と FR-106 ★ の文と同じ。PC・携帯の知らせの Scenario（spec.md:402・427）。選択肢の detail の「1 回」と表題の「ST50 と同じ形」（24 時間ごと）の読みの分かれは D12（仮）が出し直す側に倒した（整合の確認 C5 の行き先どおり）。携帯の担保の不足は R20
+- Q14: 写った。design D8 の頭書き・「D1 に乗る」・反転条件・選ばなかった案、spec の導出元 2 か所、tasks 2.1・6.2・Task 6 の見出し。値（18788・`ashiato_session_dev`・`backups/pre-migrate-dev`・55433・`ashiato-collector-windows-dev.exe`）は変わっていない
+- 数値: 24 時間（spec.md:346・Scenario spec.md:407 の 23 時間 / 24 時間）、7 日前（Scenario の 83 日）は Scenario にある
+- 古い側の残り: `D5（仮）`・`D7（仮）`・`D8（仮）`・「未決」・「答えが入るまで」・「欄 `channel`」・「ログだけ」は change の design / tasks / proposal / spec / premises と PR 本文に 0 件（grep）。ただし R19
+
+## 観点 2: R20・R21・R23。ほかは該当なし（確かめた範囲: 足した 9 本の Scenario。PC の知らせ・出し直し・送り先を直す・404、携帯の知らせ・送り先を直すは、札・文・件数・要求の有無で真偽が決まる）
+
+## 観点 3: R22。ほかは該当なし（確かめた範囲: D7 の足した箇条（読めた答えからだけ読む・系統は 2 つ・知らせの文・直したら送る）は spec.md:342-347 に条項がある。D13 は spec.md:348 の条項と Scenario がある。spec に入った名前は札 `channel`・`Ashiato-Channel`・`GET /outages` で、`read_contract_answer`・`ContractNotifier`・`OutagePoller` などの実装の名前は design と tasks にだけある。proposal の Capabilities と specs/ は distribution 1 つで変わらない）
+
+## 観点 4: 該当なし（確かめた範囲: 7.1 は `st54_channel` の `--list` で `-ge 10`（名指し 10 本）、9.2 は `ChannelGateTest` の `<testcase` で `-ge 7`（名指し 7 本）、どちらも ST50 の試験を別に走らせる。依存順は 2.1（見出しを出す）→ 7.1 / 9.2（読む）で合う。新しい Scenario 9 本の名前は tasks に一字一句ある。人間の確認待ちは足していない）
+
+## 観点 5: 該当なし（確かめた範囲: `check_chain.py` OK。ST54.md の完了の判定 5 行目「正式版の携帯の収集アプリを開発版のサーバへ向けても（逆も）記録は送られず、『送り先が開発版のサーバです』の知らせが出て、送り先を直すとそのまま送られる」は spec.md の「正式版の携帯の収集アプリは、開発版のサーバに何も送らず手元に残す」・「系統が違って送らない間、携帯の収集アプリは…知らせる」・「送り先を直すと、携帯の収集アプリは…」の 3 本と、逆向きは PC の 3 本と合う。壊してはいけないもの 3 行目（ST50 の知らせと契約の版を確かめる送り手）は「系統が違って送らない間は、サーバを更新してくださいの通知を出さない」・404 の Scenario と、7.1 / 9.2 の ST50 の試験で受ける。satisfies は FR-106 だけで、spec は FR-106 ★ 2026-11-03 の範囲を越えていない。D12 の「携帯は画面の行も」は ★ の「携帯は通知」より広いが、ST50 の口（画面の行と通知）と同じで仮の決定として置いてある）
+
+## 観点 6: `review/answers.md`（Q11・Q12・Q13・Q14 とも写った。答え以外の変更はあり —— 整合の確認 C1・C8 を仮でない D7 の箇条と spec の条項に写した。決定の行は書いていない）
+
+## 観点 7: 走っている change との前提関係
+
+観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+---
+
+# 第 3 回の直しの確かめ（2026-11-03。C1・C8 を D14（仮）へ移し、R19〜R23 を直した後）
+
+- `openspec validate --strict` valid / `check_chain.py` OK / `check_scenarios.py` 担保なし 75 件（tasks 冒頭の「新しく印を置く 75 本」と一致）/ `review_triage.py` OK / `spec_overlap.py candidates` `[]`
+- 勘定: Scenario 104 本、tasks に名前が無い 29 本は ST52 の写し（前と同じ 29 本）。7.1 の名指し 13 本 = `-ge 13`、9.2 の名指し 9 本 = `-ge 9`。足した 14 本の名前は tasks に一字一句ある
+- 「読めない 200」の PC の Scenario の THEN「契約の版の待ちの理由に『読めない答え』が記録される」は、`contract_gate.rs:24` の `unreadable_since` と `:44` の `unreadable_long`（ST50 の待ちの理由）で観測できる
+
+## R24. 携帯の「契約の問い合わせが 404 か読めない 200 なら…」が、R21 で PC の側を分けたのと同じ型で 2 つの答えを 1 本に束ねている
+- 成果物: openspec/changes/st54-dev-side-by-side/specs/distribution/spec.md
+- 根拠: spec.md:457 の Scenario「契約の問い合わせが 404 か読めない 200 なら、携帯の収集アプリは系統の違いの知らせを出さない」—— GIVEN が「404 を返す偽のサーバと、200 で HTML の本文…を返す偽のサーバ」、THEN が「どちらも…出ず…、404 では『サーバを更新してください』の通知が出る」。印は 1 本なので、片方の答えだけを試験しても緑になる。PC の側は R21 の処置で「404 なら」「読めない 200 なら」「401 なら」の 3 本に分けた（tasks 7.1）
+- kind: technical
+- 提案: 携帯も「404 なら、携帯の収集アプリは系統の違いの知らせでなく更新を促す」と「読めない 200 なら、携帯の収集アプリは系統の違いの知らせを出さない」の 2 本に分け、9.2 の名指しと `-ge 9` → `-ge 10`、tasks 冒頭の勘定（104 / 75 / 68 → 105 / 76 / 69）を直す
+- 処置: fixed 9.2 —— 携帯の Scenario を「404 なら…系統の違いの知らせでなく更新を促す」「読めない 200 なら…系統の違いの知らせを出さない」の 2 本に分け、9.2 に名指しして下限を `-ge 10` に、冒頭の勘定を 105 / 76 / 69 に直した
+
+## R24 の直しの確かめ（2026-11-03）
+
+- 携帯の Scenario は「404 なら…更新を促す」（spec.md:457）と「読めない 200 なら…出さない」（spec.md:462）の 2 本に分かれ、9.2 の名指し 10 本 = `-ge 10`、勘定 105 / 76 / 69 は実物（Scenario 105 本・tasks に名前の無い 29 本・`check_scenarios.py` 担保なし 76 件）と合う。読めない 200 の THEN の待ちの理由は `ContractGate.kt:80` の `unreadableSinceMs` で観測できる。validate valid・check_chain OK・triage OK。新しい指摘なし

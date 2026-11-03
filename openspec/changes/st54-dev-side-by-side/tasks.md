@@ -1,6 +1,6 @@
 # ST54 実装タスク — 開発版を正式版と並べて入れられる
 
-読む順: `deep.md`（**本人の答え Q1〜Q10**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。
+読む順: `deep.md`（**本人の答え Q1〜Q10 と、第 2 回の Q11〜Q14**）→ このファイル → `specs/distribution/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。
 
 **前提**: requires の ST52 は archive 済みで main にある。配る道具（`tools/release/*.sh`・`.github/workflows/nightly.yml`）・組み立ての印と版番号（`crates/build-stamp`・`build.gradle.kts` の `resolvedBuildVersion`）・
 版の記録（`crates/server/src/migration_ledger.rs`）・契約の問い合わせ（`crates/server/src/contract_version.rs`・`crates/collector-windows/src/contract_gate.rs`・`ContractGate.kt`）がそこにある。
@@ -12,16 +12,17 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 90 本**（MODIFIED の 2 つの Requirement に 13 本・名前を変えて移した 2 つの Requirement に 23 本・新しい 10 の Requirement に 54 本）。うち **ST54 が新しく印を置くのは 61 本**（署名・下書きと、名前を変えて移した 2 つで足した 7 本と、新しい 10 の Requirement の 54 本）—— **全部このファイルのどこかの Task が名指しする**。
+- **この change の Scenario は 105 本**（MODIFIED の 2 つの Requirement に 13 本・名前を変えて移した 2 つの Requirement に 23 本・新しい 10 の Requirement に 69 本）。うち **ST54 が新しく印を置くのは 76 本**（署名・下書きと、名前を変えて移した 2 つで足した 7 本と、新しい 10 の Requirement の 69 本）—— **全部このファイルのどこかの Task が名指しする**。
   残りの 29 本は ST52 の本文をそのまま写した Scenario で、印は ST52 の試験（`version.sh`・`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh`・`check-guards.sh`・`draft.sh` の `--self-test`）が持つ。**消さない**
 - **ST52 の印のうち 3 つは消す**（REMOVED にした Requirement の Scenario で、移した先に無い。振る舞いが反対になる）: `開発版の配布物の検査は、携帯の APK を除く 3 つで通る`・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`（`check-artifacts.sh --self-test`）・
   `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない`（`check-guards.sh --self-test`）。試験そのものを新しい Scenario の向きに書き直す（Task 10）。古い印を残すと、`check_scenarios.py` が正典に無い印として拾う
 - **本人の決定（下流は変えない）**: Q1 系統は組み立てのときの版番号で決める / Q2 PC の開発版は置き場の下に `dev`・端末識別子に `-dev`・除外は渡された置き場から読む（前景の窓もブラウザの履歴も。IMP-01）/ Q3 DB の系統の印があり、違う側は何も書かずに止まる /
   Q4 開発版の DB がずれたら止まって原因を示し、DB は書き換えず main 側で直す / Q5 印 `nightly` は動かす方式のまま（手順書に `git fetch --tags --force`）/ Q6 開発版の収集アプリは開発版のサーバにだけ送る /
-  Q7 名前に「開発版」を付ける（アイコンは同じ）/ Q8 説明文の先頭に書き、公開のたびに書き直す / Q9 下書きのリリースと使い捨ての鍵で確かめる / Q10 開発版も全部の収集を動かす。
-  仮: D5（開発版に載った移行の変更を CI で落とす）・D7（正式版の収集アプリも開発版のサーバに送らない）・D8（開発版のサーバの既定と DB の器・実行ファイル名）。
-  （第 1 回は推奨で先に書き、推奨と違った答えは上流が写してから下流へ渡す）
-- **名前は統一する**: 系統は `Channel::Dev` / `Channel::Official`（Rust）・`BuildConfig.CHANNEL`（`"dev"` / `"official"`）・`GET /contract` の欄 `channel`（`"dev"` / `"official"`）。終了コード 4・`error: kind=channel_mismatch`。
+  Q7 名前に「開発版」を付ける（アイコンは同じ）/ Q8 説明文の先頭に書き、公開のたびに書き直す / Q9 下書きのリリースと使い捨ての鍵で確かめる / Q10 開発版も全部の収集を動かす /
+  Q11 開発版に載った移行の検査は動く印 `nightly` 1 つを基準に比べる（Q5 に乗る。D5）/ Q12 どちらの向きも系統の違うサーバへは何も送らず手元に残す（D7）/ Q13 送らずにいる間は「送り先が開発版／正式版のサーバです。送り先を確かめてください」と知らせる（D7）/
+  Q14 開発版のサーバと PC の収集アプリの既定は D1 の系統で選び、値はこのまま（D8）。
+  仮: D12（系統の違いの知らせの口と間隔。ST50 と同じ口・24 時間ごとの出し直し・別の札）・D13（系統の違うサーバからも読む口は今どおり引く）・D14（系統は契約の版を読めた答えからだけ読み、開発版とそれ以外の 2 つ）。
+- **名前は統一する**: 系統は `Channel::Dev` / `Channel::Official`（Rust）・`BuildConfig.CHANNEL`（`"dev"` / `"official"`）・`GET /contract` の応答の見出し `Ashiato-Channel`（`"dev"` / `"official"`。本文の欄にしない）。終了コード 4・`error: kind=channel_mismatch`。系統の違いの知らせの札は `channel`。
   開発版の名前: 自動起動 `ashiato-collector-dev.cmd`・差出人 `dev.ashiato.collector.dev`・表示名 `ashiato 開発版`・実行ファイル `ashiato-collector-windows-dev.exe`・アプリの名前 `あしあと。開発版`・待ち受け `127.0.0.1:18788`・クッキー `ashiato_session_dev`・退避 `backups/pre-migrate-dev`・DB のポート 55433。
   ファイル: `migrations/LINEAGE`・`tools/check-nightly-migrations.sh`・`tools/release/publish-nightly.sh`・`tools/release/nightly-notes.md`・`tools/android-side-by-side.sh`
 - **workflow の YAML に判定の論理を書かない**（ST52 D8）。公開の手順は `tools/release/publish-nightly.sh` に置き、`--self-test` が偽の `gh`（`PATH` の先に置く台本）と使い捨ての鍵で確かめる
@@ -40,8 +41,8 @@
 
 ## Task 2: サーバの系統（契約の問い合わせ・既定の待ち受け・クッキー・退避の置き場）
 
-- [ ] 2.1 `App` に `channel: Channel`（起動時に `channel(env!("ASHIATO_VERSION"))`。試験だけが差し替える）を足す。`GET /contract` の応答に見出し `Ashiato-Channel`（`"dev"` / `"official"`）を足し（本文は変えない）、`docs/openapi.json` を作り直す（D7（仮））。
-  `net_guard::default_bind(channel)`（開発版は `127.0.0.1:18788`）・`web_session::cookie_name(channel)`（開発版は `ashiato_session_dev`。発行と読み取りの両方）・`migrate_backup` の既定の置き場（開発版は `backups/pre-migrate-dev`）を系統で決める。`BIND`・`MIGRATE_BACKUP_DIR` を渡せばその値（D8（仮））。
+- [ ] 2.1 `App` に `channel: Channel`（起動時に `channel(env!("ASHIATO_VERSION"))`。試験だけが差し替える）を足す。`GET /contract` の応答に見出し `Ashiato-Channel`（`"dev"` / `"official"`）を足し（本文は変えない）、`docs/openapi.json` を作り直す（D7）。
+  `net_guard::default_bind(channel)`（開発版は `127.0.0.1:18788`）・`web_session::cookie_name(channel)`（開発版は `ashiato_session_dev`。発行と読み取りの両方）・`migrate_backup` の既定の置き場（開発版は `backups/pre-migrate-dev`）を系統で決める。`BIND`・`MIGRATE_BACKUP_DIR` を渡せばその値（D8。D1 の系統で選ぶ）。
   試験（`crates/server/src/st54_tests.rs`）: `// Scenario: 開発版のサーバは、契約の問い合わせに系統 dev を答える`・`// Scenario: 正式版のサーバは、契約の問い合わせに系統 official を答える`・
   `// Scenario: 開発版のサーバの既定は、正式版と別の待ち受け・クッキー・退避の置き場`・`// Scenario: 正式版のサーバの既定は、今のまま`・`// Scenario: 開発版のサーバの画面のログインは、開発版の名前のクッキーだけを使う`・
   `// Scenario: 待ち受けと退避の置き場を明示で渡せば、開発版でもその値を使う`・`// Scenario: 系統の名前の環境変数を渡しても、系統は変わらない`（サーバの側。`ASHIATO_CHANNEL=official` を渡しても `Ashiato-Channel` が `dev`）
@@ -77,7 +78,7 @@
   `echo "== Scenario: 旧名の対応の形が違えば、移行の形の検査が落ちる"`（`moved A B`・`renamed A`・`renamed A <ORDER に無い名前>`・`rewritten C D` で `D` が前、の 4 つで rc≠0 とその行の表示）を足す
   検証: `tools/check-migrations.sh --self-test` rc=0 / `tools/check-migrations.sh` rc=0
 
-## Task 5: 開発版に載った移行の検査（D5（仮））
+## Task 5: 開発版に載った移行の検査（D5。Q11）
 
 - [ ] 5.1 `tools/check-nightly-migrations.sh`（`--self-test` つき。形は `tools/check-released-migrations.sh` に合わせる）: 印 `nightly` が無ければ rc=0。あれば `git show nightly:migrations/ORDER` と各版の前進側の `.sql` を今の木と比べ、
   消した・名前を変えた版に `removed` / `renamed` が無い、中身を変えた版（`renamed` の版は今の名前の中身と `nightly` の旧名の中身を比べる）に `rewritten` が無いとき rc≠0 で版の名前（中身のときは「直しの移行を足して rewritten を書く」）を示す。`nightly` の版の `ORDER` を取り出せなければ rc≠0。浅い木では印を見る前に rc≠0（「履歴が浅い」。ST52 D1 と同じ止め）。
@@ -87,7 +88,7 @@
 - [ ] 5.2 `.github/workflows/ci.yml` の `rust` の job（完全な履歴）で、`check-released-migrations.sh` の隣に `tools/check-nightly-migrations.sh` を走らせる。その前に `git ls-remote --tags origin nightly` があるときだけ `git fetch --force --no-tags origin '+refs/tags/nightly:refs/tags/nightly'`（`--depth` を付けない）
   検証: `bash -c 'grep -q "check-nightly-migrations.sh" .github/workflows/ci.yml && grep -q "refs/tags/nightly:refs/tags/nightly" .github/workflows/ci.yml'` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0
 
-## Task 6: PC の収集アプリの開発版の名前と置き場（D1・D2・D8（仮））
+## Task 6: PC の収集アプリの開発版の名前と置き場（D1・D2・D8）
 
 - [ ] 6.1 `Runtime` と `main.rs` が `channel(env!("ASHIATO_VERSION"))` を持つ（試験は差し替える）。`autostart::entry_name(channel)`（開発版は `ashiato-collector-dev.cmd`）・`toast::aumid(channel)`（開発版は `dev.ashiato.collector.dev`）・`toast::display_name(channel)`（開発版は `ashiato 開発版`）にし、正式版は今の値。
   `Config::from_lookup` に系統を渡し、開発版は `state_dir = <渡された置き場>/dev`・端末識別子の末尾に `-dev`（すでに `-dev` で終われば付けない）・`exclusions_path = <渡された置き場>/exclusions.json`。除外を読む口は 2 つとも `exclusions_path` を読む（D2）: `main.rs` の前景の窓の除外の読み込みと、ブラウザの履歴の取り込み（`HistoryCollector::new` が除外の登録の置き場を引数で受け、`Runtime::with_history` が設定の `exclusions_path` を渡す。今の `history/collect.rs:315` の `state_dir.join("exclusions.json")` をやめる）。自動起動の `.cmd` には渡された値（掘る前・付ける前）を書く。
@@ -98,16 +99,18 @@
   試験（`runtime.rs` の `#[cfg(test)]`、名前は `st54_`）: `// Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む`（開発版の系統で設定を読み、`exclusions.json` は**渡された置き場に直接**書く —— `write_rules` は `cfg.state_dir`（開発版では `<置き場>/dev`）に書くので使わない。取り込みの前に `<置き場>/dev/exclusions.json` が無いことを assert し、`history_runtime` と偽の読み手で `example.test/1`・`example.test/2` の訪問を取り込んで送り、送る本文に `example.test/1` が無く `example.test/2` がある。直していない `collect.rs:315` では落ちる）。
   `Runtime` に除外の登録の置き場を持たせる（今は `state_dir` だけ。`Runtime::new` で設定の `exclusions_path` を受け、`with_history` がそれを `HistoryCollector::new` に渡す）。`HistoryCollector::new` を呼ぶほかの口（`history/collect.rs:844` の試験の土台・`tests/runtime_windows.rs:1443`）と、`Config` を直書きする試験（`runtime.rs` の `cfg()`・`examples/browser_history_smoke.rs:172`・`tests/runtime_windows.rs:585`・`:654`）も合わせる。`tests/runtime_windows.rs` は `#![cfg(windows)]` で Linux の検証では組まれないので、Task 8 の Windows の検証で組めることを見る
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_ && test "$(cargo test -p ashiato-collector-windows st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` rc=0（既存の試験が通る）
-- [ ] 6.2 `tools/release/build.sh collector-windows` が、版番号に `-dev.` を含むとき zip の中の実行ファイルを `ashiato-collector-windows-dev.exe` にする（D8（仮））。`--self-test` に
+- [ ] 6.2 `tools/release/build.sh collector-windows` が、版番号に `-dev.` を含むとき zip の中の実行ファイルを `ashiato-collector-windows-dev.exe` にする（D8。版番号で分ける）。`--self-test` に
   `echo "== Scenario: 開発版の PC の収集アプリの配布物の実行ファイルは、-dev の名前を持つ"`（組み立てを偽の実行ファイルに差し替え、`0.4.0-dev.20261102` と `0.4.0` の zip の中の名前を読む）を足す
   検証: `tools/release/build.sh --self-test` rc=0
 
-## Task 7: PC の収集アプリは同じ系統のサーバにだけ送る（D7（仮））
+## Task 7: PC の収集アプリは同じ系統のサーバにだけ送り、違えば知らせる（D7・D12（仮）。Q12・Q13）
 
-- [ ] 7.1 `Transport::get` の `Reply` に応答の見出しを足し、`/contract` の応答の見出し `Ashiato-Channel` を読む（無ければ `official`）。`Runtime` の送る契機の頭（`runtime.rs:810-`）で、答えの系統が自分と違えばその契機は記録も生存信号も送らず、未送信を残し、`warn` で `channel_mismatch server=<相手> self=<自分>` を出す。
+- [ ] 7.1 `Transport::get` の `Reply` に応答の見出しを足し、`/contract` の応答の見出し `Ashiato-Channel` を読む（無ければ `official`）。系統は `read_contract_answer` が `Version` と読んだ答えからだけ取る（404・読めない 200・401 などは今どおり。D14（仮））。`Runtime` の送る契機の頭（`runtime.rs:810-`）で、答えの系統が自分と違えばその契機は記録も生存信号も送らず、未送信を残し、`warn` で `channel_mismatch server=<相手> self=<自分>` を出す。
   違う系統の答えは `ContractGate` の契約の版の待ちに数えない（ST50 の「サーバを更新してください」の通知を出さない）。
-  試験（`runtime.rs` の `#[cfg(test)]`。偽の transport）: `// Scenario: 開発版の PC の収集アプリは、正式版のサーバに何も送らず手元に残す`・`// Scenario: 正式版の PC の収集アプリは、開発版のサーバに何も送らず手元に残す`・`// Scenario: 開発版の PC の収集アプリは、開発版のサーバには今どおり送る`・`// Scenario: 系統を答えない古いサーバは、正式版のサーバとみなす`・`// Scenario: 系統が違って送らない間は、サーバを更新してくださいの通知を出さない`（ST50 の通知の試験と同じ偽の時計と偽の通知の口）
-  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_channel && test "$(cargo test -p ashiato-collector-windows st54_channel -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st50_'` rc=0（ST50 の試験が通る）
+  系統の違いの知らせ（D12（仮））: `contract_notice` と同じ決め方（入った契機で 1 回・前に出してから 24 時間ごと・同じ系統が答えた契機で消す・前に出した時刻を手元に持つ）を札 `channel` でもう 1 つ持ち（`ContractToaster` と同じ形の口。札 `contract`・`outage` とは別）、文は「送り先が開発版のサーバです。送り先を確かめてください」/「送り先が正式版のサーバです。送り先を確かめてください」（相手の系統で選ぶ）。`toast.rs` に札 `channel` の口を足す。
+  試験（`runtime.rs` の `#[cfg(test)]`。偽の transport）: `// Scenario: 開発版の PC の収集アプリは、正式版のサーバに何も送らず手元に残す`・`// Scenario: 正式版の PC の収集アプリは、開発版のサーバに何も送らず手元に残す`・`// Scenario: 開発版の PC の収集アプリは、開発版のサーバには今どおり送る`・`// Scenario: 系統を答えない古いサーバは、正式版のサーバとみなす`・`// Scenario: 系統が違って送らない間は、サーバを更新してくださいの通知を出さない`（ST50 の通知の試験と同じ偽の時計と偽の通知の口）・
+  `// Scenario: 系統が違って送らない間、PC の収集アプリは送り先を確かめるよう知らせる`・`// Scenario: 系統の違いの知らせは、続く間 24 時間ごとに出し直す`・`// Scenario: 送り先を直すと、PC の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す`・`// Scenario: 契約の問い合わせが 404 なら、系統の違いの知らせでなく更新を促す`・`// Scenario: 契約の問い合わせが読めない 200 なら、系統の違いの知らせを出さない`・`// Scenario: 契約の問い合わせが 401 なら、系統の違いの知らせを出さない`・`// Scenario: 系統の違いの知らせの時刻は、収集アプリを起こし直しても引き継ぐ`・`// Scenario: 系統の違いの知らせを消しても、サーバを更新してくださいの知らせは消えない`
+  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_channel && test "$(cargo test -p ashiato-collector-windows st54_channel -- --list 2>/dev/null | grep -c ": test$")" -ge 13'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st50_'` rc=0（ST50 の試験が通る）
 
 ## Task 8: Windows の上で、並べた 2 つの自動起動と差出人を確かめる
 
@@ -121,9 +124,11 @@
   `tools/release/check-artifacts.sh` に `apk-label <apk>`（`aapt2 dump badging` の `application-label`）と `apk-manifest <apk>`（求める権限・サービス・受け手の一覧から識別子を伏せたもの）を足し、`--self-test-android`（gradle で `<出所>-dev.20261102` と `<出所>` の debug を組む。`<出所>` は `tools/release/version.sh source`。gradle は出所と違う MAJOR.MINOR.PATCH を落とす）に
   `echo "== Scenario: 開発版のアプリの名前は「あしあと。開発版」で、正式版は「あしあと。」のまま"`・`echo "== Scenario: 開発版の携帯の収集アプリは、正式版と同じ権限と常駐の口を持つ"` を置く
   検証: `bash -c 'scripts/quiet-run apk -- tools/release/check-artifacts.sh --self-test-android'` rc=0
-- [ ] 9.2 `ContractGate.kt` の答え `Version` に `/contract` の応答の見出し `Ashiato-Channel` の系統を持たせ（見出しが無ければ `official`）、自分の `BuildConfig.CHANNEL` と違えば新しい答え `ChannelMismatch` にする。5 つの送り手（記録・生存信号・破棄の報告・原本の欠け・原本）は `ChannelMismatch` で何も送らず、`Log.w` に相手と自分の系統を残す。
-  違う系統の答えは契約の版の待ち（ST50）に数えない。試験（`app/src/test` の `ChannelGateTest`。Robolectric と偽の HTTP）: `// Scenario: 開発版の携帯の収集アプリは、正式版のサーバに何も送らず手元に残す`・`// Scenario: 正式版の携帯の収集アプリは、開発版のサーバに何も送らず手元に残す`・`// Scenario: 開発版の携帯の収集アプリは、開発版のサーバには今どおり送る`（自分の系統は試験が渡す。ログは Robolectric の `ShadowLog` で見る）
-  検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*ChannelGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*ChannelGateTest*.xml | grep -c "<testcase ")" -ge 3'` rc=0 /
+- [ ] 9.2 `ContractGate.kt` の答え `Version` に `/contract` の応答の見出し `Ashiato-Channel` の系統を持たせ（見出しが無ければ `official`）、自分の `BuildConfig.CHANNEL` と違えば新しい答え `ChannelMismatch` にする。5 つの送り手（記録・生存信号・破棄の報告・原本の欠け・原本）は `ChannelMismatch` で何も送らず、`Log.w` に相手と自分の系統を残す。系統は `Version` の答えからだけ取る（404 `NoEndpoint`・`Unreadable`・`Transient` は今どおり。D14（仮））。読む口（`OutagePoller` の `GET /outages` など）は系統で止めない（D13（仮））。
+  違う系統の答えは契約の版の待ち（ST50）に数えない。系統の違いの知らせ（D12（仮））: `ContractNotifier` と同じ決め方（入った契機で 1 回・24 時間ごと・同じ系統が答えた契機で消す・前に出した時刻を手元に持つ）を、同じ通知のチャンネル `contract` の別の通知の id でもう 1 つ持ち、画面の行（`MainActivity`）にも同じ文を出す。上限の 7 日前の知らせ（`contractHeadlineFor` の形）にも系統の違いの文を添える。
+  試験（`app/src/test` の `ChannelGateTest`。Robolectric と偽の HTTP）: `// Scenario: 開発版の携帯の収集アプリは、正式版のサーバに何も送らず手元に残す`・`// Scenario: 正式版の携帯の収集アプリは、開発版のサーバに何も送らず手元に残す`・`// Scenario: 開発版の携帯の収集アプリは、開発版のサーバには今どおり送る`・
+  `// Scenario: 系統が違って送らない間、携帯の収集アプリは画面の行と通知で送り先を確かめるよう知らせる`・`// Scenario: 送り先を直すと、携帯の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す`・`// Scenario: 系統の違いの知らせは、携帯でも続く間 24 時間ごとに出し直す`・`// Scenario: 契約の問い合わせが 404 なら、携帯の収集アプリは系統の違いの知らせでなく更新を促す`・`// Scenario: 契約の問い合わせが読めない 200 なら、携帯の収集アプリは系統の違いの知らせを出さない`・`// Scenario: 携帯の上限の 7 日前の知らせに、系統の違いの案内を添える`・`// Scenario: 系統の違うサーバからも、携帯の収集アプリは途絶の判定を今どおり引く`（自分の系統は試験が渡す。ログは Robolectric の `ShadowLog`、通知は `ShadowNotificationManager` で見る）
+  検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*ChannelGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*ChannelGateTest*.xml | grep -c "<testcase ")" -ge 10'` rc=0 /
   `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*ContractGate*"'` rc=0（ST50 の試験が通る）
 - [ ] 9.3 `tools/android-side-by-side.sh`（D10・P2）: 端末が繋がっていなければ `tools/android-emulator.sh` と同じ AVD を画面なしで起動し（終わりに止める）、版番号 `<出所>`（`tools/release/version.sh source`）の debug（正式版）を入れて `run-as dev.ashiato.collector` で未送信に 1 件を置き（計測テストと同じ置き場の形）、件数を読む。
   続けて `<出所>-dev.20261102` の debug（開発版）を入れ、`pm list packages` に 2 つがあること・正式版の未送信の件数が同じことを見る。`echo "== Scenario: 開発版を入れても、正式版の端末内の記録は残る"`。結果は P2 の確かさを 4 にして `premises.md` に書く

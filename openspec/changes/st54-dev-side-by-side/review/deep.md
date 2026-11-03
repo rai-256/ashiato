@@ -93,7 +93,7 @@
   - クッキー: crates/server/src/web_session.rs:28・196（`ashiato_session`、`Domain` 無し・`Path=/`）。クッキーはポートで分かれない（RFC 6265 §8.5）ので、同じ host の正式版と開発版の画面は 1 つのクッキーを上書きし合い、片方にログインするともう片方がログアウトする
 - kind: daily
 - 提案: 失うものは無い（実行ファイルの上書きは R1・R2 の答えしだい）ので、B として推奨つきで足すか、C に並べる: 開発版の実行ファイル名に `-dev` を付ける・開発版の `MIGRATE_BACKUP_DIR` の既定を分ける・開発版の D-01 の器とポートを `tools/ports.sh` の範囲の外に決める・開発版のクッキー名を分ける。クッキーの振る舞いは外の形式なので premises に行を足す（確かさは実物のブラウザで 2 つを開いて上げる）
-- 処置: fixed D8 仮 —— 実行ファイル名・退避の置き場（C6）・クッキー名（C7。P17）・DB の器とポートとサーバの既定の待ち受け（C2・C8）を design の D8（仮）にまとめ、provisional.jsonl に載せた
+- 処置: escalated —— 実行ファイル名・退避の置き場（C6）・クッキー名（C7。P17）・DB の器とポートとサーバの既定の待ち受け（C2・C8）を design の D8（仮）にまとめ provisional.jsonl に載せたが、別の席が否とし（provisional-review.md の D8）、深掘り第 2 回 Q14 で本人が決めた（系統で選び、値はこのまま）。D8 は仮でない
 
 ## R11. 日常に効く選択が一覧に無い: 携帯は常駐の通知が 2 つ・位置の取得が 2 本になり、PC の開発版は初回に履歴を全件取り込む
 - 成果物: openspec/changes/st54-dev-side-by-side/deep-questions.json
