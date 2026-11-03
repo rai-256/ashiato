@@ -14,7 +14,7 @@ install_on_emulators() {
   fi
   for name in "${emulators[@]}"; do
     if adb -s "$name" install -r "$apk" >/dev/null; then
-      printf '%s\n' "$name"
+      printf 'エミュレータ %s に入れた\n' "$name"
     else
       printf 'エミュレータ %s への APK のインストールに失敗しました\n' "$name" >&2
       return 1
@@ -36,7 +36,8 @@ set -euo pipefail
 if [ "${1:-}" = devices ]; then
   case "${ADB_SCENARIO:?}" in
     both)
-      printf 'List of devices attached\nR58N12ABCDE\tdevice\nemulator-5554\tdevice\n'
+      # emulator-5556 は offline。device の状態でないエミュレータには入れない（code_verify R17）
+      printf 'List of devices attached\nR58N12ABCDE\tdevice\nemulator-5554\tdevice\nemulator-5556\toffline\nemulator-5558\tunauthorized\n'
       ;;
     physical)
       printf 'List of devices attached\nR58N12ABCDE\tdevice\n'
@@ -58,7 +59,7 @@ EOF
   output="$(PATH="$work/bin:$PATH" ADB_SCENARIO=both ADB_LOG="$work/calls" install_on_emulators "$apk")"
   calls="$(cat "$work/calls")"
   [ "$calls" = "-s emulator-5554 install -r $apk" ]
-  [ "$output" = 'emulator-5554' ]
+  [ "$output" = 'エミュレータ emulator-5554 に入れた' ]
 
   : > "$work/calls"
   if output="$(PATH="$work/bin:$PATH" ADB_SCENARIO=both ADB_INSTALL_SCENARIO=failure ADB_LOG="$work/calls" install_on_emulators "$apk")"; then
@@ -77,7 +78,11 @@ EOF
   local prep
   prep="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/verify-prep.sh"
   [ -f "$prep" ]
-  ! grep -v install_on_emulators "$prep" | grep -Eq 'adb|install'
+  # `! a | b` は set -e で止まらない（/code-review R23）。if で落とす
+  if grep -v install_on_emulators "$prep" | grep -Eq 'adb|install'; then
+    echo "verify-prep.sh が install_on_emulators を通さずに adb / install を呼ぶ" >&2
+    return 1
+  fi
   [ "$(grep -c 'install_on_emulators' "$prep")" -eq 1 ]
 }
 

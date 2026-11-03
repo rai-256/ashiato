@@ -60,7 +60,7 @@ if [ -f tools/android-env.sh ] && [ -d "$HOME/.local/opt/jdk21" ]; then
     . ./tools/verify-prep-device.sh
     # エミュレータへ入れられなくても準備は止めない。手順書に APK の場所と失敗を書いて続ける
     if placed="$(install_on_emulators "$apk" 2>&1)"; then
-      android_note="\`$apk\`。$(printf '%s' "$placed" | paste -sd ' ' -)"
+      android_note="\`$apk\` を作った。$(printf '%s' "$placed" | paste -sd ' ' -)"
     else
       android_note="\`$apk\` を作ったが、エミュレータへ入れられなかった（$(printf '%s' "$placed" | paste -sd ' ' -)）。手で入れて確かめる"
     fi

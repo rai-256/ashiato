@@ -174,6 +174,11 @@ self_test() {
   grep -qF 'NG: with space.rs GPL-3.0-only' <<<"$output"
   printf '%s\n' "// SPDX-License-Identifier: $expected_header" > "$tree/with space.rs"
   git -C "$tree" add "with space.rs"
+  # 窓は先頭 25 行（D5・Q11）。26 行目の表示は見ない（窓を広げると落ちる。code_verify R18）
+  { for _ in $(seq 25); do printf '%s\n' '// filler'; done; printf '%s\n' '// SPDX-License-Identifier: GPL-3.0-only'; } > "$tree/line26.rs"
+  git -C "$tree" add line26.rs
+  check_headers "$tree" >/dev/null || { echo '26 行目の表示を見た（窓が先頭 25 行でない）' >&2; return 1; }
+  git -C "$tree" rm -qf line26.rs
 
   echo "== Scenario: 今の木は、表示の検査を rc=0 で通る"
   # $(…) の中では errexit が引き継がれず失敗を飲み込むので、別のプロセスで走らせて rc を見る
