@@ -463,7 +463,19 @@ pub async fn apply_migrations_with(
     grants: &str,
     me: Channel,
 ) -> Result<(), MigrateError> {
-    apply_migrations_recorded(conn, versions, before_apply, grants, None, me)
+    apply_migrations_with_lineage(conn, versions, before_apply, grants, crate::LINEAGE, me).await
+}
+
+/// `apply_migrations_with` に、試験や組み立てごとの LINEAGE を渡す口を足したもの。
+pub async fn apply_migrations_with_lineage(
+    conn: PoolConnection<Postgres>,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
+    lineage: Lineage<'_>,
+    me: Channel,
+) -> Result<(), MigrateError> {
+    apply_migrations_recorded_with_lineage(conn, versions, before_apply, grants, None, lineage, me)
         .await
         .map(|_| ())
 }
@@ -473,11 +485,32 @@ pub async fn apply_migrations_with(
 /// 錠を持つこの接続で書く（ahead・読めないでは書かない）。書けなくても結果は変わらない（D9）。
 /// 当てた版の名前（ORDER の順）を返す。落ちたときの版の名前と SQLSTATE は `MigrateError` から取れる（本文は持ち出さない）。
 pub async fn apply_migrations_recorded(
+    conn: PoolConnection<Postgres>,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
+    stamp: Option<&str>,
+    me: Channel,
+) -> Result<Vec<String>, MigrateError> {
+    apply_migrations_recorded_with_lineage(
+        conn,
+        versions,
+        before_apply,
+        grants,
+        stamp,
+        crate::LINEAGE,
+        me,
+    )
+    .await
+}
+
+pub async fn apply_migrations_recorded_with_lineage(
     mut conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    lineage: Lineage<'_>,
     me: Channel,
 ) -> Result<Vec<String>, MigrateError> {
     let mut run = Run::default();
@@ -494,6 +527,7 @@ pub async fn apply_migrations_recorded(
                 before_apply,
                 grants,
                 stamp,
+                lineage,
                 me,
                 &mut run,
             )
@@ -573,6 +607,7 @@ async fn apply_locked(
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    lineage: Lineage<'_>,
     me: Channel,
     run: &mut Run,
 ) -> Result<(), MigrateError> {
@@ -586,12 +621,11 @@ async fn apply_locked(
         Ledger::BeforeLedger => (BTreeSet::new(), true),
         Ledger::Recorded(names) => {
             let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
-            if let Verdict::Ahead { unknown } = compare_with_lineage(&known, &names, crate::LINEAGE)
-            {
+            if let Verdict::Ahead { unknown } = compare_with_lineage(&known, &names, lineage) {
                 let unknown = describe_unknown(conn, &unknown).await?;
                 return Err(MigrateError::Ahead { unknown });
             }
-            (mapped_names(&names, crate::LINEAGE), false)
+            (mapped_names(&names, lineage), false)
         }
     };
     // 版の検査の後・退避の前。試みの行を commit してから退避を取る（退避に入るので、戻しても残る。Q6）
@@ -600,7 +634,7 @@ async fn apply_locked(
     }
     before_apply().map_err(MigrateError::Before)?;
     sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
-    warn_changed_fingerprints(conn, versions, crate::LINEAGE).await?;
+    warn_changed_fingerprints(conn, versions, lineage).await?;
     for (name, sql) in versions {
         if recorded.contains(*name) {
             continue;

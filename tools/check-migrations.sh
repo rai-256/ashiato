@@ -145,7 +145,7 @@ if [ "${mode:-}" = self-test ]; then
   printf '%s\n' 202611030001_a 202611030002_b 202611030003_c 202611030004_d > "$lineage_case/migrations/ORDER"
   for name in 202611030001_a 202611030002_b 202611030003_c 202611030004_d; do
     : > "$lineage_case/migrations/$name.sql"
-    : > "$lineage_case/migrations/$name.down.sql"
+    printf '%s\n' "DELETE FROM migration_ledger.applied WHERE name = '$name';" > "$lineage_case/migrations/$name.down.sql"
   done
   expect_lineage() {
     local body="$1" expected="$2" out rc=0
@@ -153,12 +153,15 @@ if [ "${mode:-}" = self-test ]; then
     out="$self --dir '$lineage_case/migrations'"
     out="$(eval "$out" 2>&1)" || rc=$?
     if [ "$expected" = fail ] && [ "$rc" -ne 0 ] && grep -q "$3" <<< "$out"; then return 0; fi
+    if [ "$expected" = pass ] && [ "$rc" -eq 0 ]; then return 0; fi
     echo "  self-test NG: LINEAGE '$body' の期待と違う (rc=$rc)"; echo "$out"; return 1
   }
   expect_lineage 'moved A B' fail 'moved A B' || fail=1
   expect_lineage 'renamed A' fail 'renamed A' || fail=1
   expect_lineage 'renamed A X' fail 'ORDER に無い' || fail=1
   expect_lineage 'rewritten 202611030003_c 202611030002_b' fail '後でない' || fail=1
+  expect_lineage 'renamed 202611030001_a 202611030002_b' pass '' || fail=1
+  expect_lineage 'rewritten 202611030003_c 202611030004_d' pass '' || fail=1
   [ "$fail" -eq 0 ] && echo '== Scenario: 旧名の対応の形が違えば、移行の形の検査が落ちる' || true
   [ "$fail" -eq 0 ] && echo "self-test OK" || { echo "self-test NG"; exit 1; }
   exit 0

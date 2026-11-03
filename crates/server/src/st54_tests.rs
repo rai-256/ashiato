@@ -62,6 +62,22 @@ async fn apply_lineage_fixture(db: &testdb::TestDb, name: &str) {
     .unwrap();
 }
 
+async fn migrate_with_lineage(
+    db: &testdb::TestDb,
+    versions: &[(&str, &str)],
+    lineage: &[(migration_ledger::LineageKind, &str, &str)],
+) -> Result<(), migration_ledger::MigrateError> {
+    migration_ledger::apply_migrations_with_lineage(
+        db.pool().await.acquire().await.unwrap(),
+        versions,
+        || Ok(()),
+        "",
+        lineage,
+        Channel::Official,
+    )
+    .await
+}
+
 // Scenario: 名前を変えた移行は、旧名の対応があれば、旧名で当てた DB でも起動し、当て直さない
 #[tokio::test]
 async fn st54_lineage_renamed_migration_starts_without_reapplying() {
@@ -74,6 +90,7 @@ async fn st54_lineage_renamed_migration_starts_without_reapplying() {
         LINEAGE_OLD,
         LINEAGE_NEW,
     )];
+    migrate_with_lineage(&db, versions, lineage).await.unwrap();
     assert_eq!(
         migration_ledger::startup_refusal_with_lineage(
             &pool,
@@ -93,6 +110,13 @@ async fn st54_lineage_renamed_migration_starts_without_reapplying() {
             .await
             .unwrap();
     assert_eq!(count, 1);
+    let new_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
+            .bind(LINEAGE_NEW)
+            .fetch_one(&db.pool().await)
+            .await
+            .unwrap();
+    assert_eq!(new_count, 0);
 }
 
 // Scenario: 消した移行は、消したことの対応があれば、それを当てた DB でも起動する
