@@ -1,13 +1,13 @@
 {
   "status": "rejected",
-  "digest": "6bef92884771d34ba8d5da110a17ccd02d5150df16d3ca53456bc3641bbadee2",
-  "head": "eed50131373f181f35c859bbb0168f8a3dedeb1d",
-  "answers": "deep-answers-4.txt",
+  "digest": "e5b7a935cbb1e660376425fb4df64c680e6f87c6f724d0326cdc6c8f6b806491",
+  "head": "d21254b02f3bedd0f7a24cd05b416923d90c599f",
+  "answers": "deep-answers-5.txt",
   "picked": "合意する",
   "notes": [
     "IMP-01: 未回答（読んだだけでは閉じない）"
   ],
-  "at": "2026-11-03T06:12:52Z",
+  "at": "2026-11-03T06:20:18Z",
   "impacts": {
     "IMP-01": {
       "answer": "(未回答)",
@@ -60,6 +60,20 @@
     {
       "at": "2026-11-03T06:12:52Z",
       "head": "eed50131373f181f35c859bbb0168f8a3dedeb1d",
+      "id": "IMP-02",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T06:20:18Z",
+      "head": "d21254b02f3bedd0f7a24cd05b416923d90c599f",
+      "id": "IMP-01",
+      "answer": "(未回答)",
+      "closed": false
+    },
+    {
+      "at": "2026-11-03T06:20:18Z",
+      "head": "d21254b02f3bedd0f7a24cd05b416923d90c599f",
       "id": "IMP-02",
       "answer": "受け入れて進める（リリースの前に判断し直す）",
       "closed": true

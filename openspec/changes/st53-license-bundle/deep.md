@@ -147,6 +147,25 @@
     材料（`if_accepted`・`recheck`）も第 2 回と同じまま、次の合意で IMP-01 だけに答えを求める。
     spec の段の検査（`openspec validate --strict`・`evidence.py lint`・`review_triage.py`・`spec_overlap.py check`）は直さずに rc=0（2026-11-03）
 
+## 影響の判断（第 3 回の合意）
+
+重大な IMP への本人の答え（`deep-answers-5.txt` の逐語。問いは `deep-questions-agree-3.json`）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。
+
+- IMP-01 [印を push できる人が main を通さずに正式な鍵を読めるかもしれない（ST52 から）] -> (未回答)
+  - 補足: なし。第 2 回に続き、第 3 回でも答えが無い（第 1 回は「受け入れて進める（リリースの前に判断し直す）」）。読んだだけでは閉じない（`agreement.json` は `closed: false`）
+- IMP-02 [本人の管理者の資格情報がエージェントと同じ OS の利用者に残ると、資格情報を替えても分けられない] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+
+## 仕様への合意（第 3 回）
+
+- QA [仕様への合意] -> 合意する（補足なし）。ただし IMP-01 が未回答のため、合意は成立していない（`agreement.json` の `status: rejected`）
+
+## 仕様への違和感（第 3 回の合意）
+
+- IMP-01 に答えが無い（`deep-answers-5.txt`: `IMP-01 [...] -> (未回答)`）。違和感の補足は無く、仕様の中身への指摘ではない。
+  第 2 回・第 3 回と 2 回続けて IMP-01 だけが未回答で、IMP-02 と QA には答えがある。問いの JSON（`deep-questions-agree-3.json`）の
+  IMP-01 と IMP-02 は同じ形（選択肢 2 つ）で、問いの側の違いは見つけていない。仕様は直さずに IMP-01 をもう一度聞く
+
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
 - FR-127 に ★ 2026-11-02 補足: 「同じ印」で示すのは正式版・ベータ版だけ、開発版と PR の組み立ては 40 桁の commit で示す（Q7・review/spec.md R14・D16（仮））。許諾は配布物の中にだけ置き、画面からは開けない（Q6・Q9）
