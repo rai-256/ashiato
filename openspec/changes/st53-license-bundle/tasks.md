@@ -35,11 +35,11 @@
 
 ## Task 1: 追加の許可の正本と、`LICENSE`・README・CONTRIBUTING
 
-- [ ] 1.1 `LICENSES/AdditionRef-ashiato-play-services.txt` を作る（D1・D2）。`Listed libraries:` より前は、`specs/distribution/spec.md` の最初の Requirement の英文を 1 字も変えずに写す（段落の間は空行 1 つ）。`Listed libraries:` の節には、`com.google.android.gms:play-services-location`・`-base`・`-basement`・`-tasks` を 1 行ずつ書く（`- ` で始め、座標だけ）。
+- [x] 1.1 `LICENSES/AdditionRef-ashiato-play-services.txt` を作る（D1・D2）。`Listed libraries:` より前は、`specs/distribution/spec.md` の最初の Requirement の英文を 1 字も変えずに写す（段落の間は空行 1 つ）。`Listed libraries:` の節には、`com.google.android.gms:play-services-location`・`-base`・`-basement`・`-tasks` を 1 行ずつ書く（`- ` で始め、座標だけ）。
   `LICENSE` を「正本の全行 → 空行 2 つ → 今の AGPL-3.0 の全文（変えない）」にする。
   `README.md` のライセンスの節を書き直す（AGPL-3.0 と追加の許可を名指しする・正本は英文・日本語の参考訳・正本へのリンク）。`CONTRIBUTING.md` の冒頭の許諾の文に、貢献も同じ許諾（追加の許可を含む）の下で配ることを書き足す
   検証: `bash -c 'n=$(wc -l < LICENSES/AdditionRef-ashiato-play-services.txt); head -n "$n" LICENSE | cmp - LICENSES/AdditionRef-ashiato-play-services.txt'` rc=0 / `bash -c 'grep -q "AdditionRef-ashiato-play-services" README.md && grep -q "参考訳" README.md && grep -q "追加の許可" CONTRIBUTING.md'` rc=0 / `bash -c 'git diff --quiet origin/main -- docs/CLA.md'` rc=0 / `bash -c 'diff <(git show origin/main:CONTRIBUTING.md | sed -n "/^## /,\$p") <(sed -n "/^## /,\$p" CONTRIBUTING.md)'` rc=0（最初の見出しより後ろ —— CLA の節 —— は変えない。書き足すのは冒頭の許諾の文だけ）
-- [ ] 1.2 `tools/check-spdx.sh license` を作る（D1）。次の 2 つを見る。
+- [x] 1.2 `tools/check-spdx.sh license` を作る（D1）。次の 2 つを見る。
   - `LICENSE` の先頭の N 行（N は正本の行数）が正本と同じこと
   - その後ろ（空行 2 つの後）の sha256 が、台本の中の定数と同じこと。定数は、今の `LICENSE`（AGPL-3.0 の全文）の sha256
   違えば rc≠0 で、どちらが違うかを示す。
