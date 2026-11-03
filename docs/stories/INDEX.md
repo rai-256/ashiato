@@ -1,6 +1,6 @@
 # Story 一覧
 
-- 要件 `docs/requirements.md` から分解。**Story 58 本 / capability 15 本**（2026-10-11 に衛星の基盤の改訂で 10 本足し、4 本を書き直した。2026-10-25 に配布と更新の改訂で ST48〜ST58 の 11 本と capability `distribution` を足した）
+- 要件 `docs/requirements.md` から分解。**Story 60 本 / capability 15 本**（2026-10-11 に衛星の基盤の改訂で 10 本足し、4 本を書き直した。2026-10-25 に配布と更新の改訂で ST48〜ST58 の 11 本と capability `distribution` を足した。2026-11-03 に DB の置き方の改訂で ST59・ST60 を足した）
 - `layer` は `requires` の DAG の深さ。**layer 0 は依存なし＝すぐ着手できる**
 - `doors` と逐語引用は `scripts/make_story.py` が要件本文から機械的に埋めている（手で写していない）
 - **判断（表題・価値・壊してはいけないもの・完了の判定）の単一情報源は `stories.json`。** `ST<NN>.md` は生成物で、
@@ -14,8 +14,9 @@
 - **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST51
 - **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST52
 - **layer 5**: ST18, ST26, ST31, ST39, ST45, ST53, ST54, ST55, ST56
-- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST57
+- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST57, ST59
 - **layer 7**: ST43, ST58
+- **layer 8**: ST60
 
 ## 一覧
 
@@ -75,10 +76,12 @@
 | [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 4 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49, ST51 | 34 |
 | [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 5 | FR-127, NFR-26 | ST52 | 35 |
 | [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 5 | FR-106 | ST52 | 34 |
-| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
+| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111, FR-132 | ST52, ST28 | — |
 | [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 5 | FR-128 | ST52, ST44 | — |
 | [ST57](ST57.md) | 新しい版が出たら知らせる | 6 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
 | [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 7 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
+| [ST59](ST59.md) | 合言葉を画面から変えられる | 6 | FR-133 | ST55, ST56 | — |
+| [ST60](ST60.md) | Linux にもサーバを入れて使える | 8 | FR-131 | ST55, ST58 | — |
 
 ## capability（仕様の置き場）
 
@@ -97,12 +100,12 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST44, ST49 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
 | `record-deletion` | 削除 | ST22, ST23, ST49 |
-| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
+| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56, ST59 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST44, ST45, ST46 |
-| `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
+| `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58, ST60 |
 
 > **訂正（2026-10-21、ST29 の spec）**: `data-durability` に ST29 を足した。ST29 は衛星の登録簿と資格情報の表を足し、書き出しは分類の無い表があると始まらない（正典）。
 > 登録簿を書き出しに入れるので、ST33 の Scenario「台帳と導出の表は書き出しに入らない」のファイルの一覧（「それ以外のファイルは無い」）を MODIFIED する
@@ -502,3 +505,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - `record-envelope` に ST52 を足した。ST49 の「組み立ての印は、版番号・commit・…を持ち、組み立てのたびに作り直す」の版番号を 1 つの出所（`Cargo.toml` の workspace の `version`）と組み立ての時に渡す版番号から決めるように、
 >   ST50 の「封筒の形が変わったのに送信契約の版が上がっていなければ CI が落ちる」の「最後の配った印」を今の木の祖先の印のうち版番号の最も大きいものに、それぞれ MODIFIED する
 >   （申し送り `docs/handoff/ST52.md` の「出所を 1 つにしたら、そこから読むように替える」「型を変えるなら一緒に変える」）。後続の振る舞いの前倒しではない
+
+> **訂正（2026-11-03、D-01 の置き方の改訂）**
+>
+> - サーバの DB を Docker Desktop でなく同梱の PostgreSQL にし、サーバと DB を Windows のサービスにした（FR-108 / FR-109。経緯は `docs/audit/2026-11-03-native-postgres-consistency.md`）。
+>   ST55 の価値・壊してはいけないもの・完了の判定を書き直し、FR-132（PostgreSQL 17 に揃える）を足した。ST58 の退避の置き場の呼び名と、更新の管理者の確認を直した（C15・C8）
+> - ST59（FR-133。合言葉を画面から変える）を足した。共有の値は ST56 の形なので requires は ST55・ST56。アクセス制御なので `data-sensitivity` に積む
+> - ST60（FR-131。Linux の配布）を足した。Windows の更新の経路の後に Linux へ広げるので requires は ST55・ST58。`distribution` に積む
+> - ST54（FR-106）と ST57（FR-112）は ★ 2026-11-03 の補足を見て、判断を変えずに judged だけ進めた（ST54 は design D8（仮）の反転条件が受ける。ST57 の更新係のアカウントは設計の段で決める）

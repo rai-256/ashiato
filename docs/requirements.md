@@ -975,30 +975,52 @@
   正式版と並べて入れられ、開発版が正式版の記録・自動起動・通知を取り合わない。開発版の S-01 は正式版と別の D-01 に繋ぐ。
   開発版は公開されているが、**サポートしないことを配布元に明記する**（本人の言葉:「公開はされてるので無理やりも使えるけど」）。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C13。C-02 は自動起動の項目（`ashiato-collector.cmd`）と通知の差出人（`dev.ashiato.collector`）が固定で、同じ PC で取り合う
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C11（AI の推奨）。**開発版の S-01 と D-01 は、正式版と別のサービスの名前・別の状態の置き場（FR-109）・別の待ち受けで動かす。**
+  開発版も公開する配布物なので、Docker を入れさせない（§5「配布の方針」）。ST54 の D8（仮。開発版の DB を `docker compose` で立てる手順書）は、ST55 のインストーラができるまでのつなぎ
 - **FR-107**: WHEN 1 日の終わりに、幹にその日の変更がある THE SYSTEM SHALL 開発版を作り直す。
   変更の無い日は作らない（Q11。CI の枠を食う。Windows の実行は 2 倍で数えられ、過去に枠が尽きた）。
-- **FR-108**: WHEN 利用者が S-01 のインストールを始め、コンテナの実行環境が無い THE SYSTEM SHALL 実行環境をその公式の配布元から入れ、ログオン時の自動起動まで設定する。
-  **コンテナの中で動かすのは D-01 の DB だけにし、S-01 は Windows で直に動かす。** 実行環境の既定は実装上の既定として `docs/production-prep.md` に置く（EXT-O）。
-  **実行環境の本体は配布物に同梱しない**（再配布を許す条項を確かめていない）。
-  BIOS の仮想化が無効なら、入れずに有効にする手順を示す（利用者が BIOS を触ることになるので、自動ではやらない）。
-  **これは一般向けの配布の前に選び直す**（§5「配布の方針」）。
+- **FR-108**: WHEN 利用者が S-01 のインストールを始める THE SYSTEM SHALL 配布物に同梱した PostgreSQL（D-01）と S-01 を OS のサービスとして登録し、PC の起動時から動かす。
+  ★ 2026-11-03 訂正。配布の方針の改訂（`docs/briefs/req-native-postgres-r1.html` の Q1・Q2、`-r2.html` の Q1）。**コンテナの実行環境（Docker Desktop）を前提にするのをやめる。**
+  本人の言葉:「アプリを入れてもらう手間が増えてしまいません？ それならWindowsだけで完結できる形のほうが良いかなって思いました」。
+  Docker Desktop は数 GB で常駐し、土台に WSL を入れ（再起動が要ることがある）、大きな会社の PC では有料になる。利用者は ashiato のおまけと見て片付けうる。
+  ST55 の深掘りの下調べ（`openspec/changes/st55-server-installer/premises.md` P3）では、WSL の中の docker で PostgreSQL のデータを Windows のフォルダに置くと初期化で落ちた（`initdb: ... Operation not permitted`）。
+  **データベースもサーバも Windows のサービスにする**（本人が選んだ。推奨はログオン時に本人の権限で起こす形だった）。ログオンしていなくても携帯の記録を受け取れる。
+  インストールのときに管理者の権限を 1 回求める。C-02 は本人の窓と入力を読むので、従来どおりログオン時に本人の権限で起こす。
+  **同梱するのは PostgreSQL の要るものだけ**（管理画面などは除く。EXT-S）。インストールが外の置き場に依らず、版が配布物で固定される（Q2。推奨と同じ）。
+  S-01 は従来どおり Windows で直に動かす（コンテナに入れると loopback の守りを外す —— 下の 2026-10-25 の訂正の理由は変わらない）。
+  旧い本文（2026-10-25）の中身: コンテナの実行環境が無ければその公式の配布元から入れ、ログオン時の自動起動まで設定する。コンテナの中で動かすのは D-01 の DB だけにし、S-01 は Windows で直に動かす。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C2 / C14。正典は S-01 の待ち受けと DB の接続先を loopback に限る（`openspec/specs/data-sensitivity/spec.md`・`net_guard.rs`）。
-  S-01 をコンテナに入れるとコンテナの中の loopback に外から届かず、DB の宛先も loopback でなくなるので、守りを外すことになる。いまの形（DB だけコンテナ・S-01 は手元のバイナリ）のまま配る。
-  [NEEDS CLARIFICATION: S-01 を Windows 向けに組み立てられるかは試していない。期限: 配布の Story の上流]
-- **FR-109**: THE SYSTEM SHALL S-01 が持ち続ける状態のすべて（D-01・D-02・移行の前の退避・拠点内のバックアップ・書き出し・DB の合言葉・設定）を、コンテナの実行環境の外の Windows のフォルダに置く。
+  S-01 をコンテナに入れるとコンテナの中の loopback に外から届かず、DB の宛先も loopback でなくなるので、守りを外すことになる。
+  ★ 2026-11-03 閉じる。旧い未決「S-01 を Windows 向けに組み立てられるかは試していない」は ST52 が閉じた（`openspec/specs/distribution/spec.md` の `ashiato-server-<版番号>-windows-x86_64.zip`）。
+  **配る形で移行を当ててサーバを起こす試験を、Windows の CI に 1 本持つ**（Q4。推奨と同じ）。開発と試験の DB はいまの Docker（WSL の中）のままで、PostgreSQL のメジャー版を揃える（FR-132）。
+  いまの Docker の DB の記録は配る形へ移さない（Q5。推奨と同じ。本人の答え: 移したい記録は無い）。Docker の DB は開発と試験のためだけに残る
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C3 / C5 / C7 / C8 / K4 と `docs/briefs/req-native-postgres-r3.html` の Q1・Q2・Q4（どれも推奨と同じ）。
+  **配る D-01 も製造準備の既定値で作る**（C7。AI の推奨）: ログの 3 つの設定（`log_statement=none` など。`docs/production-prep.md` の「プラットフォーム既定値の棚卸し」）・待ち受けを `127.0.0.1` に限る・手元の接続にも合言葉を求める（`trust` を残さない。FR-110 の合言葉が効くように）。
+  **インストーラは、インストールした本人のダウンロードと取り込み待ちのフォルダに、サービスのアカウントの読み（取り込み待ちは読み書き）を足す**（Q1）。「Takeout はダウンロードするだけで入る」（正典 external-ingestion）をサービスでも続ける。
+  **S-01 の更新（と、その中で移行が失敗したときの自動の戻し）は、更新のたびに管理者の確認（UAC）を 1 回出して行う**（Q2）。上の「管理者の権限を 1 回」はインストールのときの数。
+  **本人の環境を配った版へ切り替えるのは、ST55 が済んでから、そのインストーラで入れて行う**（Q4）。ST53 の後に Docker の DB のまま切り替えない（Q5 の「移さない」と合わせる。`docs/release.md` §7）。
+  下調べの P3 は ST55 の上流の枝 `docs/st55-upstream`（commit `4f068c66`）の `premises.md` にある（K4。main には無い）。結果の逐語は上のとおり
+- **FR-109**: THE SYSTEM SHALL S-01 が持ち続ける状態のすべて（D-01・D-02・移行の前の退避・拠点内のバックアップ・書き出し・DB の合言葉・設定）を、S-01 と D-01 のサービスのアカウントだけが書け、それとインストールした本人だけが読める PC 全体の置き場（Windows では `ProgramData` の下）に置く。
+  ★ 2026-11-03 訂正。配布の方針の改訂（`docs/briefs/req-native-postgres-r2.html` の Q1）。サーバもデータベースもサービスにしたので、置き場は本人のフォルダでなく PC 全体の置き場にする
+  （問いの文脈に置き、本人が選んだ。サービス専用のアカウントだけが書ける、は AI の推奨）。同梱した PostgreSQL はデータをこの置き場に直に置くので、コンテナのボリュームの問題は無くなった。
+  旧い本文（2026-10-25）: 「… を、コンテナの実行環境の外の Windows のフォルダに置く。」
+  ★ 2026-11-03 閉じる。旧い未決「Docker Desktop で PostgreSQL のデータを Windows のフォルダに置いて初期化・fsync が通るかは試していない」は、Docker Desktop を使わなくなったので問いごと無くなった。
   ★ Q4。コンテナの中のボリュームは、実行環境を入れ直す・消すと一緒に消えることがあり、利用者は実行環境を ashiato のおまけと見て片付けうる。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C9 / K2。D-01 と D-02 だけでは、移行の前の退避（FR-119 の戻し先）が更新の最中に消えうる。
-  いまの `docker-compose.yml` の DB はボリュームを宣言しておらず、**匿名のボリューム**に置かれている（「名前付き」ではない）。`down` の後の `up` で空のボリュームに付け替わりうる。
-  [NEEDS CLARIFICATION: Docker Desktop で PostgreSQL のデータを Windows のフォルダに置いて初期化・fsync が通るかは試していない。期限: 配布の Story の上流]
+  ★ 2026-11-03 訂正。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C4（AI の推奨）。読む側も絞る —— `ProgramData` の下は既定で同じ PC のほかのアカウントに読みを許しうる（未確認）。DB の合言葉も置くので、改訂前の `%LOCALAPPDATA%`（本人のプロファイルの中）と正典の Unix の 0700 / 0600 と同じ強さに揃える。
+  本人が読めるのは、書き出しと原本を開くため。旧い本文（2026-11-03 の最初の改訂）は「サービスのアカウントだけが書ける PC 全体の置き場」
 - **FR-110**: WHEN S-01 のインストールが D-01 を初めて作る THE SYSTEM SHALL DB の合言葉を自動で生成し、その PC の中にだけ置く。
   ★ Q5。DB の合言葉は人が覚える必要が無い。固定値を持たない（ST28 / design D19 と同じ）。
 - **FR-111**: WHEN S-01 のインストールが最後に達する THE SYSTEM SHALL 画面の合言葉を利用者に設定させる。
   ★ Q5。画面の合言葉を設定する口はどの Story も持っていなかった（2026-10-04 に見つけた穴。配布の前までに要る）。
+  ★ 2026-11-03 補足。後から変える口は FR-133（整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C9）
 - **FR-112**: WHILE 更新の確認が有効である THE SYSTEM SHALL 利用者のチャンネルに新しい版があるかを、S-01 の更新係・C-01・C-02 のそれぞれで 1 日 1 回、配布元に確かめる。
   認証なしの問い合わせは IP ごとに 1 時間 60 回まで（EXT-P）なので、1 日 1 回なら当たらない。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C1。**S-01 の版を確かめるのは、D-01 に繋がらない別のプロセス（更新係）にする。**
   正典は「サーバに外部の宛先へ記録を送る部品（HTTP の送り手）を持たせない」を、部品を持つかどうかで固定している（`openspec/specs/data-sensitivity/spec.md`・`tools/check-offsite.sh`）。
   S-01 に問い合わせの部品を足すと、その守りを開けることになる。更新係は記録を持たないので、問い合わせの部品を持っても記録は外へ出せない。S-01 は更新係が書いた結果を読むだけ。
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C8（AI の推奨）。S-01 と D-01 をサービスにしたので、**更新係は S-01 とも D-01 とも別のサービスのアカウントで動き、結果を自分の置き場に書く**（S-01 はそこを読むだけ。FR-109 の置き場には書かない）。
+  更新を入れるのは本人で、そのとき管理者の確認を 1 回出す（FR-108 の 2026-11-03 の補足）
 - **FR-113**: WHEN 利用者のチャンネルに新しい版が見つかる THE SYSTEM SHALL V-01 と C-01 の画面、C-02 の通知に「更新あり」を出す。
   ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C11。C-02 には画面が無く、表に出るのはトーストの通知だけ
 - **FR-114**: WHEN 利用者が「更新あり」を押す THE SYSTEM SHALL 新しい版を落とし、入れる操作（Android のインストール画面・Windows のインストーラ・S-01 の更新の手順）を開く。
@@ -1086,6 +1108,19 @@
   版を上げないまま欄を足すと、新しい収集アプリが古い S-01 に送ったときに 200 で受け付けられ、新しい欄（FR-122 の版・ST41 の終わりの時刻など）だけが黙って失われる。
   **機械の検査で固定する**（封筒の欄が増えたのに版が上がっていなければ落とす）。最初の正式版を出すまでの足し方（走っている ST41 を含む）は版 1 に含める
   ★ 2026-10-29 訂正。ST50 の深掘り Q8 の答え・整合の確認（`docs/audit/2026-10-29-st50-consistency.md`）の C1。**版 1 は最初の印 `v*`（ベータ版の `-beta.N` を含む）で閉じる。** その後に欄を足すなら版を上げる
+- **FR-131**: THE SYSTEM SHALL S-01（D-01 を含む）を、Windows のほかに Linux にも入れて動かせる形で配る。
+  ★ 2026-11-03 追加。配布の方針の改訂（`docs/briefs/req-native-postgres-r2.html` の Q2・Q3）。本人の言葉:「ソフト自体もLinux上で動くようになってるはずなので、サーバー（DB含め）もLinuxでも動くようにするべきだと思います」。
+  **Windows の配布を先に通し、Linux の配布は一般向けの配布の前までに足す**（推奨と同じ）。それまでも S-01 は Linux で組み立てて試験する（CI。Linux で動かなくなる変更は落ちる）。
+  S-01 の Linux の配布物（`ashiato-server-<版番号>-linux-x86_64.tar.gz`）は ST52 が作るが、インストール・サービスの登録・更新の経路はまだ無い。
+  [NEEDS CLARIFICATION: Linux で D-01 をどう入れるか（PostgreSQL 公式のパッケージの置き場か、Docker か）。Linux には Windows のような「アプリに含める用」の PostgreSQL の zip が無い。版は FR-132 に揃える。期限: Linux の配布の Story の上流]
+- **FR-132**: THE SYSTEM SHALL 配る D-01 と、開発と試験の D-01 の PostgreSQL を、同じメジャー版（17）にする。
+  ★ 2026-11-03 追加。配布の方針の改訂（`docs/briefs/req-native-postgres-r1.html` の Q3・Q4。どちらも推奨と同じ）。17 のあいだはマイナー版の差し替え（データはそのまま）だけを配る。
+  開発と試験はいまの `docker-compose.yml`（`postgres:17-alpine`）のまま。
+  [NEEDS CLARIFICATION: メジャー版を上げるときのデータの移し方（新旧の版を持って pg_upgrade か、書き出して入れ直すか）。どちらも FR-119 の退避の形に乗せる。期限: 配る PostgreSQL のメジャー版を初めて上げる前（17 の公式の支援は 2029 年 11 月まで）]
+- **FR-133**: THE SYSTEM SHALL 画面の合言葉と、収集アプリが使う共有の値（FR-128）を、V-01 にログインした後の設定から変えられるようにする。
+  ★ 2026-11-03 追加。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C9 と `docs/briefs/req-native-postgres-r3.html` の Q3（本人が選んだ。推奨はサーバの管理用のコマンドだった）。
+  設定はサービスのアカウントだけが書ける置き場に入る（FR-109）ので、いまの `.env` を書き換える手順（`docs/network.md` §4）は配る形では使えない。FR-111 はインストールの最後に決める口だけだった。
+  問いに書いた弱み: 携帯から画面に入れると、携帯を落としたときにその携帯からも変えられる。**変えるときは今の画面の合言葉を入れ直させる**（AI の推奨。ログインしたままの携帯を拾われても、合言葉を知らなければ変えられない）
 
 ### 3.2 追加機能（Should Have）
 
@@ -1263,8 +1298,9 @@
   網の外に出ない手段（Tailscale のファイル送信・USB など）で自宅 PC の置き場へ運ぶことを含む**（2 か月ごと。EXT-M）。
   Google の推定した訪問と移動手段は C-01 の位置からは作れないので、書き出さなかった期間は端末から消えれば戻らない。
   クラウドのドライブを経由しないのは、位置の全履歴の写しが外へ出るため。運ぶ仕組みはシステムが作らない。
-- **NFR-25**: 版番号は、一般向けの配布（§5「配布の方針」の S-01 の配り方の選び直し）までは **0.x** とし、選び直した後の最初の正式版を **1.0** とする。
+- **NFR-25**: 版番号は、一般向けの配布までは **0.x** とし、一般向けの配布の最初の正式版を **1.0** とする。
   ★ 2026-10-25 追加。配布と更新の深掘り Q10（推奨と同じ側）。0.x は「形が変わりうる」の合図として読まれる。
+  ★ 2026-11-03 訂正。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C10。旧い本文は「一般向けの配布（§5「配布の方針」の S-01 の配り方の選び直し）まで」。配り方の選び直しは 2026-11-03 に済んだが、一般向けの配布はまだなので、合図を「一般向けの配布」だけにした
 - **NFR-26**: 配布物に入る依存の許諾は、**C-01（gradle / maven）を含めて**機械の検査で AGPL-3.0（と追加の許可）との両立を確かめる。
   ★ 2026-10-25 追加。いまの `tools/check-licenses.sh` は Rust と Node だけを見て、Android は対象外（design D15 で「公開前に決める」）。
   `play-services-location` はプロプライエタリで、追加の許可（§5）が受ける。許可の外のプロプライエタリな依存が入ったら検査が止める。
@@ -1469,7 +1505,9 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 ### 技術的制約
 
 - D-01 は **PostgreSQL**（本人の指定）。版は実装時に決める
+  ★ 2026-11-03 補足。整合の確認（`docs/audit/2026-11-03-native-postgres-consistency.md`）の C14。メジャー版は 17（FR-132）
 - S-01 と D-01/D-02 は自宅の Windows PC 上で動く。C-01 は Android、C-02 は Windows
+  ★ 2026-11-03 補足。S-01 と D-01/D-02 は Linux の PC にも入れられるようにする（FR-131）。Windows の配布を先に通し、Linux は一般向けの配布の前まで
 - **S-01 / D-01 / D-02 は自宅に置く（オンプレ）。クラウドに置かない。**
   ★ 2026-09-12 追加。ST07 の深掘り 第 2 回 Q9 の補足で本人が明示した。
   §1.3 の表は「自宅 PC」と書いていたが、**クラウドを採らないことは条件として書いていなかった** ——
@@ -1519,16 +1557,18 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 
 ### 配布の方針（2026-10-25 決定）
 
-配布と更新の要件（FR-104〜FR-130）の前提。2026-10-24〜25 の会話で本人が決めた（推奨を示し、本人が選んだ）。
+配布と更新の要件（FR-104〜FR-133）の前提。2026-10-24〜25 の会話で本人が決めた（推奨を示し、本人が選んだ）。2026-11-03 に D-01 の置き方を改訂した（FR-108・FR-109・FR-131〜FR-133）。
 
 - **インストーラーの見た目より、更新の経路を先に通す。** 「作る → 配る → 更新する → 移行を当てる → 失敗したら戻す」を先に動かし、
   本人の環境をその経路に切り替える。整ったインストーラーの見た目と利用者向けの説明は、一般向けの配布の直前に回す。
   理由: 更新の仕組みを持たない版を配ると、その版の利用者は手で入れ直すしかない（後から足せない）。移行の失敗を本人 1 人のうちに見つけられる
-- **S-01 はまずコンテナの実行環境（既定は Docker Desktop）を前提に配る**（FR-108）。**コンテナに入れるのは D-01 の DB だけで、S-01 は Windows で直に動かす。**
-  ★ 2026-10-25 訂正。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C2。S-01 をコンテナに入れると、正典の loopback の守り（待ち受けと DB の接続先）を外すことになる
-  **一般向けの配布の前に、専用の WSL 環境か、Windows に直接入れる形かを選び直す**
-  [NEEDS CLARIFICATION: どちらにするか。直接入れる形は PostgreSQL の同梱・サービス化・メジャー版の移し替えを自前で持つ（4〜6 Story 相当と見積もった）。期限: 一般向けの配布の前]。
-  自宅サーバ型のソフトでは Docker を前提にするのは一般的だが、実行環境の導入まで面倒を見るものは少ない（本人の言葉:「dockerをいれる手順を自動化したり含めたりできるならいい」）
+- **S-01 は D-01 の PostgreSQL を同梱して配り、どちらも OS のサービスとして PC の起動時から動かす**（FR-108。2026-11-03 決定）。**Docker Desktop も WSL も利用者に入れさせない。**
+  本人の言葉:「アプリを入れてもらう手間が増えてしまいません？ それならWindowsだけで完結できる形のほうが良いかなって思いました」。
+  PostgreSQL のメジャー版の移し替えは自前で持つ（FR-132。最初に上げる前に決める）。**Windows の配布を先に通し、Linux の配布は一般向けの配布の前までに足す**（FR-131）。
+  ★ 2026-11-03 訂正。従来の本文（2026-10-25）: 「S-01 はまずコンテナの実行環境（既定は Docker Desktop）を前提に配る。コンテナに入れるのは D-01 の DB だけで、S-01 は Windows で直に動かす。
+  一般向けの配布の前に、専用の WSL 環境か、Windows に直接入れる形かを選び直す」。その未決を「Windows に直接入れる形」で閉じた（`docs/briefs/req-native-postgres-r1.html`・`-r2.html`）。
+  直接入れる形は PostgreSQL の同梱・サービス化・メジャー版の移し替えを自前で持つ（2026-10-25 に 4〜6 Story 相当と見積もった）。
+  S-01 をコンテナに入れない理由（整合の確認 `docs/audit/2026-10-25-consistency.md` の C2。loopback の守り）は変わらない
 - **C-01 は配布元に APK を置いて直に配る。** いずれ Play ストアへ（本人の言葉:「まだ2でいいと思います。いずれは1を」）。
   Play のトラックは 3 つのチャンネルにそのまま使える。代わりに位置（バックグラウンド）と写真の全件の権限で審査が厳しい
 - **C-02 は当面、Windows の署名をしない**（本人の言葉:「一旦は署名なしで」）。署名の無い配布物には SmartScreen の強い警告が出る（EXT-R）。
@@ -1583,10 +1623,10 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-L | Tailscale の Personal プランは非商用に限られる | https://tailscale.com/pricing | "Our Personal plan is for individuals who want to use Tailscale at home. This is a free plan and is only suitable for non-commercial use of Tailscale." / "Unlimited user devices" / "Up to 6 users" | 2026-09-08 | 2027-03-08 | PERM-7, NFR-9 |
 | EXT-J | PostgREST の許諾条項は MIT 相当（**本文に「MIT License」という文字列は無い**） | https://raw.githubusercontent.com/PostgREST/postgrest/main/LICENSE | "Copyright (c) 2014-2026 The PostgREST contributors" / "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction" | 2026-09-08 | 2027-09-08 | FR-61（読み取り API の実装手段）。**★ 2026-10-11: 採っていない** —— 読み出しは自前の口で、PostgREST はどこにも無い（2026-10-11 の整合の確認（`docs/audit/2026-10-11-consistency.md`） K1）。衛星の読み出しは承認・印・台帳の門を 1 か所に通すので、表から自動で口を作る方式とは合わない（C9） |
 | EXT-I | キーボードのフォーカス表示は Level AA の要求 | https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html | "Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible." | 2026-09-08 | 2028-09-08 | NFR-22 |
-| EXT-O | Docker Desktop は個人の利用と小さな事業者には無料 | https://docs.docker.com/subscription/desktop-license/ | "Docker Desktop is free for:" / "Small businesses (fewer than 250 employees AND less than $10 million in annual revenue)" / "Personal use" | 2026-10-25 | 2027-04-25 | FR-108, NFR-8, NFR-9。**大きな会社の PC では有料になる**（利用者が会社の PC に入れる場合） |
 | EXT-P | GitHub の REST API は、認証なしの問い合わせを 1 時間 60 回までに限る | https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api | "The primary rate limit for unauthenticated requests is 60 requests per hour." | 2026-10-25 | 2027-04-25 | FR-112（1 日 1 回なら当たらない） |
 | EXT-Q | Microsoft Store に MSIX で出すと、署名は無料で Store が行い、SmartScreen の警告が出ない | https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options | "Microsoft re-signs your package automatically, meaning users never see a SmartScreen warning and you never need to purchase or renew a certificate." / "Create a free developer account at https://storedeveloper.microsoft.com." | 2026-10-25 | 2027-04-25 | §5「配布の方針」の C-02 の署名（一般向けの第一候補） |
 | EXT-R | 署名の無い配布物には SmartScreen の強い警告が出る。Azure Artifact Signing は個人では米国とカナダに限られる | https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options | "Strong SmartScreen block; enterprises may block entirely" / "Individual developers are currently limited to the USA and Canada." | 2026-10-25 | 2027-04-25 | §5「配布の方針」の C-02 の署名（当面は署名しない・Artifact Signing を採れない理由） |
+| EXT-S | PostgreSQL の Windows 版には、インストーラの無い zip（EDB が配る）があり、ほかのアプリのインストーラに含める用途を想定している。PostgreSQL の許諾は再配布を許す | https://www.postgresql.org/download/windows/ ・ https://www.postgresql.org/about/licence/ | "Advanced users can also download a zip archive of the binaries, without the installer. This download is intended for users who wish to include Postgres as part of another application installer." / "Permission to use, copy, modify, and distribute this software and its documentation for any purpose, without fee, and without a written agreement is hereby granted" | 2026-11-03 | 2027-05-03 | FR-108・FR-127。zip の置き場（EDB）には再配布の条件が書かれていない（"These archives are provided as a convenience for expert users."）。PostgreSQL と zip に入るほかの部品の許諾は、同梱する Story（ST55）が FR-127 の一覧と NFR-26 の検査に足す（整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C12）。★ 2026-11-03、Docker Desktop の規約の行（旧 EXT-O。Health Connect の EXT-O と番号が重なっていた）を外した |
 
 > EXT-E は「表示される範囲」の記述だが、**Chromium はローカルの履歴データベースからも 90 日で削除する** ——
 > `components/history/core/browser/history_backend.h`: "The number of days old a history entry can be before it is considered \"old\" and is deleted." `kExpireDaysThreshold = 90`
