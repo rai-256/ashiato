@@ -12,9 +12,17 @@ fail() { echo "NG: $*" >&2; exit 1; }
 expected_header="AGPL-3.0-only WITH AdditionRef-ashiato-play-services"
 marker='SPDX-License-'"Identifier:"
 check_headers() {
-  local tree="${1:-$root}" bad=0 mode path value
-  while IFS=$'\t' read -r mode path; do
+  local tree="${1:-$root}" bad=0 meta mode path value
+  # 空白を含むパスを切らないよう、NUL 区切りで読み、パスはタブの後ろを丸ごと取る
+  while IFS= read -r -d '' meta; do
+    mode="${meta%% *}"
+    path="${meta#*$'\t'}"
     [[ "$mode" == 120000 ]] && continue
+    if [[ ! -r "$tree/$path" ]]; then
+      echo "NG: $path を読めない" >&2
+      bad=1
+      continue
+    fi
     value="$(head -n 25 "$tree/$path" | LC_ALL=C awk -v marker="$marker" '
       index($0, marker) {
         prefix = substr($0, 1, index($0, marker) - 1)
@@ -41,7 +49,7 @@ check_headers() {
     elif [[ "$allowed" != "$expected_header" ]]; then
       echo "  例外: $path $value"
     fi
-  done < <(git -C "$tree" ls-files -s | awk '{print $1 "\t" $4}')
+  done < <(git -C "$tree" ls-files -s -z)
   return "$bad"
 }
 
@@ -159,7 +167,22 @@ self_test() {
   output="$(check_headers "$tree")"
   [[ "$(grep -c '^  例外:' <<<"$output")" -eq 5 ]]
 
-  output="$(check_headers "$root")"
+  echo "== Scenario: 空白を含むパスのファイルも、表示の検査が読む"
+  printf '%s\n' '// SPDX-License-Identifier: GPL-3.0-only' > "$tree/with space.rs"
+  git -C "$tree" add "with space.rs"
+  if output="$(check_headers "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'NG: with space.rs GPL-3.0-only' <<<"$output"
+  printf '%s\n' "// SPDX-License-Identifier: $expected_header" > "$tree/with space.rs"
+  git -C "$tree" add "with space.rs"
+
+  echo "== Scenario: 今の木は、表示の検査を rc=0 で通る"
+  # $(…) の中では errexit が引き継がれず失敗を飲み込むので、別のプロセスで走らせて rc を見る
+  if ! "${BASH_SOURCE[0]}" headers >"$work/root.out" 2>"$work/root.err"; then
+    cat "$work/root.err" >&2
+    echo "NG: 今の木で表示の検査が落ちる" >&2
+    return 1
+  fi
+  output="$(cat "$work/root.out")"
   [[ "$(grep -c '^  例外:' <<<"$output")" -eq 5 ]]
   grep -qFx '  例外: collector-android/gradlew Apache-2.0' <<<"$output"
   grep -qFx '  例外: collector-android/gradlew.bat Apache-2.0' <<<"$output"
