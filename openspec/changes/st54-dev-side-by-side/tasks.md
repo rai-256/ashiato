@@ -105,7 +105,7 @@
 
 ## Task 7: PC の収集アプリは同じ系統のサーバにだけ送り、違えば知らせる（D7・D12（仮）・D13。Q12・Q13・Q15）
 
-- [ ] 7.1 `Transport::get` の `Reply` に応答の見出しを足し、`/contract` の応答の見出し `Ashiato-Channel` を読む（無ければ `official`）。系統は `read_contract_answer` が `Version` と読んだ答えからだけ取る（404・読めない 200・401 などは今どおり。D14（仮））。`Runtime` の送る契機の頭（`runtime.rs:810-`）で、答えの系統が自分と違えばその契機は記録も生存信号も送らず、未送信を残し、`warn` で `channel_mismatch server=<相手> self=<自分>` を出す。
+- [x] 7.1 `Transport::get` の `Reply` に応答の見出しを足し、`/contract` の応答の見出し `Ashiato-Channel` を読む（無ければ `official`）。系統は `read_contract_answer` が `Version` と読んだ答えからだけ取る（404・読めない 200・401 などは今どおり。D14（仮））。`Runtime` の送る契機の頭（`runtime.rs:810-`）で、答えの系統が自分と違えばその契機は記録も生存信号も送らず、未送信を残し、`warn` で `channel_mismatch server=<相手> self=<自分>` を出す。
   違う系統の答えは `ContractGate` の契約の版の待ちに数えない（ST50 の「サーバを更新してください」の通知を出さない）。
   系統の違いの知らせ（D12（仮））: `contract_notice` と同じ決め方（入った契機で 1 回・前に出してから 24 時間ごと・同じ系統が答えた契機で消す・前に出した時刻を手元に持つ）を札 `channel` でもう 1 つ持ち（`ContractToaster` と同じ形の口。札 `contract`・`outage` とは別）、文は「送り先が開発版のサーバです。送り先を確かめてください」/「送り先が正式版のサーバです。送り先を確かめてください」（相手の系統で選ぶ）。`toast.rs` に札 `channel` の口を足す。
   試験（`runtime.rs` の `#[cfg(test)]`。偽の transport）: `// Scenario: 開発版の PC の収集アプリは、正式版のサーバに何も送らず手元に残す`・`// Scenario: 正式版の PC の収集アプリは、開発版のサーバに何も送らず手元に残す`・`// Scenario: 開発版の PC の収集アプリは、開発版のサーバには今どおり送る`・`// Scenario: 系統を答えない古いサーバは、正式版のサーバとみなす`・`// Scenario: 系統が違って送らない間は、サーバを更新してくださいの通知を出さない`（ST50 の通知の試験と同じ偽の時計と偽の通知の口）・
