@@ -38,12 +38,19 @@ cleanup_license_bundle() {
   license_bundle=""
 }
 
+copy_canonical_license() {
+  local repo="$1" destination="$2"
+  # Windows の Git checkout は core.autocrlf で作業木を CRLF にし得る。
+  # 配布物の照合元は Linux の checkout なので、HEAD の blob をそのまま使う。
+  git -C "$repo" show HEAD:LICENSE >"$destination" || die 'Git の LICENSE blob を読めない'
+}
+
 make_license_bundle() {
   local kind="$1" target="${2:-}"
   cleanup_license_bundle
   license_bundle="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-licenses.XXXXXX")"
   mkdir -p "$license_bundle/licenses"
-  cp "$root/LICENSE" "$license_bundle/licenses/LICENSE"
+  copy_canonical_license "$root" "$license_bundle/licenses/LICENSE"
   local -a notice_args=()
   [[ -z "$target" || "$target" == native ]] || notice_args+=(--target "$target")
   case "$kind" in
@@ -180,6 +187,16 @@ self_test() {
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/release-build.XXXXXX")"
   trap "rm -rf '$work'" EXIT
+  # Windows の checkout は LICENSE を CRLF にすることがあるが、配布物には Git の
+  # blob と同じバイト列を入れる（package-artifacts は Linux で blob と比べる）。
+  local checkout="$work/checkout" expected="$work/expected-LICENSE" actual="$work/actual-LICENSE"
+  git clone -q --local --no-hardlinks "$root" "$checkout"
+  git -C "$checkout" show HEAD:LICENSE >"$expected"
+  sed 's/$/\r/' "$checkout/LICENSE" >"$checkout/LICENSE.crlf"
+  mv "$checkout/LICENSE.crlf" "$checkout/LICENSE"
+  echo "== Scenario: Windows の checkout でも、配布物の LICENSE は Git の blob と同じ"
+  copy_canonical_license "$checkout" "$actual"
+  cmp -s "$expected" "$actual" || die 'Windows の checkout で LICENSE のバイト列が変わった'
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
   echo "== Scenario: release の組み立ては、画面を取り込んだ Linux サーバと APK を作る"
