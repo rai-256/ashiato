@@ -28,8 +28,10 @@ impl BackupConfig {
         let off = std::env::var("MIGRATE_BACKUP").is_ok_and(|v| v.eq_ignore_ascii_case("off"));
         Self {
             enabled: !off,
-            dir: std::env::var("MIGRATE_BACKUP_DIR")
-                .map_or_else(|_| PathBuf::from(default_dir(channel)), PathBuf::from),
+            dir: PathBuf::from(dir_for(
+                channel,
+                std::env::var("MIGRATE_BACKUP_DIR").ok().as_deref(),
+            )),
             pg_dump: std::env::var("PG_DUMP")
                 .map_or_else(|_| PathBuf::from("pg_dump"), PathBuf::from),
         }

@@ -3,6 +3,7 @@
 //! 管理者・所有者の接続ではサーバは起動せず、終了コード 2 と理由の種別（値ではなく種別）で終わる。
 #![allow(clippy::unwrap_used)]
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -25,9 +26,12 @@ struct CustomServerBinary {
 }
 
 fn custom_server_binary() -> CustomServerBinary {
+    custom_server_binary_with_version(&custom_server_version())
+}
+
+fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
     let target = tempfile::tempdir().unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let version = custom_server_version();
     let build = Command::new("cargo")
         .args([
             "build",
@@ -38,7 +42,7 @@ fn custom_server_binary() -> CustomServerBinary {
             "ashiato-server",
         ])
         .current_dir(&root)
-        .env("ASHIATO_BUILD_VERSION", &version)
+        .env("ASHIATO_BUILD_VERSION", version)
         .env("CARGO_TARGET_DIR", target.path())
         .output()
         .unwrap();
@@ -51,6 +55,61 @@ fn custom_server_binary() -> CustomServerBinary {
         path: target.path().join("debug/ashiato-server"),
         _target: target,
     }
+}
+
+/// Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
+#[test]
+fn st54_bin_channel_environment_does_not_override_build_channel() {
+    migrate_as_owner();
+    let custom =
+        custom_server_binary_with_version(&format!("{}-dev.20261102", env!("CARGO_PKG_VERSION")));
+    let mut child = Command::new(&custom.path)
+        .env_clear()
+        .env("DATABASE_URL", env("DATABASE_URL"))
+        .env("API_TOKEN", TEST_TOKEN)
+        .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+        .env("ASHIATO_CHANNEL", "official")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut stream = loop {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("開発版サーバが 127.0.0.1:18788 で待ち受けなかった");
+        }
+        match std::net::TcpStream::connect(("127.0.0.1", 18788)) {
+            Ok(stream) => break stream,
+            Err(_) => {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "開発版サーバが終了した: {status}; {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    };
+    stream
+        .write_all(b"GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-token-0123456789abcdef\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(
+        response.contains("ashiato-channel: dev\r\n"),
+        "応答の系統が dev でない: {response}"
+    );
+    assert!(
+        response.ends_with("{\"contract_version\":1}"),
+        "契約本文が変わった: {response}"
+    );
+
+    child.kill().unwrap();
+    let _ = child.wait_with_output();
 }
 
 fn custom_server_version() -> String {

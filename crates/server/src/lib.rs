@@ -4456,9 +4456,8 @@ pub async fn run() -> anyhow::Result<()> {
     )?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
     let server_channel = channel(env!("ASHIATO_VERSION"));
-    let addr = std::env::var("BIND")
-        .ok()
-        .map_or_else(|| net_guard::default_bind(server_channel).to_owned(), |v| v);
+    let explicit_bind = std::env::var("BIND").ok();
+    let addr = net_guard::bind_for(server_channel, explicit_bind.as_deref());
     let addrs = match net_guard::check_bind(&addr).await? {
         Ok(addrs) => addrs,
         Err(refusal) => net_guard::refuse(refusal.kind()),
