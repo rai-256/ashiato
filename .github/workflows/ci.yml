@@ -368,6 +368,7 @@ jobs:
         with: { node-version: "24" }
       - run: tools/release/package.sh linux "$RUNNER_TEMP/package-linux"
       - run: tools/check-licenses.sh android
+      - run: tools/check-licenses.sh --self-test
       - run: tools/release/notices.sh --self-test
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-linux, path: "${{ runner.temp }}/package-linux" }

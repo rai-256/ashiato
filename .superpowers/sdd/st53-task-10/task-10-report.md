@@ -40,3 +40,19 @@
 ## 自己レビュー
 
 指定された検査の配置、文書中の順序、手元検査のコマンドを確認した。`docs/production-prep.md` の追記は既存の表形式を維持している。残る actionlint の標準コマンド未導入は、検証コマンド指定どおり Docker fallback で PASS している。
+
+## Fix round 1
+
+レビューの未解決指摘 F1〜F4 に対応した。
+
+- F1: `package-linux` に `tools/check-licenses.sh --self-test` を追加した。
+- F2: `docs/release.md` に ST52 の鍵検証・控え、IMP-01/IMP-02 の判断、ST55 訂正、最初の印・nightly・修正枝の具体手順、完全な keytool コマンドを復元した。
+- F3: 確認バッチを 11.1〜11.5 として、draft.sh の版番号、印の前後比較、配布物 3 点と APK の `assets/licenses/`、`Commit:` / `head_sha`、`st53-probe`、LICENSE 表示、head の取得確認まで具体化した。
+- F4: `docs/production-prep.md` の ★ を「依存ライセンスの検査」表セル内へ移し、表を連続させた。
+
+再検証:
+
+- `scripts/verify-run 10.1`: PASS（3/3、`evidence.jsonl` に 10.1 の記録）
+- `scripts/verify-run 10.2`: PASS（3/3、`evidence.jsonl` に 10.2 の記録）
+- `scripts/verify-run 10.3`: PASS（2/2、`evidence.jsonl` に 10.3 の記録）
+- `git diff --check`: PASS
