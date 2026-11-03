@@ -243,7 +243,7 @@ self_test() {
   main_commit="$(git -C "$main_tree" rev-parse HEAD)"
   git clone -q "$main_tree" "$pr_tree"; git -C "$pr_tree" config user.email test@example.invalid; git -C "$pr_tree" config user.name test; printf pr > "$pr_tree/file"; git -C "$pr_tree" commit -qam pr
   pr_commit="$(git -C "$pr_tree" rev-parse HEAD)"
-  echo '== Scenario: 開発版と main への push の配布物のソースの場所は、組み立てた commit'; actual="$(ASHIATO_NOTICES_ROOT="$main_tree" "$0" commit)"; [[ "$actual" == "$main_commit" ]]; ASHIATO_NOTICES_ROOT="$main_tree" "$0" source "$work/main" 0.4.0 ""; grep -q "^Commit: $main_commit$" "$work/main"; ! grep -q nightly "$work/main"
+  echo '== Scenario: 開発版と main への push の配布物のソースの場所は、組み立てた commit'; actual="$(ASHIATO_NOTICES_ROOT="$main_tree" "$0" commit)"; [[ "$actual" == "$main_commit" ]]; ASHIATO_NOTICES_ROOT="$main_tree" "$0" source "$work/main" 0.4.0 ""; grep -q "^Commit: $main_commit$" "$work/main"; if grep -q nightly "$work/main"; then die '開発版の SOURCE.txt に nightly が入った'; fi
   echo '== Scenario: PR の組み立ての配布物のソースの場所は、PR の head の commit'; actual="$(ASHIATO_NOTICES_ROOT="$pr_tree" "$0" commit)"; [[ "$actual" == "$pr_commit" ]]; ASHIATO_NOTICES_ROOT="$pr_tree" "$0" source "$work/pr" 0.4.0 ""; grep -q "^Commit: $pr_commit$" "$work/pr"
   echo '== Scenario: 組み立ての commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる'; if ASHIATO_BUILD_COMMIT=main "$0" source "$work/bad" 0.4.0 "" >/dev/null 2>&1; then die '不正な commit を受け入れた'; fi; [[ ! -e "$work/bad" ]]
   echo '== Scenario: 印が版番号と違う公開の組み立ては、配布物を作らずに落ちる'; if ASHIATO_SOURCE_REF=v0.4.1 "$0" source "$work/wrong" 0.4.0 "$main_commit" >/dev/null 2>&1; then die '不一致の印を受け入れた'; fi; [[ ! -e "$work/wrong" ]]

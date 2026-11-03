@@ -43,3 +43,18 @@
 - `git diff --check` / `bash -n tools/release/notices.sh` — PASS
 
 検証コマンドが `$TMPDIR` に作る出力ファイルは verify-run の仕様上記録されるが、台本自身が生成する APK 用の POM 一覧は終了時に削除する。
+
+### Fix round 2
+
+- F6: `! grep -q nightly` を明示的な `if grep -q ...; then die; fi` に変更し、`nightly` が含まれる場合に自己試験が必ず失敗するようにした。
+
+#### Fix verification
+
+- RED: `set -e` 下で否定形 `grep` を条件文脈の関数内から実行する再現テストが、`nightly` を検出しても `survived` と出力し rc=0 になった。
+- GREEN: `tools/release/notices.sh --self-test` — PASS
+- `scripts/verify-run 5.1` — PASS（現行 tree）
+- `scripts/verify-run 5.2` — PASS（現行 tree、bd549b6c の実装 commit を基準に記録）
+- `scripts/verify-run 5.3` — PASS（現行 tree）
+- `bash -n tools/release/notices.sh` / `git diff --check` — PASS
+
+5.1/5.2 の verify-run は仕様上 `$TMPDIR` の出力ファイルを一時フォルダに記録する注意を出したが、生成処理の失敗や未掃除の内部一時ファイルではない。
