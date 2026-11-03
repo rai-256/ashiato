@@ -13,8 +13,12 @@ install_on_emulators() {
     return 0
   fi
   for name in "${emulators[@]}"; do
-    adb -s "$name" install -r "$apk"
-    printf '%s\n' "$name"
+    if adb -s "$name" install -r "$apk" >/dev/null; then
+      printf '%s\n' "$name"
+    else
+      printf 'エミュレータ %s への APK のインストールに失敗しました\n' "$name" >&2
+      return 1
+    fi
   done
 }
 
@@ -40,6 +44,11 @@ if [ "${1:-}" = devices ]; then
   esac
 elif [ "${1:-}" = -s ]; then
   printf '%s\n' "$*" >> "$ADB_LOG"
+  if [ "${ADB_INSTALL_SCENARIO:-success}" = failure ]; then
+    printf 'install failed\n' >&2
+    exit 1
+  fi
+  printf 'Performing Streamed Install\nSuccess\n'
 fi
 EOF
   chmod +x "$work/bin/adb"
@@ -50,6 +59,12 @@ EOF
   calls="$(cat "$work/calls")"
   [ "$calls" = "-s emulator-5554 install -r $apk" ]
   [ "$output" = 'emulator-5554' ]
+
+  : > "$work/calls"
+  if output="$(PATH="$work/bin:$PATH" ADB_SCENARIO=both ADB_INSTALL_SCENARIO=failure ADB_LOG="$work/calls" install_on_emulators "$apk")"; then
+    exit 1
+  fi
+  [ "$output" != *emulator-5554* ]
 
   echo '== Scenario: 実機だけが繋がっていれば、何も入れない'
   : > "$work/calls"
