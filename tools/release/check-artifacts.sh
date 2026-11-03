@@ -394,14 +394,20 @@ self_test() {
   fi
   cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 綺麗な release で資格情報の無い配布物は、検査を通る"
-  check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
+  local release_out="$work/release"
+  mkdir -p "$release_out"
+  ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$release_out"
+  ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$release_out"
+  printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
+  (cd "$work" && zip -q "$release_out/ashiato-server-$v-windows-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   # --allow-debug-key 無しの経路も、署名の指紋の一致・不一致を検査する（final review R7）。
   local signer cert
   signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
-  cert="$(apk_cert_sha256 "$signer" "$out/ashiato-collector-$v.apk")"
+  cert="$(apk_cert_sha256 "$signer" "$release_out/ashiato-collector-$v.apk")"
   [[ -n "$cert" ]] || die '署名の指紋を読めない'
-  ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
-  if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
+  ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$release_out" --expect-version "$v" >/dev/null
+  if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$release_out" --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
   # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null

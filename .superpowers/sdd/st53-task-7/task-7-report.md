@@ -41,3 +41,16 @@
 - F5: `--allow-debug-key` 無しの release 経路で署名指紋の一致・不一致を検査する self-test を復元した。
 - 検証: `bash -n tools/release/check-artifacts.sh` rc=0、`git diff --check` rc=0、指定9 Scenario の grep 件数検証 rc=0。
 - `scripts/quiet-run artifacts -- tools/release/check-artifacts.sh --self-test` は2回実行した。小型fixtureは通過したが、後段の Gradle Kotlin daemon が `/home/yosis/.local/share/kotlin` の read-only エラーで失敗し、BLOCKED_INFRA とした。
+
+## Fix round 2
+
+- F5 の未解決部分を修正した。署名指紋を検査する `--allow-debug-key` 無しの経路が、commit 形式の `SOURCE.txt` を release として検査していたため、`ASHIATO_SOURCE_REF=v<版>` で server / APK を組み、同じ `Ref` を持つ Windows fixture と合わせた専用の release 成果物を検査するようにした。
+- RED: 前回の `scripts/quiet-run artifacts -- tools/release/check-artifacts.sh --self-test` は、署名検査経路で `SOURCE.txt` のチャンネル不一致を示して rc=1 で失敗した。
+- GREEN: `scripts/quiet-run artifacts -- tools/release/check-artifacts.sh --self-test` は rc=0（490秒）。
+- `scripts/verify-run 7.1` は2本とも PASS、rc=0。`bash -n tools/release/check-artifacts.sh` も rc=0。
+- 検証時に Kotlin daemon の一時フォルダ残留が各1件記録されたが、検証結果は PASS である。
+
+### Fix round 2 の自己レビュー
+
+- `--allow-debug-key` 付きの commit 検査と、無しの release `Ref` 検査を別成果物で実行し、署名指紋の一致・不一致を確認している。
+- 変更は self-test の release fixture 構築と既存の署名検査対象の切り替えに限定した。
