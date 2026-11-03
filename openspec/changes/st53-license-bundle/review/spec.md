@@ -333,3 +333,43 @@ R20（11.5 に分け、`git rev-parse HEAD` で head を控え、ST53 が main �
 - kind: technical
 - 提案: 10.2 の「最初の印の最後」の行と D12 に「印 `v<版>` を checkout した手元で走らせる」を足し、10.2 の検証の見出しの grep に 1 語足す。または Requirement の文を「CI と下書きの配布物の検査」に限り、D12 の手で走らせる検査はその外だと書く
 - 処置: fixed D12 —— D12 と tasks 10.2 に「印 `v<版>` を checkout した手元で走らせる」を足した（Requirement の文は限らず、全部の検査が組んだ commit の木で走る形に揃えた）
+
+## 第 4 回の写しの確かめ（spec --answers Q17。2026-11-03）
+
+機械の検査（今の木。`git diff HEAD` の未 commit の写しを含む）:
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st53-license-bundle --strict` | `Change 'st53-license-bundle' is valid` |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 0 件)` |
+| `python3 scripts/check_scenarios.py . st53-license-bundle` | FAIL（担保なし 52 件 / 名無しの確認待ち 0 件）。実装の前の上流なので、Scenario の担保が無いのは今回の差分に依らない |
+| `python3 scripts/review_triage.py . st53-license-bundle` | `triage: OK`（指摘 41 件 / 仮決め 7 件 / 要件へ戻すもの 2 件） |
+| `python3 scripts/spec_overlap.py candidates . st53-license-bundle` | `[]` |
+
+確かめたこと:
+- Q17 の答え（`deep-answers-7.txt`「合わせた木のまま走らせ、期待値だけを head の commit から取る（要件は変えない）」）は、design D18（design.md:232-244）・spec の Requirement の文（spec.md:176）と IF の文（spec.md:179）・Scenario（spec.md:243-251）・tasks 6.1（tasks.md:153-155）・7.1（tasks.md:166・:174・:176）・10.2・11.1・proposal.md:71・premises.md:24 に写っている。「head の木で checkout する」側（旧 D18（仮））は、D18 の経緯の引用（design.md:234）と deep.md の経緯の中にしか残っていない
+- 要件 FR-127 ★ 2026-11-03（第 3 回）（docs/requirements.md:1096「ほかの job の縦串や試験は今どおり合わせた木で走る。組み立ての job の中の自己試験と許諾・表示の検査は head の木で走る」）と食い違わない。spec.md:176 は検査の job が合わせた木で**走る**と言い、head の commit からは期待値を**データとして読む**だけ（design.md:238「台本はその木から走らせない」）。要件は何がどの木で走るかを限っていて、期待値の読み先を限っていないので、要件の改訂は要らない（答えも「要件は変えない」）
+- 実現の細部は答えの範囲の内: 選んだ選択肢の detail（deep-questions-r4.json）は「`package-artifacts` の checkout は今のまま。期待する版番号と比べる LICENSE は、配布物を組んだ head の commit の中身から取る。費用は `check-artifacts.sh` の期待値の取り方の変更」。2 つ目の checkout を `built/` に置くのは「head の commit の中身から取る」手段で、作業の checkout は変えない。`version.sh source built/Cargo.toml` と `--expect-license` は「期待値の取り方の変更」。旧 D18 の反転条件を外したのは、答えがその反転条件の形を選んだため。P17 の書き換えは前提の行で、確かめの置き場が `built/` の checkout に移っただけ
+- 道具の実在: `tools/release/version.sh:14`・`:276` は `source [<Cargo.toml>]` で道を受ける（D18 の主張どおり）。`check-artifacts.sh` の自己試験の Scenario の出力は `== Scenario: <名前>` の型（check-artifacts.sh:21 ほか）。7.1 の grep の選択肢は 9 つで、並ぶ 8 項と重い自己試験の 1 本に当たり、既存の 10 本の名前（`配布物が 1 つでも欠ければ公開しない` ほか）とも、新しい `配布物の LICENSE は、渡した` と `配布物の LICENSE が` の間でも重ならない。6.1 の `check-guards.sh --self-test` の grep の名前は spec.md:243 の新しい名前と一字一句同じ（今の check-guards.sh には 0 件。実装の前なので当然）
+- go.json は旧い Scenario 名「PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される」を go.json:486・:731・:1638・:1716 に残している。この段では触らず（`reading --carry` が直す）、指摘に含めない。review/reflected.json:14 の旧い名前は第 3 回の写しの記録で、直す対象ではない
+
+## R31. Scenario「PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される」の AND が主張を 3 つ束ね、6.1 の偽の ci.yml はそのうち版番号の側を落とさない
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:243-246 / tasks.md:154（6.1）
+- 根拠: AND（spec.md:246）は「検査する job の作業の checkout は `ref` を持たない」「同じ commit を別の置き場に checkout する」「期待する版番号と比べる `LICENSE` をその置き場から検査に渡す」を 1 つの文に束ねる。R27 の処置で THEN を checkout の 1 つの主張に絞った（第 3 回の処置の確かめ R27）ものが、Q17 の写しで再び広がった。6.1 の自己試験が落とす偽の `ci.yml` は 4 つ（組む 2 つの `ref` を抜く / 作業の checkout に `ref` を足す / `path: built` の checkout を抜く / `--expect-license built/LICENSE` を抜く）で、`version.sh source built/Cargo.toml` を `version.sh source` に戻した偽は無い。`workflows` の判定がこの字面を見なくても、自己試験も `check-guards.sh workflows` rc=0 も緑のまま通る。版番号は K1 の 2 つの食い違い（版番号か `LICENSE`）の片方で、Q17 が避けようとしたものそのもの（design.md:242）
+- kind: technical
+- 提案: 6.1 の偽の `ci.yml` に 5 つ目「`package-artifacts` の `version.sh source` の引数から `built/Cargo.toml` を抜いた」を足す。あわせて AND を「作業の checkout は `ref` を持たない」と「同じ commit を別の置き場に checkout し、期待する版番号と `LICENSE` をそこから渡す」に分けるか、R27 と同じく AND を落として 6.1 の自己試験の説明に下ろす
+- 処置: fixed 6.1 —— spec の Scenario も直した。6.1 に 5 つ目の偽の `ci.yml`（`version.sh source built/Cargo.toml` を `version.sh source` に戻した）を足し、Scenario の AND を「作業の checkout は `ref` を持たない」と「期待値を同じ commit を別の置き場に checkout したものから渡す」の 2 つに分けた
+
+## 第 4 回の観点ごとの該当なし
+
+- 観点 1: 該当なし（確かめた範囲: deep.md の Q17（deep.md:121-127）と「答えと仮の決定の関係」の第 4 回（deep.md:262）→ design D18・spec.md:176・:179・:243-251・tasks 6.1・7.1・10.2・11.1・proposal.md:71。deep.md:119 が挙げる `docs/release.md` の手順は 10.2 の下書きの手順の行（tasks.md:224）で下流が書く。数値を含む決定は無い。要件へ戻すものは無い（答えが「要件は変えない」））
+- 観点 2（R31 のほか）: 該当なし（確かめた範囲: 新しい Scenario「配布物の LICENSE は、渡した期待する LICENSE と比べる」の THEN は渡したとき rc=0・渡さないとき rc≠0 の対で、片方だけ満たす実装（渡したものを読まない・比べをしない）をどちらも落とす。spec.md:166 の「`LICENSE`: 木の `LICENSE` と同じ中身」と Scenario「配布物の LICENSE が木の LICENSE と違えば、公開しない」の「木」は組み立ての木（head）か、渡さないときの台本の木を指し、IF の文（spec.md:179）の「期待する `LICENSE`（配布物を組んだ commit の `LICENSE`）」と食い違わない）
+- 観点 3: 該当なし（確かめた範囲: D18 の観測できる振る舞い（検査の job の checkout・期待値の取り先・`--expect-license` の有無で比べる相手が変わること）は spec に上がっている。spec の `ref` は workflow の検査が読む字面で、第 3 回から同じ。proposal の Capabilities と specs のディレクトリは変わっていない）
+- 観点 4（R31 のほか）: 該当なし（確かめた範囲: 6.1・7.1 の検証はコマンドと rc を持ち、Scenario の名前の grep は `grep -qx` で本数を見る。7.1 の「次の 8 つ」「検証の 9 本」は並ぶ 8 項・重い 1 本・grep の 9 選択肢と合う。7.1 の `--expect-license` を 6.1 の検査の呼び出しが使うが、6.1 は「`--expect-license` は 7.1」と書き、6.1 の検証は `check-guards.sh` の字面の判定だけで 7.1 の実装に依らない）
+- 観点 5: 該当なし（確かめた範囲: check_chain.py OK（再生成との一致を含む）。docs/stories/ST53.md の完了の判定は検査の job の木を言わず、Q17 と矛盾しない）
+- 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## 第 4 回の処置の確かめ（R31。2026-11-03）
+
+- R31: 閉じた。Scenario（spec.md:243-247）の AND は「検査する job の作業の checkout は `ref` を持たない（合わせた木）」と「期待する版番号と比べる `LICENSE` を、組む 2 つの job と同じ commit を別の置き場に checkout したものから検査に渡す」の 2 つに分かれた。2 つ目は版番号と `LICENSE` を 1 文に持つが、6.1（tasks.md:154）の偽の `ci.yml` が 5 つになり、`--expect-license built/LICENSE` を抜いた偽と `version.sh source built/Cargo.toml` を `version.sh source` に戻した偽がそれぞれを落とすので、片方だけの実装は緑にならない。Scenario の名前は変わらず、6.1 の本文と検証の grep の名前と一字一句同じ
+- Q17 の写しは崩れていない: 直しは D18 の中身（作業の checkout は合わせた木・期待値は組んだ commit を `built/` に checkout したものから）を言い直しただけで、新しい決定を持ち込んでいない。`openspec validate --strict` は valid、`review_triage.py` は OK（指摘 42 件）

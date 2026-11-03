@@ -152,7 +152,7 @@ Google の `oss-licenses-plugin` は使わない。実行時に `play-services-o
 - `--channel nightly` と `--allow-debug-key`（PR・main への push の `package-artifacts` と `draft.sh`。`draft.sh:32`）: 配布物の組み立ての印の commit と同じ `Commit:`（40 桁の 16 進）。どの組み立ても組んだ木の commit を書くので、比べはすべての組み立てで残す（Q16）
 既定のチャンネルは `release` のまま変えない（ST52 の呼び出しを壊さない。review/spec.md R1）。
 組む木を head にすると、`package-linux` の job の中の検査 —— ST52 の重い自己試験（`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh` の `--self-test`）と、この Story が足す `check-licenses.sh android`（D15）—— も head の木で走る（FR-127 ★ 2026-11-03（第 3 回）はそう狭めてある。整合の確認 K2）。main と合わせて初めて許可の外の依存が入る組み合わせは PR の CI では止まらず、merge gate が head を main に rebase した後の CI（`scripts/merge_gate.sh:7`・`:79`）と main への push の CI で止まる。`check-spdx.sh` は合わせた木で走る `chain` の job にもある（D15）。ほかの job（縦串・試験）は今どおり合わせた木で走る。
-配布物を検査する `package-artifacts` の checkout の扱いは D18（未決。Q17 の答え待ち）。
+配布物を検査する `package-artifacts` は合わせた木のまま走らせ、期待する版番号と比べる `LICENSE` だけを配布物を組んだ commit から取る（D18。深掘り第 4 回 Q17）。
 PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.5（確認バッチの中、ST53 が main に入る前）で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
 head を checkout した組み立ての印が `.dirty` を持たないこと・fork の PR でも head を取れることは premises P17・P18（11.1 で見る）。
 - 選ばなかった案（Q14 の他の選択肢）: 合成の merge commit のまま確かめを待つ・merge の前に確かめてから決める
@@ -229,15 +229,19 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 
 > 2026-11-03 に外した。前提（引数だけでは PR と main への push を分けられない）は誤りで（review/spec.md R18。`ci.yml:34` が既に式で PR と push を分けている）、深掘り Q16 で PR の組み立てを head から組むことにしたので、比べを外す分岐ごと要らなくなった（D9）。台帳からは `provisional.py resolve` で外した。番号は再び使わない
 
-### D18. 配布物を検査する `package-artifacts` も、組んだ job と同じ commit を checkout する（未決。Q17 の答え待ち）
+### D18. 配布物を検査する `package-artifacts` は合わせた木のまま走らせ、期待値だけを配布物を組んだ commit から取る（深掘り第 4 回 Q17）
 
-> 仮で進めたが、別の席（`provisional-review.md` の D18）が否とした（要件 FR-127 ★ 2026-11-03（第 3 回）は head の木で走るものを「組み立ての job の中の自己試験と許諾・表示の検査」に限っており、`package-artifacts` は組み立ての job でない）。台帳から外し、深掘り第 4 回 Q17 で本人に返した
+> 仮で「`package-artifacts` も組んだ job と同じ commit を checkout する」としていたが、別の席（`provisional-review.md` の D18）が否とした（要件 FR-127 ★ 2026-11-03（第 3 回）は head の木で走るものを「組み立ての job の中の自己試験と許諾・表示の検査」に限っており、`package-artifacts` は組み立ての job でない）。台帳から外し、深掘り第 4 回 Q17 で本人に返した。本人は「合わせた木のまま走らせ、期待値だけを head の commit から取る（要件は変えない）」を選んだ（`deep-answers-7.txt`）。本人の決定なので（仮）に戻さない
 
-`ci.yml` の `package-artifacts` は、`package-linux`・`package-windows` と同じ `ref: ${{ github.event.pull_request.head.sha || github.sha }}` で checkout する。期待する版番号（`tools/release/version.sh source`）と、比べる木の `LICENSE` は、配布物を組んだ head の木から取る。
-D9 で組む木だけを head にすると、枝を切った後に main が出所の版か `LICENSE` を変えた PR で、head から組んだ配布物を合わせた木の版番号・`LICENSE` と比べて CI が赤くなる（整合の確認 K1）。
+`ci.yml` の `package-artifacts` の作業の checkout は今のまま（`ref` を渡さない。PR では GitHub が作る、head とその時の main を合わせた木）。`check-artifacts.sh` もその木の台本を走らせる。
+期待する版番号と、配布物の `LICENSE` と比べる `LICENSE` だけを、配布物を組んだ commit（`${{ github.event.pull_request.head.sha || github.sha }}`。PR では head の commit、main への push では push した commit）の中身から取る。
+- 取り方: `package-artifacts` に 2 つ目の `actions/checkout` を足し、`ref: ${{ github.event.pull_request.head.sha || github.sha }}`・`path: built`・`persist-credentials: false` で、配布物を組んだ commit を作業の木の下の `built/` に置く。台本はその木から走らせない（データとしてだけ読む）
+- 版番号: `tools/release/version.sh source built/Cargo.toml`（`version.sh:14` は既に Cargo.toml の道を受ける）
+- `LICENSE`: `check-artifacts.sh` に `--expect-license <file>`（比べる `LICENSE` の道）を足し、`built/LICENSE` を渡す。渡さなければ今どおり台本の木の `LICENSE`（`$root/LICENSE`）と比べる。`draft.sh:32`・`release.yml`・自己試験の呼び出しは変えない（どれも組んだ木と台本の木が同じ）
+- `SOURCE.txt` の比べ（組み立ての印の commit と同じ `Commit:`）は、期待値ではなく配布物の中どうしの比べなので、木に依らない（D9）
+枝を切った後に main が出所の版か `LICENSE` を変えた PR でも、head から組んだ配布物を head の版番号・`LICENSE` と比べるので、CI は誤って赤くならない（整合の確認 K1）。merge gate が head を main に rebase した後の CI では、組む木と合わせた木が同じものを見る。
 `draft.sh` は走らせた手元の木の版番号と `LICENSE` で比べる（`draft.sh:15`・`:32`。ST52 から同じ型）。`docs/release.md` の下書きの手順に、その PR の head を checkout した手元で走らせることを書く（10.2）。
-- 失わない理由: 変わるのは検査が比べる相手だけで、配布物の中身も `SOURCE.txt` も変わらない。どちらに倒しても落ちる側（公開しない側）か、merge gate の rebase の後の CI で同じものを見る。workflow の 1 行で、次の run から戻せる
-- 反転条件: PR の CI では緑で、merge gate の rebase の後の CI で版番号か `LICENSE` の食い違いで落ちる組み合わせが出たら、`package-artifacts` だけを合わせた木に戻し、期待値を配布物の組み立ての木（配布物の中の版番号）から取る形にする
+- 失わない理由: 変わるのは検査が比べる相手の取り方だけで、配布物の中身も `SOURCE.txt` も変わらない。どちらの取り方でも、食い違えば落ちる側（公開しない側）に倒れる
 
 ## Risks / Trade-offs
 

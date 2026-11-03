@@ -173,15 +173,15 @@ THE SYSTEM SHALL `THIRD-PARTY-NOTICES.txt` の依存に、次のものを入れ�
 IF ある部品の許諾の全文も著作権の表示も見つからない THEN THE SYSTEM SHALL 依存の一覧を組まずに、組み立てを落とす。
 THE SYSTEM SHALL `SOURCE.txt` に、リポジトリの場所を書く。正式版・ベータ版の公開の組み立てでは、それに加えて印 `v<版番号>` を書く。それ以外の組み立てでは、組み立てた木の 40 桁の commit を書く。開発版と main への push の組み立てでは main の commit、PR の組み立てでは PR の head の commit になる。
 THE SYSTEM SHALL PR の組み立てを、PR の head の commit そのものから組む（GitHub が作る、head とその時の main を合わせた merge の commit からは組まない）。`SOURCE.txt` の commit・組み立ての印・組んだソースが同じ commit を指す。
-THE SYSTEM SHALL 配布物の検査を、配布物を組んだのと同じ commit の木で走らせ、期待する版番号と比べる `LICENSE` をその木から取る。
+THE SYSTEM SHALL 配布物の検査で、期待する版番号と、配布物の `LICENSE` と比べる `LICENSE` を、配布物を組んだのと同じ commit の中身から取る。PR の CI の配布物を検査する job は、ほかの job と同じく head とその時の main を合わせた木で走り、期待値だけを PR の head の commit（main への push では push した commit）から取る。
 IF 公開の組み立てに渡された印が `v<版番号>` と違う THEN THE SYSTEM SHALL 配布物を作らずに組み立てを落とす。
 THE SYSTEM SHALL 3 つのファイルを組み立ての台本の中で入れる。正式版・ベータ版だけでなく、開発版・main への push・PR の組み立てにも同じ手順で入れる。
-IF 配布物のどれかに 3 つのファイルのどれかが無い、`LICENSE` が木の `LICENSE` と違う、サーバと PC の収集アプリの一覧に `rust-std` の項が無い、または携帯の APK の一覧に Google のライブラリの第三者の一覧が無い THEN THE SYSTEM SHALL 配布物の検査を落とし、その配布物を公開しない。
+IF 配布物のどれかに 3 つのファイルのどれかが無い、`LICENSE` が期待する `LICENSE`（配布物を組んだ commit の `LICENSE`）と違う、サーバと PC の収集アプリの一覧に `rust-std` の項が無い、または携帯の APK の一覧に Google のライブラリの第三者の一覧が無い THEN THE SYSTEM SHALL 配布物の検査を落とし、その配布物を公開しない。
 THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見る。合わなければ検査を落とす。
 - 正式版・ベータ版として公開する配布物の検査（debug の鍵を許さない、チャンネルが `release` か `beta` の検査）: `v<期待する版番号>`
 - 開発版の検査（チャンネルが `nightly` の検査）と、debug の鍵を許す検査（PR・main への push の組み立てと下書きの配布物の検査）: 組み立ての印と同じ 40 桁の commit
 
-導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8・D9・D16・D18（Q17 の答え待ち）。深掘り Q13・Q14・Q15（第 2 回）・Q16（第 3 回）。FR-127 ★ 2026-11-02・★ 2026-11-03・★ 2026-11-03（第 3 回）。
+導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8・D9・D16・D18。深掘り Q13・Q14・Q15（第 2 回）・Q16（第 3 回）・Q17（第 4 回）。FR-127 ★ 2026-11-02・★ 2026-11-03・★ 2026-11-03（第 3 回）。
 動く印 `nightly` は翌日に別の commit を指すので、開発版の写しには動かない commit を書く（Q7）。配った写しに書いた場所は、後から直せない。
 
 #### Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ
@@ -240,9 +240,16 @@ THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見�
 - **WHEN** `SOURCE.txt` を組む
 - **THEN** 手順は 0 でない終了コードで終わり、`SOURCE.txt` はできない
 
-#### Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される
-- **WHEN** CI の配る形を組む job（サーバの Linux 版・携帯の APK と、Windows の 2 つ）と、その配布物を検査する job の checkout を、workflow の検査で読む
-- **THEN** 3 つの job のどれもが、PR では PR の head の commit を、main への push では push した commit を checkout する
+#### Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される
+- **WHEN** CI の配る形を組む job（サーバの Linux 版・携帯の APK と、Windows の 2 つ）と、その配布物を検査する job の checkout と検査の呼び出しを、workflow の検査で読む
+- **THEN** 組む 2 つの job は、PR では PR の head の commit を、main への push では push した commit を checkout する
+- **AND** 検査する job の作業の checkout は `ref` を持たない（合わせた木）
+- **AND** 検査する job は、期待する版番号と比べる `LICENSE` を、組む 2 つの job と同じ commit を別の置き場に checkout したものから検査に渡す
+
+#### Scenario: 配布物の LICENSE は、渡した期待する LICENSE と比べる
+- **GIVEN** 台本の木の `LICENSE` と違う `LICENSE` のファイル（配布物を組んだ commit の `LICENSE` に当たる）と、その `LICENSE` を持つ配布物の置き場
+- **WHEN** そのファイルを期待する `LICENSE` として渡して配布物の検査を当て、次に渡さずに当てる
+- **THEN** 渡したときは検査の終了コードは 0、渡さないときは 0 でない終了コードで終わり、`LICENSE` が違うことが示される
 
 #### Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る
 - **GIVEN** `SOURCE.txt` が組み立ての印と同じ 40 桁の commit（PR の head）を持つ配布物の置き場
