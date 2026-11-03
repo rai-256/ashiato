@@ -212,7 +212,7 @@ jobs:
       # **ライセンス検査はここ**（ST02 の review/code.md の R8 / C2）。
       # rust job に置いていたときは `npm ci` が無く、`web/node_modules` が存在しないので
       # Node の節が「0 件を確認」で緑になり、**ローカルの緑と CI の緑が別物**だった。
-      - run: ../tools/check-licenses.sh
+      - run: ../tools/check-licenses.sh rust node
       - run: npx tsc -b
       - run: npm run lint
       # 画面の振る舞い（3 段の対比・週の選択・操作対象の大きさ・確定と暫定）。
@@ -367,6 +367,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: tools/release/package.sh linux "$RUNNER_TEMP/package-linux"
+      - run: tools/check-licenses.sh android
+      - run: tools/release/notices.sh --self-test
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-linux, path: "${{ runner.temp }}/package-linux" }
       # ST52: 配る組み立ての重い自己試験（印・資格情報・名前・署名・鍵の Scenario。chain の job は軽いものだけ。code_verify R29）。
@@ -430,6 +432,9 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      - run: ./tools/verify-prep-device.sh --self-test
+      - run: ./tools/check-spdx.sh --self-test
+      - run: ./tools/check-spdx.sh
       # 秘密（API キー・token・秘密鍵など）が入っていないこと（gitleaks。版と sha256 は check-secrets.sh が固定）。
       # PR は足した commit だけ、main への push は履歴全体（約 2 秒）
       - run: ./tools/check-secrets.sh --self-test
