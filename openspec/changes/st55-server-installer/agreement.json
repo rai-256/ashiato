@@ -1,0 +1,41 @@
+{
+  "status": "accepted",
+  "digest": "51b127f175f2d07133615fe576aa29d1f972544c297eebd6988631d042934bb2",
+  "head": "bc7e6ea468dc8127fe85c394758d56ec65bcd8f2",
+  "answers": "deep-answers-5.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-03T11:37:55Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "DB はあるのに設定のファイルが無いと、抜ける口が仕様に無い"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "55400 が Windows の予約する番号の範囲に入りうる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "既定のブラウザが Chromium でないと、http://127.0.0.1 でログインの印が残らない恐れ"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "案内どおりに Tailscale の転送先を替えると、携帯からは新しい（空の）サーバに届く"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "署名の無いインストーラには、管理者の確認の前に SmartScreen の警告が出うる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "サーバが理由を書いて自分で終わると、サービスの回復が起こし直さない恐れ"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[
+  {
+    "answers": "deep-answers-2.txt",
+    "ids": [
+      "Q8",
+      "Q9"
+    ],
+    "spec_digest": "71671785758ff8ac6e414c3488e38ec988ca73dcc97e9da246041ffe02e92fb0",
+    "other": "`repair` の一時の起こし方を、Q8 の選択肢の detail の `postgres --single` でなく `pg_ctl start` と一時の `hba_file`（sspi で上がった利用者だけ）・127.0.0.1・一時の番号にした。それに伴い、DB の Requirement の「どの接続にも合言葉の認証」に `repair` の間だけの一時の入口の例外を 1 文と、Scenario「repair の後に合言葉なしの入口と一時の番号が残らない」を足した",
+    "other_decisions": [
+      "D28"
+    ],
+    "reask": "",
+    "visual": [],
+    "at": "2026-11-03T07:32:48Z"
+  },
+  {
+    "answers": "deep-answers-4.txt",
+    "ids": [
+      "Q10"
+    ],
+    "spec_digest": "3c41dfbebecb766d3c6b83614cbb11070fd6472d658b5028c7da06b8f58c6e75",
+    "other": "`repair` の最初（(a) の後・(b) の前）に、前の `repair` が (c) の後で落ちて残した一時の `postgres` を `pg_ctl stop -D <DB の置き場> -m fast` で止め、一時の `hba_file` と `pg_ident` を消す段を design D27 に足し、tasks 6.2 の「repair の途中で落ちても、もう一度 repair できる」を一時の `postgres` を残したまま落ちる形で走らせることにした（829bf324。provisional-review.md の D28 の「あわせて（否の理由ではない）」(2) から。D27 は仮でない）",
+    "other_decisions": [
+      "D27"
+    ],
+    "reask": "答え以外の変更が仮でない決定 D27 を変えた: `repair` の最初（(a) の後・(b) の前）に、前の `repair` が (c) の後で落ちて残した一時の `postgres` を `pg_ctl stop -D <DB の置き場> -m fast` で止め、一時の `hba_file` と `pg_ident` を消す段を design D27 に足し、tasks 6.2 の「repair の途中で落ちても、もう一度 repair できる」を一時の `postgres` を残したまま落ちる形で走らせることにした（829bf324。provisional-review.md の D28 の「あわせて（否の理由ではない）」(2) から。D27 は仮でない）（聞き直す）",
+    "visual": [],
+    "at": "2026-11-03T09:51:29Z"
+  }
+]
