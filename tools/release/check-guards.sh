@@ -213,11 +213,14 @@ EOF
   if sed '/package-windows:/,/^  [A-Za-z0-9_-]*:/{/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d}' "$ci_saved" >"$work/ci-missing-windows.yml" && cp "$work/ci-missing-windows.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Windows package の ref 欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   awk '
-    /^  package-artifacts:/ { job=1 }
-    job && /^  [A-Za-z0-9_-]+:/ && $0 !~ /^  package-artifacts:/ { job=0 }
-    job && /^      - uses: actions\/checkout@/ { checkout++ }
-    job && checkout == 1 && /with: \{ persist-credentials: false \}/ {
-      sub(/with: \{ persist-credentials: false \}/, "with:\n          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n          persist-credentials: false")
+    /^  package-artifacts:/ { in_artifacts=1 }
+    in_artifacts && /^  [A-Za-z0-9_-]+:/ && $0 !~ /^  package-artifacts:/ { in_artifacts=0 }
+    in_artifacts && /^      - uses: actions\/checkout@/ { checkout++ }
+    in_artifacts && checkout == 1 && /with: \{ persist-credentials: false \}/ {
+      print "        with:"
+      print "          ref: ${{ github.event.pull_request.head.sha || github.sha }}"
+      print "          persist-credentials: false"
+      next
     }
     { print }
   ' "$ci_saved" >"$work/ci-artifacts-ref.yml" && cp "$work/ci-artifacts-ref.yml" "$ci_saved"

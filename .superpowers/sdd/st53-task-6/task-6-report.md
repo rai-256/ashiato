@@ -71,3 +71,20 @@
 - `tools/release/build.sh`
 - `tools/release/check-guards.sh`
 - `openspec/changes/st53-license-bundle/evidence.jsonl`
+
+## Fix report（review 1 / fix round 2）
+
+- F1: `check-guards.sh --self-test` の偽 `ci.yml` を、`package-artifacts` の1つ目の checkout の `with` に `ref` を追加する形へ明示化した。built checkout の `ref` を消す試験とは別の変形になっている。
+- F2/F3/F4/F5/F6: 前回 fix で入っていた Windows archive、native target、PowerShell 引数、checkout block 検査の修正を維持し、現行 tree で再確認した。
+- 追加修正: `build.sh apk` の Kotlin compiler を in-process に固定し、検証環境の read-only な既定 Kotlin daemon へ書き込まないようにした。既存の writable な daemon 保存先指定も残している。
+
+### Fix round 2 の検証
+
+- RED: `scripts/verify-run 6.1` は指定の `/home/yosis/bin/unzip` shim が `-l` を無視するため APK 項目のみ rc=1（Kotlin daemon の read-only エラーは in-process 修正前）。
+- GREEN: `scripts/quiet-run build-apk-fix -- ...` — rc=0、APK の `assets/licenses/` 3点を標準 `/usr/bin/unzip` で確認。
+- GREEN: `PATH=/usr/bin:/bin:$PATH scripts/verify-run 6.1` — 全6項目 PASS。`tools/release/check-guards.sh --self-test`、`workflows`、Linux tar、APK を含む。
+- `bash -n tools/release/build.sh tools/release/check-guards.sh`、`git diff --check` — PASS。
+
+### Fix round 2 の懸念
+
+- 指定コマンドを PATH 上書きなしで実行すると、repo 外の `/home/yosis/bin/unzip` shim が一覧表示を実装していないため APK 検証だけ FAIL する。標準 unzip を先頭にした再検証の証跡は `evidence.jsonl` に記録済み。

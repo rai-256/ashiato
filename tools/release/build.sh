@@ -149,7 +149,7 @@ build_apk() {
   # Kotlin の増分の組み立ては BuildConfig の定数を埋め込んだ古い class を組み直さないことがあり、
   # 前の commit の印が APK に残る（実測 2026-11-02: LocationService.class に前の commit の印）。配る APK は増分にしない
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 \
-    GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.daemon.storageDir=$kotlin_daemon_dir" \
+    GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.daemon.storageDir=$kotlin_daemon_dir -Dkotlin.compiler.execution.strategy=in-process" \
     ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
       -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= \
       "-Pashiato.licenseAssets=$license_bundle" :app:assembleRelease)
