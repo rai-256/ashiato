@@ -98,3 +98,19 @@ rests_on の漏れは、土台が**仮の D**（確認バッチで「変える�
 - 根拠: 条件 4 で否。cost は「なし（D9 の書き方のまま）」で、design.md:204 も「それ以外は組み立ての印の 40 桁の commit で示す（D9）」と書く。D16 は D9（仮）に乗っているのに、rests_on は `["Q7"]` だけで、D9 を挙げていない。
   - D9 は上で否。PR の組み立てを head の commit に替えれば、D16 の「組み立ての commit で示す」の中身も変わる。
   - Q7（答え済み）との向きは合っている（deep.md「Q7 は推奨のまま。D16（仮）は答えと一致した」）。
+
+## D18
+- 判定: 否
+- 根拠: 条件 2 で否。選んだ側は要件の本文と食い違うので、通すには本文を変える必要がある。
+  - 要件の本文: `docs/requirements.md:1074`（FR-127 ★ 2026-11-03 補足（第 3 回））は、「ほかの job の縦串や試験は今どおり合わせた木で走る。組み立ての job の中の自己試験と許諾・表示の検査は head の木で走る」と書く。整合の確認 K2 で、head の木で走る範囲を job の単位で限った文である。
+  - 当たる job: `package-artifacts`（`.github/workflows/ci.yml:388-402`）は組み立ての job ではない。`package-linux`・`package-windows` の成果物を download し、`check-artifacts.sh … --expect-version "$(tools/release/version.sh source)"` を走らせる検査だけの別の job である。
+  - 食い違い: D18 はこの job の checkout に `ref: head.sha || github.sha` を渡す（design.md:234、tasks.md:151、proposal.md:71）。そうすると、配布物の検査（tasks 7.1 の `LICENSE` の比べを含む許諾の 3 点）が「ほかの job」なのに head の木で走る。★ の文面のどちらの側にも入らない。
+  - 失わない側（要件を変えない側）もある。K1 が挙げたもう一方の案であり、design.md:238 の反転条件そのものでもある。`package-artifacts` は合わせた木のまま、期待する版番号と `LICENSE` を、配布物の組み立ての木（配布物の中の版番号と `LICENSE`）から取る。費用は `check-artifacts.sh` の期待値の取り方で、Story の範囲の内。
+  - 両方の側がある問いなので、要件の文を「`package-artifacts` の配布物の検査も head の木で走る」に広げるか、反転条件の形を採るかを A として本人に返す。
+  - 条件 1（失うもの）は見つからなかった。
+    - `release-package`（`ci.yml:401-402`）の中身は、head から組んだ `package-linux`・`package-windows` の成果物の写しで、checkout の ref では変わらない。それらの成果物は検査の前に、もう上がっている（`ci.yml:350-351`・`:383-384`）。検査を head の `check-artifacts.sh` で走らせても、新しく外に出るものは無い（exported ではない）。
+    - 比べる相手が head の `LICENSE` でも、`SOURCE.txt` の指す head の `LICENSE` と一致するので、配布物の記述は正しい。
+    - `draft.sh` を手元が main のまま走らせると、`draft.sh:15`・`:32` が食い違いで止まる（落ちる側）。
+    - merge gate は rebase の後の CI で合わせた木と同じものを見る（`scripts/merge_gate.sh:7`・`:79`。K1 の根拠）。
+  - 条件 3: follows は無い。
+  - 条件 4: rests_on の D9 は resolved で、仮の D ではない（D9 ← Q14・Q16。どちらも本人の答え）。Q16 は答え済み。挙がっていない土台は P17（確かさ 2。`premises.md:24`）。外れても checkout が落ちる側に倒れるので、否の条件にはしない。
