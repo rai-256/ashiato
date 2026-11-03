@@ -34,3 +34,10 @@
 
 - 本体の署名検査コードは変更していない。
 - 既存の self-test の署名フィンガープリント経路は、SOURCE 検査追加後の偽配布物の SOURCE 方針と衝突するため self-test から除去した。署名処理自体の検証は今回の Task の範囲外である。
+
+## Fix round 1
+
+- F1/F2/F3/F4: Task 7 の追加検査を、実ビルドに依存しない小型 tar / zip / APK fixture 上の `check_artifact_files` 検査へ移した。LICENSE は木の LICENSE に1行足した期待値で通ることと、未指定時に不一致になることを確認し、SOURCE の `Ref`・`main`・7桁・異なる40桁を個別に拒否し、beta は `0.4.0-beta.1` を使うようにした。
+- F5: `--allow-debug-key` 無しの release 経路で署名指紋の一致・不一致を検査する self-test を復元した。
+- 検証: `bash -n tools/release/check-artifacts.sh` rc=0、`git diff --check` rc=0、指定9 Scenario の grep 件数検証 rc=0。
+- `scripts/quiet-run artifacts -- tools/release/check-artifacts.sh --self-test` は2回実行した。小型fixtureは通過したが、後段の Gradle Kotlin daemon が `/home/yosis/.local/share/kotlin` の read-only エラーで失敗し、BLOCKED_INFRA とした。

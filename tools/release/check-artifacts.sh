@@ -220,6 +220,66 @@ self_test() {
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq "ashiato-collector-windows-$v-x86_64.zip" <<<"$output" || { echo "$output"; return 1; }
   rm -f "$out"/*
+  # Task 7 の追加シナリオは、実ビルドに依存しない小さな配布物で 3 点の検査だけを確認する。
+  local mini="$work/mini" mini_tar="$work/mini.tar.gz" mini_zip="$work/mini.zip"
+  mkdir -p "$mini"
+  cp "$root/LICENSE" "$mini/LICENSE"
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  printf 'SOURCE\n' >"$mini/SOURCE.txt"
+  printf '%s+%040d\n' "$v" 0 >"$mini/stamp"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  (cd "$mini" && zip -q "$mini_zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  EXPECTED_LICENSE="$root/LICENSE" ARTIFACT_STAMP="$v+$(printf '%040d' 0)" SOURCE_BY_COMMIT=1 EXPECTED_VERSION="$v"
+  echo "== Scenario: 許諾のファイルが欠けた配布物は、公開しない"
+  tar -czf "$work/missing-notice.tar.gz" -C "$mini" stamp LICENSE SOURCE.txt
+  if output=$(check_artifact_files "$work/missing-notice.tar.gz" missing-notice.tar.gz 2>&1); then return 1; fi
+  grep -Fq 'THIRD-PARTY-NOTICES.txt' <<<"$output" || { echo "$output"; return 1; }
+  echo "== Scenario: 配布物の LICENSE が木の LICENSE と違えば、公開しない"
+  printf 'AGPL の全文だけ\n' >"$mini/LICENSE"
+  tar -czf "$work/wrong-license.tar.gz" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  cp "$root/LICENSE" "$mini/LICENSE"
+  if output=$(check_artifact_files "$work/wrong-license.tar.gz" wrong-license.tar.gz 2>&1); then return 1; fi
+  grep -Fq 'LICENSE が期待値と違う' <<<"$output" || { echo "$output"; return 1; }
+  echo "== Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る"
+  local commit; commit=0123456789abcdef0123456789abcdef01234567
+  printf 'Commit: %s\n' "$commit" >"$mini/SOURCE.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" mini.tar.gz >/dev/null
+  echo "== Scenario: debug の鍵を許す検査でも、組み立ての印の commit でないソースの場所の配布物は落ちる"
+  local bad_source
+  for bad_source in "Ref: v$v" 'Commit: main' 'Commit: 0123456' 'Commit: 0123456789abcdef0123456789abcdef01234568'; do
+    printf '%s\n' "$bad_source" >"$mini/SOURCE.txt"
+    tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+    if output=$(ARTIFACT_STAMP="$v+$commit" SOURCE_BY_COMMIT=1 check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
+    grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
+  done
+  printf 'Commit: %s\n' "$commit" >"$mini/SOURCE.txt"
+  echo "== Scenario: ソースの場所がチャンネルの決まりと合わない配布物は、公開しない"
+  if output=$( (EXPECTED_VERSION=0.4.0-beta.1 SOURCE_BY_COMMIT=0 check_artifact_files "$mini_tar" mini.tar.gz) 2>&1); then return 1; fi
+  grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
+  SOURCE_BY_COMMIT=1
+  echo "== Scenario: Rust の実行ファイルの依存の一覧は、標準ライブラリを含む"
+  : >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
+  grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  echo "== Scenario: 携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
+  local apkmini="$work/apkmini"
+  mkdir -p "$apkmini/assets/licenses"
+  cp "$root/LICENSE" "$apkmini/assets/licenses/LICENSE"
+  printf '(gms の中の第三者)\n' >"$apkmini/assets/licenses/THIRD-PARTY-NOTICES.txt"
+  printf 'Commit: %s\n' "$commit" >"$apkmini/assets/licenses/SOURCE.txt"
+  (cd "$apkmini" && zip -q "$work/mini.apk" assets/licenses/LICENSE assets/licenses/SOURCE.txt assets/licenses/THIRD-PARTY-NOTICES.txt)
+  EXPECTED_LICENSE="$root/LICENSE" ARTIFACT_STAMP="$v+$commit" SOURCE_BY_COMMIT=1 check_artifact_files "$work/mini.apk" mini.apk >/dev/null
+  echo "== Scenario: 配布物の LICENSE は、渡した期待する LICENSE と比べる"
+  cp "$root/LICENSE" "$work/expected-license"
+  printf '%s\n' 'extra expected line' >>"$work/expected-license"
+  cp "$work/expected-license" "$mini/LICENSE"
+  (cd "$mini" && zip -q -FS "$mini_zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  EXPECTED_LICENSE="$work/expected-license" ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_zip" mini.zip >/dev/null
+  if output=$(EXPECTED_LICENSE="$root/LICENSE" ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_zip" mini.zip 2>&1); then return 1; fi
+  grep -Fq 'LICENSE が期待値と違う' <<<"$output" || { echo "$output"; return 1; }
   echo "== 実物の release 成果物を組み立てる"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$real"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$real"
@@ -243,7 +303,7 @@ self_test() {
   mapfile -t actual_names < <(find "$out" -maxdepth 1 -type f -printf '%f\n' | sort)
   mapfile -t sorted_expected < <(printf '%s\n' "${expected_names[@]}" | sort)
   [[ "${actual_names[*]}" == "${sorted_expected[*]}" ]] || die "release の配布物の名前または個数が違う"
-  echo "== Scenario: 許諾のファイルが欠けた配布物は、公開しない"
+  echo "== heavy artifact regression: missing notice"
   cp "$out/ashiato-server-$v-linux-x86_64.tar.gz" "$work/missing-notice.tar.gz"
   tar -czf "$work/missing-only.tar.gz" -C "$work" stamp LICENSE SOURCE.txt
   cp "$work/missing-only.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
@@ -251,7 +311,7 @@ self_test() {
   grep -Fq 'THIRD-PARTY-NOTICES.txt' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/missing-notice.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
   cp "$out/ashiato-server-$v-linux-x86_64.tar.gz" "$work/good-linux.tar.gz"
-  echo "== Scenario: 配布物の LICENSE が木の LICENSE と違えば、公開しない"
+  echo "== heavy artifact regression: wrong license"
   printf 'AGPL の全文だけ\n' >"$work/wrong-license"
   cp "$work/wrong-license" "$work/LICENSE"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
@@ -259,28 +319,28 @@ self_test() {
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq 'LICENSE が期待値と違う' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
-  echo "== Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る"
+  echo "== heavy artifact regression: matching source commit"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
-  echo "== Scenario: debug の鍵を許す検査でも、組み立ての印の commit でないソースの場所の配布物は落ちる"
+  echo "== heavy artifact regression: bad source"
   printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
   printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
-  echo "== Scenario: ソースの場所がチャンネルの決まりと合わない配布物は、公開しない"
+  echo "== heavy artifact regression: beta source"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   if output=$(check_artifacts "$out" --channel beta --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
-  echo "== Scenario: Rust の実行ファイルの依存の一覧は、標準ライブラリを含む"
+  echo "== heavy artifact regression: rust std"
   : >"$work/THIRD-PARTY-NOTICES.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
   printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
-  echo "== Scenario: 携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
+  echo "== heavy artifact regression: gms notices"
   cp "$out/ashiato-collector-$v.apk" "$work/no-gms.apk"
   /usr/bin/zip -q -d "$work/no-gms.apk" 'assets/licenses/THIRD-PARTY-NOTICES.txt'
   mkdir -p "$work/gms-missing/assets/licenses"
@@ -292,7 +352,7 @@ self_test() {
   cp "$real/ashiato-collector-$v.apk" "$out/ashiato-collector-$v.apk"
   echo "== Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
-  echo "== Scenario: 配布物の LICENSE は、渡した期待する LICENSE と比べる"
+  echo "== heavy artifact regression: expected license"
   cp "$root/LICENSE" "$work/expected-license"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" --expect-license "$work/expected-license" >/dev/null
   echo "== Scenario: .dirty の印を持つ配布物があれば公開しない"
@@ -335,6 +395,14 @@ self_test() {
   cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 綺麗な release で資格情報の無い配布物は、検査を通る"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
+  # --allow-debug-key 無しの経路も、署名の指紋の一致・不一致を検査する（final review R7）。
+  local signer cert
+  signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
+  cert="$(apk_cert_sha256 "$signer" "$out/ashiato-collector-$v.apk")"
+  [[ -n "$cert" ]] || die '署名の指紋を読めない'
+  ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
+  if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
   # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
