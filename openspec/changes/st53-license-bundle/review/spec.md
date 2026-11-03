@@ -257,3 +257,79 @@ R20（11.5 に分け、`git rev-parse HEAD` で head を控え、ST53 が main �
 - kind: technical
 - 処置: fixed tasks.md —— 「名前は統一する」の `notices.sh` の副コマンドに `commit` を足した
 - 提案: tasks.md:24 を `<server|collector-windows|apk|source|commit>` にする
+
+## 機械の検査（第 3 回。spec --answers Q16 の後）
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st53-license-bundle --strict` | `Change 'st53-license-bundle' is valid`（rc=0） |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（rc=0） |
+| `python3 scripts/check_scenarios.py . st53-license-bundle` | `scenarios: FAIL (担保なし 51 件 / 名無しの確認待ち 0 件)`（rc=1）。51 件はどれもこの change の ADDED の Scenario（`distribution` 48・`verify-environment` 3。実装の前なので期待どおり）。51 本の名前を全部 tasks.md に grep して欠け 0。tasks.md:13 の「51 本（48・3）」と合う |
+| `python3 scripts/review_triage.py . st53-license-bundle` | `triage: OK`（指摘 35 件 / 仮決め 6 件 / 要件へ戻すもの 2 件） |
+| `python3 scripts/spec_overlap.py candidates . st53-license-bundle` | `[]`（0 件） |
+| `python3 scripts/provisional.py list openspec/changes/st53-license-bundle` | 開いている仮は D6・D10・D11・D18 の 4 つ。D17 は `resolved` で閉じている（`check` の FAIL は D18 の `provisional-review.md` が無いことだけ。グラフが後で書く） |
+
+答え以外の変更の分け方（今回の差分。`git diff HEAD -- openspec/changes/st53-license-bundle`）:
+- D17 を外したこと（design.md:228-230・provisional.jsonl:17・tasks.md:21）: Q16 の問いの context（deep-questions-r3.json の note・context「どちらの選択肢でも D17 は外します」）が答えの中に含めていた。答えの写しで、答え以外の変更に数えない
+- D9 の書き直し（checkout の `ref`・`ASHIATO_SOURCE_COMMIT` を持たず組み立ての印と同じ出所の commit を書く・比べはすべての組み立てで残す・K2 の記述）、spec.md:174-175 の 2 文、Scenario の入れ替え（5 本）、tasks 5.3・6.1 の `package-linux`・`package-windows`・7.1・11.1: 選んだ選択肢の detail（「組んだソース・配布物の組み立ての印・`SOURCE.txt` が同じ head を指し、比べはすべての組み立てで残せる」「縦串や試験などほかの job は今どおり合わせた木で走る」）の写しで、答え以外の変更に数えない
+- D18（仮）: `package-artifacts` も同じ `ref` で checkout し、版番号と `LICENSE` を head の木から取る・`draft.sh` は PR の head の手元で走らせる。選んだ選択肢は「`package-linux`・`package-windows` の checkout」「費用は workflow の 2 行」で、検査の job を名指していない。答え以外の変更。中身は design.md:232-238 の D18（仮）の節にあり、spec の Scenario「PR の配布物は、PR の head の commit から組まれる」の 3 つ目の job・tasks 6.1 の `package-artifacts`・10.2 の下書きの手順・proposal.md:71 に入った。仮なので合意は引き継がれる
+- premises P17・P18: 前提の行で digest の外。D9 の本文（design.md:157）からの参照は確かめの置き場で、決定を変えない
+
+## R25. Scenario「開発版と main への push の配布物のソースの場所は、組み立てた commit」の GIVEN が、Q16 で無くした「PR の head の commit を渡す」口を前提に残している
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:228
+- 根拠: GIVEN「印も **PR の head の commit も渡されない**組み立て（開発版か main への push の組み立て）」。Q16 の後の D9（design.md:142「commit を別に渡す環境変数は持たない」）と tasks 6.1・名前の統一（tasks.md:26「commit を渡す環境変数は足さない」）では、PR の組み立ても head の commit を「渡されない」—— checkout した木の `git rev-parse HEAD` から取る。この GIVEN では、PR の組み立てもこの Scenario の前提に当たり、開発版・main への push と PR を分けるものが無い。5.3 の自己試験（tasks.md:143）は「main の commit を checkout した木」で当てると書いていて、Scenario の GIVEN と食い違う。`ASHIATO_SOURCE_COMMIT` の grep には掛からない言い方で残った（観点 1: 覆した後の内容だけが残っているか）
+- kind: technical
+- 提案: GIVEN を「main の commit を checkout した木で、印を渡さない組み立て（開発版か main への push の組み立て）」にし、隣の PR の Scenario（spec.md:233「main と合わせていない枝の commit（PR の head）を checkout した木で、印を渡さない組み立て」）と checkout した木で分ける。THEN は今のまま
+- 処置: fixed specs/distribution/spec.md —— GIVEN を「main の commit を checkout した木で、印を渡さない組み立て（開発版か main への push の組み立て）」にし、隣の PR の Scenario と checkout した木で分けた（5.3 の自己試験と同じ形）
+
+## R26. 6.1 の検証のうち 2 本は、正しい実装で落ちる
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:153（6.1 の検証）
+- 根拠: (1) `! grep -rq "ASHIATO_SOURCE_COMMIT\|pull_request.head.sha" .github/workflows/release.yml .github/workflows/nightly.yml tools/release` は `tools/release` を再帰で見る。ところが同じ 6.1（tasks.md:152）は `tools/release/check-guards.sh` の `workflows` に「`ci.yml` の 3 つの job の checkout がその `ref` を持つこと」の判定と、`ref` を抜いた偽の `ci.yml` で落ちる自己試験を足させる。今の `workflows` は ci.yml を字面で `grep -q '<文字列>'` する型で（`tools/release/check-guards.sh:157`・`:160`・`:176`）、判定も偽の ci.yml を作る `sed` も `pull_request.head.sha` の文字列を持つのが自然。そうすると 6.1 の検証は `tools/release/check-guards.sh` に当たって rc=1 になる。
+  (2) `grep -c "ref: \${{ github.event.pull_request.head.sha || github.sha }}" .github/workflows/ci.yml | grep -qx 3` は block 形式の `ref: ${{ … }}` だけに当たる。3 つの job の checkout は今 flow 形式（`ci.yml:356`・`:378`・`:394` の `with: { persist-credentials: false }`）で、そこへ足すと YAML の flow の中では `{` を含む値を引用符で囲む必要があり（`ci.yml:424` の `env: { RANGE: "${{ … }}" }` と同じ形）、`ref: "${{ … }}"` は 0 件で落ちる。tasks.md:151 は「`persist-credentials: false` は残す」と言うだけで形を決めていない
+- kind: technical
+- 提案: (1) の否定の grep は `ASHIATO_SOURCE_COMMIT` を `tools/release` と workflow の 3 つで、`pull_request.head.sha` を `release.yml`・`nightly.yml` だけで見る形に分ける。(2) は block 形式で書くと 6.1 に決めるか、grep を `ref: "\?\${{ github.event.pull_request.head.sha || github.sha }}"\?` のように引用符の有無を許す形にする（判定の正本は `check-guards.sh workflows` なので、そちらに寄せて YAML の grep を外してもよい）
+- 処置: fixed 6.1 —— 否定の grep を `ASHIATO_SOURCE_COMMIT`（workflow と `tools/release`）と `pull_request.head.sha`（`release.yml`・`nightly.yml` だけ）に分けた。YAML の字面の本数の grep は外し、判定の正本を `check-guards.sh workflows` に寄せた。3 つの checkout の `with:` は block 形式に書き直すと 6.1 に決めた
+
+## R27. Scenario「PR の配布物は、PR の head の commit から組まれる」が、どの Requirement の文も言っていない「検査する job も head を checkout する」を持つ
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:242-244 / :175
+- 根拠: THEN「**3 つの job** のどれもが、PR では PR の head の commit を…checkout し」。3 つ目は「その配布物を検査する job」（`package-artifacts`。D18（仮））。Requirement の本文（spec.md:175）は「PR の組み立てを、PR の head の commit そのものから組む」で、組む側しか言わず、検査が何と比べるか（期待する版番号・`LICENSE` を head の木から取る。design.md:234）は design にだけある。archive すると、本文に錨の無い振る舞いが Scenario だけで正典に入る。名前も「組まれる」で、検査の job を含むことが読めない。あわせて THEN は「3 つが head を checkout する」と「どれかが違えば検査が落ちる」の 2 つを束ねる（片方だけを満たす実装を区別しない。R16 と同じ型）
+- kind: technical
+- 提案: Requirement の本文に「配布物の検査は、配布物を組んだのと同じ commit の木の版番号と `LICENSE` と比べる」の 1 文を足す（D18（仮）は導出元に既にある）か、Scenario を組む 2 つの job だけにして検査の job を D18 の反転条件と一緒に design に残す。THEN の否定の側は、偽の workflow で落ちる別の Scenario に分けるか、tasks 6.1 の自己試験の説明に下ろす
+- 処置: fixed specs/distribution/spec.md —— Requirement の本文に「配布物の検査を、配布物を組んだのと同じ commit の木で走らせ、期待する版番号と比べる `LICENSE` をその木から取る」を足し（D18（仮））、Scenario の名前を「PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される」にした。THEN は checkout の 1 つに絞り、偽の workflow で落ちる側は tasks 6.1 の自己試験の説明に下ろした
+
+## R28. 11.1 は `draft.sh` を走らせる木を言っておらず、P17 の確かさを 4 に上げられない部分まで上げる
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:231-233（11.1） / premises.md:24（P17）
+- 根拠: (1) D18（仮）（design.md:236）は「`draft.sh` は走らせた手元の木の版番号と `LICENSE` で比べる（`draft.sh:15`・`:32`）。`docs/release.md` の下書きの手順に、その PR の head を checkout した手元で走らせることを書く」とし、10.2（tasks.md:221）も同じことを手順書に書かせる。ところがこの Story で `draft.sh` を実際に走らせる唯一の場所の 11.1 は「この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を走らせる」だけで、走らせる手元を言わない。`draft.sh` は `$root/tools/release/version.sh source`（`draft.sh:15`）と `$root` の `check-artifacts.sh`（`:32`。`LICENSE` も `$root` の木と比べる。`check-artifacts.sh:4`）を使うので、確認バッチの作業ツリーが PR の head でなければ K1 と同じ理由で比べが食い違う。
+  (2) 11.1 は「その run の `package-linux`・`package-windows`・`package-artifacts` が head を checkout して通ったことで P17 を見る（P17・P18 の確かさを 4 にする）」。P17 は「fork の PR でも」取れることを含む（premises.md:24）が、この Story の PR は同じ repo の枝で、fork の PR の head は 11.1 では確かめられない。P17 自身の「確かめ方」も「fork の PR は配布元に無いので、外れたら反転する」と書いている
+- kind: technical
+- 提案: 11.1 に「ST53 の PR の head を checkout した手元（`git -C <作業ツリー> rev-parse HEAD` が run の `head_sha` と同じ）で走らせる」を足す。P17 は 11.1 で上げる範囲を「同じ repo の枝の PR」に限り、fork の側は確かさ 2 のまま残す（外れても落ちる側に倒れることは P17 に書いてある）
+- 処置: fixed 11.1 —— （premises.md の P17 も同じ範囲に直した） 11.1 に `draft.sh` を PR の head を checkout した手元（`git rev-parse HEAD` が run の `head_sha` と同じ）で走らせることを足した。P17 を 11.1 で上げる範囲は同じ repo の枝の PR に限り、fork の側は確かさ 2 のまま残すと 11.1 と P17 に書いた
+
+## R29. 7.1 の「次の 4 つを足す」が、並べた 7 項と検証の 8 本と合わない
+- 成果物: openspec/changes/st53-license-bundle/tasks.md:164-173
+- 根拠: tasks.md:164「`--self-test` に、手で組んだ小さな配布物…で次の 4 つを足す」の後に 7 項が並び、tasks.md:172 でもう 1 本（`4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ`）を足し、検証（tasks.md:173）は `grep -qx 8`。第 1 回（c4a93a49）の「4 つ」のまま、R19・R23 と今回の処置で項が増えた。下流が数の方を読むと、足す本数を取り違える
+- kind: technical
+- 提案: 「次の 7 つを足す」に直す（tasks.md:172 の 1 本と合わせて検証の 8 本になることを 1 行添える）
+- 処置: fixed 7.1 —— 「次の 7 つを足す（下の重い自己試験の 1 本と合わせて、検証の 8 本になる）」に直した
+
+## 第 3 回の観点ごとの該当なし
+
+- 観点 1（R25 のほか）: 該当なし（確かめた範囲: Q16 → design D9（design.md:137-160）・spec.md:174-175・Scenario「PR の組み立ての配布物のソースの場所は、PR の head の commit」「組み立ての commit が 40 桁の 16 進でなければ…」「PR の配布物は、PR の head の commit から組まれる」「PR の組み立てと下書きの配布物の検査は…」「debug の鍵を許す検査でも、組み立ての印の commit でない…」・tasks 5.3・6.1・7.1・11.1。`deep.md` の「spec の段へ渡すもの（第 3 回）」の各項 —— D9・D17 の resolve（台帳で閉じている）・spec と Scenario・checkout と比べ・premises P14（premises.md:23）、C1 の 11.1 の反転（tasks.md:233）・Risks の項の置き換え（design.md:249）・proposal.md:71、K1 の `package-artifacts`（D18（仮））、K2 の job の中の検査（design.md:154）、未確認 2 つ（P17・P18）—— は全部同じ場所にある。go.json は reading の段が直すので見ていない。change の文書に「合成の merge commit」「組み立ての印とは比べない」「`ASHIATO_SOURCE_COMMIT`」は、経緯・選ばなかった案・否定の検証の中にしか残っていない。Q10〜Q15 の写し先（D4・D5・D7・D8・D16、spec.md:53・55・86-87）は今回の差分で触られていない）
+- 観点 3: 該当なし（確かめた範囲: 今回足した D18（仮）の観測できる振る舞いは spec の Scenario に上がっている（R27 の本文の錨は別）。spec の新しい Scenario の `ASHIATO_BUILD_COMMIT` は、正典 `openspec/specs/distribution/spec.md:40` が同じ名前を Scenario で使っている入力の口で、実装の名前として新たに持ち込んだものではない。proposal の Capabilities と specs のディレクトリは変わっていない）
+- 観点 5: 該当なし（確かめた範囲: check_chain.py OK（再生成との一致を含む）。docs/stories/ST53.md の完了の判定「それ以外の組み立て —— 開発版・main への push・PR —— は 40 桁の commit」は Q16 と矛盾しない（組む木を言わないのは整合の確認 C2 が leave にした））
+- 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## 第 3 回の処置の確かめ（R25〜R29。2026-11-03）
+
+- R25: 閉じた。spec の GIVEN が「main の commit を checkout した木で、印を渡さない組み立て」になり、隣の PR の Scenario（「main と合わせていない枝の commit（PR の head）を checkout した木」）と checkout した木で分かれる。5.3 の自己試験（tasks.md:143）とも同じ形
+- R26: 閉じた。6.1 の否定の grep は `ASHIATO_SOURCE_COMMIT` を `.github/workflows` と `tools/release` で、`pull_request.head.sha` を `release.yml`・`nightly.yml` だけで見る形に分かれ、`check-guards.sh` の判定の文字列に当たらない。YAML の字面の本数の grep は外れ、判定の正本は `check-guards.sh workflows`（rc=0）とその自己試験の Scenario 1 本（`grep -qx 1`）。`with:` を block 形式にすることも 6.1 に書いてある
+- R27: 閉じた。Requirement の本文に「配布物の検査を、配布物を組んだのと同じ commit の木で走らせ、期待する版番号と比べる `LICENSE` をその木から取る」が入り、Scenario の名前が検査の job を含むことを言い、THEN は checkout の 1 つの主張になった。偽の workflow で落ちる側は 6.1 の自己試験の説明にある。新しい名前は 6.1 の本文と検証の grep で一字一句同じ。ただし足した 1 文は CI の外の検査にも掛かる（R30）
+- R28: 閉じた。11.1 は `draft.sh` を PR の head を checkout した手元（`git rev-parse HEAD` が run の `head_sha` と同じ）で走らせると言い、P17 を上げる範囲を同じ repo の枝の PR に限った。premises.md:24 の P17 の確かめ方も同じ範囲になっている
+- R29: 閉じた。7.1 は「次の 7 つを足す（下の重い自己試験の 1 本と合わせて、検証の 8 本になる）」で、並ぶ 7 項・tasks.md:172 の 1 本・検証の `grep -qx 8` と合う
+
+## R30. R27 の処置で足した「配布物の検査を、配布物を組んだのと同じ commit の木で走らせる」は、最初の印の後に本人が手で走らせる検査（D12）にも掛かるが、D12 と 10.2 はその木を言っていない
+- 成果物: openspec/changes/st53-license-bundle/specs/distribution/spec.md:176 / design.md（D12） / tasks.md:219（10.2）
+- 根拠: 足した文は「THE SYSTEM SHALL 配布物の検査を、配布物を組んだのと同じ commit の木で走らせ、期待する版番号と比べる `LICENSE` をその木から取る」で、どの検査かを限っていない。CI の 3 つ（ci.yml の `package-artifacts`・`release.yml:85`・`nightly.yml:71`）は同じ event の commit を checkout するので当たる。下書きの `draft.sh` は 11.1・10.2 が PR の head の手元と書いた。残る 1 つが D12 の「`docs/release.md` §6『最初の印』の最後に `gh release download v<版> -D "$dir"` と `tools/release/check-artifacts.sh "$dir" --channel <beta|release> --expect-version <版>`」で、`check-artifacts.sh` は自分の置かれた木の `LICENSE` と比べる（`tools/release/check-artifacts.sh:4` の `root`）。D12 も 10.2（tasks.md:219「最初の印の最後: `gh release download` と `check-artifacts.sh --channel` の 2 行（D12）」）も、走らせる手元が印 `v<版>` の commit であることを言わない。印の後に main が `LICENSE` を変えた手元で走らせると、正しい配布物を落とす（落ちる側なので配布物は漏れない）。Requirement の文と、それを満たす手順の 1 つが合っていない
+- kind: technical
+- 提案: 10.2 の「最初の印の最後」の行と D12 に「印 `v<版>` を checkout した手元で走らせる」を足し、10.2 の検証の見出しの grep に 1 語足す。または Requirement の文を「CI と下書きの配布物の検査」に限り、D12 の手で走らせる検査はその外だと書く
+- 処置: fixed D12 —— D12 と tasks 10.2 に「印 `v<版>` を checkout した手元で走らせる」を足した（Requirement の文は限らず、全部の検査が組んだ commit の木で走る形に揃えた）

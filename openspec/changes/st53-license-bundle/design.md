@@ -134,25 +134,29 @@ Google の `oss-licenses-plugin` は使わない。実行時に `play-services-o
 - 選ばなかった案（Q13 の他の選択肢）: 携帯の部品を検査と別の出所（`gradlew :app:dependencies` の木）から作る（検査と一覧で部品の集合がずれうる）
 - 反転条件: 一覧が大きくなり、配布物の大きさで困ったら、Apache-2.0 の全文を 1 回だけ書き、各項は名前の参照にする
 
-### D9. `SOURCE.txt` の印は `ASHIATO_SOURCE_REF`、PR の head の commit は `ASHIATO_SOURCE_COMMIT` で渡す。どちらも無ければ組み立ての commit を書く
+### D9. PR の組み立ては head の commit を checkout して組む。`SOURCE.txt` の印は `ASHIATO_SOURCE_REF` で渡し、無ければ組み立ての commit を書く
 
-> 深掘り Q14（第 2 回）の本人の答え（PR の組み立てでは head の commit を書き、組み立ての印との比べはその場合だけ外す）。経緯: 仮で「無ければ組み立ての commit（PR では合成の merge commit）」としていたが、別の席（`provisional-review.md` の D9）が否とした（合成の merge commit を PR を閉じた後に取れるかは確かめておらず、その前に PR の成果物が出る）
+> 深掘り Q14（第 2 回）と Q16（第 3 回）の本人の答え（PR の組み立てでは head の commit を書く。PR の組み立てを head から組む —— checkout に head の commit を渡す）。経緯: 仮で「無ければ組み立ての commit（PR では合成の merge commit）」としていたが、別の席（`provisional-review.md` の D9）が否とした（合成の merge commit を PR を閉じた後に取れるかは確かめておらず、その前に PR の成果物が出る）。Q14 で「head の commit を書き、組み立ての印との比べはその場合だけ外す」と決めた後、別の席（review/spec.md R17）が、合わせた木から組むと `SOURCE.txt` の head と組んだソースが main の差だけ食い違うことを見つけ、Q16 で組む木を head にした。比べを外す分岐は要らなくなり、比べはすべての組み立てで残す（D17 は外した）
 
+`ci.yml` の `package-linux`・`package-windows` は、checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を渡す。PR では PR の head の commit、main への push では push した main の commit を checkout する（GitHub が作る、head とその時の main を合わせた merge の commit からは組まない。FR-127 ★ 2026-11-03（第 3 回））。
+組んだソース・配布物の組み立ての印（ST52 の `artifact_stamp`）・`SOURCE.txt` が同じ commit を指す。commit を別に渡す環境変数は持たない（checkout した木の `git rev-parse HEAD` が head の commit そのもので、2 つの出所の一致を別に守らずに済む。Q16 の帰結）。
 `release.yml` の組み立ての job は、`ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を `build.sh` に渡す。
 `build.sh` は、その値が `v<ASHIATO_BUILD_VERSION>` と同じときだけ印として書く。違えば組み立てを落とす。
-`ci.yml` の `package-linux`・`package-windows` は、`ASHIATO_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}` を `package.sh` → `build.sh` に渡す。PR の組み立てではこれが PR の head の commit になり、`build.sh` はそれを書く（40 桁の 16 進でなければ落とす）。
-main への push（`ci.yml` の `push: { branches: [main] }`）では値が空になり、`ASHIATO_SOURCE_REF` も無いので、`git rev-parse HEAD` の 40 桁（main の commit）を書く。開発版（`nightly.yml`。どちらも渡さない）も同じで、main の commit を書く（FR-127 ★ 2026-11-03）。
+`ASHIATO_SOURCE_REF` が無い組み立て（PR・main への push・開発版の `nightly.yml`）は、組み立ての印と同じ出所の commit —— `ASHIATO_BUILD_COMMIT`（空でなければ。ST52 の印の上書き。配る組み立ての job は渡さない）、無ければ `git rev-parse HEAD` —— の 40 桁を書く。40 桁の 16 進でなければ（`unknown` を含む）組み立てを落とす。PR では head の commit、main への push と開発版では main の commit になる（FR-127 ★ 2026-11-03）。
 `SOURCE.txt` の中身は次の 3 行。
 - `Repository: https://github.com/rai-256/ashiato`（`ASHIATO_SOURCE_REPO` で上書きできる。既定は配布元）
 - `Ref: v<版>` か `Commit: <40 桁>`
 - 対応するソースの取り方（`git clone` と `git checkout <印か commit>`）
 `check-artifacts.sh` の `SOURCE.txt` の決まり:
 - `--allow-debug-key` が無く `--channel release|beta`: `Ref: v<--expect-version>`
-- `--channel nightly`: 配布物の組み立ての印（ST52 の `artifact_stamp`）の commit と同じ `Commit:`
-- `--allow-debug-key`（PR の `package-artifacts` と `draft.sh`。`draft.sh:32`）: `Commit:` が 40 桁の 16 進であることだけを見て、組み立ての印との比べは外す（PR では組み立ての印が合成の merge commit を、`SOURCE.txt` が head の commit を持ち、一致しない。Q14）
+- `--channel nightly` と `--allow-debug-key`（PR・main への push の `package-artifacts` と `draft.sh`。`draft.sh:32`）: 配布物の組み立ての印の commit と同じ `Commit:`（40 桁の 16 進）。どの組み立ても組んだ木の commit を書くので、比べはすべての組み立てで残す（Q16）
 既定のチャンネルは `release` のまま変えない（ST52 の呼び出しを壊さない。review/spec.md R1）。
+組む木を head にすると、`package-linux` の job の中の検査 —— ST52 の重い自己試験（`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh` の `--self-test`）と、この Story が足す `check-licenses.sh android`（D15）—— も head の木で走る（FR-127 ★ 2026-11-03（第 3 回）はそう狭めてある。整合の確認 K2）。main と合わせて初めて許可の外の依存が入る組み合わせは PR の CI では止まらず、merge gate が head を main に rebase した後の CI（`scripts/merge_gate.sh:7`・`:79`）と main への push の CI で止まる。`check-spdx.sh` は合わせた木で走る `chain` の job にもある（D15）。ほかの job（縦串・試験）は今どおり合わせた木で走る。
+配布物を検査する `package-artifacts` の checkout の扱いは D18（仮）。
 PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.5（確認バッチの中、ST53 が main に入る前）で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
+head を checkout した組み立ての印が `.dirty` を持たないこと・fork の PR でも head を取れることは premises P17・P18（11.1 で見る）。
 - 選ばなかった案（Q14 の他の選択肢）: 合成の merge commit のまま確かめを待つ・merge の前に確かめてから決める
+- 選ばなかった案（Q16 の他の選択肢）: 合わせた木から組むまま `SOURCE.txt` に head を書き、`check-artifacts.sh --source-commit <40 桁>` で渡した head と比べる（`SOURCE.txt` の head と組んだソースが main の差だけ食い違う）
 - 反転条件: 配布元の名前が変わったら、`ASHIATO_SOURCE_REPO` の既定を変える。11.5 で閉じた PR の head か、push し直す前の head を取れないと分かったら、上流へ返す（A。取れない写しのソースの場所は直せない）
 
 ### D10（仮）. 許諾なしで置かれた PR の成果物は、ST53 が main に入った後に消す
@@ -179,7 +183,7 @@ PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull
 > Q4 の推奨（答え待ち）。A の問い。
 
 ST53 の確認バッチでは、ST52 と同じ `tools/release/draft.sh` で PR の配布物から下書きを作り、許諾の 3 点（D8・D9）と守りを見る。
-`docs/release.md` §6「最初の印」の最後に、次の 2 行を置く。
+`docs/release.md` §6「最初の印」の最後に、次の 2 行を置く。印 `v<版>` を checkout した手元で走らせる（`check-artifacts.sh` は置かれた木の `LICENSE` と比べる。配布物の検査は組んだのと同じ commit の木で走らせる —— spec の配布物の Requirement。review/spec.md R30）。
 - `gh release download v<版> -D "$dir"`
 - `tools/release/check-artifacts.sh "$dir" --channel <beta|release> --expect-version <版>`
 `docs/stories/ST52.md` の完了の判定（「本物の公開は ST53 の確認で見る」）は、record の段が `stories.json` を直して作り直す。spec の段は直さない。
@@ -221,12 +225,17 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 - commit は印より狭く、動かない
 - 選ばなかった案（Q15 の他の選択肢）: 開発版にも動かない印（`nightly-YYYYMMDD` など）を打ち、その印で示す（印が毎日 1 つ増え、ST52 の印の決まりに型が 1 つ足される）
 
-### D17（仮）. main への push の組み立ても、`--allow-debug-key` の検査では `SOURCE.txt` の commit を形だけ見る
+### D17. （外した）main への push の組み立ても、`--allow-debug-key` の検査では `SOURCE.txt` の commit を形だけ見る
 
-`ci.yml` の `package-artifacts` は、PR でも main への push でも同じ `check-artifacts.sh --allow-debug-key` を走らせる（`ci.yml:400`）。引数だけでは PR と main への push を分けられないので、D9 の「比べを外す」は main への push の組み立てにも及ぶ。
-main への push の `SOURCE.txt` は、`build.sh` が `git rev-parse HEAD`（main の commit。組み立ての印と同じ）を書くので中身は変わらない。弱まるのは検査だけ（印の commit と食い違っても落ちない）。
-- 失わない理由: 書く中身は main の commit のまま。検査の分け方は台本の中だけで、後から足せる
-- 反転条件: main への push の成果物の `SOURCE.txt` が組み立ての印と食い違ったことが分かったら、`check-artifacts.sh` に `--source-commit <40 桁>` を足し、`ci.yml` が `${{ github.event.pull_request.head.sha || github.sha }}` を渡して全部の組み立てで比べる
+> 2026-11-03 に外した。前提（引数だけでは PR と main への push を分けられない）は誤りで（review/spec.md R18。`ci.yml:34` が既に式で PR と push を分けている）、深掘り Q16 で PR の組み立てを head から組むことにしたので、比べを外す分岐ごと要らなくなった（D9）。台帳からは `provisional.py resolve` で外した。番号は再び使わない
+
+### D18（仮）. 配布物を検査する `package-artifacts` も、組んだ job と同じ commit を checkout する
+
+`ci.yml` の `package-artifacts` は、`package-linux`・`package-windows` と同じ `ref: ${{ github.event.pull_request.head.sha || github.sha }}` で checkout する。期待する版番号（`tools/release/version.sh source`）と、比べる木の `LICENSE` は、配布物を組んだ head の木から取る。
+D9 で組む木だけを head にすると、枝を切った後に main が出所の版か `LICENSE` を変えた PR で、head から組んだ配布物を合わせた木の版番号・`LICENSE` と比べて CI が赤くなる（整合の確認 K1）。
+`draft.sh` は走らせた手元の木の版番号と `LICENSE` で比べる（`draft.sh:15`・`:32`。ST52 から同じ型）。`docs/release.md` の下書きの手順に、その PR の head を checkout した手元で走らせることを書く（10.2）。
+- 失わない理由: 変わるのは検査が比べる相手だけで、配布物の中身も `SOURCE.txt` も変わらない。どちらに倒しても落ちる側（公開しない側）か、merge gate の rebase の後の CI で同じものを見る。workflow の 1 行で、次の run から戻せる
+- 反転条件: PR の CI では緑で、merge gate の rebase の後の CI で版番号か `LICENSE` の食い違いで落ちる組み合わせが出たら、`package-artifacts` だけを合わせた木に戻し、期待値を配布物の組み立ての木（配布物の中の版番号）から取る形にする
 
 ## Risks / Trade-offs
 
@@ -237,7 +246,7 @@ main への push の `SOURCE.txt` は、`build.sh` が `git rev-parse HEAD`（ma
 - **エージェントの token も本人の利用者として動く**。承認者の名前では本人とエージェントを分けられない。分けるのは権限（Deployments を持たない）だけ
 - **表示の無い写したコードは止まらない**（D5）。§5 の「NFR-26 の検査が止める」は、依存と表示を持つファイルについてだけ成り立つ
 - **`check-guards.sh` の配布元の既定は `rai-256/ashiato2`**（ST52）。Actions では `GITHUB_REPOSITORY` が入るので正しいが、手元では `--repo rai-256/ashiato` を付ける。`docs/release.md` のコマンドは `--repo` を付けて書く
-- **PR の配布物の中身は、`SOURCE.txt` の head の commit から組んだものと一字一句同じとは限らない**（Q14 の答えの帰結）。PR の組み立ては合成の merge commit（head と、その時の main を合わせたもの）を checkout して組み、組み立ての印も merge commit を持つ。`SOURCE.txt` が指す head と、組んだソースの差は、その時の main が head に無い分だけ。merge commit は配布物の中の組み立ての印に残る
+- **PR の配布物は、その時の main と合わせた結果を映さない**（Q16 の帰結）。PR の組み立てと、その job の中の自己試験と許諾の検査は head の木で走る。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後の CI か main への push の CI で止まる（D9）
 - **一覧が大きい**: 携帯の APK の一覧は gms の中の第三者（約 370 KB。R7）を含む。APK の大きさの増え方は数百 KB で、受け入れる
 
 ## Migration Plan

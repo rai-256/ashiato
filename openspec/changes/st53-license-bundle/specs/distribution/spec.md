@@ -171,16 +171,17 @@ THE SYSTEM SHALL `THIRD-PARTY-NOTICES.txt` の依存に、次のものを入れ�
 - PC の収集アプリ: 実行ファイルに入る Rust の部品と、Rust の標準ライブラリ（`rust-std`）
 - 携帯の APK: `releaseRuntimeClasspath` の部品と、名指しの Google のライブラリが中に持つ第三者の一覧（各 aar の `third_party_licenses.txt` の中身。見出し `(gms の中の第三者)`）
 IF ある部品の許諾の全文も著作権の表示も見つからない THEN THE SYSTEM SHALL 依存の一覧を組まずに、組み立てを落とす。
-THE SYSTEM SHALL `SOURCE.txt` に、リポジトリの場所を書く。正式版・ベータ版の公開の組み立てでは、それに加えて印 `v<版番号>` を書く。それ以外の組み立てでは 40 桁の commit を書く。開発版と main への push の組み立てでは組み立てた main の commit、PR の組み立てでは PR の head の commit を書く。
+THE SYSTEM SHALL `SOURCE.txt` に、リポジトリの場所を書く。正式版・ベータ版の公開の組み立てでは、それに加えて印 `v<版番号>` を書く。それ以外の組み立てでは、組み立てた木の 40 桁の commit を書く。開発版と main への push の組み立てでは main の commit、PR の組み立てでは PR の head の commit になる。
+THE SYSTEM SHALL PR の組み立てを、PR の head の commit そのものから組む（GitHub が作る、head とその時の main を合わせた merge の commit からは組まない）。`SOURCE.txt` の commit・組み立ての印・組んだソースが同じ commit を指す。
+THE SYSTEM SHALL 配布物の検査を、配布物を組んだのと同じ commit の木で走らせ、期待する版番号と比べる `LICENSE` をその木から取る。
 IF 公開の組み立てに渡された印が `v<版番号>` と違う THEN THE SYSTEM SHALL 配布物を作らずに組み立てを落とす。
 THE SYSTEM SHALL 3 つのファイルを組み立ての台本の中で入れる。正式版・ベータ版だけでなく、開発版・main への push・PR の組み立てにも同じ手順で入れる。
 IF 配布物のどれかに 3 つのファイルのどれかが無い、`LICENSE` が木の `LICENSE` と違う、サーバと PC の収集アプリの一覧に `rust-std` の項が無い、または携帯の APK の一覧に Google のライブラリの第三者の一覧が無い THEN THE SYSTEM SHALL 配布物の検査を落とし、その配布物を公開しない。
 THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見る。合わなければ検査を落とす。
 - 正式版・ベータ版として公開する配布物の検査（debug の鍵を許さない、チャンネルが `release` か `beta` の検査）: `v<期待する版番号>`
-- 開発版の検査（チャンネルが `nightly` の検査）: 組み立ての印と同じ commit
-- debug の鍵を許す検査（PR・main への push の組み立てと下書きの配布物の検査）: 40 桁の commit。組み立ての印とは比べない（PR の組み立ての印は GitHub が作る merge の commit を持ち、`SOURCE.txt` の head の commit と一致しない）
+- 開発版の検査（チャンネルが `nightly` の検査）と、debug の鍵を許す検査（PR・main への push の組み立てと下書きの配布物の検査）: 組み立ての印と同じ 40 桁の commit
 
-導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8・D9・D16・D17（仮）。深掘り Q13・Q14・Q15（第 2 回）。FR-127 ★ 2026-11-02・★ 2026-11-03。
+導出元: FR-127（本体の許諾と依存の許諾の一覧を同梱する。対応するソースは同じ印のリポジトリで示す）。深掘り Q6・Q7（第 1 回の推奨）。review/deep.md R5・R6・R7・R10 の C。review/spec.md R1・R2・R5・R11・R16。D8・D9・D16・D18（仮）。深掘り Q13・Q14・Q15（第 2 回）・Q16（第 3 回）。FR-127 ★ 2026-11-02・★ 2026-11-03・★ 2026-11-03（第 3 回）。
 動く印 `nightly` は翌日に別の commit を指すので、開発版の写しには動かない commit を書く（Q7）。配った写しに書いた場所は、後から直せない。
 
 #### Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ
@@ -225,29 +226,33 @@ THE SYSTEM SHALL 配布物の検査で、`SOURCE.txt` を次の決まりで見�
 - **THEN** 手順は 0 でない終了コードで終わり、`SOURCE.txt` はできない
 
 #### Scenario: 開発版と main への push の配布物のソースの場所は、組み立てた commit
-- **GIVEN** 印も PR の head の commit も渡されない組み立て（開発版か main への push の組み立て）
+- **GIVEN** main の commit を checkout した木で、印を渡さない組み立て（開発版か main への push の組み立て）
 - **WHEN** 配布物の `SOURCE.txt` を読む
 - **THEN** `SOURCE.txt` はリポジトリの場所と、組み立ての印と同じ 40 桁の commit を持ち、`nightly` の文字を持たない
 
 #### Scenario: PR の組み立ての配布物のソースの場所は、PR の head の commit
-- **GIVEN** 組み立ての印と違う 40 桁の commit を PR の head の commit として渡した組み立て
-- **WHEN** 配布物の `SOURCE.txt` を読む
-- **THEN** `SOURCE.txt` はリポジトリの場所と、渡した head の commit を持ち、組み立ての印の commit を持たない
+- **GIVEN** main と合わせていない枝の commit（PR の head）を checkout した木で、印を渡さない組み立て
+- **WHEN** 配布物の `SOURCE.txt` と組み立ての印を読む
+- **THEN** `SOURCE.txt` はリポジトリの場所と、その head の 40 桁の commit を持ち、組み立ての印も同じ commit を持つ
 
-#### Scenario: PR の組み立ての head の commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる
-- **GIVEN** PR の head の commit として `main` を渡した組み立て
+#### Scenario: 組み立ての commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる
+- **GIVEN** 印を渡さず、組み立ての印の commit の上書き（`ASHIATO_BUILD_COMMIT`）に `main` を渡した組み立て
 - **WHEN** `SOURCE.txt` を組む
 - **THEN** 手順は 0 でない終了コードで終わり、`SOURCE.txt` はできない
 
+#### Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される
+- **WHEN** CI の配る形を組む job（サーバの Linux 版・携帯の APK と、Windows の 2 つ）と、その配布物を検査する job の checkout を、workflow の検査で読む
+- **THEN** 3 つの job のどれもが、PR では PR の head の commit を、main への push では push した commit を checkout する
+
 #### Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る
-- **GIVEN** `SOURCE.txt` が組み立ての印と違う 40 桁の commit（PR の head）を持つ配布物の置き場
+- **GIVEN** `SOURCE.txt` が組み立ての印と同じ 40 桁の commit（PR の head）を持つ配布物の置き場
 - **WHEN** debug の鍵を許す配布物の検査（PR の組み立てと下書きの検査）を当てる
 - **THEN** 検査の終了コードは 0
 
-#### Scenario: debug の鍵を許す検査でも、commit でないソースの場所の配布物は落ちる
-- **GIVEN** `SOURCE.txt` に、commit でなく印 `v0.4.0` を持つ配布物の置き場と、`Commit: main` を持つ配布物の置き場と、7 桁の短い commit を持つ配布物の置き場
+#### Scenario: debug の鍵を許す検査でも、組み立ての印の commit でないソースの場所の配布物は落ちる
+- **GIVEN** `SOURCE.txt` に、commit でなく印 `v0.4.0` を持つ配布物の置き場と、`Commit: main` を持つ配布物の置き場と、7 桁の短い commit を持つ配布物の置き場と、組み立ての印と違う 40 桁の commit を持つ配布物の置き場
 - **WHEN** それぞれに debug の鍵を許す配布物の検査を当てる
-- **THEN** 3 つとも検査は 0 でない終了コードで終わり、`SOURCE.txt` が決まりと合わないことが示される
+- **THEN** 4 つとも検査は 0 でない終了コードで終わり、`SOURCE.txt` が決まりと合わないことが示される
 
 #### Scenario: ソースの場所がチャンネルの決まりと合わない配布物は、公開しない
 - **GIVEN** `SOURCE.txt` に印でなく commit を持つ配布物の置き場
