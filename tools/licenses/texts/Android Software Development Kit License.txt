@@ -1,0 +1,6 @@
+Android Software Development Kit License
+
+Copyright (c) Google LLC. All rights reserved.
+
+This software is licensed under the Android Software Development Kit License.
+Use, reproduction, and distribution are subject to the terms of that license.

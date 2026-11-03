@@ -27,3 +27,19 @@
 差分を確認し、出力生成は一時ファイル経由、失敗時の一時ファイル掃除、偽 Rust 入力、Node の `dev: true` 除外、40 桁 commit 検証を確認した。
 
 `scripts/check_scenarios.py .` は、Task 5 以外の後続 Task が担保する Scenario も未実装のため Story 全体として FAIL するが、Task 5 の自己試験 Scenario は登録されている。
+
+## Fix round 1
+
+- F1/F2/F6: 自己試験が一時的な main 木と PR head 木を作り、`commit` 副コマンドと `git rev-parse HEAD` の一致、および `SOURCE.txt` の commit を確認するよう修正した。不正値は `ASHIATO_BUILD_COMMIT=main` と空の commit 引数で確認する。
+- F3: APK の入力を Task 4.1 の POM 一覧に限定し、AAR/JAR の許諾、SPDX fallback、GMS 4 部品の JSON の `start`/`length` 切り出しを実装した。キャッシュ全体の走査 fallback は削除した。
+- F4/F5/F7/F8: 全項目をまとめて名前順に並べ、Node の author fallback、失敗部品名の確認、`MIT`/`ISC` を含む SPDX 識別子の抽出を修正した。Android SDK と BSD-3-Clause の fallback 全文も追加した。
+
+### Fix verification
+
+- `scripts/verify-run 5.1` — PASS（現行 tree）
+- `scripts/verify-run 5.2` — PASS（現行 tree）
+- `scripts/verify-run 5.3` — PASS（2 コマンドとも現行 tree）
+- `tools/release/notices.sh --self-test` — PASS
+- `git diff --check` / `bash -n tools/release/notices.sh` — PASS
+
+検証コマンドが `$TMPDIR` に作る出力ファイルは verify-run の仕様上記録されるが、台本自身が生成する APK 用の POM 一覧は終了時に削除する。
