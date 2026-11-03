@@ -55,12 +55,12 @@
 
 ## Task 2: ソースと部品の許諾の表示
 
-- [ ] 2.1 `crates/server/src/coverage/tests/mod.rs` の 21 行目の表示を先頭の行へ移す。`git ls-files -s` を起点に、mode が `120000` でないファイルの先頭 25 行にある `SPDX-License-Identifier: AGPL-3.0-only` を `SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換える（Q5）。
+- [x] 2.1 `crates/server/src/coverage/tests/mod.rs` の 21 行目の表示を先頭の行へ移す。`git ls-files -s` を起点に、mode が `120000` でないファイルの先頭 25 行にある `SPDX-License-Identifier: AGPL-3.0-only` を `SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換える（Q5）。
   移行の 3 つ（`migrations/202609211400_browser_history_record_id.sql`・`.down.sql`・`migrations/202610181200_media_capture.sql`）は書き換えない（D4・Q10）。gradle の wrapper の 2 つ（`Apache-2.0`）にも触らない。
   根の `Cargo.toml` の workspace の `license`、`web/package.json` の `license`、`web/package-lock.json` の `packages[""].license` を同じ式にする。
   `docs/openapi.json` は、`src/bin/openapi.rs` で作り直す（`info.license.identifier` が同じ式になる）
   検証: `tools/check-spdx.sh headers` rc=0 / `bash -c 'n=$(git ls-files -s | awk "\$1 != \"120000\" {print \$4}" | grep -v -e "^migrations/" -e "^collector-android/gradlew" -e "^docs/" -e "^openspec/" | while read -r f; do head -n 25 "$f" | grep -q "SPDX-License-Identifier: AGPL-3.0-only *\$" && echo "$f"; done | wc -l); test "$n" -eq 0'` rc=0（例外の外に古い表示が 1 つも残っていない）/ `tools/check-openapi.sh` rc=0 / `bash -c 'cd web && npm ci && npm run build'` rc=0 / `bash -c 'cargo metadata --format-version 1 --no-deps --offline | python3 -c "import json,sys; s={p[\"license\"] for p in json.load(sys.stdin)[\"packages\"]}; sys.exit(s != {\"AGPL-3.0-only WITH AdditionRef-ashiato-play-services\"})"'` rc=0
-- [ ] 2.2 `tools/check-spdx.sh headers` を作る（D5・Q11）。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
+- [x] 2.2 `tools/check-spdx.sh headers` を作る（D5・Q11）。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
   決めた式でもなく、台本の中の例外の一覧（パスと許す値の組。wrapper の 2 つは `Apache-2.0`、移行の 3 つは `AGPL-3.0-only`）にも合わなければ、rc≠0 でパスと値を示す。通したときは、例外として通したファイルを `  例外: <パス> <値>` の形で 1 行ずつ出す。引数が無ければ `license` と `headers` の両方を走らせる。
   `--self-test` に、使い捨ての木で次の 4 つを足す。
   - `決めた許諾の表示でないソースがあれば、表示の検査が落ちる`（`GPL-3.0-only` の Rust のファイルを足す）
