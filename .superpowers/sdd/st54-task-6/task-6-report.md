@@ -41,3 +41,14 @@ Windows 実機専用テストは Linux では対象外のため、このセッ�
 - GREEN: `scripts/verify-run 6.1` は 2 検証とも PASS、st54 テスト列挙は 12 本、全体テスト rc=0。
 - GREEN: `scripts/verify-run 6.2` は `tools/release/build.sh --self-test` rc=0。
 - 補足: `cargo check -p ashiato-collector-windows --all-targets` rc=0、`git diff --check` 問題なし。
+
+## Fix round 2 対応
+
+- F7/F11: `WindowsToaster::register` が呼び出し側から受け取った `Channel` を使うように修正し、main が版番号から一度だけ求めた系統を渡す経路を Windows 側でもコンパイル可能にした。
+- F12: `load_engine` に `exclusions_invalid` のエラーログと `exclusions_loaded` の件数ログを戻し、除外ファイルの読み込み失敗理由が置き場のログに残るようにした。
+
+### Fix round 2 の検証
+
+- GREEN: `scripts/verify-run 6.1`。指定の st54 テスト件数条件と collector-windows 全体テストが PASS（rc=0）。st54 は 12 本（lib 11、本体 main 1）。
+- GREEN: `scripts/verify-run 6.2`。`tools/release/build.sh --self-test` が PASS（rc=0）。
+- 補足: `git diff --check` rc=0。Linux では `tests/runtime_windows.rs` が cfg(windows) のため 0 tests だが、指定検証の st54 件数条件は別ターゲットを含めて PASS している。

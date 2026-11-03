@@ -39,8 +39,7 @@ pub fn register_aumid(aumid: &str, display_name: &str) -> anyhow::Result<()> {
 
 impl WindowsToaster {
     /// 差出人を登録して口を作る。
-    pub fn register() -> anyhow::Result<Self> {
-        let channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
+    pub fn register(channel: ashiato_build_stamp::Channel) -> anyhow::Result<Self> {
         register_aumid(aumid(channel), display_name(channel))?;
         Ok(Self {
             aumid: aumid(channel).to_string(),

@@ -22,7 +22,22 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(any(windows, test))]
 fn load_engine(exclusions_path: &std::path::Path) -> anyhow::Result<c02::engine::Engine> {
-    let exclusions = c02::exclusion::Exclusions::load(exclusions_path)?;
+    let exclusions = c02::exclusion::Exclusions::load(exclusions_path)
+        .inspect_err(|_| {
+            tracing::error!(
+                "{}",
+                c02::telemetry::line("exclusions_invalid", None, None, None)
+            )
+        })?;
+    tracing::info!(
+        "{}",
+        c02::telemetry::line(
+            "exclusions_loaded",
+            Some(exclusions.rules.len()),
+            None,
+            None
+        )
+    );
     Ok(c02::engine::Engine::new(exclusions))
 }
 
