@@ -20,7 +20,7 @@
 - **本人の決定（下流は変えない）**: Q1 入れるのはサーバとデータベースだけ（PC の収集アプリは別の zip）/ Q2 インストーラは `ashiato-setup.exe`（Rust）をサーバの zip に入れる / Q3 画面の合言葉はインストーラの端末で 2 回打たせて決め、忘れたら `ashiato-setup.exe password` /
   Q4 消す口を作り、記録の置き場は残す / Q5 CI に加えて確認バッチで Windows サンドボックスの中を録画 / Q6 Tailscale に触らず案内する / Q7 置き場は `C:\ProgramData\ashiato` に固定し、空きが 40 GB より少なければ知らせる /
   Q8 DB はあるのに秘密が無くて止まったときの出口 `ashiato-setup.exe repair` をこの Story で作る（D10・D27） / Q9 `logs\db` に DB のサービスの書きを足し、DB の起動の最初の数行と `pg_ctl` の知らせがイベントログに出るのは受け入れる（送った文の字面と秘密は出さない。D3・D17）。
-  仮: D3（置き場の ACL と仮想アカウント。登録できなければ止まる）・D26（再起動はサンドボックスで残るときだけ実物で見る）・D16（取り込みの利用者は nil）・D28（`repair` の一時の形は `pg_ctl` と一時の `hba_file` の `sspi`）・D18（本人の切り替えで `API_TOKEN` を引き継がない）。
+  仮: D3（置き場の ACL と仮想アカウント。登録できなければ止まる）・D26（再起動はサンドボックスで残るときだけ実物で見る）・D16（取り込みの利用者は nil）・D18（本人の切り替えで `API_TOKEN` を引き継がない）。未決: D28（`repair` の一時の形。DB の管理者の役割の名前の出所は Q10 の答え待ち）。
   （第 1 回は推奨で先に書き、本人の答えが推奨と違えば上流が写してから下流へ渡す）
 - **名前は統一する**（D14）: サービス `ashiato-db`・`ashiato-server`（開発版は `-dev`）、アカウント `NT SERVICE\ashiato-db`・`NT SERVICE\ashiato-server`、プログラムの置き場 `C:\Program Files\ashiato`、状態の置き場 `C:\ProgramData\ashiato`（`db\17`・`media`・`export`・`backups\pre-migrate`・`archive-copies`・`logs\db`・`logs\server`・`settings`）、
   設定のファイル `settings\server.json`、取り込み待ち `%USERPROFILE%\ashiato\取り込み待ち`、番号 DB 55400・サーバ 18700、設定の鍵 `WEB_PASSWORD_VERIFIER`、インストーラの口 `install`（既定）・`password`・`repair`・`uninstall`、試験の差し込み `ASHIATO_SETUP_TEST_<名前>`（インストーラ）・`ASHIATO_SERVICE_TEST_<名前>`（サーバの `service` の口）と命令の記録 `ASHIATO_SETUP_TEST_TRACE=1`（どれも試験の組み立てだけ。D24）、設定の本人 `ASHIATO_OWNER_SID`、
@@ -110,12 +110,12 @@
   試験（Linux。見え方の全部の組み合わせ 16 通りの表）: 次の段・止まるか・上書きしない
   `install-check.sh` に `走らせ直しても秘密と DB は変わらない`・`DB を作る途中で落ちても、走らせ直しで DB ができる`（`ASHIATO_SETUP_TEST_STOP_AT=initdb`）・`DB はあるのに秘密が無いと、何も書き換えずに止まる`・`合言葉を決める前に閉じたら、走らせ直しで合言葉の段からやり直す`（標準入力を空で閉じる）・`別の利用者が走らせ直しても、本人は変わらない`（使い捨ての管理者 B で走らせ直す）を足す。一時の書きの権限（D21）を段の終わりと走らせ直しの最初に外すことも、ここの表の試験に入れる
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_rerun_ && test "$(cargo test -p ashiato-setup st55_rerun_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'` rc=0 / `tools/release/install-check.sh --self-test` rc=0
-- [ ] 6.2 `repair` の口（Q8・D27・D28（仮））: 上がり方は `password` と同じ（D22・D21）。止まった状態（`db\17\PG_VERSION` があり設定が無い）でだけ動き、それ以外は何も書かずに rc≠0 で「`repair` は要らない」と走らせ直しか `password` を示す。
+- [ ] 6.2 `repair` の口（Q8・D27・D28（Q10 の答え待ち））: 上がり方は `password` と同じ（D22・D21）。止まった状態（`db\17\PG_VERSION` があり設定が無い）でだけ動き、それ以外は何も書かずに rc≠0 で「`repair` は要らない」と走らせ直しか `password` を示す。
   段は D27 の (a)〜(e): サービスを止める → 秘密を作り直して `settings\server.json.repair` に書く → `pg_ctl start -o` で一時の形（`127.0.0.1`・空いている一時の番号・一時の `hba_file` の `sspi` と `pg_ident` で上がった利用者だけを DB の管理者の役割に結ぶ）に起こし、3 つの役割の `ALTER ROLE … PASSWORD` を環境変数と `\getenv` で流す →
   一時の形を止めて一時の `hba_file` を消し、`server.json.repair` を `server.json` へ名前を替える → 走らせ直しの (5)〜(13)。出力の最後に収集アプリの繋ぎ直しが要ることと `docs/install.md` を示す（値は示さない）。役割の段で止まる差し込み `ASHIATO_SETUP_TEST_STOP_AT=repair-roles` を試験の組み立てだけに置く。
   試験（Linux）: 口の判定（止まった状態・設定がある・DB が無い の 3 つ）・置き場の ACL の読み（`icacls` の出力）から本人の SID を 1 つ選ぶ（サービスのアカウントを除く・2 つ以上なら止まる）・段の順（`server.json` を置くのが役割の段の後）・一時の `hba_file` に `trust` が無く `sspi` の行が 1 つだけ・`pg_ctl` と `psql` の命令の引数に秘密が無い・出力に秘密が無い。
   `install-check.sh` に `設定を退けて止まった後に repair すると、記録を残したままログインできる`（配る zip）・`repair の後は前の API の合言葉では送れず、繋ぎ直しの案内が出る`（配る zip）・`止まった状態でなければ repair は何も変えずに終わる`（配る zip）・`repair の後に合言葉なしの入口と一時の番号が残らない`（配る zip。`pg_hba.conf` の有効な行と `netstat -ano` の `postgres` の待ち受け）・`別の管理者が repair しても、本人は変わらない`（使い捨ての管理者 B で `repair`）・`repair の途中で落ちても、もう一度 repair できる`（試験の zip。`ASHIATO_SETUP_TEST_STOP_AT=repair-roles`）を足す。
-  一時の形が上がった札で通らなければ D28（仮）の反転条件（一時の `unix_socket_directories` と `local … trust`）に替え、どちらも通らなければ上流へ返す
+  一時の形が上がった札で通らなければ D28 の反転条件（一時の `unix_socket_directories` と `local … trust`）に替え、どちらも通らなければ上流へ返す
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_repair_ && test "$(cargo test -p ashiato-setup st55_repair_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 / `tools/release/install-check.sh --self-test` rc=0
 
 ## Task 7: 画面の合言葉（照らすための値・決める口・決め直す口）
