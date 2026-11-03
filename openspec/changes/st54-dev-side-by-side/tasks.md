@@ -80,12 +80,12 @@
 
 ## Task 5: 開発版に載った移行の検査（D5。Q11）
 
-- [ ] 5.1 `tools/check-nightly-migrations.sh`（`--self-test` つき。形は `tools/check-released-migrations.sh` に合わせる）: 印 `nightly` が無ければ rc=0。あれば `git show nightly:migrations/ORDER` と各版の前進側の `.sql` を今の木と比べ、
+- [x] 5.1 `tools/check-nightly-migrations.sh`（`--self-test` つき。形は `tools/check-released-migrations.sh` に合わせる）: 印 `nightly` が無ければ rc=0。あれば `git show nightly:migrations/ORDER` と各版の前進側の `.sql` を今の木と比べ、
   消した・名前を変えた版に `removed` / `renamed` が無い、中身を変えた版（`renamed` の版は今の名前の中身と `nightly` の旧名の中身を比べる）に `rewritten` が無いとき rc≠0 で版の名前（中身のときは「直しの移行を足して rewritten を書く」）を示す。`nightly` の版の `ORDER` を取り出せなければ rc≠0。浅い木では印を見る前に rc≠0（「履歴が浅い」。ST52 D1 と同じ止め）。
   `--self-test` は使い捨ての git の木で: `開発版に載った移行の名前を変えて旧名の対応が無ければ、検査が落ちる`・`開発版に載った移行の名前を変えても、旧名の対応があれば通る`・`名前を変えて中身も変えた移行は、旧名の対応だけでは落ちる`・`浅い木では、開発版に載った移行の検査は通らない`・`開発版に載った移行の中身を変えて直しの対応が無ければ、検査が落ちる`・
   `開発版に載った移行の中身を変えても、直しの移行の対応があれば通る`・`印 nightly が無ければ、開発版に載った移行の検査は通る`・`印 nightly の後に足した移行は、変えても通る`・`開発版に載った移行の戻し手順は、変えても通る`・`印 nightly の版の移行を取り出せなければ、検査は通らない`
   検証: `tools/check-nightly-migrations.sh --self-test` rc=0 / `tools/check-nightly-migrations.sh` rc=0
-- [ ] 5.2 `.github/workflows/ci.yml` の `rust` の job（完全な履歴）で、`check-released-migrations.sh` の隣に `tools/check-nightly-migrations.sh` を走らせる。その前に `git ls-remote --tags origin nightly` があるときだけ `git fetch --force --no-tags origin '+refs/tags/nightly:refs/tags/nightly'`（`--depth` を付けない）
+- [x] 5.2 `.github/workflows/ci.yml` の `rust` の job（完全な履歴）で、`check-released-migrations.sh` の隣に `tools/check-nightly-migrations.sh` を走らせる。その前に `git ls-remote --tags origin nightly` があるときだけ `git fetch --force --no-tags origin '+refs/tags/nightly:refs/tags/nightly'`（`--depth` を付けない）
   検証: `bash -c 'grep -q "check-nightly-migrations.sh" .github/workflows/ci.yml && grep -q "refs/tags/nightly:refs/tags/nightly" .github/workflows/ci.yml'` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0
 
 ## Task 6: PC の収集アプリの開発版の名前と置き場（D1・D2・D8）
