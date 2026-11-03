@@ -178,7 +178,7 @@
 
 ## Task 8: 承認を経る公開の確かめ（`check-guards.sh`・`release.yml`）
 
-- [ ] 8.1 `tools/release/check-guards.sh` に `approvals [--repo] [--reviewer <login>]` と `agent-credential [--repo]` を足す（D11（仮））。既存の `rules`・`environments`・`workflows` の判定と Scenario は変えない。
+- [x] 8.1 `tools/release/check-guards.sh` に `approvals [--repo] [--reviewer <login>]` と `agent-credential [--repo]` を足す（D11（仮））。既存の `rules`・`environments`・`workflows` の判定と Scenario は変えない。
   - `approvals`: `gh api repos/<repo>/environments/release` を読み、`required_reviewers` の規則・`reviewers` に `User` の `<login>`・`can_admins_bypass: false` を求める。`prevent_self_review` は見ない。`<login>` の既定は `ASHIATO_RELEASE_REVIEWER`、無ければ `<owner>`
   - `agent-credential`: `gh api repos/<repo>` の `.permissions` の `admin`・`maintain` がどちらも `false` を求める
   偽の `gh` に `environments/release$`（詳細）と `repos/<repo>$`（権限）の応答を足す。今の `environments/release*`（配る対象の規則）の応答とは分ける。

@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST53": "画面を変えていない。web と Windows の収集アプリの差分は SPDX の見出しの行と package.json の license の文字列だけ。携帯の差分は build.gradle.kts（依存の許諾の一覧を release の assets に入れる）と settings.gradle.kts（取り込み元の追加）で、Kotlin のソースは見出しの行だけ。撮って見せる画面が無い"
+  }
+}
