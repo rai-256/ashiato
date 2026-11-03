@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Windows の Python の既定の符号化（cp1252 など）で UTF-8 の許諾の本文を読み書きしないよう、入出力を UTF-8 にそろえる
+export PYTHONUTF8=1
 
 root="${ASHIATO_NOTICES_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 texts="$root/tools/licenses/texts"
@@ -49,6 +51,8 @@ rust_rows() {
   local tree; tree="$(cd "$root" && cargo tree "${args[@]}" --prefix none --format '{p}')" || die "cargo tree に失敗した"
   CARGO_TREE="$tree" python3 - "$root" <<'PY'
 import json, os, re, sys
+# Windows の Python は改行を \r\n に変える。bash の read が最後の列に \r を残さないよう \n にそろえる
+sys.stdout.reconfigure(newline='\n')
 root=sys.argv[1]
 meta=json.loads(__import__('subprocess').check_output(['cargo','metadata','--format-version','1'],cwd=root,text=True))
 by={(p['name'],p['version']):p for p in meta['packages']}
@@ -60,7 +64,8 @@ for raw in os.environ['CARGO_TREE'].splitlines():
     key=(m.group(1),m.group(2)); p=by.get(key)
     if not p or key in seen: continue
     seen.add(key)
-    print('\t'.join([p['name'],p['version'],p.get('license') or '-', '; '.join(p.get('authors') or []) or '-',p['manifest_path']]))
+    # Windows の cargo はバックスラッシュの置き場を返す。そのままでは bash の dirname が . になり、置き場を取り違える
+    print('\t'.join([p['name'],p['version'],p.get('license') or '-', '; '.join(p.get('authors') or []) or '-',p['manifest_path'].replace('\\','/')]))
 PY
 }
 
@@ -118,14 +123,15 @@ node_rows() {
   [[ -f "$webroot/package-lock.json" ]] || die "Node の package-lock.json が無い: $webroot"
   python3 - "$webroot" <<'PY'
 import json,sys,os
-w=sys.argv[1]; x=json.load(open(os.path.join(w,'package-lock.json')))
+sys.stdout.reconfigure(newline='\n')
+w=sys.argv[1]; x=json.load(open(os.path.join(w,'package-lock.json'),encoding='utf-8'))
 for k,v in x.get('packages',{}).items():
     if not k or v.get('dev') is True: continue
     name=k.removeprefix('node_modules/')
     if name == k: continue
     author=v.get('author','-')
     if isinstance(author,dict): author=author.get('name','-')
-    print('\t'.join([name,str(v.get('version','')),str(v.get('license') or '-'),str(author or '-'),os.path.join(w,k)]))
+    print('\t'.join([name,str(v.get('version','')),str(v.get('license') or '-'),str(author or '-'),(w.rstrip('/\\')+'/'+k).replace('\\','/')]))
 PY
 }
 
@@ -154,7 +160,7 @@ rust_notice() {
     std_entry
     if [[ "$kind" == server ]]; then while IFS=$'\t' read -r n v l a d; do emit_node "$n" "$v" "$l" "$a" "$d"; done < "$nodes"; fi
   } > "$raw"
-  python3 -c 'import re,sys; s=open(sys.argv[1]).read(); print("\n".join(sorted(re.split(r"(?=^== )", s, flags=re.M), key=lambda x: x.splitlines()[0] if x.strip() else "")).strip())' "$raw" > "$tmp"
+  python3 -c 'import re,sys; sys.stdout.reconfigure(newline="\n"); s=open(sys.argv[1],encoding="utf-8").read(); print("\n".join(sorted(re.split(r"(?=^== )", s, flags=re.M), key=lambda x: x.splitlines()[0] if x.strip() else "")).strip())' "$raw" > "$tmp"
   mv "$tmp" "$out"
   rm -f "$tmp" "$rows" "$nodes" "$raw"; NOTICE_TMP=; NOTICE_ROWS=; NOTICE_NODES=; NOTICE_RAW=; trap - EXIT
 }
@@ -174,54 +180,111 @@ apk_notice() {
   fi
   [[ -s "$list" ]] || die "Task 4.1 の Android 依存一覧が無い: $list"
   python3 - "$list" "$tmp" "${GRADLE_USER_HOME:-$HOME/.gradle}" "$texts" "$root/tools/licenses/pom-license-names.tsv" <<'PY'
-import json, os, pathlib, re, sys, zipfile
+import io, json, pathlib, re, sys, zipfile
+import xml.etree.ElementTree as ET
 list_path, out_path, gradle_home, texts, names_path = sys.argv[1:]
 cache=pathlib.Path(gradle_home)/'caches/modules-2/files-2.1'
 named={line.rstrip('\n').split('\t',1)[0]:line.rstrip('\n').split('\t',1)[1] for line in open(names_path, encoding='utf-8') if '\t' in line}
+# 部品の中の許諾のファイル: META-INF の直下と、その下の置き場（androidx は META-INF/androidx/<group>/<name>/LICENSE.txt）
+LICENSE_FILE=re.compile(r'META-INF/(?:.*/)?(LICENSE|COPYING|NOTICE)[^/]*$', re.I)
+# 著作権の行に残る雛形。Apache-2.0 の付録の「Copyright [yyyy] [name of copyright owner]」は許諾の本文そのものなので数えない
+TEMPLATE=re.compile(r'\[copyright holders?\]|<copyright holders?>|<year>|<owner>|\[year\]|\[fullname\]', re.I)
 rows=[]
 for line in open(list_path, encoding='utf-8'):
     f=line.rstrip('\n').split('\t')
     if len(f)!=4: raise SystemExit(f'Task 4.1 の一覧の列数が不正: {line.rstrip()}')
     rows.append(f)
+
+def pom_root(group, module, version):
+    poms=sorted((cache/group/module/version).glob('*/*.pom'))
+    if not poms: return None
+    text=poms[0].read_text(encoding='utf-8')
+    text=re.sub(r'\sxmlns="[^"]*"', '', text, count=1)
+    return ET.fromstring(text)
+
+def pom_holders(group, module, version):
+    """POM の developers / organization の名前。自分に無ければ親の POM をたどる（出所の座標も返す）"""
+    seen=set()
+    while (group, module, version) not in seen:
+        seen.add((group, module, version))
+        r=pom_root(group, module, version)
+        if r is None: return [], ''
+        names=[]
+        for d in r.findall('developers/developer'):
+            for tag in ('name', 'organization'):
+                v=(d.findtext(tag) or '').strip()
+                if v and v not in names: names.append(v)
+        v=(r.findtext('organization/name') or '').strip()
+        if v and v not in names: names.append(v)
+        if names: return names, f'{group}:{module}:{version}'
+        parent=r.find('parent')
+        if parent is None: return [], ''
+        group, module, version=((parent.findtext(t) or '').strip() for t in ('groupId', 'artifactId', 'version'))
+        if not (group and module and version): return [], ''
+    return [], ''
+
+def license_files(z):
+    found=[]
+    for n in sorted(z.namelist()):
+        if LICENSE_FILE.match(n): found.append(z.read(n).decode('utf-8','replace'))
+    if 'classes.jar' in z.namelist():
+        with zipfile.ZipFile(io.BytesIO(z.read('classes.jar'))) as inner:
+            for n in sorted(inner.namelist()):
+                if LICENSE_FILE.match(n): found.append(inner.read(n).decode('utf-8','replace'))
+    return found
+
+by_coordinate={}
+for coordinate, license_name, url, _ in sorted(rows):
+    by_coordinate.setdefault(coordinate, []).append((license_name, url))
+
 blocks=[]
-for coordinate, license_name, _, _ in sorted(rows):
+for coordinate, licenses in by_coordinate.items():
     group,module,version=coordinate.split(':',2)
-    candidates=list((cache/group/module/version).glob('*/*.aar')) + list((cache/group/module/version).glob('*/*.jar'))
+    names=[n for n,_ in licenses]
+    candidates=sorted((cache/group/module/version).glob('*/*.aar')) + sorted(p for p in (cache/group/module/version).glob('*/*.jar') if not re.search(r'-(sources|javadoc)\.jar$', p.name))
     aar=candidates[0] if candidates else None
     if aar is None and module.startswith('play-services-'):
         raise SystemExit(f'AAR が無い: {coordinate}')
     z=zipfile.ZipFile(aar) if aar else None
-    body=''
-    if z:
-        lic_files=sorted(n for n in z.namelist() if re.match(r'META-INF/(LICENSE|COPYING|NOTICE)', n, re.I))
-        body='\n'.join(z.read(n).decode('utf-8','replace') for n in lic_files)
-    if not body:
-        spdx=named.get(license_name, license_name)
-        if spdx == 'PROPRIETARY':
-            direct=pathlib.Path(texts)/(license_name+'.txt')
-            if not direct.is_file(): raise SystemExit(f'許諾の全文が無い: {coordinate} ({license_name})')
-            body=direct.read_text(encoding='utf-8')
-            spdx=''
-        if spdx:
-            parts=re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]*', spdx)
-            chunks=[]
-            for part in dict.fromkeys(p for p in parts if p not in ('AND','OR')):
+    body='\n'.join(license_files(z)) if z else ''
+    copyright_line=''
+    if not body.strip():
+        chunks=[]
+        need_holders=False
+        for license_name, url in licenses:
+            spdx=named.get(license_name, license_name)
+            if spdx == 'PROPRIETARY':
+                # 本文は作文しない。POM が示す許諾の URL を出所つきで書く
+                if not url: raise SystemExit(f'許諾の全文が無い: {coordinate} ({license_name}。POM に許諾の URL も無い)')
+                chunks.append(f'本文: {url}（出所: {coordinate} の POM の licenses）')
+                continue
+            need_holders=True
+            for part in dict.fromkeys(p for p in re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]*', spdx) if p not in ('AND','OR')):
                 p=pathlib.Path(texts)/(part+'.txt')
                 if not p.is_file(): raise SystemExit(f'許諾の全文が無い: {coordinate} ({license_name})')
                 chunks.append(p.read_text(encoding='utf-8'))
-            body='\n\n'.join(chunks)
+        body='\n\n'.join(chunks)
+        if need_holders:
+            holders, origin=pom_holders(group, module, version)
+            if not holders:
+                raise SystemExit(f'許諾の全文も著作権の表示も無い部品: {coordinate}（部品の中に許諾のファイルが無く、POM と親の POM に developers / organization が無い）')
+            copyright_line=f'Copyright: {"; ".join(holders)}（出所: {origin} の POM の developers / organization）\n'
+    for n,line in enumerate(body.splitlines(), 1):
+        if TEMPLATE.search(line):
+            raise SystemExit(f'雛形が残る許諾の本文: {coordinate}（{line.strip()}）')
     display_name=f'{group}:{module}'
-    block=f'== {display_name} {version}\nLicense: {license_name}\n{body.strip()}\n'
+    block=f'== {display_name} {version}\nLicense: {" AND ".join(names)}\n{body.strip()}\n{copyright_line}'
     if coordinate in {f'com.google.android.gms:{x}:{version}' for x in ('play-services-location','play-services-base','play-services-basement','play-services-tasks')}:
         if not z or 'third_party_licenses.txt' not in z.namelist() or 'third_party_licenses.json' not in z.namelist():
             raise SystemExit(f'gms の第三者許諾資料が無い: {coordinate}')
         raw=z.read('third_party_licenses.txt').decode('utf-8','replace')
-        index=json.loads(z.read('third_party_licenses.json'))
+        index=json.loads(z.read('third_party_licenses.json').decode('utf-8'))
         pieces=[raw[v['start']:v['start']+v['length']] for v in index.values()]
         block += '\n(gms の中の第三者)\n' + '\n'.join(pieces).rstrip() + '\n'
     if z: z.close()
     blocks.append(block)
-open(out_path,'w',encoding='utf-8').write('\n'.join(blocks)+'\n')
+with open(out_path,'w',encoding='utf-8',newline='\n') as out:
+    out.write('\n'.join(blocks)+'\n')
 PY
   mv "$tmp" "$out"; rm -f "$tmp" "$generated_list"; trap - EXIT
 }
@@ -247,7 +310,60 @@ self_test() {
   echo '== Scenario: PR の組み立ての配布物のソースの場所は、PR の head の commit'; actual="$(ASHIATO_NOTICES_ROOT="$pr_tree" "$0" commit)"; [[ "$actual" == "$pr_commit" ]]; ASHIATO_NOTICES_ROOT="$pr_tree" "$0" source "$work/pr" 0.4.0 ""; grep -q "^Commit: $pr_commit$" "$work/pr"
   echo '== Scenario: 組み立ての commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる'; if ASHIATO_BUILD_COMMIT=main "$0" source "$work/bad" 0.4.0 "" >/dev/null 2>&1; then die '不正な commit を受け入れた'; fi; [[ ! -e "$work/bad" ]]
   echo '== Scenario: 印が版番号と違う公開の組み立ては、配布物を作らずに落ちる'; if ASHIATO_SOURCE_REF=v0.4.1 "$0" source "$work/wrong" 0.4.0 "$main_commit" >/dev/null 2>&1; then die '不一致の印を受け入れた'; fi; [[ ! -e "$work/wrong" ]]
+  apk_self_test "$work"
   rm -rf "$work"; trap - EXIT
+}
+
+# 携帯の一覧の自己試験。偽の gradle の cache（aar・jar・POM）と偽の許諾の全文の置き場で組む
+apk_self_test() {
+  local work="$1/apk" fake_root cache
+  fake_root="$work/root"; cache="$work/gradle/caches/modules-2/files-2.1"
+  mkdir -p "$fake_root/tools/licenses/texts"
+  cp "$root/tools/licenses/texts/Apache-2.0.txt" "$fake_root/tools/licenses/texts/"
+  printf 'Fake BSD\n\nCopyright (c) [copyright holder]\nAll rights reserved.\n' > "$fake_root/tools/licenses/texts/BSD-3-Clause.txt"
+  printf 'Apache-2.0\tApache-2.0\nBSD-3-Clause\tBSD-3-Clause\n' > "$fake_root/tools/licenses/pom-license-names.tsv"
+  python3 - "$cache" <<'PY'
+import io, pathlib, sys, zipfile
+cache=pathlib.Path(sys.argv[1])
+def pom(g, m, v, developers=''):
+    d=cache/g/m/v/'0'; d.mkdir(parents=True, exist_ok=True)
+    (d/f'{m}-{v}.pom').write_text(f'<project xmlns="http://maven.apache.org/POM/4.0.0"><groupId>{g}</groupId><artifactId>{m}</artifactId><version>{v}</version>{developers}</project>', encoding='utf-8')
+    return d
+dev='<developers><developer><name>Fake Author</name></developer></developers>'
+# classes.jar の中にだけ LICENSE を持つ aar
+d=pom('fake', 'inner', '1.0')
+classes=io.BytesIO()
+with zipfile.ZipFile(classes, 'w') as z: z.writestr('META-INF/LICENSE.txt', 'INNER-LICENSE-MARKER\n')
+with zipfile.ZipFile(d/'inner-1.0.aar', 'w') as z: z.writestr('classes.jar', classes.getvalue())
+# 許諾のファイルを持たず、POM に作者がある Apache-2.0 の jar
+d=pom('fake', 'apache', '1.0', dev)
+with zipfile.ZipFile(d/'apache-1.0.jar', 'w') as z: z.writestr('a/A.class', b'')
+# 許諾のファイルを持たず、全文が雛形の BSD-3-Clause の jar
+d=pom('fake', 'template', '1.0', dev)
+with zipfile.ZipFile(d/'template-1.0.jar', 'w') as z: z.writestr('a/A.class', b'')
+# 許諾のファイルも POM の作者も無い jar
+d=pom('fake', 'nobody', '1.0')
+with zipfile.ZipFile(d/'nobody-1.0.jar', 'w') as z: z.writestr('a/A.class', b'')
+PY
+  local failure
+  run_fake_apk() { printf '%s\n' "$@" > "$work/list"; ASHIATO_NOTICES_ROOT="$fake_root" GRADLE_USER_HOME="$work/gradle" ASHIATO_LICENSES_POM_LIST="$work/list" "$0" apk "$work/out"; }
+  echo '== Scenario: 携帯の部品の aar の classes.jar の中の許諾のファイルを、依存の一覧に写す'
+  rm -f "$work/out"
+  run_fake_apk $'fake:inner:1.0\tApache-2.0\thttps://example.invalid/l\tself' >/dev/null || die 'classes.jar の中の許諾のファイルを読めなかった'
+  grep -q '^INNER-LICENSE-MARKER$' "$work/out" || die 'classes.jar の中の LICENSE が一覧に無い'
+  echo '== Scenario: 許諾のファイルを持たない携帯の部品は、SPDX の全文に POM の作者を添える（Apache-2.0 の付録は雛形とみなさない）'
+  rm -f "$work/out"
+  run_fake_apk $'fake:apache:1.0\tApache-2.0\thttps://example.invalid/l\tself' >/dev/null || die 'Apache-2.0 の全文の部品を落とした'
+  grep -q '^Copyright: Fake Author（出所: fake:apache:1.0 の POM の developers / organization）$' "$work/out" || die 'POM の作者が一覧に無い'
+  echo '== Scenario: 雛形の残る許諾の本文の部品があれば、組み立てが落ちる'
+  rm -f "$work/out"
+  if failure="$(run_fake_apk $'fake:template:1.0\tBSD-3-Clause\thttps://example.invalid/l\tself' 2>&1)"; then die '雛形の残る本文を受け入れた'; fi
+  grep -qF '雛形が残る許諾の本文: fake:template:1.0' <<<"$failure" || die "雛形の失敗の理由が無い: $failure"
+  [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
+  echo '== Scenario: 許諾のファイルも POM の作者も無い携帯の部品があれば、組み立てが落ちる'
+  if failure="$(run_fake_apk $'fake:nobody:1.0\tApache-2.0\thttps://example.invalid/l\tself' 2>&1)"; then die '著作権の表示の無い部品を受け入れた'; fi
+  grep -qF '許諾の全文も著作権の表示も無い部品: fake:nobody:1.0' <<<"$failure" || die "著作権の表示の失敗の理由が無い: $failure"
+  [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
 }
 
 case "${1:-}" in
