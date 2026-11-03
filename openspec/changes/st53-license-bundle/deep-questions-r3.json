@@ -1,0 +1,31 @@
+{
+  "title": "ST53 の深掘り 第 3 回",
+  "subtitle": "Q14 の答えを写した後に別の席が見つけた前提（1 問）",
+  "note": "Q14 で「PR の組み立ての SOURCE.txt には PR の head の commit を書く」と答えていただきました。仕様に写した後、別の席（review/spec.md R17）が、問いに書いていなかった帰結を見つけました。PR の配布物は head そのものではなく「head とその時の main を合わせたもの」から組まれるので、SOURCE.txt が指す head は、組んだものの対応するソースと一致しません。Q14 の答えを保つか、組み方を head に合わせるかを聞きます。選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q16",
+      "topic": "PR の配布物を head から組むか（Q14 の前提）",
+      "kind": "premise",
+      "loss": "exported",
+      "multi": false,
+      "allow_free": true,
+      "question": "PR の組み立て（CI の `package-linux`・`package-windows`）を、今の「head とその時の main を合わせた合成の merge commit」からではなく、PR の head の commit そのものから組むようにしますか。",
+      "why": "Q14 の答えで、PR の配布物の `SOURCE.txt` は PR の head の commit を指します。ところが CI の組み立ての job は checkout に `ref` を渡さず（`.github/workflows/ci.yml:355`・`:377`）、GitHub が作る合成の merge commit から組みます。そのため、`SOURCE.txt` が指す head と、実際に組んだソースは、その時の main が head に無い分だけ食い違います。FR-127 の「対応するソース」を、PR の配布物だけが正しく指さなくなります。PR の成果物は公開リポジトリで 90 日、誰でも落とせ、落とされた写しの `SOURCE.txt` は後から直せません。Q14 の問いは「組む木が merge commit である」までは書いていましたが、この帰結は書いていませんでした（別の席が見つけた）。",
+      "context": "head の commit を後から取れるか（P14）の確かめは、`package` も ST53 のコードも要らないので、確認バッチの中・ST53 が main に入る前に置き直しました（tasks 11.5。取れなければ ST53 を main に入れない）。この問いとは別です。あわせて、仕様に写した形では、CI の配布物の検査が PR と main への push を引数で分けられないとして、main への push の組み立ても `SOURCE.txt` を形だけ見る仮の決定（D17）を置いていましたが、別の席が「`ci.yml:34` が既に式で PR と push を分けている」と否としました（R18）。どちらの選択肢でも D17 は外します。",
+      "options": [
+        {
+          "label": "PR の組み立てを head から組む（checkout に head の commit を渡す）",
+          "detail": "`package-linux`・`package-windows` の checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を渡す。組んだソース・配布物の組み立ての印・`SOURCE.txt` が同じ head を指し、`SOURCE.txt` と組み立ての印の比べはすべての組み立てで残せる（比べを外す分岐も D17 も要らない）。代わりに、PR の配布物はその時の main と合わせた結果を映さない（縦串や試験などほかの job は今どおり合わせた木で走る）。費用は workflow の 2 行",
+          "irreversible": "なし（組み方は次の組み立てから変えられる）。選ばなければ、それまでに出た PR の成果物の SOURCE.txt は組んだソースと食い違ったまま出回る",
+          "recommended": true
+        },
+        {
+          "label": "合わせた木から組むまま、SOURCE.txt は head（Q14 のまま）。比べは渡した head の commit と行う",
+          "detail": "`check-artifacts.sh` に `--source-commit <40 桁>` を足し、CI が `${{ github.event.pull_request.head.sha || github.sha }}` を、下書きの台本が run の `head_sha` を渡して比べる（R18 の案）。PR の配布物は main と合わせた結果を映すが、`SOURCE.txt` の head は組んだソースと main の差だけ食い違う（配布物の中の組み立ての印には合成の merge commit が残る）",
+          "irreversible": "出た PR の成果物の SOURCE.txt は、組んだソースと食い違ったまま出回り、後から直せない"
+        }
+      ]
+    }
+  ]
+}

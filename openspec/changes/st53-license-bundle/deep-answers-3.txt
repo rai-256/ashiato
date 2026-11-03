@@ -1,0 +1,2 @@
+=== ST53 の深掘り 第 3 回 の回答 ===
+Q16 [PR の配布物を head から組むか（Q14 の前提）] -> PR の組み立てを head から組む（checkout に head の commit を渡す）

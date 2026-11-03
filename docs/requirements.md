@@ -1094,6 +1094,9 @@
 - **FR-127**: THE SYSTEM SHALL 配布物に、本体の許諾（AGPL-3.0 と追加の許可。§5）と、配布物に入る依存の許諾の一覧を同梱する。
   **本体を公開する = 配布が発生する**（§5 商用化の方針）。対応するソースは、同じ印（タグ）のリポジトリで示す。
   ★ 2026-10-25 補足。整合の確認（`docs/audit/2026-10-25-consistency.md`）の K4。追加の許可を足す Story は、`LICENSE`・`README.md`・`CONTRIBUTING.md`・ソースの SPDX（`AGPL-3.0-only`）・`tools/check-licenses.sh` の許可一覧を一緒に直す
+  ★ 2026-11-02 補足。ST53 の深掘り Q7（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）と spec レビュー R14（design D16（仮））。**「同じ印」で示すのは正式版・ベータ版（印 `v*`）だけ。それ以外の組み立て（開発版・main への push・PR）は、40 桁の commit で示す**（開発版の印 `nightly` は作り直すたびに付け替わり、PR の組み立てには印が無いので、印では対応するソースを指せない。どの commit を書くか —— PR では GitHub が作る merge の commit か PR の head か —— は ST53 の design D9（仮）が持ち、後から取れるかを確かめて決める）。配布物の中の許諾は、携帯の APK の中（`assets/licenses/`）とサーバ・PC の配布物の中にだけ置き、画面からは開けない（携帯の画面は Play ストアへ出す前、サーバの画面は一般向けの配布の前に決める。§5「配布の方針」の未決。ST53 の深掘り Q6・Q9）。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C4・C12 で、commit で示す組み立ての範囲と `nightly` の言い回しを直した
+  ★ 2026-11-03 補足。ST53 の深掘り第 2 回 Q14・Q15（`openspec/changes/st53-license-bundle/deep.md`。仮の design D9・D16 が別の席で否とされ、本人が決めた）。**PR の組み立ての `SOURCE.txt` には PR の head の commit を書く**（GitHub が作る merge の commit は PR を閉じた後に取れるかが確かめられておらず、取れなければ落とされた写しのソースの場所は直せない）。開発版と main への push は main の commit。上の ★ 2026-11-02 の「D9（仮）が持ち、後から取れるかを確かめて決める」はこれで決まった。ただし PR の head も、PR を閉じた後や枝を push し直した後に取れるかは確かめておらず、確認バッチで確かめる（取れなければ ST53 の上流へ返す）。ソースの SPDX の例外（移行と gradle の wrapper）は §5「配布の方針」の ★ 2026-11-03。整合の確認 `docs/audit/2026-11-03-st53-r2-consistency.md` の C1・C7 で、head の側の未確認と SPDX の例外への参照を足した
+  ★ 2026-11-03 補足（第 3 回）。ST53 の深掘り第 3 回 Q16（`openspec/changes/st53-license-bundle/deep.md`。spec レビュー R17・R18）。**PR の組み立ては PR の head の commit そのものから組む**（GitHub が作る、head とその時の main を合わせた merge の commit からは組まない）。合わせた木から組むと、`SOURCE.txt` が指す head と実際に組んだソースが main の差だけ食い違い、対応するソースを正しく指さない。PR の配布物はその時の main と合わせた結果を映さない（ほかの job の縦串や試験は今どおり合わせた木で走る。組み立ての job の中の自己試験と許諾・表示の検査は head の木で走る）。整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` の K2 で、合わせた木で走る範囲を job で限った
 - **FR-128**: WHEN 収集アプリ（C-01 / C-02）を入れた後に初めて起動する THE SYSTEM SHALL 接続先（S-01）と資格情報を利用者に設定させる。
   ★ 2026-10-25 追加。整合の確認（`docs/audit/2026-10-25-consistency.md`）の C3。いまの C-01 は接続先・資格情報・利用者識別子を組み立ての時に APK へ焼き込み（`build.gradle.kts` の `buildConfigField`）、
   C-02 は環境変数を自動起動の `.cmd` に平文で書く。1 つの APK を全員に配る（FR-104）と、配った APK は送信を始めない。
@@ -1572,8 +1575,10 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
   一般向けの配布の前に、専用の WSL 環境か、Windows に直接入れる形かを選び直す」。その未決を「Windows に直接入れる形」で閉じた（`docs/briefs/req-native-postgres-r1.html`・`-r2.html`）。
   直接入れる形は PostgreSQL の同梱・サービス化・メジャー版の移し替えを自前で持つ（2026-10-25 に 4〜6 Story 相当と見積もった）。
   S-01 をコンテナに入れない理由（整合の確認 `docs/audit/2026-10-25-consistency.md` の C2。loopback の守り）は変わらない
+- **V-01 はソースの場所と許諾を出さない。** ★ 2026-11-02 追加。ST53 の深掘り Q9（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。S-01 の画面（V-01）は、対応するソースの場所（FR-127。正式版・ベータ版は印、それ以外は commit）と許諾へのリンクを出さない。[NEEDS CLARIFICATION: V-01 にソースの場所と許諾へのリンクを出すか（受ける Story はまだ無い。/requirements から足す）。期限: 一般向けの配布の前]。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C5・C13 で、ソースの場所の言い方を FR-127 に合わせ、置き場を Docker の箇条の後へ移した（★ 2026-11-03、`docs/audit/2026-11-03-st53-rebase-consistency.md` の C5: その箇条は「S-01 は D-01 の PostgreSQL を同梱して配り…」に書き換わった。いまはその後ろにある）
 - **C-01 は配布元に APK を置いて直に配る。** いずれ Play ストアへ（本人の言葉:「まだ2でいいと思います。いずれは1を」）。
   Play のトラックは 3 つのチャンネルにそのまま使える。代わりに位置（バックグラウンド）と写真の全件の権限で審査が厳しい
+  ★ 2026-11-02 追加。ST53 の深掘り Q6（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。C-01 の許諾（FR-127）は APK の中に置くだけで、アプリの画面からは開けない。[NEEDS CLARIFICATION: C-01 に許諾の一覧を読む画面を足すか（受ける Story はまだ無い。/requirements から足す）。期限: Play ストアへ出す前]
 - **C-02 は当面、Windows の署名をしない**（本人の言葉:「一旦は署名なしで」）。署名の無い配布物には SmartScreen の強い警告が出る（EXT-R）。
   一般向けの配布では **Microsoft Store（MSIX）を第一候補**にする（個人の登録は無料で、Store が署名し直す。EXT-Q）。
   その前に、C-02 の動き（スタートアップへの登録・ほかのアプリの窓と閲覧履歴を読む）が MSIX で成り立つかを確かめる。
@@ -1583,6 +1588,8 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
   著作者は本人 1 人で、他人の貢献は CLA（許諾型）の下で受けるので、本人が付けられる。
   残る弱み: F-Droid には載せられず、Google のサービスの無い端末では位置が取れない。置き換える（Android 本体の `LocationManager`）のは F-Droid に載せたくなったとき。
   他人の GPL / AGPL のコードを取り込むと、その部分に許可が及ばない（NFR-26 の検査が止める）
+  ★ 2026-11-02 訂正。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の K1。**検査が止めるのは、依存として入る他人の GPL / AGPL（NFR-26 の検査）と、他所の許諾の表示を持ったまま写したファイル（表示の検査。ST53 の design D5（仮））だけ。表示を持たずに写したコードは機械では止まらない**（取り込む人が確かめる。ST53 の Risks）
+  ★ 2026-11-03 補足。ST53 の深掘り第 2 回 Q10・Q11（仮の design D4・D5 が別の席で否とされ、本人が決めた）。表示の検査は先頭 25 行の `SPDX-License-Identifier:` を見て、表示の無いファイルは見ない。移行の 3 つ（表示 `AGPL-3.0-only` のまま）と gradle の wrapper の 2 つは例外の一覧に名前で載せる —— 移行は APK に入らず追加の許可が要らないので書き換えず、最初の印から後は前進側の 2 つ（`.sql`）の表示を直せないことを受け入れる（戻し手順の `.down.sql` は凍結の検査の外で、後からも直せる）。上の ★ 2026-11-02 の「D5（仮）」はこれで決まった。整合の確認 `docs/audit/2026-11-03-st53-r2-consistency.md` の K1・C8 で、直せない範囲を前進側の 2 つに狭め、D5 が決まったことを書いた
 - **版番号は 3 部品でそろえる**（FR-104。本人の言葉:「一旦は揃える方向で」）。部品ごとの版に分けるのは、中身の変わらない更新が気になってきたとき
 
 ### 範囲外（やらないこと）

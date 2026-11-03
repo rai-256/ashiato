@@ -1,0 +1,14 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 126,
+ "applied": [
+  "points[source.5].text",
+  "features[firstrelease].summary",
+  "points[firstrelease.1].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
