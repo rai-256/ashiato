@@ -123,7 +123,8 @@
 - 問い: `package-artifacts`（`.github/workflows/ci.yml` の、組んだ配布物を集めて `check-artifacts.sh` で見る job）を、組んだ job と同じ head の木で checkout するか、今どおり合わせた木で走らせるか
 - 推奨: 合わせた木のまま走らせ、期待する版番号と比べる `LICENSE` は配布物を組んだ head の commit から取る（要件の本文は変えない。design D18 の反転条件の形）
 - 出所: provisional-review.md D18（条件 2 で否。要件 FR-127 ★ 第 3 回の文と食い違う）・整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` K1・K2
-- 答え: (未回答)
+- 答え: 合わせた木のまま走らせ、期待値だけを head の commit から取る（要件は変えない）
+  - 本人は推奨の選択肢を明示して選んだ（`deep-answers-7.txt`）。補足なし
 
 ## 影響の判断（第 1 回の合意）
 
@@ -198,6 +199,21 @@
 - QA [仕様への合意] -> 合意する（補足なし）。IMP-01・IMP-02 とも答えがあり、合意は成立した（`agreement.json` の `status: accepted`）。
   違和感は無く、仕様（proposal / specs / design / tasks）を直すものは無い。要件・Story へ戻すものも無い
 
+## 影響の判断（第 5 回の合意）
+
+重大な IMP への本人の答え（`deep-answers-7.txt` の逐語。問いは `deep-questions-agree-5.json`）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。
+
+- IMP-01 [印を push できる人が main を通さずに正式な鍵を読めるかもしれない（ST52 から）] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。第 4 回と同じ答え。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+- IMP-02 [本人の管理者の資格情報がエージェントと同じ OS の利用者に残ると、資格情報を替えても分けられない] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。第 4 回と同じ答え。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+
+## 仕様への合意（第 5 回）
+
+- QA [仕様への合意] -> 合意する（補足なし。`agreement.json` の `status: accepted`）。違和感は無い。
+  同じ 1 枚で第 4 回の深掘り Q17 にも答えがあった（上の Q17）。Q17 は推奨を先に仕様へ書いていないので、
+  `spec --answers Q17` で design D18・tasks 6.1・10.2・`docs/release.md` の手順に写す（`deep_draft.py later` が Q17 を挙げる）
+
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
 - FR-127 に ★ 2026-11-02 補足: 「同じ印」で示すのは正式版・ベータ版だけ、開発版と PR の組み立ては 40 桁の commit で示す（Q7・review/spec.md R14・D16（仮））。許諾は配布物の中にだけ置き、画面からは開けない（Q6・Q9）
@@ -243,6 +259,7 @@
 - Q5 は推奨のまま（「506 ファイル」）で補足が無い。D4（第 1 回の時点では仮。第 2 回の Q10 で本人が決めた）（移行の 3 ファイルは表示を書き換えない。書き換えるのは 503）は、答えの上に乗る例外として残す（D4 の「Q5 で本人が全部の書き換えを補足したら外す」に当たらない）
 - 第 3 回（2026-11-03）: D9 ← Q16（PR の `package-linux`・`package-windows` は checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を渡して head から組む。`SOURCE.txt`・組み立ての印・組んだソースが同じ head を指すので、Q14 の「組み立ての印との比べはその場合だけ外す」は要らなくなり、比べはすべての組み立てで残す）・D17（仮）は外す（R18。前提が誤り）。本人の決定で、（仮）には戻さない
 - Q7 は推奨のまま。D16（第 1 回の時点では仮。第 2 回の Q15 で本人が決めた）は答えと一致した（反転条件「全部、印で示す」に当たらない）
+- 第 4 回（2026-11-03）: D18 ← Q17（`package-artifacts` は合わせた木のまま走らせ、期待する版番号と比べる `LICENSE` は配布物を組んだ head の commit（`github.event.pull_request.head.sha || github.sha`）の中身から取る。要件 FR-127 ★ 第 3 回の文はそのまま合う）。本人の決定で、（仮）には戻さない
 
 ## 問いの出所（review/deep.md の指摘）
 
@@ -261,6 +278,7 @@
 - Q14 ← provisional-review.md の D9（否）・review/deep.md R5・R6・review/spec.md R15（premises P14）
 - Q15 ← provisional-review.md の D16（否）・review/spec.md R14
 - Q16 ← review/spec.md R17・R18
+- Q17 ← provisional-review.md の D18（否）・整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` K1・K2
 
 ## record の段へ渡すもの（spec の段から。答えに合わせて行う）
 
