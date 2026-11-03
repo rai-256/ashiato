@@ -89,14 +89,14 @@
 
 ## Task 4: 携帯の依存の許諾（POM の書き出しと Android の節）
 
-- [ ] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7・Q12）。
+- [x] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7・Q12）。
   - `releaseRuntimeClasspath` の解決済みの部品（`ModuleComponentIdentifier`）ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決する（online なら gradle が `.pom` を取り寄せて cache に置く。`--offline` で cache に無ければ解決に失敗して task が落ちる。部品を飛ばさない）
   - `<licenses>` の `<name>`・`<url>` を読む。空なら `<parent>` を辿る（深さの上限 5）
   - property `ashiato.pomOut` の置き場に、`group:name:version<TAB>名前<TAB>URL<TAB>出所` の行を書く。出所は、部品自身の POM なら `self`、親から読んだなら `parent`。許諾が無ければ名前を `-` にする
   - property `ashiato.extraRepo` があれば、その置き場を maven の置き場として先に足す（自己試験の使い捨ての置き場のため。配る組み立ては渡さない）
   依存は足さない。
   検証（取り寄せる段 → 読む段）: `bash -c 'out="$TMPDIR/poms.tsv"; off="$TMPDIR/poms-offline.tsv"; scripts/quiet-run poms -- ./collector-android/gradlew -p collector-android -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$out" && scripts/quiet-run poms-offline -- ./collector-android/gradlew -p collector-android --offline -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$off" && cmp "$out" "$off" && grep -q "^com.google.android.gms:play-services-location:" "$out" && test "$(cut -f1 "$out" | sort -u | wc -l)" -ge 50'` rc=0
-- [ ] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7・Q12）。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
+- [x] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7・Q12）。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
   `tools/check-licenses.sh` の Android の節を作り、今の echo を消す。
   - 4.1 の task を走らせる（`--offline` を付けない。cache に無い `.pom` は取り寄せる。`ASHIATO_GRADLEW` で gradlew の場所を差し替えられる）
   - 名前を表で直し、`PROPRIETARY` は正本の `Listed libraries:`（D2）の `group:name` にある部品だけを通す
@@ -113,7 +113,7 @@
   - `名指しの一覧を正本から消すと、その部品で許諾の検査が落ちる`
   - `検査する対象が無い節は、通さずに落ちる`（`ASHIATO_GRADLEW=false`）
   検証: `tools/check-licenses.sh --self-test` rc=0 / `bash -c 'tools/check-licenses.sh --self-test 2>&1 | grep -c "== Scenario: 許諾の名前を 2 つ持つ部品は、\(片方でも許可の外なら許諾の検査が落ちる\|両方が許可されていれば通る\)" | grep -qx 2'` rc=0
-- [ ] 4.3 今の木で Android の節を走らせ、`今の携帯の依存は、許諾の検査を通る` と `今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ` を確かめる（印は `tools/check-licenses.sh` の Android の節の中の `echo "== Scenario: …"`）。
+- [x] 4.3 今の木で Android の節を走らせ、`今の携帯の依存は、許諾の検査を通る` と `今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ` を確かめる（印は `tools/check-licenses.sh` の Android の節の中の `echo "== Scenario: …"`）。
   `POM が許諾を持たない部品は、親の POM の許諾で判定する` は、`tools/check-licenses.sh --self-test` の中で、使い捨ての maven の置き場（許諾の無い POM とその親の POM と空の jar）を作り、`-Pashiato.extraRepo` でその部品を足した使い捨ての写しの木で 4.1 の task を走らせて確かめる（出所が `parent` の行ができ、Android の節が Apache-2.0 として通す）。gradle が使えない環境では、この Scenario は「対象が無い」で落ちる（飛ばさない）。
   `POM を取り寄せられない部品があれば、許諾の検査が落ちる` も同じ使い捨ての置き場に、`.module` と jar はあるが `.pom` の無い部品を足し（`releaseRuntimeClasspath` の解決は通る）、`--offline` で 4.1 の task と Android の節を走らせて、rc≠0・その座標・POM を取れない旨の文が出て、`Could not find` の依存の解決の失敗ではないことを見る（`@pom` の失敗を黙って飛ばす実装はここで落ちる）
   検証: `bash -c 'scripts/quiet-run lic-android -- tools/check-licenses.sh android && test "$(tools/check-licenses.sh android 2>&1 | grep -c "^  通した PROPRIETARY: com.google.android.gms:")" -eq 4'` rc=0 / `bash -c 'scripts/quiet-run lic-self -- tools/check-licenses.sh --self-test && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する" && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる"'` rc=0
