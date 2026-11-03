@@ -140,12 +140,19 @@
 
 ## 要件へ戻すもの（record の段で戻した。2026-11-03・第 3 回）
 
-- FR-127 に ★ 2026-11-03 補足（第 3 回）: PR の組み立ては PR の head の commit そのものから組む（GitHub が作る merge の commit からは組まない）。`SOURCE.txt` の head と組んだソースが一致する（Q16）
+- FR-127 に ★ 2026-11-03 補足（第 3 回）: PR の組み立ては PR の head の commit そのものから組む（GitHub が作る merge の commit からは組まない）。`SOURCE.txt` の head と組んだソースが一致する（Q16）。整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md`（4 件）の K2 で、合わせた木で走る範囲を job で限った。C1・K1 は spec --answers Q16 へ、C2 は leave
 - 仮の決定 D17 は外す（R18）。要件の本文には D17 の名が無いので要件は変えない
 
 ## spec の段へ渡すもの（record の段から。2026-11-03・第 3 回）
 
 `spec --answers Q16` で写す: design D9（head から組む・比べはすべての組み立てで残す）・D16・D17（仮）を外し `provisional.py resolve`、spec の PR の組み立ての文と Scenario、tasks の `package-linux`・`package-windows` の checkout と `check-artifacts.sh` の比べ（Q14 で「外す」とした分岐を戻す）、go.json の walkthrough と IMP-06、premises P14
+
+整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` が見つけた、一緒に直すもの:
+
+- C1: tasks 11.1（`tasks.md:229`）の「組み立ての印（合成の merge commit）と違うことを見る」を「同じことを見る」に反転する。design の Risks の合成の merge commit の項（`design.md:240` 付近）を外す。`proposal.md:71` に checkout の `ref` を足す。`provisional.jsonl` の D17 は `provisional.py resolve` で外す
+- K1: 配布物を検査する `package-artifacts`（`ci.yml:392-400`）も同じ `ref` で checkout するか、期待する版番号と `LICENSE` を配布物を組んだ木から取るかを D9 に書き、tasks 7.1 の検証を合わせる（今のままだと、枝を切った後に main が版番号か `LICENSE` を変えると PR の CI が誤って落ちる）
+- K2: `package-linux` の job の中の自己試験（`ci.yml:366-370`）と、足す許諾・表示の検査が head の木で走ることを D9 に書く（FR-127 ★ 第 3 回はそう狭めた）
+- 未確認（同じ監査）: fork の PR で `ref: head.sha` を `fetch-depth: 1` で取れるか・detached HEAD で組んだ組み立ての印に `.dirty` が付かないか —— tasks の検証か premises に置く
 
 ## Story へ戻したもの（record の段。2026-11-03・第 2 回）
 
