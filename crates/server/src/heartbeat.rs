@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 生存信号の契約（FR-78 / 深掘り Q1, Q5, 第 4 回 Q13, Q14, 第 5 回 Q17）。
 //!
 //! **記録が 0 件の日の意味を残す唯一の材料。** FR-33 は記録を生成したときにしか

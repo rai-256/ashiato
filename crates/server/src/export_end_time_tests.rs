@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの除く範囲と消した滞在の時間が、終わりの時刻を列から先に読むこと（ST41 / design D11）。
 //!
 //! 配置と読み方は `export_excluded_tests` の `World` と `kept` / `kept_versions` に、

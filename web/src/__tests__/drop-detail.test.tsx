@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 週の詳細に破棄の件数と時刻を文字で出す（ST04 / tasks 4.2 / 深掘り Q3 / design D10）。
  *

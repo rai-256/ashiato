@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 収集の途切れの判定（ST14 / design D1・D3・D4・D8（仮））。**DB を見ない純粋な関数。**
 //!
 //! 材料は `outage_store::inputs` が SQL で集める。判定の結果を行に焼かない —— 想定間隔を変えたら

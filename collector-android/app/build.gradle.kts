@@ -1,8 +1,10 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import java.io.ByteArrayOutputStream
 import java.util.Properties
 import org.gradle.process.ExecOperations
 import javax.inject.Inject
+import javax.xml.parsers.DocumentBuilderFactory
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 
 plugins {
     id("com.android.application")
@@ -83,6 +85,86 @@ val fetchRobolectricJars by tasks.registering(Copy::class) {
     into(robolectricJarsDir)
 }
 
+private data class PomLicense(val name: String, val url: String, val source: String)
+
+private fun pomChild(parent: org.w3c.dom.Element, name: String): org.w3c.dom.Element? =
+    (0 until parent.childNodes.length)
+        .asSequence()
+        .map { parent.childNodes.item(it) }
+        .filterIsInstance<org.w3c.dom.Element>()
+        .firstOrNull { it.tagName == name }
+
+private fun pomText(parent: org.w3c.dom.Element, name: String): String =
+    pomChild(parent, name)?.textContent?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
+
+private fun readPomLicenses(
+    component: ModuleComponentIdentifier,
+    resolvePom: (String) -> org.w3c.dom.Document,
+): List<PomLicense> {
+    var coordinate = "${component.group}:${component.module}:${component.version}"
+    var depth = 0
+    while (true) {
+        val document = try {
+            resolvePom(coordinate)
+        } catch (e: Throwable) {
+            throw GradleException("POM を取れない: $coordinate", e)
+        }
+        val project = document.documentElement
+        val licenses = pomChild(project, "licenses")
+            ?.let { licensesElement ->
+                (0 until licensesElement.childNodes.length).asSequence()
+                    .map { licensesElement.childNodes.item(it) }
+                    .filterIsInstance<org.w3c.dom.Element>()
+                    .filter { it.tagName == "license" }
+                    .map { PomLicense(pomText(it, "name"), pomText(it, "url"), if (depth == 0) "self" else "parent") }
+                    .toList()
+            }
+            .orEmpty()
+        if (licenses.isNotEmpty()) return licenses
+        if (depth == 5) return listOf(PomLicense("", "", if (depth == 0) "self" else "parent"))
+        val parent = pomChild(project, "parent") ?: return listOf(PomLicense("", "", if (depth == 0) "self" else "parent"))
+        val group = pomText(parent, "groupId")
+        val name = pomText(parent, "artifactId")
+        val version = pomText(parent, "version")
+        if (group.isEmpty() || name.isEmpty() || version.isEmpty()) {
+            return listOf(PomLicense("", "", if (depth == 0) "self" else "parent"))
+        }
+        coordinate = "$group:$name:$version"
+        depth += 1
+    }
+}
+
+tasks.register("ashiatoDependencyPoms") {
+    doLast {
+        val output = project.findProperty("ashiato.pomOut")?.toString()
+            ?: throw GradleException("ashiato.pomOut が無い")
+        val configuration = configurations.getByName("releaseRuntimeClasspath")
+        configuration.resolve()
+        val components = configuration.incoming.resolutionResult.allComponents
+            .mapNotNull { it.id as? ModuleComponentIdentifier }
+            .distinctBy { "${it.group}:${it.module}:${it.version}" }
+            .sortedBy { "${it.group}:${it.module}:${it.version}" }
+        if (components.isEmpty()) throw GradleException("releaseRuntimeClasspath の対象が無い")
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.isNamespaceAware = false
+        fun resolvePom(coordinate: String): org.w3c.dom.Document {
+            val detached = configurations.detachedConfiguration(
+                dependencies.create("$coordinate@pom"),
+            ).apply { isTransitive = false }
+            val pom = detached.resolve().singleOrNull()
+                ?: throw GradleException("POM を取れない: $coordinate")
+            return factory.newDocumentBuilder().parse(pom)
+        }
+        val lines = components.flatMap { component ->
+            val coordinate = "${component.group}:${component.module}:${component.version}"
+            readPomLicenses(component, ::resolvePom).map { license ->
+                listOf(coordinate, license.name.ifEmpty { "-" }, license.url, license.source).joinToString("\t")
+            }
+        }
+        file(output).apply { parentFile?.mkdirs(); writeText(lines.joinToString("\n") + "\n") }
+    }
+}
+
 android {
     namespace = "dev.ashiato.collector"
     compileSdk = 36
@@ -156,6 +238,9 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
+    }
+    project.findProperty("ashiato.licenseAssets")?.toString()?.takeIf { it.isNotBlank() }?.let { licenseAssets ->
+        sourceSets.getByName("release").assets.srcDir(licenseAssets)
     }
 }
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出す前の件数と見込み（ST33 / design D1 / D12 / D18）。`GET /export/summary` の中身。
 //!
 //! 件数は除く範囲（`excluded_sql`。D5）で除いた残りを、全利用者の和でソースごとに数える。

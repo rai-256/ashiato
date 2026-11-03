@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 量と原本の進みの読み出し（ST09 tasks 7.2 / design D12）を、本物の PostgreSQL と置き場に対して確かめる。
 #![allow(clippy::unwrap_used)]
 

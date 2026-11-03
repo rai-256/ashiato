@@ -19,7 +19,7 @@
 | `migrations` | D-01 PostgreSQL の移行。`YYYYMMDDHHMM_<slug>.sql` と `.down.sql` の対。足したら **`migrations/ORDER`（適用順の正本）の末尾へ 1 行** | `tools/check-migrations.sh`・`tools/check-immutable.sh` |
 | `web/src` | V-01 画面（TypeScript + React + vite）。`App.tsx` が並び、画面の部品は `*View.tsx` / `*Panel.tsx` / `CoverageGrid.tsx`、API の型と文字列は `stays.ts` `coverage.ts` `attributes.ts` | `web/src/__tests__`（vitest + jsdom。指定と勘定まで） |
 | `web/e2e` | 画面の e2e（playwright + 本物の Chromium）。`*.spec.ts` に `// Scenario: <名前>` の印。**画面の Scenario はここが担保する** | 走らせ方は `docs/testing.md` §4.5 |
-| `tools` | プロジェクトの道具。縦串（`stack.sh` `smoke.sh` `dev.sh` `seed.sh`）・検査（`check-*.sh`）・配る道具（`release/`）・Android（`android-env.sh` `android-emulator.sh`）・ハーネスの差し込み口（`agent-env.sh` `verify-prep.sh` `pre-commit.sh`） | — |
+| `tools` | プロジェクトの道具。縦串（`stack.sh` `smoke.sh` `dev.sh` `seed.sh`）・検査（`check-*.sh`）・配る道具（`release/`）・許諾の対応表と全文（`licenses/`）・Android（`android-env.sh` `android-emulator.sh`）・ハーネスの差し込み口（`agent-env.sh` `verify-prep.sh` `pre-commit.sh`） | — |
 
 テストの規約と CI の job は `docs/testing.md`。
 

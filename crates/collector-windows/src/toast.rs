@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 途切れの通知を Windows のトーストとして出す（ST14 / design D11）。OS の口だけ。
 //!
 //! 差出人（AUMID）は `HKCU\Software\Classes\AppUserModelId\dev.ashiato.collector` に書く

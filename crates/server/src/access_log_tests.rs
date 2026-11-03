@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 読み出しの記録（`core.access_log`）と応答の `Cache-Control` を、router を通して本物の DB で確かめる
 //! （ST28 / design D8 / D10 / C4 / C5）。合言葉は試験の中で乱数から作る。
 //!

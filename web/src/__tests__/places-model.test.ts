@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 場所の読み出しの型と形の検査、書き方、原文の組み立て（ST21 / tasks 8.1 / design D12 / D13）。
  * 応答を固定して見る。何を返すかは Rust の結合テストが見る。

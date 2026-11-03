@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 版の変わり目の受け口（ST51 / design D6 / D13）を、本物の PostgreSQL に対して確かめる。
 //!
 //! 生存信号の `client_version`（Task 4）。口は `heartbeat_post` を直に呼ぶ（`api_tests.rs` と同じ）。

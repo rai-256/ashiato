@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 滞在を消すときの判定と SQL（ST22 / design D2〜D5）。
 
 use chrono::{DateTime, NaiveDate, Utc};

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 契約の版と確かめる口 `GET /contract` を、router を通して本物の DB で確かめる（ST50 / design D4 / D15 / D23）。
 //! 読み出しの記録は「この試験の書く口に届いた行」で数える（共有の表に他の試験の行が混ざるため）。
 #![allow(clippy::unwrap_used)]

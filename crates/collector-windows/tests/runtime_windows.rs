@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! Windows の上でだけ走る**実行時テスト**（ST07 / 2026-09-14 の決定）。
 //!
 //! `platform.rs`（前景・入力・アドレスバーを OS から読む側）は `cargo test` が ubuntu で走る限り

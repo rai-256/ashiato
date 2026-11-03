@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの版の列と説明（ST49 / design D17・D4）。**書き出した zip を開き**、行の鍵と値を見る
 //! （配置と読み方は `export_file_tests.rs` に合わせる）。確かめるのは**そのテストの行だけ**。
 #![allow(clippy::unwrap_used)]

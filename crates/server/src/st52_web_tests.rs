@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! サーバに組み込んだ画面の配布と `/api` の境界（ST52 / D13）。
 #![allow(clippy::unwrap_used)]
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 送る形。**`docs/collector-contract.md` と `crates/server/src/ingest.rs` が正典**で、
 //! ここはその形を Rust の型に写しただけ。片方だけ直すと同じ 1 件が別物として入る。
 //!

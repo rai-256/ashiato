@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 形の正本（`satellite.rs` の定数）と、移行・登録簿の突き合わせ（ST29 / design D5）。
 #![allow(clippy::unwrap_used)]
 

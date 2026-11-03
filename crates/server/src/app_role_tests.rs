@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! アプリの役割（`ashiato_app`）の権限を、**本物の PostgreSQL に対して**確かめる（ST28 / design D4）。
 //!
 //! 表の名前を試験に書かない —— `core` の全表を `pg_tables` から引く。並走中の change が足す表も自動で入る。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写しを zip に流す（ST33 / design D4 / D7 / D19）。
 //!
 //! 1 つの `REPEATABLE READ READ ONLY` のトランザクションで全表を読み、行は 1 行ずつ zip の暗号化の層へ直に流す。

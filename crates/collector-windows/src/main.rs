@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! C-02 Windows 収集の入口。**規則は lib 側**（`ashiato_collector_windows`）にある。
 //!
 //! ```text

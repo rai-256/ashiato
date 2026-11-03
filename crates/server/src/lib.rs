@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! S-01 バックエンド。書き込みは 1 本の取り込み口に集約する（製造準備 A-1）。
 //!
 //! 冪等の判定（FR-22）・原文の保存（FR-18）・稼働記録の更新（FR-33）は

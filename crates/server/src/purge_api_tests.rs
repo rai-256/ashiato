@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 本文ごと消す口（`GET /stays/purge/preview`・`POST /stays/purge`）と、戻す口の断り（`POST /stays/restore`）を
 //! HTTP の口から見る（ST23 Task 4 / design D1 / D6）。範囲の数え方と消去の核は `purge_tests` が見る。
 #![allow(clippy::unwrap_used)]

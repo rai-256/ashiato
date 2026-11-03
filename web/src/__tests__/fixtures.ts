@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /** 検査が使う偽の稼働状況。**形は `crates/server/src/coverage.rs` が正典。** */
 import type { Achievement, DayCell, DayState, SourceCoverage } from "../coverage";
 

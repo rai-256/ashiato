@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * **ひとスクロールで 5 ソースすべてが見える**（深掘り 第 8 回 Q30 / tasks 13.2）。
  *

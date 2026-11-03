@@ -35,11 +35,12 @@
 
 ## Task 1: 追加の許可の正本と、`LICENSE`・README・CONTRIBUTING
 
-- [ ] 1.1 `LICENSES/AdditionRef-ashiato-play-services.txt` を作る（D1・D2）。`Listed libraries:` より前は、`specs/distribution/spec.md` の最初の Requirement の英文を 1 字も変えずに写す（段落の間は空行 1 つ）。`Listed libraries:` の節には、`com.google.android.gms:play-services-location`・`-base`・`-basement`・`-tasks` を 1 行ずつ書く（`- ` で始め、座標だけ）。
+- [x] 1.1 `LICENSES/AdditionRef-ashiato-play-services.txt` を作る（D1・D2）。`Listed libraries:` より前は、`specs/distribution/spec.md` の最初の Requirement の英文を 1 字も変えずに写す（段落の間は空行 1 つ）。`Listed libraries:` の節には、`com.google.android.gms:play-services-location`・`-base`・`-basement`・`-tasks` を 1 行ずつ書く（`- ` で始め、座標だけ）。
   `LICENSE` を「正本の全行 → 空行 2 つ → 今の AGPL-3.0 の全文（変えない）」にする。
   `README.md` のライセンスの節を書き直す（AGPL-3.0 と追加の許可を名指しする・正本は英文・日本語の参考訳・正本へのリンク）。`CONTRIBUTING.md` の冒頭の許諾の文に、貢献も同じ許諾（追加の許可を含む）の下で配ることを書き足す
-  検証: `bash -c 'n=$(wc -l < LICENSES/AdditionRef-ashiato-play-services.txt); head -n "$n" LICENSE | cmp - LICENSES/AdditionRef-ashiato-play-services.txt'` rc=0 / `bash -c 'grep -q "AdditionRef-ashiato-play-services" README.md && grep -q "参考訳" README.md && grep -q "追加の許可" CONTRIBUTING.md'` rc=0 / `bash -c 'git diff --quiet origin/main -- docs/CLA.md'` rc=0 / `bash -c 'diff <(git show origin/main:CONTRIBUTING.md | sed -n "/^## /,\$p") <(sed -n "/^## /,\$p" CONTRIBUTING.md)'` rc=0（最初の見出しより後ろ —— CLA の節 —— は変えない。書き足すのは冒頭の許諾の文だけ）
-- [ ] 1.2 `tools/check-spdx.sh license` を作る（D1）。次の 2 つを見る。
+  検証: `bash -c 'n=$(wc -l < LICENSES/AdditionRef-ashiato-play-services.txt); head -n "$n" LICENSE | cmp - LICENSES/AdditionRef-ashiato-play-services.txt'` rc=0 / `bash -c 'grep -q "AdditionRef-ashiato-play-services" README.md && grep -q "参考訳" README.md && grep -q "追加の許可" CONTRIBUTING.md'` rc=0 / `bash -c 'git diff --quiet origin/main -- docs/CLA.md'` rc=0 / `tools/check-cla-section.sh` rc=0（最初の見出しより後ろ —— CLA の節 —— は変えない。書き足すのは冒頭の許諾の文だけ）
+  （訂正 2026-11-04: 検証の入口を「bash -c 'diff <(git show origin/main:CONTRIBUTING.md | sed -n "/^## /,\$p") <(sed -n "/^## /,\$p" CONTRIBUTING.md)'」から上の入口に。受け入れ条件は変えない。理由: 最初の見出しから後ろには 10.3 が直す「## 送る前に」の手元の検査の行（38 行目）が入り、守るべき CLA の節が変わっていなくても diff が rc=1 になる（review/code.md R14）。範囲を本文が言う CLA の節に狭める 実証: evidence.jsonl 2026-11-03T17:29:26+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-03T17:29:32+00:00 PASS。記録: plan-corrections.md）
+- [x] 1.2 `tools/check-spdx.sh license` を作る（D1）。次の 2 つを見る。
   - `LICENSE` の先頭の N 行（N は正本の行数）が正本と同じこと
   - その後ろ（空行 2 つの後）の sha256 が、台本の中の定数と同じこと。定数は、今の `LICENSE`（AGPL-3.0 の全文）の sha256
   違えば rc≠0 で、どちらが違うかを示す。
@@ -55,12 +56,12 @@
 
 ## Task 2: ソースと部品の許諾の表示
 
-- [ ] 2.1 `crates/server/src/coverage/tests/mod.rs` の 21 行目の表示を先頭の行へ移す。`git ls-files -s` を起点に、mode が `120000` でないファイルの先頭 25 行にある `SPDX-License-Identifier: AGPL-3.0-only` を `SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換える（Q5）。
+- [x] 2.1 `crates/server/src/coverage/tests/mod.rs` の 21 行目の表示を先頭の行へ移す。`git ls-files -s` を起点に、mode が `120000` でないファイルの先頭 25 行にある `SPDX-License-Identifier: AGPL-3.0-only` を `SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services` に書き換える（Q5）。
   移行の 3 つ（`migrations/202609211400_browser_history_record_id.sql`・`.down.sql`・`migrations/202610181200_media_capture.sql`）は書き換えない（D4・Q10）。gradle の wrapper の 2 つ（`Apache-2.0`）にも触らない。
   根の `Cargo.toml` の workspace の `license`、`web/package.json` の `license`、`web/package-lock.json` の `packages[""].license` を同じ式にする。
   `docs/openapi.json` は、`src/bin/openapi.rs` で作り直す（`info.license.identifier` が同じ式になる）
   検証: `tools/check-spdx.sh headers` rc=0 / `bash -c 'n=$(git ls-files -s | awk "\$1 != \"120000\" {print \$4}" | grep -v -e "^migrations/" -e "^collector-android/gradlew" -e "^docs/" -e "^openspec/" | while read -r f; do head -n 25 "$f" | grep -q "SPDX-License-Identifier: AGPL-3.0-only *\$" && echo "$f"; done | wc -l); test "$n" -eq 0'` rc=0（例外の外に古い表示が 1 つも残っていない）/ `tools/check-openapi.sh` rc=0 / `bash -c 'cd web && npm ci && npm run build'` rc=0 / `bash -c 'cargo metadata --format-version 1 --no-deps --offline | python3 -c "import json,sys; s={p[\"license\"] for p in json.load(sys.stdin)[\"packages\"]}; sys.exit(s != {\"AGPL-3.0-only WITH AdditionRef-ashiato-play-services\"})"'` rc=0
-- [ ] 2.2 `tools/check-spdx.sh headers` を作る（D5・Q11）。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
+- [x] 2.2 `tools/check-spdx.sh headers` を作る（D5・Q11）。`git ls-files -s` の mode `120000` を飛ばし、残りのファイルの先頭 25 行から `SPDX-License-Identifier:` の値を取る。
   決めた式でもなく、台本の中の例外の一覧（パスと許す値の組。wrapper の 2 つは `Apache-2.0`、移行の 3 つは `AGPL-3.0-only`）にも合わなければ、rc≠0 でパスと値を示す。通したときは、例外として通したファイルを `  例外: <パス> <値>` の形で 1 行ずつ出す。引数が無ければ `license` と `headers` の両方を走らせる。
   `--self-test` に、使い捨ての木で次の 4 つを足す。
   - `決めた許諾の表示でないソースがあれば、表示の検査が落ちる`（`GPL-3.0-only` の Rust のファイルを足す）
@@ -72,7 +73,7 @@
 
 ## Task 3: 依存の許諾の検査の節と、自分の部品（Rust・Node）
 
-- [ ] 3.1 `tools/check-licenses.sh` を、引数で節（`rust`・`node`・`android`）を選べる形にする（D15）。引数が無ければ 3 つ全部。中間のファイルは `$TMPDIR`（無ければ `mktemp -d`）に書き、`/tmp/meta.json` をやめる。
+- [x] 3.1 `tools/check-licenses.sh` を、引数で節（`rust`・`node`・`android`）を選べる形にする（D15）。引数が無ければ 3 つ全部。中間のファイルは `$TMPDIR`（無ければ `mktemp -d`）に書き、`/tmp/meta.json` をやめる。
   SPDX の式の評価（今は 2 つの節に同じ関数がある）は、台本の中の 1 か所にまとめる。
   許可の一覧から `AGPL-3.0-only` を外す（D6（仮））。ほかの値は変えない。
   Rust の節は `workspace_members` の部品を、Node の節は根の部品を、許諾が `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` のときだけ通す。
@@ -89,14 +90,14 @@
 
 ## Task 4: 携帯の依存の許諾（POM の書き出しと Android の節）
 
-- [ ] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7・Q12）。
+- [x] 4.1 `collector-android/app/build.gradle.kts` に task `ashiatoDependencyPoms` を足す（D7・Q12）。
   - `releaseRuntimeClasspath` の解決済みの部品（`ModuleComponentIdentifier`）ごとに、detached configuration で `<group>:<name>:<version>@pom` を解決する（online なら gradle が `.pom` を取り寄せて cache に置く。`--offline` で cache に無ければ解決に失敗して task が落ちる。部品を飛ばさない）
   - `<licenses>` の `<name>`・`<url>` を読む。空なら `<parent>` を辿る（深さの上限 5）
   - property `ashiato.pomOut` の置き場に、`group:name:version<TAB>名前<TAB>URL<TAB>出所` の行を書く。出所は、部品自身の POM なら `self`、親から読んだなら `parent`。許諾が無ければ名前を `-` にする
   - property `ashiato.extraRepo` があれば、その置き場を maven の置き場として先に足す（自己試験の使い捨ての置き場のため。配る組み立ては渡さない）
   依存は足さない。
   検証（取り寄せる段 → 読む段）: `bash -c 'out="$TMPDIR/poms.tsv"; off="$TMPDIR/poms-offline.tsv"; scripts/quiet-run poms -- ./collector-android/gradlew -p collector-android -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$out" && scripts/quiet-run poms-offline -- ./collector-android/gradlew -p collector-android --offline -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$off" && cmp "$out" "$off" && grep -q "^com.google.android.gms:play-services-location:" "$out" && test "$(cut -f1 "$out" | sort -u | wc -l)" -ge 50'` rc=0
-- [ ] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7・Q12）。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
+- [x] 4.2 `tools/licenses/pom-license-names.tsv` を作る（D7・Q12）。今の依存の POM に出る名前を全部、SPDX の名前に対応させる（例: `The Apache Software License, Version 2.0` → `Apache-2.0`、`Android Software Development Kit License` → `PROPRIETARY`）。
   `tools/check-licenses.sh` の Android の節を作り、今の echo を消す。
   - 4.1 の task を走らせる（`--offline` を付けない。cache に無い `.pom` は取り寄せる。`ASHIATO_GRADLEW` で gradlew の場所を差し替えられる）
   - 名前を表で直し、`PROPRIETARY` は正本の `Listed libraries:`（D2）の `group:name` にある部品だけを通す
@@ -113,14 +114,14 @@
   - `名指しの一覧を正本から消すと、その部品で許諾の検査が落ちる`
   - `検査する対象が無い節は、通さずに落ちる`（`ASHIATO_GRADLEW=false`）
   検証: `tools/check-licenses.sh --self-test` rc=0 / `bash -c 'tools/check-licenses.sh --self-test 2>&1 | grep -c "== Scenario: 許諾の名前を 2 つ持つ部品は、\(片方でも許可の外なら許諾の検査が落ちる\|両方が許可されていれば通る\)" | grep -qx 2'` rc=0
-- [ ] 4.3 今の木で Android の節を走らせ、`今の携帯の依存は、許諾の検査を通る` と `今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ` を確かめる（印は `tools/check-licenses.sh` の Android の節の中の `echo "== Scenario: …"`）。
+- [x] 4.3 今の木で Android の節を走らせ、`今の携帯の依存は、許諾の検査を通る` と `今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ` を確かめる（印は `tools/check-licenses.sh` の Android の節の中の `echo "== Scenario: …"`）。
   `POM が許諾を持たない部品は、親の POM の許諾で判定する` は、`tools/check-licenses.sh --self-test` の中で、使い捨ての maven の置き場（許諾の無い POM とその親の POM と空の jar）を作り、`-Pashiato.extraRepo` でその部品を足した使い捨ての写しの木で 4.1 の task を走らせて確かめる（出所が `parent` の行ができ、Android の節が Apache-2.0 として通す）。gradle が使えない環境では、この Scenario は「対象が無い」で落ちる（飛ばさない）。
   `POM を取り寄せられない部品があれば、許諾の検査が落ちる` も同じ使い捨ての置き場に、`.module` と jar はあるが `.pom` の無い部品を足し（`releaseRuntimeClasspath` の解決は通る）、`--offline` で 4.1 の task と Android の節を走らせて、rc≠0・その座標・POM を取れない旨の文が出て、`Could not find` の依存の解決の失敗ではないことを見る（`@pom` の失敗を黙って飛ばす実装はここで落ちる）
   検証: `bash -c 'scripts/quiet-run lic-android -- tools/check-licenses.sh android && test "$(tools/check-licenses.sh android 2>&1 | grep -c "^  通した PROPRIETARY: com.google.android.gms:")" -eq 4'` rc=0 / `bash -c 'scripts/quiet-run lic-self -- tools/check-licenses.sh --self-test && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する" && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる"'` rc=0
 
 ## Task 5: 依存の一覧とソースの場所を組む台本（`tools/release/notices.sh`）
 
-- [ ] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8・Q13）。
+- [x] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8・Q13）。
   - `cargo tree -p <crate> -e normal --target <triple>` の部品を集め、各部品の置き場の `LICENSE*`・`COPYING*`・`NOTICE*` を写す
   - 部品の許諾のファイルが無ければ、`tools/licenses/texts/<SPDX>.txt` の全文と `authors` を書く。どちらも無ければ落とす
   - Rust の標準ライブラリの項 `rust-std`（`MIT OR Apache-2.0`。全文と著作権の表示は sysroot の `share/doc/rust/`）を足す。sysroot に無ければ落とす
@@ -131,10 +132,10 @@
   - `許諾の全文も著作権の表示も見つからない部品があれば、組み立てが落ちる`（許諾のファイルも `authors` も無く、`tools/licenses/texts/` にも無い式の偽の部品。出力のファイルができないことも見る）
   - `サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない`（今の木の `server` の出力に `== react ` があり `== vitest ` が無い）
   検証: `bash -c 'o="$TMPDIR/n.txt"; tools/release/notices.sh collector-windows "$o" --target x86_64-pc-windows-gnu && grep -q "^== rust-std " "$o" && grep -q "^License: MIT OR Apache-2.0" "$o" && test "$(grep -c "^== " "$o")" -ge 20'` rc=0
-- [ ] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8・Q13）: Task 4.1 の task の出力の部品の項を書く（検査と同じ部品の集合）。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
+- [x] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8・Q13）: Task 4.1 の task の出力の部品の項を書く（検査と同じ部品の集合）。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
   名指しの gms の 4 つは、aar の `third_party_licenses.txt` を `third_party_licenses.json` の `start`・`length` で切り出し、`(gms の中の第三者)` の見出しで足す
   検証: `bash -c 'o="$TMPDIR/a.txt"; scripts/quiet-run notices-apk -- tools/release/notices.sh apk "$o" && grep -q "^== com.google.android.gms:play-services-location " "$o" && grep -q "(gms の中の第三者)" "$o"'` rc=0
-- [ ] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9・D16・Q14・Q15・Q16）: `SOURCE.txt` の 3 行を書く。
+- [x] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9・D16・Q14・Q15・Q16）: `SOURCE.txt` の 3 行を書く。
   - `ASHIATO_SOURCE_REF` が `v<版番号>` なら `Ref: v<版番号>` を書く
   - `ASHIATO_SOURCE_REF` が空でなく `v<版番号>` と違えば落とす
   - `ASHIATO_SOURCE_REF` が空なら `Commit: <40 桁>` を書く。`<commit>` は呼び出し元（6.1）が渡す。40 桁の 16 進でなければ落とし、`SOURCE.txt` を作らない
@@ -146,7 +147,7 @@
 
 ## Task 6: 配布物に 3 点を入れる（`build.sh`・gradle・`release.yml`）
 
-- [ ] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `tools/release/notices.sh commit` の出力。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
+- [x] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `tools/release/notices.sh commit` の出力。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
   `build_apk` は 3 点を一時の置き場に組み（5.2・5.3）、`-Pashiato.licenseAssets=<置き場>` で gradle に渡す。`build.gradle.kts` は、その property があるときだけ `release` の assets の source set に `licenses/` として足す（D13）。
   `release.yml` の `package-linux`・`package-windows` の組み立ての手順に `ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を渡す。`nightly.yml` と `ci.yml` は渡さない。
   `ci.yml` の `package-linux`・`package-windows` の `actions/checkout` に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を足す（`with:` は block 形式に書き直す —— flow 形式の `{ … }` の中では値を引用符で囲むことになり、字面の判定が揺れる。PR では head の commit、main への push では push の commit を checkout する。`persist-credentials: false` は残す。D9・Q16）。
@@ -156,7 +157,7 @@
 
 ## Task 7: 配布物の検査に 3 点を足す（`check-artifacts.sh`）
 
-- [ ] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8・D9・Q16）。
+- [x] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8・D9・Q16）。
   - 3 点があること（tar / zip の根、APK の `assets/licenses/`）
   - `LICENSE` が期待する `LICENSE` と同じこと。`--expect-license <file>` を足し、渡されればそのファイルと、渡されなければ今どおり台本の木の `LICENSE`（`$root/LICENSE`）と比べる。`--expect-license` のファイルが無ければ rc=2（使い方の誤り）。`draft.sh`・`release.yml`・自己試験の呼び出しは渡さない（D18・Q17）
   - サーバと PC の収集アプリの一覧に `== rust-std ` の項があること
@@ -177,7 +178,7 @@
 
 ## Task 8: 承認を経る公開の確かめ（`check-guards.sh`・`release.yml`）
 
-- [ ] 8.1 `tools/release/check-guards.sh` に `approvals [--repo] [--reviewer <login>]` と `agent-credential [--repo]` を足す（D11（仮））。既存の `rules`・`environments`・`workflows` の判定と Scenario は変えない。
+- [x] 8.1 `tools/release/check-guards.sh` に `approvals [--repo] [--reviewer <login>]` と `agent-credential [--repo]` を足す（D11（仮））。既存の `rules`・`environments`・`workflows` の判定と Scenario は変えない。
   - `approvals`: `gh api repos/<repo>/environments/release` を読み、`required_reviewers` の規則・`reviewers` に `User` の `<login>`・`can_admins_bypass: false` を求める。`prevent_self_review` は見ない。`<login>` の既定は `ASHIATO_RELEASE_REVIEWER`、無ければ `<owner>`
   - `agent-credential`: `gh api repos/<repo>` の `.permissions` の `admin`・`maintain` がどちらも `false` を求める
   偽の `gh` に `environments/release$`（詳細）と `repos/<repo>$`（権限）の応答を足す。今の `environments/release*`（配る対象の規則）の応答とは分ける。
@@ -189,14 +190,14 @@
   - `管理者の資格情報では、エージェントの資格情報の確かめが落ちる`
   - `管理者でない資格情報では、エージェントの資格情報の確かめを通る`
   検証: `tools/release/check-guards.sh --self-test` rc=0
-- [ ] 8.2 `release.yml` の `publish` に、`check-guards.sh rules` の後・`sign-apk.sh` の前で `tools/release/check-guards.sh approvals` を足す（D11（仮））。
+- [x] 8.2 `release.yml` の `publish` に、`check-guards.sh rules` の後・`sign-apk.sh` の前で `tools/release/check-guards.sh approvals` を足す（D11（仮））。
   `check-guards.sh workflows` に、`publish` の job の中で `check-guards.sh approvals` の行が `sign-apk.sh` の行より前にあることの確かめを足す。
   `--self-test` に `公開の job は、署名の前に承認者を確かめる` を足す（2 行を入れ替えた偽の `release.yml` と、`approvals` を消した偽の `release.yml` で、どちらも rc≠0）
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml` rc=0
 
 ## Task 9: 確認バッチの準備はエミュレータにだけ入れる
 
-- [ ] 9.1 `tools/verify-prep-device.sh` に関数 `install_on_emulators <apk>` を置く（D14）。`adb devices` の状態が `device` で、名前が `emulator-` で始まる端末にだけ `adb -s <名前> install -r <apk>` を呼び、入れた名前を 1 行ずつ出す。
+- [x] 9.1 `tools/verify-prep-device.sh` に関数 `install_on_emulators <apk>` を置く（D14）。`adb devices` の状態が `device` で、名前が `emulator-` で始まる端末にだけ `adb -s <名前> install -r <apk>` を呼び、入れた名前を 1 行ずつ出す。
   1 台も無ければ「エミュレータが無いので入れていない（手で入れる: `adb -s <エミュレータ> install -r <apk>`）」の 1 行を出す（D14）。`tools/verify-prep.sh` の 58〜61 行の端末の選び方を、これの `source` と呼び出しに替え、出力をそのまま `android_note` にする。`verify-prep.sh` には `adb` も `install` の文字も残さない（`install_on_emulators` の呼び出しを除く）。
   `tools/verify-prep-device.sh --self-test` は、偽の `adb`（呼ばれた引数を書き残す）で次の 3 つを走らせる。
   - `実機とエミュレータが繋がっていれば、エミュレータにだけ入れる`
@@ -207,13 +208,13 @@
 
 ## Task 10: CI の置き場・手順書・文書
 
-- [ ] 10.1 `.github/workflows/ci.yml`（D15）。
+- [x] 10.1 `.github/workflows/ci.yml`（D15）。
   - `web` の job: `../tools/check-licenses.sh rust node`
   - `package-linux` の job: `tools/check-licenses.sh android` と `tools/check-licenses.sh --self-test`・`tools/release/notices.sh --self-test`
   - `chain` の job（全 PR）: `tools/check-spdx.sh --self-test` と `tools/check-spdx.sh`
   - `verify-prep-device.sh --self-test` は、軽い自己試験の並ぶ job（`check-private.sh --self-test` と同じ job）に置く
   検証: `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `bash -c 'for k in "check-licenses.sh rust node" "check-licenses.sh android" "check-spdx.sh --self-test" "verify-prep-device.sh --self-test" "notices.sh --self-test"; do grep -q "$k" .github/workflows/ci.yml || exit 1; done'` rc=0 / `tools/release/check-guards.sh workflows` rc=0
-- [ ] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18）。
+- [x] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18）。
   - 冒頭: 本物の作業は ST53 が main に入った後
   - §3「エージェントの資格情報」: fine-grained token に持たせる権限と持たせない権限（D3）、ハーネスの token の差し替え、`tools/release/check-guards.sh agent-credential --repo rai-256/ashiato` を差し替えた資格情報で走らせて rc=0
   - §4「ルールセットと承認者」: ST52 のルールセット、`release` に本人を必須の承認者として付ける、管理者の飛ばしを外す、自分の承認を禁じない、`check-guards.sh approvals --repo rai-256/ashiato` rc=0。workflow の中の確かめは守りの本体でない（印の commit の workflow で走るため）
@@ -224,7 +225,7 @@
   - 下書きの手順（`draft.sh`）: その PR の head の commit を checkout した手元で走らせる（配布物は head から組まれ、`draft.sh` は手元の木の版番号と `LICENSE` で比べる。D18）
   - ST53 の確認バッチの手順（末尾の「人間の確認待ち」）。準備の間は本人の携帯を繋がない
   検証: `bash -c 'for h in "エージェントの資格情報" "agent-credential" "approvals" "必須の承認者" "gh release download" "成果物" "携帯を繋がない" "head の commit を checkout"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'a=$(grep -n "エージェントの資格情報" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test "$a" -lt "$b"'` rc=0 / `bash -c 'a=$(grep -n "check-guards.sh approvals" docs/release.md | head -1 | cut -d: -f1); r=$(grep -n "必須の承認者" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test -n "$a" && test -n "$r" && test "$a" -lt "$b" && test "$r" -lt "$b"'` rc=0（資格情報 → 承認者 → 鍵の順。review/spec.md R12）
-- [ ] 10.3 `docs/testing.md`・`CONTRIBUTING.md` の手元の検査の行を `../tools/check-licenses.sh rust node` に、`docs/production-prep.md` の「依存ライセンスの検査」の行に ★ で携帯の節と表示の検査（ST53）を足す。`CLAUDE.md` の「構成」の `tools` の行に `licenses/`（許諾の対応表と全文）を足す
+- [x] 10.3 `docs/testing.md`・`CONTRIBUTING.md` の手元の検査の行を `../tools/check-licenses.sh rust node` に、`docs/production-prep.md` の「依存ライセンスの検査」の行に ★ で携帯の節と表示の検査（ST53）を足す。`CLAUDE.md` の「構成」の `tools` の行に `licenses/`（許諾の対応表と全文）を足す
   検証: `bash -c 'grep -q "check-licenses.sh rust node" docs/testing.md && grep -q "check-licenses.sh rust node" CONTRIBUTING.md && grep -q "ST53" docs/production-prep.md && grep -q "licenses/" CLAUDE.md'` rc=0 / `python3 scripts/check_scenarios.py . st53-license-bundle` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）

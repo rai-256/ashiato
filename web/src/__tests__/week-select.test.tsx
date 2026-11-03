@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 週を選ぶと 7 日ぶんが 8 状態の名前で文字で出る（tasks 8.4 / 深掘り 第 5 回 Q20 / Q21）。
  *

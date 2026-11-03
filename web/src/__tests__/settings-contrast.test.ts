@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 設定画面（ST33 / tasks 8.3）が使う色の対比（NFR-18 / NFR-23。ライト・ダーク）。
  *

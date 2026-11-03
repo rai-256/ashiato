@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `migrations/ORDER` から `MIGRATIONS`（当てる版の名前と中身の配列）を組む。
 //!
 //! 並びを Rust の配列に手で書いていたときは、並走する Story がみな配列の末尾と要素数の行を書き換え、

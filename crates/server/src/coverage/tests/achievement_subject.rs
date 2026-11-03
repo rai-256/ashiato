@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 達成日の主語と PC の分母（ST14 / design D17）。**本物の PostgreSQL に対して**確かめる。
 //!
 //! 分母の絞りは定数が名指しする名前（`c02-window` など）で決まるので、登録簿の行を

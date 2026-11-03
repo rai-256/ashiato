@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 衛星と資格情報の口（`/satellites` の 5 本。ST29 / design D11 / D12）の型と呼び手。
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 達成日数と合否（NFR-13）。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 

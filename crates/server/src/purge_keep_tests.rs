@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 本文ごと消しても残るもの（書庫の写し・書き出したファイル）と、変わらない数え方（稼働状況・書き出しの「後に消した記録」）
 //! を HTTP の口と置き場のファイルで見る（ST23 Task 8 / design D10 / D18。申し送り R11）。
 //! 写しと書き出したファイルは、置き場のファイルの SHA-256 を消す前後で比べる。

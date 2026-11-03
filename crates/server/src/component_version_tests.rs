@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 記録ごとの部品の版（ST49）の移行と門を、本物の PostgreSQL に対して確かめる。
 //!
 //! `core.event` / `core.event_version` を直に書く（取り込み口を通る試験は後続の Task が足す）。

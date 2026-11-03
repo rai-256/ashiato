@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! ログオン時の自動起動（design D7・**仮**）。
 //!
 //! NFR-12 は「収集に要する手作業は **Google 系のみ** 2 か月に 1 回まで。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 1 日の画面の「要約」「取れていない時間」「記録なしの事情」（ST25 / design D7 / D9 / D11）の型・形の検査・並べ方。
  *

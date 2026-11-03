@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 // ST49 の画面の印の試験と ST52 の出所の版の試験（もとは buildStamp.test.ts。2 つの名前で同じ試験を 2 度走らせない。/code-review R38）
 import { describe, expect, it } from "vitest";
 import { webBuildStamp, type Git } from "../../build-stamp";

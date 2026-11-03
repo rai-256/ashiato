@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 「サーバを更新してください」の通知の決め方（ST50 / design D5・D22）。OS に依らない。
 //!
 //! 「S-01 の更新を待っている」状態（`contract_gate`）に入った契機で 1 回、待っている間は前に出してから

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 読み出しの記録（`core.access_log`。ST28 / design D8 / C5）。
 //! 残すのは 経路・資格情報の種類・route の型・method・結果・status だけ。
 //! **クエリ文字列・path の値・合言葉・印・本文は入れない**（spec「中身も合言葉も残らない」）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 組み立ての印 `<版番号>+<commit>[.dirty][.debug]`（ST49 / design D5・D6）。S-01 と C-02 の `build.rs` が共有する。
 //!
 //! 依存は `std` だけ。git は `std::process::Command` で呼ぶ。

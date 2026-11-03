@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の並び（ST25 / design D1 / D6 / D7）。`stay_store::day_view` の行に、行ごとの要約と
 //! 「ほかの記録」の行を足す。`day_view` 自身は変えない（ST22 の契約と試験がそのまま残る）。
 //!

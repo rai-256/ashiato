@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの説明書 `README.txt` と目録 `manifest.json`（ST33 / design D9）。
 //!
 //! 列の意味・出さない列・入らない表は `CATALOG` から引く（分類を 2 か所で持たない）。

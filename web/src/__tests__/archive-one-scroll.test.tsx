@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * **書庫のソースを足してもひとスクロールの予算を超えない**（design D12 / tasks 10.4）。
  *

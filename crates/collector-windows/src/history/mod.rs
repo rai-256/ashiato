@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! C-02 のブラウザ履歴収集。
 //!
 //! 置き場の発見、SQLite の写しの読取り、送る契約、帳面、取得の順に分ける。

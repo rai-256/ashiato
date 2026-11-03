@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 更新の履歴（`core.update_history`）を書く（ST51 / design D7・D8・D9・D15・D16）。
 //!
 //! 版の変わり目を 1 行ずつ追記する。**前の版**は書いた順（`seq`）で最後の通った行（`applied`・`nothing_to_apply`）の

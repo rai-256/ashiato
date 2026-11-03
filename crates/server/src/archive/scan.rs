@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 置き場の一覧と、2 回連続で変わらないファイルの選別（ST12 / D8）。
 
 use super::config::ArchiveConfig;

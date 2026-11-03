@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * S-3 の滞在の行・暦・通知の時刻の設定（ST17 / tasks 9.1 / design D13・D14・D10）。
  *

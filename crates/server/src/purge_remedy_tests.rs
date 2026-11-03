@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 起動時の手当て（本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在の本文を消す）を本物の PostgreSQL で確かめる
 //! （CH08 Task 2 / design D5）。「起動する」は `run()` が呼ぶ `purge_hidden_overlap_remedy` と同じ処理を、
 //! 並走する試験の行に触れないよう利用者に絞って呼ぶ。

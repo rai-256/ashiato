@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 全記録の書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 //!
 //! 本体は「分類 → 列の突き合わせ → 写し（除く範囲を当てた表ごとの JSON Lines・説明書・目録）を

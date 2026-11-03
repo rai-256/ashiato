@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 同じアプリの連続の畳み（ST25 / tasks 9.2 / design D8）。畳みの規則は画面の純粋な関数。
  */
