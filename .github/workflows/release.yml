@@ -81,6 +81,7 @@ jobs:
         with: { pattern: release-*, path: release }
       - run: mkdir -p release/all && find release/release-linux release/release-windows -maxdepth 1 -type f -exec cp {} release/all/ \;
       - run: tools/release/check-guards.sh rules
+      - run: tools/release/check-guards.sh approvals
       - run: tools/release/sign-apk.sh "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.apk" official "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.signed.apk" && mv "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.signed.apk" "release/all/ashiato-collector-${{ needs.plan.outputs.version }}.apk"
         env:
           ASHIATO_SIGNING_KEYSTORE_B64: ${{ secrets.ASHIATO_SIGNING_KEYSTORE_B64 }}
