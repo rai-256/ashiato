@@ -142,6 +142,10 @@
 
 - IMP-01 に答えが無い（`deep-answers-4.txt`: `IMP-01 [...] -> (未回答)`）。違和感の補足は無く、仕様の中身への指摘ではない。
   仕様は直さずに GO 資料を作り直し、IMP-01 をもう一度聞く
+  → 対応: 仕様（proposal / specs / design / tasks）は直さない。理由: 指摘は仕様の中身ではなく IMP-01 の答えが無いことだけで、
+    QA は「合意する」、IMP-02 は「受け入れて進める（リリースの前に判断し直す）」で閉じている。IMP-01 は消さず・重大度を下げず、
+    材料（`if_accepted`・`recheck`）も第 2 回と同じまま、次の合意で IMP-01 だけに答えを求める。
+    spec の段の検査（`openspec validate --strict`・`evidence.py lint`・`review_triage.py`・`spec_overlap.py check`）は直さずに rc=0（2026-11-03）
 
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
