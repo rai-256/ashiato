@@ -273,3 +273,16 @@ finish の fix の後に 1 回、別の席（pr-review-toolkit の code-reviewer
 - 根拠: `grep -E '^== ' | grep -vq …` は後段が 1 行目で抜ける。前段の出力が pipe の緩衝を越えると前段が SIGPIPE（rc=141）になり、正しい配布物を「部品が欠けている」で落とす
 - kind: technical
 - 処置: fixed 7.1 （pipe をやめ、awk 1 つで見る。rust-std だけの一覧で rc=1・部品のある一覧で rc=0 を確かめた）
+
+## provisional_review の手 7（machine-corrections。2026-11-04）
+
+訂正 1.1（`plan_fix.py pending` → 1 件。at 2026-11-03T17:29:32+00:00。旧 `diff <(origin/main の最初の ## から後ろ) <(今の同じ範囲)` → 新 `tools/check-cla-section.sh`）。
+壊す前の `tools/check-cla-section.sh` は rc=0「OK: CONTRIBUTING.md の CLA の節は origin/main と同じ」。
+CONTRIBUTING.md:11（CLA の節）を書き換えると rc=1、diff の 1 行と「NG: CONTRIBUTING.md の CLA の節が origin/main と違う」が出た → `correction-review.md` に「落ちた」。
+戻した後の `git status --porcelain` と `git diff` は壊す前と同じ（作業の前から ` M openspec/changes/st53-license-bundle/provisional-review.md` があり、それは触っていない）。
+
+## R31. 訂正後の 1.1 の検証は `## ライセンス` の節を見なくなった。本体の許諾の文を書き換えても緑のまま
+- 成果物: tools/check-cla-section.sh:8 / CONTRIBUTING.md:5-7 / openspec/changes/st53-license-bundle/tasks.md:40-42
+- 根拠: CONTRIBUTING.md:7 の「本体は **AGPL-3.0-only** です」を「本体は **MIT** です」に一時的に書き換えて `tools/check-cla-section.sh` → rc=0「OK: CONTRIBUTING.md の CLA の節は origin/main と同じ」（確かめた後に戻した）。旧の入口は最初の `## `（= `## ライセンス`、origin/main の 3 行目）から後ろを比べていたので、この書き換えは旧では落ちた。新の範囲は `/^## CLA/,/^## 送る前に/` だけ。tasks.md 1.1 の受け入れ条件は「書き足すのは冒頭の許諾の文だけ」で、訂正は「受け入れ条件は変えない」と言うが、範囲は CLA の節の手前の `## ライセンス` の分だけ狭まった。R14 で問題になったのは `## 送る前に` の後ろ（手元の検査の行）だけで、`## ライセンス` を外す理由は訂正の記録に無い。CLA の節そのものを書き換えれば落ちることは確かめた（上）
+- kind: technical
+- 提案: `check-cla-section.sh` の比べる範囲を「最初の `## ` から `## 送る前に` の見出しまで」にする（`## ライセンス` と CLA の節の両方）。または `## ライセンス` の節を別に比べる。R8 の「本体は AGPL-3.0-only」を直す計画なら、その節を変えてよい範囲として tasks.md に明記する

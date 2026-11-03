@@ -114,3 +114,15 @@ rests_on の漏れは、土台が**仮の D**（確認バッチで「変える�
     - merge gate は rebase の後の CI で合わせた木と同じものを見る（`scripts/merge_gate.sh:7`・`:79`。K1 の根拠）。
   - 条件 3: follows は無い。
   - 条件 4: rests_on の D9 は resolved で、仮の D ではない（D9 ← Q14・Q16。どちらも本人の答え）。Q16 は答え済み。挙がっていない土台は P17（確かさ 2。`premises.md:24`）。外れても checkout が落ちる側に倒れるので、否の条件にはしない。
+
+## D19
+- 判定: 確か
+- 根拠:
+  - 条件 1: 失うものは見つからなかった。
+    - 免除で通る本物の部品は `com.google.code.findbugs:jsr305:3.0.2` だけ（design.md:271）。gradle の cache の jar（`unzip -l …/jsr305-3.0.2.jar`）には `META-INF/MANIFEST.MF` と `META-INF/maven/…/pom.xml` しか無く、許諾のファイルも NOTICE も無い。POM（`jsr305-3.0.2.pom`）にも developers / organization が無く、親（`oss-parent`）を辿っても作者は取れなかった（`notices.sh` の `pom_holders` が空を返したので、R12 の HEAD で落ちていた）。
+    - つまり、部品の側に残すべき著作権の表示がそもそも無い。一覧の項は部品が持つものを全部載せており、取りこぼした入力は無い（uncaptured ではない）。同じ入力から組み直せば同じ項になる。
+    - 外に出るもの: keeps の「最初の印の前なので配った一覧は無い」は言い過ぎている。PR の CI の `package-linux` は APK も組み（`tools/release/package.sh:17`、`.github/workflows/ci.yml:365`）、`release-package` として上げる（`ci.yml:413-414`）。D9 の節のとおり、PR の成果物は誰でも落とせる側として扱っている。ST53 の PR が開けば、jsr305 の項を含む一覧が外に出る。ただし、その項は部品が持つ表示を欠いていない。反転条件（法務の確かめで Apache-2.0 にも表示が要ると分かる）に当たっても、jsr305 の表示はどの出所にも無いので、添えられる表示は無い。採れる手は部品を替えることだけで、それは次の版で済む。落とす側（D8 の読み方）を選んでも、もう出た写しが良くなるわけではない。この決定で増える exported は無い。
+    - 免除はほかの式に広がらない。`holder_exempt` は式のどの部品も免除の式であることを求める（`tools/release/notices.sh:20-27`）。Python の側も、免除でない部品が 1 つでもあれば `need_holders` を立てる（`notices.sh:294`）。`MIT OR Apache-2.0`・空の式・`BSD-3-Clause`・`Unicode-3.0` が落ちることを、自己試験が固定している（`notices.sh:343-354`。`bash tools/release/notices.sh --self-test` → rc=0、Scenario 16 本）。
+  - 条件 2: 費用は `HOLDER_EXEMPT` の 1 行と自己試験の段で、`notices.sh` の中だけで済む（commit 3e4c9117）。要件 FR-127（`docs/requirements.md:1094`「依存の許諾の一覧を同梱する」）の本文は変えない。spec の IF（`specs/distribution/spec.md:173`「全文も著作権の表示も見つからない」なら落とす）に対して、jsr305 は全文があるので、落とさないのは文面どおり。免除の外の式で作者が無ければ落とすのは、文面より厳しい側で、D8 の読み方のまま。
+  - 条件 3: follows は無い。
+  - 条件 4: rests_on の D8 は resolved（Q13 の本人の答え）で、仮の D ではない。挙がっていない土台は D7 ← Q12（携帯の POM の許諾を AND で読む）。`need_holders` は POM の全部の許諾を見て、どれか 1 つでも免除の外なら作者を求める（`notices.sh:270-294`）。これは AND の読みと向きが同じで、答え済みなので土台は動かない。
