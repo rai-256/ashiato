@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 
+use crate::channel_notice::ChannelNotice;
 use crate::clock::{ReferenceClock, SkewSchedule, Uptime};
 use crate::clock_record::{skew_record, RecordContext};
 use crate::clock_worker::{ClockReading, ClockWorker, WorkerPoll};
@@ -108,6 +109,8 @@ pub struct Runtime<'a> {
     outage: Option<OutagePoller>,
     /// 「サーバを更新してください」の通知係（ST50 / design D5）。付けなければ通知は出ない
     contract_notice: Option<ContractNotice>,
+    /// 系統の違いの通知係（D12（仮））。契約の版の通知とは別の札を使う。
+    channel_notice: Option<ChannelNotice>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -270,6 +273,7 @@ impl<'a> Runtime<'a> {
             clock_worker: None,
             outage: None,
             contract_notice: None,
+            channel_notice: None,
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -309,6 +313,11 @@ impl<'a> Runtime<'a> {
     /// 「サーバを更新してください」の通知係を付ける。**付けなければ通知は出ない**（収集は続く）。
     pub fn set_contract_notice(&mut self, notice: ContractNotice) {
         self.contract_notice = Some(notice);
+    }
+
+    /// 系統の違いの通知係を付ける。
+    pub fn set_channel_notice(&mut self, notice: ChannelNotice) {
+        self.channel_notice = Some(notice);
     }
 
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
@@ -819,7 +828,25 @@ impl<'a> Runtime<'a> {
     fn send_at(&mut self, now: DateTime<Utc>) {
         let log = self.log;
         let mut log = |line: String| log(line);
-        let answer = read_contract_answer(&self.transport.get("/contract"));
+        let reply = self.transport.get("/contract");
+        let channel = crate::sender::read_contract_channel(&reply);
+        let answer = read_contract_answer(&reply);
+        if let Some(server) = channel {
+            if server != self.channel {
+                tracing::warn!(
+                    kind = "channel_mismatch",
+                    error = "server_channel",
+                    "channel_mismatch"
+                );
+                if let Some(notice) = &self.channel_notice {
+                    notice.after_send(Some(server), self.channel, now, &mut log);
+                }
+                return;
+            }
+        }
+        if let Some(notice) = &self.channel_notice {
+            notice.after_send(channel, self.channel, now, &mut log);
+        }
         let accepted = match answer {
             ContractAnswer::Version(a) => Some(a),
             held => {
@@ -1040,6 +1067,7 @@ mod tests {
                     r#"{{"contract_version":{}}}"#,
                     crate::contract::CONTRACT_VERSION
                 ),
+                headers: Default::default(),
             })
         }
 
@@ -1059,6 +1087,7 @@ mod tests {
             Ok(Reply {
                 status: 200,
                 body: serde_json::to_string(&items).unwrap(),
+                headers: Default::default(),
             })
         }
     }
@@ -1419,6 +1448,7 @@ mod tests {
                 Ok(Reply {
                     status: 200,
                     body: r#"{"contract_version":1}"#.to_string(),
+                    headers: Default::default(),
                 })
             }
             fn post(&self, _: &str, _: &str, _: u32) -> anyhow::Result<Reply> {
@@ -1478,10 +1508,12 @@ mod tests {
             Reply {
                 status: 404,
                 body: String::new(),
+                headers: Default::default(),
             },
             Reply {
                 status: 200,
                 body: "<html>入口の画面</html>".to_string(),
+                headers: Default::default(),
             },
         ] {
             let transport = Answers {

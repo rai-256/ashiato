@@ -138,6 +138,11 @@ fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyho
             let toaster = std::sync::Arc::new(toaster);
             // 「サーバを更新してください」の通知（ST50）。札は途切れの通知と別
             rt.set_contract_notice(c02::contract_notice::ContractNotice::new(toaster.clone()));
+            // 系統の違いの通知。契約の版の通知とは別の札・状態を持つ
+            rt.set_channel_notice(c02::channel_notice::ChannelNotice::new(
+                toaster.clone(),
+                &cfg.state_dir,
+            ));
             rt.set_outage_poller(c02::outage_notice::OutagePoller::new(
                 std::sync::Arc::new(c02::sender::HttpOutageQuery::new(
                     &cfg.base_url,

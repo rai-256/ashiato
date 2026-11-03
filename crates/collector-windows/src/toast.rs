@@ -10,6 +10,7 @@ use windows::core::HSTRING;
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
+use crate::channel_notice::ChannelToaster;
 use crate::contract_notice::ContractToaster;
 use crate::outage_notice::Toaster;
 
@@ -20,6 +21,8 @@ pub const TAG: &str = "outage";
 pub const GROUP: &str = "ashiato";
 /// 「サーバを更新してください」の通知の識別（途切れの通知の `outage` と分ける。ST50 / design D5）。
 pub const CONTRACT_TAG: &str = "contract";
+/// 系統の違いの通知（契約の版の通知とは別）。
+pub const CHANNEL_TAG: &str = "channel";
 
 /// 通知の設定の窓口。
 #[derive(Debug)]
@@ -119,5 +122,15 @@ impl ContractToaster for WindowsToaster {
 
     fn dismiss_contract(&self) -> anyhow::Result<()> {
         self.dismiss_tagged(CONTRACT_TAG)
+    }
+}
+
+impl ChannelToaster for WindowsToaster {
+    fn show_channel(&self, xml: &str) -> anyhow::Result<()> {
+        self.show_tagged(xml, true, CHANNEL_TAG)
+    }
+
+    fn dismiss_channel(&self) -> anyhow::Result<()> {
+        self.dismiss_tagged(CHANNEL_TAG)
     }
 }

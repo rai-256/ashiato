@@ -19,6 +19,7 @@
 //! 迷ったら**取る側・残す側**に倒す。
 pub mod autostart;
 pub mod browsers;
+pub mod channel_notice;
 pub mod clock;
 pub mod clock_record;
 pub mod clock_worker;
