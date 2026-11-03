@@ -90,7 +90,7 @@
 
 ## Task 6: PC の収集アプリの開発版の名前と置き場（D1・D2・D8）
 
-- [ ] 6.1 `Runtime` と `main.rs` が `channel(env!("ASHIATO_VERSION"))` を持つ（試験は差し替える）。`autostart::entry_name(channel)`（開発版は `ashiato-collector-dev.cmd`）・`toast::aumid(channel)`（開発版は `dev.ashiato.collector.dev`）・`toast::display_name(channel)`（開発版は `ashiato 開発版`）にし、正式版は今の値。
+- [x] 6.1 `Runtime` と `main.rs` が `channel(env!("ASHIATO_VERSION"))` を持つ（試験は差し替える）。`autostart::entry_name(channel)`（開発版は `ashiato-collector-dev.cmd`）・`toast::aumid(channel)`（開発版は `dev.ashiato.collector.dev`）・`toast::display_name(channel)`（開発版は `ashiato 開発版`）にし、正式版は今の値。
   `Config::from_lookup` に系統を渡し、開発版は `state_dir = <渡された置き場>/dev`・端末識別子の末尾に `-dev`（すでに `-dev` で終われば付けない）・`exclusions_path = <渡された置き場>/exclusions.json`。除外を読む口は 2 つとも `exclusions_path` を読む（D2）: `main.rs` の前景の窓の除外の読み込みと、ブラウザの履歴の取り込み（`HistoryCollector::new` が除外の登録の置き場を引数で受け、`Runtime::with_history` が設定の `exclusions_path` を渡す。今の `history/collect.rs:315` の `state_dir.join("exclusions.json")` をやめる）。自動起動の `.cmd` には渡された値（掘る前・付ける前）を書く。
   試験（`config.rs`・`autostart.rs`・`toast.rs`・`main.rs` の `#[cfg(test)]`、名前は `st54_`）: `// Scenario: 版番号を渡さずに組んだ部品は正式版として振る舞う`・`// Scenario: 開発版の PC の収集アプリは、開発版の自動起動の項目と差出人を使う`・
   `// Scenario: 開発版は、渡された置き場の下の dev を置き場にする`・`// Scenario: 開発版の自動起動の項目は、渡された置き場と端末識別子をそのまま書く`・`// Scenario: すでに -dev で終わる端末識別子には、重ねて付けない`・
@@ -99,7 +99,7 @@
   試験（`runtime.rs` の `#[cfg(test)]`、名前は `st54_`）: `// Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む`（開発版の系統で設定を読み、`exclusions.json` は**渡された置き場に直接**書く —— `write_rules` は `cfg.state_dir`（開発版では `<置き場>/dev`）に書くので使わない。取り込みの前に `<置き場>/dev/exclusions.json` が無いことを assert し、`history_runtime` と偽の読み手で `example.test/1`・`example.test/2` の訪問を取り込んで送り、送る本文に `example.test/1` が無く `example.test/2` がある。直していない `collect.rs:315` では落ちる）。
   `Runtime` に除外の登録の置き場を持たせる（今は `state_dir` だけ。`Runtime::new` で設定の `exclusions_path` を受け、`with_history` がそれを `HistoryCollector::new` に渡す）。`HistoryCollector::new` を呼ぶほかの口（`history/collect.rs:844` の試験の土台・`tests/runtime_windows.rs:1443`）と、`Config` を直書きする試験（`runtime.rs` の `cfg()`・`examples/browser_history_smoke.rs:172`・`tests/runtime_windows.rs:585`・`:654`）も合わせる。`tests/runtime_windows.rs` は `#![cfg(windows)]` で Linux の検証では組まれないので、Task 8 の Windows の検証で組めることを見る
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st54_ && test "$(cargo test -p ashiato-collector-windows st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` rc=0（既存の試験が通る）
-- [ ] 6.2 `tools/release/build.sh collector-windows` が、版番号に `-dev.` を含むとき zip の中の実行ファイルを `ashiato-collector-windows-dev.exe` にする（D8。版番号で分ける）。`--self-test` に
+- [x] 6.2 `tools/release/build.sh collector-windows` が、版番号に `-dev.` を含むとき zip の中の実行ファイルを `ashiato-collector-windows-dev.exe` にする（D8。版番号で分ける）。`--self-test` に
   `echo "== Scenario: 開発版の PC の収集アプリの配布物の実行ファイルは、-dev の名前を持つ"`（組み立てを偽の実行ファイルに差し替え、`0.4.0-dev.20261102` と `0.4.0` の zip の中の名前を読む）を足す
   検証: `tools/release/build.sh --self-test` rc=0
 
