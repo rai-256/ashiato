@@ -146,7 +146,7 @@
 
 ## Task 6: 配布物に 3 点を入れる（`build.sh`・gradle・`release.yml`）
 
-- [ ] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `tools/release/notices.sh commit` の出力。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
+- [x] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `tools/release/notices.sh commit` の出力。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
   `build_apk` は 3 点を一時の置き場に組み（5.2・5.3）、`-Pashiato.licenseAssets=<置き場>` で gradle に渡す。`build.gradle.kts` は、その property があるときだけ `release` の assets の source set に `licenses/` として足す（D13）。
   `release.yml` の `package-linux`・`package-windows` の組み立ての手順に `ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を渡す。`nightly.yml` と `ci.yml` は渡さない。
   `ci.yml` の `package-linux`・`package-windows` の `actions/checkout` に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を足す（`with:` は block 形式に書き直す —— flow 形式の `{ … }` の中では値を引用符で囲むことになり、字面の判定が揺れる。PR では head の commit、main への push では push の commit を checkout する。`persist-credentials: false` は残す。D9・Q16）。
