@@ -76,7 +76,7 @@
 | [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 4 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49, ST51 | 34 |
 | [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 5 | FR-127, NFR-26 | ST52 | 35 |
 | [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 5 | FR-106 | ST52 | 34 |
-| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111, FR-132 | ST52, ST28 | — |
+| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111, FR-132 | ST52, ST28, ST44 | — |
 | [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 5 | FR-128 | ST52, ST44 | — |
 | [ST57](ST57.md) | 新しい版が出たら知らせる | 6 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
 | [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 7 | FR-114, FR-119, FR-120 | ST57, ST48, ST51, ST54 | — |
@@ -92,7 +92,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | capability | 何の能力か | 積む Story |
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST44, ST49, ST50, ST52 |
-| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST51, ST56 |
+| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST51, ST55, ST56 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST51, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
@@ -100,10 +100,10 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST44, ST49 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
 | `record-deletion` | 削除 | ST22, ST23, ST49 |
-| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56, ST59 |
+| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST55, ST56, ST59 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51, ST55 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST44, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58, ST60 |
 
@@ -527,3 +527,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - ST59（FR-133。合言葉を画面から変える）を足した。共有の値は ST56 の形なので requires は ST55・ST56。アクセス制御なので `data-sensitivity` に積む
 > - ST60（FR-131。Linux の配布）を足した。Windows の更新の経路の後に Linux へ広げるので requires は ST55・ST58。`distribution` に積む
 > - ST54（FR-106）と ST57（FR-112）は ★ 2026-11-03 の補足を見て、判断を変えずに judged だけ進めた（ST54 は design D8（仮）の反転条件が受ける。ST57 の更新係のアカウントは設計の段で決める）
+
+> **訂正（2026-11-03、ST55 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - **ST55 の requires に ST44 を足した**（layer は 5 のまま）。インストーラは ST44 が足したログインの印の鍵（`WEB_SESSION_KEY`。ST44 design D8（仮））も秘密として作って置き、
+>   ST55 の「画面の合言葉は照らすための値だけを持つ」（design D8）は ST44 が MODIFIED した `data-sensitivity` の「画面から記録を読むには合言葉のログインが要る」を、その delta の上で書き換える（spec_overlap の観点 7）
+> - `data-sensitivity`・`data-durability`・`device-collection` に ST55 を足した。配る形（サービス）での画面の合言葉の持ち方と、書き出し・写真の原本の既定の置き場を、インストールの置き場（FR-109）に合わせる
+>   （申し送り `docs/handoff/ST55.md` の C6）。後続の振る舞いの前倒しではない
+
