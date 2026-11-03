@@ -72,7 +72,7 @@
 
 ## Task 3: 依存の許諾の検査の節と、自分の部品（Rust・Node）
 
-- [ ] 3.1 `tools/check-licenses.sh` を、引数で節（`rust`・`node`・`android`）を選べる形にする（D15）。引数が無ければ 3 つ全部。中間のファイルは `$TMPDIR`（無ければ `mktemp -d`）に書き、`/tmp/meta.json` をやめる。
+- [x] 3.1 `tools/check-licenses.sh` を、引数で節（`rust`・`node`・`android`）を選べる形にする（D15）。引数が無ければ 3 つ全部。中間のファイルは `$TMPDIR`（無ければ `mktemp -d`）に書き、`/tmp/meta.json` をやめる。
   SPDX の式の評価（今は 2 つの節に同じ関数がある）は、台本の中の 1 か所にまとめる。
   許可の一覧から `AGPL-3.0-only` を外す（D6（仮））。ほかの値は変えない。
   Rust の節は `workspace_members` の部品を、Node の節は根の部品を、許諾が `AGPL-3.0-only WITH AdditionRef-ashiato-play-services` のときだけ通す。
