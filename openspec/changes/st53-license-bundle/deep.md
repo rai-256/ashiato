@@ -109,7 +109,8 @@
 - 問い: PR の組み立て（`package-linux`・`package-windows`）を、合成の merge commit からではなく PR の head の commit そのものから組むようにするか
 - 推奨: head から組む（checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}`）。組んだソース・組み立ての印・`SOURCE.txt` が一致し、比べはすべての組み立てで残る。D17（仮）は要らない
 - 出所: R17（`SOURCE.txt` の head と組んだ木が、その時の main の差だけ食い違う。FR-127 の対応するソース）・R18（D17 の前提「PR と main への push を分けられない」は誤り。`ci.yml:34`）
-- 答え: (未回答)
+- 答え: (推奨のまま: PR の組み立てを head から組む（checkout に head の commit を渡す）)
+  - 本人は推奨の選択肢を明示して選んだ（`deep-answers-3.txt`）。補足なし
 
 ## 影響の判断（第 1 回の合意）
 
@@ -137,6 +138,15 @@
 - `docs/production-prep.md` の「本体のライセンス」の行に、例外の 5 つと、前進側の 2 つは最初の印から後に直せないことを足した（C6）
 - Q12・Q13 は要件を変えない（NFR-26 ★「許可の外のプロプライエタリな依存が入ったら検査が止める」と AND の読みは向きが同じ）
 
+## 要件へ戻すもの（record の段で戻した。2026-11-03・第 3 回）
+
+- FR-127 に ★ 2026-11-03 補足（第 3 回）: PR の組み立ては PR の head の commit そのものから組む（GitHub が作る merge の commit からは組まない）。`SOURCE.txt` の head と組んだソースが一致する（Q16）
+- 仮の決定 D17 は外す（R18）。要件の本文には D17 の名が無いので要件は変えない
+
+## spec の段へ渡すもの（record の段から。2026-11-03・第 3 回）
+
+`spec --answers Q16` で写す: design D9（head から組む・比べはすべての組み立てで残す）・D16・D17（仮）を外し `provisional.py resolve`、spec の PR の組み立ての文と Scenario、tasks の `package-linux`・`package-windows` の checkout と `check-artifacts.sh` の比べ（Q14 で「外す」とした分岐を戻す）、go.json の walkthrough と IMP-06、premises P14
+
 ## Story へ戻したもの（record の段。2026-11-03・第 2 回）
 
 - `docs/stories/ST53.md` の完了の判定: `SOURCE.txt` を commit で示す組み立てを「それ以外の組み立て —— 開発版・main への push・PR」にした（C9。`stories.json` → `make_story.py`）
@@ -151,6 +161,7 @@
 - 第 2 回（2026-11-03）: D4 ← Q10（書き換えない。移行の 3 つは例外の一覧に名前で載せ、最初の印から後は表示を直せないことを受け入れる）・D5 ← Q11（先頭 25 行・表示の無いファイルは見ない・例外は wrapper の 2 つと移行の 3 つ）・D7 ← Q12（AND。`@pom` を解決して取り寄せ、`--offline` で取れなければ落とす）・D8 ← Q13（携帯の部品は D7 の task の出力から）・D9 ← Q14（PR は head の commit `github.event.pull_request.head.sha`。組み立ての印との比べはその場合だけ外す）・D16 ← Q15（開発版は main の commit、PR は Q14 の commit）。どれも本人の決定で、（仮）には戻さない
 
 - Q5 は推奨のまま（「506 ファイル」）で補足が無い。D4（第 1 回の時点では仮。第 2 回の Q10 で本人が決めた）（移行の 3 ファイルは表示を書き換えない。書き換えるのは 503）は、答えの上に乗る例外として残す（D4 の「Q5 で本人が全部の書き換えを補足したら外す」に当たらない）
+- 第 3 回（2026-11-03）: D9 ← Q16（PR の `package-linux`・`package-windows` は checkout に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を渡して head から組む。`SOURCE.txt`・組み立ての印・組んだソースが同じ head を指すので、Q14 の「組み立ての印との比べはその場合だけ外す」は要らなくなり、比べはすべての組み立てで残す）・D17（仮）は外す（R18。前提が誤り）。本人の決定で、（仮）には戻さない
 - Q7 は推奨のまま。D16（第 1 回の時点では仮。第 2 回の Q15 で本人が決めた）は答えと一致した（反転条件「全部、印で示す」に当たらない）
 
 ## 問いの出所（review/deep.md の指摘）
@@ -169,6 +180,7 @@
 - Q13 ← provisional-review.md の D8（否）・review/deep.md R7
 - Q14 ← provisional-review.md の D9（否）・review/deep.md R5・R6・review/spec.md R15（premises P14）
 - Q15 ← provisional-review.md の D16（否）・review/spec.md R14
+- Q16 ← review/spec.md R17・R18
 
 ## record の段へ渡すもの（spec の段から。答えに合わせて行う）
 
