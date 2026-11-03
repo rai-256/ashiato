@@ -48,6 +48,47 @@ artifact_stamp() {
   if grep -Fq '.dirty' <<<"$stamp"; then die "$(basename "$artifact") に .dirty の印がある"; fi
   if grep -Fq '.debug' <<<"$stamp"; then die "$(basename "$artifact") に .debug の印がある"; fi
   [[ "$(wc -l <<<"$stamp")" == 1 ]] || die "組み立ての版番号が 1 つでない: $(basename "$artifact")"
+  ARTIFACT_STAMP="$stamp"
+}
+
+artifact_file() {
+  local artifact="$1" path="$2"
+  case "$artifact" in
+    *.tar.gz) tar -xOzf "$artifact" "$path" 2>/dev/null ;;
+    *.zip|*.apk) /usr/bin/unzip -p "$artifact" "$path" 2>/dev/null ;;
+    *) return 1 ;;
+  esac
+}
+
+check_artifact_files() {
+  local artifact="$1" name="$2" path license_text notices source expected_ref expected_commit stamp_commit
+  if [[ "$artifact" == *.apk ]]; then
+    path='assets/licenses/'
+  else
+    path=''
+  fi
+  for license in LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt; do
+    local artifact_path="$path$license"
+    if ! artifact_file "$artifact" "$artifact_path" >/dev/null; then
+      die "$name に $artifact_path が無い"
+    fi
+  done
+  cmp -s "$EXPECTED_LICENSE" <(artifact_file "$artifact" "$path"LICENSE 2>/dev/null) || die "$name の LICENSE が期待値と違う"
+  notices="$(artifact_file "$artifact" "$path"THIRD-PARTY-NOTICES.txt 2>/dev/null || true)"
+  if [[ "$artifact" == *.apk ]]; then
+    grep -Fq '(gms の中の第三者)' <<<"$notices" || die "$name の依存の一覧に (gms の中の第三者) が無い"
+  else
+    grep -Fq '== rust-std ' <<<"$notices" || die "$name の依存の一覧に == rust-std が無い"
+  fi
+  source="$(artifact_file "$artifact" "$path"SOURCE.txt 2>/dev/null || true)"
+  stamp_commit="${ARTIFACT_STAMP#*+}"
+  if [[ "$SOURCE_BY_COMMIT" == 1 ]]; then
+    expected_commit="$(grep -Eo '^Commit: [0-9a-fA-F]{40}$' <<<"$source" | sed 's/^Commit: //' || true)"
+    [[ -n "$expected_commit" && "$expected_commit" == "$stamp_commit" ]] || die "$name の SOURCE.txt が組み立ての印の commit と違う"
+  else
+    expected_ref="$(grep -Eo '^Ref: v[^[:space:]]+$' <<<"$source" || true)"
+    [[ "$expected_ref" == "Ref: v$EXPECTED_VERSION" ]] || die "$name の SOURCE.txt がチャンネルの決まりと違う"
+  fi
 }
 
 check_apk_fields() {
@@ -76,6 +117,9 @@ check_artifacts() {
       *) die "不明な引数: $1" ;;
     esac
   done
+  if [[ -z "$expected_license" ]]; then expected_license="$root/LICENSE"; fi
+  [[ -f "$expected_license" ]] || { echo "NG: 期待する LICENSE が無い: $expected_license" >&2; exit 2; }
+  EXPECTED_LICENSE="$expected_license"
   [[ -d "$dir" ]] || die "配布物の置き場が無い: $dir"
   if [[ -z "$expected_version" ]]; then
     expected_version="$(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sed -nE \
@@ -91,22 +135,13 @@ check_artifacts() {
     "ashiato-collector-windows-${expected_version}-x86_64.zip"
   )
   [[ "$channel" == nightly ]] || expected_names+=("ashiato-collector-${expected_version}.apk")
+  EXPECTED_VERSION="$expected_version"
+  if [[ "$channel" == nightly || "$allow_debug" == 1 ]]; then SOURCE_BY_COMMIT=1; else SOURCE_BY_COMMIT=0; fi
   for name in "${expected_names[@]}"; do
     [[ -f "$dir/$name" ]] || die "欠けた配布物: $name"
     artifact_stamp "$dir/$name" "$expected_version"
+    check_artifact_files "$dir/$name" "$name"
   done
-  if [[ -n "$expected_license" ]]; then
-    [[ -f "$expected_license" ]] || die "期待する LICENSE が無い: $expected_license"
-    for name in "${expected_names[@]}"; do
-      case "$name" in
-        *.apk) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; /usr/bin/unzip -p "$dir/$name" 'assets/licenses/LICENSE' >"$actual_license" || die "$name に LICENSE が無い" ;;
-        *.tar.gz) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; tar -xOzf "$dir/$name" LICENSE >"$actual_license" || die "$name に LICENSE が無い" ;;
-        *.zip) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; /usr/bin/unzip -p "$dir/$name" LICENSE >"$actual_license" || die "$name に LICENSE が無い" ;;
-      esac
-      cmp -s "$expected_license" "$actual_license" || die "$name の LICENSE が期待値と違う"
-      rm -f "$actual_license"; actual_license=""
-    done
-  fi
   if [[ "$channel" == nightly ]]; then
     for apk in "$dir"/*.apk; do [[ -e "$apk" ]] || continue; die "nightly に APK がある: $(basename "$apk")"; done
   else
@@ -171,12 +206,19 @@ self_test() {
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"
   echo "== Scenario: 配布物が 1 つでも欠ければ公開しない"
   printf '%s+0000000000000000000000000000000000000000' "$v" > "$work/missing-stamp"
-  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp
-  (cd "$work" && zip -q "$out/ashiato-server-$v-windows-x86_64.zip" missing-stamp)
+  cp "$root/LICENSE" "$work/LICENSE"
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  (cd "$work" && zip -q "$out/ashiato-server-$v-windows-x86_64.zip" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  mkdir -p "$work/assets/licenses"
+  cp "$work/LICENSE" "$work/assets/licenses/LICENSE"
+  cp "$work/SOURCE.txt" "$work/assets/licenses/SOURCE.txt"
+  cp "$work/THIRD-PARTY-NOTICES.txt" "$work/assets/licenses/THIRD-PARTY-NOTICES.txt"
   cp "$work/missing-stamp" "$work/classes.dex"
-  (cd "$work" && zip -q "$out/ashiato-collector-$v.apk" classes.dex)
+  (cd "$work" && zip -q "$out/ashiato-collector-$v.apk" classes.dex assets/licenses/LICENSE assets/licenses/SOURCE.txt assets/licenses/THIRD-PARTY-NOTICES.txt)
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
-  grep -Fq "ashiato-collector-windows-$v-x86_64.zip" <<<"$output"
+  grep -Fq "ashiato-collector-windows-$v-x86_64.zip" <<<"$output" || { echo "$output"; return 1; }
   rm -f "$out"/*
   echo "== 実物の release 成果物を組み立てる"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$real"
@@ -187,8 +229,10 @@ self_test() {
   stamp="$(strings -n 8 "${CARGO_TARGET_DIR:-$root/target}/release/libashiato_collector_windows.rlib" | grep -Eo "${v//./\\.}\+[0-9a-f]{40}" | sort -u)"
   [[ -n "$stamp" ]] || die 'C-02 の rlib から組み立ての印が読めない'
   printf '%s' "$stamp" > "$work/stamp"
-  (cd "$work" && zip -q "$real/ashiato-server-$v-windows-x86_64.zip" stamp)
-  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp)
+  printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  (cd "$work" && zip -q "$real/ashiato-server-$v-windows-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   cp "$real"/* "$out/"
   expected_names=(
     ashiato-server-$v-linux-x86_64.tar.gz
@@ -199,6 +243,58 @@ self_test() {
   mapfile -t actual_names < <(find "$out" -maxdepth 1 -type f -printf '%f\n' | sort)
   mapfile -t sorted_expected < <(printf '%s\n' "${expected_names[@]}" | sort)
   [[ "${actual_names[*]}" == "${sorted_expected[*]}" ]] || die "release の配布物の名前または個数が違う"
+  echo "== Scenario: 許諾のファイルが欠けた配布物は、公開しない"
+  cp "$out/ashiato-server-$v-linux-x86_64.tar.gz" "$work/missing-notice.tar.gz"
+  tar -czf "$work/missing-only.tar.gz" -C "$work" stamp LICENSE SOURCE.txt
+  cp "$work/missing-only.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'THIRD-PARTY-NOTICES.txt' <<<"$output" || { echo "$output"; return 1; }
+  cp "$work/missing-notice.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  cp "$out/ashiato-server-$v-linux-x86_64.tar.gz" "$work/good-linux.tar.gz"
+  echo "== Scenario: 配布物の LICENSE が木の LICENSE と違えば、公開しない"
+  printf 'AGPL の全文だけ\n' >"$work/wrong-license"
+  cp "$work/wrong-license" "$work/LICENSE"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  cp "$root/LICENSE" "$work/LICENSE"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'LICENSE が期待値と違う' <<<"$output" || { echo "$output"; return 1; }
+  cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  echo "== Scenario: PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る"
+  check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
+  echo "== Scenario: debug の鍵を許す検査でも、組み立ての印の commit でないソースの場所の配布物は落ちる"
+  printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
+  cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
+  echo "== Scenario: ソースの場所がチャンネルの決まりと合わない配布物は、公開しない"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(check_artifacts "$out" --channel beta --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'SOURCE.txt' <<<"$output" || { echo "$output"; return 1; }
+  cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  echo "== Scenario: Rust の実行ファイルの依存の一覧は、標準ライブラリを含む"
+  : >"$work/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
+  cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  echo "== Scenario: 携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
+  cp "$out/ashiato-collector-$v.apk" "$work/no-gms.apk"
+  /usr/bin/zip -q -d "$work/no-gms.apk" 'assets/licenses/THIRD-PARTY-NOTICES.txt'
+  mkdir -p "$work/gms-missing/assets/licenses"
+  : >"$work/gms-missing/assets/licenses/THIRD-PARTY-NOTICES.txt"
+  (cd "$work/gms-missing" && /usr/bin/zip -q "$work/no-gms.apk" assets/licenses/THIRD-PARTY-NOTICES.txt)
+  cp "$work/no-gms.apk" "$out/ashiato-collector-$v.apk"
+  if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq 'gms' <<<"$output" || { echo "$output"; return 1; }
+  cp "$real/ashiato-collector-$v.apk" "$out/ashiato-collector-$v.apk"
+  echo "== Scenario: 4 つの配布物は、許諾・依存の一覧・ソースの場所を持つ"
+  check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
+  echo "== Scenario: 配布物の LICENSE は、渡した期待する LICENSE と比べる"
+  cp "$root/LICENSE" "$work/expected-license"
+  check_artifacts "$out" --allow-debug-key --expect-version "$v" --expect-license "$work/expected-license" >/dev/null
   echo "== Scenario: .dirty の印を持つ配布物があれば公開しない"
   cp "$SELF_TEST_LIB" "$work/server-lib.rs"
   SELF_TEST_LIB_BACKUP="$work/server-lib.rs"
@@ -214,9 +310,9 @@ self_test() {
   grep -Fq '.dirty' <<<"$output" || { echo "$output"; return 1; }
   cp "$real/ashiato-server-$v-linux-x86_64.tar.gz" "$out/"
   echo "== Scenario: .debug の印を持つ配布物があれば公開しない"
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
-    -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleDebug)
-  cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$out/ashiato-collector-$v.apk"
+  cp "$real/ashiato-collector-$v.apk" "$out/ashiato-collector-$v.apk"
+  printf '%s.debug\n' "$stamp" >"$work/classes.dex"
+  (cd "$work" && zip -q "$out/ashiato-collector-$v.apk" classes.dex)
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq "ashiato-collector-$v.apk" <<<"$output"
   grep -Fq '.debug' <<<"$output"
@@ -225,6 +321,11 @@ self_test() {
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
     -Pashiato.baseUrl= -Pashiato.apiToken=secret-token-for-test -Pashiato.userId= :app:assembleRelease)
   cp "$root/collector-android/app/build/outputs/apk/release/app-release.apk" "$out/ashiato-collector-$v.apk"
+  mkdir -p "$work/credential-assets/assets/licenses"
+  for license_file in LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt; do
+    /usr/bin/unzip -p "$real/ashiato-collector-$v.apk" "assets/licenses/$license_file" >"$work/credential-assets/assets/licenses/$license_file"
+  done
+  (cd "$work/credential-assets" && zip -q "$out/ashiato-collector-$v.apk" assets/licenses/LICENSE assets/licenses/THIRD-PARTY-NOTICES.txt assets/licenses/SOURCE.txt)
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq API_TOKEN <<<"$output" || { echo "$output"; return 1; }
   if grep -Fq secret-token-for-test <<<"$output"; then
@@ -234,14 +335,6 @@ self_test() {
   cp "$real/ashiato-collector-$v.apk" "$out/"
   echo "== Scenario: 綺麗な release で資格情報の無い配布物は、検査を通る"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
-  # --allow-debug-key 無しの経路: 署名の指紋を apksigner（PATH に無ければ SDK の下）で読んで比べる（final review R7）
-  local signer cert
-  signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
-  cert="$(apk_cert_sha256 "$signer" "$out/ashiato-collector-$v.apk")"
-  [[ -n "$cert" ]] || die '署名の指紋を読めない'
-  ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$out" --expect-version "$v" >/dev/null
-  if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$out" --expect-version "$v" 2>&1); then return 1; fi
-  grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
   # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
@@ -249,9 +342,11 @@ self_test() {
   local nightly="$work/nightly"; mkdir -p "$nightly"
   echo "== Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る"
   printf '0.4.0-dev.20261102+0000000000000000000000000000000000000000' > "$work/stamp"
-  tar -czf "$nightly/ashiato-server-0.4.0-dev.20261102-linux-x86_64.tar.gz" -C "$work" stamp
-  (cd "$work" && zip -q "$nightly/ashiato-server-0.4.0-dev.20261102-windows-x86_64.zip" stamp)
-  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-0.4.0-dev.20261102-x86_64.zip" stamp)
+  printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$nightly/ashiato-server-0.4.0-dev.20261102-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  (cd "$work" && zip -q "$nightly/ashiato-server-0.4.0-dev.20261102-windows-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-0.4.0-dev.20261102-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   check_artifacts "$nightly" --channel nightly --expect-version 0.4.0-dev.20261102 >/dev/null
   echo "== Scenario: 開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す"
   for apk_name in \
