@@ -77,8 +77,15 @@ check_artifact_files() {
   notices="$(artifact_file "$artifact" "$path"THIRD-PARTY-NOTICES.txt 2>/dev/null || true)"
   if [[ "$artifact" == *.apk ]]; then
     grep -Fq '(gms の中の第三者)' <<<"$notices" || die "$name の依存の一覧に (gms の中の第三者) が無い"
+    # 依存の一覧が部品を失っていないこと: 携帯は名指しの位置情報の部品を必ず持つ（code_verify R16・/code-review R27）
+    grep -Eq '^== com\.google\.android\.gms:play-services-location ' <<<"$notices" || die "$name の依存の一覧に play-services-location が無い（部品が欠けている）"
   else
     grep -Fq '== rust-std ' <<<"$notices" || die "$name の依存の一覧に == rust-std が無い"
+    # rust-std の 1 項だけの一覧は、部品を集めそこねている。サーバは画面に入る Node の部品（react）も持つ
+    grep -E '^== ' <<<"$notices" | grep -vq '^== rust-std ' || die "$name の依存の一覧に rust-std のほかの部品が無い（部品が欠けている）"
+    if [[ "$name" == ashiato-server-* ]]; then
+      grep -Eq '^== react ' <<<"$notices" || die "$name の依存の一覧に画面の部品（react）が無い（部品が欠けている）"
+    fi
   fi
   # 部品の置き場を取り違えると（Windows のバックスラッシュの置き場で dirname が . になる等）、
   # すべての部品に木の LICENSE が入る。部品の本文がすべて木の LICENSE を含む一覧は落とす
@@ -219,11 +226,13 @@ self_test() {
     || die 'apksigner の署名者名が変わる形の指紋を読めない'
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
+  # 偽の配布物の依存の一覧。rust-std のほかに、自分の本文を持つ Rust と Node の部品を 1 つずつ持つ
+  fake_notices() { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n\n== react 18.0.0\nLicense: MIT\nMIT License of react\n'; }
   local out="$work/out" real="$work/real"; mkdir -p "$out" "$real"
   echo "== Scenario: 配布物が 1 つでも欠ければ公開しない"
   printf '%s+0000000000000000000000000000000000000000' "$v" > "$work/missing-stamp"
   cp "$root/LICENSE" "$work/LICENSE"
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   (cd "$work" && zip -q "$out/ashiato-server-$v-windows-x86_64.zip" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
@@ -240,7 +249,7 @@ self_test() {
   local mini="$work/mini" mini_tar="$work/mini.tar.gz" mini_zip="$work/mini.zip"
   mkdir -p "$mini"
   cp "$root/LICENSE" "$mini/LICENSE"
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$mini/THIRD-PARTY-NOTICES.txt"
   printf 'SOURCE\n' >"$mini/SOURCE.txt"
   printf '%s+%040d\n' "$v" 0 >"$mini/stamp"
   tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
@@ -279,7 +288,7 @@ self_test() {
   tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   if output=$(check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
   grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$mini/THIRD-PARTY-NOTICES.txt"
   echo "== Scenario: 部品の本文がすべて木の LICENSE と同じ依存の一覧の配布物は、公開しない"
   # Windows のバックスラッシュの置き場で dirname が . に化け、全部の部品に木の LICENSE が入った偽物
   { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n'
@@ -292,12 +301,32 @@ self_test() {
   printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n' >"$mini/THIRD-PARTY-NOTICES.txt"
   tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" mini.tar.gz >/dev/null
+  fake_notices >"$mini/THIRD-PARTY-NOTICES.txt"
+  echo "== Scenario: 部品を失った依存の一覧（rust-std だけ・画面の部品の無いサーバ・位置情報の部品の無い携帯）の配布物は、公開しない"
   printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
+  grep -Fq 'rust-std のほかの部品が無い' <<<"$output" || { echo "$output"; return 1; }
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" "ashiato-server-$v-linux-x86_64.tar.gz" 2>&1); then return 1; fi
+  grep -Fq '画面の部品（react）が無い' <<<"$output" || { echo "$output"; return 1; }
+  fake_notices >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" "ashiato-server-$v-linux-x86_64.tar.gz" >/dev/null
+  local nolocation="$work/nolocation"
+  mkdir -p "$nolocation/assets/licenses"
+  cp "$root/LICENSE" "$nolocation/assets/licenses/LICENSE"
+  printf '== com.google.android.gms:play-services-base 18.0.0\nLicense: x\n(gms の中の第三者)\n' >"$nolocation/assets/licenses/THIRD-PARTY-NOTICES.txt"
+  printf 'Commit: %s\n' "$commit" >"$nolocation/assets/licenses/SOURCE.txt"
+  (cd "$nolocation" && zip -q "$work/nolocation.apk" assets/licenses/LICENSE assets/licenses/SOURCE.txt assets/licenses/THIRD-PARTY-NOTICES.txt)
+  if output=$(EXPECTED_LICENSE="$root/LICENSE" ARTIFACT_STAMP="$v+$commit" SOURCE_BY_COMMIT=1 check_artifact_files "$work/nolocation.apk" nolocation.apk 2>&1); then return 1; fi
+  grep -Fq 'play-services-location が無い' <<<"$output" || { echo "$output"; return 1; }
   echo "== Scenario: 携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
   local apkmini="$work/apkmini"
   mkdir -p "$apkmini/assets/licenses"
   cp "$root/LICENSE" "$apkmini/assets/licenses/LICENSE"
-  printf '(gms の中の第三者)\n' >"$apkmini/assets/licenses/THIRD-PARTY-NOTICES.txt"
+  printf '== com.google.android.gms:play-services-location 21.0.0\nLicense: x\n(gms の中の第三者)\n' >"$apkmini/assets/licenses/THIRD-PARTY-NOTICES.txt"
   printf 'Commit: %s\n' "$commit" >"$apkmini/assets/licenses/SOURCE.txt"
   (cd "$apkmini" && zip -q "$work/mini.apk" assets/licenses/LICENSE assets/licenses/SOURCE.txt assets/licenses/THIRD-PARTY-NOTICES.txt)
   EXPECTED_LICENSE="$root/LICENSE" ARTIFACT_STAMP="$v+$commit" SOURCE_BY_COMMIT=1 check_artifact_files "$work/mini.apk" mini.apk >/dev/null
@@ -319,7 +348,7 @@ self_test() {
   [[ -n "$stamp" ]] || die 'C-02 の rlib から組み立ての印が読めない'
   printf '%s' "$stamp" > "$work/stamp"
   printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
   (cd "$work" && zip -q "$real/ashiato-server-$v-windows-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   cp "$real"/* "$out/"
@@ -368,7 +397,7 @@ self_test() {
   if output=$(check_artifacts "$out" --allow-debug-key --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
   cp "$work/good-linux.tar.gz" "$out/ashiato-server-$v-linux-x86_64.tar.gz"
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
   echo "== heavy artifact regression: gms notices"
   cp "$out/ashiato-collector-$v.apk" "$work/no-gms.apk"
   /usr/bin/zip -q -d "$work/no-gms.apk" 'assets/licenses/THIRD-PARTY-NOTICES.txt'
@@ -446,7 +475,7 @@ self_test() {
   echo "== Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る"
   printf '0.4.0-dev.20261102+0000000000000000000000000000000000000000' > "$work/stamp"
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
-  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$work/THIRD-PARTY-NOTICES.txt"
+  fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
   tar -czf "$nightly/ashiato-server-0.4.0-dev.20261102-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   (cd "$work" && zip -q "$nightly/ashiato-server-0.4.0-dev.20261102-windows-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   (cd "$work" && zip -q "$nightly/ashiato-collector-windows-0.4.0-dev.20261102-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
