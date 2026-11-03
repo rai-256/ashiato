@@ -64,7 +64,7 @@ EOF
   if output="$(PATH="$work/bin:$PATH" ADB_SCENARIO=both ADB_INSTALL_SCENARIO=failure ADB_LOG="$work/calls" install_on_emulators "$apk")"; then
     exit 1
   fi
-  [ "$output" != *emulator-5554* ]
+  [[ "$output" != *emulator-5554* ]]
 
   echo '== Scenario: 実機だけが繋がっていれば、何も入れない'
   : > "$work/calls"
@@ -74,8 +74,11 @@ EOF
   [[ "$output" == *'adb -s エミュレータ install -r'* ]]
 
   echo '== Scenario: 準備の台本は、端末を選ぶ手順を通して APK を入れる'
-  ! grep -v install_on_emulators tools/verify-prep.sh | grep -Eq 'adb|install'
-  [ "$(grep -c 'install_on_emulators' tools/verify-prep.sh)" -eq 1 ]
+  local prep
+  prep="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/verify-prep.sh"
+  [ -f "$prep" ]
+  ! grep -v install_on_emulators "$prep" | grep -Eq 'adb|install'
+  [ "$(grep -c 'install_on_emulators' "$prep")" -eq 1 ]
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
