@@ -82,7 +82,8 @@ check_artifact_files() {
   else
     grep -Fq '== rust-std ' <<<"$notices" || die "$name の依存の一覧に == rust-std が無い"
     # rust-std の 1 項だけの一覧は、部品を集めそこねている。サーバは画面に入る Node の部品（react）も持つ
-    grep -E '^== ' <<<"$notices" | grep -vq '^== rust-std ' || die "$name の依存の一覧に rust-std のほかの部品が無い（部品が欠けている）"
+    # pipe にしない（後段の grep -q が先に抜けると、pipefail の下で前段の SIGPIPE が失敗になる。再レビュー）
+    awk '/^== / && !/^== rust-std /{f=1} END{exit !f}' <<<"$notices" || die "$name の依存の一覧に rust-std のほかの部品が無い（部品が欠けている）"
     if [[ "$name" == ashiato-server-* ]]; then
       grep -Eq '^== react ' <<<"$notices" || die "$name の依存の一覧に画面の部品（react）が無い（部品が欠けている）"
     fi

@@ -119,7 +119,8 @@ publish_steps() {
   python3 -c 'import re,sys
 steps=[]; cur=None
 for line in sys.stdin.read().splitlines():
-    if line.lstrip().startswith("#"): continue
+    # 空行と注釈の行は手順を切らない（YAML では同じ手順の中。再レビュー）
+    if not line.strip() or line.lstrip().startswith("#"): continue
     if re.match(r"      - ", line): cur=[line]; steps.append(cur)
     elif cur is not None and re.match(r"        \S", line): cur.append(line)
     elif cur is not None and not re.match(r"\s{9,}", line): cur=None
@@ -294,12 +295,13 @@ EOF
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   # 字面が残っていても、走らない・失敗を飲む承認の手順は数えない（code_verify R15・/code-review R26）
   local variant
-  for variant in comment or-true if-false continue-on-error; do
+  for variant in comment or-true if-false continue-on-error blank-continue-on-error; do
     case "$variant" in
       comment) sed 's#^      - run: tools/release/check-guards.sh approvals$#      \# - run: tools/release/check-guards.sh approvals#' ;;
       or-true) sed 's#^\(      - run: tools/release/check-guards.sh approvals\)$#\1 || true#' ;;
       if-false) sed 's#^      - run: tools/release/check-guards.sh approvals$#      - if: false\n        run: tools/release/check-guards.sh approvals#' ;;
       continue-on-error) sed 's#^      - run: tools/release/check-guards.sh approvals$#      - run: tools/release/check-guards.sh approvals\n        continue-on-error: true#' ;;
+      blank-continue-on-error) sed 's#^      - run: tools/release/check-guards.sh approvals$#      - run: tools/release/check-guards.sh approvals\n\n        continue-on-error: true#' ;;
     esac <"$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml"
     ! cmp -s "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml" || die "偽の release.yml（$variant）が元と同じ"
     if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "走らない承認者の確かめ（$variant）を通した"; fi
