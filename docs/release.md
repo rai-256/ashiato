@@ -26,7 +26,7 @@ ST52 で用意した配布手順。実際に配布元へ設定を入れたり、
 
 ST53 が main に入った後、最初の正式版の印を打つ前に本人が設定する。
 
-**正式な鍵を `release` に置く前に、ST53 で「受け入れて進める（リリースの前に判断し直す）」とした IMP-01・IMP-02 を判断し直す**（`python3 scripts/imp_ledger.py risks .` に出る。印を push できる人が main を通さずに鍵を読む経路と、本人の管理者の資格情報がエージェントと同じ OS の利用者に残る件。記録上の期限は「ST54 の上流の合意まで」だが、鍵は一度読まれると取り返せないので、鍵を置くのがそれより先ならここで判断する。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C1）。
+**正式な鍵を `release` に置く前に、ST53 で「受け入れて進める（リリースの前に判断し直す）」とした IMP-01・IMP-02 を判断し直す**（`python3 scripts/imp_ledger.py risks .` に出る。印を push できる人が main を通さずに鍵を読む経路と、本人の管理者の資格情報がエージェントと同じ OS の利用者に残る件。記録上の期限は「ST54 の上流の合意まで」だが、その期限は判断し直さないまま過ぎた（ST54 の上流は 2026-11-03 に合意して main に入り、IMP-01・IMP-02 を名指ししていない）。鍵は一度読まれると取り返せないので、期限に依らず、鍵を置く前にここで必ず判断する。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C1・`docs/audit/2026-11-03-st53-st54-consistency.md` の C1）。
 
 - `release` Environment は deployment branch policy を tag `v*` **だけ**にする。`main` には開かない（D21（仮））。
 - `release` の Secret に、workflow が読む次の4つを同じ名前で置く: `ASHIATO_SIGNING_KEYSTORE_B64`（keystore を base64 にした値）、`ASHIATO_SIGNING_STORE_PASSWORD`、`ASHIATO_SIGNING_KEY_ALIAS`、`ASHIATO_SIGNING_KEY_PASSWORD`。値は手順やログに出さない。
