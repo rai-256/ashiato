@@ -10,6 +10,22 @@ usage() { echo "使い方: $0 <server|collector-windows|apk|source|commit> ... |
 
 valid_commit() { [[ "$1" =~ ^[0-9a-fA-F]{40}$ ]]; }
 
+# 部品が許諾のファイルを持たないとき、著作権の表示（作者）を求めない式（design D19（仮））。
+# 本文が著作権者の行を条件に持たないものだけを名指しする。ここに無い式は、作者が無ければ落とす。
+# apk の Python も同じ値を引数で受ける（規則の置き場はここ 1 つ）
+HOLDER_EXEMPT="Apache-2.0"
+# SPDX の式を部品に割る。`X WITH Y` は 1 つの部品（全文は texts/<X WITH Y>.txt）
+spdx_parts() { grep -Eo '[A-Za-z0-9][A-Za-z0-9.+-]*( WITH [A-Za-z0-9.+-]+)?' <<<"$1" | grep -Ev '^(AND|OR|WITH)$' | sort -u; }
+# 式のどの部品も免除（WITH の例外を除いた本体で見る）なら 0
+holder_exempt() {
+  local part any=""
+  while read -r part; do
+    any=1
+    [[ " $HOLDER_EXEMPT " == *" ${part%% WITH *} "* ]] || return 1
+  done < <(spdx_parts "$1")
+  [[ -n "$any" ]]
+}
+
 commit_value() {
   local value="${ASHIATO_BUILD_COMMIT:-}"
   [[ -n "$value" ]] || value="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
@@ -87,7 +103,7 @@ spdx_text() {
     [[ -s "$f" ]] || return 1
     cat "$f"
     printf '\n'
-  done < <(grep -Eo '[A-Za-z0-9][A-Za-z0-9.+-]*( WITH [A-Za-z0-9.+-]+)?' <<<"$expr" | grep -Ev '^(AND|OR)$' | sort -u)
+  done < <(spdx_parts "$expr")
 }
 
 emit_rust() {
@@ -102,10 +118,12 @@ emit_rust() {
     while IFS= read -r f; do cat "$f"; printf '\n'; done < <(all_license_files "$dir"); printf '\n'
   else
     [[ -n "$license" ]] || die "許諾が無い部品: $name"
-    [[ -n "$authors" ]] || die "許諾の全文も著作権の表示も無い部品: $name"
+    [[ -n "$authors" ]] || holder_exempt "$license" || die "許諾の全文も著作権の表示も無い部品: $name（許諾の式 $license が著作権の表示を求めるのに、許諾のファイルも authors も無い）"
     local body; body="$(spdx_text "$license" 2>/dev/null || true)"
     [[ -n "$body" ]] || die "許諾の全文が無い部品: $name（$license）"
-    printf '== %s %s\nLicense: %s\n%s\nCopyright: %s\n\n' "$name" "$version" "$license" "$body" "$authors"
+    printf '== %s %s\nLicense: %s\n%s\n' "$name" "$version" "$license" "$body"
+    [[ -z "$authors" ]] || printf 'Copyright: %s\n' "$authors"
+    printf '\n'
   fi
 }
 
@@ -143,10 +161,13 @@ emit_node() {
   lic="$(first_license_file "$dir")"
   printf '== %s %s\nLicense: %s\n' "$name" "$version" "$license"
   if [[ -n "$lic" ]]; then cat "$lic"; printf '\n\n'; return; fi
-  [[ -n "$license" && -n "$author" ]] || die "許諾の全文も著作権の表示も無い部品: $name"
+  [[ -n "$license" ]] || die "許諾の全文も著作権の表示も無い部品: $name"
+  [[ -n "$author" ]] || holder_exempt "$license" || die "許諾の全文も著作権の表示も無い部品: $name（許諾の式 $license が著作権の表示を求めるのに、許諾のファイルも author も無い）"
   body="$(spdx_text "$license" 2>/dev/null || true)"
   [[ -n "$body" ]] || die "許諾の全文が無い部品: $name（$license）"
-  printf '%s\nCopyright: %s\n\n' "$body" "$author"
+  printf '%s\n' "$body"
+  [[ -z "$author" ]] || printf 'Copyright: %s\n' "$author"
+  printf '\n'
 }
 
 rust_notice() {
@@ -180,10 +201,14 @@ apk_notice() {
     fi
   fi
   [[ -s "$list" ]] || die "Task 4.1 の Android 依存一覧が無い: $list"
-  python3 - "$list" "$tmp" "${GRADLE_USER_HOME:-$HOME/.gradle}" "$texts" "$root/tools/licenses/pom-license-names.tsv" <<'PY'
+  python3 - "$list" "$tmp" "${GRADLE_USER_HOME:-$HOME/.gradle}" "$texts" "$root/tools/licenses/pom-license-names.tsv" "$HOLDER_EXEMPT" <<'PY'
 import io, json, pathlib, re, sys, zipfile
 import xml.etree.ElementTree as ET
-list_path, out_path, gradle_home, texts, names_path = sys.argv[1:]
+list_path, out_path, gradle_home, texts, names_path, holder_exempt = sys.argv[1:]
+# 作者を求めない式は bash の HOLDER_EXEMPT が正本（design D19（仮））
+HOLDER_EXEMPT=set(holder_exempt.split())
+# SPDX の式の部品。`X WITH Y` は 1 つ（bash の spdx_parts と同じ）
+SPDX_PART=re.compile(r'[A-Za-z0-9][A-Za-z0-9.+-]*(?: WITH [A-Za-z0-9.+-]+)?')
 cache=pathlib.Path(gradle_home)/'caches/modules-2/files-2.1'
 named={line.rstrip('\n').split('\t',1)[0]:line.rstrip('\n').split('\t',1)[1] for line in open(names_path, encoding='utf-8') if '\t' in line}
 # 部品の中の許諾のファイル: META-INF の直下と、その下の置き場（androidx は META-INF/androidx/<group>/<name>/LICENSE.txt）
@@ -257,18 +282,22 @@ for coordinate, licenses in by_coordinate.items():
             if spdx == 'PROPRIETARY':
                 # 本文は作文しない。POM が示す許諾の URL を出所つきで書く
                 if not url: raise SystemExit(f'許諾の全文が無い: {coordinate} ({license_name}。POM に許諾の URL も無い)')
+                # 著作権者は許諾の URL の先の条項が持つ。POM に無い作者を作文しない（design D19（仮））
                 chunks.append(f'本文: {url}（出所: {coordinate} の POM の licenses）')
                 continue
-            need_holders=True
-            for part in dict.fromkeys(p for p in re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]*', spdx) if p not in ('AND','OR')):
+            parts=list(dict.fromkeys(p for p in SPDX_PART.findall(spdx) if p not in ('AND','OR','WITH')))
+            if not parts: raise SystemExit(f'許諾が無い部品: {coordinate}（POM の許諾の名前 {license_name!r} から SPDX の式を読めない）')
+            for part in parts:
                 p=pathlib.Path(texts)/(part+'.txt')
                 if not p.is_file(): raise SystemExit(f'許諾の全文が無い: {coordinate} ({license_name})')
                 chunks.append(p.read_text(encoding='utf-8'))
+                if part.split(' WITH ',1)[0] not in HOLDER_EXEMPT: need_holders=True
+        if not chunks: raise SystemExit(f'許諾が無い部品: {coordinate}（部品の中に許諾のファイルが無く、POM に許諾が無い）')
         body='\n\n'.join(chunks)
-        if need_holders:
-            holders, origin=pom_holders(group, module, version)
-            if not holders:
-                raise SystemExit(f'許諾の全文も著作権の表示も無い部品: {coordinate}（部品の中に許諾のファイルが無く、POM と親の POM に developers / organization が無い）')
+        holders, origin=pom_holders(group, module, version)
+        if need_holders and not holders:
+            raise SystemExit(f'許諾の全文も著作権の表示も無い部品: {coordinate}（許諾の式が著作権の表示を求めるのに、部品の中に許諾のファイルが無く、POM と親の POM に developers / organization が無い）')
+        if holders:
             copyright_line=f'Copyright: {"; ".join(holders)}（出所: {origin} の POM の developers / organization）\n'
     for n,line in enumerate(body.splitlines(), 1):
         if TEMPLATE.search(line):
@@ -311,6 +340,18 @@ self_test() {
   echo '== Scenario: PR の組み立ての配布物のソースの場所は、PR の head の commit'; actual="$(ASHIATO_NOTICES_ROOT="$pr_tree" "$0" commit)"; [[ "$actual" == "$pr_commit" ]]; ASHIATO_NOTICES_ROOT="$pr_tree" "$0" source "$work/pr" 0.4.0 ""; grep -q "^Commit: $pr_commit$" "$work/pr"
   echo '== Scenario: 組み立ての commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる'; if ASHIATO_BUILD_COMMIT=main "$0" source "$work/bad" 0.4.0 "" >/dev/null 2>&1; then die '不正な commit を受け入れた'; fi; [[ ! -e "$work/bad" ]]
   echo '== Scenario: 印が版番号と違う公開の組み立ては、配布物を作らずに落ちる'; if ASHIATO_SOURCE_REF=v0.4.1 "$0" source "$work/wrong" 0.4.0 "$main_commit" >/dev/null 2>&1; then die '不一致の印を受け入れた'; fi; [[ ! -e "$work/wrong" ]]
+  echo '== Scenario: 許諾のファイルも作者も無い Rust の部品は、本文が著作権者を求めない式（Apache-2.0）なら全文で通り、求める式（BSD）なら落ちる'
+  mkdir -p "$work/bare"; : > "$work/bare/Cargo.toml"
+  printf 'bare-apache\t1.0\tApache-2.0\t-\t%s/bare/Cargo.toml\n' "$work" > "$work/list"
+  ASHIATO_NOTICES_RUST_LIST="$work/list" "$0" collector-windows "$work/bare-apache" >/dev/null || die '作者の無い Apache-2.0 の Rust の部品を落とした'
+  grep -q '^== bare-apache 1.0$' "$work/bare-apache" && grep -q 'Apache License' "$work/bare-apache" || die 'Apache-2.0 の全文が Rust の一覧に無い'
+  printf 'bare-bsd\t1.0\tBSD-3-Clause\t-\t%s/bare/Cargo.toml\n' "$work" > "$work/list"
+  if failure="$(ASHIATO_NOTICES_RUST_LIST="$work/list" "$0" collector-windows "$work/bare-bsd" 2>&1)"; then die '作者の無い BSD の Rust の部品を受け入れた'; fi
+  grep -qF '許諾の全文も著作権の表示も無い部品: bare-bsd' <<<"$failure" || die "Rust の著作権の表示の失敗の理由が無い: $failure"
+  [[ ! -e "$work/bare-bsd" ]] || die '失敗時に一覧を作った'
+  holder_exempt 'Apache-2.0 WITH LLVM-exception' || die 'WITH の例外つきの Apache-2.0 を免除しなかった'
+  ! holder_exempt 'MIT OR Apache-2.0' || die '免除でない部品を含む式を免除した'
+  ! holder_exempt '' || die '空の式を免除した'
   apk_self_test "$work"
   rm -rf "$work"; trap - EXIT
 }
@@ -322,7 +363,10 @@ apk_self_test() {
   mkdir -p "$fake_root/tools/licenses/texts"
   cp "$root/tools/licenses/texts/Apache-2.0.txt" "$fake_root/tools/licenses/texts/"
   printf 'Fake BSD\n\nCopyright (c) [copyright holder]\nAll rights reserved.\n' > "$fake_root/tools/licenses/texts/BSD-3-Clause.txt"
-  printf 'Apache-2.0\tApache-2.0\nBSD-3-Clause\tBSD-3-Clause\n' > "$fake_root/tools/licenses/pom-license-names.tsv"
+  cp "$root/tools/licenses/texts/BSD-3-Clause.txt" "$fake_root/tools/licenses/texts/BSD-2-Clause.txt"
+  printf 'Apache-2.0 WITH LLVM-exception\n' > "$fake_root/tools/licenses/texts/Apache-2.0 WITH LLVM-exception.txt"
+  printf 'Fake Unicode\n' > "$fake_root/tools/licenses/texts/Unicode-3.0.txt"
+  printf 'Apache-2.0\tApache-2.0\nBSD-3-Clause\tBSD-3-Clause\nBSD-2-Clause\tBSD-2-Clause\nLLVM\tApache-2.0 WITH LLVM-exception\nUnicode\tUnicode-3.0\n' > "$fake_root/tools/licenses/pom-license-names.tsv"
   python3 - "$cache" <<'PY'
 import io, pathlib, sys, zipfile
 cache=pathlib.Path(sys.argv[1])
@@ -361,9 +405,26 @@ PY
   if failure="$(run_fake_apk $'fake:template:1.0\tBSD-3-Clause\thttps://example.invalid/l\tself' 2>&1)"; then die '雛形の残る本文を受け入れた'; fi
   grep -qF '雛形が残る許諾の本文: fake:template:1.0' <<<"$failure" || die "雛形の失敗の理由が無い: $failure"
   [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
-  echo '== Scenario: 許諾のファイルも POM の作者も無い携帯の部品があれば、組み立てが落ちる'
-  if failure="$(run_fake_apk $'fake:nobody:1.0\tApache-2.0\thttps://example.invalid/l\tself' 2>&1)"; then die '著作権の表示の無い部品を受け入れた'; fi
+  echo '== Scenario: 許諾の本文が著作権者を求めない式（Apache-2.0）の部品は、著作権の表示が無くても全文で通る'
+  rm -f "$work/out"
+  run_fake_apk $'fake:nobody:1.0\tApache-2.0\thttps://example.invalid/l\tself' >/dev/null || die '著作権の表示の無い Apache-2.0 の部品を落とした'
+  grep -q '^== fake:nobody 1.0$' "$work/out" && grep -q 'Apache License' "$work/out" || die 'Apache-2.0 の全文が一覧に無い'
+  rm -f "$work/out"
+  echo '== Scenario: 許諾の本文が著作権の表示を求める式（BSD）の部品で、許諾のファイルも POM の作者も無ければ、組み立てが落ちる'
+  if failure="$(run_fake_apk $'fake:nobody:1.0\tBSD-2-Clause\thttps://example.invalid/l\tself' 2>&1)"; then die '著作権の表示の無い BSD の部品を受け入れた'; fi
   grep -qF '許諾の全文も著作権の表示も無い部品: fake:nobody:1.0' <<<"$failure" || die "著作権の表示の失敗の理由が無い: $failure"
+  [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
+  echo '== Scenario: 免除の一覧に無い式（Unicode-3.0）の部品は、許諾のファイルも POM の作者も無ければ落ちる'
+  if failure="$(run_fake_apk $'fake:nobody:1.0\tUnicode\thttps://example.invalid/l\tself' 2>&1)"; then die '著作権の表示の無い Unicode-3.0 の部品を受け入れた'; fi
+  grep -qF '許諾の全文も著作権の表示も無い部品: fake:nobody:1.0' <<<"$failure" || die "免除の外の式の失敗の理由が無い: $failure"
+  [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
+  echo '== Scenario: WITH の例外つきの式は 1 つの全文として読む'
+  run_fake_apk $'fake:nobody:1.0\tLLVM\thttps://example.invalid/l\tself' >/dev/null || die 'WITH の例外つきの式を読めなかった'
+  grep -q '^Apache-2.0 WITH LLVM-exception$' "$work/out" || die 'WITH の例外つきの全文が一覧に無い'
+  rm -f "$work/out"
+  echo '== Scenario: 許諾の名前が無い携帯の部品は、本文の空の項を作らずに落ちる'
+  if failure="$(run_fake_apk $'fake:nobody:1.0\t-\t\tself' 2>&1)"; then die '許諾の無い部品を受け入れた'; fi
+  grep -qF '許諾が無い部品: fake:nobody:1.0' <<<"$failure" || die "許諾の無い部品の失敗の理由が無い: $failure"
   [[ ! -e "$work/out" ]] || die '失敗時に一覧を作った'
 }
 
