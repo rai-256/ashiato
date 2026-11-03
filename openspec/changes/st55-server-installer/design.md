@@ -29,10 +29,11 @@
 
 ### D1. 配る DB は `builtin` の `C.UTF-8`・`UTF8`・チェックサムで作り、版ごとの置き場 `db\17` に置く
 
-`initdb --locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums -A scram-sha-256 --pwfile=<一時のファイル> -D C:\ProgramData\ashiato\db\17`。
+`initdb -U ashiato --locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums -A scram-sha-256 --pwfile=<一時のファイル> -D C:\ProgramData\ashiato\db\17`。
+- DB の管理者の役割の名前は `ashiato` に固定する（本人の答え `deep.md` Q10。2026-11-03。開発の DB の `tools/db-roles.sh` の `POSTGRES_USER` の既定と同じ）。`-U` を渡さないと、名前はインストールを走らせた Windows の利用者の名前になり、`repair`（D27・D28）が設定のファイルの無いときに名前を知る先が無い。インストールの役割の段（D10 の (7)。D7）も `repair` の一時の接続の規則（D28）も、この固定の名前で入る。名前は設定のファイル（D4）にも別の置き場にも控えない
 - 理由: premises P4・C1。後から並べ方を変えるには全部を書き出して入れ直す（rewrite-all）が、符号の順の側は失わない（言語の順は列や照会ごとに指定できる）。文字の種類の判定（`lower()`・正規表現。`export/excluded.rs:400-410`）も開発の DB と同じ規則になる
 - 選ばなかった案: OS の地域の設定に任せる（開発と並びが変わり、Windows の更新で並べ方の表が変わると索引が黙って壊れうる）・`icu`（同梱する DLL と版が増える）
-- Windows の CI で、記録を入れる前に `datlocprovider='b'`・`datlocale='C.UTF-8'`・`UTF8`・`'a' < 'B'` が偽・`data_checksums=on` を見る（P4 の Windows の側を 4 に上げる）。`--pwfile` の一時のファイルは状態の置き場の中に作り、`initdb` の後に消す
+- Windows の CI で、記録を入れる前に `datlocprovider='b'`・`datlocale='C.UTF-8'`・`UTF8`・`'a' < 'B'` が偽・`data_checksums=on`・管理者の役割（`rolsuper`）が `ashiato` の 1 つだけ を見る（P4 の Windows の側を 4 に上げる）。`--pwfile` の一時のファイルは状態の置き場の中に作り、`initdb` の後に消す
 
 ### D2. サーバに `ashiato-server service` の口を足し、DB は同梱の `pg_ctl register` でサービスにする
 
@@ -72,7 +73,7 @@
 ### D7. 秘密は OS の暗号の乱数で作り、DB の 3 つの役割はインストーラが同梱の `psql` で `tools/db-roles.sh` と同じ SQL で作る
 
 - 秘密（DB の管理者・`ashiato_owner`・`ashiato_app` の合言葉、`API_TOKEN`、`WEB_SESSION_KEY`）は 32 バイトの乱数の base64url（43 文字）。`rand` の `OsRng`
-- 役割の SQL は `tools/db-roles.sql`（新しいファイル）に出し、`tools/db-roles.sh` もそれを `psql` に流す形に替える（台本を 2 つに分けない）。インストーラは同じファイルを配布物に入れて同梱の `psql` に流す。合言葉は `psql` の変数（`-v`）で渡し、命令の引数に載せない（`PGPASSWORD` は管理者の接続にだけ使う）
+- 役割の SQL は `tools/db-roles.sql`（新しいファイル）に出し、`tools/db-roles.sh` もそれを `psql` に流す形に替える（台本を 2 つに分けない）。インストーラは同じファイルを配布物に入れて同梱の `psql` に流す。合言葉は `psql` の変数（`-v`）で渡し、命令の引数に載せない（`PGPASSWORD` は管理者の接続にだけ使う。管理者の役割の名前は D1 の固定の `ashiato` で、`db-roles.sql` の `admin` の変数にも同じ名前を渡す）
 - 移行の前の退避の置き場 `MIGRATE_BACKUP_DIR=C:\ProgramData\ashiato\backups\pre-migrate`・`PG_DUMP=C:\Program Files\ashiato\pgsql\bin\pg_dump.exe` を設定に書き、インストーラの `migrate` にも同じ値を渡す（申し送り K1）。退避の保持の数は ST58
 
 ### D8. インストールした形の画面の合言葉は Argon2id の照らすための値だけで持ち、ログインの印の材料もその値にする
@@ -216,19 +217,19 @@ ST55 の完了の判定 1 つ目の「PC を再起動するとログオンしな
 - 上がり方は `password`・`uninstall` と同じ（D22。管理者の確認 1 回・上がる前に本人を控える）。書く段の間だけの書きの権限も同じ（D21）。止まった状態でなければ（設定のファイルがある・DB が無い）、何も書かずに rc≠0 で「`repair` は要らない」と、走らせ直しか `password` を示して終わる
 - 段: (a) 2 つのサービスを止める → (b) 秘密を全部（DB の 3 つの役割の合言葉・`API_TOKEN`・`WEB_SESSION_KEY`）作り直し、`settings\server.json.repair`（同じ置き場・同じ権限）に書く（本人は、設定が無いので状態の置き場の根の ACL から読む —— 2 つのサービスのアカウントのほかに読みを持つ 1 つの SID。上がる前に控えた利用者が別の管理者でも、本人にしない。D21・spec「別の管理者が repair しても、本人は変わらない」。読みを持つ SID が 1 つでなければ何も書かずに rc≠0）→ (c) DB を合言葉なしで入れる形で一時に起こし、3 つの役割の合言葉を新しい秘密に替える → (d) 一時の形を止め、`server.json.repair` を `server.json` へ名前を替えて置き、ふだんの設定でサービスの DB を開始 → (e) 走らせ直しの (5)〜(13) を同じ判定で通る（画面の合言葉は照らすための値が無いので (11) で決め直す。移行は版が合っていれば当たるものが無い。(9) の取り込み待ちとダウンロードは、本人の SID のプロファイル（登録簿の `ProfileList`）で「既にあるか」を見て、あれば触らない）
 - 途中で落ちても、`server.json` を置くのは役割の合言葉を替えた後なので、状態は「DB はあるのに秘密が無い」のまま（走らせ直しは止まり、`repair` をもう一度走らせれば (b) から作り直す。残った `server.json.repair` は (b) が上書きする）。「秘密はあるのに役割の合言葉が古い」には倒れない
-- (c) の一時の形は D28（未決。管理者の役割の名前の出所は Q10 の答え待ち）
+- (c) の一時の形は D28（管理者の役割の名前は D1 の固定の `ashiato`。Q10）
 - `repair` の最初（(a) の後・(b) の前）に、前の `repair` が (c) の後で落ちて一時の形が残っていれば片付ける: DB の置き場の `postmaster.pid` があり DB のサービスが止まっていれば、一時に起こした `postgres` とみなして `pg_ctl stop -D <DB の置き場> -m fast` で止め、残った一時の接続の規則（一時の `hba_file` と `pg_ident`）を消す。一時の `postgres` はサービスでないので (a) では止まらず、残ると次の `pg_ctl start` が `postmaster.pid` で断られる（provisional-review.md の D28。答えに依らない）。tasks 6.2 の「`repair` の途中で落ちても、もう一度 `repair` できる」は、`STOP_AT=repair-roles` が一時の `postgres` を残したまま落ちる形で走らせて見る
 - 記録の行・移行の記録・原本・書き出しには触らない。収集アプリの資格情報（`API_TOKEN`）は変わるので、出力の最後に「収集アプリは繋ぎ直しが要る」と `docs/install.md` の繋ぎ直しの節の場所を示す（値は示さない。収集アプリを配った版のサーバに繋ぐのは ST56 から。D18（仮））
 - Windows の CI で「設定を退ける → 走らせ直しが止まる → `repair` → 記録の件数と中身の指紋が同じ・新しい合言葉でログインできる・前の `API_TOKEN` は断られる」を見る（tasks 6.2）
 
-### D28. `repair` の一時の形は、`pg_ctl start` に一時の `hba_file`（`sspi` で上がった利用者だけ）を渡して起こす（未決。Q10 の答え待ち）
+### D28. `repair` の一時の形は、`pg_ctl start` に一時の `hba_file`（`sspi` で上がった利用者だけ）を渡し、固定の名前 `ashiato` の管理者の役割に入る
 
-> 仮で進めたが、別の席（`provisional-review.md` の D28）が否とした: 一時の `hba_file` と `pg_ident` は DB の管理者の役割の名前を要るのに、D1 の `initdb` は `-U` を渡さないので名前はインストールを走らせた Windows の利用者の名前になって固定されず、D4 の設定の鍵にも無く、`repair` は設定のファイルが無いときに動くので名前を読む先が無い（別の管理者 B の `repair` では B を A の名前の役割に結べない。反転条件の `local … trust` も同じ名前を要る）。名前が引けなければ `repair` は (c) で止まり、出口の無い D10 の状態に戻る（携帯の未送信が FR-9 の上限で捨てられる。discarded）。土台の D1・D4・D6 を台帳の rests_on に挙げていなかった。台帳から外し、`deep.md` の Q10 で人間に返した。下の本文は推奨で書いた案のまま（名前の出所は Q10 の答えで書く。前の `repair` の一時の形が残っていたときの片付けだけは答えに依らないので D27 に足した）
+> 仮で進めたが、別の席（`provisional-review.md` の D28）が否とした: 一時の `hba_file` と `pg_ident` は DB の管理者の役割の名前を要るのに、D1 の `initdb` は `-U` を渡さないので名前はインストールを走らせた Windows の利用者の名前になって固定されず、D4 の設定の鍵にも無く、`repair` は設定のファイルが無いときに動くので名前を読む先が無い（別の管理者 B の `repair` では B を A の名前の役割に結べない。反転条件の `local … trust` も同じ名前を要る）。名前が引けなければ `repair` は (c) で止まり、出口の無い D10 の状態に戻る（携帯の未送信が FR-9 の上限で捨てられる。discarded）。土台の D1・D4・D6 を台帳の rests_on に挙げていなかった。台帳から外し、`deep.md` の Q10 で人間に返した。本人は「DB を作るときに名前を固定する（`initdb -U ashiato`）」を選んだ（Q10。2026-11-03）。この節はその答えに乗る決定で、仮ではない。土台は D1（`-U ashiato`）・D4（設定に名前を控えない）・D6（一時の起動も同じ `postgresql.conf` を読み、文の字面をログに書かない）と D27・D21。前の `repair` の一時の形が残っていたときの片付けは答えに依らないので D27 に書いた
 
-`pg_ctl start`（上がった札を落として `postgres` を起こす。D21）に、`-o` で `listen_addresses='127.0.0.1'`・空いている一時の番号・一時の `hba_file`（`host all <DB の管理者の役割> 127.0.0.1/32 sspi map=<一時>`、`pg_ident` で上がった利用者の Windows のアカウントだけをその役割に結ぶ）を渡す。合言葉なしで入れるのは上がった利用者だけで、ほかのアカウントには開かない。spec の DB の Requirement はこの一時の入口を `repair` の間だけの例外とし、終わりに閉じたこと（一時の `hba_file` が無い・待ち受けが 55400 だけ）を Scenario で見る。`ALTER ROLE … PASSWORD` の値は `tools/db-roles.sh` と同じく環境変数で渡して `\getenv` で読む（命令の引数・SQL の字面に載せない）。一時の `hba_file` は (d) で消す
+`pg_ctl start`（上がった札を落として `postgres` を起こす。D21）に、`-o` で `listen_addresses='127.0.0.1'`・空いている一時の番号・一時の `hba_file`（`host all ashiato 127.0.0.1/32 sspi map=<一時>`、`pg_ident` で上がった利用者の Windows のアカウントだけを管理者の役割 `ashiato`（D1）に結ぶ）を渡す。`psql` も `-U ashiato` で入る（名前は D1 の固定の値で、設定のファイルから読まない。別の管理者 B の `repair` でも、`pg_ident` が B のアカウントを同じ `ashiato` に結ぶ）。合言葉なしで入れるのは上がった利用者だけで、ほかのアカウントには開かない。spec の DB の Requirement はこの一時の入口を `repair` の間だけの例外とし、終わりに閉じたこと（一時の `hba_file` が無い・待ち受けが 55400 だけ）を Scenario で見る。`ALTER ROLE … PASSWORD` の値は `tools/db-roles.sh` と同じく環境変数で渡して `\getenv` で読む（命令の引数・SQL の字面に載せない）。一時の `hba_file` は (d) で消す
 - `postgres --single` を直に起こす形（Q8 の選択肢の書き方）は使わない: PostgreSQL は管理者の札での起動を断る作りで（確かさ 1。知識）、上がったインストーラからは起こせないとみなす。どちらの形でも、本人に見える振る舞い（記録を残したまま役割と秘密が作り直される）は同じ
 - 失わない側: 一時の形は `repair` の中だけで、記録にも本人に見える振る舞いにも触らない。形を替えても `repair` の口と Scenario は変わらない
-- 反転条件: Windows の CI で一時の形の `sspi` の照合が通らない（上がった札と `pg_ctl` が落とした札で Windows のアカウントが食い違う など）と分かったら、`unix_socket_directories` を状態の置き場の中の一時のフォルダ（上がった利用者と DB のアカウントだけが読み書き）にし、`local all <DB の管理者の役割> trust` で入る形に替える。どちらも通らなければ上流へ返す（出口の形を変えるかは本人に聞く）
+- 反転条件: Windows の CI で一時の形の `sspi` の照合が通らない（上がった札と `pg_ctl` が落とした札で Windows のアカウントが食い違う など）と分かったら、`unix_socket_directories` を状態の置き場の中の一時のフォルダ（上がった利用者と DB のアカウントだけが読み書き）にし、`local all ashiato trust` で入る形に替える。どちらも通らなければ上流へ返す（出口の形を変えるかは本人に聞く）
 
 ## Risks / Trade-offs
 
@@ -239,7 +240,7 @@ ST55 の完了の判定 1 つ目の「PC を再起動するとログオンしな
 - [Windows サンドボックスの中で UAC が出るか・再起動の後に状態が残るか（P16。確かさ 1）] → Q5 の推奨のとおり、出ない・残らないなら、録画で見るのは合言葉を決めてログインするまで・再起動は CI の「ログオンなしで起きる」まで
 - [配布物が約 180 MB 大きくなる（P5）] → 要るものだけを切り出す（D19）。GitHub のリリースの 1 ファイルの上限（2 GB）の内
 - [DB があるのに秘密が無い状態で止まる（D10）] → 出口は `repair`（D27）。止まってから本人が `repair` を走らせるまでの間は、携帯の未送信が上限（90 日・2 GB。FR-9）に向かって溜まる。止まったことと `repair` を走らせ直しの出力で示す
-- [`repair` の一時の形（`pg_ctl` に一時の `hba_file` と `sspi`）が上がった札で通るかは走らせていない（確かさ 1）] → tasks 6.2 の Windows の CI で見る。外れたら D28 の反転条件（D28 は Q10 の答え待ち）
+- [`repair` の一時の形（`pg_ctl` に一時の `hba_file` と `sspi`）が上がった札で通るかは走らせていない（確かさ 1）] → tasks 6.2 の Windows の CI で見る。外れたら D28 の反転条件
 - [ST44 の `web_session.rs` の上に積む] → requires に ST44 を入れた。下流の入口が ST44 の gate 済みの SHA を取り込む（`deps.json`）。ST44 の spec が変わったら merge gate が「依存の spec:」で落とす
 
 ## Migration Plan
