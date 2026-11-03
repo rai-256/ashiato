@@ -20,6 +20,15 @@ pub const BUILD_VERSION: &str = env!("ASHIATO_VERSION");
 /// 当てた組み立ての commit（`build.rs` が決める。design D8）。
 pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineageKind {
+    Renamed,
+    Removed,
+    Rewritten,
+}
+
+type Lineage<'a> = &'a [(LineageKind, &'a str, &'a str)];
+
 /// 当てる処理が止まった理由。呼び出し元（終了コードを決める側）が区別できる。
 #[derive(Debug)]
 pub enum MigrateError {
@@ -203,15 +212,42 @@ pub enum Verdict {
 
 /// `known`（自分の知る版）と `ledger`（DB の版）の名前の集合を比べる。純粋。
 pub fn compare(known: &BTreeSet<String>, ledger: &BTreeSet<String>) -> Verdict {
+    compare_with_lineage(known, ledger, &[])
+}
+
+pub fn compare_with_lineage(
+    known: &BTreeSet<String>,
+    ledger: &BTreeSet<String>,
+    lineage: Lineage<'_>,
+) -> Verdict {
+    let ledger = mapped_names(ledger, lineage);
     let unknown: Vec<String> = ledger.difference(known).cloned().collect();
     if !unknown.is_empty() {
         return Verdict::Ahead { unknown };
     }
-    let missing: Vec<String> = known.difference(ledger).cloned().collect();
+    let missing: Vec<String> = known.difference(&ledger).cloned().collect();
     if !missing.is_empty() {
         return Verdict::Behind { missing };
     }
     Verdict::Even
+}
+
+fn mapped_names(names: &BTreeSet<String>, lineage: Lineage<'_>) -> BTreeSet<String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            lineage
+                .iter()
+                .find_map(|(kind, old, new)| {
+                    (*old == name).then(|| match kind {
+                        LineageKind::Renamed => Some((*new).to_string()),
+                        LineageKind::Removed => None,
+                        LineageKind::Rewritten => Some(name.clone()),
+                    })
+                })
+                .unwrap_or_else(|| Some(name.clone()))
+        })
+        .collect()
 }
 
 async fn schema_exists(pool: &mut PgConnection, name: &str) -> Result<bool, sqlx::Error> {
@@ -356,6 +392,15 @@ pub async fn startup_refusal(
     versions: &[(&str, &str)],
     me: Channel,
 ) -> Result<Option<(&'static str, String)>, sqlx::Error> {
+    startup_refusal_with_lineage(pool, versions, crate::LINEAGE, me).await
+}
+
+pub async fn startup_refusal_with_lineage(
+    pool: &sqlx::PgPool,
+    versions: &[(&str, &str)],
+    lineage: Lineage<'_>,
+    me: Channel,
+) -> Result<Option<(&'static str, String)>, sqlx::Error> {
     let mut conn = pool.acquire().await?;
     let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
     let behind = |count: usize| {
@@ -376,14 +421,14 @@ pub async fn startup_refusal(
     match ledger {
         Ledger::Empty | Ledger::BeforeLedger => Ok(behind(known.len())),
         Ledger::Unreadable(why) => Ok(MigrateError::Unreadable(why).mismatch_report()),
-        Ledger::Recorded(names) => match compare(&known, &names) {
+        Ledger::Recorded(names) => match compare_with_lineage(&known, &names, lineage) {
             Verdict::Ahead { unknown } => {
                 let unknown = describe_unknown(&mut conn, &unknown).await?;
                 Ok(MigrateError::Ahead { unknown }.mismatch_report())
             }
             Verdict::Behind { missing } => Ok(behind(missing.len())),
             Verdict::Even => {
-                warn_changed_fingerprints(&mut conn, versions).await?;
+                warn_changed_fingerprints(&mut conn, versions, lineage).await?;
                 Ok(None)
             }
         },
@@ -541,11 +586,12 @@ async fn apply_locked(
         Ledger::BeforeLedger => (BTreeSet::new(), true),
         Ledger::Recorded(names) => {
             let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
-            if let Verdict::Ahead { unknown } = compare(&known, &names) {
+            if let Verdict::Ahead { unknown } = compare_with_lineage(&known, &names, crate::LINEAGE)
+            {
                 let unknown = describe_unknown(conn, &unknown).await?;
                 return Err(MigrateError::Ahead { unknown });
             }
-            (names, false)
+            (mapped_names(&names, crate::LINEAGE), false)
         }
     };
     // 版の検査の後・退避の前。試みの行を commit してから退避を取る（退避に入るので、戻しても残る。Q6）
@@ -554,7 +600,7 @@ async fn apply_locked(
     }
     before_apply().map_err(MigrateError::Before)?;
     sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
-    warn_changed_fingerprints(conn, versions).await?;
+    warn_changed_fingerprints(conn, versions, crate::LINEAGE).await?;
     for (name, sql) in versions {
         if recorded.contains(*name) {
             continue;
@@ -602,22 +648,26 @@ async fn describe_unknown(
 async fn warn_changed_fingerprints(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
+    lineage: Lineage<'_>,
 ) -> Result<(), sqlx::Error> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT name, sha256 FROM migration_ledger.applied")
             .fetch_all(&mut *conn)
             .await?;
     let recorded: BTreeMap<String, String> = rows.into_iter().collect();
-    for (name, sql) in versions {
-        if recorded
-            .get(*name)
-            .is_some_and(|sha| *sha != fingerprint(sql))
-        {
-            // log-ok: 版の名前は配った移行のファイル名（時刻と slug）で、利用者のデータを含まない
-            tracing::warn!(
-                version = *name,
-                "記録した指紋と中身が違う版がある（当て直さない）"
-            );
+    for (name, sha) in recorded {
+        let mapped = mapped_names(&BTreeSet::from([name.clone()]), lineage);
+        let Some(current) = mapped.iter().next() else {
+            continue;
+        };
+        if let Some((_, sql)) = versions.iter().find(|(n, _)| *n == current) {
+            if sha != fingerprint(sql) {
+                // log-ok: 版の名前は配った移行のファイル名（時刻と slug）で、利用者のデータを含まない
+                tracing::warn!(
+                    version = current,
+                    "記録した指紋と中身が違う版がある（当て直さない）"
+                );
+            }
         }
     }
     Ok(())

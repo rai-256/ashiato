@@ -44,6 +44,88 @@ async fn healthz(app: App) -> StatusCode {
         .status()
 }
 
+const LINEAGE_OLD: &str = "202611030001_old_name";
+const LINEAGE_NEW: &str = "202611030002_new_name";
+const LINEAGE_REMOVED: &str = "202611030003_removed_name";
+const LINEAGE_SQL: &str = "CREATE TABLE IF NOT EXISTS st54_lineage_marker (id integer);";
+
+async fn apply_lineage_fixture(db: &testdb::TestDb, name: &str) {
+    let pool = db.pool().await;
+    migration_ledger::apply_migrations_with(
+        pool.acquire().await.unwrap(),
+        &[(name, LINEAGE_SQL)],
+        || Ok(()),
+        "",
+        Channel::Official,
+    )
+    .await
+    .unwrap();
+}
+
+// Scenario: 名前を変えた移行は、旧名の対応があれば、旧名で当てた DB でも起動し、当て直さない
+#[tokio::test]
+async fn st54_lineage_renamed_migration_starts_without_reapplying() {
+    let db = testdb::scratch().await;
+    apply_lineage_fixture(&db, LINEAGE_OLD).await;
+    let pool = db.pool().await;
+    let versions = &[(LINEAGE_NEW, LINEAGE_SQL)];
+    let lineage = &[(
+        migration_ledger::LineageKind::Renamed,
+        LINEAGE_OLD,
+        LINEAGE_NEW,
+    )];
+    assert_eq!(
+        migration_ledger::startup_refusal_with_lineage(
+            &pool,
+            versions,
+            lineage,
+            Channel::Official,
+        )
+        .await
+        .unwrap(),
+        None
+    );
+    assert_eq!(healthz(App::for_test(pool, TOKEN)).await, StatusCode::OK);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
+            .bind(LINEAGE_OLD)
+            .fetch_one(&db.pool().await)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+}
+
+// Scenario: 消した移行は、消したことの対応があれば、それを当てた DB でも起動する
+#[tokio::test]
+async fn st54_lineage_removed_migration_starts() {
+    let db = testdb::scratch().await;
+    apply_lineage_fixture(&db, LINEAGE_REMOVED).await;
+    let pool = db.pool().await;
+    let lineage = &[(migration_ledger::LineageKind::Removed, LINEAGE_REMOVED, "")];
+    assert_eq!(
+        migration_ledger::startup_refusal_with_lineage(&pool, &[], lineage, Channel::Official)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(healthz(App::for_test(pool, TOKEN)).await, StatusCode::OK);
+}
+
+// Scenario: 旧名の対応が無ければ、今どおり知らない版で止まり、その名前と当てた組み立てを示す
+#[tokio::test]
+async fn st54_lineage_without_mapping_reports_unknown_version() {
+    let db = testdb::scratch().await;
+    apply_lineage_fixture(&db, LINEAGE_OLD).await;
+    let pool = db.pool().await;
+    let refusal = migration_ledger::startup_refusal(&pool, &[], Channel::Official)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(refusal.0, "db_ahead");
+    assert!(refusal.1.contains(LINEAGE_OLD));
+    assert!(refusal.1.contains("0.1.0"));
+}
+
 const TOKEN: &str = "st54-test-token-0123456789";
 
 async fn app(channel: Channel) -> App {

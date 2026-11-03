@@ -289,6 +289,10 @@ use ingest::{content_hash, IngestRequest};
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
 pub const MIGRATIONS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/migrations.rs"));
 
+/// 旧名の移行を現在の台帳名へ対応付ける正本。
+pub const LINEAGE: &[(migration_ledger::LineageKind, &str, &str)] =
+    include!(concat!(env!("OUT_DIR"), "/lineage.rs"));
+
 /// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
 pub const GRANTS: &str = include_str!("grants.sql");
 
