@@ -94,6 +94,62 @@ elif section == "node":
             license_value = license_value.get("type", "")
         if not check_package(license_value, package["name"] == root_name):
             bad.append((package["name"], license_value or "(許諾の記載が無い)"))
+elif section == "android":
+    with open(os.environ.get("ASHIATO_LICENSES_POM_NAMES", "tools/licenses/pom-license-names.tsv"), encoding="utf-8") as stream:
+        names = dict(line.rstrip("\n").split("\t", 1) for line in stream if line.strip())
+    addition = os.environ.get("ASHIATO_LICENSES_ADDITION", "LICENSES/AdditionRef-ashiato-play-services.txt")
+    listed = set()
+    if os.path.isfile(addition):
+        in_list = False
+        with open(addition, encoding="utf-8") as stream:
+            for line in stream:
+                line = line.rstrip("\n")
+                if line == "Listed libraries:":
+                    in_list = True
+                elif in_list and line.startswith("- "):
+                    listed.add(line[2:])
+                elif in_list and not line:
+                    in_list = False
+    components = {}
+    with open(input_path, encoding="utf-8") as stream:
+        for line in stream:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 4:
+                continue
+            coordinate, name, url, source = fields
+            components.setdefault(coordinate, []).append((name, url, source))
+    count = len(components)
+    if not count:
+        print("  NG 対象が無い（Android の依存の POM が空）")
+        sys.exit(1)
+    proprietary = []
+    for coordinate, licenses in sorted(components.items()):
+        package = ":".join(coordinate.split(":")[:2])
+        translated = []
+        for name, url, source in licenses:
+            if name == "-":
+                bad.append((coordinate, "(許諾の記載が無い)"))
+                continue
+            if name not in names:
+                bad.append((coordinate, name))
+                continue
+            spdx = names[name]
+            translated.append(spdx)
+            if spdx == "PROPRIETARY":
+                if package not in listed:
+                    bad.append((coordinate, name))
+                else:
+                    proprietary.append(coordinate)
+            elif spdx not in allow:
+                bad.append((coordinate, name))
+        if not licenses:
+            bad.append((coordinate, "(許諾の記載が無い)"))
+    for coordinate, name in bad:
+        print(f"  NG {coordinate}: {name}")
+    for coordinate in sorted(set(proprietary)):
+        print(f"  通した PROPRIETARY: {coordinate}")
+    print(f"  {count} 件を確認 / 不許可 {len(bad)} 件")
+    sys.exit(1 if bad else 0)
 else:
     raise SystemExit(f"未知の節: {section}")
 
@@ -117,6 +173,35 @@ run_rust() {
 run_node() {
   echo "== Node の依存"
   check_section node "${ASHIATO_LICENSES_NODE_ROOT:-web/node_modules}"
+}
+
+run_android() {
+  echo "== Android の依存"
+  local list="${ASHIATO_LICENSES_POM_LIST:-}"
+  if [[ -z "$list" ]]; then
+    local gradlew="${ASHIATO_GRADLEW:-./collector-android/gradlew}"
+    if [[ "$gradlew" == "false" ]]; then
+      echo "  NG 対象が無い（gradle が依存を解決できない）"
+      return 1
+    fi
+    list="$work_tmp/android-poms.tsv"
+    local -a command=("$gradlew" -p collector-android -q :app:ashiatoDependencyPoms "-Pashiato.pomOut=$list")
+    if [[ -n "${ASHIATO_LICENSES_EXTRA_REPO:-}" ]]; then
+      command+=("-Pashiato.extraRepo=$ASHIATO_LICENSES_EXTRA_REPO")
+    fi
+    local quiet_output quiet_log
+    if ! quiet_output=$(scripts/quiet-run android-poms -- "${command[@]}" 2>&1); then
+      echo "$quiet_output"
+      quiet_log="${quiet_output##*全文: }"
+      if [[ -f "$quiet_log" ]]; then
+        rg -n 'POM|Could not find' "$quiet_log" || true
+      fi
+      echo "  NG 対象が無い（gradle の依存または POM を解決できない）"
+      return 1
+    fi
+  fi
+  [[ -s "$list" ]] || { echo "  NG 対象が無い（Android の依存の POM が空）"; return 1; }
+  check_section android "$list"
 }
 
 self_test() {
@@ -162,6 +247,81 @@ JSON
     echo "  self-test NG: 無い node_modules を通した" >&2; return 1
   fi
   grep -q "node_modules が無い" <<<"$output" || return 1
+
+  local android_list android_addition
+  android_list="$test_root/android.tsv"
+  android_addition="$test_root/Addition.txt"
+  cat >"$android_addition" <<'TXT'
+Listed libraries:
+- com.google.android.gms:play-services-tasks
+TXT
+  cat >"$android_list" <<'TSV'
+com.google.android.gms:play-services-tasks:1.0.0	Android Software Development Kit License	https://example.invalid	self
+com.example.allowed:library:1.0.0	The Apache Software License, Version 2.0	https://example.invalid	self
+TSV
+  echo "== Scenario: 名指しの外の Google のライブラリを足すと、許諾の検査が落ちる"
+  printf '%s\n' 'com.google.android.gms:play-services-ads:1.0.0	Android Software Development Kit License	https://example.invalid	self' >>"$android_list"
+  if output=$(ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android 2>&1); then
+    echo "  self-test NG: 名指しの外の Google の部品を通した" >&2; return 1
+  fi
+  grep -q 'com.google.android.gms:play-services-ads' <<<"$output" || return 1
+  grep -q 'Android Software Development Kit License' <<<"$output" || return 1
+  sed -i '/play-services-ads/d' "$android_list"
+
+  echo "== Scenario: 対応表に無い許諾の名前の部品があれば、許諾の検査が落ちる"
+  printf '%s\n' 'com.example.unknown:library:1.0.0	Unknown License Name	https://example.invalid	self' >>"$android_list"
+  if output=$(ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android 2>&1); then
+    echo "  self-test NG: 対応表に無い許諾を通した" >&2; return 1
+  fi
+  grep -q 'com.example.unknown:library:1.0.0' <<<"$output" || return 1
+  grep -q 'Unknown License Name' <<<"$output" || return 1
+  sed -i '/com.example.unknown/d' "$android_list"
+
+  echo "== Scenario: 許諾の名前を 2 つ持つ部品は、片方でも許可の外なら許諾の検査が落ちる"
+  printf '%s\n%s\n' 'com.example.dual:library:1.0.0	The Apache Software License, Version 2.0	https://example.invalid	self' 'com.example.dual:library:1.0.0	Android Software Development Kit License	https://example.invalid	self' >>"$android_list"
+  if output=$(ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android 2>&1); then
+    echo "  self-test NG: 不許可な二重許諾を通した" >&2; return 1
+  fi
+  grep -q 'com.example.dual:library:1.0.0' <<<"$output" || return 1
+  grep -q 'Android Software Development Kit License' <<<"$output" || return 1
+  sed -i '/com.example.dual/d' "$android_list"
+
+  echo "== Scenario: 許諾の名前を 2 つ持つ部品は、両方が許可されていれば通る"
+  printf '%s\n%s\n' 'com.example.dual:library:1.0.0	The Apache Software License, Version 2.0	https://example.invalid	self' 'com.example.dual:library:1.0.0	The MIT License	https://example.invalid	self' >>"$android_list"
+  ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android >/dev/null
+  sed -i '/com.example.dual/d' "$android_list"
+
+  echo "== Scenario: 名指しの一覧を正本から消すと、その部品で許諾の検査が落ちる"
+  : >"$android_addition"
+  if output=$(ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android 2>&1); then
+    echo "  self-test NG: 名指しを消した部品を通した" >&2; return 1
+  fi
+  grep -q 'com.google.android.gms:play-services-tasks' <<<"$output" || return 1
+  cp "LICENSES/AdditionRef-ashiato-play-services.txt" "$android_addition"
+
+  echo "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する"
+  printf '%s\n' $'com.example.child:library:1.0.0\tThe Apache Software License, Version 2.0\thttps://example.invalid\tparent' >"$android_list"
+  ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android >/dev/null
+
+  echo "== Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる"
+  local fake_gradlew="$test_root/fake-gradlew"
+  cat >"$fake_gradlew" <<'SH'
+#!/usr/bin/env bash
+echo "POM を取れない: com.example.missing:library:1.0.0" >&2
+exit 1
+SH
+  chmod +x "$fake_gradlew"
+  if output=$(ASHIATO_GRADLEW="$fake_gradlew" "$0" android 2>&1); then
+    echo "  self-test NG: POM の取得失敗を通した" >&2; return 1
+  fi
+  grep -q 'POM' <<<"$output" || return 1
+  grep -q '対象が無い' <<<"$output" || return 1
+
+  echo "== Scenario: 検査する対象が無い節は、通さずに落ちる"
+  if output=$(ASHIATO_GRADLEW=false ASHIATO_LICENSES_POM_LIST= "$0" android 2>&1); then
+    echo "  self-test NG: 対象の無い Android 節を通した" >&2; return 1
+  fi
+  grep -q '対象が無い' <<<"$output" || return 1
   echo "self-test OK"
 }
 
@@ -185,11 +345,7 @@ for section in "${sections[@]}"; do
   case $section in
     rust) run_rust "${ASHIATO_LICENSES_CARGO_META:-}" || fail=1 ;;
     node) run_node || fail=1 ;;
-    android)
-      echo "== Android の依存"
-      echo "  NG 対象が無い（Android の節は Task 4 で実装する）"
-      fail=1
-      ;;
+    android) run_android || fail=1 ;;
     *) echo "使い方: $0 [rust|node|android]… | --self-test" >&2; exit 2 ;;
   esac
 done
