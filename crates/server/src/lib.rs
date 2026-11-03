@@ -404,7 +404,7 @@ pub async fn run_migrate() -> anyhow::Result<()> {
                 tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
                 // log-ok: 同上。ST58 が読む（design D6）
                 eprint!("{report}");
-                std::process::exit(3);
+                std::process::exit(if kind == "channel_mismatch" { 4 } else { 3 });
             }
             // 落ちたときに示すのは種別・落ちた版の名前・SQLSTATE の 1 行だけ。DB の誤りの本文は出さない（ST51 / design D8）
             if let Some(line) = me.failure_line() {
@@ -4486,7 +4486,7 @@ pub async fn run() -> anyhow::Result<()> {
         tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
         // log-ok: 同上。ST58 が読む（design D6）
         eprint!("{report}");
-        std::process::exit(3);
+        std::process::exit(if kind == "channel_mismatch" { 4 } else { 3 });
     }
     // 版の検査を通った後・待ち受けの前に更新の履歴を書く（ST51 / D2・D8）。書けなくても起動は続ける（D9）
     match pool.acquire().await {

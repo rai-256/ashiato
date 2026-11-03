@@ -8,6 +8,7 @@ use crate::migration_ledger::{
     UnknownVersion, Verdict, BOOTSTRAP, BUILD_COMMIT, BUILD_VERSION,
 };
 use crate::testdb::TempDb;
+use ashiato_build_stamp::Channel;
 use std::collections::BTreeSet;
 
 fn set(names: &[&str]) -> BTreeSet<String> {
@@ -102,6 +103,21 @@ fn st48_ahead_report_caps_db_lines_and_counts_the_rest() {
     assert_eq!(lines.iter().filter(|l| l.starts_with("  db: ")).count(), 20);
     assert_eq!(lines[21], "  more: 3");
     assert_eq!(lines[22], format!("  self: {BUILD_VERSION} {BUILD_COMMIT}"));
+}
+
+// Scenario: 系統が違い、知らない版もある DB では、系統の食い違いを示す
+#[test]
+fn st54_channel_mismatch_report_is_distinct_from_db_ahead() {
+    let (kind, report) = MigrateError::ChannelMismatch {
+        db: Channel::Official,
+        me: Channel::Dev,
+    }
+    .mismatch_report()
+    .unwrap();
+    assert_eq!(kind, "channel_mismatch");
+    assert_eq!(report.lines().next(), Some("error: kind=channel_mismatch"));
+    assert!(report.contains("  db: official"));
+    assert!(report.contains("  self: dev"));
 }
 
 /// Scenario: S-01 の実行時の役割は版の記録を読めるが、書き換えられない

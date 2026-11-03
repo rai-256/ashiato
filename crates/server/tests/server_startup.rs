@@ -74,42 +74,9 @@ fn st54_bin_channel_environment_does_not_override_build_channel() {
         .spawn()
         .unwrap();
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    let mut stream = loop {
-        if std::time::Instant::now() > deadline {
-            let _ = child.kill();
-            panic!("開発版サーバが 127.0.0.1:18788 で待ち受けなかった");
-        }
-        match std::net::TcpStream::connect(("127.0.0.1", 18788)) {
-            Ok(stream) => break stream,
-            Err(_) => {
-                if let Some(status) = child.try_wait().unwrap() {
-                    let output = child.wait_with_output().unwrap();
-                    panic!(
-                        "開発版サーバが終了した: {status}; {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        }
-    };
-    stream
-        .write_all(b"GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-token-0123456789abcdef\r\nConnection: close\r\n\r\n")
-        .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    assert!(
-        response.contains("ashiato-channel: dev\r\n"),
-        "応答の系統が dev でない: {response}"
-    );
-    assert!(
-        response.ends_with("{\"contract_version\":1}"),
-        "契約本文が変わった: {response}"
-    );
-
-    child.kill().unwrap();
-    let _ = child.wait_with_output();
+    let output = wait_exit(child);
+    assert_eq!(output.status.code(), Some(4));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("error: kind=channel_mismatch"));
 }
 
 fn custom_server_version() -> String {
@@ -760,6 +727,45 @@ mod st48_migrate {
                 .unwrap()
         }
 
+        fn serve_custom(&self, binary: &Path) -> Served {
+            let port = std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let mut cmd = Command::new(binary);
+            cmd.env_clear()
+                .env("API_TOKEN", TEST_TOKEN)
+                .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env(
+                    "DATABASE_URL",
+                    with_database(&env("DATABASE_URL"), &self.db.name),
+                )
+                .env("BIND", format!("127.0.0.1:{port}"))
+                .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let mut healthy = false;
+            while child.try_wait().unwrap().is_none() {
+                if healthz_ok(port) {
+                    healthy = true;
+                    child.kill().ok();
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    child.kill().ok();
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Served {
+                out: child.wait_with_output().unwrap(),
+                healthy,
+            }
+        }
+
         fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
             self.migrate_with_env(dir, pg_dump, backup, &[])
         }
@@ -954,6 +960,135 @@ mod st48_migrate {
             .await
             .unwrap();
         assert_eq!(form, 2);
+    }
+
+    // Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_refuses_official_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let before = rig.snapshot().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).starts_with("error: kind=channel_mismatch\n"));
+        assert_eq!(rig.dumps(), 1);
+        assert_eq!(rig.snapshot().await, before);
+    }
+
+    // Scenario: 正式版の migrate とサーバは、開発版の DB では止まる
+    #[tokio::test]
+    async fn st54_bin_official_migrate_refuses_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("  db: dev\n  self: official\n"));
+        let served = rig.serve_on_held_port();
+        assert_eq!(served.out.status.code(), Some(4));
+    }
+
+    // Scenario: 空の DB に開発版の migrate を当てると、開発版の DB になる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_bootstraps_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(version.contains("-dev."), "{version}");
+    }
+
+    // Scenario: 版の記録の無い古い DB には、開発版の migrate は当てずに止まる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_refuses_before_ledger_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("DROP SCHEMA migration_ledger CASCADE").await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("  db: official\n  self: dev\n"));
+        let schemas: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_namespace WHERE nspname = 'migration_ledger'",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(schemas, 0);
+    }
+
+    // Scenario: 版の記録の行が 1 つも無い DB には、どちらの系統の migrate も当てる
+    #[tokio::test]
+    async fn st54_bin_empty_ledger_allows_either_channel() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        rig.exec("DELETE FROM migration_ledger.applied").await;
+        assert_ok(&rig.migrate());
+    }
+
+    // Scenario: 系統が同じなら、今どおり当てて起動する
+    #[tokio::test]
+    async fn st54_bin_dev_server_starts_on_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let served = rig.serve_custom(&custom.path);
+        assert!(served.healthy, "{}", stderr(&served.out));
+    }
+
+    // Scenario: 開発版のサーバは、正式版の DB では起動しない
+    #[tokio::test]
+    async fn st54_bin_dev_server_on_official_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let served = rig.serve_custom(&custom.path);
+        assert_eq!(served.out.status.code(), Some(4), "{}", stderr(&served.out));
+        assert!(!served.healthy);
+    }
+
+    // Scenario: 系統が違い、知らない版もある DB では、系統の食い違いを示す
+    #[tokio::test]
+    async fn st54_bin_channel_before_ahead() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        rig.add_future_row().await;
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("error: kind=channel_mismatch"));
+        assert!(!stderr(&out).contains("db_ahead"));
     }
 
     // Scenario: 退避に失敗すると、終了コード 1 で何も当てない

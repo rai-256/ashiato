@@ -5,6 +5,7 @@
 //! 読む関数（`read_ledger`）は DB に何も書かない。当てる処理（`apply_migrations`）は記録を書く。
 
 use crate::update_history::{self, sqlstate_of, Attempt, Outcome};
+use ashiato_build_stamp::{channel, Channel};
 use sha2::{Digest as _, Sha256};
 use sqlx::pool::PoolConnection;
 use sqlx::{Connection as _, PgConnection, Postgres};
@@ -26,6 +27,8 @@ pub enum MigrateError {
     Ahead { unknown: Vec<UnknownVersion> },
     /// 記録が読めない。何も書いていない。
     Unreadable(String),
+    /// DB の系統がこの組み立てと違う。何も書いていない（終了コード 4）。
+    ChannelMismatch { db: Channel, me: Channel },
     /// 版の名前つきで、当てるのに失敗した（その版の取引は戻っている）。
     Version { name: String, source: sqlx::Error },
     /// 当てる直前の仕事（退避）が失敗した。何も当てていない。
@@ -75,6 +78,14 @@ impl MigrateError {
                     "error: kind=ledger_unreadable\n{selfline}\n  この DB の版の記録を読めない（{why}）。何も書かずに止まった\n"
                 ),
             )),
+            Self::ChannelMismatch { db, me } => Some((
+                "channel_mismatch",
+                format!(
+                    "error: kind=channel_mismatch\n  db: {}\n  self: {}\n",
+                    db.as_str(),
+                    me.as_str()
+                ),
+            )),
             _ => None,
         }
     }
@@ -115,6 +126,14 @@ impl std::fmt::Display for MigrateError {
             ),
             Self::Before(e) => write!(f, "{e:#}"),
             Self::Unreadable(why) => write!(f, "版の記録を読めない: {why}"),
+            Self::ChannelMismatch { db, me } => {
+                write!(
+                    f,
+                    "DB の系統が違う: db={} self={}",
+                    db.as_str(),
+                    me.as_str()
+                )
+            }
             Self::Version { name, source } => {
                 write!(f, "マイグレーション {name} の適用に失敗: {source}")
             }
@@ -293,6 +312,42 @@ pub(crate) async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sq
     Ok(Ledger::Recorded(names.into_iter().collect()))
 }
 
+/// 読み取った記録から DB の系統を決める。行が無い DB は系統なしとする。
+async fn channel_on(
+    pool: &mut PgConnection,
+    ledger: &Ledger,
+) -> Result<Option<Channel>, sqlx::Error> {
+    match ledger {
+        Ledger::Empty => Ok(None),
+        Ledger::BeforeLedger => Ok(Some(Channel::Official)),
+        Ledger::Unreadable(_) => Ok(None),
+        Ledger::Recorded(names) if names.is_empty() => Ok(None),
+        Ledger::Recorded(_) => {
+            let version: Option<String> = sqlx::query_scalar(
+                "SELECT build_version FROM migration_ledger.applied
+                 ORDER BY applied_at, name LIMIT 1",
+            )
+            .fetch_optional(&mut *pool)
+            .await?;
+            Ok(version.as_deref().map(channel))
+        }
+    }
+}
+
+async fn check_channel(
+    pool: &mut PgConnection,
+    ledger: &Ledger,
+) -> Result<Option<MigrateError>, sqlx::Error> {
+    let Some(db) = channel_on(pool, ledger).await? else {
+        return Ok(None);
+    };
+    let me = channel(BUILD_VERSION);
+    if db != me {
+        return Ok(Some(MigrateError::ChannelMismatch { db, me }));
+    }
+    Ok(None)
+}
+
 /// サーバの起動の検査（design D6・D17）。アプリの役割で読み、何も書かない。
 /// 起動を止めるなら `Some((種別, 標準エラーの本文))`（終了コード 3）。揃っていれば `None`。
 /// 記録が無い DB は behind（まだ全部が当たっていない）。指紋の違いは警告だけで止めない（D7）。
@@ -311,7 +366,13 @@ pub async fn startup_refusal(
             ),
         ))
     };
-    match read_ledger_on(&mut conn).await? {
+    let ledger = read_ledger_on(&mut conn).await?;
+    if let Some(mismatch) = check_channel(&mut conn, &ledger).await? {
+        return Ok(Some(
+            mismatch.mismatch_report().expect("channel mismatch report"),
+        ));
+    }
+    match ledger {
         Ledger::Empty | Ledger::BeforeLedger => Ok(behind(known.len())),
         Ledger::Unreadable(why) => Ok(MigrateError::Unreadable(why).mismatch_report()),
         Ledger::Recorded(names) => match compare(&known, &names) {
@@ -418,7 +479,11 @@ async fn record_result(
     let sqlstate;
     let outcome = match result {
         // 版の食い違いで止めた回は何も書かない（終了コード 3）
-        Err(MigrateError::Ahead { .. } | MigrateError::Unreadable(_)) => return,
+        Err(
+            MigrateError::Ahead { .. }
+            | MigrateError::Unreadable(_)
+            | MigrateError::ChannelMismatch { .. },
+        ) => return,
         Err(MigrateError::Before(_)) => Outcome::BackupFailed,
         Err(MigrateError::Version { name, source }) => {
             sqlstate = sqlstate_of(source);
@@ -451,6 +516,9 @@ async fn apply_locked(
     run: &mut Run,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
+    if let Some(mismatch) = check_channel(conn, &ledger).await? {
+        return Err(mismatch);
+    }
     let (recorded, before_ledger) = match ledger {
         Ledger::Unreadable(why) => return Err(MigrateError::Unreadable(why)),
         Ledger::Empty => (BTreeSet::new(), false),
