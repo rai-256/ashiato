@@ -1,0 +1,15 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 152,
+ "applied": [
+  "points[db.1].text",
+  "points[password.5].text",
+  "impact.rules[R12].legit",
+  "impact.findings[IMP-06].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
