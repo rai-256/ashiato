@@ -38,3 +38,16 @@
 - 前進側 SQL は一時ファイル経由の `cmp` で比較し、戻し手順は比較対象にしていない。
 - `nightly` の ORDER または対象 SQL を取得できない場合は非 0 で停止する。
 - `check_scenarios.py` は本 Task 外の未実装 Scenario 47 件を報告したため、他 Task の責務を変更せず、そのままにした。
+
+## Fix report（review 1）
+
+- F1: `印 nightly の版の移行を取り出せなければ、検査は通らない` の self-test で、ORDER 無しの commit に `nightly` tag を付け、その後に現行木の ORDER を復元するよう修正した。これにより `git show nightly:migrations/ORDER` の失敗分岐を直接検証する。
+- F2: self-test の `expect` に任意個の必須出力パターンを追加し、名前変更・名前変更と中身変更・中身変更の 3 Scenario で、仕様にある移行名と `直しの移行を足して rewritten を書く` を検証するよう修正した。
+- F3 は final review で確認する対象のため変更していない。
+
+### Fix verification
+
+- `bash -n tools/check-nightly-migrations.sh && tools/check-nightly-migrations.sh --self-test`: PASS（10 Scenario、`check-nightly-migrations self-test OK`）。
+- `scripts/verify-run 5.1`: PASS（self-test、本体検査）。
+- `scripts/verify-run 5.2`: PASS（workflow の存在確認、actionlint fallback）。
+- 実行コマンド: `scripts/quiet-run task5-verify -- bash -c 'scripts/verify-run 5.1 && scripts/verify-run 5.2'`、rc=0。

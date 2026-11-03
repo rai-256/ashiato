@@ -114,24 +114,31 @@ new_tree() {
 }
 commit_all() { git -C "$T" add -A; git -C "$T" commit -q -m "$1"; }
 expect() {
-  local want="$1" out rc=0
+  local want="$1" out rc=0 pattern
+  shift
   out="$(cd "$T" && check_tree 2>&1)" || rc=$?
   if [ "$rc" -ne "$want" ]; then
     echo "  FAIL: rc=$rc（期待 $want）"; printf '%s\n' "$out" | sed 's/^/    /'; fail=1
+  else
+    for pattern in "$@"; do
+      if ! grep -Fq -- "$pattern" <<< "$out"; then
+        echo "  FAIL: 出力に「$pattern」が無い"; printf '%s\n' "$out" | sed 's/^/    /'; fail=1
+      fi
+    done
   fi
 }
 
 new_tree; mv "$T/migrations/202001010000_a.sql" "$T/migrations/202001010001_b.sql"; mv "$T/migrations/202001010000_a.down.sql" "$T/migrations/202001010001_b.down.sql"; printf '202001010001_b\n' > "$T/migrations/ORDER"; commit_all rename
-echo "Scenario: 開発版に載った移行の名前を変えて旧名の対応が無ければ、検査が落ちる"; expect 1
+echo "Scenario: 開発版に載った移行の名前を変えて旧名の対応が無ければ、検査が落ちる"; expect 1 202001010000_a
 
 new_tree; mv "$T/migrations/202001010000_a.sql" "$T/migrations/202001010001_b.sql"; mv "$T/migrations/202001010000_a.down.sql" "$T/migrations/202001010001_b.down.sql"; printf '202001010001_b\n' > "$T/migrations/ORDER"; printf 'renamed 202001010000_a 202001010001_b\n' > "$T/migrations/LINEAGE"; commit_all rename-with-lineage
 echo "Scenario: 開発版に載った移行の名前を変えても、旧名の対応があれば通る"; expect 0
 
 new_tree; mv "$T/migrations/202001010000_a.sql" "$T/migrations/202001010001_b.sql"; printf 'CREATE TABLE changed ();\n' > "$T/migrations/202001010001_b.sql"; mv "$T/migrations/202001010000_a.down.sql" "$T/migrations/202001010001_b.down.sql"; printf '202001010001_b\n' > "$T/migrations/ORDER"; printf 'renamed 202001010000_a 202001010001_b\n' > "$T/migrations/LINEAGE"; commit_all rename-and-rewrite
-echo "Scenario: 名前を変えて中身も変えた移行は、旧名の対応だけでは落ちる"; expect 1
+echo "Scenario: 名前を変えて中身も変えた移行は、旧名の対応だけでは落ちる"; expect 1 202001010001_b '直しの移行を足して rewritten を書く'
 
 new_tree; printf 'CREATE TABLE changed ();\n' > "$T/migrations/202001010000_a.sql"; commit_all rewrite
-echo "Scenario: 開発版に載った移行の中身を変えて直しの対応が無ければ、検査が落ちる"; expect 1
+echo "Scenario: 開発版に載った移行の中身を変えて直しの対応が無ければ、検査が落ちる"; expect 1 202001010000_a '直しの移行を足して rewritten を書く'
 
 new_tree; printf 'CREATE TABLE changed ();\n' > "$T/migrations/202001010000_a.sql"; printf '202001010000_a\n202001010001_c\n' > "$T/migrations/ORDER"; printf 'CREATE TABLE c ();\n' > "$T/migrations/202001010001_c.sql"; printf 'DROP TABLE c;\n' > "$T/migrations/202001010001_c.down.sql"; printf 'rewritten 202001010000_a 202001010001_c\n' > "$T/migrations/LINEAGE"; commit_all rewrite-with-fix
 echo "Scenario: 開発版に載った移行の中身を変えても、直しの移行の対応があれば通る"; expect 0
@@ -145,7 +152,7 @@ echo "Scenario: 印 nightly の後に足した移行は、変えても通る"; e
 new_tree; printf 'changed down\n' > "$T/migrations/202001010000_a.down.sql"; commit_all down
 echo "Scenario: 開発版に載った移行の戻し手順は、変えても通る"; expect 0
 
-new_tree; printf '202001010000_a\n' > "$T/migrations/ORDER"; git -C "$T" rm -q migrations/ORDER; git -C "$T" commit -q -m missing-order
+new_tree; git -C "$T" rm -q migrations/ORDER; git -C "$T" commit -q -m nightly-without-order; git -C "$T" tag -f nightly >/dev/null; printf '202001010000_a\n' > "$T/migrations/ORDER"; commit_all current-order
 echo "Scenario: 印 nightly の版の移行を取り出せなければ、検査は通らない"; expect 1
 
 new_tree; git -C "$T" commit --allow-empty -q -m next; git clone -q --depth=1 "file://$T" "$work/shallow"; mkdir -p "$work/shallow/tools"; cp "$PWD/tools/check-nightly-migrations.sh" "$work/shallow/tools/"; echo "Scenario: 浅い木では、開発版に載った移行の検査は通らない"; if out=$(cd "$work/shallow" && tools/check-nightly-migrations.sh 2>&1); then echo "  FAIL: 浅い木で検査が通った"; fail=1; elif ! grep -q '履歴が浅い' <<< "$out"; then echo "  FAIL: 浅い木の出力に「履歴が浅い」が無い"; fail=1; fi
