@@ -127,8 +127,9 @@ sys.stdout.reconfigure(newline='\n')
 w=sys.argv[1]; x=json.load(open(os.path.join(w,'package-lock.json'),encoding='utf-8'))
 for k,v in x.get('packages',{}).items():
     if not k or v.get('dev') is True: continue
-    name=k.removeprefix('node_modules/')
-    if name == k: continue
+    # 入れ子の部品（a/node_modules/b）も、名前は最後の node_modules/ の後ろ
+    if not k.startswith('node_modules/'): continue
+    name=k.rsplit('node_modules/',1)[-1]
     author=v.get('author','-')
     if isinstance(author,dict): author=author.get('name','-')
     print('\t'.join([name,str(v.get('version','')),str(v.get('license') or '-'),str(author or '-'),(w.rstrip('/\\')+'/'+k).replace('\\','/')]))
@@ -370,7 +371,7 @@ case "${1:-}" in
   --self-test) self_test;;
   commit) commit_value;;
   source) shift; source_notice "$@";;
-  server|collector-windows) kind="$1"; out="${2:-}"; [[ -n "$out" ]] || usage; shift 2; target=""; [[ "${1:-}" == --target ]] && target="${2:-}"; rust_notice "$kind" "$out" "$target";;
+  server|collector-windows) kind="$1"; out="${2:-}"; [[ -n "$out" ]] || usage; shift 2; target=""; if [[ "${1:-}" == --target ]]; then target="${2:-}"; [[ -n "$target" ]] || usage; shift 2; fi; [[ $# == 0 ]] || usage; rust_notice "$kind" "$out" "$target";;
   apk) shift; apk_notice "$@";;
   *) usage;;
 esac

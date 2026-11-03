@@ -82,6 +82,11 @@ keytool -exportcert -keystore <正式なkeystore> -alias "$ASHIATO_SIGNING_KEY_A
 PR の成果物は ST53 が main に入った後に本人が掃除する。ST53 より前の commit の `package-linux`・`release-package` だけを対象にし、ST53 後の成果物は消さない。
 
 ```bash
+# 対象の候補を挙げる（id・名前・組んだ commit・作った日時）
+gh api --paginate repos/rai-256/ashiato/actions/artifacts \
+  --jq '.artifacts[] | select(.name == "package-linux" or .name == "release-package") | [.id, .name, .workflow_run.head_sha, .created_at] | @tsv'
+# 組んだ commit が ST53 の merge の commit より前のものだけを消す（rc=0 なら前）
+git merge-base --is-ancestor <head_sha> <ST53 の merge の commit>
 gh api --method DELETE repos/rai-256/ashiato/actions/artifacts/<artifact-id>
 ```
 

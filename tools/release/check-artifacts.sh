@@ -61,7 +61,7 @@ artifact_file() {
 }
 
 check_artifact_files() {
-  local artifact="$1" name="$2" path notices source expected_ref expected_commit stamp_commit
+  local artifact="$1" name="$2" path license notices source expected_ref expected_commit stamp_commit
   if [[ "$artifact" == *.apk ]]; then
     path='assets/licenses/'
   else
