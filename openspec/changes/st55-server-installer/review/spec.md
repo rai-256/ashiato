@@ -196,3 +196,26 @@
 - st44-collector-credential-scope / すべての API 要求は資格情報を要求する: 前提（写した導出元 spec:19 がログインの口をこの Requirement の例外として名指しし、ST55 の Scenario はログインの口と資格情報の無い `/healthz` が ST44 の形であることを当てにしている。ST44 は requires に在る）
 - 処置: fixed D20 —— `[package] name = "ashiato-setup"` を書き、tasks.md の名前の行にも書いた
 
+
+<!-- spec --answers Q8,Q9 の確かめ（2026-11-03）で足した指摘。観点 6 は review/answers.md -->
+
+## R22. `repair` の一時の入口（D28（仮））が DB の Requirement の「どの接続にも合言葉・55400 だけ」と食い違い、閉じたことを見る Scenario が無い
+- 成果物: openspec/changes/st55-server-installer/specs/distribution/spec.md
+- 根拠: spec.md:110「配る DB のどの接続（手元の接続を含む）にも合言葉の認証（`scram-sha-256`）を求め、合言葉なしで通す設定（`trust`）を残さない」・spec.md:111「`127.0.0.1` の 55400 番だけで待ち受けさせる」に対し、design.md:223-228 の D28（仮）は `repair` の間、127.0.0.1 の空いている一時の番号で `sspi`（合言葉なし）の入口を開き、反転条件は `local all <管理者の役割> trust`。spec.md:293 以下の `repair` の 4 本の Scenario は、どれも「`repair` の後に一時の `hba_file` が無い・接続の規則に `sspi` / `trust` の行が無い・待ち受けが 55400 だけ」を見ない。tasks 6.2 の Linux の試験は一時の `hba_file` の中身（`trust` が無く `sspi` が 1 行）までで、Windows で消えたことは見ない
+- kind: technical
+- 提案: DB の Requirement に「`repair` の間だけ、上がった利用者に限った一時の入口を 127.0.0.1 に開き、`repair` の終わりに閉じる」の例外を 1 文足し、「`repair` の後に合言葉なしの入口と一時の番号が残らない」の Scenario を 1 本足して tasks 6.2 の `install-check.sh` に名指す
+- 処置: fixed specs/distribution/spec.md —— DB の Requirement に `repair` の間だけの一時の入口の例外を 1 文、Scenario「repair の後に合言葉なしの入口と一時の番号が残らない」を足し、D28（仮）に書き、tasks 6.2 の `install-check.sh` に名指した
+
+## R23. 別の管理者が `repair` を走らせると「本人」が変わりうる
+- 成果物: openspec/changes/st55-server-installer/design.md / specs/distribution/spec.md
+- 根拠: design.md D27 (b)「本人の SID は上がる前に控えた値」—— 止まった状態では設定のファイルが無く `ASHIATO_OWNER_SID`（design.md:55）を読めないので、`repair` を開いた利用者の SID が本人になる。一方 design.md:175（D21）は「別の管理者 B で走らせ直しても、本人は設定の `ASHIATO_OWNER_SID` から読んで変えない（R9）」、spec.md:148・151 は「別の管理者の資格情報で上がってもその管理者を本人にしない」「走らせ直しで前のインストールの本人を変えない」。B が `repair` を開くと、設定の本人は B、置き場の ACL（D3 でインストールのときに付いた A の読み）は A のままで食い違い、(e) の (9) は B の `--profile` に取り込み待ちを作る。`repair` の Requirement・Scenario は本人に触れていない
+- kind: technical
+- 提案: `repair` は本人を状態の置き場の ACL（2 つのサービスのアカウント以外で読みを持つ SID）から戻すと D27 に書き、`repair` の Requirement に「`repair` で前のインストールの本人を変えない」と、使い捨ての管理者 B で `repair` する Scenario を 1 本足す
+- 処置: fixed D27 —— 本人は状態の置き場の根の ACL から読む（読みを持つ SID が 1 つでなければ止まる）と (b) に書き、(9) は本人のプロファイルで判定すると (e) に書いた。`repair` の Requirement に「前のインストールの本人を変えない」と Scenario「別の管理者が repair しても、本人は変わらない」を足し、tasks 6.2 に名指した
+
+## R24. ログの Requirement の「権限を状態の置き場と同じにする」が、`logs\db` だけ DB のサービスが書く今の形と字面で合わない
+- 成果物: openspec/changes/st55-server-installer/specs/distribution/spec.md
+- 根拠: spec.md:448「ログのファイルの権限を状態の置き場と同じにする（ほかのアカウントから読めない）」に対し、同じ Requirement の Scenario「DB のサービスは logs の db に書け、DB のログのファイルができる」と spec.md:147 は `logs\db` の書きを `NT SERVICE\ashiato-db` だけにする（根は `ashiato-server` が書く。design D3）
+- kind: technical
+- 提案: 「ログのファイルの権限は状態の置き場の権限の Requirement に従う（ほかのアカウントから読めない）」に言い換える
+- 処置: fixed specs/distribution/spec.md —— ログの Requirement の権限の文を「状態の置き場の権限の Requirement に従わせる（`logs\db` は DB の、`logs\server` はサーバのサービスのアカウントが書き、ほかのアカウントからは読めない）」に言い換えた

@@ -15,14 +15,15 @@
 ## Global Constraints
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust はコメント（`// Scenario: …`）、bash は `echo "== Scenario: …"`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario**: `distribution` の ADDED 73 本・`data-sensitivity` の MODIFIED で足した 4 本・`data-durability` の MODIFIED で足した 2 本・`device-collection` の MODIFIED で足した 1 本、計 **80 本に ST55 が印を置く**。全部このファイルのどこかの Task が名指しする。
+- **この change の Scenario**: `distribution` の ADDED 80 本・`data-sensitivity` の MODIFIED で足した 4 本・`data-durability` の MODIFIED で足した 2 本・`device-collection` の MODIFIED で足した 1 本、計 **87 本に ST55 が印を置く**。全部このファイルのどこかの Task が名指しする。
   MODIFIED で本文をそのまま写した Scenario（`data-sensitivity` の 17 本は ST44。うち WHEN を形で絞った「画面の合言葉が API の合言葉と同じだと起動しない」は Task 7.1 で照らす形の試験にも印を置く、`data-durability` の書き出しの置き場の Scenario は ST29 の系列、`device-collection` の原本の置き場の Scenario は ST09）の印は、それぞれの Story が持つ。**消さない**
 - **本人の決定（下流は変えない）**: Q1 入れるのはサーバとデータベースだけ（PC の収集アプリは別の zip）/ Q2 インストーラは `ashiato-setup.exe`（Rust）をサーバの zip に入れる / Q3 画面の合言葉はインストーラの端末で 2 回打たせて決め、忘れたら `ashiato-setup.exe password` /
-  Q4 消す口を作り、記録の置き場は残す / Q5 CI に加えて確認バッチで Windows サンドボックスの中を録画 / Q6 Tailscale に触らず案内する / Q7 置き場は `C:\ProgramData\ashiato` に固定し、空きが 40 GB より少なければ知らせる。
-  仮: D3（置き場の ACL と仮想アカウント。登録できなければ止まる）・D26（再起動はサンドボックスで残るときだけ実物で見る）・D10（走らせ直し・秘密を先に書く・秘密の欠けで止まる）・D16（取り込みの利用者は nil）・D17（ログは置き場のファイル）・D18（本人の切り替えで `API_TOKEN` を引き継がない）。
+  Q4 消す口を作り、記録の置き場は残す / Q5 CI に加えて確認バッチで Windows サンドボックスの中を録画 / Q6 Tailscale に触らず案内する / Q7 置き場は `C:\ProgramData\ashiato` に固定し、空きが 40 GB より少なければ知らせる /
+  Q8 DB はあるのに秘密が無くて止まったときの出口 `ashiato-setup.exe repair` をこの Story で作る（D10・D27） / Q9 `logs\db` に DB のサービスの書きを足し、DB の起動の最初の数行と `pg_ctl` の知らせがイベントログに出るのは受け入れる（送った文の字面と秘密は出さない。D3・D17）。
+  仮: D3（置き場の ACL と仮想アカウント。登録できなければ止まる）・D26（再起動はサンドボックスで残るときだけ実物で見る）・D16（取り込みの利用者は nil）・D28（`repair` の一時の形は `pg_ctl` と一時の `hba_file` の `sspi`）・D18（本人の切り替えで `API_TOKEN` を引き継がない）。
   （第 1 回は推奨で先に書き、本人の答えが推奨と違えば上流が写してから下流へ渡す）
 - **名前は統一する**（D14）: サービス `ashiato-db`・`ashiato-server`（開発版は `-dev`）、アカウント `NT SERVICE\ashiato-db`・`NT SERVICE\ashiato-server`、プログラムの置き場 `C:\Program Files\ashiato`、状態の置き場 `C:\ProgramData\ashiato`（`db\17`・`media`・`export`・`backups\pre-migrate`・`archive-copies`・`logs\db`・`logs\server`・`settings`）、
-  設定のファイル `settings\server.json`、取り込み待ち `%USERPROFILE%\ashiato\取り込み待ち`、番号 DB 55400・サーバ 18700、設定の鍵 `WEB_PASSWORD_VERIFIER`、インストーラの口 `install`（既定）・`password`・`uninstall`、試験の差し込み `ASHIATO_SETUP_TEST_<名前>`（インストーラ）・`ASHIATO_SERVICE_TEST_<名前>`（サーバの `service` の口）と命令の記録 `ASHIATO_SETUP_TEST_TRACE=1`（どれも試験の組み立てだけ。D24）、設定の本人 `ASHIATO_OWNER_SID`、
+  設定のファイル `settings\server.json`、取り込み待ち `%USERPROFILE%\ashiato\取り込み待ち`、番号 DB 55400・サーバ 18700、設定の鍵 `WEB_PASSWORD_VERIFIER`、インストーラの口 `install`（既定）・`password`・`repair`・`uninstall`、試験の差し込み `ASHIATO_SETUP_TEST_<名前>`（インストーラ）・`ASHIATO_SERVICE_TEST_<名前>`（サーバの `service` の口）と命令の記録 `ASHIATO_SETUP_TEST_TRACE=1`（どれも試験の組み立てだけ。D24）、設定の本人 `ASHIATO_OWNER_SID`、
   crate `crates/installer`（`[package] name = "ashiato-setup"`・bin `ashiato-setup`）、道具 `tools/release/pgsql.sh`・`tools/release/pgsql.lock`・`tools/release/install-check.sh`・`tools/release/sandbox-probe.sh`・`tools/db-roles.sql`・`tools/check-pg-major.sh`、CI の job `install-windows`
 - **秘密（DB の合言葉・API の合言葉・ログインの印の鍵・画面の合言葉とその照らすための値）を、端末の出力・ログ・試験の期待値の出力・サービスの登録簿・命令の引数に出さない**（値は項目の名前だけで示す）
 - **開発の形を変えない**（壊してはいけないもの）: `docker-compose.yml` の DB・`tools/ports.sh` の割り当て・`.env` と環境変数で起こすサーバ・`net_guard.rs` の loopback の守り・ST28 の画面のログイン・ST44 の `v1` のログインの印。`tools/db-roles.sh` は SQL を `tools/db-roles.sql` に出すだけで流す SQL は同じ
@@ -53,7 +54,7 @@
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st55_bin_ && test "$(cargo test -p ashiato-server --test server_startup st55_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
 - [ ] 2.3 停止の知らせ（D2）: router の graceful shutdown・取り込み器と書き出しへの打ち切り・書き途中の `.` で始まるファイルの片付け。試験は停止の知らせを送る口を Linux でも呼べる形にして `// Scenario: サービスの停止を受けると、書き途中の書き出しを残さずに終わる`（`ASHIATO_EXPORT_SELFTEST_DELAY_MS` で書き出しを遅らせ、途中で止め、置き場に `.` で始まるファイルが無く、次の起動で書き出しの状態が走っていない）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st55_stop_ && test "$(cargo test -p ashiato-server st55_stop_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
-- [ ] 2.4 ログの書き手（D17（仮））: `service` の口では `logs\server\server-<日付>.log` に書き、日付が変わったら開き直し、起動のときに 30 日より古いファイルを消す。起動の拒否（`eprintln!` の所）も同じ書き手に書く。新しい依存を足さない。
+- [ ] 2.4 ログの書き手（D17）: `service` の口では `logs\server\server-<日付>.log` に書き、日付が変わったら開き直し、起動のときに 30 日より古いファイルを消す。起動の拒否（`eprintln!` の所）も同じ書き手に書く。新しい依存を足さない。
   試験（Linux。置き場は一時フォルダ）: 日付の切り替え・30 日の片付け（31 日前のファイルが消え 29 日前が残る。`// Scenario: ログは DB が 7 日分、サーバが 30 日分残る` の印を置き、DB の 7 日は Task 4.1 の DB の設定の試験と `install-check.sh` が見る）・起動の拒否の理由が書かれる
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-server st55_log_ && test "$(cargo test -p ashiato-server st55_log_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 / `tools/check-log-private.sh` rc=0
 
@@ -64,9 +65,9 @@
   外れたら D3 の反転条件として上流へ返す（下流は先へ進まない）。サンドボックスが起きない・利用者が上がった札を持たないなら、その旨を P19 に書き、PR の CI（3.2 の最初の項目）に任せる
   検証: `tools/release/sandbox-probe.sh p19` rc=0（サンドボックスで確かめられないときも、その旨を結果のファイルに書いて rc=0。P19 が成り立たないと分かったときは rc=1 で、上流へ返す）
 - [ ] 3.1 `crates/installer`（D20・D14・D22）: 作業場の member、`build.rs` で組み立ての印、`main.rs` の先頭に理由つきの `#![allow(clippy::print_stdout)]`。`layout.rs` に D14 の表（版番号の `-dev.` で列を選ぶ）。
-  上がる前に本人の SID・`USERPROFILE`・ダウンロードの実の場所を控え、`powershell Start-Process -Verb RunAs` で自分を起こし直す命令を組む（既に管理者なら起こし直さない）。ACL を付ける `icacls` の命令（D3（仮）・D21）とサービスの登録の命令（`pg_ctl register`・`sc.exe config`・`sc.exe failure`。D2・D11）を組む純粋な関数を置く。
+  上がる前に本人の SID・`USERPROFILE`・ダウンロードの実の場所を控え、`powershell Start-Process -Verb RunAs` で自分を起こし直す命令を組む（既に管理者なら起こし直さない）。ACL を付ける `icacls` の命令（D3（仮）。`db` と `logs\db` は `NT SERVICE\ashiato-db` の書き・D21）とサービスの登録の命令（`pg_ctl register`・`sc.exe config`・`sc.exe failure`。D2・D11）を組む純粋な関数を置く。
   起こした命令を記録する口（`ASHIATO_SETUP_TEST_TRACE=1`。試験の組み立てだけ）と、引数の読み方（知らない引数で何も作らずに rc≠0）もここで置く。
-  試験（Linux の `cargo test -p ashiato-setup`）: 表の選び方（正式・ベータ・開発版）・起こし直しの命令に秘密が無い・`icacls` の命令に `Users`・`Authenticated Users`・`Everyone`・`Administrators` が無い・登録の命令が共有のアカウントを名指ししない・
+  試験（Linux の `cargo test -p ashiato-setup`）: 表の選び方（正式・ベータ・開発版）・起こし直しの命令に秘密が無い・`icacls` の命令に `Users`・`Authenticated Users`・`Everyone`・`Administrators` が無い・`logs\db` の書きが `NT SERVICE\ashiato-db` で `ashiato-server` でない・登録の命令が共有のアカウントを名指ししない・
   `// Scenario: 上がっていない状態から開くと、管理者に上がる起こし直しは 1 回だけ`・`// Scenario: 上がる前の段は、開いた利用者を本人として控える`（`whoami /user` の出力を渡した純粋な関数）・`// Scenario: インストーラは状態の置き場を選ぶ口を持たない`（引数の読み方の段。`install-check.sh` にも置く）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_layout_ && test "$(cargo test -p ashiato-setup st55_layout_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'` rc=0 /
   `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `cargo clippy -p ashiato-setup --all-targets -- -D warnings` rc=0
@@ -87,9 +88,9 @@
 
 ## Task 4: 配る DB を作り、設定する
 
-- [ ] 4.1 インストーラの段 (3)(4)（D1・D5・D6・D17（仮））: `initdb` の命令（`--locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums -A scram-sha-256 --pwfile=<一時>`）と `postgresql.conf` の末尾に足す行を組む純粋な関数、`--pwfile` の一時のファイルを消す片付け。
+- [ ] 4.1 インストーラの段 (3)(4)（D1・D5・D6・D17）: `initdb` の命令（`--locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums -A scram-sha-256 --pwfile=<一時>`）と `postgresql.conf` の末尾に足す行を組む純粋な関数、`--pwfile` の一時のファイルを消す片付け。
   試験（Linux）: 命令の引数に合言葉が無い・`trust` が無い・足す行に `listen_addresses='127.0.0.1'`・`port=55400`・ログの 4 つ（`log_min_error_statement='panic'` を含む）・`logging_collector=on`・`log_directory` が状態の置き場の `logs/db`・`log_truncate_on_rotation=on`。
-  `install-check.sh` に `配る DB は OS に依らない並べ方で作られ、符号の順に並ぶ`・`配る DB は合言葉なしの接続を通さない`・`配る DB は手元の 55400 番だけで待ち受ける`・`配る DB はログに文と値を書かない`（`log_min_error_statement=panic` も）・`DB とサーバのログの行はイベントログに出ない`・`ログのファイルはほかのアカウントから読めない`・`ログは DB が 7 日分、サーバが 30 日分残る`・`DB を作るときの一時の合言葉のファイルが残らない` を足す。
+  `install-check.sh` に `配る DB は OS に依らない並べ方で作られ、符号の順に並ぶ`・`配る DB は合言葉なしの接続を通さない`・`配る DB は手元の 55400 番だけで待ち受ける`・`配る DB はログに文と値を書かない`（`log_min_error_statement=panic` も）・`DB のサービスは logs の db に書け、DB のログのファイルができる`（配る zip）・`送った文と秘密はイベントログに出ない`（イベントログの出し元 `PostgreSQL` の項目は起動の知らせがあってよく、文と秘密の値だけを探す）・`ログのファイルはほかのアカウントから読めない`・`ログは DB が 7 日分、サーバが 30 日分残る`・`DB を作るときの一時の合言葉のファイルが残らない` を足す。
   `配る DB と開発の DB は同じメジャー版` は `tools/check-pg-major.sh`（新しい台本。`pgsql.lock` の `version` と `docker-compose.yml` の `postgres:<N>` のメジャーを比べ、`--self-test` で食い違いに rc≠0）に置き、`install-check.sh` でも同梱の `postgres --version` を見る
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_db_ && test "$(cargo test -p ashiato-setup st55_db_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 / `tools/check-pg-major.sh` rc=0 / `tools/check-pg-major.sh --self-test` rc=0 / `tools/release/install-check.sh --self-test` rc=0
 
@@ -103,12 +104,19 @@
   `移行の前の退避は状態の置き場に、同梱の pg_dump で取られる`・`移行が失敗すると、サーバのサービスを開始せずに止まる`（`ASHIATO_SETUP_TEST_MIGRATE_FAIL=1`）・`サービスの起動では移行を当てない`・`インストールの間、ネットワークに出ない`（D12。展開した置き場とプログラムの置き場の実行ファイルの外向きを Windows のファイアウォールで止めて入れる）を足す
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_secret_ && test "$(cargo test -p ashiato-setup st55_secret_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 / `tools/release/install-check.sh --self-test` rc=0 / `tools/check-secrets.sh` rc=0
 
-## Task 6: 走らせ直し（D10（仮））
+## Task 6: 走らせ直しと `repair` の口（D10・D27）
 
-- [ ] 6.1 インストーラの段の順（D10）と「既にあるか」の判定を、状態の置き場の見え方（設定の有無・`db\17\PG_VERSION` の有無・照らすための値の有無・サービスの有無）から次の段を決める純粋な関数にする。DB があるのに設定が無ければ何も書き換えずに rc≠0（DB と秘密の食い違いと置き場の場所を示す）。
+- [ ] 6.1 インストーラの段の順（D10）と「既にあるか」の判定を、状態の置き場の見え方（設定の有無・`db\17\PG_VERSION` の有無・照らすための値の有無・サービスの有無）から次の段を決める純粋な関数にする。DB があるのに設定が無ければ何も書き換えずに rc≠0（DB と秘密の食い違いと置き場の場所と `repair` の口を示す）。
   試験（Linux。見え方の全部の組み合わせ 16 通りの表）: 次の段・止まるか・上書きしない
   `install-check.sh` に `走らせ直しても秘密と DB は変わらない`・`DB を作る途中で落ちても、走らせ直しで DB ができる`（`ASHIATO_SETUP_TEST_STOP_AT=initdb`）・`DB はあるのに秘密が無いと、何も書き換えずに止まる`・`合言葉を決める前に閉じたら、走らせ直しで合言葉の段からやり直す`（標準入力を空で閉じる）・`別の利用者が走らせ直しても、本人は変わらない`（使い捨ての管理者 B で走らせ直す）を足す。一時の書きの権限（D21）を段の終わりと走らせ直しの最初に外すことも、ここの表の試験に入れる
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_rerun_ && test "$(cargo test -p ashiato-setup st55_rerun_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'` rc=0 / `tools/release/install-check.sh --self-test` rc=0
+- [ ] 6.2 `repair` の口（Q8・D27・D28（仮））: 上がり方は `password` と同じ（D22・D21）。止まった状態（`db\17\PG_VERSION` があり設定が無い）でだけ動き、それ以外は何も書かずに rc≠0 で「`repair` は要らない」と走らせ直しか `password` を示す。
+  段は D27 の (a)〜(e): サービスを止める → 秘密を作り直して `settings\server.json.repair` に書く → `pg_ctl start -o` で一時の形（`127.0.0.1`・空いている一時の番号・一時の `hba_file` の `sspi` と `pg_ident` で上がった利用者だけを DB の管理者の役割に結ぶ）に起こし、3 つの役割の `ALTER ROLE … PASSWORD` を環境変数と `\getenv` で流す →
+  一時の形を止めて一時の `hba_file` を消し、`server.json.repair` を `server.json` へ名前を替える → 走らせ直しの (5)〜(13)。出力の最後に収集アプリの繋ぎ直しが要ることと `docs/install.md` を示す（値は示さない）。役割の段で止まる差し込み `ASHIATO_SETUP_TEST_STOP_AT=repair-roles` を試験の組み立てだけに置く。
+  試験（Linux）: 口の判定（止まった状態・設定がある・DB が無い の 3 つ）・置き場の ACL の読み（`icacls` の出力）から本人の SID を 1 つ選ぶ（サービスのアカウントを除く・2 つ以上なら止まる）・段の順（`server.json` を置くのが役割の段の後）・一時の `hba_file` に `trust` が無く `sspi` の行が 1 つだけ・`pg_ctl` と `psql` の命令の引数に秘密が無い・出力に秘密が無い。
+  `install-check.sh` に `設定を退けて止まった後に repair すると、記録を残したままログインできる`（配る zip）・`repair の後は前の API の合言葉では送れず、繋ぎ直しの案内が出る`（配る zip）・`止まった状態でなければ repair は何も変えずに終わる`（配る zip）・`repair の後に合言葉なしの入口と一時の番号が残らない`（配る zip。`pg_hba.conf` の有効な行と `netstat -ano` の `postgres` の待ち受け）・`別の管理者が repair しても、本人は変わらない`（使い捨ての管理者 B で `repair`）・`repair の途中で落ちても、もう一度 repair できる`（試験の zip。`ASHIATO_SETUP_TEST_STOP_AT=repair-roles`）を足す。
+  一時の形が上がった札で通らなければ D28（仮）の反転条件（一時の `unix_socket_directories` と `local … trust`）に替え、どちらも通らなければ上流へ返す
+  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_repair_ && test "$(cargo test -p ashiato-setup st55_repair_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 / `tools/release/install-check.sh --self-test` rc=0
 
 ## Task 7: 画面の合言葉（照らすための値・決める口・決め直す口）
 
@@ -158,9 +166,9 @@
 
 ## Task 11: 手順書と申し送り
 
-- [ ] 11.1 `docs/install.md`（新しい）: 入れる（zip を展開して `ashiato-setup.exe`。SmartScreen の警告・UAC 1 回）・画面の合言葉を決める・忘れたら `password`・消す・記録を手で消す（管理者として所有権を取る `takeown /r` と `icacls` の手順）・Tailscale の「無人で動かす」と転送先・空き・残るリスク（管理者は所有権を取れば読める・秘密が欠けたら止まる間の携帯の上限）。
+- [ ] 11.1 `docs/install.md`（新しい）: 入れる（zip を展開して `ashiato-setup.exe`。SmartScreen の警告・UAC 1 回）・画面の合言葉を決める・忘れたら `password`・消す・記録を手で消す（管理者として所有権を取る `takeown /r` と `icacls` の手順）・Tailscale の「無人で動かす」と転送先・空き・秘密が欠けて止まったときの `repair` と、その後の収集アプリの繋ぎ直し（D27）・残るリスク（管理者は所有権を取れば読める・止まってから `repair` するまでの間の携帯の上限）。
   `docs/release.md` §7 を D18（仮）の手順に書き直す（旧い手順は消す）。`docs/archive-inbox.md` にインストールした形の取り込み待ち（D9）を足す。`docs/production-prep.md` の既定値の棚卸しに、配る DB の行（D1・D6・D17）を ★ で足す。`CLAUDE.md` の「構成」に `crates/installer` の行を足す
-  検証: `bash -c 'for h in "ashiato-setup.exe" "password" "uninstall" "takeown" "無人で動かす" "18700"; do grep -q "$h" docs/install.md || exit 1; done && grep -q "ashiato-setup" docs/release.md && grep -q "取り込み待ち" docs/archive-inbox.md && grep -q "crates/installer" CLAUDE.md'` rc=0
+  検証: `bash -c 'for h in "ashiato-setup.exe" "password" "repair" "uninstall" "takeown" "無人で動かす" "18700"; do grep -q "$h" docs/install.md || exit 1; done && grep -q "ashiato-setup" docs/release.md && grep -q "取り込み待ち" docs/archive-inbox.md && grep -q "crates/installer" CLAUDE.md'` rc=0
 - [ ] 11.2 申し送り（D13・D14）: `docs/handoff/ST53.md`（同梱した PostgreSQL と DLL の許諾を FR-127 の一覧と NFR-26 の検査へ。`pgsql\LICENSES\` の場所）・`docs/handoff/ST30.md`（インストールした形のバックアップの置き場は `C:\ProgramData\ashiato\backups`。サーバのサービスのアカウントが書く）・
   `docs/handoff/ST54.md`（D14 の開発版の列を確かめる）・`docs/handoff/ST57.md`・`docs/handoff/ST58.md`（サービスの名前・置き場の並び・`layout.rs`・インストールの走らせ直しの段）に 1 節ずつ足す
   検証: `bash -c 'grep -q "pgsql" docs/handoff/ST53.md && grep -q "ProgramData" docs/handoff/ST30.md && grep -q "ashiato-db-dev" docs/handoff/ST54.md && grep -q "layout.rs" docs/handoff/ST57.md && grep -q "layout.rs" docs/handoff/ST58.md'` rc=0

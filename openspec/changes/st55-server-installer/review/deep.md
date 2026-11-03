@@ -73,7 +73,7 @@ Windows の上では何も走らせていない（この席も WSL の中。P3�
 - loss: exported
 - 提案: 聞かない既定に「D-01 は `logging_collector=on` で C3 の置き場の `logs` に書き、イベントログには出さない。S-01 も同じ置き場のファイルに書く（起動の拒否の理由を含む）」を足し、
   P に「イベントログ（アプリケーション）の読み手」を足す。Windows の CI で `SHOW log_destination` と、ログのファイルの ACL を C3 と同じに見る
-- 処置: fixed D17 仮 —— premises.md C17（DB・サーバともに置き場の logs にファイルで。イベントログに出さない）。spec の段で design.md の D17（仮）に写す
+- 処置: escalated —— 仮（D17）で閉じていたが、別の席（provisional-review.md）が否とし、第 2 回の Q9（deep-questions-r2.json）で人間に返した。本人の答え（`logs\db` に DB のサービスの書きを足し、起動の数行がイベントログに出るのは受け入れる）を design D17・D3 と spec に写した（2026-11-03）
 
 ## R3. 「ログオンしていなくても携帯の記録を受け取れる」が、携帯が届く経路（`tailscale serve`）のログオン前の動きと待ち受けの番号に乗っているのに、前提にも問いにも無い
 - 成果物: openspec/changes/st55-server-installer/premises.md
@@ -108,7 +108,7 @@ Windows の上では何も走らせていない（この席も WSL の中。P3�
 - 提案: Q3 の族に「最後の段で決めずに閉じた」（C10 の走らせ直しで足りないものを足す、と明記）を、別の族「秘密の欠け」に「DB はあるのに秘密が無い」を足す。
   後者の出口（インストーラが DB の役割の合言葉を作り直す口。費用がある）は B の問いにするか、作らないなら GO 資料に「止まったまま携帯は 90 日で捨て始める」を書く。
   C10 に「秘密を書いてから `initdb` する」順を足し、途中で落ちても「秘密はあるのに DB が無い」側（走らせ直しで足せる）に倒す
-- 処置: fixed D10 仮 —— premises.md C10（秘密を先に書いてから initdb・走らせ直しで合言葉の段から・止まる間の 90 日を GO 資料に）と deep-questions.json の Q3 の族
+- 処置: escalated —— 仮（D10）で閉じていたが、別の席（provisional-review.md）が否とし、第 2 回の Q8（deep-questions-r2.json）で人間に返した。本人の答え（この Story で出口 `ashiato-setup.exe repair` を作る）を design D10・D27 と spec に写した（2026-11-03）
 
 ## R6. 状態の置き場が C: の `ProgramData` に固定され、容量の見積もりがどこにも無い
 - 成果物: openspec/changes/st55-server-installer/deep-questions.json
