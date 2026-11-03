@@ -1,0 +1,8 @@
+{
+  "ST44": {
+    "spec_sha": "24b34ce2a74e8cc6fea2c62862a79f7f6d57310b",
+    "spec_pr": 231,
+    "spec_change": "st44-collector-credential-scope",
+    "spec_at": "2026-11-03T01:29:45+00:00"
+  }
+}
