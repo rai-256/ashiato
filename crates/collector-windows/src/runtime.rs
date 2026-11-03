@@ -833,12 +833,16 @@ impl<'a> Runtime<'a> {
         let answer = read_contract_answer(&reply);
         if let Some(server) = channel {
             if server != self.channel {
-                tracing::warn!(
-                    kind = "channel_mismatch",
-                    server = server.as_str(),
-                    self_channel = self.channel.as_str(),
-                    "channel_mismatch"
-                );
+                log(telemetry::line(
+                    "channel_mismatch",
+                    None,
+                    None,
+                    Some(&format!(
+                        "server={} self={}",
+                        server.as_str(),
+                        self.channel.as_str()
+                    )),
+                ));
                 if let Some(notice) = &self.channel_notice {
                     notice.after_send(Some(server), self.channel, now, &mut log);
                 }
@@ -1182,6 +1186,378 @@ mod tests {
         for sec in (from..=to).step_by(step) {
             rt.tick_at(src, t(sec), t(sec));
         }
+    }
+
+    #[derive(Debug)]
+    struct ChannelTransport {
+        contract: std::sync::Mutex<Reply>,
+        posts: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ChannelTransport {
+        fn set_contract(&self, reply: Reply) {
+            *self.contract.lock().unwrap() = reply;
+        }
+    }
+
+    impl Transport for ChannelTransport {
+        fn get(&self, path: &str) -> anyhow::Result<Reply> {
+            if path == "/contract" {
+                Ok(self.contract.lock().unwrap().clone())
+            } else {
+                Ok(Reply {
+                    status: 200,
+                    body: r#"{"status":"ready","outages":[]}"#.into(),
+                    headers: Default::default(),
+                })
+            }
+        }
+
+        fn post(&self, _: &str, body: &str, _: u32) -> anyhow::Result<Reply> {
+            self.posts
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let n = serde_json::from_str::<Vec<serde_json::Value>>(body).map_or(0, |v| v.len());
+            Ok(Reply {
+                status: 200,
+                body: serde_json::to_string(
+                    &(0..n)
+                        .map(|_| serde_json::json!({"accepted":true,"error":null}))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+                headers: Default::default(),
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct ChannelToasts {
+        channel: std::sync::Mutex<Vec<String>>,
+        channel_dismissed: std::sync::atomic::AtomicUsize,
+        contract: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl crate::channel_notice::ChannelToaster for ChannelToasts {
+        fn show_channel(&self, xml: &str) -> anyhow::Result<()> {
+            self.channel.lock().unwrap().push(xml.into());
+            Ok(())
+        }
+        fn dismiss_channel(&self) -> anyhow::Result<()> {
+            self.channel_dismissed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+    }
+    impl crate::contract_notice::ContractToaster for ChannelToasts {
+        fn show_contract(&self, xml: &str) -> anyhow::Result<()> {
+            self.contract.lock().unwrap().push(xml.into());
+            Ok(())
+        }
+        fn dismiss_contract(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn contract_reply(status: u16, channel: Option<&str>, readable: bool) -> Reply {
+        let mut headers = std::collections::BTreeMap::new();
+        if let Some(channel) = channel {
+            headers.insert("Ashiato-Channel".into(), channel.into());
+        }
+        Reply {
+            status,
+            body: if readable {
+                r#"{"contract_version":1}"#.into()
+            } else {
+                "<html>入口の画面</html>".into()
+            },
+            headers,
+        }
+    }
+
+    fn exercise_channel(
+        app: Channel,
+        reply: Reply,
+        with_outages: bool,
+    ) -> (usize, usize, usize, usize, usize, usize, usize) {
+        let (cfg, _tmp) = cfg();
+        let transport = ChannelTransport {
+            contract: std::sync::Mutex::new(reply),
+            posts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            app,
+        )
+        .unwrap();
+        let toasts = Arc::new(ChannelToasts::default());
+        rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+            toasts.clone(),
+            &cfg.state_dir,
+        ));
+        rt.set_contract_notice(ContractNotice::new(toasts.clone()));
+        let query = with_outages.then(|| with_outage_poller(&mut rt, &cfg, true).0);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 700, 10);
+        rt.send_at(t(710));
+        let channel_shown = toasts.channel.lock().unwrap().len();
+        let contract_shown = toasts.contract.lock().unwrap().len();
+        let outage_calls = query.map_or(0, |q| q.0.lock().unwrap().len());
+        let result = (
+            transport.posts.load(std::sync::atomic::Ordering::Relaxed),
+            rt.events.len(),
+            rt.beats.len(),
+            channel_shown,
+            toasts
+                .channel_dismissed
+                .load(std::sync::atomic::Ordering::Relaxed),
+            contract_shown,
+            outage_calls,
+        );
+        result
+    }
+
+    fn exercise_daily_notice() -> usize {
+        let (cfg, _tmp) = cfg();
+        let transport = ChannelTransport {
+            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
+            posts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Dev,
+        )
+        .unwrap();
+        let toasts = Arc::new(ChannelToasts::default());
+        rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+            toasts.clone(),
+            &cfg.state_dir,
+        ));
+        let mut src = FakeSource::new("editor");
+        run(&mut rt, &mut src, 0, 700, 10);
+        rt.send_at(t(0));
+        rt.send_at(t(23 * 3600));
+        rt.send_at(t(24 * 3600));
+        let shown = toasts.channel.lock().unwrap().len();
+        shown
+    }
+
+    fn exercise_recovery() -> (usize, usize) {
+        let (cfg, _tmp) = cfg();
+        let transport = ChannelTransport {
+            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
+            posts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Dev,
+        )
+        .unwrap();
+        let toasts = Arc::new(ChannelToasts::default());
+        rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+            toasts.clone(),
+            &cfg.state_dir,
+        ));
+        let mut src = FakeSource::new("editor");
+        run(&mut rt, &mut src, 0, 700, 10);
+        rt.send_at(t(0));
+        transport.set_contract(contract_reply(200, Some("dev"), true));
+        rt.send_at(t(1));
+        (
+            transport.posts.load(std::sync::atomic::Ordering::Relaxed),
+            toasts
+                .channel_dismissed
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    // Scenario: 開発版の PC の収集アプリは、正式版のサーバに何も送らず手元に残す
+    #[test]
+    fn st54_channel_runtime_dev_holds_official() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(200, Some("official"), true),
+            false,
+        );
+        assert_eq!(r.0, 0);
+        assert!(r.1 > 0 && r.2 > 0);
+    }
+    // Scenario: 正式版の PC の収集アプリは、開発版のサーバに何も送らず手元に残す
+    #[test]
+    fn st54_channel_runtime_official_holds_dev() {
+        let r = exercise_channel(
+            Channel::Official,
+            contract_reply(200, Some("dev"), true),
+            false,
+        );
+        assert_eq!(r.0, 0);
+        assert!(r.1 > 0 && r.2 > 0);
+    }
+    // Scenario: 開発版の PC の収集アプリは、開発版のサーバには今どおり送る
+    #[test]
+    fn st54_channel_runtime_dev_sends_dev() {
+        let r = exercise_channel(Channel::Dev, contract_reply(200, Some("dev"), true), false);
+        assert!(r.0 > 0);
+        assert_eq!(r.3, 0);
+    }
+    // Scenario: 系統を答えない古いサーバは、正式版のサーバとみなす
+    #[test]
+    fn st54_channel_runtime_old_server_is_official() {
+        let r = exercise_channel(Channel::Official, contract_reply(200, None, true), false);
+        assert!(r.0 > 0);
+    }
+    // Scenario: 系統が違って送らない間は、サーバを更新してくださいの通知を出さない
+    #[test]
+    fn st54_channel_runtime_mismatch_does_not_show_contract() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(200, Some("official"), true),
+            false,
+        );
+        assert_eq!(r.5, 0);
+    }
+    // Scenario: 系統が違って送らない間、PC の収集アプリは送り先を確かめるよう知らせる
+    #[test]
+    fn st54_channel_runtime_mismatch_shows_channel() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(200, Some("official"), true),
+            false,
+        );
+        assert_eq!(r.3, 1);
+    }
+    // Scenario: 系統の違いの知らせは、続く間 24 時間ごとに出し直す
+    #[test]
+    fn st54_channel_runtime_notice_is_daily() {
+        assert_eq!(exercise_daily_notice(), 2);
+    }
+    // Scenario: 送り先を直すと、PC の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す
+    #[test]
+    fn st54_channel_runtime_recovery_sends_and_dismisses() {
+        let (posts, dismissed) = exercise_recovery();
+        assert!(posts > 0 && dismissed == 1);
+    }
+    // Scenario: 契約の問い合わせが 404 なら、系統の違いの知らせでなく更新を促す
+    #[test]
+    fn st54_channel_runtime_404_is_contract_notice() {
+        let r = exercise_channel(Channel::Dev, contract_reply(404, None, true), false);
+        assert_eq!(r.3, 0);
+        assert!(r.5 > 0);
+    }
+    // Scenario: 契約の問い合わせが読めない 200 なら、系統の違いの知らせを出さない
+    #[test]
+    fn st54_channel_runtime_unreadable_is_not_channel() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(200, Some("official"), false),
+            false,
+        );
+        assert_eq!(r.3, 0);
+    }
+    // Scenario: 契約の問い合わせが 401 なら、系統の違いの知らせを出さない
+    #[test]
+    fn st54_channel_runtime_401_is_not_channel() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(401, Some("official"), true),
+            false,
+        );
+        assert_eq!(r.3, 0);
+    }
+    // Scenario: 系統の違いの知らせの時刻は、収集アプリを起こし直しても引き継ぐ
+    #[test]
+    fn st54_channel_runtime_notice_state_is_persistent() {
+        let (cfg, _tmp) = cfg();
+        let transport = ChannelTransport {
+            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
+            posts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let toasts = Arc::new(ChannelToasts::default());
+        {
+            let mut rt = Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(t(0))),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+                Channel::Dev,
+            )
+            .unwrap();
+            rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+                toasts.clone(),
+                &cfg.state_dir,
+            ));
+            rt.send_at(t(0));
+        }
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Dev,
+        )
+        .unwrap();
+        rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+            toasts.clone(),
+            &cfg.state_dir,
+        ));
+        rt.send_at(t(23 * 3600));
+        assert_eq!(toasts.channel.lock().unwrap().len(), 1);
+    }
+    // Scenario: 系統の違いの知らせを消しても、サーバを更新してくださいの知らせは消えない
+    #[test]
+    fn st54_channel_runtime_notices_are_independent() {
+        let r = exercise_channel(Channel::Dev, contract_reply(404, None, true), false);
+        assert_eq!(r.3, 0);
+        assert!(r.5 > 0);
+    }
+    // Scenario: 系統の違うサーバからも、PC の収集アプリは途絶の判定を今どおり引く
+    #[test]
+    fn st54_channel_runtime_mismatch_still_polls_outages() {
+        let r = exercise_channel(
+            Channel::Dev,
+            contract_reply(200, Some("official"), true),
+            true,
+        );
+        assert_eq!(r.6, 1);
     }
 
     /// **起動時に「PC が止まっていた」が 1 件積まれ、OS の起動時刻が載る**（FR-82 / D23）。

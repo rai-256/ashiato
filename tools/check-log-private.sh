@@ -52,7 +52,7 @@ ALLOWED = {
     # addr: サーバの待ち受けの番地（起動時に 1 回）。私設網の IP のことがある
     "addr",
     # 系統名（dev / official）の取り違えを調べるための固定語。記録の内容ではない（ST54 D7）。
-    "server", "self_channel",
+    "server", "self",
 }
 ALLOWED_DEBUG = {"location"}   # panic の発生位置（ソースの file:line）
 

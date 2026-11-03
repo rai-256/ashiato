@@ -136,7 +136,7 @@ mod tests {
             + Duration::hours(hours)
     }
 
-    // Scenario: 系統の違いの知らせは、続く間 24 時間ごとに出し直す
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_notice_is_daily() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -156,7 +156,7 @@ mod tests {
         (dir, fake, notice)
     }
 
-    // Scenario: 開発版の PC の収集アプリは、正式版のサーバに何も送らず手元に残す
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_dev_does_not_send_to_official() {
         let (_d, fake, n) = notice();
@@ -164,7 +164,7 @@ mod tests {
         n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
         assert_eq!(fake.0.lock().unwrap().len(), 1);
     }
-    // Scenario: 正式版の PC の収集アプリは、開発版のサーバに何も送らず手元に残す
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_official_does_not_send_to_dev() {
         let (_d, fake, n) = notice();
@@ -172,7 +172,7 @@ mod tests {
         n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
         assert_eq!(fake.0.lock().unwrap().len(), 1);
     }
-    // Scenario: 開発版の PC の収集アプリは、開発版のサーバには今どおり送る
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_same_channel_has_no_notice() {
         let (_d, fake, n) = notice();
@@ -180,7 +180,7 @@ mod tests {
         n.after_send(Some(Channel::Dev), Channel::Dev, at(0), &mut log);
         assert!(fake.0.lock().unwrap().is_empty());
     }
-    // Scenario: 系統を答えない古いサーバは、正式版のサーバとみなす
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_missing_answer_is_not_noticed() {
         let (_d, fake, n) = notice();
@@ -188,7 +188,7 @@ mod tests {
         n.after_send(None, Channel::Dev, at(0), &mut log);
         assert!(fake.0.lock().unwrap().is_empty());
     }
-    // Scenario: 系統が違って送らない間は、サーバを更新してくださいの通知を出さない
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_notice_is_separate_from_contract_notice() {
         let (_d, fake, n) = notice();
@@ -196,7 +196,7 @@ mod tests {
         n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
         assert!(!fake.0.lock().unwrap()[0].contains("更新してください"));
     }
-    // Scenario: 系統が違って送らない間、PC の収集アプリは送り先を確かめるよう知らせる
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_notice_names_server() {
         let (_d, fake, n) = notice();
@@ -204,7 +204,7 @@ mod tests {
         n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
         assert!(fake.0.lock().unwrap()[0].contains("正式版のサーバ"));
     }
-    // Scenario: 送り先を直すと、PC の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_same_channel_dismisses() {
         let (_d, fake, n) = notice();
@@ -213,7 +213,7 @@ mod tests {
         n.after_send(Some(Channel::Official), Channel::Official, at(1), &mut log);
         assert!(fake.0.lock().unwrap().last().unwrap().is_empty());
     }
-    // Scenario: 契約の問い合わせが 404 なら、系統の違いの知らせでなく更新を促す
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_404_has_no_channel_notice() {
         let (_d, fake, n) = notice();
@@ -221,7 +221,7 @@ mod tests {
         n.after_send(None, Channel::Official, at(0), &mut log);
         assert!(fake.0.lock().unwrap().is_empty());
     }
-    // Scenario: 契約の問い合わせが読めない 200 なら、系統の違いの知らせを出さない
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_unreadable_has_no_channel_notice() {
         let (_d, fake, n) = notice();
@@ -229,7 +229,7 @@ mod tests {
         n.after_send(None, Channel::Official, at(0), &mut log);
         assert!(fake.0.lock().unwrap().is_empty());
     }
-    // Scenario: 契約の問い合わせが 401 なら、系統の違いの知らせを出さない
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_401_has_no_channel_notice() {
         let (_d, fake, n) = notice();
@@ -237,7 +237,7 @@ mod tests {
         n.after_send(None, Channel::Official, at(0), &mut log);
         assert!(fake.0.lock().unwrap().is_empty());
     }
-    // Scenario: 系統の違いの知らせの時刻は、収集アプリを起こし直しても引き継ぐ
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_notice_persists_time() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -252,7 +252,7 @@ mod tests {
         n.after_send(Some(Channel::Dev), Channel::Official, at(23), &mut log);
         assert_eq!(fake.0.lock().unwrap().len(), 1);
     }
-    // Scenario: 系統の違いの知らせを消しても、サーバを更新してくださいの知らせは消えない
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_dismiss_is_independent() {
         let (_d, fake, n) = notice();
@@ -261,7 +261,7 @@ mod tests {
         n.after_send(Some(Channel::Official), Channel::Official, at(1), &mut log);
         assert_eq!(fake.0.lock().unwrap().len(), 2);
     }
-    // Scenario: 系統の違うサーバからも、PC の収集アプリは途絶の判定を今どおり引く
+    // Runtime integration coverage owns the Scenario marker.
     #[test]
     fn st54_channel_does_not_change_outage_reading() {
         let (_d, fake, n) = notice();
