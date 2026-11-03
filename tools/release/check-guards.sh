@@ -54,7 +54,7 @@ if len(items) != 1 or items[0].get("type") != kind or items[0].get("name") != ex
 }
 
 approvals() {
-  local reviewer="${ASHIATO_RELEASE_REVIEWER:-${repo%%/*}}" details
+  local reviewer="${reviewer_opt:-${ASHIATO_RELEASE_REVIEWER:-${repo%%/*}}}" details
   details="$(gh api "repos/$repo/environments/release" 2>/dev/null)" || { die 'release Environment の保護規則を読めない'; return 1; }
   if ! python3 -c 'import json,sys
 reviewer = sys.argv[1]
@@ -222,13 +222,13 @@ EOF
   repo=fake/repo
   PATH="$work:$PATH" environments >/dev/null
   echo "== Scenario: 承認者の無い配布用の Environment では、公開の前の確かめが落ちる"
-  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-no-reviewer.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo >/dev/null 2>&1; then die '承認者無しを通した'; fi
+  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-no-reviewer.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo --reviewer fake >/dev/null 2>&1; then die '承認者無しを通した'; fi
   echo "== Scenario: 管理者が承認を飛ばせる設定では、公開の前の確かめが落ちる"
-  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-bypass.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo >/dev/null 2>&1; then die '管理者の飛ばしを通した'; fi
+  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-bypass.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo --reviewer fake >/dev/null 2>&1; then die '管理者の飛ばしを通した'; fi
   echo "== Scenario: 本人が承認者で管理者が飛ばせなければ、公開の前の確かめを通る"
-  GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-good.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo >/dev/null
+  GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-good.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo --reviewer fake >/dev/null
   echo "== Scenario: 本人が承認者にいなければ、公開の前の確かめが落ちる"
-  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-other.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo >/dev/null 2>&1; then die '本人以外の承認者を通した'; fi
+  if GH_ENV_RELEASE_DETAILS_JSON="$work/release-details-other.json" PATH="$work:$PATH" "$0" approvals --repo fake/repo --reviewer fake >/dev/null 2>&1; then die '本人以外の承認者を通した'; fi
   echo "== Scenario: 管理者の資格情報では、エージェントの資格情報の確かめが落ちる"
   if GH_REPO_JSON="$work/repo-admin.json" PATH="$work:$PATH" "$0" agent-credential --repo fake/repo >/dev/null 2>&1; then die '管理者資格情報を通した'; fi
   echo "== Scenario: 管理者でない資格情報では、エージェントの資格情報の確かめを通る"
@@ -259,10 +259,12 @@ EOF
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   printf '\n      - run: tools/release/build.sh apk out\n' >>"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'APK のある偽 nightly を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
+  cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   echo "== Scenario: 公開の job は、署名の前に承認者を確かめる"
   if sed '/tools\/release\/check-guards.sh approvals/d' "$root/.github/workflows/release.yml" >"$work/release-no-approvals.yml" && cp "$work/release-no-approvals.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '承認者の確かめ無しを通した'; fi
-  if awk '/check-guards.sh approvals/{line=$0; next} /sign-apk.sh/{print line; print; next} {print}' "$root/.github/workflows/release.yml" >"$work/release-swapped.yml" && cp "$work/release-swapped.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '署名前でない承認者の確かめを通した'; fi
+  if awk '/check-guards.sh approvals/{line=$0; next} /sign-apk.sh/{print; print line; next} {print}' "$root/.github/workflows/release.yml" >"$work/release-swapped.yml" && cp "$work/release-swapped.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '署名前でない承認者の確かめを通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
@@ -307,11 +309,13 @@ EOF
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; exit 0; }
-usage() { echo "使い方: $0 <rules|environments|workflows|approvals|agent-credential> [--repo <owner/name>]（--repo は前後どちらでもよい）" >&2; exit 2; }
+usage() { echo "使い方: $0 <rules|environments|workflows|approvals|agent-credential> [--repo <owner/name>] [--reviewer <login>]（--repo は前後どちらでもよい）" >&2; exit 2; }
 kind=""
+reviewer_opt=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) [[ $# -ge 2 && -n "$2" ]] || usage; repo="$2"; shift 2 ;;
+    --reviewer) [[ $# -ge 2 && -n "$2" ]] || usage; reviewer_opt="$2"; shift 2 ;;
     rules|environments|workflows|approvals|agent-credential) [[ -z "$kind" ]] || usage; kind="$1"; shift ;;
     *) usage ;;
   esac
