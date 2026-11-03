@@ -214,6 +214,20 @@
   同じ 1 枚で第 4 回の深掘り Q17 にも答えがあった（上の Q17）。Q17 は推奨を先に仕様へ書いていないので、
   `spec --answers Q17` で design D18・tasks 6.1・10.2・`docs/release.md` の手順に写す（`deep_draft.py later` が Q17 を挙げる）
 
+## 影響の判断（第 6 回の合意）
+
+重大な IMP への本人の答え（`deep-answers-8.txt` の逐語。問いは `deep-questions-agree-6.json`）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。
+聞き直しの理由は、Q17 の答えを写した後に要点の `impact.lost.6`・`impact.situations.mixed` が本人の答えと仮の決定に依らずに変わったこと（commit c876741f）。
+
+- IMP-01 [印を push できる人が main を通さずに正式な鍵を読めるかもしれない（ST52 から）] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。第 5 回と同じ答え。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+- IMP-02 [本人の管理者の資格情報がエージェントと同じ OS の利用者に残ると、資格情報を替えても分けられない] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。第 5 回と同じ答え。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+
+## 仕様への合意（第 6 回）
+
+- QA [仕様への合意] -> 合意する（補足なし。`agreement.json` の `status: accepted`）。違和感は無く、仕様（proposal / specs / design / tasks）を直すものは無い。要件・Story へ戻すものも無い
+
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
 - FR-127 に ★ 2026-11-02 補足: 「同じ印」で示すのは正式版・ベータ版だけ、開発版と PR の組み立ては 40 桁の commit で示す（Q7・review/spec.md R14・D16（仮））。許諾は配布物の中にだけ置き、画面からは開けない（Q6・Q9）

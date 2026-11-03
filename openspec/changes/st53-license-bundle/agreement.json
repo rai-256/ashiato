@@ -1,13 +1,11 @@
 {
   "status": "accepted",
-  "digest": "7a057d93f684ed8410153bdcfa9989c0531b11d7ee90855e08b551e80cd17920",
-  "head": "1d8da5c7aaca3605965808f62483d0979b04f4da",
-  "answers": "deep-answers-7.txt",
+  "digest": "a2e00e5805a8e4b6c4cbf09853fb02371600c21ddae3a4c50abf83c059f64b2e",
+  "head": "c876741fe37871f98afcabcb7bf61bdcba23c62e",
+  "answers": "deep-answers-8.txt",
   "picked": "合意する",
-  "notes": [
-    "=== ST53 の深掘り 第 4 回 の回答 ==="
-  ],
-  "at": "2026-11-03T08:24:26Z",
+  "notes": [],
+  "at": "2026-11-03T09:39:45Z",
   "impacts": {
     "IMP-01": {
       "answer": "受け入れて進める（リリースの前に判断し直す）",
@@ -131,6 +129,20 @@
     {
       "at": "2026-11-03T08:24:26Z",
       "head": "1d8da5c7aaca3605965808f62483d0979b04f4da",
+      "id": "IMP-02",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T09:39:45Z",
+      "head": "c876741fe37871f98afcabcb7bf61bdcba23c62e",
+      "id": "IMP-01",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T09:39:45Z",
+      "head": "c876741fe37871f98afcabcb7bf61bdcba23c62e",
       "id": "IMP-02",
       "answer": "受け入れて進める（リリースの前に判断し直す）",
       "closed": true
