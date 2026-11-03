@@ -120,7 +120,7 @@
 
 ## Task 5: 依存の一覧とソースの場所を組む台本（`tools/release/notices.sh`）
 
-- [ ] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8・Q13）。
+- [x] 5.1 `tools/release/notices.sh <server|collector-windows> <出力> [--target <triple>]`（D8・Q13）。
   - `cargo tree -p <crate> -e normal --target <triple>` の部品を集め、各部品の置き場の `LICENSE*`・`COPYING*`・`NOTICE*` を写す
   - 部品の許諾のファイルが無ければ、`tools/licenses/texts/<SPDX>.txt` の全文と `authors` を書く。どちらも無ければ落とす
   - Rust の標準ライブラリの項 `rust-std`（`MIT OR Apache-2.0`。全文と著作権の表示は sysroot の `share/doc/rust/`）を足す。sysroot に無ければ落とす
@@ -131,10 +131,10 @@
   - `許諾の全文も著作権の表示も見つからない部品があれば、組み立てが落ちる`（許諾のファイルも `authors` も無く、`tools/licenses/texts/` にも無い式の偽の部品。出力のファイルができないことも見る）
   - `サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない`（今の木の `server` の出力に `== react ` があり `== vitest ` が無い）
   検証: `bash -c 'o="$TMPDIR/n.txt"; tools/release/notices.sh collector-windows "$o" --target x86_64-pc-windows-gnu && grep -q "^== rust-std " "$o" && grep -q "^License: MIT OR Apache-2.0" "$o" && test "$(grep -c "^== " "$o")" -ge 20'` rc=0
-- [ ] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8・Q13）: Task 4.1 の task の出力の部品の項を書く（検査と同じ部品の集合）。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
+- [x] 5.2 `tools/release/notices.sh apk <出力> <aar の置き場の一覧>`（D8・Q13）: Task 4.1 の task の出力の部品の項を書く（検査と同じ部品の集合）。全文は、jar / aar の `META-INF/LICENSE*`・`NOTICE*` か `tools/licenses/texts/`。
   名指しの gms の 4 つは、aar の `third_party_licenses.txt` を `third_party_licenses.json` の `start`・`length` で切り出し、`(gms の中の第三者)` の見出しで足す
   検証: `bash -c 'o="$TMPDIR/a.txt"; scripts/quiet-run notices-apk -- tools/release/notices.sh apk "$o" && grep -q "^== com.google.android.gms:play-services-location " "$o" && grep -q "(gms の中の第三者)" "$o"'` rc=0
-- [ ] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9・D16・Q14・Q15・Q16）: `SOURCE.txt` の 3 行を書く。
+- [x] 5.3 `tools/release/notices.sh source <出力> <版番号> <commit>`（D9・D16・Q14・Q15・Q16）: `SOURCE.txt` の 3 行を書く。
   - `ASHIATO_SOURCE_REF` が `v<版番号>` なら `Ref: v<版番号>` を書く
   - `ASHIATO_SOURCE_REF` が空でなく `v<版番号>` と違えば落とす
   - `ASHIATO_SOURCE_REF` が空なら `Commit: <40 桁>` を書く。`<commit>` は呼び出し元（6.1）が渡す。40 桁の 16 進でなければ落とし、`SOURCE.txt` を作らない
