@@ -14,8 +14,8 @@ import java.time.Duration
  * 「S-01 の更新を待っている」ときの案内（ST50 / design D6・D22・D24（仮））。画面の行・通知・上限の 7 日前の知らせが同じ文言を使う。
  * 理由が 200 の読めない答え（e）だけのときは、公衆の Wi-Fi の入口でも誤りにならない文言にする。
  */
-data class ContractNotice(val onlyUnreadable: Boolean, val days: Int) {
-    val headline: String get() = contractHeadline(onlyUnreadable)
+data class ContractNotice(val onlyUnreadable: Boolean, val days: Int, val channelMismatch: Boolean = false) {
+    val headline: String get() = if (channelMismatch) channelMismatchHeadline() else contractHeadline(onlyUnreadable)
 
     /** 画面の 1 行と通知の本文 */
     val line: String get() = "$headline（未送信 $days 日分を携帯に残しています）"
@@ -23,6 +23,9 @@ data class ContractNotice(val onlyUnreadable: Boolean, val days: Int) {
 
 const val CONTRACT_UPDATE_HEADLINE = "サーバを更新してください"
 const val CONTRACT_NETWORK_HEADLINE = "サーバを更新するか、つながっている網を確かめてください"
+
+fun channelMismatchHeadline(): String =
+    "送り先が${if (BuildConfig.CHANNEL == "dev") "正式版" else "開発版"}のサーバです。送り先を確かめてください"
 
 fun contractHeadline(onlyUnreadable: Boolean): String =
     if (onlyUnreadable) CONTRACT_NETWORK_HEADLINE else CONTRACT_UPDATE_HEADLINE
@@ -33,7 +36,7 @@ fun oldestUnsentDays(records: Outbox<*>, age: () -> Long): Int =
 
 /** 止まった状態の写しを作る。止まっていなければ null。 */
 fun contractNotice(reasons: ContractReasons, days: Int): ContractNotice? =
-    if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days) else null
+    if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days, reasons.channelMismatch) else null
 
 /**
  * 更新を促す通知を端末に出す（D6）。専用のチャンネル `contract`。

@@ -131,7 +131,7 @@ class OriginalUploader(
         try {
             val limit = when (answer) {
                 null -> Int.MAX_VALUE
-                is ContractAnswer.Version -> answer.version
+                is ContractAnswer.Version -> if (answer.channel == localChannel) answer.version else null
                 else -> null
             }
             return if (limit != null && mayOpenFiles()) {

@@ -4,7 +4,49 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
 . "$root/tools/release/android-tools.sh"
-usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | --self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <置き場> [...] | check <置き場> [...] | apk-version <apk...> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
+
+apk_dump() {
+  local apk="$1"; [ -f "$apk" ] || die "APK が無い: $apk"
+  local aapt_cmd; aapt_cmd="$(android_tool aapt2 || android_tool aapt || true)"; [ -n "$aapt_cmd" ] || die "aapt が無い"
+  "$aapt_cmd" dump badging "$apk"
+}
+
+apk_label() {
+  local line; line="$(apk_dump "$1" | grep -E "^application-label:")" || die "APK のアプリ名が読めない"
+  echo "$line"
+}
+
+apk_manifest() {
+  apk_dump "$1" | sed -nE \
+    -e "s/^uses-permission: name='([^']+)'.*/permission:\1/p" \
+    -e "s/^uses-feature: name='([^']+)'.*/feature:\1/p" \
+    -e "s/^application: label='[^']*' icon='[^']*' name='([^']*)'.*/application:\1/p" \
+    -e "s/^service: name='([^']+)'.*/service:\1/p" \
+    -e "s/^receiver: name='([^']+)'.*/receiver:\1/p" \
+    | sed -E 's/^permission:dev\.ashiato\.collector(\.dev)?\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION$/permission:APP.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION/' \
+    | sort -u
+}
+
+self_test_android() {
+  local v; v="$("$root/tools/release/version.sh" source)"
+  local dev="$v-dev.20261102"
+  local work; work="$(mktemp -d "${TMPDIR:-/tmp}/android-self-test.XXXXXX")"
+  trap 'rm -rf "$work"' RETURN
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$dev" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+    -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleDebug)
+  local apk="$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" dev_apk="$work/ashiato-dev-self-test.apk"
+  cp "$apk" "$dev_apk"
+  echo "== Scenario: 開発版のアプリの名前は「あしあと。開発版」で、正式版は「あしあと。」のまま"
+  grep -Fq "application-label:'あしあと。開発版'" <<<"$(apk_label "$apk")" || die "開発版のアプリ名が違う"
+  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q \
+    -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleDebug)
+  local official="$root/collector-android/app/build/outputs/apk/debug/app-debug.apk"
+  grep -Fq "application-label:'あしあと。'" <<<"$(apk_label "$official")" || die "正式版のアプリ名が違う"
+  echo "== Scenario: 開発版の携帯の収集アプリは、正式版と同じ権限と常駐の口を持つ"
+  diff -u <(apk_manifest "$official") <(apk_manifest "$dev_apk")
+  echo "OK: Android の開発版・正式版の名前と宣言を検査した"
+}
 
 apk_version() {
   local apk="$1" want="${2:-}" dump aapt_cmd
@@ -259,6 +301,9 @@ case "${1:-}" in
     if [ "${1:-}" = --expect-version ]; then [ "$#" -ge 2 ] || usage; want="$2"; shift 2; fi
     [ "$#" -ge 1 ] || die "APK が無い"; for apk in "$@"; do apk_version "$apk" "$want"; done ;;
   --self-test) self_test ;;
+  --self-test-android) self_test_android ;;
+  apk-label) [ "$#" = 2 ] || usage; apk_label "$2" ;;
+  apk-manifest) [ "$#" = 2 ] || usage; apk_manifest "$2" ;;
   check) shift; [ "$#" -ge 1 ] || die "置き場が無い"; check_artifacts "$@" ;;
   --self-test-gradle-range) range_self_test ;;
   *)

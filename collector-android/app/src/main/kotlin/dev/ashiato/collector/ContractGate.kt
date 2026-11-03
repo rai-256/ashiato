@@ -16,7 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 sealed interface ContractAnswer {
     /** 読める答え。S-01 は版 A 以下を全部受け付ける */
-    data class Version(val version: Int) : ContractAnswer
+    data class Version(val version: Int, val channel: Channel = Channel.Official) : ContractAnswer
+    data class ChannelMismatch(val expected: Channel, val actual: Channel) : ContractAnswer
 
     /** 404（問い合わせの口が無い古い S-01）。D9 の（b） */
     data object NoEndpoint : ContractAnswer
@@ -27,6 +28,9 @@ sealed interface ContractAnswer {
     /** 到達できない・時間切れ・401・403・5xx。今どおり一時的な失敗（更新が原因ではない） */
     data object Transient : ContractAnswer
 }
+
+enum class Channel { Dev, Official }
+val localChannel: Channel get() = if (BuildConfig.CHANNEL == "dev") Channel.Dev else Channel.Official
 
 /** 1 回の送りの結果のうち、S-01 の更新を待つ理由（D9 の（a）〜（d））に要るもの。 */
 data class ContractOutcome(
@@ -51,7 +55,13 @@ data class ContractOutcome(
 fun readContractAnswer(outcome: Outcome): ContractAnswer = when (outcome) {
     is Outcome.Unreachable -> ContractAnswer.Transient
     is Outcome.Responded -> when (outcome.status) {
-        HTTP_OK -> parseContractVersion(outcome.body)?.let { ContractAnswer.Version(it) } ?: ContractAnswer.Unreadable
+        HTTP_OK -> parseContractVersion(outcome.body)?.let {
+            val channel = outcome.headers.entries.firstOrNull { (key, _) -> key.equals("Ashiato-Channel", ignoreCase = true) }
+                ?.value?.trim()?.lowercase()?.let { value -> if (value == "dev") Channel.Dev else Channel.Official }
+                ?: Channel.Official
+            if (channel == localChannel) ContractAnswer.Version(it, channel)
+            else ContractAnswer.ChannelMismatch(localChannel, channel)
+        } ?: ContractAnswer.Unreadable
         HTTP_NOT_FOUND -> ContractAnswer.NoEndpoint
         else -> ContractAnswer.Transient
     }
@@ -90,14 +100,20 @@ class ContractWaitStore(private val prefs: SharedPreferences) {
     var notice: ContractNotice?
         get() {
             val days = prefs.getLong(NOTICE_DAYS, NONE).takeIf { it != NONE } ?: return null
-            return ContractNotice(prefs.getBoolean(NOTICE_ONLY_UNREADABLE, false), days.toInt())
+            return ContractNotice(
+                prefs.getBoolean(NOTICE_ONLY_UNREADABLE, false),
+                days.toInt(),
+                prefs.getBoolean(NOTICE_CHANNEL_MISMATCH, false),
+            )
         }
         set(value) {
             val edit = prefs.edit()
             if (value == null) {
                 edit.remove(NOTICE_DAYS).remove(NOTICE_ONLY_UNREADABLE)
             } else {
-                edit.putLong(NOTICE_DAYS, value.days.toLong()).putBoolean(NOTICE_ONLY_UNREADABLE, value.onlyUnreadable)
+                edit.putLong(NOTICE_DAYS, value.days.toLong())
+                    .putBoolean(NOTICE_ONLY_UNREADABLE, value.onlyUnreadable)
+                    .putBoolean(NOTICE_CHANNEL_MISMATCH, value.channelMismatch)
             }
             edit.apply()
         }
@@ -114,6 +130,7 @@ class ContractWaitStore(private val prefs: SharedPreferences) {
         private const val NOTIFIED_AT = "notified_at_ms"
         private const val NOTICE_DAYS = "notice_days"
         private const val NOTICE_ONLY_UNREADABLE = "notice_only_unreadable"
+        private const val NOTICE_CHANNEL_MISMATCH = "notice_channel_mismatch"
         private const val NONE = Long.MIN_VALUE
     }
 }
@@ -125,14 +142,17 @@ data class ContractReasons(
     val refused: Boolean = false,
     val rejected: Boolean = false,
     val unreadableLong: Boolean = false,
+    val channelMismatch: Boolean = false,
 ) {
-    val waiting: Boolean get() = ahead || noEndpoint || refused || rejected || unreadableLong
+    val waiting: Boolean get() = ahead || noEndpoint || refused || rejected || unreadableLong || channelMismatch
 
     /** 理由が（e）だけか（知らせの文言を分ける。D22） */
-    val onlyUnreadable: Boolean get() = unreadableLong && !(ahead || noEndpoint || refused || rejected)
+    val onlyUnreadable: Boolean get() = unreadableLong && !(ahead || noEndpoint || refused || rejected || channelMismatch)
 
     /** 待っているときの案内（待っていなければ null。画面・通知・7 日前の知らせが使う。D6） */
-    val headline: String? get() = if (waiting) contractHeadline(onlyUnreadable) else null
+    val headline: String? get() = if (waiting) {
+        if (channelMismatch) channelMismatchHeadline() else contractHeadline(onlyUnreadable)
+    } else null
 }
 
 /**
@@ -173,7 +193,16 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
         val was = reasons.waiting
         when (answer) {
             ContractAnswer.Transient -> return false
+            is ContractAnswer.ChannelMismatch -> {
+                known = true
+                reasons = ContractReasons(channelMismatch = true)
+            }
             is ContractAnswer.Version -> {
+                if (answer.channel != localChannel) {
+                    known = true
+                    reasons = ContractReasons(channelMismatch = true)
+                    return was && !reasons.waiting
+                }
                 known = true
                 setUnreadableSince(null)
                 val posted = outcomes.any { it.posted }
