@@ -56,14 +56,9 @@ if [ -f tools/android-env.sh ] && [ -d "$HOME/.local/opt/jdk21" ]; then
     cp collector-android/app/build/outputs/apk/debug/app-debug.apk "$out/app-debug.apk"
     apk="$out/app-debug.apk"
     android_note="\`$apk\`"
-    if command -v adb >/dev/null; then
-      device="$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}' | head -1 || true)"
-      if [ -n "$device" ] && adb -s "$device" install -r "$apk" >/dev/null 2>&1; then
-        android_note="\`$apk\` を端末 $device に入れた（adb install -r）"
-      else
-        android_note="\`$apk\`。端末が繋がっていないので手で入れる: \`adb install -r $apk\`"
-      fi
-    fi
+    # shellcheck disable=SC1091
+    . ./tools/verify-prep-device.sh
+    android_note="$(install_on_emulators "$apk")"
   else
     android_note="gradle が落ちた。\`cd collector-android && ./gradlew :app:assembleDebug\` で確かめる"
   fi
