@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の並びの要約・使った時間・ほかの記録の行・`GET /day`（ST25 / design D1 / D6 / D7）を、
 //! **本物の PostgreSQL に対して**確かめる。利用者は試験ごとに新しくする。
 //!

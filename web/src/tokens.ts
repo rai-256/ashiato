@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 表面のトークン。**`docs/ui-direction.md` の「★ 2026-10-12 表面を作り直した」から引く 1 か所**（design D12）。
  *

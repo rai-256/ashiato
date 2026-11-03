@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 未送信をまとめて送る（`docs/collector-contract.md` §送る形）。
 //!
 //! **`accepted` だけを見て取り除く**（tasks 8.2）。`duplicate` は行が増えていない

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! PC が止まっていた期間（FR-82 / 深掘り Q1 / design D10）。
 //!
 //! **扉 #14 が求める「データが無い日の意味」は、PC では電源とともに消える。**

@@ -9,6 +9,42 @@ If you modify this Program, or any covered work, by linking or combining it with
 
 fail() { echo "NG: $*" >&2; exit 1; }
 
+expected_header="AGPL-3.0-only WITH AdditionRef-ashiato-play-services"
+marker='SPDX-License-'"Identifier:"
+check_headers() {
+  local tree="${1:-$root}" bad=0 mode path value
+  while IFS=$'\t' read -r mode path; do
+    [[ "$mode" == 120000 ]] && continue
+    value="$(head -n 25 "$tree/$path" | LC_ALL=C awk -v marker="$marker" '
+      index($0, marker) {
+        prefix = substr($0, 1, index($0, marker) - 1)
+        if (prefix !~ /^[[:space:]]*(\/\/!?|#|--|<!--|@rem)?[[:space:]]*$/) next
+        value = substr($0, index($0, marker) + length(marker) + 1)
+        sub(/[[:space:]]*(-->|\*\/)[[:space:]]*$/, "", value)
+        print value
+        exit
+      }')"
+    [[ -n "$value" ]] || continue
+    case "$path" in
+      collector-android/gradlew|collector-android/gradlew.bat)
+        allowed=Apache-2.0 ;;
+      migrations/202609211400_browser_history_record_id.sql|\
+      migrations/202609211400_browser_history_record_id.down.sql|\
+      migrations/202610181200_media_capture.sql)
+        allowed=AGPL-3.0-only ;;
+      *)
+        allowed="$expected_header" ;;
+    esac
+    if [[ "$value" != "$allowed" ]]; then
+      echo "NG: $path $value (許す値: $allowed)" >&2
+      bad=1
+    elif [[ "$allowed" != "$expected_header" ]]; then
+      echo "  例外: $path $value"
+    fi
+  done < <(git -C "$tree" ls-files -s | awk '{print $1 "\t" $4}')
+  return "$bad"
+}
+
 check_license() {
   local tree="$1" ref license
   ref="$tree/LICENSES/AdditionRef-ashiato-play-services.txt"
@@ -85,10 +121,51 @@ self_test() {
 
   echo "== Scenario: 許可の文の名指しは、位置のライブラリとそれが引く 3 つだけ"
   check_license "$tree"
+
+  echo "== Scenario: 決めた許諾の表示でないソースがあれば、表示の検査が落ちる"
+  git -C "$tree" init -q
+  git -C "$tree" config user.email test@example.invalid
+  git -C "$tree" config user.name test
+  printf '%s\n' '// SPDX-License-Identifier: GPL-3.0-only' > "$tree/bad.rs"
+  git -C "$tree" add bad.rs
+  if output="$(check_headers "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'bad.rs' <<<"$output"
+  git -C "$tree" rm -qf bad.rs
+
+  echo "== Scenario: 表示の検査は symlink の先を読まない"
+  outside="$work/outside.rs"
+  printf '%s\n' '// SPDX-License-Identifier: GPL-3.0-only' > "$outside"
+  ln -s "$outside" "$tree/external.rs"
+  git -C "$tree" add external.rs
+  check_headers "$tree"
+
+  echo "== Scenario: 例外の一覧のファイルは、元の表示のままで表示の検査を通る"
+  for file in collector-android/gradlew collector-android/gradlew.bat \
+    migrations/202609211400_browser_history_record_id.sql \
+    migrations/202609211400_browser_history_record_id.down.sql \
+    migrations/202610181200_media_capture.sql; do
+    mkdir -p "$tree/$(dirname "$file")"
+    value=AGPL-3.0-only
+    [[ "$file" == collector-android/* ]] && value=Apache-2.0
+    printf '%s\n' "// SPDX-License-Identifier: $value" > "$tree/$file"
+    git -C "$tree" add "$file"
+  done
+  output="$(check_headers "$tree")"
+  [[ "$(grep -c '^  例外:' <<<"$output")" -eq 5 ]]
+
+  echo "== Scenario: 例外の一覧のファイルでも、許す値と違う表示なら表示の検査が落ちる"
+  sed -i 's/AGPL-3.0-only/GPL-3.0-only/' "$tree/migrations/202610181200_media_capture.sql"
+  if output="$(check_headers "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'migrations/202610181200_media_capture.sql' <<<"$output"
+
+  echo "== Scenario: API の契約の写しは、部品と同じ許諾の式を持つ"
+  echo "API の契約の検査は check-openapi.sh が担保する"
 }
 
-case "${1:-license}" in
+case "${1:-all}" in
+  all) check_license "$root"; check_headers "$root" ;;
   license) check_license "$root" ;;
+  headers) check_headers "$root" ;;
   --self-test) self_test ;;
-  *) echo "使い方: $0 license|--self-test" >&2; exit 2 ;;
+  *) echo "使い方: $0 [license|headers|--self-test]" >&2; exit 2 ;;
 esac

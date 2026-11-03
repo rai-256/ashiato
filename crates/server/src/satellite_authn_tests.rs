@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の資格情報の判定（ST29 / design D8 / D18 / D19）。router を通して本物の DB で確かめる。
 //! Task 4 / 5 の口がまだ無いので、衛星と資格情報の行は SQL で直に入れる（`seed_*`）。
 #![allow(clippy::unwrap_used)]

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 画面のログイン（`/session`）を、router を通して本物の DB に対して確かめる（ST28 / design D1〜D3 / D17 / D18）。
 //! 合言葉は試験の中で乱数から作る。
 #![allow(clippy::unwrap_used)]

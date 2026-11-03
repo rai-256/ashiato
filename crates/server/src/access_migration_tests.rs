@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 移行 `access_control` を当て直せることと、読み出しの記録の錠（ST28 / design D8 / D9）。
 #![allow(clippy::unwrap_used)]
 

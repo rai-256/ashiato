@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真と動画の稼働状況（ST09 tasks 8 / design D7・D13・D14・D24）を、本物の PostgreSQL に対して確かめる。
 //!
 //! 受け口（`/heartbeat` `/ingest`）を通して入れ、`coverage` の読み出しで確かめる。

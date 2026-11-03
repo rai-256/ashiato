@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 全記録の書き出し（`GET /export` `GET /export/summary` `POST /export`。ST33 / design D13）の型と読み手。
  *

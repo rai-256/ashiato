@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 健康データの権限の記録（論理ソース `c01-health-permission`。ST11 / design D1・D12）を、
 //! **本物の PostgreSQL に対して**確かめる。登録簿の行・取り込み・途切れの判定・稼働状況の格子・書き出し。
 #![allow(clippy::unwrap_used)]

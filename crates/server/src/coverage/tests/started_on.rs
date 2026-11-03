@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 収集開始日（第 8 回 Q29）と、その修復。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 

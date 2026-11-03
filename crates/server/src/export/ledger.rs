@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの台帳 `core.export_ledger` の読み書きと、状態（`GET /export`）の組み立て（ST33 / design D10 / D11 / D16 / D17）。
 //!
 //! 台帳は追記のみ。1 回の書き出しは始まりの行と終わりの行の 2 行。**記録の値も合言葉も持たない**。

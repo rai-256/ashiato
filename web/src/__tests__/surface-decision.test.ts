@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * **本人の決定（2026-10-12 表面の作り直し）を値で固定する**（docs/testing.md §3）。
  *

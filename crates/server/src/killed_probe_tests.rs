@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 打ち切られた回の残りを、次の回の片付けが消すことを `tools/check-test-db-killed.sh` が確かめるための探り（CH05 / design D2）。
 //!
 //! `ch05_killed_probe` は `#[ignore]`。台本が環境変数 `CH05_PROBE_AT` と `CH05_PROBE_MARK` を渡して起こし、

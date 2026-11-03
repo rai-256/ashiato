@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 「S-01 の更新を待っている」状態（ST50 / design D9 の（a）〜（e））。
 //!
 //! 送る契機ごとに、`GET /contract` の答えと 2 つの送り手（記録・生存信号）の結果から理由を決める。

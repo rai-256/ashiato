@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * ST25 の行き先（design D12 / tasks 7.1）。ルート・`#/coverage`・解釈できないアドレス・見出し。
  */

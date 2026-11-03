@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の登録と外す、その一覧（ST29 / design D7 / D11 / D16）。**画面のログインでだけ**通る（D8）。
 //! 衛星の判定は最も外側の層（`access_log::middleware`）と `authorize` が持つので、ここに衛星の分岐は書かない。
 //! 行は消さない。外すのは `removed_at` と資格情報の `revoked_at` を付けるだけ。

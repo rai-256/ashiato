@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 格子で数えない記録（取りこぼしの主張・時計の測定）と、取りこぼしの期間（ST14 / design D4 / D15）。
 //! **本物の PostgreSQL に対して**確かめる。
 //!

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 個人属性（`GET /attributes`。ST19 / design D9）の型と、主張の原文の組み立て。
  *

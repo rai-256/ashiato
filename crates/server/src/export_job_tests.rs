@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの口（`POST /export`・`GET /export`）と背景の仕事と台帳（ST33 tasks 6.1〜6.4 / design D1 / D2 / D10 / D11 / D16 / D17）。
 //!
 //! 書き出しの台帳・状態・置き場は全利用者で 1 つなので、走らせるテストは `EXPORT_SERIAL` で直列にする。

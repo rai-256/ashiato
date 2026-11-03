@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を、**本物の PostgreSQL に対して**確かめる
 //! （ST23 / design D4 / D5 / D7）。門は COMMIT の時に落ちるので、拒否は commit の結果で見る。
 //!

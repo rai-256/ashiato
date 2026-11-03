@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書庫を開く境界。解析器はここが返す中身だけを扱う（ST12 / D3）。
 
 use std::io::Read as _;

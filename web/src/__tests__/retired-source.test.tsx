@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 退役したソースは**後ろに置き、既定で畳む**（tasks 15.6 / ST03 の R63）。
  *

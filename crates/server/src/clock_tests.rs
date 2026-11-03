@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 端末の時計のずれの測定記録（論理ソース `c01-clock`。ST05 / design D1）を、
 //! **本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! Windows の時刻同期の状態を読む口（ST05 design D8）。
 //!
 //! 本番は `w32tm /query /status /verbose` を子プロセスで走らせる。**渡す引数は照会だけ**

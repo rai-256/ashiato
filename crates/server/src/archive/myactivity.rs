@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! マイアクティビティ製品名から凍結される論理ソース名を作る。
 use sha2::{Digest, Sha256};
 pub fn source_name(product: &str) -> String {
