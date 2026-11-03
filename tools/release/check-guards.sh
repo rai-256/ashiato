@@ -130,8 +130,9 @@ workflow() {
   done
   local publish_block approval_line sign_line
   publish_block="$(job_block "$release" publish)"
-  approval_line="$(grep -nF 'tools/release/check-guards.sh approvals' <<<"$publish_block" | head -n1 | cut -d: -f1)"
-  sign_line="$(grep -nF 'tools/release/sign-apk.sh' <<<"$publish_block" | head -n1 | cut -d: -f1)"
+  # 行が無いと grep が pipefail で落ち、理由を出さずに終わる。無いときは空にして下の NG の文で落とす（final review R7）
+  approval_line="$(grep -nF 'tools/release/check-guards.sh approvals' <<<"$publish_block" | head -n1 | cut -d: -f1 || true)"
+  sign_line="$(grep -nF 'tools/release/sign-apk.sh' <<<"$publish_block" | head -n1 | cut -d: -f1 || true)"
   [[ -n "$approval_line" && -n "$sign_line" && "$approval_line" -lt "$sign_line" ]] || die 'release publish が署名前に承認者を確かめない'
   local artifacts_block
   artifacts_block="$(job_block "$ci" package-artifacts)"
@@ -263,7 +264,10 @@ EOF
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   echo "== Scenario: 公開の job は、署名の前に承認者を確かめる"
-  if sed '/tools\/release\/check-guards.sh approvals/d' "$root/.github/workflows/release.yml" >"$work/release-no-approvals.yml" && cp "$work/release-no-approvals.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '承認者の確かめ無しを通した'; fi
+  # approvals の行が無いときは、理由（NG の文）を出して落ちる（pipefail で黙って落ちない。final review R7）
+  local no_approvals_output
+  if sed '/tools\/release\/check-guards.sh approvals/d' "$root/.github/workflows/release.yml" >"$work/release-no-approvals.yml" && cp "$work/release-no-approvals.yml" "$fake_root/.github/workflows/release.yml" && no_approvals_output="$(CHECK_GUARDS_ROOT="$fake_root" "$0" workflows 2>&1)"; then die '承認者の確かめ無しを通した'; fi
+  grep -qF 'NG: release publish が署名前に承認者を確かめない' <<<"$no_approvals_output" || die "承認者の確かめ無しで NG の文を出さない: $no_approvals_output"
   if awk '/check-guards.sh approvals/{line=$0; next} /sign-apk.sh/{print; print line; next} {print}' "$root/.github/workflows/release.yml" >"$work/release-swapped.yml" && cp "$work/release-swapped.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '署名前でない承認者の確かめを通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
