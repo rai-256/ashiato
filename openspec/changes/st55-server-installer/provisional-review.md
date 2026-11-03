@@ -42,3 +42,14 @@
 - 判定: 確か
 - 根拠: 本人の Q5 の答え（deep-answers-1.txt の Q5「残らなければ CI の『ログオンなしで起きる』までにする」）と同じ向き。CI の runner は再起動できない（tasks.md:178）ので、D26 は確かめられる範囲（開始の種類が自動・サービスのアカウント）に絞り、見ていないことを確認バッチに書く（design.md:196-203）—— 答えより弱めず、隠さない。
   動いていなかったときの失うもの: 携帯は ST56 まで繋がない（D18）、PC の未送信は上限を持たない（`outbox.rs:4`）、携帯を繋いだ後も 90 日の上限より先に本人の切り替えの最初の再起動で分かる。費用は確認バッチと手順書の 1 行ずつで、要件を変えない
+
+## D28
+- 判定: 否
+- 根拠: 条件 4（`rests_on` に挙がっていない土台の決定がある）。
+  一時の `hba_file` の行は `host all <DB の管理者の役割> 127.0.0.1/32 sspi map=<一時>`（design.md:225。tasks.md:114 も同じ）で、管理者の役割の名前が要る。ところが D1 の `initdb` は `-U` を渡さない（design.md:32）ので、管理者の役割の名前は「インストールを走らせた Windows の利用者の名前」になり（`initdb` の既定）、固定の名前を持たない（`tools/db-roles.sh:39` の `POSTGRES_USER:-ashiato` は開発の DB の名前で、配る DB には渡していない）。
+  D4 の設定の鍵（design.md:55）にも管理者の役割の名前は無く、そもそも `repair` が動くのは設定のファイルが無いとき（design.md:216）なので、`repair` は名前を読む先を持たない。別の管理者 B が `repair` する Scenario（specs/distribution/spec.md:327）では、`pg_ident` が B の Windows のアカウントを A の名前の役割に結ぶ必要がある。反転条件（design.md:228 の `local all <DB の管理者の役割> trust`）も同じ名前を要るので、反転しても解けない。
+  `grep -n -i 'admin\|管理者の役割\|-U ' design.md tasks.md` → 名前を決める・控える行は無い（design.md:41 の `-U` は `pg_ctl register` のサービスのアカウント）。土台は D1（`initdb` の引数）と D4（設定の鍵）で、どちらも `rests_on`（D27・D21）に無い。
+  失うもの: 名前が引けなければ `repair` が (c) で止まり、出口の無い D10 の状態が続く（携帯の未送信は FR-9 の上限で捨てられる。design.md:238）—— D10 を否とした `discarded` がこの決定の下で戻ってくる。Windows の CI（tasks.md:117）で落ちて分かるが、そのとき直すのは D1 か D4 の側。
+  直し方は ST55 の範囲の中で要件を変えない（例: D1 の `initdb` に固定の `-U` を渡す、または PostgreSQL 17 の `pg_ident` の役割の欄の `all` で役割の名前を問わずに結ぶ）。どちらを採るかを design に書き、`rests_on` に D1（と D4）を足す。
+  あわせて（否の理由ではない）: (1) `ALTER ROLE … PASSWORD` の字面は `\getenv` でも `psql` が SQL に埋めてサーバへ送る（tools/db-roles.sh:45-57）。ログに載らないのは D6 の `log_statement='none'`・`log_min_error_statement='panic'` が `postgresql.conf` にあり（design.md:66-68）、一時の起動も同じ `postgresql.conf` を読むから —— D6 も土台なので `rests_on` に足す。(2) (c) の後で落ちたとき、`pg_ctl start` で起こした一時の `postgres` はサービスでないので (a) では止まらず、残ったまま次の `repair` の `pg_ctl start` が `postmaster.pid` で断られうる（design.md:218 は「(b) から作り直す」とだけ書く）。tasks.md:117 の `repair の途中で落ちても、もう一度 repair できる` は、`STOP_AT=repair-roles` が一時の `postgres` を残す形で走らせないと見えない。`repair` の最初に一時の形が残っていれば `pg_ctl stop -D` で止め、残った一時の `hba_file` を消す段を design に書く
+  条件 1 のほか（keeps の範囲）: 一時の入口は上がった利用者の Windows のアカウントだけに `127.0.0.1` で開き、外に出るもの・捨てるものは無い（`exported` / `discarded` / `uncaptured` / `rewrite-all` は起きない）。条件 2: 費用（一時の `hba_file` と `pg_ident` を組む関数・Windows の CI の Scenario）は範囲の中で、spec の一時の例外（specs/distribution/spec.md:112）は Q8 で出口を作ると決めた側から来るもので D28 が足したものではない。条件 3: `follows` は無い
