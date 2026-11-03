@@ -41,7 +41,7 @@
 
 ## Task 2: サーバの系統（契約の問い合わせ・既定の待ち受け・クッキー・退避の置き場）
 
-- [ ] 2.1 `App` に `channel: Channel`（起動時に `channel(env!("ASHIATO_VERSION"))`。試験だけが差し替える）を足す。`GET /contract` の応答に見出し `Ashiato-Channel`（`"dev"` / `"official"`）を足し（本文は変えない）、`docs/openapi.json` を作り直す（D7）。
+- [x] 2.1 `App` に `channel: Channel`（起動時に `channel(env!("ASHIATO_VERSION"))`。試験だけが差し替える）を足す。`GET /contract` の応答に見出し `Ashiato-Channel`（`"dev"` / `"official"`）を足し（本文は変えない）、`docs/openapi.json` を作り直す（D7）。
   `net_guard::default_bind(channel)`（開発版は `127.0.0.1:18788`）・`web_session::cookie_name(channel)`（開発版は `ashiato_session_dev`。発行と読み取りの両方）・`migrate_backup` の既定の置き場（開発版は `backups/pre-migrate-dev`）を系統で決める。`BIND`・`MIGRATE_BACKUP_DIR` を渡せばその値（D8。D1 の系統で選ぶ）。
   試験（`crates/server/src/st54_tests.rs`）: `// Scenario: 開発版のサーバは、契約の問い合わせに系統 dev を答える`・`// Scenario: 正式版のサーバは、契約の問い合わせに系統 official を答える`・
   `// Scenario: 開発版のサーバの既定は、正式版と別の待ち受け・クッキー・退避の置き場`・`// Scenario: 正式版のサーバの既定は、今のまま`・`// Scenario: 開発版のサーバの画面のログインは、開発版の名前のクッキーだけを使う`・
