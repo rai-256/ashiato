@@ -5,6 +5,7 @@
 //! この 1 か所を必ず通る。Kotlin と Rust の 2 実装が同じ口を叩くため、
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
+use ashiato_build_stamp::{channel, Channel};
 use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
@@ -252,6 +253,8 @@ pub mod sources;
 mod sources_tests;
 #[cfg(test)]
 mod st52_web_tests;
+#[cfg(test)]
+mod st54_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -382,7 +385,7 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     let backup = || {
         match migrate_backup::backup_before_migrate(
             &url,
-            &migrate_backup::BackupConfig::from_env(),
+            &migrate_backup::BackupConfig::from_env(channel(env!("ASHIATO_VERSION"))),
             &stamp,
         )? {
             Some(_) => tracing::info!(
@@ -427,6 +430,8 @@ const INTERNAL_WEB_SESSION_KEY: &str = "archive-internal-session-key";
 
 #[derive(Clone, Debug)]
 pub struct App {
+    /// 組み立て時の版番号から決まるサーバの系統（D1）。
+    channel: Channel,
     pool: sqlx::PgPool,
     /// **試験が時刻を差し込む口**（tasks 2.4「試験は時刻を差し込めるようにする」）。
     ///
@@ -475,6 +480,7 @@ impl App {
         session_max_age_days: u32,
     ) -> Self {
         Self {
+            channel: channel(env!("ASHIATO_VERSION")),
             login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
@@ -492,6 +498,12 @@ impl App {
             media: media::MediaConfig::none(),
             contract_version: contract_version::CONTRACT_VERSION,
         }
+    }
+
+    /// 系統を差し替えた複製。**試験だけ**が使う。
+    #[cfg(test)]
+    pub(crate) fn with_channel(self, channel: Channel) -> Self {
+        Self { channel, ..self }
     }
 
     /// 契約の版を差し替えた複製。**試験だけ**（版 2 以上の S-01 を作る。ST50 design D4）。
@@ -780,7 +792,7 @@ async fn authorize(
     // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
     tracing::warn!(
         kind = "unauthorized",
-        credential_present = credential_present(headers),
+        credential_present = credential_present(headers, app.channel),
         "資格情報が一致しない"
     );
     Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
@@ -790,13 +802,13 @@ async fn authorize(
 /// `authorize` と読み出しの記録の middleware が**同じ条件**で出す（ST44 final review R5）——
 /// 画面の印の期限切れも、ずれた API の合言葉も「資格情報は有った」として、「何も付いていない」と分ける。
 /// 同じ host のほかの cookie（tailscale・vite）や `Bearer` でない見出しは資格情報に数えない（/code-review R23）。
-pub(crate) fn credential_present(headers: &HeaderMap) -> bool {
+pub(crate) fn credential_present(headers: &HeaderMap, channel: Channel) -> bool {
     let bearer = headers
         .get_all(axum::http::header::AUTHORIZATION)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .any(|v| v.strip_prefix("Bearer ").is_some_and(|t| !t.is_empty()));
-    bearer || web_session::cookie_token(headers).is_some()
+    bearer || web_session::cookie_token(headers, channel).is_some()
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——
@@ -4443,7 +4455,10 @@ pub async fn run() -> anyhow::Result<()> {
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
     )?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
-    let addr = std::env::var("BIND").unwrap_or_else(|_| net_guard::DEFAULT_BIND.into());
+    let server_channel = channel(env!("ASHIATO_VERSION"));
+    let addr = std::env::var("BIND")
+        .ok()
+        .map_or_else(|| net_guard::default_bind(server_channel).to_owned(), |v| v);
     let addrs = match net_guard::check_bind(&addr).await? {
         Ok(addrs) => addrs,
         Err(refusal) => net_guard::refuse(refusal.kind()),

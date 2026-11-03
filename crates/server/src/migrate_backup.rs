@@ -10,6 +10,7 @@
 //! 合言葉は `pg_dump` の引数に載せず `PGPASSWORD` で渡す（同じ PC のプロセス一覧に出さない）。
 
 use anyhow::{bail, Context};
+use ashiato_build_stamp::Channel;
 use sqlx::postgres::PgConnectOptions;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -23,16 +24,29 @@ pub struct BackupConfig {
 }
 
 impl BackupConfig {
-    pub fn from_env() -> Self {
+    pub fn from_env(channel: Channel) -> Self {
         let off = std::env::var("MIGRATE_BACKUP").is_ok_and(|v| v.eq_ignore_ascii_case("off"));
         Self {
             enabled: !off,
             dir: std::env::var("MIGRATE_BACKUP_DIR")
-                .map_or_else(|_| PathBuf::from("backups/pre-migrate"), PathBuf::from),
+                .map_or_else(|_| PathBuf::from(default_dir(channel)), PathBuf::from),
             pg_dump: std::env::var("PG_DUMP")
                 .map_or_else(|_| PathBuf::from("pg_dump"), PathBuf::from),
         }
     }
+}
+
+/// 系統ごとの退避先の既定を返す。明示された `MIGRATE_BACKUP_DIR` は呼び出し側で優先する。
+pub const fn default_dir(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Dev => "backups/pre-migrate-dev",
+        Channel::Official => "backups/pre-migrate",
+    }
+}
+
+/// 明示された退避先を優先し、無ければ系統の既定を返す。
+pub fn dir_for(channel: Channel, explicit: Option<&str>) -> &str {
+    explicit.unwrap_or_else(|| default_dir(channel))
 }
 
 /// `pg_dump` に渡す接続の部品。合言葉は引数ではなく環境変数に分ける。
