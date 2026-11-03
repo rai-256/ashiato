@@ -1575,7 +1575,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
   一般向けの配布の前に、専用の WSL 環境か、Windows に直接入れる形かを選び直す」。その未決を「Windows に直接入れる形」で閉じた（`docs/briefs/req-native-postgres-r1.html`・`-r2.html`）。
   直接入れる形は PostgreSQL の同梱・サービス化・メジャー版の移し替えを自前で持つ（2026-10-25 に 4〜6 Story 相当と見積もった）。
   S-01 をコンテナに入れない理由（整合の確認 `docs/audit/2026-10-25-consistency.md` の C2。loopback の守り）は変わらない
-- **V-01 はソースの場所と許諾を出さない。** ★ 2026-11-02 追加。ST53 の深掘り Q9（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。S-01 の画面（V-01）は、対応するソースの場所（FR-127。正式版・ベータ版は印、それ以外は commit）と許諾へのリンクを出さない。[NEEDS CLARIFICATION: V-01 にソースの場所と許諾へのリンクを出すか（受ける Story はまだ無い。/requirements から足す）。期限: 一般向けの配布の前]。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C5・C13 で、ソースの場所の言い方を FR-127 に合わせ、置き場を Docker の箇条の後へ移した
+- **V-01 はソースの場所と許諾を出さない。** ★ 2026-11-02 追加。ST53 の深掘り Q9（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。S-01 の画面（V-01）は、対応するソースの場所（FR-127。正式版・ベータ版は印、それ以外は commit）と許諾へのリンクを出さない。[NEEDS CLARIFICATION: V-01 にソースの場所と許諾へのリンクを出すか（受ける Story はまだ無い。/requirements から足す）。期限: 一般向けの配布の前]。整合の確認 `docs/audit/2026-11-02-st53-consistency.md` の C5・C13 で、ソースの場所の言い方を FR-127 に合わせ、置き場を Docker の箇条の後へ移した（★ 2026-11-03、`docs/audit/2026-11-03-st53-rebase-consistency.md` の C5: その箇条は「S-01 は D-01 の PostgreSQL を同梱して配り…」に書き換わった。いまはその後ろにある）
 - **C-01 は配布元に APK を置いて直に配る。** いずれ Play ストアへ（本人の言葉:「まだ2でいいと思います。いずれは1を」）。
   Play のトラックは 3 つのチャンネルにそのまま使える。代わりに位置（バックグラウンド）と写真の全件の権限で審査が厳しい
   ★ 2026-11-02 追加。ST53 の深掘り Q6（`openspec/changes/st53-license-bundle/deep.md`。推奨のまま）。C-01 の許諾（FR-127）は APK の中に置くだけで、アプリの画面からは開けない。[NEEDS CLARIFICATION: C-01 に許諾の一覧を読む画面を足すか（受ける Story はまだ無い。/requirements から足す）。期限: Play ストアへ出す前]
