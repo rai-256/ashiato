@@ -61,7 +61,8 @@ reviewer = sys.argv[1]
 data = json.load(sys.stdin)
 rules = data.get("protection_rules") or []
 required = [r for r in rules if r.get("type") == "required_reviewers"]
-if not required or not any(u.get("type") == "User" and u.get("login") == reviewer for r in required for u in (r.get("reviewers") or [])):
+# API の形: reviewers[] = {"type": "User", "reviewer": {"login": ...}}（login は reviewer の下。/code-review R19）
+if not required or not any(u.get("type") == "User" and (u.get("reviewer") or {}).get("login") == reviewer for r in required for u in (r.get("reviewers") or [])):
     raise SystemExit(1)' "$reviewer" <<<"$details"; then
     die "release Environment に承認者 $reviewer が無い"
     return 1
@@ -111,6 +112,29 @@ checkout_block() {
   ' <<<"$block"
 }
 
+# 公開の job の手順を割り、承認者の確かめの手順と署名の手順の番号を「<承認> <署名>」で出す（どちらも無ければ 0）。
+# 字面でなく手順として見る: 注釈の行は数えず、承認の手順は run がちょうど `tools/release/check-guards.sh approvals` で、
+# `if:` と `continue-on-error` を持たないものだけ（code_verify R15・/code-review R26）
+publish_steps() {
+  python3 -c 'import re,sys
+steps=[]; cur=None
+for line in sys.stdin.read().splitlines():
+    if line.lstrip().startswith("#"): continue
+    if re.match(r"      - ", line): cur=[line]; steps.append(cur)
+    elif cur is not None and re.match(r"        \S", line): cur.append(line)
+    elif cur is not None and not re.match(r"\s{9,}", line): cur=None
+    elif cur is not None: cur.append(line)
+approval=sign=0
+for i, st in enumerate(steps, 1):
+    keys=[re.sub(r"^      - ", "        ", l) for l in st]
+    if not approval and any(re.fullmatch(r"        run: tools/release/check-guards\.sh approvals\s*", k) for k in keys) \
+       and not any(re.match(r"        (if|continue-on-error):", k) for k in keys):
+        approval=i
+    if not sign and any("tools/release/sign-apk.sh" in k for k in keys):
+        sign=i
+print(approval, sign)'
+}
+
 workflow() {
   local ci="$root/.github/workflows/ci.yml" release="$root/.github/workflows/release.yml" nightly="$root/.github/workflows/nightly.yml"
   [[ -f "$ci" && -f "$release" && -f "$nightly" ]] || die 'workflow が不足している'
@@ -126,14 +150,12 @@ workflow() {
   job_block "$release" package-linux | grep -qE 'ASHIATO_APK_UNSIGNED(:[[:space:]]*|=)"?1' || die 'release の APK が unsigned でない'
   local head_ref='ref: \${{ github.event.pull_request.head.sha || github.sha }}'
   for job in package-linux package-windows; do
-    job_block "$ci" "$job" | grep -q "$head_ref" || die "ci の $job が配布物を組む commit を checkout しない"
+    job_block "$ci" "$job" | grep -q "^[[:space:]]*$head_ref" || die "ci の $job が配布物を組む commit を checkout しない"
   done
-  local publish_block approval_line sign_line
-  publish_block="$(job_block "$release" publish)"
-  # 行が無いと grep が pipefail で落ち、理由を出さずに終わる。無いときは空にして下の NG の文で落とす（final review R7）
-  approval_line="$(grep -nF 'tools/release/check-guards.sh approvals' <<<"$publish_block" | head -n1 | cut -d: -f1 || true)"
-  sign_line="$(grep -nF 'tools/release/sign-apk.sh' <<<"$publish_block" | head -n1 | cut -d: -f1 || true)"
-  [[ -n "$approval_line" && -n "$sign_line" && "$approval_line" -lt "$sign_line" ]] || die 'release publish が署名前に承認者を確かめない'
+  local approval_step sign_step
+  # 無いときも 0 を出し、下の NG の文で落とす（pipefail で黙って落ちない。final review R7）
+  read -r approval_step sign_step < <(job_block "$release" publish | publish_steps)
+  [[ "$approval_step" -gt 0 && "$sign_step" -gt 0 && "$approval_step" -lt "$sign_step" ]] || die 'release publish が署名前に承認者を確かめない'
   local artifacts_block
   artifacts_block="$(job_block "$ci" package-artifacts)"
   grep -q 'uses: actions/checkout@' <<<"$artifacts_block" || die 'ci の package-artifacts に checkout が無い'
@@ -142,7 +164,7 @@ workflow() {
   ! grep -q 'ref:' <<<"$first_checkout" || die 'package-artifacts の作業 checkout に ref がある'
   built_checkout="$(checkout_block "$artifacts_block" 2)"
   grep -q 'path: built' <<<"$built_checkout" || die 'package-artifacts に built checkout が無い'
-  grep -q "$head_ref" <<<"$built_checkout" || die 'package-artifacts の built checkout が commit を指定しない'
+  grep -q "^[[:space:]]*$head_ref" <<<"$built_checkout" || die 'package-artifacts の built checkout が commit を指定しない'
   grep -q 'version.sh source built/Cargo.toml' <<<"$artifacts_block" || die 'package-artifacts の版番号が built からでない'
   grep -q -- '--expect-license built/LICENSE' <<<"$artifacts_block" || die 'package-artifacts の LICENSE が built からでない'
   if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$nightly"; then die 'nightly に APK 組み立てまたは署名がある'; return 1; fi
@@ -213,9 +235,9 @@ EOF
   printf '{"branch_policies":[{"type":"tag","name":"v*"}]}\n' >"$work/release-env.json"
   printf '{"branch_policies":[{"type":"branch","name":"main"}]}\n' >"$work/nightly-env.json"
   printf '{"protection_rules":[],"can_admins_bypass":false}\n' >"$work/release-details-no-reviewer.json"
-  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","login":"fake"}]}],"can_admins_bypass":true,"prevent_self_review":false}\n' >"$work/release-details-bypass.json"
-  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","login":"fake"}]}],"can_admins_bypass":false,"prevent_self_review":false}\n' >"$work/release-details-good.json"
-  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","login":"other"}]}],"can_admins_bypass":false}\n' >"$work/release-details-other.json"
+  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","reviewer":{"login":"fake","id":1}}]}],"can_admins_bypass":true,"prevent_self_review":false}\n' >"$work/release-details-bypass.json"
+  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","reviewer":{"login":"fake","id":1}}]}],"can_admins_bypass":false,"prevent_self_review":false}\n' >"$work/release-details-good.json"
+  printf '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","reviewer":{"login":"other","id":2}}]}],"can_admins_bypass":false}\n' >"$work/release-details-other.json"
   printf '{"admin":true,"maintain":false,"push":true}\n' >"$work/repo-admin.json"
   printf '{"admin":false,"maintain":false,"push":true}\n' >"$work/repo-agent.json"
   echo "== Scenario: 鍵の置き場は、印と main のそれぞれにだけ開いている"
@@ -270,6 +292,19 @@ EOF
   grep -qF 'NG: release publish が署名前に承認者を確かめない' <<<"$no_approvals_output" || die "承認者の確かめ無しで NG の文を出さない: $no_approvals_output"
   if awk '/check-guards.sh approvals/{line=$0; next} /sign-apk.sh/{print; print line; next} {print}' "$root/.github/workflows/release.yml" >"$work/release-swapped.yml" && cp "$work/release-swapped.yml" "$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '署名前でない承認者の確かめを通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
+  # 字面が残っていても、走らない・失敗を飲む承認の手順は数えない（code_verify R15・/code-review R26）
+  local variant
+  for variant in comment or-true if-false continue-on-error; do
+    case "$variant" in
+      comment) sed 's#^      - run: tools/release/check-guards.sh approvals$#      \# - run: tools/release/check-guards.sh approvals#' ;;
+      or-true) sed 's#^\(      - run: tools/release/check-guards.sh approvals\)$#\1 || true#' ;;
+      if-false) sed 's#^      - run: tools/release/check-guards.sh approvals$#      - if: false\n        run: tools/release/check-guards.sh approvals#' ;;
+      continue-on-error) sed 's#^      - run: tools/release/check-guards.sh approvals$#      - run: tools/release/check-guards.sh approvals\n        continue-on-error: true#' ;;
+    esac <"$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml"
+    ! cmp -s "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml" || die "偽の release.yml（$variant）が元と同じ"
+    if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "走らない承認者の確かめ（$variant）を通した"; fi
+  done
+  cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   sed 's#tools/release/changes.sh code#tools/release/not-changes.sh code#' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
@@ -277,6 +312,8 @@ EOF
   echo "== Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
   local ci_saved="$fake_root/.github/workflows/ci.yml"
   if sed '/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d' "$ci_saved" >"$work/ci-missing-linux.yml" && cp "$work/ci-missing-linux.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Linux package の ref 欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed 's/^\([[:space:]]*\)\(ref: \${{ github.event.pull_request.head.sha || github.sha }}\)/\1# \2/' "$ci_saved" >"$work/ci-commented-ref.yml" && cp "$work/ci-commented-ref.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '注釈にした ref を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed '/package-windows:/,/^  [A-Za-z0-9_-]*:/{/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d}' "$ci_saved" >"$work/ci-missing-windows.yml" && cp "$work/ci-missing-windows.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Windows package の ref 欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"

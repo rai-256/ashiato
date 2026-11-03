@@ -74,6 +74,8 @@ jobs:
       name: release
     permissions:
       contents: write
+      # check-guards.sh approvals が release Environment の保護規則を読む（GET environments は actions の読みが要る）
+      actions: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: true }
