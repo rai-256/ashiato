@@ -69,12 +69,12 @@
 
 ## Task 4: 旧名の対応 `migrations/LINEAGE`（D4）
 
-- [ ] 4.1 `migrations/LINEAGE` を作る（説明の `#` 行だけ。形は spec の「移行の名前を変えた・消したときは…」）。`crates/server/build.rs` が `ORDER` と同じように組み込む（`rerun-if-changed` に足す）。
+- [x] 4.1 `migrations/LINEAGE` を作る（説明の `#` 行だけ。形は spec の「移行の名前を変えた・消したときは…」）。`crates/server/build.rs` が `ORDER` と同じように組み込む（`rerun-if-changed` に足す）。
   `migration_ledger::compare` の前に、DB の名前の集合を LINEAGE で写す（`renamed` は今の名前へ、`removed` は外す）。版の記録の行は書き換えない。`renamed` の旧名の行の指紋は今の名前の中身と比べる。
   試験（`st54_tests.rs`。LINEAGE は試験が差し替えた表を渡す）: `// Scenario: 名前を変えた移行は、旧名の対応があれば、旧名で当てた DB でも起動し、当て直さない`・`// Scenario: 消した移行は、消したことの対応があれば、それを当てた DB でも起動する`・
   `// Scenario: 旧名の対応が無ければ、今どおり知らない版で止まり、その名前と当てた組み立てを示す`。`/healthz` は Task 3.1 と同じ見方（起動の検査を通した後に router で引く）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st54_lineage && test "$(cargo test -p ashiato-server st54_lineage -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
-- [ ] 4.2 `tools/check-migrations.sh` に LINEAGE の形の検査を足す（種類は 3 つ・名前の数・`renamed` の今の名前と `rewritten` の 2 つの名前が `ORDER` にある・`rewritten` の直しの移行が `ORDER` で直す移行より後）。`--self-test` に
+- [x] 4.2 `tools/check-migrations.sh` に LINEAGE の形の検査を足す（種類は 3 つ・名前の数・`renamed` の今の名前と `rewritten` の 2 つの名前が `ORDER` にある・`rewritten` の直しの移行が `ORDER` で直す移行より後）。`--self-test` に
   `echo "== Scenario: 旧名の対応の形が違えば、移行の形の検査が落ちる"`（`moved A B`・`renamed A`・`renamed A <ORDER に無い名前>`・`rewritten C D` で `D` が前、の 4 つで rc≠0 とその行の表示）を足す
   検証: `tools/check-migrations.sh --self-test` rc=0 / `tools/check-migrations.sh` rc=0
 
