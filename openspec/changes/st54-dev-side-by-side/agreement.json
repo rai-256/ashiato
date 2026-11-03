@@ -1,0 +1,195 @@
+{
+  "status": "accepted",
+  "digest": "c455564d540423317f10a531b7c21c0ced12570995ef089eb4c379489e0cb918",
+  "head": "5eb4b113f1da6a555d3555871ddb6721fbf0e764",
+  "answers": "deep-answers-6.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-03T07:12:00Z",
+  "impacts": {
+    "IMP-01": {
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true,
+      "recognized": true,
+      "accepted": false,
+      "proceed": true,
+      "release": "ok",
+      "resolution": {
+        "ok": true,
+        "base": "8952eea815577e89e322d6726e5df2523897eba5",
+        "changed": [
+          {
+            "item": "Requirement: PC の収集アプリの開発版は、置き場と端末識別子を自分で分け、除外の登録は渡された置き場のものを読む",
+            "before": "d83faa906093",
+            "after": "2d525697fedc",
+            "diff": [
+              "@@ -3,3 +3,3 @@",
+              " WHERE PC の収集アプリが開発版である THE SYSTEM SHALL 自動起動の項目に、渡された置き場と端末識別子を（`dev` を掘る前・`-dev` を付ける前の値のまま）書く（次のログオンで同じ規則がもう一度当たり、二重に掘らない）。",
+              "-WHERE PC の収集アプリが開発版である THE SYSTEM SHALL 除外の登録を、自分の置き場ではなく渡された置き場の `exclusions.json` から読む（正式版と同じ置き場を渡せば、正式版で登録した除外がそのまま効く）。",
+              "+WHERE PC の収集アプリが開発版である THE SYSTEM SHALL 除外の登録を、前景の窓の記録でもブラウザの履歴の取り込みでも、自分の置き場ではなく渡された置き場の `exclusions.json` から読む（正式版と同じ置き場を渡せば、正式版で登録した除外がそのまま効く）。",
+              " THE SYSTEM SHALL 正式版の PC の収集アプリの置き場・端末識別子・除外の読み方を変えない。",
+              "@@ -7,3 +7,3 @@",
+              " ",
+              "-導出元: FR-106・FR-83（除外）。深掘り Q2（推奨）。premises の P5。ST51 premises 9 の申し送り。review/deep.md R2・R3。D2。",
+              "+導出元: FR-106・FR-83（除外）。深掘り Q2（推奨）。premises の P5。ST51 premises 9 の申し送り。review/deep.md R2・R3。D2。影響の判断 IMP-01（第 1 回の合意で「仕様を直す」。ブラウザの履歴の取り込みも同じ置き場から読む）。",
+              " ",
+              "@@ -34,2 +34,7 @@",
+              " ",
+              "+#### Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む",
+              "+- **GIVEN** 渡された置き場の `exclusions.json` に URL `example.test/1` を含む訪問を除く登録があり、`<置き場>/dev` には除外の登録が無く、ブラウザの履歴に `example.test/1` と `example.test/2` の訪問がある",
+              "+- **WHEN** 開発版の PC の収集アプリが、初めてブラウザの履歴を取り込んで送る",
+              "+- **THEN** 送る本文に `example.test/1` の訪問は無く、`example.test/2` の訪問はある",
+              "+",
+              " #### Scenario: 正式版と同じ置き場を渡しても、開発版と正式版は両方起動する"
+            ]
+          },
+          {
+            "item": "Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む",
+            "before": "74234e98afe7",
+            "after": "1806d3128f45",
+            "diff": [
+              "@@ -0,0 +1,3 @@",
+              "+- **GIVEN** 渡された置き場の `exclusions.json` に URL `example.test/1` を含む訪問を除く登録があり、`<置き場>/dev` には除外の登録が無く、ブラウザの履歴に `example.test/1` と `example.test/2` の訪問がある",
+              "+- **WHEN** 開発版の PC の収集アプリが、初めてブラウザの履歴を取り込んで送る",
+              "+- **THEN** 送る本文に `example.test/1` の訪問は無く、`example.test/2` の訪問はある"
+            ]
+          },
+          {
+            "item": "決定 D2",
+            "before": "b339c12cee56",
+            "after": "5b09d8b3adf5",
+            "diff": [
+              "@@ -5,3 +5,3 @@",
+              " `Config::from_lookup` に系統を渡す。開発版のときだけ: `state_dir = <ASHIATO_STATE_DIR>/dev`、`device_id = <ASHIATO_DEVICE_ID>` に `-dev` を付ける（すでに `-dev` で終われば付けない）、",
+              "-除外の登録の置き場 `exclusions_path = <ASHIATO_STATE_DIR>/exclusions.json`（正式版は今どおり `state_dir/exclusions.json`）。`main.rs` の除外の読み込みはこの `exclusions_path` を読む。",
+              "+除外の登録の置き場 `exclusions_path = <ASHIATO_STATE_DIR>/exclusions.json`（正式版は今どおり `state_dir/exclusions.json`）。除外の登録を読む口は 2 つあり、**どちらも**この `exclusions_path` を読む: 前景の窓の除外（`main.rs:81` の読み込み）と、ブラウザの履歴の取り込み（今は `HistoryCollector::new` が `state_dir.join(\"exclusions.json\")` を自分で作る。`history/collect.rs:315`）。`HistoryCollector::new` は除外の登録の置き場を引数で受け、`Runtime::with_history` が設定の `exclusions_path` を渡す（履歴の写し・前回の成功・送った版の置き場は今どおり `state_dir/browser-history/`）。",
+              " 二重起動の印・未送信・送った印・履歴の取得の印は `state_dir` の下なので、置き場を分ければ正式版と開発版が両方起動する。",
+              "@@ -11 +11,2 @@",
+              " - 除外の登録は読むだけで、PC の収集アプリは書かない（`exclusion.rs` に書く口は無い）。正式版の除外を開発版が書き換えることは無い",
+              "+- 第 1 回の合意で IMP-01 を「仕様を直す」と答えた（`deep.md`「仕様への違和感」）。前の版は直す口を `main.rs` の 1 つだけ挙げており、そのとおりに作ると開発版の履歴の除外は常に空になり、除外したサイトの閲覧履歴（初回は過去の全件）が開発版のサーバへ送られた。前景の窓の Scenario だけでは試験がそれを見逃すので、履歴の取り込みの Scenario「開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む」を足した"
+            ]
+          }
+        ],
+        "text": "Requirement の除外の条項を「前景の窓の記録でもブラウザの履歴の取り込みでも」に直し、履歴の取り込みの Scenario を足した。D2 と tasks 6.1 は、履歴の取り込みの口（HistoryCollector::new）が除外の置き場を引数で受け、Runtime::with_history が設定の exclusions_path を渡す形にした。試験は <置き場>/dev に除外が無いことを確かめてから取り込むので、履歴の口を直さないと落ちる。"
+      }
+    },
+    "IMP-02": {
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true,
+      "recognized": true,
+      "accepted": false,
+      "proceed": true,
+      "release": "ok",
+      "resolution": {
+        "ok": true,
+        "base": "8952eea815577e89e322d6726e5df2523897eba5",
+        "changed": [
+          {
+            "item": "決定 D3",
+            "before": "1135249b5bb2",
+            "after": "3b2008cae1c0",
+            "diff": [
+              "@@ -11 +11,2 @@",
+              " - 選ばなかった案（Q3 の選択肢 2）: 手順書と既定の名前で分けるだけ。取り違えると正式版の DB が先に進み、正式版のサーバが起動しなくなる",
+              "+- 更新の失敗からの戻し（ST58。FR-119）への申し送り: `docs/handoff/ST58.md` は今、`migrate` の終了コードを 1（移行の失敗。その回の退避がある）と 3（退避を取らずに止まった）だけで分け、戻すのは 1 の回だけと書く。終了コード 4 もその回の退避を取らないので、`rc≠0` を一律に移行の失敗と扱うと前の回の退避（それ以後の記録を含まない）を戻しうる。この change が申し送りに「終了コード 4（`kind=channel_mismatch`。系統が違うので退避も何も書かずに止まった）の回は退避から戻さず、終了コード 3 の回と同じく前の版のまま起動し直す。DB には何も書いていない」を書き足す（tasks 3.2）。第 1 回の合意で IMP-02 を「仕様を直す」と答えた（`deep.md`「仕様への違和感」）"
+            ]
+          }
+        ],
+        "text": "D3 に ST58 への申し送りの中身（終了コード 4 の回は退避から戻さず、3 の回と同じく前の版のまま起動し直す）を書き、tasks 3.2 で下流が docs/handoff/ST58.md に書き足す。ST58 の requires に ST54 を足したので、ST58 の上流はこの申し送りが main に入ってから始まる。ST58 が申し送りに従って作るかは、ST58 の上流と合意で確かめる。 申し送りの節はまだ書かれていない（下流の tasks 3.2 が書く）。"
+      }
+    }
+  },
+  "minor_accepted": [
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "仕様は、開発版の DB の記録を正式版へ移す手順を定めていない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "PC の開発版に別の置き場を渡すと、除外なしで過去の閲覧履歴を全件送る"
+    }
+  ],
+  "imp_history": [
+    {
+      "at": "2026-11-02T14:33:41Z",
+      "head": "8952eea815577e89e322d6726e5df2523897eba5",
+      "id": "IMP-01",
+      "answer": "仕様を直す",
+      "closed": false
+    },
+    {
+      "at": "2026-11-02T14:33:41Z",
+      "head": "8952eea815577e89e322d6726e5df2523897eba5",
+      "id": "IMP-02",
+      "answer": "仕様を直す",
+      "closed": false
+    },
+    {
+      "at": "2026-11-02T16:11:29Z",
+      "head": "365d28e8bda1909eac25691778a45d0fbcfa7bff",
+      "id": "IMP-01",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-02T16:11:29Z",
+      "head": "365d28e8bda1909eac25691778a45d0fbcfa7bff",
+      "id": "IMP-02",
+      "answer": "(未回答)",
+      "closed": false
+    },
+    {
+      "at": "2026-11-02T16:14:27Z",
+      "head": "b1c1306585c127447c7092048a7b22a206757cbf",
+      "id": "IMP-01",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-02T16:14:27Z",
+      "head": "b1c1306585c127447c7092048a7b22a206757cbf",
+      "id": "IMP-02",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T01:16:10Z",
+      "head": "6f37f9aaf3a7310fe0bedb10db62bd20666daa76",
+      "id": "IMP-01",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T01:16:10Z",
+      "head": "6f37f9aaf3a7310fe0bedb10db62bd20666daa76",
+      "id": "IMP-02",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T07:12:00Z",
+      "head": "5eb4b113f1da6a555d3555871ddb6721fbf0e764",
+      "id": "IMP-01",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T07:12:00Z",
+      "head": "5eb4b113f1da6a555d3555871ddb6721fbf0e764",
+      "id": "IMP-02",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    }
+  ],
+  "carried": [
+    {
+      "from": "4cfbc99996f243885d7fa2250744ddb888949566df478ba8ee4804e1f61a966a",
+      "because": [
+        "Q15"
+      ],
+      "at": "2026-11-03T07:40:49Z"
+    }
+  ]
+}

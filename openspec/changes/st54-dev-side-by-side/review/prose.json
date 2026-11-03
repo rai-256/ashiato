@@ -1,0 +1,27 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 99,
+ "applied": [
+  "impact.problem",
+  "walkthroughs[W1].why",
+  "points[channel.2].text",
+  "features[pc].summary",
+  "points[pc.2].text",
+  "points[pc.3].text",
+  "points[pc.4].text",
+  "points[db.1].text",
+  "points[db.2].text",
+  "features[server].summary",
+  "points[server.1].text",
+  "points[release.4].text",
+  "impact.findings[IMP-01].text",
+  "impact.findings[IMP-02].text",
+  "impact.findings[IMP-03].text",
+  "impact.scope.preconditions[10].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
