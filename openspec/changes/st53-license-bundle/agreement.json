@@ -1,22 +1,27 @@
 {
-  "status": "rejected",
-  "digest": "e5b7a935cbb1e660376425fb4df64c680e6f87c6f724d0326cdc6c8f6b806491",
-  "head": "d21254b02f3bedd0f7a24cd05b416923d90c599f",
-  "answers": "deep-answers-5.txt",
+  "status": "accepted",
+  "digest": "70b1a633e348884d4c0becd02738923cea46a2398bdb65b855c06f00ecba7737",
+  "head": "aec5ace3b29cd4135cfc8696e1e109c788569b5d",
+  "answers": "deep-answers-6.txt",
   "picked": "合意する",
-  "notes": [
-    "IMP-01: 未回答（読んだだけでは閉じない）"
-  ],
-  "at": "2026-11-03T06:20:18Z",
+  "notes": [],
+  "at": "2026-11-03T07:11:12Z",
   "impacts": {
     "IMP-01": {
-      "answer": "(未回答)",
-      "closed": false,
-      "recognized": false,
-      "accepted": false,
-      "proceed": false,
-      "release": null,
-      "why": "未回答（読んだだけでは閉じない）"
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "recheck",
+      "risk": {
+        "residual": "本人が承認の画面で印の commit を見ずに承認すれば、鍵は読まれる。IMP-02 が閉じるまでは、エージェントが本人の管理者の資格情報で承認者を外せる。11.2 は絞った token が断られることを見るだけで、管理者の token が残っていないことは見ない",
+        "scope": "正式な鍵と、それで署名する携帯の APK の全部（正式版とベータ版）"
+      },
+      "recheck": {
+        "owner": "本人",
+        "due": "ST54 の上流の合意まで"
+      }
     },
     "IMP-02": {
       "answer": "受け入れて進める（リリースの前に判断し直す）",
@@ -35,6 +40,28 @@
       }
     }
   },
+  "minor_accepted": [
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "絞った token の権限では、ハーネスの CI の走らせ直しが断られるかもしれない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "公開の job から承認者の設定を読めないと、正当な公開も署名の前で止まる"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "GitHub の画面が許諾を AGPL-3.0 でなく Other と出すかもしれない"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "閉じた PR・push し直す前の PR の組み立ての SOURCE.txt が指す head の commit を、後から取れるか分からない"
+    }
+  ],
   "imp_history": [
     {
       "at": "2026-11-02T14:38:05Z",
@@ -74,6 +101,20 @@
     {
       "at": "2026-11-03T06:20:18Z",
       "head": "d21254b02f3bedd0f7a24cd05b416923d90c599f",
+      "id": "IMP-02",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T07:11:12Z",
+      "head": "aec5ace3b29cd4135cfc8696e1e109c788569b5d",
+      "id": "IMP-01",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-03T07:11:12Z",
+      "head": "aec5ace3b29cd4135cfc8696e1e109c788569b5d",
       "id": "IMP-02",
       "answer": "受け入れて進める（リリースの前に判断し直す）",
       "closed": true

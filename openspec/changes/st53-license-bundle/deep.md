@@ -171,6 +171,20 @@
     の順で並び、IMP-01 にも 2 つの選択肢があり、問いの側の欠けは見つけていない。次の合意でも IMP-01 だけに答えを求める。
     spec の段の検査（`openspec validate --strict`・`evidence.py lint`・`review_triage.py`・`spec_overlap.py check`）は直さずに rc=0（2026-11-03）
 
+## 影響の判断（第 4 回の合意）
+
+重大な IMP への本人の答え（`deep-answers-6.txt` の逐語。問いは `deep-questions-agree-4.json`）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。
+
+- IMP-01 [印を push できる人が main を通さずに正式な鍵を読めるかもしれない（ST52 から）] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。第 2 回・第 3 回は未回答だったが、第 4 回で答えがあった（第 1 回と同じ答え）。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+- IMP-02 [本人の管理者の資格情報がエージェントと同じ OS の利用者に残ると、資格情報を替えても分けられない] -> 受け入れて進める（リリースの前に判断し直す）
+  - 補足: なし。リリースの前の判断し直しは go.json の `if_accepted.recheck`（本人・ST54 の上流の合意まで）
+
+## 仕様への合意（第 4 回）
+
+- QA [仕様への合意] -> 合意する（補足なし）。IMP-01・IMP-02 とも答えがあり、合意は成立した（`agreement.json` の `status: accepted`）。
+  違和感は無く、仕様（proposal / specs / design / tasks）を直すものは無い。要件・Story へ戻すものも無い
+
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
 - FR-127 に ★ 2026-11-02 補足: 「同じ印」で示すのは正式版・ベータ版だけ、開発版と PR の組み立ては 40 桁の commit で示す（Q7・review/spec.md R14・D16（仮））。許諾は配布物の中にだけ置き、画面からは開けない（Q6・Q9）
