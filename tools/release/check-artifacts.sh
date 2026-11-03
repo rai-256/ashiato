@@ -61,7 +61,7 @@ artifact_file() {
 }
 
 check_artifact_files() {
-  local artifact="$1" name="$2" path license_text notices source expected_ref expected_commit stamp_commit
+  local artifact="$1" name="$2" path notices source expected_ref expected_commit stamp_commit
   if [[ "$artifact" == *.apk ]]; then
     path='assets/licenses/'
   else
@@ -79,6 +79,22 @@ check_artifact_files() {
     grep -Fq '(gms の中の第三者)' <<<"$notices" || die "$name の依存の一覧に (gms の中の第三者) が無い"
   else
     grep -Fq '== rust-std ' <<<"$notices" || die "$name の依存の一覧に == rust-std が無い"
+  fi
+  # 部品の置き場を取り違えると（Windows のバックスラッシュの置き場で dirname が . になる等）、
+  # すべての部品に木の LICENSE が入る。部品の本文がすべて木の LICENSE を含む一覧は落とす
+  if ! python3 -c '
+import re, sys
+license=open(sys.argv[1], encoding="utf-8").read().strip()
+notices=sys.stdin.read()
+bodies=[]
+for entry in re.split(r"(?m)^(?=== )", notices):
+    lines=entry.splitlines()
+    if not lines or not lines[0].startswith("== ") or lines[0].startswith("== rust-std "): continue
+    body="\n".join(l for l in lines[1:] if not l.startswith("License:")).strip()
+    if body: bodies.append(body)
+sys.exit(1 if bodies and all(license in b for b in bodies) else 0)
+' "$EXPECTED_LICENSE" <<<"$notices"; then
+    die "$name の依存の一覧の部品の本文がすべて木の LICENSE と同じ（部品の置き場を取り違えている）"
   fi
   source="$(artifact_file "$artifact" "$path"SOURCE.txt 2>/dev/null || true)"
   stamp_commit="${ARTIFACT_STAMP#*+}"
@@ -263,6 +279,19 @@ self_test() {
   tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   if output=$(check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
   grep -Fq 'rust-std' <<<"$output" || { echo "$output"; return 1; }
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  echo "== Scenario: 部品の本文がすべて木の LICENSE と同じ依存の一覧の配布物は、公開しない"
+  # Windows のバックスラッシュの置き場で dirname が . に化け、全部の部品に木の LICENSE が入った偽物
+  { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n'
+    for crate in anyhow serde; do printf '== %s 1.0.0\nLicense: MIT\n' "$crate"; cat "$root/LICENSE"; printf '\n'; done
+  } >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  if output=$(check_artifact_files "$mini_tar" mini.tar.gz 2>&1); then return 1; fi
+  grep -Fq '部品の本文がすべて木の LICENSE と同じ' <<<"$output" || { echo "$output"; return 1; }
+  # 部品が自分の許諾の本文を持てば通る
+  printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n' >"$mini/THIRD-PARTY-NOTICES.txt"
+  tar -czf "$mini_tar" -C "$mini" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  ARTIFACT_STAMP="$v+$commit" check_artifact_files "$mini_tar" mini.tar.gz >/dev/null
   printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n' >"$mini/THIRD-PARTY-NOTICES.txt"
   echo "== Scenario: 携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
   local apkmini="$work/apkmini"
