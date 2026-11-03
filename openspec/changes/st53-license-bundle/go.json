@@ -468,14 +468,17 @@
      "id": "source.5",
      "kind": "caution",
      "tags": [
-      "直感注意",
-      "未解決"
+      "直感注意"
      ],
-     "text": "PR の配布物は、GitHub が作る「PR の head とその時の main を合わせた commit」ではなく PR の head の commit そのものから組む。SOURCE.txt・組み立ての印・組んだソースが同じ commit を指す。下書きの手順も、その PR の head を checkout した手元で走らせる。配布物を検査する job をどの木で走らせるかは、まだ決まっていない（Q17 の答え待ち）。",
+     "text": "PR の配布物は、GitHub が作る「PR の head とその時の main を合わせた commit」ではなく PR の head の commit そのものから組む。SOURCE.txt・組み立ての印・組んだソースが同じ commit を指す。下書きの手順も、その PR の head を checkout した手元で走らせる。配布物を検査する job は、ほかの job と同じく head と main を合わせた木で走り、期待する版番号と比べる LICENSE だけを、配布物を組んだ commit から取る。",
      "examples": [
       {
        "wrong": "PR の配布物は、merge したらこうなるという木から組まれている",
        "right": "PR の配布物は枝の head の木から組まれる。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後か main への push の CI で止まる"
+      },
+      {
+       "wrong": "配布物を検査する job も PR の head の木で走る",
+       "right": "検査の台本は合わせた木のものが走る。比べる相手（版番号と LICENSE）だけを head の commit から読む。枝を切った後に main が版か LICENSE を変えても、PR の CI は誤って赤くならない"
       }
      ],
      "refs": {
@@ -483,7 +486,8 @@
        "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
       ],
       "scenarios": [
-       "PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される"
+       "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される",
+       "配布物の LICENSE は、渡した期待する LICENSE と比べる"
       ],
       "decisions": [
        "Q16",
@@ -716,47 +720,23 @@
    "refs": {}
   }
  ],
- "open": [
-  {
-   "id": "open.q17",
-   "text": "配布物を検査する job（package-artifacts）を、組み立てと同じ PR の head の木で走らせるか、今どおり head と main を合わせた木で走らせて期待値だけを head から取るかが決まっていない。仕様の Scenario「PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される」はいま前者で書いてあるが、要件 FR-127（2026-11-03 第 3 回の改訂）は head の木で走るものを組み立ての job の中の検査に限っていて、合わない。別の席がこの仮の決定 D18 を否とし、第 4 回の問い Q17 で返した。推奨（合わせた木のまま、期待値を head から取る）を選ぶと、この Scenario の検査の job の部分と D18 が書き直される。どちらでも配布物の中身と SOURCE.txt は変わらない。",
-   "tags": [
-    "未解決"
-   ],
-   "refs": {
-    "requirements": [
-     "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
-    ],
-    "scenarios": [
-     "PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される"
-    ],
-    "decisions": [
-     "D18",
-     "Q17"
-    ]
-   }
-  }
- ],
+ "open": [],
  "since_last": [
   {
-   "text": "第 4 回の合意（仕様に合意、IMP-01・IMP-02 は「受け入れて進める（リリースの前に判断し直す）」）の後で、仕様が 2 か所変わったので聞き直す。1 つ目: merge gate の前に別の席が仮の決定 D18（配布物を検査する job も PR の head の木で走らせる）を確かめ、要件 FR-127 の文と合わないとして否とした。D18 は仮ではなくなり「Q17 の答え待ち」になった。仕様の本文は変えていない。資料では「対応するソースの場所」の注意と「未解決」に出した。Q17 はこの 1 枚で一緒に聞く。",
+   "text": "第 5 回の合意の後で、第 4 回の問い Q17 の答え（配布物を検査する job は合わせた木のまま走らせ、期待する版番号と比べる LICENSE だけを配布物を組んだ commit から取る。要件は変えない）を仕様に写した。D18 を本人の決定に書き直し、Requirement の 1 文と Scenario を直した（Scenario「PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される」に改名し、「配布物の LICENSE は、渡した期待する LICENSE と比べる」を足した）。資料では「対応するソースの場所」の注意を直し、「未解決」から外した。配布物の中身と SOURCE.txt は変わらない。",
    "refs": {
     "decisions": [
-     "D18",
-     "Q17"
+     "Q17",
+     "D18"
+    ],
+    "scenarios": [
+     "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される",
+     "配布物の LICENSE は、渡した期待する LICENSE と比べる"
     ]
    }
   },
   {
-   "text": "2 つ目: 同梱の PostgreSQL の改訂が入った main へ rebase した。この Story の仕様の中身は変わっていない。ただし要件 FR-108 の改訂で、本人のサーバの切り替えは「ST53 が main に入った後」ではなく「ST55 が済んでから、そのインストーラで」になった（整合の確認 docs/audit/2026-11-03-st53-rebase-consistency.md の C1）。資料の「最初の公開」と「やらないこと」をその時期に直した。design の Non-Goals と proposal の文はこの時期で読む（Q4 の答えは書き換えない）。",
-   "refs": {
-    "decisions": [
-     "Q4"
-    ]
-   }
-  },
-  {
-   "text": "IMP-01・IMP-02 の中身・重大度・受け入れたときに残るもの・判断し直す人と時期は、第 4 回と同じ。",
+   "text": "IMP-01・IMP-02 の中身・重大度・受け入れたときに残るもの・判断し直す人と時期は、第 5 回と同じ。",
    "refs": {
     "decisions": [
      "D3"
@@ -1627,7 +1607,7 @@
    },
    {
     "before": "PR の CI の配る形の組み立ては、GitHub が作る「PR の head とその時の main を合わせた commit」から組まれ、合わせた結果の配布物を見られた",
-    "after": "PR の配る形の組み立てと、その job の中の自己試験・許諾の検査は head の木で走る。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後の CI か main への push の CI まで出ない",
+    "after": "PR の配る形の組み立てと、その job の中の自己試験・許諾の検査は head の木で走る。配布物を検査する job は合わせた木で走り、期待値だけを head の commit から取る。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後の CI か main への push の CI まで出ない",
     "who": "PR の CI を見る本人とエージェント",
     "basis": "spec",
     "refs": {
@@ -1635,11 +1615,12 @@
       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
      ],
      "scenarios": [
-      "PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される"
+      "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
      ],
      "decisions": [
       "Q16",
-      "D18"
+      "D18",
+      "Q17"
      ]
     }
    }
@@ -1713,7 +1694,7 @@
    {
     "id": "mixed",
     "applies": true,
-    "can": "正式版・ベータ版・開発版・main への push・PR の組み立てが、それぞれの決まりの SOURCE.txt を持つ。PR の配布物は head の commit から組まれ、同じ commit で検査される。確認バッチの準備は実機に開発用の鍵の版を入れない",
+    "can": "正式版・ベータ版・開発版・main への push・PR の組み立てが、それぞれの決まりの SOURCE.txt を持つ。PR の配布物は head の commit から組まれ、同じ commit の期待値で検査される。確認バッチの準備は実機に開発用の鍵の版を入れない",
     "cannot": "PR を閉じた後・push し直す前の head の commit を後から取れるかは確かめていない（IMP-06）。PR の CI は main と合わせた結果の配布物を見ない",
     "basis": "derived",
     "refs": {
@@ -1726,7 +1707,8 @@
       "D16",
       "Q14",
       "Q16",
-      "D18"
+      "D18",
+      "Q17"
      ]
     }
    },
@@ -2455,7 +2437,7 @@
      }
     },
     {
-     "text": "第 2 回・第 3 回の答え（Q10〜Q16）を写した後の design D4・D5・D7・D8・D9・D16・D18 と spec を、移行の凍結の検査・携帯の POM の取り寄せ・PR の CI の checkout と配布物の検査に当て直した",
+     "text": "第 2 回・第 3 回の答え（Q10〜Q16）を写した後の design D4・D5・D7・D8・D9・D16・D18 と spec を、移行の凍結の検査・携帯の POM の取り寄せ・PR の CI の checkout と配布物の検査に当て直した。第 4 回の答え（Q17）を写した後の D18 と spec を、配布物を検査する job の checkout と期待値の取り方に当て直した",
      "refs": {
       "decisions": [
        "Q10",
@@ -2465,7 +2447,8 @@
        "Q14",
        "Q15",
        "Q16",
-       "D18"
+       "D18",
+       "Q17"
       ]
      }
     }
