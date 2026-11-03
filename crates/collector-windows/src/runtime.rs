@@ -835,7 +835,8 @@ impl<'a> Runtime<'a> {
             if server != self.channel {
                 tracing::warn!(
                     kind = "channel_mismatch",
-                    error = "server_channel",
+                    server = server.as_str(),
+                    self_channel = self.channel.as_str(),
                     "channel_mismatch"
                 );
                 if let Some(notice) = &self.channel_notice {
