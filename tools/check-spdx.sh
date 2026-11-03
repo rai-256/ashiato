@@ -18,7 +18,7 @@ check_headers() {
     value="$(head -n 25 "$tree/$path" | LC_ALL=C awk -v marker="$marker" '
       index($0, marker) {
         prefix = substr($0, 1, index($0, marker) - 1)
-        if (prefix !~ /^[[:space:]]*(\/\/!?|#|--|<!--|@rem)?[[:space:]]*$/) next
+        if (prefix !~ /^[[:space:]]*(\/\/!?|#|--|<!--|@rem|\/\*|\*)?[[:space:]]*$/) next
         value = substr($0, index($0, marker) + length(marker) + 1)
         sub(/[[:space:]]*(-->|\*\/)[[:space:]]*$/, "", value)
         print value
@@ -132,6 +132,12 @@ self_test() {
   grep -qF 'bad.rs' <<<"$output"
   git -C "$tree" rm -qf bad.rs
 
+  printf '%s\n' '/* SPDX-License-Identifier: GPL-3.0-only */' > "$tree/block.rs"
+  git -C "$tree" add block.rs
+  if output="$(check_headers "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'block.rs' <<<"$output"
+  git -C "$tree" rm -qf block.rs
+
   echo "== Scenario: 表示の検査は symlink の先を読まない"
   outside="$work/outside.rs"
   printf '%s\n' '// SPDX-License-Identifier: GPL-3.0-only' > "$outside"
@@ -153,13 +159,22 @@ self_test() {
   output="$(check_headers "$tree")"
   [[ "$(grep -c '^  例外:' <<<"$output")" -eq 5 ]]
 
+  output="$(check_headers "$root")"
+  [[ "$(grep -c '^  例外:' <<<"$output")" -eq 5 ]]
+  grep -qFx '  例外: collector-android/gradlew Apache-2.0' <<<"$output"
+  grep -qFx '  例外: collector-android/gradlew.bat Apache-2.0' <<<"$output"
+  grep -qFx '  例外: migrations/202609211400_browser_history_record_id.sql AGPL-3.0-only' <<<"$output"
+  grep -qFx '  例外: migrations/202609211400_browser_history_record_id.down.sql AGPL-3.0-only' <<<"$output"
+  grep -qFx '  例外: migrations/202610181200_media_capture.sql AGPL-3.0-only' <<<"$output"
+
   echo "== Scenario: 例外の一覧のファイルでも、許す値と違う表示なら表示の検査が落ちる"
   sed -i 's/AGPL-3.0-only/GPL-3.0-only/' "$tree/migrations/202610181200_media_capture.sql"
   if output="$(check_headers "$tree" 2>&1)"; then return 1; fi
   grep -qF 'migrations/202610181200_media_capture.sql' <<<"$output"
 
   echo "== Scenario: API の契約の写しは、部品と同じ許諾の式を持つ"
-  echo "API の契約の検査は check-openapi.sh が担保する"
+  actual_identifier="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["info"]["license"]["identifier"])' "$root/docs/openapi.json")"
+  [[ "$actual_identifier" == "$expected_header" ]]
 }
 
 case "${1:-all}" in
