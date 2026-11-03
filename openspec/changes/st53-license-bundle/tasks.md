@@ -196,7 +196,7 @@
 
 ## Task 9: 確認バッチの準備はエミュレータにだけ入れる
 
-- [ ] 9.1 `tools/verify-prep-device.sh` に関数 `install_on_emulators <apk>` を置く（D14）。`adb devices` の状態が `device` で、名前が `emulator-` で始まる端末にだけ `adb -s <名前> install -r <apk>` を呼び、入れた名前を 1 行ずつ出す。
+- [x] 9.1 `tools/verify-prep-device.sh` に関数 `install_on_emulators <apk>` を置く（D14）。`adb devices` の状態が `device` で、名前が `emulator-` で始まる端末にだけ `adb -s <名前> install -r <apk>` を呼び、入れた名前を 1 行ずつ出す。
   1 台も無ければ「エミュレータが無いので入れていない（手で入れる: `adb -s <エミュレータ> install -r <apk>`）」の 1 行を出す（D14）。`tools/verify-prep.sh` の 58〜61 行の端末の選び方を、これの `source` と呼び出しに替え、出力をそのまま `android_note` にする。`verify-prep.sh` には `adb` も `install` の文字も残さない（`install_on_emulators` の呼び出しを除く）。
   `tools/verify-prep-device.sh --self-test` は、偽の `adb`（呼ばれた引数を書き残す）で次の 3 つを走らせる。
   - `実機とエミュレータが繋がっていれば、エミュレータにだけ入れる`
