@@ -21,6 +21,11 @@
 - `bash -n tools/release/check-artifacts.sh`: rc=0。
 - `git diff --check`: rc=0。
 
+### Task gate 証跡
+
+- `scripts/verify-run 7.1`: 2 本とも PASS、rc=0。結果は `openspec/changes/st53-license-bundle/evidence.jsonl` に記録した。
+- 検証ごとに Kotlin daemon の一時フォルダ残留が 1 件と記録されたが、検証結果は PASS である。
+
 ## 変更ファイル
 
 - `tools/release/check-artifacts.sh`
