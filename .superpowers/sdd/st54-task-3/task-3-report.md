@@ -39,6 +39,18 @@
 
 - 全サーバテストの並列 deadlock は今回の変更外の既存テスト競合であり、単体再実行では再現しなかった。
 
+## Fix round 2
+
+- F1: `st54_bin_dev_migrate_refuses_official_db` と `st54_bin_official_migrate_refuses_dev_db` が、最初の適用行の `build_version` を確認して正式版 DB／開発版 DB を明示するようにした。不要になった版削除の補助メソッドも削除した。
+- F1: `st54_bin_channel_before_ahead` を待ち受けを先に塞ぐ `serve_custom_on_held_port` で実行し、開発版サーバが知らない版より先に系統不一致（終了コード 4）で止まり、待ち受けを開かないことを検証する形にした。
+
+### Fix verification
+
+- RED: `scripts/verify-run 3.1` の旧テストで `st54_bin_channel_before_ahead` が終了コード `None`（強制 kill のシグナル）となり、期待値 `Some(4)` に失敗した。通常 port のヘルパーが 20 秒待ってから kill するため、系統拒否の終了コードを観測できていなかった。
+- GREEN: `scripts/quiet-run st54-ahead-fix2 -- cargo test -p ashiato-server --test server_startup st54_bin_channel_before_ahead -- --test-threads=1` — 1 passed。
+- `scripts/verify-run 3.1`: PASS（4 コマンド、関数段 9 passed、bin 9 passed、既存 ST48 35 passed）。
+- `scripts/verify-run 3.2`: PASS。
+
 ## Fix round 1
 
 - F1/F2: `server_startup.rs` の 3 本を正式版 DB / 開発版 DB の正しい向きに直し、未適用版を残した状態で系統不一致の終了コード 4、退避なし、更新履歴の件数不変、`db_ahead` より先の判定を確認するようにした。Task 2 の環境変数試験は開発版 DB 上で起動し、`ashiato-channel: dev` と契約本文を確認する形へ戻した。

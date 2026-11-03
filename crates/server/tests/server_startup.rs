@@ -865,17 +865,6 @@ mod st48_migrate {
             (rows, def)
         }
 
-        async fn remove_last_version(&self) {
-            sqlx::query(
-                "DELETE FROM migration_ledger.applied
-                 WHERE name = (SELECT name FROM migration_ledger.applied
-                               ORDER BY applied_at DESC, name DESC LIMIT 1)",
-            )
-            .execute(self.db.owner())
-            .await
-            .unwrap();
-        }
-
         async fn history_rows(&self) -> i64 {
             sqlx::query_scalar("SELECT count(*) FROM core.update_history")
                 .fetch_one(self.db.owner())
@@ -1028,7 +1017,16 @@ mod st48_migrate {
     async fn st54_bin_dev_migrate_refuses_official_db() {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
-        rig.remove_last_version().await;
+        let first_version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(
+            !first_version.contains("-dev."),
+            "正式版 DB ではない: {first_version}"
+        );
         let before = rig.snapshot().await;
         let history_before = rig.history_rows().await;
         let custom = custom_server_binary_with_version(&format!(
@@ -1053,7 +1051,16 @@ mod st48_migrate {
             env!("CARGO_PKG_VERSION")
         ));
         assert_ok(&rig.migrate_custom_version(&custom.path));
-        rig.remove_last_version().await;
+        let first_version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(
+            first_version.contains("-dev."),
+            "開発版 DB ではない: {first_version}"
+        );
         let before = rig.snapshot().await;
         let history_before = rig.history_rows().await;
         let out = rig.migrate();
@@ -1155,7 +1162,7 @@ mod st48_migrate {
             env!("CARGO_PKG_VERSION")
         ));
         rig.add_future_row().await;
-        let served = rig.serve_custom(&custom.path);
+        let served = rig.serve_custom_on_held_port(&custom.path);
         let out = served.out;
         assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
         assert!(stderr(&out).contains("error: kind=channel_mismatch"));
