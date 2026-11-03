@@ -58,3 +58,5 @@
 - `bash -n tools/release/notices.sh` / `git diff --check` — PASS
 
 5.1/5.2 の verify-run は仕様上 `$TMPDIR` の出力ファイルを一時フォルダに記録する注意を出したが、生成処理の失敗や未掃除の内部一時ファイルではない。
+
+追補: `3b2d983e` commit 後に `scripts/verify-run 5.2` を再実行し、PASS（rc=0、現行 HEAD）を確認した。
