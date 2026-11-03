@@ -51,7 +51,7 @@
 
 ## Task 3: DB の系統の守り（終了コード 4）
 
-- [ ] 3.1 `migration_ledger` に DB の系統の判定を足す（D3）: 版の記録の最初の行（`applied_at` の順、同じなら名前の順）の組み立ての版番号から系統を決める。版の記録が無いか行が 0 で ashiato の表を持つ DB は正式版、表が無い DB は系統なし。
+- [x] 3.1 `migration_ledger` に DB の系統の判定を足す（D3）: 版の記録の最初の行（`applied_at` の順、同じなら名前の順）の組み立ての版番号から系統を決める。版の記録が無いか行が 0 で ashiato の表を持つ DB は正式版、表が無い DB は系統なし。
   判定の言葉はコードの分かれ目に合わせる（版の記録の schema が無く `core` がある `BeforeLedger` は正式版、`Empty` と行が 0 の `Recorded` は系統なし）。記録を読んだ直後・`Verdict` を出す前に自分の系統と比べ、違えば `MigrateError::ChannelMismatch { db, me }`（退避・`BOOTSTRAP`・付与・更新の履歴より前）。`record_result` の更新の履歴を書かない早い返り（今は `Ahead | Unreadable`）に `ChannelMismatch` を足す。`migrate` とサーバの起動は終了コード 4、標準エラーは `error: kind=channel_mismatch` と `  db: <系統>`・`  self: <系統>`。
   `migrate` とサーバの起動の検査は系統を引数で受ける（試験が両方の系統を 1 つの試験の bin で走らせる）。
   試験（`st54_tests.rs`。関数の段）: `// Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる`・`// Scenario: 正式版の migrate とサーバは、開発版の DB では止まる`・`// Scenario: 空の DB に開発版の migrate を当てると、開発版の DB になる`・
@@ -63,7 +63,7 @@
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st54_bin_ && test "$(cargo test -p ashiato-server --test server_startup st54_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0 /
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server migration_ledger'` rc=0（ST48 の既存の試験が通る）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server --test server_startup st48_'` rc=0
-- [ ] 3.2 更新の失敗からの戻し（ST58。FR-119）への申し送りを書き足す（D3。IMP-02）: `docs/handoff/ST58.md` の末尾に節 `## st54-dev-side-by-side D3 — 終了コード 4 も「移行の失敗」ではない（この回の退避は無い）` を足し、
+- [x] 3.2 更新の失敗からの戻し（ST58。FR-119）への申し送りを書き足す（D3。IMP-02）: `docs/handoff/ST58.md` の末尾に節 `## st54-dev-side-by-side D3 — 終了コード 4 も「移行の失敗」ではない（この回の退避は無い）` を足し、
   「`migrate` は DB の系統が自分と違うと、退避も版の適用も付与も更新の履歴の行も書かずに終了コード 4（標準エラーの 1 行目 `error: kind=channel_mismatch`）で止まる。FR-119 の戻しは終了コード 1 の回だけにし、終了コード 4 の回も 3 の回と同じく**退避から戻さず**、前の版のまま起動し直す（`rc≠0` を一律に移行の失敗と扱うと、前の回の退避を戻してそれ以後の記録を失う）」と、出所（この change の `design.md` D3・`go.json` の IMP-02）を書く。今ある節は変えない（書き足すだけ）
   検証: `bash -c 'f=docs/handoff/ST58.md; grep -q "^## st54-dev-side-by-side D3" "$f" && grep -q "終了コード 4" "$f" && grep -q "channel_mismatch" "$f" && grep -q "^## st48-db-version-guard R21" "$f"'` rc=0
 
