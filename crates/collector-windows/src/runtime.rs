@@ -41,6 +41,7 @@ use crate::outbox::Outbox;
 use crate::sender::{read_contract_answer, ContractAnswer, Sender, Transport};
 use crate::telemetry;
 use crate::time_sync::TimeSyncSource;
+use ashiato_build_stamp::{channel, Channel};
 
 /// 見回りの間隔（design D5・**仮**）。題名だけの変化は OS からの通知が
 /// 来ないことがあるので、**最長 1 秒遅れ**で拾う。
@@ -130,6 +131,8 @@ pub struct Runtime<'a> {
     /// ブラウザ履歴の生存信号（design D12）。**ウィンドウのとは別の契機・別の数え・別の和**
     history_beat: HistoryBeat,
     state_dir: std::path::PathBuf,
+    exclusions_path: std::path::PathBuf,
+    channel: Channel,
     /// 単調時計の起点（`tick` が使う）
     anchor: Option<(std::time::Instant, DateTime<Utc>)>,
     log: fn(String),
@@ -145,6 +148,7 @@ impl std::fmt::Debug for Runtime<'_> {
             .field("beats", &self.beats.len())
             .field("unsaved", &self.unsaved.len())
             .field("engine", &self.engine)
+            .field("channel", &self.channel)
             .finish()
     }
 }
@@ -282,6 +286,8 @@ impl<'a> Runtime<'a> {
             history: None,
             history_beat: HistoryBeat::new(&cfg.state_dir, now),
             state_dir: cfg.state_dir.clone(),
+            exclusions_path: cfg.exclusions_path.clone(),
+            channel: channel(env!("ASHIATO_VERSION")),
             anchor: None,
             log: info,
             build_stamp: env!("ASHIATO_BUILD_STAMP").to_string(),
@@ -307,7 +313,7 @@ impl<'a> Runtime<'a> {
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
     #[must_use]
     pub fn with_history(mut self, reader: std::sync::Arc<dyn HistoryReader>) -> Self {
-        let history = HistoryCollector::new(reader, &self.state_dir);
+        let history = HistoryCollector::new(reader, &self.state_dir, &self.exclusions_path);
         // 前のプロセスが落ちて残した写しを、読みを始める前に消す（design D2。R60）。文言にはパスが入るので種別だけ
         if history.sweep_copies().is_err() {
             (self.log)(telemetry::history_line(
@@ -958,6 +964,9 @@ mod tests {
             user_id: uuid::Uuid::nil(),
             device_id: "dev-1".into(),
             state_dir: tmp.path().join("state"),
+            exclusions_path: tmp.path().join("state/exclusions.json"),
+            launch_state_dir: tmp.path().join("state"),
+            launch_device_id: "dev-1".into(),
         };
         (cfg, tmp)
     }

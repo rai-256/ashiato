@@ -14,7 +14,18 @@ use crate::contract_notice::ContractToaster;
 use crate::outage_notice::Toaster;
 
 /// 通知の差出人。
-pub const AUMID: &str = "dev.ashiato.collector";
+pub const fn aumid(channel: ashiato_build_stamp::Channel) -> &'static str {
+    match channel {
+        ashiato_build_stamp::Channel::Dev => "dev.ashiato.collector.dev",
+        ashiato_build_stamp::Channel::Official => "dev.ashiato.collector",
+    }
+}
+pub const fn display_name(channel: ashiato_build_stamp::Channel) -> &'static str {
+    match channel {
+        ashiato_build_stamp::Channel::Dev => "ashiato 開発版",
+        ashiato_build_stamp::Channel::Official => "ashiato",
+    }
+}
 /// 通知の識別（途切れの通知は常に 1 通）。
 pub const TAG: &str = "outage";
 pub const GROUP: &str = "ashiato";
@@ -28,24 +39,28 @@ pub struct WindowsToaster {
 }
 
 /// 差出人を登録簿に書く（`DisplayName = "ashiato"`）。書けなければ `Err`（呼び出し側は警告だけで収集を続ける）。
-pub fn register_aumid(aumid: &str) -> anyhow::Result<()> {
+pub fn register_aumid(aumid: &str, display_name: &str) -> anyhow::Result<()> {
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
     let (key, _) = hkcu
         .create_subkey(format!(r"Software\Classes\AppUserModelId\{aumid}"))
         .context("登録簿の鍵を作れない")?;
-    key.set_value("DisplayName", &"ashiato")
+    key.set_value("DisplayName", &display_name)
         .context("登録簿へ書けない")
 }
 
 impl WindowsToaster {
     /// 差出人を登録して口を作る。
     pub fn register() -> anyhow::Result<Self> {
-        Self::register_as(AUMID)
+        let channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
+        register_aumid(aumid(channel), display_name(channel))?;
+        Ok(Self {
+            aumid: aumid(channel).to_string(),
+        })
     }
 
     /// 差出人の名前を指定して登録する（試験が本物の登録と混ざらないように使う）。
     pub fn register_as(aumid: &str) -> anyhow::Result<Self> {
-        register_aumid(aumid)?;
+        register_aumid(aumid, "ashiato")?;
         Ok(Self {
             aumid: aumid.to_string(),
         })

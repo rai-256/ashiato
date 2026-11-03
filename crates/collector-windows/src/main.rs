@@ -11,7 +11,8 @@
 use ashiato_collector_windows as c02;
 
 fn main() -> anyhow::Result<()> {
-    let cfg = c02::config::Config::from_env()?;
+    let channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
+    let cfg = c02::config::Config::from_lookup(|k| std::env::var(k).ok(), channel)?;
     init_logging(&cfg);
     if std::env::args().any(|a| a == "--install-autostart") {
         return install_autostart(&cfg);
@@ -78,13 +79,12 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
 
     let zone = c02::config::Zone::current()?;
     // 除外の登録が壊れていたら**止まる**（空に倒すと除外が黙って外れる）。理由はログに残る
-    let exclusions = c02::exclusion::Exclusions::load(&cfg.state_dir.join("exclusions.json"))
-        .inspect_err(|_| {
-            tracing::error!(
-                "{}",
-                c02::telemetry::line("exclusions_invalid", None, None, None)
-            )
-        })?;
+    let exclusions = c02::exclusion::Exclusions::load(&cfg.exclusions_path).inspect_err(|_| {
+        tracing::error!(
+            "{}",
+            c02::telemetry::line("exclusions_invalid", None, None, None)
+        )
+    })?;
     tracing::info!(
         "{}",
         c02::telemetry::line(

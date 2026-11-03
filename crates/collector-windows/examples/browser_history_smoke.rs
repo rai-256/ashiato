@@ -175,6 +175,9 @@ fn parts(
         user_id: uuid::Uuid::nil(),
         device_id: "history-smoke".into(),
         state_dir: state_dir.into(),
+        exclusions_path: std::path::PathBuf::from(state_dir).join("exclusions.json"),
+        launch_state_dir: state_dir.into(),
+        launch_device_id: "history-smoke".into(),
     };
     let zone = Zone {
         id: "Asia/Tokyo".into(),

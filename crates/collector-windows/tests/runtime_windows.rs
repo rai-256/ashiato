@@ -588,6 +588,9 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        exclusions_path: dir.join("exclusions.json"),
+        launch_state_dir: dir.clone(),
+        launch_device_id: "rt".into(),
     };
     let transport = Capture::default();
     let reference = std::sync::Arc::new(NoReference);
@@ -657,6 +660,9 @@ fn clock_skew_runtime() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        exclusions_path: dir.join("exclusions.json"),
+        launch_state_dir: dir.clone(),
+        launch_device_id: "rt".into(),
     };
     let transport = Capture::default();
     let zone = ashiato_collector_windows::config::Zone::current().unwrap();
@@ -1440,7 +1446,11 @@ fn fetch_history_until(
         .unwrap();
     let state = tmp.path().to_path_buf();
     let reader = FsHistoryReader::new(browser.local.clone(), browser.roaming.clone());
-    let mut collector = HistoryCollector::new(std::sync::Arc::new(reader), &state);
+    let mut collector = HistoryCollector::new(
+        std::sync::Arc::new(reader),
+        &state,
+        &state.join("exclusions.json"),
+    );
     let mut got: Vec<(String, String)> = Vec::new();
     let mut wall = Utc::now();
     let start = Instant::now();
