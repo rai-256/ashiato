@@ -35,7 +35,7 @@
 
 ## Task 1: 系統の判定（`crates/build-stamp`）
 
-- [ ] 1.1 `crates/build-stamp` に `pub enum Channel { Dev, Official }` と `pub fn channel(version: &str) -> Channel`（D1。版番号に `-dev.` を含めば `Dev`）と `Channel::as_str()`（`"dev"` / `"official"`）を足す。
+- [x] 1.1 `crates/build-stamp` に `pub enum Channel { Dev, Official }` と `pub fn channel(version: &str) -> Channel`（D1。版番号に `-dev.` を含めば `Dev`）と `Channel::as_str()`（`"dev"` / `"official"`）を足す。
   試験（`#[cfg(test)]`、名前は `st54_`）: `// Scenario: 版番号に -dev. を持つ組み立ては開発版になる`（`0.4.0-dev.20261102`・`0.4.0`・`0.4.0-beta.2`）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-build-stamp st54_ && test "$(cargo test -p ashiato-build-stamp st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0
 
