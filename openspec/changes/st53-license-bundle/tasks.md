@@ -156,7 +156,7 @@
 
 ## Task 7: 配布物の検査に 3 点を足す（`check-artifacts.sh`）
 
-- [ ] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8・D9・Q16）。
+- [x] 7.1 `tools/release/check-artifacts.sh` の配布物ごとの検査に、次を足す（D8・D9・Q16）。
   - 3 点があること（tar / zip の根、APK の `assets/licenses/`）
   - `LICENSE` が期待する `LICENSE` と同じこと。`--expect-license <file>` を足し、渡されればそのファイルと、渡されなければ今どおり台本の木の `LICENSE`（`$root/LICENSE`）と比べる。`--expect-license` のファイルが無ければ rc=2（使い方の誤り）。`draft.sh`・`release.yml`・自己試験の呼び出しは渡さない（D18・Q17）
   - サーバと PC の収集アプリの一覧に `== rust-std ` の項があること
