@@ -46,7 +46,7 @@ cp .env.example .env          # 実値はここに。コミットしない
 
 追加の許可の日本語は参考訳です。
 
-> GNU AGPL version 3 第 7 条に基づく追加の許可。下記の Google Play services ライブラリ（いずれの版でもよいが、改変版を除く）をリンクまたは組み合わせて本プログラムまたは対象著作物を改変した場合、その組み合わせによる成果物を伝達する追加の許可を付与します。ソース形式でない組み合わせの対応ソースには、使用したそれらのライブラリ部分のソースコードを含めません。
+> GNU AGPL version 3 第 7 条に基づく追加の許可。本プログラムまたは対象著作物を、Android SDK のライセンス（Android Software Development Kit License）の条項の対象となる部分を含む、下記の Google Play services ライブラリ（いずれの版でもよいが、改変版を除く）とリンクまたは組み合わせて改変した場合、本プログラムのライセンサーは、その組み合わせによる成果物を伝達する追加の許可をあなたに付与します。ソース形式でない組み合わせの対応ソースには、使用したそれらのライブラリの部分のソースコードを含めません。
 >
 > 対象ライブラリ: `play-services-location`、`play-services-base`、`play-services-basement`、`play-services-tasks`
 
