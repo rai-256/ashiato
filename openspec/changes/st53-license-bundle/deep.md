@@ -165,6 +165,11 @@
 - IMP-01 に答えが無い（`deep-answers-5.txt`: `IMP-01 [...] -> (未回答)`）。違和感の補足は無く、仕様の中身への指摘ではない。
   第 2 回・第 3 回と 2 回続けて IMP-01 だけが未回答で、IMP-02 と QA には答えがある。問いの JSON（`deep-questions-agree-3.json`）の
   IMP-01 と IMP-02 は同じ形（選択肢 2 つ）で、問いの側の違いは見つけていない。仕様は直さずに IMP-01 をもう一度聞く
+  → 対応: 仕様（proposal / specs / design / tasks）は直さない。理由: 指摘は仕様の中身ではなく IMP-01 の答えが無いことだけで、
+    QA は「合意する」、IMP-02 は「受け入れて進める（リリースの前に判断し直す）」で閉じている。IMP-01 は消さず・重大度を下げず、
+    材料（`if_accepted`・`recheck`）も変えない。問いの HTML を `ask_wizard.py` で組み直して見ても、GO 資料の直後に IMP-01 → IMP-02 → QA
+    の順で並び、IMP-01 にも 2 つの選択肢があり、問いの側の欠けは見つけていない。次の合意でも IMP-01 だけに答えを求める。
+    spec の段の検査（`openspec validate --strict`・`evidence.py lint`・`review_triage.py`・`spec_overlap.py check`）は直さずに rc=0（2026-11-03）
 
 ## 要件へ戻すもの（record の段で戻した。2026-11-02）
 
