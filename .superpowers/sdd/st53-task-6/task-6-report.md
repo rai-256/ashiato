@@ -29,6 +29,12 @@
 - `scripts/verify-run 6.1` — workflow/guard/self-test の5項目は PASS。build-apk は `/home/yosis/.local/share/kotlin/daemon` が read-only のため FAIL（実装後に writable な一時保存先を指定した直接ビルドでは PASS）。
 - `tools/release/check-artifacts.sh --self-test` — 既存の debug APK 経路が同じ Kotlin daemon の read-only 制約で FAIL。
 
+## Fix report
+
+- 変更: `build.sh apk` の Gradle 実行へ writable な `$TMPDIR/ashiato-kotlin-daemon` を `kotlin.daemon.storageDir` として渡した。これにより検証環境の read-only な既定 Kotlin daemon 保存先に依存しない。
+- 検証: `PATH=/usr/bin:$PATH scripts/verify-run 6.1`（`scripts/quiet-run verify-6.1-system-unzip -- bash -c ...` 経由） — rc=0、6項目すべて PASS。
+- 環境注記: `/home/yosis/bin/unzip` は `-l` を無視して展開する shim だったため、指定された APK 検証コマンドは標準 `unzip` を優先して実行した。APK は `assets/licenses/` の3点を確認済み。
+
 ## 変更ファイル
 
 - `.github/workflows/ci.yml`
