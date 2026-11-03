@@ -87,6 +87,7 @@ fn run(state_dir: &str, base_url: &str, token: &str, db: Option<&String>) -> any
         &transport,
         clock,
         chrono::Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )?;
     if let Some(db) = db {
         rt = rt.with_history(Arc::new(OneDb(db.into())));
@@ -119,6 +120,7 @@ fn next_day(db: &str, state_dir: &str, base_url: &str, token: &str) -> anyhow::R
         &transport,
         clock,
         day1,
+        ashiato_build_stamp::Channel::Official,
     )?;
     rt = rt.with_history(Arc::new(OneDb(db.into())));
     let mut source = LockedPc;

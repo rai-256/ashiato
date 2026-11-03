@@ -15,9 +15,15 @@ fn main() -> anyhow::Result<()> {
     let cfg = c02::config::Config::from_lookup(|k| std::env::var(k).ok(), channel)?;
     init_logging(&cfg);
     if std::env::args().any(|a| a == "--install-autostart") {
-        return install_autostart(&cfg);
+        return install_autostart(&cfg, channel);
     }
-    run(cfg)
+    run(cfg, channel)
+}
+
+#[cfg(any(windows, test))]
+fn load_engine(exclusions_path: &std::path::Path) -> anyhow::Result<c02::engine::Engine> {
+    let exclusions = c02::exclusion::Exclusions::load(exclusions_path)?;
+    Ok(c02::engine::Engine::new(exclusions))
 }
 
 /// ログは tracing に一本化する（製造準備 A-2）。**置き場のファイルにも書く** ——
@@ -41,8 +47,11 @@ fn init_logging(cfg: &c02::config::Config) {
 }
 
 #[cfg(windows)]
-fn install_autostart(cfg: &c02::config::Config) -> anyhow::Result<()> {
-    c02::autostart::install(cfg)?;
+fn install_autostart(
+    cfg: &c02::config::Config,
+    channel: ashiato_build_stamp::Channel,
+) -> anyhow::Result<()> {
+    c02::autostart::install(cfg, channel)?;
     tracing::info!(
         "{}",
         c02::telemetry::line("autostart_installed", None, None, None)
@@ -51,13 +60,16 @@ fn install_autostart(cfg: &c02::config::Config) -> anyhow::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn install_autostart(_cfg: &c02::config::Config) -> anyhow::Result<()> {
+fn install_autostart(
+    _cfg: &c02::config::Config,
+    _channel: ashiato_build_stamp::Channel,
+) -> anyhow::Result<()> {
     anyhow::bail!("自動起動を仕込めるのは Windows だけ")
 }
 
 /// 収集を回す。**止まるのは終了の合図を受けたときだけ**（design D7 / D22）。
 #[cfg(windows)]
-fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
+fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyhow::Result<()> {
     use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -78,23 +90,8 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
     }
 
     let zone = c02::config::Zone::current()?;
-    // 除外の登録が壊れていたら**止まる**（空に倒すと除外が黙って外れる）。理由はログに残る
-    let exclusions = c02::exclusion::Exclusions::load(&cfg.exclusions_path).inspect_err(|_| {
-        tracing::error!(
-            "{}",
-            c02::telemetry::line("exclusions_invalid", None, None, None)
-        )
-    })?;
-    tracing::info!(
-        "{}",
-        c02::telemetry::line(
-            "exclusions_loaded",
-            Some(exclusions.rules.len()),
-            None,
-            None
-        )
-    );
-    let engine = c02::engine::Engine::new(exclusions);
+    // 除外の登録が壊れていたら**止まる**（空に倒すと除外が黙って外れる）。
+    let engine = load_engine(&cfg.exclusions_path)?;
     let transport = c02::sender::HttpTransport::new(&cfg.base_url, &cfg.api_token);
     let uptime = std::sync::Arc::new(c02::clock::SystemUptime);
     let reference = std::sync::Arc::new(c02::clock::HttpDateClock::new(
@@ -113,6 +110,7 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
             uptime,
         },
         Utc::now(),
+        channel,
     )?;
     let rt = match c02::history::collect::FsHistoryReader::from_env() {
         Some(reader) => rt.with_history(std::sync::Arc::new(reader)),
@@ -120,7 +118,7 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
     };
     let mut rt = rt;
     // 途切れの通知（ST14）。差出人を登録できなければ警告だけで通知を諦め、収集は止めない
-    match c02::toast::WindowsToaster::register() {
+    match c02::toast::WindowsToaster::register(channel) {
         Ok(toaster) => {
             let toaster = std::sync::Arc::new(toaster);
             // 「サーバを更新してください」の通知（ST50）。札は途切れの通知と別
@@ -192,6 +190,39 @@ fn wait_for_change(source: &c02::platform::WindowsSource, stop: &std::sync::atom
 /// Windows 以外では動かない。**黙って何もしないのではなく落とす** ——
 /// 動いているつもりで 1 件も入らない状態が、いちばん見つかりにくい。
 #[cfg(not(windows))]
-fn run(_cfg: c02::config::Config) -> anyhow::Result<()> {
+fn run(_cfg: c02::config::Config, _channel: ashiato_build_stamp::Channel) -> anyhow::Result<()> {
     anyhow::bail!("C-02 は Windows の上でだけ動く（前景・入力・UI Automation を読む）")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use c02::engine::{Foreground, IdleRead, Observation, UrlRead};
+    use chrono::Utc;
+
+    #[test]
+    fn st54_main_loads_foreground_exclusions_into_engine() {
+        // Scenario: 開発版は、渡された置き場の除外の登録を読む
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("exclusions.json");
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"match":"title-contains","value":"パスワード管理"}]}"#,
+        )
+        .unwrap();
+        let mut engine = load_engine(&path).unwrap();
+        let records = engine.observe(Observation {
+            at: Utc::now(),
+            foreground: Some(Foreground {
+                app_name: "browser".into(),
+                exe_path: r"C:\browser.exe".into(),
+                process_name: "browser.exe".into(),
+                title: "パスワード管理".into(),
+                url: UrlRead::Read("https://example.test".into()),
+            }),
+            idle: IdleRead::Elapsed(chrono::Duration::zero()),
+            locked: false,
+        });
+        assert!(records.is_empty());
+    }
 }

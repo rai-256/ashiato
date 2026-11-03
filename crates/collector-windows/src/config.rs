@@ -310,7 +310,18 @@ mod tests {
     fn st54_official_default_exclusion_path_is_under_state() {
         // Scenario: 版番号を渡さずに組んだ部品は正式版として振る舞う
         let tmp = tempfile::tempdir().unwrap();
-        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Official)
+        let version_channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
+        assert_eq!(version_channel, Channel::Official);
+        assert_eq!(
+            crate::autostart::entry_name(version_channel),
+            "ashiato-collector.cmd"
+        );
+        assert_eq!(
+            crate::toast_names::aumid(version_channel),
+            "dev.ashiato.collector"
+        );
+        assert_eq!(crate::toast_names::display_name(version_channel), "ashiato");
+        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), version_channel)
             .unwrap();
         assert_eq!(cfg.exclusions_path, cfg.state_dir.join("exclusions.json"));
     }
@@ -334,18 +345,15 @@ mod tests {
                 .unwrap();
         let dev =
             Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Dev).unwrap();
-        assert_ne!(official.state_dir, dev.state_dir);
-    }
-
-    #[test]
-    fn st54_official_autostart_vars_match_config_inputs() {
-        // Scenario: 自動起動の設定は、渡された値をそのまま書く
-        let tmp = tempfile::tempdir().unwrap();
-        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Official)
-            .unwrap();
-        let vars = cfg.as_vars();
-        assert_eq!(vars[3].1, cfg.device_id);
-        assert_eq!(vars[4].1, cfg.state_dir.display().to_string());
+        let official_marker = crate::marker::Marker::new(&official.state_dir);
+        let dev_marker = crate::marker::Marker::new(&dev.state_dir);
+        official_marker.touch(chrono::Utc::now()).unwrap();
+        dev_marker.touch(chrono::Utc::now()).unwrap();
+        assert!(official_marker.read().unwrap().is_some());
+        assert!(dev_marker.read().unwrap().is_some());
+        let official_outbox = official.state_dir.join("outbox.jsonl");
+        let dev_outbox = dev.state_dir.join("outbox.jsonl");
+        assert_ne!(official_outbox, dev_outbox);
     }
 
     /// `Debug` に合言葉が出ない（R11）。

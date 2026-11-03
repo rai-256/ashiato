@@ -61,11 +61,12 @@ pub fn startup_dir() -> anyhow::Result<std::path::PathBuf> {
 
 /// 自動起動を仕込む（`--install-autostart`）。**冪等**（同じ内容で上書きする）。
 #[cfg(windows)]
-pub fn install(cfg: &crate::config::Config) -> anyhow::Result<std::path::PathBuf> {
+pub fn install(
+    cfg: &crate::config::Config,
+    channel: ashiato_build_stamp::Channel,
+) -> anyhow::Result<std::path::PathBuf> {
     let exe = std::env::current_exe().context("自分の場所が分からない")?;
-    let path = startup_dir()?.join(entry_name(ashiato_build_stamp::channel(env!(
-        "ASHIATO_VERSION"
-    ))));
+    let path = startup_dir()?.join(entry_name(channel));
     std::fs::write(&path, startup_script(&exe, &cfg.as_vars()))
         .context("スタートアップへ書けない")?;
     Ok(path)

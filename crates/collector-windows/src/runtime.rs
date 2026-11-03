@@ -41,7 +41,7 @@ use crate::outbox::Outbox;
 use crate::sender::{read_contract_answer, ContractAnswer, Sender, Transport};
 use crate::telemetry;
 use crate::time_sync::TimeSyncSource;
-use ashiato_build_stamp::{channel, Channel};
+use ashiato_build_stamp::Channel;
 
 /// 見回りの間隔（design D5・**仮**）。題名だけの変化は OS からの通知が
 /// 来ないことがあるので、**最長 1 秒遅れ**で拾う。
@@ -223,6 +223,7 @@ impl<'a> Runtime<'a> {
         transport: &'a dyn Transport,
         clocks: ClockInputs,
         now: DateTime<Utc>,
+        channel: Channel,
     ) -> anyhow::Result<Self> {
         let ClockInputs {
             reference,
@@ -287,7 +288,7 @@ impl<'a> Runtime<'a> {
             history_beat: HistoryBeat::new(&cfg.state_dir, now),
             state_dir: cfg.state_dir.clone(),
             exclusions_path: cfg.exclusions_path.clone(),
-            channel: channel(env!("ASHIATO_VERSION")),
+            channel,
             anchor: None,
             log: info,
             build_stamp: env!("ASHIATO_BUILD_STAMP").to_string(),
@@ -1141,6 +1142,7 @@ mod tests {
                 uptime: Arc::new(FixedUptime),
             },
             t(0),
+            Channel::Official,
         )
         .unwrap()
     }
@@ -1435,6 +1437,7 @@ mod tests {
                 uptime: Arc::new(FixedUptime),
             },
             t(0),
+            Channel::Official,
         )
         .unwrap();
         let toast = Arc::new(Toast::default());
@@ -1497,6 +1500,7 @@ mod tests {
                     uptime: Arc::new(FixedUptime),
                 },
                 t(0),
+                Channel::Official,
             )
             .unwrap();
             let mut src = FakeSource::new("editor");
@@ -1891,6 +1895,7 @@ mod tests {
                 uptime: Arc::new(FixedUptime),
             },
             t(0),
+            Channel::Official,
         )
         .unwrap()
     }
@@ -2536,6 +2541,52 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn st54_dev_history_reads_exclusions_from_launch_directory() {
+        // Scenario: 開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む
+        let (mut cfg, tmp) = cfg();
+        cfg.state_dir = tmp.path().join("dev");
+        cfg.exclusions_path = tmp.path().join("exclusions.json");
+        std::fs::write(
+            &cfg.exclusions_path,
+            r#"{"rules":[{"match":"url-contains","value":"example.test/1"}]}"#,
+        )
+        .unwrap();
+        assert!(!cfg.state_dir.join("exclusions.json").exists());
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let reader = FakeReader::new(vec![read_visit(1, "one"), read_visit(2, "two")]);
+        let exclusions = Exclusions::load(&cfg.exclusions_path).unwrap();
+        let mut rt = HistoryRuntime(
+            Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(exclusions),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(reference.0)),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+                Channel::Official,
+            )
+            .unwrap()
+            .with_history(reader.clone()),
+        );
+        let mut src = FakeSource::new("browser");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let records = history_records(&transport);
+        assert!(records
+            .iter()
+            .all(|r| r["payload"]["url"] != "https://example.test/1"));
+        assert!(records
+            .iter()
+            .any(|r| r["payload"]["url"] == "https://example.test/2"));
+    }
+
     fn history_beats(t: &AcceptAll) -> Vec<serde_json::Value> {
         sent(t, "/heartbeat")
             .into_iter()
@@ -2993,6 +3044,7 @@ mod tests {
                 uptime: Arc::new(FixedUptime),
             },
             t(0),
+            Channel::Official,
         )
         .unwrap();
         rt.set_build_stamp(stamp);
@@ -3084,6 +3136,7 @@ mod tests {
                 uptime: Arc::new(FixedUptime),
             },
             t(0),
+            Channel::Official,
         )
         .unwrap();
         let mut src = FakeSource::new("editor");
@@ -3532,6 +3585,7 @@ mod tests {
                     uptime: Arc::new(FixedUptime),
                 },
                 t(0),
+                Channel::Official,
             )
             .unwrap()
             .with_history(reader.clone()),
@@ -3571,6 +3625,7 @@ mod tests {
                     uptime: Arc::new(FixedUptime),
                 },
                 t(0),
+                Channel::Official,
             )
             .unwrap();
             if with_history {
@@ -3649,6 +3704,7 @@ mod tests {
                     uptime: Arc::new(FixedUptime),
                 },
                 t(0),
+                Channel::Official,
             )
             .unwrap()
             .with_history(reader.clone()),

@@ -14,18 +14,7 @@ use crate::contract_notice::ContractToaster;
 use crate::outage_notice::Toaster;
 
 /// 通知の差出人。
-pub const fn aumid(channel: ashiato_build_stamp::Channel) -> &'static str {
-    match channel {
-        ashiato_build_stamp::Channel::Dev => "dev.ashiato.collector.dev",
-        ashiato_build_stamp::Channel::Official => "dev.ashiato.collector",
-    }
-}
-pub const fn display_name(channel: ashiato_build_stamp::Channel) -> &'static str {
-    match channel {
-        ashiato_build_stamp::Channel::Dev => "ashiato 開発版",
-        ashiato_build_stamp::Channel::Official => "ashiato",
-    }
-}
+pub use crate::toast_names::{aumid, display_name};
 /// 通知の識別（途切れの通知は常に 1 通）。
 pub const TAG: &str = "outage";
 pub const GROUP: &str = "ashiato";
