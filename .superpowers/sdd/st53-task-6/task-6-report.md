@@ -48,3 +48,26 @@
 ## 自己レビュー
 
 要求された Task 6 の範囲に限定し、nightly の checkout / `ASHIATO_SOURCE_REF` は変更していない。検証中に APK の一時展開物が作業木へ残ったため削除し、最終作業木には追跡外生成物がない。Kotlin daemon の read-only 環境制約は未解決の懸念として残る。
+
+## Fix report（review 1 / F1〜F6）
+
+- F1: `package-artifacts` の作業 checkout に `ref` を足した偽 workflow を、1つ目の checkout を対象にする self-test へ修正した。
+- F2/F3: Windows の zip 作成を全入力ファイルの絶対パスと `zip -j` で行い、3点が zip の根に入るようにした。
+- F4: PowerShell の `-LiteralPath` を末尾カンマのない配列式 `@('a','b','c')` として組み立てるようにした。
+- F5: Windows runner の `native` target では `notices.sh` に `--target` を渡さないようにした。
+- F6: `package-artifacts` の checkout をブロック単位で抽出し、作業 checkout と `path: built` checkout の `ref` を個別に検査するようにした。built checkout の `ref` 欠落も self-test に追加した。
+
+### Fix の検証
+
+- RED: 修正前の self-test は、作業 checkout に `ref` を足した偽 workflow と built checkout の `ref` を抜いた偽 workflow を検出できず rc=0 だった。
+- GREEN: `tools/release/check-guards.sh --self-test` — PASS、Scenario の印を含む `OK: rules・Environment・workflow の守りを検査した`。
+- `tools/release/check-guards.sh workflows` — PASS。
+- `bash -n tools/release/build.sh tools/release/check-guards.sh`、`git diff --check` — PASS。
+- 絶対パスの4ファイルを `zip -j` で作成する focused check — `LICENSE`、`SOURCE.txt`、`THIRD-PARTY-NOTICES.txt`、実行ファイルの4点を zip の根で確認。
+- `scripts/verify-run 6.1` — Linux tar、release/nightly/ci の環境変数、workflow、guard/self-test は PASS。APK は Kotlin daemon が `/home/yosis/.local/share/kotlin/daemon` を read-only filesystem として扱ったため FAIL（rc=1）。証跡は `openspec/changes/st53-license-bundle/evidence.jsonl` に記録済み。
+
+### Fix の変更ファイル
+
+- `tools/release/build.sh`
+- `tools/release/check-guards.sh`
+- `openspec/changes/st53-license-bundle/evidence.jsonl`

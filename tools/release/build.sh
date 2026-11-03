@@ -45,7 +45,7 @@ make_license_bundle() {
   mkdir -p "$license_bundle/licenses"
   cp "$root/LICENSE" "$license_bundle/licenses/LICENSE"
   local -a notice_args=()
-  [[ -z "$target" ]] || notice_args+=(--target "$target")
+  [[ -z "$target" || "$target" == native ]] || notice_args+=(--target "$target")
   case "$kind" in
     server|collector-windows)
       "$root/tools/release/notices.sh" "$kind" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt" "${notice_args[@]}"
@@ -110,22 +110,22 @@ build_collector() {
 archive_windows() {
   local archive="$1"; shift; local -a files=("$@")
   if command -v zip >/dev/null 2>&1; then
-    (cd "$(dirname "${files[0]}")" && zip -q -j "$archive" "${files[@]##*/}")
+    zip -q -j "$archive" "${files[@]}"
   elif command -v powershell.exe >/dev/null 2>&1; then
     local ps_archive="$archive"; local ps_files=""
     for file in "${files[@]}"; do
       local ps_file="$file"
       command -v cygpath >/dev/null 2>&1 && ps_file="$(cygpath -w "$file")"
-      ps_files+="'$ps_file',"
+      ps_files+="${ps_files:+,}'$ps_file'"
     done
     command -v cygpath >/dev/null 2>&1 && ps_archive="$(cygpath -w "$archive")"
     powershell.exe -NoProfile -NonInteractive -Command \
-      "Compress-Archive -LiteralPath $ps_files -DestinationPath '$ps_archive' -Force"
+      "Compress-Archive -LiteralPath @($ps_files) -DestinationPath '$ps_archive' -Force"
   elif command -v pwsh >/dev/null 2>&1; then
     local ps_files=""
-    for file in "${files[@]}"; do ps_files+="'$file',"; done
+    for file in "${files[@]}"; do ps_files+="${ps_files:+,}'$file'"; done
     pwsh -NoProfile -NonInteractive -Command \
-      "Compress-Archive -LiteralPath $ps_files -DestinationPath '$archive' -Force"
+      "Compress-Archive -LiteralPath @($ps_files) -DestinationPath '$archive' -Force"
   else
     die "Windows の zip を作る道具が無い（zip / PowerShell）"
   fi

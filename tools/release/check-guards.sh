@@ -62,6 +62,22 @@ job_block() {
   ' "$file"
 }
 
+checkout_block() {
+  local block="$1" wanted="$2"
+  awk -v wanted="$wanted" '
+    /^      - / {
+      if ($0 ~ /^      - uses: actions\/checkout@/) {
+        count++
+        if (count > wanted) exit
+        capture=(count == wanted)
+      } else if (capture) {
+        exit
+      }
+    }
+    capture { print }
+  ' <<<"$block"
+}
+
 workflow() {
   local ci="$root/.github/workflows/ci.yml" release="$root/.github/workflows/release.yml" nightly="$root/.github/workflows/nightly.yml"
   [[ -f "$ci" && -f "$release" && -f "$nightly" ]] || die 'workflow が不足している'
@@ -82,11 +98,12 @@ workflow() {
   local artifacts_block
   artifacts_block="$(job_block "$ci" package-artifacts)"
   grep -q 'uses: actions/checkout@' <<<"$artifacts_block" || die 'ci の package-artifacts に checkout が無い'
-  local first_checkout
-  first_checkout="$(awk '/uses: actions\/checkout@/{n++; if (n == 1) print; next} n == 1 {print} n == 2 {exit}' <<<"$artifacts_block")"
+  local first_checkout built_checkout
+  first_checkout="$(checkout_block "$artifacts_block" 1)"
   ! grep -q 'ref:' <<<"$first_checkout" || die 'package-artifacts の作業 checkout に ref がある'
-  grep -A4 -q "path: built" <<<"$artifacts_block" || die 'package-artifacts に built checkout が無い'
-  grep -A4 -q "$head_ref" <<<"$artifacts_block" || die 'package-artifacts の built checkout が commit を指定しない'
+  built_checkout="$(checkout_block "$artifacts_block" 2)"
+  grep -q 'path: built' <<<"$built_checkout" || die 'package-artifacts に built checkout が無い'
+  grep -q "$head_ref" <<<"$built_checkout" || die 'package-artifacts の built checkout が commit を指定しない'
   grep -q 'version.sh source built/Cargo.toml' <<<"$artifacts_block" || die 'package-artifacts の版番号が built からでない'
   grep -q -- '--expect-license built/LICENSE' <<<"$artifacts_block" || die 'package-artifacts の LICENSE が built からでない'
   if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$nightly"; then die 'nightly に APK 組み立てまたは署名がある'; return 1; fi
@@ -195,9 +212,26 @@ EOF
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed '/package-windows:/,/^  [A-Za-z0-9_-]*:/{/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d}' "$ci_saved" >"$work/ci-missing-windows.yml" && cp "$work/ci-missing-windows.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Windows package の ref 欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
-  if sed '/package-artifacts:/,/^  [A-Za-z0-9_-]*:/{/with:/{n;/ref:/d;}}' "$ci_saved" >"$work/ci-artifacts-ref.yml" && cp "$work/ci-artifacts-ref.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'package-artifacts の作業 checkout の ref を通した'; fi
+  awk '
+    /^  package-artifacts:/ { job=1 }
+    job && /^  [A-Za-z0-9_-]+:/ && $0 !~ /^  package-artifacts:/ { job=0 }
+    job && /^      - uses: actions\/checkout@/ { checkout++ }
+    job && checkout == 1 && /with: \{ persist-credentials: false \}/ {
+      sub(/with: \{ persist-credentials: false \}/, "with:\n          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n          persist-credentials: false")
+    }
+    { print }
+  ' "$ci_saved" >"$work/ci-artifacts-ref.yml" && cp "$work/ci-artifacts-ref.yml" "$ci_saved"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'package-artifacts の作業 checkout の ref を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed '/path: built/d' "$ci_saved" >"$work/ci-missing-built.yml" && cp "$work/ci-missing-built.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built checkout の欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if awk '
+    /^  package-artifacts:/ { job=1 }
+    job && /^  [A-Za-z0-9_-]+:/ && $0 !~ /^  package-artifacts:/ { job=0 }
+    job && /^      - uses: actions\/checkout@/ { checkout++ }
+    job && checkout == 2 && /ref:/ { next }
+    { print }
+  ' "$ci_saved" >"$work/ci-missing-built-ref.yml" && cp "$work/ci-missing-built-ref.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built checkout の ref 欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed 's/--expect-license built\/LICENSE//' "$ci_saved" >"$work/ci-missing-license.yml" && cp "$work/ci-missing-license.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built LICENSE 欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
