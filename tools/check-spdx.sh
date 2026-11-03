@@ -57,22 +57,30 @@ self_test() {
 
   echo "== Scenario: 追加の許可の正本は、深掘りで決めた英文と同じ"
   check_license "$tree"
+  sed -i 's/grant you additional permission/grant you an additional permission/g' "$tree/LICENSES/AdditionRef-ashiato-play-services.txt" "$tree/LICENSE"
+  if output="$(check_license "$tree" 2>&1)"; then return 1; fi
+  grep -qF '追加の許可の文が仕様と違う' <<<"$output"
+  cp "$root/LICENSES/AdditionRef-ashiato-play-services.txt" "$tree/LICENSES/AdditionRef-ashiato-play-services.txt"
+  cp "$root/LICENSE" "$tree/LICENSE"
   echo "== Scenario: LICENSE の先頭は追加の許可の正本と同じ"
   check_license "$tree"
 
   echo "== Scenario: LICENSE の許可の文を正本と変えると、許諾の文の検査が落ちる"
   sed -i 's/but not a modified version//' "$tree/LICENSE"
-  if (check_license "$tree") >/dev/null 2>&1; then return 1; fi
+  if output="$(check_license "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'LICENSE と正本が違う' <<<"$output"
   cp "$root/LICENSE" "$tree/LICENSE"
 
   echo "== Scenario: LICENSE の AGPL の全文を変えると、許諾の文の検査が落ちる"
   sed -i '$s/$/ changed/' "$tree/LICENSE"
-  if (check_license "$tree") >/dev/null 2>&1; then return 1; fi
+  if output="$(check_license "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'AGPL の全文が違う' <<<"$output"
   cp "$root/LICENSE" "$tree/LICENSE"
 
   echo "== Scenario: README のライセンスの節は、追加の許可と正本の言葉を示す"
   sed -i '/参考訳/d' "$tree/README.md"
-  if (check_license "$tree") >/dev/null 2>&1; then return 1; fi
+  if output="$(check_license "$tree" 2>&1)"; then return 1; fi
+  grep -qF 'README に参考訳の記載が無い' <<<"$output"
   cp "$root/README.md" "$tree/README.md"
 
   echo "== Scenario: 許可の文の名指しは、位置のライブラリとそれが引く 3 つだけ"
