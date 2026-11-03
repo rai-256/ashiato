@@ -30,6 +30,7 @@ async fn send(app: &App, method: Method, uri: &str, body: Option<Value>) -> (Sta
     let req = b
         .body(body.map_or_else(Body::empty, |v| Body::from(v.to_string())))
         .unwrap();
+    let req = crate::testdb::as_web_session(app, req).await;
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();

@@ -38,13 +38,20 @@ free_port() { # $1 から上へ、WSL 側でも REC_AVOID_PORTS（Windows 側）
 # 本人の作業（tools/archive-shape.sh で形を見て印を置く）はターミナルの操作で、画面からは押せないので、ここで済ませる。
 # 標準出力の最後の 1 行が要約（ready の INFO_archive）。
 archive_prepare() {
-  local api="$1" uid token admin shape status i
-  uid="$ASHIATO_ARCHIVE_USER_ID"; token="$(sed -n 's/^API_TOKEN=//p' .env)"
+  local api="$1" uid admin shape status i
+  uid="$ASHIATO_ARCHIVE_USER_ID"
   admin="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
   q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
   # 取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）
   q "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox'" >/dev/null
-  st() { curl -sf -H "authorization: Bearer $token" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
+  local read_header web_password
+  web_password="$(sed -n 's/^WEB_PASSWORD=//p' .env)" || return 1
+  [ -n "$web_password" ] || return 1
+  export WEB_PASSWORD="$web_password"
+  # ログインに失敗したら、ここで止める（`||` の中なので errexit は効かない。後の curl の 401 で落ちると原因が分からない）
+  read_header="$(tools/web-login.sh "http://127.0.0.1:$api")" || { echo "error: 書庫の用意で画面にログインできない" >&2; return 1; }
+  [ -n "$read_header" ] || return 1
+  st() { curl -sf -H "$read_header" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P
 src,dst=P.Path(sys.argv[1]),sys.argv[2]
 with zipfile.ZipFile(dst+".part","w") as z:
@@ -100,6 +107,7 @@ DATABASE_OWNER_URL=postgres://ashiato_owner:$ow@127.0.0.1:$db/ashiato
 BIND=127.0.0.1:$api
 API_TOKEN=$(r_)
 WEB_PASSWORD=$(r_)
+WEB_SESSION_KEY=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF
@@ -116,6 +124,7 @@ COMPOSE_PROJECT_NAME=$PROJECT
 DATABASE_URL=postgres://${old_user}:${old_pw}@127.0.0.1:$db/ashiato
 BIND=127.0.0.1:$api
 API_TOKEN=$(r_)
+WEB_SESSION_KEY=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF
@@ -219,7 +228,8 @@ EOF
     echo "BASE_URL=http://127.0.0.1:$web"
     # 画面のログインが無い木（ST28 より前）では渡さない
     if grep -q '^WEB_PASSWORD=' .env; then echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"; fi
-    # 録画の spec が画面の外から `/api` を直に読む（書いた件数を数える）ときの Bearer。e2e と同じ名前で渡す
+    # 録画の spec が画面の外から `/api` へ送る（記録を足す）ときの Bearer。e2e と同じ名前で渡す。
+    # 読む求めは API の合言葉では断られる（ST44）ので、spec は storageState のログインの印（web/e2e/auth.ts）で読む
     echo "PASS_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
     # 録画の間（各工程の後の停止 / 操作の間隔）。録画用の spec と設定が読む。変えるなら呼ぶ側で REC_HOLD_MS / REC_SLOWMO_MS
     echo "PASS_REC_HOLD_MS=${REC_HOLD_MS:-1200}"; echo "INFO_rec_hold_ms=${REC_HOLD_MS:-1200}"

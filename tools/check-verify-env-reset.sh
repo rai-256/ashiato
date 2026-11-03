@@ -386,7 +386,8 @@ before=$(cat "$tmp/$w/.env")
 ino=$(stat -c %i "$tmp/$w/.env")
 init
 want "COMPOSE_FILE の行が 1 つ" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env")" "1"
-want "ほかの行は呼ぶ前と同じ" "$(grep -v '^COMPOSE_FILE=' "$tmp/$w/.env")" "$before"
+want "COMPOSE_FILE と WEB_SESSION_KEY 以外の行は呼ぶ前と同じ" "$(grep -v -e '^COMPOSE_FILE=' -e '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "$before"
+want "WEB_SESSION_KEY を 1 つ足す" "$(grep -c '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "1"
 
 echo "Scenario: env-init が書き換えた .env の権限は、書き換える前と同じである"
 want ".env の権限は 600 のまま" "$(perm $w)" "600"
@@ -417,12 +418,14 @@ printf '%s\nCOMPOSE_FILE=a\nX=1\nCOMPOSE_FILE=b\n' "$pw" >"$tmp/$w/.env"
 init
 want "COMPOSE_FILE の行が 2 つあっても 1 つにそろえる" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env")" "1"
 want "そろえた COMPOSE_FILE は今の木の値" "$(sed -n 's/^COMPOSE_FILE=//p' "$tmp/$w/.env")" "docker-compose.yml:docker-compose.subnet.yml"
-want "COMPOSE_FILE の行が 2 つあっても、ほかの行は同じ" "$(grep -v '^COMPOSE_FILE=' "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+want "COMPOSE_FILE と WEB_SESSION_KEY 以外の行は同じ" "$(grep -v -e '^COMPOSE_FILE=' -e '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+want "COMPOSE_FILE の行が 2 つあっても WEB_SESSION_KEY は 1 つ" "$(grep -c '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "1"
 # 範囲の外の port の木では subnet のファイルを作らず COMPOSE_FILE の行を消す（design D7 の 5.）
 init ASHIATO_DB_PORT=55912 ASHIATO_HTTP_PORT=1
 c=0; [[ ! -e $tmp/$w/docker-compose.subnet.yml ]] || c=1; ok "範囲の外の port では subnet のファイルが無い" $c
 want "範囲の外の port では COMPOSE_FILE の行が無い" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env" || true)" "0"
-want "範囲の外の port でも、ほかの行は同じ" "$(cat "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+want "範囲の外の port でも WEB_SESSION_KEY 以外の行は同じ" "$(grep -v '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+want "範囲の外の port でも WEB_SESSION_KEY は 1 つ" "$(grep -c '^WEB_SESSION_KEY=' "$tmp/$w/.env")" "1"
 printf '%s\n' "$pw" >"$tmp/$w/.env"; init   # 以降の木は元の形に戻す
 
 echo "Scenario: 合言葉が環境変数で渡っていれば、.env を作らない"

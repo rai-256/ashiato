@@ -19,7 +19,10 @@ async fn get(app: &App, user: uuid::Uuid, auth: bool) -> (StatusCode, serde_json
         .method(Method::GET)
         .uri(format!("/media/summary?user_id={user}"));
     if auth {
-        b = b.header("authorization", format!("Bearer {TOKEN}"));
+        b = b.header(
+            "cookie",
+            testdb::web_cookie(app, app.web_password_for_test()).await,
+        );
     }
     let res = router(app.clone())
         .oneshot(b.body(Body::empty()).unwrap())

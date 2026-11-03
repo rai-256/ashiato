@@ -134,7 +134,7 @@ pub(crate) async fn put(
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 
-async fn head(app: &App, sha: &str, user: uuid::Uuid) -> StatusCode {
+pub(crate) async fn head(app: &App, sha: &str, user: uuid::Uuid) -> StatusCode {
     let req = Request::builder()
         .method(Method::HEAD)
         .uri(format!("/media/originals/{sha}?user_id={user}"))

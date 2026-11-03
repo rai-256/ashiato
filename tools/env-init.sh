@@ -10,10 +10,11 @@
 # DB は worktree ごとの compose project なので、合言葉は worktree ごとに作ってよい
 # （既に volume がある worktree に別の合言葉の `.env` を作ると繋がらないので、ある `.env` の合言葉の行は触らない）。
 set -euo pipefail
-root="$(cd "$(dirname "$0")/.." && pwd)"
+root="${ENV_INIT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 if [ ! -f "$root/.env" ] && [ -n "${POSTGRES_PASSWORD:-}" ] && [ -n "${OWNER_DB_PASSWORD:-}" ] && [ -n "${APP_DB_PASSWORD:-}" ]; then exit 0; fi
 if [ -f "$root/.env" ] && grep -q '^COMPOSE_PROJECT_NAME=' "$root/.env"; then exit 0; fi
 . "$(dirname "$0")/ports.sh"
+r() { openssl rand -hex 24; }
 
 # subnet は port から（環境変数の古い値も .env も見ない）。出なければファイルを作らず COMPOSE_FILE も書かない
 subnet="$(ashiato_db_subnet)"
@@ -45,9 +46,12 @@ if [ -f "$root/.env" ]; then
     { out($0); e = NR }
     END { if (cf != "" && !done) { out("COMPOSE_FILE=" cf); e = 0 } if (n && (nl || e != NR)) printf "\n" }' "$root/.env" >"$tmp"
   cmp -s "$tmp" "$root/.env" || cat "$tmp" >"$root/.env"
+  if ! grep -q '^WEB_SESSION_KEY=' "$root/.env"; then
+    [ -z "$(tail -c1 "$root/.env")" ] || printf '\n' >>"$root/.env"
+    printf 'WEB_SESSION_KEY=%s\n' "$(r)" >>"$root/.env"
+  fi
   exit 0
 fi
-r() { openssl rand -hex 24; }
 pg="$(r)" owner="$(r)" app="$(r)"
 umask 077
 cat > "$root/.env" <<ENV
@@ -59,6 +63,7 @@ DATABASE_OWNER_URL=postgres://ashiato_owner:$owner@127.0.0.1:${ASHIATO_DB_PORT}/
 BIND=127.0.0.1:${ASHIATO_HTTP_PORT}
 API_TOKEN=$(r)
 WEB_PASSWORD=$(r)
+WEB_SESSION_KEY=$(r)
 ASHIATO_USER_ID=00000000-0000-0000-0000-000000000000
 ALLOWED_HOSTS=
 ENV

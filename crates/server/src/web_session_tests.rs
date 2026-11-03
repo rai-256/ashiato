@@ -12,6 +12,89 @@ use crate::testdb;
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
+#[test]
+fn st44_session_key_validation_rejects_missing_short_and_duplicates() {
+    assert_eq!(
+        web_session::check_web_session_key(None, TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::Missing)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(Some("short"), TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::TooShort)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(Some(TOKEN), TOKEN, "web-password-0123456789"),
+        Err(web_session::WebSessionKeyRefusal::SameAsApiToken)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("web-password-0123456789"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Err(web_session::WebSessionKeyRefusal::SameAsWebPassword)
+    );
+    // 下限 16 文字の境界の両側（spec の「15 文字の値」。code_verify R18）
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("session-key-015"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Err(web_session::WebSessionKeyRefusal::TooShort)
+    );
+    assert_eq!(
+        web_session::check_web_session_key(
+            Some("session-key-0016"),
+            TOKEN,
+            "web-password-0123456789"
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn st44_credential_present_counts_only_bearer_and_session_cookie() {
+    use axum::http::{header, HeaderMap, HeaderValue};
+    let h = |pairs: &[(header::HeaderName, &'static str)]| {
+        let mut m = HeaderMap::new();
+        for (k, v) in pairs {
+            m.append(k.clone(), HeaderValue::from_static(v));
+        }
+        m
+    };
+    assert!(!crate::credential_present(&h(&[])));
+    // 同じ host のほかの cookie と Bearer でない見出しは数えない（/code-review R23）
+    assert!(!crate::credential_present(&h(&[(
+        header::COOKIE,
+        "ts_session=abc; other=1"
+    )])));
+    assert!(!crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Basic dXNlcjpwYXNz"
+    )])));
+    assert!(!crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Bearer "
+    )])));
+    assert!(crate::credential_present(&h(&[(
+        header::AUTHORIZATION,
+        "Bearer wrong-token"
+    )])));
+    assert!(crate::credential_present(&h(&[(
+        header::COOKIE,
+        "other=1; ashiato_session=expired"
+    )])));
+}
+
+#[test]
+fn st44_secret_tag_uses_session_key() {
+    assert_ne!(
+        web_session::secret_tag("api-one-0123456789", "password-0123456789"),
+        web_session::secret_tag("api-two-0123456789", "password-0123456789")
+    );
+}
+
 fn random_password() -> String {
     format!("pw-{}", uuid::Uuid::new_v4())
 }
@@ -204,45 +287,23 @@ async fn web_session_endpoint_failure_waits_and_state_reports_caller() {
             .unwrap(),
     )
     .await;
-    let body = axum::body::to_bytes(by_bearer.into_body(), 4096)
-        .await
-        .unwrap();
-    assert_eq!(&body[..], br#"{"credential":"api_token"}"#);
+    // ST44 の許可の一覧にないため、API の合言葉によるセッション読み出しは403。
+    assert_eq!(by_bearer.status(), StatusCode::FORBIDDEN);
 }
 
-/// Scenario: API の合言葉での読み書きは変わらない
+/// Scenario: API の合言葉ではログインの状態も読めない
 #[tokio::test]
-async fn web_session_endpoint_api_token_reads_and_writes() {
+async fn web_session_endpoint_api_token_cannot_read_session() {
     let app = app_with(&random_password(), 0).await;
-    let source = testdb::source(&app.pool, "wsapi", 21_600).await;
-    let id = uuid::Uuid::new_v4();
-    let body = serde_json::json!([{
-        "id": id, "user_id": testdb::user(), "logical_source": source, "external_id": null,
-        "device_id": "test-dev", "origin": "collected", "event_time": "2026-03-01T03:00:00Z",
-        "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
-        "raw": r#"{"a":1}"#, "payload": {},
-    }]);
     let bearer = format!("Bearer {TOKEN}");
-    let post = Request::builder()
-        .method(Method::POST)
-        .uri("/ingest")
-        .header(header::AUTHORIZATION, &bearer)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
-    let res = send(&app, post).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    // ST44 の許可の一覧にないため、API の合言葉によるセッション読み出しは403。
     let get = Request::builder()
-        .uri("/events")
+        .uri("/session")
         .header(header::AUTHORIZATION, &bearer)
         .body(Body::empty())
         .unwrap();
     let res = send(&app, get).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(res.into_body(), 64 << 20)
-        .await
-        .unwrap();
-    assert!(String::from_utf8_lossy(&bytes).contains(&id.to_string()));
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
 /// Scenario: 既定では日が経ってもログインは切れない

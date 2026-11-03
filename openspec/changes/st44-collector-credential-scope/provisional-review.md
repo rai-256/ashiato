@@ -18,3 +18,8 @@
 - 判定: 確か
 - 根拠: 印が有効なので読める範囲は本人の画面と同じ（`lib.rs:683-688`）。格納も破棄もしないので、401 の側へは分岐 1 つで移れる。ST29 の申し送り（`openspec/changes/archive/2026-10-27-st29-satellite-credentials/design.md:254`）を閉じるもので、`follows`・`rests_on` は無い
 - 注: 反転条件の「一致しない `Bearer` が読み出しの記録に繰り返し現れる」は、選んだ側では観測できない。`AccessEntry`（`crates/server/src/access_log.rs:32-46`）には「`Bearer` を付けていたか」を持つ欄が無く、この組は `credential=web_session`・`ok` の行になって普通の画面の読みと見分けがつかない。ただし、古い値を試す側が有効な印を持つことはない（持っていれば最初から全部を読める）。印を持たない試しは、どちらを選んでも `none`・401 の行として残る。失われるのは意味の無い合図だけなので、判定は変えない。反転条件の書き方は「印の無い 401 の行が繰り返し現れる」に寄せるのが正しい
+
+## D16
+- 判定: 確か
+- 根拠: 止まる場所は台本の頭の環境の検査（`tools/dev.sh:14`・`tools/stack.sh:37`。どちらも `docker compose`・`db-roles.sh`・`migrate` より前）なので、DB も移行の退避も触らずに止まる。起動しない間は D8 と同じで、収集アプリは溜めて待つ（携帯 `Retention.kt` の 90 日・2 GB、PC は上限なし。D8 の節）—— `uncaptured`・`discarded` は起きない。鍵は印の照合（`secret_tag`）にしか使わず DB に何も書かないので `rewrite-all` も `exported` も無い。費用: 鍵の無い `.env` は本人の main の checkout（`~/dev/ashiato2/.env` の `^WEB_SESSION_KEY=` 0 行）と他の worktree（`ashiato2-verify` ほか 8 本が 0 行）。ハーネスの検証の経路は止まらない —— `tools/verify-env.sh:38` が毎回無条件に `tools/env-init.sh` を呼び、`env-init.sh:49-52` が行の無い `.env` に乱数の 1 行を足す。確認バッチの `run.sh` は `tools/verify-prep.sh:35` が先に `env-init.sh` を呼ぶ。CI は `tools/ci-db-env.sh:6` が乱数で渡し、録画は `tools/record-env.sh:110`・`:127` が書く。本人が手で走らせる手順は `docs/briefs/ST44-pr.md:54`（merge 後の 1 番目）と design の Migration Plan 1 にある。範囲は越えず（台本 2 行）、要件の本文も変えない。`follows` は無い。土台の D8 は上の節で確か、D7 は仮でない
+- 注: `stack.sh down` も検査の後で分岐する（`tools/stack.sh:41`）ので、鍵の無い `.env` では DB を止める口も止まる。`WEB_PASSWORD` の `:?` で前から同じ形で、失うものは無い（DB が動いたまま残るだけ）

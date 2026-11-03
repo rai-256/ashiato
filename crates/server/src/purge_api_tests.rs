@@ -45,6 +45,11 @@ async fn send(
     let req = b
         .body(body.map_or_else(Body::empty, |v| Body::from(v.to_string())))
         .unwrap();
+    let req = if auth {
+        testdb::as_web_session(app, req).await
+    } else {
+        req
+    };
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();

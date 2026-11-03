@@ -33,6 +33,7 @@ async fn restore(app: &App, stays: &[Uuid]) -> (StatusCode, String) {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({"stay_ids": stays}).to_string()))
         .unwrap();
+    let req = testdb::as_web_session(app, req).await;
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();

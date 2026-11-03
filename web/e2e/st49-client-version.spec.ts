@@ -2,6 +2,7 @@
 import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { sourceVersion } from "../build-stamp";
+import { readAuthHeaders } from "./auth";
 
 /**
  * 画面が送る記録の 1 件の `client_version`（ST49 / design D20）。本物の画面から気分・場所・個人属性の主張を 1 件ずつ送り、
@@ -37,7 +38,7 @@ async function ingestBodyOf(page: Page, press: () => Promise<void>): Promise<{ c
 async function seedVisit(request: APIRequestContext): Promise<{ lat: number; lon: number }> {
   const lat = round7(rand(5, 25));
   const lon = round7(rand(100, 125));
-  const events = (await (await request.get("/api/events", { headers: BEARER })).json()) as { logical_source: string; event_time: string }[];
+  const events = (await (await request.get("/api/events", { headers: readAuthHeaders() })).json()) as { logical_source: string; event_time: string }[];
   const times = events.filter((r) => r.logical_source === "c01-location").map((r) => Date.parse(r.event_time));
   const earliest = times.length === 0 ? Date.now() : Math.min(...times);
   const start = Math.floor((earliest + JST_MS) / DAY_MS) * DAY_MS - JST_MS - DAY_MS + 3_600_000;

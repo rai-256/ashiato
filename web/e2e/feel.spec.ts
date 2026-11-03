@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type Page, type Request, type Response } from "@playwright/test";
+import { readAuthHeaders } from "./auth";
 
 /**
  * S-3 主観入力の画面（ST17 / tasks 8.2 / design D12）—— **押した瞬間に保存する**。本物のブラウザ・本物のサーバ。
@@ -11,10 +12,7 @@ import { expect, test, type Page, type Request, type Response } from "@playwrigh
 test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
 
 // `@types/node` は入れない（playwright.config.ts と同じ）
-declare const process: { env: Record<string, string | undefined> };
-
-/** 試験の中で `/api` を直に叩く要求は API の合言葉（Bearer）で通す（ログインの印は `secure` で、画面の外の要求には付かない）。 */
-const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
+/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 
 const DAY_MS = 86_400_000;
 const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.request().method() === "POST";
@@ -33,7 +31,7 @@ interface Stored {
   phase: "before" | "after";
 }
 async function records(page: Page, day: string): Promise<Stored[]> {
-  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: BEARER });
+  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { days: { day: { records: Stored[] } }[] };
   return body.days[0]?.day.records ?? [];

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { readAuthHeaders } from "../../../web/e2e/auth.js";
 
 /**
  * 録画専用（人間が後から動画で見る）。ST23「本文ごと消す」を 1 本の流れで撮る:
@@ -14,7 +15,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
  */
 declare const process: { env: Record<string, string | undefined> };
 
-/** 画面の外から `/api` を直に叩く要求は API の合言葉（Bearer）で通す（録画では `tools/record-env.sh` が渡す）。 */
+/** 送る要求は API の合言葉（Bearer）、読む要求は storageState のログインの印を見出しに付ける。 */
 const BEARER = { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` };
 const HOLD = Number(process.env.REC_HOLD_MS ?? 1200);
 const USER = "00000000-0000-0000-0000-000000000000";
@@ -34,7 +35,7 @@ interface Entry {
 }
 
 async function entriesOf(request: APIRequestContext, date: string): Promise<Entry[]> {
-  const res = await request.get(`/api/day?date=${date}`, { headers: BEARER });
+  const res = await request.get(`/api/day?date=${date}`, { headers: readAuthHeaders() });
   expect(res.status(), `GET /day ${date}: ${await res.text()}`).toBe(200);
   return ((await res.json()) as { entries: Entry[] }).entries;
 }

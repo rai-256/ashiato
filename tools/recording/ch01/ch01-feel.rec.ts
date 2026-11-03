@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
+import { readAuthHeaders } from "../../../web/e2e/auth.js";
 
 /**
  * 録画専用（人間が後から動画で見る）。CH01（ST17 の /code-review の 9 件）で変えた主観の画面を、幅 360 px・暗で撮る:
@@ -36,7 +37,7 @@ interface Stored {
   phase: "before" | "after";
 }
 async function stored(page: Page, day: string): Promise<Stored[]> {
-  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: BEARER });
+  const res = await page.request.get(`/api/feelings?from=${day}&to=${day}`, { headers: readAuthHeaders() });
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { days: { day: { records: Stored[] } }[] };
   return body.days[0]?.day.records ?? [];

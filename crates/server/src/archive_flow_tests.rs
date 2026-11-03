@@ -2268,11 +2268,12 @@ async fn archive_flow_status_answers_without_a_user_id() {
     let pool = testdb::pool().await;
     let token = "test-token-0123456789abcdef";
     let app = crate::App::for_test(pool, token);
+    let cookie = testdb::web_cookie(&app, app.web_password_for_test()).await;
     let response = crate::router(app)
         .oneshot(
             axum::http::Request::builder()
                 .uri("/archives/status")
-                .header("authorization", format!("Bearer {token}"))
+                .header("cookie", cookie)
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
