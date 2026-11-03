@@ -207,13 +207,13 @@
 
 ## Task 10: CI の置き場・手順書・文書
 
-- [ ] 10.1 `.github/workflows/ci.yml`（D15）。
+- [x] 10.1 `.github/workflows/ci.yml`（D15）。
   - `web` の job: `../tools/check-licenses.sh rust node`
   - `package-linux` の job: `tools/check-licenses.sh android` と `tools/check-licenses.sh --self-test`・`tools/release/notices.sh --self-test`
   - `chain` の job（全 PR）: `tools/check-spdx.sh --self-test` と `tools/check-spdx.sh`
   - `verify-prep-device.sh --self-test` は、軽い自己試験の並ぶ job（`check-private.sh --self-test` と同じ job）に置く
   検証: `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `bash -c 'for k in "check-licenses.sh rust node" "check-licenses.sh android" "check-spdx.sh --self-test" "verify-prep-device.sh --self-test" "notices.sh --self-test"; do grep -q "$k" .github/workflows/ci.yml || exit 1; done'` rc=0 / `tools/release/check-guards.sh workflows` rc=0
-- [ ] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18）。
+- [x] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18）。
   - 冒頭: 本物の作業は ST53 が main に入った後
   - §3「エージェントの資格情報」: fine-grained token に持たせる権限と持たせない権限（D3）、ハーネスの token の差し替え、`tools/release/check-guards.sh agent-credential --repo rai-256/ashiato` を差し替えた資格情報で走らせて rc=0
   - §4「ルールセットと承認者」: ST52 のルールセット、`release` に本人を必須の承認者として付ける、管理者の飛ばしを外す、自分の承認を禁じない、`check-guards.sh approvals --repo rai-256/ashiato` rc=0。workflow の中の確かめは守りの本体でない（印の commit の workflow で走るため）
@@ -224,7 +224,7 @@
   - 下書きの手順（`draft.sh`）: その PR の head の commit を checkout した手元で走らせる（配布物は head から組まれ、`draft.sh` は手元の木の版番号と `LICENSE` で比べる。D18）
   - ST53 の確認バッチの手順（末尾の「人間の確認待ち」）。準備の間は本人の携帯を繋がない
   検証: `bash -c 'for h in "エージェントの資格情報" "agent-credential" "approvals" "必須の承認者" "gh release download" "成果物" "携帯を繋がない" "head の commit を checkout"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'a=$(grep -n "エージェントの資格情報" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test "$a" -lt "$b"'` rc=0 / `bash -c 'a=$(grep -n "check-guards.sh approvals" docs/release.md | head -1 | cut -d: -f1); r=$(grep -n "必須の承認者" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test -n "$a" && test -n "$r" && test "$a" -lt "$b" && test "$r" -lt "$b"'` rc=0（資格情報 → 承認者 → 鍵の順。review/spec.md R12）
-- [ ] 10.3 `docs/testing.md`・`CONTRIBUTING.md` の手元の検査の行を `../tools/check-licenses.sh rust node` に、`docs/production-prep.md` の「依存ライセンスの検査」の行に ★ で携帯の節と表示の検査（ST53）を足す。`CLAUDE.md` の「構成」の `tools` の行に `licenses/`（許諾の対応表と全文）を足す
+- [x] 10.3 `docs/testing.md`・`CONTRIBUTING.md` の手元の検査の行を `../tools/check-licenses.sh rust node` に、`docs/production-prep.md` の「依存ライセンスの検査」の行に ★ で携帯の節と表示の検査（ST53）を足す。`CLAUDE.md` の「構成」の `tools` の行に `licenses/`（許諾の対応表と全文）を足す
   検証: `bash -c 'grep -q "check-licenses.sh rust node" docs/testing.md && grep -q "check-licenses.sh rust node" CONTRIBUTING.md && grep -q "ST53" docs/production-prep.md && grep -q "licenses/" CLAUDE.md'` rc=0 / `python3 scripts/check_scenarios.py . st53-license-bundle` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
