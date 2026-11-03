@@ -189,7 +189,7 @@
   - `管理者の資格情報では、エージェントの資格情報の確かめが落ちる`
   - `管理者でない資格情報では、エージェントの資格情報の確かめを通る`
   検証: `tools/release/check-guards.sh --self-test` rc=0
-- [ ] 8.2 `release.yml` の `publish` に、`check-guards.sh rules` の後・`sign-apk.sh` の前で `tools/release/check-guards.sh approvals` を足す（D11（仮））。
+- [x] 8.2 `release.yml` の `publish` に、`check-guards.sh rules` の後・`sign-apk.sh` の前で `tools/release/check-guards.sh approvals` を足す（D11（仮））。
   `check-guards.sh workflows` に、`publish` の job の中で `check-guards.sh approvals` の行が `sign-apk.sh` の行より前にあることの確かめを足す。
   `--self-test` に `公開の job は、署名の前に承認者を確かめる` を足す（2 行を入れ替えた偽の `release.yml` と、`approvals` を消した偽の `release.yml` で、どちらも rc≠0）
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml` rc=0
