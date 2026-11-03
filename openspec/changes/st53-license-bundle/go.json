@@ -150,7 +150,7 @@
       "直感注意",
       "DB"
      ],
-     "text": "書き換えるのは 506 ではなく 503 ファイル。移行の 3 つは AGPL-3.0-only のまま残す。移行は中身の指紋を DB に記録していて、表示の 1 行を変えるだけで、その版を当てたどの DB でも起動のたびに警告が出続けるため。許可は LICENSE が木の全体に掛けるので、この 3 つにも及ぶ。",
+     "text": "書き換えるのは 506 ではなく 503 ファイル。移行の 3 つは AGPL-3.0-only のまま残す（本人の答え）。移行は中身の指紋を DB に記録していて、表示の 1 行を変えるだけで、その版を当てたどの DB でも起動のたびに警告が出続けるため。許可は LICENSE が木の全体に掛けるので、この 3 つにも及ぶ。最初の印 v* を打った後は、移行の前進側の 2 つ（.sql）の表示を直せない（配った移行の凍結の検査が中身の差を落とす）。配った版のソースとサーバの実行ファイルに、WITH の無い表示が残る。",
      "examples": [
       {
        "wrong": "506 ファイルが全部新しい式になる",
@@ -167,14 +167,15 @@
       ],
       "decisions": [
        "D4",
-       "Q5"
+       "Q5",
+       "Q10"
       ]
      }
     },
     {
      "id": "headers.3",
      "kind": "exception",
-     "text": "表示の検査は追跡しているファイルの先頭 25 行の SPDX-License-Identifier: だけを見る。symlink は辿らない。表示を持たないファイルは見ないので、表示を消して写した他人のコードは止められない。",
+     "text": "表示の検査は追跡しているファイルの先頭 25 行の SPDX-License-Identifier: だけを見る。symlink は辿らない。例外は gradle の wrapper の 2 つと移行の 3 つ。表示を持たないファイルは見ないので、表示を消して写した他人のコードは止められない。",
      "refs": {
       "requirements": [
        "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
@@ -184,7 +185,8 @@
        "表示の検査は symlink の先を読まない"
       ],
       "decisions": [
-       "D5"
+       "D5",
+       "Q11"
       ]
      }
     }
@@ -198,18 +200,42 @@
     {
      "id": "depcheck.1",
      "kind": "normal",
-     "text": "携帯の節を新しく作る。配る APK に入る依存の部品ごとに POM の許諾を読み（無ければ親の POM）、対応表で SPDX の名前に直す。名前を 2 つ持つ部品は、どちらか 1 つが許可されていれば通る。",
+     "text": "携帯の節を新しく作る。配る APK に入る依存の部品ごとに POM の許諾を読み（無ければ親の POM）、対応表で SPDX の名前に直す。名前を 2 つ以上持つ部品は、全部の名前が許可されているか名指しに当たるときだけ通る。1 つでも許可の外なら落ちる。",
      "refs": {
       "requirements": [
        "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
       ],
       "scenarios": [
        "今の携帯の依存は、許諾の検査を通る",
-       "許諾の名前を 2 つ持つ部品は、どれか 1 つが許可されていれば通る",
+       "許諾の名前を 2 つ持つ部品は、片方でも許可の外なら許諾の検査が落ちる",
+       "許諾の名前を 2 つ持つ部品は、両方が許可されていれば通る",
        "POM が許諾を持たない部品は、親の POM の許諾で判定する"
       ],
       "decisions": [
-       "D7"
+       "D7",
+       "Q12"
+      ]
+     },
+     "examples": [
+      {
+       "wrong": "Apache-2.0 と Android SDK の許諾を並べた部品は、Apache-2.0 があるので通る",
+       "right": "Android SDK の許諾が許可の外なので落ち、その部品の座標と名前が示される"
+      }
+     ]
+    },
+    {
+     "id": "depcheck.6",
+     "kind": "exception",
+     "text": "POM は検査の前に取り寄せる。ネットワークにも gradle の cache にも POM が無い部品は、飛ばさずに検査を落とす（依存の解決が通っても）。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "POM を取り寄せられない部品があれば、許諾の検査が落ちる"
+      ],
+      "decisions": [
+       "Q12"
       ]
      }
     },
@@ -315,7 +341,7 @@
     {
      "id": "bundle.2",
      "kind": "normal",
-     "text": "依存の一覧は部品ごとに名前・版・許諾の式・全文と著作権の表示を書く。サーバと PC の収集アプリには Rust の標準ライブラリの項、サーバには画面に入る Node の部品（開発だけの部品は除く）、APK には Google のライブラリが中に持つ第三者の一覧も入る。",
+     "text": "依存の一覧は部品ごとに名前・版・許諾の式・全文と著作権の表示を書く。サーバと PC の収集アプリには Rust の標準ライブラリの項、サーバには画面に入る Node の部品（開発だけの部品は除く）、APK には Google のライブラリが中に持つ第三者の一覧も入る。携帯の部品は、依存の許諾の検査と同じ出力から作るので、検査と一覧は同じ部品の集合を見る。",
      "refs": {
       "requirements": [
        "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
@@ -326,7 +352,8 @@
        "携帯の APK の依存の一覧は、Google のライブラリの中の第三者を含む"
       ],
       "decisions": [
-       "D8"
+       "D8",
+       "Q13"
       ]
      }
     },
@@ -375,18 +402,22 @@
     {
      "id": "source.1",
      "kind": "normal",
-     "text": "SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<版>、開発版・PR の組み立てなら 40 桁の commit を持つ。印は公開の workflow が渡す。",
+     "text": "SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<版>、それ以外なら組み立てた木の 40 桁の commit を持つ。開発版と main への push の組み立てでは main の commit、PR の組み立てでは PR の head の commit。印は公開の workflow が渡す。",
      "refs": {
       "requirements": [
        "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
       ],
       "scenarios": [
        "正式版の配布物のソースの場所は、その版の印",
-       "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+       "開発版と main への push の配布物のソースの場所は、組み立てた commit",
+       "PR の組み立ての配布物のソースの場所は、PR の head の commit",
+       "組み立ての commit が 40 桁の 16 進でなければ、配布物を作らずに落ちる"
       ],
       "decisions": [
        "Q7",
-       "D9"
+       "D9",
+       "Q14",
+       "Q15"
       ]
      }
     },
@@ -416,18 +447,46 @@
     {
      "id": "source.3",
      "kind": "exception",
-     "text": "公開の組み立てに渡された印が v<版番号> と違えば、配布物を作らずに落ちる。配布物の検査は、正式版・ベータ版の検査で印を、PR・下書き・開発版の検査で組み立ての印と同じ commit を求め、合わなければ公開しない。",
+     "text": "公開の組み立てに渡された印が v<版番号> と違えば、配布物を作らずに落ちる。配布物の検査は、正式版・ベータ版の検査で印を、開発版・PR・main への push・下書きの検査で組み立ての印と同じ 40 桁の commit を求め、合わなければ公開しない。",
      "refs": {
       "requirements": [
        "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
       ],
       "scenarios": [
        "印が版番号と違う公開の組み立ては、配布物を作らずに落ちる",
-       "PR の組み立てと下書きの配布物の検査は、commit のソースの場所で通る",
+       "PR の組み立てと下書きの配布物の検査は、head の commit のソースの場所で通る",
+       "debug の鍵を許す検査でも、組み立ての印の commit でないソースの場所の配布物は落ちる",
        "ソースの場所がチャンネルの決まりと合わない配布物は、公開しない"
       ],
       "decisions": [
-       "D9"
+       "D9",
+       "Q16"
+      ]
+     }
+    },
+    {
+     "id": "source.5",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "PR の配布物は、GitHub が作る「PR の head とその時の main を合わせた commit」ではなく、PR の head の commit そのものから組む。SOURCE.txt・組み立ての印・組んだソースが同じ commit を指す。配布物を検査する job も同じ commit を checkout し、期待する版番号と LICENSE をその木から取る。下書きの手順も、その PR の head を checkout した手元で走らせる。",
+     "examples": [
+      {
+       "wrong": "PR の配布物は、merge したらこうなるという木から組まれている",
+       "right": "PR の配布物は枝の head の木から組まれる。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後か main への push の CI で止まる"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される"
+      ],
+      "decisions": [
+       "Q16",
+       "D18"
       ]
      }
     },
@@ -655,23 +714,39 @@
    "refs": {}
   }
  ],
- "open": [
+ "open": [],
+ "since_last": [
   {
-   "text": "仮の決定の台帳（provisional.jsonl）の D5 は「先頭 5 行の SPDX だけを見る」と書き、design と spec は「先頭 25 行」と書く。gradle の wrapper の表示が 16・18 行目にあるので、5 行では例外の 2 つが見えない。どちらが正しいかを spec の段が揃える必要がある（この段は直さない）",
-   "tags": [
-    "未解決"
-   ],
+   "text": "第 2 回の答え（Q10〜Q15。別の席が否とした仮の決定 D4・D5・D7・D8・D9・D16 を本人に返したもの）で直した: 移行の 3 つは書き換えず、最初の印の後は前進側の 2 つの表示を直せないことを受け入れる（headers.2）。表示の検査の例外は wrapper の 2 つと移行の 3 つ（headers.3）。携帯の POM に許諾が 2 つ以上並べば、全部が許可されているときだけ通す（depcheck.1。前は「どれか 1 つ」）。POM を取り寄せられなければ落とす（depcheck.6）。携帯の依存の一覧は検査と同じ出力から（bundle.2）。PR の SOURCE.txt は PR の head の commit（source.1・IMP-06・W2）",
    "refs": {
-    "requirements": [
-     "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
-    ],
     "decisions": [
-     "D5"
+     "Q10",
+     "Q11",
+     "Q12",
+     "Q13",
+     "Q14",
+     "Q15"
+    ]
+   }
+  },
+  {
+   "text": "第 3 回の答え（Q16）で直した: PR の配布物は head の commit そのものから組み、配布物の検査も同じ commit で走る（source.5・source.3。D18 は仮）。その代わり、PR の CI は main と合わせた結果の配布物を見なくなる（できなくなることに足した）",
+   "refs": {
+    "decisions": [
+     "Q16",
+     "D18"
+    ]
+   }
+  },
+  {
+   "text": "未解決に置いていた「台帳の D5 は先頭 5 行、design と spec は 25 行」は、Q11 の答えで 25 行に揃ったので外した。走り出した st44-collector-credential-scope との重なりを依存に足した",
+   "refs": {
+    "decisions": [
+     "Q11"
     ]
    }
   }
  ],
- "since_last": [],
  "delegated": [
   {
    "text": "POM の許諾の名前と SPDX の名前の対応表の中身・親の POM を辿る深さ（5）",
@@ -917,9 +992,14 @@
       "取れる（commit は動かない）"
      ],
      [
+      "main への push",
+      "Commit: <main の 40 桁>",
+      "取れる（commit は動かない）"
+     ],
+     [
       "PR の組み立て",
-      "Commit: <GitHub が PR のために作る merge commit>",
-      "確かめていない（IMP-06）"
+      "Commit: <PR の head の 40 桁>",
+      "閉じた後・push し直した後の前の head は確かめていない（IMP-06）"
      ]
     ]
    },
@@ -930,18 +1010,18 @@
      "result": "nightly の印は翌日動くが、SOURCE.txt の commit は動かないので同じソースを取れる"
     },
     {
-     "label": "PR を閉じた後の PR の組み立て",
+     "label": "PR を閉じた後か、枝を push し直した後の PR の組み立て",
      "outcome": "problem",
-     "result": "書かれた merge commit を取れるかは確かめていない。取れなければ、配った成果物のソースの場所が辿れない"
+     "result": "書かれた head の commit を取れるかは確かめていない。取れなければ、配った成果物のソースの場所が辿れない"
     }
    ],
-   "why": "要件は「同じ印で示す」と言うが、開発版の印は動き、PR の組み立てには印が無い。動かない commit で示すことにした。",
+   "why": "要件は「同じ印で示す」と言うが、開発版の印は動き、PR の組み立てには印が無い。動かない commit で示すことにした。PR の配布物は head の木から組むので、書いた commit と組んだソースが一致する。",
    "conditions": {
     "occurs_when": [
-     "PR の組み立ての成果物を、PR を閉じた後に誰かが落とした"
+     "PR の組み立ての成果物を、PR を閉じた後か push し直した後に誰かが落とした"
     ],
     "not_when": [
-     "正式版・ベータ版・開発版の配布物"
+     "正式版・ベータ版・開発版・main への push の配布物"
     ]
    },
    "exceptions": [
@@ -959,12 +1039,16 @@
     ],
     "scenarios": [
      "正式版の配布物のソースの場所は、その版の印",
-     "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+     "開発版と main への push の配布物のソースの場所は、組み立てた commit",
+     "PR の組み立ての配布物のソースの場所は、PR の head の commit"
     ],
     "decisions": [
      "Q7",
      "D9",
-     "D16"
+     "D16",
+     "Q14",
+     "Q15",
+     "Q16"
     ]
    }
   },
@@ -1309,6 +1393,27 @@
       "D13"
      ]
     }
+   },
+   {
+    "id": "D11",
+    "target": "T2",
+    "who": "走っている st44-collector-credential-scope（docs/openapi.json・tools/check-openapi.sh・tools/smoke.sh などを触り、新しいファイルを足す）",
+    "role": "writes",
+    "assumes": "足す・直すファイルの先頭の表示は今の AGPL-3.0-only のまま",
+    "holds": "no",
+    "affects": "ST53 が先に main に入ると、st44 が足したファイルの AGPL-3.0-only の表示を表示の検査が落とす（R2）。st44 が先なら、ST53 の書き換えの範囲に st44 の足したファイルが入る。どちらも表示の 1 行の書き換えで直る。docs/openapi.json は両方が触るので、後に入る側の rebase で合わせ直す",
+    "basis": "derived",
+    "evidence": [
+     "E18"
+    ],
+    "leads_to": [
+     "S1"
+    ],
+    "refs": {
+     "requirements": [
+      "ソースと部品の許諾の表示は、追加の許可を含む 1 つの式にそろえる"
+     ]
+    }
    }
   ],
   "evidence": [
@@ -1351,7 +1456,7 @@
    {
     "id": "E7",
     "source": "design",
-    "loc": "openspec/changes/st53-license-bundle/design.md:215",
+    "loc": "openspec/changes/st53-license-bundle/design.md:246",
     "quote": "エージェントの token も本人の利用者として動く"
    },
    {
@@ -1369,20 +1474,20 @@
    {
     "id": "E10",
     "source": "design",
-    "loc": "openspec/changes/st53-license-bundle/design.md:160",
+    "loc": "openspec/changes/st53-license-bundle/design.md:179",
     "quote": "Actions の `GITHUB_TOKEN` で `environments/release` を読めないと分かったら"
    },
    {
     "id": "E11",
     "source": "design",
-    "loc": "openspec/changes/st53-license-bundle/design.md:212",
+    "loc": "openspec/changes/st53-license-bundle/design.md:243",
     "quote": "GitHub の許諾の判定が `LICENSE` を「Other」と出す"
    },
    {
     "id": "E12",
     "source": "design",
     "loc": "openspec/changes/st53-license-bundle/premises.md:23",
-    "quote": "取れるかは、確認バッチ 11.1 で閉じた PR の merge commit を"
+    "quote": "`refs/pull/<n>/head` は最新の head だけを指す"
    },
    {
     "id": "E13",
@@ -1413,6 +1518,12 @@
     "source": "story",
     "loc": "docs/handoff/ST54.md:17",
     "quote": "`tools/release/check-artifacts.sh --channel nightly` の期待を 4 つに戻す"
+   },
+   {
+    "id": "E18",
+    "source": "story",
+    "loc": "openspec/changes/st44-collector-credential-scope/proposal.md:59",
+    "quote": "`crates/server/src/bin/openapi.rs` と `docs/openapi.json`（403 の応答）"
    }
   ],
   "lost": [
@@ -1496,6 +1607,24 @@
       "Q8"
      ]
     }
+   },
+   {
+    "before": "PR の CI の配る形の組み立ては、GitHub が作る「PR の head とその時の main を合わせた commit」から組まれ、合わせた結果の配布物を見られた",
+    "after": "PR の配る形の組み立てと、その job の中の自己試験・許諾の検査は head の木で走る。main と合わせて初めて壊れる組み合わせは、merge gate の rebase の後の CI か main への push の CI まで出ない",
+    "who": "PR の CI を見る本人とエージェント",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される"
+     ],
+     "decisions": [
+      "Q16",
+      "D18"
+     ]
+    }
    }
   ],
   "lost_none": "",
@@ -1567,8 +1696,8 @@
    {
     "id": "mixed",
     "applies": true,
-    "can": "正式版・ベータ版・開発版・PR の組み立てが、それぞれの決まりの SOURCE.txt を持つ。確認バッチの準備は実機に開発用の鍵の版を入れない",
-    "cannot": "閉じた PR の組み立ての SOURCE.txt の commit を後から取れるかは確かめていない（IMP-06）",
+    "can": "正式版・ベータ版・開発版・main への push・PR の組み立てが、それぞれの決まりの SOURCE.txt を持つ。PR の配布物は head の commit から組まれ、同じ commit で検査される。確認バッチの準備は実機に開発用の鍵の版を入れない",
+    "cannot": "PR を閉じた後・push し直す前の head の commit を後から取れるかは確かめていない（IMP-06）。PR の CI は main と合わせた結果の配布物を見ない",
     "basis": "derived",
     "refs": {
      "requirements": [
@@ -1577,7 +1706,10 @@
      ],
      "decisions": [
       "D9",
-      "D16"
+      "D16",
+      "Q14",
+      "Q16",
+      "D18"
      ]
     }
    },
@@ -1636,9 +1768,9 @@
    {
     "id": "R3",
     "kind": "拒否",
-    "rule": "名指しの外の非オープンソース・対応表に無い許諾名・許諾の読めない部品・他人の GPL / AGPL が依存にあれば、依存の許諾の検査が CI を落とす",
+    "rule": "名指しの外の非オープンソース・対応表に無い許諾名・許諾の読めない部品・取り寄せられない POM・他人の GPL / AGPL が依存にあれば、依存の許諾の検査が CI を落とす。許諾を 2 つ以上持つ部品は、1 つでも許可の外なら落とす",
     "target": "許可の外の部品が配布物に入る",
-    "legit": "オープンソースの部品でも、POM の許諾の名前が対応表に無い書き方（表記ゆれ）なら落ちる。表に 1 行足すまで止まる",
+    "legit": "オープンソースの部品でも、POM の許諾の名前が対応表に無い書き方（表記ゆれ）なら落ちる。表に 1 行足すまで止まる。オープンソースの許諾と許可の外の許諾を並べた部品も、名指しに足さない限り落ちる",
     "blocks_legit": true,
     "basis": "derived",
     "refs": {
@@ -1646,7 +1778,8 @@
       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
      ],
      "decisions": [
-      "D7"
+      "D7",
+      "Q12"
      ]
     }
    },
@@ -2082,24 +2215,24 @@
     "id": "IMP-06",
     "severity": "medium",
     "status": "open",
-    "title": "閉じた PR の組み立ての SOURCE.txt が指す commit を、後から取れるか分からない",
-    "text": "PR の組み立ては GitHub が PR のために作る merge commit で組まれ、SOURCE.txt はその commit を書く。PR を閉じた後にその commit を取れなければ、90 日置かれる PR の成果物のソースの場所が辿れない。",
+    "title": "閉じた PR・push し直す前の PR の組み立ての SOURCE.txt が指す head の commit を、後から取れるか分からない",
+    "text": "PR の組み立ては PR の head の commit から組まれ、SOURCE.txt はその commit を書く。PR を閉じた後や、枝を push し直して head が替わった後に前の head を取れなければ、90 日置かれる PR の成果物のソースの場所が辿れない。",
     "basis": "unconfirmed",
     "unknowns": [
-     "閉じた PR の merge commit を git fetch で取れるか（確認バッチ 11.1 で確かめる）"
+     "閉じた PR の head と、push し直す前の head を、別の clone から git fetch origin <commit> で取れるか（確認バッチ 11.5 で確かめる。GitHub の refs/pull/<n>/head は最新の head だけを指す）"
     ],
-    "derived": "PR の組み立ての SOURCE.txt は組み立ての印の commit を書く（spec）。PR の CI は checkout に ref を渡さない（premises P14）",
-    "undefined": "取れなかったときの書き方（D9 の反転条件は head の commit に替える）",
+    "derived": "PR の組み立ての SOURCE.txt は PR の head の commit を書く（spec）。refs/pull/<n>/head は最新の head だけを指す（premises P14）",
+    "undefined": "前の head を取れなかったときの書き方（確認バッチ 11.5 で取れなければ D9 を上流へ返す）",
     "feasibility": "unverified",
     "options": [
      {
-      "label": "D9 の反転条件: PR の組み立てでは head の commit を書く"
+      "label": "確認バッチ 11.5 で取れることを確かめてそのまま"
      },
      {
-      "label": "取れることを確かめてそのまま"
+      "label": "取れなければ D9 を上流へ返し、書く commit を決め直す（ST53 を main に入れない）"
      }
     ],
-    "verify": "確認バッチ 11.1: merge の後に、その Commit: の commit を git fetch origin <commit> で取る",
+    "verify": "確認バッチ 11.5: 使い捨ての PR を開き → force-push → 閉じ、前の head と最後の head を別の clone から git fetch origin <commit> で取る",
     "deps": [],
     "evidence": [
      "E12"
@@ -2109,11 +2242,13 @@
       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
      ],
      "scenarios": [
-      "開発版と PR の組み立ての配布物のソースの場所は、組み立ての commit"
+      "PR の組み立ての配布物のソースの場所は、PR の head の commit"
      ],
      "decisions": [
       "D9",
-      "D16"
+      "D16",
+      "Q14",
+      "Q16"
      ]
     }
    }
@@ -2269,7 +2404,7 @@
   "coverage": {
    "examined": [
     {
-     "text": "spec の 6 本の Requirement と design の D1〜D16 を、移行の台帳・配布物の検査の印の取り出し・準備の台本を切り出す検査・CI の呼び出し・ハーネスの gh の呼び出しに当てた",
+     "text": "spec の 6 本の Requirement と design の D1〜D18 を、移行の台帳・配布物の検査の印の取り出し・準備の台本を切り出す検査・CI の呼び出し・ハーネスの gh の呼び出しに当てた",
      "refs": {
       "requirements": [
        "本体の許諾に、名指しした Google Play 開発者サービスのライブラリと組み合わせて配る追加の許可を付ける",
@@ -2286,7 +2421,8 @@
        "D12",
        "D13",
        "D14",
-       "D15"
+       "D15",
+       "D18"
       ]
      }
     },
@@ -2298,6 +2434,21 @@
       ],
       "decisions": [
        "D4"
+      ]
+     }
+    },
+    {
+     "text": "第 2 回・第 3 回の答え（Q10〜Q16）を写した後の design D4・D5・D7・D8・D9・D16・D18 と spec を、移行の凍結の検査・携帯の POM の取り寄せ・PR の CI の checkout と配布物の検査に当て直した",
+     "refs": {
+      "decisions": [
+       "Q10",
+       "Q11",
+       "Q12",
+       "Q13",
+       "Q14",
+       "Q15",
+       "Q16",
+       "D18"
       ]
      }
     }
@@ -2326,8 +2477,8 @@
      "why": "この Story は変えない"
     },
     {
-     "text": "走っている他の change",
-     "why": "archive 以外はこの change だけ"
+     "text": "走っている他の change のうち、st44-collector-credential-scope 以外",
+     "why": "archive 以外は st44 とこの change だけ。st44 は依存（D11）で扱った"
     }
    ]
   }

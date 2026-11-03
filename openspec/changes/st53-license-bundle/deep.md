@@ -149,7 +149,7 @@
 
 整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` が見つけた、一緒に直すもの:
 
-- C1: tasks 11.1（`tasks.md:229`）の「組み立ての印（合成の merge commit）と違うことを見る」を「同じことを見る」に反転する。design の Risks の合成の merge commit の項（`design.md:240` 付近）を外す。`proposal.md:71` に checkout の `ref` を足す。`provisional.jsonl` の D17 は `provisional.py resolve` で外す
+- C1（第 3 回の整合の確認）: tasks 11.1（`tasks.md:229`）の「組み立ての印（合成の merge commit）と違うことを見る」を「同じことを見る」に反転する。design の Risks の合成の merge commit の項（`design.md:240` 付近）を外す。`proposal.md:71` に checkout の `ref` を足す。`provisional.jsonl` の D17 は `provisional.py resolve` で外す
 - K1: 配布物を検査する `package-artifacts`（`ci.yml:392-400`）も同じ `ref` で checkout するか、期待する版番号と `LICENSE` を配布物を組んだ木から取るかを D9 に書き、tasks 7.1 の検証を合わせる（今のままだと、枝を切った後に main が版番号か `LICENSE` を変えると PR の CI が誤って落ちる）
 - K2: `package-linux` の job の中の自己試験（`ci.yml:366-370`）と、足す許諾・表示の検査が head の木で走ることを D9 に書く（FR-127 ★ 第 3 回はそう狭めた）
 - 未確認（同じ監査）: fork の PR で `ref: head.sha` を `fetch-depth: 1` で取れるか・detached HEAD で組んだ組み立ての印に `.dirty` が付かないか —— tasks の検証か premises に置く
@@ -205,7 +205,7 @@
 - C3（Q14・Q15）: D9・D16 の本文、spec の PR の `SOURCE.txt` の文と 2 つの Scenario、tasks 5.x の `--allow-debug-key` の比べ（比べを外すのは PR の `package` と下書きの両方。`tools/release/draft.sh:32`）、go.json の walkthrough と IMP-06、premises P14 を head の commit に直す
 - C1（Q14）: tasks 11.1 に、push し直す前の head と閉じた PR の head を `git fetch origin <sha>` で取れるかの確かめを足し、P14 を head の前提に書き直す（取れなければ上流へ返す）
 - C4（Q10・Q11）: D4 の失わない理由「表示は後から書き換えられる」を、Q10 の「最初の印から後は前進側の 2 つを直せないことを受け入れる」に直す。D4・D5 の「未決」と spec・tasks の「答え待ち」「（仮）」を外す
-- C9: spec の「それ以外の組み立て（開発版・PR の組み立て）」に main への push を足す
+- C9（第 2 回の整合の確認）: spec の「それ以外の組み立て（開発版・PR の組み立て）」に main への push を足す
 - → 対応（spec --answers Q10〜Q15。2026-11-03）: C1〜C5・C9 の仕様の側を design D4・D5・D7・D8・D9・D16、spec、tasks 2.x・4.x・5.3・6.1・7.1・11.1、proposal、premises P14 に写した。
   `check-artifacts.sh --allow-debug-key` は PR と main への push を分けられないので、main への push も比べを外す形を D17（仮）にした。
   go.json の walkthrough（W2）と IMP-06 は spec の段では直さない（GO 資料は reading の段が直す）
