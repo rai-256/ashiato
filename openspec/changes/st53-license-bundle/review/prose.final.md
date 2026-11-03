@@ -105,7 +105,7 @@ CI が落ちる。使うには許可の正本を広げ、次の版から広げ�
 本人が手元にある配布物から対応するソースを取りに行こうとする。どの配布物でも同じ commit に辿り着けるか。
 
 <!-- prose walkthroughs[W2].why -->
-要件は「同じ印で示す」と言うが、開発版の印は動き、PR の組み立てには印が無い。動かない commit で示すことにした。
+要件は「同じ印で示す」と言うが、開発版の印は動き、PR の組み立てには印が無い。動かない commit で示すことにした。PR の配布物は head の木から組むので、書いた commit と組んだソースが一致する。
 
 <!-- prose walkthroughs[W2].figure.caption -->
 組み立ての種類ごとの SOURCE.txt（版番号は説明用）
@@ -114,7 +114,7 @@ CI が落ちる。使うには許可の正本を広げ、次の版から広げ�
 nightly の印は翌日動くが、SOURCE.txt の commit は動かないので同じソースを取れる
 
 <!-- prose walkthroughs[W2].cases[1].result -->
-書かれた merge commit を取れるかは確かめていない。取れなければ、配った成果物のソースの場所が辿れない
+書かれた head の commit を取れるかは確かめていない。取れなければ、配った成果物のソースの場所が辿れない
 
 <!-- prose walkthroughs[W2].exceptions[0].text -->
 説明用の値。実際の版番号の構成は確かめていない
@@ -165,16 +165,19 @@ LICENSE の先頭が正本と 1 字でも違う、または AGPL-3.0 の全文�
 ソースの先頭の表示と、Cargo.toml・web/package.json（と lock の根）・API の契約の写しの許諾の欄を AGPL-3.0-only WITH AdditionRef-ashiato-play-services にする。
 
 <!-- prose points[headers.2].text -->
-書き換えるのは 506 ではなく 503 ファイル。移行の 3 つは AGPL-3.0-only のまま残す。移行は中身の指紋を DB に記録していて、表示の 1 行を変えるだけで、その版を当てたどの DB でも起動のたびに警告が出続けるため。許可は LICENSE が木の全体に掛けるので、この 3 つにも及ぶ。
+書き換えるのは 506 ではなく 503 ファイル。移行の 3 つは AGPL-3.0-only のまま残す（本人の答え）。移行は中身の指紋を DB に記録していて、表示の 1 行を変えるだけで、その版を当てたどの DB でも起動のたびに警告が出続けるため。許可は LICENSE が木の全体に掛けるので、この 3 つにも及ぶ。最初の印 v* を打った後は、移行の前進側の 2 つ（.sql）の表示を直せない（配った移行の凍結の検査が中身の差を落とす）。配った版のソースとサーバの実行ファイルに、WITH の無い表示が残る。
 
 <!-- prose points[headers.3].text -->
-表示の検査は追跡しているファイルの先頭 25 行の SPDX-License-Identifier: だけを見る。symlink は辿らない。表示を持たないファイルは見ないので、表示を消して写した他人のコードは止められない。
+表示の検査は追跡しているファイルの先頭 25 行の SPDX-License-Identifier: だけを見る。symlink は辿らない。例外は gradle の wrapper の 2 つと移行の 3 つ。表示を持たないファイルは見ないので、表示を消して写した他人のコードは止められない。
 
 <!-- prose features[depcheck].summary -->
 サーバ・画面・携帯の 3 つの依存の許諾を機械で確かめ、許可の外が入れば CI が落ちる。
 
 <!-- prose points[depcheck.1].text -->
-携帯の節を新しく作る。配る APK に入る依存の部品ごとに POM の許諾を読み（無ければ親の POM）、対応表で SPDX の名前に直す。名前を 2 つ持つ部品は、どちらか 1 つが許可されていれば通る。
+携帯の節を新しく作る。配る APK に入る依存の部品ごとに POM の許諾を読み（無ければ親の POM）、対応表で SPDX の名前に直す。名前を 2 つ以上持つ部品は、全部の名前が許可されているか名指しに当たるときだけ通る。1 つでも許可の外なら落ちる。
+
+<!-- prose points[depcheck.6].text -->
+POM は検査の前に取り寄せる。ネットワークにも gradle の cache にも POM が無い部品は、飛ばさずに検査を落とす（依存の解決が通っても）。
 
 <!-- prose points[depcheck.2].text -->
 オープンソースでない部品は、許可の正本に名指しされた 4 つだけを通す。名指しは正本のファイルから読み、検査は自分で一覧を持たない。正本から 1 行消せば、その部品で落ちる。
@@ -195,7 +198,7 @@ LICENSE の先頭が正本と 1 字でも違う、または AGPL-3.0 の全文�
 tar / zip の根に LICENSE・THIRD-PARTY-NOTICES.txt・SOURCE.txt の 3 つを入れる。携帯の APK では中の assets/licenses/ に置く。組み立ての台本で入れるので、正式版・ベータ版だけでなく開発版・PR の組み立てにも入る。
 
 <!-- prose points[bundle.2].text -->
-依存の一覧は部品ごとに名前・版・許諾の式・全文と著作権の表示を書く。サーバと PC の収集アプリには Rust の標準ライブラリの項、サーバには画面に入る Node の部品（開発だけの部品は除く）、APK には Google のライブラリが中に持つ第三者の一覧も入る。
+依存の一覧は部品ごとに名前・版・許諾の式・全文と著作権の表示を書く。サーバと PC の収集アプリには Rust の標準ライブラリの項、サーバには画面に入る Node の部品（開発だけの部品は除く）、APK には Google のライブラリが中に持つ第三者の一覧も入る。携帯の部品は、依存の許諾の検査と同じ出力から作るので、検査と一覧は同じ部品の集合を見る。
 
 <!-- prose points[bundle.3].text -->
 3 点のどれかが無い・LICENSE が木の LICENSE と違う配布物は、配布物の検査で落ちて公開されない。許諾の全文も著作権の表示も見つからない部品があれば、一覧を組まずに組み立てが落ちる。
@@ -207,13 +210,16 @@ tar / zip の根に LICENSE・THIRD-PARTY-NOTICES.txt・SOURCE.txt の 3 つを�
 正式版・ベータ版は印で、それ以外は組み立ての commit でソースの場所を示す。
 
 <!-- prose points[source.1].text -->
-SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<版>、開発版・PR の組み立てなら 40 桁の commit を持つ。印は公開の workflow が渡す。
+SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<版>、それ以外なら組み立てた木の 40 桁の commit を持つ。開発版と main への push の組み立てでは main の commit、PR の組み立てでは PR の head の commit。印は公開の workflow が渡す。
 
 <!-- prose points[source.2].text -->
 開発版の SOURCE.txt には nightly の文字を書かない。印 nightly は翌日に別の commit へ動くので、動かない commit を書く。要件 FR-127 の「同じ印で示す」とはこの点で違い、record の段が要件に補足を入れる。
 
 <!-- prose points[source.3].text -->
-公開の組み立てに渡された印が v<版番号> と違えば、配布物を作らずに落ちる。配布物の検査は、正式版・ベータ版の検査で印を、PR・下書き・開発版の検査で組み立ての印と同じ commit を求め、合わなければ公開しない。
+公開の組み立てに渡された印が v<版番号> と違えば、配布物を作らずに落ちる。配布物の検査は、正式版・ベータ版の検査で印を、開発版・PR・main への push・下書きの検査で組み立ての印と同じ 40 桁の commit を求め、合わなければ公開しない。
+
+<!-- prose points[source.5].text -->
+PR の配布物は、GitHub が作る「PR の head とその時の main を合わせた commit」ではなく PR の head の commit そのものから組む。SOURCE.txt・組み立ての印・組んだソースが同じ commit を指す。下書きの手順も、その PR の head を checkout した手元で走らせる。配布物を検査する job をどの木で走らせるかは、まだ決まっていない（Q17 の答え待ち）。
 
 <!-- prose points[source.4].text -->
 サーバの画面（ブラウザで開くもの）には、ソースの場所も許諾へのリンクも出さない。一般向けに配る前に足すことを、要件の未決として残す。
@@ -231,10 +237,10 @@ SOURCE.txt はリポジトリの場所と、正式版・ベータ版なら印 v<
 公開の job の中で確かめる手順（approvals）は守りの本体ではない。job は印の commit の workflow で走るので、書き換えられれば効かない。守りの本体は GitHub が job を始める前に効く承認で、本人が承認の画面で「印の commit が main にあり PR を通って入った」ことを見ずに押せば、守りは無いのと同じ。
 
 <!-- prose features[firstrelease].summary -->
-最初の本物の印・正式な鍵・本人のサーバの切り替えは、ST53 が main に入った後に本人が行う。
+最初の本物の印を打つことと正式な鍵を置くことは、ST53 が main に入った後に本人が行う。本人のサーバの切り替えは、ST55 が済んでからそのインストーラで行う。
 
 <!-- prose points[firstrelease.1].text -->
-ST53 の確認バッチでは、PR の配布物から作った下書きのリリースで許諾の 3 点と守りを見る。本物の印・正式な鍵・本人のサーバの切り替えは、main に入った後に本人が docs/release.md の手順で行い、最後に公開した版を取り寄せて配布物の検査に通す。
+ST53 の確認バッチでは、PR の配布物から作った下書きのリリースで許諾の 3 点と守りを見る。本物の印を打つことと正式な鍵を置くことは、main に入った後に本人が docs/release.md の手順で行い、最後に公開した版を取り寄せて配布物の検査に通す。本人のサーバの切り替えは、要件 FR-108 の 2026-11-03 の改訂で、ST55 が済んでからそのインストーラで行うことになった。
 
 <!-- prose points[firstrelease.2].text -->
 ST52 が書いた「本物の公開は ST53 の確認で見る」とは変わる。確認バッチの中で印を打つと、その版は main の祖先の commit なので ST53 の許可も一覧も入らずに出回るため。ST52 の完了の判定の文は record の段が書き直す。
@@ -288,7 +294,7 @@ tools/licenses/texts/ に全文を足すまで配る形を組めない
 第三者の MIT などのコードを表示ごと正当に写して取り込むときも落ちる。例外の一覧に足すか LICENSES/ の置き方を決めるまで止まる
 
 <!-- prose impact.rules[R3].legit -->
-オープンソースの部品でも、POM の許諾の名前が対応表に無い書き方（表記ゆれ）なら落ちる。表に 1 行足すまで止まる
+オープンソースの部品でも、POM の許諾の名前が対応表に無い書き方（表記ゆれ）なら落ちる。表に 1 行足すまで止まる。オープンソースの許諾と許可の外の許諾を並べた部品も、名指しに足さない限り落ちる
 
 <!-- prose impact.rules[R4].legit -->
 新しい依存が LICENSE のファイルも作者の欄も持たないと、正当な依存でも組み立てが落ちる。tools/licenses/texts/ に全文を足すまで止まる
@@ -318,7 +324,7 @@ ST52 から申し送られた判断。この Story は Environment release に�
 絞った token の権限では、ハーネスの CI の走らせ直しが断られるかもしれない
 
 <!-- prose impact.findings[IMP-03].text -->
-D3 がエージェントに持たせる権限は Actions の「読み」まで。ハーネスは CI の赤を 1 回だけ走らせ直す（story_ci.py・verify_batch.sh の gh run rerun --failed）。走らせ直しには Actions の書きが要ると読むので、切り替えの後は不安定なだけの赤も ci-fix の AI か人間に回る。verify_batch.sh は失敗を知らせずに捨てる（story_ci.py は走らせ直せた run を数える）。
+D3 がエージェントに持たせる権限は Actions の「読み」まで。ハーネスは CI の赤を 1 回だけ走らせ直す（story_ci.py・verify_batch.sh の gh run rerun --failed）。走らせ直しには Actions の書きが要ると読むので、切り替えの後は不安定なだけの赤も ci-fix の AI か人間に回る。verify_batch.sh は失敗を黙って捨てる（story_ci.py は走らせ直せた run を数える）。
 
 <!-- prose impact.findings[IMP-04].title -->
 公開の job から承認者の設定を読めないと、正当な公開も署名の前で止まる
@@ -333,10 +339,10 @@ GitHub の画面が許諾を AGPL-3.0 でなく Other と出すかもしれな�
 LICENSE の先頭に許可の文を置くので、GitHub の許諾の判定が AGPL-3.0 と読めず Other と出るかもしれない。README が最初の節で許諾を名指しする。
 
 <!-- prose impact.findings[IMP-06].title -->
-閉じた PR の組み立ての SOURCE.txt が指す commit を、後から取れるか分からない
+閉じた PR・push し直す前の PR の組み立ての SOURCE.txt が指す head の commit を、後から取れるか分からない
 
 <!-- prose impact.findings[IMP-06].text -->
-PR の組み立ては GitHub が PR のために作る merge commit で組まれ、SOURCE.txt はその commit を書く。PR を閉じた後にその commit を取れなければ、90 日置かれる PR の成果物のソースの場所が辿れない。
+PR の組み立ては PR の head の commit から組まれ、SOURCE.txt はその commit を書く。PR を閉じた後や、枝を push し直して head が替わった後に前の head を取れなければ、90 日置かれる PR の成果物のソースの場所が辿れない。
 
 <!-- prose impact.scope.covers[0].text -->
 組み立ての台本（tools/release/build.sh）で作る 4 つの配布物。正式版・ベータ版・開発版・PR の組み立てのどれも

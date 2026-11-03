@@ -2,28 +2,13 @@
  "tool": "yomiyasu",
  "version": "2.4.0",
  "source": "prose.final.md",
- "fields": 124,
+ "fields": 126,
  "applied": [
-  "purpose",
-  "impact.overview",
-  "walkthroughs[W2].scene",
-  "points[permission.3].text",
-  "points[headers.3].text",
-  "points[approval.3].text",
-  "points[verifyprep.2].text",
-  "impact.findings[IMP-01].title",
-  "impact.findings[IMP-01].text"
+  "points[source.5].text",
+  "features[firstrelease].summary",
+  "points[firstrelease.1].text"
  ],
- "kept": [
-  {
-   "field": "impact.findings[IMP-03].text",
-   "why": [
-    "否定の言い方の数が変わった（0 → 1）"
-   ],
-   "old": "D3 がエージェントに持たせる権限は Actions の「読み」まで。ハーネスは CI の赤を 1 回だけ走らせ直す（story_ci.py・verify_batch.sh の gh run rerun --failed）。走らせ直しには Actions の書きが要ると読むので、切り替えの後は不安定なだけの赤も ci-fix の AI か人間に回る。verify_batch.sh は失敗を黙って捨てる（story_ci.py は走らせ直せた run を数える）。",
-   "new": "D3 がエージェントに持たせる権限は Actions の「読み」まで。ハーネスは CI の赤を 1 回だけ走らせ直す（story_ci.py・verify_batch.sh の gh run rerun --failed）。走らせ直しには Actions の書きが要ると読むので、切り替えの後は不安定なだけの赤も ci-fix の AI か人間に回る。verify_batch.sh は失敗を知らせずに捨てる（story_ci.py は走らせ直せた run を数える）。"
-  }
- ],
+ "kept": [],
  "missing": [],
  "unknown": []
 }
