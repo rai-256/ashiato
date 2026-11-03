@@ -60,9 +60,20 @@ fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
 /// Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
 #[test]
 fn st54_bin_channel_environment_does_not_override_build_channel() {
-    migrate_as_owner();
     let custom =
         custom_server_binary_with_version(&format!("{}-dev.20261102", env!("CARGO_PKG_VERSION")));
+    let migrated = Command::new(&custom.path)
+        .arg("migrate")
+        .env_clear()
+        .env("DATABASE_OWNER_URL", env("DATABASE_OWNER_URL"))
+        .env("MIGRATE_BACKUP", "off")
+        .output()
+        .unwrap();
+    assert!(
+        migrated.status.success(),
+        "開発版 DB の migrate が失敗した: {}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
     let mut child = Command::new(&custom.path)
         .env_clear()
         .env("DATABASE_URL", env("DATABASE_URL"))
@@ -74,9 +85,41 @@ fn st54_bin_channel_environment_does_not_override_build_channel() {
         .spawn()
         .unwrap();
 
-    let output = wait_exit(child);
-    assert_eq!(output.status.code(), Some(4));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("error: kind=channel_mismatch"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut stream = loop {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("開発版サーバが 127.0.0.1:18788 で待ち受けなかった");
+        }
+        match std::net::TcpStream::connect(("127.0.0.1", 18788)) {
+            Ok(stream) => break stream,
+            Err(_) => {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "開発版サーバが終了した: {status}; {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    };
+    stream
+        .write_all(b"GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-token-0123456789abcdef\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(
+        response.contains("ashiato-channel: dev\r\n"),
+        "応答の系統が dev でない: {response}"
+    );
+    assert!(
+        response.ends_with("{\"contract_version\":1}"),
+        "契約本文が変わった: {response}"
+    );
+    child.kill().unwrap();
+    let _ = child.wait_with_output();
 }
 
 fn custom_server_version() -> String {
@@ -822,6 +865,24 @@ mod st48_migrate {
             (rows, def)
         }
 
+        async fn remove_last_version(&self) {
+            sqlx::query(
+                "DELETE FROM migration_ledger.applied
+                 WHERE name = (SELECT name FROM migration_ledger.applied
+                               ORDER BY applied_at DESC, name DESC LIMIT 1)",
+            )
+            .execute(self.db.owner())
+            .await
+            .unwrap();
+        }
+
+        async fn history_rows(&self) -> i64 {
+            sqlx::query_scalar("SELECT count(*) FROM core.update_history")
+                .fetch_one(self.db.owner())
+                .await
+                .unwrap()
+        }
+
         async fn exec(&self, sql: &str) {
             sqlx::raw_sql(sql).execute(self.db.owner()).await.unwrap();
         }
@@ -967,7 +1028,9 @@ mod st48_migrate {
     async fn st54_bin_dev_migrate_refuses_official_db() {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
+        rig.remove_last_version().await;
         let before = rig.snapshot().await;
+        let history_before = rig.history_rows().await;
         let custom = custom_server_binary_with_version(&format!(
             "{}-dev.20261102",
             env!("CARGO_PKG_VERSION")
@@ -975,8 +1038,10 @@ mod st48_migrate {
         let out = rig.migrate_custom_version(&custom.path);
         assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
         assert!(stderr(&out).starts_with("error: kind=channel_mismatch\n"));
+        assert!(stderr(&out).contains("  db: official\n  self: dev\n"));
         assert_eq!(rig.dumps(), 1);
         assert_eq!(rig.snapshot().await, before);
+        assert_eq!(rig.history_rows().await, history_before);
     }
 
     // Scenario: 正式版の migrate とサーバは、開発版の DB では止まる
@@ -988,9 +1053,14 @@ mod st48_migrate {
             env!("CARGO_PKG_VERSION")
         ));
         assert_ok(&rig.migrate_custom_version(&custom.path));
+        rig.remove_last_version().await;
+        let before = rig.snapshot().await;
+        let history_before = rig.history_rows().await;
         let out = rig.migrate();
         assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
         assert!(stderr(&out).contains("  db: dev\n  self: official\n"));
+        assert_eq!(rig.snapshot().await, before);
+        assert_eq!(rig.history_rows().await, history_before);
         let served = rig.serve_on_held_port();
         assert_eq!(served.out.status.code(), Some(4));
     }
@@ -1079,13 +1149,14 @@ mod st48_migrate {
     #[tokio::test]
     async fn st54_bin_channel_before_ahead() {
         let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
         let custom = custom_server_binary_with_version(&format!(
             "{}-dev.20261102",
             env!("CARGO_PKG_VERSION")
         ));
-        assert_ok(&rig.migrate_custom_version(&custom.path));
         rig.add_future_row().await;
-        let out = rig.migrate();
+        let served = rig.serve_custom(&custom.path);
+        let out = served.out;
         assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
         assert!(stderr(&out).contains("error: kind=channel_mismatch"));
         assert!(!stderr(&out).contains("db_ahead"));

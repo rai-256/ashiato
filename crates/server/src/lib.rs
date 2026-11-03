@@ -296,7 +296,7 @@ pub const GRANTS: &str = include_str!("grants.sql");
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 /// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    migrate_after(pool, || Ok(()), None).await
+    migrate_after(pool, || Ok(()), None, channel(env!("ASHIATO_VERSION"))).await
 }
 
 /// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
@@ -305,11 +305,12 @@ async fn migrate_after(
     pool: &sqlx::PgPool,
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     stamp: Option<&str>,
+    me: Channel,
 ) -> anyhow::Result<()> {
     // 付与も錠の中で当てる（同時の `GRANT … ON ALL TABLES` は `tuple concurrently updated` で落ちる）。
     // ahead・読めないなら付与も流さない（design D4）
     let conn = pool.acquire().await?;
-    migration_ledger::apply_migrations_recorded(conn, MIGRATIONS, before_apply, GRANTS, stamp)
+    migration_ledger::apply_migrations_recorded(conn, MIGRATIONS, before_apply, GRANTS, stamp, me)
         .await?;
     Ok(())
 }
@@ -397,7 +398,14 @@ pub async fn run_migrate() -> anyhow::Result<()> {
         }
         Ok(())
     };
-    if let Err(e) = migrate_after(&pool, backup, Some(BUILD_STAMP)).await {
+    if let Err(e) = migrate_after(
+        &pool,
+        backup,
+        Some(BUILD_STAMP),
+        channel(env!("ASHIATO_VERSION")),
+    )
+    .await
+    {
         if let Some(me) = e.downcast_ref::<migration_ledger::MigrateError>() {
             if let Some((kind, report)) = me.mismatch_report() {
                 // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
@@ -4481,7 +4489,9 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(2);
     }
     // DB の版がこの組み立てと揃っているか（design D17）。揃っていなければ待ち受けを開かない
-    if let Some((kind, report)) = migration_ledger::startup_refusal(&pool, MIGRATIONS).await? {
+    if let Some((kind, report)) =
+        migration_ledger::startup_refusal(&pool, MIGRATIONS, server_channel).await?
+    {
         // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
         tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
         // log-ok: 同上。ST58 が読む（design D6）

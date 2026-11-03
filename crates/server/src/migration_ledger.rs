@@ -337,11 +337,11 @@ async fn channel_on(
 async fn check_channel(
     pool: &mut PgConnection,
     ledger: &Ledger,
+    me: Channel,
 ) -> Result<Option<MigrateError>, sqlx::Error> {
     let Some(db) = channel_on(pool, ledger).await? else {
         return Ok(None);
     };
-    let me = channel(BUILD_VERSION);
     if db != me {
         return Ok(Some(MigrateError::ChannelMismatch { db, me }));
     }
@@ -354,6 +354,7 @@ async fn check_channel(
 pub async fn startup_refusal(
     pool: &sqlx::PgPool,
     versions: &[(&str, &str)],
+    me: Channel,
 ) -> Result<Option<(&'static str, String)>, sqlx::Error> {
     let mut conn = pool.acquire().await?;
     let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
@@ -367,7 +368,7 @@ pub async fn startup_refusal(
         ))
     };
     let ledger = read_ledger_on(&mut conn).await?;
-    if let Some(mismatch) = check_channel(&mut conn, &ledger).await? {
+    if let Some(mismatch) = check_channel(&mut conn, &ledger, me).await? {
         return Ok(Some(
             mismatch.mismatch_report().expect("channel mismatch report"),
         ));
@@ -401,8 +402,9 @@ fn fingerprint(sql: &str) -> String {
 pub async fn apply_migrations(
     conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
+    me: Channel,
 ) -> Result<(), MigrateError> {
-    apply_migrations_with(conn, versions, || Ok(()), "").await
+    apply_migrations_with(conn, versions, || Ok(()), "", me).await
 }
 
 /// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）と、版を当てた後に錠の中で流す
@@ -414,8 +416,9 @@ pub async fn apply_migrations_with(
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
+    me: Channel,
 ) -> Result<(), MigrateError> {
-    apply_migrations_recorded(conn, versions, before_apply, grants, None)
+    apply_migrations_recorded(conn, versions, before_apply, grants, None, me)
         .await
         .map(|_| ())
 }
@@ -430,6 +433,7 @@ pub async fn apply_migrations_recorded(
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    me: Channel,
 ) -> Result<Vec<String>, MigrateError> {
     let mut run = Run::default();
     let locked = sqlx::query("SELECT pg_advisory_lock($1)")
@@ -438,7 +442,18 @@ pub async fn apply_migrations_recorded(
         .await;
     let lock_held = locked.is_ok();
     let result = match locked {
-        Ok(_) => apply_locked(&mut conn, versions, before_apply, grants, stamp, &mut run).await,
+        Ok(_) => {
+            apply_locked(
+                &mut conn,
+                versions,
+                before_apply,
+                grants,
+                stamp,
+                me,
+                &mut run,
+            )
+            .await
+        }
         Err(e) => Err(MigrateError::Db(e)),
     };
     // 結果の行は錠を外す前に書く（錠を持つ接続で。pool の別の接続は自分の錠を待って止まる。R28）
@@ -513,10 +528,11 @@ async fn apply_locked(
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    me: Channel,
     run: &mut Run,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
-    if let Some(mismatch) = check_channel(conn, &ledger).await? {
+    if let Some(mismatch) = check_channel(conn, &ledger, me).await? {
         return Err(mismatch);
     }
     let (recorded, before_ledger) = match ledger {

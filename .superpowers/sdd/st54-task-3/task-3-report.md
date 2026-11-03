@@ -38,3 +38,15 @@
 ## 懸念
 
 - 全サーバテストの並列 deadlock は今回の変更外の既存テスト競合であり、単体再実行では再現しなかった。
+
+## Fix round 1
+
+- F1/F2: `server_startup.rs` の 3 本を正式版 DB / 開発版 DB の正しい向きに直し、未適用版を残した状態で系統不一致の終了コード 4、退避なし、更新履歴の件数不変、`db_ahead` より先の判定を確認するようにした。Task 2 の環境変数試験は開発版 DB 上で起動し、`ashiato-channel: dev` と契約本文を確認する形へ戻した。
+- F3: `migration_ledger` の migrate / startup 検査へ `Channel` を引数で渡し、`st54_tests.rs` に関数段の 6 Scenario と router 経由の `/healthz` 検査を追加した。
+- F4: `ashiato-channel: dev` の期待を再追加し、系統は版番号から決まり環境変数で変わらないことを確認するようにした。
+
+### Fix verification
+
+- `scripts/verify-run 3.1`: PASS（4 コマンド。関数段 13 本以上、bin 9 本、既存 migration ledger / ST48 試験を含む）。
+- `scripts/verify-run 3.2`: PASS。
+- 最後の全サーバテスト: `scripts/quiet-run full -- cargo test -p ashiato-server` は 1866 passed / 1 failed。失敗は今回の変更外の `archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart`（期待 9 回、実測 8 回）。

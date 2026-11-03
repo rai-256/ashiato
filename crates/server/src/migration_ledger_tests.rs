@@ -294,7 +294,7 @@ async fn apply_without_ledger(pool: &sqlx::PgPool) {
 
 async fn apply(pool: &sqlx::PgPool, versions: &[(&str, &str)]) -> Result<(), MigrateError> {
     let conn = pool.acquire().await.unwrap();
-    apply_migrations(conn, versions).await
+    apply_migrations(conn, versions, ashiato_build_stamp::channel(BUILD_VERSION)).await
 }
 
 async fn recorded_names(pool: &sqlx::PgPool) -> Vec<String> {
@@ -532,9 +532,15 @@ async fn st48_apply_grants_run_inside_lock_and_not_on_refusal() {
     let grants = "CREATE TABLE st48_grants AS
         SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid();";
     let conn = db.owner().acquire().await.unwrap();
-    apply_migrations_with(conn, &versions, || Ok(()), grants)
-        .await
-        .unwrap();
+    apply_migrations_with(
+        conn,
+        &versions,
+        || Ok(()),
+        grants,
+        ashiato_build_stamp::channel(BUILD_VERSION),
+    )
+    .await
+    .unwrap();
     let n: i64 = sqlx::query_scalar("SELECT n FROM st48_grants")
         .fetch_one(db.owner())
         .await
@@ -554,9 +560,15 @@ async fn st48_apply_grants_run_inside_lock_and_not_on_refusal() {
     .await
     .unwrap();
     let conn = db.owner().acquire().await.unwrap();
-    let e = apply_migrations_with(conn, &versions, || Ok(()), grants)
-        .await
-        .unwrap_err();
+    let e = apply_migrations_with(
+        conn,
+        &versions,
+        || Ok(()),
+        grants,
+        ashiato_build_stamp::channel(BUILD_VERSION),
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(e, MigrateError::Ahead { .. }), "{e}");
     let exists: bool = sqlx::query_scalar("SELECT to_regclass('public.st48_grants') IS NOT NULL")
         .fetch_one(db.owner())

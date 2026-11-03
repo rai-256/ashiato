@@ -7,8 +7,42 @@ use http_body_util::BodyExt as _;
 use tower::ServiceExt as _;
 
 use super::*;
+use crate::migration_ledger;
 use crate::testdb;
 use ashiato_build_stamp::Channel;
+
+async fn migrate_channel(db: &testdb::TestDb, channel: Channel) {
+    let pool = db.pool().await;
+    let conn = pool.acquire().await.unwrap();
+    migration_ledger::apply_migrations_with(conn, MIGRATIONS, || Ok(()), GRANTS, channel)
+        .await
+        .unwrap();
+    if channel == Channel::Dev {
+        sqlx::query("UPDATE migration_ledger.applied SET build_version = '0.1.0-dev.20261102'")
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+}
+
+async fn tee_app(channel: Channel, pool: sqlx::PgPool) -> App {
+    App::for_test(pool, TOKEN).with_channel(channel)
+}
+
+async fn healthz(app: App) -> StatusCode {
+    router(app)
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
 
 const TOKEN: &str = "st54-test-token-0123456789";
 
@@ -141,5 +175,138 @@ fn st54_explicit_bind_and_backup_dir_win_for_dev() {
     assert_eq!(
         migrate_backup::dir_for(Channel::Dev, Some("custom/backups")),
         "custom/backups"
+    );
+}
+
+// Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる
+#[tokio::test]
+async fn st54_migration_channel_refuses_official_without_writing() {
+    let db = testdb::scratch().await;
+    migrate_channel(&db, Channel::Official).await;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
+        .fetch_one(&db.pool().await)
+        .await
+        .unwrap();
+    let pool = db.pool().await;
+    let result = migration_ledger::apply_migrations_with(
+        pool.acquire().await.unwrap(),
+        MIGRATIONS,
+        || Ok(()),
+        GRANTS,
+        Channel::Dev,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(migration_ledger::MigrateError::ChannelMismatch { .. })
+    ));
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(after, before);
+}
+
+// Scenario: 正式版の migrate とサーバは、開発版の DB では止まる
+#[tokio::test]
+async fn st54_official_migration_and_startup_refuse_dev() {
+    let db = testdb::scratch().await;
+    migrate_channel(&db, Channel::Dev).await;
+    let pool = db.pool().await;
+    let result = migration_ledger::apply_migrations_with(
+        pool.acquire().await.unwrap(),
+        MIGRATIONS,
+        || Ok(()),
+        GRANTS,
+        Channel::Official,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(migration_ledger::MigrateError::ChannelMismatch { .. })
+    ));
+    let refusal = migration_ledger::startup_refusal(&pool, MIGRATIONS, Channel::Official)
+        .await
+        .unwrap();
+    assert_eq!(refusal.unwrap().0, "channel_mismatch");
+}
+
+// Scenario: 空の DB に開発版の migrate を当てると、開発版の DB になる
+#[tokio::test]
+async fn st54_empty_database_becomes_dev() {
+    let db = testdb::scratch().await;
+    migrate_channel(&db, Channel::Dev).await;
+    let pool = db.pool().await;
+    let version: String = sqlx::query_scalar(
+        "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(version.contains("-dev."), "{version}");
+}
+
+// Scenario: 版の記録の無い古い DB には、開発版の migrate は当てずに止まる
+#[tokio::test]
+async fn st54_before_ledger_is_official() {
+    let db = testdb::scratch().await;
+    let pool = db.pool().await;
+    sqlx::query("CREATE SCHEMA core")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = migration_ledger::apply_migrations_with(
+        pool.acquire().await.unwrap(),
+        MIGRATIONS,
+        || Ok(()),
+        GRANTS,
+        Channel::Dev,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(migration_ledger::MigrateError::ChannelMismatch {
+            db: Channel::Official,
+            me: Channel::Dev
+        })
+    ));
+}
+
+// Scenario: 版の記録の行が 1 つも無い DB には、どちらの系統の migrate も当てる
+#[tokio::test]
+async fn st54_empty_ledger_allows_both_channels() {
+    let db = testdb::scratch().await;
+    migrate_channel(&db, Channel::Dev).await;
+    let pool = db.pool().await;
+    sqlx::query("DELETE FROM migration_ledger.applied")
+        .execute(&pool)
+        .await
+        .unwrap();
+    migration_ledger::apply_migrations_with(
+        pool.acquire().await.unwrap(),
+        MIGRATIONS,
+        || Ok(()),
+        GRANTS,
+        Channel::Official,
+    )
+    .await
+    .unwrap();
+}
+
+// Scenario: 系統が同じなら、今どおり当てて起動する
+#[tokio::test]
+async fn st54_same_channel_starts_and_healthz_is_ok() {
+    let db = testdb::scratch().await;
+    migrate_channel(&db, Channel::Dev).await;
+    let pool = db.pool().await;
+    assert_eq!(
+        migration_ledger::startup_refusal(&pool, MIGRATIONS, Channel::Dev)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        healthz(tee_app(Channel::Dev, pool).await).await,
+        StatusCode::OK
     );
 }
