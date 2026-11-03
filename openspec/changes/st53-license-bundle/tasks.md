@@ -19,7 +19,7 @@
   Q12 携帯の POM に許諾が 2 つ以上並べば AND で読む。`@pom` を取り寄せ、取れなければ落とす（D7）/ Q13 携帯の依存の一覧は検査と同じ出力から（D8）/
   Q14 PR の組み立ての `SOURCE.txt` は PR の head の commit（D9）/ Q15 開発版と main への push は main の commit、PR は head の commit（D16）。
   第 3 回: Q16 PR の組み立ては head の commit を checkout して組む（合わせた merge の commit からは組まない）。`SOURCE.txt`・組み立ての印・組んだソースが同じ commit を指し、組み立ての印との比べはすべての組み立てで残す（D9。D17 は外した）。
-  仮: D6（自分の部品は名前で通し、`AGPL-3.0-only` を許可の一覧から外す）・D10（PR の成果物の掃除）・D11（`approvals` の中身）・D18（配布物を検査する `package-artifacts` も組んだ job と同じ commit を checkout し、版番号と `LICENSE` を head の木と比べる）。
+  仮: D6（自分の部品は名前で通し、`AGPL-3.0-only` を許可の一覧から外す）・D10（PR の成果物の掃除）・D11（`approvals` の中身）。未決: D18（配布物を検査する `package-artifacts` の checkout。Q17 の答え待ち）。
   （第 1 回は推奨で先に書いた。推奨と違った答えは、上流が写してから下流へ渡す）
 - **名前は統一する**: 正本 `LICENSES/AdditionRef-ashiato-play-services.txt`、式 `AGPL-3.0-only WITH AdditionRef-ashiato-play-services`、配布物の 3 点 `LICENSE`・`THIRD-PARTY-NOTICES.txt`・`SOURCE.txt`（APK は `assets/licenses/`）、
   道具 `tools/check-spdx.sh <license|headers>`・`tools/check-licenses.sh [rust|node|android]`・`tools/licenses/pom-license-names.tsv`・`tools/licenses/texts/<SPDX>.txt`・`tools/release/notices.sh <server|collector-windows|apk|source|commit>`・`tools/verify-prep-device.sh`、
@@ -148,7 +148,7 @@
 - [ ] 6.1 `tools/release/build.sh` の `build_server`・`build_collector` で、実行ファイルと同じ置き場に `LICENSE`（木の写し）・`THIRD-PARTY-NOTICES.txt`（5.1）・`SOURCE.txt`（5.3。commit は `tools/release/notices.sh commit` の出力。D9）を作り、tar / zip の根に入れる（`archive_windows` は複数のファイルを受ける形にする）。
   `build_apk` は 3 点を一時の置き場に組み（5.2・5.3）、`-Pashiato.licenseAssets=<置き場>` で gradle に渡す。`build.gradle.kts` は、その property があるときだけ `release` の assets の source set に `licenses/` として足す（D13）。
   `release.yml` の `package-linux`・`package-windows` の組み立ての手順に `ASHIATO_SOURCE_REF: ${{ github.ref_name }}` を渡す。`nightly.yml` と `ci.yml` は渡さない。
-  `ci.yml` の `package-linux`・`package-windows`・`package-artifacts` の `actions/checkout` に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を足す（`with:` は block 形式に書き直す —— flow 形式の `{ … }` の中では値を引用符で囲むことになり、字面の判定が揺れる。PR では head の commit、main への push では push の commit を checkout する。`persist-credentials: false` は残す。D9・Q16・D18（仮））。ほかの job の checkout と `release.yml`・`nightly.yml` は変えない。
+  `ci.yml` の `package-linux`・`package-windows`・`package-artifacts` の `actions/checkout` に `ref: ${{ github.event.pull_request.head.sha || github.sha }}` を足す（`with:` は block 形式に書き直す —— flow 形式の `{ … }` の中では値を引用符で囲むことになり、字面の判定が揺れる。PR では head の commit、main への push では push の commit を checkout する。`persist-credentials: false` は残す。D9・Q16・D18（Q17 の答え待ち））。ほかの job の checkout と `release.yml`・`nightly.yml` は変えない。
   `tools/release/check-guards.sh` の `workflows` に、`ci.yml` のその 3 つの job の checkout がその `ref` を持つことの判定を足し、`--self-test` に `PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される` を足す（今の `ci.yml` で通り、3 つのどれかから `ref` を抜いた偽の `ci.yml` で落ちる。既存の偽の workflow の作り方（`CHECK_GUARDS_ROOT`）に合わせる）
   検証: `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-linux -- tools/release/build.sh server-linux "$o" && t=$(ls "$o"/ashiato-server-*-linux-x86_64.tar.gz) && tar -tzf "$t" | sort | tr "\n" " " | grep -q "LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt ashiato-server"'` rc=0 / `bash -c 'o="$TMPDIR/b"; scripts/quiet-run build-apk -- tools/release/build.sh apk "$o" && unzip -l "$o"/ashiato-collector-*.apk | grep -c "assets/licenses/\(LICENSE\|THIRD-PARTY-NOTICES.txt\|SOURCE.txt\)$" | grep -qx 3'` rc=0 / `bash -c 'grep -c "ASHIATO_SOURCE_REF: \${{ github.ref_name }}" .github/workflows/release.yml | grep -qx 4 && ! grep -q ASHIATO_SOURCE_REF .github/workflows/nightly.yml .github/workflows/ci.yml'` rc=0 / `bash -c '! grep -rq ASHIATO_SOURCE_COMMIT .github/workflows tools/release && ! grep -q pull_request.head.sha .github/workflows/release.yml .github/workflows/nightly.yml'` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'tools/release/check-guards.sh --self-test 2>&1 | grep -c "== Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit で検査される" | grep -qx 1'` rc=0
 
@@ -210,7 +210,7 @@
   - `chain` の job（全 PR）: `tools/check-spdx.sh --self-test` と `tools/check-spdx.sh`
   - `verify-prep-device.sh --self-test` は、軽い自己試験の並ぶ job（`check-private.sh --self-test` と同じ job）に置く
   検証: `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `bash -c 'for k in "check-licenses.sh rust node" "check-licenses.sh android" "check-spdx.sh --self-test" "verify-prep-device.sh --self-test" "notices.sh --self-test"; do grep -q "$k" .github/workflows/ci.yml || exit 1; done'` rc=0 / `tools/release/check-guards.sh workflows` rc=0
-- [ ] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18（仮））。
+- [ ] 10.2 `docs/release.md` を書き直す（D3・D10・D12・D18（Q17 の答え待ち））。
   - 冒頭: 本物の作業は ST53 が main に入った後
   - §3「エージェントの資格情報」: fine-grained token に持たせる権限と持たせない権限（D3）、ハーネスの token の差し替え、`tools/release/check-guards.sh agent-credential --repo rai-256/ashiato` を差し替えた資格情報で走らせて rc=0
   - §4「ルールセットと承認者」: ST52 のルールセット、`release` に本人を必須の承認者として付ける、管理者の飛ばしを外す、自分の承認を禁じない、`check-guards.sh approvals --repo rai-256/ashiato` rc=0。workflow の中の確かめは守りの本体でない（印の commit の workflow で走るため）
@@ -218,7 +218,7 @@
   - 承認するときに見ること: 印の commit が main の祖先で、PR を通って入ったこと
   - 最初の印の最後: `gh release download` と `check-artifacts.sh --channel` の 2 行。印 `v<版>` を checkout した手元で走らせる（D12）
   - merge の後の PR の成果物の掃除（D10）
-  - 下書きの手順（`draft.sh`）: その PR の head の commit を checkout した手元で走らせる（配布物は head から組まれ、`draft.sh` は手元の木の版番号と `LICENSE` で比べる。D18（仮））
+  - 下書きの手順（`draft.sh`）: その PR の head の commit を checkout した手元で走らせる（配布物は head から組まれ、`draft.sh` は手元の木の版番号と `LICENSE` で比べる。D18（Q17 の答え待ち））
   - ST53 の確認バッチの手順（末尾の「人間の確認待ち」）。準備の間は本人の携帯を繋がない
   検証: `bash -c 'for h in "エージェントの資格情報" "agent-credential" "approvals" "必須の承認者" "gh release download" "成果物" "携帯を繋がない" "head の commit を checkout"; do grep -q "$h" docs/release.md || exit 1; done'` rc=0 / `bash -c 'a=$(grep -n "エージェントの資格情報" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test "$a" -lt "$b"'` rc=0 / `bash -c 'a=$(grep -n "check-guards.sh approvals" docs/release.md | head -1 | cut -d: -f1); r=$(grep -n "必須の承認者" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test -n "$a" && test -n "$r" && test "$a" -lt "$b" && test "$r" -lt "$b"'` rc=0（資格情報 → 承認者 → 鍵の順。review/spec.md R12）
 - [ ] 10.3 `docs/testing.md`・`CONTRIBUTING.md` の手元の検査の行を `../tools/check-licenses.sh rust node` に、`docs/production-prep.md` の「依存ライセンスの検査」の行に ★ で携帯の節と表示の検査（ST53）を足す。`CLAUDE.md` の「構成」の `tools` の行に `licenses/`（許諾の対応表と全文）を足す
@@ -228,7 +228,7 @@
 
 下流の実装の中には PR の CI の実行が無いので、配布元での確かめはここで行う。Scenario ではない —— どれも前提（premises）の確かさを上げる確かめで、結果は確認バッチが `premises.md` に書く。**準備の間は本人の携帯を繋がない**（Q8。Task 9 が入るまで）。
 
-- [ ] 11.1 **下書きのリリースで許諾の 3 点を見る**（Q4・D12）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を、その PR の head を checkout した手元（`git rev-parse HEAD` が run の `head_sha` と同じ）で走らせる（D18（仮））。
+- [ ] 11.1 **下書きのリリースで許諾の 3 点を見る**（Q4・D12）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を、その PR の head を checkout した手元（`git rev-parse HEAD` が run の `head_sha` と同じ）で走らせる（D18（Q17 の答え待ち））。
   作る前と後で `git ls-remote --tags origin 'v*' | wc -l` が同じこと、4 つの配布物を落として 3 点があり、`SOURCE.txt` が `Commit:` を持つことを見る。APK は `unzip -l` で `assets/licenses/` を見る。見た後に下書きを消す。
   `SOURCE.txt` の `Commit:` が、その run の PR の head の commit（`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha`）と同じで、配布物の組み立ての印の commit とも同じ（`.dirty` を持たない）ことを見る（Q16・P18）。その run の `package-linux`・`package-windows`・`package-artifacts` が head を checkout して通ったことで P17 を見る（同じ repo の枝の PR の範囲で P17、P18 の確かさを 4 にする。fork の PR の側の P17 はこの run では見られず、確かさ 2 のまま）。食い違えば D9 を上流へ返す
 - [ ] 11.5 **PR の head を後から取れるか**（P14。FR-127 ★ 2026-11-03。`package` も ST53 のコードも要らないので、確認バッチの中で ST53 が main に入る前に行う）:

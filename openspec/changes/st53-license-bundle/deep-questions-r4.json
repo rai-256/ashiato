@@ -1,0 +1,30 @@
+{
+  "title": "ST53 の深掘り 第 4 回",
+  "subtitle": "仮で進めた決定のうち、別の席が否とした 1 件（D18）",
+  "note": "合意（第 4 回）の後、merge gate の前に別の席が仮の決定 D18 を確かめ直し、否としました。選んだ側が要件の本文と食い違うためです。どちらを選んでも配布物の中身は変わらず、後から失うものはありません。違うのは、要件の文を広げるか、検査の作り方を変えるかです。選んだら一番下の「回答をコピー」を押して、操作盤に貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q17",
+      "topic": "配布物を検査する package-artifacts をどの木で走らせるか（design D18）",
+      "kind": "conflict",
+      "multi": false,
+      "allow_free": true,
+      "question": "CI で組んだ配布物を集めて許諾の 3 点と版番号を見る job（`package-artifacts`）を、配布物を組んだ job と同じ PR の head の木で走らせますか。それとも今どおり、head とその時の main を合わせた木で走らせますか。",
+      "why": "Q16 で、PR の配布物は head の commit そのものから組むことにしました。要件（FR-127 ★ 2026-11-03（第 3 回））はこれに合わせて「head の木で走るのは、組み立ての job の中の自己試験と許諾・表示の検査だけ。ほかの job は今どおり合わせた木で走る」と書いています。ところが仕様は仮で、組み立ての job ではない `package-artifacts` も head の木で走らせることにしていました（D18）。別の席はこれを、要件の文のどちらの側にも入らないとして否としました。仮のままにできるのは要件を変えない決定だけなので、本人に決めてもらいます。",
+      "context": "合わせた木のままだと困ること: 枝を切った後に main が版番号か LICENSE を変えた PR では、head から組んだ配布物を合わせた木の版番号・LICENSE と比べて CI が赤くなる（整合の確認 K1）。推奨の形はこれを、期待値を head の commit から取ることで避ける。どちらでも、配布物の中身と SOURCE.txt は変わらず、merge gate は rebase した後の CI で合わせた木と同じものを見る（別の席は「失うものは無い」と確かめた）。draft.sh（手元で下書きを作る台本）は、どちらでも PR の head を checkout した手元で走らせる。",
+      "options": [
+        {
+          "label": "合わせた木のまま走らせ、期待値だけを head の commit から取る（要件は変えない）",
+          "detail": "`package-artifacts` の checkout は今のまま。期待する版番号と比べる LICENSE は、配布物を組んだ head の commit（`github.event.pull_request.head.sha || github.sha`）の中身から取る。要件の文はそのまま合う。費用は `check-artifacts.sh` の期待値の取り方の変更（Story の範囲の内）",
+          "irreversible": "なし（どちらへも次の run から変えられる）",
+          "recommended": true
+        },
+        {
+          "label": "head の木で走らせる（D18 のまま。要件の文を広げる）",
+          "detail": "`package-artifacts` も `package-linux`・`package-windows` と同じ head の commit を checkout する。要件 FR-127 ★ 第 3 回の「head の木で走るもの」に「配布物を検査する job」を足す。費用は workflow の 1 行と要件の 1 文",
+          "irreversible": "なし（どちらへも次の run から変えられる）。要件の本文が変わる"
+        }
+      ]
+    }
+  ]
+}

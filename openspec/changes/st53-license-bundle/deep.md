@@ -112,6 +112,19 @@
 - 答え: (推奨のまま: PR の組み立てを head から組む（checkout に head の commit を渡す）)
   - 本人は推奨の選択肢を明示して選んだ（`deep-answers-3.txt`）。補足なし
 
+## 第 4 回（2026-11-03 起票）—— 仮で進めた決定のうち、別の席が否とした 1 件（D18）
+
+> merge gate（PR #230）の前に、別の席（`provisional-review.md` の D18）が仮の決定 D18 を否とした。選んだ側（`package-artifacts` も head の木で checkout する）は要件 FR-127 ★ 2026-11-03（第 3 回）の文（head の木で走るのは組み立ての job の中の自己試験と許諾・表示の検査だけ）に入らず、通すには要件の本文を変える必要がある。
+> 要件を変えない側（合わせた木のまま、期待値を配布物を組んだ head から取る）もあるので、どちらにするかを本人に返す。台帳からは `provisional.py resolve` で外し、design の見出しの（仮）を外して「未決（Q17 の答え待ち）」にした。
+> 問いは `deep-questions-r4.json`、渡す形は `docs/briefs/ST53-deep-r4.html`。答えは `spec --answers Q17` で design D18・tasks 6.1・10.2・`docs/release.md` の手順に写す。
+
+### Q17. 配布物を検査する `package-artifacts` をどの木で走らせるか（design D18。provisional-review.md D18）
+
+- 問い: `package-artifacts`（`.github/workflows/ci.yml` の、組んだ配布物を集めて `check-artifacts.sh` で見る job）を、組んだ job と同じ head の木で checkout するか、今どおり合わせた木で走らせるか
+- 推奨: 合わせた木のまま走らせ、期待する版番号と比べる `LICENSE` は配布物を組んだ head の commit から取る（要件の本文は変えない。design D18 の反転条件の形）
+- 出所: provisional-review.md D18（条件 2 で否。要件 FR-127 ★ 第 3 回の文と食い違う）・整合の確認 `docs/audit/2026-11-03-st53-r3-consistency.md` K1・K2
+- 答え: (未回答)
+
 ## 影響の判断（第 1 回の合意）
 
 重大な IMP への本人の答え（`deep-answers-1.txt` の逐語）。閉じたか・リリースまで残るかは `agreement.json` の `impacts` が持つ。

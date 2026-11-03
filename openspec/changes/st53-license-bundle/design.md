@@ -152,7 +152,7 @@ Google の `oss-licenses-plugin` は使わない。実行時に `play-services-o
 - `--channel nightly` と `--allow-debug-key`（PR・main への push の `package-artifacts` と `draft.sh`。`draft.sh:32`）: 配布物の組み立ての印の commit と同じ `Commit:`（40 桁の 16 進）。どの組み立ても組んだ木の commit を書くので、比べはすべての組み立てで残す（Q16）
 既定のチャンネルは `release` のまま変えない（ST52 の呼び出しを壊さない。review/spec.md R1）。
 組む木を head にすると、`package-linux` の job の中の検査 —— ST52 の重い自己試験（`check-artifacts.sh`・`sign-apk.sh`・`make-key.sh` の `--self-test`）と、この Story が足す `check-licenses.sh android`（D15）—— も head の木で走る（FR-127 ★ 2026-11-03（第 3 回）はそう狭めてある。整合の確認 K2）。main と合わせて初めて許可の外の依存が入る組み合わせは PR の CI では止まらず、merge gate が head を main に rebase した後の CI（`scripts/merge_gate.sh:7`・`:79`）と main への push の CI で止まる。`check-spdx.sh` は合わせた木で走る `chain` の job にもある（D15）。ほかの job（縦串・試験）は今どおり合わせた木で走る。
-配布物を検査する `package-artifacts` の checkout の扱いは D18（仮）。
+配布物を検査する `package-artifacts` の checkout の扱いは D18（未決。Q17 の答え待ち）。
 PR の head の commit は PR の枝の上にあり、閉じた後も `refs/pull/<n>/head` で残る見込みが高い。ただし確かめていない（premises P14・確かさ 2）。この repo の PR の枝は rebase して push し直すので、push し直す前の組み立ての head はどの ref からも辿れなくなるかもしれない（FR-127 ★ 2026-11-03・整合の確認 C1）。人間の確認待ち 11.5（確認バッチの中、ST53 が main に入る前）で、閉じた PR の head と、push し直す前の head の両方を `git fetch origin <commit>` で確かめる。
 head を checkout した組み立ての印が `.dirty` を持たないこと・fork の PR でも head を取れることは premises P17・P18（11.1 で見る）。
 - 選ばなかった案（Q14 の他の選択肢）: 合成の merge commit のまま確かめを待つ・merge の前に確かめてから決める
@@ -229,7 +229,9 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 
 > 2026-11-03 に外した。前提（引数だけでは PR と main への push を分けられない）は誤りで（review/spec.md R18。`ci.yml:34` が既に式で PR と push を分けている）、深掘り Q16 で PR の組み立てを head から組むことにしたので、比べを外す分岐ごと要らなくなった（D9）。台帳からは `provisional.py resolve` で外した。番号は再び使わない
 
-### D18（仮）. 配布物を検査する `package-artifacts` も、組んだ job と同じ commit を checkout する
+### D18. 配布物を検査する `package-artifacts` も、組んだ job と同じ commit を checkout する（未決。Q17 の答え待ち）
+
+> 仮で進めたが、別の席（`provisional-review.md` の D18）が否とした（要件 FR-127 ★ 2026-11-03（第 3 回）は head の木で走るものを「組み立ての job の中の自己試験と許諾・表示の検査」に限っており、`package-artifacts` は組み立ての job でない）。台帳から外し、深掘り第 4 回 Q17 で本人に返した
 
 `ci.yml` の `package-artifacts` は、`package-linux`・`package-windows` と同じ `ref: ${{ github.event.pull_request.head.sha || github.sha }}` で checkout する。期待する版番号（`tools/release/version.sh source`）と、比べる木の `LICENSE` は、配布物を組んだ head の木から取る。
 D9 で組む木だけを head にすると、枝を切った後に main が出所の版か `LICENSE` を変えた PR で、head から組んだ配布物を合わせた木の版番号・`LICENSE` と比べて CI が赤くなる（整合の確認 K1）。
