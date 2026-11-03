@@ -978,6 +978,18 @@ mod tests {
     use crate::time_sync::TimeSyncError;
     use std::cell::RefCell;
 
+    thread_local! {
+        static CAPTURED_LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn capture_log(line: String) {
+        CAPTURED_LOGS.with(|logs| logs.borrow_mut().push(line));
+    }
+
+    fn take_captured_logs() -> Vec<String> {
+        CAPTURED_LOGS.with(|logs| std::mem::take(&mut *logs.borrow_mut()))
+    }
+
     fn t(sec: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-13T00:00:00Z")
             .unwrap()
@@ -1278,8 +1290,9 @@ mod tests {
         app: Channel,
         reply: Reply,
         with_outages: bool,
-    ) -> (usize, usize, usize, usize, usize, usize, usize) {
+    ) -> (usize, usize, usize, usize, usize, usize, usize, Vec<String>) {
         let (cfg, _tmp) = cfg();
+        let _ = take_captured_logs();
         let transport = ChannelTransport {
             contract: std::sync::Mutex::new(reply),
             posts: std::sync::atomic::AtomicUsize::new(0),
@@ -1298,6 +1311,7 @@ mod tests {
             app,
         )
         .unwrap();
+        rt.log = capture_log;
         let toasts = Arc::new(ChannelToasts::default());
         rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
             toasts.clone(),
@@ -1322,6 +1336,7 @@ mod tests {
                 .load(std::sync::atomic::Ordering::Relaxed),
             contract_shown,
             outage_calls,
+            take_captured_logs(),
         );
         result
     }
@@ -1452,6 +1467,10 @@ mod tests {
             false,
         );
         assert_eq!(r.3, 1);
+        assert!(r.7.iter().any(|line| {
+            line.contains("kind=channel_mismatch")
+                && line.contains("error=server=official self=dev")
+        }));
     }
     // Scenario: 系統の違いの知らせは、続く間 24 時間ごとに出し直す
     #[test]
