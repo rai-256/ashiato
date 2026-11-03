@@ -57,20 +57,27 @@ tools/release/check-guards.sh approvals --repo rai-256/ashiato
 keytool -exportcert -keystore <正式なkeystore> -alias "$ASHIATO_SIGNING_KEY_ALIAS" -storepass:env ASHIATO_SIGNING_STORE_PASSWORD | sha256sum | cut -d' ' -f1
 ```
 
-`nightly` には正式な鍵、Secret、証明書指紋を置かない。
+`nightly` には正式な鍵、Secret、証明書指紋を置かない。携帯の開発版鍵を作って置くのは ST54 の作業とする（`sign-apk.sh … dev` は開発版の鍵の指紋を `ASHIATO_EXPECT_DEV_CERT_SHA256` で受け取り、無ければ署名しない）。
 
-開発版の公開設定はリポジトリ変数 `ASHIATO_NIGHTLY_PUBLISH=on` とし、設定が無い間は公開しない。携帯の開発版鍵は ST54 から扱う。
+開発版の公開設定はリポジトリ変数 `ASHIATO_NIGHTLY_PUBLISH=on` とし、設定が無い間は公開しない。
 
 ## 6. 最初の印と開発版の公開
 
-main の CI と配布物が緑になった後、本人が main の公開する commit に最初の印を打つ。正式版・ベータ版は印でソースを示し、それ以外は組み立てた commit で示す。
+§3 の資格情報・§4 のルールセットと承認者・§5 の鍵を確認した後で、本人が次の順に進める。正式版・ベータ版は印でソースを示し、それ以外は組み立てた commit で示す。
 
-最初の印の最後に、印 `v<版>` を checkout した手元で実行する。
+1. main の CI が緑で、配布物の組み立てが完了していることを確認する。
+2. main の公開する commit を checkout し、`git tag v<版番号> <commit>` で最初の印を main の commit に打つ。`tools/release/version.sh plan v<版番号>` が通ることを確認してから `git push origin v<版番号>` を行う。
+3. release workflow が `check-guards.sh rules`、`check-guards.sh approvals`、正式版の署名、`ASHIATO_CERT_SHA256` による指紋確認、`check-artifacts.sh`、GitHub Release 作成の順で進むことを確認する。
+4. 公開された配布物を、印 `v<版番号>` を checkout した手元で検査する。
 
-```bash
-gh release download v<版> -D "$dir"
-tools/release/check-artifacts.sh "$dir" --channel <beta|release> --expect-version <版>
-```
+   ```bash
+   dir="$(mktemp -d)"
+   gh release download v<版番号> -D "$dir"
+   tools/release/check-artifacts.sh "$dir" --channel <beta|release> --expect-version <版番号>
+   ```
+
+5. 開発版の公開を始めるときは、main の変更がある日に nightly workflow を動かし、`ASHIATO_NIGHTLY_PUBLISH=on` のときだけ公開する。nightly の公開先は main に開いた `nightly` Environment である。ST54 までは携帯の APK を含めず、S-01 と C-02 の配布物を公開する。
+   最初の公開では workflow がリリース `nightly` を先行公開として作る（手で作らなくてよい）。公開は、新しい配布物を先に載せ（同じ名前は置き換え）、載った後で今回の配布物に無い名前（前日の版の配布物）だけを消し、最後に印 `nightly` を動かす。載せるのに失敗したときは前の配布物が残る。
 
 PR の成果物は ST53 が main に入った後に本人が掃除する。ST53 より前の commit の `package-linux`・`release-package` だけを対象にし、ST53 後の成果物は消さない。
 
@@ -78,19 +85,45 @@ PR の成果物は ST53 が main に入った後に本人が掃除する。ST53 
 gh api --method DELETE repos/rai-256/ashiato/actions/artifacts/<artifact-id>
 ```
 
-## 7. 壊れた版と修正の枝
+## 7. 本人の環境を移す
 
-壊れた正式版は削除・付け替えせず、次の版で修正する。修正の枝では移行と契約を元の正式版から変更せず、`tools/release/version.sh plan` で確認してから次の印を打つ。
+★ 2026-11-03 訂正（`docs/requirements.md` FR-108 の ★ 2026-11-03 補足・整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C3）。
+**本人の環境を切り替えるのは ST55（同梱の PostgreSQL のインストーラ）が済んでから、そのインストーラで入れて行う。** ST53 の後に Docker の DB のまま切り替えない ——
+Docker の DB の記録は配る形へ移さないと決めた（FR-108。移す口が無い）。以下は旧い手順（2026-11-02）で、ST55 がインストーラの手順に書き直す。
 
-修正の枝の例では、正式版から `release/<MAJOR>.<MINOR>` を切り、`Cargo.toml` の workspace version を次の版へ上げて先に commit する。修正、テスト、commit、push、`tools/release/version.sh plan`、印の push、release workflow の完了確認の順に行い、正式版へ取り込まれたことを確認してから枝を消す。印そのものは削除しない。
+ST53 が main に入り、正式版の公開が完了してから本人が行う。まず現在のサーバを止め、DB のバックアップを取り、新しい正式版のサーバを配置する。新しい版で `ashiato-server migrate` を実行し、成功した場合だけ新しいサーバを起動する。DB が配布版より先に進んでいる場合は書き換えず、次の版まで移さない。起動後に画面、取り込み、稼働状況を確認し、異常があれば旧版へ戻す手順（ST48 の終了コード3は復元しない）に従う。
 
-### 本人の環境を移す（旧 §7。ST55 で訂正）
+## 8. 壊れた版と修正の枝
 
-★ 2026-11-03 訂正（`docs/requirements.md` FR-108 の補足・整合の確認 `docs/audit/2026-11-03-native-postgres-consistency.md` の C3）。**本人の環境を切り替えるのは ST55（同梱の PostgreSQL のインストーラ）が済んでから、そのインストーラで行う。** ST53 の後に Docker の DB のまま切り替えない。Docker の DB の記録は配る形へ移さないと決めた（FR-108。移す口が無い）。以下は旧い手順（2026-11-02）で、ST55 がインストーラの手順に書き直す。
+壊れた正式版は削除・付け替えせず、次の版で修正する。緊急修正が必要なときは正式版から `release/<MAJOR>.<MINOR>` の修正の枝を切り、移行 (`migrations/ORDER`) と封筒 (`docs/contract/envelope.json`) を元の正式版から変更しない。`tools/release/version.sh plan` でその条件を確認してから正式版の印を打つ。修正の枝からベータ版は出さない。
 
-ST53 が main に入り、正式版の公開が完了してから本人が行う。まず現在のサーバを止め、DB のバックアップを取り、新しい正式版のサーバを配置する。新しい版で `ashiato-server migrate` を実行し、成功した場合だけ新しいサーバを起動する。DB が配布版より先に進んでいる場合は書き換えず、次の版まで移さない。
+修正の枝の例:
 
-## 8. ST53 の確認バッチ（人間の確認待ち）
+```bash
+git switch -c release/0.1 <正式版の印>
+# Cargo.toml の workspace version を 0.1.1 に上げて commit
+# （版番号を上げた commit を修正の枝に先に置く）
+<エディタで Cargo.toml の workspace version を 0.1.1 に変更>
+git add Cargo.toml
+git commit -m "chore: 次の版番号へ上げる"
+# 修正、テスト、commit
+git add <修正したファイル>
+git commit -m "fix: 正式版の不具合を修正"
+git push -u origin release/0.1
+git tag v0.1.1
+tools/release/version.sh plan v0.1.1
+git push origin v0.1.1
+# release workflow の完了と配布物を確認してから枝を消す
+run_id="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh run watch "$run_id" --exit-status
+git switch main
+git branch -d release/0.1
+git push origin --delete release/0.1
+```
+
+実際の版番号と commit は対象のリリースに置き換える。削除前に修正が正式版へ取り込まれていることを確認し、印そのものは削除しない。
+
+## 9. ST53 の確認バッチ（人間の確認待ち）
 
 PR の CI が緑になった後、使い捨ての値と下書きで次を本人が確認する。本物の印、正式な鍵、本人のサーバの切り替えは行わない。**準備の間は本人の携帯を繋がない。**
 
@@ -123,4 +156,4 @@ test "$before" = "$after"
 
 使い捨ての枝に 1 commit を足して PR を開き、`git rev-parse HEAD` で head を控える。枝を rebase して force-push し直し、新しい head も控える。PR を merge せずに閉じ、別の空の clone で控えた 2 つ（push し直す前の head と最後の head）を `git fetch origin <commit>` で取れるかを見る。最後に枝を消す。取れれば P14 の確かさを 4 にし、取れなければ D9 の反転条件で上流へ返す。
 
-使い捨ての Environment で、PR の枝から `release` 相当の Secret が読めないことも確認してから Environment を削除する。読めた場合は鍵を置かず、Q2 の判断へ戻す。
+使い捨ての Environment で、PR の枝から `release` 相当の Secret が読めないことも確認してから Environment を削除する。11.2 で承認できた・承認の前に job が始まった・Secret が読めた場合は、鍵を置かず、ST53 の深掘りの Q3（正式な鍵を置く前に、印から鍵を読める経路をどう閉じるか）を人間に聞き直す。
