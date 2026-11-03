@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "4cfbc99996f243885d7fa2250744ddb888949566df478ba8ee4804e1f61a966a",
+  "digest": "c455564d540423317f10a531b7c21c0ced12570995ef089eb4c379489e0cb918",
   "head": "5eb4b113f1da6a555d3555871ddb6721fbf0e764",
   "answers": "deep-answers-6.txt",
   "picked": "合意する",
@@ -181,6 +181,15 @@
       "id": "IMP-02",
       "answer": "直した・確かめた結果に同意する",
       "closed": true
+    }
+  ],
+  "carried": [
+    {
+      "from": "4cfbc99996f243885d7fa2250744ddb888949566df478ba8ee4804e1f61a966a",
+      "because": [
+        "Q15"
+      ],
+      "at": "2026-11-03T07:40:49Z"
     }
   ]
 }
