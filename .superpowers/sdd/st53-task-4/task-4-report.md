@@ -27,3 +27,31 @@
 - online/offline の POM 出力は一致し、55 部品を確認できた。
 - Android の実依存で `PROPRIETARY` として通る部品は、正本に名指しされた Google の 4 座標だけであることを確認した。
 - 検証コマンドの指定により `$TMPDIR` に POM 出力が残る注意が `verify-run` に記録された。実装側の自己試験用一時ディレクトリは `mktemp -d` と終了時 trap で管理している。
+
+## Fix report（review 1）
+
+### 対応
+
+- F1: Android 節に 4.3 の 2 Scenario の印を追加した。
+- F2: 親 POM の self-test を、実 Gradle task・使い捨て Maven repository・`-Pashiato.extraRepo`・コピーした Android 木で実行し、出力の `parent` と Apache-2.0 判定を検証するようにした。
+- F3: `.module` と jar（および Android variant の artifact）だけを置いた部品を実 Gradle で cache した後、`--offline` の task で POM 欠落を検証し、座標と POM 欠落を確認するようにした。偽の gradlew は削除した。
+- F4: Android 節は `gradlew` を直接実行し、失敗抽出は `grep` にした。`scripts/quiet-run` と `rg` への依存を除いた。
+- F5: TSV の列数が 4 でない行を即時失敗にし、POM の空白列を Kotlin 側で trim・連続空白の単一空白化するようにした。
+
+### 検証
+
+- RED: review 前の self-test は欠落 POM Scenario が偽の gradlew で成功扱いになった。実 Gradle の欠落 POM 構成へ置き換え後、途中の `releaseRuntimeClasspath` 解決が成立し、`--offline` では `Could not find <座標>.pom` で失敗することを確認した。
+- GREEN: `TMPDIR=/tmp/ashiato-task4-tmp scripts/quiet-run task4-self-test-pass -- tools/check-licenses.sh --self-test` — rc=0、`self-test OK`。
+- GREEN: `scripts/verify-run 4.3` — 2 項目とも PASS（Android 実依存、self-test）。実依存の確認は 55 件・不許可 0 件、検証コマンドの proprietary 件数は 4。
+- `python3 scripts/check_scenarios.py . st53-license-bundle` は、この Task 外の未実装 Scenario 27 件で FAIL。F1 の Android 2 Scenario の印不足は解消済みで、他の Task の不足は変更していない。
+
+### 変更ファイル
+
+- `collector-android/app/build.gradle.kts`
+- `tools/check-licenses.sh`
+- `openspec/changes/st53-license-bundle/evidence.jsonl`
+
+### 自己レビュー
+
+- 指摘された F1〜F5 以外の仕様・Task は変更していない。
+- `verify-run 4.3` の self-test では一時フォルダ 2 件の残留注意が記録された。self-test の親ディレクトリ自体は `mktemp -d` と `RETURN` trap で管理しているが、Gradle が生成する内部一時物の残留は既存の Gradle 道具由来であり、今回の範囲では変更していない。

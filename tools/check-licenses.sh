@@ -112,10 +112,11 @@ elif section == "android":
                     in_list = False
     components = {}
     with open(input_path, encoding="utf-8") as stream:
-        for line in stream:
+        for line_number, line in enumerate(stream, 1):
             fields = line.rstrip("\n").split("\t")
             if len(fields) != 4:
-                continue
+                print(f"  NG TSV の列数が 4 でない: {input_path}:{line_number}")
+                sys.exit(1)
             coordinate, name, url, source = fields
             components.setdefault(coordinate, []).append((name, url, source))
     count = len(components)
@@ -177,6 +178,8 @@ run_node() {
 
 run_android() {
   echo "== Android の依存"
+  echo "== Scenario: 今の携帯の依存は、許諾の検査を通る"
+  echo "== Scenario: 今の携帯の依存で、オープンソースでないとして通すのは名指しの 4 つだけ"
   local list="${ASHIATO_LICENSES_POM_LIST:-}"
   if [[ -z "$list" ]]; then
     local gradlew="${ASHIATO_GRADLEW:-./collector-android/gradlew}"
@@ -189,13 +192,10 @@ run_android() {
     if [[ -n "${ASHIATO_LICENSES_EXTRA_REPO:-}" ]]; then
       command+=("-Pashiato.extraRepo=$ASHIATO_LICENSES_EXTRA_REPO")
     fi
-    local quiet_output quiet_log
-    if ! quiet_output=$(scripts/quiet-run android-poms -- "${command[@]}" 2>&1); then
-      echo "$quiet_output"
-      quiet_log="${quiet_output##*全文: }"
-      if [[ -f "$quiet_log" ]]; then
-        rg -n 'POM|Could not find' "$quiet_log" || true
-      fi
+    local gradle_output
+    if ! gradle_output=$("${command[@]}" 2>&1); then
+      echo "$gradle_output"
+      grep -En 'POM|Could not find' <<<"$gradle_output" || true
       echo "  NG 対象が無い（gradle の依存または POM を解決できない）"
       return 1
     fi
@@ -300,22 +300,59 @@ TSV
   cp "LICENSES/AdditionRef-ashiato-play-services.txt" "$android_addition"
 
   echo "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する"
-  printf '%s\n' $'com.example.child:library:1.0.0\tThe Apache Software License, Version 2.0\thttps://example.invalid\tparent' >"$android_list"
-  ASHIATO_LICENSES_POM_LIST="$android_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android >/dev/null
+  local fake_repo="$test_root/maven-repo" copied_android copied_cargo parent_list parent_output
+  copied_android="$test_root/copied-collector-android"
+  copied_cargo="$test_root/Cargo.toml"
+  cp -a collector-android "$copied_android"
+  cp Cargo.toml "$copied_cargo"
+  mkdir -p "$fake_repo/com/example/parent/1.0.0" "$fake_repo/com/example/child/1.0.0"
+  : >"$fake_repo/com/example/child/1.0.0/child-1.0.0.jar"
+  cat >"$fake_repo/com/example/parent/1.0.0/parent-1.0.0.pom" <<'POM'
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0.0</version><licenses><license><name>The Apache Software License, Version 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0.txt</url></license></licenses></project>
+POM
+  cat >"$fake_repo/com/example/child/1.0.0/child-1.0.0.pom" <<'POM'
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><parent><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0.0</version></parent><groupId>com.example</groupId><artifactId>child</artifactId><version>1.0.0</version></project>
+POM
+  cat >"$fake_repo/com/example/child/1.0.0/child-1.0.0.module" <<'MODULE'
+{"formatVersion":"1.1","component":{"group":"com.example","module":"child","version":"1.0.0"},"createdBy":{"gradle":{"version":"8.13"}},"variants":[{"name":"runtime","attributes":{"org.gradle.category":"library","org.gradle.dependency.bundling":"external","org.gradle.libraryelements":"jar","org.gradle.usage":"java-runtime"},"files":[{"name":"child-1.0.0.jar","url":"child-1.0.0.jar"}]}]}
+MODULE
+  sed -i 's#url = uri(extraRepo)#url = uri(extraRepo); metadataSources { gradleMetadata(); mavenPom(); artifact() }#' "$copied_android/settings.gradle.kts"
+  sed -i '/implementation("androidx.core:core-ktx:1.17.0")/a\    implementation("com.example:child:1.0.0")' "$copied_android/app/build.gradle.kts"
+  parent_list="$test_root/parent.tsv"
+  parent_output=$("$copied_android/gradlew" -p "$copied_android" --no-configuration-cache --rerun-tasks -q :app:ashiatoDependencyPoms \
+    "-Pashiato.pomOut=$parent_list" "-Pashiato.extraRepo=$fake_repo" 2>&1) || {
+    echo "$parent_output" >&2
+    return 1
+  }
+  grep -q $'^com.example:child:1.0.0\tThe Apache Software License, Version 2.0\t.*\tparent$' "$parent_list" || return 1
+  ASHIATO_LICENSES_POM_LIST="$parent_list" ASHIATO_LICENSES_ADDITION="$android_addition" "$0" android >/dev/null
 
   echo "== Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる"
-  local fake_gradlew="$test_root/fake-gradlew"
-  cat >"$fake_gradlew" <<'SH'
-#!/usr/bin/env bash
-echo "POM を取れない: com.example.missing:library:1.0.0" >&2
-exit 1
-SH
-  chmod +x "$fake_gradlew"
-  if output=$(ASHIATO_GRADLEW="$fake_gradlew" "$0" android 2>&1); then
-    echo "  self-test NG: POM の取得失敗を通した" >&2; return 1
+  local missing_version="9.9.$RANDOM"
+  local missing_coordinate="com.example:missing:$missing_version"
+  mkdir -p "$fake_repo/com/example/missing/$missing_version"
+  : >"$fake_repo/com/example/missing/$missing_version/missing-$missing_version.jar"
+  : >"$fake_repo/com/example/missing/$missing_version/missing-$missing_version.aar"
+  cat >"$fake_repo/com/example/missing/maven-metadata.xml" <<META
+<metadata><groupId>com.example</groupId><artifactId>missing</artifactId><versioning><latest>$missing_version</latest><release>$missing_version</release><versions><version>$missing_version</version></versions></versioning></metadata>
+META
+  cat >"$fake_repo/com/example/missing/$missing_version/missing-$missing_version.module" <<MODULE
+{"formatVersion":"1.1","component":{"group":"com.example","module":"missing","version":"$missing_version","attributes":{"org.gradle.status":"release"}},"createdBy":{"gradle":{"version":"8.13"}},"variants":[{"name":"runtime","attributes":{"org.gradle.category":"library","org.gradle.dependency.bundling":"external","org.gradle.libraryelements":"jar","org.gradle.usage":"java-runtime"},"files":[{"name":"missing-$missing_version.jar","url":"missing-$missing_version.jar"}]},{"name":"android-runtime","attributes":{"org.gradle.category":"library","org.gradle.dependency.bundling":"external","org.gradle.libraryelements":"aar","org.gradle.usage":"java-runtime"},"files":[{"name":"missing-$missing_version.aar","url":"missing-$missing_version.aar"}]}]}
+MODULE
+  sed -i "/implementation(\"com.example:child:1.0.0\")/a\\    releaseImplementation(\"$missing_coordinate\")" "$copied_android/app/build.gradle.kts"
+  grep -q "$missing_coordinate" "$copied_android/app/build.gradle.kts" || return 1
+  printf '%s\n' 'tasks.register("resolveFakeReleaseRuntime") { doLast { configurations.getByName("releaseRuntimeClasspath").resolve() } }' >>"$copied_android/app/build.gradle.kts"
+  local resolve_output
+  resolve_output=$("$copied_android/gradlew" -p "$copied_android" --no-configuration-cache --refresh-dependencies -q :app:resolveFakeReleaseRuntime \
+    "-Pashiato.extraRepo=$fake_repo" 2>&1) || { printf '%s\n' "$resolve_output" >&2; return 1; }
+  if output=$("$copied_android/gradlew" -p "$copied_android" --offline --no-configuration-cache --rerun-tasks -q :app:ashiatoDependencyPoms \
+    "-Pashiato.pomOut=$test_root/missing.tsv" "-Pashiato.extraRepo=$fake_repo" 2>&1); then
+    echo "  self-test NG: POM の取得失敗を通した" >&2
+    return 1
   fi
-  grep -q 'POM' <<<"$output" || return 1
-  grep -q '対象が無い' <<<"$output" || return 1
+  grep -q "$missing_coordinate" <<<"$output" || return 1
+  grep -Eq "POM を取れない|Could not find missing-${missing_version}\.pom" <<<"$output" || return 1
+  ! grep -q "Could not find $missing_coordinate" <<<"$output" || return 1
 
   echo "== Scenario: 検査する対象が無い節は、通さずに落ちる"
   if output=$(ASHIATO_GRADLEW=false ASHIATO_LICENSES_POM_LIST= "$0" android 2>&1); then

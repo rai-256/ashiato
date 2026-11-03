@@ -95,7 +95,7 @@ private fun pomChild(parent: org.w3c.dom.Element, name: String): org.w3c.dom.Ele
         .firstOrNull { it.tagName == name }
 
 private fun pomText(parent: org.w3c.dom.Element, name: String): String =
-    pomChild(parent, name)?.textContent?.trim().orEmpty()
+    pomChild(parent, name)?.textContent?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
 
 private fun readPomLicenses(
     component: ModuleComponentIdentifier,
@@ -106,7 +106,7 @@ private fun readPomLicenses(
     while (true) {
         val document = try {
             resolvePom(coordinate)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             throw GradleException("POM を取れない: $coordinate", e)
         }
         val project = document.documentElement
@@ -139,6 +139,7 @@ tasks.register("ashiatoDependencyPoms") {
         val output = project.findProperty("ashiato.pomOut")?.toString()
             ?: throw GradleException("ashiato.pomOut が無い")
         val configuration = configurations.getByName("releaseRuntimeClasspath")
+        configuration.resolve()
         val components = configuration.incoming.resolutionResult.allComponents
             .mapNotNull { it.id as? ModuleComponentIdentifier }
             .distinctBy { "${it.group}:${it.module}:${it.version}" }
