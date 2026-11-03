@@ -9,6 +9,7 @@ usage() { echo "使い方: $0 <server-linux|server-windows|collector-windows|apk
 version=""
 out=""
 web_dist=""
+license_bundle=""
 
 resolve_version() {
   version="${ASHIATO_BUILD_VERSION:-}"
@@ -32,6 +33,31 @@ cleanup_build_tmp() {
   [[ -z "${TMPDIR:-}" ]] || [[ ! -d "$TMPDIR/node-compile-cache" ]] || rm -rf "$TMPDIR/node-compile-cache"
 }
 
+cleanup_license_bundle() {
+  [[ -z "$license_bundle" ]] || rm -rf "$license_bundle"
+  license_bundle=""
+}
+
+make_license_bundle() {
+  local kind="$1" target="${2:-}"
+  cleanup_license_bundle
+  license_bundle="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-licenses.XXXXXX")"
+  mkdir -p "$license_bundle/licenses"
+  cp "$root/LICENSE" "$license_bundle/licenses/LICENSE"
+  local -a notice_args=()
+  [[ -z "$target" ]] || notice_args+=(--target "$target")
+  case "$kind" in
+    server|collector-windows)
+      "$root/tools/release/notices.sh" "$kind" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt" "${notice_args[@]}"
+      ;;
+    apk)
+      "$root/tools/release/notices.sh" apk "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt"
+      ;;
+    *) die "許諾の種類が不正: $kind" ;;
+  esac
+  "$root/tools/release/notices.sh" source "$license_bundle/licenses/SOURCE.txt" "$version" ""
+}
+
 build_server() {
   local target="${1:-}" binary="ashiato-server"
   build_web
@@ -51,11 +77,13 @@ build_server() {
   [[ "$target" == native ]] && target_dir_name=""
   local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "サーバの実行ファイルが無い: $src"
+  make_license_bundle server "$target"
   if [[ "$target" == *windows* || "$binary" == *.exe ]]; then
-    archive_windows "$out/ashiato-server-$version-windows-x86_64.zip" "$src"
+    archive_windows "$out/ashiato-server-$version-windows-x86_64.zip" "$src" "$license_bundle/licenses/LICENSE" "$license_bundle/licenses/SOURCE.txt" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt"
   else
-    tar -czf "$out/ashiato-server-$version-linux-x86_64.tar.gz" -C "$(dirname "$src")" "$binary"
+    tar -czf "$out/ashiato-server-$version-linux-x86_64.tar.gz" -C "$(dirname "$src")" "$binary" -C "$license_bundle/licenses" LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   fi
+  cleanup_license_bundle
   cleanup_build_tmp
 }
 
@@ -74,21 +102,30 @@ build_collector() {
   [[ "$target" == native ]] && target_dir_name=""
   local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "PC の収集アプリが無い: $src"
-  archive_windows "$out/ashiato-collector-windows-$version-x86_64.zip" "$src"
+  make_license_bundle collector-windows "$target"
+  archive_windows "$out/ashiato-collector-windows-$version-x86_64.zip" "$src" "$license_bundle/licenses/LICENSE" "$license_bundle/licenses/SOURCE.txt" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt"
+  cleanup_license_bundle
 }
 
 archive_windows() {
-  local archive="$1" file="$2"
+  local archive="$1"; shift; local -a files=("$@")
   if command -v zip >/dev/null 2>&1; then
-    (cd "$(dirname "$file")" && zip -q -j "$archive" "$(basename "$file")")
+    (cd "$(dirname "${files[0]}")" && zip -q -j "$archive" "${files[@]##*/}")
   elif command -v powershell.exe >/dev/null 2>&1; then
-    local ps_file="$file" ps_archive="$archive"
-    command -v cygpath >/dev/null 2>&1 && ps_file="$(cygpath -w "$file")" && ps_archive="$(cygpath -w "$archive")"
+    local ps_archive="$archive"; local ps_files=""
+    for file in "${files[@]}"; do
+      local ps_file="$file"
+      command -v cygpath >/dev/null 2>&1 && ps_file="$(cygpath -w "$file")"
+      ps_files+="'$ps_file',"
+    done
+    command -v cygpath >/dev/null 2>&1 && ps_archive="$(cygpath -w "$archive")"
     powershell.exe -NoProfile -NonInteractive -Command \
-      "Compress-Archive -LiteralPath '$ps_file' -DestinationPath '$ps_archive' -Force"
+      "Compress-Archive -LiteralPath $ps_files -DestinationPath '$ps_archive' -Force"
   elif command -v pwsh >/dev/null 2>&1; then
+    local ps_files=""
+    for file in "${files[@]}"; do ps_files+="'$file',"; done
     pwsh -NoProfile -NonInteractive -Command \
-      "Compress-Archive -LiteralPath '$file' -DestinationPath '$archive' -Force"
+      "Compress-Archive -LiteralPath $ps_files -DestinationPath '$archive' -Force"
   else
     die "Windows の zip を作る道具が無い（zip / PowerShell）"
   fi
@@ -106,17 +143,20 @@ windows_target() {
 
 build_apk() {
   mkdir -p "$out"
+  make_license_bundle apk
   # Kotlin の増分の組み立ては BuildConfig の定数を埋め込んだ古い class を組み直さないことがあり、
   # 前の commit の印が APK に残る（実測 2026-11-02: LocationService.class に前の commit の印）。配る APK は増分にしない
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 \
     ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
-      -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= :app:assembleRelease)
+      -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= \
+      "-Pashiato.licenseAssets=$license_bundle" :app:assembleRelease)
   local apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
   if [[ "${ASHIATO_APK_UNSIGNED:-}" == 1 ]]; then
     apk="$root/collector-android/app/build/outputs/apk/release/app-release-unsigned.apk"
   fi
   [[ -f "$apk" ]] || die "APK が無い: $apk"
   cp "$apk" "$out/ashiato-collector-$version.apk"
+  cleanup_license_bundle
 }
 
 build_one() {
@@ -155,6 +195,6 @@ self_test() {
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
 [[ $# == 2 ]] || usage
 # 組み立てが途中で落ちても、画面の写しの一時の置き場を残さない（/code-review R37）
-trap cleanup_build_tmp EXIT
+trap 'cleanup_license_bundle; cleanup_build_tmp' EXIT
 resolve_version
 build_one "$1" "$2"

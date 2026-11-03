@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
 . "$root/tools/release/android-tools.sh"
-usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | --self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] [--expect-license <ファイル>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | --self-test" >&2; exit 2; }
 
 apk_version() {
   local apk="$1" want="${2:-}" dump aapt_cmd
@@ -65,13 +65,14 @@ check_apk_fields() {
 }
 
 check_artifacts() {
-  local dir="$1" channel=release allow_debug=0 expected_version="" expected cert apk name
+  local dir="$1" channel=release allow_debug=0 expected_version="" expected_license="" expected cert apk name
   shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --channel) channel="$2"; shift 2 ;;
       --allow-debug-key) allow_debug=1; shift ;;
       --expect-version) expected_version="$2"; shift 2 ;;
+      --expect-license) expected_license="$2"; shift 2 ;;
       *) die "不明な引数: $1" ;;
     esac
   done
@@ -94,6 +95,18 @@ check_artifacts() {
     [[ -f "$dir/$name" ]] || die "欠けた配布物: $name"
     artifact_stamp "$dir/$name" "$expected_version"
   done
+  if [[ -n "$expected_license" ]]; then
+    [[ -f "$expected_license" ]] || die "期待する LICENSE が無い: $expected_license"
+    for name in "${expected_names[@]}"; do
+      case "$name" in
+        *.apk) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; /usr/bin/unzip -p "$dir/$name" 'assets/licenses/LICENSE' >"$actual_license" || die "$name に LICENSE が無い" ;;
+        *.tar.gz) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; tar -xOzf "$dir/$name" LICENSE >"$actual_license" || die "$name に LICENSE が無い" ;;
+        *.zip) actual_license="$(mktemp "${TMPDIR:-/tmp}/artifact-license.XXXXXX")"; trap 'rm -f "${actual_license:-}"' RETURN; /usr/bin/unzip -p "$dir/$name" LICENSE >"$actual_license" || die "$name に LICENSE が無い" ;;
+      esac
+      cmp -s "$expected_license" "$actual_license" || die "$name の LICENSE が期待値と違う"
+      rm -f "$actual_license"; actual_license=""
+    done
+  fi
   if [[ "$channel" == nightly ]]; then
     for apk in "$dir"/*.apk; do [[ -e "$apk" ]] || continue; die "nightly に APK がある: $(basename "$apk")"; done
   else

@@ -239,6 +239,9 @@ android {
             }
         }
     }
+    project.findProperty("ashiato.licenseAssets")?.toString()?.takeIf { it.isNotBlank() }?.let { licenseAssets ->
+        sourceSets.getByName("release").assets.srcDir(licenseAssets)
+    }
 }
 
 /**

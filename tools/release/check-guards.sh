@@ -75,6 +75,20 @@ workflow() {
   job_block "$release" plan | grep -q 'version.sh plan' || die 'release の plan が無い'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' || die 'nightly の nightly-plan が無い'
   job_block "$release" package-linux | grep -qE 'ASHIATO_APK_UNSIGNED(:[[:space:]]*|=)"?1' || die 'release の APK が unsigned でない'
+  local head_ref='ref: \${{ github.event.pull_request.head.sha || github.sha }}'
+  for job in package-linux package-windows; do
+    job_block "$ci" "$job" | grep -q "$head_ref" || die "ci の $job が配布物を組む commit を checkout しない"
+  done
+  local artifacts_block
+  artifacts_block="$(job_block "$ci" package-artifacts)"
+  grep -q 'uses: actions/checkout@' <<<"$artifacts_block" || die 'ci の package-artifacts に checkout が無い'
+  local first_checkout
+  first_checkout="$(awk '/uses: actions\/checkout@/{n++; if (n == 1) print; next} n == 1 {print} n == 2 {exit}' <<<"$artifacts_block")"
+  ! grep -q 'ref:' <<<"$first_checkout" || die 'package-artifacts の作業 checkout に ref がある'
+  grep -A4 -q "path: built" <<<"$artifacts_block" || die 'package-artifacts に built checkout が無い'
+  grep -A4 -q "$head_ref" <<<"$artifacts_block" || die 'package-artifacts の built checkout が commit を指定しない'
+  grep -q 'version.sh source built/Cargo.toml' <<<"$artifacts_block" || die 'package-artifacts の版番号が built からでない'
+  grep -q -- '--expect-license built/LICENSE' <<<"$artifacts_block" || die 'package-artifacts の LICENSE が built からでない'
   if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$nightly"; then die 'nightly に APK 組み立てまたは署名がある'; return 1; fi
   job_block "$release" plan | grep -q 'version.sh plan' && job_block "$release" plan | grep -q 'fetch-depth: 0' || die 'release の判定 job が shallow checkout'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' && job_block "$nightly" plan | grep -q 'fetch-depth: 0' || die 'nightly の判定 job が shallow checkout'
@@ -175,6 +189,20 @@ EOF
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   sed 's#tools/release/changes.sh code#tools/release/not-changes.sh code#' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'YAML の code 判定が台本を呼ばないのを通した'; fi
+  echo "== Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+  local ci_saved="$fake_root/.github/workflows/ci.yml"
+  if sed '/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d' "$ci_saved" >"$work/ci-missing-linux.yml" && cp "$work/ci-missing-linux.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Linux package の ref 欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed '/package-windows:/,/^  [A-Za-z0-9_-]*:/{/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d}' "$ci_saved" >"$work/ci-missing-windows.yml" && cp "$work/ci-missing-windows.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Windows package の ref 欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed '/package-artifacts:/,/^  [A-Za-z0-9_-]*:/{/with:/{n;/ref:/d;}}' "$ci_saved" >"$work/ci-artifacts-ref.yml" && cp "$work/ci-artifacts-ref.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'package-artifacts の作業 checkout の ref を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed '/path: built/d' "$ci_saved" >"$work/ci-missing-built.yml" && cp "$work/ci-missing-built.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built checkout の欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed 's/--expect-license built\/LICENSE//' "$ci_saved" >"$work/ci-missing-license.yml" && cp "$work/ci-missing-license.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built LICENSE 欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  if sed 's#version.sh source built/Cargo.toml#version.sh source#' "$ci_saved" >"$work/ci-missing-version.yml" && cp "$work/ci-missing-version.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built 版番号欠落を通した'; fi
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
   workflow
   echo "OK: rules・Environment・workflow の守りを検査した"
 }

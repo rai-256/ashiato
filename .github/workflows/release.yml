@@ -35,11 +35,14 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: tools/release/build.sh server-linux "$RUNNER_TEMP/release"
-        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - run: tools/release/build.sh apk "$RUNNER_TEMP/release"
         env:
           ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
           ASHIATO_APK_UNSIGNED: "1"
+          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-linux, path: "${{ runner.temp }}/release" }
   package-windows:
@@ -54,10 +57,14 @@ jobs:
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
       - run: tools/release/build.sh server-windows "$RUNNER_TEMP/release"
         shell: bash
-        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/release"
         shell: bash
-        env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-windows, path: "${{ runner.temp }}/release" }
   publish:
