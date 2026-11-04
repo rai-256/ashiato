@@ -138,22 +138,22 @@
 
 ## Task 10: 開発版のリリースに携帯の APK を載せる（D6・D9・D10）
 
-- [ ] 10.1 `tools/release/check-artifacts.sh --channel nightly` を 4 つにする: 開発版の APK `ashiato-collector-dev-<版番号>.apk` を期待し、正式版の名前の APK があれば落とす。開発版の APK にも署名の指紋（`ASHIATO_EXPECT_CERT_SHA256`）と `BuildConfig` の空の検査を当てる。
+- [x] 10.1 `tools/release/check-artifacts.sh --channel nightly` を 4 つにする: 開発版の APK `ashiato-collector-dev-<版番号>.apk` を期待し、正式版の名前の APK があれば落とす。開発版の APK にも署名の指紋（`ASHIATO_EXPECT_CERT_SHA256`）と `BuildConfig` の空の検査を当てる。
   `--self-test` の ST52 の 2 つ（`開発版の配布物の検査は、携帯の APK を除く 3 つで通る`・`開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す`）を消し、
   `開発版のリリースの配布物は、開発版の APK を含む 4 つで、同じ版番号を持つ`（使い捨ての開発版の鍵で署名した APK）・`開発版の置き場に携帯の APK が無ければ、検査は落ちる`・`開発版の置き場に正式版の名前の APK があれば、検査は落ちてその名前を示す` を足す
   検証: `tools/release/check-artifacts.sh --self-test` rc=0
-- [ ] 10.2 `tools/release/nightly-notes.md`（1 行目は「この開発版はサポートしません。」で始まり、正式版と別のアプリとして並べて入ること・開発版のサーバは別の DB に繋ぐこと・`docs/release.md` を書く）と
+- [x] 10.2 `tools/release/nightly-notes.md`（1 行目は「この開発版はサポートしません。」で始まり、正式版と別のアプリとして並べて入ること・開発版のサーバは別の DB に繋ぐこと・`docs/release.md` を書く）と
   `tools/release/publish-nightly.sh <置き場> <版番号>`（D6・D9）: 開発版の鍵を Secrets（`ASHIATO_SIGNING_*`）から `$RUNNER_TEMP` に戻す → `sign-apk.sh <apk> dev <出力>`（`ASHIATO_EXPECT_DEV_CERT_SHA256`）→ 署名前の APK を外す → `check-artifacts.sh --channel nightly` →
   リリースが無ければ `gh release create nightly --prerelease --notes-file …` → `gh release upload --clobber` と要らない配布物の削除（ST52 D15 のまま）→ `gh release edit nightly --notes-file …` → `gh release view nightly --json body` の 1 行目を確かめる → `git push --force origin <commit>:refs/tags/nightly`。鍵は終わりに消す（`trap`）。鍵が無ければ「開発版の鍵が無い」と示して rc≠0。
   `--self-test`（偽の `gh` と偽の `git`、`sign-apk.sh --self-test` と同じ使い捨ての鍵）: `開発版の鍵の指紋の期待値が無ければ、開発版の APK に署名しない`・`開発版の鍵が置き場に無ければ、開発版は前の版のまま残る`・
   `開発版を公開するたびに、説明文は決まった文で書き直される`・`説明文の先頭にサポートしない旨が無ければ、公開の手順は落ちる`
   検証: `tools/release/publish-nightly.sh --self-test` rc=0 / `tools/release/sign-apk.sh --self-test` rc=0
-- [ ] 10.3 `nightly.yml`: `package-linux` に `tools/release/build.sh apk`（`ASHIATO_APK_UNSIGNED=1`・`ASHIATO_BUILD_VERSION`）を足す。`publish` の手順を `tools/release/publish-nightly.sh nightly/all "<版番号>"` の 1 行にし、env に Secrets（`ASHIATO_SIGNING_KEYSTORE_B64` など ST52 の `release.yml` と同じ 4 つの名前）と
+- [x] 10.3 `nightly.yml`: `package-linux` に `tools/release/build.sh apk`（`ASHIATO_APK_UNSIGNED=1`・`ASHIATO_BUILD_VERSION`）を足す。`publish` の手順を `tools/release/publish-nightly.sh nightly/all "<版番号>"` の 1 行にし、env に Secrets（`ASHIATO_SIGNING_KEYSTORE_B64` など ST52 の `release.yml` と同じ 4 つの名前）と
   `ASHIATO_EXPECT_DEV_CERT_SHA256: ${{ vars.ASHIATO_CERT_SHA256 }}`・`ASHIATO_EXPECT_CERT_SHA256: ${{ vars.ASHIATO_CERT_SHA256 }}` を渡す。`environment: nightly`・`contents: write`・`if:` の公開の設定は今のまま。
   `check-guards.sh workflows` の nightly の検査を反転する（組み立ての job に `build.sh apk` がある・`publish-nightly.sh` は `environment: nightly` の `publish` の job からだけ呼ばれる・`ASHIATO_EXPECT_DEV_CERT_SHA256` が `vars.ASHIATO_CERT_SHA256` から渡る）。
   `--self-test` の `開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない` を消し、`開発版の作り直しの workflow は、携帯の APK を組み、公開の job の中でだけ開発版の鍵で署名する`（今の `nightly.yml` で rc=0、APK の手順を外した偽・署名を組み立ての job に置いた偽・指紋の変数が無い偽で rc≠0）を足す
   検証: `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml` rc=0
-- [ ] 10.4 `tools/release/draft.sh` に `--channel nightly`（D10）を足す: `gh run download` で手で起こした `nightly.yml` の run（公開の設定なし）の配布物を落とし、環境変数で渡した使い捨ての開発版の鍵で APK に署名し、`check-artifacts.sh --channel nightly` を通し、
+- [x] 10.4 `tools/release/draft.sh` に `--channel nightly`（D10）を足す: `gh run download` で手で起こした `nightly.yml` の run（公開の設定なし）の配布物を落とし、環境変数で渡した使い捨ての開発版の鍵で APK に署名し、`check-artifacts.sh --channel nightly` を通し、
   `gh release create --draft --prerelease --notes-file tools/release/nightly-notes.md` を出す（印を作らない）。`--self-test` に `開発版の確かめの組み立ては、開発版の鍵で署名した下書きになり、印を作らない`（偽の `gh` と使い捨ての開発版の鍵。下書きの要求に `--notes-file` があり、APK の指紋が使い捨ての鍵のもので、印の要求が無い）を足す
   検証: `tools/release/draft.sh --self-test` rc=0
 
