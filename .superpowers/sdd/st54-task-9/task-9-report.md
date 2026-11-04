@@ -80,3 +80,23 @@ commit hook の A-2 検査が系統名を `Telemetry.error` に埋め込む形�
 ### Fix round 2 の変更ファイル
 
 `collector-android/app/src/main/kotlin/dev/ashiato/collector/{ContractNotifier.kt,MainActivity.kt,OriginalLedger.kt,OriginalUploader.kt,Sender.kt}`, `collector-android/app/src/test/kotlin/dev/ashiato/collector/ChannelGateTest.kt`、削除 `collector-android/app/src/test/kotlin/dev/ashiato/collector/ContractGateTest.kt`、`openspec/changes/st54-dev-side-by-side/evidence.jsonl`
+
+## Fix round 3（F4・F5・F14 の再確認）
+
+- `ChannelGateTest` の実系統試験に、記録・生存信号・破棄報告・原本欠け・原本の 5 つの送り手を組み込み、系統不一致時に各未送信件数と原本を保持することを確認するようにした。
+- `ContractGate` の `localChannel` を試験から渡し、`ShadowLog` で相手／自分の系統ログ、`ShadowNotificationManager` で系統不一致専用通知を確認するようにした。
+- F5 の `ContractGateTest` は作り物を再追加せず削除状態を維持した。`*ContractGate*` は `No tests found` になるため、検証コマンドの不一致として引き継ぐ。
+- F14 の `MainActivity` は既存の `contractWaiting = false` 修正を確認した。系統不一致だけの行は ST50 の更新待ち文を含まない。
+
+### Fix round 3 の検証
+
+- RED: `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ChannelGateTest*'` — 変更直後は matching channel の送信件数期待値が 1 のままで、5 送信系統の実体化により失敗した（10 tests completed, 1 failed）。
+- GREEN: 同コマンド — PASS、10 tests completed、`BUILD SUCCESSFUL`。
+- `scripts/quiet-run unit-all -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest` — PASS、`BUILD SUCCESSFUL`。
+- Task 9.2 の ChannelGateTest 検証コマンド — PASS、10 本以上。
+- `scripts/quiet-run contract-gate -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ContractGate*'` — FAIL、`No tests found for given includes: [*ContractGate*]`。ST50 の実体を偽テストで置き換えないため、この不一致は未解決の concern として残す。
+- `python3 scripts/check_scenarios.py .` — Task 10 の既存未担保 Scenario 10 件で FAIL。今回の変更対象外。
+
+### Fix round 3 の変更ファイル
+
+`collector-android/app/src/test/kotlin/dev/ashiato/collector/ChannelGateTest.kt`
