@@ -4271,8 +4271,6 @@ mod tests {
         let before = history(&rt);
         // 24 時間後へ飛ぶ（この 1 回の見回りの「眠っていた」は時刻を飛ばしたことによる）
         let mut sec = 86_400;
-        rt.tick_at(&mut src, t(sec), t(sec));
-        let from = rt.events.len();
         let (patrol_returned, patrol_returns) = mpsc::channel();
         let released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let released_by_watchdog_thread = Arc::clone(&released_by_watchdog);
@@ -4286,6 +4284,8 @@ mod tests {
                 let _ = release_for_watchdog.send(());
             }
         });
+        rt.tick_at(&mut src, t(sec), t(sec));
+        let from = rt.events.len();
         let mut queueing_ticks = 0;
         let mut switched_at = None;
         for _ in 0..5 {
