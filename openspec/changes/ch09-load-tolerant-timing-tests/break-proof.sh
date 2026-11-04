@@ -20,8 +20,10 @@ else
   [ -f .env ] && . ./.env
   set +a
   . tools/ports.sh
+  scan_target=$(mktemp -d "${TMPDIR:-/tmp}/ashiato-break-scan-target.XXXXXX")
+  trap 'rm -rf -- "$scan_target"' EXIT
   echo "Scenario: 取り込み器が変えた間隔を読まないように壊すと、間隔の変更の試験は期限で落ちる"
-  tools/break-check.sh \
+  CARGO_TARGET_DIR="$scan_target" tools/break-check.sh \
     --patch openspec/changes/ch09-load-tolerant-timing-tests/break-ignore-interval.patch \
     --expect 待った時間 \
     --expect 最後に見た数 \

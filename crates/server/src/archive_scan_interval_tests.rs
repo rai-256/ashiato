@@ -172,6 +172,19 @@ async fn wait_for_scans(
     }
 }
 
+/// 起動直後の走査を待つ。期限切れは試験の失敗として、診断情報を添えて落とす。
+async fn wait_for_scans_or_panic(pool: &sqlx::PgPool, user: uuid::Uuid, n: i64) {
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    if wait_for_scans(pool, user, n, deadline).await.is_none() {
+        let last = scans(pool, user).await;
+        panic!(
+            "走査が {n} 回に届かない: 最後に見た数 {last}・待った時間 {:?}",
+            started.elapsed()
+        );
+    }
+}
+
 /// 止めた時計を 1 秒ずつ進める。1 秒ごとに取り込み器が登録簿を読めるようにする。
 pub(crate) async fn advance_secs(secs: u64, settle_millis: u64) {
     for _ in 0..secs {
@@ -210,13 +223,7 @@ async fn archive_scan_interval_default_is_120_seconds() {
         crate::archive::worker::ReadingState::default(),
         &row.name,
     );
-    wait_for_scans(
-        &pool,
-        user,
-        1,
-        std::time::Instant::now() + Duration::from_secs(30),
-    )
-    .await;
+    wait_for_scans_or_panic(&pool, user, 1).await;
     let started = tokio::time::Instant::now();
     advance_secs(600, 25).await;
     let count = scans(&pool, user).await;
@@ -257,13 +264,7 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
         crate::archive::worker::ReadingState::default(),
         &row.name,
     );
-    wait_for_scans(
-        &pool,
-        user,
-        1,
-        std::time::Instant::now() + Duration::from_secs(30),
-    )
-    .await;
+    wait_for_scans_or_panic(&pool, user, 1).await;
     assert_eq!(scans(&pool, user).await, 1, "起動の直後に 1 回走査する");
 
     // 走査の回数は待ちに入る前に増える。取り込み器が待ちの眠りに入るのを待ってから 1 秒へ変え、10 秒待つ
