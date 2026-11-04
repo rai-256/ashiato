@@ -25,7 +25,7 @@ D11（保存したら送る仕組みを立て直す）・D14（PC は窓で待�
 ## capability と requires
 
 - `device-collection`・`desktop-collection`・`data-sensitivity` に ADDED（17 Requirement・81 Scenario）。INDEX の割り当てどおりで、前倒しは無い。`distribution` は手順書だけで delta を持たない
-- **requires に ST54 を足した**（確かめが ST54 の `Ashiato-Channel` を読み、PC の既定の置き場に ST54 の `dev` / `-dev` の規則が当たる）。layer 5 → 6、ST59 も 6 → 7。INDEX.md に訂正の節
+- **requires に ST54 を足した**（確かめが ST54 の `Ashiato-Channel` を読み、PC の既定の置き場に ST54 の `dev` / `-dev` の規則が当たる）。layer 5 → 6、ST59 も 6 → 7。INDEX.md に訂正の節。ST54 は下流を走っていて gate 前なので、`story_deps.py check --lane upstream ST56` は今は WAIT（ST54 の gate 待ち）
 - 画面の部分が増える（ブリーフの「面」は空だが、Q1 で画面の設定の節、Q3 で携帯の設定の画面）。画面の Scenario は `web/e2e/st56-collector-setup.spec.ts`
 - 申し送り: `docs/handoff/ST55.md`（「秘密は人が見ない」の書き分けと、`repair` の後の繋ぎ直しの節から `docs/collector-setup.md` を指す）・`docs/handoff/ST59.md`（合言葉の入れ直しの口と、値を変えた後の知らせ）
 
