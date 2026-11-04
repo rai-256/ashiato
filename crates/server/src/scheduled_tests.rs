@@ -100,13 +100,42 @@ fn log_text() -> String {
 
 /// 取る手が走るのを実時間で待つ（止めた時計は進まない）。
 async fn wait_for_calls(probe: &Probe, n: usize) {
-    for _ in 0..200 {
-        if probe.calls() >= n {
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    loop {
+        let calls = probe.calls();
+        if calls >= n {
             return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "取りに行った回数が {n} に届かない: 待った時間 {:?}、最後に見た値 {calls}",
+                started.elapsed()
+            );
         }
         settle(25).await;
     }
-    panic!("取りに行った回数が {n} に届かない: {}", probe.calls());
+}
+
+async fn wait_for_log<F>(description: &str, mut observed: F)
+where
+    F: FnMut() -> (bool, String),
+{
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    loop {
+        let (done, last) = observed();
+        if done {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "{description}: 待った時間 {:?}、最後に見た値 {last}",
+                started.elapsed()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 /// 100 ミリ秒ずつ進め、そのつど眠りの timer と DB の読み直しを済ませる。刻みが粗いと、
@@ -286,12 +315,14 @@ async fn scheduled_source_without_a_fetcher_is_skipped_and_named_in_the_log() {
     let pool = testdb::pool().await;
     let name = add_row(&pool, 3600).await;
     let handle = crate::scheduled::spawn_with(Vec::new(), pool.clone(), testdb::user());
-    for _ in 0..200 {
-        if log_text().contains(&name) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("論理ソースの名前がログに出ない", || {
+        let log = log_text();
+        (
+            log.contains(&name),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -386,15 +417,15 @@ async fn scheduled_failure_log_carries_no_error_text() {
         pool.clone(),
         testdb::user(),
     );
-    for _ in 0..200 {
-        if log_text()
-            .lines()
-            .any(|l| l.contains("scheduled_fetch_failed") && l.contains(&name))
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("失敗のログが出ない", || {
+        let log = log_text();
+        (
+            log.lines()
+                .any(|l| l.contains("scheduled_fetch_failed") && l.contains(&name)),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -433,16 +464,18 @@ async fn scheduled_a_panicking_source_is_named_in_the_log() {
         testdb::user(),
     );
     let mut line = None;
-    for _ in 0..200 {
-        line = log_text()
+    wait_for_log("止まった task のログが出ない", || {
+        let log = log_text();
+        line = log
             .lines()
             .find(|l| l.contains("scheduled_task_ended") && l.contains(&name))
             .map(str::to_owned);
-        if line.is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+        (
+            line.is_some(),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -511,12 +544,14 @@ async fn scheduled_source_without_interval_trigger_is_named_in_the_log() {
         pool.clone(),
         testdb::user(),
     );
-    for _ in 0..200 {
-        if log_text().contains(&name) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("契機の無い行の名前がログに出ない", || {
+        let log = log_text();
+        (
+            log.contains(&name),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 

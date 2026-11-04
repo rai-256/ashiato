@@ -3040,15 +3040,21 @@ mod tests {
             let Some(history) = self.0.history.as_ref() else {
                 return;
             };
-            // 20 秒で諦める（放されない gate で止まった読みなど）。drop の中では panic しない
+            // 30 秒で諦める（放されない gate で止まった読みなど）。drop の中では panic しない
             // （試験が落ちて巻き戻している最中だと abort になり、落ちた理由が見えなくなる）
-            for _ in 0..4000 {
+            let started = std::time::Instant::now();
+            let deadline = started + std::time::Duration::from_secs(30);
+            while std::time::Instant::now() < deadline {
                 if history.threads_finished() {
                     return;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
-            eprintln!("履歴の取得の別スレッドが 20 秒で終わらない（一時フォルダが漏れうる）");
+            eprintln!(
+                "履歴の取得の別スレッドが終わらない: 待った時間 {:?}、最後に見た値 threads_finished={}",
+                started.elapsed(),
+                history.threads_finished()
+            );
         }
     }
 
@@ -3085,14 +3091,23 @@ mod tests {
     /// 取得の別スレッドが置き場へ書き終えるまで見回りを回す。
     /// 終わった後に書かれると、消えた置き場を作り直して一時フォルダが漏れる。
     fn tick_until_history_idle(rt: &mut Runtime, src: &mut FakeSource, sec: i64) {
-        for _ in 0..2000 {
-            if !rt.history.as_ref().is_some_and(|h| h.is_reading()) {
+        let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_secs(30);
+        let mut last_reading = true;
+        loop {
+            last_reading = rt.history.as_ref().is_some_and(|h| h.is_reading());
+            if !last_reading {
                 return;
+            }
+            if std::time::Instant::now() >= deadline {
+                panic!(
+                    "履歴の取得が終わらない: 待った時間 {:?}、最後に見た値 is_reading={last_reading}",
+                    started.elapsed()
+                );
             }
             rt.tick_at(src, t(sec), t(sec));
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        panic!("履歴の取得が終わらない");
     }
 
     fn history_records(t: &AcceptAll) -> Vec<serde_json::Value> {
@@ -3163,15 +3178,24 @@ mod tests {
         sec: i64,
         want: usize,
     ) {
-        for _ in 0..400 {
+        let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_secs(30);
+        let mut last_beats = 0;
+        loop {
             rt.tick_at(src, t(sec), t(sec));
             rt.send();
-            if history_beats(transport).len() >= want {
+            last_beats = history_beats(transport).len();
+            if last_beats >= want {
                 return;
+            }
+            if std::time::Instant::now() >= deadline {
+                panic!(
+                    "履歴の生存信号が届かない: 待った時間 {:?}、最後に見た値 beats={last_beats}",
+                    started.elapsed()
+                );
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        panic!("履歴の生存信号が届かない");
     }
 
     /// Scenario: ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く

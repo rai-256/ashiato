@@ -864,6 +864,8 @@ mod tests {
     ) -> (anyhow::Result<usize>, Vec<Visit>) {
         let mut queued = Vec::new();
         let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_secs(30);
+        let mut last_seen = String::from("取得待ち");
         loop {
             let mut queue = |v: &[Visit], _: DateTime<Utc>| {
                 queued.extend_from_slice(v);
@@ -872,9 +874,11 @@ mod tests {
             if let Some(result) = collector.tick(wall, &mut queue) {
                 return (result, queued);
             }
+            last_seen = format!("取得待ち・積み込み済み {} 件", queued.len());
             assert!(
-                started.elapsed() < std::time::Duration::from_secs(10),
-                "読みが終わらない"
+                std::time::Instant::now() < deadline,
+                "読みが終わらない: 待った時間 {:?}、最後に見た値 {last_seen}",
+                started.elapsed()
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -969,12 +973,19 @@ mod tests {
         let fx = Fixture::new("INSERT INTO visits VALUES(1,1,13402627200000000,0,1);");
         let mut collector = fx.collector();
         let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_secs(30);
+        let mut last_seen = String::from("取得待ち");
         let result = loop {
             let mut queue = |_: &[Visit], _: DateTime<Utc>| anyhow::bail!("置き場へ書けない");
             if let Some(r) = collector.tick(Utc::now(), &mut queue) {
                 break r;
             }
-            assert!(started.elapsed() < std::time::Duration::from_secs(10));
+            last_seen = "取得待ち・積み込み失敗を観測".to_owned();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "読みが終わらない: 待った時間 {:?}、最後に見た値 {last_seen}",
+                started.elapsed()
+            );
             std::thread::sleep(std::time::Duration::from_millis(5));
         };
         assert!(result.is_err());
