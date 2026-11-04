@@ -104,7 +104,7 @@
 
 ## Task 6: 画面の単体試験の暗黙の上限
 
-- [ ] 6.1 design D9 のとおりに `web/src/__tests__/setup.ts` に `configure({ asyncUtilTimeout: 10_000 })`、`web/vitest.config.ts` の `test` に `testTimeout: 30_000` を足す（1 行目は変えない）。
+- [x] 6.1 design D9 のとおりに `web/src/__tests__/setup.ts` に `configure({ asyncUtilTimeout: 10_000 })`、`web/vitest.config.ts` の `test` に `testTimeout: 30_000` を足す（1 行目は変えない）。
   `web/src/__tests__/ch09-timeouts.test.ts` を足し、`// Scenario: 画面の単体試験の待ちの上限は 10 秒、試験の上限は 30 秒` の印のもとで、`getConfig().asyncUtilTimeout` が 10000、
   `vitest.config.ts` の設定の `test.testTimeout` が 30000 であることを見る。`web/src/__tests__` の `{ timeout: N }` で 10 秒より短いものがあれば同じ形で延ばし、`inventory.md` に書く。
   検証: `bash -c 'cd web && npx vitest run src/__tests__/ch09-timeouts.test.ts'` rc=0 / `bash -c 'cd web && npx vitest run'` rc=0
