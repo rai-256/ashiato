@@ -92,13 +92,13 @@
 
 ## Task 5: Rust の残りの候補 —— 条件の待ち・打ち切り
 
-- [ ] 5.1 `crates/` で `check-inventory.sh`（Task 12）の拾う形に当たる箇所を読み、design D4（条件の待ち → 実時間の期限 30 秒・文言に待った時間と最後に見た値）と
+- [x] 5.1 `crates/` で `check-inventory.sh`（Task 12）の拾う形に当たる箇所を読み、design D4（条件の待ち → 実時間の期限 30 秒・文言に待った時間と最後に見た値）と
   D5（観測できる条件のある固定の眠り → 条件の待ち）を当てる。既知のもの: `scheduled_tests.rs` の 200 回の待ち 5 か所（刻みは変えない）・`outage_api_tests.rs:419`・
   `runtime.rs` の `tick_until_history_idle`・`:2470`・`:2545`・`history/collect.rs:868`・`:969`。`tick_until_read`・`tick_until_read_again` は回数のまま（D4 の除く）。
   直した箇所と直さなかった箇所は Task 12 の `inventory.md` に書く。印の付いた試験の期待の行を変えたら `agreed-test-changes.md` に書く。
   回数のまま残す待ち（時刻を兼ねるループ）には、1 行上か同じ行に `// timing-ok: <理由>` を書く（design D14）。
   検証: `CW history` rc=0 / `NL ashiato-collector-windows history 20` rc=0 / `CT scheduled` rc=0 / `NL ashiato-server scheduled 5` rc=0 / `CT outage` rc=0 / `NL ashiato-server outage 5` rc=0
-- [ ] 5.2 打ち切りの 2 か所を design D6 のとおりに延ばす: `testdb_tests.rs` の `ch04_statement_timeout_cancels_a_long_query`（`pg_sleep(60)`・「30 秒未満」。印 `// Scenario: 上限を超える問い合わせは、止まって失敗する` は残す。
+- [x] 5.2 打ち切りの 2 か所を design D6 のとおりに延ばす: `testdb_tests.rs` の `ch04_statement_timeout_cancels_a_long_query`（`pg_sleep(60)`・「30 秒未満」。印 `// Scenario: 上限を超える問い合わせは、止まって失敗する` は残す。
   正典の文は MODIFIED で書き直してある）と `time_sync.rs` の `time_sync_timeout_kills_the_child`（`sleep 60`・「30 秒未満」）。`stay_tests.rs:2389` は直さない（計算の形）。
   検証: `CT ch04_statement_timeout_cancels_a_long_query` rc=0 / `NL ashiato-server ch04_statement_timeout_cancels_a_long_query 1` rc=0 / `CW time_sync_timeout_kills_the_child` rc=0
 
