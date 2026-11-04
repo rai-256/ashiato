@@ -159,12 +159,12 @@
 
 ## Task 11: 手順書と、印の突き合わせ
 
-- [ ] 11.1 `docs/release.md` に節を足す: 開発版の鍵を作る（`make-key.sh dev`。控えは USB に 1 部）と `nightly` の Environment に Secrets と変数 `ASHIATO_CERT_SHA256` を置く（ST53 の後、開発版の公開を始める前に本人が行う）・
+- [x] 11.1 `docs/release.md` に節を足す: 開発版の鍵を作る（`make-key.sh dev`。控えは USB に 1 部）と `nightly` の Environment に Secrets と変数 `ASHIATO_CERT_SHA256` を置く（ST53 の後、開発版の公開を始める前に本人が行う）・
   開発版を並べて入れる（携帯・PC。PC は正式版と別のフォルダに展開してよく、同じ `ASHIATO_STATE_DIR` を渡せば除外が効く）・開発版のサーバと DB（`ASHIATO_DB_PORT=55433 docker compose -p ashiato-nightly up -d db`・既定の待ち受け 18788・`DATABASE_URL` を開発版の DB に向ける）・
   開発版の DB が止まったら（`kind=channel_mismatch` と `kind=db_ahead` の読み方・`migrations/LINEAGE` の書き方・直しの移行はどちらの中身で当てた DB にも同じ結果になるように書く）・手元の clone で `git fetch --tags --force`（Q5）。
   `CLAUDE.md` の「構成」の `tools` の行に `android-side-by-side.sh` を、`migrations` の行に `LINEAGE` を足す
   検証: `bash -c 'for h in "make-key.sh dev" "ASHIATO_CERT_SHA256" "55433" "18788" "LINEAGE" "channel_mismatch" "git fetch --tags --force"; do grep -q -- "$h" docs/release.md || exit 1; done && grep -q "LINEAGE" CLAUDE.md'` rc=0
-- [ ] 11.2 印の突き合わせ: この change の Scenario が全部印を持ち、ST52 の消した 3 つの印が残っていない
+- [x] 11.2 印の突き合わせ: この change の Scenario が全部印を持ち、ST52 の消した 3 つの印が残っていない
   検証: `python3 scripts/check_scenarios.py . st54-dev-side-by-side` rc=0 / `bash -c '! grep -rn "携帯の APK を除く 3 つで通る\|ST54 まで携帯の APK を組む手順を持たない\|開発版の置き場に携帯の APK があれば" tools crates collector-android web'` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
