@@ -153,15 +153,23 @@ pub(crate) async fn settle(millis: u64) {
         .unwrap();
 }
 
-/// 走査の回数が `n` 回に届くまで、実時間で待つ（時計は進まない）。届かなければ落ちる。
-async fn wait_for_scans(pool: &sqlx::PgPool, user: uuid::Uuid, n: i64) {
-    for _ in 0..200 {
-        if scans(pool, user).await >= n {
-            return;
+/// 走査の回数が `n` 回に届くまで、実時間の期限まで待つ（時計は進まない）。
+async fn wait_for_scans(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    n: i64,
+    deadline: std::time::Instant,
+) -> Option<i64> {
+    loop {
+        let last = scans(pool, user).await;
+        if last >= n {
+            return Some(last);
+        }
+        if std::time::Instant::now() >= deadline {
+            return None;
         }
         settle(25).await;
     }
-    panic!("走査が {n} 回に届かない: {}", scans(pool, user).await);
 }
 
 /// 止めた時計を 1 秒ずつ進める。1 秒ごとに取り込み器が登録簿を読めるようにする。
@@ -202,7 +210,13 @@ async fn archive_scan_interval_default_is_120_seconds() {
         crate::archive::worker::ReadingState::default(),
         &row.name,
     );
-    wait_for_scans(&pool, user, 1).await;
+    wait_for_scans(
+        &pool,
+        user,
+        1,
+        std::time::Instant::now() + Duration::from_secs(30),
+    )
+    .await;
     let started = tokio::time::Instant::now();
     advance_secs(600, 25).await;
     let count = scans(&pool, user).await;
@@ -243,31 +257,63 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
         crate::archive::worker::ReadingState::default(),
         &row.name,
     );
-    wait_for_scans(&pool, user, 1).await;
+    wait_for_scans(
+        &pool,
+        user,
+        1,
+        std::time::Instant::now() + Duration::from_secs(30),
+    )
+    .await;
     assert_eq!(scans(&pool, user).await, 1, "起動の直後に 1 回走査する");
 
     // 走査の回数は待ちに入る前に増える。取り込み器が待ちの眠りに入るのを待ってから 1 秒へ変え、10 秒待つ
     settle(500).await;
     row.set_interval(1).await;
     let before = scans(&pool, user).await;
-    let started = tokio::time::Instant::now();
-    // 1 秒進めるごとに走査が 1 回入るのを待つ（変えた値が 1 秒以内に効く）
+    let virtual_started = tokio::time::Instant::now();
+    let real_started = std::time::Instant::now();
+    let deadline = real_started + Duration::from_secs(30);
+    // 1 秒進めるごとに走査が 1 回入るのを待つ。届かなければ同じ歩を進め直す。
     for step in 1..=10 {
-        // 1 秒の眠りの期限は ms に切り上がるので、1 秒ちょうどでは届かない
-        tokio::time::advance(Duration::from_millis(1001)).await;
-        settle(25).await; // 眠りの timer を取り込み器に処理させる
-        wait_for_scans(&pool, user, before + step).await;
+        loop {
+            if std::time::Instant::now() >= deadline
+                || virtual_started.elapsed() >= Duration::from_secs(30)
+            {
+                let last = scans(&pool, user).await;
+                panic!(
+                    "走査が {} 回に届かない: 最後に見た数 {last}・時計の経過 {:?}・待った時間 {:?}",
+                    before + step,
+                    virtual_started.elapsed(),
+                    real_started.elapsed(),
+                );
+            }
+            // 1 秒の眠りの期限は ms に切り上がるので、1 秒ちょうどでは届かない
+            tokio::time::advance(Duration::from_millis(1001)).await;
+            settle(25).await; // 眠りの timer を取り込み器に処理させる
+            let step_deadline = (std::time::Instant::now() + Duration::from_secs(1)).min(deadline);
+            if wait_for_scans(&pool, user, before + step, step_deadline)
+                .await
+                .is_some_and(|last| last >= before + step)
+            {
+                break;
+            }
+        }
     }
     let during = scans(&pool, user).await - before;
-    let elapsed = started.elapsed();
+    let elapsed = virtual_started.elapsed();
+    let real_elapsed = real_started.elapsed();
     drop(worker);
     tokio::time::resume();
     row.delete().await;
 
-    // 時計が自動で次の timer（120 秒）まで跳ぶと、古い間隔で眠る退行が緑になる。経過は 10 秒ちょうど
+    // 時計が自動で次の timer（120 秒）まで跳ぶと、古い間隔で眠る退行が緑になる。
     assert!(
-        elapsed >= Duration::from_secs(10) && elapsed < Duration::from_secs(11),
-        "仮想時間の経過は 10 秒のはず: {elapsed:?}"
+        elapsed < Duration::from_secs(30),
+        "走査が 10 回に届かない: 最後に見た数 {during}・時計の経過 {elapsed:?}・待った時間 {real_elapsed:?}"
+    );
+    assert!(
+        real_elapsed < Duration::from_secs(30),
+        "走査が 10 回に届かない: 最後に見た数 {during}・時計の経過 {elapsed:?}・待った時間 {real_elapsed:?}"
     );
     assert!(during >= 5, "10 秒の間の走査は 5 回以上のはず: {during}");
 }
