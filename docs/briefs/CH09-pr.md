@@ -41,7 +41,7 @@ A（`loss` のある問い）は無い。Q0〜Q10 はどれも試験のコード
 
 - `review/deep.md`: 7 件（全部 fixed。R6 は D4 D9 仮）
 - `review/spec.md`: 14 件 —— fixed 13・rejected 1（R14。前例 `openspec/specs/test-hygiene/spec.md:73` と同じ形で残す）
-- `review/spec.md`（`spec --answers Q2` の確かめ）: 8 件（R15〜R22）—— 全部 fixed。e2e の上限の読み方・CI の job の名前・一覧の型を D14 の 8 つに寄せる・録画の台本は載せるだけ・台本の `for` の拾い方・計測テストの `CountDownLatch`
+- `review/spec.md`（`spec --answers Q2` の確かめ）: 8 件（R15〜R22）—— 全部 fixed。e2e の上限の読み方・CI の job の名前・一覧の型を D14 の 8 つに寄せる・録画の台本は載せるだけ・台本の `for` の拾い方・計測テストの `CountDownLatch`・`SETTLE_MS` の起きないを見る窓の分け方・携帯の録画の待ち
 - `review/answers.md`: Q2 は写った。答え以外の変更は D3・D15・D16・D17（どれも仮）
 - 走っている st53（各ファイルの 1 行目の SPDX だけ）・st55（`runtime.rs` の別の箇所・`vitest.config.ts` の `define`）と同じファイルを触る。差し戻さない
 

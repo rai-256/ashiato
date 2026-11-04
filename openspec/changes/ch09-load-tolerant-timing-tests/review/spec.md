@@ -281,3 +281,15 @@
 - kind: technical
 - 提案: D3 の録画の行を「`tools/recording/` の `*.rec.ts`・`*RecordingTest.kt` と `playwright.recording.config.ts`」にし、Kotlin の拾う形の範囲に「載せるだけの `tools/recording/`」を足す（TypeScript の行と同じ書き方）
 - 処置: fixed design.md D3（録画は `*.rec.ts`・`*RecordingTest.kt` を名指し、Kotlin の拾う範囲にも足した）
+
+---
+
+# R21・R22 の直し（`75bd81d0`）の確かめ（2026-11-04）
+
+`git diff ec49dca5 75bd81d0` を読んだ。変わったのは D3・D17（仮）の節と既知の候補の表で、D12〜D14（C）の節は変わっていない。
+
+- R21: 満たす。表の「条件の待ち」の例は `PermissionDeniedInstrumentedTest.kt:130`・`HealthConnectScreens.kt:146`・`:154` に、`UsageAccessInstrumentedTest.kt:110` は「起きない・下限（直さない）」の行に移った。D17 の箇条の例も同じ。
+  `SETTLE_MS` は定数がファイルごとに 1 つなので、1 つの定数が両方の使い方を持たないかも見た。`UsageAccessInstrumentedTest` の `SETTLE_MS` は `:110` だけで使い、`HealthConnectScreens.SETTLE_MS` は `:146`・`:154` と `HealthPermissionGrantInstrumentedTest.kt:177`（条件が揃えば `break`）だけで使う。どれも条件の待ちで、混ざっていない。定数ごとに 1 つの方針で直せる
+- R22: 満たす。D3 の録画の範囲が `st*/` の `*.rec.ts` と携帯の `*RecordingTest.kt` を名指し、`scenarios.d/` は JSON で待ちを持たないと書いた。Kotlin の拾う範囲にも載せるだけの `tools/recording/` の `*RecordingTest.kt` が入った。
+  `St50RecordingTest.kt:141` の `TIMEOUT_MS = 15_000L` と `:85` の `device.wait(` は、拾う形の `_MS = <数>`・`device.wait(` に当たる
+- R にしないもの: `docs/briefs/CH09-pr.md` の「8 件（R15〜R22）」の行は、6 つの中身しか挙げていない（R21・R22 の中身が無い）。PR 本文の要約で、仕様ではない
