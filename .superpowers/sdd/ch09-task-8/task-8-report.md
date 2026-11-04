@@ -12,6 +12,7 @@
 - `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings`: PASS (rc=0)
 - `cargo test --workspace`: PASS (rc=0)
 - `scripts/verify-run 8.1`: clippy は PASS。Windows runtime は `/mnt/c/dev/ashiato2-rt-ch09` が read-only のため rsync が失敗し、FAIL (rc=1)。Windows 側の 13 本以上の実行結果は取得できていない。
+- 再実行（sandbox 外）では Windows clone への同期と 15 本の起動に成功したが、9 PASS / 6 FAIL (rc=1)。失敗はすべて UI 前景取得（窓の発見または `run_until` の foreground 条件）で、非 UI の時計・通知・履歴系は PASS。対話デスクトップが利用できない環境依存の BLOCKED_INFRA と判断する。
 
 ## TDD Evidence
 
@@ -38,4 +39,5 @@
 ## 自己レビュー・懸念
 
 - Windows 実行時テストは Windows clone への同期先が read-only のため手元で確認できていない。CI の `collector-windows-runtime` で確認が必要。
+- 最新の再実行では同期は通ったが、対話デスクトップ上の HelperWindow/Edge の前景窓を 30 秒以内に取得できず 6 本が失敗した。Windows runner の対話セッション（ロック解除・前景窓が操作可能な状態）で再検証が必要。
 - Task 12 の `inventory.md` は Task 8 の担当範囲外として変更していない。
