@@ -12,6 +12,15 @@ import org.junit.Test
 
 /** `source_unavailable` の重複抑止を、実際に糸を重ねて固定する。 */
 class UnavailableLogGateTest {
+    private fun awaitWithinD4(latch: CountDownLatch, message: String) {
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.SECONDS.toNanos(30)
+        val remaining = deadline - System.nanoTime()
+        val completed = remaining > 0 && latch.await(remaining, TimeUnit.NANOSECONDS)
+        val waitedMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue("$message（待機=${waitedMs}ms）", completed)
+    }
+
     @Test
     fun `同じ理由が並行して来てもログは一度だけ`() {
         val gate = UnavailableLogGate()
@@ -31,9 +40,9 @@ class UnavailableLogGateTest {
                     done.countDown()
                 }
             }
-            assertTrue("並行呼び出しの準備が整わない", ready.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(ready, "並行呼び出しの準備が整わない")
             start.countDown()
-            assertTrue("並行呼び出しが終わらない", done.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(done, "並行呼び出しが終わらない")
         } finally {
             pool.shutdownNow()
         }
@@ -55,24 +64,24 @@ class UnavailableLogGateTest {
             pool.execute {
                 gate.unavailable("permission") {
                     logging.countDown()
-                    assertTrue("ログを再開できない", finishLog.await(5, TimeUnit.SECONDS))
+                    awaitWithinD4(finishLog, "ログを再開できない")
                     calls.incrementAndGet()
                 }
             }
-            assertTrue("最初のログまで進まない", logging.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(logging, "最初のログまで進まない")
             pool.execute {
                 clearing.countDown()
                 gate.available()
                 recovered.countDown()
             }
             // `available()` がログと同じ排他区間を使うなら、ログが終わるまでここでは完了しない。
-            assertTrue("解除の糸が始まらない", clearing.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(clearing, "解除の糸が始まらない")
             assertFalse(
                 "ログ中の解除が比較と代入の間へ割り込んだ",
                 recovered.await(200, TimeUnit.MILLISECONDS),
             )
             finishLog.countDown()
-            assertTrue("復旧の反映が終わらない", recovered.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(recovered, "復旧の反映が終わらない")
 
             gate.unavailable("permission") { calls.incrementAndGet() }
         } finally {
