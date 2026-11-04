@@ -1,0 +1,21 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 79,
+ "applied": [
+  "features[watch].summary",
+  "points[watch.3].text",
+  "points[wait.2].text",
+  "points[wait.3].text",
+  "points[proof.3].text",
+  "impact.scenarios[S1].lost",
+  "impact.rules[R1].legit",
+  "impact.findings[IMP-04].text",
+  "impact.scope.excludes[0].text",
+  "impact.scope.excludes[1].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}

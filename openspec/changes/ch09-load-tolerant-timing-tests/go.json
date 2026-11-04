@@ -1,0 +1,1524 @@
+{
+ "purpose": "マシンが混んでいる（並走する Story の下流が重なる）ときに、変更と関係のない既存の試験が「〜秒以内」で落ちて関門が止まることを無くす。試験が見ている性質（見回りが履歴の取得を待たない・間隔の変更が再起動なしで効く）は弱めず、実時間の長さに依らない確かめ方に替える。製品のコード・画面・API・移行は変わらない。",
+ "model": {
+  "kind": "diagram",
+  "caption": "試験の確かめ方を 3 つの型に替え、2 つの台本で直ったことを示す",
+  "text": "「待たない」を時間で見ていた試験 ──→ 止めた偽物 ＋ 30 秒の見張り（1 の試験の形）\n条件を短い上限で待っていた試験 ──→ 届いた時点で進む・期限 30 秒（2 の試験の形）\n打ち切りを時間で見ていた試験 ──→ 相手の長さと上限を一緒に延ばす\n速さ・計算の形を時間で見る試験 ──→ 直さず一覧に載せる\n                 ↓\n  tools/load-repeat.sh  全コアに負荷をかけて 10 回（直す前は落ち、直した後は通る）\n  tools/break-check.sh  使い捨ての作業木で製品を壊すと、決まった文言で落ちる"
+ },
+ "uses": [
+  {
+   "id": "U1",
+   "title": "並走の多い日に、関門が無関係な試験で止まらない",
+   "trigger": "ST55 の Task 11 の関門（cargo test --workspace）が、ST55 と関係のない見回りの試験で「見回り 1 回が 1.335917022s かかった」と落ちた。load average は 14。同じコードを取り直すと通る。",
+   "steps": [
+    {
+     "do": "CH09 が main に入った後、関門の Story を main に rebase して cargo test --workspace を走らせる（並走で load average 9〜14）",
+     "see": "見回りの試験は、止めた読みの間に見回りが返ったことを数で見るので、混み具合で落ちない。走査の間隔の試験は、取り込み器が遅れた歩を進め直して 10 回を数える"
+    },
+    {
+     "do": "PR 本文の洗い出しの一覧を読む",
+     "see": "同じ形の試験の場所・どの形に直したか・直さなかったものとその理由（計算の形を時間で見る stay_tests.rs など）"
+    }
+   ],
+   "outcome": "関門が止まったときは、変更に関係する試験が落ちたと考えてよくなる。直さなかった試験は一覧で分かる",
+   "without": "証跡の最新が FAIL になり、診断の席か人間が取り直す。並走が続く限り、別の Story の関門が同じ理由で止まり続ける",
+   "refs": {
+    "requirements": [
+     "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない",
+     "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+    ],
+    "scenarios": [
+     "全コアに負荷をかけた状態で、見回りと走査の間隔の 2 本の試験が続けて 10 回通る"
+    ],
+    "decisions": [
+     "Q2"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "見回りの試験: 混んでいても落ちず、待つ実装なら必ず落ちる",
+   "feature": "watch",
+   "scene": "PC の収集アプリが 30,000 件の訪問を持つブラウザの履歴を読んでいる間も、前景の見回り（1 秒ごと）が止まらないことを確かめる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "同じ試験を、混み具合と実装の正しさで分けたときの結果（秒数は説明用の値）",
+    "head": [
+     "",
+     "いまの試験（見回り 1 回の実時間 < 1 秒）",
+     "CH09 の後（止めた読み ＋ 見張り 30 秒）"
+    ],
+    "rows": [
+     [
+      "正しい実装・空いている",
+      "通る（1 回 0.3 秒）",
+      "通る（見回りが返り、前景の切り替えが積まれる）"
+     ],
+     [
+      "正しい実装・load 14",
+      "落ちる（1 回 1.34 秒）",
+      "通る（実時間を計らない）"
+     ],
+     [
+      "見回りが読みを待つ壊れた実装",
+      "落ちる（読みの分だけ遅い）",
+      "落ちる（読みを止めたままなので見回りが返らず、30 秒で見張りが放して「見張りが読みを放した」）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "正しい実装をマシンが混んでいるときに走らせる",
+     "outcome": "ok",
+     "result": "読みは試験が放すまで止まっている。その間に見回りが 5 回以上返り、前景の切り替えが記録に積まれる。放した後は見回り 1 回で積まれる記録が 2,000 件以下"
+    },
+    {
+     "label": "見回りが読みの終わりを待つように壊した実装",
+     "outcome": "problem",
+     "result": "最初の見回りが返らない。30 秒後に見張りが読みを放し、試験は「見張りが読みを放した」で落ちる"
+    }
+   ],
+   "why": "落ちていたのは「待った」からではなく、見回りの側が積む 2,000 件の手間が混み具合で延びたため。待つかどうかは、読みを止めた間に見回りが返るかで直接分かる。",
+   "conditions": {
+    "occurs_when": [
+     "見回りが履歴の読み（計画を作るところまで）を待つ実装"
+    ],
+    "not_when": [
+     "見回りが帳面の書き込み（Saving）を待つ退行。止めた読みでは捕まらない"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "見回り 1 回が遅くなる（速さの）退行は捕まえなくなる。速さは要件でない",
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "requirements": [
+     "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+    ],
+    "scenarios": [
+     "履歴の読みを止めている間も、見回りは返り、前景の変化が積まれる",
+     "見回りが履歴の取得を待つように壊すと、見張りの上限で試験が落ちる"
+    ],
+    "decisions": [
+     "Q1",
+     "D1"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "走査の間隔の試験: 取り込み器が遅れた歩を進め直す",
+   "feature": "wait",
+   "scene": "取り込み器が 120 秒の間隔で動いているところで、登録簿の間隔を 1 秒に変え、止めた時計を 1,001ms ずつ進めて走査が 10 回入ることを確かめる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "混んでいる回の 1 歩（ms は説明用の値）",
+    "head": [
+     "順",
+     "いまの試験",
+     "CH09 の後"
+    ],
+    "rows": [
+     [
+      "1",
+      "走査の数が増えたのを見て、すぐ時計を 1,001ms 進める",
+      "同じ"
+     ],
+     [
+      "2",
+      "取り込み器はまだ DB の往復中（40ms）で、眠りに入っていない。進めた 1 秒は眠りの前に過ぎる",
+      "同じ"
+     ],
+     [
+      "3",
+      "その歩では走査が入らない。5 秒（いまの上限）待って「走査が 4 回に届かない: 3」で落ちる",
+      "最大 1 秒待って届かなければ、同じ歩でもう 1,001ms 進める。次の歩で走査が入る"
+     ],
+     [
+      "終わり",
+      "経過が 10 秒ちょうどであることを見る",
+      "10 回の経過が時計で 30 秒未満であることを見る"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "正しい取り込み器を混んでいるときに走らせる",
+     "outcome": "ok",
+     "result": "抜けた歩を進め直すので、10 回は時計の 10〜20 秒で入る。30 秒未満で通る"
+    },
+    {
+     "label": "変えた間隔を読み直さず、古い 120 秒のまま眠る取り込み器",
+     "outcome": "problem",
+     "result": "10 回には時計で 1,200 秒かかる。時計の経過 30 秒か実時間 30 秒で「待った時間」「最後に見た数」を出して落ちる"
+    },
+    {
+     "label": "間隔を 30 秒ごとにしか読み直さない取り込み器",
+     "outcome": "problem",
+     "result": "10 回に 39 秒以上かかり、30 秒未満を満たさず落ちる"
+    }
+   ],
+   "why": "上限を延ばすだけでは、時計を進めた歩が眠りの前に過ぎる抜けが残る（往復 40ms の模型で、上限 5 秒でも 30 秒でも同じ所で止まった）。進め直しは時計を 1 秒ずつ使うだけで、古い間隔の退行は捕まえたまま。",
+   "conditions": {
+    "occurs_when": [
+     "取り込み器が変えた間隔を 30 秒より長く効かせない"
+    ],
+    "not_when": [
+     "数秒の遅れ。正典の「1 秒以内」を細かくは確かめなくなる"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。40ms の往復は模型の値で、実際の往復の長さは計っていない",
+     "refs": {}
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "requirements": [
+     "取り込み器の見回りの間隔は登録簿から読む",
+     "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+    ],
+    "scenarios": [
+     "登録簿で見回りの間隔を変えると起動し直さずに効く",
+     "取り込み器が変えた間隔を読まないように壊すと、間隔の変更の試験は期限で落ちる"
+    ],
+    "decisions": [
+     "Q8",
+     "D2"
+    ]
+   }
+  }
+ ],
+ "before_after": [
+  {
+   "area": "見回りの試験（history_large_fetch_keeps_observing_foreground）",
+   "before": "見回り 1 回の実時間が 1 秒未満かを見る",
+   "after": "読みを止めた間に見回りが返るか・1 回に積む件数が 2,000 件以下かを見る。実時間は計らない"
+  },
+  {
+   "area": "走査の間隔の試験と、その正典の Scenario",
+   "before": "10 回で時計の経過が 10 秒ちょうど。上限 5 秒の待ち",
+   "after": "抜けた歩を進め直し、10 回が時計の経過 30 秒未満。期限 30 秒の待ち"
+  },
+  {
+   "area": "試験の打ち切りの Scenario（statement timeout）",
+   "before": "pg_sleep(5) が 5 秒を待たずに失敗する",
+   "after": "pg_sleep(60) が 30 秒を待たずに失敗する"
+  },
+  {
+   "area": "条件を待つ試験・画面の単体試験",
+   "before": "200 回 × 25ms（約 5 秒）・携帯 5 秒・画面の待ち 1 秒（既定）・試験 5 秒（既定）",
+   "after": "期限 30 秒（届いた時点で進む）・画面の待ち 10 秒・試験 30 秒"
+  }
+ ],
+ "highlights": [
+  "wait.3",
+  "watch.3",
+  "proof.3",
+  "guard.2"
+ ],
+ "features": [
+  {
+   "id": "watch",
+   "title": "「待たない」を、止めた偽物で直接確かめる",
+   "summary": "見回りの試験 2 本は相手を止めておき、その間に見回りが返るかで判定する。返らなければ 30 秒の見張りが落とす",
+   "figure": null,
+   "points": [
+    {
+     "id": "watch.1",
+     "kind": "normal",
+     "text": "1 の試験は、偽の履歴の読み手を試験が放すまで止める。その間に見回りを 5 回以上回し、前景を切り替え、切り替えが記録に積まれていることを見る。放した後は、見回り 1 回で積まれた記録が 2,000 件以下であることを件数で見る。積み込みを見回りに分けている・積みこぼさない・積み込みの間に眠りが入らない、の確かめは残す",
+     "refs": {
+      "requirements": [
+       "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+      ],
+      "scenarios": [
+       "履歴の読みを止めている間も、見回りは返り、前景の変化が積まれる",
+       "読みを放した後、見回り 1 回で積む履歴の記録は 2,000 件以下"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "watch.2",
+     "kind": "normal",
+     "text": "同じ形の clock_worker_slow_read_does_not_hold_the_patrol（基準の読み取りが長引いても前景の切り替えが残る）も、「30 秒未満」の比較を同じ見張りに替える。正典の文は時間を言っていないので、変えた理由を agreed-test-changes.md に書く",
+     "refs": {
+      "decisions": [
+       "D1",
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "watch.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "止めた読みでは、見回りが帳面の書き込み（Saving）を待つ退行は捕まらない。止める口を製品のファイルに足さない決定（Q0）のため。見回り 1 回が遅くなる（速さの）退行も捕まえなくなる",
+     "refs": {
+      "decisions": [
+       "Q0",
+       "Q1",
+       "D1"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "wait",
+   "title": "条件を待つ試験は、届いた時点で進み、期限 30 秒で落ちる",
+   "summary": "回数 × 短い眠りの待ちを、実時間の期限に替える。普段の所要時間は変わらない",
+   "figure": null,
+   "points": [
+    {
+     "id": "wait.1",
+     "kind": "normal",
+     "text": "サーバ・PC の収集アプリ・携帯の収集アプリの試験の、相手が進むのを待つ箇所は、条件が満たされた時点で進み、満たされなければ実時間 30 秒で落ちる。落ちたときは待った時間と最後に見た値を出す",
+     "refs": {
+      "requirements": [
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ],
+      "scenarios": [
+       "一覧で直したとした条件の待ちに、回数の待ちと 30 秒より短い期限が残っていない"
+      ],
+      "decisions": [
+       "Q5",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "wait.2",
+     "kind": "normal",
+     "text": "画面の単体試験は数字の書かれていない待ち（waitFor / findBy）の上限を 10 秒、試験 1 本の上限を 30 秒にする。設定 1 か所で変える",
+     "tags": [
+      "Web"
+     ],
+     "refs": {
+      "scenarios": [
+       "画面の単体試験の待ちの上限は 10 秒、試験の上限は 30 秒"
+      ],
+      "decisions": [
+       "Q9",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "wait.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "走査の間隔の試験は上限を延ばすだけでは直らない。抜けた歩を進め直し、10 回の時計の経過を「10 秒ちょうど」でなく「30 秒未満」で見る。正典の Scenario の文もそれに合わせて書き直す。古い間隔のまま眠る退行と 30 秒ごとにしか読み直さない退行は捕まるが、数秒の遅れは捕まえない",
+     "refs": {
+      "requirements": [
+       "取り込み器の見回りの間隔は登録簿から読む"
+      ],
+      "scenarios": [
+       "登録簿で見回りの間隔を変えると起動し直さずに効く",
+       "取り込み器が変えた間隔を読まないように壊すと、間隔の変更の試験は期限で落ちる"
+      ],
+      "decisions": [
+       "Q8",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "wait.4",
+     "kind": "exception",
+     "text": "試験の中の時刻を兼ねるループ（1 回ごとに試験の時刻を進めるもの）は回数のまま残す。期限に変えると時刻が 1 時間で効く規則をまたぐ。残す行には timing-ok の印と理由を書く",
+     "refs": {
+      "decisions": [
+       "D4",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "wait.5",
+     "kind": "exception",
+     "text": "相手が進んだと仮定して決まった時間だけ眠る箇所は、観測できる条件があれば条件の待ちに替え、無ければ残して一覧に載せる。走査の間隔の試験の settle(500)・settle(25)・advance_secs(600, 25) は観測の口が無いので残る",
+     "refs": {
+      "decisions": [
+       "Q4",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "wait.6",
+     "kind": "caution",
+     "text": "本当に壊れた試験は、落ちるまでが延びる（待ち 1 か所ごとに最大 30 秒、画面は 10 秒）",
+     "refs": {
+      "decisions": [
+       "Q5",
+       "Q9"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "timeout",
+   "title": "打ち切りと計算の形を時間で見る試験",
+   "summary": "打ち切りは相手と上限を一緒に延ばし、計算の形は直さず一覧に載せる",
+   "figure": null,
+   "points": [
+    {
+     "id": "timeout.1",
+     "kind": "normal",
+     "text": "試験の DB の打ち切り（上限 1 秒）は、問い合わせを pg_sleep(60) にし、30 秒を待たずに SQLSTATE 57014 で失敗することを見る。正典 test-database の Scenario を書き直す。時刻合わせの子プロセスの打ち切り（200ms）も sleep 60・30 秒未満にする。打ち切りが効けば所要時間は変わらない",
+     "tags": [
+      "DB"
+     ],
+     "refs": {
+      "requirements": [
+       "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+      ],
+      "scenarios": [
+       "上限を超える問い合わせは、止まって失敗する",
+       "上限の既定は 60 秒で、試験の足場の接続に入っている",
+       "環境変数の値が上限になり、0 なら上限を置かない"
+      ],
+      "decisions": [
+       "Q3",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "timeout.2",
+     "kind": "exception",
+     "text": "1 日の作り直しが 3 秒未満なら「隣の日をたどっていない」と見る stay_tests.rs は直さない（数で見る口が製品に無い）。「起きない」を 200ms の窓で見る携帯の試験と、経過の下限を見るログインの試験も直さない（混むと見逃す側へ弱まるだけで、落ちはしない）",
+     "refs": {
+      "decisions": [
+       "Q3",
+       "D6",
+       "D12"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "proof",
+   "title": "直ったことを台本で示す",
+   "summary": "負荷の下で続けて通ることと、確かめたい性質を壊すと落ちることを、書いたまま走る台本で確かめる",
+   "figure": {
+    "kind": "table",
+    "caption": "2 つの台本の判定",
+    "head": [
+     "台本",
+     "通る（rc=0）",
+     "落ちる（rc=1）"
+    ],
+    "rows": [
+     [
+      "load-repeat.sh",
+      "N 回全部通る",
+      "1 回でも落ちる（何回目かを出す）"
+     ],
+     [
+      "load-repeat.sh --expect-fail",
+      "1 回以上落ちる",
+      "全部通る"
+     ],
+     [
+      "break-check.sh",
+      "壊した木で命令が落ち、決まった文言が全部出る",
+      "通った・文言が違う・差分が当たらない・上限で殺した"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "proof.1",
+     "kind": "normal",
+     "text": "tools/load-repeat.sh は全コアに busy loop の負荷を（手元か DB のコンテナの中に）かけ、命令を決まった回数続けて走らせる。直す前の 2 本の試験で落ちる回が出ることを load-before.txt に、直した後に 10 回ずつ通ることを load-after.txt に残す。負荷のための道具は入れない",
+     "refs": {
+      "requirements": [
+       "負荷の下で試験が続けて通ることを、台本で確かめる"
+      ],
+      "scenarios": [
+       "負荷の台本は、全部通れば通り、1 回でも落ちれば何回目かを挙げて落ちる",
+       "落ちることを期待する指定では、落ちる回が無ければ台本が落ちる",
+       "負荷の台本を途中で止めても、かけた負荷は残らない",
+       "全コアに負荷をかけた状態で、見回りと走査の間隔の 2 本の試験が続けて 10 回通る"
+      ],
+      "decisions": [
+       "Q6",
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "proof.2",
+     "kind": "normal",
+     "text": "tools/break-check.sh は使い捨ての作業木に壊す差分を当てて命令を走らせ、決まった文言で落ちることを見る。元の作業木は書き換えず、終わるときに使い捨ての作業木を消す。見回りが読みを待つ差分と、取り込み器が変えた間隔を読み直さない差分の 2 つを change の中に置く",
+     "refs": {
+      "requirements": [
+       "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+      ],
+      "scenarios": [
+       "壊した木で命令が決まった文言で落ちれば、台本は通る",
+       "壊しても命令が通るか、文言が違えば、台本は落ちる",
+       "上限より長くかかる命令は殺され、台本は落ちる",
+       "台本の後、元の作業木は変わらず、使い捨ての作業木は残らない"
+      ],
+      "decisions": [
+       "Q10",
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "proof.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "負荷の台本は並走する Story と同じ機械の全コアを埋める。DB のコンテナの中にかけても、CPU は同じ機械のもの。走らせている間は、ほかの Story の関門も遅くなる（IMP-01）",
+     "refs": {
+      "requirements": [
+       "負荷の下で試験が続けて通ることを、台本で確かめる"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "guard",
+   "title": "製品のコードを変えず、試験を減らさない",
+   "summary": "差分を試験の側に限り、既存の試験の名前・印・本数を守ることを機械で見る",
+   "figure": null,
+   "points": [
+    {
+     "id": "guard.1",
+     "kind": "normal",
+     "text": "製品のファイルの、試験のモジュール（#[cfg(test)] mod tests）の外は 1 行も変えない。試験用の差し込み口も足さない。分岐点からの差分を数える検査が見る",
+     "refs": {
+      "requirements": [
+       "CH09 は製品のコードを変えず、既存の試験を減らさない"
+      ],
+      "scenarios": [
+       "CH09 の差分は、試験のモジュールの外の製品のコードに 0 行"
+      ],
+      "decisions": [
+       "Q0",
+       "D10"
+      ]
+     }
+    },
+    {
+     "id": "guard.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "直す途中で製品が本当に待っている・遅すぎると分かっても、直さない。その試験は直さず一覧に「製品の不具合の疑い」と根拠を書き、PR 本文で別の change に出す（登録は人間が hx change で行う）",
+     "refs": {
+      "decisions": [
+       "Q7",
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "guard.3",
+     "kind": "normal",
+     "text": "既存の試験の名前・Scenario の印は消さず、本数は分岐点より減らさない。1 の試験と 2 の試験の名前も変えない",
+     "refs": {
+      "scenarios": [
+       "既存の試験の名前と印は消えず、試験の本数は減らない"
+      ],
+      "decisions": [
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "guard.4",
+     "kind": "normal",
+     "text": "洗い出す範囲は、関門で走る 3 か所（crates/ の Rust・web/src/__tests__・collector-android/app/src/test）。Windows でだけ組まれる試験は探して一覧に載せるだけ。画面の e2e・携帯の計測テスト・tools の台本は探さない。一覧（場所・型・方針・理由）は inventory.md に書き、候補を持つファイルが全部載っていることを検査が見て、PR 本文に写す",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D3",
+       "D14"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "製品のコード（見回り・取り込み器）の振る舞いを変えること・製品の不具合を直すこと",
+   "refs": {
+    "decisions": [
+     "Q0",
+     "Q7"
+    ]
+   }
+  },
+  {
+   "text": "並走の数を減らすなど、ハーネス側の対策",
+   "refs": {}
+  },
+  {
+   "text": "画面の e2e・携帯の計測テスト・tools の台本の待ちを直すこと",
+   "refs": {
+    "decisions": [
+     "Q2",
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "速さそのものを確かめる性能の試験を足すこと",
+   "refs": {
+    "decisions": [
+     "Q1"
+    ]
+   }
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [],
+ "terms": [
+  {
+   "term": "見回り",
+   "def": "PC の収集アプリが 1 秒ごとに前景の窓を見に行く 1 回（tick）"
+  },
+  {
+   "term": "止めた時計",
+   "def": "サーバの試験で、tokio の時計を止めて試験が手で進める仕組み。進めた分だけ取り込み器の眠りが進む"
+  },
+  {
+   "term": "見張り",
+   "def": "見回りが返るのを別のスレッドで 30 秒待ち、返らなければ止めていた読みを放して試験を落とす仕掛け"
+  }
+ ],
+ "impact": {
+  "overview": "同じ形の試験を、関門で走る 3 か所（Rust・画面の単体試験・携帯の単体試験）で、実時間の長さに依らない形に替える。マシンが混んでいても、これらの試験が「〜秒以内」で落ちることは減る。代わりに、試験は見回りの速さと、間隔の変更が効くまでの数秒の遅れを確かめなくなる。本当に壊れた試験は落ちるまでが延びる。直したことを示す負荷の台本は、走らせている間ほかの Story の関門も遅くする。",
+  "problem": "並走する Story の関門（cargo test --workspace）が、その Story と関係のない既存の試験で止まる。2026-11-04 の ST55 では 2 度。落ちたのは load average 9〜14 のときで、同じコードを取り直すと通った。",
+  "depth": "full",
+  "depth_why": "MODIFIED の Requirement が 2 つあり、試験を落とす規則（見張り・期限・台本の rc・製品のコードの差分の検査）を持つ",
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "code",
+    "name": "PC の収集アプリの見回りの試験 2 本（runtime.rs の mod tests）",
+    "change": "見回り 1 回の実時間の比較を、止めた読み・見張り・1 回に積む件数に替える",
+    "searched": "試験の名前・FakeReader・POLL_INTERVAL_SEC・QUEUE_PER_TICK を crates と tools と .github で検索し、CI の Windows の job と tools/tmp-leak-check.sh を開いた",
+    "refs": {
+     "requirements": [
+      "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "code",
+    "name": "条件を待つ試験（走査の間隔の試験・scheduled_tests.rs ほか）と打ち切りの試験",
+    "change": "回数の待ちを期限 30 秒に、走査の間隔の試験に進め直しを、打ち切りの試験の相手の長さと上限を延ばす",
+    "searched": "wait_for_scans・statement_timeout・ASHIATO_TEST_STATEMENT_TIMEOUT・wait_until を crates・tools・docs/handoff で検索した",
+    "refs": {
+     "requirements": [
+      "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む",
+      "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "file",
+    "name": "正典の Scenario 2 本（external-ingestion・test-database）",
+    "change": "確かめ方の文を書き直す。Requirement の本文は変えない",
+    "searched": "走っている change（st53・st54・st55）の specs のフォルダ名と、旧い文（「10 秒の間に 5 回」「10 秒ちょうど」）を repo で検索した",
+    "refs": {
+     "requirements": [
+      "取り込み器の見回りの間隔は登録簿から読む",
+      "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "file",
+    "name": "画面の単体試験の設定（web/vitest.config.ts・web/src/__tests__/setup.ts）",
+    "change": "待ちの既定の上限 1 秒 → 10 秒、試験 1 本の上限 5 秒 → 30 秒",
+    "searched": "useFakeTimers と waitFor / findBy を両方使うファイルを web/src/__tests__ で検索した",
+    "refs": {
+     "scenarios": [
+      "画面の単体試験の待ちの上限は 10 秒、試験の上限は 30 秒"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "lifecycle",
+    "name": "新しい台本 tools/load-repeat.sh・tools/break-check.sh",
+    "change": "全コアに負荷をかける台本と、使い捨ての作業木を作って消す台本を足す",
+    "searched": "tools/db.sh の DB のコンテナの作り方と、verify-run・quiet-run の打ち切り方（timeout・kill）を harness2 の scripts で検索した",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる",
+      "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "CI の Windows の job（collector-windows-runtime の cargo test -p ashiato-collector-windows --lib）",
+    "role": "reads",
+    "assumes": "見回りの試験が Windows でも同じに組めて走る",
+    "holds": "yes",
+    "affects": "Windows の CI で見回りの試験が走る",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T1",
+    "who": "Windows でだけ組まれる実行時の試験（tests/runtime_windows.rs）と CI の collector-windows-runtime",
+    "role": "reads",
+    "assumes": "design D3 の「関門でも CI でも走らない」",
+    "holds": "no",
+    "affects": "Windows を変えた PR では CI がこの試験を走らせる。中の「10 秒以内」の待ちは CH09 の後も残る",
+    "basis": "observed",
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "leads_to": [
+     "IMP-04"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T1",
+    "who": "並走する st54 の Task（HistoryCollector::new に除外の登録の置き場を引数で渡し、runtime.rs の mod tests の cfg()・試験の土台と collect.rs:844 の試験の土台を合わせる）",
+    "role": "writes",
+    "assumes": "1 の試験が使う runtime.rs の mod tests の土台の形が、CH09 の下流の間は変わらない",
+    "holds": "unknown",
+    "affects": "後から main に入る側の rebase で、1 の試験の土台の呼び方を直す",
+    "basis": "observed",
+    "evidence": [
+     "E7",
+     "E13"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "ST13 への申し送り（CH08 の R14: 走査の間隔の試験が負荷の下で落ちる）",
+    "role": "reads",
+    "assumes": "この試験の落ち方は、まだどの Story・change も直していない",
+    "holds": "yes",
+    "affects": "CH09 が引き受ける。申し送りの節は CH09 で片付く（取り込み器の側では直さない）",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T3",
+    "who": "走っている change（st53・st54・st55）の specs",
+    "role": "writes",
+    "assumes": "ほかの change が external-ingestion・test-database を書き直していない",
+    "holds": "yes",
+    "affects": "archive の 3-way が要らない",
+    "basis": "observed",
+    "evidence": [
+     "E9"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T4",
+    "who": "偽の時計（vi.useFakeTimers）と waitFor / findBy を両方使う画面の単体試験 5 ファイル",
+    "role": "reads",
+    "assumes": "待ちの上限を上げても、偽の時計の下での待ちの振る舞いと所要時間は変わらない",
+    "holds": "unknown",
+    "affects": "偽の時計の試験で、待ちの上限が実際に効いているかが分からない",
+    "basis": "unconfirmed",
+    "evidence": [],
+    "verify": "Task 6.1 で 5 ファイルを設定の前後で走らせ、所要時間と結果を比べる"
+   },
+   {
+    "id": "D7",
+    "target": "T5",
+    "who": "同じ機械で関門を走らせている並走の Story（st53・st54・st55）と verify の木",
+    "role": "reads",
+    "assumes": "機械の CPU は、わざと埋められていない",
+    "holds": "no",
+    "affects": "load-proof.sh の before と after が走る間（2 本 × 10 回 × 負荷の種類）、ほかの Story の関門も遅くなる。CH09 が入る前の木では同じ試験がまだ混み具合で落ちる",
+    "basis": "derived",
+    "evidence": [
+     "E10"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ],
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "D8",
+    "target": "T5",
+    "who": "負荷の busy loop の後始末（trap の EXIT・INT・TERM）",
+    "role": "writes",
+    "assumes": "台本は止められるとき、必ず EXIT・INT・TERM のどれかを受け取る",
+    "holds": "unknown",
+    "affects": "台本が KILL で殺されると trap が走らず、手元の busy loop と DB のコンテナの中の busy loop が残り、全コアを埋め続ける",
+    "basis": "derived",
+    "evidence": [
+     "E11"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ],
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/collector-windows/src/runtime.rs:3683",
+    "quote": "slowest < std::time::Duration::from_secs(POLL_INTERVAL_SEC as u64),"
+   },
+   {
+    "id": "E2",
+    "source": "test",
+    "loc": "crates/server/src/archive_scan_interval_tests.rs:258",
+    "quote": "settle(25).await; // 眠りの timer を取り込み器に処理させる"
+   },
+   {
+    "id": "E3",
+    "source": "test",
+    "loc": "crates/server/src/testdb_tests.rs:373",
+    "quote": "SELECT pg_sleep(5)"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:189",
+    "quote": "cargo test -p ashiato-collector-windows --lib"
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:195",
+    "quote": "cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1"
+   },
+   {
+    "id": "E6",
+    "source": "test",
+    "loc": "crates/collector-windows/tests/runtime_windows.rs:211",
+    "quote": "start.elapsed() < Duration::from_secs(10),"
+   },
+   {
+    "id": "E7",
+    "source": "story",
+    "loc": "openspec/changes/st54-dev-side-by-side/tasks.md:94",
+    "quote": "`HistoryCollector::new` が除外の登録の置き場を引数で受け"
+   },
+   {
+    "id": "E8",
+    "source": "story",
+    "loc": "docs/handoff/ST13.md:74",
+    "quote": "`archive_scan_interval_change_takes_effect_without_restart` が全体の試験の負荷の下で落ちる"
+   },
+   {
+    "id": "E9",
+    "source": "story",
+    "loc": "openspec/changes/st55-server-installer/proposal.md:49",
+    "quote": "`distribution`: インストール（管理者の確認 1 回"
+   },
+   {
+    "id": "E10",
+    "source": "ops",
+    "loc": "tools/db.sh:2",
+    "quote": "この worktree の DB を操作する"
+   },
+   {
+    "id": "E11",
+    "source": "design",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "E12",
+    "source": "ops",
+    "loc": "tools/tmp-leak-check.sh:13",
+    "quote": "history_large_fetch_keeps_observing_foreground が見回り 1 回 1.1〜2.2 秒で毎回落ちた"
+   },
+   {
+    "id": "E13",
+    "source": "story",
+    "loc": "openspec/changes/st54-dev-side-by-side/tasks.md:100",
+    "quote": "`history/collect.rs:844` の試験の土台"
+   }
+  ],
+  "lost": [
+   {
+    "before": "見回りの試験が、見回り 1 回が 1 秒を超える（速さの）退行を捕まえた",
+    "after": "見回りの速さは確かめない。待つ退行（読みを待つ）だけを捕まえる",
+    "who": "収集アプリの見回りを変える後の Story",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+     ],
+     "decisions": [
+      "Q1"
+     ]
+    }
+   },
+   {
+    "before": "走査の間隔の試験が、間隔の変更が 1 秒以内に効くことを（10 秒ちょうどで）確かめた",
+    "after": "10 回が時計の 30 秒未満かだけを見る。数秒の遅れは捕まえない",
+    "who": "取り込み器を変える後の Story",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "取り込み器の見回りの間隔は登録簿から読む"
+     ],
+     "scenarios": [
+      "登録簿で見回りの間隔を変えると起動し直さずに効く"
+     ],
+     "decisions": [
+      "Q8"
+     ]
+    }
+   },
+   {
+    "before": "本当に壊れた試験が、待ち 1 か所あたり約 5 秒（画面は 1 秒）で落ちた",
+    "after": "待ち 1 か所あたり最大 30 秒（画面は 10 秒）で落ちる。直す往復が延びる",
+    "who": "試験を直す下流の席と人間",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+     ],
+     "decisions": [
+      "Q5",
+      "Q9"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "混んでいる機械で走らせても、直した試験が「〜秒以内」で落ちない形にする。直した後に 10 回通ることは下流の load-after.txt で確かめる（上流では走らせていない）",
+    "cannot": "見回りの速さと、間隔の変更の数秒の遅れを試験で捕まえる",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+     ],
+     "scenarios": [
+      "全コアに負荷をかけた状態で、見回りと走査の間隔の 2 本の試験が続けて 10 回通る"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "走っている Story は main に rebase すれば直った試験を使える",
+    "cannot": "rebase するまでは、その Story の関門で古い試験が混み具合で落ちうる。st54 が先に入れば、CH09 の 1 の試験の土台の呼び方を rebase で直す（IMP-03）",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "CH09 を戻せば試験は元の形に戻る。製品のコード・データ・移行は変えていないので、戻しで失うものはこの分析では見つけていない",
+    "cannot": "戻すと、混み具合で落ちる試験も戻る",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "CH09 は製品のコードを変えず、既存の試験を減らさない"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": false,
+    "why": "データ・記録の形を変えない（試験と台本だけ）"
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "Windows の CI でも、見回りの試験は同じ形で走る",
+    "cannot": "Windows でだけ組まれる実行時の試験の「10 秒以内」の待ちは直さないまま、Windows を変えた PR の CI で走る（IMP-04）",
+    "basis": "observed",
+    "refs": {
+     "decisions": [
+      "Q2",
+      "D3"
+     ]
+    },
+    "evidence": [
+     "E4",
+     "E5"
+    ]
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "負荷の台本を INT・TERM で止めると、かけた負荷は消える。break-check の使い捨ての作業木も消える",
+    "cannot": "台本が KILL で殺されたときは負荷が残りうる（IMP-02）",
+    "basis": "derived",
+    "refs": {
+     "scenarios": [
+      "負荷の台本を途中で止めても、かけた負荷は残らない",
+      "台本の後、元の作業木は変わらず、使い捨ての作業木は残らない"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "停止",
+    "rule": "見回りが 30 秒返らなければ、見張りが読みを放して試験を落とす",
+    "target": "見回りが履歴の取得を待つ退行",
+    "legit": "この分析では正当な実装を落とす場面を見つけていない。見回り 1 回は混んだときでも 1〜2 秒（tools/tmp-leak-check.sh の実測）で、30 秒より 1 桁以上短い",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+     ],
+     "decisions": [
+      "Q1",
+      "D1"
+     ]
+    },
+    "evidence": [
+     "E12"
+    ]
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "条件が実時間の期限（30 秒。画面は待ち 10 秒・試験 30 秒）までに満たされなければ試験が落ちる。走査の間隔の試験は時計の経過 30 秒でも落ちる",
+    "target": "相手が進まない退行・古い間隔のまま眠る退行",
+    "legit": "負荷がもっと重く、正しい実装が 30 秒を超えると落ちる。load 9〜14 で落ちた実測（見回り 1.34 秒・5 秒の待ちで走査が届かない）からは、この分析では届かないと見ているが、走らせて確かめていない",
+    "blocks_legit": "unknown",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む",
+      "取り込み器の見回りの間隔は登録簿から読む"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "停止",
+    "rule": "試験の DB の問い合わせは上限を超えると止まり、試験が落ちる",
+    "target": "止まらない問い合わせ",
+    "legit": "CH09 は上限の値を変えない。試験の問い合わせの長さを変えるだけで、この分析では正当な利用を止める場面を見つけていない",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "停止",
+    "rule": "load-repeat は 1 回でも落ちれば rc=1、--expect-fail は全部通れば rc=1。break-check は通った・文言が違う・差分が当たらない・上限で殺した、で rc=1",
+    "target": "直っていないのに直ったとする証跡",
+    "legit": "並走の st54 が試験の土台を変えた後は、CH09 の試験が rebase まで組めず、break-check が落ちうる（IMP-03）",
+    "blocks_legit": true,
+    "basis": "derived",
+    "imp": "IMP-03",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる",
+      "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "拒否",
+    "rule": "試験のモジュールの外の製品のコードに 1 行でも差分があれば検査が落ちる。既存の試験の名前・印が消えた・本数が減ったら落ちる",
+    "target": "試験の直しに紛れた製品の変更・試験の削除",
+    "legit": "製品の不具合が見つかっても、CH09 の差分では製品のコードを変えない（Q7 で決めたとおり。別の change に出す）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "CH09 は製品のコードを変えず、既存の試験を減らさない"
+     ],
+     "decisions": [
+      "Q7"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "拒否",
+    "rule": "見回りの間隔を 300 秒より長くする変更・環境変数 ASHIATO_ARCHIVE_SCAN_SEC の残る起動を断る（CH09 は変えない）",
+    "target": "置き場を 10 分以内に読めない間隔・2 か所に分かれた設定",
+    "legit": "CH09 はこの規則に触れない。Scenario の文の 1 本だけを書き直す",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "取り込み器の見回りの間隔は登録簿から読む"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R4",
+    "goal": "CH09 の下流が、壊すと落ちることを break-check で示す",
+    "initial": "st54 が先に main に入り、runtime.rs の mod tests の土台と HistoryCollector::new の引数が変わっている",
+    "action": "CH09 を main に rebase し、break-proof.sh history を走らせる",
+    "trigger": "1 の試験の土台の呼び方が古いままだと試験が組めず、break-check は rc=1",
+    "result": "Task 3.1・3.2 の検証が落ち、試験の土台の呼び方を合わせる",
+    "lost": "検証のやり直しの手間だけ。製品と記録には影響しない",
+    "decision": "作り直しを下流の fix に任せてよいか（IMP-03）",
+    "occurs_when": [
+     "st54 が CH09 より先に main に入る"
+    ],
+    "not_when": [
+     "CH09 が先に入る（st54 の側が rebase で追う）"
+    ],
+    "basis": "derived",
+    "imp": "IMP-03",
+    "refs": {
+     "requirements": [
+      "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R2",
+    "goal": "負荷の台本で、直した 2 本の試験が 10 回通ることを示す",
+    "initial": "並走の Story が 3 本、同じ機械で下流を走らせている",
+    "action": "load-proof.sh after を走らせる（全コアに busy loop）",
+    "trigger": "ほかの Story の関門も同じ CPU の上で走る",
+    "result": "ほかの Story の関門が遅くなる。CH09 が入る前の木では、同じ見回りの試験・走査の間隔の試験が落ちうる",
+    "lost": "ほかの Story の証跡が FAIL になり、取り直しの手間が増える",
+    "decision": "負荷の台本をいつ・どう走らせるか（IMP-01）",
+    "occurs_when": [
+     "CH09 の Task 1.2・9.3 と、ほかの Story の関門が同じ時間に走る"
+    ],
+    "not_when": [
+     "ほかに下流が走っていない時間に台本を走らせる"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "負荷の台本が、並走する Story の関門を遅くし、落としうる",
+    "text": "load-repeat.sh は全コアを busy loop で埋める。DB のコンテナの中にかけても CPU は同じ機械のもの。負荷は Task 1.1 の self-test・1.2（直す前）・9.3（直した後）で走り、9.3 は検証の命令なので gate や fix のたびに走り直す。その間、ほかの Story の関門も遅くなり、CH09 が入る前の木では同じ試験が混み具合で落ちうる。CH09 が止めようとしている止まり方を、CH09 自身が起こす",
+    "basis": "derived",
+    "deps": [
+     "D7"
+    ],
+    "evidence": [
+     "E10"
+    ],
+    "unknowns": [
+     "台本の 1 回の所要時間（組み立てを含むか）と、並走の Story の関門がその時間に重なる頻度",
+     "gate・fix が 9.3 を何回走り直すか"
+    ],
+    "derived": "台本は nproc 本の busy loop を回す（D7）。同じ機械の他の過程は CPU を取り合う",
+    "undefined": "台本を走らせる時間帯・ほかの下流との譲り合い。仕様は定めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "受け入れる（負荷は self-test・1.2・9.3 と、9.3 を走り直す gate・fix のたび。落ちた側は取り直す）"
+     },
+     {
+      "label": "台本の負荷を、ほかの下流が走っていないときだけかける（tasks に待ちを足す）"
+     },
+     {
+      "label": "負荷の busy loop に上限の時間を付け、回数を減らす"
+     }
+    ],
+    "verify": "Task 1.2 を走らせた時間に、ほかの Story の証跡が FAIL になっていないかを hx status で見る",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ],
+     "decisions": [
+      "Q6",
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "負荷の台本が KILL で殺されると、全コアの負荷が残りうる",
+    "text": "仕様は EXIT・INT・TERM で負荷を止めると決めているが、KILL では trap が走らない。HUP も trap の対象に無い。手元の busy loop は親を失っても回り続け、DB のコンテナの中の busy loop はコンテナが止まるまで回る。印 ch09-load-<pid> は DB のコンテナの中の過程にしか付かないので、手元に残った負荷を印で探すことはできない。残ると全コアが埋まったままになり、すべての Story の関門が遅くなる",
+    "basis": "derived",
+    "deps": [
+     "D8"
+    ],
+    "evidence": [
+     "E11"
+    ],
+    "unknowns": [
+     "下流の席（Codex・Claude）や verify-run が、長い命令を打ち切るときに KILL を送るか。harness2 の verify-run と quiet-run に打ち切りの記述は見つけていない",
+     "scripts/quiet-run が上から受けたシグナルを子（load-repeat）へ渡すか（impact-review は渡さないと読んだ。走らせて確かめていない）"
+    ],
+    "derived": "KILL は trap で受けられない。busy loop は台本の子で、親が死んでも止まる仕組みを仕様は持たない",
+    "undefined": "負荷の過程が自分で止まる条件（親が居なくなった・上限の時間を過ぎた）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "busy loop に自分で止まる条件を持たせ（親の pid が消えたら止まる・上限の時間で止まる）、手元の過程にも印を付け、HUP も trap に入れる。仕様の Requirement に 1 文足す"
+     },
+     {
+      "label": "受け入れる（KILL は起きにくい。残ったら load average を見て手で止める）"
+     }
+    ],
+    "verify": "self-test に、台本へ KILL を送った後に負荷の過程が残らないことを見る項目を足し、いまの設計で落ちることを確かめる",
+    "refs": {
+     "requirements": [
+      "負荷の下で試験が続けて通ることを、台本で確かめる"
+     ],
+     "scenarios": [
+      "負荷の台本を途中で止めても、かけた負荷は残らない"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "並走の st54 が試験の土台を変えると、CH09 の 1 の試験を rebase で直す",
+    "text": "st54 は HistoryCollector::new に除外の登録の置き場を引数で渡す形に変え、runtime.rs の mod tests の cfg()・試験の土台と history/collect.rs:844 の試験の土台も合わせる。CH09 が書き直す 1 の試験も同じ mod tests の土台を使うので、後から入る側が rebase で呼び方を直す。壊す差分（Stage::Reading の周り）は st54 の変える行と別の場所で、当たり方への影響はこの分析では見つけていない",
+    "basis": "observed",
+    "deps": [
+     "D3"
+    ],
+    "evidence": [
+     "E7",
+     "E13"
+    ],
+    "unknowns": [
+     "st54 と CH09 のどちらが先に入るか"
+    ],
+    "derived": "CH09 の 1 の試験と st54 の変更は、どちらも runtime.rs の mod tests の土台を使う・変える",
+    "undefined": "どちらが先に入るか（決めない。gate の rebase が追う）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "受け入れる（後から入る側の gate → fix が直す）"
+     }
+    ],
+    "verify": "CH09 の Task 3.1 の前に main を見て、st54 が入っていれば試験の土台の呼び方を合わせる",
+    "refs": {
+     "requirements": [
+      "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "low",
+    "status": "open",
+    "title": "Windows でだけ組まれる試験は CI で走る（設計の前提と違う）",
+    "text": "design D3 は tests/runtime_windows.rs を「関門でも CI でも走らない」とし、直さず一覧に載せるだけにした。実際は CI の collector-windows-runtime が、Windows を変えた PR で走らせる。中の「10 秒以内」などの待ちは残る。CI は関門ではないので関門が止まる問題には影響しないが、CI の runner が混むか・その待ちで落ちた記録があるかは確かめていない",
+    "basis": "observed",
+    "deps": [
+     "D2"
+    ],
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "unknowns": [
+     "CI の Windows の job が混み具合で落ちた記録があるか"
+    ],
+    "derived": "CI は関門ではないので、関門が止まる問題は変わらない。一覧の「走らない」の理由の文だけが違う",
+    "undefined": "一覧の Windows の行に書く理由",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "受け入れる（一覧の理由を「関門で走らない・CI の runner は混まない」に直すのを下流に任せる）"
+     },
+     {
+      "label": "Windows の試験も直す（Q2 の別の選択肢）"
+     }
+    ],
+    "verify": "Actions の collector-windows-runtime の履歴で、時間の上限で落ちた回があるかを見る",
+    "refs": {
+     "decisions": [
+      "Q2",
+      "D3"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "tasks の検証が全部通る: 直す前に落ちる回が残り（load-before.txt）、直した後に 10 回ずつ通り（load-after.txt）、壊すと決まった文言で落ちる（break-proof.sh）",
+    "refs": {
+     "scenarios": [
+      "全コアに負荷をかけた状態で、見回りと走査の間隔の 2 本の試験が続けて 10 回通る",
+      "見回りが履歴の取得を待つように壊すと、見張りの上限で試験が落ちる"
+     ]
+    }
+   },
+   {
+    "text": "製品のコードの差分が 0 行・既存の試験の名前と印と本数が減っていない・洗い出しの一覧が PR 本文にある",
+    "refs": {
+     "requirements": [
+      "CH09 は製品のコードを変えず、既存の試験を減らさない"
+     ]
+    }
+   },
+   {
+    "text": "IMP-01・IMP-02 を、書いた残るもののまま受け入れるか、本人が判断している",
+    "refs": {}
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "関門で走る試験（cargo test --workspace・画面の単体試験・携帯の単体試験）の、実時間の長さで判定する箇所",
+     "refs": {
+      "requirements": [
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "落ちる原因が混み具合（実時間の長さ）であること。製品の不具合なら直さず一覧に載せる",
+     "refs": {
+      "decisions": [
+       "Q7"
+      ]
+     }
+    },
+    {
+     "text": "条件の待ちの期限 30 秒は、試験の中の時刻を兼ねるループを除く",
+     "refs": {
+      "requirements": [
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ]
+     }
+    },
+    {
+     "text": "見回りの試験の見張りは、見回りが返らないときだけ働く。見回り 1 回の実時間は見ない",
+     "refs": {
+      "requirements": [
+       "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない"
+      ]
+     }
+    },
+    {
+     "text": "負荷の台本は INT・TERM で止めたときに負荷を消す。break-check は元の作業木を書き換えない",
+     "refs": {
+      "requirements": [
+       "負荷の下で試験が続けて通ることを、台本で確かめる",
+       "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
+      ]
+     }
+    },
+    {
+     "text": "試験の DB の上限の既定 60 秒と環境変数の扱いは変えない。取り込み器の間隔の規則（300 秒・環境変数を断る）も変えない",
+     "refs": {
+      "requirements": [
+       "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる",
+       "取り込み器の見回りの間隔は登録簿から読む"
+      ]
+     }
+    },
+    {
+     "text": "差分は試験のファイル・試験のモジュール・web/vitest.config.ts・tools/・docs/・openspec/ に限る",
+     "refs": {
+      "requirements": [
+       "CH09 は製品のコードを変えず、既存の試験を減らさない"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "画面の e2e・携帯の計測テスト・tools の台本・Windows でだけ組まれる試験を直すこと",
+     "refs": {
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "text": "計算の形・「起きない」の窓・下限を時間で見る試験を直すこと",
+     "refs": {
+      "decisions": [
+       "Q3",
+       "D12"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "見回りが帳面の書き込みを待つ退行と、見回りの速さの退行は試験で捕まらない",
+     "refs": {
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "text": "負荷の台本が並走の Story を遅くする・KILL で負荷が残りうる（IMP-01・IMP-02）",
+     "refs": {}
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "1 の試験・2 の試験・打ち切りの試験の今の形、取り込み器と見回りの段の流れ（premises.md と review/deep.md の模型）、CI の Windows の 2 つの job、tools/tmp-leak-check.sh（/tmp で走らせる理由に 1 の試験の実測が書いてある。CH09 の後も台本の動きは変わらない）、docs/handoff/ST13.md の CH08 R14",
+     "refs": {
+      "requirements": [
+       "見回りが履歴の取得を待たないことは、止めた読みで確かめ、見回り 1 回の実時間で判定しない",
+       "取り込み器の見回りの間隔は登録簿から読む",
+       "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+      ]
+     }
+    },
+    {
+     "text": "走っている change との重なり: st53（tools/smoke.sh と各ファイルの 1 行目だけ。CH09 は触らない）・st54（history/collect.rs・tests/runtime_windows.rs・tools/android-emulator.sh。IMP-03・IMP-04）・st55（runtime.rs の製品の部分と別の試験。specs は external-ingestion・test-database を持たない）",
+     "refs": {}
+    },
+    {
+     "text": "台本と検査の 4 つの Requirement と、負荷の台本の打ち切られ方",
+     "refs": {
+      "requirements": [
+       "負荷の下で試験が続けて通ることを、台本で確かめる",
+       "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる",
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む",
+       "CH09 は製品のコードを変えず、既存の試験を減らさない"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "候補の全部（Rust の十数か所・画面の 317 か所・携帯の数か所）を 1 つずつ読むこと",
+     "why": "洗い出しは下流の Task 5〜8 と check-inventory.sh が完成させる"
+    },
+    {
+     "text": "偽の時計を使う画面の単体試験 5 ファイルで、待ちの上限がどう効くか",
+     "why": "走らせていない（D6 の verify）"
+    },
+    {
+     "text": "負荷の下で 1 の試験・2 の試験が本当に落ちる再現",
+     "why": "上流では走らせていない。Task 1.2 の load-before.txt が確かめる"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "ASHIATO_TEST_STATEMENT_TIMEOUT を使う台本（tools/check-test-db-killed.sh・tools/export-scaling.sh）",
+     "why": "CH09 は上限の値と環境変数の扱いを変えず、試験の問い合わせの長さだけを変える"
+    },
+    {
+     "text": "st53-license-bundle が触る tools/smoke.sh",
+     "why": "CH09 は tools の台本を探さず（Q2）、tools/smoke.sh を触らない"
+    }
+   ]
+  }
+ }
+}
