@@ -3,6 +3,10 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
+quiet_build() {
+  local log="$1"; shift
+  "$@" >"$log" 2>&1 || { tail -n 40 "$log" >&2; return 1; }
+}
 . "$root/tools/release/android-tools.sh"
 usage() { echo "使い方: $0 <置き場> [...] | check <置き場> [...] | apk-version <apk...> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
 
@@ -133,6 +137,7 @@ check_artifacts() {
       -e 's/^ashiato-server-(.*)-linux-x86_64\.tar\.gz$/\1/p' \
       -e 's/^ashiato-server-(.*)-windows-x86_64\.zip$/\1/p' \
       -e 's/^ashiato-collector-windows-(.*)-x86_64\.zip$/\1/p' \
+      -e 's/^ashiato-collector-dev-(.*)\.apk$/\1/p' \
       -e 's/^ashiato-collector-(.*)\.apk$/\1/p' | head -n1)"
   fi
   [[ -n "$expected_version" ]] || die "版番号を名前から読めない"
@@ -141,13 +146,28 @@ check_artifacts() {
     "ashiato-server-${expected_version}-windows-x86_64.zip"
     "ashiato-collector-windows-${expected_version}-x86_64.zip"
   )
-  [[ "$channel" == nightly ]] || expected_names+=("ashiato-collector-${expected_version}.apk")
+  if [[ "$channel" == nightly ]]; then
+    expected_names+=("ashiato-collector-dev-${expected_version}.apk")
+  else
+    expected_names+=("ashiato-collector-${expected_version}.apk")
+  fi
   for name in "${expected_names[@]}"; do
     [[ -f "$dir/$name" ]] || die "欠けた配布物: $name"
     artifact_stamp "$dir/$name" "$expected_version"
   done
   if [[ "$channel" == nightly ]]; then
-    for apk in "$dir"/*.apk; do [[ -e "$apk" ]] || continue; die "nightly に APK がある: $(basename "$apk")"; done
+    apk="$dir/ashiato-collector-dev-${expected_version}.apk"
+    for name in "$dir"/*.apk; do
+      [[ -e "$name" ]] || continue
+      [[ "$(basename "$name")" == "$(basename "$apk")" ]] || die "nightly に想定外の APK がある: $(basename "$name")"
+    done
+    check_apk_fields "$apk"
+    if [[ "$allow_debug" != 1 ]]; then
+      local signer
+      signer="$(android_tool apksigner)" || die "apksigner が無い"
+      cert="$(apk_cert_sha256 "$signer" "$apk")"
+      [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
+    fi
   else
     apk="$dir/ashiato-collector-${expected_version}.apk"
     check_apk_fields "$apk"
@@ -286,21 +306,34 @@ self_test() {
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
   grep -Fq '渡した版番号と違う' <<<"$output" || { echo "$output"; return 1; }
   local nightly="$work/nightly"; mkdir -p "$nightly"
-  echo "== Scenario: 開発版の配布物の検査は、携帯の APK を除く 3 つで通る"
-  printf '0.4.0-dev.20261102+0000000000000000000000000000000000000000' > "$work/stamp"
-  tar -czf "$nightly/ashiato-server-0.4.0-dev.20261102-linux-x86_64.tar.gz" -C "$work" stamp
-  (cd "$work" && zip -q "$nightly/ashiato-server-0.4.0-dev.20261102-windows-x86_64.zip" stamp)
-  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-0.4.0-dev.20261102-x86_64.zip" stamp)
-  check_artifacts "$nightly" --channel nightly --expect-version 0.4.0-dev.20261102 >/dev/null
-  echo "== Scenario: 開発版の置き場に携帯の APK があれば、検査は落ちてその名前を示す"
-  for apk_name in \
-    ashiato-collector-dev-0.4.0-dev.20261102.apk \
-    ashiato-collector-0.4.0-dev.20261102.apk; do
-    touch "$nightly/$apk_name"
-    if output=$(check_artifacts "$nightly" --channel nightly --expect-version 0.4.0-dev.20261102 2>&1); then return 1; fi
-    grep -Fq "$apk_name" <<<"$output"
-    rm -f "$nightly/$apk_name"
-  done
+  local nightly_version="$v-dev.20261102"
+  echo "== Scenario: 開発版のリリースの配布物は、開発版の APK を含む 4 つで、同じ版番号を持つ"
+  printf '%s+0000000000000000000000000000000000000000' "$nightly_version" > "$work/stamp"
+  tar -czf "$nightly/ashiato-server-$nightly_version-linux-x86_64.tar.gz" -C "$work" stamp
+  (cd "$work" && zip -q "$nightly/ashiato-server-$nightly_version-windows-x86_64.zip" stamp)
+  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp)
+  local dev_key="$work/nightly-dev.jks" dev_password=self-test-password dev_b64 dev_cert
+  printf '%s\n' "$dev_password" | "$root/tools/release/make-key.sh" dev "$dev_key" >/dev/null
+  dev_b64="$(base64 -w0 "$dev_key")"
+  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$nightly_version" ASHIATO_APK_UNSIGNED=1 quiet_build "$work/build-nightly.log" "$root/tools/release/build.sh" apk "$work/nightly-build"
+  dev_cert="$(keytool -J-Duser.language=en -J-Duser.country=US -list -v -keystore "$dev_key" -storepass "$dev_password" 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
+  ASHIATO_EXPECT_DEV_CERT_SHA256="$dev_cert" ASHIATO_SIGNING_KEYSTORE_B64="$dev_b64" ASHIATO_SIGNING_STORE_PASSWORD="$dev_password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$dev_password" \
+    "$root/tools/release/sign-apk.sh" "$work/nightly-build/ashiato-collector-$nightly_version.apk" dev "$nightly/ashiato-collector-dev-$nightly_version.apk" >/dev/null
+  ASHIATO_EXPECT_CERT_SHA256="$dev_cert" check_artifacts "$nightly" --channel nightly --expect-version "$nightly_version" >/dev/null
+  echo "== Scenario: 開発版の置き場に携帯の APK が無ければ、検査は落ちる"
+  rm -f "$nightly/ashiato-collector-dev-$nightly_version.apk"
+  if output=$(check_artifacts "$nightly" --channel nightly --expect-version "$nightly_version" 2>&1); then return 1; fi
+  grep -Fq "ashiato-collector-dev-$nightly_version.apk" <<<"$output"
+  echo "== Scenario: 開発版の置き場に正式版の名前の APK があれば、検査は落ちてその名前を示す"
+  cp "$work/nightly-build/ashiato-collector-$nightly_version.apk" "$nightly/ashiato-collector-dev-$nightly_version.apk"
+  touch "$nightly/ashiato-collector-$nightly_version.apk"
+  if output=$(ASHIATO_EXPECT_CERT_SHA256="$dev_cert" check_artifacts "$nightly" --channel nightly --expect-version "$nightly_version" 2>&1); then return 1; fi
+  grep -Fq "ashiato-collector-$nightly_version.apk" <<<"$output"
+  rm -f "$nightly/ashiato-collector-$nightly_version.apk"
+  echo "== Scenario: 開発版の置き場に正式版の名前の APK があれば、検査は落ちてその名前を示す"
+  cp "$nightly/ashiato-collector-dev-$nightly_version.apk" "$nightly/ashiato-collector-$nightly_version.apk"
+  if output=$(ASHIATO_EXPECT_CERT_SHA256="$dev_cert" check_artifacts "$nightly" --channel nightly --expect-version "$nightly_version" 2>&1); then return 1; fi
+  grep -Fq "ashiato-collector-$nightly_version.apk" <<<"$output"
   echo "== Scenario: 1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ"
   check_artifacts "$out" --allow-debug-key --expect-version "$v" >/dev/null
   echo "OK: 実物の release、欠落、印、資格情報、名前、チャンネルを検査した"
