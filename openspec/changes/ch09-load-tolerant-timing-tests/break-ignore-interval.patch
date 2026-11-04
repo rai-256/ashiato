@@ -1,0 +1,32 @@
+diff --git a/crates/server/src/archive/worker.rs b/crates/server/src/archive/worker.rs
+--- a/crates/server/src/archive/worker.rs
++++ b/crates/server/src/archive/worker.rs
+@@ -2230,25 +2230,9 @@ async fn wait_for_next_scan(
+     unreadable: &mut bool,
+ ) {
+     let waited_from = tokio::time::Instant::now();
+-    loop {
+-        match read_scan_interval(pool, source).await {
+-            Ok(sec) => {
+-                *interval_sec = sec;
+-                if std::mem::take(unreadable) {
+-                    tracing::info!(
+-                        kind = "archive_scan_interval",
+-                        logical_source = source,
+-                        "見回りの間隔を読めるようになった"
+-                    );
+-                }
+-            }
+-            Err(error) => {
+-                if !std::mem::replace(unreadable, true) {
+-                    tracing::warn!(kind = "archive_scan_interval", logical_source = source, error = %error, "見回りの間隔を読めない。前の値を使う");
+-                }
+-            }
+-        }
+-        if waited_from.elapsed() >= std::time::Duration::from_secs(*interval_sec) {
++    let interval = read_scan_interval(pool, source).await.unwrap_or(*interval_sec);
++    loop {
++        if waited_from.elapsed() >= std::time::Duration::from_secs(interval) {
+             return;
+         }
+         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
