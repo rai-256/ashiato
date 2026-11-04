@@ -47,7 +47,7 @@ class ChannelGateTest {
         val shadowManager: ShadowNotificationManager = shadowOf(app.getSystemService(NotificationManager::class.java))
         assertTrue(shadowManager.getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID).extras
             .getCharSequence("android.text").toString().contains("送り先を確かめてください"))
-        assertTrue(ShadowLog.getLogs().any { it.msg.contains("channel_mismatch expected=dev actual=official") })
+        assertTrue(ShadowLog.getLogs().any { it.msg.contains("kind=channel_mismatch") && it.msg.contains("trigger=dev") && it.msg.contains("availability=official") })
         assertEquals(null, store.notifiedAtMs)
     }
 
