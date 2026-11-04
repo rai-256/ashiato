@@ -13,6 +13,7 @@
 - `cargo test --workspace`: PASS (rc=0)
 - `scripts/verify-run 8.1`: clippy は PASS。Windows runtime は `/mnt/c/dev/ashiato2-rt-ch09` が read-only のため rsync が失敗し、FAIL (rc=1)。Windows 側の 13 本以上の実行結果は取得できていない。
 - 再実行（sandbox 外）では Windows clone への同期と 15 本の起動に成功したが、9 PASS / 6 FAIL (rc=1)。失敗はすべて UI 前景取得（窓の発見または `run_until` の foreground 条件）で、非 UI の時計・通知・履歴系は PASS。対話デスクトップが利用できない環境依存の BLOCKED_INFRA と判断する。
+- 最新証跡 fingerprint は `bee2f15f03`（ログ: `.superpowers/sdd/logs/20261104-234739-evidence-8.1-1-f195f4-vu0sbp7xy.log`）。`focus_window_of` の窓探索 1 件と `run_until` の前景条件 5 件が 30 秒で失敗している。
 
 ## TDD Evidence
 
