@@ -1,0 +1,30 @@
+--- history load=host ---
+load-repeat-rc: 0
+run 1/10 rc=0 elapsed=14536ms
+run 2/10 rc=0 elapsed=13679ms
+run 3/10 rc=0 elapsed=13796ms
+run 4/10 rc=0 elapsed=14156ms
+run 5/10 rc=0 elapsed=12561ms
+run 6/10 rc=101 elapsed=15267ms
+run 7/10 rc=0 elapsed=13536ms
+run 8/10 rc=0 elapsed=14131ms
+run 9/10 rc=0 elapsed=11977ms
+run 10/10 rc=0 elapsed=14241ms
+pass 1/10
+history: yes
+load-history: host
+--- scan load=host ---
+load-repeat-rc: 0
+run 1/10 rc=101 elapsed=424ms
+run 2/10 rc=101 elapsed=491ms
+run 3/10 rc=101 elapsed=386ms
+run 4/10 rc=101 elapsed=616ms
+run 5/10 rc=101 elapsed=400ms
+run 6/10 rc=101 elapsed=463ms
+run 7/10 rc=101 elapsed=511ms
+run 8/10 rc=101 elapsed=496ms
+run 9/10 rc=101 elapsed=495ms
+run 10/10 rc=101 elapsed=676ms
+pass 10/10
+scan: yes
+load-scan: host
