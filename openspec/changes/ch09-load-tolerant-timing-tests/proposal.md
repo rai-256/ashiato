@@ -18,7 +18,7 @@
   読みを放した後は、見回り 1 回で増えた履歴の記録が 2,000 件（`QUEUE_PER_TICK`）以下であることを数で見る。時間の assert は消し、
   `queueing_ticks`・積みこぼし・眠りが入らないことの assert は残す
 - **2 の試験（`archive_scan_interval_change_takes_effect_without_restart`）は、届かなければ 1,001ms ずつ進め直し（実時間の期限 30 秒）、
-  仮想時間の経過を「10 秒ちょうど」でなく「60 秒未満」で見る**（Q8 の推奨）。正典 `external-ingestion` の Scenario「登録簿で見回りの間隔を変えると起動し直さずに効く」の
+  仮想時間の経過を「10 秒ちょうど」でなく「30 秒未満」で見る**（Q8 の推奨。推奨の「例: 60 秒」を、30 秒ごとの読み直しの退行も捕まえる 30 秒にした。design D2）。正典 `external-ingestion` の Scenario「登録簿で見回りの間隔を変えると起動し直さずに効く」の
   確かめ方を、それに合わせて書き直す（**MODIFIED**。Requirement の本文は変えない）
 - **同じ形の試験を洗い出して同じ方針で直す**（Q2〜Q5・Q9 の推奨）。範囲は Rust の `crates/`（Windows でだけ組まれる `tests/runtime_windows.rs` は載せるだけ）・
   `web/src/__tests__`・`collector-android/app/src/test`。条件を待つ上限は実時間の期限で一律 30 秒（試験の中の時刻を兼ねるループは回数のまま）、
@@ -30,8 +30,8 @@
 - **振る舞いを変えないもの**: 製品のコード（試験のモジュール `#[cfg(test)] mod tests` の外）は 1 行も変えない（Q0 の推奨。design D10 が機械で見る）。
   製品の不具合の疑いが出たら直さず一覧に書いて別の change に出す（Q7）。既存の試験の名前・`// Scenario:` の印・本数は減らさない
 - **変わってしまう確かめ（2 つ）**: 打ち切りの試験（`testdb_tests.rs` の statement timeout）は、正典 `test-database` の Scenario の問い合わせを 60 秒・待つ上限を 30 秒にする（**MODIFIED**。Q3）。
-  もう 1 つ —— 2 の試験は「変えた値が 1 秒以内に効く」を「10 秒ちょうどで 10 回」でなく「10 回が 60 秒未満」で見るようになり、精度が粗くなる。
-  古い間隔（120 秒）で眠る退行は 1,200 秒かかるので捕まる（Q8）
+  もう 1 つ —— 2 の試験は「変えた値が 1 秒以内に効く」を「10 秒ちょうどで 10 回」でなく「10 回が 30 秒未満」で見るようになり、精度が粗くなる。
+  古い間隔（120 秒）で眠る退行と、30 秒ごとにしか読み直さない退行は捕まる。数秒の遅れは捕まえない（Q8）
 
 ## Capabilities
 
@@ -58,7 +58,7 @@
   `scheduled_tests.rs`・`testdb_tests.rs`・`outage_api_tests.rs` ほか（候補は design の表）。`web/vitest.config.ts`・`web/src/__tests__/setup.ts`・
   `collector-android/app/src/test/.../UnavailableLogGateTest.kt`
 - 製品のコード: 変えない（`#[cfg(test)] mod tests` の外の差分は 0 行。D10）
-- 道具: 新しいファイル `tools/load-repeat.sh`・`tools/break-check.sh`。change の中に `check-product-unchanged.sh`・`check-test-names.sh`・`check-inventory.sh`・
+- 道具: 新しいファイル `tools/load-repeat.sh`・`tools/break-check.sh`。change の中に `check-product-unchanged.sh`・`check-test-names.sh`・`check-inventory.sh`・`agreed-test-changes.md`・
   壊す差分 `break-*.patch`・証跡の台本 `load-proof.sh`
 - 依存: 足さない（`stress` は入れない。busy loop は bash で作る）
 - **走っている Story・change との重なり**（`origin/main` = 3235f293 との差分）:

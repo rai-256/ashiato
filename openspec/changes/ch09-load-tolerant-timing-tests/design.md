@@ -49,17 +49,20 @@
 - 反転条件: Q1 が「名前付きパイプで書き込みも止める」なら、`.tmp` の場所に FIFO を置く別の試験を足す（Linux 専用・その取得は失敗で終わるので積みこぼしの assert とは分ける）。
   「差し込み口で止める」なら Q0 が「足してよい」のときだけ `history/collect.rs` に `#[cfg(test)]` の口。「性能の試験として残す」なら `#[ignore]` の試験に時間の確かめを移す
 
-### D2（仮）. 2 の試験は、届かなければ同じ歩を進め直し、時計の経過を 60 秒未満で見る（Q8）
+### D2（仮）. 2 の試験は、届かなければ同じ歩を進め直し、時計の経過を 30 秒未満で見る（Q8）
 
 - 歩ごとに `advance(1001ms)` → `settle(25)` → 走査の数が `before + step` に届くのを**最大 1 秒（実時間）**待つ。届かなければ同じ歩でもう一度 `advance(1001ms)` する。
   進め直しは時計の経過を 1 秒ずつ使うだけで、確かめを弱めない（間隔 1 秒なら 10 回は 10〜20 秒で入る）
-- 打ち切り: 時計の経過が 60 秒に達するか、試験全体の実時間が 30 秒（D4）を超えたら落ちる。文言は
+- 打ち切り: 時計の経過が 30 秒に達するか、試験全体の実時間が 30 秒（D4）を超えたら落ちる。文言は
   `走査が {n} 回に届かない: 最後に見た数 {last}・時計の経過 {virtual:?}・待った時間 {real:?}`（spec「取り込み器が変えた間隔を読まないように壊すと…」が `待った時間` を見る）
-- 終わりの assert は「変えた後の 10 回が時計の経過 60 秒未満」（正典 `external-ingestion` の Scenario を MODIFIED で書き直す）。古い間隔のまま眠る退行は 10 回に 1,200 秒かかる
+- 終わりの assert は「変えた後の 10 回が時計の経過 30 秒未満」（正典 `external-ingestion` の Scenario を MODIFIED で書き直す）。Q8 の推奨は「例: 60 秒未満」で、値は例として置かれていた。
+  30 秒にするのは、間隔を 30 秒ごとにしか読み直さない退行（10 回に 39 秒以上）も捕まえるため（review/spec.md R5）。進め直しの余裕は 20 歩（普段は 0〜数歩）。
+  古い間隔のまま眠る退行は 10 回に 1,200 秒かかる。数秒の遅れは捕まえない（正典の理由の行に書いた）
 - `settle(500)`（:250。取り込み器が眠りに入るのを待つ）は残す。観測する口が無く（Q0）、進め直しがあるので、眠りに入る前に変えても落ちない（D5）
 - 同じ型の `scheduled_tests.rs`（刻み 100ms・200 回の待ち 5 か所）は、待ちの上限だけを D4 にし、刻みと進め方は変えない（落ちた記録が無い。一覧に「同じ競り合いの型・刻みで避けている」と書く）
 - 反転条件: Q8 が「刻みを細かく」なら `scheduled_tests.rs` と同じ 100ms 刻みにし、正典の Scenario は「10 秒の間に 5 回以上」のまま（MODIFIED を外す）。
-  「眠りに入ったことを観測」なら Q0 が「足してよい」ときだけ取り込み器に `#[cfg(test)]` の印を足し、「10 秒ちょうど」を残す（MODIFIED を外す）
+  「眠りに入ったことを観測」なら Q0 が「足してよい」ときだけ取り込み器に `#[cfg(test)]` の印を足し、「10 秒ちょうど」を残す（MODIFIED を外す）。
+  「進める前の固定の眠りを延ばす」なら `settle(25)` を `settle(250)` にし、進め直しはしない。競り合いが残るので、正典の Scenario は「10 秒の間に 5 回以上」のまま（MODIFIED を外す）
 
 ### D3（仮）. 洗い出しの範囲は、関門で走る 3 か所（Q2）
 
@@ -67,7 +70,9 @@
 - 探して一覧に載せるだけ: `crates/collector-windows/tests/runtime_windows.rs`（`#![cfg(windows)]`。関門でも CI でも走らない）・`crates/collector-windows/examples/browser_history_smoke.rs`（例。試験でない）
 - 探さない（一覧に「探していない」と書く）: `web/e2e`・`collector-android/app/src/androidTest`・`tools/*.sh`
 - 反転条件: Q2 が「Windows の試験も直す」なら `runtime_windows.rs` を直し、Windows の clone で 1 回走らせる手順を tasks に足す（人間の確認待ちでなく、`~/dev/ashiato` の
-  メモどおり WSL から Windows 側の cargo）。「e2e なども探して載せる」なら探す範囲を足す
+  メモどおり WSL から Windows 側の cargo）。「e2e なども探して載せる」なら探す範囲を足す。
+  「全部探して全部直す」なら、`web/e2e`（playwright の `expect` の `timeout`）・`app/src/androidTest`（Espresso の待ち）・`tools/*.sh` の上限も D4 の形に直し、
+  走らせ方（`docs/testing.md` §4.5 の `cd web && npm run test:e2e`・`tools/android-emulator.sh`・`tools/smoke.sh`）の検証を tasks に足す
 
 ### D4（仮）. 条件を待つ上限は、実時間の期限で一律 30 秒（Q5）
 
@@ -91,17 +96,20 @@
   `time_sync.rs:650`（打ち切り 200ms）は `sleep 30` → `sleep 60`、「5 秒未満」→「30 秒未満」。打ち切りが効けば普段の所要時間は変わらない
 - 計算の形: `stay_tests.rs:2389`（作り直し 1 日が 3 秒未満なら「隣をたどっていない」）は直さず、一覧に「計算の形・数で見る口が無い（Q0）」を書く。
   製品のコードに触れずに数で見られるもの（たとえば作り直しが読む行の数が DB から見える）が見つかったときだけ数に変える
-- 反転条件: Q3 が「どちらも直さない」なら 2 か所とも一覧だけ（正典 `test-database` の MODIFIED を外す）。「上限を延ばす」なら `stay_tests.rs` も 30 秒にする
+- 反転条件: Q3 が「どちらも直さない」なら 2 か所とも一覧だけ（正典 `test-database` の MODIFIED を外す）。「上限を延ばす」なら `stay_tests.rs` も 30 秒にする。
+  「製品のコードに数える口を足す」なら、Q0 が「足してよい」ときだけ `stay_store.rs` に `#[cfg(test)]` の数える口を足し、`stay_tests.rs:2389` を「作り直しが読んだ日の数」で見る
 
 ### D7（仮）. 負荷の台本 `tools/load-repeat.sh`（Q6）
 
 - 形: `tools/load-repeat.sh [--times N] [--load host|db|none] [--expect-fail] -- <命令…>`・`--self-test`。既定は `--times 10 --load host`
-- 負荷: `host` は `nproc` 本の bash の busy loop（`while :; do :; done &`）。`db` は DB のコンテナの中で同じ busy loop（`tools/db.sh` の `exec` から）。
-  `trap` で EXIT・INT・TERM のどれでも止める。道具は足さない
+- 負荷: `host` は `nproc` 本の bash の busy loop。`db` は DB のコンテナの中で同じ busy loop（`tools/db.sh exec db sh -c …`）。
+  `trap` で EXIT・INT・TERM のどれでも止める。DB のコンテナの中の過程は台本の子でないので、印の付いた名前（`ch09-load-<pid>`）で起こし、
+  止めるときと self-test の数え方は、その印で絞って探す（コンテナの外の過程を巻き込まない）。道具は足さない
 - 出力: 各回の rc と所要時間、最後に `pass <k>/<N>`。rc は spec のとおり（全部通る 0・1 回でも落ちる 1。`--expect-fail` は逆）
 - 証跡: change の `load-proof.sh before` は**直す前の木**（Task 1 の時点）で 1 と 2 の試験に `--expect-fail` を当て、結果を `load-before.txt` に
-  `history: yes|no` / `scan: yes|no`（落ちる回が出たか）で残す。`host` で再現しなければ `db` で試し、それでも再現しなければ `no` のまま残す（直したことの証が弱いと書く）。
-  `load-proof.sh after` は直した後に 2 本を 10 回ずつ通す
+  `history: yes|no` / `scan: yes|no`（落ちる回が出たか）と、それぞれ再現した負荷（`load-history: host|db|none` / `load-scan: …`）で残す。`host` で再現しなければ `db` で試し、
+  それでも再現しなければ `no` のまま残す（直したことの証が弱いと書く）。
+  `load-proof.sh after` は直した後に 2 本を 10 回ずつ通す。負荷は `load-before.txt` に残した、その試験が再現した負荷（両方で再現したなら両方。どちらでも再現しなければ `host`）
 - 反転条件: Q6 が「直した後の 10 回だけ」なら `before` を落とす。「1 回きりの `bash -c`」なら台本を作らず tasks の検証に書く
 
 ### D8（仮）. 製品の不具合の疑いは直さない（Q7）
@@ -117,7 +125,7 @@
 - 試験の中に `{ timeout: N }` を書いた箇所は、10 秒より短ければ一覧に載せて同じ形で延ばす
 - 反転条件: Q9 が「待ちも 30 秒」なら 30,000 / 60,000。「触らない」なら設定を変えず一覧だけ（spec の Scenario を外す）
 
-### D10. 製品のコードの差分が 0 行であることは、検査で見る（Q0）
+### D10（仮）. 製品のコードの差分が 0 行であることは、検査で見る（Q0）
 
 - change の中の `check-product-unchanged.sh`: 分岐点（`git merge-base origin/main HEAD`）から HEAD までの差分で、`crates/**/*.rs` のうち試験のファイル
   （`*_tests.rs`・`testdb.rs`・`tests/`）でないもの、`collector-android/app/src/main`、`web/src`（`__tests__` を除く）の変わった行を拾う。
@@ -128,13 +136,15 @@
 
 ### D11（仮）. 壊すと落ちることは、使い捨ての作業木に差分を当てる台本で見る（Q10）
 
-- 形: `tools/break-check.sh --patch <差分> --expect <文言> [--timeout 秒] -- <命令…>`・`--self-test`。`git worktree add --detach <一時の場所> HEAD` に
-  `git apply` し、その中で命令を走らせ、`git worktree remove --force` で消す（`trap` で必ず）。元の木の `target/` を `CARGO_TARGET_DIR` で共有してよい（組み直しの時間を減らす）
+- 形: `tools/break-check.sh --patch <差分> --expect <文言> [--expect <文言>…] [--timeout 秒] -- <命令…>`・`--self-test`。`--expect` は全部が出ることを見る。
+  `git worktree add --detach <一時の場所> HEAD` に `git apply` し、その中で命令を走らせ、`git worktree remove --force` で消す（`trap` で必ず）。
+  `CARGO_TARGET_DIR` は元の木の `target/` に向ける（組み直しの時間を減らす。既定にする）。上限（既定 900 秒）は `timeout` で、殺されたら rc=1 と「上限で殺した」
+- 作業木は **HEAD** から作るので、壊す差分を当てる前に、確かめる試験の書き換えを commit しておく（tasks 3.2・4.2。review/spec.md R6）
 - 壊す差分は change の中に置く:
   - `break-wait-on-read.patch`: `crates/collector-windows/src/history/collect.rs` の取得の段（`Stage::Reading`、`:401-480`）で、読みのスレッドの終わりを待つ（`is_finished` を見て返る所を
     `join` で待つ形に）。期待する文言は `見張りが読みを放した`（D1）
   - `break-ignore-interval.patch`: `crates/server/src/archive/worker.rs` の `wait_for_next_scan`（`:2226-2249`）で、登録簿の間隔を眠りの前に 1 回だけ読み、眠っている間は読み直さない。
-    期待する文言は `待った時間`（D2）
+    期待する文言は `待った時間` と `最後に見た数`（D2）
 - 差分は凍結の前に一度空走させる（当たること・期待する文言で落ちること。`review/deep.md` R7）
 - 反転条件: Q10 が「手で壊して貼る」なら台本を作らず、証跡に出力を貼り、`git diff --exit-code` で戻したことを見る
 
@@ -147,8 +157,11 @@
 
 - change の中の `check-test-names.sh`（CH03 の同じ名の台本を写し、画面の単体試験の `it(` / `test(` の名前を足す）。分岐点と比べて、消えた名前・印が無く、本数が減っていないこと
 - 1 の試験・2 の試験の名前は変えない（正典の Scenario の印がその試験にある）
+- 正典の Scenario の印の付いた試験の期待の行を、MODIFIED に無い Requirement で書き換えるときは、`agreed-test-changes.md` に `- Scenario: <名前> — <理由>` を書く
+  （`check_agreed_tests.py` の約束）。既知: `desktop-collection` の「訪問の多い取得でも前景の観測は止まらない」（`slowest` の比較を消す）・「基準の読み取りが長引いても前景の切り替えは記録に残る」
+  （「30 秒未満」を見張りに替える）。理由は、正典の文が時間を言っておらず、期待（見回りが止まらない・切り替えが残る）は同じであること
 
-### D14. 洗い出しの一覧の置き場と形
+### D14（C）. 洗い出しの一覧の置き場と形（聞かずに決めた。一覧の形を変えても試験は戻せる）
 
 - `openspec/changes/ch09-load-tolerant-timing-tests/inventory.md` に表で書く。列: 場所（`path:line` と試験の名前）・型（次の 8 つ）・方針（直した形 / 直さない）・理由
   - 型: `待たない`（1 の形）/ `条件の待ち`（D4）/ `固定の眠り`（D5）/ `打ち切り`（D6）/ `計算の形`（D6）/ `起きない・下限`（D12）/ `暗黙の上限`（D9）/ `速さが要件`（依頼の 3）
@@ -156,6 +169,9 @@
 - change の中の `check-inventory.sh`: 候補を機械で拾い、候補を持つファイルが全部 `inventory.md` に出ることを見る（rc=1 で抜けたファイルを挙げる）。拾う形:
   Rust は `elapsed()`・`Instant::now()`・`recv_timeout(`・`for _ in 0..<数>` の後 5 行以内に `sleep(`/`settle(` があるもの。
   TypeScript は `waitFor`/`findBy`（ファイルの単位で 1 行にまとめてよい）・`timeout:`・`setTimeout(`。Kotlin は `await(<数>, TimeUnit`・`Thread.sleep(`・`withTimeout`・`nanoTime`・`currentTimeMillis`
+- `check-inventory.sh` はもう 1 つ見る（review/spec.md R4）: 一覧で型を「条件の待ち」・方針を直したとしたファイルに、回数で切る待ち（`for _ in 0..<数>` の後 5 行以内に `sleep(`/`settle(`）と
+  30 秒より短い上限（Kotlin の `await(<30 未満>, TimeUnit.SECONDS)` と `MILLISECONDS`）が HEAD で残っていないこと。残すもの（時刻を兼ねるループ・D12 の窓）は、その行の 1 行上か同じ行に
+  `// timing-ok: <理由>` を書き、一覧にも理由を書く
 - PR 本文（下流の `/story finish`）は `inventory.md` の表を写す（依頼の 3）
 
 ### 既知の候補（上流が読んだもの。下流は `check-inventory.sh` の候補で完成させる）
@@ -183,7 +199,7 @@
 ## Risks / Trade-offs
 
 - [Saving を待つ退行は捕まらない] → D1 で受け入れた。Q1 の別の選択肢で捕まえられる（反転条件）
-- [2 の試験は「1 秒以内に効く」を粗くしか見ない] → 古い間隔の退行は捕まる（D2）。正典の Scenario の文を確かめられる形に書き直し、嘘の印を残さない
+- [2 の試験は「1 秒以内に効く」を粗くしか見ない] → 古い間隔・30 秒ごとの読み直しの退行は捕まる（D2）。数秒の遅れは捕まえない。正典の Scenario の文を確かめられる形に書き直し、嘘の印を残さない
 - [期限 30 秒で、本当に壊れた試験は落ちるまでが延びる] → 待ち 1 か所ごとに最大 30 秒（画面は 10 秒）。下流の fix の往復が延びうる（Q5・Q9 の why）
 - [`load-proof.sh before` で再現しない] → `db` の負荷でも試し、それでも出なければ `no` と書く。直した後の 10 回は、そのときは「直したことの証」としては弱い（D7）
 - [`break-check.sh` の作業木の組み立てが遅い] → `CARGO_TARGET_DIR` を元の木と共有する。共有中に元の木で cargo を走らせない（tasks の順で避ける）
