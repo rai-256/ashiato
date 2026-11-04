@@ -79,15 +79,15 @@
 
 ## Task 4: 2 の試験 —— 進め直しと、時計の経過 30 秒未満
 
-- [ ] 4.1 `crates/server/src/archive_scan_interval_tests.rs` の `archive_scan_interval_change_takes_effect_without_restart` を design D2 のとおりに書き換える（歩ごとに最大 1 秒待ち、
+- [x] 4.1 `crates/server/src/archive_scan_interval_tests.rs` の `archive_scan_interval_change_takes_effect_without_restart` を design D2 のとおりに書き換える（歩ごとに最大 1 秒待ち、
   届かなければ同じ歩を進め直す・時計の経過 30 秒か実時間 30 秒で落ちる・終わりは「10 回が時計の経過 30 秒未満」）。`wait_for_scans` は D4 の期限 30 秒にし、文言に `待った時間` と `最後に見た数` を出す。
   印 `// Scenario: 登録簿で見回りの間隔を変えると起動し直さずに効く` は残す（正典の文は MODIFIED で書き直してある）。`settle(500)`・`settle(25)`・`advance_secs(600, 25)` は残す（D5）。
   検証: `CT archive_scan_interval_change_takes_effect_without_restart` rc=0 / `NL ashiato-server archive_scan_interval_change_takes_effect_without_restart 1` rc=0
-- [ ] 4.2 **4.1 を commit してから**、壊す差分 `break-ignore-interval.patch` を change の中に置く（design D11。`archive/worker.rs` の `wait_for_next_scan` で間隔を眠りの前に 1 回だけ読む）。
+- [x] 4.2 **4.1 を commit してから**、壊す差分 `break-ignore-interval.patch` を change の中に置く（design D11。`archive/worker.rs` の `wait_for_next_scan` で間隔を眠りの前に 1 回だけ読む）。
   `break-proof.sh` に `scan` を足す: `.env` を読み、`tools/break-check.sh --patch <この差分> --expect 待った時間 --expect 最後に見た数 --timeout 900 -- cargo test -p ashiato-server archive_scan_interval_change_takes_effect_without_restart`。
   前に `echo "Scenario: 取り込み器が変えた間隔を読まないように壊すと、間隔の変更の試験は期限で落ちる"` を出す。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run break -- openspec/changes/ch09-load-tolerant-timing-tests/break-proof.sh scan'` rc=0
-- [ ] 4.3 同じファイルの `archive_scan_interval_default_is_120_seconds` が、`wait_for_scans` を替えた後も通る（`advance_secs(600, 25)` は残す。D5）。
+- [x] 4.3 同じファイルの `archive_scan_interval_default_is_120_seconds` が、`wait_for_scans` を替えた後も通る（`advance_secs(600, 25)` は残す。D5）。
   検証: `CT archive_scan_interval_` rc=0 / `NL ashiato-server archive_scan_interval_ 3` rc=0
 
 ## Task 5: Rust の残りの候補 —— 条件の待ち・打ち切り
