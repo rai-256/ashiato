@@ -50,7 +50,7 @@
 
 ## Task 2: 壊すと落ちることを確かめる台本
 
-- [ ] 2.1 `tools/break-check.sh` を design D11 のとおりに書く: `--patch <差分> --expect <文言> [--expect <文言>…] [--timeout 秒] -- <命令…>`・`--self-test`。`--expect` は全部が出ることを見る。
+- [x] 2.1 `tools/break-check.sh` を design D11 のとおりに書く: `--patch <差分> --expect <文言> [--expect <文言>…] [--timeout 秒] -- <命令…>`・`--self-test`。`--expect` は全部が出ることを見る。
   `CARGO_TARGET_DIR` は既定で元の木の `target/` に向ける（使い捨ての木の組み立てを短くする）。使い捨ての作業木は `git worktree add --detach` で `mktemp -d` の下に作り、
   `trap` で `git worktree remove --force` と `git worktree prune` を必ず走らせる。上限は `timeout` で、殺されたら rc=1 と「上限で殺した」。
   `--self-test` は一時の git の repo（`mktemp -d` に `git init`）の上で、次の 3 つを見る。それぞれの前に印を出す:
