@@ -14,6 +14,9 @@ die() {
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) \
   || die "git リポジトリの中で実行してください"
+CHECK_TEMP_ROOT=""
+CHECK_WORKTREE=""
+SELF_TEST_ROOT=""
 
 run_check() {
   local patch_file="" timeout_seconds=900
@@ -59,27 +62,29 @@ run_check() {
   local patch_abs
   patch_abs=$(CDPATH= cd -- "$(dirname -- "$patch_file")" && pwd)/$(basename -- "$patch_file")
 
-  local temp_root worktree log command_rc=0
-  temp_root=$(mktemp -d "${TMPDIR:-/tmp}/break-check.XXXXXX")
-  worktree=$temp_root/worktree
-  log=$temp_root/command.log
+  local log command_rc=0
+  CHECK_TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/break-check.XXXXXX")
+  CHECK_WORKTREE=$CHECK_TEMP_ROOT/worktree
+  log=$CHECK_TEMP_ROOT/command.log
 
   cleanup() {
-    git -C "$REPO_ROOT" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" worktree remove --force "$CHECK_WORKTREE" >/dev/null 2>&1 || true
     git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
-    rm -rf -- "$temp_root"
+    rm -rf -- "$CHECK_TEMP_ROOT"
   }
-  trap cleanup RETURN
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
-  git -C "$REPO_ROOT" worktree add --detach "$worktree" HEAD >/dev/null \
+  git -C "$REPO_ROOT" worktree add --detach "$CHECK_WORKTREE" HEAD >/dev/null \
     || die "使い捨ての作業木を作れません"
-  if ! git -C "$worktree" apply "$patch_abs"; then
+  if ! git -C "$CHECK_WORKTREE" apply "$patch_abs"; then
     echo "NG: 差分が当たらない"
     return 1
   fi
 
   echo "== 壊した作業木で命令を実行"
-  if (cd "$worktree" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}" \
+  if (cd "$CHECK_WORKTREE" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}" \
       timeout --signal=TERM --kill-after=2s "$timeout_seconds" "${command[@]}") \
       >"$log" 2>&1; then
     command_rc=0
@@ -106,11 +111,13 @@ run_check() {
 }
 
 self_test() {
-  local script="$SCRIPT_DIR/$(basename "$0")" root before_status before_worktrees
-  root=$(mktemp -d "${TMPDIR:-/tmp}/break-check-self-test.XXXXXX")
-  trap 'rm -rf -- "$root"' RETURN
+  local script="$SCRIPT_DIR/$(basename "$0")" before_status before_worktrees
+  SELF_TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/break-check-self-test.XXXXXX")
+  trap 'rm -rf -- "$SELF_TEST_ROOT"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   (
-    cd "$root"
+    cd "$SELF_TEST_ROOT"
     git init -q -b main
     git config user.email test@example.invalid
     git config user.name break-check
@@ -143,16 +150,34 @@ PATCH
       'grep -q value=broken marker && echo BROKEN && exit 1'
 
     echo "Scenario: 壊しても命令が通るか、文言が違えば、台本は落ちる"
-    if "$script" --patch break.patch --expect BROKEN -- bash -c 'echo OTHER; exit 0'; then
+    if output=$("$script" --patch break.patch --expect BROKEN -- bash -c 'echo OTHER; exit 0' 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    if [ "$command_rc" -ne 1 ] || ! grep -Fq 'NG: 通った' <<<"$output"; then
       echo "self-test NG: 通った命令を見逃した"
+      printf '%s\n' "$output"
       exit 1
     fi
-    if "$script" --patch break.patch --expect BROKEN -- bash -c 'echo OTHER; exit 1'; then
+    if output=$("$script" --patch break.patch --expect BROKEN -- bash -c 'echo OTHER; exit 1' 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    if [ "$command_rc" -ne 1 ] || ! grep -Fq 'NG: 文言が違う（期待: BROKEN）' <<<"$output"; then
       echo "self-test NG: 文言違いを見逃した"
+      printf '%s\n' "$output"
       exit 1
     fi
-    if "$script" --patch bad.patch --expect BROKEN -- bash -c 'exit 1'; then
+    if output=$("$script" --patch bad.patch --expect BROKEN -- bash -c 'exit 1' 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    if [ "$command_rc" -ne 1 ] || ! grep -Fq 'NG: 差分が当たらない' <<<"$output"; then
       echo "self-test NG: 当たらない差分を見逃した"
+      printf '%s\n' "$output"
       exit 1
     fi
 
@@ -161,8 +186,17 @@ PATCH
     [ "$before_worktrees" = "$(git worktree list --porcelain)" ]
 
     echo "Scenario: 上限より長くかかる命令は殺され、台本は落ちる"
-    if "$script" --patch break.patch --expect NEVER --timeout 2 -- bash -c 'sleep 60'; then
+    started_at=$SECONDS
+    if output=$("$script" --patch break.patch --expect NEVER --timeout 2 -- bash -c 'sleep 60' 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    elapsed=$((SECONDS - started_at))
+    if [ "$command_rc" -ne 1 ] || [ "$elapsed" -lt 1 ] || [ "$elapsed" -ge 10 ] || \
+      ! grep -Fq 'NG: 上限で殺した' <<<"$output"; then
       echo "self-test NG: timeout を見逃した"
+      printf 'rc=%s elapsed=%ss\n%s\n' "$command_rc" "$elapsed" "$output"
       exit 1
     fi
   )

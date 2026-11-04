@@ -34,3 +34,23 @@
 - 製品コード、`tasks.md`、既存 Scenario のテストは変更していない。
 - 一時 directory と worktree は `trap` で必ず削除・prune する。
 - 懸念なし。
+
+## Fix report（review 1: F1 / F2）
+
+### 修正内容
+
+- `--self-test` の「通った」「文言が違う」「差分が当たらない」「上限で殺した」の各ケースで、rc=1 と対応する診断文言を個別に検証するようにした。
+- timeout ケースでは実行経過時間も確認し、短絡的な別エラーを timeout 成功と誤認しないようにした。
+- worktree と一時ディレクトリの cleanup を `RETURN` trap から `EXIT` trap に変更し、INT/TERM は終了経由で cleanup するようにした。関数終了後も変数が残るよう cleanup 用の共有変数を使った。
+
+### 検証
+
+- `bash -n tools/break-check.sh` — PASS
+- `tools/break-check.sh --self-test` — PASS（rc=0、4 Scenario と cleanup を確認）
+- `scripts/verify-run 2.1` — PASS（rc=0、evidence.jsonl に記録）
+- `git diff --check` — PASS
+
+### Self-review
+
+- F1/F2 以外の機能・ファイルは変更していない。
+- review で後続 Task に委ねられている実差分の空走確認は実施していない。
