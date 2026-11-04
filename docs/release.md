@@ -110,5 +110,15 @@ ST53 の確認後、開発版の公開を始める前に本人が次を行う。
 2. `nightly` Environment に、開発版の keystore を base64 にした `ASHIATO_SIGNING_KEYSTORE_B64`、`ASHIATO_SIGNING_STORE_PASSWORD`、`ASHIATO_SIGNING_KEY_ALIAS`、`ASHIATO_SIGNING_KEY_PASSWORD` の Secret を置く。開発版の証明書の SHA-256 指紋を `ASHIATO_CERT_SHA256` 変数に置く。値は手順やログに出さない。
 3. 携帯と PC に正式版と開発版を並べて入れる。PC は正式版と別のフォルダに展開してよい。同じ `ASHIATO_STATE_DIR` を渡した場合も、開発版はその下の `dev` を使い、除外の登録は渡された置き場から読む。
 4. 開発版のサーバは `127.0.0.1:18788` で待ち受ける。DB は `ASHIATO_DB_PORT=55433 docker compose -p ashiato-nightly up -d db` で起こし、開発版の `DATABASE_URL` をその DB に向ける。正式版の DB と同じ DB を使わない。
-5. 開発版の DB が止まったら、エラーの `kind=channel_mismatch` は DB とサーバの系統が違うこと、`kind=db_ahead` は DB がそのサーバより先に進んでいることを示す。`migrations/LINEAGE` に、移行を載せた系統と旧名を変えた場合の対応を記録する。直しの移行は、どちらの中身で当てた DB にも同じ結果になるように書き、DB を直接書き換えない。
+5. 開発版の DB が止まったら、エラーの `kind=channel_mismatch` は DB とサーバの系統が違うこと、`kind=db_ahead` は DB がそのサーバより先に進んでいることを示す。`db_ahead` の場合は DB を直接書き換えず、手元の clone で main 側に直しの移行を追加してから、同じ移行を当てた新しい開発版を使う。
+
+   `migrations/LINEAGE` は開発版と正式版の系統を記録する場所ではなく、旧名の移行を新しい名前へ対応づける台帳である。空行と `#` で始まる行を除き、1 行に次のいずれかを書く。
+
+   ```text
+   renamed   202611030001_old_name  202611030002_new_name
+   removed   202611030003_removed_name
+   rewritten 202611030004_old_shape  202611030005_new_shape
+   ```
+
+   `renamed old new` は旧名を新名へ変えた移行、`removed old` は旧名の移行を取り除いた場合、`rewritten old new` は中身を作り直した移行の対応である。`rewritten` は旧名を先に、新名を後に書く。`db_ahead` の表示に旧名が出た場合は、その旧名を必要なら `renamed`・`removed`・`rewritten` の行に追加し、main で両方の DB の中身に対して同じ結果になる直しの移行を作って公開する。
 6. 手元の clone で開発版の印を更新する前に `git fetch --tags --force` を実行し、`nightly` と main の先祖関係を最新にする。

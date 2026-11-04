@@ -81,15 +81,26 @@ fn st54_side_by_side_autostart_and_aumid() {
         launch_device_id: "pc-side-by-side".into(),
     };
 
+    let dev_path = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Dev),
+        ashiato_build_stamp::Channel::Dev,
+    )
+    .unwrap();
+    let dev_script = std::fs::read_to_string(&dev_path).unwrap();
     let official_path = autostart::install(
         &cfg(ashiato_build_stamp::Channel::Official),
         ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
-    let official_script = std::fs::read_to_string(&official_path).unwrap();
-    let dev_path = autostart::install(
+    let _ = autostart::install(
         &cfg(ashiato_build_stamp::Channel::Dev),
         ashiato_build_stamp::Channel::Dev,
+    )
+    .unwrap();
+    let official_script = std::fs::read_to_string(&official_path).unwrap();
+    let _ = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Official),
+        ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
     assert_eq!(official_path.file_name().unwrap(), "ashiato-collector.cmd");
@@ -99,11 +110,20 @@ fn st54_side_by_side_autostart_and_aumid() {
         std::fs::read_to_string(&official_path).unwrap(),
         official_script
     );
+    assert_eq!(std::fs::read_to_string(&dev_path).unwrap(), dev_script);
 
     let official_aumid = "dev.ashiato.collector.runtime-side-by-side-official";
     let dev_aumid = "dev.ashiato.collector.runtime-side-by-side-dev";
-    let official_toaster = WindowsToaster::register_as(official_aumid).unwrap();
-    let dev_toaster = WindowsToaster::register_as(dev_aumid).unwrap();
+    ashiato_collector_windows::toast::register_aumid(
+        official_aumid,
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Official),
+    )
+    .unwrap();
+    ashiato_collector_windows::toast::register_aumid(
+        dev_aumid,
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Dev),
+    )
+    .unwrap();
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
     let official_key = hkcu
         .open_subkey(format!(r"Software\Classes\AppUserModelId\{official_aumid}"))
@@ -117,9 +137,9 @@ fn st54_side_by_side_autostart_and_aumid() {
     );
     assert_eq!(
         dev_key.get_value::<String, _>("DisplayName").unwrap(),
-        "ashiato"
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Dev)
     );
-    drop((official_toaster, dev_toaster, official_key, dev_key));
+    drop((official_key, dev_key));
     let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{official_aumid}"));
     let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{dev_aumid}"));
     match previous_appdata {
