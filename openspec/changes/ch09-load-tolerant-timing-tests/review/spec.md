@@ -169,3 +169,84 @@
 
 ## 観点 7: 走っている change との前提関係
 該当なし（spec_overlap.py candidates が 0 件）
+
+---
+
+# spec --answers Q2 の確かめ（2026-11-04。観点 6 と、写しの中で見つけた technical な誤り）
+
+対象: 推奨で書いた版 `c4aacc8c` から HEAD `e2eb8e69` までの `git diff`（`openspec/changes/ch09-load-tolerant-timing-tests`・`docs/changes/CH09.md`・`docs/briefs/CH09-pr.md`）。
+名指しの Q は Q2（本人の答え「全部探して全部直す」・補足なし。`deep-answers-1.txt`・`deep.md` の Q2）。ほかの観点は見直していない。
+
+## 機械の検査
+
+| コマンド | rc | 結果 |
+|---|---|---|
+| `openspec validate ch09-load-tolerant-timing-tests --strict` | 0 | valid |
+| `python3 scripts/check_scenarios.py . ch09-load-tolerant-timing-tests` | 1 | 担保なし 17 件。`test-timing` の ADDED 17 本全部で、spec の段なので試験はまだ無い。足した 1 本（「画面の e2e の待ちの上限は 30 秒、試験の上限は 120 秒」）は Task 9.1 が印を名指している |
+| Scenario の数 | — | `test-timing` 17（Requirement ごとに 3・4・4・4・2）・`external-ingestion` 4・`test-database` 3 = 24。tasks の前置き（24 本・3・4・4・4・2）と `CH09-pr.md`（17 Scenario）と合う |
+| `- [ ]` の数 | — | 22。`CH09-pr.md` の「13 Task・22 項目」と合う |
+| 番号の送り残し（旧 Task 8・9 を指す行） | — | design・tasks・proposal・CH09.md・CH09-pr.md に無い |
+
+## 観点 6: 答えが写ったか
+
+- **Q2: 写った。** specs（Requirement「条件を待つ試験は…」の本文の範囲と台本の 30 秒・e2e の 30 秒 / 120 秒・窓と 30 秒以上の待ちを残す文、Scenario 1 本の追加、「一覧で直したとした…」の THEN の拡張、Requirement「CH09 は製品のコードを変えず…」の差分の範囲と Scenario「既存の試験の名前と印…」の WHEN の拡張）・
+  design（冒頭の注・Context・Goals に足し Non-Goals から消した行・D3 の書き直し・D15〜D17・既知の候補の表・Risks）・tasks（本人の決定の行・前置き 2 行・Task 8〜11・12.1・13.2・番号送り）・
+  `docs/changes/CH09.md`（壊してはいけないもの・完了の判定に Q2 で広げた範囲の確かめ）に入っている。推奨の版の D3 の反転条件「全部探して全部直す」に書いてあった当て方（`web/e2e` の `expect` の `timeout`・`app/src/androidTest`・`tools/*.sh`、走らせ方 3 つの検証を tasks に）は全部ある
+- **答え以外の変更**（どれも D3・D15・D16・D17 の節に中身がある。4 つとも（仮））:
+  - `premises.md` 4 行目の訂正（`runtime_windows.rs` は CI の `collector-windows-runtime` が走らせる）。D3 の節が `:72-73` で訂正を書いている。CI の filter（`.github/workflows/ci.yml:52` の `^(crates/|Cargo\.)`）と job（`:172-200`、13 本以上を数える）で事実を確かめた。正しい
+  - D15〜D17 の新しい値（e2e の待ち 30 秒・試験 120 秒・30 秒より短い `timeout:` を消す / 台本の `SECONDS` 30 秒 / 計測テストの定数と `Tasks.await` 30 秒）と、それを言う Requirement の本文と Scenario 1 本。Q2 の答えの記録が「道具ごとの当て方は spec の段が決める」としたもの
+  - `check-inventory.sh` の拾う形・HEAD に残っていないことを見る形と、`check-test-names.sh` の比べる名前の拡張。D3 の節（`design.md:83-90`）に書かれている
+  - proposal の Impact に st53 の重なり（Q2 で広げたファイルでも SPDX の行だけ）。決定でなく観察で、`git diff origin/main...origin/feat/st53-license-bundle`（`ae2fabf2`）で確かめた: 該当 50 ファイルで、SPDX の行以外の変わった行は 0（`androidTest/AndroidManifest.xml` だけは 2 行目が SPDX）
+- **D13・D14（C）を変えたと読めるか**: 読まない。D13・D14 の節の文面は 1 行も変わっていない（`git diff` に出ない）。広げた分は D3 の節にあり、D13 が決めた「名前・印・本数を減らさない」と D14 が決めた「一覧の置き場・列・検査が抜けを落とす」を、広げた範囲へ当てただけ。CH09.md の「壊してはいけないもの」は推奨の版（`c4aacc8c`）の時点で既に「範囲を広げた e2e・計測テスト・縦串の台本・Windows でだけ走る試験も同じ（Q2）」と書いていた。
+  ただし既知の候補の表に D14 の 8 つの型に無い型が入った（R17）。直すときに D14 の型の並びを足すなら、それは C の変更になる（R17 の提案は D14 を変えない形）
+- 検証コマンド: Task 8.1 は ST08（`openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md:184`）・ST14（`:190`）と同じ形で、`rsync`・`x86_64-pc-windows-gnu` の target・`/mnt/c/dev/`（`rsync` が `ashiato2-rt-ch09/` を作る）は手元にある。本数の数え方は CI（`ci.yml:197-200`）と同じ。
+  `"$TMPDIR/rt.log"` は `TMPDIR` が無い環境では `/rt.log` になって落ちる（ハーネスは設定している。`${TMPDIR:-/tmp}` にしておけば手で走らせても通る。R にしない）。
+  Task 9.1 の `npm run typecheck`・`lint`・`test:e2e` は `web/package.json:9-12` にあり、`tsconfig.json:9` が `e2e` を含む（R15 の書き方だと typecheck で落ちる）。Task 10.1 は `/dev/kvm` が今はあり、`scripts/quiet-run` に上限は無い。Task 11.1 の `tools/smoke.sh` は `.env` を自分で読み（`:7`）、`check-shared-appends.sh` は引数なしで今のブランチ（`feat/ch09-*`）を見る（`:264`）。書いたまま走る形。
+  R にしないもの: `runtime_windows.rs:856` の待ちは既に 30 秒（`:859`）。`st49-client-version.spec.ts:15` の 90 秒は表に無いが Task 9.1 の規則が拾う。`tools/web-login.sh:56`（100 × 0.01 秒）は表に無いが、下流が候補で完成させる範囲
+
+## R15. e2e の上限を「`test.info()` から `expect` の上限を読む」で確かめる試験は書けない。playwright 1.63 の `TestInfo` は `expect` の設定を持たない
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D15 の確かめ、`:237`）・tasks.md（9.1、`:130`）
+- 根拠: `web/package-lock.json:3587` が playwright 1.63.0。`node_modules/playwright/types/test.d.ts`（1.63.0）で `TestInfo.project: FullProject`（:2586）の項目は `:774-848` の `use`・`dependencies`・`grep`・…・`timeout` だけで `expect` が無く、`TestInfo.config: FullConfig`（:2043-2185）にも無い。
+  実行時も `expect` は `FullProjectInternal.expect`（`lib/common/index.js:605`）にだけあり、試験に渡る `this.project`（`:584-600`）には写されない。`test.info().timeout`（`test.d.ts:2691`）は試験の上限として読める。`web/tsconfig.json:9` が `e2e` を含むので、`test.info().project.expect` と書けば 9.1 の `npm run typecheck` が落ちる
+- kind: technical
+- 提案: 試験の上限は `test.info().timeout`、`expect` の上限は `web/playwright.config.ts` の default export を import して `config.expect?.timeout === 30_000` を見る（D15 の確かめと 9.1 の文をそう書き直す）。Scenario の文は変えなくてよい
+- 処置: fixed design.md D15（確かめは `test.info().timeout` と `playwright.config.ts` の import）・tasks.md 9.1
+
+## R16. CI を証にする先の job の名前が違う。計測テストを走らせるのは `android` でなく `android-instrumented`
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D3 の反転条件 `:94`・D17 の反転条件 `:259`）・docs/changes/CH09.md（完了の判定 `:91`）
+- 根拠: `.github/workflows/ci.yml:257` の `android` は detekt・`assembleDebug`・単体試験だけ。計測テストは `:281` の `android-instrumented`（`connectedDebugAndroidTest`）。
+  しかも CI は `UsageVolumeInstrumentedTest` を外して走らせる（`:319` の `notClass`）ので、その 1 ファイルは CI を証にできない。`android-instrumented` に `timeout-minutes` は無い（D17 の反転条件の「上限」は既定の 360 分）
+- kind: technical
+- 提案: 3 か所の `android` を `android-instrumented` に直す。D3 の反転条件に「`UsageVolumeInstrumentedTest` は CI で走らないので、手元で走らなければ一覧に『確かめていない』と書く」を足す。D17 の反転条件の上限は、job に上限が無いことを書くか、計測テストの所要時間（手元の `tools/android-emulator.sh` の実測）で言う
+- 処置: fixed design.md D3・D17（`android-instrumented`・`UsageVolumeInstrumentedTest` は CI で走らない・job に上限が無い）・docs/changes/CH09.md
+
+## R17. 既知の候補の表に、D14（C）が決めた 8 つの型に無い型が入った
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（表 `:218`・`:225`、D17 `:257`）
+- 根拠: D14 は型を「次の 8 つ」と閉じている（`design.md:187`）。表は `run_for` を `決まった時間の窓`（`:218`）、`SETTLE_MS` を `条件の待ち か 起きない`（`:225`）とし、D17 は Espresso の待ちを一覧に「道具の既定」と書く（`:257`）。どれも 8 つに無い。`check-inventory.sh`（Task 12.1）が型の列を読むので、下流は D14 と表のどちらに合わせるかを選べない
+- kind: technical
+- 提案: D14 を変えずに済む形にする: `run_for` は D12 の `起きない・下限`（混むと見る回数が減る側へ弱まるだけで落ちない）に入れ、理由の列に「決まった時間の窓」と書く。`SETTLE_MS` は使い方で分けた後の行ごとに `条件の待ち` か `起きない・下限` を書く。
+  Espresso は試験に数字が無いので候補の行にせず、「探した範囲」の注に書く。D14 の 8 つに型を足すなら C の変更で、合意の聞き直しになる
+- 処置: fixed design.md 表・D3・D17（D14 の 8 つの型に寄せた: `run_for` は「起きない・下限」、`SETTLE_MS` は行を分け、Espresso は「暗黙の上限」で直さない。D14 は変えない）
+
+## R18. 録画の台本（`tools/recording/`）が、Q2 の「全部」の範囲の、直す・載せるだけ・探していないのどれにも無い
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D3 `:70-89`）
+- 根拠: `tools/recording/**/*.rec.ts` に `timeout:` が 51 か所（`{ timeout: 15_000 }` の `expect` が大半。例 `tools/recording/st14/st14-coverage.rec.ts:39`）。録画は別の設定 `tools/recording/playwright.recording.config.ts` で走り、`expect`・`timeout` の指定が無い（既定 5 秒・30 秒）ので、D15 が `web/playwright.config.ts` に足す 30 秒 / 120 秒は届かない。
+  D3 の範囲（`tools/*.sh`・`tools/smoke.d/*.sh`）と `check-inventory.sh` の TypeScript の範囲（`web/e2e`・`web/playwright.config.ts`、`:84`）はどちらも `tools/recording/` を含まない。Q2 の問い（`deep-questions.json` の Q2）は録画を挙げていないので、答えに反するのではなく範囲の穴
+- kind: technical
+- 提案: D3 に `tools/recording/`（録画の `*.rec.ts` と設定）を 1 行で置く。直すなら D15 と同じ形を `playwright.recording.config.ts` に当てる（確かめは録画を撮ることになる）、直さないなら「探して一覧に載せるだけ（試験でなく確認バッチの撮影）」と書き、`check-inventory.sh` の範囲にも足す
+- 処置: fixed design.md D3（`tools/recording/` は試験でないので探して一覧に載せるだけ。`check-inventory.sh` の範囲にも足した）
+
+## R19. 台本の回数の待ちを拾う形が `for _ in` に限られ、`for i in $(seq …)` の待ちを「HEAD に残っていない」の検査が見ない
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D3 の拾う形 `:87`）・specs/test-timing/spec.md（`:61`）
+- 根拠: 拾う形は「`for _ in $(seq 1 <数>)` の後 5 行以内に `sleep`」。`tools/` には `for i in $(seq …)` の待ちがある: `tools/record-env.sh:67`・`:74`・`:81`・`:211`、`tools/android-media-fixtures.sh:19`、`tools/st25-seed-check.sh:14`。
+  ファイルは `sleep <数>` の形で候補に出るが、2 つ目の検査（直したとしたファイルに回数 × 眠りが 30 秒未満の待ちが残っていない）はループを読むので、変数名が `_` でないものは通り抜ける。spec の THEN（`:61`）も `for _ in` と書いている
+- kind: technical
+- 提案: D3 の拾う形と spec の THEN を `for <変数> in $(seq …)`（変数名を問わない）にする。spec の方は「台本の `seq` で回数を切るループ」のような道具の字面に依らない言い方でもよい
+- 処置: fixed design.md D3（`for <変数> in …` と `until`/`while`）・specs/test-timing/spec.md（`for` / `until` / `while`）
+
+## R20. D17 は Kotlin の待ちのうち `Tasks.await` だけを名指し、計測テストの `CountDownLatch` の 10 秒の待ちに触れていない
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D17 `:253-254`、表 `:224`）
+- 根拠: `collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HttpTransportInstrumentedTest.kt:83`・`:100` の `server.done.await(10, TimeUnit.SECONDS)`（サーバに届くのを待つ条件の待ち）。spec の THEN（`specs/test-timing/spec.md:61`）は Kotlin の `await(<数>, TimeUnit.SECONDS)` で 30 秒未満を落とすので、D17 だけを読んで直すと 12.1 の検査で落ちる
+- kind: technical
+- 提案: D17 の 1 つ目の箇条を「`Tasks.await(…)` と `CountDownLatch.await(…)` の 30 秒より短い秒数は 30 秒にする」にし、表の行にも足す（`FeelingReminderInstrumentedTest.kt:122` の 30 秒はそのまま）
+- 処置: fixed design.md D17・表（`CountDownLatch.await` を含む `await(<数>, TimeUnit…)`）・tasks.md 10.1

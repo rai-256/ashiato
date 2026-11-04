@@ -72,27 +72,28 @@
   - `crates/collector-windows/tests/runtime_windows.rs`（`#![cfg(windows)]`）。**関門の `cargo test --workspace`（Linux）では組まれないが、CI の `collector-windows-runtime`
     （`.github/workflows/ci.yml:172-200`。`windows-latest`・`timeout-minutes: 25`・13 本以上を数える）が `crates/collector-windows/` の変更で走らせる**（上流の問いの文脈の「CI でも走らない」は誤り。
     `premises.md` 4 行目を直した）。条件が来た時点で返る待ち（`observe_until`・`run_until`・`focus_window_of` の 10 秒・`:697` の 20 秒・`:856` の 30 秒・`:1203` の 10 秒）は D4 の 30 秒に揃える。
-    決まった時間だけ見続ける窓（`run_for`。`secs` の間の記録を全部集める）は条件の待ちでないので延ばさず、`// timing-ok:` を書いて一覧に載せる（延ばすと 13 本の直列が CI の 25 分に当たる）。
+    決まった時間だけ見続ける窓（`run_for`。`secs` の間の記録を全部集める）は条件の待ちでないので延ばさず、`// timing-ok:` を書いて一覧に型「起きない・下限」（D12 の型）で載せる（延ばすと 13 本の直列が CI の 25 分に当たる）。
     相手役が動くのを待つ固定の眠り（`:140` の 200ms・`:406` の 120ms・`:950`・`:1215`・`:1424` の 500ms）は D5
   - `web/src/__tests__`（画面の単体試験。D9）
   - `web/e2e`（画面の e2e。playwright。D15）
   - `collector-android/app/src/test`（携帯の単体試験。D4）
   - `collector-android/app/src/androidTest`（携帯の計測テスト。D17）
   - `tools/*.sh` と `tools/smoke.d/*.sh`（縦串・検査・起動の台本。D16）
-- 探して一覧に載せるだけ: `crates/collector-windows/examples/browser_history_smoke.rs`（例で、試験でない）
+- 探して一覧に載せるだけ: `crates/collector-windows/examples/browser_history_smoke.rs`（例で、試験でない）・録画の台本 `tools/recording/`（`playwright.recording.config.ts` と `scenarios.d/`。
+  確認バッチの動作の録画を撮る道具で、試験として合否を出さず、関門でも CI でも走らない。`timeout:` の数と場所を一覧に載せ、直すのは別の change にする。review/spec.md R18）
 - `check-inventory.sh`（D14）が拾う形に足すもの（Q2 で範囲が広がった分）:
-  - TypeScript（`web/e2e`・`web/playwright.config.ts`）: `timeout:`・`waitForTimeout(`・`expect.poll(`・`setTimeout(`・`describe.configure(`
+  - TypeScript（`web/e2e`・`web/playwright.config.ts`・載せるだけの `tools/recording/`）: `timeout:`・`waitForTimeout(`・`expect.poll(`・`setTimeout(`・`describe.configure(`
   - Kotlin（`app/src/androidTest`）: `app/src/test` と同じ形に、`_MS = <数>`・`device.wait(`・`Tasks.await(`
   - Rust（`tests/runtime_windows.rs`）: `crates/` と同じ形。Linux で組まれないので `cargo test -- --list` でなく grep で拾う
-  - bash（`tools/*.sh`・`tools/smoke.d/*.sh`）: `for _ in $(seq 1 <数>)` の後 5 行以内に `sleep` があるもの・`sleep <数>`・`timeout <数>`・`--max-time`
+  - bash（`tools/*.sh`・`tools/smoke.d/*.sh`）: `for <変数> in …`（`$(seq …)`・`{1..N}`・数の並びのどれでも）の後 5 行以内に `sleep` があるもの・`until`/`while` の中で `sleep` するもの（`record-env.sh:67` などの `for i in`。review/spec.md R19）・`sleep <数>`・`timeout <数>`・`--max-time`
   - HEAD に残っていないことを見る形（D14 の 2 つ目）にも、playwright の 30 秒より短い `timeout:`（`timing-ok:` の印の無いもの）と、bash の 30 秒より短い回数の待ち（回数 × 眠りが 30 秒未満）を足す
 - `check-test-names.sh`（D13）が比べる名前に足すもの（Q2）: `web/e2e` の `test(` の名前・`app/src/androidTest` の `@Test` の `fun` の名前・`runtime_windows.rs` の `#[test]` の `fn` の名前（どれも grep で拾う）。
   縦串の台本は `echo "== Scenario: …"` と `# Scenario:` の印を数える
 - 確かめ（広げた分。Q2 の選択肢の detail のとおり、この change に入る）: 画面の e2e は `cd web && npm run test:e2e`（`docs/testing.md` §4.5）、計測テストは `tools/android-emulator.sh`、
   縦串は `tools/smoke.sh`、Windows の試験は WSL から Windows 側の clone（`C:\dev\ashiato2-rt-ch09`）へ写して `cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1`（ST08 の tasks と同じ形）。
   `tools/smoke.sh` は先頭で DB を作り直すので、`cargo test` や `break-check.sh`（`target/` を共有する）と並べて走らせない（`docs/testing.md` の §4 の規則）
-- 反転条件: 広げた分の確かめが手元で通らない（エミュレータの `/dev/kvm` が無い・Windows 側の clone が使えない）なら、その場所は直したまま CI（`collector-windows-runtime`・`android`）の結果を証にし、
-  一覧に「手元で確かめていない」と書く。Windows の試験を直すと CI の 25 分に当たるなら、`run_until` の 30 秒を外して元の上限に戻し、一覧に理由を書く
+- 反転条件: 広げた分の確かめが手元で通らない（エミュレータの `/dev/kvm` が無い・Windows 側の clone が使えない）なら、その場所は直したまま CI（`collector-windows-runtime`・`android-instrumented`）の結果を証にし、
+  一覧に「手元で確かめていない」と書く（`UsageVolumeInstrumentedTest` は CI が `notClass` で外すので、手元で走らなければ「確かめていない」）。Windows の試験を直すと CI の 25 分に当たるなら、`run_until` の 30 秒を外して元の上限に戻し、一覧に理由を書く
 
 ### D4（仮）. 条件を待つ上限は、実時間の期限で一律 30 秒（Q5）
 
@@ -215,14 +216,16 @@
 | `collector-android/app/src/test/.../UnavailableLogGateTest.kt:72` | 起きない・下限 | 直さない（D12） |
 | `web/src/__tests__`（`waitFor`/`findBy` 317 か所・23 ファイル） | 暗黙の上限 | D9 |
 | `crates/collector-windows/tests/runtime_windows.rs` の `observe_until`・`run_until`・`:196`・`:697`・`:856`・`:1203` | 条件の待ち（Windows だけ。CI で走る） | D4（D3） |
-| `crates/collector-windows/tests/runtime_windows.rs` の `run_for`（`:238`） | 決まった時間の窓 | 延ばさない（D3） |
+| `crates/collector-windows/tests/runtime_windows.rs` の `run_for`（`:238`。決まった時間だけ見続ける窓） | 起きない・下限 | 延ばさない（D3。D12 の型） |
 | `crates/collector-windows/tests/runtime_windows.rs:140`・`:406`・`:950`・`:1215`・`:1424` | 固定の眠り | D5 |
 | `web/playwright.config.ts`（`expect`・`timeout` の既定 5 秒・30 秒）・`web/e2e/*.spec.ts` の `{ timeout: 15_000 }` | 暗黙の上限・条件の待ち | D15 |
 | `web/e2e/feel.spec.ts:208`・`:290`（`waitForTimeout`） | 固定の眠り | D5（D15） |
 | `web/e2e/day-erase.spec.ts:70`（任意の `click` の 5 秒） | 起きない・下限 | 直さない（D15） |
 | `web/e2e/places.spec.ts:37`（試験 90 秒） | 暗黙の上限 | D15 |
-| `collector-android/app/src/androidTest` の `*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`・`Tasks.await(…, 5\|10, SECONDS)` | 条件の待ち | D17 |
-| `collector-android/app/src/androidTest` の `SETTLE_MS`（3 ファイル） | 条件の待ち か 起きない | D17（使い方で分ける） |
+| `collector-android/app/src/androidTest` の `*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`・`Tasks.await(…, 5\|10, SECONDS)`・`HttpTransportInstrumentedTest.kt:83`・`:100` の `CountDownLatch.await(10, SECONDS)` | 条件の待ち | D17 |
+| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち条件が来た時点で抜けるもの（`UsageAccessInstrumentedTest.kt:110`・`PermissionDeniedInstrumentedTest.kt:130` など） | 条件の待ち | D17 |
+| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち何も起きないことを見続けるもの（下流が使い方を読んで分ける） | 起きない・下限 | 直さない（D17。D12 の型） |
+| `collector-android/app/src/androidTest` の Espresso の `onView` の待ち（数字が書かれていない） | 暗黙の上限 | 直さない（D17。道具が持つ上限） |
 | `tools/smoke.sh:171`・`:190`・`:211`（15 回 × 1 秒） | 条件の待ち | D16 |
 | `tools/smoke.sh:199`（`sleep 3`。件数が増えない） | 起きない・下限 | 直さない（D16） |
 | `tools/smoke.sh:51`・`tools/stack.sh:120`・`:148`・`tools/android-emulator.sh:36`・`tools/smoke.d/*` の `healthz` と `st13` の待ち | 条件の待ち（もう 30 秒以上） | 回数のまま（D16） |
@@ -234,7 +237,8 @@
   `test.describe.configure({ timeout: 90_000 })`（`places.spec.ts:37`）のように設定より短い試験の上限は 120 秒以上にする。`webServer.timeout`（10 分）はそのまま
 - `page.waitForTimeout(500)`・`(300)`（`feel.spec.ts:208`・`:290`）は D5: 画面に観測できる条件（表示・数）があれば `expect` の待ちに変え、無ければ残して一覧に載せる
 - 任意の操作の短い上限（`day-erase.spec.ts:70` の `click({ timeout: 5_000 }).catch(…)`。押せなければ飛ばす）は、待って成り立つ条件でないので延ばさず、`// timing-ok:` を書いて一覧に載せる（D12 の型）
-- 確かめ: 設定の値を読む e2e の試験を 1 本足す（`web/e2e/ch09-timeouts.spec.ts`。`test.info()` から試験の上限と `expect` の上限を読む）。全部の e2e が `npm run test:e2e` で通る
+- 確かめ: 設定の値を読む e2e の試験を 1 本足す（`web/e2e/ch09-timeouts.spec.ts`）。試験の上限は `test.info().timeout` で、`expect` の上限は `playwright.config.ts` を import して `expect.timeout` を見る
+  （playwright の `TestInfo` の `project`・`config` は `expect` を持たない。review/spec.md R15）。全部の e2e が `npm run test:e2e` で通る
 - 反転条件: 30 秒の待ちで、壊れた e2e が落ちるまでの時間が長すぎる（全体が CI の上限に近づく）なら、Q9 と同じ待ち 10 秒・試験 30 秒に下げ、試験の中の 15 秒はそのまま残す
 
 ### D16（仮）. 台本（bash）の待ちは、30 秒より短いものを `SECONDS` の期限 30 秒にする（Q2・Q5）
@@ -251,12 +255,12 @@
 ### D17（仮）. 携帯の計測テストの待ちは、条件の待ちを 30 秒以上にする（Q2・Q5）
 
 - 条件が来た時点で返る待ちの上限の定数（`*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`。いま 5〜20 秒）と、Play services の呼び出しの終わりを待つ
-  `Tasks.await(…, 5|10, TimeUnit.SECONDS)` は 30 秒にする。もう 30 秒以上の待ち（`RetentionInstrumentedTest` の 90 秒・40 分など）は変えない
+  `Tasks.await(…, 5|10, TimeUnit.SECONDS)`、合図を待つ `CountDownLatch.await(<数>, TimeUnit.SECONDS)`（`HttpTransportInstrumentedTest.kt:83`・`:100`。review/spec.md R20）など、`await(<数>, TimeUnit…)` で 30 秒より短いものは 30 秒にする。もう 30 秒以上の待ち（`RetentionInstrumentedTest` の 90 秒・40 分など）は変えない
 - `SETTLE_MS` は使い方で分ける: 条件が来た時点で抜ける待ち（`waitForForeground(SETTLE_MS) { … }`・`while (… && !shown)`）は 30 秒に、何も起きないことを見続ける窓は D12 として残して一覧に載せる
 - 相手（設定の画面・Play services）が動くのを待つ `Thread.sleep(…)` は D5（観測できる条件があれば条件の待ち、無ければ残して一覧に）
-- Espresso の待ち（`onView` の idling）は Espresso が自分で持つ上限で、試験に数字が書かれていないので変えない（一覧に「道具の既定」と書く）
+- Espresso の待ち（`onView` の idling）は Espresso が自分で持つ上限で、試験に数字が書かれていないので変えない（一覧には型「暗黙の上限」・方針「直さない（道具が持つ上限）」で書く。D14 の型に足さない）
 - 確かめ: `tools/android-emulator.sh` が通る（全部の計測テスト。`retention` の 1 本で 13 分余りかかる）
-- 反転条件: 30 秒の待ちで計測テストの全体が CI の `android` job の上限に近づくなら、`Tasks.await` を 15 秒に下げる
+- 反転条件: 30 秒の待ちで計測テストの全体が CI の `android-instrumented` job（`ci.yml:281`。`timeout-minutes` の指定なし）が長くなりすぎるなら、`Tasks.await` を 15 秒に下げる
 
 ## Risks / Trade-offs
 
