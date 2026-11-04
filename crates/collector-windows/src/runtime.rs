@@ -4255,9 +4255,29 @@ mod tests {
             .with_history(reader.clone()),
         );
         let mut src = FakeSource::new("editor");
+        let (initial_patrol_returned, initial_patrol_returns) = mpsc::channel();
+        let initial_released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let initial_released_by_watchdog_thread = Arc::clone(&initial_released_by_watchdog);
+        let initial_release_for_watchdog = release.clone();
+        let initial_watchdog = std::thread::spawn(move || {
+            if initial_patrol_returns
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .is_err()
+            {
+                initial_released_by_watchdog_thread
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let _ = initial_release_for_watchdog.send(());
+            }
+        });
         rt.start_at(&src, t(0), t(0));
         release.send(()).unwrap();
         tick_until_read(&mut rt, &mut src, &reader, 0);
+        initial_patrol_returned.send(()).ok();
+        initial_watchdog.join().unwrap();
+        assert!(
+            !initial_released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
+            "見張りが読みを放した: 初回の履歴取得を待った"
+        );
         // 帳面がある状態で、同期などで新しい訪問がまとめて入る
         *reader.visits.lock().unwrap() = (1..=N).map(|i| read_visit(i, "a")).collect();
         let history = |rt: &Runtime| {
