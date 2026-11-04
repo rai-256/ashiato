@@ -13,9 +13,9 @@
 - **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST49
 - **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST51
 - **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST52
-- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST53, ST54, ST55, ST56
-- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST57, ST59
-- **layer 7**: ST43, ST58
+- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST53, ST54, ST55
+- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST56, ST57
+- **layer 7**: ST43, ST58, ST59
 - **layer 8**: ST60
 
 ## 一覧
@@ -77,10 +77,10 @@
 | [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 5 | FR-127, NFR-26 | ST52 | 35 |
 | [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 5 | FR-106 | ST52 | 34 |
 | [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111, FR-132 | ST52, ST28, ST44 | — |
-| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 5 | FR-128 | ST52, ST44 | — |
+| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 6 | FR-128 | ST52, ST44, ST54 | — |
 | [ST57](ST57.md) | 新しい版が出たら知らせる | 6 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
 | [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 7 | FR-114, FR-119, FR-120 | ST57, ST48, ST51, ST54 | — |
-| [ST59](ST59.md) | 合言葉を画面から変えられる | 6 | FR-133 | ST55, ST56 | — |
+| [ST59](ST59.md) | 合言葉を画面から変えられる | 7 | FR-133 | ST55, ST56 | — |
 | [ST60](ST60.md) | Linux にもサーバを入れて使える | 8 | FR-131 | ST55, ST58 | — |
 
 ## capability（仕様の置き場）
@@ -535,3 +535,8 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - `data-sensitivity`・`data-durability`・`device-collection` に ST55 を足した。配る形（サービス）での画面の合言葉の持ち方と、書き出し・写真の原本の既定の置き場を、インストールの置き場（FR-109）に合わせる
 >   （申し送り `docs/handoff/ST55.md` の C6）。後続の振る舞いの前倒しではない
 
+> **訂正（2026-11-04、ST56 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - **ST56 の requires に ST54 を足した**（layer 5 → 6。ST59 も 6 → 7）。設定した時点の確かめが見せる「送り先が開発版（正式版）のサーバです」は ST54 の `GET /contract` の系統の見出し（ST54 design D7）を読み、
+>   配る PC の収集アプリの既定の置き場と端末の識別子（ST56 の Q8）には ST54 の「開発版は置き場の下の `dev`・識別子の末尾に `-dev`」（ST54 design D2）が当たる（spec_overlap の観点 7）。ST54 は下流を走っている。archive は待たない
+> - capability は割り当てのまま（`device-collection`・`desktop-collection`・`data-sensitivity` に ADDED。`distribution` は手順書だけで delta を持たない）。後続の振る舞いの前倒しではない
