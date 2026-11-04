@@ -2516,6 +2516,10 @@ mod tests {
         for sec in 0..=3 {
             rt.tick_at(&mut src, t(sec), t(sec));
             patrol_returned.send(()).ok();
+            assert!(
+                !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
+                "見張りが読みを放した: 見回りが基準の読み取りを待った"
+            );
         }
         assert!(rt.clock_worker.is_some(), "読み取りが走っていない");
         src.app = "browser".into();
@@ -4301,14 +4305,29 @@ mod tests {
             sec += 1;
             rt.tick_at(&mut src, t(sec), t(sec));
             patrol_returned.send(()).ok();
+            assert!(
+                !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
+                "見張りが読みを放した: 見回りが履歴の取得を待った"
+            );
             assert_eq!(history(&rt), before, "止めた読みの間に履歴を積んだ");
+            if src.app == "editor" {
+                src.app = "browser".into();
+            }
         }
         watchdog.join().unwrap();
         assert!(
             !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
             "見張りが読みを放した: 見回りが履歴の取得を待った"
         );
+        let stopped_read_events = rt.events.snapshot();
+        assert!(
+            stopped_read_events
+                .iter()
+                .any(|r| r.logical_source == "c02-window" && r.raw.contains("browser")),
+            "読みを止めている間の前景の切り替えが積まれていない"
+        );
         release.send(()).unwrap();
+        src.app = "editor".into();
         let mut max_queued_per_tick = 0;
         while reader.reads() < 2 || rt.history.as_ref().unwrap().is_reading() {
             sec += 1;
