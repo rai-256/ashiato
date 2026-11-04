@@ -111,7 +111,7 @@
 
 ## Task 7: 携帯の収集アプリの単体試験
 
-- [ ] 7.1 `collector-android/app/src/test` で `check-inventory.sh` の拾う形に当たる箇所に design D4 を当てる（既知: `UnavailableLogGateTest.kt` の `await(5, TimeUnit.SECONDS)` 6 か所 → 30 秒）。
+- [x] 7.1 `collector-android/app/src/test` で `check-inventory.sh` の拾う形に当たる箇所に design D4 を当てる（既知: `UnavailableLogGateTest.kt` の `await(5, TimeUnit.SECONDS)` 6 か所 → 30 秒）。
   `:72` の `await(200, TimeUnit.MILLISECONDS)` の `assertFalse` は直さない（D12）。
   検証: `KT *UnavailableLogGateTest*` rc=0
 
