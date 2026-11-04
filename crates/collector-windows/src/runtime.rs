@@ -4294,7 +4294,7 @@ mod tests {
         let released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let released_by_watchdog_thread = Arc::clone(&released_by_watchdog);
         let release_for_watchdog = release.clone();
-        let watchdog = std::thread::spawn(move || {
+        let mut watchdog = Some(std::thread::spawn(move || {
             if patrol_returns
                 .recv_timeout(std::time::Duration::from_secs(30))
                 .is_err()
@@ -4302,7 +4302,7 @@ mod tests {
                 released_by_watchdog_thread.store(true, std::sync::atomic::Ordering::Relaxed);
                 let _ = release_for_watchdog.send(());
             }
-        });
+        }));
         rt.tick_at(&mut src, t(sec), t(sec));
         let from = rt.events.len();
         let mut queueing_ticks = 0;
@@ -4313,15 +4313,17 @@ mod tests {
             patrol_returned.send(()).ok();
             assert_eq!(history(&rt), before, "止めた読みの間に履歴を積んだ");
             if switched_at.is_none() {
+                watchdog.take().unwrap().join().unwrap();
+                assert!(
+                    !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
+                    "見張りが読みを放した: 見回りが履歴の取得を待った"
+                );
+            }
+            if switched_at.is_none() {
                 src.app = "browser".into();
                 switched_at = Some(rt.events.len());
             }
         }
-        watchdog.join().unwrap();
-        assert!(
-            !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
-            "見張りが読みを放した: 見回りが履歴の取得を待った"
-        );
         assert!(
             rt.events.snapshot()[from..]
                 .iter()
