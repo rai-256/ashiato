@@ -70,8 +70,6 @@ set -euo pipefail
 printf '%s\n' "$*" >>"${NIGHTLY_CALLS:?}"
 EOF
   chmod +x "$fakebin/git"
-  echo "== Scenario: 開発版の鍵の指紋の期待値が無ければ、開発版の APK に署名しない"
-  if env -u ASHIATO_EXPECT_DEV_CERT_SHA256 PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef "$0" "$work/missing" "$version" >/dev/null 2>&1; then die '期待の指紋なしで公開した'; fi
   echo "== Scenario: 開発版の鍵が置き場に無ければ、開発版は前の版のまま残る"
   mkdir -p "$work/missing"
   if env -u ASHIATO_SIGNING_KEYSTORE_B64 PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef "$0" "$work/missing" "$version" 2>"$work/missing.err"; then die '鍵無しで公開した'; fi
@@ -90,6 +88,34 @@ EOF
     printf '%s+0000000000000000000000000000000000000000\n' "$version" >"$work/stamp"
     case "$f" in *.tar.gz) tar -czf "$f" -C "$work" stamp;; *) (cd "$work" && zip -q "$f" stamp);; esac
   done
+  local other_password=self-test-other-password other_cert dir
+  "$root/tools/release/make-key.sh" dev "$work/other.jks" <<<"$other_password" >/dev/null
+  other_cert="$(keytool -J-Duser.language=en -J-Duser.country=US -list -v -keystore "$work/other.jks" -storepass "$other_password" 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
+  local fingerprint_missing="$work/fingerprint-missing" fingerprint_wrong="$work/fingerprint-wrong"
+  mkdir -p "$fingerprint_missing" "$fingerprint_wrong"
+  for dir in "$fingerprint_missing" "$fingerprint_wrong"; do
+    cp "$unsigned" "$dir/ashiato-collector-$version.apk"
+    cp "$work/ashiato-server-$version-linux-x86_64.tar.gz" "$dir/"
+    cp "$work/ashiato-server-$version-windows-x86_64.zip" "$dir/"
+    cp "$work/ashiato-collector-windows-$version-x86_64.zip" "$dir/"
+  done
+  echo "== Scenario: 開発版の鍵の指紋の期待値が無ければ、開発版の APK に署名しない"
+  : >"$calls"
+  if env -u ASHIATO_EXPECT_DEV_CERT_SHA256 NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp-missing" \
+      ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
+      ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$fingerprint_missing" "$version" >/dev/null 2>&1; then
+    die '指紋なしで開発版 APK に署名した'
+  fi
+  [[ ! -e "$fingerprint_missing/ashiato-collector-dev-$version.apk" ]] || die '指紋なしで署名済み APK ができた'
+  [[ ! -s "$calls" ]] || die '指紋なしで配布元へ要求した'
+  : >"$calls"
+  if NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp-wrong" \
+      ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
+      ASHIATO_EXPECT_DEV_CERT_SHA256="$other_cert" ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$fingerprint_wrong" "$version" >/dev/null 2>&1; then
+    die '別鍵の指紋で開発版 APK に署名した'
+  fi
+  [[ ! -e "$fingerprint_wrong/ashiato-collector-dev-$version.apk" ]] || die '別鍵の指紋で署名済み APK ができた'
+  [[ ! -s "$calls" ]] || die '別鍵の指紋で配布元へ要求した'
   : >"$calls"
   NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp" \
     ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
