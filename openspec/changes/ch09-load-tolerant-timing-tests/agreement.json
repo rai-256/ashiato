@@ -1,0 +1,44 @@
+{
+  "status": "accepted",
+  "digest": "51c6de4abbd80a4d8a5763b622c2ade85c86538be04b5e75fa5a0149206fc479",
+  "head": "a6aa1e5d58abae932c79486f090a500af0b45499",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-04T09:07:36Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "負荷の台本が、並走する Story の関門を遅くし、落としうる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "負荷の台本が KILL で殺されると、全コアの負荷が残りうる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "並走の st54 が試験の土台を変えると、CH09 の 1 の試験を rebase で直す"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "Windows でだけ組まれる試験は CI で走る（設計の前提と違う）"
+    }
+  ],
+  "carried": [
+    {
+      "from": "3042c699e320f8cadd476ffafc37692ea81b2518c5863f0db97cdcf67caaa8b4",
+      "because": [
+        "D15",
+        "D16",
+        "D17",
+        "D3",
+        "Q2"
+      ],
+      "at": "2026-11-04T09:39:31Z"
+    }
+  ]
+}
