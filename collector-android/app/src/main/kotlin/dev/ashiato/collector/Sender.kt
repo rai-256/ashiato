@@ -74,7 +74,6 @@ class Sender<T : Outboxable>(
     private val responseDates: ResponseDateCache? = null,
     /** いまの送信契約の版（試験だけが差し替える。ST50 / D9） */
     private val currentVersion: () -> Int = { CONTRACT_VERSION },
-    private val localChannel: Channel = buildLocalChannel(),
     private val log: (String) -> Unit = {},
 ) {
     /**
@@ -250,17 +249,9 @@ class Sender<T : Outboxable>(
     fun flush(answer: ContractAnswer? = null): Flushed {
         val limit = when (answer) {
             null -> null
-            is ContractAnswer.Version -> {
-                if (answer.channel != localChannel) {
-                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (localChannel == Channel.Dev) "dev" else "official", availability = if (answer.channel == Channel.Dev) "dev" else "official"))
-                    return finish(Flushed(0, 0), ContractOutcome())
-                }
-                answer.version
-            }
-            is ContractAnswer.ChannelMismatch -> {
-                log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (answer.expected == Channel.Dev) "dev" else "official", availability = if (answer.actual == Channel.Dev) "dev" else "official"))
-                return finish(Flushed(0, 0), ContractOutcome())
-            }
+            is ContractAnswer.Version -> answer.version
+            // 系統が違えば何も送らない。ログは gate が状態の変わり目に 1 回だけ出す（/code-review R31）
+            is ContractAnswer.ChannelMismatch -> return finish(Flushed(0, 0), ContractOutcome())
             else -> {
                 log(Telemetry.line("send_held", source = null, error = answer.javaClass.simpleName.lowercase()))
                 return finish(Flushed(0, 0), ContractOutcome())

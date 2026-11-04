@@ -46,6 +46,16 @@ fun contractHeadline(onlyUnreadable: Boolean): String =
 fun oldestUnsentDays(records: Outbox<*>, age: () -> Long): Int =
     records.oldest()?.let { ((age() - it.enqAgeMs) / AgeClock.DAY_MS).toInt() }?.coerceAtLeast(0) ?: 0
 
+/**
+ * 画面の 1 行の元（ST50 の待ちと ST54 の系統の違い）。どちらも無ければ null。
+ * 待ちと系統の違いが重なれば両方の文を載せる（/code-review R32。待ちの写しは系統の違いを持たないので、ここで足す）
+ */
+fun screenNotice(store: ContractWaitStore): ContractNotice? {
+    val mismatch = store.channelMismatch
+    return store.notice?.let { if (mismatch) it.copy(channelMismatch = true) else it }
+        ?: if (mismatch) ContractNotice(false, 0, channelMismatch = true, contractWaiting = false) else null
+}
+
 /** 止まった状態の写しを作る。止まっていなければ null。 */
 fun contractNotice(reasons: ContractReasons, days: Int): ContractNotice? =
     if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days) else null

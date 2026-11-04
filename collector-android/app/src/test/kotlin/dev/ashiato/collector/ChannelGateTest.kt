@@ -54,16 +54,19 @@ class ChannelGateTest {
         }
         var remoteChannel = remote
         val response = { Outcome.Responded(200, "{\"contract_version\":1}", headers = mapOf("Ashiato-Channel" to channelName(remoteChannel))) }
-        val sender = Sender(stores.records, transport, IngestRequest.serializer(), localChannel = local)
+        val sender = Sender(stores.records, transport, IngestRequest.serializer())
+        // 本物（LocationService）と同じく、契機の終わりに系統の違いを通知の係へ渡す（code-verify R25）
+        val notifier = ChannelMismatchNotifier(app, store, now = { 1_000L }, local = local)
         val drainer = Drainer(
             records = sender,
             recordsOutbox = stores.records,
-            beats = Sender(stores.beats, transport, HeartbeatRequest.serializer(), localChannel = local),
-            drops = Sender(stores.drops, transport, DropReport.serializer(), localChannel = local),
+            beats = Sender(stores.beats, transport, HeartbeatRequest.serializer()),
+            drops = Sender(stores.drops, transport, DropReport.serializer()),
             ledger = stores.ledger,
-            missing = Sender(original.missing, transport, MediaMissingReport.serializer(), localChannel = local),
+            missing = Sender(original.missing, transport, MediaMissingReport.serializer()),
             afterRecords = { answer -> original.uploader.run(answer) },
             contract = ContractGuard(response, gate),
+            onChannelMismatch = { mismatch -> notifier.update(mismatch) },
         )
         return TestProcess(stores, original, sender, drainer, gate, store, calls) { remoteChannel = it }
     }
@@ -100,7 +103,7 @@ class ChannelGateTest {
     @Test fun `mismatch has persisted line and separate notification`() {
         ShadowLog.clear()
         val p = process(Channel.Dev, Channel.Official); p.stores.records.add(req("notice")); p.drainer.tick()
-        ChannelMismatchNotifier(app, p.store, now = { 1_000L }).update(true)
+        // 通知は送る契機（drainer.tick）だけで出る。試験は通知の係を自分で呼ばない（code-verify R25）
         assertEquals("送り先が正式版のサーバです。送り先を確かめてください", contractHeadlineFor(p.gate, p.store))
         assertNull(p.store.notice)
         val shadowManager: ShadowNotificationManager = shadowOf(manager)
@@ -112,8 +115,8 @@ class ChannelGateTest {
     // Scenario: 送り先を直すと、携帯の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す
     @Test fun `matching answer sends retained record and clears mismatch`() {
         val p = process(Channel.Dev, Channel.Official); p.stores.records.add(req("repair")); p.drainer.tick()
+        assertNotNull(shadowOf(manager).getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID))
         p.setRemote(Channel.Dev); p.drainer.tick()
-        ChannelMismatchNotifier(app, p.store, now = { 1_000L }).update(false)
         assertEquals(0, p.stores.records.size()); assertNull(shadowOf(manager).getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID))
     }
 
@@ -153,6 +156,35 @@ class ChannelGateTest {
             notifier = OutageNotifier(app), deviceId = { "device-1" }, executor = executor,
         )
         poller.poll(); executor.shutdown(); executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); assertEquals(1, calls)
+    }
+
+    /** 系統の違いが続く間、`channel_mismatch` のログは状態に入ったときに 1 回だけ（/code-review R31）。 */
+    @Test fun `mismatch log is written once while it lasts`() {
+        ShadowLog.clear()
+        val p = process(Channel.Dev, Channel.Official); p.stores.records.add(req("log")); p.drainer.tick(); p.drainer.tick()
+        val count = { ShadowLog.getLogs().count { it.msg.contains("kind=channel_mismatch") } }
+        assertEquals(1, count())
+        // 直って、また違えば、もう 1 回出す
+        p.setRemote(Channel.Dev); p.drainer.tick(); p.setRemote(Channel.Official); p.drainer.tick()
+        assertEquals(2, count())
+    }
+
+    /** 更新の待ちと系統の違いが重なれば、画面の行は両方の文を載せる（/code-review R32）。 */
+    @Test fun `screen line shows mismatch while contract waiting`() {
+        // 画面（MainActivity）は組み立ての系統で文の相手を決める
+        val mismatchLine = channelMismatchHeadline(buildLocalChannel())
+        val p = process(Channel.Dev, Channel.Official)
+        p.store.notice = ContractNotice(false, 3)
+        p.store.channelMismatch = true
+        val line = screenNotice(p.store)!!.line
+        assertTrue(line, line.contains(CONTRACT_UPDATE_HEADLINE)); assertTrue(line, line.contains(mismatchLine))
+        assertTrue(line, line.contains("未送信 3 日分"))
+        p.store.channelMismatch = false
+        assertEquals(ContractNotice(false, 3).line, screenNotice(p.store)!!.line)
+        p.store.notice = null
+        assertNull(screenNotice(p.store))
+        p.store.channelMismatch = true
+        assertEquals(mismatchLine, screenNotice(p.store)!!.line)
     }
 
     /** 系統の違いだけの画面の行は、契約の版の待ちの日数を添えない（final review R7）。 */

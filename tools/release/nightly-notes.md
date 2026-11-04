@@ -2,4 +2,4 @@
 
 正式版とは別のアプリとして、開発版のサーバへ接続する携帯版と PC 版を並べて入れます。
 開発版のサーバは正式版とは別の DB に接続します。
-詳しい手順は [docs/release.md](../../docs/release.md) を参照してください。
+詳しい手順は [docs/release.md の「開発版を正式版と並べて使う」](https://github.com/rai-256/ashiato/blob/main/docs/release.md#9-開発版を正式版と並べて使う) を参照してください。

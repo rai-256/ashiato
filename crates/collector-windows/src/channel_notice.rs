@@ -65,8 +65,9 @@ impl ChannelNotice {
                     return;
                 }
                 state.notified_at = None;
-                if let Err(e) = self.save(&state) {
-                    self.log_failure(log, &e);
+                match self.save(&state) {
+                    Ok(()) => self.recovered(),
+                    Err(e) => self.log_failure(log, &e),
                 }
             }
             return;
@@ -87,9 +88,18 @@ impl ChannelNotice {
             return;
         }
         state.notified_at = Some(now);
-        if let Err(e) = self.save(&state) {
-            self.log_failure(log, &e);
+        match self.save(&state) {
+            Ok(()) => self.recovered(),
+            Err(e) => self.log_failure(log, &e),
         }
+    }
+
+    /// 出す・消すが通ったら、次の失敗をもう一度ログに出す（失敗が続く間だけ間引く。/code-review R34）
+    fn recovered(&self) {
+        *self
+            .failing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = false;
     }
 
     fn save(&self, state: &State) -> Result<()> {
@@ -252,6 +262,26 @@ mod tests {
             &mut |_| {},
         );
         assert_eq!(fake.calls().len(), 2);
+    }
+
+    /// 失敗の後に一度通れば、次の失敗もログに出る（/code-review R34）。
+    #[test]
+    fn st54_channel_failure_is_logged_again_after_recovery() {
+        let (_d, fake, n) = notice();
+        let mut lines = Vec::new();
+        let mut log = |l: String| lines.push(l);
+        n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
+        *fake.fail_dismiss.lock().unwrap() = 1;
+        n.after_send(Some(Channel::Official), Channel::Official, at(1), &mut log);
+        n.after_send(Some(Channel::Official), Channel::Official, at(2), &mut log);
+        n.after_send(Some(Channel::Dev), Channel::Official, at(3), &mut log);
+        *fake.fail_dismiss.lock().unwrap() = 1;
+        n.after_send(Some(Channel::Official), Channel::Official, at(4), &mut log);
+        let skipped = lines
+            .iter()
+            .filter(|l| l.contains("channel_notice_skipped"))
+            .count();
+        assert_eq!(skipped, 2, "{lines:?}");
     }
 
     #[test]

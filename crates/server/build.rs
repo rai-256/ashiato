@@ -99,8 +99,12 @@ fn main() {
     let lineage_text = fs::read_to_string(&lineage)
         .unwrap_or_else(|e| panic!("{} を読めない: {e}", lineage.display()));
     let mut lineage_body = String::new();
-    for line in lineage_text.lines().map(str::trim) {
-        if line.is_empty() || line.starts_with('#') {
+    // 行末の `# …` は説明。tools/check-migrations.sh・tools/check-nightly-migrations.sh と同じく外してから欄を割る
+    for line in lineage_text
+        .lines()
+        .map(|l| l.split_once('#').map_or(l, |(body, _)| body).trim())
+    {
+        if line.is_empty() {
             continue;
         }
         let fields: Vec<_> = line.split_whitespace().collect();

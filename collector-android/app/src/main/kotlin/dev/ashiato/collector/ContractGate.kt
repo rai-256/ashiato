@@ -15,8 +15,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **版 A を得たときだけ**送る。ほかは何も送らずに残す。
  */
 sealed interface ContractAnswer {
-    /** 読める答え。S-01 は版 A 以下を全部受け付ける */
-    data class Version(val version: Int, val channel: Channel = Channel.Official) : ContractAnswer
+    /** 読める答えで、系統が自分と同じ。S-01 は版 A 以下を全部受け付ける */
+    data class Version(val version: Int) : ContractAnswer
+
+    /**
+     * 読める答えだが、系統が自分と違う（ST54 / D7）。何も送らない。
+     * 系統の比べは [readContractAnswer] の 1 か所だけで行い、送り手は比べ直さない（/code-review R36）
+     */
     data class ChannelMismatch(val expected: Channel, val actual: Channel) : ContractAnswer
 
     /** 404（問い合わせの口が無い古い S-01）。D9 の（b） */
@@ -58,7 +63,7 @@ fun readContractAnswer(outcome: Outcome, expectedChannel: Channel = buildLocalCh
             val channel = outcome.headers.entries.firstOrNull { (key, _) -> key.equals("Ashiato-Channel", ignoreCase = true) }
                 ?.value?.trim()?.lowercase()?.let { value -> if (value == "dev") Channel.Dev else Channel.Official }
                 ?: Channel.Official
-            if (channel == expectedChannel) ContractAnswer.Version(it, channel)
+            if (channel == expectedChannel) ContractAnswer.Version(it)
             else ContractAnswer.ChannelMismatch(expectedChannel, channel)
         } ?: ContractAnswer.Unreadable
         HTTP_NOT_FOUND -> ContractAnswer.NoEndpoint
@@ -191,6 +196,13 @@ class ContractGate(
 
     val channelMismatch: Boolean get() = store.channelMismatch
 
+    /**
+     * 系統の違いをログに出したか（メモリだけ）。続く間は契機ごとに出さず、状態に入ったときに 1 回だけ出す
+     * （PC の `channel_mismatch_logged` と同じ。/code-review R31）。起こし直した後は 1 回出す
+     */
+    @Volatile
+    private var mismatchLogged = false
+
     /** 原本の送り手が 426 で断られた（非同期。読める答えの契機の [observe] が読んで消す） */
     private val originalsRefused = AtomicBoolean(false)
 
@@ -210,17 +222,15 @@ class ContractGate(
             is ContractAnswer.ChannelMismatch -> {
                 known = true
                 store.channelMismatch = true
-                log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(answer.expected), availability = channelLabel(answer.actual)))
+                if (!mismatchLogged) {
+                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(answer.expected), availability = channelLabel(answer.actual)))
+                    mismatchLogged = true
+                }
             }
             is ContractAnswer.Version -> {
-                if (answer.channel != localChannel) {
-                    known = true
-                    store.channelMismatch = true
-                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(localChannel), availability = channelLabel(answer.channel)))
-                    return was && !reasons.waiting
-                }
                 known = true
                 store.channelMismatch = false
+                mismatchLogged = false
                 setUnreadableSince(null)
                 val posted = outcomes.any { it.posted }
                 // 原本の糸の印は、記録の送りが 426 だった契機でも**必ず読んで消す**（final review R7）——

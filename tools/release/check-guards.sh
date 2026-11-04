@@ -78,7 +78,7 @@ workflow() {
   job_block "$nightly" package-linux | grep -q 'tools/release/build.sh apk' || die 'nightly の組み立て job に APK が無い'
   job_block "$nightly" publish | grep -q 'tools/release/publish-nightly.sh' || die 'nightly の公開 job が公開手順を使っていない'
   [[ "$(grep -c 'tools/release/publish-nightly.sh' "$nightly")" == "$(job_block "$nightly" publish | grep -c 'tools/release/publish-nightly.sh')" ]] || die 'nightly の公開手順が publish 以外から呼ばれる'
-  job_block "$nightly" publish | grep -q 'name: nightly' || die 'nightly の公開 job に Environment が無い'
+  job_block "$nightly" publish | grep -qE '^[[:space:]]+name: nightly[[:space:]]*$' || die 'nightly の公開 job に Environment が無い'
   job_block "$nightly" publish | grep -q 'ASHIATO_EXPECT_DEV_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}' || die 'nightly の開発版指紋が Environment 変数から渡らない'
   if grep -qE 'sign-apk.sh' "$nightly"; then die 'nightly の workflow に署名の論理がある'; return 1; fi
   job_block "$release" plan | grep -q 'version.sh plan' && job_block "$release" plan | grep -q 'fetch-depth: 0' || die 'release の判定 job が shallow checkout'
@@ -181,6 +181,9 @@ EOF
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '組み立て job の署名を通した'; fi
   sed '/ASHIATO_EXPECT_DEV_CERT_SHA256/d' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '開発版指紋の無い偽 nightly を通した'; fi
+  # Environment の名前が違えば、environments の検査（nightly の branch 規則）の外で走る（code-verify R28）
+  sed 's/^\([[:space:]][[:space:]]*\)name: nightly$/\1name: nightly-open/' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Environment の名前が違う偽 nightly を通した'; fi
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"

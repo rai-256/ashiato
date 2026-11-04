@@ -393,9 +393,7 @@ open class MainActivity : Activity() {
         val restricted = state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN
         // S-01 の更新を待っている間だけ、手元に残している日数つきの 1 行を出す（ST50 / D6）
         val waitStore = ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE))
-        val notice = waitStore.notice ?: if (waitStore.channelMismatch) {
-            ContractNotice(false, 0, channelMismatch = true, contractWaiting = false)
-        } else null
+        val notice = screenNotice(waitStore)
         if (restricted || notice != null) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice)

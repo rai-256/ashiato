@@ -1152,9 +1152,47 @@ mod st48_migrate {
             "{}-dev.20261102",
             env!("CARGO_PKG_VERSION")
         ));
-        assert_ok(&rig.migrate_custom_version(&custom.path));
+        // 正式版で当てた DB の行を消し、開発版の migrate を当てる（spec の WHEN。code-verify R23）
+        assert_ok(&rig.migrate());
+        rig.exec("DELETE FROM migration_ledger.applied").await;
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_ne!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert_ok(&out);
+        let (rows, official_rows): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(*) FILTER (WHERE build_version NOT LIKE '%-dev.%')
+               FROM migration_ledger.applied",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(
+            usize::try_from(rows).unwrap(),
+            ashiato_server::MIGRATIONS.len()
+        );
+        assert_eq!(official_rows, 0, "開発版の版番号でない行がある");
+        // 逆向き: 開発版の DB の行を消して正式版
         rig.exec("DELETE FROM migration_ledger.applied").await;
         assert_ok(&rig.migrate());
+    }
+
+    // Scenario: 待ち受けと退避の置き場を明示で渡せば、開発版でもその値を使う
+    #[tokio::test]
+    async fn st54_bin_explicit_bind_and_backup_dir_win_for_dev() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        // 退避: 開発版の migrate が渡した MIGRATE_BACKUP_DIR に書く（既定 backups/pre-migrate-dev でない。code-verify R26）
+        assert_eq!(rig.dumps(), 0);
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        assert_eq!(rig.dumps(), 1, "渡した置き場に退避が無い");
+        // 待ち受け: 開発版のサーバが渡した BIND（空いた port）で待ち受ける
+        let response = rig.contract_from_custom(&custom.path, false, &[]);
+        assert!(
+            response.contains("ashiato-channel: dev\r\n"),
+            "応答の系統が dev でない: {response}"
+        );
     }
 
     // Scenario: 系統の名前の環境変数を渡しても、系統は変わらない

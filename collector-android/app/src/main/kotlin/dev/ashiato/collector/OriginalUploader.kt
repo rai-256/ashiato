@@ -111,7 +111,6 @@ class OriginalUploader(
     transport: OriginalTransport,
     reporter: OriginalMissingReporter,
     private val env: OriginalEnvironment,
-    private val localChannel: Channel = buildLocalChannel(),
     private val log: (String) -> Unit = {},
 ) {
     private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now, env.bodyLimit)
@@ -132,12 +131,8 @@ class OriginalUploader(
         try {
             val limit = when (answer) {
                 null -> Int.MAX_VALUE
-                is ContractAnswer.Version -> if (answer.channel == localChannel) answer.version else {
-                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (localChannel == Channel.Dev) "dev" else "official", availability = if (answer.channel == Channel.Dev) "dev" else "official")); null
-                }
-                is ContractAnswer.ChannelMismatch -> {
-                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (answer.expected == Channel.Dev) "dev" else "official", availability = if (answer.actual == Channel.Dev) "dev" else "official")); null
-                }
+                is ContractAnswer.Version -> answer.version
+                // 系統が違う答え（ChannelMismatch）を含め、ほかは送らない。ログは gate が出す（/code-review R31）
                 else -> null
             }
             return if (limit != null && mayOpenFiles()) {

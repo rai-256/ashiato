@@ -239,9 +239,24 @@ async fn st54_dev_web_login_uses_dev_cookie() {
     let app_router = router(app);
     let response = app_router.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    let set_cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
+    let set_cookies: Vec<_> = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(set_cookies.len(), 1, "{set_cookies:?}");
+    let set_cookie = &set_cookies[0];
     assert!(set_cookie.starts_with("ashiato_session_dev="));
+    // 正式版の名前では書かない（「だけ」。code-verify R22）
+    assert!(
+        !set_cookies
+            .iter()
+            .any(|c| c.starts_with("ashiato_session=")),
+        "{set_cookies:?}"
+    );
     let dev_cookie = set_cookie.split(';').next().unwrap();
+    let token = dev_cookie.strip_prefix("ashiato_session_dev=").unwrap();
 
     let response = app_router
         .clone()
@@ -262,7 +277,8 @@ async fn st54_dev_web_login_uses_dev_cookie() {
             Request::builder()
                 .method(Method::GET)
                 .uri("/session")
-                .header(header::COOKIE, "ashiato_session=wrong-channel")
+                // 同じ印の値でも、正式版の名前で付けたものは読まない（値でなく名前で落とす。code-verify R22）
+                .header(header::COOKIE, format!("ashiato_session={token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -406,21 +422,99 @@ async fn st54_before_ledger_is_official() {
 #[tokio::test]
 async fn st54_empty_ledger_allows_both_channels() {
     let db = testdb::scratch().await;
-    migrate_channel(&db, Channel::Dev).await;
+    migrate_channel(&db, Channel::Official).await;
     let pool = db.pool().await;
-    sqlx::query("DELETE FROM migration_ledger.applied")
+    // 正式版で当てた DB の行を消し、開発版の migrate を当てる（spec の WHEN。code-verify R23）。
+    // 逆向き（開発版の DB の行を消して正式版）も当てる
+    for (from, me) in [
+        (Channel::Official, Channel::Dev),
+        (Channel::Dev, Channel::Official),
+    ] {
+        if from == Channel::Dev {
+            sqlx::query("UPDATE migration_ledger.applied SET build_version = '0.1.0-dev.20261102'")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM migration_ledger.applied")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let result = migration_ledger::apply_migrations_with(
+            pool.acquire().await.unwrap(),
+            MIGRATIONS,
+            || Ok(()),
+            GRANTS,
+            me,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "{from:?} の行を消した DB に {me:?} で当てない: {result:?}"
+        );
+    }
+}
+
+/// D3: DB の系統は版の記録の**最初の行**（`applied_at` の順、同じなら名前の順）で決める（code-verify R24）。
+#[tokio::test]
+async fn st54_first_ledger_row_decides_channel() {
+    for first in [Channel::Dev, Channel::Official] {
+        let db = testdb::scratch().await;
+        migrate_channel(&db, Channel::Official).await;
+        let pool = db.pool().await;
+        let (first_version, rest_version) = match first {
+            Channel::Dev => ("0.1.0-dev.20261102", "0.1.0"),
+            Channel::Official => ("0.1.0", "0.1.0-dev.20261102"),
+        };
+        // applied_at を揃え、名前の順で最初の行だけ系統を変える（同じ時刻なら名前の順）
+        sqlx::query(
+            "UPDATE migration_ledger.applied
+                SET applied_at = '2026-11-01T00:00:00Z',
+                    build_version = CASE WHEN name = (SELECT min(name) FROM migration_ledger.applied)
+                                         THEN $1 ELSE $2 END",
+        )
+        .bind(first_version)
+        .bind(rest_version)
         .execute(&pool)
         .await
         .unwrap();
-    migration_ledger::apply_migrations_with(
-        pool.acquire().await.unwrap(),
-        MIGRATIONS,
-        || Ok(()),
-        GRANTS,
-        Channel::Official,
-    )
-    .await
-    .unwrap();
+        let other = match first {
+            Channel::Dev => Channel::Official,
+            Channel::Official => Channel::Dev,
+        };
+        assert_eq!(
+            migration_ledger::startup_refusal(&pool, MIGRATIONS, first)
+                .await
+                .unwrap(),
+            None,
+            "最初の行が {first:?} の DB で {first:?} のサーバが止まる"
+        );
+        assert_eq!(
+            migration_ledger::startup_refusal(&pool, MIGRATIONS, other)
+                .await
+                .unwrap()
+                .unwrap()
+                .0,
+            "channel_mismatch"
+        );
+        // 時刻が先の行は、名前の順より優先する
+        sqlx::query(
+            "UPDATE migration_ledger.applied
+                SET applied_at = '2026-10-31T00:00:00Z'
+              WHERE name = (SELECT max(name) FROM migration_ledger.applied)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            migration_ledger::startup_refusal(&pool, MIGRATIONS, other)
+                .await
+                .unwrap(),
+            None,
+            "applied_at の最も早い行（{other:?}）で決めていない"
+        );
+        pool.close().await;
+    }
 }
 
 // Scenario: 系統が同じなら、今どおり当てて起動する
