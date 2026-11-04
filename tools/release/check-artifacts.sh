@@ -18,14 +18,24 @@ apk_label() {
 }
 
 apk_manifest() {
-  apk_dump "$1" | sed -nE \
+  local badging tree aapt_cmd
+  badging="$(apk_dump "$1")"
+  aapt_cmd="$(android_tool aapt2 || android_tool aapt || true)"; [ -n "$aapt_cmd" ] || die "aapt が無い"
+  tree="$($aapt_cmd dump xmltree "$1" --file AndroidManifest.xml)"
+  {
+    sed -nE \
     -e "s/^uses-permission: name='([^']+)'.*/permission:\1/p" \
     -e "s/^uses-feature: name='([^']+)'.*/feature:\1/p" \
-    -e "s/^application: label='[^']*' icon='[^']*' name='([^']*)'.*/application:\1/p" \
-    -e "s/^service: name='([^']+)'.*/service:\1/p" \
-    -e "s/^receiver: name='([^']+)'.*/receiver:\1/p" \
-    | sed -E 's/^permission:dev\.ashiato\.collector(\.dev)?\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION$/permission:APP.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION/' \
-    | sort -u
+    <<<"$badging"
+    awk '
+      /^          E: (service|receiver) / { kind=$2; pending=1; next }
+      pending && /android:name\(/ {
+        value=$0; sub(/^.*Raw: "/, "", value); sub(/".*$/, "", value); print kind ":" value
+        pending=0
+      }
+      pending && /^          E: / { pending=0 }
+    ' <<<"$tree"
+  } | sed -E 's/^permission:dev\.ashiato\.collector(\.dev)?\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION$/permission:APP.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION/' | sort -u
 }
 
 self_test_android() {

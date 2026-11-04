@@ -15,7 +15,9 @@ import java.time.Duration
  * 理由が 200 の読めない答え（e）だけのときは、公衆の Wi-Fi の入口でも誤りにならない文言にする。
  */
 data class ContractNotice(val onlyUnreadable: Boolean, val days: Int, val channelMismatch: Boolean = false) {
-    val headline: String get() = if (channelMismatch) channelMismatchHeadline() else contractHeadline(onlyUnreadable)
+    val headline: String get() = if (channelMismatch) {
+        "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline()}"
+    } else contractHeadline(onlyUnreadable)
 
     /** 画面の 1 行と通知の本文 */
     val line: String get() = "$headline（未送信 $days 日分を携帯に残しています）"
@@ -24,8 +26,8 @@ data class ContractNotice(val onlyUnreadable: Boolean, val days: Int, val channe
 const val CONTRACT_UPDATE_HEADLINE = "サーバを更新してください"
 const val CONTRACT_NETWORK_HEADLINE = "サーバを更新するか、つながっている網を確かめてください"
 
-fun channelMismatchHeadline(): String =
-    "送り先が${if (BuildConfig.CHANNEL == "dev") "正式版" else "開発版"}のサーバです。送り先を確かめてください"
+fun channelMismatchHeadline(local: Channel = buildLocalChannel()): String =
+    "送り先が${if (local == Channel.Dev) "正式版" else "開発版"}のサーバです。送り先を確かめてください"
 
 fun contractHeadline(onlyUnreadable: Boolean): String =
     if (onlyUnreadable) CONTRACT_NETWORK_HEADLINE else CONTRACT_UPDATE_HEADLINE
@@ -36,7 +38,36 @@ fun oldestUnsentDays(records: Outbox<*>, age: () -> Long): Int =
 
 /** 止まった状態の写しを作る。止まっていなければ null。 */
 fun contractNotice(reasons: ContractReasons, days: Int): ContractNotice? =
-    if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days, reasons.channelMismatch) else null
+    if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days) else null
+
+class ChannelMismatchNotifier(
+    private val context: Context,
+    private val store: ContractWaitStore,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
+    private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
+
+    fun update(mismatch: Boolean) {
+        if (!mismatch) {
+            if (store.channelNotifiedAtMs != null) {
+                manager.cancel(CHANNEL_NOTIFICATION_ID)
+                store.channelNotifiedAtMs = null
+            }
+            return
+        }
+        val last = store.channelNotifiedAtMs
+        if (last != null && now() - last < ContractNotifier.REPEAT.toMillis()) return
+        manager.createNotificationChannel(NotificationChannel(ContractNotifier.CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.notify(CHANNEL_NOTIFICATION_ID, NotificationCompat.Builder(context, ContractNotifier.CHANNEL)
+            .setContentTitle(ContractNotifier.TITLE)
+            .setContentText(channelMismatchHeadline())
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .build())
+        store.channelNotifiedAtMs = now()
+    }
+
+    companion object { const val CHANNEL_NOTIFICATION_ID = 6 }
+}
 
 /**
  * 更新を促す通知を端末に出す（D6）。専用のチャンネル `contract`。

@@ -29,3 +29,37 @@
 - 正式版の既定値は `official` と従来のアプリ名・識別子を維持している。
 - APK manifest 比較では applicationId 由来の動的 receiver 権限だけを匿名化し、宣言の差分を隠していない。
 - 9.3 の証跡に、エミュレータ基盤が作る `android-yosis` / `hostapd_*.conf` / `netsim.ini` の残留が記録された。side-by-side 台本自身の一時 payload は cleanup で削除している。
+
+## Fix round 1
+
+- F1: `HttpTransport.get` が応答 headers を `Outcome.Responded` に渡すようにし、偽 TCP HTTP の GET テストを追加した。
+- F2: 系統違いを ST50 の `ContractReasons`・通知 ID 5・通知時刻から分離し、永続する別状態と通知 ID 6 を追加した。画面・7 日前の案内には必要に応じて両方の文を添える。
+- F3: 記録、生存信号、破棄報告、原本欠け、原本の系統違い停止ログに expected/actual の系統を残すようにした。
+- F4/F5: `ChannelGateTest` を Robolectric の `ShadowLog` / `ShadowNotificationManager` と実状態で検証し、`ContractGateTest` の検証入口も維持した。`ChannelGateTest` は 12 本。
+- F6: side-by-side の未送信データを `files/outbox/records/000000000000.jsonl` に置き、`run-as` でその実体を数えるようにした。
+- F7: `premises.md` の P2 を 4（APK 並列インストールと正式版 SegmentStore 区切りファイルの維持を実機確認）へ更新した。
+- F8: `apk-manifest` の service/receiver 抽出を `aapt2 dump xmltree` に変更し、APK の宣言実名を比較するようにした。
+- F9: Kotlin compiler を in-process にして、PASS ログから daemon の stack trace を除いた。
+
+### Fix round 1 の検証
+
+- RED: 初回修正テストは Kotlin daemon の sandbox 書き込み制限と `LocationService.kt:86` のコンパイルエラーで失敗。`ContractGate` の trailing lambda が誤った引数へ束縛されていたためで、引数を明示して修正した。
+- GREEN: `scripts/quiet-run channel-clean -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ChannelGateTest*' --tests '*HttpTransportTest*'` — PASS（ChannelGateTest 12、HttpTransportTest 10）。
+- `scripts/quiet-run unit-full-final -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest` — PASS。
+- `scripts/verify-run 9.1` — PASS。
+- `scripts/verify-run 9.2` — PASS（ChannelGateTest 12 本、ContractGate 系も PASS）。
+- `scripts/verify-run 9.3` — 最初の 2 回は `run-as` 内の件数取得が失敗したが、実データ相対パスと固定 SegmentStore 区切りファイルへ修正後、sandbox 外（KVM）で PASS。
+
+### Fix round 1 の変更ファイル
+
+`collector-android/app/src/main/kotlin/dev/ashiato/collector/{ContractGate.kt,ContractNotifier.kt,HttpTransport.kt,LocationService.kt,MainActivity.kt,OriginalUploader.kt,Retention.kt,Sender.kt}`, `collector-android/app/src/test/kotlin/dev/ashiato/collector/{ChannelGateTest.kt,HttpTransportTest.kt}`, `collector-android/gradle.properties`, `tools/release/check-artifacts.sh`, `tools/android-side-by-side.sh`, `openspec/changes/st54-dev-side-by-side/{evidence.jsonl,premises.md}`
+
+### Fix round 1 の concern
+
+`scripts/check_scenarios.py .` は後続 Task 10 の配布 Scenario 10 件が未担保として FAIL するが、Task 9 の変更範囲外である。9.3 の emulator 基盤による一時ファイル残留は証跡に記録され、台本自身の payload は cleanup している。
+
+### Commit hook 対応
+
+commit hook の A-2 検査が系統名を `Telemetry.error` に埋め込む形式を拒否したため、系統の相手/自分は `trigger=dev|official` / `availability=dev|official` として `Telemetry.line` から出す形に修正した。`scripts/quiet-run channel-log -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ChannelGateTest*'` と `scripts/verify-run 9.2` は修正後に PASS。
+
+その後 hook が補助関数経由も拒否したため、6 箇所の送信停止ログを `Telemetry.line` の直接呼び出しへ展開し、`scripts/quiet-run channel-log-final -- ... --tests '*ChannelGateTest*'` と `scripts/verify-run 9.2` を再実行して PASS。

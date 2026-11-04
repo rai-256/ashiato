@@ -85,7 +85,10 @@ class HttpTransport(
             }
             val status = conn.responseCode
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-            Outcome.Responded(status, stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "")
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            val headers = conn.headerFields.entries.filter { it.key != null }
+                .associate { it.key!! to (it.value.firstOrNull() ?: "") }
+            Outcome.Responded(status, body, headers = headers)
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
         } finally {

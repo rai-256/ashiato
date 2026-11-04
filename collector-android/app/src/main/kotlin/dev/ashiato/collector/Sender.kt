@@ -251,13 +251,13 @@ class Sender<T : Outboxable>(
             null -> null
             is ContractAnswer.Version -> {
                 if (answer.channel != localChannel) {
-                    log(Telemetry.line("send_held", source = null, error = "channel_mismatch"))
+                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (localChannel == Channel.Dev) "dev" else "official", availability = if (answer.channel == Channel.Dev) "dev" else "official"))
                     return finish(Flushed(0, 0), ContractOutcome())
                 }
                 answer.version
             }
             is ContractAnswer.ChannelMismatch -> {
-                log(Telemetry.line("send_held", source = null, error = "channel_mismatch"))
+                log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (answer.expected == Channel.Dev) "dev" else "official", availability = if (answer.actual == Channel.Dev) "dev" else "official"))
                 return finish(Flushed(0, 0), ContractOutcome())
             }
             else -> {

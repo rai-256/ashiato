@@ -131,7 +131,12 @@ class OriginalUploader(
         try {
             val limit = when (answer) {
                 null -> Int.MAX_VALUE
-                is ContractAnswer.Version -> if (answer.channel == localChannel) answer.version else null
+                is ContractAnswer.Version -> if (answer.channel == localChannel) answer.version else {
+                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (localChannel == Channel.Dev) "dev" else "official", availability = if (answer.channel == Channel.Dev) "dev" else "official")); null
+                }
+                is ContractAnswer.ChannelMismatch -> {
+                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = if (answer.expected == Channel.Dev) "dev" else "official", availability = if (answer.actual == Channel.Dev) "dev" else "official")); null
+                }
                 else -> null
             }
             return if (limit != null && mayOpenFiles()) {

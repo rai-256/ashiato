@@ -52,15 +52,15 @@ data class ContractOutcome(
 }
 
 /** 問い合わせの口の答えを読む（200 の本文が `{"contract_version": <正の整数>}`）。 */
-fun readContractAnswer(outcome: Outcome): ContractAnswer = when (outcome) {
+fun readContractAnswer(outcome: Outcome, expectedChannel: Channel = buildLocalChannel()): ContractAnswer = when (outcome) {
     is Outcome.Unreachable -> ContractAnswer.Transient
     is Outcome.Responded -> when (outcome.status) {
         HTTP_OK -> parseContractVersion(outcome.body)?.let {
             val channel = outcome.headers.entries.firstOrNull { (key, _) -> key.equals("Ashiato-Channel", ignoreCase = true) }
                 ?.value?.trim()?.lowercase()?.let { value -> if (value == "dev") Channel.Dev else Channel.Official }
                 ?: Channel.Official
-            if (channel == localChannel) ContractAnswer.Version(it, channel)
-            else ContractAnswer.ChannelMismatch(localChannel, channel)
+            if (channel == expectedChannel) ContractAnswer.Version(it, channel)
+            else ContractAnswer.ChannelMismatch(expectedChannel, channel)
         } ?: ContractAnswer.Unreadable
         HTTP_NOT_FOUND -> ContractAnswer.NoEndpoint
         else -> ContractAnswer.Transient
@@ -95,6 +95,14 @@ class ContractWaitStore(private val prefs: SharedPreferences) {
     var notifiedAtMs: Long?
         get() = prefs.getLong(NOTIFIED_AT, NONE).takeIf { it != NONE }
         set(value) = putOrRemove(NOTIFIED_AT, value)
+
+    var channelNotifiedAtMs: Long?
+        get() = prefs.getLong(CHANNEL_NOTIFIED_AT, NONE).takeIf { it != NONE }
+        set(value) = putOrRemove(CHANNEL_NOTIFIED_AT, value)
+
+    var channelMismatch: Boolean
+        get() = prefs.getBoolean(CHANNEL_MISMATCH, false)
+        set(value) { prefs.edit().putBoolean(CHANNEL_MISMATCH, value).apply() }
 
     /** 画面が出す行の元。止まっていなければ null */
     var notice: ContractNotice?
@@ -131,6 +139,8 @@ class ContractWaitStore(private val prefs: SharedPreferences) {
         private const val NOTICE_DAYS = "notice_days"
         private const val NOTICE_ONLY_UNREADABLE = "notice_only_unreadable"
         private const val NOTICE_CHANNEL_MISMATCH = "notice_channel_mismatch"
+        private const val CHANNEL_NOTIFIED_AT = "channel_notified_at_ms"
+        private const val CHANNEL_MISMATCH = "channel_mismatch"
         private const val NONE = Long.MIN_VALUE
     }
 }
@@ -142,16 +152,15 @@ data class ContractReasons(
     val refused: Boolean = false,
     val rejected: Boolean = false,
     val unreadableLong: Boolean = false,
-    val channelMismatch: Boolean = false,
 ) {
-    val waiting: Boolean get() = ahead || noEndpoint || refused || rejected || unreadableLong || channelMismatch
+    val waiting: Boolean get() = ahead || noEndpoint || refused || rejected || unreadableLong
 
     /** 理由が（e）だけか（知らせの文言を分ける。D22） */
-    val onlyUnreadable: Boolean get() = unreadableLong && !(ahead || noEndpoint || refused || rejected || channelMismatch)
+    val onlyUnreadable: Boolean get() = unreadableLong && !(ahead || noEndpoint || refused || rejected)
 
     /** 待っているときの案内（待っていなければ null。画面・通知・7 日前の知らせが使う。D6） */
     val headline: String? get() = if (waiting) {
-        if (channelMismatch) channelMismatchHeadline() else contractHeadline(onlyUnreadable)
+        contractHeadline(onlyUnreadable)
     } else null
 }
 
@@ -159,7 +168,11 @@ data class ContractReasons(
  * 「S-01 の更新を待っている」状態を 1 つの値で持つ（D9・D22・D24（仮））。
  * 理由が 1 つでもあれば待っている。**待っていても行は捨てない**（D17）。
  */
-class ContractGate(private val store: ContractWaitStore, private val log: (String) -> Unit = {}) {
+class ContractGate(
+    private val store: ContractWaitStore,
+    private val log: (String) -> Unit = {},
+    val localChannel: Channel = buildLocalChannel(),
+) {
     @Volatile
     var reasons: ContractReasons = ContractReasons()
         private set
@@ -176,6 +189,8 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
     val decided: Boolean get() = known || reasons.waiting
 
     val waiting: Boolean get() = reasons.waiting
+
+    val channelMismatch: Boolean get() = store.channelMismatch
 
     /** 原本の送り手が 426 で断られた（非同期。読める答えの契機の [observe] が読んで消す） */
     private val originalsRefused = AtomicBoolean(false)
@@ -195,15 +210,18 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
             ContractAnswer.Transient -> return false
             is ContractAnswer.ChannelMismatch -> {
                 known = true
-                reasons = ContractReasons(channelMismatch = true)
+                store.channelMismatch = true
+                log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(answer.expected), availability = channelLabel(answer.actual)))
             }
             is ContractAnswer.Version -> {
                 if (answer.channel != localChannel) {
                     known = true
-                    reasons = ContractReasons(channelMismatch = true)
+                    store.channelMismatch = true
+                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(localChannel), availability = channelLabel(answer.channel)))
                     return was && !reasons.waiting
                 }
                 known = true
+                store.channelMismatch = false
                 setUnreadableSince(null)
                 val posted = outcomes.any { it.posted }
                 // 原本の糸の印は、記録の送りが 426 だった契機でも**必ず読んで消す**（final review R7）——
@@ -249,7 +267,13 @@ class ContractGate(private val store: ContractWaitStore, private val log: (Strin
  * 確かめるまでは画面の行と同じ SharedPreferences の写しに頼る（D6・D24（仮））。
  */
 fun contractHeadlineFor(gate: ContractGate, store: ContractWaitStore): String? =
-    if (gate.decided) gate.reasons.headline else store.notice?.headline
+    if (gate.decided) {
+        gate.reasons.headline?.let { if (gate.channelMismatch) "$it。${channelMismatchHeadline(gate.localChannel)}" else it }
+            ?: gate.channelMismatch.takeIf { it }?.let { channelMismatchHeadline(gate.localChannel) }
+    } else {
+        store.notice?.headline?.let { if (store.channelMismatch) "$it。${channelMismatchHeadline()}" else it }
+            ?: store.channelMismatch.takeIf { it }?.let { channelMismatchHeadline() }
+    }
 
 /**
  * 送る契機の頭の確かめと、その結果を状態へ取り込む係（D18（仮）。答えを覚えない）。
@@ -262,9 +286,13 @@ class ContractGuard(
 ) {
     /** 契機の頭で 1 回引く。 */
     fun ask(): ContractAnswer {
-        return readContractAnswer(probe())
+        return readContractAnswer(probe(), gate.localChannel)
     }
 
     /** 契機の終わりに結果を取り込む。待っている状態を抜けたら真。 */
     fun settle(answer: ContractAnswer, outcomes: List<ContractOutcome>): Boolean = gate.observe(answer, now(), outcomes)
 }
+
+fun buildLocalChannel(): Channel = if (BuildConfig.CHANNEL == "dev") Channel.Dev else Channel.Official
+
+private fun channelLabel(channel: Channel): String = if (channel == Channel.Dev) "dev" else "official"
