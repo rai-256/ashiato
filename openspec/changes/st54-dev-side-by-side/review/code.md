@@ -127,3 +127,9 @@ Task ごとの ⚠️ は final reviewer が全体で確かめた。成り立っ
 - 根拠: toast_names.rs:1 / Task 6 F13
 - kind: technical
 - 処置: (fix 後に記入)
+
+## R21. ブランチの Rust が CI の `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` を通らない
+- 成果物: crates/collector-windows/src/config.rs・main.rs・runtime.rs / crates/server/src/lib.rs・migration_ledger.rs・st54_tests.rs
+- 根拠: .github/workflows/ci.yml:77-78。c70b4d3e で `cargo fmt --all --check` が crates/collector-windows/src/main.rs:22 で差分、clippy は config.rs:244-345（試験の unwrap_used）・main.rs:226-233・runtime.rs:1366・lib.rs:4439・migration_ledger.rs:615・st54_tests.rs:29 で error（.superpowers/sdd/logs/20261104-212325-clippy.log）。どれも ST54 が触ったファイル。fix の席が「範囲の外」とした分を controller が確かめて足した
+- kind: technical
+- 処置: (fix 後に記入)
