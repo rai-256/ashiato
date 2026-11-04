@@ -79,11 +79,11 @@
   - `collector-android/app/src/test`（携帯の単体試験。D4）
   - `collector-android/app/src/androidTest`（携帯の計測テスト。D17）
   - `tools/*.sh` と `tools/smoke.d/*.sh`（縦串・検査・起動の台本。D16）
-- 探して一覧に載せるだけ: `crates/collector-windows/examples/browser_history_smoke.rs`（例で、試験でない）・録画の台本 `tools/recording/`（`playwright.recording.config.ts` と `scenarios.d/`。
+- 探して一覧に載せるだけ: `crates/collector-windows/examples/browser_history_smoke.rs`（例で、試験でない）・録画の台本 `tools/recording/`（`playwright.recording.config.ts`・`st*/` の `*.rec.ts`・携帯の `*RecordingTest.kt`。`scenarios.d/` は JSON で待ちを持たない。
   確認バッチの動作の録画を撮る道具で、試験として合否を出さず、関門でも CI でも走らない。`timeout:` の数と場所を一覧に載せ、直すのは別の change にする。review/spec.md R18）
 - `check-inventory.sh`（D14）が拾う形に足すもの（Q2 で範囲が広がった分）:
   - TypeScript（`web/e2e`・`web/playwright.config.ts`・載せるだけの `tools/recording/`）: `timeout:`・`waitForTimeout(`・`expect.poll(`・`setTimeout(`・`describe.configure(`
-  - Kotlin（`app/src/androidTest`）: `app/src/test` と同じ形に、`_MS = <数>`・`device.wait(`・`Tasks.await(`
+  - Kotlin（`app/src/androidTest`・載せるだけの `tools/recording/` の `*RecordingTest.kt`）: `app/src/test` と同じ形に、`_MS = <数>`・`device.wait(`・`Tasks.await(`
   - Rust（`tests/runtime_windows.rs`）: `crates/` と同じ形。Linux で組まれないので `cargo test -- --list` でなく grep で拾う
   - bash（`tools/*.sh`・`tools/smoke.d/*.sh`）: `for <変数> in …`（`$(seq …)`・`{1..N}`・数の並びのどれでも）の後 5 行以内に `sleep` があるもの・`until`/`while` の中で `sleep` するもの（`record-env.sh:67` などの `for i in`。review/spec.md R19）・`sleep <数>`・`timeout <数>`・`--max-time`
   - HEAD に残っていないことを見る形（D14 の 2 つ目）にも、playwright の 30 秒より短い `timeout:`（`timing-ok:` の印の無いもの）と、bash の 30 秒より短い回数の待ち（回数 × 眠りが 30 秒未満）を足す
@@ -223,8 +223,8 @@
 | `web/e2e/day-erase.spec.ts:70`（任意の `click` の 5 秒） | 起きない・下限 | 直さない（D15） |
 | `web/e2e/places.spec.ts:37`（試験 90 秒） | 暗黙の上限 | D15 |
 | `collector-android/app/src/androidTest` の `*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`・`Tasks.await(…, 5\|10, SECONDS)`・`HttpTransportInstrumentedTest.kt:83`・`:100` の `CountDownLatch.await(10, SECONDS)` | 条件の待ち | D17 |
-| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち条件が来た時点で抜けるもの（`UsageAccessInstrumentedTest.kt:110`・`PermissionDeniedInstrumentedTest.kt:130` など） | 条件の待ち | D17 |
-| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち何も起きないことを見続けるもの（下流が使い方を読んで分ける） | 起きない・下限 | 直さない（D17。D12 の型） |
+| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち条件が来た時点で抜けるもの（`PermissionDeniedInstrumentedTest.kt:130`・`HealthConnectScreens.kt:146`・`:154` など） | 条件の待ち | D17 |
+| `collector-android/app/src/androidTest` の `SETTLE_MS` のうち何も起きないことを見続けるもの（`UsageAccessInstrumentedTest.kt:110` の `assertFalse(waitForForeground(SETTLE_MS) { … })` など。下流が使い方を読んで分ける） | 起きない・下限 | 直さない（D17。D12 の型） |
 | `collector-android/app/src/androidTest` の Espresso の `onView` の待ち（数字が書かれていない） | 暗黙の上限 | 直さない（D17。道具が持つ上限） |
 | `tools/smoke.sh:171`・`:190`・`:211`（15 回 × 1 秒） | 条件の待ち | D16 |
 | `tools/smoke.sh:199`（`sleep 3`。件数が増えない） | 起きない・下限 | 直さない（D16） |
@@ -256,7 +256,7 @@
 
 - 条件が来た時点で返る待ちの上限の定数（`*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`。いま 5〜20 秒）と、Play services の呼び出しの終わりを待つ
   `Tasks.await(…, 5|10, TimeUnit.SECONDS)`、合図を待つ `CountDownLatch.await(<数>, TimeUnit.SECONDS)`（`HttpTransportInstrumentedTest.kt:83`・`:100`。review/spec.md R20）など、`await(<数>, TimeUnit…)` で 30 秒より短いものは 30 秒にする。もう 30 秒以上の待ち（`RetentionInstrumentedTest` の 90 秒・40 分など）は変えない
-- `SETTLE_MS` は使い方で分ける: 条件が来た時点で抜ける待ち（`waitForForeground(SETTLE_MS) { … }`・`while (… && !shown)`）は 30 秒に、何も起きないことを見続ける窓は D12 として残して一覧に載せる
+- `SETTLE_MS` は使い方で分ける: 条件が来た時点で抜ける待ち（`while (… && !shown)`・`HealthConnectScreens.kt:146`・`:154`）は 30 秒に、何も起きないことを見続ける窓（`UsageAccessInstrumentedTest.kt:110` の `assertFalse(waitForForeground(SETTLE_MS) { … })`。延ばすと毎回その分だけ長くなる）は D12 として残して一覧に載せる
 - 相手（設定の画面・Play services）が動くのを待つ `Thread.sleep(…)` は D5（観測できる条件があれば条件の待ち、無ければ残して一覧に）
 - Espresso の待ち（`onView` の idling）は Espresso が自分で持つ上限で、試験に数字が書かれていないので変えない（一覧には型「暗黙の上限」・方針「直さない（道具が持つ上限）」で書く。D14 の型に足さない）
 - 確かめ: `tools/android-emulator.sh` が通る（全部の計測テスト。`retention` の 1 本で 13 分余りかかる）

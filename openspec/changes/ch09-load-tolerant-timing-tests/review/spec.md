@@ -250,3 +250,34 @@
 - kind: technical
 - 提案: D17 の 1 つ目の箇条を「`Tasks.await(…)` と `CountDownLatch.await(…)` の 30 秒より短い秒数は 30 秒にする」にし、表の行にも足す（`FeelingReminderInstrumentedTest.kt:122` の 30 秒はそのまま）
 - 処置: fixed design.md D17・表（`CountDownLatch.await` を含む `await(<数>, TimeUnit…)`）・tasks.md 10.1
+
+---
+
+# R15〜R20 の直し（`ec49dca5`）の確かめ（2026-11-04）
+
+`git diff e2eb8e69 ec49dca5` を読んだ。D14・D13・D12（C）の節の文面は変わっていない。
+
+- R15: 満たす。D15 の確かめ（`design.md:240-241`）と 9.1 が「試験の上限は `test.info().timeout`、`expect` の上限は `playwright.config.ts` を import する」になった。`defineConfig` の戻り値は `expect?.timeout` を型に持ち、`tsconfig.json:9` が `playwright.config.ts` と `e2e` を両方含むので、typecheck は通る形
+- R16: 満たす。D3 の反転条件・D17 の反転条件・`CH09.md:91` の 3 か所が `android-instrumented` になり、`UsageVolumeInstrumentedTest` の外しと `timeout-minutes` が無いことも書かれた
+- R17: 満たす（表の型は D14 の 8 つの中に収まった）。ただし `SETTLE_MS` の行の分け方に誤りがある → R21
+- R18: Playwright の録画（`*.rec.ts`）については満たす。携帯の録画（`*RecordingTest.kt`）が拾う範囲に入っていない → R22
+- R19: 満たす。D3 の bash の拾う形が `for <変数> in …` と `until` / `while` になり、spec の THEN（`specs/test-timing/spec.md:61`）も道具の字面に依らない言い方になった
+- R20: 満たす。D17・表・10.1 が `CountDownLatch.await` を含む `await(<数>, TimeUnit…)` にした
+
+## R21. `UsageAccessInstrumentedTest.kt:110` の `SETTLE_MS` は「起きない」を見る窓なのに、表と D17 は「条件が来た時点で抜ける待ち（30 秒に）」の例に挙げている
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（表 `:226`・D17 の `SETTLE_MS` の箇条 `:259`）
+- 根拠: `collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UsageAccessInstrumentedTest.kt:108-111` は `assertFalse("2 度目の起動で設定画面へ自動で送られている", waitForForeground(SETTLE_MS) { it.contains("settings") })`。
+  `waitForForeground`（`:134-141`）は条件が来たら true で返り、来なければ期限まで待って false を返すので、この呼び出しは**設定画面が出ないこと**を 5 秒の窓で見ている（D12 の型「起きない・下限」）。
+  計測テストで `waitForForeground(SETTLE_MS)` を呼んでいるのはここだけで、D17 の箇条にある例「`waitForForeground(SETTLE_MS) { … }`」は、条件が来たら抜ける待ちの例になっていない。表のとおり 30 秒にすると、試験は落ちないが毎回 25 秒延びる。
+  条件が来たら抜ける `SETTLE_MS` は `PermissionDeniedInstrumentedTest.kt:130`（`while (… && !shown)` の後に `assertTrue(shown)`）と `HealthConnectScreens.kt:146`・`:154`（`waitForGrantedCount`・`waitForCollectionStarted`）
+- kind: technical
+- 提案: 表の「条件の待ち」の行の例を `PermissionDeniedInstrumentedTest.kt:130`・`HealthConnectScreens.kt:146`・`:154` にし、`UsageAccessInstrumentedTest.kt:110` を「起きない・下限（直さない。D12 の型）」の行に名指す。D17 の箇条の例も `waitForForeground(SETTLE_MS)` を外して `while (… && !shown)`・`waitForGrantedCount` にする
+- 処置: fixed design.md 表・D17（条件の待ちの例を `PermissionDeniedInstrumentedTest.kt:130`・`HealthConnectScreens.kt:146`・`:154` に替え、`UsageAccessInstrumentedTest.kt:110` は「起きない・下限」へ）
+
+## R22. 録画の台本を「載せるだけ」にしたが、携帯の録画（`tools/recording/**/*RecordingTest.kt`）は拾う形の範囲に無く、D3 が名指す場所（`scenarios.d/`）には待ちが無い
+- 成果物: openspec/changes/ch09-load-tolerant-timing-tests/design.md（D3 の「載せるだけ」`:82-83`・Kotlin の拾う形 `:86`）
+- 根拠: D3 は録画の範囲を「`playwright.recording.config.ts` と `scenarios.d/`」と書くが、`tools/recording/scenarios.d/` は JSON（`202610141000_st17.json` など）で、待ちは `tools/recording/st*/` の `*.rec.ts` と `*RecordingTest.kt` にある。
+  拾う形のうち TypeScript は「載せるだけの `tools/recording/`」を足したが、Kotlin は `app/src/androidTest` だけで、`tools/recording/st50/St50RecordingTest.kt:141` の `TIMEOUT_MS = 15_000L`（`:85`・`:92`・`:101` の `device.wait`）・`:131-135` の `waitUntil` など、携帯の録画 9 ファイル（`st05`・`st06` ×2・`st09`・`st11`・`st13`・`st14`・`st17`・`st50`）を `check-inventory.sh` が拾わない。一覧の「探した範囲」から抜ける
+- kind: technical
+- 提案: D3 の録画の行を「`tools/recording/` の `*.rec.ts`・`*RecordingTest.kt` と `playwright.recording.config.ts`」にし、Kotlin の拾う形の範囲に「載せるだけの `tools/recording/`」を足す（TypeScript の行と同じ書き方）
+- 処置: fixed design.md D3（録画は `*.rec.ts`・`*RecordingTest.kt` を名指し、Kotlin の拾う範囲にも足した）
