@@ -541,11 +541,14 @@ class HealthPermissionFlowTest {
             if (service == null) Thread.sleep(50)
         }
         val waitedMs = (System.nanoTime() - started) / 1_000_000
-        assertEquals(
-            "読みが返らないと収集が始まらない（待機=${waitedMs}ms、最後に見た値=$service）",
-            LocationService::class.java.name,
-            service?.component?.className,
-        )
+        try {
+            assertEquals("読みが返らないと収集が始まらない", LocationService::class.java.name, service?.component?.className)
+        } catch (failure: AssertionError) {
+            throw AssertionError(
+                "読みが返らないと収集が始まらない（待機=${waitedMs}ms、最後に見た値=$service）",
+                failure,
+            )
+        }
         assertEquals(0, health.requests.size)
         assertFalse(controller.get().isDestroyed)
     }
