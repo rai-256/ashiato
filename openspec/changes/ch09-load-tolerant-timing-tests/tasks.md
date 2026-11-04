@@ -62,17 +62,17 @@
 
 ## Task 3: 1 の試験 —— 止めた読み・見張り・1 回に積む件数
 
-- [ ] 3.1 `crates/collector-windows/src/runtime.rs` の `history_large_fetch_keeps_observing_foreground` を design D1 のとおりに書き換える（`FakeReader::gated`・見張り 30 秒・
+- [x] 3.1 `crates/collector-windows/src/runtime.rs` の `history_large_fetch_keeps_observing_foreground` を design D1 のとおりに書き換える（`FakeReader::gated`・見張り 30 秒・
   読みを止めた間の見回り 5 回以上と前景の切り替え・放した後の 1 回あたりの増え方 ≤ `QUEUE_PER_TICK`）。`slowest` と `POLL_INTERVAL_SEC` の比較は消し、ほかの assert は残す。
   既存の `// Scenario: 訪問の多い取得でも前景の観測は止まらない` は残し、`// Scenario: 履歴の読みを止めている間も、見回りは返り、前景の変化が積まれる` と
   `// Scenario: 読みを放した後、見回り 1 回で積む履歴の記録は 2,000 件以下` を足す。
   `agreed-test-changes.md` に `- Scenario: 訪問の多い取得でも前景の観測は止まらない — 見回り 1 回の実時間の比較を、止めた読みと見張りに替えた（正典の文は時間を言っていない。期待は同じ）` を書く。
   検証: `CW history_large_fetch_keeps_observing_foreground` rc=0 / `NL ashiato-collector-windows history_large_fetch_keeps_observing_foreground 1` rc=0
-- [ ] 3.2 **3.1 を commit してから**（break-check は HEAD から作業木を作る。design D11）、壊す差分 `break-wait-on-read.patch` を change の中に置く（design D11。`history/collect.rs` の `Stage::Reading` で読みのスレッドの終わりを待つ）。
+- [x] 3.2 **3.1 を commit してから**（break-check は HEAD から作業木を作る。design D11）、壊す差分 `break-wait-on-read.patch` を change の中に置く（design D11。`history/collect.rs` の `Stage::Reading` で読みのスレッドの終わりを待つ）。
   change の中に `break-proof.sh` を書き、`history` で `tools/break-check.sh --patch <この差分> --expect 見張りが読みを放した --timeout 900 -- cargo test -p ashiato-collector-windows --lib history_large_fetch_keeps_observing_foreground` を走らせる。
   前に `echo "Scenario: 見回りが履歴の取得を待つように壊すと、見張りの上限で試験が落ちる"` を出す。
   検証: `scripts/quiet-run break -- openspec/changes/ch09-load-tolerant-timing-tests/break-proof.sh history` rc=0
-- [ ] 3.3 同じ形の `clock_worker_slow_read_does_not_hold_the_patrol`（`runtime.rs:1936`。「30 秒未満」）を D1 の見張りの形に替える（読み手は既に止めてある。経過の比較を消し、
+- [x] 3.3 同じ形の `clock_worker_slow_read_does_not_hold_the_patrol`（`runtime.rs:1936`。「30 秒未満」）を D1 の見張りの形に替える（読み手は既に止めてある。経過の比較を消し、
   見回りが返らなければ見張りが放して落とす）。印 `// Scenario: 基準の読み取りが長引いても前景の切り替えは記録に残る` は残す。
   `agreed-test-changes.md` に `- Scenario: 基準の読み取りが長引いても前景の切り替えは記録に残る — 「30 秒未満」の比較を見張りに替えた（期待は同じ）` を書く。
   検証: `CW clock_worker_slow_read_does_not_hold_the_patrol` rc=0 / `NL ashiato-collector-windows clock_worker_slow_read_does_not_hold_the_patrol 1` rc=0
