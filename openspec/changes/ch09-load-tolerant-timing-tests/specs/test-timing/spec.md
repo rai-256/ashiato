@@ -32,9 +32,11 @@ THE SYSTEM SHALL PC の収集アプリの試験で、「履歴の取得の間も
 
 ### Requirement: 条件を待つ試験は実時間の期限まで待ち、届いた時点で進む
 
-THE SYSTEM SHALL サーバと PC の収集アプリの試験（`cargo test --workspace`）・画面の単体試験・携帯の収集アプリの単体試験で、相手が進むのを実時間で待つ箇所を、
-条件が満たされた時点で進み、満たされなければ実時間の期限（Rust と Kotlin は 30 秒）で落ちる形にする。落ちたときの文言には、待った時間と最後に見た値を出す。
+THE SYSTEM SHALL サーバと PC の収集アプリの試験（`cargo test --workspace` と、Windows の上でだけ組まれる実行時テスト）・画面の単体試験・画面の e2e・携帯の収集アプリの単体試験と計測テスト・縦串と検査の台本（`tools/*.sh`・`tools/smoke.d/*.sh`）で、相手が進むのを実時間で待つ箇所を、
+条件が満たされた時点で進み、満たされなければ実時間の期限（Rust・Kotlin・台本は 30 秒）で落ちる形にする。落ちたときの文言には、待った時間と最後に見た値を出す。
 画面の単体試験は、数字の書かれていない待ち（`waitFor` / `findBy*`）の上限を 10 秒、試験 1 本の上限を 30 秒とする。
+画面の e2e は、数字の書かれていない待ち（`expect`）の上限を 30 秒、試験 1 本の上限を 120 秒とする。
+決まった時間だけ見続ける窓と、もう 30 秒以上の上限を持つ回数の待ちは、理由を書いて残す。
 試験の中の時刻を兼ねるループ（1 回ごとに試験の中の時刻を進めるもの）は回数のまま残す。
 導出元: CH09
 
@@ -42,6 +44,11 @@ THE SYSTEM SHALL サーバと PC の収集アプリの試験（`cargo test --wor
 
 - **WHEN** 画面の単体試験の中で、待ちの既定の上限と試験 1 本の上限を読む
 - **THEN** 待ちの上限は 10,000ms、試験の上限は 30,000ms である
+
+#### Scenario: 画面の e2e の待ちの上限は 30 秒、試験の上限は 120 秒
+
+- **WHEN** 画面の e2e の試験の中で、`expect` の既定の上限と試験 1 本の上限を読む
+- **THEN** `expect` の上限は 30,000ms、試験の上限は 120,000ms 以上である
 
 #### Scenario: 取り込み器が変えた間隔を読まないように壊すと、間隔の変更の試験は期限で落ちる
 
@@ -51,7 +58,7 @@ THE SYSTEM SHALL サーバと PC の収集アプリの試験（`cargo test --wor
 #### Scenario: 一覧で直したとした条件の待ちに、回数の待ちと 30 秒より短い期限が残っていない
 
 - **WHEN** 洗い出しの一覧で型を「条件の待ち」・方針を直したとしたファイルを、HEAD で読む
-- **THEN** 回数で切る待ち（`for _ in 0..<数>` の中で眠るもの）と、30 秒より短い待ちの上限（Kotlin の `await(<数>, TimeUnit.SECONDS)` で 30 未満など）は、一覧が理由を書いて残したものだけである
+- **THEN** 回数で切る待ち（Rust の `for _ in 0..<数>` の中で眠るもの・台本の `for _ in $(seq 1 <数>)` の中で眠り、回数 × 眠りが 30 秒未満のもの）と、30 秒より短い待ちの上限（Kotlin の `await(<数>, TimeUnit.SECONDS)` や `_MS` の定数で 30 秒未満・e2e の `timeout:` で 30 秒未満など）は、一覧が理由を書いて残したものだけである
 
 ### Requirement: 負荷の下で試験が続けて通ることを、台本で確かめる
 
@@ -110,8 +117,8 @@ THE SYSTEM SHALL `tools/break-check.sh` で、使い捨ての作業木に壊す�
 
 ### Requirement: CH09 は製品のコードを変えず、既存の試験を減らさない
 
-THE SYSTEM SHALL CH09 の差分を、試験のファイル（`*_tests.rs`・`testdb.rs`・`tests/`・`web/src/__tests__`・`collector-android/app/src/test`）、
-製品のファイルの中の試験のモジュール（`#[cfg(test)]` の付いた `mod tests` の中）、`web/vitest.config.ts`、`tools/`、`docs/`、`openspec/` に限る。
+THE SYSTEM SHALL CH09 の差分を、試験のファイル（`*_tests.rs`・`testdb.rs`・`tests/`・`web/src/__tests__`・`web/e2e`・`collector-android/app/src/test`・`collector-android/app/src/androidTest`）、
+製品のファイルの中の試験のモジュール（`#[cfg(test)]` の付いた `mod tests` の中）、`web/vitest.config.ts`、`web/playwright.config.ts`、`tools/`、`docs/`、`openspec/` に限る。
 既存の試験の名前・`Scenario:` の印は消さず、試験の本数は分岐点より減らさない。
 導出元: CH09
 
@@ -122,5 +129,5 @@ THE SYSTEM SHALL CH09 の差分を、試験のファイル（`*_tests.rs`・`tes
 
 #### Scenario: 既存の試験の名前と印は消えず、試験の本数は減らない
 
-- **WHEN** 分岐点と HEAD で、Rust・Kotlin・画面の単体試験の試験の名前と `Scenario:` の印と本数を比べる
+- **WHEN** 分岐点と HEAD で、Rust（Windows の実行時テストを含む）・Kotlin（単体試験と計測テスト）・画面の単体試験と e2e・縦串の台本の試験の名前と `Scenario:` の印と本数を比べる
 - **THEN** 分岐点の名前と印は全部 HEAD にもあり、本数はどれも分岐点以上である

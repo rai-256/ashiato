@@ -1,7 +1,7 @@
 # CH09 design — 実時間で「〜秒以内」を求める試験を混み具合で落ちない形にする
 
 > 第 1 回の深掘りの推奨の答え（Q0〜Q10）と、聞かずに決めたもの（D12・D13。印「C」）で先に書いた。
-> 本人の答えが推奨と違えば、その Q を持つ D を書き直す（各 D の反転条件）。
+> 本人の答えが推奨と違ったのは Q2 だけで（「全部探して全部直す」）、D3 を書き直し、広がった範囲の道具ごとの当て方を D15〜D17（仮）に足した（2026-11-04 `spec --answers Q2`）。
 
 ## Context
 
@@ -14,7 +14,8 @@
 - 2 の試験（`crates/server/src/archive_scan_interval_tests.rs:227`）は、走査の数が増えたのを見た直後に止めた時計を 1,001ms 進める（`:255-259`）。取り込み器は数を足した後に
   DB の往復をもう 1 回してから眠りに入り、眠りの起点はそのときの時計で決まる（`archive/worker.rs:1544-1571`・`:2226-2249`）。往復が `settle(25)` より長いと、その歩で走査が
   止まったままになる。上限を延ばしても直らない（`review/deep.md` R1 の模型）
-- 同じ形の候補は Rust に十数か所、画面の単体試験に暗黙の 1 秒の待ちが 317 か所（23 ファイル）、携帯の単体試験に `await(5, SECONDS)` が数か所（`premises.md` 4 行目）
+- 同じ形の候補は Rust に十数か所、画面の単体試験に暗黙の 1 秒の待ちが 317 か所（23 ファイル）、携帯の単体試験に `await(5, SECONDS)` が数か所（`premises.md` 4 行目）。
+  広げた範囲（Q2）では、Windows の試験に 5〜30 秒の待ちが十数か所、画面の e2e に `{ timeout: N }` が 66 か所（大半が 15 秒）と既定の 5 秒、携帯の計測テストに 5〜20 秒の定数が十数個、縦串の台本に 15 秒の待ちが数か所
 - 手元に `stress` / `stress-ng` は無い（16 コア）
 
 ## Goals / Non-Goals
@@ -24,11 +25,11 @@
 - 2 の試験と同じ形の待ちが、混み具合では落ちず、見ている性質は弱めない（2 つ目。正典の 2 本の Scenario の書き直し）
 - 負荷の下で続けて通ること・壊すと落ちることを、書いたまま走る台本で確かめる（3・4 つ目）
 - 製品のコードを変えず、既存の試験を減らさない（5 つ目）
+- 同じ形の試験を、関門で走る 3 か所に限らず、Windows の上でだけ組まれる試験・画面の e2e・携帯の計測テスト・縦串と検査の台本まで探して直す（Q2 の本人の答え「全部探して全部直す」。D3）
 
 **Non-Goals:**
 - 製品のコード（見回り・取り込み器）の振る舞いの変更（依頼の「範囲の外」。Q0・Q7）
 - 並走の数を減らすなどハーネス側の対策（依頼の「範囲の外」）
-- 画面の e2e（playwright）・携帯の計測テスト（`app/src/androidTest`）・縦串の台本（`tools/smoke.sh`）・Windows でだけ組まれる `crates/collector-windows/tests/runtime_windows.rs` を直すこと（Q2。一覧に「探した／探していない」を書くだけ）
 - 速さそのものを確かめる性能の試験を足すこと（Q1 の 4 つめの選択肢は採らない）
 
 ## Decisions
@@ -64,15 +65,34 @@
   「眠りに入ったことを観測」なら Q0 が「足してよい」ときだけ取り込み器に `#[cfg(test)]` の印を足し、「10 秒ちょうど」を残す（MODIFIED を外す）。
   「進める前の固定の眠りを延ばす」なら `settle(25)` を `settle(250)` にし、進め直しはしない。競り合いが残るので、正典の Scenario は「10 秒の間に 5 回以上」のまま（MODIFIED を外す）
 
-### D3（仮）. 洗い出しの範囲は、関門で走る 3 か所（Q2）
+### D3（仮）. 洗い出しの範囲は、試験と台本の全部（Q2 の本人の答え「全部探して全部直す」）
 
-- 探して直す: `crates/` の Rust（`cargo test --workspace` で組まれるもの）・`web/src/__tests__`・`collector-android/app/src/test`
-- 探して一覧に載せるだけ: `crates/collector-windows/tests/runtime_windows.rs`（`#![cfg(windows)]`。関門でも CI でも走らない）・`crates/collector-windows/examples/browser_history_smoke.rs`（例。試験でない）
-- 探さない（一覧に「探していない」と書く）: `web/e2e`・`collector-android/app/src/androidTest`・`tools/*.sh`
-- 反転条件: Q2 が「Windows の試験も直す」なら `runtime_windows.rs` を直し、Windows の clone で 1 回走らせる手順を tasks に足す（人間の確認待ちでなく、`~/dev/ashiato` の
-  メモどおり WSL から Windows 側の cargo）。「e2e なども探して載せる」なら探す範囲を足す。
-  「全部探して全部直す」なら、`web/e2e`（playwright の `expect` の `timeout`）・`app/src/androidTest`（Espresso の待ち）・`tools/*.sh` の上限も D4 の形に直し、
-  走らせ方（`docs/testing.md` §4.5 の `cd web && npm run test:e2e`・`tools/android-emulator.sh`・`tools/smoke.sh`）の検証を tasks に足す
+- 探して直す（どれも同じ方針 —— 条件の待ちは D4、固定の眠りは D5、打ち切り・計算の形は D6、起きない・下限は D12）:
+  - `crates/` の Rust（`cargo test --workspace` で組まれるもの）
+  - `crates/collector-windows/tests/runtime_windows.rs`（`#![cfg(windows)]`）。**関門の `cargo test --workspace`（Linux）では組まれないが、CI の `collector-windows-runtime`
+    （`.github/workflows/ci.yml:172-200`。`windows-latest`・`timeout-minutes: 25`・13 本以上を数える）が `crates/collector-windows/` の変更で走らせる**（上流の問いの文脈の「CI でも走らない」は誤り。
+    `premises.md` 4 行目を直した）。条件が来た時点で返る待ち（`observe_until`・`run_until`・`focus_window_of` の 10 秒・`:697` の 20 秒・`:856` の 30 秒・`:1203` の 10 秒）は D4 の 30 秒に揃える。
+    決まった時間だけ見続ける窓（`run_for`。`secs` の間の記録を全部集める）は条件の待ちでないので延ばさず、`// timing-ok:` を書いて一覧に載せる（延ばすと 13 本の直列が CI の 25 分に当たる）。
+    相手役が動くのを待つ固定の眠り（`:140` の 200ms・`:406` の 120ms・`:950`・`:1215`・`:1424` の 500ms）は D5
+  - `web/src/__tests__`（画面の単体試験。D9）
+  - `web/e2e`（画面の e2e。playwright。D15）
+  - `collector-android/app/src/test`（携帯の単体試験。D4）
+  - `collector-android/app/src/androidTest`（携帯の計測テスト。D17）
+  - `tools/*.sh` と `tools/smoke.d/*.sh`（縦串・検査・起動の台本。D16）
+- 探して一覧に載せるだけ: `crates/collector-windows/examples/browser_history_smoke.rs`（例で、試験でない）
+- `check-inventory.sh`（D14）が拾う形に足すもの（Q2 で範囲が広がった分）:
+  - TypeScript（`web/e2e`・`web/playwright.config.ts`）: `timeout:`・`waitForTimeout(`・`expect.poll(`・`setTimeout(`・`describe.configure(`
+  - Kotlin（`app/src/androidTest`）: `app/src/test` と同じ形に、`_MS = <数>`・`device.wait(`・`Tasks.await(`
+  - Rust（`tests/runtime_windows.rs`）: `crates/` と同じ形。Linux で組まれないので `cargo test -- --list` でなく grep で拾う
+  - bash（`tools/*.sh`・`tools/smoke.d/*.sh`）: `for _ in $(seq 1 <数>)` の後 5 行以内に `sleep` があるもの・`sleep <数>`・`timeout <数>`・`--max-time`
+  - HEAD に残っていないことを見る形（D14 の 2 つ目）にも、playwright の 30 秒より短い `timeout:`（`timing-ok:` の印の無いもの）と、bash の 30 秒より短い回数の待ち（回数 × 眠りが 30 秒未満）を足す
+- `check-test-names.sh`（D13）が比べる名前に足すもの（Q2）: `web/e2e` の `test(` の名前・`app/src/androidTest` の `@Test` の `fun` の名前・`runtime_windows.rs` の `#[test]` の `fn` の名前（どれも grep で拾う）。
+  縦串の台本は `echo "== Scenario: …"` と `# Scenario:` の印を数える
+- 確かめ（広げた分。Q2 の選択肢の detail のとおり、この change に入る）: 画面の e2e は `cd web && npm run test:e2e`（`docs/testing.md` §4.5）、計測テストは `tools/android-emulator.sh`、
+  縦串は `tools/smoke.sh`、Windows の試験は WSL から Windows 側の clone（`C:\dev\ashiato2-rt-ch09`）へ写して `cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1`（ST08 の tasks と同じ形）。
+  `tools/smoke.sh` は先頭で DB を作り直すので、`cargo test` や `break-check.sh`（`target/` を共有する）と並べて走らせない（`docs/testing.md` の §4 の規則）
+- 反転条件: 広げた分の確かめが手元で通らない（エミュレータの `/dev/kvm` が無い・Windows 側の clone が使えない）なら、その場所は直したまま CI（`collector-windows-runtime`・`android`）の結果を証にし、
+  一覧に「手元で確かめていない」と書く。Windows の試験を直すと CI の 25 分に当たるなら、`run_until` の 30 秒を外して元の上限に戻し、一覧に理由を書く
 
 ### D4（仮）. 条件を待つ上限は、実時間の期限で一律 30 秒（Q5）
 
@@ -194,7 +214,49 @@
 | `collector-android/app/src/test/.../UnavailableLogGateTest.kt:34`・`:36`・`:58`・`:62`・`:69`・`:75` | 条件の待ち | D4（30 秒） |
 | `collector-android/app/src/test/.../UnavailableLogGateTest.kt:72` | 起きない・下限 | 直さない（D12） |
 | `web/src/__tests__`（`waitFor`/`findBy` 317 か所・23 ファイル） | 暗黙の上限 | D9 |
-| `crates/collector-windows/tests/runtime_windows.rs` | （Windows だけ） | 載せるだけ（D3） |
+| `crates/collector-windows/tests/runtime_windows.rs` の `observe_until`・`run_until`・`:196`・`:697`・`:856`・`:1203` | 条件の待ち（Windows だけ。CI で走る） | D4（D3） |
+| `crates/collector-windows/tests/runtime_windows.rs` の `run_for`（`:238`） | 決まった時間の窓 | 延ばさない（D3） |
+| `crates/collector-windows/tests/runtime_windows.rs:140`・`:406`・`:950`・`:1215`・`:1424` | 固定の眠り | D5 |
+| `web/playwright.config.ts`（`expect`・`timeout` の既定 5 秒・30 秒）・`web/e2e/*.spec.ts` の `{ timeout: 15_000 }` | 暗黙の上限・条件の待ち | D15 |
+| `web/e2e/feel.spec.ts:208`・`:290`（`waitForTimeout`） | 固定の眠り | D5（D15） |
+| `web/e2e/day-erase.spec.ts:70`（任意の `click` の 5 秒） | 起きない・下限 | 直さない（D15） |
+| `web/e2e/places.spec.ts:37`（試験 90 秒） | 暗黙の上限 | D15 |
+| `collector-android/app/src/androidTest` の `*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`・`Tasks.await(…, 5\|10, SECONDS)` | 条件の待ち | D17 |
+| `collector-android/app/src/androidTest` の `SETTLE_MS`（3 ファイル） | 条件の待ち か 起きない | D17（使い方で分ける） |
+| `tools/smoke.sh:171`・`:190`・`:211`（15 回 × 1 秒） | 条件の待ち | D16 |
+| `tools/smoke.sh:199`（`sleep 3`。件数が増えない） | 起きない・下限 | 直さない（D16） |
+| `tools/smoke.sh:51`・`tools/stack.sh:120`・`:148`・`tools/android-emulator.sh:36`・`tools/smoke.d/*` の `healthz` と `st13` の待ち | 条件の待ち（もう 30 秒以上） | 回数のまま（D16） |
+
+### D15（仮）. 画面の e2e は、playwright の設定で待ち 30 秒・試験 120 秒にする（Q2・Q5）
+
+- `web/playwright.config.ts` に `expect: { timeout: 30_000 }` と `timeout: 120_000` を足す（いまはどちらも書かれず、既定の 5 秒・30 秒）。`expect.poll(…)` も `expect` の上限を使う
+- 試験の中に書いた 30 秒より短い `{ timeout: N }`（`toBeVisible({ timeout: 15_000 })` など。30 秒以上のもの（`settings-export.spec.ts` の 60 秒など）はそのまま）は消し、設定の 30 秒に任せる（設定 1 か所で揃える。Q9 と同じ考え）。
+  `test.describe.configure({ timeout: 90_000 })`（`places.spec.ts:37`）のように設定より短い試験の上限は 120 秒以上にする。`webServer.timeout`（10 分）はそのまま
+- `page.waitForTimeout(500)`・`(300)`（`feel.spec.ts:208`・`:290`）は D5: 画面に観測できる条件（表示・数）があれば `expect` の待ちに変え、無ければ残して一覧に載せる
+- 任意の操作の短い上限（`day-erase.spec.ts:70` の `click({ timeout: 5_000 }).catch(…)`。押せなければ飛ばす）は、待って成り立つ条件でないので延ばさず、`// timing-ok:` を書いて一覧に載せる（D12 の型）
+- 確かめ: 設定の値を読む e2e の試験を 1 本足す（`web/e2e/ch09-timeouts.spec.ts`。`test.info()` から試験の上限と `expect` の上限を読む）。全部の e2e が `npm run test:e2e` で通る
+- 反転条件: 30 秒の待ちで、壊れた e2e が落ちるまでの時間が長すぎる（全体が CI の上限に近づく）なら、Q9 と同じ待ち 10 秒・試験 30 秒に下げ、試験の中の 15 秒はそのまま残す
+
+### D16（仮）. 台本（bash）の待ちは、30 秒より短いものを `SECONDS` の期限 30 秒にする（Q2・Q5）
+
+- `for _ in $(seq 1 15); do …; sleep 1; done` のように、回数 × 眠りが 30 秒より短い待ち（`tools/smoke.sh:171`・`:190`・`:211` ほか）は、bash の `SECONDS` で期限 30 秒の待ちに変え、
+  届かなかったときの文言に待った秒数と最後に見た値を出す。間隔（`sleep 1`）はいまのまま
+- 回数 × 眠りがもう 30 秒以上ある待ち（`healthz` の `seq 1 60`・`stack.sh:120` の 30 回 × 1 秒・`:148` の 60 回 × 0.5 秒・`android-emulator.sh:36` の 180 回 × 2 秒・`st13` の 30 回 × 1 秒）は、
+  混むと長くなる側にしか外れないので回数のまま残し、`# timing-ok:` を書いて一覧に載せる
+- `sleep 3`（`smoke.sh:199`。別名の同じ書庫で件数が増え**ない**ことを見る）は、起きないことを短い窓で見る型（D12）で、直さず一覧に載せる
+- 縦串の節（`tools/smoke.d/*.sh`）と本体（`tools/smoke.sh`）は、ある行を直すだけで、末尾に節も見出しも足さない（`tools/check-shared-appends.sh` の約束。AGENTS.md の「テスト」）
+- 確かめ: `tools/smoke.sh` が通る。`check-inventory.sh` が bash の短い待ちの残りを見る（D3）
+- 反転条件: `SECONDS` の書き換えで台本が読みにくくなる・同じ形が 10 か所を超えるなら、`tools/` に待ちの関数を 1 つ置いて呼ぶ（新しいファイル。共有の台本の末尾には足さない）
+
+### D17（仮）. 携帯の計測テストの待ちは、条件の待ちを 30 秒以上にする（Q2・Q5）
+
+- 条件が来た時点で返る待ちの上限の定数（`*_TIMEOUT_MS`・`NOTICE_WAIT_MS`・`SCREEN_TIMEOUT_MS`・`SHADE_TIMEOUT_MS`。いま 5〜20 秒）と、Play services の呼び出しの終わりを待つ
+  `Tasks.await(…, 5|10, TimeUnit.SECONDS)` は 30 秒にする。もう 30 秒以上の待ち（`RetentionInstrumentedTest` の 90 秒・40 分など）は変えない
+- `SETTLE_MS` は使い方で分ける: 条件が来た時点で抜ける待ち（`waitForForeground(SETTLE_MS) { … }`・`while (… && !shown)`）は 30 秒に、何も起きないことを見続ける窓は D12 として残して一覧に載せる
+- 相手（設定の画面・Play services）が動くのを待つ `Thread.sleep(…)` は D5（観測できる条件があれば条件の待ち、無ければ残して一覧に）
+- Espresso の待ち（`onView` の idling）は Espresso が自分で持つ上限で、試験に数字が書かれていないので変えない（一覧に「道具の既定」と書く）
+- 確かめ: `tools/android-emulator.sh` が通る（全部の計測テスト。`retention` の 1 本で 13 分余りかかる）
+- 反転条件: 30 秒の待ちで計測テストの全体が CI の `android` job の上限に近づくなら、`Tasks.await` を 15 秒に下げる
 
 ## Risks / Trade-offs
 
@@ -204,3 +266,4 @@
 - [`load-proof.sh before` で再現しない] → `db` の負荷でも試し、それでも出なければ `no` と書く。直した後の 10 回は、そのときは「直したことの証」としては弱い（D7）
 - [`break-check.sh` の作業木の組み立てが遅い] → `CARGO_TARGET_DIR` を元の木と共有する。共有中に元の木で cargo を走らせない（tasks の順で避ける）
 - [走っている st53・st55 と同じファイル] → proposal の Impact。1 行目（SPDX）と別の箇所で、後から merge する側が rebase で追う
+- [範囲を広げた確かめが重い（Q2）] → e2e・計測テスト・縦串・Windows の試験を 1 回ずつ走らせる。計測テストは 20 分前後、Windows は手元の clone で。手元で走らない場所は CI を証にする（D3 の反転条件）

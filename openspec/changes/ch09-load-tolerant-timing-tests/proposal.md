@@ -1,7 +1,7 @@
 # CH09 — 実時間で「〜秒以内」を求める試験を混み具合で落ちない形にする
 
 > 第 1 回の深掘りの答えを待たずに、推奨の答え（`deep.md` の `（答え待ち・推奨: …）`）で先に書いた（2026-10-20 の流れ）。
-> 本人の答えが推奨と違えば `spec --answers` が写し直す。
+> 本人の答えが推奨と違ったのは Q2（洗い出しの範囲。「全部探して全部直す」）だけで、2026-11-04 の `spec --answers Q2` が写した。
 > `docs/changes/CH09.md` の「壊してはいけないもの」「完了の判定」も、この proposal・design・tasks に合わせてこの段で書いた。
 
 ## Why
@@ -20,10 +20,11 @@
 - **2 の試験（`archive_scan_interval_change_takes_effect_without_restart`）は、届かなければ 1,001ms ずつ進め直し（実時間の期限 30 秒）、
   仮想時間の経過を「10 秒ちょうど」でなく「30 秒未満」で見る**（Q8 の推奨。推奨の「例: 60 秒」を、30 秒ごとの読み直しの退行も捕まえる 30 秒にした。design D2）。正典 `external-ingestion` の Scenario「登録簿で見回りの間隔を変えると起動し直さずに効く」の
   確かめ方を、それに合わせて書き直す（**MODIFIED**。Requirement の本文は変えない）
-- **同じ形の試験を洗い出して同じ方針で直す**（Q2〜Q5・Q9 の推奨）。範囲は Rust の `crates/`（Windows でだけ組まれる `tests/runtime_windows.rs` は載せるだけ）・
-  `web/src/__tests__`・`collector-android/app/src/test`。条件を待つ上限は実時間の期限で一律 30 秒（試験の中の時刻を兼ねるループは回数のまま）、
+- **同じ形の試験を洗い出して同じ方針で直す**（Q3〜Q5・Q9 の推奨と、Q2 の本人の答え「全部探して全部直す」）。範囲は Rust の `crates/`（Windows でだけ組まれ、CI の `collector-windows-runtime` が走らせる `tests/runtime_windows.rs` を含む）・
+  `web/src/__tests__`・`web/e2e`・`collector-android/app/src/test`・`collector-android/app/src/androidTest`・`tools/*.sh`・`tools/smoke.d/*.sh`（design D3・D15〜D17）。条件を待つ上限は実時間の期限で一律 30 秒（試験の中の時刻を兼ねるループは回数のまま）、
   打ち切りの試験は相手の長さと上限を一緒に延ばす、計算の形を時間で見る試験は直さず載せる、条件を待たない固定の眠りは観測できる条件があれば条件の待ちに、
-  画面の単体試験は設定 1 か所で待ち 10 秒・試験 30 秒。洗い出した一覧は `design.md` の表を下流が完成させ、PR 本文に写す
+  画面の単体試験は設定 1 か所で待ち 10 秒・試験 30 秒、画面の e2e は playwright の設定 1 か所で待ち 30 秒・試験 120 秒（D15）、台本の短い回数の待ちは `SECONDS` の期限 30 秒（D16）、計測テストの条件の待ちは 30 秒（D17）。
+  広げた範囲の確かめ（`npm run test:e2e`・`tools/android-emulator.sh`・`tools/smoke.sh`・Windows 側の clone での実行時テスト）もこの change に入る。洗い出した一覧は `design.md` の表を下流が完成させ、PR 本文に写す
 - **負荷の下で続けて通ることと、壊すと落ちることを確かめる台本を `tools/` に足す**（Q6・Q10 の推奨）。
   `tools/load-repeat.sh`（全コアの busy loop の下で命令を N 回。直す前に落ちる回が出ることも記録できる）と
   `tools/break-check.sh`（使い捨ての作業木に壊す差分を当て、命令が決まった文言で落ちることを期待する）。どちらも `--self-test` 付き
@@ -56,7 +57,8 @@
 - 試験のコード: `crates/collector-windows/src/runtime.rs` の `mod tests`（1 の試験と、同じ形の `clock_worker_slow_read_does_not_hold_the_patrol` など）・
   `crates/collector-windows/src/history/collect.rs` の `mod tests`・`time_sync.rs` の `mod tests`・`crates/server/src/archive_scan_interval_tests.rs`・
   `scheduled_tests.rs`・`testdb_tests.rs`・`outage_api_tests.rs` ほか（候補は design の表）。`web/vitest.config.ts`・`web/src/__tests__/setup.ts`・
-  `collector-android/app/src/test/.../UnavailableLogGateTest.kt`
+  `collector-android/app/src/test/.../UnavailableLogGateTest.kt`。Q2 で広げた分: `crates/collector-windows/tests/runtime_windows.rs`・`web/playwright.config.ts`・`web/e2e/*.spec.ts`・
+  `collector-android/app/src/androidTest/**`・`tools/smoke.sh`・`tools/smoke.d/*.sh` ほか `tools/*.sh` の待ち（ある行を直すだけ。末尾に足さない）
 - 製品のコード: 変えない（`#[cfg(test)] mod tests` の外の差分は 0 行。D10）
 - 道具: 新しいファイル `tools/load-repeat.sh`・`tools/break-check.sh`。change の中に `check-product-unchanged.sh`・`check-test-names.sh`・`check-inventory.sh`・`agreed-test-changes.md`・
   壊す差分 `break-*.patch`・証跡の台本 `load-proof.sh`
@@ -67,4 +69,5 @@
     自動で解ける見込み
   - st55（`feat/st55-server-installer`）: `runtime.rs` の製品の部分（:649・:754 付近）と `mod tests` の :2935〜:3100 付近（1 の試験 :3612 とは別の箇所）、
     `web/vitest.config.ts` の `define` の行。CH09 が触る `test:` の節とは別の行
+  - st53 は Q2 で広げた `web/e2e`・`tools/smoke.sh`・`app/src/androidTest`・`tests/runtime_windows.rs` の 50 ファイルでも **1 行目（SPDX の行）だけ**を変える（`git diff origin/main...origin/feat/st53-license-bundle` で SPDX 以外の行が 0）
   - st54: 重ならない。どれも走っている Story へ差し戻さない。merge の順は決めない
