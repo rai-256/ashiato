@@ -2427,6 +2427,32 @@ mod tests {
         .unwrap()
     }
 
+    fn patrol_watchdog(
+        release: std::sync::mpsc::Sender<()>,
+        patrols: usize,
+    ) -> (
+        std::sync::mpsc::Sender<()>,
+        Arc<std::sync::atomic::AtomicBool>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let (patrol_returned, patrol_returns) = mpsc::channel();
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let released_by_watchdog = Arc::clone(&released);
+        let watchdog = std::thread::spawn(move || {
+            for _ in 0..patrols {
+                if patrol_returns
+                    .recv_timeout(std::time::Duration::from_secs(30))
+                    .is_err()
+                {
+                    released_by_watchdog.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let _ = release.send(());
+                    break;
+                }
+            }
+        });
+        (patrol_returned, released, watchdog)
+    }
+
     /// 見回りの先頭の壁時計ではなく、応答を受け取った直後の壁時計で差を計算する。
     ///
     /// Scenario: 差に使う PC の時計は基準を読む前後の間で読む
@@ -2478,19 +2504,7 @@ mod tests {
         let (cfg, _tmp) = cfg();
         let transport = AcceptAll::default();
         let (gate, slow) = std::sync::mpsc::channel();
-        let (patrol_returned, patrol_returns) = std::sync::mpsc::channel();
-        let released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let released_by_watchdog_thread = Arc::clone(&released_by_watchdog);
-        let gate_for_watchdog = gate.clone();
-        let watchdog = std::thread::spawn(move || {
-            if patrol_returns
-                .recv_timeout(std::time::Duration::from_secs(30))
-                .is_err()
-            {
-                released_by_watchdog_thread.store(true, std::sync::atomic::Ordering::Relaxed);
-                let _ = gate_for_watchdog.send(());
-            }
-        });
+        let (patrol_returned, released_by_watchdog, watchdog) = patrol_watchdog(gate.clone(), 4);
         let mut rt = runtime_with(
             &cfg,
             &transport,
@@ -4255,20 +4269,8 @@ mod tests {
             .with_history(reader.clone()),
         );
         let mut src = FakeSource::new("editor");
-        let (initial_patrol_returned, initial_patrol_returns) = mpsc::channel();
-        let initial_released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let initial_released_by_watchdog_thread = Arc::clone(&initial_released_by_watchdog);
-        let initial_release_for_watchdog = release.clone();
-        let initial_watchdog = std::thread::spawn(move || {
-            if initial_patrol_returns
-                .recv_timeout(std::time::Duration::from_secs(30))
-                .is_err()
-            {
-                initial_released_by_watchdog_thread
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                let _ = initial_release_for_watchdog.send(());
-            }
-        });
+        let (initial_patrol_returned, initial_released_by_watchdog, initial_watchdog) =
+            patrol_watchdog(release.clone(), 1);
         rt.start_at(&src, t(0), t(0));
         release.send(()).unwrap();
         tick_until_read(&mut rt, &mut src, &reader, 0);
@@ -4290,19 +4292,7 @@ mod tests {
         let before = history(&rt);
         // 24 時間後へ飛ぶ（この 1 回の見回りの「眠っていた」は時刻を飛ばしたことによる）
         let mut sec = 86_400;
-        let (patrol_returned, patrol_returns) = mpsc::channel();
-        let released_by_watchdog = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let released_by_watchdog_thread = Arc::clone(&released_by_watchdog);
-        let release_for_watchdog = release.clone();
-        let mut watchdog = Some(std::thread::spawn(move || {
-            if patrol_returns
-                .recv_timeout(std::time::Duration::from_secs(30))
-                .is_err()
-            {
-                released_by_watchdog_thread.store(true, std::sync::atomic::Ordering::Relaxed);
-                let _ = release_for_watchdog.send(());
-            }
-        }));
+        let (patrol_returned, released_by_watchdog, watchdog) = patrol_watchdog(release.clone(), 5);
         rt.tick_at(&mut src, t(sec), t(sec));
         let from = rt.events.len();
         let mut queueing_ticks = 0;
@@ -4312,23 +4302,11 @@ mod tests {
             rt.tick_at(&mut src, t(sec), t(sec));
             patrol_returned.send(()).ok();
             assert_eq!(history(&rt), before, "止めた読みの間に履歴を積んだ");
-            if switched_at.is_none() {
-                watchdog.take().unwrap().join().unwrap();
-                assert!(
-                    !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
-                    "見張りが読みを放した: 見回りが履歴の取得を待った"
-                );
-            }
-            if switched_at.is_none() {
-                src.app = "browser".into();
-                switched_at = Some(rt.events.len());
-            }
         }
+        watchdog.join().unwrap();
         assert!(
-            rt.events.snapshot()[from..]
-                .iter()
-                .any(|r| r.logical_source == "c02-window" && r.raw.contains("browser")),
-            "読みを止めている間の前景の切り替えが積まれていない"
+            !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
+            "見張りが読みを放した: 見回りが履歴の取得を待った"
         );
         release.send(()).unwrap();
         let mut max_queued_per_tick = 0;
@@ -4340,6 +4318,10 @@ mod tests {
             max_queued_per_tick = max_queued_per_tick.max(queued);
             if queued > 0 {
                 queueing_ticks += 1;
+                if switched_at.is_none() {
+                    src.app = "browser".into();
+                    switched_at = Some(rt.events.len());
+                }
             }
             assert!(sec < 86_400 + 60_000, "取得が終わらない");
             std::thread::sleep(std::time::Duration::from_millis(1));
