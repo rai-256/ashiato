@@ -171,6 +171,8 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     /// タイムゾーンは**識別子と差の両方**を持つ（FR-20）。

@@ -4484,7 +4484,7 @@ pub async fn run() -> anyhow::Result<()> {
     let server_channel = build_channel();
     let explicit_bind = std::env::var("BIND").ok();
     let addr = net_guard::bind_for(server_channel, explicit_bind.as_deref());
-    let addrs = match net_guard::check_bind(&addr).await? {
+    let addrs = match net_guard::check_bind(addr).await? {
         Ok(addrs) => addrs,
         Err(refusal) => net_guard::refuse(refusal.kind()),
     };

@@ -26,7 +26,7 @@ async fn migrate_channel(db: &testdb::TestDb, channel: Channel) {
     pool.close().await;
 }
 
-async fn tee_app(channel: Channel, pool: sqlx::PgPool) -> App {
+fn tee_app(channel: Channel, pool: sqlx::PgPool) -> App {
     App::for_test(pool, TOKEN).with_channel(channel)
 }
 
@@ -371,7 +371,7 @@ async fn st54_empty_database_becomes_dev() {
         .unwrap();
     assert_eq!(official.unwrap().0, "channel_mismatch");
     assert_eq!(
-        healthz(tee_app(Channel::Dev, pool.clone()).await).await,
+        healthz(tee_app(Channel::Dev, pool.clone())).await,
         StatusCode::OK
     );
 }
@@ -435,10 +435,7 @@ async fn st54_same_channel_starts_and_healthz_is_ok() {
             .unwrap(),
         None
     );
-    assert_eq!(
-        healthz(tee_app(Channel::Dev, pool).await).await,
-        StatusCode::OK
-    );
+    assert_eq!(healthz(tee_app(Channel::Dev, pool)).await, StatusCode::OK);
 }
 
 /// 退避の後のログは、その系統の既定の置き場を示す（開発版で正式版の置き場を示さない。final review R5）。

@@ -35,7 +35,6 @@ use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
 use ashiato_collector_windows::sender::{Reply, Transport};
-use ashiato_collector_windows::toast::WindowsToaster;
 use chrono::{DateTime, Utc};
 use uiautomation::controls::ControlType;
 use uiautomation::types::Handle;
@@ -626,6 +625,7 @@ impl Transport for Capture {
                 r#"{{"contract_version":{}}}"#,
                 ashiato_collector_windows::contract::CONTRACT_VERSION
             ),
+            headers: Default::default(),
         })
     }
 
@@ -640,6 +640,7 @@ impl Transport for Capture {
         Ok(Reply {
             status: 200,
             body: serde_json::to_string(&items).unwrap(),
+            headers: Default::default(),
         })
     }
 }
@@ -706,6 +707,7 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
             uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
         },
         Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
     let mut source = WindowsSource::open();
@@ -778,6 +780,7 @@ fn clock_skew_runtime() {
             uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
         },
         Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
     let mut source = WindowsSource::open();

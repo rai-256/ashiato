@@ -3,7 +3,6 @@
 //! 管理者・所有者の接続ではサーバは起動せず、終了コード 2 と理由の種別（値ではなく種別）で終わる。
 #![allow(clippy::unwrap_used)]
 
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 

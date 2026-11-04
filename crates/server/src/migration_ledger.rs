@@ -612,6 +612,7 @@ async fn record_result(
     update_history::record_migrate(conn, stamp, attempt, &outcome).await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn apply_locked(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],

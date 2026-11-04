@@ -1351,7 +1351,7 @@ mod tests {
         let channel_shown = toasts.channel.lock().unwrap().len();
         let contract_shown = toasts.contract.lock().unwrap().len();
         let outage_calls = query.map_or(0, |q| q.0.lock().unwrap().len());
-        let result = (
+        (
             transport.posts.load(std::sync::atomic::Ordering::Relaxed),
             rt.events.len(),
             rt.beats.len(),
@@ -1362,8 +1362,7 @@ mod tests {
             contract_shown,
             outage_calls,
             take_captured_logs(),
-        );
-        result
+        )
     }
 
     fn exercise_daily_notice() -> usize {
