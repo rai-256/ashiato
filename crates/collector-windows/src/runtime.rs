@@ -4256,7 +4256,6 @@ mod tests {
         );
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
-        rt.tick_at(&mut src, t(0), t(0));
         release.send(()).unwrap();
         tick_until_read(&mut rt, &mut src, &reader, 0);
         // 帳面がある状態で、同期などで新しい訪問がまとめて入る
