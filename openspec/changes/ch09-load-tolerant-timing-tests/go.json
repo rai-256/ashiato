@@ -230,7 +230,8 @@
   "wait.3",
   "watch.3",
   "proof.3",
-  "guard.2"
+  "guard.2",
+  "guard.4"
  ],
  "features": [
   {
@@ -294,7 +295,7 @@
     {
      "id": "wait.1",
      "kind": "normal",
-     "text": "サーバ・PC の収集アプリ・携帯の収集アプリの試験の、相手が進むのを待つ箇所は、条件が満たされた時点で進み、満たされなければ実時間 30 秒で落ちる。落ちたときは待った時間と最後に見た値を出す",
+     "text": "サーバ・PC の収集アプリ（Windows の上でだけ組まれる実行時の試験を含む）・携帯の収集アプリ（単体試験と計測テスト）の試験と、縦串・検査の台本の、相手が進むのを待つ箇所は、条件が満たされた時点で進み、満たされなければ実時間 30 秒で落ちる。落ちたときは待った時間と最後に見た値を出す",
      "refs": {
       "requirements": [
        "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
@@ -304,7 +305,11 @@
       ],
       "decisions": [
        "Q5",
-       "D4"
+       "Q2",
+       "D4",
+       "D3",
+       "D16",
+       "D17"
       ]
      }
     },
@@ -322,6 +327,26 @@
       "decisions": [
        "Q9",
        "D9"
+      ]
+     }
+    },
+    {
+     "id": "wait.7",
+     "kind": "normal",
+     "tags": [
+      "Web"
+     ],
+     "text": "画面の e2e は、playwright の設定 1 か所で、数字の書かれていない待ち（expect）の上限を 30 秒、試験 1 本の上限を 120 秒にする。試験の中に書いた 30 秒より短い上限（多くは 15 秒）は消して設定に任せ、30 秒以上のものは残す",
+     "refs": {
+      "requirements": [
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ],
+      "scenarios": [
+       "画面の e2e の待ちの上限は 30 秒、試験の上限は 120 秒"
+      ],
+      "decisions": [
+       "Q2",
+       "D15"
       ]
      }
     },
@@ -376,6 +401,40 @@
       "decisions": [
        "Q5",
        "Q9"
+      ]
+     }
+    },
+    {
+     "id": "wait.8",
+     "kind": "exception",
+     "text": "延ばさずに残す待ちもある。決まった時間だけ見続ける窓（Windows の実行時の試験の run_for・計測テストの「何も起きない」を見る SETTLE_MS・縦串の sleep 3・e2e の押せなければ飛ばす 5 秒）は、延ばすと毎回その分だけ長くなるので、印と理由を書いて一覧に載せる。もう 30 秒以上ある回数の待ち（台本の healthz の 60 回など）と、Espresso が自分で持つ上限もそのまま",
+     "examples": [
+      {
+       "wrong": "Windows の実行時の試験の 10 秒の見続ける窓も 30 秒に延ばす",
+       "right": "見続ける窓はそのまま。延ばすと 13 本の直列が CI の 25 分に当たる。延ばすのは条件が来た時点で返る待ちだけ"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ],
+      "decisions": [
+       "D3",
+       "D15",
+       "D16",
+       "D17"
+      ]
+     }
+    },
+    {
+     "id": "wait.9",
+     "kind": "caution",
+     "text": "範囲を広げた分、確かめも重くなる。画面の e2e・携帯の計測テスト（全部で 20 分前後）・縦串・Windows の実行時の試験（Windows 側の作業場所で）を、この change で 1 回ずつ走らせる。手元で走らない場所は CI の結果を証にし、一覧に「手元で確かめていない」と書く",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D3",
+       "D17"
       ]
      }
     }
@@ -565,7 +624,7 @@
     {
      "id": "guard.4",
      "kind": "normal",
-     "text": "洗い出す範囲は、関門で走る 3 か所（crates/ の Rust・web/src/__tests__・collector-android/app/src/test）。Windows でだけ組まれる試験は探して一覧に載せるだけ。画面の e2e・携帯の計測テスト・tools の台本は探さない。一覧（場所・型・方針・理由）は inventory.md に書き、候補を持つファイルが全部載っていることを検査が見て、PR 本文に写す",
+     "text": "洗い出す範囲は試験と台本の全部（本人の答え）。crates/ の Rust（Windows の上でだけ組まれる実行時の試験を含む）・画面の単体試験と e2e・携帯の単体試験と計測テスト・tools の縦串と検査の台本を探して直す。録画の台本（tools/recording/）と例（examples/）は探して一覧に載せるだけ。一覧（場所・型・方針・理由）は inventory.md に書き、候補を持つファイルが全部載っていることを検査が見て、PR 本文に写す",
      "refs": {
       "decisions": [
        "Q2",
@@ -592,7 +651,7 @@
    "refs": {}
   },
   {
-   "text": "画面の e2e・携帯の計測テスト・tools の台本の待ちを直すこと",
+   "text": "録画の台本（tools/recording/。確認バッチの録画を撮る道具で、合否を出さない）の待ちを直すこと。数と場所を一覧に載せるだけで、直すのは別の change",
    "refs": {
     "decisions": [
      "Q2",
@@ -610,7 +669,35 @@
   }
  ],
  "open": [],
- "since_last": [],
+ "since_last": [
+  {
+   "text": "第 1 回の答えで、洗い出しの範囲を「全部探して全部直す」に変えた（Q2。推奨は関門で走る 3 か所）。Windows の上でだけ組まれる実行時の試験・画面の e2e・携帯の計測テスト・縦串と検査の台本も直し、それぞれ走らせて確かめる",
+   "refs": {
+    "decisions": [
+     "Q2",
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "広げた範囲の当て方を仮の決定で足した: e2e は設定 1 か所で待ち 30 秒・試験 120 秒（D15）、台本の短い回数の待ちは SECONDS の期限 30 秒（D16）、計測テストの条件の待ちは 30 秒（D17）。見続ける窓と 30 秒以上の待ちは理由を書いて残す",
+   "refs": {
+    "decisions": [
+     "D15",
+     "D16",
+     "D17"
+    ]
+   }
+  },
+  {
+   "text": "前提の誤りを直した: Windows の実行時の試験は「CI でも走らない」でなく、CI の collector-windows-runtime が走らせる（premises.md 4 行目）。IMP-04 はこれで仕様に写った",
+   "refs": {
+    "decisions": [
+     "D3"
+    ]
+   }
+  }
+ ],
  "delegated": [],
  "terms": [
   {
@@ -694,6 +781,27 @@
       "確かめたい性質を壊すと試験が落ちることを、元の木に触れずに台本で確かめる"
      ]
     }
+   },
+   {
+    "id": "T6",
+    "kind": "code",
+    "name": "Q2 で広げた範囲の待ち（tests/runtime_windows.rs・web/e2e と web/playwright.config.ts・app/src/androidTest・tools/*.sh・tools/smoke.d/*.sh）",
+    "change": "条件の待ちを 30 秒に揃え（e2e は設定 1 か所で待ち 30 秒・試験 120 秒、台本は SECONDS の期限 30 秒）、見続ける窓と 30 秒以上の回数の待ちは理由を書いて残す",
+    "searched": "timeout:・waitForTimeout・_MS = ・await(<数>, TimeUnit・seq 1 15 を web/e2e・web/playwright.config.ts・app/src/androidTest・tools で、CI の job の timeout-minutes を .github/workflows/ci.yml で検索した",
+    "refs": {
+     "requirements": [
+      "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+     ],
+     "scenarios": [
+      "画面の e2e の待ちの上限は 30 秒、試験の上限は 120 秒"
+     ],
+     "decisions": [
+      "D3",
+      "D15",
+      "D16",
+      "D17"
+     ]
+    }
    }
   ],
   "dependencies": [
@@ -717,7 +825,7 @@
     "role": "reads",
     "assumes": "design D3 の「関門でも CI でも走らない」",
     "holds": "no",
-    "affects": "Windows を変えた PR では CI がこの試験を走らせる。中の「10 秒以内」の待ちは CH09 の後も残る",
+    "affects": "Windows を変えた PR では CI がこの試験を走らせる。CH09 は Q2 の答えでこの試験も直す（条件の待ちは 30 秒、見続ける窓は残す）。設計の前提の誤りは D3 と premises.md で直した",
     "basis": "observed",
     "evidence": [
      "E5",
@@ -829,6 +937,25 @@
       "D7"
      ]
     }
+   },
+   {
+    "id": "D9",
+    "target": "T6",
+    "who": "CI の collector-windows-runtime（timeout-minutes 25・実行時の試験 13 本を直列）",
+    "role": "reads",
+    "assumes": "実行時の試験の全体が 25 分に収まる",
+    "holds": "unknown",
+    "affects": "条件の待ちを 30 秒にしても普段は届いた時点で返るので所要時間は変わらない見込み。壊れたときや混んだときに 25 分に当たれば、その job が時間切れで落ちる",
+    "basis": "derived",
+    "evidence": [
+     "E14"
+    ],
+    "verify": "Windows 側の作業場所で実行時の試験を 1 回走らせて所要時間を見る。25 分に当たるなら run_until の 30 秒を外して元の上限に戻す（D3 の反転条件）",
+    "refs": {
+     "decisions": [
+      "D3"
+     ]
+    }
    }
   ],
   "evidence": [
@@ -915,6 +1042,12 @@
     "source": "story",
     "loc": "openspec/changes/st54-dev-side-by-side/tasks.md:100",
     "quote": "`history/collect.rs:844` の試験の土台"
+   },
+   {
+    "id": "E14",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:177",
+    "quote": "timeout-minutes: 25"
    }
   ],
   "lost": [
@@ -1014,8 +1147,8 @@
    {
     "id": "mixed",
     "applies": true,
-    "can": "Windows の CI でも、見回りの試験は同じ形で走る",
-    "cannot": "Windows でだけ組まれる実行時の試験の「10 秒以内」の待ちは直さないまま、Windows を変えた PR の CI で走る（IMP-04）",
+    "can": "Windows の CI でも、見回りの試験は同じ形で走る。Windows の上でだけ組まれる実行時の試験の条件の待ちも 30 秒に揃い、Windows を変えた PR の CI（collector-windows-runtime）で同じ形で走る",
+    "cannot": "決まった時間だけ見続ける窓（run_for）は延ばさないので、その窓の中で混み具合のせいで記録が足りなくなる落ち方は残る。手元の Windows で走らせられなければ、CI の結果だけが証になる（D3 の反転条件）",
     "basis": "observed",
     "refs": {
      "decisions": [
@@ -1313,7 +1446,7 @@
    {
     "id": "IMP-04",
     "severity": "low",
-    "status": "open",
+    "status": "reflected",
     "title": "Windows でだけ組まれる試験は CI で走る（設計の前提と違う）",
     "text": "design D3 は tests/runtime_windows.rs を「関門でも CI でも走らない」とし、直さず一覧に載せるだけにした。実際は CI の collector-windows-runtime が、Windows を変えた PR で走らせる。中の「10 秒以内」などの待ちは残る。CI は関門ではないので関門が止まる問題には影響しないが、CI の runner が混むか・その待ちで落ちた記録があるかは確かめていない",
     "basis": "observed",
@@ -1344,7 +1477,13 @@
       "Q2",
       "D3"
      ]
-    }
+    },
+    "reflected_in": {
+     "decisions": [
+      "D3"
+     ]
+    },
+    "resolution": "本人の答え（Q2「全部探して全部直す」）で、D3 が tests/runtime_windows.rs を直す範囲に入れ、前提の「CI でも走らない」を「CI の collector-windows-runtime が走らせる」に直した（premises.md 4 行目も訂正）。条件の待ちは 30 秒に揃い、見続ける窓は理由を書いて残す"
    }
   ],
   "acceptance": [
@@ -1373,10 +1512,14 @@
   "scope": {
    "covers": [
     {
-     "text": "関門で走る試験（cargo test --workspace・画面の単体試験・携帯の単体試験）の、実時間の長さで判定する箇所",
+     "text": "試験と台本で、実時間の長さで判定する箇所: 関門で走る試験（cargo test --workspace・画面の単体試験・携帯の単体試験）と、Windows の上でだけ組まれる実行時の試験・画面の e2e・携帯の計測テスト・縦串と検査の台本",
      "refs": {
       "requirements": [
        "条件を待つ試験は実時間の期限まで待ち、届いた時点で進む"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
       ]
      }
     }
@@ -1425,7 +1568,7 @@
      }
     },
     {
-     "text": "差分は試験のファイル・試験のモジュール・web/vitest.config.ts・tools/・docs/・openspec/ に限る",
+     "text": "差分は試験のファイル（web/e2e・app/src/androidTest を含む）・試験のモジュール・web/vitest.config.ts・web/playwright.config.ts・tools/・docs/・openspec/ に限る",
      "refs": {
       "requirements": [
        "CH09 は製品のコードを変えず、既存の試験を減らさない"
@@ -1435,10 +1578,11 @@
    ],
    "excludes": [
     {
-     "text": "画面の e2e・携帯の計測テスト・tools の台本・Windows でだけ組まれる試験を直すこと",
+     "text": "録画の台本（tools/recording/）と例（crates/collector-windows/examples/）の待ちを直すこと（一覧に載せるだけ）",
      "refs": {
       "decisions": [
-       "Q2"
+       "Q2",
+       "D3"
       ]
      }
     },
@@ -1480,7 +1624,7 @@
      }
     },
     {
-     "text": "走っている change との重なり: st53（tools/smoke.sh と各ファイルの 1 行目だけ。CH09 は触らない）・st54（history/collect.rs・tests/runtime_windows.rs・tools/android-emulator.sh。IMP-03・IMP-04）・st55（runtime.rs の製品の部分と別の試験。specs は external-ingestion・test-database を持たない）",
+     "text": "走っている change との重なり: st53（Q2 で広げた web/e2e・tools/smoke.sh・app/src/androidTest・tests/runtime_windows.rs の各ファイルでも 1 行目の SPDX の行だけ。CH09 が直す待ちの行とは別）・st54（history/collect.rs・tests/runtime_windows.rs・tools/android-emulator.sh。IMP-03）・st55（runtime.rs の製品の部分と別の試験。specs は external-ingestion・test-database を持たない）",
      "refs": {}
     },
     {
@@ -1497,7 +1641,7 @@
    ],
    "not_examined": [
     {
-     "text": "候補の全部（Rust の十数か所・画面の 317 か所・携帯の数か所）を 1 つずつ読むこと",
+     "text": "候補の全部（Rust の十数か所・画面の単体試験の 317 か所・携帯の数か所と、Q2 で広げた Windows の試験の十数か所・e2e の 66 か所・計測テストの十数個の定数・台本の数か所）を 1 つずつ読むこと",
      "why": "洗い出しは下流の Task 5〜8 と check-inventory.sh が完成させる"
     },
     {
@@ -1515,8 +1659,12 @@
      "why": "CH09 は上限の値と環境変数の扱いを変えず、試験の問い合わせの長さだけを変える"
     },
     {
-     "text": "st53-license-bundle が触る tools/smoke.sh",
-     "why": "CH09 は tools の台本を探さず（Q2）、tools/smoke.sh を触らない"
+     "text": "録画の台本 tools/recording/ の待ちの直し",
+     "why": "確認バッチの録画を撮る道具で、合否を出さず関門でも CI でも走らない。一覧に載せるだけ（D3）"
+    },
+    {
+     "text": "st53-license-bundle が触る .github/workflows/ci.yml・tools/smoke.sh の組み合わせ",
+     "why": "st53 はどのファイルでも 1 行目の SPDX の行だけを変え（git diff origin/main...origin/feat/st53-license-bundle で SPDX 以外の行が 0）、CH09 が直す待ちの行・CI の job とは重ならない。後から入る側が rebase で追う"
     }
    ]
   }
