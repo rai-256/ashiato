@@ -58,11 +58,13 @@ impl ChannelNotice {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !mismatch {
-            if state.notified_at.take().is_some() {
+            if state.notified_at.is_some() {
+                // 消せなかったときは時刻を残す（次の契機で消し直す。final review R6）
                 if let Err(e) = self.toaster.dismiss_channel() {
                     self.log_failure(log, &e);
                     return;
                 }
+                state.notified_at = None;
                 if let Err(e) = self.save(&state) {
                     self.log_failure(log, &e);
                 }
@@ -113,19 +115,35 @@ impl ChannelNotice {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
     use std::sync::Mutex;
 
+    /// 出した通知を本文で、消した通知を空の文字列で積む。`fail_dismiss` が残っている間は消すのに失敗する。
     #[derive(Debug, Default)]
-    struct Fake(Mutex<Vec<String>>);
+    struct Fake {
+        calls: Mutex<Vec<String>>,
+        fail_dismiss: Mutex<usize>,
+    }
     impl ChannelToaster for Fake {
         fn show_channel(&self, xml: &str) -> Result<()> {
-            self.0.lock().unwrap().push(xml.into());
+            self.calls.lock().unwrap().push(xml.into());
             Ok(())
         }
         fn dismiss_channel(&self) -> Result<()> {
-            self.0.lock().unwrap().push(String::new());
+            let mut fail = self.fail_dismiss.lock().unwrap();
+            if *fail > 0 {
+                *fail -= 1;
+                anyhow::bail!("dismiss failed");
+            }
+            self.calls.lock().unwrap().push(String::new());
             Ok(())
+        }
+    }
+    impl Fake {
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
         }
     }
 
@@ -136,19 +154,6 @@ mod tests {
             + Duration::hours(hours)
     }
 
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_notice_is_daily() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let fake = Arc::new(Fake::default());
-        let notice = ChannelNotice::new(fake.clone(), dir.path());
-        let mut log = |_| {};
-        notice.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
-        notice.after_send(Some(Channel::Dev), Channel::Official, at(23), &mut log);
-        notice.after_send(Some(Channel::Dev), Channel::Official, at(24), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 2);
-    }
-
     fn notice() -> (tempfile::TempDir, Arc<Fake>, ChannelNotice) {
         let dir = tempfile::TempDir::new().unwrap();
         let fake = Arc::new(Fake::default());
@@ -156,117 +161,109 @@ mod tests {
         (dir, fake, notice)
     }
 
-    // Runtime integration coverage owns the Scenario marker.
+    // Scenario の印は runtime.rs の統合の試験が持つ。ここは知らせの係だけを見る
     #[test]
-    fn st54_channel_dev_does_not_send_to_official() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 1);
-    }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_official_does_not_send_to_dev() {
+    fn st54_channel_notice_is_daily() {
         let (_d, fake, n) = notice();
         let mut log = |_| {};
         n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 1);
+        n.after_send(Some(Channel::Dev), Channel::Official, at(23), &mut log);
+        n.after_send(Some(Channel::Dev), Channel::Official, at(24), &mut log);
+        assert_eq!(fake.calls().len(), 2);
     }
-    // Runtime integration coverage owns the Scenario marker.
+
+    #[test]
+    fn st54_channel_mismatch_names_server_and_is_not_contract_notice() {
+        for (server, me, name) in [
+            (Channel::Official, Channel::Dev, "正式版のサーバ"),
+            (Channel::Dev, Channel::Official, "開発版のサーバ"),
+        ] {
+            let (_d, fake, n) = notice();
+            let mut log = |_| {};
+            n.after_send(Some(server), me, at(0), &mut log);
+            let calls = fake.calls();
+            assert_eq!(calls.len(), 1);
+            assert!(calls[0].contains(name), "{}", calls[0]);
+            assert!(!calls[0].contains("更新してください"));
+        }
+    }
+
     #[test]
     fn st54_channel_same_channel_has_no_notice() {
         let (_d, fake, n) = notice();
         let mut log = |_| {};
         n.after_send(Some(Channel::Dev), Channel::Dev, at(0), &mut log);
-        assert!(fake.0.lock().unwrap().is_empty());
+        assert!(fake.calls().is_empty());
     }
-    // Runtime integration coverage owns the Scenario marker.
+
+    /// 系統を読めない答え（404・読めない 200・401。どれも `None` で来る）では出さない。
     #[test]
-    fn st54_channel_missing_answer_is_not_noticed() {
+    fn st54_channel_unknown_answer_has_no_notice() {
         let (_d, fake, n) = notice();
         let mut log = |_| {};
         n.after_send(None, Channel::Dev, at(0), &mut log);
-        assert!(fake.0.lock().unwrap().is_empty());
+        n.after_send(None, Channel::Official, at(0), &mut log);
+        assert!(fake.calls().is_empty());
     }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_notice_is_separate_from_contract_notice() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
-        assert!(!fake.0.lock().unwrap()[0].contains("更新してください"));
-    }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_notice_names_server() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Official), Channel::Dev, at(0), &mut log);
-        assert!(fake.0.lock().unwrap()[0].contains("正式版のサーバ"));
-    }
-    // Runtime integration coverage owns the Scenario marker.
+
     #[test]
     fn st54_channel_same_channel_dismisses() {
         let (_d, fake, n) = notice();
         let mut log = |_| {};
         n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
         n.after_send(Some(Channel::Official), Channel::Official, at(1), &mut log);
-        assert!(fake.0.lock().unwrap().last().unwrap().is_empty());
+        n.after_send(Some(Channel::Official), Channel::Official, at(2), &mut log);
+        let calls = fake.calls();
+        assert_eq!(calls.len(), 2, "消すのは 1 回だけ");
+        assert!(calls[1].is_empty());
     }
-    // Runtime integration coverage owns the Scenario marker.
+
+    /// 消すのに失敗したら、出した時刻を残して次の契機で消し直す（final review R6）。
     #[test]
-    fn st54_channel_404_has_no_channel_notice() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(None, Channel::Official, at(0), &mut log);
-        assert!(fake.0.lock().unwrap().is_empty());
+    fn st54_channel_dismiss_failure_retries_next_time() {
+        let (dir, fake, n) = notice();
+        let mut lines = Vec::new();
+        n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut |l| {
+            lines.push(l)
+        });
+        *fake.fail_dismiss.lock().unwrap() = 1;
+        n.after_send(
+            Some(Channel::Official),
+            Channel::Official,
+            at(1),
+            &mut |l| lines.push(l),
+        );
+        assert_eq!(fake.calls().len(), 1, "消せていないのに消したと数えた");
+        assert!(lines.iter().any(|l| l.contains("channel_notice_skipped")));
+        n.after_send(
+            Some(Channel::Official),
+            Channel::Official,
+            at(2),
+            &mut |l| lines.push(l),
+        );
+        assert_eq!(fake.calls().len(), 2);
+        assert!(fake.calls()[1].is_empty());
+        // 消し直した後は、起こし直しても消す時刻が残っていない
+        let restarted = ChannelNotice::new(fake.clone(), dir.path());
+        restarted.after_send(
+            Some(Channel::Official),
+            Channel::Official,
+            at(3),
+            &mut |_| {},
+        );
+        assert_eq!(fake.calls().len(), 2);
     }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_unreadable_has_no_channel_notice() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(None, Channel::Official, at(0), &mut log);
-        assert!(fake.0.lock().unwrap().is_empty());
-    }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_401_has_no_channel_notice() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(None, Channel::Official, at(0), &mut log);
-        assert!(fake.0.lock().unwrap().is_empty());
-    }
-    // Runtime integration coverage owns the Scenario marker.
+
     #[test]
     fn st54_channel_notice_persists_time() {
         let dir = tempfile::TempDir::new().unwrap();
         let fake = Arc::new(Fake::default());
         {
             let n = ChannelNotice::new(fake.clone(), dir.path());
-            let mut log = |_| {};
-            n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
+            n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut |_| {});
         }
         let n = ChannelNotice::new(fake.clone(), dir.path());
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Dev), Channel::Official, at(23), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 1);
-    }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_dismiss_is_independent() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
-        n.after_send(Some(Channel::Official), Channel::Official, at(1), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 2);
-    }
-    // Runtime integration coverage owns the Scenario marker.
-    #[test]
-    fn st54_channel_does_not_change_outage_reading() {
-        let (_d, fake, n) = notice();
-        let mut log = |_| {};
-        n.after_send(Some(Channel::Dev), Channel::Official, at(0), &mut log);
-        assert_eq!(fake.0.lock().unwrap().len(), 1);
+        n.after_send(Some(Channel::Dev), Channel::Official, at(23), &mut |_| {});
+        assert_eq!(fake.calls().len(), 1);
     }
 }

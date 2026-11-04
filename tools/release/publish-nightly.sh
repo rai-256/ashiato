@@ -21,11 +21,12 @@ publish_nightly() (
   apk="$dir/ashiato-collector-$version.apk"
   [[ -f "$apk" ]] || die "開発版の APK が無い: $(basename "$apk")"
   signed="$dir/ashiato-collector-dev-$version.apk"
-  ASHIATO_EXPECT_DEV_CERT_SHA256="$ASHIATO_EXPECT_DEV_CERT_SHA256" \
-    ASHIATO_SIGNING_KEYSTORE_B64="$(base64 -w0 "$key")" \
+  # 戻した鍵のファイルで署名する（B64 は渡さない）。検査に渡す指紋も開発版の鍵のもの（draft.sh と同じ。final review R17）
+  env -u ASHIATO_SIGNING_KEYSTORE_B64 ASHIATO_SIGNING_KEYSTORE_FILE="$key" \
+    ASHIATO_EXPECT_DEV_CERT_SHA256="$ASHIATO_EXPECT_DEV_CERT_SHA256" \
     "$root/tools/release/sign-apk.sh" "$apk" dev "$signed"
   rm -f "$apk"
-  ASHIATO_EXPECT_CERT_SHA256="$ASHIATO_EXPECT_CERT_SHA256" \
+  ASHIATO_EXPECT_CERT_SHA256="$ASHIATO_EXPECT_DEV_CERT_SHA256" \
     "$root/tools/release/check-artifacts.sh" "$dir" --channel nightly --expect-version "$version"
   if ! gh release view nightly >/dev/null 2>&1; then
     gh release create nightly --prerelease --title nightly --target "$GITHUB_SHA" \
@@ -103,7 +104,7 @@ EOF
   : >"$calls"
   if env -u ASHIATO_EXPECT_DEV_CERT_SHA256 NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp-missing" \
       ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
-      ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$fingerprint_missing" "$version" >/dev/null 2>&1; then
+      "$0" "$fingerprint_missing" "$version" >/dev/null 2>&1; then
     die '指紋なしで開発版 APK に署名した'
   fi
   [[ ! -e "$fingerprint_missing/ashiato-collector-dev-$version.apk" ]] || die '指紋なしで署名済み APK ができた'
@@ -111,7 +112,7 @@ EOF
   : >"$calls"
   if NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp-wrong" \
       ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
-      ASHIATO_EXPECT_DEV_CERT_SHA256="$other_cert" ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$fingerprint_wrong" "$version" >/dev/null 2>&1; then
+      ASHIATO_EXPECT_DEV_CERT_SHA256="$other_cert" "$0" "$fingerprint_wrong" "$version" >/dev/null 2>&1; then
     die '別鍵の指紋で開発版 APK に署名した'
   fi
   [[ ! -e "$fingerprint_wrong/ashiato-collector-dev-$version.apk" ]] || die '別鍵の指紋で署名済み APK ができた'
@@ -119,7 +120,7 @@ EOF
   : >"$calls"
   NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp" \
     ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
-    ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$work" "$version" >/dev/null
+    ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" ASHIATO_EXPECT_CERT_SHA256="$other_cert" "$0" "$work" "$version" >/dev/null  # 正式版の名前の指紋は使わない（別鍵の値でも通る）
   grep -Fq 'release edit nightly --notes-file' "$calls" || die '説明文の書き直しが無い'
   grep -Fq 'push --force origin deadbeef:refs/tags/nightly' "$calls"
   echo "== Scenario: 説明文の先頭にサポートしない旨が無ければ、公開の手順は落ちる"
@@ -131,7 +132,7 @@ EOF
   : >"$calls"
   if NIGHTLY_BAD_NOTES=1 NIGHTLY_CALLS="$calls" PATH="$fakebin:$PATH" GITHUB_SHA=deadbeef RUNNER_TEMP="$work/temp2" \
       ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
-      ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" ASHIATO_EXPECT_CERT_SHA256="$cert" "$0" "$bad" "$version" >/dev/null 2>&1; then
+      ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" "$0" "$bad" "$version" >/dev/null 2>&1; then
     die '不正な説明文を受け入れた'
   fi
   ! grep -Fq 'push --force origin' "$calls" || die '不正な説明文で印を動かした'

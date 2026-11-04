@@ -136,6 +136,9 @@ pub struct Runtime<'a> {
     state_dir: std::path::PathBuf,
     exclusions_path: std::path::PathBuf,
     channel: Channel,
+    /// 系統の違いのログ（`channel_mismatch`）を出した相手の系統。違う状態に入った契機で 1 行だけ出し、
+    /// 同じ系統のサーバが答えたら戻す（送る契機のたびに出さない。final review R12）
+    channel_mismatch_logged: Option<Channel>,
     /// 単調時計の起点（`tick` が使う）
     anchor: Option<(std::time::Instant, DateTime<Utc>)>,
     log: fn(String),
@@ -293,6 +296,7 @@ impl<'a> Runtime<'a> {
             state_dir: cfg.state_dir.clone(),
             exclusions_path: cfg.exclusions_path.clone(),
             channel,
+            channel_mismatch_logged: None,
             anchor: None,
             log: info,
             build_stamp: env!("ASHIATO_BUILD_STAMP").to_string(),
@@ -833,21 +837,25 @@ impl<'a> Runtime<'a> {
         let answer = read_contract_answer(&reply);
         if let Some(server) = channel {
             if server != self.channel {
-                log(telemetry::line(
-                    "channel_mismatch",
-                    None,
-                    None,
-                    Some(&format!(
-                        "server={} self={}",
-                        server.as_str(),
-                        self.channel.as_str()
-                    )),
-                ));
+                if self.channel_mismatch_logged != Some(server) {
+                    log(telemetry::line(
+                        "channel_mismatch",
+                        None,
+                        None,
+                        Some(&format!(
+                            "server={} self={}",
+                            server.as_str(),
+                            self.channel.as_str()
+                        )),
+                    ));
+                    self.channel_mismatch_logged = Some(server);
+                }
                 if let Some(notice) = &self.channel_notice {
                     notice.after_send(Some(server), self.channel, now, &mut log);
                 }
                 return;
             }
+            self.channel_mismatch_logged = None;
         }
         if let Some(notice) = &self.channel_notice {
             notice.after_send(channel, self.channel, now, &mut log);
@@ -1204,9 +1212,19 @@ mod tests {
     struct ChannelTransport {
         contract: std::sync::Mutex<Reply>,
         posts: std::sync::atomic::AtomicUsize,
+        /// 真の間、送る要求を 426 で断る（契約の版の待ちを続けさせる）
+        refuse_posts: std::sync::atomic::AtomicBool,
     }
 
     impl ChannelTransport {
+        fn new(contract: Reply) -> Self {
+            Self {
+                contract: std::sync::Mutex::new(contract),
+                posts: std::sync::atomic::AtomicUsize::new(0),
+                refuse_posts: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+
         fn set_contract(&self, reply: Reply) {
             *self.contract.lock().unwrap() = reply;
         }
@@ -1228,6 +1246,13 @@ mod tests {
         fn post(&self, _: &str, body: &str, _: u32) -> anyhow::Result<Reply> {
             self.posts
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.refuse_posts.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(Reply {
+                    status: 426,
+                    body: String::new(),
+                    headers: Default::default(),
+                });
+            }
             let n = serde_json::from_str::<Vec<serde_json::Value>>(body).map_or(0, |v| v.len());
             Ok(Reply {
                 status: 200,
@@ -1247,6 +1272,7 @@ mod tests {
         channel: std::sync::Mutex<Vec<String>>,
         channel_dismissed: std::sync::atomic::AtomicUsize,
         contract: std::sync::Mutex<Vec<String>>,
+        contract_dismissed: std::sync::atomic::AtomicUsize,
     }
 
     impl crate::channel_notice::ChannelToaster for ChannelToasts {
@@ -1266,6 +1292,8 @@ mod tests {
             Ok(())
         }
         fn dismiss_contract(&self) -> anyhow::Result<()> {
+            self.contract_dismissed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
     }
@@ -1293,10 +1321,7 @@ mod tests {
     ) -> (usize, usize, usize, usize, usize, usize, usize, Vec<String>) {
         let (cfg, _tmp) = cfg();
         let _ = take_captured_logs();
-        let transport = ChannelTransport {
-            contract: std::sync::Mutex::new(reply),
-            posts: std::sync::atomic::AtomicUsize::new(0),
-        };
+        let transport = ChannelTransport::new(reply);
         let mut rt = Runtime::new(
             &cfg,
             zone(),
@@ -1343,10 +1368,7 @@ mod tests {
 
     fn exercise_daily_notice() -> usize {
         let (cfg, _tmp) = cfg();
-        let transport = ChannelTransport {
-            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
-            posts: std::sync::atomic::AtomicUsize::new(0),
-        };
+        let transport = ChannelTransport::new(contract_reply(200, Some("official"), true));
         let mut rt = Runtime::new(
             &cfg,
             zone(),
@@ -1377,10 +1399,7 @@ mod tests {
 
     fn exercise_recovery() -> (usize, usize) {
         let (cfg, _tmp) = cfg();
-        let transport = ChannelTransport {
-            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
-            posts: std::sync::atomic::AtomicUsize::new(0),
-        };
+        let transport = ChannelTransport::new(contract_reply(200, Some("official"), true));
         let mut rt = Runtime::new(
             &cfg,
             zone(),
@@ -1514,10 +1533,7 @@ mod tests {
     #[test]
     fn st54_channel_runtime_notice_state_is_persistent() {
         let (cfg, _tmp) = cfg();
-        let transport = ChannelTransport {
-            contract: std::sync::Mutex::new(contract_reply(200, Some("official"), true)),
-            posts: std::sync::atomic::AtomicUsize::new(0),
-        };
+        let transport = ChannelTransport::new(contract_reply(200, Some("official"), true));
         let toasts = Arc::new(ChannelToasts::default());
         {
             let mut rt = Runtime::new(
@@ -1564,9 +1580,93 @@ mod tests {
     // Scenario: 系統の違いの知らせを消しても、サーバを更新してくださいの知らせは消えない
     #[test]
     fn st54_channel_runtime_notices_are_independent() {
-        let r = exercise_channel(Channel::Dev, contract_reply(404, None, true), false);
-        assert_eq!(r.3, 0);
-        assert!(r.5 > 0);
+        let (cfg, _tmp) = cfg();
+        let transport = ChannelTransport::new(contract_reply(200, Some("dev"), true));
+        transport
+            .refuse_posts
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Dev,
+        )
+        .unwrap();
+        let toasts = Arc::new(ChannelToasts::default());
+        rt.set_channel_notice(crate::channel_notice::ChannelNotice::new(
+            toasts.clone(),
+            &cfg.state_dir,
+        ));
+        rt.set_contract_notice(ContractNotice::new(toasts.clone()));
+        let mut src = FakeSource::new("editor");
+        run(&mut rt, &mut src, 0, 700, 10);
+        // 同じ系統のサーバが 426 で断る: 札 contract の「サーバを更新してください」が出る
+        rt.send_at(t(710));
+        assert!(!toasts.contract.lock().unwrap().is_empty());
+        // 系統の違うサーバが答える: 札 channel の知らせも出る（両方が出ている）
+        transport.set_contract(contract_reply(200, Some("official"), true));
+        rt.send_at(t(720));
+        assert_eq!(toasts.channel.lock().unwrap().len(), 1);
+        // 系統の違いだけが抜ける（同じ系統のサーバが答え、426 の待ちは続く）
+        transport.set_contract(contract_reply(200, Some("dev"), true));
+        rt.send_at(t(730));
+        let dismissed =
+            |n: &std::sync::atomic::AtomicUsize| n.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            dismissed(&toasts.channel_dismissed),
+            1,
+            "札 channel が消えていない"
+        );
+        assert_eq!(
+            dismissed(&toasts.contract_dismissed),
+            0,
+            "札 contract まで消えた"
+        );
+    }
+
+    /// 系統の違いのログは違う状態に入った契機で 1 行だけ出し、送る契機のたびに出さない（final review R12）。
+    #[test]
+    fn st54_channel_mismatch_log_is_not_repeated() {
+        let (cfg, _tmp) = cfg();
+        let _ = take_captured_logs();
+        let transport = ChannelTransport::new(contract_reply(200, Some("official"), true));
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Dev,
+        )
+        .unwrap();
+        rt.log = capture_log;
+        let mismatch_lines = || {
+            take_captured_logs()
+                .iter()
+                .filter(|l| l.contains("kind=channel_mismatch"))
+                .count()
+        };
+        rt.send_at(t(0));
+        rt.send_at(t(60));
+        rt.send_at(t(120));
+        assert_eq!(mismatch_lines(), 1);
+        transport.set_contract(contract_reply(200, Some("dev"), true));
+        rt.send_at(t(180));
+        transport.set_contract(contract_reply(200, Some("official"), true));
+        rt.send_at(t(240));
+        assert_eq!(mismatch_lines(), 1, "直した後にまた違えば、もう 1 行出す");
     }
     // Scenario: 系統の違うサーバからも、PC の収集アプリは途絶の判定を今どおり引く
     #[test]

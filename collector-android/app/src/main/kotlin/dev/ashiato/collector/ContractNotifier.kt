@@ -20,20 +20,23 @@ data class ContractNotice(
     val channelMismatch: Boolean = false,
     /** 系統不一致だけの行では、ST50 の契約更新文を混ぜない。 */
     val contractWaiting: Boolean = true,
+    /** 自分の系統（系統の違いの文の相手を決める）。試験は差し替える */
+    val local: Channel = buildLocalChannel(),
 ) {
     val headline: String get() = if (channelMismatch) {
-        if (contractWaiting) "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline()}"
-        else channelMismatchHeadline()
+        if (contractWaiting) "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline(local)}"
+        else channelMismatchHeadline(local)
     } else contractHeadline(onlyUnreadable)
 
-    /** 画面の 1 行と通知の本文 */
-    val line: String get() = "$headline（未送信 $days 日分を携帯に残しています）"
+    /** 画面の 1 行と通知の本文。系統の違いだけの行は日数を添えない（契約の版の待ちの日数ではないので。final review R7） */
+    val line: String get() = if (channelMismatch && !contractWaiting) headline
+        else "$headline（未送信 $days 日分を携帯に残しています）"
 }
 
 const val CONTRACT_UPDATE_HEADLINE = "サーバを更新してください"
 const val CONTRACT_NETWORK_HEADLINE = "サーバを更新するか、つながっている網を確かめてください"
 
-fun channelMismatchHeadline(local: Channel = buildLocalChannel()): String =
+fun channelMismatchHeadline(local: Channel): String =
     "送り先が${if (local == Channel.Dev) "正式版" else "開発版"}のサーバです。送り先を確かめてください"
 
 fun contractHeadline(onlyUnreadable: Boolean): String =
@@ -51,6 +54,8 @@ class ChannelMismatchNotifier(
     private val context: Context,
     private val store: ContractWaitStore,
     private val now: () -> Long = System::currentTimeMillis,
+    /** 自分の系統。試験は差し替える */
+    private val local: Channel = buildLocalChannel(),
 ) {
     private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
 
@@ -67,7 +72,7 @@ class ChannelMismatchNotifier(
         manager.createNotificationChannel(NotificationChannel(ContractNotifier.CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT))
         manager.notify(CHANNEL_NOTIFICATION_ID, NotificationCompat.Builder(context, ContractNotifier.CHANNEL)
             .setContentTitle(ContractNotifier.TITLE)
-            .setContentText(channelMismatchHeadline())
+            .setContentText(channelMismatchHeadline(local))
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .build())
         store.channelNotifiedAtMs = now()

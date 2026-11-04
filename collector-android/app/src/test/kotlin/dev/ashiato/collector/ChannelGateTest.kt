@@ -154,4 +154,23 @@ class ChannelGateTest {
         )
         poller.poll(); executor.shutdown(); executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); assertEquals(1, calls)
     }
+
+    /** 系統の違いだけの画面の行は、契約の版の待ちの日数を添えない（final review R7）。 */
+    @Test fun `channel only line has no unsent days`() {
+        val line = ContractNotice(false, 0, channelMismatch = true, contractWaiting = false, local = Channel.Dev).line
+        assertEquals("送り先が正式版のサーバです。送り先を確かめてください", line)
+    }
+
+    /** 自分の系統は部品へ渡した値を使い、組み立ての系統を直に読まない（final review R15）。 */
+    @Test fun `local channel is injected into notice and notifier`() {
+        assertTrue(ContractNotice(false, 0, channelMismatch = true, contractWaiting = false, local = Channel.Official).line.contains("開発版のサーバ"))
+        val p = process(Channel.Dev, Channel.Official)
+        ChannelMismatchNotifier(app, p.store, now = { 1_000L }, local = Channel.Dev).update(true)
+        val shown = shadowOf(shadowOf(manager).getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID))
+        assertEquals("送り先が正式版のサーバです。送り先を確かめてください", shown.contentText.toString())
+        // 再起動の後（理由がまだメモリに無い）も、写しの文の相手は gate の系統で決める
+        p.store.channelMismatch = true
+        val restarted = ContractGate(p.store, {}, Channel.Dev)
+        assertEquals("送り先が正式版のサーバです。送り先を確かめてください", contractHeadlineFor(restarted, p.store))
+    }
 }

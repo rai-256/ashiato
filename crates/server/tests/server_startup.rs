@@ -21,7 +21,6 @@ fn raw_env(name: &str) -> String {
 }
 
 struct CustomServerBinary {
-    _target: tempfile::TempDir,
     path: PathBuf,
 }
 
@@ -29,8 +28,21 @@ fn custom_server_binary() -> CustomServerBinary {
     custom_server_binary_with_version(&custom_server_version())
 }
 
+/// 渡した版番号で組んだサーバ。**版ごとにプロセスの中で 1 回だけ**組み、置き場も版ごとに固定の 1 か所
+/// （cargo が統合試験に渡す `CARGO_TARGET_TMPDIR` の下。TMPDIR の外で、走らせ直すと増分で組む。final review R3）。
 fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
-    let target = tempfile::tempdir().unwrap();
+    static BUILT: std::sync::Mutex<Vec<(String, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+    let mut built = BUILT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, path)) = built.iter().find(|(v, _)| v == version) {
+        return CustomServerBinary { path: path.clone() };
+    }
+    let slug: String = version
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("custom-server-{slug}"));
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let build = Command::new("cargo")
         .args([
@@ -43,7 +55,7 @@ fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
         ])
         .current_dir(&root)
         .env("ASHIATO_BUILD_VERSION", version)
-        .env("CARGO_TARGET_DIR", target.path())
+        .env("CARGO_TARGET_DIR", &target)
         .output()
         .unwrap();
     assert!(
@@ -51,75 +63,9 @@ fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
         "カスタム版のサーバを組めない: {}",
         String::from_utf8_lossy(&build.stderr)
     );
-    CustomServerBinary {
-        path: target.path().join("debug/ashiato-server"),
-        _target: target,
-    }
-}
-
-/// Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
-#[test]
-fn st54_bin_channel_environment_does_not_override_build_channel() {
-    let custom =
-        custom_server_binary_with_version(&format!("{}-dev.20261102", env!("CARGO_PKG_VERSION")));
-    let migrated = Command::new(&custom.path)
-        .arg("migrate")
-        .env_clear()
-        .env("DATABASE_OWNER_URL", env("DATABASE_OWNER_URL"))
-        .env("MIGRATE_BACKUP", "off")
-        .output()
-        .unwrap();
-    assert!(
-        migrated.status.success(),
-        "開発版 DB の migrate が失敗した: {}",
-        String::from_utf8_lossy(&migrated.stderr)
-    );
-    let mut child = Command::new(&custom.path)
-        .env_clear()
-        .env("DATABASE_URL", env("DATABASE_URL"))
-        .env("API_TOKEN", TEST_TOKEN)
-        .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
-        .env("ASHIATO_CHANNEL", "official")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    let mut stream = loop {
-        if std::time::Instant::now() > deadline {
-            let _ = child.kill();
-            panic!("開発版サーバが 127.0.0.1:18788 で待ち受けなかった");
-        }
-        match std::net::TcpStream::connect(("127.0.0.1", 18788)) {
-            Ok(stream) => break stream,
-            Err(_) => {
-                if let Some(status) = child.try_wait().unwrap() {
-                    let output = child.wait_with_output().unwrap();
-                    panic!(
-                        "開発版サーバが終了した: {status}; {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        }
-    };
-    stream
-        .write_all(b"GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-token-0123456789abcdef\r\nConnection: close\r\n\r\n")
-        .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    assert!(
-        response.contains("ashiato-channel: dev\r\n"),
-        "応答の系統が dev でない: {response}"
-    );
-    assert!(
-        response.ends_with("{\"contract_version\":1}"),
-        "契約本文が変わった: {response}"
-    );
-    child.kill().unwrap();
-    let _ = child.wait_with_output();
+    let path = target.join("debug/ashiato-server");
+    built.push((version.to_owned(), path.clone()));
+    CustomServerBinary { path }
 }
 
 fn custom_server_version() -> String {
@@ -809,6 +755,77 @@ mod st48_migrate {
             }
         }
 
+        /// 組んだサーバを起こし、`/healthz` が 200 になったら `GET /contract` の応答（見出しと本文）を返す。
+        /// `default_bind` が真なら BIND を渡さず既定の待ち受け（開発版は 127.0.0.1:18788）で起こす。
+        fn contract_from_custom(
+            &self,
+            binary: &Path,
+            default_bind: bool,
+            extra: &[(&str, &str)],
+        ) -> String {
+            use std::io::{Read as _, Write as _};
+            let port = if default_bind {
+                18788
+            } else {
+                std::net::TcpListener::bind("127.0.0.1:0")
+                    .unwrap()
+                    .local_addr()
+                    .unwrap()
+                    .port()
+            };
+            let mut cmd = Command::new(binary);
+            cmd.env_clear()
+                .env("API_TOKEN", TEST_TOKEN)
+                .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env(
+                    "DATABASE_URL",
+                    with_database(&env("DATABASE_URL"), &self.db.name),
+                )
+                .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            if !default_bind {
+                cmd.env("BIND", format!("127.0.0.1:{port}"));
+            }
+            for (k, v) in extra {
+                cmd.env(k, v);
+            }
+            let mut child = cmd.spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !healthz_ok(port) {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "サーバが終了した: {status}; {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                if std::time::Instant::now() > deadline {
+                    child.kill().ok();
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "サーバが 127.0.0.1:{port} で待ち受けなかった: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TEST_TOKEN}\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            child.kill().ok();
+            let _ = child.wait_with_output();
+            response
+        }
+
         fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
             self.migrate_with_env(dir, pg_dump, backup, &[])
         }
@@ -1088,6 +1105,22 @@ mod st48_migrate {
         .await
         .unwrap();
         assert!(version.contains("-dev."), "{version}");
+        // 全部の行が開発版の版番号を持つ（最初の 1 行だけでない。final review R4）
+        let (rows, official_rows): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(*) FILTER (WHERE build_version NOT LIKE '%-dev.%')
+               FROM migration_ledger.applied",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(
+            usize::try_from(rows).unwrap(),
+            ashiato_server::MIGRATIONS.len()
+        );
+        assert_eq!(official_rows, 0, "開発版の版番号でない行がある");
+        // 続けて起こした開発版のサーバは、その DB で起動して `/healthz` が 200 になる
+        let served = rig.serve_custom(&custom.path);
+        assert!(served.healthy, "{}", stderr(&served.out));
     }
 
     // Scenario: 版の記録の無い古い DB には、開発版の migrate は当てずに止まる
@@ -1123,6 +1156,42 @@ mod st48_migrate {
         assert_ok(&rig.migrate_custom_version(&custom.path));
         rig.exec("DELETE FROM migration_ledger.applied").await;
         assert_ok(&rig.migrate());
+    }
+
+    // Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
+    #[tokio::test]
+    async fn st54_bin_channel_environment_does_not_override_build_channel() {
+        // 使い捨ての DB に開発版の migrate を当てる（worktree の共有 DB を開発版にしない。final review R1）
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let migrated = rig.migrate_custom_version(&custom.path);
+        assert!(
+            migrated.status.success(),
+            "開発版 DB の migrate が失敗した: {}",
+            String::from_utf8_lossy(&migrated.stderr)
+        );
+        // 既定の待ち受け（開発版は 127.0.0.1:18788）は固定の port。並べた worktree のサーバが使っていれば、
+        // 空いた port を BIND で渡して系統の見出しだけを確かめる（既定の値は st54_tests が確かめる）
+        let default_bind_free = std::net::TcpListener::bind(("127.0.0.1", 18788)).is_ok();
+        if !default_bind_free {
+            eprintln!("127.0.0.1:18788 が使用中なので、BIND に空いた port を渡して確かめる");
+        }
+        let response = rig.contract_from_custom(
+            &custom.path,
+            default_bind_free,
+            &[("ASHIATO_CHANNEL", "official")],
+        );
+        assert!(
+            response.contains("ashiato-channel: dev\r\n"),
+            "応答の系統が dev でない: {response}"
+        );
+        assert!(
+            response.ends_with("{\"contract_version\":1}"),
+            "契約本文が変わった: {response}"
+        );
     }
 
     // Scenario: 系統が同じなら、今どおり当てて起動する

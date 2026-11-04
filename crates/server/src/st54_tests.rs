@@ -350,6 +350,30 @@ async fn st54_empty_database_becomes_dev() {
     .await
     .unwrap();
     assert!(version.contains("-dev."), "{version}");
+    // 行の版番号は組み立てのときの定数なので、この試験の組み立てでは `migrate_channel` が書き換える。
+    // 「開発版の migrate が全行に開発版の版番号を書き、続く起動が 200」は実バイナリの
+    // `st54_bin_dev_migrate_bootstraps_dev_db` が確かめる。ここでは、空の DB に開発版として当てた結果を
+    // 本物の起動の判定が開発版の DB と読むことを見る（final review R4）
+    let applied: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(usize::try_from(applied).unwrap(), MIGRATIONS.len());
+    let dev = migration_ledger::startup_refusal(&pool, MIGRATIONS, Channel::Dev)
+        .await
+        .unwrap();
+    assert!(
+        dev.is_none(),
+        "開発版のサーバが開発版の DB で止まる: {dev:?}"
+    );
+    let official = migration_ledger::startup_refusal(&pool, MIGRATIONS, Channel::Official)
+        .await
+        .unwrap();
+    assert_eq!(official.unwrap().0, "channel_mismatch");
+    assert_eq!(
+        healthz(tee_app(Channel::Dev, pool.clone()).await).await,
+        StatusCode::OK
+    );
 }
 
 // Scenario: 版の記録の無い古い DB には、開発版の migrate は当てずに止まる
@@ -414,5 +438,18 @@ async fn st54_same_channel_starts_and_healthz_is_ok() {
     assert_eq!(
         healthz(tee_app(Channel::Dev, pool).await).await,
         StatusCode::OK
+    );
+}
+
+/// 退避の後のログは、その系統の既定の置き場を示す（開発版で正式版の置き場を示さない。final review R5）。
+#[test]
+fn st54_backup_log_names_channel_default_dir() {
+    assert_eq!(
+        backup_done_message(Channel::Dev),
+        "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate-dev）"
+    );
+    assert_eq!(
+        backup_done_message(Channel::Official),
+        "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
     );
 }

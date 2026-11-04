@@ -20,10 +20,14 @@ pub const BUILD_VERSION: &str = env!("ASHIATO_VERSION");
 /// 当てた組み立ての commit（`build.rs` が決める。design D8）。
 pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");
 
+/// `migrations/LINEAGE` の 1 行の種類（ST54 / design D5）。DB の版の記録にある旧名を、今の名前の集合へ写すときに使う。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineageKind {
+    /// `renamed <旧名> <今の名前>`: 名前だけを変えた。DB の旧名の行は今の名前として数える。
     Renamed,
+    /// `removed <旧名>`: ORDER から外した。DB の旧名の行は比べる集合から除く。
     Removed,
+    /// `rewritten <今の名前> <直しの移行>`: 開発版に載った後で中身を変え、直しの移行を足した。名前の写しは変えない。
     Rewritten,
 }
 
@@ -215,6 +219,8 @@ pub fn compare(known: &BTreeSet<String>, ledger: &BTreeSet<String>) -> Verdict {
     compare_with_lineage(known, ledger, &[])
 }
 
+/// `compare` に LINEAGE を足したもの。DB の名前を LINEAGE で今の名前へ写してから比べる
+/// （旧名の行を「知らない版」と数えない）。純粋。
 pub fn compare_with_lineage(
     known: &BTreeSet<String>,
     ledger: &BTreeSet<String>,
@@ -395,6 +401,8 @@ pub async fn startup_refusal(
     startup_refusal_with_lineage(pool, versions, crate::LINEAGE, me).await
 }
 
+/// `startup_refusal` に、試験や組み立てごとの LINEAGE を渡す口を足したもの。
+/// 系統の食い違いは版の比べより先に見て、`Some(("channel_mismatch", …))`（終了コード 4）を返す。
 pub async fn startup_refusal_with_lineage(
     pool: &sqlx::PgPool,
     versions: &[(&str, &str)],
@@ -504,6 +512,9 @@ pub async fn apply_migrations_recorded(
     .await
 }
 
+/// 当てる処理の本体。`apply_migrations_recorded` に LINEAGE を渡す口を足したもの。
+/// 錠を取った後、版の比べより先に DB の系統と `me` を比べ、違えば何も書かずに `MigrateError::ChannelMismatch` を返す。
+/// 当てた版の名前（ORDER の順）を返す。
 pub async fn apply_migrations_recorded_with_lineage(
     mut conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],

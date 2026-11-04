@@ -94,14 +94,6 @@ fn ensure_no_cleartext_off_loopback(base_url: &str) -> anyhow::Result<()> {
 }
 
 impl Config {
-    /// 環境変数から読む。
-    pub fn from_env() -> anyhow::Result<Self> {
-        Self::from_lookup(
-            |k| std::env::var(k).ok(),
-            ashiato_build_stamp::channel(env!("ASHIATO_VERSION")),
-        )
-    }
-
     /// 名前から値を引く関数で読む。**1 つでも欠けていればエラー**にする ——
     /// 既定で埋めると、送り先を間違えたまま動く。
     ///

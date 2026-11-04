@@ -300,7 +300,21 @@ pub const GRANTS: &str = include_str!("grants.sql");
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 /// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    migrate_after(pool, || Ok(()), None, channel(env!("ASHIATO_VERSION"))).await
+    migrate_after(pool, || Ok(()), None, build_channel()).await
+}
+
+/// この組み立ての系統（D1。組み立てのときの版番号で決まる）。版番号から系統を求めるのはここだけ ——
+/// 入口（`run`・`run_migrate`）は起動時に 1 回呼び、その値を `App` と移行の経路へ渡す。
+fn build_channel() -> Channel {
+    channel(env!("ASHIATO_VERSION"))
+}
+
+/// 移行の前に退避した後のログの文。既定の置き場は系統で違う（D8）。
+fn backup_done_message(me: Channel) -> String {
+    format!(
+        "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 {}）",
+        migrate_backup::default_dir(me)
+    )
 }
 
 /// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
@@ -387,29 +401,24 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     // 順は 接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与（design D4）。
     // 退避に失敗したら当てない（製造準備 A-2。2026-10-11 の整合の確認 K2）。どの環境変数も検査を飛ばさない
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let me = build_channel();
     let backup = || {
         match migrate_backup::backup_before_migrate(
             &url,
-            &migrate_backup::BackupConfig::from_env(channel(env!("ASHIATO_VERSION"))),
+            &migrate_backup::BackupConfig::from_env(me),
             &stamp,
         )? {
-            Some(_) => tracing::info!(
-                "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
-            ),
+            Some(_) => {
+                // log-ok: 文は固定で、埋めるのは系統で決まる既定の置き場の定数だけ（私的データではない）
+                tracing::info!("{}", backup_done_message(me));
+            }
             None => {
                 tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
             }
         }
         Ok(())
     };
-    if let Err(e) = migrate_after(
-        &pool,
-        backup,
-        Some(BUILD_STAMP),
-        channel(env!("ASHIATO_VERSION")),
-    )
-    .await
-    {
+    if let Err(e) = migrate_after(&pool, backup, Some(BUILD_STAMP), me).await {
         if let Some(me) = e.downcast_ref::<migration_ledger::MigrateError>() {
             if let Some((kind, report)) = me.mismatch_report() {
                 // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
@@ -484,15 +493,17 @@ pub struct App {
 
 impl App {
     /// 起動時の組み立て。`web_password` は `check_web_password` を通ったもの。
+    /// `channel` は入口が起動時に 1 回求めた系統（D1）。
     pub fn new(
         pool: sqlx::PgPool,
         token: String,
         web_password: &str,
         session_key: &str,
         session_max_age_days: u32,
+        channel: Channel,
     ) -> Self {
         Self {
-            channel: channel(env!("ASHIATO_VERSION")),
+            channel,
             login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
@@ -562,6 +573,7 @@ impl App {
             "test-web-password-0123456789",
             "test-session-key-0123456789",
             0,
+            build_channel(),
         );
         app.login.failure_delay = std::time::Duration::ZERO;
         app
@@ -1091,6 +1103,7 @@ fn internal_app(pool: sqlx::PgPool) -> App {
         INTERNAL_WEB_PASSWORD,
         INTERNAL_WEB_SESSION_KEY,
         0,
+        build_channel(),
     );
     app
 }
@@ -3432,6 +3445,7 @@ pub async fn store_heartbeat(
         INTERNAL_WEB_PASSWORD,
         INTERNAL_WEB_SESSION_KEY,
         0,
+        build_channel(),
     );
     heartbeat_one(
         &app,
@@ -4467,7 +4481,7 @@ pub async fn run() -> anyhow::Result<()> {
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
     )?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
-    let server_channel = channel(env!("ASHIATO_VERSION"));
+    let server_channel = build_channel();
     let explicit_bind = std::env::var("BIND").ok();
     let addr = net_guard::bind_for(server_channel, explicit_bind.as_deref());
     let addrs = match net_guard::check_bind(&addr).await? {
@@ -4568,6 +4582,7 @@ pub async fn run() -> anyhow::Result<()> {
         &web_password,
         &session_key,
         session_max_age_days,
+        server_channel,
     )
     .with_reading(reading)
     .with_warmup(warmup)

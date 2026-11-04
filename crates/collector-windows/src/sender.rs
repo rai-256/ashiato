@@ -91,26 +91,6 @@ pub fn read_contract_channel(
         .or(Some(ashiato_build_stamp::Channel::Official))
 }
 
-#[cfg(test)]
-mod st54_red_tests {
-    use super::*;
-
-    #[test]
-    fn st54_channel_reads_contract_header() {
-        let mut headers = std::collections::BTreeMap::new();
-        headers.insert("Ashiato-Channel".to_string(), "dev".to_string());
-        let reply = Ok(Reply {
-            status: 200,
-            body: r#"{"contract_version":1}"#.to_string(),
-            headers,
-        });
-        assert_eq!(
-            read_contract_channel(&reply),
-            Some(ashiato_build_stamp::Channel::Dev)
-        );
-    }
-}
-
 /// 直前の `flush` が見た版の事情（design D9 の（a）（c）（d））。
 // 設計の D9 の理由が（a）〜（e）と別々の事実なので、状態を持つ型にまとめず 1 つずつ持つ
 #[allow(clippy::struct_excessive_bools)]
@@ -652,6 +632,22 @@ mod tests {
             body: serde_json::to_string(&items).unwrap(),
             headers: Default::default(),
         })
+    }
+
+    /// 契約の版を読めた答えの見出し `Ashiato-Channel` から系統を読む（D14（仮））。
+    #[test]
+    fn st54_channel_reads_contract_header() {
+        let mut headers = std::collections::BTreeMap::new();
+        headers.insert("Ashiato-Channel".to_string(), "dev".to_string());
+        let reply = Ok(Reply {
+            status: 200,
+            body: r#"{"contract_version":1}"#.to_string(),
+            headers,
+        });
+        assert_eq!(
+            read_contract_channel(&reply),
+            Some(ashiato_build_stamp::Channel::Dev)
+        );
     }
 
     /// **受理された分だけを取り除く**（tasks 8.2）。

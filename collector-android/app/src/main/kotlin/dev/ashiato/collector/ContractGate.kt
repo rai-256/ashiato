@@ -30,7 +30,6 @@ sealed interface ContractAnswer {
 }
 
 enum class Channel { Dev, Official }
-val localChannel: Channel get() = if (BuildConfig.CHANNEL == "dev") Channel.Dev else Channel.Official
 
 /** 1 回の送りの結果のうち、S-01 の更新を待つ理由（D9 の（a）〜（d））に要るもの。 */
 data class ContractOutcome(
@@ -271,8 +270,8 @@ fun contractHeadlineFor(gate: ContractGate, store: ContractWaitStore): String? =
         gate.reasons.headline?.let { if (gate.channelMismatch) "$it。${channelMismatchHeadline(gate.localChannel)}" else it }
             ?: gate.channelMismatch.takeIf { it }?.let { channelMismatchHeadline(gate.localChannel) }
     } else {
-        store.notice?.headline?.let { if (store.channelMismatch) "$it。${channelMismatchHeadline()}" else it }
-            ?: store.channelMismatch.takeIf { it }?.let { channelMismatchHeadline() }
+        store.notice?.headline?.let { if (store.channelMismatch) "$it。${channelMismatchHeadline(gate.localChannel)}" else it }
+            ?: store.channelMismatch.takeIf { it }?.let { channelMismatchHeadline(gate.localChannel) }
     }
 
 /**
@@ -293,6 +292,7 @@ class ContractGuard(
     fun settle(answer: ContractAnswer, outcomes: List<ContractOutcome>): Boolean = gate.observe(answer, now(), outcomes)
 }
 
+/** 自分の系統（D1）。`BuildConfig.CHANNEL` を読むのはここだけ。部品は引数で受け、既定にこれを使う */
 fun buildLocalChannel(): Channel = if (BuildConfig.CHANNEL == "dev") Channel.Dev else Channel.Official
 
 private fun channelLabel(channel: Channel): String = if (channel == Channel.Dev) "dev" else "official"
