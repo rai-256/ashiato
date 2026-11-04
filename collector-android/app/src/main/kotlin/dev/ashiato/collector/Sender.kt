@@ -74,6 +74,7 @@ class Sender<T : Outboxable>(
     private val responseDates: ResponseDateCache? = null,
     /** いまの送信契約の版（試験だけが差し替える。ST50 / D9） */
     private val currentVersion: () -> Int = { CONTRACT_VERSION },
+    private val localChannel: Channel = buildLocalChannel(),
     private val log: (String) -> Unit = {},
 ) {
     /**

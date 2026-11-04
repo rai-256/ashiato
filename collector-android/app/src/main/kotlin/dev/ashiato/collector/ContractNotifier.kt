@@ -14,9 +14,16 @@ import java.time.Duration
  * 「S-01 の更新を待っている」ときの案内（ST50 / design D6・D22・D24（仮））。画面の行・通知・上限の 7 日前の知らせが同じ文言を使う。
  * 理由が 200 の読めない答え（e）だけのときは、公衆の Wi-Fi の入口でも誤りにならない文言にする。
  */
-data class ContractNotice(val onlyUnreadable: Boolean, val days: Int, val channelMismatch: Boolean = false) {
+data class ContractNotice(
+    val onlyUnreadable: Boolean,
+    val days: Int,
+    val channelMismatch: Boolean = false,
+    /** 系統不一致だけの行では、ST50 の契約更新文を混ぜない。 */
+    val contractWaiting: Boolean = true,
+) {
     val headline: String get() = if (channelMismatch) {
-        "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline()}"
+        if (contractWaiting) "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline()}"
+        else channelMismatchHeadline()
     } else contractHeadline(onlyUnreadable)
 
     /** 画面の 1 行と通知の本文 */

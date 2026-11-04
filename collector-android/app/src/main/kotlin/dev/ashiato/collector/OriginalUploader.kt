@@ -111,6 +111,7 @@ class OriginalUploader(
     transport: OriginalTransport,
     reporter: OriginalMissingReporter,
     private val env: OriginalEnvironment,
+    private val localChannel: Channel = buildLocalChannel(),
     private val log: (String) -> Unit = {},
 ) {
     private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now, env.bodyLimit)

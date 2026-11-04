@@ -63,3 +63,20 @@
 commit hook の A-2 検査が系統名を `Telemetry.error` に埋め込む形式を拒否したため、系統の相手/自分は `trigger=dev|official` / `availability=dev|official` として `Telemetry.line` から出す形に修正した。`scripts/quiet-run channel-log -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ChannelGateTest*'` と `scripts/verify-run 9.2` は修正後に PASS。
 
 その後 hook が補助関数経由も拒否したため、6 箇所の送信停止ログを `Telemetry.line` の直接呼び出しへ展開し、`scripts/quiet-run channel-log-final -- ... --tests '*ChannelGateTest*'` と `scripts/verify-run 9.2` を再実行して PASS。
+
+## Fix round 2（F4・F5・F14）
+
+- 系統不一致だけの `MainActivity` の行が ST50 の「サーバを更新してください」を含めないよう、`ContractNotice` に契約更新待ちかどうかを持たせ、系統不一致専用の行を分離した。契約更新待ちと系統不一致が同時にある 7 日前の案内は、従来どおり両方の文を添える。
+- `Sender` と `OriginalUploader` の系統を既定値付きで注入可能にし、`ChannelGateTest` を実際の `Drainer`・`Sender`・Robolectric の通知・永続状態を通る 10 本へ書き直した。開発版／正式版双方の送信抑止と保持、同系統の送信、通知の表示・解除・24 時間再通知、404／読めない 200、途絶問い合わせを確認する。
+- 比較だけの作り物だった `ContractGateTest` は削除した。検証コマンド `--tests "*ContractGate*"` は実在する ST50 テスト名と一致せず `No tests found` になるため、検証コマンドの食い違いとして controller へ引き継ぐ。
+
+### Fix round 2 の検証
+
+- GREEN: `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ChannelGateTest*'` — PASS、10 tests completed。
+- `scripts/quiet-run unit-all -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest` — PASS、BUILD SUCCESSFUL。
+- `scripts/check_scenarios.py .` — Task 10 の既存未担保 Scenario 10 件で FAIL。今回の ChannelGateTest の印は未担保として報告されていない。
+- `scripts/verify-run 9.2` — ChannelGateTest 側は PASS（10 本以上）。ST50 側は `No tests found for given includes: [*ContractGate*]` で FAIL。過去の PASS で置き換えず、`evidence.jsonl` に現 commit の結果を記録した。
+
+### Fix round 2 の変更ファイル
+
+`collector-android/app/src/main/kotlin/dev/ashiato/collector/{ContractNotifier.kt,MainActivity.kt,OriginalLedger.kt,OriginalUploader.kt,Sender.kt}`, `collector-android/app/src/test/kotlin/dev/ashiato/collector/ChannelGateTest.kt`、削除 `collector-android/app/src/test/kotlin/dev/ashiato/collector/ContractGateTest.kt`、`openspec/changes/st54-dev-side-by-side/evidence.jsonl`
