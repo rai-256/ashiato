@@ -3,6 +3,7 @@ package dev.ashiato.collector
 
 import android.app.Application
 import android.app.NotificationManager
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +16,8 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowLog
+import org.robolectric.shadows.ShadowNotificationManager
 import java.time.Instant
 
 @RunWith(RobolectricTestRunner::class)
@@ -28,8 +31,21 @@ class ChannelGateTest {
 
     private fun process(local: Channel, remote: Channel): TestProcess {
         val stores = TestStores(tmp.newFolder("${local.name}-${remote.name}"))
+        val original = OriginalHarness(tmp.newFolder("original-${local.name}-${remote.name}"), stores)
+        original.photo(1, "photo-one")
+        original.scan()
+        original.acceptRecords()
+        val entry = original.env.originals.all().single()
+        original.env.listing.remove(PRIMARY, 1)
+        original.reporter.report(entry, OriginalMissingReason.VANISHED)
+        stores.beats.add(
+            HeartbeatRequest("hb", "user-1", LOGICAL_SOURCE, "device-1", "2026-10-01T00:00:00Z", true, emptyList(), 1, 1, "{}"),
+        )
+        stores.drops.add(
+            DropReport("dr", "user-1", LOGICAL_SOURCE, "device-1", "age", "2026-10-01T00:00:00Z", null, null, 1, emptyList(), "{}"),
+        )
         val store = ContractWaitStore(app.getSharedPreferences("channel-${local.name}-${remote.name}-${System.nanoTime()}", 0))
-        val gate = ContractGate(store, localChannel = local)
+        val gate = ContractGate(store, { Log.w("ChannelGateTest", it) }, local)
         val calls = mutableListOf<String>()
         val transport = Transport { body ->
             calls += body
@@ -45,14 +61,16 @@ class ChannelGateTest {
             beats = Sender(stores.beats, transport, HeartbeatRequest.serializer(), localChannel = local),
             drops = Sender(stores.drops, transport, DropReport.serializer(), localChannel = local),
             ledger = stores.ledger,
+            missing = Sender(original.missing, transport, MediaMissingReport.serializer(), localChannel = local),
+            afterRecords = { answer -> original.uploader.run(answer) },
             contract = ContractGuard(response, gate),
         )
-        return TestProcess(stores, sender, drainer, gate, store, calls) { remoteChannel = it }
+        return TestProcess(stores, original, sender, drainer, gate, store, calls) { remoteChannel = it }
     }
 
     private fun channelName(channel: Channel) = if (channel == Channel.Dev) "dev" else "official"
     private data class TestProcess(
-        val stores: TestStores, val sender: Sender<IngestRequest>, val drainer: Drainer,
+        val stores: TestStores, val original: OriginalHarness, val sender: Sender<IngestRequest>, val drainer: Drainer,
         val gate: ContractGate, val store: ContractWaitStore, val calls: MutableList<String>,
         val setRemote: (Channel) -> Unit,
     )
@@ -60,7 +78,10 @@ class ChannelGateTest {
     // Scenario: 開発版の携帯の収集アプリは、正式版のサーバに何も送らず手元に残す
     @Test fun `dev does not post to official and keeps outbox`() {
         val p = process(Channel.Dev, Channel.Official); p.stores.records.add(req("dev-record")); p.drainer.tick()
-        assertEquals(1, p.stores.records.size()); assertTrue(p.gate.channelMismatch); assertTrue(p.calls.isEmpty())
+        assertEquals(1, p.stores.records.size()); assertEquals(1, p.stores.beats.size())
+        assertEquals(1, p.stores.drops.size()); assertEquals(1, p.original.missing.size())
+        assertEquals(1, p.original.env.originals.ready().size)
+        assertTrue(p.gate.channelMismatch); assertTrue(p.calls.isEmpty()); assertTrue(p.original.transport.puts.isEmpty())
     }
 
     // Scenario: 正式版の携帯の収集アプリは、開発版のサーバに何も送らず手元に残す
@@ -72,17 +93,20 @@ class ChannelGateTest {
     // Scenario: 開発版の携帯の収集アプリは、開発版のサーバには今どおり送る
     @Test fun `matching channel posts and removes outbox`() {
         val p = process(Channel.Dev, Channel.Dev); p.stores.records.add(req("matching")); p.drainer.tick()
-        assertEquals(0, p.stores.records.size()); assertEquals(1, p.calls.size); assertFalse(p.gate.channelMismatch)
+        assertEquals(0, p.stores.records.size()); assertTrue(p.calls.isNotEmpty()); assertFalse(p.gate.channelMismatch)
     }
 
     // Scenario: 系統が違って送らない間、携帯の収集アプリは画面の行と通知で送り先を確かめるよう知らせる
     @Test fun `mismatch has persisted line and separate notification`() {
+        ShadowLog.clear()
         val p = process(Channel.Dev, Channel.Official); p.stores.records.add(req("notice")); p.drainer.tick()
         ChannelMismatchNotifier(app, p.store, now = { 1_000L }).update(true)
         assertEquals("送り先が正式版のサーバです。送り先を確かめてください", contractHeadlineFor(p.gate, p.store))
         assertNull(p.store.notice)
-        assertNotNull(shadowOf(manager).getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID))
-        assertNull(shadowOf(manager).getNotification(ContractNotifier.CONTRACT_NOTIFICATION_ID))
+        val shadowManager: ShadowNotificationManager = shadowOf(manager)
+        assertNotNull(shadowManager.getNotification(ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID))
+        assertNull(shadowManager.getNotification(ContractNotifier.CONTRACT_NOTIFICATION_ID))
+        assertTrue(ShadowLog.getLogs().any { it.msg.contains("kind=channel_mismatch") && it.msg.contains("trigger=dev") && it.msg.contains("availability=official") })
     }
 
     // Scenario: 送り先を直すと、携帯の収集アプリは手元に残した記録を送り、系統の違いの知らせを消す
