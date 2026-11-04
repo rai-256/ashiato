@@ -22,8 +22,11 @@ probe() {
   if [ "$rc" -eq 0 ]; then result=yes; else result=no; fi
   {
     echo "--- $label load=$load_mode ---"
+    echo "command: cargo test -p $package --lib $test_name"
     echo "load-repeat-rc: $rc"
     sed -n '/^run [0-9].* rc=/p; /^pass /p' "$log"
+    echo "test-output:"
+    cat "$log"
   } >>"$OUT"
   printf '%s\n' "$result"
 }

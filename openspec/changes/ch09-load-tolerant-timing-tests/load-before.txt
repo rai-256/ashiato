@@ -1,30 +1,374 @@
 --- history load=host ---
+command: cargo test -p ashiato-collector-windows --lib history_large_fetch_keeps_observing_foreground
+load-repeat-rc: 1
+run 1/10 rc=0 elapsed=11588ms
+run 2/10 rc=0 elapsed=14467ms
+run 3/10 rc=0 elapsed=13475ms
+run 4/10 rc=0 elapsed=14395ms
+run 5/10 rc=0 elapsed=14164ms
+run 6/10 rc=0 elapsed=14267ms
+run 7/10 rc=0 elapsed=12503ms
+run 8/10 rc=0 elapsed=12596ms
+run 9/10 rc=0 elapsed=12826ms
+run 10/10 rc=0 elapsed=12642ms
+pass 0/10
+test-output:
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 11.36s
+
+run 1/10 rc=0 elapsed=11588ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 14.24s
+
+run 2/10 rc=0 elapsed=14467ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 13.16s
+
+run 3/10 rc=0 elapsed=13475ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 14.08s
+
+run 4/10 rc=0 elapsed=14395ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 13.88s
+
+run 5/10 rc=0 elapsed=14164ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 14.07s
+
+run 6/10 rc=0 elapsed=14267ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 12.23s
+
+run 7/10 rc=0 elapsed=12503ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 12.35s
+
+run 8/10 rc=0 elapsed=12596ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 12.57s
+
+run 9/10 rc=0 elapsed=12826ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 12.43s
+
+run 10/10 rc=0 elapsed=12642ms
+pass 0/10
+--- history load=db ---
+command: cargo test -p ashiato-collector-windows --lib history_large_fetch_keeps_observing_foreground
 load-repeat-rc: 0
-run 1/10 rc=0 elapsed=14536ms
-run 2/10 rc=0 elapsed=13679ms
-run 3/10 rc=0 elapsed=13796ms
-run 4/10 rc=0 elapsed=14156ms
-run 5/10 rc=0 elapsed=12561ms
-run 6/10 rc=101 elapsed=15267ms
-run 7/10 rc=0 elapsed=13536ms
-run 8/10 rc=0 elapsed=14131ms
-run 9/10 rc=0 elapsed=11977ms
-run 10/10 rc=0 elapsed=14241ms
-pass 1/10
+run 1/10 rc=0 elapsed=11502ms
+run 2/10 rc=0 elapsed=10055ms
+run 3/10 rc=0 elapsed=11968ms
+run 4/10 rc=101 elapsed=19135ms
+run 5/10 rc=101 elapsed=18266ms
+run 6/10 rc=0 elapsed=15211ms
+run 7/10 rc=0 elapsed=11649ms
+run 8/10 rc=0 elapsed=10080ms
+run 9/10 rc=0 elapsed=11943ms
+run 10/10 rc=0 elapsed=12462ms
+pass 2/10
+test-output:
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 11.27s
+
+run 1/10 rc=0 elapsed=11502ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 9.88s
+
+run 2/10 rc=0 elapsed=10055ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 11.71s
+
+run 3/10 rc=0 elapsed=11968ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... FAILED
+
+failures:
+
+---- runtime::tests::history_large_fetch_keeps_observing_foreground stdout ----
+
+thread 'runtime::tests::history_large_fetch_keeps_observing_foreground' (1508) panicked at crates/collector-windows/src/runtime.rs:3682:9:
+見回り 1 回が 1.058156021s かかった
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    runtime::tests::history_large_fetch_keeps_observing_foreground
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 326 filtered out; finished in 18.59s
+
+error: test failed, to rerun pass `-p ashiato-collector-windows --lib`
+run 4/10 rc=101 elapsed=19135ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... FAILED
+
+failures:
+
+---- runtime::tests::history_large_fetch_keeps_observing_foreground stdout ----
+
+thread 'runtime::tests::history_large_fetch_keeps_observing_foreground' (1530) panicked at crates/collector-windows/src/runtime.rs:3682:9:
+見回り 1 回が 1.058469061s かかった
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    runtime::tests::history_large_fetch_keeps_observing_foreground
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 326 filtered out; finished in 17.81s
+
+error: test failed, to rerun pass `-p ashiato-collector-windows --lib`
+run 5/10 rc=101 elapsed=18266ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 14.86s
+
+run 6/10 rc=0 elapsed=15211ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 11.48s
+
+run 7/10 rc=0 elapsed=11649ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 9.88s
+
+run 8/10 rc=0 elapsed=10080ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 11.77s
+
+run 9/10 rc=0 elapsed=11943ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_collector_windows-1b25db1a8d49344e)
+
+running 1 test
+test runtime::tests::history_large_fetch_keeps_observing_foreground ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 326 filtered out; finished in 12.25s
+
+run 10/10 rc=0 elapsed=12462ms
+pass 2/10
 history: yes
-load-history: host
+load-history: db
 --- scan load=host ---
+command: cargo test -p ashiato-server --lib archive_scan_interval_change_takes_effect_without_restart
 load-repeat-rc: 0
-run 1/10 rc=101 elapsed=424ms
-run 2/10 rc=101 elapsed=491ms
-run 3/10 rc=101 elapsed=386ms
-run 4/10 rc=101 elapsed=616ms
-run 5/10 rc=101 elapsed=400ms
-run 6/10 rc=101 elapsed=463ms
-run 7/10 rc=101 elapsed=511ms
-run 8/10 rc=101 elapsed=496ms
-run 9/10 rc=101 elapsed=495ms
-run 10/10 rc=101 elapsed=676ms
-pass 10/10
+run 1/10 rc=0 elapsed=3634ms
+run 2/10 rc=101 elapsed=9994ms
+run 3/10 rc=0 elapsed=4866ms
+run 4/10 rc=0 elapsed=4476ms
+run 5/10 rc=0 elapsed=4628ms
+run 6/10 rc=0 elapsed=4941ms
+run 7/10 rc=0 elapsed=4896ms
+run 8/10 rc=0 elapsed=4834ms
+run 9/10 rc=0 elapsed=4608ms
+run 10/10 rc=101 elapsed=9664ms
+pass 2/10
+test-output:
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 3.09s
+
+run 1/10 rc=0 elapsed=3634ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... FAILED
+
+failures:
+
+---- archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart stdout ----
+
+thread 'archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart' (1753) panicked at crates/server/src/archive_scan_interval_tests.rs:164:5:
+走査が 4 回に届かない: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 9.64s
+
+error: test failed, to rerun pass `-p ashiato-server --lib`
+run 2/10 rc=101 elapsed=9994ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.43s
+
+run 3/10 rc=0 elapsed=4866ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.13s
+
+run 4/10 rc=0 elapsed=4476ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.24s
+
+run 5/10 rc=0 elapsed=4628ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.55s
+
+run 6/10 rc=0 elapsed=4941ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.44s
+
+run 7/10 rc=0 elapsed=4896ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.36s
+
+run 8/10 rc=0 elapsed=4834ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 4.25s
+
+run 9/10 rc=0 elapsed=4608ms
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (target/debug/deps/ashiato_server-c76629a168af0f21)
+
+running 1 test
+test archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart ... FAILED
+
+failures:
+
+---- archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart stdout ----
+
+thread 'archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart' (1962) panicked at crates/server/src/archive_scan_interval_tests.rs:164:5:
+走査が 5 回に届かない: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    archive_scan_interval_tests::archive_scan_interval_change_takes_effect_without_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 9.31s
+
+error: test failed, to rerun pass `-p ashiato-server --lib`
+run 10/10 rc=101 elapsed=9664ms
+pass 2/10
 scan: yes
 load-scan: host

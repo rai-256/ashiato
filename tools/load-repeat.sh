@@ -19,13 +19,15 @@ host_load_pids=()
 db_load_started=0
 command_pid=''
 self_test_tmp=''
+load_marker="ch09-load-$$"
 
 stop_db_load() {
   [ "$db_load_started" -eq 1 ] || return 0
   "$ROOT/tools/db.sh" exec -T db sh -c '
-    pids=$(ps -eo pid=,args= 2>/dev/null | awk '\''$2 ~ /^ch09-load-/ { print $1 }'\'' || true)
+    marker=$1
+    pids=$(ps -eo pid=,args= 2>/dev/null | awk -v marker="$marker" '\''index($0, marker) { print $1 }'\'' || true)
     [ -z "$pids" ] || kill $pids 2>/dev/null || true
-  ' >/dev/null 2>&1 || true
+  ' sh "$load_marker" >/dev/null 2>&1 || true
   db_load_started=0
 }
 
@@ -52,13 +54,13 @@ trap stop_load EXIT
 trap on_signal INT TERM
 
 start_load() {
-  local i count
+  local i count attempt
   case "$load" in
     none) ;;
     host)
       count=$(nproc)
       for ((i = 1; i <= count; i++)); do
-        bash -c 'while :; do :; done' &
+        bash -c 'while :; do :; done' "$load_marker-$i" &
         host_load_pids+=("$!")
       done
       ;;
@@ -68,17 +70,18 @@ start_load() {
         return 1
       fi
       count=$(nproc)
-      (
-        trap 'trap - INT TERM; kill 0' INT TERM
-        for ((i = 1; i <= count; i++)); do
-          "$ROOT/tools/db.sh" exec -T -d db sh -c "exec -a ch09-load-${BASHPID}-${i} sh -c 'while :; do :; done'" >/dev/null &
-        done
-        wait
-      ) &
-      command_pid=$!
-      wait "$command_pid" || return $?
-      command_pid=''
       db_load_started=1
+      for ((i = 1; i <= count; i++)); do
+        "$ROOT/tools/db.sh" exec -T -d db sh -c 'while :; do :; done' "${load_marker}-$i" >/dev/null || return 1
+      done
+      for ((attempt = 1; attempt <= 50; attempt++)); do
+        if [ "$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk -v marker='$load_marker' 'index(\$0, marker) { n++ } END { print n + 0 }'")" -ge 1 ]; then
+          return 0
+        fi
+        sleep 0.1
+      done
+      echo "DB の負荷が立たない: $load_marker" >&2
+      return 1
       ;;
     *)
       echo "未知の負荷: $load" >&2
@@ -125,19 +128,14 @@ run_expect() {
   return "$rc"
 }
 
-no_host_load_children() {
-  local parent=$1 attempt pid='' args=''
-  for attempt in 1 2 3 4 5; do
-    for pid in $(pgrep -P "$parent" -x bash 2>/dev/null || true); do
-      args=$(ps -p "$pid" -o args= 2>/dev/null || true)
-      [[ "$args" == *'while :; do :; done'* ]] && break 2
-    done
-    if [ "$pid" = '' ] || [[ "$args" != *'while :; do :; done'* ]]; then
-      return 0
-    fi
-    sleep 0.1
-  done
-  return 1
+no_load_markers() {
+  local host_count db_count
+  host_count=$(pgrep -f 'ch09-load-[0-9]' 2>/dev/null | wc -l)
+  [ "$host_count" -eq 0 ] || return 1
+  if "$ROOT/tools/db.sh" exec -T db true >/dev/null 2>&1; then
+    db_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk '\$0 ~ /ch09-load-[0-9]/ { n++ } END { print n + 0 }'")
+    [ "$db_count" -eq 0 ] || return 1
+  fi
 }
 
 self_test() {
@@ -163,7 +161,7 @@ self_test() {
     rc=$?
     [ "$rc" -eq 1 ] || { echo "self-test NG: 失敗命令の rc=$rc load=$mode" >&2; printf '%s\n' "$output" >&2; return 1; }
     printf '%s\n' "$output" | grep -q 'run 3/5 rc=1' || { echo "self-test NG: 失敗回の rc が出ない load=$mode" >&2; return 1; }
-    if ! no_host_load_children "$$"; then
+    if ! no_load_markers; then
       echo "self-test NG: 負荷の子が残った: load=$mode" >&2
       return 1
     fi
@@ -189,15 +187,25 @@ self_test() {
     timeout --signal=INT --kill-after=3 5 "$ROOT/tools/load-repeat.sh" --times 1 --load "$mode" -- sleep 60 &
     runner=$!
     set +e
+    found=0
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if ! no_load_markers; then
+        found=1
+        break
+      fi
+      sleep 0.1
+    done
+    [ "$found" -eq 1 ] || { echo "負荷が立たない: load=$mode" >&2; kill -TERM "$runner" 2>/dev/null || true; wait "$runner" 2>/dev/null || true; return 1; }
+    kill -INT "$runner" 2>/dev/null || true
     wait "$runner"
     rc=$?
     [ "$rc" -ne 0 ] || return 1
-    if ! no_host_load_children "$runner"; then
+    if ! no_load_markers; then
       echo "負荷の子が残った: load=$mode" >&2
       return 1
     fi
     if [ "$mode" = db ]; then
-      db_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk '\$1 ~ /^ch09-load-/ { n++ } END { print n + 0 }'")
+      db_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk '\$0 ~ /ch09-load-[0-9]/ { n++ } END { print n + 0 }'")
       [ "$db_count" -eq 0 ] || { echo "DB の負荷が残った: $db_count" >&2; return 1; }
     fi
   done
