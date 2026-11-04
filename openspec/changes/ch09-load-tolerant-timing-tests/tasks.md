@@ -34,7 +34,7 @@
 
 ## Task 1: 負荷の台本と、直す前の再現
 
-- [ ] 1.1 `tools/load-repeat.sh` を design D7 のとおりに書く: `[--times N] [--load host|db|none] [--expect-fail] -- <命令…>`・`--self-test`。冒頭のコメントに使い方・rc・なぜ要るか（CH09）を書く。
+- [x] 1.1 `tools/load-repeat.sh` を design D7 のとおりに書く: `[--times N] [--load host|db|none] [--expect-fail] -- <命令…>`・`--self-test`。冒頭のコメントに使い方・rc・なぜ要るか（CH09）を書く。
   `--self-test` は `--load none` と `--load host` の両方で偽の命令を使い、次の 2 つを見る。それぞれの前に印を出す:
   `echo "Scenario: 負荷の台本は、全部通れば通り、1 回でも落ちれば何回目かを挙げて落ちる"`（必ず通る命令 5 回 → rc=0 と `pass 5/5`、3 回目だけ落ちる命令 5 回 → rc=1 と 3 回目。
   どちらの後にも、台本の負荷の過程が `pgrep -P` で 0 本）/
@@ -42,7 +42,7 @@
   `echo "Scenario: 負荷の台本を途中で止めても、かけた負荷は残らない"`（`--load db` と `--load host` で 60 秒眠る命令を背景で走らせ、負荷が立ったのを見てから INT を送る →
   台本が終わり、手元の子と DB のコンテナの中の印 `ch09-load-<pid>` の過程が 0 本。DB のコンテナが無ければ self-test は rc=1 で「DB が要る」と出す）。
   検証: `tools/load-repeat.sh --self-test` rc=0
-- [ ] 1.2 change の中に `load-proof.sh` を書く: `before` は 1 の試験（`history_large_fetch_keeps_observing_foreground`）と 2 の試験（`archive_scan_interval_change_takes_effect_without_restart`）に
+- [x] 1.2 change の中に `load-proof.sh` を書く: `before` は 1 の試験（`history_large_fetch_keeps_observing_foreground`）と 2 の試験（`archive_scan_interval_change_takes_effect_without_restart`）に
   `tools/load-repeat.sh --expect-fail --times 10 --load host` を当て、2 で再現しなければ `--load db` でもう一度当て、`load-before.txt`（change の中）に `history: yes|no` / `scan: yes|no` と、
   当てた負荷・各回の rc を書く（rc は 0。結果の yes / no で台本は落ちない）。`after` は Task 13.3。**1 と 2 の試験を書き換える前（Task 3・4 の前）に `before` を走らせ、`load-before.txt` を commit する**。
   試験ごとに再現した負荷も `load-history: host|db|none` / `load-scan: host|db|none` で書く（両方で再現したら `host,db`。Task 13.3 がこの負荷で通す。design D7）。
