@@ -3078,6 +3078,7 @@ mod tests {
 
     /// 読みが終わるまで（実時間で）見回りを回す。
     fn tick_until_read(rt: &mut Runtime, src: &mut FakeSource, reader: &FakeReader, from: i64) {
+        // timing-ok: t(sec) を進める時刻を兼ねるループのため、回数を維持する。
         for sec in from..from + 2000 {
             rt.tick_at(src, t(sec), t(sec));
             if reader.reads() > 0 && rt.history.as_ref().is_some_and(|h| !h.is_reading()) {
@@ -3093,9 +3094,8 @@ mod tests {
     fn tick_until_history_idle(rt: &mut Runtime, src: &mut FakeSource, sec: i64) {
         let started = std::time::Instant::now();
         let deadline = started + std::time::Duration::from_secs(30);
-        let mut last_reading = true;
         loop {
-            last_reading = rt.history.as_ref().is_some_and(|h| h.is_reading());
+            let last_reading = rt.history.as_ref().is_some_and(|h| h.is_reading());
             if !last_reading {
                 return;
             }
@@ -3180,11 +3180,10 @@ mod tests {
     ) {
         let started = std::time::Instant::now();
         let deadline = started + std::time::Duration::from_secs(30);
-        let mut last_beats = 0;
         loop {
             rt.tick_at(src, t(sec), t(sec));
             rt.send();
-            last_beats = history_beats(transport).len();
+            let last_beats = history_beats(transport).len();
             if last_beats >= want {
                 return;
             }
@@ -4113,6 +4112,7 @@ mod tests {
         from: i64,
     ) {
         let before = reader.reads();
+        // timing-ok: t(sec) を進める時刻を兼ねるループのため、回数を維持する。
         for sec in from..from + 2000 {
             rt.tick_at(src, t(sec), t(sec));
             if reader.reads() > before && rt.history.as_ref().is_some_and(|h| !h.is_reading()) {

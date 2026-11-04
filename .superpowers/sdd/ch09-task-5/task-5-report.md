@@ -36,3 +36,11 @@
 - 30 秒期限、間隔、Scenario 名、試験名、本数を確認した。
 - 製品コード（`#[cfg(test)]` 外）は変更していない。
 - TDD の RED 記録が不足している点はプロセス上の懸念だが、実装後の focused / workspace 検証はすべて PASS している。
+
+## Fix report（review 1）
+
+- F1: `tick_until_read` と `tick_until_read_again` に、時刻を兼ねる回数ループを維持する理由の `// timing-ok:` 注記を追加した。
+- F2: `collect.rs` の `last_seen`、`runtime.rs` の `last_reading` / `last_beats` をループ内の不変束縛へ移し、`unused_assignments` 警告を解消した。
+- テスト: `scripts/quiet-run cw-fix -- cargo test -p ashiato-collector-windows --lib history` — `128 passed; 0 failed`。
+- 検証: `scripts/verify-run 5.1` — 3 件すべて `PASS`（collector history 128 件、scheduled 2 件、outage コマンド rc=0）。
+- 追加確認: `cargo fmt --all -- --check`、`git diff --check` — PASS。
