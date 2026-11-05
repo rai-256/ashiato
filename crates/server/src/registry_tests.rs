@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 登録簿（`core.source`）の**本物の行**を、全移行を当てた後の状態で確かめる（ST07 / design D2）。
 //!
 //! ここだけは**テスト用のソースを作らない** —— 見たいのは

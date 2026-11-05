@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 生存信号（FR-78 / design D4）。**記録が 0 件の期間の意味を残す唯一の材料。**
 //!
 //! FR-33 は記録を生成したときにしか稼働記録を書かないので、記録が 0 件の日は

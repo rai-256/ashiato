@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 収集から除外する対象（FR-83 / 深掘り Q5 / design D11）。
 //!
 //! **判定は送る前に行う。** 送ってからサーバ側で消すのでは守りにならない ——

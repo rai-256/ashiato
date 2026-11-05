@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 取りこぼしの期間が週の文字に出る（ST14 / tasks 10.2 / design D23（仮））。
  * ここは文字の組み立て。本物の画面の文字は `web/e2e/coverage-gaps.spec.ts` が見る。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 基準の読み取りを見回りの輪の外で行う作業スレッド（design D7 / D11）。
 //!
 //! `/healthz`（最長で要求の打ち切りまで）と `w32tm`（5 秒で打ち切り。止まっていれば続けて `wevtutil` も 5 秒）は、見回りの輪の中で待つと

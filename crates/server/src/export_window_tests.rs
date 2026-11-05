@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの「次の記録」の引きを窓関数の一度読みにする change（CH02）の試験。
 //!
 //! **まっさらな DB**（全移行だけを当てたもの）で走らせる。共有の DB には他の試験の消した滞在が混ざり、

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 移行 `satellite_credentials`：衛星の登録簿・資格情報の表と、読み出しの記録の欄（ST29 / design D7 / D9 / D14）。
 //! 全版は、試験の中で作った空の DB に当てる（共有の試験の DB には他の試験の行が残るため）。
 #![allow(clippy::unwrap_used)]

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 時計のずれを測って残す（FR-7 / 扉 #5 / design D6）。
 //!
 //! 記録の時刻（`event_time`）は PC の時計そのもので、**冪等キーの入力でもある**。

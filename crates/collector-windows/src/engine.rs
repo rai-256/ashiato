@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 観測を記録に変える規則。**OS を触らない** —— だから実機を待たずに確かめられる。
 //!
 //! ここにあるのは深掘りで本人が決めたことそのもの:

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! ブラウザ履歴を取り込み口へ送る形（ST08 design D4 / D5 / D6）。
 //!
 //! 1 件は `visit` / `vanished` / `excluded` / `profiles` のどれか。**`raw` は収集側が組んだ JSON を文字列のまま**

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 場所の器と、場所の記録の錠を、**本物の PostgreSQL に対して**確かめる（ST21 / Task 1）。
 //!
 //! 錠は取り込み口の外から（psql・プラグインが）直に殴る経路を止めるものなので、

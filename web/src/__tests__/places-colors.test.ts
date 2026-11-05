@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /** 場所の画面の色の出所（ST21 / tasks 8.3 / design D12）。静的な検査で、`master-view-limits.test.tsx` と同じ網。 */
 import { describe, expect, it } from "vitest";
 import bandSource from "../PlaceBand.tsx?raw";

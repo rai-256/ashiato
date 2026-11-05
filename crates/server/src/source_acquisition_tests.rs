@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 登録簿の取り方・契機・取得の間隔（ST13 / design D1 / D2 / D3）。
 //! 共有の登録簿の行は書き換えない: 変える試験は transaction の中で行い、最後に戻す。
 #![allow(clippy::unwrap_used)]

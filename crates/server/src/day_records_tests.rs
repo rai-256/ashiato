@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の記録の読み出し（ST25 / design D2〜D5）を、**本物の PostgreSQL に対して**確かめる。
 //!
 //! 許可リストの行ごとの試験は DB に触らない（`st25_allow_row_*`）。畳み・日の範囲は DB の側で効く

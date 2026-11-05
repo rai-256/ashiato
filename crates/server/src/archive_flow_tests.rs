@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! ST12 の「置いてから入るまで」を、置き場からの縦串で確かめる。
 //!
 //! `archive_tests` が部品ごとの振る舞いを見るのに対し、ここは **本人の操作の単位**

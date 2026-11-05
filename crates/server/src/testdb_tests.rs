@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 試験の足場そのものの繋ぎ先を見る（CH04 / design D1・D3）。
 #![allow(clippy::unwrap_used)]
 

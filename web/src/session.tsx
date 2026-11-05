@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { useEffect, useState } from "react";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";

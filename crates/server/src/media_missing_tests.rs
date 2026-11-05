@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 原本の欠けの受け口（ST09 tasks 7.1 / design D11）を、本物の PostgreSQL に対して確かめる。
 #![allow(clippy::unwrap_used)]
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の資格情報で断った求めの、読み出しの記録（ST29 / design D4 / D8 / D9）。本物の DB と router で確かめる。
 //! 衛星と資格情報の行は SQL で直に入れる。行は衛星の番号で絞って読む（共有の表に他の試験の行が混ざるため）。
 #![allow(clippy::unwrap_used)]

@@ -1,4 +1,4 @@
-﻿# SPDX-License-Identifier: AGPL-3.0-only
+﻿# SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 # 録画専用・前半（ハーネスの record-run が Windows Sandbox の中で走らせる。デスクトップ全体が撮られている）。
 # ST07「PC のアクティブウィンドウを集める」: 収集アプリを起こす → フォルダ「メモ A」→ ブラウザでページ A → ページ B →
 # フォルダへ戻る（Sandbox（24H2）にはメモ帳が無いので、どの Windows にもあるエクスプローラーの窓を使う。2026-10-15 実測）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * マスタ管理のタブ（ST21 / tasks 8.2 / design D12）。個人属性（`#/master`）と場所（`#/master/places`）の 2 つで、
  * 押すと hash が変わり、`#/master` は個人属性を開く。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 1 日の画面の要約とほかの記録の行（ST25 / tasks 8.1 / design D7）。固定の `/api/day` の応答を描いて文字列を確かめる。
  */

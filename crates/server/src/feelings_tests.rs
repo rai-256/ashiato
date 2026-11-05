@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳を、**本物の PostgreSQL に対して**確かめる
 //! （ST17 / Task 1）。
 //!

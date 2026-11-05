@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 待ち受けと DB の接続先の検査（ST28 / design D7・D14）。
 //! 拒否の理由は種別だけを返す。アドレスや接続先の値は出さない（製造準備 A-2 / C3）。
 

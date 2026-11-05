@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * S-3 主観入力の画面（ST17 / tasks 8.1 / design D12）—— 押した瞬間に保存する。
  *

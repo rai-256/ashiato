@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 稼働状況の導出と、成功条件 1 の達成日数を、**本物の PostgreSQL に対して**確かめる。
 //!
 //! 日境界（`AT TIME ZONE`）も範囲の重なりも DB の側にあるので、模擬すると意味が消える。
@@ -18,7 +19,6 @@ mod spans;
 mod started_on;
 mod states;
 
-// SPDX-License-Identifier: AGPL-3.0-only
 /// テスト用の登録簿 1 行。`gap` は想定間隔（秒）、`started` は収集開始日。
 pub(super) async fn src(
     pool: &sqlx::PgPool,

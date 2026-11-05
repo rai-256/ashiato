@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { useEffect, useMemo, useRef, useState } from "react";
 import { todayInTz } from "./App";
 import { readIngestResponse } from "./attributes";

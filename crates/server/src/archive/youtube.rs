@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! YouTubeの視聴と検索をURLの経路で分ける。あわせて、評価と書き出しの言語を決まり文句の表で見分ける（ST47 / D4（仮））。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {

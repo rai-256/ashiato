@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! DB に当てた移行の版の記録を読み、自分の知る版と比べる（ST48 / design D1・D2・D3・D5）。
 //!
 //! 比べ方は**名前の集合**だけ（並びの位置・名前の時刻では比べない。ORDER は時刻順でない）。

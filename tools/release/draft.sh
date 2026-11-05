@@ -150,6 +150,7 @@ self_test() {
   fake_bin="$work/bin"
   calls="$work/gh-calls"
   mkdir -p "$fake_bin"
+  export DRAFT_SELF_TEST_ROOT="$root"
 
   cat >"$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -162,14 +163,38 @@ if [[ "${1:-}" == run && "${2:-}" == download ]]; then
   mkdir -p "$out"
   stamp="$v+0000000000000000000000000000000000000000"
   printf '%s\n' "$stamp" >"$out/stamp"
-  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$out" stamp
-  (cd "$out" && zip -q "ashiato-server-$v-windows-x86_64.zip" stamp)
-  (cd "$out" && zip -q "ashiato-collector-windows-$v-x86_64.zip" stamp)
+  cp "$DRAFT_SELF_TEST_ROOT/LICENSE" "$out/LICENSE"
+  cat >"$out/THIRD-PARTY-NOTICES.txt" <<'NOTICES'
+== rust-std 1
+License: MIT OR Apache-2.0
+
+== anyhow 1.0.0
+License: MIT
+MIT License of anyhow
+
+== react 18.0.0
+License: MIT
+MIT License of react
+
+== com.google.android.gms:play-services-location 1.0.0
+License: Apache-2.0
+Apache License of play-services-location
+NOTICES
+  printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$out/SOURCE.txt"
+  tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$out" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt
+  (cd "$out" && zip -q "ashiato-server-$v-windows-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
+  (cd "$out" && zip -q "ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
   if [[ "${DRAFT_SELF_TEST_MISSING_APK:-0}" != 1 ]]; then
     cp "$out/stamp" "$out/classes.dex"
-    (cd "$out" && zip -q "ashiato-collector-$v.apk" classes.dex)
+    mkdir -p "$out/assets/licenses"
+    cp "$out/LICENSE" "$out/assets/licenses/LICENSE"
+    cp "$out/THIRD-PARTY-NOTICES.txt" "$out/assets/licenses/THIRD-PARTY-NOTICES.txt"
+    # APK 側は gms の中の第三者の見出しも必須。
+    printf '\n(gms の中の第三者)\n' >>"$out/assets/licenses/THIRD-PARTY-NOTICES.txt"
+    cp "$out/SOURCE.txt" "$out/assets/licenses/SOURCE.txt"
+    (cd "$out" && zip -q "ashiato-collector-$v.apk" classes.dex assets/licenses/LICENSE assets/licenses/THIRD-PARTY-NOTICES.txt assets/licenses/SOURCE.txt)
   fi
-  rm -f "$out/stamp" "$out/classes.dex"
+  rm -rf "$out/stamp" "$out/classes.dex" "$out/LICENSE" "$out/THIRD-PARTY-NOTICES.txt" "$out/SOURCE.txt" "$out/assets"
   # 検査していないファイルが置き場にあっても、下書きには載らないこと（R22）
   printf 'x\n' >"$out/extra.txt"
   exit 0

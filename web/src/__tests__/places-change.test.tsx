@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 場所の名前・広さ・座標を変える（ST21 / tasks 9.2 / design D13 / D14）。
  * 応答を固定して、選択肢・送るもの・押せる状態を見る。画面の Scenario の印は `web/e2e` が持つ。

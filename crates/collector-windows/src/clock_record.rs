@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 作業スレッドが読んだ基準を、PC の測定記録（`clock-skew`）にする（ST05 design D10）。
 //!
 //! 2 つの出どころ（取り込み口の応答の日付・Windows の時刻同期の状態）は、

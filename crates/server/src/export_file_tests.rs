@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの中身（ST33 / design D4 / D7 / D9 / D19）。**書き出した zip を `zip` crate の読み手に合言葉を渡して開き**、
 //! 中のファイルを読む（このシステムのコードを通さない）。
 //!
