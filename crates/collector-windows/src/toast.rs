@@ -10,16 +10,19 @@ use windows::core::HSTRING;
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
+use crate::channel_notice::ChannelToaster;
 use crate::contract_notice::ContractToaster;
 use crate::outage_notice::Toaster;
 
 /// 通知の差出人。
-pub const AUMID: &str = "dev.ashiato.collector";
+pub use crate::toast_names::{aumid, display_name};
 /// 通知の識別（途切れの通知は常に 1 通）。
 pub const TAG: &str = "outage";
 pub const GROUP: &str = "ashiato";
 /// 「サーバを更新してください」の通知の識別（途切れの通知の `outage` と分ける。ST50 / design D5）。
 pub const CONTRACT_TAG: &str = "contract";
+/// 系統の違いの通知（契約の版の通知とは別）。
+pub const CHANNEL_TAG: &str = "channel";
 
 /// 通知の設定の窓口。
 #[derive(Debug)]
@@ -28,24 +31,27 @@ pub struct WindowsToaster {
 }
 
 /// 差出人を登録簿に書く（`DisplayName = "ashiato"`）。書けなければ `Err`（呼び出し側は警告だけで収集を続ける）。
-pub fn register_aumid(aumid: &str) -> anyhow::Result<()> {
+pub fn register_aumid(aumid: &str, display_name: &str) -> anyhow::Result<()> {
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
     let (key, _) = hkcu
         .create_subkey(format!(r"Software\Classes\AppUserModelId\{aumid}"))
         .context("登録簿の鍵を作れない")?;
-    key.set_value("DisplayName", &"ashiato")
+    key.set_value("DisplayName", &display_name)
         .context("登録簿へ書けない")
 }
 
 impl WindowsToaster {
     /// 差出人を登録して口を作る。
-    pub fn register() -> anyhow::Result<Self> {
-        Self::register_as(AUMID)
+    pub fn register(channel: ashiato_build_stamp::Channel) -> anyhow::Result<Self> {
+        register_aumid(aumid(channel), display_name(channel))?;
+        Ok(Self {
+            aumid: aumid(channel).to_string(),
+        })
     }
 
     /// 差出人の名前を指定して登録する（試験が本物の登録と混ざらないように使う）。
     pub fn register_as(aumid: &str) -> anyhow::Result<Self> {
-        register_aumid(aumid)?;
+        register_aumid(aumid, "ashiato")?;
         Ok(Self {
             aumid: aumid.to_string(),
         })
@@ -116,5 +122,15 @@ impl ContractToaster for WindowsToaster {
 
     fn dismiss_contract(&self) -> anyhow::Result<()> {
         self.dismiss_tagged(CONTRACT_TAG)
+    }
+}
+
+impl ChannelToaster for WindowsToaster {
+    fn show_channel(&self, xml: &str) -> anyhow::Result<()> {
+        self.show_tagged(xml, true, CHANNEL_TAG)
+    }
+
+    fn dismiss_channel(&self) -> anyhow::Result<()> {
+        self.dismiss_tagged(CHANNEL_TAG)
     }
 }

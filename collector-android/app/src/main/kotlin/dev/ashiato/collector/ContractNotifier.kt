@@ -14,15 +14,38 @@ import java.time.Duration
  * 「S-01 の更新を待っている」ときの案内（ST50 / design D6・D22・D24（仮））。画面の行・通知・上限の 7 日前の知らせが同じ文言を使う。
  * 理由が 200 の読めない答え（e）だけのときは、公衆の Wi-Fi の入口でも誤りにならない文言にする。
  */
-data class ContractNotice(val onlyUnreadable: Boolean, val days: Int) {
-    val headline: String get() = contractHeadline(onlyUnreadable)
+data class ContractNotice(
+    val onlyUnreadable: Boolean,
+    val days: Int,
+    val channelMismatch: Boolean = false,
+    /** 系統不一致だけの行では、ST50 の契約更新文を混ぜない。 */
+    val contractWaiting: Boolean = true,
+    /** 自分の系統（系統の違いの文の相手を決める）。試験は差し替える */
+    val local: Channel = buildLocalChannel(),
+) {
+    val headline: String get() = if (channelMismatch) {
+        if (contractWaiting) {
+            "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline(local)}"
+        } else {
+            channelMismatchHeadline(local)
+        }
+    } else {
+        contractHeadline(onlyUnreadable)
+    }
 
-    /** 画面の 1 行と通知の本文 */
-    val line: String get() = "$headline（未送信 $days 日分を携帯に残しています）"
+    /** 画面の 1 行と通知の本文。系統の違いだけの行は日数を添えない（契約の版の待ちの日数ではないので。final review R7） */
+    val line: String get() = if (channelMismatch && !contractWaiting) {
+        headline
+    } else {
+        "$headline（未送信 $days 日分を携帯に残しています）"
+    }
 }
 
 const val CONTRACT_UPDATE_HEADLINE = "サーバを更新してください"
 const val CONTRACT_NETWORK_HEADLINE = "サーバを更新するか、つながっている網を確かめてください"
+
+fun channelMismatchHeadline(local: Channel): String =
+    "送り先が${if (local == Channel.Dev) "正式版" else "開発版"}のサーバです。送り先を確かめてください"
 
 fun contractHeadline(onlyUnreadable: Boolean): String =
     if (onlyUnreadable) CONTRACT_NETWORK_HEADLINE else CONTRACT_UPDATE_HEADLINE
@@ -31,9 +54,55 @@ fun contractHeadline(onlyUnreadable: Boolean): String =
 fun oldestUnsentDays(records: Outbox<*>, age: () -> Long): Int =
     records.oldest()?.let { ((age() - it.enqAgeMs) / AgeClock.DAY_MS).toInt() }?.coerceAtLeast(0) ?: 0
 
+/**
+ * 画面の 1 行の元（ST50 の待ちと ST54 の系統の違い）。どちらも無ければ null。
+ * 待ちと系統の違いが重なれば両方の文を載せる（/code-review R32。待ちの写しは系統の違いを持たないので、ここで足す）
+ */
+fun screenNotice(store: ContractWaitStore): ContractNotice? {
+    val mismatch = store.channelMismatch
+    return store.notice?.let { if (mismatch) it.copy(channelMismatch = true) else it }
+        ?: if (mismatch) ContractNotice(false, 0, channelMismatch = true, contractWaiting = false) else null
+}
+
 /** 止まった状態の写しを作る。止まっていなければ null。 */
 fun contractNotice(reasons: ContractReasons, days: Int): ContractNotice? =
     if (reasons.waiting) ContractNotice(reasons.onlyUnreadable, days) else null
+
+class ChannelMismatchNotifier(
+    private val context: Context,
+    private val store: ContractWaitStore,
+    private val now: () -> Long = System::currentTimeMillis,
+    /** 自分の系統。試験は差し替える */
+    private val local: Channel = buildLocalChannel(),
+) {
+    private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
+
+    fun update(mismatch: Boolean) {
+        if (!mismatch) {
+            if (store.channelNotifiedAtMs != null) {
+                manager.cancel(CHANNEL_NOTIFICATION_ID)
+                store.channelNotifiedAtMs = null
+            }
+            return
+        }
+        val last = store.channelNotifiedAtMs
+        if (last != null && now() - last < ContractNotifier.REPEAT.toMillis()) return
+        manager.createNotificationChannel(
+            NotificationChannel(ContractNotifier.CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        manager.notify(
+            CHANNEL_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, ContractNotifier.CHANNEL)
+                .setContentTitle(ContractNotifier.TITLE)
+                .setContentText(channelMismatchHeadline(local))
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .build()
+        )
+        store.channelNotifiedAtMs = now()
+    }
+
+    companion object { const val CHANNEL_NOTIFICATION_ID = 6 }
+}
 
 /**
  * 更新を促す通知を端末に出す（D6）。専用のチャンネル `contract`。

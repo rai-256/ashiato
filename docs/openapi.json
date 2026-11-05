@@ -194,6 +194,14 @@
         "responses": {
           "200": {
             "description": "",
+            "headers": {
+              "Ashiato-Channel": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "サーバの系統（dev または official）"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {

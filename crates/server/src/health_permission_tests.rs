@@ -81,9 +81,13 @@ where
     let result = async {
         // 本番と同じく版の記録を持たせて当てる（戻しが版の記録の行を消すので、記録の表が要る）
         let conn = fresh.acquire().await.map_err(|e| e.to_string())?;
-        crate::migration_ledger::apply_migrations(conn, crate::MIGRATIONS)
-            .await
-            .map_err(|e| format!("移行が当たらない: {e:?}"))?;
+        crate::migration_ledger::apply_migrations(
+            conn,
+            crate::MIGRATIONS,
+            ashiato_build_stamp::channel(crate::migration_ledger::BUILD_VERSION),
+        )
+        .await
+        .map_err(|e| format!("移行が当たらない: {e:?}"))?;
         f(fresh.clone()).await
     }
     .await;

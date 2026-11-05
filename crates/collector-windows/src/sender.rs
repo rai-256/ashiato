@@ -22,6 +22,7 @@ pub struct Reply {
     /// 状態符号。200 = 1 件以上を受け付けた / 400 = 1 件も受け付けなかった
     pub status: u16,
     pub body: String,
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 /// 1 回の POST。**到達できなければ `Err`** —— 網の失敗と、サーバが返した応答は別物。
@@ -62,6 +63,32 @@ pub fn read_contract_answer(reply: &anyhow::Result<Reply>) -> ContractAnswer {
             .map_or(ContractAnswer::Unreadable, ContractAnswer::Version),
         _ => ContractAnswer::Transient,
     }
+}
+
+/// `Version` と読めた契約の応答からだけ系統を読む。古い応答は正式版扱い。
+pub fn read_contract_channel(
+    reply: &anyhow::Result<Reply>,
+) -> Option<ashiato_build_stamp::Channel> {
+    let Ok(reply) = reply else {
+        return None;
+    };
+    if !matches!(
+        read_contract_answer(&Ok(reply.clone())),
+        ContractAnswer::Version(_)
+    ) {
+        return None;
+    }
+    reply
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("Ashiato-Channel"))
+        .and_then(|(_, value)| match value.trim() {
+            "dev" => Some(ashiato_build_stamp::Channel::Dev),
+            "official" => Some(ashiato_build_stamp::Channel::Official),
+            "" => Some(ashiato_build_stamp::Channel::Official),
+            _ => None,
+        })
+        .or(Some(ashiato_build_stamp::Channel::Official))
 }
 
 /// 直前の `flush` が見た版の事情（design D9 の（a）（c）（d））。
@@ -376,7 +403,11 @@ impl Transport for HttpTransport {
         let status = res.status().as_u16();
         // **400 も本文を読む**（1 件ごとの結果がそこにある）
         let body = res.body_mut().read_to_string().unwrap_or_default();
-        Ok(Reply { status, body })
+        Ok(Reply {
+            status,
+            body,
+            headers: std::collections::BTreeMap::new(),
+        })
     }
 
     fn get(&self, path: &str) -> anyhow::Result<Reply> {
@@ -389,7 +420,16 @@ impl Transport for HttpTransport {
             .map_err(|e| anyhow::anyhow!("get failed: {}", e))?;
         let status = res.status().as_u16();
         let body = res.body_mut().read_to_string().unwrap_or_default();
-        Ok(Reply { status, body })
+        let headers = res
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| Some((name.to_string(), value.to_str().ok()?.to_string())))
+            .collect();
+        Ok(Reply {
+            status,
+            body,
+            headers,
+        })
     }
 }
 
@@ -448,7 +488,11 @@ impl crate::outage_notice::OutageQuery for HttpOutageQuery {
         };
         let status = res.status().as_u16();
         let body = res.body_mut().read_to_string().unwrap_or_default();
-        crate::outage_notice::parse_reply(&Reply { status, body })
+        crate::outage_notice::parse_reply(&Reply {
+            status,
+            body,
+            headers: std::collections::BTreeMap::new(),
+        })
     }
 }
 
@@ -543,6 +587,7 @@ mod tests {
                 return Ok(Reply {
                     status: 404,
                     body: String::new(),
+                    headers: Default::default(),
                 });
             }
             match r.remove(0) {
@@ -556,6 +601,7 @@ mod tests {
         Some(Reply {
             status: 200,
             body: format!(r#"{{"contract_version":{v}}}"#),
+            headers: Default::default(),
         })
     }
 
@@ -584,7 +630,24 @@ mod tests {
         Some(Reply {
             status: 200,
             body: serde_json::to_string(&items).unwrap(),
+            headers: Default::default(),
         })
+    }
+
+    /// 契約の版を読めた答えの見出し `Ashiato-Channel` から系統を読む（D14（仮））。
+    #[test]
+    fn st54_channel_reads_contract_header() {
+        let mut headers = std::collections::BTreeMap::new();
+        headers.insert("Ashiato-Channel".to_string(), "dev".to_string());
+        let reply = Ok(Reply {
+            status: 200,
+            body: r#"{"contract_version":1}"#.to_string(),
+            headers,
+        });
+        assert_eq!(
+            read_contract_channel(&reply),
+            Some(ashiato_build_stamp::Channel::Dev)
+        );
     }
 
     /// **受理された分だけを取り除く**（tasks 8.2）。
@@ -671,6 +734,7 @@ mod tests {
         let t = FakeTransport::with(vec![Some(Reply {
             status: 500,
             body: "<html>".into(),
+            headers: Default::default(),
         })]);
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
@@ -865,22 +929,27 @@ mod tests {
             Some(Reply {
                 status: 404,
                 body: String::new(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 200,
                 body: "<html>sign in</html>".into(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 200,
                 body: r#"{"other":1}"#.into(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 200,
                 body: r#"{"contract_version":"2"}"#.into(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 200,
                 body: r#"{"contract_version":0}"#.into(),
+                headers: Default::default(),
             }),
         ];
         let want = [
@@ -912,6 +981,7 @@ mod tests {
         let refused = Some(Reply {
             status: 426,
             body: r#"{"error":"contract_unsupported","contract_version":1}"#.into(),
+            headers: Default::default(),
         });
         let t = FakeTransport::with(vec![refused, ok_reply(&[true, true])]);
         t.contract
@@ -968,6 +1038,7 @@ mod tests {
                 {"id": null, "duplicate": false, "accepted": false, "error": "contract_unsupported"}
             ])
             .to_string(),
+            headers: Default::default(),
         });
         let t = FakeTransport::with(vec![rejected, ok_reply(&[true, true])]);
         // 1 回目は古い S-01（A = 2 と答えたが断られた）。2 回目は更新後
@@ -1012,6 +1083,7 @@ mod tests {
         Some(Reply {
             status: 200,
             body: serde_json::to_string(&items).unwrap(),
+            headers: Default::default(),
         })
     }
 
@@ -1078,14 +1150,17 @@ mod tests {
             Some(Reply {
                 status: 401,
                 body: String::new(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 403,
                 body: String::new(),
+                headers: Default::default(),
             }),
             Some(Reply {
                 status: 503,
                 body: "<html>".into(),
+                headers: Default::default(),
             }),
         ] {
             assert_eq!(

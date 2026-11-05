@@ -65,6 +65,51 @@ check_new_rules() {
   return "$rc"
 }
 
+check_lineage() {
+  local d="$1" bad=0 line kind old new
+  local lineage="$d/LINEAGE" order="$d/ORDER"
+  [ -f "$lineage" ] || { echo "  NG $lineage: LINEAGE が無い"; return 1; }
+  [ -f "$order" ] || { echo "  NG $order: LINEAGE の順を確かめる ORDER が無い"; return 1; }
+  declare -A pos=()
+  local n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#${line%%[![:space:]]*}}"
+    [ -n "$line" ] || continue
+    pos["$line"]=$n
+    n=$((n + 1))
+  done < "$order"
+  declare -A seen_old=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#${line%%[![:space:]]*}}"
+    [ -n "$line" ] || continue
+    read -r kind old new extra <<< "$line"
+    case "$kind" in
+      renamed)
+        [ -n "$old" ] && [ -n "$new" ] && [ -z "$extra" ] || { echo "  NG $lineage: renamed の名前の数が違う: $line"; bad=1; continue; }
+        [ -n "${pos[$new]+x}" ] || { echo "  NG $lineage: renamed の今の名前が ORDER に無い: $new"; bad=1; }
+        ;;
+      removed)
+        [ -n "$old" ] && [ -z "$new" ] && [ -z "$extra" ] || { echo "  NG $lineage: removed の名前の数が違う: $line"; bad=1; }
+        ;;
+      rewritten)
+        [ -n "$old" ] && [ -n "$new" ] && [ -z "$extra" ] || { echo "  NG $lineage: rewritten の名前の数が違う: $line"; bad=1; continue; }
+        [ -n "${pos[$old]+x}" ] || { echo "  NG $lineage: rewritten の直す移行が ORDER に無い: $old"; bad=1; }
+        [ -n "${pos[$new]+x}" ] || { echo "  NG $lineage: rewritten の直しの移行が ORDER に無い: $new"; bad=1; }
+        if [ -n "${pos[$old]+x}" ] && [ -n "${pos[$new]+x}" ] && [ "${pos[$new]}" -le "${pos[$old]}" ]; then
+          echo "  NG $lineage: rewritten の直しの移行が直す移行より後でない: $old $new"
+          bad=1
+        fi
+        ;;
+      *) echo "  NG $lineage: 種類が違う（renamed / removed / rewritten）: $line"; bad=1;;
+    esac
+    [ -z "${seen_old[$old]+x}" ] || { echo "  NG $lineage: 旧名が重複している: $old"; bad=1; }
+    seen_old["$old"]=1
+  done < "$lineage"
+  return "$bad"
+}
+
 if [ "${mode:-}" = self-test ]; then
   work="$(mktemp -d "${TMPDIR:-/tmp}/check-migrations-selftest.XXXXXX")"
   trap 'rm -rf "$work"' EXIT
@@ -73,6 +118,8 @@ if [ "${mode:-}" = self-test ]; then
     mkdir -p "$work/$1/migrations"
     printf '%s\n' "$2" > "$work/$1/migrations/${new}.sql"
     printf '%s\n' "$3" > "$work/$1/migrations/${new}.down.sql"
+    printf '%s\n' "$new" > "$work/$1/migrations/ORDER"
+    : > "$work/$1/migrations/LINEAGE"
   }
   ledger_del="DELETE FROM migration_ledger.applied WHERE name = '${new}';"
   mk txn $'CREATE TABLE t (id int);\nCOMMIT;' "$ledger_del"
@@ -93,6 +140,29 @@ if [ "${mode:-}" = self-test ]; then
   expect noledger fail && echo "Scenario: 新しい版の戻し手順が版の記録の行を消さないと、検査が落ちる" || fail=1
   expect dofn pass || fail=1
   expect good pass || fail=1
+  lineage_case="$work/lineage"
+  mkdir -p "$lineage_case/migrations"
+  printf '%s\n' 202611030001_a 202611030002_b 202611030003_c 202611030004_d > "$lineage_case/migrations/ORDER"
+  for name in 202611030001_a 202611030002_b 202611030003_c 202611030004_d; do
+    : > "$lineage_case/migrations/$name.sql"
+    printf '%s\n' "DELETE FROM migration_ledger.applied WHERE name = '$name';" > "$lineage_case/migrations/$name.down.sql"
+  done
+  expect_lineage() {
+    local body="$1" expected="$2" out rc=0
+    printf '%s\n' "$body" > "$lineage_case/migrations/LINEAGE"
+    out="$self --dir '$lineage_case/migrations'"
+    out="$(eval "$out" 2>&1)" || rc=$?
+    if [ "$expected" = fail ] && [ "$rc" -ne 0 ] && grep -q "$3" <<< "$out"; then return 0; fi
+    if [ "$expected" = pass ] && [ "$rc" -eq 0 ]; then return 0; fi
+    echo "  self-test NG: LINEAGE '$body' の期待と違う (rc=$rc)"; echo "$out"; return 1
+  }
+  expect_lineage 'moved A B' fail 'moved A B' || fail=1
+  expect_lineage 'renamed A' fail 'renamed A' || fail=1
+  expect_lineage 'renamed A X' fail 'ORDER に無い' || fail=1
+  expect_lineage 'rewritten 202611030003_c 202611030002_b' fail '後でない' || fail=1
+  expect_lineage 'renamed 202611030001_a 202611030002_b' pass '' || fail=1
+  expect_lineage 'rewritten 202611030003_c 202611030004_d' pass '' || fail=1
+  [ "$fail" -eq 0 ] && echo '== Scenario: 旧名の対応の形が違えば、移行の形の検査が落ちる' || true
   [ "$fail" -eq 0 ] && echo "self-test OK" || { echo "self-test NG"; exit 1; }
   exit 0
 fi
@@ -130,4 +200,5 @@ for f in "$dir"/*.sql; do
   [ -f "$d" ] || { echo "  NG $f: 戻し手順 $d が無い"; bad=1; }
   check_new_rules "$f" "$d" || bad=1
 done
+check_lineage "$dir" || bad=1
 [ "$bad" -eq 0 ] && echo "マイグレーション OK" || { echo "マイグレーション NG"; exit 1; }

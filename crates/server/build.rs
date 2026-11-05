@@ -26,7 +26,9 @@ fn main() {
         .canonicalize()
         .unwrap_or_else(|e| panic!("{} が無い: {e}", dir.display()));
     let order = dir.join("ORDER");
+    let lineage = dir.join("LINEAGE");
     println!("cargo:rerun-if-changed={}", order.display());
+    println!("cargo:rerun-if-changed={}", lineage.display());
     println!("cargo:rerun-if-changed={}", dir.display());
     println!("cargo:rerun-if-env-changed=ASHIATO_WEB_DIST");
     println!("cargo:rerun-if-env-changed=ASHIATO_RELEASE");
@@ -93,6 +95,34 @@ fn main() {
     let out = Path::new(&env::var("OUT_DIR").expect("OUT_DIR")).join("migrations.rs");
     fs::write(&out, format!("&[\n{body}]\n"))
         .unwrap_or_else(|e| panic!("{} を書けない: {e}", out.display()));
+
+    let lineage_text = fs::read_to_string(&lineage)
+        .unwrap_or_else(|e| panic!("{} を読めない: {e}", lineage.display()));
+    let mut lineage_body = String::new();
+    // 行末の `# …` は説明。tools/check-migrations.sh・tools/check-nightly-migrations.sh と同じく外してから欄を割る
+    for line in lineage_text
+        .lines()
+        .map(|l| l.split_once('#').map_or(l, |(body, _)| body).trim())
+    {
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let (kind, old, new) = match fields.as_slice() {
+            ["renamed", old, new] => ("Renamed", *old, *new),
+            ["removed", old] => ("Removed", *old, ""),
+            ["rewritten", old, new] => ("Rewritten", *old, *new),
+            _ => panic!("migrations/LINEAGE の行の形が違う: {line}"),
+        };
+        writeln!(
+            lineage_body,
+            "    (crate::migration_ledger::LineageKind::{kind}, {old:?}, {new:?}),"
+        )
+        .expect("String に書く");
+    }
+    let lineage_out = Path::new(&env::var("OUT_DIR").expect("OUT_DIR")).join("lineage.rs");
+    fs::write(&lineage_out, format!("&[\n{lineage_body}]\n"))
+        .unwrap_or_else(|e| panic!("{} を書けない: {e}", lineage_out.display()));
 
     write_web_assets();
 }
