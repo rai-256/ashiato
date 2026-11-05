@@ -1,0 +1,337 @@
+{
+  "title": "確認バッチ 20261105-1547",
+  "subtitle": "ST54 開発版を正式版と並べて入れられる / ST53 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261105-1547/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。読む・作り直すのは画面の合言葉でログインして（`tools/web-login.sh`）。API の合言葉は送るだけ。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `cookie=\"$(tools/web-login.sh http://127.0.0.1:18787)\"; curl -sS -H \"$cookie\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261105-1547 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261105-1547/app-debug.apk` を作った。エミュレータが無いので入れていない（手で入れる: `adb -s エミュレータ install -r dist/verify-20261105-1547/app-debug.apk`）。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261105-1547`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261105-1547 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261105-1547/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画: 撮っていない —— このバッチの Story（ST54 ST53）に録画のシナリオが無い"
+  ],
+  "questions": [
+    {
+      "id": "ST54-T12.1",
+      "topic": "ST54 12.1",
+      "kind": "check",
+      "question": "開発版の下書きのリリース（D10・Q9）: `nightly.yml` を手で起こし（公開の設定は入れない。組むだけ）、その run で使い捨ての開発版の鍵を渡して `tools/release/draft.sh --channel nightly <run-id> <版番号>` を走らせる。",
+      "why": "ST54 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST54-T12.2",
+      "topic": "ST54 12.2",
+      "kind": "check",
+      "question": "並べて入れる手順: `docs/release.md` の開発版の節を読み、携帯・PC・サーバと DB を正式版と並べて立てる手順が、本人の手元でそのまま進められること（本物の開発版の鍵を作るのは ST53 の後。ST54 の確認では作らなくてよい）",
+      "why": "ST54 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST54-PD12",
+      "topic": "ST54 仮D12",
+      "kind": "check",
+      "question": "ST54 の仮の決定 D12: 系統の違いの知らせを、どの口・どの間隔で出すか（Q13 の答えの「ST50 の知らせと同じ形」と、選択肢の説明の「1 回知らせる」が分かれる） →「ST50 と同じ口（携帯は画面の行と通知、PC は通知）で別の札・id。入った契機で 1 回、続く間は 24 時間ごとに出し直し、同じ系統が答えたら消す。携帯の上限の 7 日前の知らせにも添える」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 出し直せば、通知を払った後も取り違えに気づく手がかりが 83 日目の 1 回だけにならず、携帯の未送信を気づかないまま上限で捨てにくい。1 回だけにする側へは出し直しの条件を外せば戻る（失わない側の費用: ST50 の出し直しの決め方（contract_notice::decide・ContractNotifier.update）を札・id を替えてもう 1 つ持つ）\n乗っている決定: Q12, Q13, D7\n出所: docs/audit/2026-11-03-st54-q12-consistency.md#C5",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST54-PD14",
+      "topic": "ST54 仮D14",
+      "kind": "check",
+      "question": "ST54 の仮の決定 D14: 系統をどの答えから読むか（404・読めない 200・401 も含めるか）と、系統をいくつにするか（ベータ版をどう扱うか） →「契約の版を読めた答え（Version）の見出しからだけ読み、404・読めない 200・401 は ST50 の今の扱いのまま。系統は開発版と、それ以外（正式版・ベータ版）の official の 2 つ」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: ST50 の今の扱いが変わらず、公衆の網の入口や合言葉の誤りで誤った案内を出さない。ベータ版を official に含めれば、ベータ版の記録は今どおり正式版のサーバへ送られ、上限で捨てられない。読む答えを広げる・系統を 3 つにする側へは比べの枝を足せば移れる（失わない側の費用: なし（今の答えの分け方の Version の枝に比べを足すだけ））\n乗っている決定: Q12, Q13, D1, D7\n出所: docs/audit/2026-11-03-st54-q12-consistency.md#C1",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST54-AQ15",
+      "topic": "ST54 答えで直した Q15",
+      "kind": "check",
+      "question": "ST54 の Q15「系統の違うサーバから、読む口（途絶の判定・気分の通知の判断）も止めるか（design D13）」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st54-dev-side-by-side/deep.md の Q15・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST54-F",
+      "topic": "ST54 違和感",
+      "kind": "check",
+      "question": "ST54「開発版を正式版と並べて入れられる」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（11 件。例: impact.evidence[E1]: quote が crates/collector-windows/src/history/collect.rs:315 の近く（前後 10 行）に無い —— 読んだ実物から引く）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261105-1547/ST54-spec.html"
+    },
+    {
+      "id": "ST53-T11.1",
+      "topic": "ST53 11.1",
+      "kind": "check",
+      "question": "下書きのリリースで許諾の 3 点を見る（Q4・D12）: この Story の PR の `package` の run で `tools/release/draft.sh <run-id> 0.1.0-beta.1` を、その PR の head を checkout した手元（`git rev-parse HEAD` が run の `head_sha` と同じ）で走らせる（D18）。",
+      "why": "ST53 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST53-T11.5",
+      "topic": "ST53 11.5",
+      "kind": "check",
+      "question": "PR の head を後から取れるか（P14。FR-127 ★ 2026-11-03。`package` も ST53 のコードも要らないので、確認バッチの中で ST53 が main に入る前に行う）:",
+      "why": "ST53 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST53-T11.2",
+      "topic": "ST53 11.2",
+      "kind": "check",
+      "question": "承認者が job を止めることと、権限を絞った token が承認できないこと（P8・P11・P12 後半・D3・D11（仮））: 使い捨ての Environment `st53-probe` に本人を必須の承認者として付け、使い捨ての Secret を置く。",
+      "why": "ST53 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST53-T11.3",
+      "topic": "ST53 11.3",
+      "kind": "check",
+      "question": "公開の job から承認者の設定を読めるか（D11（仮）の反転条件）: 11.2 の workflow の中で `tools/release/check-guards.sh approvals --repo rai-256/ashiato --reviewer <本人>`（`GITHUB_TOKEN`）を走らせ、`st53-probe` を `release` の代わりに読ませて rc を見る。",
+      "why": "ST53 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST53-T11.4",
+      "topic": "ST53 11.4",
+      "kind": "check",
+      "question": "GitHub の許諾の表示（D1 の反転条件・Risks）: この Story の枝の `LICENSE` を GitHub の画面で開き、許諾の判定の表示（AGPL-3.0 か Other か）を見て、結果を P16 として書く。Other でも止めない（README が名指しする）。気になったら違和感で返す",
+      "why": "ST53 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST53-PD6",
+      "topic": "ST53 仮D6",
+      "kind": "check",
+      "question": "ST53 の仮の決定 D6: 依存の許諾の検査で自分の部品と他人の AGPL をどう扱うか →「自分の部品は名前と決めた式の組で通し、許可の一覧から AGPL-3.0-only を外す」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 今の依存は 1 つも落ちない（P3）。他人の AGPL が要る日には一覧に戻せる（失わない側の費用: 検査の台本の数行）\n出所: review/deep.md#R8",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST53-PD10",
+      "topic": "ST53 仮D10",
+      "kind": "check",
+      "question": "ST53 の仮の決定 D10: 許諾なしで置かれた PR の成果物をどうするか →「ST53 が main に入った後に本人が gh api で消す手順を docs/release.md に置く。retention は変えない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 消さなくても 90 日で消える。retention を縮めるのは後からできる（失わない側の費用: 手順の数行）\n出所: review/deep.md#R5",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST53-PD11",
+      "topic": "ST53 仮D11",
+      "kind": "check",
+      "question": "ST53 の仮の決定 D11: 承認者の確かめで何を見るか →「required_reviewers に本人の login・can_admins_bypass が false を求め、prevent_self_review は見ない。agent-credential は admin と maintain が false」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 見る欄は台本の中だけで後から足せる。欄が変われば落ちる側（公開しない側）に倒れる（失わない側の費用: 副コマンド 2 つ）\n乗っている決定: Q3\n出所: review/deep.md#R4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST53-PD19",
+      "topic": "ST53 仮D19",
+      "kind": "check",
+      "question": "ST53 の仮の決定 D19: 許諾のファイルも作者も無い部品を、全文だけで通すか落とすか（D8 の間の場合） →「既定で落とし、本文が著作権者の行を条件に持たない Apache-2.0 だけを免除する」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 落とす側が既定で、免除は 1 つの式だけ。HOLDER_EXEMPT を空にすれば D8 の読み方に戻る。最初の印の前なので配った一覧は無い（失わない側の費用: 免除の一覧の 1 行と自己試験の 2 本）\n乗っている決定: D8\n出所: review/code.md#R13",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST53-F",
+      "topic": "ST53 違和感",
+      "kind": "check",
+      "question": "ST53「配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（10 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: D19）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261105-1547/ST53-spec.html"
+    }
+  ]
+}
