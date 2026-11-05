@@ -42,3 +42,9 @@
 - `load-proof.sh` は `before` の `--expect-fail` / `load-before.txt` 作成処理を復元し、`after` と併存させた。
 - 検証: `scripts/verify-run 13.1` PASS（rc=0）、`scripts/verify-run 13.3` PASS（rc=0、両試験 pass 10/10）、`scripts/verify-run 13.4` PASS（workspace / Scenario / agreed tests）、`check-test-names.sh` PASS。
 - 変更ファイル: `check-product-unchanged.sh`、`load-proof.sh`、`load-after.txt`、`evidence.jsonl`。
+
+## Fix report（review 1 / F4）
+
+- `check-product-unchanged.sh` の行差分取得を `git diff --unified=0 "$base" HEAD -- "$file"` に修正し、分岐点から HEAD までの差分と HEAD 版の境界を一貫して検査するようにした。
+- 検証: `openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh --self-test && openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh` PASS（rc=0）。続けて `scripts/verify-run 13.1` を実行し、PASS（rc=0）を `evidence.jsonl` に記録した。
+- 変更ファイル: `check-product-unchanged.sh`、`evidence.jsonl`、本レポート。

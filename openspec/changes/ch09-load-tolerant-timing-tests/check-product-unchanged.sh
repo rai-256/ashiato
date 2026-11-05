@@ -74,7 +74,7 @@ check_diff() {
           old_line=$((old_line + 1)); new_line=$((new_line + 1))
           ;;
       esac
-    done < <(git diff --unified=0 "$base" -- "$file")
+    done < <(git diff --unified=0 "$base" HEAD -- "$file")
   done < <(git diff --name-only "$base" HEAD -- crates collector-android/app/src/main web/src)
   if [[ -n "$bad" ]]; then
     echo '製品コードの変更:' >&2
