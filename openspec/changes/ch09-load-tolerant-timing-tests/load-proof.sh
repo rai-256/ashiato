@@ -78,9 +78,24 @@ else
     [[ "$load_mode" == none ]] && load_mode=host
     printf '%s\n' "$load_mode"
   }
+  # load-<label> は 1 つ（host / db）か、両方で再現したときのカンマ区切り（host,db）。書かれた負荷ごとに走らせる
+  probe_each() {
+    local label=$1 package=$2 test_name=$3 modes=$4 one
+    local -a list
+    IFS=, read -r -a list <<<"$modes"
+    ((${#list[@]} > 0)) || { echo "load-$label が空です" >&2; return 1; }
+    for one in "${list[@]}"; do
+      one=${one//[[:space:]]/}
+      case "$one" in
+        host|db) ;;
+        *) echo "load-$label の負荷が未知: $one（host / db / host,db）" >&2; return 1 ;;
+      esac
+      probe "$label" "$package" "$test_name" "$one"
+    done
+  }
   history_mode=$(load_for history)
   scan_mode=$(load_for scan)
-  probe history ashiato-collector-windows history_large_fetch_keeps_observing_foreground "$history_mode"
-  probe scan ashiato-server archive_scan_interval_change_takes_effect_without_restart "$scan_mode"
+  probe_each history ashiato-collector-windows history_large_fetch_keeps_observing_foreground "$history_mode"
+  probe_each scan ashiato-server archive_scan_interval_change_takes_effect_without_restart "$scan_mode"
 fi
 cat "$out"

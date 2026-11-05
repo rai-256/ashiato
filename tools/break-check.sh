@@ -84,17 +84,30 @@ run_check() {
   fi
 
   echo "== 壊した作業木で命令を実行"
-  if (cd "$CHECK_WORKTREE" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}" \
-      timeout --signal=TERM --kill-after=2s "$timeout_seconds" "${command[@]}") \
-      >"$log" 2>&1; then
-    command_rc=0
-  else
-    command_rc=$?
-  fi
+  # 組み立ての置き場の既定は、使い捨ての作業木の下の専用の target（後始末で消える）。
+  # 元の木の target/ を既定にすると、壊した木の組み立てが元の木の成果物を上書きする（CH09 review/code.md R9）
+  local started_at elapsed status_file
+  status_file=$CHECK_TEMP_ROOT/command.rc
+  started_at=$SECONDS
+  # 出力は流しながらログにも残す（最長で上限の秒数かかる。終わってから出すと、その間何も見えない）
+  (
+    set +e
+    cd "$CHECK_WORKTREE" || exit 1
+    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$CHECK_TEMP_ROOT/target}" \
+      timeout --signal=TERM --kill-after=2s "$timeout_seconds" "${command[@]}"
+    echo "$?" >"$status_file"
+  ) 2>&1 | tee "$log"
+  command_rc=$(cat "$status_file" 2>/dev/null || echo 1)
+  elapsed=$((SECONDS - started_at))
 
-  cat "$log"
-  if [ "$command_rc" -eq 124 ]; then
-    echo "NG: 上限で殺した"
+  # timeout は上限で殺すと 124（TERM で終わった）か 137（--kill-after の KILL）を返す。
+  # 命令自身が 124 / 137 で終わることもあるので、上限の秒数に達したかで分ける
+  if { [ "$command_rc" -eq 124 ] || [ "$command_rc" -eq 137 ]; } && [ "$elapsed" -ge "$timeout_seconds" ]; then
+    if [ "$command_rc" -eq 137 ]; then
+      echo "NG: 上限で殺した（TERM で止まらず KILL した。rc=137・${elapsed} 秒）"
+    else
+      echo "NG: 上限で殺した（rc=124・${elapsed} 秒）"
+    fi
     return 1
   fi
   if [ "$command_rc" -eq 0 ]; then
@@ -181,11 +194,34 @@ PATCH
       exit 1
     fi
 
+    # 命令自身が 124 で終わったときは、上限で殺したと取り違えず文言で判定する
+    if output=$("$script" --patch break.patch --expect BROKEN -- bash -c 'echo BROKEN; exit 124' 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    if [ "$command_rc" -ne 0 ] || grep -Fq 'NG: 上限で殺した' <<<"$output"; then
+      echo "self-test NG: 命令自身の rc=124 を上限と取り違えた"
+      printf '%s\n' "$output"
+      exit 1
+    fi
+
     echo "Scenario: 台本の後、元の作業木は変わらず、使い捨ての作業木は残らない"
     [ "$before_status" = "$(git status --porcelain)" ]
     [ "$before_worktrees" = "$(git worktree list --porcelain)" ]
 
     echo "Scenario: 上限より長くかかる命令は殺され、台本は落ちる"
+    # TERM を無視する命令は KILL され（rc=137）、文言違いでなく上限として落ちる
+    if output=$("$script" --patch break.patch --expect NEVER --timeout 1 -- bash -c "trap '' TERM; sleep 60" 2>&1); then
+      command_rc=0
+    else
+      command_rc=$?
+    fi
+    if [ "$command_rc" -ne 1 ] || ! grep -Fq 'NG: 上限で殺した（TERM で止まらず KILL した' <<<"$output"; then
+      echo "self-test NG: KILL（rc=137）を上限と見分けられない"
+      printf 'rc=%s\n%s\n' "$command_rc" "$output"
+      exit 1
+    fi
     started_at=$SECONDS
     if output=$("$script" --patch break.patch --expect NEVER --timeout 2 -- bash -c 'sleep 60' 2>&1); then
       command_rc=0

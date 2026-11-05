@@ -25,7 +25,8 @@ stop_db_load() {
   [ "$db_load_started" -eq 1 ] || return 0
   "$ROOT/tools/db.sh" exec -T db sh -c '
     marker=$1
-    pids=$(ps -eo pid=,args= 2>/dev/null | awk -v marker="$marker" '\''index($0, marker) { print $1 }'\'' || true)
+    # 負荷の sh の argv は「… <印>-<番号>」で終わる。この sh 自身（argv の末尾は <印>）と awk は末尾が数字でないので拾わない
+    pids=$(ps -eo pid=,args= 2>/dev/null | awk -v marker="$marker" '\''$0 ~ (marker "-[0-9]+$") { print $1 }'\'' || true)
     [ -z "$pids" ] || kill $pids 2>/dev/null || true
   ' sh "$load_marker" >/dev/null 2>&1 || true
   db_load_started=0
@@ -78,9 +79,11 @@ start_load() {
       deadline=$((start_wait + 30))
       last_count=0
       while (( SECONDS < deadline )); do
-        current_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk -v marker='$load_marker' 'index(\$0, marker) { n++ } END { print n + 0 }'")
+        # 負荷の sh の argv は「… <印>-<番号>」で終わる。数える sh と awk の argv は末尾が数字でないので、自分には当たらない
+        current_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk -v marker='$load_marker' '\$0 ~ (marker \"-[0-9]+\$\") { n++ } END { print n + 0 }'" 2>/dev/null) || current_count=0
+        [[ "$current_count" =~ ^[0-9]+$ ]] || current_count=0
         last_count=$current_count
-        if [ "$current_count" -ge 1 ]; then
+        if [ "$current_count" -ge "$count" ]; then
           return 0
         fi
         sleep 0.1
