@@ -107,7 +107,7 @@ async function openSettings(page: Page): Promise<void> {
   await page.goto("/#/settings");
   await page.reload();
   await expect(page.getByTestId("settings-view")).toBeVisible();
-  await expect(page.getByTestId("export-sources")).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByTestId("export-sources")).toBeVisible();
 }
 
 function watchPosts(page: Page): string[] {
@@ -389,7 +389,7 @@ test("Scenario 9.4: 書き出した後に滞在を 1 件消すと、前回の書
 
   await page.goto(`/#/day/${DAY}`);
   await page.reload();
-  await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("day-loading")).toBeHidden();
   const row = page.getByTestId("row-stay").first();
   await expect(row).toBeVisible();
   const range = (await row.locator("h2").innerText()).trim();
@@ -414,7 +414,7 @@ test("Scenario 9.4: 書き出した後に滞在を 1 件消すと、前回の書
     // 後続のテストが同じ DB を見る。消した滞在を戻す
     await page.goto(`/#/day/${DAY}`);
     await page.reload();
-    await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByTestId("day-loading")).toBeHidden();
     const back = page.getByTestId("row-erased").filter({ hasText: range }).getByRole("button", { name: "戻す" });
     if (!restored && (await back.count()) > 0) {
       await back.click();

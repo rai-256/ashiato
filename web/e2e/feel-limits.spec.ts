@@ -24,7 +24,7 @@ const MISSING_DAY = "2026-10-03";
 
 async function open(page: Page, day: string): Promise<void> {
   await page.goto(`/#/feel/${day}`);
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   await expect(page.getByTestId("feel-stays-loading")).toHaveCount(0);
   await expect(page.getByTestId("feel-view")).toHaveAttribute("data-ready", "true");
 }
@@ -228,7 +228,7 @@ test("OS の明暗を明にすると明の面で、設定が取得できない�
     Object.defineProperty(window, "matchMedia", { value: undefined, configurable: true });
   });
   await page.reload();
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   await expect(page.getByTestId("feel-view")).toHaveAttribute("data-scheme", "dark");
   expect(await surface(), "暗の面の輝度").toBeLessThan(0.1);
 });

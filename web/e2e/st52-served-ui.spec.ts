@@ -19,7 +19,7 @@ test("組み込んだ画面をサーバから開ける", async ({ page }) => {
   await expect(page.getByLabel("合言葉")).toBeVisible();
   await page.getByLabel("合言葉").fill(password);
   await page.getByRole("button", { name: "ログイン" }).click();
-  await expect(page.getByTestId("coverage-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("coverage-loading")).toBeHidden();
   await expect(page.locator('[data-testid^="grid-"]').first()).toBeVisible();
 
   expect(requested.length).toBeGreaterThan(0);

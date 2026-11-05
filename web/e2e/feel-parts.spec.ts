@@ -32,7 +32,7 @@ function freshDay(): string {
 
 async function openOn(page: Page, hash: string): Promise<void> {
   await page.goto(`/${hash}`);
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   // 滞在の読み出しが済むまで待つ（読み込み中の表示が消える）
   await expect(page.getByTestId("feel-stays-loading")).toHaveCount(0);
 }
