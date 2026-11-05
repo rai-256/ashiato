@@ -4821,6 +4821,7 @@ mod tests {
         std::fs::remove_dir_all(cfg.state_dir.join("browser-history")).unwrap();
         let mut again = history_runtime(&cfg, &transport, &reference, reader.clone());
         let before = reader.reads();
+        // timing-ok: t(sec) を進める時刻を兼ねるループのため、回数を維持する（design D4 の除く・Q5）。
         for sec in 1000..3000 {
             again.tick_at(&mut src, t(sec), t(sec));
             if reader.reads() > before && !again.history.as_ref().unwrap().is_reading() {

@@ -584,18 +584,21 @@ async fn scheduled_retired_source_is_not_fetched() {
         pool.clone(),
         testdb::user(),
     );
-    // timing-ok: 終了直後の task を確認する短い下限で、条件待ちの上限ではない。
-    for _ in 0..40 {
-        if handle.is_finished() {
-            break;
-        }
+    // 枠が終わるのを実時間の期限 30 秒で待つ（design D4）。取りに行かないことは `probe.calls()` で見る
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    while !handle.is_finished() && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     let finished = handle.is_finished();
+    let waited = started.elapsed();
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
-    assert!(finished, "取りに行く task を起こさない（枠はすぐ終わる）");
+    assert!(
+        finished,
+        "取りに行く task を起こさない（枠はすぐ終わる）: 待った時間 {waited:?}、最後に見た値 {finished}"
+    );
     assert_eq!(probe.calls(), 0, "退役した行は取りに行かない");
 }
 
