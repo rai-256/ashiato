@@ -35,8 +35,15 @@ list_candidates() {
 }
 
 inventory_path() {
-  grep -Fq '| '"$1"' |' "$INVENTORY" ||
-  awk -v path="$1" 'index($0, sprintf("%c%s", 96, path)) { found=1 } END { exit !found }' "$INVENTORY"
+  awk -F'|' -v path="$1" '
+    $0 ~ /^\|/ {
+      cell=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", cell)
+      gsub(/`/, "", cell)
+      if (index(cell, path) == 1) found=1
+    }
+    END { exit !found }
+  ' "$INVENTORY"
 }
 
 condition_files() {
@@ -44,9 +51,15 @@ condition_files() {
     s=$2
     if (match(s, /\140[^\140]+\140/)) {
       path=substr(s, RSTART + 1, RLENGTH - 2)
-      sub(/:.*/, "", path)
-      print path
+    } else {
+      # D14 の第 2 表は、候補をバッククォートで囲まない裸のパスも
+      # 許す。行全体をパスとして扱い、場所の行番号があれば落とす。
+      path=s
     }
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", path)
+    sub(/[・].*/, "", path)
+    sub(/:.*/, "", path)
+    if (path != "") print path
   }' "$INVENTORY" | sort -u
 }
 
@@ -165,6 +178,7 @@ case "${1:-}" in
 | `crates/sample/sample.rs:1` | 条件の待ち | 直した | self-test |
 | `web/e2e/sample.spec.ts:1` | 条件の待ち | 直した | self-test |
 | `tools/smoke.d/sample.sh:1` | 条件の待ち | 直した | self-test |
+| tools/smoke.d/sample.sh | 条件の待ち | 直した | 裸のパスの self-test |
 EOF
     if (cd "$tmp" && "$script") >/dev/null 2>&1; then
       die '--self-test は違反を見逃した'

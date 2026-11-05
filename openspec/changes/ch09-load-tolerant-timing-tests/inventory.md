@@ -66,172 +66,173 @@ check-inventory.sh --list が拾う全ファイルを、D14 の表の列で記�
 
 | 場所（試験・補助） | 型 | 方針 | 理由 |
 |---|---|---|---|
-| crates/collector-windows/examples/browser_history_smoke.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/time_sync.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/history/fetch.rs | 条件の待ち | 条件成立時に返る期限へ整理 | Rust の候補走査で拾った履歴取得補助を一覧化した。 |
-| crates/collector-windows/src/platform.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を記録した。 |
-| crates/collector-windows/src/sender.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を記録した。 |
-| crates/collector-windows/tests/runtime_windows.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/history/collect.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/runtime.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/clock.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/collector-windows/src/clock_worker.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/testdb_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/outage.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/access_log_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/access_migration_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/archive_flow_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/archive_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/attributes_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/deletion_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/export_job_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/feelings_ingest_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/places_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/purge_compaction_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | サーバ試験の候補を一覧化した。 |
-| crates/server/src/stay_store.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を記録した。 |
-| crates/server/src/web_session.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/lib.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/tests/server_startup.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/export_file_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/testdb.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/stay_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/scheduled_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/web_session_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/archive/worker.rs | 暗黙の上限 | 一覧化（製品コードは変更しない） | 製品側の補助コードにある時間依存を候補として記録した。 |
-| crates/server/src/outage_api_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| crates/server/src/archive_scan_interval_tests.rs | 条件の待ち | 条件成立時に返る期限へ整理 | 試験の観測可能な条件を待つ候補として記録した。 |
-| web/playwright.config.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| tools/recording/st22/st22-phone-dark.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st22/st22-erase-reload.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/satellites.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st08/st08-result.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/e2e/settings-export.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/src/__tests__/places-change.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st13/st13-sources.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/retired-source.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st25/st25-day-timeline.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/session.test.ts | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st33/st33-export.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/e2e/feel-parts.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/e2e/day-erase.spec.ts | 起きない・下限 | timing-ok を付けて維持 | 任意操作の短い上限で、成立条件の待ちではない。 |
-| tools/recording/st17/st17-feel.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st23/st23-purge.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/e2e/feel-ch01.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/src/__tests__/master-view-limits.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/app.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st50/st50-result.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/e2e/st49-client-version.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/src/__tests__/st25-open.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/e2e/day-timeline.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/src/__tests__/FeelView.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/ch08/ch08-nested.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st14/st14-coverage.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/st25-gaps.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/master-form.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st28/st28-login.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st29/st29-satellites.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/master-view.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/DayFeeling.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/st25-summary.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st07/st07-result.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/places-add.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/FeelViewParts.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/DayView.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/e2e/places.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| tools/recording/ch01/ch01-feel.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st12/st12-archive.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/DayView-erase-erased-row-keyboard.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st21/st21-places.rec.ts | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| web/src/__tests__/one-scroll.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/places-view.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/archive-one-scroll.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/st25-routes.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/src/__tests__/places-tabs.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| web/e2e/st23-purge.spec.ts | 暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
-| web/e2e/feel.spec.ts | 固定の眠り | 条件待ちへ変更または一覧化 | 表示条件へ置換できる待ちと固定待ちを分けた。 |
-| web/src/__tests__/SettingsView.test.tsx | 暗黙の上限 | 一覧化 | 画面単体試験の暗黙の待ちを候補として記録した。 |
-| tools/recording/st13/St13RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st06/St06LaterGrantRecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st06/St06RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st17/St17RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HttpTransportInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/FeelingReminderInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| tools/recording/st11/St11RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st09/St09RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MediaCaptureInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UsageAccessInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/PermissionDeniedInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/RetentionInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/LocationServiceInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/ClockSkewInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthPermissionGrantInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UnusedAppRestrictionsInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MediaPremisesInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/ForegroundServiceTypeInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MainActivityInstrumentedTest.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/UnavailableLogGateTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/RollupImportTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthConnectScreens.kt | 条件の待ち | 条件成立時に返る期限へ整理 | 計測テストの条件成立待ちを拾った。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/FeelingReminderReceiverTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/HealthPermissionFlowTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/HealthNotificationTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/LocationServiceClockTest.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| tools/recording/st05/St05RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| collector-android/app/src/test/kotlin/dev/ashiato/collector/AppUsageFixtures.kt | 暗黙の上限 | 一覧化 | 単体試験の時間依存候補を記録した。 |
-| tools/recording/st14/St14RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/recording/st50/St50RecordingTest.kt | 暗黙の上限 | 一覧化 | 録画用の待ちを記録し、別 change で扱う。 |
-| tools/check-exposure.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-released-migrations.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-verify-env-reset.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/verify-prep.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/ports.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/verify-env.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/android-emulator.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-private.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/pg_dump-docker.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/agent-env.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-tmp-hygiene.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-db-version-stop.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-ports.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/usage-volume.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/load-repeat.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/export-scaling.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/tmp-leak-check.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-test-db-killed.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/smoke.d/202610241500_st29-satellite-credentials.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/check-panic-log.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-test-db-growth.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-openapi.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/smoke.d/202610251200_st23-purge.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/check-offsite.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/stack.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-contract-version.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-db-secret.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-no-time-server.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/docker-tidy.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/smoke.d/202610161200_st08-browser-history.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/smoke.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/check-build-stamp.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/st25-seed-check.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-api-token-reads.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-migrations.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/smoke.d/202610212100_st13-archive-hands-off.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/seed.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-licenses.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-log-private.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/web-login.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/smoke.d/202610141130_st14-outage-alert.sh | 条件の待ち | 回数×sleep を 30 秒以上に整理 | 縦串の条件待ちを拾い、既存台本の行だけを対象にした。 |
-| tools/record-env.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/ci-db-env.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/wait-android-boot.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-handoff-reaches-brief.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/android-media-fixtures.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/db-roles.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/archive-shape.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-immutable.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-satellite-boundary.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/break-check.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
-| tools/check-shared-appends.sh | 速さが要件 | 一覧化 | 検査・起動台本の上限を製品試験と混同しない。 |
+|  crates/collector-windows/examples/browser_history_smoke.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 browser_history_smoke.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/time_sync.rs:650 `time_sync_timeout_kills_the_child` |  打ち切り | 製品実装なので一覧化のみ | 製品実装 time_sync.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/history/fetch.rs |  条件の待ち | 製品実装なので一覧化のみ | 製品実装 fetch.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/platform.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 platform.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/sender.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 sender.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/tests/runtime_windows.rs:225 `observe_until`・`:241` `run_for`・`:253` `run_until` |  条件の待ち / 起きない・下限 | Rust 試験の条件待ちとして個別に整理 | Rust 試験 runtime_windows.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/collector-windows/src/history/collect.rs:868・:969 |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 collect.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/runtime.rs:2499・:2512・:3462 |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 runtime.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/clock.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 clock.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/collector-windows/src/clock_worker.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 clock_worker.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/testdb_tests.rs:371 `ch04_statement_timeout_cancels_a_long_query` |  打ち切り | 相手と上限を同時に整理 | Rust 試験 testdb_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/outage.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 outage.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/access_log_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 access_log_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/access_migration_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 access_migration_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/archive_flow_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 archive_flow_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/archive_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 archive_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/attributes_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 attributes_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/deletion_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 deletion_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/export_job_tests.rs |  条件の待ち | 既存の 30 秒超の期限を維持 | 3000 回×100ms の上限は 30 秒未満ではなく、候補の分類だけを行う。 |
+|  crates/server/src/feelings_ingest_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 feelings_ingest_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/places_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 places_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/purge_compaction_tests.rs |  条件の待ち | 既存の 30 秒超の期限を維持 | 500 回×`POLL` のロック待ちは 30 秒未満の期限ではなく、既存の打ち切り条件を一覧に残す。 |
+|  crates/server/src/stay_store.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 stay_store.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/web_session.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 web_session.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/lib.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 lib.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/tests/server_startup.rs |  暗黙の上限 | Rust 試験の条件待ちとして個別に整理 | Rust 試験 server_startup.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/export_file_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 export_file_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/testdb.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 testdb.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/stay_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 stay_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/scheduled_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 scheduled_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/web_session_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 web_session_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/archive/worker.rs |  暗黙の上限 | 製品実装なので一覧化のみ | 製品実装 worker.rs の時間依存は候補として記録し、Q0 によりこの change では変更しない。 |
+|  crates/server/src/outage_api_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 outage_api_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  crates/server/src/archive_scan_interval_tests.rs |  条件の待ち | Rust 試験の条件待ちとして個別に整理 | Rust 試験 archive_scan_interval_tests.rs は観測条件・打ち切り・固定待ちを行番号ごとに分類し、製品実装の候補と混ぜない。 |
+|  web/playwright.config.ts |  暗黙の上限 | 設定値へ統一または一覧化 | Playwright の設定・e2e の待ちを対象にした。 |
+|  tools/recording/st22/st22-phone-dark.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st22-phone-dark.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st22/st22-erase-reload.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st22-erase-reload.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+| `web/src/__tests__/satellites.test.tsx` | 暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 satellites.test.tsxundefined の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st08/st08-result.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st08-result.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/e2e/settings-export.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る settings-export.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/src/__tests__/places-change.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 places-change.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st13/st13-sources.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st13-sources.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/retired-source.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 retired-source.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st25/st25-day-timeline.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st25-day-timeline.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/session.test.ts |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 session.test.ts の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st33/st33-export.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st33-export.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/e2e/feel-parts.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る feel-parts.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/e2e/day-erase.spec.ts |  起きない・下限 | timing-ok を付けて維持 | 本物のブラウザで走る day-erase.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  tools/recording/st17/st17-feel.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st17-feel.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st23/st23-purge.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st23-purge.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/e2e/feel-ch01.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る feel-ch01.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/src/__tests__/master-view-limits.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 master-view-limits.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/app.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 app.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st50/st50-result.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st50-result.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/e2e/st49-client-version.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る st49-client-version.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/src/__tests__/st25-open.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 st25-open.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/e2e/day-timeline.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る day-timeline.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/src/__tests__/FeelView.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 FeelView.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/ch08/ch08-nested.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 ch08-nested.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st14/st14-coverage.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st14-coverage.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/st25-gaps.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 st25-gaps.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/master-form.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 master-form.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st28/st28-login.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st28-login.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st29/st29-satellites.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st29-satellites.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/master-view.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 master-view.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/DayFeeling.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 DayFeeling.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/st25-summary.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 st25-summary.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st07/st07-result.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st07-result.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/places-add.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 places-add.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/FeelViewParts.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 FeelViewParts.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/DayView.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 DayView.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/e2e/places.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る places.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  tools/recording/ch01/ch01-feel.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 ch01-feel.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st12/st12-archive.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st12-archive.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/DayView-erase-erased-row-keyboard.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 DayView-erase-erased-row-keyboard.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st21/st21-places.rec.ts |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 st21-places.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  web/src/__tests__/one-scroll.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 one-scroll.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/places-view.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 places-view.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/archive-one-scroll.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 archive-one-scroll.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/st25-routes.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 st25-routes.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/src/__tests__/places-tabs.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 places-tabs.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  web/e2e/st23-purge.spec.ts |  暗黙の上限 | 個別の画面条件または設定値として整理 | 本物のブラウザで走る st23-purge.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/e2e/feel.spec.ts |  固定の眠り | 個別の画面条件または設定値として整理 | 本物のブラウザで走る feel.spec.ts の待ちを、Playwright の条件待ち・上限・下限に分けて扱う。 |
+|  web/src/__tests__/SettingsView.test.tsx |  暗黙の上限 | 画面単体試験の候補として記録 | 画面単体試験 SettingsView.test.tsx の待ち候補であり、Scenario の担保は web/e2e に置く。 |
+|  tools/recording/st13/St13RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St13RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st06/St06LaterGrantRecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St06LaterGrantRecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st06/St06RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St06RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st17/St17RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St17RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HttpTransportInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の HttpTransportInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/FeelingReminderInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の FeelingReminderInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  tools/recording/st11/St11RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St11RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st09/St09RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St09RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MediaCaptureInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の MediaCaptureInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UsageAccessInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の UsageAccessInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/PermissionDeniedInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の PermissionDeniedInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/RetentionInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の RetentionInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/LocationServiceInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の LocationServiceInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/ClockSkewInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の ClockSkewInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthPermissionGrantInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の HealthPermissionGrantInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UnusedAppRestrictionsInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の UnusedAppRestrictionsInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MediaPremisesInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の MediaPremisesInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/ForegroundServiceTypeInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の ForegroundServiceTypeInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MainActivityInstrumentedTest.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の MainActivityInstrumentedTest.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/UnavailableLogGateTest.kt:34・:36・:58・:62・:69・:75 |  条件の待ち | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の UnavailableLogGateTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/UnavailableLogGateTest.kt:72 |  起きない・下限 | timing-ok を付けて維持 | Robolectric/JUnit の UnavailableLogGateTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/RollupImportTest.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の RollupImportTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthConnectScreens.kt |  条件の待ち | 計測テストの条件待ちとして個別に整理 | エミュレータ上の HealthConnectScreens.kt は端末状態の成立を待つため、固定上限と条件成立を混同しない。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/FeelingReminderReceiverTest.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の FeelingReminderReceiverTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/HealthPermissionFlowTest.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の HealthPermissionFlowTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/HealthNotificationTest.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の HealthNotificationTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/LocationServiceClockTest.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の LocationServiceClockTest.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  tools/recording/st05/St05RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St05RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  collector-android/app/src/test/kotlin/dev/ashiato/collector/AppUsageFixtures.kt |  暗黙の上限 | 単体試験の条件待ちとして個別に整理 | Robolectric/JUnit の AppUsageFixtures.kt はログ・通知の到着条件を持つ箇所と下限確認を分ける。 |
+|  tools/recording/st14/St14RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St14RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/recording/st50/St50RecordingTest.kt |  暗黙の上限 | 録画の確認用として別 change で整理 | 録画台本 St50RecordingTest.kt は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
+|  tools/check-exposure.sh |  速さが要件 | 検査・起動台本として一覧化 | check-exposure.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-released-migrations.sh |  速さが要件 | 検査・起動台本として一覧化 | check-released-migrations.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-verify-env-reset.sh |  速さが要件 | 検査・起動台本として一覧化 | check-verify-env-reset.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/verify-prep.sh |  速さが要件 | 検査・起動台本として一覧化 | verify-prep.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/ports.sh |  速さが要件 | 検査・起動台本として一覧化 | ports.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/verify-env.sh |  速さが要件 | 検査・起動台本として一覧化 | verify-env.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/android-emulator.sh |  速さが要件 | 検査・起動台本として一覧化 | android-emulator.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-private.sh |  速さが要件 | 検査・起動台本として一覧化 | check-private.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/pg_dump-docker.sh |  速さが要件 | 検査・起動台本として一覧化 | pg_dump-docker.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/agent-env.sh |  速さが要件 | 検査・起動台本として一覧化 | agent-env.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-tmp-hygiene.sh |  速さが要件 | 検査・起動台本として一覧化 | check-tmp-hygiene.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-db-version-stop.sh |  速さが要件 | 検査・起動台本として一覧化 | check-db-version-stop.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-ports.sh |  速さが要件 | 検査・起動台本として一覧化 | check-ports.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/usage-volume.sh |  速さが要件 | 検査・起動台本として一覧化 | usage-volume.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/load-repeat.sh |  速さが要件 | 検査・起動台本として一覧化 | load-repeat.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/export-scaling.sh |  速さが要件 | 検査・起動台本として一覧化 | export-scaling.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/tmp-leak-check.sh |  速さが要件 | 検査・起動台本として一覧化 | tmp-leak-check.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-test-db-killed.sh |  速さが要件 | 検査・起動台本として一覧化 | check-test-db-killed.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/smoke.d/202610241500_st29-satellite-credentials.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 202610241500_st29-satellite-credentials.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/check-panic-log.sh |  速さが要件 | 検査・起動台本として一覧化 | check-panic-log.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-test-db-growth.sh |  速さが要件 | 検査・起動台本として一覧化 | check-test-db-growth.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-openapi.sh |  速さが要件 | 検査・起動台本として一覧化 | check-openapi.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/smoke.d/202610251200_st23-purge.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 202610251200_st23-purge.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/check-offsite.sh |  速さが要件 | 検査・起動台本として一覧化 | check-offsite.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/stack.sh |  速さが要件 | 検査・起動台本として一覧化 | stack.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-contract-version.sh |  速さが要件 | 検査・起動台本として一覧化 | check-contract-version.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-db-secret.sh |  速さが要件 | 検査・起動台本として一覧化 | check-db-secret.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-no-time-server.sh |  速さが要件 | 検査・起動台本として一覧化 | check-no-time-server.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/docker-tidy.sh |  速さが要件 | 検査・起動台本として一覧化 | docker-tidy.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/smoke.d/202610161200_st08-browser-history.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 202610161200_st08-browser-history.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/smoke.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 smoke.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/check-build-stamp.sh |  速さが要件 | 検査・起動台本として一覧化 | check-build-stamp.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/st25-seed-check.sh |  速さが要件 | 検査・起動台本として一覧化 | st25-seed-check.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-api-token-reads.sh |  速さが要件 | 検査・起動台本として一覧化 | check-api-token-reads.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-migrations.sh |  速さが要件 | 検査・起動台本として一覧化 | check-migrations.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/smoke.d/202610212100_st13-archive-hands-off.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 202610212100_st13-archive-hands-off.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/seed.sh |  速さが要件 | 検査・起動台本として一覧化 | seed.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-licenses.sh |  速さが要件 | 検査・起動台本として一覧化 | check-licenses.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-log-private.sh |  速さが要件 | 検査・起動台本として一覧化 | check-log-private.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/web-login.sh |  速さが要件 | 検査・起動台本として一覧化 | web-login.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/smoke.d/202610141130_st14-outage-alert.sh |  条件の待ち | 既存台本の該当行だけを 30 秒以上へ整理 | 縦串 202610141130_st14-outage-alert.sh の回数×sleep は台本の既存行で判定し、末尾に Scenario を追加しない。 |
+|  tools/record-env.sh |  速さが要件 | 検査・起動台本として一覧化 | record-env.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/ci-db-env.sh |  速さが要件 | 検査・起動台本として一覧化 | ci-db-env.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/wait-android-boot.sh |  速さが要件 | 検査・起動台本として一覧化 | wait-android-boot.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-handoff-reaches-brief.sh |  速さが要件 | 検査・起動台本として一覧化 | check-handoff-reaches-brief.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/android-media-fixtures.sh |  速さが要件 | 検査・起動台本として一覧化 | android-media-fixtures.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/db-roles.sh |  速さが要件 | 検査・起動台本として一覧化 | db-roles.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/archive-shape.sh |  速さが要件 | 検査・起動台本として一覧化 | archive-shape.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-immutable.sh |  速さが要件 | 検査・起動台本として一覧化 | check-immutable.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-satellite-boundary.sh |  速さが要件 | 検査・起動台本として一覧化 | check-satellite-boundary.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/break-check.sh |  速さが要件 | 検査・起動台本として一覧化 | break-check.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
+|  tools/check-shared-appends.sh |  速さが要件 | 検査・起動台本として一覧化 | check-shared-appends.sh の timeout/sleep は製品試験の待ちではなく、検査または起動手順の制限である。 |
 
 ## Task 12 の探した範囲・探していない範囲
 
