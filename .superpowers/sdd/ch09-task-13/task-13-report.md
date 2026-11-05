@@ -35,3 +35,10 @@
 製品コード、既存試験、`tasks.md` は変更していない。台本の一時ディレクトリは `mktemp -d` と `trap` で後始末する。Scenario 検査には既存の警告があるが rc=0 で、今回の Scenario は担保されている。
 
 懸念事項はない。
+
+## Fix report（review 1 / F1〜F4）
+
+- `check-product-unchanged.sh` は、HEAD と分岐点それぞれの Rust ファイルで、直後に `mod tests` が来る `#[cfg(test)]` を境界として使うよう修正した。差分の旧行・新行を各版の境界で判定し、ファイルごとに行番号を初期化し、diff ヘッダーを正しく除外した。self-test に非境界の `#[cfg(test)]`、複数ファイル、試験モジュール内変更のケースを追加した。
+- `load-proof.sh` は `before` の `--expect-fail` / `load-before.txt` 作成処理を復元し、`after` と併存させた。
+- 検証: `scripts/verify-run 13.1` PASS（rc=0）、`scripts/verify-run 13.3` PASS（rc=0、両試験 pass 10/10）、`scripts/verify-run 13.4` PASS（workspace / Scenario / agreed tests）、`check-test-names.sh` PASS。
+- 変更ファイル: `check-product-unchanged.sh`、`load-proof.sh`、`load-after.txt`、`evidence.jsonl`。

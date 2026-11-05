@@ -22,21 +22,34 @@ is_product_file() {
 }
 
 test_start() {
-  local file=$1
+  local rev=$1 file=$2
   case "$file" in
     crates/*.rs)
-      awk '/^[[:space:]]*#\[cfg\(test\)\]/{print NR; exit}' "$file"
+      git cat-file -e "$rev:$file" 2>/dev/null || { echo 0; return; }
+      git show "$rev:$file" | awk '
+        /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/ { cfg = NR; next }
+        cfg && /^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]+tests([[:space:]]|$)/ {
+          start = cfg
+          cfg = 0
+          next
+        }
+        { cfg = 0 }
+        END { if (start) print start }
+      '
       ;;
     *) echo 0 ;;
   esac
 }
 
 check_diff() {
-  local base=$1 file start line old_line new_line old_count new_count
-  local bad='' old_line=0 new_line=0
+  local base=$1 file old_start new_start line old_line new_line old_count new_count
+  local bad=''
   while IFS= read -r file; do
     is_product_file "$file" || continue
-    start=$(test_start "$file")
+    old_start=$(test_start "$base" "$file")
+    new_start=$(test_start HEAD "$file")
+    old_line=0
+    new_line=0
     while IFS= read -r line; do
       if [[ "$line" =~ ^@@[[:space:]]-([0-9]+)(,([0-9]+))?[[:space:]]\+([0-9]+)(,([0-9]+))? ]]; then
         old_line=${BASH_REMATCH[1]}
@@ -45,16 +58,16 @@ check_diff() {
         new_count=${BASH_REMATCH[6]:-1}
         continue
       fi
-      [[ "$line" == ++++* || "$line" == ---* ]] && continue
+      [[ "$line" == '+++ '* || "$line" == '--- '* ]] && continue
       case "$line" in
-        +*)
+          +*)
           ((new_line > 0)) || continue
-          if ((new_line < start || start == 0)); then bad+="$file:$new_line: ${line:1}"$'\n'; fi
+          if ((new_line < new_start || new_start == 0)); then bad+="$file:$new_line: ${line:1}"$'\n'; fi
           new_line=$((new_line + 1))
           ;;
         -*)
           ((old_line > 0)) || continue
-          if ((old_line < start || start == 0)); then bad+="$file:$old_line: ${line:1}"$'\n'; fi
+          if ((old_line < old_start || old_start == 0)); then bad+="$file:$old_line: ${line:1}"$'\n'; fi
           old_line=$((old_line + 1))
           ;;
         ' '*)
@@ -81,14 +94,14 @@ self_test() {
   git -C "$tmp/repo" config user.name test
   mkdir -p "$tmp/repo/crates/app" "$tmp/repo/web/src/__tests__"
   printf '%s\n' 'fn product() {}' > "$tmp/repo/crates/app/lib.rs"
-  printf '%s\n' '#[cfg(test)]' 'mod tests {}' >> "$tmp/repo/crates/app/lib.rs"
+  printf '%s\n' '#[cfg(test)]' 'const TEST_HELPER: bool = true;' '#[cfg(test)]' 'mod tests {}' >> "$tmp/repo/crates/app/lib.rs"
   printf '%s\n' 'export const product = 1;' > "$tmp/repo/web/src/app.ts"
   git -C "$tmp/repo" add . && git -C "$tmp/repo" commit -qm base
   base=$(git -C "$tmp/repo" rev-parse HEAD)
   git -C "$tmp/repo" branch main "$base"
   git -C "$tmp/repo" update-ref refs/remotes/origin/main "$base"
   git -C "$tmp/repo" switch -qc work
-  printf '%s\n' 'fn changed_product() {}' > "$tmp/repo/crates/app/lib.rs"
+  printf '%s\n' 'fn changed_product() {}' '#[cfg(test)]' 'const TEST_HELPER: bool = false;' '#[cfg(test)]' 'mod tests {}' > "$tmp/repo/crates/app/lib.rs"
   git -C "$tmp/repo" add . && git -C "$tmp/repo" commit -qm product
   head=$(git -C "$tmp/repo" rev-parse HEAD)
   mkdir -p "$tmp/repo/openspec/changes/ch09-load-tolerant-timing-tests"
@@ -98,9 +111,17 @@ self_test() {
     return 1
   fi
   git -C "$tmp/repo" checkout -q "$base" -- crates/app/lib.rs
-  printf '%s\n' 'fn product() {}' '#[cfg(test)]' 'mod tests { fn added() {} }' > "$tmp/repo/crates/app/lib.rs"
+  printf '%s\n' 'fn product() {}' '#[cfg(test)]' 'const TEST_HELPER: bool = true;' '#[cfg(test)]' 'mod tests { fn added() {} }' > "$tmp/repo/crates/app/lib.rs"
   git -C "$tmp/repo" add . && git -C "$tmp/repo" commit -qm tests
   (cd "$tmp/repo" && openspec/changes/ch09-load-tolerant-timing-tests/check.sh) >/dev/null
+
+  printf '%s\n' 'fn product() {}' '#[cfg(test)]' 'const TEST_HELPER: bool = true;' '#[cfg(test)]' 'mod tests { fn added() {} }' > "$tmp/repo/crates/app/lib.rs"
+  printf '%s\n' 'export const changed_product = 2;' > "$tmp/repo/web/src/app.ts"
+  git -C "$tmp/repo" add . && git -C "$tmp/repo" commit -qm product_again
+  if (cd "$tmp/repo" && openspec/changes/ch09-load-tolerant-timing-tests/check.sh) >/dev/null 2>&1; then
+    echo 'check-product-unchanged self-test: 複数ファイルの製品変更を見逃した' >&2
+    return 1
+  fi
   echo 'check-product-unchanged self-test: PASS'
 }
 
