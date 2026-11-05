@@ -708,6 +708,7 @@ mod st48_migrate {
             Command::new(binary)
                 .arg("migrate")
                 .env_clear()
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
                 .env("DATABASE_OWNER_URL", self.db.owner_url())
                 .env("MIGRATE_BACKUP_DIR", self.backups())
                 .env("PG_DUMP", pg_dump)
@@ -725,6 +726,7 @@ mod st48_migrate {
             cmd.env_clear()
                 .env("API_TOKEN", TEST_TOKEN)
                 .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
                 .env(
                     "DATABASE_URL",
                     with_database(&env("DATABASE_URL"), &self.db.name),
@@ -776,6 +778,7 @@ mod st48_migrate {
             cmd.env_clear()
                 .env("API_TOKEN", TEST_TOKEN)
                 .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
                 .env(
                     "DATABASE_URL",
                     with_database(&env("DATABASE_URL"), &self.db.name),
