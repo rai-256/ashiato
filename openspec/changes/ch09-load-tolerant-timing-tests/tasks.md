@@ -138,7 +138,7 @@
 
 ## Task 11: 縦串と検査の台本（Q2）
 
-- [ ] 11.1 `tools/*.sh` と `tools/smoke.d/*.sh` に design D16 を当てる（回数 × 眠りが 30 秒より短い待ちを `SECONDS` の期限 30 秒に・文言に待った秒数と最後に見た値・30 秒以上の回数の待ちは `# timing-ok:`・`smoke.sh:199` の `sleep 3` は D12 として残す）。
+- [x] 11.1 `tools/*.sh` と `tools/smoke.d/*.sh` に design D16 を当てる（回数 × 眠りが 30 秒より短い待ちを `SECONDS` の期限 30 秒に・文言に待った秒数と最後に見た値・30 秒以上の回数の待ちは `# timing-ok:`・`smoke.sh:199` の `sleep 3` は D12 として残す）。
   末尾に節や見出しを足さない。直したもの・残したものは Task 12 の `inventory.md` に書く。
   検証: `bash -c 'for f in tools/*.sh tools/smoke.d/*.sh; do bash -n "$f" || exit 1; done'` rc=0 / `tools/check-shared-appends.sh` rc=0 / `scripts/quiet-run smoke -- ./tools/smoke.sh` rc=0
 
