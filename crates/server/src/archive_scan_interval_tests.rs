@@ -274,8 +274,15 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     let virtual_started = tokio::time::Instant::now();
     let real_started = std::time::Instant::now();
     let deadline = real_started + Duration::from_secs(30);
-    // 1 秒進めるごとに走査が 1 回入るのを待つ。届かなければ同じ歩を進め直す。
+    // 1 秒進めるごとに走査が 1 回入るのを待つ。届かなければ同じ歩を進め直す
+    // （混んでいると、取り込み器が眠りに入る前に時計を進めてしまい、その歩では起きない）。
+    // 進め直しは混み具合でも起きるが、間隔が 2 秒以上に効く退行では**どの歩も** 1 回では届かない。
+    // 1 回で届いた歩が 1 つも無ければ落とす（review/code.md R20。経過 10 秒ちょうどの代わり）
+    let mut single_advance_steps = 0;
+    let mut advances = 0;
+    // timing-ok: 歩（走査の回数）を数えるループで、待ちの上限は中の実時間の期限 deadline が持つ
     for step in 1..=10 {
+        let mut advances_in_step = 0;
         loop {
             if std::time::Instant::now() >= deadline
                 || virtual_started.elapsed() >= Duration::from_secs(30)
@@ -290,15 +297,24 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
             }
             // 1 秒の眠りの期限は ms に切り上がるので、1 秒ちょうどでは届かない
             tokio::time::advance(Duration::from_millis(1001)).await;
-            settle(25).await; // 眠りの timer を取り込み器に処理させる
+            advances += 1;
+            advances_in_step += 1;
+            // 眠りの timer を取り込み器に処理させる
+            settle(25).await;
+            // timing-ok: 1 歩の中の待ち。届かなければ進め直す。全体の上限は deadline（30 秒）
             let step_deadline = (std::time::Instant::now() + Duration::from_secs(1)).min(deadline);
             if wait_for_scans(&pool, user, before + step, step_deadline)
                 .await
-                .is_some_and(|last| last >= before + step)
+                .is_some()
             {
                 break;
             }
         }
+        if advances_in_step == 1 {
+            single_advance_steps += 1;
+        }
+        // 走査を書いた直後の取り込み器は、まだ次の眠りに入っていない。入るのを待ってから次の歩を進める
+        settle(100).await;
     }
     let during = scans(&pool, user).await - before;
     let elapsed = virtual_started.elapsed();
@@ -315,6 +331,10 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     assert!(
         real_elapsed < Duration::from_secs(30),
         "走査が 10 回に届かない: 最後に見た数 {during}・時計の経過 {elapsed:?}・待った時間 {real_elapsed:?}"
+    );
+    assert!(
+        single_advance_steps >= 1,
+        "変えた 1 秒が効いていない: 10 歩のどれも 1 秒進めただけでは走査が入らなかった（進めた回数 {advances}・時計の経過 {elapsed:?}）"
     );
     assert!(during >= 5, "10 秒の間の走査は 5 回以上のはず: {during}");
 }

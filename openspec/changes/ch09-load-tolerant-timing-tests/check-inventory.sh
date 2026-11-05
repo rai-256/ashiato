@@ -143,7 +143,8 @@ rust_test_files() {
 
 # 回数で切る待ち（design D4）。`for <変数> in <a>..<b>` の本体（波括弧の対応で終わりまで）が
 # 眠り（`sleep(`・`settle(`）と抜け（`break`・`return`）を持ち、実時間の期限（`Instant::now()`・`deadline`・`elapsed()`）を見ないもの。
-#  - 回数 × 眠りが計算でき 30 秒以上なら許す
+#  - 回数 × 眠りが計算でき 30 秒以上なら許す。期限を見ていても回数が先に尽きるなら落とす（review/code.md R19）
+#  - 回数か眠りが計算できず、実時間の期限を見ているなら許す（期限が上限）
 #  - `// timing-ok:` は、ループの変数で時刻を進める（`for sec in …` で `t(sec)`）ものにだけ効く。
 #    `for _ in` は時刻を兼ねないので、印があっても条件で抜ける回数の待ちとして落とす（review/code.md R4）
 check_rust_waits() {
@@ -169,12 +170,14 @@ check_rust_waits() {
       }
       return total
     }
-    function finish(    secs) {
-      if (inloop && has_sleep && has_exit && !has_deadline) {
-        if (count > 0 && sleep_ms > 0 && !unknown && count * sleep_ms >= 30000) { inloop = 0; return }
+    function finish(    secs, known) {
+      if (inloop && has_sleep && has_exit) {
+        known = (count > 0 && sleep_ms > 0 && !unknown)
+        if (known && count * sleep_ms >= 30000) { inloop = 0; return }
+        if (!known && has_deadline) { inloop = 0; return }
         if (marked && var != "_") { inloop = 0; return }
         secs = (count > 0 && sleep_ms > 0 && !unknown) ? sprintf("%.1f 秒", count * sleep_ms / 1000) : "計算できない"
-        printf "%s:%d: 回数で切る待ち（for %s in …、回数 × 眠り = %s。実時間の期限 30 秒にする）%s\n", FILENAME, start, var, secs, (marked ? "。timing-ok があっても for _ の条件の待ちは残せない" : "")
+        printf "%s:%d: 回数で切る待ち（for %s in …、回数 × 眠り = %s。実時間の期限 30 秒にする）%s%s\n", FILENAME, start, var, secs, (has_deadline ? "。期限より先に回数が尽きる" : ""), (marked ? "。timing-ok があっても for _ の条件の待ちは残せない" : "")
       }
       inloop = 0
     }
@@ -187,7 +190,7 @@ check_rust_waits() {
       }
       next
     }
-    FNR == 1 { in_test = whole; cfg = 0 }
+    FNR == 1 { in_test = whole; cfg = 0; pending_deadline = 0 }
     !in_test {
       if ($0 ~ /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/) { cfg = 1; p2 = p1; p1 = $0; next }
       if (cfg && $0 ~ /^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]+tests([[:space:]]|$)/) in_test = 1
@@ -195,7 +198,25 @@ check_rust_waits() {
       p2 = p1; p1 = $0
       next
     }
+    # 実時間の期限（`deadline… = … + Duration::from_secs(<数>)`）が 30 秒未満（review/code.md R15）。
+    # rustfmt で次の行へ折れた右辺も読む。同じ行か 1〜2 行上の `// timing-ok:` で残せる
+    function check_deadline(text, at, ok,    v, ms) {
+      if (!match(text, /\+[[:space:]]*(std::time::)?Duration::from_(secs|millis)\([0-9_]+\)/)) return
+      v = substr(text, RSTART, RLENGTH); sub(/.*\(/, "", v); sub(/\).*/, "", v)
+      ms = (substr(text, RSTART, RLENGTH) ~ /from_secs/) ? 1000 * num(v) : num(v)
+      if (ms < 30000 && !ok) printf "%s:%d: 30 秒未満の実時間の期限（%.1f 秒）\n", FILENAME, at, ms / 1000
+    }
     {
+      code = $0
+      sub(/\/\/.*/, "", code)
+      if (pending_deadline) {
+        check_deadline(pending_text " " code, pending_at, pending_ok)
+        pending_deadline = 0
+      } else if (code ~ /deadline[A-Za-z0-9_]*[[:space:]]*=([^=]|$)/) {
+        dl_ok = ($0 ~ /timing-ok:/ || p1 ~ /timing-ok:/ || p2 ~ /timing-ok:/)
+        if (code ~ /;[[:space:]]*$/) check_deadline(code, FNR, dl_ok)
+        else { pending_deadline = 1; pending_text = code; pending_at = FNR; pending_ok = dl_ok }
+      }
       if (!inloop && match($0, /for[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+in[[:space:]]+[A-Za-z0-9_]+[[:space:]]*\.\.=?[[:space:]]*[A-Za-z0-9_]+/)) {
         head = substr($0, RSTART, RLENGTH)
         var = head; sub(/^for[[:space:]]+/, "", var); sub(/[[:space:]].*/, "", var)
@@ -234,13 +255,15 @@ check_kotlin_waits() {
     {
       ok = ($0 ~ /timing-ok:/ || p1 ~ /timing-ok:/ || p2 ~ /timing-ok:/)
       if (!ok) {
-        if (match($0, /await\([[:space:]]*[0-9_]+[lL]?[[:space:]]*,[[:space:]]*(TimeUnit\.)?SECONDS/)) {
-          v = substr($0, RSTART + 6); sub(/[[:space:]]*,.*/, "", v)
-          if (num(v) < 30) report("30 秒未満の期限（await " v " 秒）")
-        }
-        if (match($0, /await\([[:space:]]*[0-9_]+[lL]?[[:space:]]*,[[:space:]]*(TimeUnit\.)?MILLISECONDS/)) {
-          v = substr($0, RSTART + 6); sub(/[[:space:]]*,.*/, "", v)
-          if (num(v) < 30000) report("30 秒未満の期限（await " v " ms）")
+        # `await(<数>, SECONDS)`・`Tasks.await(task, <数>, TimeUnit.SECONDS)`・`Future.get(<数>, …)` など、
+        # 呼び出しの引数の「<数>, TimeUnit」を全部見る（review/code.md R15・R24）
+        rest = $0
+        while (match(rest, /[(,][[:space:]]*[0-9_]+[lL]?[[:space:]]*,[[:space:]]*(TimeUnit\.)?(SECONDS|MILLISECONDS)/)) {
+          d = substr(rest, RSTART, RLENGTH)
+          rest = substr(rest, RSTART + RLENGTH)
+          v = d; sub(/^[(,][[:space:]]*/, "", v); sub(/[[:space:]]*,.*/, "", v)
+          if (d ~ /MILLISECONDS/) { if (num(v) < 30000) report("30 秒未満の期限（" v " ms）") }
+          else if (num(v) < 30) report("30 秒未満の期限（" v " 秒）")
         }
         if (match($0, /[A-Z][A-Z0-9_]*_MS[[:space:]]*(:[[:space:]]*Long)?[[:space:]]*=[[:space:]]*[0-9_]+[lL]?/)) {
           d = substr($0, RSTART, RLENGTH)
@@ -301,6 +324,11 @@ check_short_shell_waits() {
     }
     /for[[:space:]]+[[:alnum:]_]+[[:space:]]+in/ {
       count=loop_count($0); loop_line=NR; loop_ok=mark_ok($0) || mark_ok(prev)
+    }
+    # `<…>deadline=$((SECONDS + <数>))`・`$((started + <数>))` の期限が 30 秒未満（review/code.md R15）
+    /[[:alnum:]_]*deadline=\$\(\([^)]*\+[[:space:]]*[0-9]+[[:space:]]*\)\)/ {
+      n=$0; sub(/^.*deadline=\$\(\([^)]*\+[[:space:]]*/, "", n); sub(/[^0-9].*/, "", n)
+      if (n + 0 < 30 && !mark_ok($0) && !mark_ok(prev)) print FILENAME ":" NR ": bashの期限が30秒未満（+ " n " 秒）"
     }
     NR >= loop_line && NR <= loop_line + 5 && count > 0 {
       seconds=sleep_seconds($0)
@@ -426,16 +454,32 @@ async fn const_sleep() {
         tokio::time::sleep(POLL).await;
     }
 }
+async fn deadline_but_counted() {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    for _ in 0..40 {
+        if done() || std::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+async fn short_deadline() {
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {}
+}
 EOF
   cat > "$tmp/collector-android/app/src/test/k/SampleTest.kt" <<'EOF'
 class SampleTest {
     val started = System.nanoTime()
     companion object { const val SETTLE_MS = 5_000L }
     fun t() { assertTrue("打ち切り", tookMs < 3_000) }
+    fun g() { task.get(2, TimeUnit.SECONDS) }
+    fun a() { Tasks.await(client.setMockMode(false), 5, TimeUnit.SECONDS) }
 }
 EOF
   printf '%s\n' 'test("sample", async () => { await expect(x).toBeVisible({ timeout: 5_000 }); });' > "$tmp/web/e2e/sample.spec.ts"
-  printf '%s\n' 'for _ in $(seq 1 2); do sleep 1; done' > "$tmp/tools/smoke.d/sample.sh"
+  printf '%s\n' 'for _ in $(seq 1 2); do sleep 1; done' 'shape_deadline=$((shape_started + 5))' > "$tmp/tools/smoke.d/sample.sh"
   cat > "$tmp/$change/inventory.md" <<'EOF'
 | 場所 | 型 | 方針 | 理由 |
 |---|---|---|---|
@@ -448,12 +492,19 @@ EOF
   expect_fail '印のある for _ の回数の待ち' 'sample_tests.rs:4: 回数で切る待ち' "PATH=$PATH"
   echo "self-test: sleep(POLL) の回数 × 眠り"
   expect_fail 'sleep(POLL)' 'sample_tests.rs:17: 回数で切る待ち（for _ in …、回数 × 眠り = 10.0 秒' "PATH=$PATH"
+  echo "self-test: 期限を見ていても回数が先に尽きる待ち（R19）・30 秒未満の実時間の期限（R15）"
+  expect_fail '期限より先に尽きる回数' 'sample_tests.rs:26: 回数で切る待ち（for _ in …、回数 × 眠り = 1.0 秒。実時間の期限 30 秒にする）。期限より先に回数が尽きる' "PATH=$PATH"
+  expect_fail '30 秒未満の Rust の期限' 'sample_tests.rs:34: 30 秒未満の実時間の期限（2.0 秒）' "PATH=$PATH"
+  echo "self-test: Kotlin の Future.get・Tasks.await の短い上限（R15・R24）"
+  expect_fail 'Future.get' 'SampleTest.kt:5: 30 秒未満の期限（2 秒）' "PATH=$PATH"
+  expect_fail 'Tasks.await' 'SampleTest.kt:6: 30 秒未満の期限（5 秒）' "PATH=$PATH"
   echo "self-test: _MS 定数・打ち切りの上限"
   expect_fail '_MS 定数' '30 秒未満の _MS 定数（SETTLE_MS' "PATH=$PATH"
   expect_fail '打ち切りの上限' '30 秒未満の打ち切りの上限' "PATH=$PATH"
   echo "self-test: e2e と台本の短い待ち"
   expect_fail 'e2e の短い timeout' 'sample.spec.ts:1: Playwrightの30秒未満の期限' "PATH=$PATH"
   expect_fail '台本の回数×sleep' 'sample.sh:1: bashの回数×sleepが30秒未満' "PATH=$PATH"
+  expect_fail '台本の短い期限' 'sample.sh:2: bashの期限が30秒未満（+ 5 秒）' "PATH=$PATH"
 
   echo "self-test: 実在しないパスの行"
   cp "$tmp/$change/inventory.md" "$tmp/inventory.ok"
@@ -467,7 +518,7 @@ EOF
   cat > "$tmp/crates/sample/src/sample_tests.rs" <<'EOF'
 async fn deadline_wait() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    for _ in 0..40 {
+    loop {
         if done() || std::time::Instant::now() >= deadline {
             break;
         }
@@ -502,10 +553,12 @@ class SampleTest {
         const val POLL_MS = 250L
     }
     fun t() { assertTrue("打ち切り", tookMs < 30_000) }
+    fun g() { task.get(30, TimeUnit.SECONDS) }
+    fun a() { Tasks.await(client.setMockMode(false), 30, TimeUnit.SECONDS) }
 }
 EOF
   sed -i '1s/^/\/\/ timing-ok: self-test\n/' "$tmp/web/e2e/sample.spec.ts"
-  sed -i '1s/^/# timing-ok: self-test\n/' "$tmp/tools/smoke.d/sample.sh"
+  printf '%s\n' '# timing-ok: self-test' 'for _ in $(seq 1 2); do sleep 1; done' 'shape_deadline=$((shape_started + 30))' > "$tmp/tools/smoke.d/sample.sh"
   echo "self-test: ディレクトリの行はファイルに解決する"
   printf '%s\n' '| `crates/sample` | 条件の待ち | 直した | ディレクトリの self-test |' >> "$tmp/$change/inventory.md"
   (cd "$tmp" && bash "$script") >/dev/null || die '--self-test は直した形を落とした'

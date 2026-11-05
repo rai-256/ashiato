@@ -2504,7 +2504,8 @@ mod tests {
         let (cfg, _tmp) = cfg();
         let transport = AcceptAll::default();
         let (gate, slow) = std::sync::mpsc::channel();
-        let (patrol_returned, released_by_watchdog, watchdog) = patrol_watchdog(gate.clone(), 4);
+        // 見張りは 9 回の見回り（0〜8 秒）を全部見る。前景が変わる 4〜8 秒の見回りも読みを待てば落ちる（review/code.md R21）
+        let (patrol_returned, released_by_watchdog, watchdog) = patrol_watchdog(gate.clone(), 9);
         let mut rt = runtime_with(
             &cfg,
             &transport,
@@ -2513,17 +2514,19 @@ mod tests {
         rt.settle_clock_worker = false;
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
-        for sec in 0..=3 {
+        // timing-ok: t(sec) を進める時刻を兼ねるループ（回数の待ちではない）
+        for sec in 0..=8 {
+            if sec == 4 {
+                assert!(rt.clock_worker.is_some(), "読み取りが走っていない");
+                src.app = "browser".into();
+            }
             rt.tick_at(&mut src, t(sec), t(sec));
             patrol_returned.send(()).ok();
             assert!(
                 !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
-                "見張りが読みを放した: 見回りが基準の読み取りを待った"
+                "見張りが読みを放した: {sec} 秒の見回りが基準の読み取りを待った"
             );
         }
-        assert!(rt.clock_worker.is_some(), "読み取りが走っていない");
-        src.app = "browser".into();
-        run(&mut rt, &mut src, 4, 8, 1);
         watchdog.join().unwrap();
         assert!(
             !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
@@ -4262,6 +4265,8 @@ mod tests {
     #[test]
     fn history_large_fetch_keeps_observing_foreground() {
         use crate::history::collect::QUEUE_PER_TICK;
+        // 下の比べは製品の定数に合わせて緩むので、値そのものを固定する（design D18（仮）。review/code.md R17）
+        assert_eq!(QUEUE_PER_TICK, 2_000, "見回り 1 回に積む上限は 2,000 件");
         const N: i64 = 30_000;
         // 送らない（未送信に積んだ順をそのまま見る）
         #[derive(Debug)]
@@ -4296,6 +4301,9 @@ mod tests {
             .unwrap()
             .with_history(reader.clone()),
         );
+        // 放す口は rt より後に置き、rt より先に落とす。途中の assert で落ちたとき、gate で止まった読みが
+        // 放されてから rt の drop が取得の別スレッドを待つ（review/code.md R23）
+        let release = release;
         let mut src = FakeSource::new("editor");
         let (initial_patrol_returned, initial_released_by_watchdog, initial_watchdog) =
             patrol_watchdog(release.clone(), 1);
@@ -4343,6 +4351,13 @@ mod tests {
             !released_by_watchdog.load(std::sync::atomic::Ordering::Relaxed),
             "見張りが読みを放した: 見回りが履歴の取得を待った"
         );
+        // 止めた読みが本当に始まって gate で止まっていたか（始まっていなければ、上の 5 回は読みと関係なく通る。R22）
+        assert!(
+            rt.history.as_ref().unwrap().is_reading() && reader.reads() == 1,
+            "止めた読みが始まっていない: 読んだ回数 {}・読み中 {}",
+            reader.reads(),
+            rt.history.as_ref().unwrap().is_reading()
+        );
         let stopped_read_events = rt.events.snapshot();
         assert!(
             stopped_read_events
@@ -4353,7 +4368,17 @@ mod tests {
         release.send(()).unwrap();
         src.app = "editor".into();
         let mut max_queued_per_tick = 0;
+        // 時刻を兼ねるループ（1 回ごとに t(sec) を進める）。実時間の上限 30 秒も持つ（R22）
+        let real_started = std::time::Instant::now();
+        let real_deadline = real_started + std::time::Duration::from_secs(30);
         while reader.reads() < 2 || rt.history.as_ref().unwrap().is_reading() {
+            assert!(
+                std::time::Instant::now() < real_deadline,
+                "放した読みが終わらない: 読んだ回数 {}・積んだ履歴 {}・待った時間 {:?}",
+                reader.reads(),
+                history(&rt),
+                real_started.elapsed()
+            );
             sec += 1;
             let previous = history(&rt);
             rt.tick_at(&mut src, t(sec), t(sec));

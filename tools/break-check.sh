@@ -84,8 +84,9 @@ run_check() {
   fi
 
   echo "== 壊した作業木で命令を実行"
-  # 組み立ての置き場の既定は、使い捨ての作業木の下の専用の target（後始末で消える）。
-  # 元の木の target/ を既定にすると、壊した木の組み立てが元の木の成果物を上書きする（CH09 review/code.md R9）
+  # 組み立ての置き場は、使い捨ての作業木の下の専用の target（後始末で消える）。
+  # 元の木の target/ を既定にすると、壊した木の組み立てが元の木の成果物を上書きする（CH09 review/code.md R9）。
+  # 受け継いだ CARGO_TARGET_DIR（record-env.sh などが export する共有の置き場）も使わない（R25）
   local started_at elapsed status_file
   status_file=$CHECK_TEMP_ROOT/command.rc
   started_at=$SECONDS
@@ -93,7 +94,7 @@ run_check() {
   (
     set +e
     cd "$CHECK_WORKTREE" || exit 1
-    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$CHECK_TEMP_ROOT/target}" \
+    CARGO_TARGET_DIR="$CHECK_TEMP_ROOT/target" \
       timeout --signal=TERM --kill-after=2s "$timeout_seconds" "${command[@]}"
     echo "$?" >"$status_file"
   ) 2>&1 | tee "$log"
@@ -202,6 +203,14 @@ PATCH
     fi
     if [ "$command_rc" -ne 0 ] || grep -Fq 'NG: 上限で殺した' <<<"$output"; then
       echo "self-test NG: 命令自身の rc=124 を上限と取り違えた"
+      printf '%s\n' "$output"
+      exit 1
+    fi
+
+    # 受け継いだ CARGO_TARGET_DIR を使わず、使い捨ての木の下の target で組み立てる（R25）
+    if ! output=$(CARGO_TARGET_DIR="$SELF_TEST_ROOT/shared-target" "$script" --patch break.patch --expect TEMP_TARGET -- \
+      bash -c 'case "$CARGO_TARGET_DIR" in */shared-target) echo SHARED; exit 0 ;; */target) echo TEMP_TARGET; exit 1 ;; esac; exit 0' 2>&1); then
+      echo "self-test NG: 受け継いだ CARGO_TARGET_DIR で組み立てた"
       printf '%s\n' "$output"
       exit 1
     fi

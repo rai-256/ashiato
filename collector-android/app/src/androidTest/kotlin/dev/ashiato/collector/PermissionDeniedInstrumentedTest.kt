@@ -15,6 +15,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +24,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 /**
@@ -207,7 +209,7 @@ class PermissionDeniedInstrumentedTest {
     private fun findAndClick(selectors: List<BySelector>, missing: () -> String) {
         var stale: StaleObjectException? = null
         repeat(STALE_RETRIES) {
-            val found = selectors.firstNotNullOfOrNull { device.wait(Until.findObject(it), DIALOG_TIMEOUT_MS) }
+            val found = findAny(selectors)
             assertTrue(missing(), found != null)
             try {
                 found!!.click()
@@ -217,6 +219,19 @@ class PermissionDeniedInstrumentedTest {
             }
         }
         throw checkNotNull(stale)
+    }
+
+    /**
+     * 選び方のどれかに当たる要素を、全部まとめて 30 秒の期限まで探す。1 つずつ `device.wait` で待つと、
+     * OS の版で当たらない選び方ごとに期限を使い切る（review/code.md R27）。
+     */
+    private fun findAny(selectors: List<BySelector>): UiObject2? {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(DIALOG_TIMEOUT_MS)
+        while (true) {
+            selectors.firstNotNullOfOrNull { device.findObject(it) }?.let { return it }
+            if (System.nanoTime() >= deadline) return null
+            Thread.sleep(POLL_MS)
+        }
     }
 
     private fun waitForLog(needle: String, filter: String = "ashiato:W"): Boolean {
@@ -236,6 +251,7 @@ class PermissionDeniedInstrumentedTest {
 
     private companion object {
         const val DIALOG_TIMEOUT_MS = 30_000L
+        const val POLL_MS = 250L
 
         /** 押す前に描き直されたときに探し直す回数 */
         const val STALE_RETRIES = 3

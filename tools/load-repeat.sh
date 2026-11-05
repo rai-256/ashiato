@@ -17,17 +17,23 @@ usage() {
 
 host_load_pids=()
 db_load_started=0
+db_heartbeat_pid=''
 command_pid=''
 self_test_tmp=''
 load_marker="ch09-load-$$"
 
 stop_db_load() {
   [ "$db_load_started" -eq 1 ] || return 0
+  if [ -n "$db_heartbeat_pid" ]; then
+    kill "$db_heartbeat_pid" 2>/dev/null || true
+    db_heartbeat_pid=''
+  fi
   "$ROOT/tools/db.sh" exec -T db sh -c '
     marker=$1
     # 負荷の sh の argv は「… <印>-<番号>」で終わる。この sh 自身（argv の末尾は <印>）と awk は末尾が数字でないので拾わない
     pids=$(ps -eo pid=,args= 2>/dev/null | awk -v marker="$marker" '\''$0 ~ (marker "-[0-9]+$") { print $1 }'\'' || true)
     [ -z "$pids" ] || kill $pids 2>/dev/null || true
+    rm -f "/tmp/$marker.alive"
   ' sh "$load_marker" >/dev/null 2>&1 || true
   db_load_started=0
 }
@@ -60,8 +66,9 @@ start_load() {
     none) ;;
     host)
       count=$(nproc)
+      # 台本が KILL で止まると trap は走らない。負荷は台本の生存を自分で見て、台本が消えたら止まる（review/code.md R18）
       for ((i = 1; i <= count; i++)); do
-        bash -c 'while :; do :; done' "$load_marker-$i" &
+        CH09_LOAD_PARENT=$$ bash -c 'while kill -0 "$CH09_LOAD_PARENT" 2>/dev/null; do for ((j = 0; j < 100000; j++)); do :; done; done' "$load_marker-$i" &
         host_load_pids+=("$!")
       done
       ;;
@@ -72,8 +79,18 @@ start_load() {
       fi
       count=$(nproc)
       db_load_started=1
+      # DB の側からは台本の pid が見えない。台本が 5 秒ごとに印のファイルを触り、負荷は 30 秒触られなければ止まる
+      # （台本が KILL で止まっても DB のコンテナに負荷を残さない。review/code.md R18）
+      "$ROOT/tools/db.sh" exec -T db touch "/tmp/$load_marker.alive" >/dev/null || return 1
+      (
+        while kill -0 "$$" 2>/dev/null; do
+          "$ROOT/tools/db.sh" exec -T db touch "/tmp/$load_marker.alive" >/dev/null 2>&1 || true
+          sleep 5
+        done
+      ) &
+      db_heartbeat_pid=$!
       for ((i = 1; i <= count; i++)); do
-        "$ROOT/tools/db.sh" exec -T -d db sh -c 'while :; do :; done' "${load_marker}-$i" >/dev/null || return 1
+        "$ROOT/tools/db.sh" exec -T -d db sh -c "while [ \$((\$(date +%s) - \$(stat -c %Y /tmp/$load_marker.alive 2>/dev/null || echo 0))) -lt 30 ]; do i=0; while [ \$i -lt 50000 ]; do i=\$((i + 1)); done; done" "${load_marker}-$i" >/dev/null || return 1
       done
       start_wait=$SECONDS
       deadline=$((start_wait + 30))
@@ -163,12 +180,6 @@ self_test() {
     rc=$?
     [ "$rc" -eq 1 ] || { echo "self-test NG: 3 回目だけ失敗 load=$mode rc=$rc" >&2; printf '%s\n' "$output" >&2; return 1; }
     printf '%s\n' "$output" | grep -q 'run 3/5 rc=1' || { echo "self-test NG: 3 回目の rc が出ない load=$mode" >&2; return 1; }
-    printf '0\n' >"$tmp/$mode-fail"
-    set +e
-    output=$(run_expect 'pass 4/5' "$ROOT/tools/load-repeat.sh" --times 5 --load "$mode" -- sh -c 'n=$(cat "$1"); n=$((n + 1)); echo "$n" >"$1"; test "$n" -ne 3' sh "$tmp/$mode-fail" 2>&1)
-    rc=$?
-    [ "$rc" -eq 1 ] || { echo "self-test NG: 失敗命令の rc=$rc load=$mode" >&2; printf '%s\n' "$output" >&2; return 1; }
-    printf '%s\n' "$output" | grep -q 'run 3/5 rc=1' || { echo "self-test NG: 失敗回の rc が出ない load=$mode" >&2; return 1; }
     if ! no_load_markers; then
       echo "self-test NG: 負荷の子が残った: load=$mode" >&2
       return 1
@@ -221,6 +232,33 @@ self_test() {
       db_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk '\$0 ~ /ch09-load-[0-9]/ { n++ } END { print n + 0 }'")
       [ "$db_count" -eq 0 ] || { echo "DB の負荷が残った: $db_count" >&2; return 1; }
     fi
+  done
+
+  echo "Scenario: 負荷の台本が KILL で止まっても、かけた負荷は残らない"
+  local left_deadline
+  for mode in host db; do
+    # 命令の sleep 60 は台本と一緒には止まらず、60 秒で自分で終わる（印を持たないので負荷の数には入らない）
+    "$ROOT/tools/load-repeat.sh" --times 1 --load "$mode" -- sleep 60 &
+    runner=$!
+    found=0
+    start_wait=$SECONDS
+    deadline=$((start_wait + 30))
+    while (( SECONDS < deadline )); do
+      if ! no_load_markers; then found=1; break; fi
+      sleep 0.1
+    done
+    [ "$found" -eq 1 ] || { echo "負荷が立たない: load=$mode（KILL の例。待った $((SECONDS - start_wait)) 秒）" >&2; kill -TERM "$runner" 2>/dev/null || true; wait "$runner" 2>/dev/null || true; return 1; }
+    kill -KILL "$runner" 2>/dev/null || true
+    wait "$runner" 2>/dev/null || true
+    # host は次の一巡で、db は印のファイルが 30 秒触られなくなった後に止まる
+    left_deadline=$((SECONDS + 45))
+    while ! no_load_markers; do
+      if (( SECONDS >= left_deadline )); then
+        echo "KILL の後に負荷が残った: load=$mode（待った $((SECONDS - left_deadline + 45)) 秒）" >&2
+        return 1
+      fi
+      sleep 0.5
+    done
   done
 }
 

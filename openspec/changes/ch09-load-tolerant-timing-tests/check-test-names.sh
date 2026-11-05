@@ -6,7 +6,6 @@ cd "$ROOT"
 echo "Scenario: 既存の試験の名前と印は消えず、試験の本数は減らない"
 m=$(git merge-base origin/main HEAD)
 
-files=(crates collector-android/app/src web/src/__tests__ web/e2e tools/*.sh tools/smoke.d)
 collect() {
   local rev=$1 pattern=$2 path=$3
   git grep -h -A8 -E "$pattern" "$rev" -- "$path" 2>/dev/null | awk '

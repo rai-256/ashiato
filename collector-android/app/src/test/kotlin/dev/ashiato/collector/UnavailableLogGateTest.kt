@@ -16,9 +16,7 @@ import org.junit.Test
 class UnavailableLogGateTest {
     private fun awaitWithinD4(latch: CountDownLatch, message: String) {
         val started = System.nanoTime()
-        val deadline = started + TimeUnit.SECONDS.toNanos(30)
-        val remaining = deadline - System.nanoTime()
-        val completed = remaining > 0 && latch.await(remaining, TimeUnit.NANOSECONDS)
+        val completed = latch.await(30, TimeUnit.SECONDS)
         val waitedMs = (System.nanoTime() - started) / 1_000_000
         assertTrue("$message（待機=${waitedMs}ms、最後に見た値=${latch.count}）", completed)
     }

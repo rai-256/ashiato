@@ -73,7 +73,7 @@
 | `crates/server/src/stay_store.rs` | 暗黙の上限 | 一覧だけ（製品のコード） | 製品のコードの時間の扱い（Q0 で変えない）。同じファイルの `#[cfg(test)] mod tests` に回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。 |
 | `crates/server/src/web_session.rs` | 暗黙の上限 | 一覧だけ（製品のコード） | 製品のコードの時間の扱い（Q0 で変えない）。同じファイルの `#[cfg(test)] mod tests` に回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。 |
 | `crates/server/src/lib.rs` | 暗黙の上限 | 一覧だけ（製品のコード） | 製品のコードの時間の扱い（Q0 で変えない）。同じファイルの `#[cfg(test)] mod tests` に回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。 |
-| `crates/server/tests/server_startup.rs` | 暗黙の上限 | 直すものは無い | 回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。待ちは実時間の期限か、30 秒以上の回数 × 眠り。 |
+| `crates/server/tests/server_startup.rs:121`・`:202`・`:275`・`:487`・`:1073` | 条件の待ち | 実時間 30 秒の期限へ変えた | 起動したサーバの終わり・待ち受け・ログ・`/healthz` を待つ期限が 20 秒だった。一覧は「30 秒未満の上限は無い」としていたが、実時間の期限の形を検査が見ていなかった（review/code.md R15）。30 秒にした。 |
 | `crates/server/src/export_file_tests.rs` | 条件の待ち | 直すものは無い | 回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。待ちは実時間の期限か、30 秒以上の回数 × 眠り。 |
 | `crates/server/src/archive/worker.rs` | 暗黙の上限 | 一覧だけ（製品のコード） | 製品のコードの時間の扱い（Q0 で変えない）。同じファイルの `#[cfg(test)] mod tests` に回数の待ち・30 秒未満の上限は無い（`check-inventory.sh` が試験のコードを全部見る）。 |
 | `tools/recording/st22/st22-phone-dark.rec.ts` | 暗黙の上限 | 一覧だけ（別 change） | 録画の台本 st22-phone-dark.rec.ts は合否を出す試験ではなく、待ちを含む場所だけを記録する。 |
