@@ -1,0 +1,41 @@
+{
+  "status": "accepted",
+  "digest": "8d90d4b59c9ec6fa072490c359918818a9d1a7178f04342ce6f2b29bff3e1152",
+  "head": "311283683acaea390224e1494b9653ed07c2d556",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-04T01:05:35Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "本人の今の運用で画面を 5180 で開くと、収集アプリの送信が画面の配り手の中継を通る"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "`setup` の後に PC の収集アプリを前の版へ戻すと、起動しない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "既存の試験がバックアップの規則の除外を 2 つと決めている"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "サーバのインストーラ（ST55）の「秘密は人が見ない」と食い違う"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "サーバを切り替えると、前のサーバが受けた記録の写真の原本が欠けになる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "網の手順書の「APK を入れ直す」は、設定を保存した携帯には効かない"
+    }
+  ]
+}
