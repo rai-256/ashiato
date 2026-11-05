@@ -153,14 +153,14 @@
 
 ## Task 13: 壊してはいけないものと、負荷の下の 10 回
 
-- [ ] 13.1 change の中に `check-product-unchanged.sh` を design D10 のとおりに書く（`--self-test` 付き）。本体の前に
+- [x] 13.1 change の中に `check-product-unchanged.sh` を design D10 のとおりに書く（`--self-test` 付き）。本体の前に
   `echo "Scenario: CH09 の差分は、試験のモジュールの外の製品のコードに 0 行"` を出す。
   検証: `bash -c 'openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh --self-test && openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh'` rc=0
-- [ ] 13.2 change の中に `check-test-names.sh` を design D13 のとおりに書く（CH03 の `openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/check-test-names.sh` を写し、画面の単体試験の `it(` / `test(` の名前と本数を足す。Q2 で広げた分として、design D3 のとおり e2e の `test(`・計測テストの `@Test` の `fun`・`runtime_windows.rs` の `#[test]` の `fn` の名前と、縦串の台本の `Scenario:` の印も比べる）。
+- [x] 13.2 change の中に `check-test-names.sh` を design D13 のとおりに書く（CH03 の `openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/check-test-names.sh` を写し、画面の単体試験の `it(` / `test(` の名前と本数を足す。Q2 で広げた分として、design D3 のとおり e2e の `test(`・計測テストの `@Test` の `fun`・`runtime_windows.rs` の `#[test]` の `fn` の名前と、縦串の台本の `Scenario:` の印も比べる）。
   本体の前に `echo "Scenario: 既存の試験の名前と印は消えず、試験の本数は減らない"` を出す。
   検証: `openspec/changes/ch09-load-tolerant-timing-tests/check-test-names.sh` rc=0
-- [ ] 13.3 `load-proof.sh after` を書く: 1 と 2 の試験に、`load-before.txt` の `load-history` / `load-scan` の負荷（`none` なら `host`。両方なら両方）で `tools/load-repeat.sh --times 10` を当て、どれも `pass 10/10` であることを見る。前に
+- [x] 13.3 `load-proof.sh after` を書く: 1 と 2 の試験に、`load-before.txt` の `load-history` / `load-scan` の負荷（`none` なら `host`。両方なら両方）で `tools/load-repeat.sh --times 10` を当て、どれも `pass 10/10` であることを見る。前に
   `echo "Scenario: 全コアに負荷をかけた状態で、見回りと走査の間隔の 2 本の試験が続けて 10 回通る"` を出す。結果を `load-after.txt`（change の中）に残して commit する。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run load -- openspec/changes/ch09-load-tolerant-timing-tests/load-proof.sh after'` rc=0
-- [ ] 13.4 全体: `cargo test --workspace` と、spec の Scenario の印の突き合わせ。
+- [x] 13.4 全体: `cargo test --workspace` と、spec の Scenario の印の突き合わせ。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ws -- cargo test --workspace'` rc=0 / `python3 scripts/check_scenarios.py . ch09-load-tolerant-timing-tests` rc=0 / `python3 scripts/check_agreed_tests.py . --change ch09-load-tolerant-timing-tests` rc=0
