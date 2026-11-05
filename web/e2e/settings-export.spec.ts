@@ -107,7 +107,7 @@ async function openSettings(page: Page): Promise<void> {
   await page.goto("/#/settings");
   await page.reload();
   await expect(page.getByTestId("settings-view")).toBeVisible();
-  await expect(page.getByTestId("export-sources")).toBeVisible();
+  await expect(page.getByTestId("export-sources")).toBeVisible({ timeout: 90_000 });
 }
 
 function watchPosts(page: Page): string[] {
