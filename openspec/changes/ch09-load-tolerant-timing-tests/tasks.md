@@ -125,7 +125,7 @@
 
 ## Task 9: 画面の e2e（Q2）
 
-- [ ] 9.1 design D15 のとおりに `web/playwright.config.ts` に `expect: { timeout: 30_000 }` と `timeout: 120_000` を足し（1 行目は変えない）、`web/e2e/*.spec.ts` の 30 秒より短い `{ timeout: N }` を消す
+- [x] 9.1 design D15 のとおりに `web/playwright.config.ts` に `expect: { timeout: 30_000 }` と `timeout: 120_000` を足し（1 行目は変えない）、`web/e2e/*.spec.ts` の 30 秒より短い `{ timeout: N }` を消す
   （任意の操作の `day-erase.spec.ts:70` は残して `// timing-ok:`）。`test.describe.configure({ timeout: N })` で 120 秒より短いものは 120 秒にする。`feel.spec.ts` の `waitForTimeout` には D5 を当てる。
   `web/e2e/ch09-timeouts.spec.ts` を足し、`// Scenario: 画面の e2e の待ちの上限は 30 秒、試験の上限は 120 秒` の印のもとで、`playwright.config.ts` を import して `expect.timeout` が 30000、`test.info().timeout` が 120000 以上であることを見る（`test.info()` は `expect` の上限を持たない。design D15）。
   検証: `bash -c 'cd web && npm run typecheck && npm run lint'` rc=0 / `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e'` rc=0
