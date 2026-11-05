@@ -91,8 +91,24 @@ nightly_self_test() {
   GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$version" ASHIATO_APK_UNSIGNED=1 \
     "$root/tools/release/build.sh" apk "$work/source" >/dev/null 2>&1
   printf '%s+0000000000000000000000000000000000000000\n' "$version" >"$work/stamp"
-  tar -czf "$work/server-linux.tar.gz" -C "$work" stamp
-  (cd "$work" && zip -q server-windows.zip stamp && zip -q collector-windows.zip stamp)
+  # 配布物の検査（check-artifacts.sh）は、どの配布物にも許諾の 3 つのファイルを求める（ST53）
+  cp "$root/LICENSE" "$work/LICENSE"
+  cat >"$work/THIRD-PARTY-NOTICES.txt" <<'NOTICES'
+== rust-std 1
+License: MIT OR Apache-2.0
+
+== anyhow 1.0.0
+License: MIT
+MIT License of anyhow
+
+== react 18.0.0
+License: MIT
+MIT License of react
+NOTICES
+  printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$work/SOURCE.txt"
+  local files=(stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
+  tar -czf "$work/server-linux.tar.gz" -C "$work" "${files[@]}"
+  (cd "$work" && zip -q server-windows.zip "${files[@]}" && zip -q collector-windows.zip "${files[@]}")
   cat >"$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
