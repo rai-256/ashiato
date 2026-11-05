@@ -47,7 +47,8 @@ publish_nightly() (
 )
 
 self_test() {
-  local work="$(mktemp -d "${TMPDIR:-/tmp}/publish-nightly.XXXXXX")" version calls fakebin password=self-test-password
+  local work="$(mktemp -d "${TMPDIR:-/tmp}/publish-nightly.XXXXXX")" version calls fakebin password
+  password="$(od -An -tx1 -N16 /dev/urandom | tr -d " \n")"  # 使い捨ての署名鍵の合言葉。字面で置かない（check-db-secret.sh）
   trap "rm -rf '$work'" EXIT
   fakebin="$work/bin"; calls="$work/calls"; mkdir -p "$fakebin"
   version="$($root/tools/release/version.sh source)-dev.20261102"
