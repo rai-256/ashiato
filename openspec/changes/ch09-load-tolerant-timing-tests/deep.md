@@ -65,7 +65,9 @@
 
 - 問い: `ch04_statement_timeout_cancels_a_long_query` の `pg_sleep(60)` と `Duration::from_secs(30)` を、archive 後にも値を変えると落ちる形で固定しますか。
 - 否の根拠: D18 は「上限の比べの行は `check_agreed_tests.py` が守る」として、相手の 60 秒だけが機械に捕まらない側だと仮決定していた。しかし `assert!(` が複数行なので同検査が守るのは 381 行目の `assert!(` と 386 行目の SQLSTATE の assert だけであり、382 行目の `Duration::from_secs(30)` も `pg_sleep(60)` と同じく archive 後に値を変えても捕まらない。D18 の「検査を足さない」を仮のままにはできない（`provisional-review.md`）。
-- 答え: (未回答)
+- 答え: 60 秒・30 秒の両方を一覧の検査で固定する（本人の選択。`deep-answers-2.txt`、2026-11-06。推奨の選択肢と同じ）
+  - 補足: なし
+  - 当初案を覆したもの: D18（仮）の「60 秒・30 秒は検査を足さない」を覆す。`check-inventory.sh` に `pg_sleep(60)` と `Duration::from_secs(30)`（`ch04_statement_timeout_cancels_a_long_query`）を確かめる検査を足し、どちらかを短くすると落ちる形で archive 後も守る。製品の挙動は変えず、試験と検査だけが増える。値の出所は D6（Q3 の答え）。仕様へ写すのは `spec --answers Q11`
 
 ## 仕様への合意（第 1 回）
 
