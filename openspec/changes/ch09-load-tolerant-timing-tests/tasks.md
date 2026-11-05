@@ -144,7 +144,7 @@
 
 ## Task 12: 洗い出しの一覧
 
-- [ ] 12.1 change の中に `check-inventory.sh` を design D14 と D3（Q2 で広げた範囲と拾う形: `web/e2e`・`web/playwright.config.ts`・`app/src/androidTest`・`tests/runtime_windows.rs`・`tools/*.sh`・`tools/smoke.d/*.sh`）のとおりに書く（候補を拾い、候補を持つファイルが全部 `inventory.md` に出ることを見る。`--list` で候補を出す。
+- [x] 12.1 change の中に `check-inventory.sh` を design D14 と D3（Q2 で広げた範囲と拾う形: `web/e2e`・`web/playwright.config.ts`・`app/src/androidTest`・`tests/runtime_windows.rs`・`tools/*.sh`・`tools/smoke.d/*.sh`）のとおりに書く（候補を拾い、候補を持つファイルが全部 `inventory.md` に出ることを見る。`--list` で候補を出す。
   一覧で「条件の待ち」・直したとしたファイルに、回数の待ちと 30 秒より短い上限が `timing-ok:` の印なしに残っていないことも見る。その前に
   `echo "Scenario: 一覧で直したとした条件の待ちに、回数の待ちと 30 秒より短い期限が残っていない"` を出す）。
   `inventory.md` を design D14 の列と型で書く（Task 3〜11 で直したもの・直さなかったものとその理由・探した範囲と探していない範囲・製品の不具合の疑い）。
