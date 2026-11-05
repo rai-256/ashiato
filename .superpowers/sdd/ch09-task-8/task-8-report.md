@@ -39,6 +39,12 @@
 
 ## 自己レビュー・懸念
 
-- Windows 実行時テストは Windows clone への同期先が read-only のため手元で確認できていない。CI の `collector-windows-runtime` で確認が必要。
-- 最新の再実行では同期は通ったが、対話デスクトップ上の HelperWindow/Edge の前景窓を 30 秒以内に取得できず 6 本が失敗した。Windows runner の対話セッション（ロック解除・前景窓が操作可能な状態）で再検証が必要。
-- Task 12 の `inventory.md` は Task 8 の担当範囲外として変更していない。
+- 初回検証では Windows clone の read-only と対話デスクトップの前景窓取得失敗があったが、fix round の再実行で 15/15 PASS を確認した。
+- Task 12 の `inventory.md` は fix round で runtime_windows.rs の対象一覧と確認状況を追記した。
+
+## 修正報告（fix round 1）
+
+- F1 対応: Windows clone への同期後、同じ 8.1 の runtime 検証を再実行し、15/15 PASS を evidence.jsonl に記録した。以前の 9/15 FAIL は過去の環境結果として残るが、最新の同一コード・同一コマンドの PASS があるため、手元検証の反転条件を満たした。
+- Task 12 の inventory に `runtime_windows.rs` の `timing-ok:` 対象（`:141`・`:217`・`:412`・`:957`・`:1223`・`:1433`）、`run_for`、30 秒条件待ち、`fetch_history_until` の 90 秒を追記し、Windows runtime 15 本で確認済みと明記した。
+- 検証: `scripts/verify-run 8.1` 相当の clippy は PASS。Windows runtime は `cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1` が `test result: ok. 15 passed; 0 failed`（rc=0、58.83s）。
+- コード変更はなく、fix round の変更は証跡・inventory・報告書のみ。
