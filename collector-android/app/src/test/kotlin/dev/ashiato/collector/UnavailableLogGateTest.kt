@@ -2,7 +2,9 @@
 package dev.ashiato.collector
 
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
@@ -21,6 +23,15 @@ class UnavailableLogGateTest {
         assertTrue("$message（待機=${waitedMs}ms、最後に見た値=${latch.count}）", completed)
     }
 
+    /** 糸の中で投げた失敗（`AssertionError` を含む）を、呼んだ側の失敗として出す。 */
+    private fun rethrowFrom(task: Future<*>) {
+        try {
+            task.get(30, TimeUnit.SECONDS)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
+    }
+
     @Test
     fun `同じ理由が並行して来てもログは一度だけ`() {
         val gate = UnavailableLogGate()
@@ -32,8 +43,8 @@ class UnavailableLogGateTest {
         val pool = Executors.newFixedThreadPool(workers)
 
         try {
-            repeat(workers) {
-                pool.execute {
+            val tasks = List(workers) {
+                pool.submit {
                     ready.countDown()
                     start.await()
                     gate.unavailable("permission") { calls.incrementAndGet() }
@@ -43,6 +54,7 @@ class UnavailableLogGateTest {
             awaitWithinD4(ready, "並行呼び出しの準備が整わない")
             start.countDown()
             awaitWithinD4(done, "並行呼び出しが終わらない")
+            tasks.forEach(::rethrowFrom)
         } finally {
             pool.shutdownNow()
         }
@@ -61,7 +73,7 @@ class UnavailableLogGateTest {
         val pool = Executors.newFixedThreadPool(2)
 
         try {
-            pool.execute {
+            val first = pool.submit {
                 gate.unavailable("permission") {
                     logging.countDown()
                     awaitWithinD4(finishLog, "ログを再開できない")
@@ -69,7 +81,7 @@ class UnavailableLogGateTest {
                 }
             }
             awaitWithinD4(logging, "最初のログまで進まない")
-            pool.execute {
+            val clear = pool.submit {
                 clearing.countDown()
                 gate.available()
                 recovered.countDown()
@@ -84,6 +96,8 @@ class UnavailableLogGateTest {
             )
             finishLog.countDown()
             awaitWithinD4(recovered, "復旧の反映が終わらない")
+            rethrowFrom(first)
+            rethrowFrom(clear)
 
             gate.unavailable("permission") { calls.incrementAndGet() }
         } finally {

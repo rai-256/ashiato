@@ -319,7 +319,7 @@ fn focus_window_of(pid: u32) {
 // ---------------------------------------------------------------------------
 // 観測と記録
 
-/// 前景が `want` を満たすまで、最長 `timeout` の間くり返し読む。
+/// 前景が `want` を満たすまで、最長 `timeout` の間くり返し読む。期限を過ぎたら、待った時間と最後に見た前景を出して落ちる。
 fn observe_until(
     source: &mut WindowsSource,
     timeout: Duration,
@@ -328,9 +328,16 @@ fn observe_until(
     let start = Instant::now();
     loop {
         let obs = source.observe(Utc::now());
-        if obs.foreground.as_ref().is_some_and(&want) || start.elapsed() > timeout {
+        if obs.foreground.as_ref().is_some_and(&want) {
             return obs;
         }
+        assert!(
+            start.elapsed() < timeout,
+            "前景が期待した状態にならない（待った時間: {:?}、上限: {:?}、最後に見た前景: {:?}）",
+            start.elapsed(),
+            timeout,
+            obs.foreground
+        );
         std::thread::sleep(Duration::from_millis(250));
     }
 }
@@ -560,9 +567,12 @@ fn excluded_app_leaves_no_text_in_any_record() {
     all.extend(run_for(&mut src, &mut eng, 1.5));
     // 戻す —— 除外の区間が閉じて件数の記録が出る
     a.focus();
-    all.extend(run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
-        f.title == "ashiato-rt A"
-    }));
+    all.extend(run_until(
+        &mut src,
+        &mut eng,
+        Duration::from_secs(30),
+        |f| f.title == "ashiato-rt A",
+    ));
     all.extend(eng.flush(Utc::now()));
 
     let text = serde_json::to_string(&all).unwrap();
@@ -813,7 +823,13 @@ fn clock_skew_runtime() {
         rt.tick(&mut source);
         std::thread::sleep(Duration::from_millis(100));
     }
+    let measured_in_time = measured(&transport);
+    let waited = started.elapsed();
     rt.stop();
+    assert!(
+        measured_in_time,
+        "測定記録が期限 30 秒のうちに置き場にも送信にも出ない（待った時間: {waited:?}）"
+    );
     let state_after = w32time_running();
 
     let sent: Vec<serde_json::Value> = transport
@@ -1313,14 +1329,20 @@ mod outage_toast {
             .unwrap();
     }
 
-    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。
+    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。期限 30 秒を過ぎたら、待った時間と最後に見た件数を出して落ちる。
     fn wait_history(want: impl Fn(&[ToastNotification]) -> bool) -> Vec<ToastNotification> {
-        let end = Instant::now() + Duration::from_secs(30);
+        let start = Instant::now();
         loop {
             let h = history();
-            if want(&h) || Instant::now() > end {
+            if want(&h) {
                 return h;
             }
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "通知の履歴が期待した状態にならない（待った時間: {:?}、最後に見た件数: {}）",
+                start.elapsed(),
+                h.len()
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
