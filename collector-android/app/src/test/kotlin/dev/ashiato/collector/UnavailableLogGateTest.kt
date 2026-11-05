@@ -79,6 +79,7 @@ class UnavailableLogGateTest {
             // timing-ok: D12。ログ中に復旧しない短い窓で、解除が割り込まないことだけを見る。
             assertFalse(
                 "ログ中の解除が比較と代入の間へ割り込んだ",
+                // timing-ok: D12 の 200ms 窓を検証する下限で、条件成立を待つ処理ではない。
                 recovered.await(200, TimeUnit.MILLISECONDS),
             )
             finishLog.countDown()

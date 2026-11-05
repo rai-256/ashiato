@@ -505,6 +505,7 @@ async fn scheduled_rereads_the_registry_until_it_can() {
     hold_clock(settle(100)).await;
     let before = probe.calls();
     // 読み直しの待ち（60 秒）を 2 回過ぎると読める
+    // timing-ok: 61 秒刻みで停止時計を進める試験で、実時間の期限待ちではない。
     for _ in 0..2 {
         tokio::time::advance(Duration::from_secs(61)).await;
         settle(100).await;
@@ -583,6 +584,7 @@ async fn scheduled_retired_source_is_not_fetched() {
         pool.clone(),
         testdb::user(),
     );
+    // timing-ok: 終了直後の task を確認する短い下限で、条件待ちの上限ではない。
     for _ in 0..40 {
         if handle.is_finished() {
             break;
