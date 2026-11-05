@@ -1,0 +1,1699 @@
+{
+ "purpose": "手元でエミュレータを起こして計測テストを走らせる台本が、エミュレータを起こせないときに来ない端末を待ち続けず、早く・理由つきで止まるようになる。止まった理由とエミュレータの出力の末尾が残り、/dev/kvm のときは verify-run が環境の欠落と読める文言で落ちる。正常に立つときの振る舞いは変わらず、それを偽の SDK の試験で毎回確かめる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "台本がエミュレータを起こす流れと、止まる 4 つの所",
+  "text": "計測テストの台本 / 採寸の台本\n   │ ① /dev/kvm を開いてみる ──開けない──→ error: /dev/kvm を開けない（起こさない）\n   │ ② 同じ AVD が動いていないか（計測テストの台本だけ）──動いている──→ error: 同じ AVD …（起こさない）\n   ↓\n部品 tools/emulator-start.sh がエミュレータを起こす（出力は emulator.log に残す）\n   │ ③ 端末が adb に現れるのを最大 120 秒待つ ─┬─ プロセスが終わった → error: 起動の途中で終わった ＋ 出力の末尾\n   │ ④ 起動の完了を最大 180 回 × 2 秒待つ ────┘   上限を超えた → error: … 現れない / 起動が終わらない\n   ↓                                               （止まるときは自分の起こしたプロセスだけを止める）\n今と同じ: アニメーションを切る → 写真と動画 → 計測テスト 6 段 → KEEP=1 でなければ止める"
+ },
+ "uses": [
+  {
+   "id": "U1",
+   "title": "sandbox の中から計測テストを走らせてしまっても、すぐ理由が分かる",
+   "trigger": "ST54 の ci_fix で、Codex が sandbox の中から `scripts/quiet-run … -- ./tools/android-emulator.sh` を走らせた。sandbox の中では /dev/kvm を開けず、今の台本は来ない端末を約 20 分待ち、人間が kill した。",
+   "steps": [
+    {
+     "do": "同じ命令を、この change の後の台本で走らせる",
+     "see": "エミュレータを起こす前に `error: /dev/kvm を開けない（調べた場所: /dev/kvm）。エミュレータを起こさない。verify-run で走らせ直す（Codex なら AGENTS.md の「/dev/kvm」の手順で sandbox の外を申請する）` が出て rc=1"
+    },
+    {
+     "do": "AGENTS.md の「/dev/kvm（Codex のとき）」の手順どおり `scripts/verify-run` で走らせ直す",
+     "see": "verify-run が BLOCKED_INFRA にし、sandbox の外での実行を 1 回申請する"
+    }
+   ],
+   "outcome": "数秒で止まり、何が足りないか・次に何をすればよいかが出力に残る。人間が待ちを kill しに行かなくてよい",
+   "without": "20 分前後待ち続け、人間が気づいて kill するまで別のセッションが止まる。落ちた理由も残らない",
+   "refs": {
+    "requirements": [
+     "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる"
+    ],
+    "scenarios": [
+     "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+     "/dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる"
+    ],
+    "decisions": [
+     "D10",
+     "D11",
+     "D14"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "手元でエミュレータが起動の途中で落ちたとき、理由を見る",
+   "trigger": "手元で `./tools/android-emulator.sh` を走らせたら、すぐ rc=1 で終わった。何が悪かったのかを知りたい。",
+   "steps": [
+    {
+     "do": "標準エラーを読む",
+     "see": "`error: エミュレータが起動の途中で終わった` と、エミュレータの出力の末尾 40 行（例: `ERROR | x86_64 emulation currently requires hardware acceleration!`）と、全文の置き場"
+    },
+    {
+     "do": "`collector-android/app/build/outputs/emulator.log` を開く",
+     "see": "その回のエミュレータの出力の全文"
+    }
+   ],
+   "outcome": "加速が使えないのか、別の理由なのかを出力から決められる",
+   "without": "出力は捨てられていて、台本の出力からは理由が分からない。手でエミュレータを起こし直して出力を見ることになる",
+   "refs": {
+    "requirements": [
+     "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる"
+    ],
+    "scenarios": [
+     "起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す",
+     "標準エラーに出す出力の末尾は 40 行まで"
+    ],
+    "decisions": [
+     "D12",
+     "D17"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "エミュレータを起こせない 4 つの場合と、正常な場合",
+   "feature": "limits",
+   "scene": "計測テストの台本を、エミュレータがいろいろな形で起こせない機械で走らせる。どの場合も台本は止まるか、今のとおり進む。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "場合ごとの止まり方（秒数は既定の上限。手元の実測では、端末が現れるまで約 15 秒・起動の完了まで約 35 秒）",
+    "head": [
+     "場合",
+     "いま",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "/dev/kvm を開けない（Codex の sandbox）",
+      "来ない端末を無期限に待つ",
+      "起こさずに rc=1。/dev/kvm の語と次の手が出る"
+     ],
+     [
+      "エミュレータが起動の途中で終わる",
+      "来ない端末を無期限に待つ",
+      "すぐ rc=1。出力の末尾 40 行と置き場が出る"
+     ],
+     [
+      "プロセスは生きているが端末が現れない",
+      "無期限に待つ",
+      "120 秒で rc=1"
+     ],
+     [
+      "同じ AVD のエミュレータが既に動いている",
+      "前からある端末で計測テストが走り、最後にその端末を止める",
+      "起こさず・触らずに rc=1。止め方が出る"
+     ],
+     [
+      "正常に立つ",
+      "6 段の計測テストを走らせる",
+      "同じ（引数・6 段の結果・KEEP=1 の扱いは今のまま）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "起動の途中で終わる",
+     "outcome": "problem",
+     "result": "今は 20 分前後待つ。この後は数秒で rc=1"
+    },
+    {
+     "label": "正常に立つ",
+     "outcome": "ok",
+     "result": "今と同じ順で最後まで走り、rc=0"
+    }
+   ],
+   "why": "待つ間、1 秒ごとに自分の起こしたプロセスが生きているかを先に見て、端末の待ちには時間の上限を付ける。/dev/kvm と同じ AVD は起こす前に見る。",
+   "conditions": {
+    "occurs_when": [
+     "エミュレータを起こせない機械・状態で台本を走らせる"
+    ],
+    "not_when": [
+     "正常に立つ（今と同じに進む）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の場合分け。Codex の sandbox が /dev/kvm を開くのを拒む形そのものは再現していない（/dev/null を被せた形で再現した）",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-01",
+    "IMP-04"
+   ],
+   "refs": {
+    "requirements": [
+     "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+     "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる",
+     "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+     "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる",
+     "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+    ],
+    "scenarios": [
+     "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+     "起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す",
+     "生きたまま端末が現れなければ、上限で止まる",
+     "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる",
+     "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "KEEP=1 の後に続けて走らせる",
+   "feature": "sameavd",
+   "scene": "手元で `KEEP=1 ./tools/android-emulator.sh` を走らせてエミュレータを残し、少し直してからもう一度台本を走らせる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "2 回目に何が起きるか（emulator-5554 は説明用の番号）",
+    "head": [
+     "手順",
+     "いま",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "1 回目 KEEP=1",
+      "通った後も emulator-5554 が残る",
+      "同じ"
+     ],
+     [
+      "2 回目",
+      "2 台目は 3 秒で死ぬが、emulator-5554 で計測テストが走る",
+      "起こさずに rc=1:「同じ AVD（ashiato-api35）のエミュレータが既に動いている（emulator-5554）。KEEP=1 の残りなら adb -s emulator-5554 emu kill で止めてから」"
+     ],
+     [
+      "続けるには",
+      "—",
+      "`adb -s emulator-5554 emu kill` の後に走らせ直す（新しく起こすぶん、約 35 秒長い）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "自分の KEEP=1 の残り",
+     "outcome": "neutral",
+     "result": "止める手間が 1 回増える"
+    },
+    {
+     "label": "別の worktree が同じ AVD で計測テストを走らせている",
+     "outcome": "problem",
+     "result": "台本は止まる。文言のとおり止めると、別の worktree の計測テストを途中で壊す（IMP-01）"
+    },
+    {
+     "label": "同じ AVD が動いていない",
+     "outcome": "ok",
+     "result": "今のとおり起こす"
+    }
+   ],
+   "why": "同じ AVD の 2 台目は起こしても数秒で死ぬ。今の台本は「どれかの端末」が現れたら進むので、前からある端末で走っていた。この change はその端末を使わず・止めずに止まる。",
+   "conditions": {
+    "occurs_when": [
+     "起こす前に、同じ AVD のエミュレータが adb に見えている"
+    ],
+    "not_when": [
+     "実機か別の AVD のエミュレータだけが繋がっている"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "採寸の台本には当てない（動いている端末を使う今の振る舞いのまま）",
+     "refs": {
+      "requirements": [
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ],
+      "scenarios": [
+       "採寸の台本は、adb に見えているエミュレータがあれば起こさない"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+    ],
+    "scenarios": [
+     "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる",
+     "実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"
+    ],
+    "decisions": [
+     "Q3",
+     "D3"
+    ]
+   }
+  }
+ ],
+ "before_after": [
+  {
+   "area": "エミュレータを起こせないとき（計測テストの台本）",
+   "before": "`adb wait-for-device` で無期限に待つ。出力は捨てる",
+   "after": "/dev/kvm は起こす前に・死んだらすぐ・端末は 120 秒で止まり、理由と出力の末尾を出す"
+  },
+  {
+   "area": "同じ AVD のエミュレータが既に動いているとき",
+   "before": "前からある端末で計測テストが走り、最後にその端末を止める",
+   "after": "起こさず・触らずに理由つきで rc=1"
+  },
+  {
+   "area": "採寸の台本で起こしたエミュレータが死んだとき",
+   "before": "約 6 分待ってから rc=2。理由は残らない",
+   "after": "すぐ rc=2。理由と出力の末尾を出す"
+  }
+ ],
+ "highlights": [
+  "sameavd.1",
+  "sameavd.2",
+  "cleanup.2",
+  "limits.2"
+ ],
+ "features": [
+  {
+   "id": "kvm",
+   "title": "/dev/kvm を開けないとき",
+   "summary": "起こす前に開いてみて、開けなければ起こさずに止まる",
+   "points": [
+    {
+     "id": "kvm.1",
+     "kind": "normal",
+     "text": "起こす前に /dev/kvm を読み書きで開いてみる。無いか開けなければ、エミュレータを起こさずに `error: /dev/kvm を開けない` と次の手（verify-run で走らせ直す）を出して rc=1",
+     "refs": {
+      "requirements": [
+       "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる"
+      ],
+      "scenarios": [
+       "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+       "在っても読み書きできない場所を渡しても、同じく起こさずに止まる"
+      ],
+      "decisions": [
+       "D11",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "kvm.2",
+     "kind": "normal",
+     "text": "文言は /dev/kvm の語を必ず含み、verify-run が走らせた後に出力で「環境の欠落」と読む判定に掛かる。手元では判定の正本（evidence.py）をそのまま当てて確かめる",
+     "refs": {
+      "requirements": [
+       "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる"
+      ],
+      "scenarios": [
+       "/dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     }
+    },
+    {
+     "id": "kvm.3",
+     "kind": "caution",
+     "text": "/dev/null を被せた形のように「開けるが使えない」ときは、ここでは止まらず、起こした後に「起動の途中で終わった」で止まる。そのときも出力が加速の不足を言えば /dev/kvm の語を含む行を足す",
+     "refs": {
+      "requirements": [
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる"
+      ],
+      "scenarios": [
+       "起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す"
+      ],
+      "decisions": [
+       "D11",
+       "D17"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "die",
+   "title": "起動の途中で終わったとき",
+   "summary": "待ちの上限を待たずにすぐ止まり、出力を残す",
+   "points": [
+    {
+     "id": "die.1",
+     "kind": "normal",
+     "text": "端末が現れるのを待つ間も、起動の完了を待つ間も、自分の起こしたプロセスが終わったらすぐ `error: エミュレータが起動の途中で終わった` で rc=1",
+     "refs": {
+      "requirements": [
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる"
+      ],
+      "scenarios": [
+       "起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す",
+       "端末が見えた後、起動の完了を待つ間に終わっても、すぐ止まる"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "die.2",
+     "kind": "normal",
+     "text": "エミュレータの出力は毎回 `collector-android/app/build/outputs/emulator.log` に書き直し、止まるときは末尾 40 行と置き場を出す",
+     "refs": {
+      "requirements": [
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる"
+      ],
+      "scenarios": [
+       "標準エラーに出す出力の末尾は 40 行まで"
+      ],
+      "decisions": [
+       "D12"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "limits",
+   "title": "上限で止まる",
+   "summary": "端末は 120 秒、起動の完了は今のまま 180 回 × 2 秒",
+   "points": [
+    {
+     "id": "limits.1",
+     "kind": "normal",
+     "text": "プロセスが生きたまま端末が adb に現れなければ、既定 120 秒で `error: <上限> 秒待っても端末が adb に現れない`。待ち始めに使う上限を出す",
+     "refs": {
+      "requirements": [
+       "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+      ],
+      "scenarios": [
+       "上限を渡さなければ、端末を最大 120 秒待つ",
+       "生きたまま端末が現れなければ、上限で止まる"
+      ],
+      "decisions": [
+       "Q2",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "limits.2",
+     "kind": "caution",
+     "text": "上限は環境変数で上書きできる（端末の秒・起動の完了の回数・1 回の adb の秒・調べる /dev/kvm の場所）。正の整数でない値なら起こさずに止まる。混んだ機械で 120 秒を超える正常な起動は、延ばさないと落ちる",
+     "refs": {
+      "requirements": [
+       "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+      ],
+      "scenarios": [
+       "上限に正の整数でない値を渡すと、起こさずに止まる"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ]
+    },
+    {
+     "id": "limits.3",
+     "kind": "normal",
+     "text": "起動の完了を待つ回数（180 回 × 2 秒）と文言 `error: 起動が終わらない` は今のまま。1 回ごとの `adb shell` には 10 秒の上限を掛ける",
+     "refs": {
+      "requirements": [
+       "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+      ],
+      "scenarios": [
+       "起動の完了の問い合わせが返らなくても、回数の上限で止まる"
+      ],
+      "decisions": [
+       "D15"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "sameavd",
+   "title": "同じ AVD が既に動いているとき",
+   "summary": "正常時の振る舞いが変わる唯一の所",
+   "points": [
+    {
+     "id": "sameavd.1",
+     "kind": "normal",
+     "text": "起こす前に、adb に見えているエミュレータの AVD の名前を聞き、起こそうとする AVD と同じなら、起こさず・その端末で走らせず・止めずに、止め方を含む文言で rc=1",
+     "refs": {
+      "requirements": [
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+      ],
+      "scenarios": [
+       "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+      ],
+      "decisions": [
+       "Q3",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "sameavd.2",
+     "kind": "caution",
+     "text": "今は `KEEP=1` の残りや別の worktree の同じ AVD の端末で計測テストが走っていた。この後は止まるので、続けて走らせるには先に止める手間が 1 回要る",
+     "refs": {
+      "requirements": [
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+      ],
+      "scenarios": [
+       "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+      ],
+      "decisions": [
+       "Q3",
+       "D3"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ],
+     "examples": [
+      {
+       "wrong": "KEEP=1 で残したエミュレータを、2 回目の台本がそのまま使う",
+       "right": "2 回目は rc=1 で止まる。adb -s emulator-5554 emu kill の後に走らせ直す"
+      }
+     ]
+    },
+    {
+     "id": "sameavd.3",
+     "kind": "exception",
+     "text": "実機や別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす。adb に見える前の同じ AVD（起動の途中）は見つけず、新しいプロセスが数秒で死んで「起動の途中で終わった」で止まる",
+     "refs": {
+      "requirements": [
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+      ],
+      "scenarios": [
+       "実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "cleanup",
+   "title": "止まるときの後片付け",
+   "summary": "自分の起こしたプロセスだけを止める",
+   "points": [
+    {
+     "id": "cleanup.1",
+     "kind": "normal",
+     "text": "失敗で止まるとき、自分の起こしたプロセスとその子を `KEEP=1` に依らず止める。起こす前に止まるときは何も止めない",
+     "refs": {
+      "requirements": [
+       "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+      ],
+      "scenarios": [
+       "上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない"
+      ],
+      "decisions": [
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "cleanup.2",
+     "kind": "caution",
+     "text": "失敗で止まるときは `emulator-5554` を名指しで止めない。ただし正常に計測テストまで進んだ後は今のまま `emulator-5554` を止め、待つ相手も今のまま「どれかの端末」（取り違えは直さない）",
+     "refs": {
+      "requirements": [
+       "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+      ],
+      "scenarios": [
+       "起動の途中で終わったとき、名指しの端末を止めない"
+      ],
+      "decisions": [
+       "Q4",
+       "D4"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "normal",
+   "title": "正常に立つときは変わらない",
+   "summary": "今の振る舞いを偽の SDK の試験で固定する",
+   "points": [
+    {
+     "id": "normal.1",
+     "kind": "normal",
+     "text": "今と同じ引数で起こし、アニメーションを切り、写真と動画を入れ、計測テストを 6 段で走らせて段ごとの XML を残す。`KEEP=1` でなければ最後に止める",
+     "refs": {
+      "requirements": [
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+      ],
+      "scenarios": [
+       "正常に立つとき、今と同じ引数でエミュレータを起こす",
+       "正常に最後まで走ると、6 段の結果を残してエミュレータを止める",
+       "KEEP=1 なら、通った後にエミュレータを止めない"
+      ],
+      "decisions": [
+       "Q5",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "normal.2",
+     "kind": "normal",
+     "text": "emulator・システムイメージが無いときの文言、AVD が無ければ作ること、採寸の試験を通常の段から除く行の形も今のまま",
+     "refs": {
+      "requirements": [
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+      ],
+      "scenarios": [
+       "emulator かシステムイメージが無いときは、今の文言で止まる",
+       "AVD が無ければ作ってから起こす",
+       "計測テストの台本の行の形の検査は、今のまま通る"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "normal.3",
+     "kind": "normal",
+     "text": "試験は使い捨ての木に本物の台本を写し、偽の SDK・adb・gradle を置いて走らせる。本物のエミュレータも /dev/kvm も要らないので、CI の検査の job で毎回走る。本物でも手元で 1 回通す",
+     "refs": {
+      "requirements": [
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+      ],
+      "scenarios": [
+       "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+      ],
+      "decisions": [
+       "D9",
+       "D16"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "usage",
+   "title": "採寸の台本も同じ部品で",
+   "summary": "起こせなければ「測れなかった」（rc=2）ですぐ止まる",
+   "points": [
+    {
+     "id": "usage.1",
+     "kind": "normal",
+     "text": "利用状況の採寸の台本も同じ部品でエミュレータを起こし、/dev/kvm・途中で終わる・現れない・起動が終わらないで、同じ文言を出して rc=2",
+     "refs": {
+      "requirements": [
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ],
+      "scenarios": [
+       "採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる",
+       "採寸の台本でも /dev/kvm を開けなければ、起こさずに rc=2 で止まる"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "usage.2",
+     "kind": "exception",
+     "text": "adb に見えているエミュレータがあれば起こさずに使う・`-wipe-data` の引数は今のまま。同じ AVD かどうかは確かめない",
+     "refs": {
+      "requirements": [
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ],
+      "scenarios": [
+       "採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる",
+       "採寸の台本は、adb に見えているエミュレータがあれば起こさない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "待つ相手・止める相手の取り違え（どれかの端末で先へ進む・正常に進んだ後に emulator-5554 を止める）",
+   "refs": {
+    "decisions": [
+     "Q4",
+     "D4"
+    ]
+   }
+  },
+  {
+   "text": "st54 が足す `tools/android-side-by-side.sh` の同じ形の起動（st54 の merge の後に別の change で）",
+   "refs": {}
+  },
+  {
+   "text": "ハーネス側の verify-run の判定と理由の文言・CI の計測テストの起動（android-emulator-runner）",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "出力の置き場（`collector-android/app/build/outputs/emulator.log`）と、出す末尾の行数（40 行）",
+   "refs": {
+    "decisions": [
+     "D12"
+    ]
+   }
+  },
+  {
+   "text": "上限と調べる場所を上書きする環境変数の名前",
+   "refs": {
+    "decisions": [
+     "D8"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "AVD",
+   "def": "エミュレータの端末の設定 1 つ（既定 ashiato-api35）。同じ AVD のエミュレータは同時に 1 台しか立たない"
+  },
+  {
+   "term": "KEEP=1",
+   "def": "計測テストの台本に渡すと、通った後もエミュレータを止めずに残す"
+  }
+ ],
+ "impact": {
+  "overview": "この change の後、計測テストの台本と利用状況の採寸の台本は、/dev/kvm を開けないときは起こす前に、エミュレータが途中で終わったときはすぐ、端末が現れないときは 120 秒で、理由とエミュレータの出力の末尾を出して止まる。正常に立つときの振る舞いは、端末が上限までに現れる機械では変えない（偽の SDK の試験と手元の本物の 1 回で確かめる計画。混んだ機械で上限を超えうることは IMP-03）。この分析で見つけたできなくなることは 2 つ: 同じ AVD のエミュレータが既に動いているとき計測テストの台本はその端末を使わずに止まり（IMP-01）、失敗で止まったときは KEEP=1 でもエミュレータが残らない。ほかに、実機や別の端末が繋がっていると端末の待ちが上限まで続いて誤って止まりうる（IMP-04。推測）。",
+  "problem": "2026-11-05、ST54 の ci_fix で、Codex が sandbox の中から計測テストの台本を走らせた。/dev/kvm を開けずエミュレータは落ちたが、台本は来ない端末を約 20 分待ち、人間が kill するまで別のセッションが止まった。理由も残らなかった。",
+  "depth": "full",
+  "depth_why": "止める規則（起こさない・上限で止まる・同じ AVD で止まる・失敗の経路で自分のプロセスを止める）を持ち、同じ AVD のときの正常時の振る舞いが変わる",
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "lifecycle",
+    "name": "計測テストの台本 tools/android-emulator.sh の起動と待ち",
+    "change": "/dev/kvm と同じ AVD を起こす前に確かめ、待ちにプロセスの生死と上限を足し、出力を残し、失敗の経路の後片付けを自分のプロセスに限る",
+    "searched": "`tools/android-emulator.sh` の名前を repo（tools・docs・AGENTS.md・CONTRIBUTING.md・.github・走っている change の tasks）で検索し、呼ぶ側を開いた（impact_deps.py の出力から）",
+    "refs": {
+     "requirements": [
+      "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+      "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる",
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる",
+      "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない",
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "lifecycle",
+    "name": "利用状況の採寸の台本 tools/usage-volume.sh の emulator_sample",
+    "change": "起動と待ちを部品に替え、死んだらすぐ rc=2、端末が現れる前に止まったら名指しの emu kill を送らない",
+    "searched": "`emulator_sample`・`wait-android-boot.sh`・`started` を tools で検索し、tools/test-usage-volume.sh の検査を読んだ",
+    "refs": {
+     "requirements": [
+      "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "file",
+    "name": "新しい部品 tools/emulator-start.sh と試験 tools/test-android-emulator.sh、CI の検査の job の 1 行",
+    "change": "足す。CI の rust の job で偽の SDK の試験を毎回走らせる",
+    "searched": ".github/workflows/ci.yml の rust の job（docker-tidy.sh --self-test の行）と、走っている change が ci.yml に足す行を読んだ",
+    "no_dependents_why": "新しいファイルで、まだ誰も読まない。ci.yml に足す 1 行は、st53-license-bundle・st54-dev-side-by-side・st55-server-installer が足す行と別の場所（proposal の Impact）",
+    "refs": {
+     "requirements": [
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "走っている change の検証コマンド（ch09 Task 10.1 の `quiet-run inst -- tools/android-emulator.sh`）",
+    "role": "reads",
+    "assumes": "同じ AVD のエミュレータが残っていても台本は計測テストを走らせて rc=0 になりうる",
+    "holds": "no",
+    "affects": "KEEP=1 の残り・kill された前の実行の残り・別の worktree のエミュレータがあると、その検証は止めるまで毎回 rc=1 になり、ふつうの失敗として下流の fix の往復に入りうる",
+    "basis": "observed",
+    "evidence": [
+     "E6",
+     "E9"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T1",
+    "who": "st54 の tools/android-side-by-side.sh（端末が無ければ同じ AVD を起こし、終わりに止める）",
+    "role": "reads",
+    "assumes": "同じ AVD を別の台本が使っていても、計測テストの台本はどれかの端末で走る",
+    "holds": "no",
+    "affects": "side-by-side が同じ AVD を立てている間に計測テストの台本を走らせると、今は相手の端末で走って最後に止めて相手を壊していた。この後は止まって相手を壊さないが、文言に従って止めると相手を壊す",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T1",
+    "who": "tools/test-usage-volume.sh（計測テストの台本の行の形を grep する）",
+    "role": "reads",
+    "assumes": "採寸の試験を通常の段から除く行と、1 段目の前のアプリを外す行が、今の字面で台本にある",
+    "holds": "yes",
+    "affects": "字面を変えると試験が落ちる。D1（仮）は `:44` 以降の行を変えない",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T1",
+    "who": "CI の計測テストの job",
+    "role": "reads",
+    "assumes": "—",
+    "holds": "yes",
+    "affects": "CI は android-emulator-runner で起動し、この台本を使わない",
+    "basis": "observed",
+    "evidence": [
+     "E7"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T1",
+    "who": "Codex の sandbox の中の agent（AGENTS.md の「/dev/kvm」の手順）",
+    "role": "reads",
+    "assumes": "/dev/kvm で落ちたら verify-run の BLOCKED_INFRA を見て申請する",
+    "holds": "yes",
+    "affects": "quiet-run 直で落ちたときの手を AGENTS.md に 1 文足す（D14）",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T2",
+    "who": "採寸の台本の終わりの後片付け（`started` があれば emu kill）",
+    "role": "reads",
+    "assumes": "端末が現れる前に止まったとき、`started` の端末は自分のもの",
+    "holds": "yes",
+    "affects": "変更の後は成り立つ（今は成り立たない）。今は起こした直後に `started=emulator-5554` を置くので、現れる前に止まると他人の 5554 を止めうる。D1（仮）は端末が現れてから置いて、これを直す",
+    "basis": "observed",
+    "evidence": [
+     "E10",
+     "E3"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T2",
+    "who": "採寸の台本と計測テストの台本の、正常に進んだ後の後片付け",
+    "role": "reads",
+    "assumes": "現れた emulator-5554（か、どれかの端末）は自分の起こしたもの",
+    "holds": "unknown",
+    "affects": "別のエミュレータが 5554 にいれば、それを使い・止める（今のまま。取り違えは直さない）",
+    "basis": "observed",
+    "evidence": [
+     "E2",
+     "E10"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T1",
+    "who": "手元の混んだ機械での正常な起動",
+    "role": "reads",
+    "assumes": "端末は 120 秒以内に adb に現れる",
+    "holds": "unknown",
+    "affects": "超えると正常な起動でも rc=1 になる。実測は約 15 秒（1 回・16 コア・混んでいないとき）",
+    "basis": "observed",
+    "evidence": [
+     "E11"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "tools/android-emulator.sh:35",
+    "quote": "adb wait-for-device"
+   },
+   {
+    "id": "E2",
+    "source": "code",
+    "loc": "tools/android-emulator.sh:30",
+    "quote": "cleanup() { [ \"${KEEP:-}\" = \"1\" ] || { adb -s \"${SERIAL:-emulator-5554}\" emu kill"
+   },
+   {
+    "id": "E3",
+    "source": "code",
+    "loc": "tools/usage-volume.sh:141",
+    "quote": "tools/wait-android-boot.sh \"$serial\""
+   },
+   {
+    "id": "E4",
+    "source": "test",
+    "loc": "tools/test-usage-volume.sh:80",
+    "quote": "grep -Fq -- \"-Pandroid.testInstrumentationRunnerArguments.notClass=\\\"$volume_test\\\"\" tools/android-emulator.sh"
+   },
+   {
+    "id": "E5",
+    "source": "story",
+    "loc": "openspec/changes/st54-dev-side-by-side/tasks.md:134",
+    "quote": "端末が繋がっていなければ `tools/android-emulator.sh` と同じ AVD を画面なしで起動し"
+   },
+   {
+    "id": "E6",
+    "source": "story",
+    "loc": "openspec/changes/ch09-load-tolerant-timing-tests/tasks.md:137",
+    "quote": "`scripts/quiet-run inst -- tools/android-emulator.sh` rc=0"
+   },
+   {
+    "id": "E7",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:295",
+    "quote": "reactivecircus/android-emulator-runner"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": "AGENTS.md:55",
+    "quote": "`/dev/kvm` は Codex の sandbox の中では開けない"
+   },
+   {
+    "id": "E9",
+    "source": "design",
+    "loc": "openspec/changes/ch10-emulator-start-timeout/premises.md:15",
+    "quote": "Running multiple emulators with the same AVD"
+   },
+   {
+    "id": "E10",
+    "source": "code",
+    "loc": "tools/usage-volume.sh:103",
+    "quote": "[ -z \"${started:-}\" ] || adb -s \"$started\" emu kill"
+   },
+   {
+    "id": "E11",
+    "source": "design",
+    "loc": "openspec/changes/ch10-emulator-start-timeout/premises.md:9",
+    "quote": "device 15 秒・boot 35 秒"
+   },
+   {
+    "id": "E12",
+    "source": "ops",
+    "loc": "CLAUDE.md:58",
+    "quote": "並列はしない"
+   }
+  ],
+  "lost": [
+   {
+    "before": "同じ AVD のエミュレータが残っていても（KEEP=1 の後・別の worktree）、計測テストの台本はその端末で走った",
+    "after": "起こさず・使わずに rc=1。続けるには先にそのエミュレータを止める",
+    "who": "手元で続けて走らせる本人・下流の agent",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+     ],
+     "decisions": [
+      "Q3",
+      "D3"
+     ]
+    }
+   },
+   {
+    "before": "KEEP=1 なら、どんな終わり方でもエミュレータは残った",
+    "after": "失敗で止まるときは KEEP=1 でも自分の起こしたプロセスを止める（起動が遅いエミュレータを残して手で調べる、はできない）",
+    "who": "手元で起動の遅さを調べる本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+     ],
+     "scenarios": [
+      "上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない"
+     ],
+     "decisions": [
+      "D13"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "kvm のある手元で、今と同じ引数・6 段の結果・KEEP=1 の扱いで計測テストが走る（偽の SDK の試験と本物の 1 回で確かめる計画。上流では走らせていない）",
+    "cannot": "同じ AVD のエミュレータが動いたままの続けての実行",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない",
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "正常に立つとき、今と同じ引数でエミュレータを起こす",
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める",
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "走っている Story・change は main に rebase すれば新しい台本を使う",
+    "cannot": "rebase の後、検証の前に同じ AVD のエミュレータが残っていると、ch09 Task 10.1 などの計測テストの検証が rc=1 になる（IMP-01）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "commit を戻せば台本は元の形に戻る。DB・設定・配った物に残るものは、この分析では見つけていない",
+    "cannot": "戻すと無期限の待ちも戻る",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "既にある AVD はそのまま使う。無ければ今のとおり作る",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "AVD が無ければ作ってから起こす"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "Codex の sandbox（/dev/kvm を開けない）では起こす前に止まり、手元（kvm あり）では今のとおり走る。CI の計測テストはこの台本を使わない",
+    "cannot": "別の worktree が同じ AVD を使っている間は、計測テストの台本は走らない。実機や別の端末が繋がっていると、端末の待ちが上限まで続いて誤って止まりうる（IMP-04。推測）",
+    "basis": "observed",
+    "refs": {
+     "requirements": [
+      "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+     ]
+    },
+    "evidence": [
+     "E7",
+     "E8"
+    ]
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "失敗で止まった後に自分のプロセスは残らない（KEEP=1 でも）。もう一度走らせれば一から起こす",
+    "cannot": "子の qemu が TERM で止まらないときに残るかは、本物ではまだ確かめていない（Task 6.1 で数える）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+     ],
+     "scenarios": [
+      "上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない"
+     ],
+     "decisions": [
+      "D13"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "拒否",
+    "rule": "/dev/kvm を開けなければエミュレータを起こさずに rc=1",
+    "target": "加速の無い環境で起こして待ち続けること",
+    "legit": "この分析では正当な利用を止める場面を見つけていない。x86_64 のエミュレータは加速が無いと起動直後に終わる（premises 1 行目の実測）",
+    "blocks_legit": false,
+    "basis": "observed",
+    "refs": {
+     "requirements": [
+      "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる"
+     ],
+     "scenarios": [
+      "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+      "在っても読み書きできない場所を渡しても、同じく起こさずに止まる"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "待つ間にプロセスが終わればすぐ rc=1（採寸は 2）",
+    "target": "死んだエミュレータを待ち続けること",
+    "legit": "終わったプロセスを待っても端末は来ないので、正当な利用は止めない",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる",
+      "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+     ],
+     "scenarios": [
+      "起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す",
+      "端末が見えた後、起動の完了を待つ間に終わっても、すぐ止まる",
+      "採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "停止",
+    "rule": "端末が既定 120 秒で adb に現れなければ rc=1。値の誤りは起こさずに rc=1",
+    "target": "生きたまま固まったエミュレータを待ち続けること",
+    "legit": "混んだ機械で正常な起動が 120 秒を超えると止まる。超えるかは確かめていない（IMP-03）",
+    "blocks_legit": "unknown",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+     ],
+     "scenarios": [
+      "上限を渡さなければ、端末を最大 120 秒待つ",
+      "上限に正の整数でない値を渡すと、起こさずに止まる",
+      "生きたまま端末が現れなければ、上限で止まる",
+      "起動の完了の問い合わせが返らなくても、回数の上限で止まる"
+     ],
+     "decisions": [
+      "Q2",
+      "D2",
+      "D8",
+      "D15"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "拒否",
+    "rule": "同じ AVD のエミュレータが既に adb に見えていれば、起こさず・使わず・止めずに rc=1",
+    "target": "他人の端末で計測テストを走らせ、最後に他人の端末を止めること",
+    "legit": "KEEP=1 で残した自分のエミュレータで続けて走らせる使い方も止まる。止め方の文言に従うと、別の worktree が走らせている計測テストを壊しうる",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる",
+      "実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"
+     ],
+     "decisions": [
+      "Q3",
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "停止",
+    "rule": "正常に計測テストまで進んだ後は、KEEP=1 でなければ emulator-5554 を止める（今のまま）",
+    "target": "通った後にエミュレータを残すこと",
+    "legit": "今と同じ。emulator-5554 にいるのが別のエミュレータでも止める取り違えは残る（Q4 で直さない）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める",
+      "KEEP=1 なら、通った後にエミュレータを止めない"
+     ],
+     "decisions": [
+      "Q4",
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "停止",
+    "rule": "失敗で止まるとき、KEEP=1 に依らず自分の起こしたプロセスとその子を止める。名指しの emulator-5554 は止めない",
+    "target": "失敗した起動のプロセスを残すこと・他人の端末を止めること",
+    "legit": "KEEP=1 で失敗したエミュレータを残して調べる使い方は止まる。手当ては、出力の全文が emulator.log に残ることと、上限を環境変数で延ばせること",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない",
+      "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+     ],
+     "scenarios": [
+      "上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない",
+      "起動の途中で終わったとき、名指しの端末を止めない",
+      "採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる"
+     ],
+     "decisions": [
+      "D13"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R4",
+    "goal": "下流の agent が、別の worktree の計測テストと同じ時間帯に、自分の検証の計測テストを通したい",
+    "initial": "別の worktree（例: st54 の side-by-side か計測テストの台本）が ashiato-api35 を emulator-5554 で立てて走らせている",
+    "action": "`scripts/quiet-run inst -- tools/android-emulator.sh` を走らせる",
+    "trigger": "同じ AVD のエミュレータが既に adb に見えている",
+    "result": "rc=1 と「KEEP=1 の残りなら adb -s emulator-5554 emu kill で止めてから」。verify-run はこれを環境の欠落と読まず、ふつうの失敗として扱う",
+    "lost": "文言に従って止めると、相手の計測テストが途中で壊れる。止めなければ、相手が終わるまで自分の検証が通らない",
+    "decision": "文言が他人の端末の可能性を言うか・待つか（IMP-01）",
+    "occurs_when": [
+     "2 つの worktree が同じ時間帯に同じ AVD の計測テストを走らせる"
+    ],
+    "not_when": [
+     "自分の KEEP=1 の残りだけ（止めてよい）",
+     "同じ AVD が動いていない"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R3",
+    "goal": "並走が多い日に、手元で計測テストの検証を通したい",
+    "initial": "並走する Story の下流が重なり、機械が混んでいる",
+    "action": "計測テストの台本を上限を渡さずに走らせる",
+    "trigger": "端末が 120 秒までに adb に現れない",
+    "result": "正常な起動の途中でも rc=1 で止まり、自分の起こしたプロセスを止める",
+    "lost": "その回の検証。上限を延ばして走らせ直せば通る見込み",
+    "decision": "既定の上限の値（IMP-03）",
+    "occurs_when": [
+     "端末が現れるまでに 120 秒を超えるほど混んでいる"
+    ],
+    "not_when": [
+     "混んでいない手元（実測約 15 秒）",
+     "上限を環境変数で延ばしている"
+    ],
+    "basis": "guess",
+    "imp": "IMP-03",
+    "refs": {
+     "requirements": [
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+     ],
+     "scenarios": [
+      "上限を渡さなければ、端末を最大 120 秒待つ",
+      "生きたまま端末が現れなければ、上限で止まる"
+     ],
+     "decisions": [
+      "Q2",
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "S3",
+    "rule": "R5",
+    "goal": "起動が遅いエミュレータを残して、手で中を調べたい",
+    "initial": "KEEP=1 で計測テストの台本を走らせる",
+    "action": "端末が上限までに現れず、台本が止まる",
+    "trigger": "失敗で止まるとき、KEEP=1 に依らず自分の起こしたプロセスを止める",
+    "result": "エミュレータは残らない。出力の全文は emulator.log に残る",
+    "lost": "止まった時点のエミュレータを手で触って調べること",
+    "decision": "受け入れる（出力と、上限を延ばしての再実行で調べる）か、KEEP=1 のときは残すか",
+    "occurs_when": [
+     "KEEP=1 で走らせ、失敗の経路で止まる"
+    ],
+    "not_when": [
+     "正常に通った後（今のとおり残る）"
+    ],
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+     ],
+     "scenarios": [
+      "上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない"
+     ],
+     "decisions": [
+      "D13"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "同じ AVD で止まったときの文言が、他人の計測テストを止める手を勧めうる",
+    "text": "同じ AVD のエミュレータが動いていると、計測テストの台本は止まり、止め方（`adb -s <serial> emu kill`）を出す。それが別の worktree の計測テストの端末なら、文言どおりに止めると相手の実行が途中で壊れる。下流の agent は文言を手順として読みやすい。もう 1 つの場面では、kill された前の実行（今回の事故の形）の端末が残っていると、手で止めるまで毎回 rc=1 で止まる。この文言は verify-run の環境の欠落の判定（INFRA_SIGNS）に当たらないので、ふつうの失敗として返り、fix の agent がコードを直す往復に入りうる",
+    "basis": "derived",
+    "derived": "R4 は動いている端末が誰のものかを見ずに止まり、止め方を出す。並走する Story の下流が計測テストを検証に使う（ch09 Task 10.1・st54 の side-by-side）ので、同じ時間帯に重なりうる",
+    "undefined": "動いている端末が自分の KEEP=1 の残りか、別の worktree のものかを見分ける手。同じ AVD が空くまで待つかどうか",
+    "feasibility": "unverified",
+    "unknowns": [
+     "2 つの worktree の計測テストが実際にどれだけ重なるか（グラフは Story の中では並列にしないが、Story どうしは並走する）",
+     "下流の agent が文言のとおりに emu kill を送るか",
+     "kill された台本の trap が走らず端末が残ることがどれだけ起きるか"
+    ],
+    "options": [
+     {
+      "label": "文言を「自分の KEEP=1 の残りなら止める。別の作業が使っていれば終わるまで待つ」に直す（仕様を直す）"
+     },
+     {
+      "label": "空くまで一定時間待ってから止まる"
+     },
+     {
+      "label": "文言に verify-run が環境の欠落と読む語を入れる（fix の往復は防げるが、/dev/kvm と区別しにくくなる）"
+     },
+     {
+      "label": "このまま受け入れる（今も重なれば相手の端末を最後に止めていたので、壊れ方は今より減る）"
+     }
+    ],
+    "verify": "同じ AVD を別の台本で立てたまま計測テストの台本を走らせ、出る文言を読む（Task 6.1 の same-avd）",
+    "deps": [
+     "D1",
+     "D2"
+    ],
+    "evidence": [
+     "E5",
+     "E6",
+     "E9"
+    ],
+    "refs": {
+     "requirements": [
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"
+     ],
+     "decisions": [
+      "Q3",
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "low",
+    "status": "open",
+    "title": "2 つの台本は、現れた端末が自分のものかを確かめずに使い、最後に止める",
+    "text": "採寸の台本は起こした後に emulator-5554 が現れたらそれを自分の端末として使い、計測テストの台本も「どれかの端末」で進み、どちらも正常に進んだ後に emulator-5554 を名指しで止める。この change は失敗の経路の名指しの emu kill をやめるが、正常な経路の取り違えは今のまま残る（Q4 の範囲の外。この change が増やす帰結ではない）",
+    "basis": "derived",
+    "derived": "D1（仮）は `started` を端末が現れてから置く。現れた端末の AVD の名前は聞かない（D4（仮）。取り違えは直さない）",
+    "undefined": "現れた端末が自分の起こしたものかを確かめる手",
+    "feasibility": "unverified",
+    "unknowns": [
+     "採寸の台本が、別のエミュレータが起動の途中のときに走ることがあるか"
+    ],
+    "options": [
+     {
+      "label": "このまま（取り違えは Q4 の範囲の外）"
+     },
+     {
+      "label": "別の change で番号を選んで -port で起こす"
+     }
+    ],
+    "verify": "起動の途中の別のエミュレータがある状態で採寸の台本を走らせる",
+    "deps": [
+     "D8"
+    ],
+    "evidence": [
+     "E10",
+     "E2"
+    ],
+    "refs": {
+     "requirements": [
+      "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる",
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる",
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+     ],
+     "decisions": [
+      "Q4",
+      "D4",
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "実機や別の端末が繋がっていると、端末の待ちが上限まで続いて誤って止まりうる",
+    "text": "design の端末の待ちは serial を付けずに `adb get-state` を問い合わせる。adb は端末が 2 台以上あると serial の無い問い合わせを `more than one device/emulator` で失敗させる（AI の知識。確かめていない）。そう動くなら、実機・別の AVD・録画が別の番号で立てた端末が繋がっている間は、自分のエミュレータが立っていても 120 秒待ってから「端末が adb に現れない」で止まる。spec の「実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす」は、偽の adb が答えるのでこの経路を通らない",
+    "basis": "guess",
+    "derived": "端末の待ちが serial 無しの問い合わせで、その失敗を「まだ現れない」と読むなら、上限まで待って止まる（D1（仮）の emu_wait_device の形から）",
+    "undefined": "端末が複数あるときに、待ちが自分の端末をどう見分けるか。仕様は定めていない",
+    "feasibility": "unverified",
+    "unknowns": [
+     "端末が 2 台以上あるとき、serial 無しの `adb get-state` が失敗するか（本物の adb で確かめていない）",
+     "今の `adb wait-for-device` が同じ状況でどう返るか"
+    ],
+    "options": [
+     {
+      "label": "仕様を直す: 起こす前の端末の一覧と比べて、新しく現れた emulator-* を待つ"
+     },
+     {
+      "label": "仕様を直す: 端末が複数あるときは理由つきですぐ止まる"
+     },
+     {
+      "label": "このまま受け入れ、下流の Task 6.1 で本物の adb を確かめる"
+     }
+    ],
+    "verify": "実機か別のエミュレータを繋いだ状態で、本物の adb の serial 無しの get-state の答えを見る。偽の adb に、端末が 2 台以上なら get-state を失敗させる答えを足して台本を走らせる",
+    "deps": [],
+    "evidence": [
+     "E1"
+    ],
+    "refs": {
+     "requirements": [
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+     ],
+     "scenarios": [
+      "生きたまま端末が現れなければ、上限で止まる",
+      "実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"
+     ],
+     "decisions": [
+      "D1",
+      "D2",
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "混んだ機械では、120 秒の上限が正常な起動を落としうる",
+    "text": "並走が多い日（load average 9〜14 の実測が ch09 にある）に、端末が adb に現れるまで 120 秒を超えると、正常な起動でも rc=1 になる。verify-run はこれをふつうの失敗と読み、下流の fix が往復しうる",
+    "basis": "guess",
+    "derived": "上限を超えれば止まる（R3）",
+    "undefined": "混んだ機械での、端末が現れるまでの時間",
+    "feasibility": "unverified",
+    "unknowns": [
+     "混んだ機械で端末が現れるまでの時間（実測は混んでいないときの約 15 秒、1 回だけ）"
+    ],
+    "options": [
+     {
+      "label": "既定 120 秒のまま、環境変数で延ばせることを文言に入れる"
+     },
+     {
+      "label": "既定を 300 秒にする（Q2 の別の選択肢）"
+     }
+    ],
+    "verify": "tools/load-repeat.sh で負荷をかけた状態で本物のエミュレータを起こし、端末が現れるまでの秒を計る",
+    "deps": [
+     "D7"
+    ],
+    "evidence": [
+     "E11"
+    ],
+    "refs": {
+     "requirements": [
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る"
+     ],
+     "scenarios": [
+      "上限を渡さなければ、端末を最大 120 秒待つ"
+     ],
+     "decisions": [
+      "Q2",
+      "D2"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "`tools/test-android-emulator.sh` が rc=0 で 23 本の Scenario の印を出し、直す前の台本に当てると「起動直後に終わる」場合が見張りで落ちる",
+    "refs": {
+     "requirements": [
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+     ]
+    }
+   },
+   {
+    "text": "手元の本物のエミュレータで、/dev/kvm を被せる・上限・同じ AVD・正常の 4 つが `real-proof.txt` に pass で残る",
+    "refs": {
+     "requirements": [
+      "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+      "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+      "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる",
+      "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+     ],
+     "scenarios": [
+      "開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる",
+      "生きたまま端末が現れなければ、上限で止まる",
+      "同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる",
+      "正常に最後まで走ると、6 段の結果を残してエミュレータを止める"
+     ]
+    }
+   },
+   {
+    "text": "IMP-01 の文言の扱いを合意で決めている（medium。合意で、書いた残るもののまま受け入れたとみなす）",
+    "refs": {}
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "手元で走らせる計測テストの台本と利用状況の採寸の台本の、エミュレータの起動と待ち",
+     "refs": {
+      "requirements": [
+       "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる",
+       "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "同じ AVD かどうかを確かめるのは計測テストの台本だけ。採寸の台本では確かめない",
+     "refs": {
+      "requirements": [
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる",
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ],
+      "scenarios": [
+       "採寸の台本は、adb に見えているエミュレータがあれば起こさない"
+      ]
+     }
+    },
+    {
+     "text": "失敗の経路だけで名指しの emu kill をやめる。正常に計測テストまで進んだ後の後片付けは今のまま",
+     "refs": {
+      "requirements": [
+       "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない"
+      ],
+      "scenarios": [
+       "起動の途中で終わったとき、名指しの端末を止めない"
+      ]
+     }
+    },
+    {
+     "text": "正常な経路の振る舞いは、偽の SDK の試験と手元の本物の 1 回で確かめる",
+     "refs": {
+      "requirements": [
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+      ],
+      "scenarios": [
+       "正常に立つとき、今と同じ引数でエミュレータを起こす"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "CI の計測テスト（android-emulator-runner）・st54 の side-by-side の台本・ハーネスの verify-run",
+     "refs": {}
+    },
+    {
+     "text": "計測テストの途中でエミュレータが死んだときの扱い（gradle が端末を失って落ちる）",
+     "refs": {}
+    }
+   ],
+   "residual": [
+    {
+     "text": "同じ AVD で止まったときの止め方が、別の worktree の計測テストを壊しうる。前の実行の残りがあると毎回ふつうの失敗で返る（IMP-01）",
+     "refs": {}
+    },
+    {
+     "text": "端末が複数繋がっていると、待ちが誤って上限まで続きうる（IMP-04）",
+     "refs": {}
+    },
+    {
+     "text": "st54 の side-by-side は、この change の後も来ない端末を無期限に待ちうる",
+     "refs": {}
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "spec の 7 本の Requirement と、今の計測テストの台本・採寸の台本・その検査（test-usage-volume.sh）を読んだ",
+     "refs": {
+      "requirements": [
+       "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる",
+       "端末が上限までに adb に現れなければ止まり、1 回の adb の問い合わせも上限で打ち切る",
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる",
+       "失敗で止まるとき、計測テストの台本は自分の起こしたプロセスだけを止め、ほかの端末を止めない",
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない",
+       "利用状況の採寸の台本も同じ部品でエミュレータを起こし、起こせなければ「測れなかった」で止まる"
+      ]
+     }
+    },
+    {
+     "text": "台本の名前を検証に使う走っている change（ch09 Task 10.1・st54 Task 9.3）と、CI の計測テストの job",
+     "refs": {
+      "requirements": [
+       "同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "premises.md の実測（/dev/null を被せた再現・同じ AVD の 2 台目・正常な起動の時間）",
+     "refs": {
+      "requirements": [
+       "/dev/kvm を開けなければ、エミュレータを起こさずに理由つきで止まる",
+       "待っている間にエミュレータのプロセスが終わったら、すぐ理由と出力の末尾を出して止まる"
+      ],
+      "decisions": [
+       "D11",
+       "D17"
+      ]
+     }
+    },
+    {
+     "text": "偽の SDK の試験の組み方（使い捨ての木に本物の台本を写し、偽物を隣に置く。打ち切り・後片付けの形）",
+     "refs": {
+      "requirements": [
+       "正常にエミュレータが立つときの計測テストの台本の振る舞いは変わらない"
+      ],
+      "scenarios": [
+       "正常に立つとき、今と同じ引数でエミュレータを起こす"
+      ],
+      "decisions": [
+       "D16",
+       "D9"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "Codex の sandbox が /dev/kvm を開くのを拒む形そのもの",
+     "why": "sandbox の中では再現していない（/dev/null を被せた形だけ）"
+    },
+    {
+     "text": "混んだ機械での起動の時間・子の qemu が TERM で止まるか・`emu avd name` の答えの形",
+     "why": "本物は下流の Task 6.1 で確かめる。上流では走らせていない"
+    },
+    {
+     "text": "st53-license-bundle（ci.yml の :212 以降・collector-android/gradlew を呼ぶ検証・docs/testing.md の 1 行）と st55-server-installer（ci.yml の :49・:111〜114・:383 以降）との組み合わせ",
+     "why": "どちらも ci.yml の別の行で、計測テストの台本・採寸の台本には触らない（proposal の Impact）。rebase の衝突は行が別なので起きない見込みで、走らせて確かめていない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "製品のコード・API・移行・画面",
+     "why": "この change は道具の台本だけを変える"
+    }
+   ]
+  }
+ }
+}
