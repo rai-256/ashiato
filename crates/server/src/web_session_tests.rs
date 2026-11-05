@@ -65,26 +65,26 @@ fn st44_credential_present_counts_only_bearer_and_session_cookie() {
     };
     assert!(!crate::credential_present(&h(&[]), Channel::Official));
     // 同じ host のほかの cookie と Bearer でない見出しは数えない（/code-review R23）
-    assert!(!crate::credential_present(&h(&[(
-        header::COOKIE,
-        "ts_session=abc; other=1"
-    )]), Channel::Official));
-    assert!(!crate::credential_present(&h(&[(
-        header::AUTHORIZATION,
-        "Basic dXNlcjpwYXNz"
-    )]), Channel::Official));
-    assert!(!crate::credential_present(&h(&[(
-        header::AUTHORIZATION,
-        "Bearer "
-    )]), Channel::Official));
-    assert!(crate::credential_present(&h(&[(
-        header::AUTHORIZATION,
-        "Bearer wrong-token"
-    )]), Channel::Official));
-    assert!(crate::credential_present(&h(&[(
-        header::COOKIE,
-        "other=1; ashiato_session=expired"
-    )]), Channel::Official));
+    assert!(!crate::credential_present(
+        &h(&[(header::COOKIE, "ts_session=abc; other=1")]),
+        Channel::Official
+    ));
+    assert!(!crate::credential_present(
+        &h(&[(header::AUTHORIZATION, "Basic dXNlcjpwYXNz")]),
+        Channel::Official
+    ));
+    assert!(!crate::credential_present(
+        &h(&[(header::AUTHORIZATION, "Bearer ")]),
+        Channel::Official
+    ));
+    assert!(crate::credential_present(
+        &h(&[(header::AUTHORIZATION, "Bearer wrong-token")]),
+        Channel::Official
+    ));
+    assert!(crate::credential_present(
+        &h(&[(header::COOKIE, "other=1; ashiato_session=expired")]),
+        Channel::Official
+    ));
 }
 
 #[test]
