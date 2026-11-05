@@ -75,7 +75,12 @@ workflow() {
   job_block "$release" plan | grep -q 'version.sh plan' || die 'release の plan が無い'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' || die 'nightly の nightly-plan が無い'
   job_block "$release" package-linux | grep -qE 'ASHIATO_APK_UNSIGNED(:[[:space:]]*|=)"?1' || die 'release の APK が unsigned でない'
-  if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$nightly"; then die 'nightly に APK 組み立てまたは署名がある'; return 1; fi
+  job_block "$nightly" package-linux | grep -q 'tools/release/build.sh apk' || die 'nightly の組み立て job に APK が無い'
+  job_block "$nightly" publish | grep -q 'tools/release/publish-nightly.sh' || die 'nightly の公開 job が公開手順を使っていない'
+  [[ "$(grep -c 'tools/release/publish-nightly.sh' "$nightly")" == "$(job_block "$nightly" publish | grep -c 'tools/release/publish-nightly.sh')" ]] || die 'nightly の公開手順が publish 以外から呼ばれる'
+  job_block "$nightly" publish | grep -qE '^[[:space:]]+name: nightly[[:space:]]*$' || die 'nightly の公開 job に Environment が無い'
+  job_block "$nightly" publish | grep -q 'ASHIATO_EXPECT_DEV_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}' || die 'nightly の開発版指紋が Environment 変数から渡らない'
+  if grep -qE 'sign-apk.sh' "$nightly"; then die 'nightly の workflow に署名の論理がある'; return 1; fi
   job_block "$release" plan | grep -q 'version.sh plan' && job_block "$release" plan | grep -q 'fetch-depth: 0' || die 'release の判定 job が shallow checkout'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' && job_block "$nightly" plan | grep -q 'fetch-depth: 0' || die 'nightly の判定 job が shallow checkout'
   # 配る組み立ての重い自己試験は package-linux（Rust・Java・node・Android SDK がそろう job）で走らせる（code_verify R29）
@@ -158,8 +163,10 @@ EOF
   echo "== Scenario: 文書だけの PR では、配る形の組み立てを飛ばす"
   if code_change_requires_package docs/readme.md openspec/changes/x/spec.md; then die '文書変更をコード変更と判定した'; fi
   if grep -q 'grep -vE' "$root/.github/workflows/ci.yml"; then die 'code 判定の正本が YAML に残っている'; fi
-  echo "== Scenario: 開発版の作り直しの workflow は、ST54 まで携帯の APK を組む手順を持たない"
-  if grep -qE 'build.sh[[:space:]]+apk|sign-apk.sh' "$root/.github/workflows/nightly.yml"; then die 'nightly に APK の手順がある'; fi
+  echo "== Scenario: 開発版の作り直しの workflow は、携帯の APK を組み、公開の job の中でだけ開発版の鍵で署名する"
+  grep -q 'tools/release/build.sh apk' "$root/.github/workflows/nightly.yml" || die 'nightly に APK の手順が無い'
+  job_block "$root/.github/workflows/nightly.yml" publish | grep -q 'tools/release/publish-nightly.sh' || die '公開手順が無い'
+  job_block "$root/.github/workflows/nightly.yml" publish | grep -q 'ASHIATO_EXPECT_DEV_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}' || die '開発版の指紋が無い'
   echo "== Scenario: 開発版の作り直しは、日本時間の 0:00 に起きる"
   grep -q 'cron: "0 15 \* \* \*"' "$root/.github/workflows/nightly.yml" || die 'cron が違う'
   echo "== Scenario: 公開の設定が無ければ、印 nightly を動かす手順は走らない"
@@ -168,8 +175,15 @@ EOF
   local fake_root="$work/tree"
   mkdir -p "$fake_root/.github/workflows"
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
-  printf '\n      - run: tools/release/build.sh apk out\n' >>"$fake_root/.github/workflows/nightly.yml"
-  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'APK のある偽 nightly を通した'; fi
+  sed '/tools\/release\/build.sh apk/d' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'APK の無い偽 nightly を通した'; fi
+  sed '/tools\/release\/build.sh apk/a\      - run: tools/release/sign-apk.sh' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '組み立て job の署名を通した'; fi
+  sed '/ASHIATO_EXPECT_DEV_CERT_SHA256/d' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '開発版指紋の無い偽 nightly を通した'; fi
+  # Environment の名前が違えば、environments の検査（nightly の branch 規則）の外で走る（code-verify R28）
+  sed 's/^\([[:space:]][[:space:]]*\)name: nightly$/\1name: nightly-open/' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Environment の名前が違う偽 nightly を通した'; fi
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   # ci の code 判定が共有の台本を呼ばなくなれば、workflows の検査が落ちる（final review R19）
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"

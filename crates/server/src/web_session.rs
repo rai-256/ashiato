@@ -23,9 +23,18 @@ use uuid::Uuid;
 
 use crate::access_log::{via_of, AccessEntry};
 use crate::{internal_at, token_matches, App};
+use ashiato_build_stamp::Channel;
 
 /// 印を運ぶ cookie の名前（D3）。
 pub const COOKIE_NAME: &str = "ashiato_session";
+
+/// 系統ごとの画面ログイン用 cookie 名を返す。
+pub const fn cookie_name(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Dev => "ashiato_session_dev",
+        Channel::Official => COOKIE_NAME,
+    }
+}
 /// cookie の寿命。ブラウザは 400 日に切り詰める（D18）ので、それを最大として使うたびに出し直す。
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
 /// 画面の合言葉の下限（D16（仮））。
@@ -240,27 +249,28 @@ impl WebLogin {
 }
 
 /// cookie ヘッダから印を取り出す。
-pub(crate) fn cookie_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn cookie_token(headers: &HeaderMap, channel: Channel) -> Option<&str> {
     headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|kv| kv.trim().split_once('='))
-        .find_map(|(k, v)| (k == COOKIE_NAME).then_some(v))
+        .find_map(|(k, v)| (k == cookie_name(channel)).then_some(v))
 }
 
-fn set_cookie(value: &str, max_age: u64) -> HeaderValue {
+fn set_cookie(value: &str, max_age: u64, channel: Channel) -> HeaderValue {
     // 印は base64url なので header に載せられる
     HeaderValue::from_str(&format!(
-        "{COOKIE_NAME}={value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={max_age}"
+        "{}={value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={max_age}",
+        cookie_name(channel)
     ))
     .unwrap_or_else(|_| HeaderValue::from_static(""))
 }
 
 /// 印が有効か（D3 の有効の条件）。
 pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool, sqlx::Error> {
-    let Some(token) = cookie_token(headers) else {
+    let Some(token) = cookie_token(headers, app.channel) else {
         return Ok(false);
     };
     let issued: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
@@ -283,7 +293,7 @@ pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool
 /// `Set-Cookie` を持っているとき（ログイン・ログアウト）は付けない —— 2 本並ぶとブラウザは
 /// 後のほう（古い印）を採る（final review R2）。
 pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) -> Response {
-    let token = cookie_token(req.headers()).map(str::to_owned);
+    let token = cookie_token(req.headers(), app.channel).map(str::to_owned);
     let authn = crate::decide(&app, req.headers()).await;
     let mut res = crate::AUTHN.scope(authn, next.run(req)).await;
     if let Some(token) = token {
@@ -291,8 +301,10 @@ pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) ->
             && res.status() != StatusCode::UNAUTHORIZED
             && !res.headers().contains_key(header::SET_COOKIE)
         {
-            res.headers_mut()
-                .append(header::SET_COOKIE, set_cookie(&token, COOKIE_MAX_AGE_SECS));
+            res.headers_mut().append(
+                header::SET_COOKIE,
+                set_cookie(&token, COOKIE_MAX_AGE_SECS, app.channel),
+            );
         }
     }
     res
@@ -436,8 +448,10 @@ pub async fn session_post(
         ))
         .await?;
     let mut res = StatusCode::NO_CONTENT.into_response();
-    res.headers_mut()
-        .append(header::SET_COOKIE, set_cookie(&token, COOKIE_MAX_AGE_SECS));
+    res.headers_mut().append(
+        header::SET_COOKIE,
+        set_cookie(&token, COOKIE_MAX_AGE_SECS, app.channel),
+    );
     Ok(res)
 }
 
@@ -464,7 +478,7 @@ pub async fn session_delete(
             StatusCode::NO_CONTENT,
         ))
         .await?;
-    if let Some(token) = cookie_token(&headers) {
+    if let Some(token) = cookie_token(&headers, app.channel) {
         sqlx::query(
             "UPDATE core.web_session SET revoked_at = $2
               WHERE token_sha256 = $1 AND revoked_at IS NULL",
@@ -477,7 +491,7 @@ pub async fn session_delete(
     }
     let mut res = StatusCode::NO_CONTENT.into_response();
     res.headers_mut()
-        .append(header::SET_COOKIE, set_cookie("", 0));
+        .append(header::SET_COOKIE, set_cookie("", 0, app.channel));
     Ok(res)
 }
 

@@ -14,7 +14,12 @@
 use anyhow::Context as _;
 
 /// 置くファイルの名前。
-pub const ENTRY_NAME: &str = "ashiato-collector.cmd";
+pub const fn entry_name(channel: ashiato_build_stamp::Channel) -> &'static str {
+    match channel {
+        ashiato_build_stamp::Channel::Dev => "ashiato-collector-dev.cmd",
+        ashiato_build_stamp::Channel::Official => "ashiato-collector.cmd",
+    }
+}
 
 /// スタートアップに置く中身。
 ///
@@ -56,9 +61,12 @@ pub fn startup_dir() -> anyhow::Result<std::path::PathBuf> {
 
 /// 自動起動を仕込む（`--install-autostart`）。**冪等**（同じ内容で上書きする）。
 #[cfg(windows)]
-pub fn install(cfg: &crate::config::Config) -> anyhow::Result<std::path::PathBuf> {
+pub fn install(
+    cfg: &crate::config::Config,
+    channel: ashiato_build_stamp::Channel,
+) -> anyhow::Result<std::path::PathBuf> {
     let exe = std::env::current_exe().context("自分の場所が分からない")?;
-    let path = startup_dir()?.join(ENTRY_NAME);
+    let path = startup_dir()?.join(entry_name(channel));
     std::fs::write(&path, startup_script(&exe, &cfg.as_vars()))
         .context("スタートアップへ書けない")?;
     Ok(path)
@@ -68,6 +76,19 @@ pub fn install(cfg: &crate::config::Config) -> anyhow::Result<std::path::PathBuf
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn st54_entry_name_uses_channel() {
+        // Scenario: 開発版の PC の収集アプリは、開発版の自動起動の項目と差出人を使う
+        assert_eq!(
+            entry_name(ashiato_build_stamp::Channel::Dev),
+            "ashiato-collector-dev.cmd"
+        );
+        assert_eq!(
+            entry_name(ashiato_build_stamp::Channel::Official),
+            "ashiato-collector.cmd"
+        );
+    }
 
     /// **書いた中身だけで起動の設定が揃う**（R3）。窓を出さない。
     #[test]
@@ -91,9 +112,10 @@ mod tests {
 
         // **素の環境で、この中身だけから設定が組める**
         let read = read_vars(&s);
-        let cfg = crate::config::Config::from_lookup(|k| {
-            read.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
-        })
+        let cfg = crate::config::Config::from_lookup(
+            |k| read.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()),
+            ashiato_build_stamp::Channel::Official,
+        )
         .expect("自動起動の中身だけでは起動できない");
         assert_eq!(cfg.device_id, "pc-01");
         assert_eq!(cfg.state_dir.display().to_string(), dir);

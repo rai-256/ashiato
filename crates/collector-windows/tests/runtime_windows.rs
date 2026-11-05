@@ -25,6 +25,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use ashiato_collector_windows::autostart;
 use ashiato_collector_windows::config::Config;
 use ashiato_collector_windows::contract::{RecordKind, Transition, WindowPayload};
 use ashiato_collector_windows::engine::{Engine, Foreground, Observation, UrlRead};
@@ -48,6 +49,103 @@ fn desktop() -> std::sync::MutexGuard<'static, ()> {
 
 const MIN_DWELL: chrono::Duration = chrono::Duration::seconds(1);
 const IDLE_THRESHOLD: chrono::Duration = chrono::Duration::seconds(2);
+
+#[test]
+fn st54_side_by_side_autostart_and_aumid() {
+    // Scenario: 同じ PC に並べると、正式版と開発版の自動起動の項目と差出人が両方残る
+    let _g = desktop();
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-side-by-side-")
+        .tempdir()
+        .unwrap();
+    let appdata = tmp.path().join("appdata");
+    let startup = appdata.join(r"Microsoft\Windows\Start Menu\Programs\Startup");
+    std::fs::create_dir_all(&startup).unwrap();
+    let previous_appdata = std::env::var_os("APPDATA");
+    std::env::set_var("APPDATA", &appdata);
+
+    let state = tmp.path().join("state");
+    let cfg = |channel| Config {
+        base_url: "http://127.0.0.1:18788".into(),
+        api_token: "test-token".into(),
+        user_id: uuid::Uuid::nil(),
+        device_id: "pc-side-by-side".into(),
+        state_dir: if channel == ashiato_build_stamp::Channel::Dev {
+            state.join("dev")
+        } else {
+            state.clone()
+        },
+        exclusions_path: state.join("exclusions.json"),
+        launch_state_dir: state.clone(),
+        launch_device_id: "pc-side-by-side".into(),
+    };
+
+    let dev_path = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Dev),
+        ashiato_build_stamp::Channel::Dev,
+    )
+    .unwrap();
+    let dev_script = std::fs::read_to_string(&dev_path).unwrap();
+    let official_path = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Official),
+        ashiato_build_stamp::Channel::Official,
+    )
+    .unwrap();
+    let _ = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Dev),
+        ashiato_build_stamp::Channel::Dev,
+    )
+    .unwrap();
+    let official_script = std::fs::read_to_string(&official_path).unwrap();
+    let _ = autostart::install(
+        &cfg(ashiato_build_stamp::Channel::Official),
+        ashiato_build_stamp::Channel::Official,
+    )
+    .unwrap();
+    assert_eq!(official_path.file_name().unwrap(), "ashiato-collector.cmd");
+    assert_eq!(dev_path.file_name().unwrap(), "ashiato-collector-dev.cmd");
+    assert_ne!(official_path, dev_path);
+    assert_eq!(
+        std::fs::read_to_string(&official_path).unwrap(),
+        official_script
+    );
+    assert_eq!(std::fs::read_to_string(&dev_path).unwrap(), dev_script);
+
+    let official_aumid = "dev.ashiato.collector.runtime-side-by-side-official";
+    let dev_aumid = "dev.ashiato.collector.runtime-side-by-side-dev";
+    ashiato_collector_windows::toast::register_aumid(
+        official_aumid,
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Official),
+    )
+    .unwrap();
+    ashiato_collector_windows::toast::register_aumid(
+        dev_aumid,
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Dev),
+    )
+    .unwrap();
+    let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+    let official_key = hkcu
+        .open_subkey(format!(r"Software\Classes\AppUserModelId\{official_aumid}"))
+        .unwrap();
+    let dev_key = hkcu
+        .open_subkey(format!(r"Software\Classes\AppUserModelId\{dev_aumid}"))
+        .unwrap();
+    assert_eq!(
+        official_key.get_value::<String, _>("DisplayName").unwrap(),
+        "ashiato"
+    );
+    assert_eq!(
+        dev_key.get_value::<String, _>("DisplayName").unwrap(),
+        ashiato_collector_windows::toast::display_name(ashiato_build_stamp::Channel::Dev)
+    );
+    drop((official_key, dev_key));
+    let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{official_aumid}"));
+    let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{dev_aumid}"));
+    match previous_appdata {
+        Some(value) => std::env::set_var("APPDATA", value),
+        None => std::env::remove_var("APPDATA"),
+    }
+}
 
 fn engine(rules: Vec<Rule>) -> Engine {
     Engine::with_thresholds(Exclusions { rules }, MIN_DWELL, IDLE_THRESHOLD)
@@ -527,6 +625,7 @@ impl Transport for Capture {
                 r#"{{"contract_version":{}}}"#,
                 ashiato_collector_windows::contract::CONTRACT_VERSION
             ),
+            headers: Default::default(),
         })
     }
 
@@ -541,6 +640,7 @@ impl Transport for Capture {
         Ok(Reply {
             status: 200,
             body: serde_json::to_string(&items).unwrap(),
+            headers: Default::default(),
         })
     }
 }
@@ -588,6 +688,9 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        exclusions_path: dir.join("exclusions.json"),
+        launch_state_dir: dir.clone(),
+        launch_device_id: "rt".into(),
     };
     let transport = Capture::default();
     let reference = std::sync::Arc::new(NoReference);
@@ -604,6 +707,7 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
             uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
         },
         Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
     let mut source = WindowsSource::open();
@@ -657,6 +761,9 @@ fn clock_skew_runtime() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        exclusions_path: dir.join("exclusions.json"),
+        launch_state_dir: dir.clone(),
+        launch_device_id: "rt".into(),
     };
     let transport = Capture::default();
     let zone = ashiato_collector_windows::config::Zone::current().unwrap();
@@ -673,6 +780,7 @@ fn clock_skew_runtime() {
             uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
         },
         Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )
     .unwrap();
     let mut source = WindowsSource::open();
@@ -1440,7 +1548,11 @@ fn fetch_history_until(
         .unwrap();
     let state = tmp.path().to_path_buf();
     let reader = FsHistoryReader::new(browser.local.clone(), browser.roaming.clone());
-    let mut collector = HistoryCollector::new(std::sync::Arc::new(reader), &state);
+    let mut collector = HistoryCollector::new(
+        std::sync::Arc::new(reader),
+        &state,
+        &state.join("exclusions.json"),
+    );
     let mut got: Vec<(String, String)> = Vec::new();
     let mut wall = Utc::now();
     let start = Instant::now();

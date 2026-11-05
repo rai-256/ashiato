@@ -302,7 +302,11 @@ struct LastSuccess {
 
 impl HistoryCollector {
     /// `state_dir/browser-history/` を置き場にする。前回の成功が読めなければ「初めて」と同じに扱う。
-    pub fn new(reader: Arc<dyn HistoryReader>, state_dir: &std::path::Path) -> Self {
+    pub fn new(
+        reader: Arc<dyn HistoryReader>,
+        state_dir: &std::path::Path,
+        exclusions_path: &std::path::Path,
+    ) -> Self {
         let dir = state_dir.join("browser-history");
         let last = std::fs::read(dir.join("last_success.json"))
             .ok()
@@ -312,7 +316,7 @@ impl HistoryCollector {
         Self {
             reader,
             dir,
-            exclusions_path: state_dir.join("exclusions.json"),
+            exclusions_path: exclusions_path.to_path_buf(),
             schedule: HistorySchedule::with_last_success(last),
             stage: Stage::Idle,
             probe: None,
@@ -841,7 +845,11 @@ mod tests {
 
         fn collector(&self) -> HistoryCollector {
             let reader = FsHistoryReader::new(self.root.join("local"), self.root.join("roaming"));
-            HistoryCollector::new(Arc::new(reader), &self.state())
+            HistoryCollector::new(
+                Arc::new(reader),
+                &self.state(),
+                &self.state().join("exclusions.json"),
+            )
         }
 
         fn state(&self) -> PathBuf {

@@ -25,6 +25,7 @@ iana-time-zone = "0.1"
 # `bundled` は Windows 向けだけに閉じない。読み手の規則を全開発環境で検証するため。
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2.workspace = true
+ashiato-build-stamp = { path = "../build-stamp" }
 
 # 組み立ての印（ST49 / design D5）。build.rs だけで使う
 [build-dependencies]

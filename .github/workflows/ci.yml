@@ -96,6 +96,15 @@ jobs:
           fi
       - run: ./tools/check-released-migrations.sh --self-test
       - run: ./tools/check-released-migrations.sh
+      # 開発版の印 nightly の版の移行を、旧名の対応なしに変えない（ST54 / design D5）。
+      # 印が無いときは fetch を行わず、検査側が対象なしとして通す。
+      - run: |
+          nightly="$(git ls-remote --tags origin nightly)" || { echo "印 nightly を origin から読めない"; exit 1; }
+          if [ -n "$nightly" ]; then
+            git fetch --force --no-tags origin '+refs/tags/nightly:refs/tags/nightly'
+          fi
+      - run: ./tools/check-nightly-migrations.sh --self-test
+      - run: ./tools/check-nightly-migrations.sh
       # 送信契約の版の上げ忘れ（ST50 / design D7）。印を取り寄せたこの job に置く（別の job では印が 0 個に見えて黙って通る）。
       # 収集アプリ 2 本の欄のずれは、それぞれの job の St50EnvelopeShapeTest・st50_envelope_shape が落とす
       - run: ./tools/check-contract-version.sh --self-test

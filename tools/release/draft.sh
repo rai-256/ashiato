@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <run-id> <版番号>|--self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <run-id> <版番号>|--channel nightly <run-id> <版番号>|--self-test" >&2; exit 2; }
 
 # 下書きの印の名前は渡した版番号（v<版番号>）で、-beta. を含めば先行公開にする（D16）。
 # 配布物は PR の package の組み立てで、PR の package は ASHIATO_BUILD_VERSION を渡さず出所の版で組む（D14）。
@@ -46,6 +46,118 @@ draft_release() (
   [[ "$prerelease" == 1 ]] && args+=(--prerelease)
   gh "${args[@]}"
 )
+
+draft_nightly() (
+  local run_id="$1" version="$2" work apk signed b64
+  [[ "$run_id" =~ ^[0-9]+$ ]] || die "run-id が不正: $run_id"
+  "$root/tools/release/version.sh" check "$version" >/dev/null
+  local run_info head_repo repo conclusion workflow
+  run_info="$(gh api "repos/{owner}/{repo}/actions/runs/$run_id" \
+    --jq '[(.head_repository.full_name // "-"), .repository.full_name, (.conclusion // "-"), .name] | @tsv')" || die "run $run_id を読めない"
+  IFS=$'\t' read -r head_repo repo conclusion workflow <<<"$run_info"
+  [[ -n "$repo" && "$head_repo" == "$repo" ]] || die "run $run_id はこの repo の枝の組み立てでない（$head_repo）"
+  [[ "$workflow" == nightly ]] || die "run $run_id は nightly の run でない（$workflow）"
+  [[ "$conclusion" == success ]] || die "run $run_id は成功していない（$conclusion）"
+  [[ -n "${ASHIATO_SIGNING_KEYSTORE_B64:-}" && -n "${ASHIATO_SIGNING_STORE_PASSWORD:-}" &&
+    -n "${ASHIATO_SIGNING_KEY_ALIAS:-}" && -n "${ASHIATO_SIGNING_KEY_PASSWORD:-}" &&
+    -n "${ASHIATO_EXPECT_DEV_CERT_SHA256:-}" ]] || die '開発版の鍵が無い'
+  work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-nightly-draft.XXXXXX")"
+  trap "rm -rf '$work'" EXIT
+  gh run download "$run_id" --name nightly-linux --dir "$work"
+  gh run download "$run_id" --name nightly-windows --dir "$work"
+  apk="$work/ashiato-collector-$version.apk"
+  [[ -f "$apk" ]] || die "開発版の APK が無い: $(basename "$apk")"
+  b64="$ASHIATO_SIGNING_KEYSTORE_B64"
+  signed="$work/ashiato-collector-dev-$version.apk"
+  ASHIATO_EXPECT_DEV_CERT_SHA256="$ASHIATO_EXPECT_DEV_CERT_SHA256" \
+    ASHIATO_SIGNING_KEYSTORE_B64="$b64" "$root/tools/release/sign-apk.sh" "$apk" dev "$signed"
+  rm -f "$apk"
+  ASHIATO_EXPECT_CERT_SHA256="$ASHIATO_EXPECT_DEV_CERT_SHA256" \
+    "$root/tools/release/check-artifacts.sh" "$work" --channel nightly --expect-version "$version"
+  gh release create "nightly-draft-$run_id" "$work"/* --draft --prerelease \
+    --title "nightly draft $version" --notes-file "$root/tools/release/nightly-notes.md"
+)
+
+nightly_self_test() {
+  local work="$(mktemp -d "${TMPDIR:-/tmp}/release-nightly-draft.XXXXXX")" version password
+  password="$(od -An -tx1 -N16 /dev/urandom | tr -d " \n")"  # 使い捨ての署名鍵の合言葉。字面で置かない（check-db-secret.sh）
+  trap "rm -rf '$work'" RETURN
+  local fake="$work/bin" calls="$work/calls"; mkdir -p "$fake"
+  version="$($root/tools/release/version.sh source)-dev.20261102"
+  printf '%s\n' "$password" | "$root/tools/release/make-key.sh" dev "$work/dev.jks" >/dev/null
+  local b64 cert
+  b64="$(base64 -w0 "$work/dev.jks")"
+  cert="$(keytool -J-Duser.language=en -J-Duser.country=US -list -v -keystore "$work/dev.jks" -storepass "$password" 2>/dev/null | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -n1)"
+  GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.compiler.execution.strategy=in-process" ASHIATO_BUILD_VERSION="$version" ASHIATO_APK_UNSIGNED=1 \
+    "$root/tools/release/build.sh" apk "$work/source" >/dev/null 2>&1
+  printf '%s+0000000000000000000000000000000000000000\n' "$version" >"$work/stamp"
+  # 配布物の検査（check-artifacts.sh）は、どの配布物にも許諾の 3 つのファイルを求める（ST53）
+  cp "$root/LICENSE" "$work/LICENSE"
+  cat >"$work/THIRD-PARTY-NOTICES.txt" <<'NOTICES'
+== rust-std 1
+License: MIT OR Apache-2.0
+
+== anyhow 1.0.0
+License: MIT
+MIT License of anyhow
+
+== react 18.0.0
+License: MIT
+MIT License of react
+NOTICES
+  printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$work/SOURCE.txt"
+  local files=(stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
+  tar -czf "$work/server-linux.tar.gz" -C "$work" "${files[@]}"
+  (cd "$work" && zip -q server-windows.zip "${files[@]}" && zip -q collector-windows.zip "${files[@]}")
+  cat >"$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${DRAFT_NIGHTLY_CALLS:?}"
+if [[ "$1" == run && "$2" == download ]]; then
+  out="${@: -1}"
+  mkdir -p "$out"
+  cp "$DRAFT_NIGHTLY_SOURCE/ashiato-collector-"*.apk "$out/"
+  if [[ "$5" == nightly-linux ]]; then cp "$DRAFT_NIGHTLY_SOURCE/ashiato-server-$DRAFT_NIGHTLY_VERSION-linux-x86_64.tar.gz" "$out/"; else
+    cp "$DRAFT_NIGHTLY_SOURCE/ashiato-server-$DRAFT_NIGHTLY_VERSION-windows-x86_64.zip" "$out/"
+    cp "$DRAFT_NIGHTLY_SOURCE/ashiato-collector-windows-$DRAFT_NIGHTLY_VERSION-x86_64.zip" "$out/"
+  fi
+  exit 0
+fi
+if [[ "$1" == api ]]; then
+  printf '%s\n' "${DRAFT_NIGHTLY_RUN:-o/ashiato	o/ashiato	success	nightly}"
+  exit 0
+fi
+[[ "$1" == release && "$2" == create ]] || exit 20
+grep -q -- '--draft' <<<"$*"
+grep -q -- '--prerelease' <<<"$*"
+grep -q -- '--notes-file' <<<"$*"
+[[ "$*" != *"git"* ]]
+EOF
+  chmod +x "$fake/gh"
+  # 偽の upload は、nightly-linux と nightly-windows の両方に同じ作業置き場を渡す。
+  mkdir -p "$work/source"
+  cp "$work/server-linux.tar.gz" "$work/source/ashiato-server-$version-linux-x86_64.tar.gz"
+  cp "$work/server-windows.zip" "$work/source/ashiato-server-$version-windows-x86_64.zip"
+  cp "$work/collector-windows.zip" "$work/source/ashiato-collector-windows-$version-x86_64.zip"
+  # gh の偽台本は、APK と3つの配布物を run download の結果として再現する。
+  echo "== Scenario: 開発版の確かめの組み立ては、開発版の鍵で署名した下書きになり、印を作らない"
+  DRAFT_NIGHTLY_CALLS="$calls" DRAFT_NIGHTLY_SOURCE="$work/source" DRAFT_NIGHTLY_VERSION="$version" DRAFT_NIGHTLY_RUN=$'o/ashiato\to/ashiato\tsuccess\tnightly' PATH="$fake:$PATH" \
+    ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
+    ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" "$0" --channel nightly 77 "$version" >/dev/null
+  grep -Fq 'release create nightly-draft-77' "$calls" || die '下書きの要求が無い'
+  grep -Fq -- '--notes-file' "$calls" || die '下書きの説明文指定が無い'
+  ! grep -Eq 'git|release upload|release edit' "$calls" || die '印または公開の要求が出た'
+  local invalid_run
+  for invalid_run in $'fork/ashiato\to/ashiato\tsuccess\tnightly' $'o/ashiato\to/ashiato\tsuccess\tci' $'o/ashiato\to/ashiato\tfailure\tnightly'; do
+    : >"$calls"
+    if DRAFT_NIGHTLY_CALLS="$calls" DRAFT_NIGHTLY_SOURCE="$work/source" DRAFT_NIGHTLY_VERSION="$version" DRAFT_NIGHTLY_RUN="$invalid_run" PATH="$fake:$PATH" \
+        ASHIATO_SIGNING_KEYSTORE_B64="$b64" ASHIATO_SIGNING_STORE_PASSWORD="$password" ASHIATO_SIGNING_KEY_ALIAS=ashiato-dev ASHIATO_SIGNING_KEY_PASSWORD="$password" \
+        ASHIATO_EXPECT_DEV_CERT_SHA256="$cert" "$0" --channel nightly 77 "$version" >/dev/null 2>&1; then
+      die "不正な nightly run を受け入れた: $invalid_run"
+    fi
+    ! grep -Fq 'release create' "$calls" || die "不正な nightly run で下書きを作った: $invalid_run"
+  done
+}
 
 self_test() {
   local work fake_bin calls
@@ -149,8 +261,14 @@ EOF
     [[ ! -s "$calls" ]] || die "出所の確かめを通らない run で下書きを作った: $run"
   done
   echo "OK: 下書きの先行公開と配布物欠落時の停止を確認した"
+  nightly_self_test
 }
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
-[[ $# == 2 ]] || usage
-draft_release "$1" "$2"
+if [[ "${1:-}" == --channel && "${2:-}" == nightly ]]; then
+  [[ $# == 4 ]] || usage
+  draft_nightly "$3" "$4"
+else
+  [[ $# == 2 ]] || usage
+  draft_release "$1" "$2"
+fi

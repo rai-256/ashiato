@@ -27,16 +27,23 @@ sign_apk() {
   [[ "$channel" == dev ]] && expected+='.dev'
   [[ "$package" == "$expected" ]] || die "APK の識別子とチャンネルが違う"
   b64="${ASHIATO_SIGNING_KEYSTORE_B64:-}"
+  # 鍵をファイルに戻してある呼び手（publish-nightly.sh）は ASHIATO_SIGNING_KEYSTORE_FILE で渡す。あれば B64 より先に使う
+  local key_file="${ASHIATO_SIGNING_KEYSTORE_FILE:-}"
   store_password="${ASHIATO_SIGNING_STORE_PASSWORD:-}"
   key_alias="${ASHIATO_SIGNING_KEY_ALIAS:-}"
   key_password="${ASHIATO_SIGNING_KEY_PASSWORD:-}"
-  [[ -n "$b64" && -n "$store_password" && -n "$key_alias" && -n "$key_password" ]] || die "署名の鍵または合言葉が無い"
+  [[ -n "$b64" || -n "$key_file" ]] && [[ -n "$store_password" && -n "$key_alias" && -n "$key_password" ]] || die "署名の鍵または合言葉が無い"
+  [[ -z "$key_file" || -s "$key_file" ]] || die "署名の鍵のファイルが無い"
   signer="$(apksigner_bin)"
   [[ -n "$signer" && -x "$signer" ]] || die "apksigner が無い"
   tmp_keystore="$(mktemp "${TMPDIR:-/tmp}/ashiato-signing.XXXXXX.jks")"
   signed_tmp="$(mktemp "${TMPDIR:-/tmp}/ashiato-signed.XXXXXX.apk")"
   trap "rm -f '$tmp_keystore' '$signed_tmp' '${signed_tmp}.idsig'" EXIT
-  printf '%s' "$b64" | base64 --decode >"$tmp_keystore" || die "署名の鍵を復元できない"
+  if [[ -n "$key_file" ]]; then
+    cp "$key_file" "$tmp_keystore"
+  else
+    printf '%s' "$b64" | base64 --decode >"$tmp_keystore" || die "署名の鍵を復元できない"
+  fi
   # 渡された鍵がそのチャンネルの鍵かを、証明書の指紋で確かめる（識別子とチャンネルが合っていても、
   # 鍵だけを取り違えれば署名しない。code_verify R26）。正式は ASHIATO_EXPECT_CERT_SHA256、開発版は ASHIATO_EXPECT_DEV_CERT_SHA256
   local expect_var=ASHIATO_EXPECT_CERT_SHA256 expect_cert key_cert

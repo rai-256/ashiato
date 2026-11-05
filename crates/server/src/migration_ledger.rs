@@ -5,6 +5,7 @@
 //! 読む関数（`read_ledger`）は DB に何も書かない。当てる処理（`apply_migrations`）は記録を書く。
 
 use crate::update_history::{self, sqlstate_of, Attempt, Outcome};
+use ashiato_build_stamp::{channel, Channel};
 use sha2::{Digest as _, Sha256};
 use sqlx::pool::PoolConnection;
 use sqlx::{Connection as _, PgConnection, Postgres};
@@ -19,6 +20,19 @@ pub const BUILD_VERSION: &str = env!("ASHIATO_VERSION");
 /// 当てた組み立ての commit（`build.rs` が決める。design D8）。
 pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");
 
+/// `migrations/LINEAGE` の 1 行の種類（ST54 / design D5）。DB の版の記録にある旧名を、今の名前の集合へ写すときに使う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineageKind {
+    /// `renamed <旧名> <今の名前>`: 名前だけを変えた。DB の旧名の行は今の名前として数える。
+    Renamed,
+    /// `removed <旧名>`: ORDER から外した。DB の旧名の行は比べる集合から除く。
+    Removed,
+    /// `rewritten <今の名前> <直しの移行>`: 開発版に載った後で中身を変え、直しの移行を足した。名前の写しは変えない。
+    Rewritten,
+}
+
+type Lineage<'a> = &'a [(LineageKind, &'a str, &'a str)];
+
 /// 当てる処理が止まった理由。呼び出し元（終了コードを決める側）が区別できる。
 #[derive(Debug)]
 pub enum MigrateError {
@@ -26,6 +40,8 @@ pub enum MigrateError {
     Ahead { unknown: Vec<UnknownVersion> },
     /// 記録が読めない。何も書いていない。
     Unreadable(String),
+    /// DB の系統がこの組み立てと違う。何も書いていない（終了コード 4）。
+    ChannelMismatch { db: Channel, me: Channel },
     /// 版の名前つきで、当てるのに失敗した（その版の取引は戻っている）。
     Version { name: String, source: sqlx::Error },
     /// 当てる直前の仕事（退避）が失敗した。何も当てていない。
@@ -75,6 +91,14 @@ impl MigrateError {
                     "error: kind=ledger_unreadable\n{selfline}\n  この DB の版の記録を読めない（{why}）。何も書かずに止まった\n"
                 ),
             )),
+            Self::ChannelMismatch { db, me } => Some((
+                "channel_mismatch",
+                format!(
+                    "error: kind=channel_mismatch\n  db: {}\n  self: {}\n",
+                    db.as_str(),
+                    me.as_str()
+                ),
+            )),
             _ => None,
         }
     }
@@ -115,6 +139,14 @@ impl std::fmt::Display for MigrateError {
             ),
             Self::Before(e) => write!(f, "{e:#}"),
             Self::Unreadable(why) => write!(f, "版の記録を読めない: {why}"),
+            Self::ChannelMismatch { db, me } => {
+                write!(
+                    f,
+                    "DB の系統が違う: db={} self={}",
+                    db.as_str(),
+                    me.as_str()
+                )
+            }
             Self::Version { name, source } => {
                 write!(f, "マイグレーション {name} の適用に失敗: {source}")
             }
@@ -184,15 +216,44 @@ pub enum Verdict {
 
 /// `known`（自分の知る版）と `ledger`（DB の版）の名前の集合を比べる。純粋。
 pub fn compare(known: &BTreeSet<String>, ledger: &BTreeSet<String>) -> Verdict {
+    compare_with_lineage(known, ledger, &[])
+}
+
+/// `compare` に LINEAGE を足したもの。DB の名前を LINEAGE で今の名前へ写してから比べる
+/// （旧名の行を「知らない版」と数えない）。純粋。
+pub fn compare_with_lineage(
+    known: &BTreeSet<String>,
+    ledger: &BTreeSet<String>,
+    lineage: Lineage<'_>,
+) -> Verdict {
+    let ledger = mapped_names(ledger, lineage);
     let unknown: Vec<String> = ledger.difference(known).cloned().collect();
     if !unknown.is_empty() {
         return Verdict::Ahead { unknown };
     }
-    let missing: Vec<String> = known.difference(ledger).cloned().collect();
+    let missing: Vec<String> = known.difference(&ledger).cloned().collect();
     if !missing.is_empty() {
         return Verdict::Behind { missing };
     }
     Verdict::Even
+}
+
+fn mapped_names(names: &BTreeSet<String>, lineage: Lineage<'_>) -> BTreeSet<String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            lineage
+                .iter()
+                .find_map(|(kind, old, new)| {
+                    (*old == name).then(|| match kind {
+                        LineageKind::Renamed => Some((*new).to_string()),
+                        LineageKind::Removed => None,
+                        LineageKind::Rewritten => Some(name.clone()),
+                    })
+                })
+                .unwrap_or_else(|| Some(name.clone()))
+        })
+        .collect()
 }
 
 async fn schema_exists(pool: &mut PgConnection, name: &str) -> Result<bool, sqlx::Error> {
@@ -293,12 +354,60 @@ pub(crate) async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sq
     Ok(Ledger::Recorded(names.into_iter().collect()))
 }
 
+/// 読み取った記録から DB の系統を決める。行が無い DB は系統なしとする。
+async fn channel_on(
+    pool: &mut PgConnection,
+    ledger: &Ledger,
+) -> Result<Option<Channel>, sqlx::Error> {
+    match ledger {
+        Ledger::Empty => Ok(None),
+        Ledger::BeforeLedger => Ok(Some(Channel::Official)),
+        Ledger::Unreadable(_) => Ok(None),
+        Ledger::Recorded(names) if names.is_empty() => Ok(None),
+        Ledger::Recorded(_) => {
+            let version: Option<String> = sqlx::query_scalar(
+                "SELECT build_version FROM migration_ledger.applied
+                 ORDER BY applied_at, name LIMIT 1",
+            )
+            .fetch_optional(&mut *pool)
+            .await?;
+            Ok(version.as_deref().map(channel))
+        }
+    }
+}
+
+async fn check_channel(
+    pool: &mut PgConnection,
+    ledger: &Ledger,
+    me: Channel,
+) -> Result<Option<MigrateError>, sqlx::Error> {
+    let Some(db) = channel_on(pool, ledger).await? else {
+        return Ok(None);
+    };
+    if db != me {
+        return Ok(Some(MigrateError::ChannelMismatch { db, me }));
+    }
+    Ok(None)
+}
+
 /// サーバの起動の検査（design D6・D17）。アプリの役割で読み、何も書かない。
 /// 起動を止めるなら `Some((種別, 標準エラーの本文))`（終了コード 3）。揃っていれば `None`。
 /// 記録が無い DB は behind（まだ全部が当たっていない）。指紋の違いは警告だけで止めない（D7）。
 pub async fn startup_refusal(
     pool: &sqlx::PgPool,
     versions: &[(&str, &str)],
+    me: Channel,
+) -> Result<Option<(&'static str, String)>, sqlx::Error> {
+    startup_refusal_with_lineage(pool, versions, crate::LINEAGE, me).await
+}
+
+/// `startup_refusal` に、試験や組み立てごとの LINEAGE を渡す口を足したもの。
+/// 系統の食い違いは版の比べより先に見て、`Some(("channel_mismatch", …))`（終了コード 4）を返す。
+pub async fn startup_refusal_with_lineage(
+    pool: &sqlx::PgPool,
+    versions: &[(&str, &str)],
+    lineage: Lineage<'_>,
+    me: Channel,
 ) -> Result<Option<(&'static str, String)>, sqlx::Error> {
     let mut conn = pool.acquire().await?;
     let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
@@ -311,17 +420,23 @@ pub async fn startup_refusal(
             ),
         ))
     };
-    match read_ledger_on(&mut conn).await? {
+    let ledger = read_ledger_on(&mut conn).await?;
+    if let Some(mismatch) = check_channel(&mut conn, &ledger, me).await? {
+        return Ok(Some(
+            mismatch.mismatch_report().expect("channel mismatch report"),
+        ));
+    }
+    match ledger {
         Ledger::Empty | Ledger::BeforeLedger => Ok(behind(known.len())),
         Ledger::Unreadable(why) => Ok(MigrateError::Unreadable(why).mismatch_report()),
-        Ledger::Recorded(names) => match compare(&known, &names) {
+        Ledger::Recorded(names) => match compare_with_lineage(&known, &names, lineage) {
             Verdict::Ahead { unknown } => {
                 let unknown = describe_unknown(&mut conn, &unknown).await?;
                 Ok(MigrateError::Ahead { unknown }.mismatch_report())
             }
             Verdict::Behind { missing } => Ok(behind(missing.len())),
             Verdict::Even => {
-                warn_changed_fingerprints(&mut conn, versions).await?;
+                warn_changed_fingerprints(&mut conn, versions, lineage).await?;
                 Ok(None)
             }
         },
@@ -340,8 +455,9 @@ fn fingerprint(sql: &str) -> String {
 pub async fn apply_migrations(
     conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
+    me: Channel,
 ) -> Result<(), MigrateError> {
-    apply_migrations_with(conn, versions, || Ok(()), "").await
+    apply_migrations_with(conn, versions, || Ok(()), "", me).await
 }
 
 /// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）と、版を当てた後に錠の中で流す
@@ -353,8 +469,21 @@ pub async fn apply_migrations_with(
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
+    me: Channel,
 ) -> Result<(), MigrateError> {
-    apply_migrations_recorded(conn, versions, before_apply, grants, None)
+    apply_migrations_with_lineage(conn, versions, before_apply, grants, crate::LINEAGE, me).await
+}
+
+/// `apply_migrations_with` に、試験や組み立てごとの LINEAGE を渡す口を足したもの。
+pub async fn apply_migrations_with_lineage(
+    conn: PoolConnection<Postgres>,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
+    lineage: Lineage<'_>,
+    me: Channel,
+) -> Result<(), MigrateError> {
+    apply_migrations_recorded_with_lineage(conn, versions, before_apply, grants, None, lineage, me)
         .await
         .map(|_| ())
 }
@@ -364,11 +493,36 @@ pub async fn apply_migrations_with(
 /// 錠を持つこの接続で書く（ahead・読めないでは書かない）。書けなくても結果は変わらない（D9）。
 /// 当てた版の名前（ORDER の順）を返す。落ちたときの版の名前と SQLSTATE は `MigrateError` から取れる（本文は持ち出さない）。
 pub async fn apply_migrations_recorded(
+    conn: PoolConnection<Postgres>,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
+    stamp: Option<&str>,
+    me: Channel,
+) -> Result<Vec<String>, MigrateError> {
+    apply_migrations_recorded_with_lineage(
+        conn,
+        versions,
+        before_apply,
+        grants,
+        stamp,
+        crate::LINEAGE,
+        me,
+    )
+    .await
+}
+
+/// 当てる処理の本体。`apply_migrations_recorded` に LINEAGE を渡す口を足したもの。
+/// 錠を取った後、版の比べより先に DB の系統と `me` を比べ、違えば何も書かずに `MigrateError::ChannelMismatch` を返す。
+/// 当てた版の名前（ORDER の順）を返す。
+pub async fn apply_migrations_recorded_with_lineage(
     mut conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    lineage: Lineage<'_>,
+    me: Channel,
 ) -> Result<Vec<String>, MigrateError> {
     let mut run = Run::default();
     let locked = sqlx::query("SELECT pg_advisory_lock($1)")
@@ -377,7 +531,19 @@ pub async fn apply_migrations_recorded(
         .await;
     let lock_held = locked.is_ok();
     let result = match locked {
-        Ok(_) => apply_locked(&mut conn, versions, before_apply, grants, stamp, &mut run).await,
+        Ok(_) => {
+            apply_locked(
+                &mut conn,
+                versions,
+                before_apply,
+                grants,
+                stamp,
+                lineage,
+                me,
+                &mut run,
+            )
+            .await
+        }
         Err(e) => Err(MigrateError::Db(e)),
     };
     // 結果の行は錠を外す前に書く（錠を持つ接続で。pool の別の接続は自分の錠を待って止まる。R28）
@@ -418,7 +584,11 @@ async fn record_result(
     let sqlstate;
     let outcome = match result {
         // 版の食い違いで止めた回は何も書かない（終了コード 3）
-        Err(MigrateError::Ahead { .. } | MigrateError::Unreadable(_)) => return,
+        Err(
+            MigrateError::Ahead { .. }
+            | MigrateError::Unreadable(_)
+            | MigrateError::ChannelMismatch { .. },
+        ) => return,
         Err(MigrateError::Before(_)) => Outcome::BackupFailed,
         Err(MigrateError::Version { name, source }) => {
             sqlstate = sqlstate_of(source);
@@ -442,26 +612,32 @@ async fn record_result(
     update_history::record_migrate(conn, stamp, attempt, &outcome).await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn apply_locked(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     grants: &str,
     stamp: Option<&str>,
+    lineage: Lineage<'_>,
+    me: Channel,
     run: &mut Run,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
+    if let Some(mismatch) = check_channel(conn, &ledger, me).await? {
+        return Err(mismatch);
+    }
     let (recorded, before_ledger) = match ledger {
         Ledger::Unreadable(why) => return Err(MigrateError::Unreadable(why)),
         Ledger::Empty => (BTreeSet::new(), false),
         Ledger::BeforeLedger => (BTreeSet::new(), true),
         Ledger::Recorded(names) => {
             let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
-            if let Verdict::Ahead { unknown } = compare(&known, &names) {
+            if let Verdict::Ahead { unknown } = compare_with_lineage(&known, &names, lineage) {
                 let unknown = describe_unknown(conn, &unknown).await?;
                 return Err(MigrateError::Ahead { unknown });
             }
-            (names, false)
+            (mapped_names(&names, lineage), false)
         }
     };
     // 版の検査の後・退避の前。試みの行を commit してから退避を取る（退避に入るので、戻しても残る。Q6）
@@ -470,7 +646,7 @@ async fn apply_locked(
     }
     before_apply().map_err(MigrateError::Before)?;
     sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
-    warn_changed_fingerprints(conn, versions).await?;
+    warn_changed_fingerprints(conn, versions, lineage).await?;
     for (name, sql) in versions {
         if recorded.contains(*name) {
             continue;
@@ -518,22 +694,26 @@ async fn describe_unknown(
 async fn warn_changed_fingerprints(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
+    lineage: Lineage<'_>,
 ) -> Result<(), sqlx::Error> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT name, sha256 FROM migration_ledger.applied")
             .fetch_all(&mut *conn)
             .await?;
     let recorded: BTreeMap<String, String> = rows.into_iter().collect();
-    for (name, sql) in versions {
-        if recorded
-            .get(*name)
-            .is_some_and(|sha| *sha != fingerprint(sql))
-        {
-            // log-ok: 版の名前は配った移行のファイル名（時刻と slug）で、利用者のデータを含まない
-            tracing::warn!(
-                version = *name,
-                "記録した指紋と中身が違う版がある（当て直さない）"
-            );
+    for (name, sha) in recorded {
+        let mapped = mapped_names(&BTreeSet::from([name.clone()]), lineage);
+        let Some(current) = mapped.iter().next() else {
+            continue;
+        };
+        if let Some((_, sql)) = versions.iter().find(|(n, _)| *n == current) {
+            if sha != fingerprint(sql) {
+                // log-ok: 版の名前は配った移行のファイル名（時刻と slug）で、利用者のデータを含まない
+                tracing::warn!(
+                    version = current,
+                    "記録した指紋と中身が違う版がある（当て直さない）"
+                );
+            }
         }
     }
     Ok(())

@@ -426,5 +426,5 @@ class OriginalPipeline(
         transport: OriginalTransport,
         env: OriginalEnvironment,
         log: (String) -> Unit,
-    ): OriginalUploader = OriginalUploader(originals, source, transport, reporter, env, log)
+    ): OriginalUploader = OriginalUploader(originals, source, transport, reporter, env, log = log)
 }
