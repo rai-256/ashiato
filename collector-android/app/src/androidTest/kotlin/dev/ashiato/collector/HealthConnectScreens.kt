@@ -99,6 +99,7 @@ internal class HealthConnectScreens(private val context: Context) {
         val y = b.bottom - b.height() / 4
         for (f in listOf(0.6, 0.45, 0.75, 0.3, 0.9, 0.15)) {
             device.click((b.left + b.width() * f).toInt(), y)
+            // timing-ok: 各タップ後の説明画面への遷移を確認する操作単位の短い待ち。
             if (device.wait(Until.hasObject(By.pkg(context.packageName)), 2_000)) return
         }
         throw AssertionError("プライバシーポリシーの案内を押しても説明の画面が出ない（前面: ${device.currentPackageName}）")

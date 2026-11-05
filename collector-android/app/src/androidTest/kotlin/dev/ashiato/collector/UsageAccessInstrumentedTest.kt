@@ -154,6 +154,7 @@ class UsageAccessInstrumentedTest {
         const val TIMEOUT_MS = 30_000L
 
         /** 「開かない」ことの確かめは待ち切る（短すぎると、遅れて開いても緑になる）。 */
+        // timing-ok: 設定画面へ遷移しないことを確認する固定窓なので、延長すると毎回の試験時間だけが増える。
         const val SETTLE_MS = 5_000L
     }
 }
