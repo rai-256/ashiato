@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 移行 `export_ledger` を当て直せることと、書き出しの台帳の錠（ST33 / design D10）。
 #![allow(clippy::unwrap_used)]
 

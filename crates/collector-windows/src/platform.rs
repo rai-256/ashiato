@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! Windows の実機で OS を触る側（design D5 / D15）。**ここだけが実機を要する。**
 //!
 //! 読んだ値を**どう解釈するか**は `winrules.rs` に出してある（Linux でも確かめられる。R9）。

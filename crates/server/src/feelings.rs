@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 主観の記録の原文の解釈（ST17 / FR-36 / FR-37。design D1 / D4 / D5）。
 //! `parse_feeling` は**DB に触らない**。DB を見る紐づけ先の検査は末尾の `target_state_error`。
 //!

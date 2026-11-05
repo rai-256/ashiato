@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 「書く」のフォームと、種類を足す・名前を変える（ST19 / tasks 4.3 / design D9）。
  *

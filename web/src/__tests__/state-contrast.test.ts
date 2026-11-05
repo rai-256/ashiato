@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 格子の 3 段（tasks 8.3 / NFR-23 / WCAG SC 1.4.11）と、状態を表すしるし（NFR-23）。ライト・ダークの両方。
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! ログに出してよいものだけを組み立てる（製造準備 A-2 / spec「収集側のログに私的な内容を出さない」）。
 //!
 //! **ウィンドウ題名には開いている文書の題・メールの件名・相手の名前がそのまま載る。**

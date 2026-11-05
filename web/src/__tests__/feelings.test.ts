@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 毎日の気分の原文の組み立て・数え方・前後・暦（ST17 / tasks 7.1 / design D4 / D12 / D14）。
  *

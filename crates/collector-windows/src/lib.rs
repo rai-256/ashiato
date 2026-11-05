@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! C-02 Windows 収集（ST07）。**PC の上で起きていることを集める。**
 //!
 //! 送信の形・冪等キー・エンベロープ・生存信号の受け口は ST01 / ST02 / ST03 が

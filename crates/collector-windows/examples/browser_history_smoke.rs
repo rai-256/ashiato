@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `tools/smoke.sh` 用の台本。Chromium の形の小さな履歴 DB を作り、本物の `Runtime` で取得して送る。
 //!
 //! - `make <db> [<url> <title>]` … 履歴 DB を作る

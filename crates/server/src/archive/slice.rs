@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! JSON配列の各要素を再直列化せず、元のバイト列から切り出す。
 
 /// 区切りをまたぐ状態を保ちながら、巨大な配列を固定幅で走査する。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 主観の記録の取り込み口を、**本物の PostgreSQL に対して**確かめる（ST17 / Task 2）。
 //!
 //! 取り込み口（`ingest`）を通して入れ、格納された行を直に見る（読み出しは Task 4）。

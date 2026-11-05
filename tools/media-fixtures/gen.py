@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 """ST09 の試験材料（JPEG 2 枚と MP4 1 本）を作る。外の写真・動画は使わない（自作。ライセンスの問題が無い）。
 
   java MkBase.java /tmp/base.jpg 64 48 && java MkBase.java /tmp/thumb.jpg 16 12

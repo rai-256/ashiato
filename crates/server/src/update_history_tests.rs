@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 更新の履歴の置き場・列の形・門・付与を、本物の PostgreSQL に対して確かめる（ST51 / design D4 / D10）。
 #![allow(clippy::unwrap_used)]
 

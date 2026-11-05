@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 開いた行の中身と畳み（ST25 / tasks 9.1・9.2 / design D8）。固定の応答の文字と開閉を確かめる。
  */

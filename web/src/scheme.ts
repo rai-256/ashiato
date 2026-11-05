@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 明暗とフォーカスの輪郭（NFR-17 / NFR-22）。**全部の画面が同じものを使う。**
  *

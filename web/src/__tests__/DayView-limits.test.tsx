@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 1 日の一覧の下限（ST16 / tasks 6.2 / NFR-17〜19 / NFR-22 / NFR-23）。
  *

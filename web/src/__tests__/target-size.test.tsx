@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 360 px 幅での操作対象（tasks 8.5 / NFR-19 / 深掘り 第 4 回 Q16, 第 6 回 Q25）。
  *

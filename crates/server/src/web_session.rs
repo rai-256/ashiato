@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 画面のログイン（ST28 / design D1 / D2 / D3 / D16 / D17 / D18）。
 //! 合言葉・印・その SHA-256 はログにも応答にも出さない（製造準備 A-2）。
 

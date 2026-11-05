@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 夜の書き直し（ST23 Task 7 / design D11）を、サーバと同じ `ashiato_app` の接続で、本物の PostgreSQL に対して確かめる。
 //!
 //! 表のファイル（`relfilenode`）が替わったかで書き直しを見る。`VACUUM FULL` は表の排他ロックを取り、

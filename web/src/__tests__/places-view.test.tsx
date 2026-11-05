@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 場所のカード（ST21 / tasks 8.3 / design D12）。応答を固定して描画の指定と勘定を見る。
  * 画面の Scenario の印は `web/e2e`（本物のブラウザ）が持つ。ここは補助。

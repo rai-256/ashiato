@@ -169,12 +169,13 @@ head を checkout した組み立ての印が `.dirty` を持たないこと・f
 ### D11（仮）. `approvals` は `release` の保護の規則を読み、本人の login を必須の承認者に、管理者の飛ばしを禁じる設定を求める
 
 `check-guards.sh approvals [--repo <owner/name>] [--reviewer <login>]` は、`gh api repos/<repo>/environments/release` を読み、次の 3 つを求める。
-- `protection_rules` に `type: required_reviewers` の規則があり、その `reviewers` に `type: User`・`login: <reviewer>` がある
+- `protection_rules` に `type: required_reviewers` の規則があり、その `reviewers` に `type: User`・`reviewer.login: <reviewer>` がある（API の形は `{"type": "User", "reviewer": {"login": …}}`。review/code.md R19）
 - `can_admins_bypass` が `false`
 - `prevent_self_review` は見ない（本人が印を打って本人が承認するため。true を求めると運用が詰む）
 `<reviewer>` の既定は `ASHIATO_RELEASE_REVIEWER`、無ければ配布元の持ち主（`<owner>`）。
 `agent-credential [--repo]` は、`gh api repos/<repo> --jq .permissions` を読み、`admin` と `maintain` がどちらも `false` であることを求める。公開の承認の権限（Deployments）は、この API から読めない。確かめは、人間の確認待ちで使い捨ての Environment に対して行う（tasks の末尾）。
 `release.yml` の `publish` は、`check-guards.sh rules` の後、`sign-apk.sh` の前に `check-guards.sh approvals` を走らせる。`check-guards.sh workflows` は、その並びを確かめる。
+`publish` の権限は `contents: write` に `actions: read` を足す（`environments/release` を読む。review/code.md R22）。`workflows` は字面でなく手順として見る —— 注釈の行は数えず、承認の手順は `run` がちょうど `tools/release/check-guards.sh approvals` で `if:` と `continue-on-error` を持たないものだけ（review/code.md R15・R26）。
 - 失わない理由: どの欄を見るかは台本の中だけで、後から足せる。GitHub の API が欄の名前を変えたら、確かめが落ちる側（公開しない側）に倒れる
 - 反転条件: Actions の `GITHUB_TOKEN` で `environments/release` を読めないと分かったら（人間の確認待ち 12.3）、公開の job では `approvals` を走らせず、`docs/release.md` の印を打つ前の手順だけに置く
 
@@ -258,6 +259,18 @@ FR-127 は「対応するソースは、同じ印（タグ）のリポジトリ�
 ## Migration Plan
 
 移行は無い。DB・API・記録の形は変えない。本人の手は `docs/release.md` の順（D3）で、ST53 が main に入った後に行う。
+
+### D19（仮）. 許諾のファイルを持たない部品の著作権の表示は、既定で必須。本文が著作権者の行を条件に持たない式（`Apache-2.0`）だけを免除する
+
+D8 の「部品の許諾のファイルが無いときは、SPDX の全文に作者を添える。どちらも無ければ落とす」を、次のとおりに読む（review/code.md R12・R13・R20・R21・R24・R25）。
+- 部品が自分の許諾のファイルを持たないとき、作者（Rust の `authors`・Node の `author`・携帯の POM と親の POM の `developers` / `organization`）が無ければ組み立てを落とす。これが既定
+- 例外は `notices.sh` の `HOLDER_EXEMPT`（今は `Apache-2.0` だけ）。式のどの部品も免除の式（`WITH` の例外を除いた本体で見る）なら、全文だけで通す。Apache-2.0 の本文は著作権の行の穴を持たず、§4 が求めるのは部品が持つ表示を残すことで、部品が表示を持たなければ残すものが無い。作者を作文しない
+- 携帯の `PROPRIETARY` の部品は、許諾の URL を出所つきで書くだけで作者を求めない（著作権者は URL の先の条項が持つ。POM に無い作者を作文しない）
+- 規則の置き場は `notices.sh` の 1 か所（bash の `HOLDER_EXEMPT` を apk の Python にも引数で渡す）。Rust・Node・携帯の 3 経路が同じ規則で決める
+- 式の部品は `X WITH Y` を 1 つに読み（全文は `texts/<X WITH Y>.txt`。`spdx_text` と `check-licenses.sh` と同じ）、部品を 1 つも読めない式（POM の許諾が無い `-` など）は、本文の空の項を作らずに落とす
+- 本物の依存で当たるもの: `com.google.code.findbugs:jsr305:3.0.2`（Apache-2.0・許諾のファイル無し・POM に作者無し）。HEAD の D8 の読み方では携帯の一覧が組めなかった
+- 失わない理由: 免除は 1 つの式だけで、落とす側が既定（新しい式は作者が無ければ組み立てが止まる）。免除の一覧を空にすれば D8 の読み方に戻る。配る前（最初の印の前）なので、配った一覧は無い
+- 反転条件: Apache-2.0 の部品の著作権者を別の出所（部品の配布元のページ・ソースの見出し）から機械で取れると分かったら、免除をやめてその出所から添える。法務の確かめで Apache-2.0 にも著作権の表示が要ると分かったら、免除の一覧を空にし、jsr305 は表示を持つ版か別の部品に替える
 
 ## Open Questions
 

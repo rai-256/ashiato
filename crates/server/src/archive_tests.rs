@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! ST12 の書庫台帳移行を本物の PostgreSQL で確かめる。
 #![allow(clippy::unwrap_used)]
 

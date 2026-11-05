@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 # detekt の設定（2026-10-11）。**既定（buildUponDefaultConfig = true）から変えたところだけ**を書く。
 # 緩めるときは理由をコメントで書く。今ある違反は config/detekt-baseline.xml に凍結してある（新しい違反だけ落ちる）。
 

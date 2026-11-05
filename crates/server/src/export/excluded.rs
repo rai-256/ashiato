@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しから除く範囲の SQL 断片（ST33 / design D5 / D5a / D5b）。
 //!
 //! **除く範囲の式はここの 1 か所だけ**。書き出しの本体・`GET /export/summary`・後に消した記録の件数（D17）は

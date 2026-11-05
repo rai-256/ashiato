@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 戻す口（`POST /stays/restore`）の断りを HTTP の口から見る（CH08 Task 3 / design D4）。
 //! 場面は premises.md の探り A1〜A3: P 10:00–11:00 の位置 5 分おき・B のはみ出しの位置。
 #![allow(clippy::unwrap_used)]
