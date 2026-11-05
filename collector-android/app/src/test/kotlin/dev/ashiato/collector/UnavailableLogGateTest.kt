@@ -76,6 +76,7 @@ class UnavailableLogGateTest {
             }
             // `available()` がログと同じ排他区間を使うなら、ログが終わるまでここでは完了しない。
             awaitWithinD4(clearing, "解除の糸が始まらない")
+            // timing-ok: D12。ログ中に復旧しない短い窓で、解除が割り込まないことだけを見る。
             assertFalse(
                 "ログ中の解除が比較と代入の間へ割り込んだ",
                 recovered.await(200, TimeUnit.MILLISECONDS),
