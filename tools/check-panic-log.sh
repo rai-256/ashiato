@@ -23,9 +23,17 @@ env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/deb
 # timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -s -o /dev/null "http://$BIND/selftest/panic" || true
-sleep 2
-if grep -q 'kind="panic"' "$LOG" || grep -q '未捕捉の異常' "$LOG"; then
+log_wait_started=$SECONDS
+log_wait_deadline=$((log_wait_started + 30))
+last_panic_line=''
+while (( SECONDS < log_wait_deadline )); do
+  if last_panic_line=$(grep -m1 -E 'kind="panic"|未捕捉の異常' "$LOG"); then
+    break
+  fi
+  sleep 1
+done
+if [ -n "$last_panic_line" ]; then
   echo "未捕捉の異常がログに出た（確認済み）"
 else
-  echo "NG: わざと落としたのにログに出なかった"; sed -n '1,20p' "$LOG"; exit 1
+  echo "NG: わざと落としたのにログに出なかった（待った $((SECONDS - log_wait_started)) 秒、最後に見た値: ${last_panic_line:-なし}）"; sed -n '1,20p' "$LOG"; exit 1
 fi

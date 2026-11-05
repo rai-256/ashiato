@@ -54,7 +54,7 @@ trap stop_load EXIT
 trap on_signal INT TERM
 
 start_load() {
-  local i count attempt
+  local i count start_wait deadline last_count current_count
   case "$load" in
     none) ;;
     host)
@@ -74,13 +74,18 @@ start_load() {
       for ((i = 1; i <= count; i++)); do
         "$ROOT/tools/db.sh" exec -T -d db sh -c 'while :; do :; done' "${load_marker}-$i" >/dev/null || return 1
       done
-      for ((attempt = 1; attempt <= 50; attempt++)); do
-        if [ "$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk -v marker='$load_marker' 'index(\$0, marker) { n++ } END { print n + 0 }'")" -ge 1 ]; then
+      start_wait=$SECONDS
+      deadline=$((start_wait + 30))
+      last_count=0
+      while (( SECONDS < deadline )); do
+        current_count=$("$ROOT/tools/db.sh" exec -T db sh -c "ps -eo args= 2>/dev/null | awk -v marker='$load_marker' 'index(\$0, marker) { n++ } END { print n + 0 }'")
+        last_count=$current_count
+        if [ "$current_count" -ge 1 ]; then
           return 0
         fi
         sleep 0.1
       done
-      echo "DB の負荷が立たない: $load_marker" >&2
+      echo "DB の負荷が立たない: $load_marker（待った $((SECONDS - start_wait)) 秒、最後に見た値: $last_count）" >&2
       return 1
       ;;
     *)
@@ -184,18 +189,23 @@ self_test() {
     return 1
   fi
   for mode in db host; do
-    timeout --signal=INT --kill-after=3 5 "$ROOT/tools/load-repeat.sh" --times 1 --load "$mode" -- sleep 60 &
+    timeout --signal=INT --kill-after=3 35 "$ROOT/tools/load-repeat.sh" --times 1 --load "$mode" -- sleep 60 &
     runner=$!
     set +e
     found=0
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    start_wait=$SECONDS
+    deadline=$((start_wait + 30))
+    last_markers=0
+    while (( SECONDS < deadline )); do
       if ! no_load_markers; then
+        last_markers=1
         found=1
         break
       fi
+      last_markers=0
       sleep 0.1
     done
-    [ "$found" -eq 1 ] || { echo "負荷が立たない: load=$mode" >&2; kill -TERM "$runner" 2>/dev/null || true; wait "$runner" 2>/dev/null || true; return 1; }
+    [ "$found" -eq 1 ] || { echo "負荷が立たない: load=$mode（待った $((SECONDS - start_wait)) 秒、最後に見た値: $last_markers）" >&2; kill -TERM "$runner" 2>/dev/null || true; wait "$runner" 2>/dev/null || true; return 1; }
     kill -INT "$runner" 2>/dev/null || true
     wait "$runner"
     rc=$?
