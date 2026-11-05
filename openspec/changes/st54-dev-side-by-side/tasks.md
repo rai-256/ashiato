@@ -115,9 +115,10 @@
 
 ## Task 8: Windows の上で、並べた 2 つの自動起動と差出人を確かめる
 
-- [ ] 8.1 `crates/collector-windows/tests/runtime_windows.rs` に `st54_side_by_side_autostart_and_aumid`（`// Scenario: 同じ PC に並べると、正式版と開発版の自動起動の項目と差出人が両方残る`）: 使い捨ての `APPDATA` を指して正式版の自動起動を仕込み、差出人を登録し（試験用の名前の前置きを付けた差出人で、本物の登録と混ざらないように `register_as` を使う）、
+- [x] 8.1 `crates/collector-windows/tests/runtime_windows.rs` に `st54_side_by_side_autostart_and_aumid`（`// Scenario: 同じ PC に並べると、正式版と開発版の自動起動の項目と差出人が両方残る`）: 使い捨ての `APPDATA` を指して正式版の自動起動を仕込み、差出人を登録し（試験用の名前の前置きを付けた差出人で、本物の登録と混ざらないように `register_as` を使う）、
   続けて開発版の分を仕込み・登録して、スタートアップの 2 つのファイル・正式版の `.cmd` の中身が変わらないこと・登録簿の 2 つの鍵と表示名を見る。終わりに登録簿の試験用の鍵を消す
   検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows st54_ -- --test-threads=1` が rc=0（CI の Windows の job）
+  記録: 2026-11-05 の CI run 41958175380（head 6898088）の collector-windows-runtime で `st54_side_by_side_autostart_and_aumid ... ok`。手元の Windows（WSL から cmd.exe）は無人で画面がロックされているため、CI の結果で閉じる（人間が gate_help で付けた）
 
 ## Task 9: 携帯の開発版（名前・送り先・並べて入れる）
 

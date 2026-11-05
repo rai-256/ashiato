@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST54": "見た目の変化はある（携帯の名前が「あしあと。開発版」になる・送り先の系統が違うときの案内・PC の自動起動の項目と差出人が 2 つ並ぶ）が、今回は撮らない（2026-11-05、本人の判断: 録画はあれば嬉しいが無しでもよい）。PC が無人で画面がロックされており、Windows の録画は前景の窓が取れない（同じ日の CH09 の runtime_windows が前景の待ちで落ちたのと同じ）。系統の案内は ChannelGateTest（Android）、自動起動と差出人は runtime_windows の st54_side_by_side_autostart_and_aumid（CI の collector-windows-runtime）が見る。撮るなら後の change で足す"
+  }
+}
