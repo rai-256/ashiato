@@ -20,6 +20,7 @@ docker compose up -d --wait db >/dev/null
 cargo build -q -p ashiato-server --bin ashiato-server
 MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate > "$LOG" 2>&1   # 終わりに down -v で消す使い捨ての DB（退避しない）
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server >> "$LOG" 2>&1 & SRV=$!
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -s -o /dev/null "http://$BIND/selftest/panic" || true
 sleep 2

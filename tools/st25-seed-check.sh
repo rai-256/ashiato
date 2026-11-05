@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.." || exit 1
 set -a; . ./.env; . tools/ports.sh; BIND=127.0.0.1:$ASHIATO_HTTP_PORT; set +a
 STACK_RESET=1 setsid tools/stack.sh up >/tmp/st25-6.1-stack.log 2>&1 & s=$!
 trap "kill -- -$s 2>/dev/null; wait $s 2>/dev/null" EXIT
+# timing-ok: 1800 回 × 1 秒で、混雑時に長くなる側へだけ外れる画面起動待ち
 for i in $(seq 1 1800); do grep -q "^画面:" /tmp/st25-6.1-stack.log && break; kill -0 $s 2>/dev/null || break; sleep 1; done
 grep -q "^画面:" /tmp/st25-6.1-stack.log || { tail -20 /tmp/st25-6.1-stack.log; exit 1; }
 # 読む求めは画面のログインの印で（ST44）。ログインに失敗したら、空の見出しで 401 → jq の失敗にせず、ここで止める

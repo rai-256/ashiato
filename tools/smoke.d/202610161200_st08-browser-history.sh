@@ -81,6 +81,7 @@ DOWN_DB=$(mktemp); rm -f "$DOWN_DB"
 STATE3=$(mktemp -d)
 "$HSMOKE" fetch "$DOWN_DB" "$STATE3" "http://$BIND" "$API_TOKEN"
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
 [ "$(psql -c "SELECT count(*) FROM core.event WHERE payload->>'url'='https://example.test/while-down';")" = "0" ] \
