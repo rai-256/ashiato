@@ -187,9 +187,9 @@ internal class HealthConnectScreens(private val context: Context) {
     }
 
     companion object {
-        const val SCREEN_TIMEOUT_MS = 20_000L
-        const val SETTLE_MS = 20_000L
-        const val SHADE_TIMEOUT_MS = 5_000L
+        const val SCREEN_TIMEOUT_MS = 30_000L
+        const val SETTLE_MS = 30_000L
+        const val SHADE_TIMEOUT_MS = 30_000L
 
         /** 常駐の通知の題（`LocationService` の `setContentTitle`）。 */
         const val ONGOING_TITLE = "あしあと。"

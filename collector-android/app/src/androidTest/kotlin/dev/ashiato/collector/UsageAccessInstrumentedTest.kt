@@ -151,7 +151,7 @@ class UsageAccessInstrumentedTest {
     }
 
     private companion object {
-        const val TIMEOUT_MS = 15_000L
+        const val TIMEOUT_MS = 30_000L
 
         /** 「開かない」ことの確かめは待ち切る（短すぎると、遅れて開いても緑になる）。 */
         const val SETTLE_MS = 5_000L

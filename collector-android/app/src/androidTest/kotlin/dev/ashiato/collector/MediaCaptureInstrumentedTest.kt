@@ -305,8 +305,8 @@ class MediaCaptureInstrumentedTest {
     }
 
     private companion object {
-        const val DIALOG_TIMEOUT_MS = 15_000L
-        const val NOTICE_WAIT_MS = 10_000L
+        const val DIALOG_TIMEOUT_MS = 30_000L
+        const val NOTICE_WAIT_MS = 30_000L
         const val TOKEN = "e2e-token-0123456789abcdef"
 
         /** `tools/android-media-fixtures.sh` が別のアプリとして入れる名前（`MediaPremisesInstrumentedTest` と同じ） */

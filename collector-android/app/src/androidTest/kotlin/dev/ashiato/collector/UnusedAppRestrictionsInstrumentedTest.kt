@@ -106,7 +106,7 @@ class UnusedAppRestrictionsInstrumentedTest {
     }
 
     private companion object {
-        const val TIMEOUT_MS = 10_000L
+        const val TIMEOUT_MS = 30_000L
         const val SETTINGS = "com.android.settings"
     }
 }

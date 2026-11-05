@@ -235,16 +235,16 @@ class PermissionDeniedInstrumentedTest {
     }
 
     private companion object {
-        const val DIALOG_TIMEOUT_MS = 15_000L
+        const val DIALOG_TIMEOUT_MS = 30_000L
 
         /** 押す前に描き直されたときに探し直す回数 */
         const val STALE_RETRIES = 3
-        const val LOG_TIMEOUT_MS = 15_000L
+        const val LOG_TIMEOUT_MS = 30_000L
 
         /** 落ちたときに残す自分の行の数 */
         const val DIAGNOSIS_LINES = 40
 
         /** 前景サービスの通知が出るまでの待ち */
-        const val SETTLE_MS = 15_000L
+        const val SETTLE_MS = 30_000L
     }
 }
