@@ -262,7 +262,7 @@
 - 確かめ: `tools/android-emulator.sh` が通る（全部の計測テスト。`retention` の 1 本で 13 分余りかかる）
 - 反転条件: 30 秒の待ちで計測テストの全体が CI の `android-instrumented` job（`ci.yml:281`。`timeout-minutes` の指定なし）が長くなりすぎるなら、`Tasks.await` を 15 秒に下げる
 
-### D18（仮）. 1 回に積む 2,000 件は試験で値を固定し、打ち切りの 60 秒・30 秒は検査を足さない（review/code.md R17）
+### D18. 1 回に積む 2,000 件は試験で値を固定し、打ち切りの 60 秒・30 秒は検査を足さない（review/code.md R17）
 
 - `history_large_fetch_keeps_observing_foreground` は製品の定数 `QUEUE_PER_TICK` と比べるだけだったので、定数を大きくすると上限の比べも分け方の下限も一緒に緩んだ。
   試験の中で `assert_eq!(QUEUE_PER_TICK, 2_000)` を見る（製品は変えない）
