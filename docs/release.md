@@ -32,7 +32,7 @@ ST53 が main に入った後、最初の正式版の印を打つ前に本人が
 - `release` の Secret に、workflow が読む次の4つを同じ名前で置く: `ASHIATO_SIGNING_KEYSTORE_B64`（keystore を base64 にした値）、`ASHIATO_SIGNING_STORE_PASSWORD`、`ASHIATO_SIGNING_KEY_ALIAS`、`ASHIATO_SIGNING_KEY_PASSWORD`。値は手順やログに出さない。
 - keystore は `base64 -w0 <正式なkeystore>` の出力を `ASHIATO_SIGNING_KEYSTORE_B64` に登録する（macOS など `-w` が無い環境では改行を除いた base64 を登録する）。
 - `release` の変数 `ASHIATO_CERT_SHA256` に正式な証明書の SHA-256 指紋を置く。keystore と alias を用意した安全な端末で、`keytool -exportcert -keystore <正式なkeystore> -alias "$ASHIATO_SIGNING_KEY_ALIAS" -storepass:env ASHIATO_SIGNING_STORE_PASSWORD | sha256sum | cut -d' ' -f1` の出力（値そのものはログやチャットに貼らない）を登録する。workflow はこれを `ASHIATO_EXPECT_CERT_SHA256` として署名の台本（`sign-apk.sh`。渡された鍵の指紋が違えば署名しない）と署名検査に渡す。
-- `nightly` Environment は branch `main` **だけ**に開く。ST52 では鍵、Secret、`ASHIATO_CERT_SHA256` を置かない。携帯の開発版鍵を作って置くのは ST54 の作業とする（`sign-apk.sh … dev` は開発版の鍵の指紋を `ASHIATO_EXPECT_DEV_CERT_SHA256` で受け取り、無ければ署名しない）。
+- `nightly` Environment は branch `main` **だけ**に開く。ST53 の確認後、開発版の公開を始める前に本人が、開発版の Secret 一式と変数 `ASHIATO_CERT_SHA256` を置く。`sign-apk.sh … dev` はこの指紋を `ASHIATO_EXPECT_DEV_CERT_SHA256` で受け取り、無ければ署名しない。
 - 開発版の公開設定はリポジトリ変数 `ASHIATO_NIGHTLY_PUBLISH=on` にする。設定が無い間は nightly の公開を行わない。
 
 ## 4. ルールセット
@@ -44,8 +44,8 @@ ST53 が main に入った後、最初の正式版の印を打つ前に本人が
 1. main の CI が緑で、配布物の組み立てが完了していることを確認する。
 2. main の公開する commit を checkout し、`git tag v<版番号> <commit>` で最初の印を main の commit に打つ。`tools/release/version.sh plan v<版番号>` が通ることを確認してから `git push origin v<版番号>` を行う。
 3. release workflow が `check-guards.sh rules`、正式版の署名、`ASHIATO_CERT_SHA256` による指紋確認、`check-artifacts.sh`、GitHub Release 作成の順で進むことを確認する。
-4. 開発版の公開を始めるときは、main の変更がある日に nightly workflow を動かし、`ASHIATO_NIGHTLY_PUBLISH=on` のときだけ公開する。nightly の公開先は main に開いた `nightly` Environment である。ST54 までは携帯の APK を含めず、S-01 と C-02 の配布物を公開する。
-   最初の公開では workflow がリリース `nightly` を先行公開として作る（手で作らなくてよい）。公開は、新しい配布物を先に載せ（同じ名前は置き換え）、載った後で今回の配布物に無い名前（前日の版の配布物）だけを消し、最後に印 `nightly` を動かす。載せるのに失敗したときは前の配布物が残る。
+4. 開発版の公開を始めるときは、main の変更がある日に nightly workflow を動かし、`ASHIATO_NIGHTLY_PUBLISH=on` のときだけ公開する。nightly の公開先は main に開いた `nightly` Environment である。携帯の APK は開発版の鍵で公開 job 内だけで署名し、正式版とは別のアプリとして公開する。開発版は正式版と別の DB に接続し、説明文の先頭にサポートしない旨を毎回書き直す。
+最初の公開では workflow がリリース `nightly` を先行公開として作る（手で作らなくてよい）。公開は、新しい配布物を先に載せ（同じ名前は置き換え）、載った後で今回の配布物に無い名前（前日の版の配布物）だけを消し、最後に印 `nightly` を動かす。載せるのに失敗したときは前の配布物が残る。
 
 ## 6. 壊れた版と修正の枝
 
@@ -101,3 +101,24 @@ tools/release/check-guards.sh rules --repo <owner/name>
 `draft.sh` は PR の `package` の run（`<run-id>`）の配布物を取り寄せ、渡した版番号の名前（`v0.1.0-beta.1`）で下書きを作る。版番号が `-beta.` を含むので先行公開の下書きになる。PR の組み立ては出所の版（`tools/release/version.sh source`）で組むので、配布物の検査は出所の版と比べ、下書きの本文にその旨を書く。渡す版番号の `MAJOR.MINOR.PATCH` は出所の版と同じにする。印は下書きを作る前（`before=`）に数え、作った後と比べる。`<run-id>` はこの repo の枝の PR の `ci` の、成功した run を選ぶ。`draft.sh` は run の出所を確かめ、fork の PR の run・`ci` 以外の run・成功していない run の配布物は載せずに止まる。
 
 使い捨ての Environment で、PR の枝から `release` 相当の Secret が読めないことも確認してから Environment を削除する。読めた場合は鍵を置かず、Q2 の判断へ戻す。
+
+## 9. 開発版を正式版と並べて使う
+
+ST53 の確認後、開発版の公開を始める前に本人が次を行う。
+
+1. 正式版とは別の開発版の鍵を安全な作業場所で `tools/release/make-key.sh dev <keystore>` として作り、合言葉は標準入力から渡す。合言葉や鍵の値をコマンド、ログ、チャットに出さない。鍵の控えを USB に 1 部置く。
+2. `nightly` Environment に、開発版の keystore を base64 にした `ASHIATO_SIGNING_KEYSTORE_B64`、`ASHIATO_SIGNING_STORE_PASSWORD`、`ASHIATO_SIGNING_KEY_ALIAS`、`ASHIATO_SIGNING_KEY_PASSWORD` の Secret を置く。開発版の証明書の SHA-256 指紋を `ASHIATO_CERT_SHA256` 変数に置く。値は手順やログに出さない。
+3. 携帯と PC に正式版と開発版を並べて入れる。PC は正式版と別のフォルダに展開してよい。同じ `ASHIATO_STATE_DIR` を渡した場合も、開発版はその下の `dev` を使い、除外の登録は渡された置き場から読む。
+4. 開発版のサーバは `127.0.0.1:18788` で待ち受ける。`BIND` を渡すとその値が既定より優先されるので、正式版の `.env`（`BIND=127.0.0.1:18787` を持つ）を読み込んだ環境で起こすときは `BIND=127.0.0.1:18788` を渡すか、`BIND` を外す。DB は `ASHIATO_DB_PORT=55433 docker compose -p ashiato-nightly up -d db` で起こし、開発版の `DATABASE_URL` をその DB に向ける。正式版の DB と同じ DB を使わない。
+5. 開発版の DB が止まったら、エラーの `kind=channel_mismatch` は DB とサーバの系統が違うこと、`kind=db_ahead` は DB がそのサーバより先に進んでいることを示す。`db_ahead` の場合は DB を直接書き換えず、手元の clone で main 側に直しの移行を追加してから、同じ移行を当てた新しい開発版を使う。
+
+   `migrations/LINEAGE` は開発版と正式版の系統を記録する場所ではなく、旧名の移行を新しい名前へ対応づける台帳である。空行と `#` で始まる行を除き、1 行に次のいずれかを書く。
+
+   ```text
+   renamed   202611030001_old_name  202611030002_new_name
+   removed   202611030003_removed_name
+   rewritten 202611030004_old_shape  202611030005_new_shape
+   ```
+
+   `renamed old new` は旧名を新名へ変えた移行、`removed old` は旧名の移行を取り除いた場合、`rewritten old new` は中身を作り直した移行の対応である。`rewritten` は旧名を先に、新名を後に書く。`db_ahead` の表示に旧名が出た場合は、その旧名を必要なら `renamed`・`removed`・`rewritten` の行に追加し、main で両方の DB の中身に対して同じ結果になる直しの移行を作って公開する。
+6. 手元の clone で開発版の印を更新する前に `git fetch --tags --force` を実行し、`nightly` と main の先祖関係を最新にする。

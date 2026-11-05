@@ -277,7 +277,15 @@ mod migrate_rows {
         grants: &str,
     ) -> Result<Vec<String>, MigrateError> {
         let conn = db.owner().acquire().await.unwrap();
-        apply_migrations_recorded(conn, versions, before, grants, stamp).await
+        apply_migrations_recorded(
+            conn,
+            versions,
+            before,
+            grants,
+            stamp,
+            ashiato_build_stamp::channel(crate::migration_ledger::BUILD_VERSION),
+        )
+        .await
     }
 
     /// 表ができた後の素の DB（行は 0）。

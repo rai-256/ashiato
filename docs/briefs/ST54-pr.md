@@ -1,64 +1,79 @@
-# ST54 — 開発版を正式版と並べて入れられる（上流）
+# ST54 — 開発版を正式版と並べて入れられる
 
-> 第 1 回の深掘りは**推奨の答えで先に**書いた（2026-10-20 の流れ）。第 1 回の答え（2026-11-02）で Q1〜Q10 は本人が推奨のまま答えた。
-> 合意では重大な IMP-01・IMP-02 を「仕様を直す」と答えたので、この版で直した（下の「合意の差し戻しで直したもの」）。
+## deep.md に積んだ未決（A）
 
-## 深掘りで本人が決めたこと（A。推奨のまま答えた）
+- なし（`deep.md` に `(未回答)` は無い。finish で escalated にした指摘も無い）
 
-- Q4（loss: discarded）開発版の DB が main の移行とずれたら → 推奨: 止まって原因を示し、DB は書き換えず main 側で直す（D4 `migrations/LINEAGE`・D5 の CI の検査。第 2 回 Q11）
-- Q6（loss: rewrite-all）開発版の収集アプリの送り先 → 推奨: 開発版のサーバにだけ送る（D7。`GET /contract` の応答の見出し `Ashiato-Channel` で系統を確かめる）
-- Q9（loss: exported）完了を何で確かめるか → 推奨: 下書きのリリースと使い捨ての鍵（D10）。本物の開発版の鍵と公開は ST53 の後に本人が始める
+## 仮決め（B）と Ruling
 
-仮でよい問い（B。推奨のまま答えた）: Q1 系統は組み立ての版番号で決める（D1）/ Q2 PC の開発版は置き場の下に `dev`・端末識別子に `-dev`・除外は渡された置き場から読む（D2）/ Q3 DB の系統は版の記録の最初の行で決め、違えば終了コード 4（D3）/
-Q5 `nightly` は動かす方式のまま / Q7 名前に「開発版」/ Q8 説明文の先頭に「サポートしない」を公開のたびに書き直す（D9）/ Q10 開発版も全部の収集を動かす（D11）
+- **Task の ledger の `Ruling:`: なし**（st54-task-1〜11 の `progress.md` に `Ruling:` 行も `parked` も 0 件）
+- design の仮決め（台帳 `provisional.jsonl`。別の席の確かめは merge gate の前にグラフが行う）:
+  - D12（仮）系統の違いの知らせは ST50 と同じ口（携帯は画面の行と通知、PC は通知）で別の札・id。入った契機で 1 回、続く間は 24 時間ごとに出し直し、携帯の上限の 7 日前の知らせにも添える
+  - D14（仮）系統は契約の版を読めた答えからだけ読み（404・読めない 200・401 は今どおり）、系統は開発版とそれ以外（正式版・ベータ版）の 2 つ。
+    finish の R33（知らない見出しの値を正式版とみなす）はこの決定どおりとして rejected
+- 本人が決めたこと（深掘り）: 第 1 回 Q1〜Q10（推奨のまま）・第 2 回 Q11〜Q14・第 3 回 Q15。D5・D7・D8・D13 は別の席が否とし、本人が決めた
 
-## 深掘り第 2 回（2026-11-03。別の席が否とした仮の決定 D5・D7・D8 を本人に返した）
+## Task
 
-4 問とも本人が推奨の選択肢をはっきり選んだ（補足なし）:
-- Q11（premise）開発版に載った移行の検査の基準 → 動く印 `nightly` 1 つを基準に比べる（Q5 の答えに乗ると明記する）。D5
-- Q12（loss: discarded）正式版の収集アプリが開発版のサーバへ送ることも止めるか → 止める（どちらの向きも、系統が違うサーバへは何も送らず手元に残す）。D7。要件 FR-106 に ★ 2026-11-03
-- Q13（loss: discarded）送らずにいることを知らせるか → 知らせる（ST50 の知らせと同じ形で「送り先が開発版／正式版のサーバです」）。D7・D12（仮）。要件 FR-106 に ★ 2026-11-03
-- Q14（premise）開発版のサーバの既定の選び方 → 系統（D1 の組み立てのときの版番号）で選び、値はこのまま。D8
+- 全 11 Task を埋めた（実装の 20 項目は `[x]`）
+- 残した項目（正常な残り）:
+  - 8.1（`ci`）: Windows の実行時試験 `st54_side_by_side_autostart_and_aumid` は `tests/runtime_windows.rs` に置いた。Linux では組まれず、CI の Windows の job で走る
+  - 12.1・12.2（`human`）: 開発版の下書きのリリース（nightly.yml を手で起こす）と、`docs/release.md` §9 の並べて入れる手順
 
-## 深掘り第 3 回（2026-11-03。別の席が否とした仮の決定 D13 を本人に返した）
+## finish で処置した指摘
 
-- Q15（premise）系統の違うサーバから、読む口（携帯と PC の途絶の判定 `GET /outages`・携帯の気分の通知の判断 `GET /feelings/reminder`）も止めるか → 止めない（推奨と同じ）。D13。取り違えたサーバの途絶の台帳に行と端末の識別子が残ることを書き、気づく手がかりは Q13・D12 の知らせに乗る（D12 が 1 回だけに変わったら見直す）。PC の途絶の判定の Scenario を 1 本足した（Scenario は 106 本）
+### final review（R1〜R21）
 
-## 仮決め（台帳 `provisional.jsonl`。別の席の確かめは merge gate の前にグラフが行う）
+- fixed（c70b4d3e・8490cfad）: R1 実バイナリ試験が共有 DB を開発版に変えていた / R2・R8・R19 LINEAGE の読み方を 2 つの検査で揃えた / R3 カスタム版のサーバを版ごとに 1 回だけ組む / R4 開発版の migrate の全行の `-dev.` と続く起動の `/healthz` / R5 退避のログの置き場 / R6 知らせを消し損ねたら次の契機で消し直す / R7 系統の違いだけの行に日数を付けない / R9 doc コメント / R10 系統を 1 回求めて持つ / R12 PC のログを状態の変わり目の 1 回に / R13 重なる試験の整理 / R15 携帯の自分の系統の読み口を 1 つに / R17 公開手順が復元した鍵を使う / R18 一時の置き場を TMPDIR に / R20 試験の置き場 / R21 CI の fmt・clippy
+- rejected: R11・R14・R16（設計 D14（仮）・D12（仮）と spec の「404 は系統の判定に使わない」どおり）
 
-- D12（仮）系統の違いの知らせは ST50 と同じ口（携帯は画面の行と通知、PC は通知）で別の札・id。入った契機で 1 回、続く間は 24 時間ごとに出し直し、携帯の上限の 7 日前の知らせにも添える（整合の確認 C5）
-- D14（仮）系統は契約の版を読めた答えからだけ読み（404・読めない 200・401 は今どおり）、系統は開発版とそれ以外（正式版・ベータ版）の 2 つ（整合の確認 C1・C8）
-- （D5・D7・D8 は別の席が否とし、深掘り第 2 回 Q11〜Q14 で本人が決めた。D13 も別の席が否とし、第 3 回 Q15 で本人が決めた。上の節）
+### code-verify・security review・/code-review（R22〜R38）—— 589ee7fb
 
-## capability
+- 試験が主張の階層を見ていなかったもの（壊しても全部緑だった）を直し、**同じ変異で落ちることを確かめた**:
+  - R22 開発版のクッキー「だけ」: 同じ印の値を `ashiato_session` で付けて 401・Set-Cookie に `ashiato_session=` が無い（照合に正式版の名前を足す変異 → 1 failed）
+  - R23 行の無い DB への**開発版の** migrate（unit と実バイナリ。行 0 を正式版とみなす変異 → 両方 1 failed）
+  - R24 D3 の「最初の行」: 最初の行だけ系統の違う DB で、`applied_at` の順と名前の順の両方を見る（`DESC` の変異 2 通り → 1 failed）
+  - R25 携帯の Drainer → 通知の配線: 試験の Drainer に本物と同じ `onChannelMismatch` を渡し、試験は通知の係を自分で呼ばない（配線を消す変異 → 2 failed）
+  - R26 開発版の bin の migrate が渡した `MIGRATE_BACKUP_DIR` に退避を書き、渡した `BIND` で待ち受ける（置き場を無視する変異 → 1 failed）
+- 直したもの:
+  - R27・R30 `build.rs` が LINEAGE の行末の `# …` を外してから欄を割る（2 つのシェルの検査と同じ読み方。行末コメントつきの行で `cargo build` rc=0 を確かめた）
+  - R28 `check-guards.sh` の Environment の名前を行全体で照合し、self-test に名前を変えた偽を足した（部分一致に戻すと self-test rc=1）
+  - R29 ログの検査の許可語から使っていない `server` / `self` を外した（送り先の URL・端末識別子の抜け道だった）
+  - R31・R36 携帯は系統の比べを `readContractAnswer` の 1 か所にし（`ContractAnswer.Version` から系統を外し、Sender・OriginalUploader・ContractGate の重複した枝を消した）、`channel_mismatch` のログを状態に入ったときの 1 回に間引いた（PC の R12 と同じ。間引かない変異 → 1 failed）
+  - R32 更新の待ちと系統の違いが重なったときも、画面の行に「送り先が…のサーバです」を載せる（`screenNotice`。載せない変異 → 1 failed）
+  - R34 PC の系統の知らせが、失敗の後に一度通れば次の失敗をまたログに出す（戻さない変異 → 1 failed）
+  - R37 `docs/release.md` §9 に「正式版の `.env` を読み込んだ環境では `BIND=127.0.0.1:18788` を渡すか外す」を足した（明示の BIND が既定より先に立つのは spec どおり）
+  - R38 開発版のリリース本文のリンクを絶対 URL にした
+- rejected:
+  - R33 知らない `Ashiato-Channel` の値を正式版とみなすのは D14（仮）の「系統は 2 つ」どおり
+  - R35 開発版の PC 版の旧い置き場からの引き継ぎ: 開発版はまだ一度も配られていない（`git ls-remote --tags origin 'nightly*'` 0 行・リリース 0 件）
+- scoped re-review 1 回: Critical・Important なし。R22〜R38 の `fixed` はどれも筋書きを塞いでいて、R33・R35 の反証も成り立つ。残した Minor 2 件（SDD の fix は 1 回だけなので直さずに残す）:
+  - `st54_empty_ledger_allows_both_channels` の 2 周目の `UPDATE` は、直後の `DELETE` で消えるので効いていない。行が 0 なら系統は行の中身に依らないため、検査の強さは変わらない
+  - R27 の提案の後半（build.rs 側に行末コメントの試験を置く）は入れていない。build.rs を行頭の `#` だけ外す形に戻しても、どの試験も落ちない（直しは手で 1 回確かめただけ）
 
-- `distribution` だけ。前倒しは無い（INDEX.md の割り当てどおり）。PC の収集アプリ・携帯・画面のログインに触れる振る舞いも、どれも「開発版のときだけ」「相手の系統が違うときだけ」の分岐なので、系統の規則を 1 つの正典にまとめた。
-  送信契約の問い合わせの答えの形（record-envelope）を変えないよう、系統は応答の見出しで運ぶ
-- MODIFIED 2（署名・下書きのリリース）、REMOVED 2 と名前を変えた ADDED 2（「ST54 まで」の例外を外す。OpenSpec が MODIFIED で Scenario を落とせないため）、新しい ADDED 10
-- Scenario 90 本（新しく印を置くのは 61 本）
+## 通した検証コマンド
 
-## tasks
+`evidence.jsonl` の最後の記録（全部 `PASS`）:
 
-- 11 Task（実装 21 項目）＋人間の確認待ち 2 項目（開発版の下書きのリリース・並べて入れる手順書）
-- ST52 の印 3 つ（「ST54 まで」の Scenario）を消して新しい向きに書き直す
+| 項目 | 本数 | 結果 | HEAD |
+|---|---|---|---|
+| 1.1 | 1 | PASS | 8184a7d9 |
+| 2.1・3.1・4.1・4.2・5.1・6.1・7.1・10.2・10.3・11.1・11.2 | 24 | PASS（終了コード 0） | 589ee7fb（finish の直しの後に `scripts/verify-run` で取り直した） |
+| 3.2 | 1 | PASS | 133e8a74 |
+| 5.2 | 2 | PASS | d30e2dee |
+| 6.2 | 1 | PASS | 12a55817 |
+| 9.1・9.3（エミュレータ） | 2 | PASS | c00cdd25 |
+| 9.2 | 2 | PASS | 589ee7fb |
+| 10.1・10.4 | 2 | PASS | a6d63b8a |
 
-## レビュー
+9.2 には 8690a274 の FAIL が 1 行残っている。これは機械が承認して差し替える前の旧コマンド（`--tests *ContractGate*`）の記録で、`plan-corrections.md` で `*St50*` に直した。code-verify の手 7 で、新しいコマンドが 404 の扱いを壊すと落ちることを確かめた（`correction-review.md`）
 
-- `review/deep.md`（問いの独立検査）R1〜R12: escalated 7（Q2・Q4・Q6・Q9・Q10 に入れた）・fixed 4（deep-questions 3・premises 1）・fixed D8 仮 1
-- `review/spec.md`（spec-review）R1〜R15: fixed 14（spec 10・tasks 3・spec と design 1）・escalated 1（R5。Q2 の context に読み替えを足した）
-  - 主なもの: R1 系統を `/contract` の本文の欄でなく見出しで運ぶ（record-envelope の答えの形と ST50 の試験を変えない）/ R12 開発版の下書きを正典の下書きの Requirement に足した / R11 名前と中身を両方変えた移行も落とす
+ほかに手元で（589ee7fb の直しの後）: `cargo fmt --all --check` rc=0・`cargo clippy --workspace --all-targets -- -D warnings` rc=0・`cargo test -p ashiato-collector-windows` 362 passed・`cargo test -p ashiato-server --lib st5` 121 passed・`--test server_startup st54_bin_` 10 passed・gradle `:app:testDebugUnitTest :app:compileDebugAndroidTestKotlin` BUILD SUCCESSFUL・`check-log-private.sh` / `check-migrations.sh`（`--self-test` と本体）/ `check-nightly-migrations.sh --self-test` / `check-guards.sh --self-test` / `publish-nightly.sh --self-test` / `check_scenarios.py` / `review_triage.py` すべて rc=0
 
-  - 第 2 回（合意の差し戻しの直し）R16〜R18: fixed 3（tasks 2・proposal と ST58 の requires 1）
+## 未処置の申し送り
 
-## 合意の差し戻しで直したもの（第 1 回の合意）
-
-- IMP-01（PC の開発版で、ブラウザの履歴の除外が効かない恐れ）→ 除外の条項を「前景の窓の記録でもブラウザの履歴の取り込みでも」にし、Scenario「開発版は、ブラウザの履歴の取り込みでも渡された置き場の除外の登録を読む」を足した。D2・tasks 6.1 に履歴の取り込みの口（`history/collect.rs:315`・`Runtime::with_history`）と、直していないコードで落ちる試験の組み方を書いた
-- IMP-02（更新の失敗からの戻しが終了コード 4 を知らない）→ D3 と tasks 3.2 で `docs/handoff/ST58.md` に「終了コード 4 の回は退避から戻さない」を書き足す。届くように ST58 の requires に ST54 を足した（INDEX.md の訂正 2026-11-02）
-
-## 要件と Story へ戻したもの
-
-- FR-104 の ★ 2026-11-01「開発版のリリースには ST54 まで C-01 を並べない」は期限を自分で持つので、改訂しない
-- Q9（推奨のまま）: 完了の判定に、下書きのリリースと使い捨ての鍵で確かめる 1 行を `stories.json` に足した（D10）
-- ST58 の requires に ST54（順の付け方だけ。要件は変わらない）
+- ST58: 終了コード 4（系統の食い違い）の回は退避から戻さない（`docs/handoff/ST58.md` の `st54-dev-side-by-side D3`。3.2）
+- 印 `nightly` はまだ無いので、CI の `check-nightly-migrations.sh` は初回の公開まで「印なし」で通り、何も比べていない（spec どおり。開発版の公開を始めた後から効く）
+- 開発版の鍵と `nightly` Environment の Secret・変数は、ST53 の確認の後に本人が置く（`docs/release.md` §9）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

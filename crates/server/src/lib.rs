@@ -5,6 +5,7 @@
 //! この 1 か所を必ず通る。Kotlin と Rust の 2 実装が同じ口を叩くため、
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
+use ashiato_build_stamp::{channel, Channel};
 use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
@@ -252,6 +253,8 @@ pub mod sources;
 mod sources_tests;
 #[cfg(test)]
 mod st52_web_tests;
+#[cfg(test)]
+mod st54_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -286,6 +289,10 @@ use ingest::{content_hash, IngestRequest};
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
 pub const MIGRATIONS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/migrations.rs"));
 
+/// 旧名の移行を現在の台帳名へ対応付ける正本。
+pub const LINEAGE: &[(migration_ledger::LineageKind, &str, &str)] =
+    include!(concat!(env!("OUT_DIR"), "/lineage.rs"));
+
 /// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
 pub const GRANTS: &str = include_str!("grants.sql");
 
@@ -293,7 +300,21 @@ pub const GRANTS: &str = include_str!("grants.sql");
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 /// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    migrate_after(pool, || Ok(()), None).await
+    migrate_after(pool, || Ok(()), None, build_channel()).await
+}
+
+/// この組み立ての系統（D1。組み立てのときの版番号で決まる）。版番号から系統を求めるのはここだけ ——
+/// 入口（`run`・`run_migrate`）は起動時に 1 回呼び、その値を `App` と移行の経路へ渡す。
+fn build_channel() -> Channel {
+    channel(env!("ASHIATO_VERSION"))
+}
+
+/// 移行の前に退避した後のログの文。既定の置き場は系統で違う（D8）。
+fn backup_done_message(me: Channel) -> String {
+    format!(
+        "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 {}）",
+        migrate_backup::default_dir(me)
+    )
 }
 
 /// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
@@ -302,11 +323,12 @@ async fn migrate_after(
     pool: &sqlx::PgPool,
     before_apply: impl FnOnce() -> anyhow::Result<()>,
     stamp: Option<&str>,
+    me: Channel,
 ) -> anyhow::Result<()> {
     // 付与も錠の中で当てる（同時の `GRANT … ON ALL TABLES` は `tuple concurrently updated` で落ちる）。
     // ahead・読めないなら付与も流さない（design D4）
     let conn = pool.acquire().await?;
-    migration_ledger::apply_migrations_recorded(conn, MIGRATIONS, before_apply, GRANTS, stamp)
+    migration_ledger::apply_migrations_recorded(conn, MIGRATIONS, before_apply, GRANTS, stamp, me)
         .await?;
     Ok(())
 }
@@ -379,29 +401,31 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     // 順は 接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与（design D4）。
     // 退避に失敗したら当てない（製造準備 A-2。2026-10-11 の整合の確認 K2）。どの環境変数も検査を飛ばさない
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let me = build_channel();
     let backup = || {
         match migrate_backup::backup_before_migrate(
             &url,
-            &migrate_backup::BackupConfig::from_env(),
+            &migrate_backup::BackupConfig::from_env(me),
             &stamp,
         )? {
-            Some(_) => tracing::info!(
-                "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
-            ),
+            Some(_) => {
+                // log-ok: 文は固定で、埋めるのは系統で決まる既定の置き場の定数だけ（私的データではない）
+                tracing::info!("{}", backup_done_message(me));
+            }
             None => {
                 tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
             }
         }
         Ok(())
     };
-    if let Err(e) = migrate_after(&pool, backup, Some(BUILD_STAMP)).await {
+    if let Err(e) = migrate_after(&pool, backup, Some(BUILD_STAMP), me).await {
         if let Some(me) = e.downcast_ref::<migration_ledger::MigrateError>() {
             if let Some((kind, report)) = me.mismatch_report() {
                 // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
                 tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
                 // log-ok: 同上。ST58 が読む（design D6）
                 eprint!("{report}");
-                std::process::exit(3);
+                std::process::exit(if kind == "channel_mismatch" { 4 } else { 3 });
             }
             // 落ちたときに示すのは種別・落ちた版の名前・SQLSTATE の 1 行だけ。DB の誤りの本文は出さない（ST51 / design D8）
             if let Some(line) = me.failure_line() {
@@ -427,6 +451,8 @@ const INTERNAL_WEB_SESSION_KEY: &str = "archive-internal-session-key";
 
 #[derive(Clone, Debug)]
 pub struct App {
+    /// 組み立て時の版番号から決まるサーバの系統（D1）。
+    channel: Channel,
     pool: sqlx::PgPool,
     /// **試験が時刻を差し込む口**（tasks 2.4「試験は時刻を差し込めるようにする」）。
     ///
@@ -467,14 +493,17 @@ pub struct App {
 
 impl App {
     /// 起動時の組み立て。`web_password` は `check_web_password` を通ったもの。
+    /// `channel` は入口が起動時に 1 回求めた系統（D1）。
     pub fn new(
         pool: sqlx::PgPool,
         token: String,
         web_password: &str,
         session_key: &str,
         session_max_age_days: u32,
+        channel: Channel,
     ) -> Self {
         Self {
+            channel,
             login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
@@ -492,6 +521,12 @@ impl App {
             media: media::MediaConfig::none(),
             contract_version: contract_version::CONTRACT_VERSION,
         }
+    }
+
+    /// 系統を差し替えた複製。**試験だけ**が使う。
+    #[cfg(test)]
+    pub(crate) fn with_channel(self, channel: Channel) -> Self {
+        Self { channel, ..self }
     }
 
     /// 契約の版を差し替えた複製。**試験だけ**（版 2 以上の S-01 を作る。ST50 design D4）。
@@ -538,6 +573,7 @@ impl App {
             "test-web-password-0123456789",
             "test-session-key-0123456789",
             0,
+            build_channel(),
         );
         app.login.failure_delay = std::time::Duration::ZERO;
         app
@@ -780,7 +816,7 @@ async fn authorize(
     // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
     tracing::warn!(
         kind = "unauthorized",
-        credential_present = credential_present(headers),
+        credential_present = credential_present(headers, app.channel),
         "資格情報が一致しない"
     );
     Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
@@ -790,13 +826,13 @@ async fn authorize(
 /// `authorize` と読み出しの記録の middleware が**同じ条件**で出す（ST44 final review R5）——
 /// 画面の印の期限切れも、ずれた API の合言葉も「資格情報は有った」として、「何も付いていない」と分ける。
 /// 同じ host のほかの cookie（tailscale・vite）や `Bearer` でない見出しは資格情報に数えない（/code-review R23）。
-pub(crate) fn credential_present(headers: &HeaderMap) -> bool {
+pub(crate) fn credential_present(headers: &HeaderMap, channel: Channel) -> bool {
     let bearer = headers
         .get_all(axum::http::header::AUTHORIZATION)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .any(|v| v.strip_prefix("Bearer ").is_some_and(|t| !t.is_empty()));
-    bearer || web_session::cookie_token(headers).is_some()
+    bearer || web_session::cookie_token(headers, channel).is_some()
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——
@@ -1067,6 +1103,7 @@ fn internal_app(pool: sqlx::PgPool) -> App {
         INTERNAL_WEB_PASSWORD,
         INTERNAL_WEB_SESSION_KEY,
         0,
+        build_channel(),
     );
     app
 }
@@ -3408,6 +3445,7 @@ pub async fn store_heartbeat(
         INTERNAL_WEB_PASSWORD,
         INTERNAL_WEB_SESSION_KEY,
         0,
+        build_channel(),
     );
     heartbeat_one(
         &app,
@@ -4443,8 +4481,10 @@ pub async fn run() -> anyhow::Result<()> {
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
     )?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
-    let addr = std::env::var("BIND").unwrap_or_else(|_| net_guard::DEFAULT_BIND.into());
-    let addrs = match net_guard::check_bind(&addr).await? {
+    let server_channel = build_channel();
+    let explicit_bind = std::env::var("BIND").ok();
+    let addr = net_guard::bind_for(server_channel, explicit_bind.as_deref());
+    let addrs = match net_guard::check_bind(addr).await? {
         Ok(addrs) => addrs,
         Err(refusal) => net_guard::refuse(refusal.kind()),
     };
@@ -4467,12 +4507,14 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(2);
     }
     // DB の版がこの組み立てと揃っているか（design D17）。揃っていなければ待ち受けを開かない
-    if let Some((kind, report)) = migration_ledger::startup_refusal(&pool, MIGRATIONS).await? {
+    if let Some((kind, report)) =
+        migration_ledger::startup_refusal(&pool, MIGRATIONS, server_channel).await?
+    {
         // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
         tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
         // log-ok: 同上。ST58 が読む（design D6）
         eprint!("{report}");
-        std::process::exit(3);
+        std::process::exit(if kind == "channel_mismatch" { 4 } else { 3 });
     }
     // 版の検査を通った後・待ち受けの前に更新の履歴を書く（ST51 / D2・D8）。書けなくても起動は続ける（D9）
     match pool.acquire().await {
@@ -4540,6 +4582,7 @@ pub async fn run() -> anyhow::Result<()> {
         &web_password,
         &session_key,
         session_max_age_days,
+        server_channel,
     )
     .with_reading(reading)
     .with_warmup(warmup)

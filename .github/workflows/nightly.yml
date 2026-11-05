@@ -27,11 +27,17 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with: { distribution: temurin, java-version: "21" }
       # build.sh が画面を npm ci → vite build してサーバに取り込む（web の job と同じ node の版。final review R1）
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: tools/release/build.sh server-linux "$RUNNER_TEMP/nightly"
         env: { ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}" }
+      - run: tools/release/build.sh apk "$RUNNER_TEMP/nightly"
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_APK_UNSIGNED: "1"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: nightly-linux, path: "${{ runner.temp }}/nightly" }
   package-windows:
@@ -67,22 +73,11 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { pattern: nightly-*, path: nightly }
       - run: mkdir -p nightly/all && find nightly/nightly-linux nightly/nightly-windows -maxdepth 1 -type f -exec cp {} nightly/all/ \;
-      - run: |
-          tools/release/check-artifacts.sh nightly/all --channel nightly --expect-version "${{ needs.plan.outputs.version }}"
-      # 先に新しい配布物を載せ（--clobber）、載った後で今回の置き場に無い名前だけを消す。upload が落ちても
-      # 前の配布物は残る（C7 / final review R11）。リリースがまだ無ければ（最初の公開）先行公開で作る
-      - run: |
-          if ! gh release view nightly >/dev/null 2>&1; then
-            gh release create nightly --prerelease --title nightly --target "$GITHUB_SHA" \
-              --notes "開発版（main の毎日の組み立て）。携帯の APK は ST54 まで含まない"
-          fi
-          gh release upload nightly nightly/all/* --clobber
-          keep="$(find nightly/all -maxdepth 1 -type f -printf '%f\n')"
-          gh release view nightly --json assets --jq '.assets[].name' | while IFS= read -r asset; do
-            if [[ -n "$asset" ]] && ! grep -Fxq -- "$asset" <<<"$keep"; then
-              gh release delete-asset nightly "$asset" --yes
-            fi
-          done
-          git push --force origin "$GITHUB_SHA:refs/tags/nightly"
+      - run: tools/release/publish-nightly.sh nightly/all "${{ needs.plan.outputs.version }}"
     env:
       GH_TOKEN: ${{ github.token }}
+      ASHIATO_SIGNING_KEYSTORE_B64: ${{ secrets.ASHIATO_SIGNING_KEYSTORE_B64 }}
+      ASHIATO_SIGNING_STORE_PASSWORD: ${{ secrets.ASHIATO_SIGNING_STORE_PASSWORD }}
+      ASHIATO_SIGNING_KEY_ALIAS: ${{ secrets.ASHIATO_SIGNING_KEY_ALIAS }}
+      ASHIATO_SIGNING_KEY_PASSWORD: ${{ secrets.ASHIATO_SIGNING_KEY_PASSWORD }}
+      ASHIATO_EXPECT_DEV_CERT_SHA256: ${{ vars.ASHIATO_CERT_SHA256 }}

@@ -5,6 +5,7 @@
 //! 揃っていなければ**送信を始めないが、取得は続ける**（C-01 の `Config` と同じ向き）。
 //! 記録は未送信に積まれ、設定してから送られる —— **捨てない**。
 use anyhow::Context as _;
+use ashiato_build_stamp::Channel;
 
 /// 記録に載せるタイムゾーン（FR-20）。**識別子と分の差の両方**を持つ。
 ///
@@ -42,6 +43,9 @@ pub struct Config {
     pub device_id: String,
     /// 未送信・印・数え・除外の登録の置き場
     pub state_dir: std::path::PathBuf,
+    pub exclusions_path: std::path::PathBuf,
+    pub launch_state_dir: std::path::PathBuf,
+    pub launch_device_id: String,
 }
 
 /// **合言葉を出さない**（R11）。
@@ -90,18 +94,16 @@ fn ensure_no_cleartext_off_loopback(base_url: &str) -> anyhow::Result<()> {
 }
 
 impl Config {
-    /// 環境変数から読む。
-    pub fn from_env() -> anyhow::Result<Self> {
-        Self::from_lookup(|k| std::env::var(k).ok())
-    }
-
     /// 名前から値を引く関数で読む。**1 つでも欠けていればエラー**にする ——
     /// 既定で埋めると、送り先を間違えたまま動く。
     ///
     /// **置き場にも既定を持たない**（R27）。`.` に倒すと、起動のしかた次第で
     /// 置き場が `C:\Windows\System32` などに移り、前の置き場の未送信・印・除外の登録が
     /// 黙って置き去りになる（**除外が外れ、直前の停止期間が「初回起動」に化ける**）。
-    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+    pub fn from_lookup(
+        get: impl Fn(&str) -> Option<String>,
+        channel: Channel,
+    ) -> anyhow::Result<Self> {
         let var = |k: &str| {
             get(k)
                 .filter(|v| !v.trim().is_empty())
@@ -115,14 +117,44 @@ impl Config {
         );
         let base_url = var("ASHIATO_BASE_URL")?;
         ensure_no_cleartext_off_loopback(&base_url)?;
+        let device_id = var("ASHIATO_DEVICE_ID")?;
+        let launch_state_dir = state_dir.clone();
+        let launch_device_id = device_id.clone();
+        let (state_dir, exclusions_path, device_id) = match channel {
+            Channel::Dev => {
+                let state_dir = state_dir.join("dev");
+                let device_id = if device_id.ends_with("-dev") {
+                    device_id
+                } else {
+                    format!("{device_id}-dev")
+                };
+                (
+                    state_dir,
+                    launch_state_dir.join("exclusions.json"),
+                    device_id,
+                )
+            }
+            Channel::Official => {
+                let exclusions_path = state_dir.join("exclusions.json");
+                (state_dir, exclusions_path, device_id)
+            }
+        };
         Ok(Self {
             base_url,
             api_token: var("ASHIATO_API_TOKEN")?,
             user_id: uuid::Uuid::parse_str(user_id.trim())
                 .context("ASHIATO_USER_ID が uuid ではない")?,
-            device_id: var("ASHIATO_DEVICE_ID")?,
+            device_id,
             state_dir,
+            exclusions_path,
+            launch_state_dir,
+            launch_device_id,
         })
+    }
+
+    #[cfg(test)]
+    fn from_lookup_official(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        Self::from_lookup(get, Channel::Official)
     }
 
     /// 変数の名前と値の組（自動起動の `.cmd` に書く。R3）。
@@ -131,14 +163,16 @@ impl Config {
             (VARS[0], self.base_url.clone()),
             (VARS[1], self.api_token.clone()),
             (VARS[2], self.user_id.to_string()),
-            (VARS[3], self.device_id.clone()),
-            (VARS[4], self.state_dir.display().to_string()),
+            (VARS[3], self.launch_device_id.clone()),
+            (VARS[4], self.launch_state_dir.display().to_string()),
         ]
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     /// タイムゾーンは**識別子と差の両方**を持つ（FR-20）。
@@ -176,12 +210,12 @@ mod tests {
                 _ => return None,
             })
         };
-        assert!(Config::from_lookup(full).is_ok());
+        assert!(Config::from_lookup_official(full).is_ok());
         for missing in VARS {
-            let got = Config::from_lookup(|k| if k == missing { None } else { full(k) });
+            let got = Config::from_lookup_official(|k| if k == missing { None } else { full(k) });
             assert!(got.is_err(), "{missing} が無いのに読めた");
         }
-        let relative = Config::from_lookup(|k| {
+        let relative = Config::from_lookup_official(|k| {
             if k == "ASHIATO_STATE_DIR" {
                 Some(".".into())
             } else {
@@ -189,6 +223,131 @@ mod tests {
             }
         });
         assert!(relative.is_err(), "相対パスの置き場を受けた");
+    }
+
+    fn env(dir: &str, device: &str) -> impl Fn(&str) -> Option<String> {
+        let dir = dir.to_owned();
+        let device = device.to_owned();
+        move |k| {
+            Some(match k {
+                "ASHIATO_BASE_URL" => "http://127.0.0.1:8787".into(),
+                "ASHIATO_API_TOKEN" => "token".into(),
+                "ASHIATO_USER_ID" => uuid::Uuid::nil().to_string(),
+                "ASHIATO_DEVICE_ID" => device.clone(),
+                "ASHIATO_STATE_DIR" => dir.clone(),
+                _ => return None,
+            })
+        }
+    }
+
+    #[test]
+    fn st54_dev_config_separates_state_and_keeps_exclusions_at_parent() {
+        // Scenario: 開発版は、渡された置き場の下の dev を置き場にする
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg =
+            Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Dev).unwrap();
+        assert_eq!(cfg.state_dir, tmp.path().join("dev"));
+        assert_eq!(cfg.exclusions_path, tmp.path().join("exclusions.json"));
+        assert_eq!(cfg.device_id, "pc-1-dev");
+    }
+
+    #[test]
+    fn st54_dev_config_does_not_duplicate_device_suffix() {
+        // Scenario: すでに -dev で終わる端末識別子には、重ねて付けない
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1-dev"), Channel::Dev)
+            .unwrap();
+        assert_eq!(cfg.device_id, "pc-1-dev");
+    }
+
+    #[test]
+    fn st54_official_config_keeps_values() {
+        // Scenario: 正式版は、渡された置き場と端末識別子をそのまま使う
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Official)
+            .unwrap();
+        assert_eq!(cfg.state_dir, tmp.path());
+        assert_eq!(cfg.device_id, "pc-1");
+        assert_eq!(cfg.exclusions_path, tmp.path().join("exclusions.json"));
+    }
+
+    #[test]
+    fn st54_dev_autostart_vars_are_original_values() {
+        // Scenario: 開発版の自動起動の項目は、渡された置き場と端末識別子をそのまま書く
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg =
+            Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Dev).unwrap();
+        let vars = cfg.as_vars();
+        assert_eq!(vars[3].1, "pc-1");
+        assert_eq!(vars[4].1, tmp.path().display().to_string());
+    }
+
+    #[test]
+    fn st54_channel_environment_variable_is_not_read() {
+        // Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config::from_lookup(
+            |k| {
+                if k == "ASHIATO_CHANNEL" {
+                    Some("official".into())
+                } else {
+                    env(tmp.path().to_str().unwrap(), "pc-1")(k)
+                }
+            },
+            Channel::Dev,
+        )
+        .unwrap();
+        assert_eq!(cfg.device_id, "pc-1-dev");
+    }
+
+    #[test]
+    fn st54_official_default_exclusion_path_is_under_state() {
+        // Scenario: 版番号を渡さずに組んだ部品は正式版として振る舞う
+        let tmp = tempfile::tempdir().unwrap();
+        let version_channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
+        assert_eq!(version_channel, Channel::Official);
+        assert_eq!(
+            crate::autostart::entry_name(version_channel),
+            "ashiato-collector.cmd"
+        );
+        assert_eq!(
+            crate::toast_names::aumid(version_channel),
+            "dev.ashiato.collector"
+        );
+        assert_eq!(crate::toast_names::display_name(version_channel), "ashiato");
+        let cfg = Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), version_channel)
+            .unwrap();
+        assert_eq!(cfg.exclusions_path, cfg.state_dir.join("exclusions.json"));
+    }
+
+    #[test]
+    fn st54_dev_exclusion_path_is_not_under_dev_state() {
+        // Scenario: 開発版は、渡された置き場の除外の登録を読む
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg =
+            Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Dev).unwrap();
+        assert_eq!(cfg.exclusions_path, tmp.path().join("exclusions.json"));
+        assert_ne!(cfg.exclusions_path, cfg.state_dir.join("exclusions.json"));
+    }
+
+    #[test]
+    fn st54_dev_state_dir_differs_from_official_state_dir() {
+        // Scenario: 正式版と同じ置き場を渡しても、開発版と正式版は両方起動する
+        let tmp = tempfile::tempdir().unwrap();
+        let official =
+            Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Official)
+                .unwrap();
+        let dev =
+            Config::from_lookup(env(tmp.path().to_str().unwrap(), "pc-1"), Channel::Dev).unwrap();
+        let official_marker = crate::marker::Marker::new(&official.state_dir);
+        let dev_marker = crate::marker::Marker::new(&dev.state_dir);
+        official_marker.touch(chrono::Utc::now()).unwrap();
+        dev_marker.touch(chrono::Utc::now()).unwrap();
+        assert!(official_marker.read().unwrap().is_some());
+        assert!(dev_marker.read().unwrap().is_some());
+        let official_outbox = official.state_dir.join("outbox.jsonl");
+        let dev_outbox = dev.state_dir.join("outbox.jsonl");
+        assert_ne!(official_outbox, dev_outbox);
     }
 
     /// `Debug` に合言葉が出ない（R11）。
@@ -201,6 +360,9 @@ mod tests {
             user_id: uuid::Uuid::nil(),
             device_id: "pc".into(),
             state_dir: std::path::PathBuf::from(dir),
+            exclusions_path: std::path::PathBuf::from("exclusions.json"),
+            launch_state_dir: std::path::PathBuf::from("state"),
+            launch_device_id: "pc".into(),
         };
         assert!(!format!("{c:?}").contains("SUPER-SECRET"));
     }
@@ -229,7 +391,7 @@ mod tests {
             "HTTP://s01.lan",
             "http://127.0.0.1@evil.example",
         ] {
-            let e = Config::from_lookup(env_with_base(bad, dir.clone())).expect_err(bad);
+            let e = Config::from_lookup_official(env_with_base(bad, dir.clone())).expect_err(bad);
             assert!(e.to_string().contains("暗号化されていない"), "{bad}: {e}");
         }
     }
@@ -245,7 +407,7 @@ mod tests {
             "https://example.test",
         ] {
             assert!(
-                Config::from_lookup(env_with_base(ok, dir.clone())).is_ok(),
+                Config::from_lookup_official(env_with_base(ok, dir.clone())).is_ok(),
                 "{ok}"
             );
         }
