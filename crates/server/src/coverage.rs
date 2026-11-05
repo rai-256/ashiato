@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 稼働状況の導出（FR-54 / FR-79 / FR-80 / NFR-13）。
 //!
 //! **状態は行に焼かない。引くたびに導出する**（design D6）—— 途絶を書くバッチは

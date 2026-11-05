@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 1 日の画面（S-2）の頭の気分の欄と、滞在の行の気分（ST17 / tasks 10.1 / design D14・D20）。
  *

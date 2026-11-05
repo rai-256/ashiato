@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 定期取得の枠（ST13 / design D5 / D6）。
 //!
 //! 取り方が「定期取得」の論理ソースごとに task を 1 つ起こし、起動の直後に 1 回取りに行き、終わってから

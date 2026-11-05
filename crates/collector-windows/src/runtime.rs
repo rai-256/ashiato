@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 部品を噛み合わせる。**時計と OS を外から渡す**ので、実機を待たずに確かめられる。
 //!
 //! 1 回の見回り（`tick`）でやること:

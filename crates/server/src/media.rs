@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真の原本の受け口と D-02（ST09 / design D10 / D10a）。
 //!
 //! `PUT /media/originals/{sha256}` は本文を流しながら `<置き場>/.incoming/<uuid>.part` に書いてハッシュを取り、

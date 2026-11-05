@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 置き場への書き込み。**書きかけで落ちても、前の中身か新しい中身のどちらかが残る。**
 //!
 //! `std::fs::write` はファイルを切り詰めてから書くので、その間に電源が落ちると

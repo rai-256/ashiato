@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { sourceVersion } from "../build-stamp";

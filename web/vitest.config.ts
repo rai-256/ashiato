@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { webBuildStamp } from "./build-stamp";

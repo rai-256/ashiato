@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 端末が書き出した Timeline.json を記録種別ごとに分ける。
 
 #[derive(Debug, Clone, PartialEq, Eq)]

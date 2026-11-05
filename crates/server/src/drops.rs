@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 端末からの破棄の報告（ST04 / FR-9 / FR-33。design D4 / D7）。
 //!
 //! **「バッファから破棄されたのか」の唯一の証拠**（扉 #14）。端末は捨てた時点を過ぎると

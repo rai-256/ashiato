@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 見つけたプロファイルの履歴を取得し、未送信へ積む（ST08 design D3 / D10）。
 //!
 //! 読みと積む分の組み立て・帳面の書き込みは別のスレッド（[`HistoryWorker`]）で行い、

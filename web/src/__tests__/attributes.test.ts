@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 主張の原文の組み立てと、`/ingest` の応答の読み方（ST19 / tasks 4.1 / design D4 / D9）。
  *

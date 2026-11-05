@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真・画像・動画の見分け（ST09 tasks 3.2 / design D4 / C17 / Q7）を、本物の PostgreSQL に対して確かめる。
 //!
 //! 端末が送る形（外部識別子 = 内容ハッシュ。中身が変われば `previous_sha256` を持つ別の記録。

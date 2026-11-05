@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 取り込み器の見回りの間隔を登録簿から読む（ST13 / design D4）。
 //! 共有の `s01-archive-inbox` は書き換えない: 動かす試験は自分専用の行を足して取り込み器に渡す。
 #![allow(clippy::unwrap_used)]

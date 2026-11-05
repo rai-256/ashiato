@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 // Scenario: 直近に置いた書庫の箱は Must の前にある
 // Scenario: 直近に置いた書庫の結果が箱に出る
 // Scenario: 書庫が 1 つも置かれていないことが出る

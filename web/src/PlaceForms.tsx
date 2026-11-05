@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UNREACHABLE_MESSAGE, emptyInput, validFromOf, type ClaimInput, type Precision, type SendOutcome } from "./attributes";
 import { control, primary } from "./controls";

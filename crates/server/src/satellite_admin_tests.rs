@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の登録・外す・一覧の口（ST29 / design D7 / D11 / D16）。本物の DB と router で確かめる。
 //! 共有の DB に他の試験の衛星が混ざるので、識別子と名前には試験ごとの接尾を付けて隔離する。
 //! 最初の 2 つを外す試験は 409 だけを見て、状態を変えない（D14）。

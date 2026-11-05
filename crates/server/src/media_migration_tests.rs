@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真と動画の移行 `media_capture`（ST09 / design D7 / D13 / D15 / D17）。
 //!
 //! 移行を当て直したり戻したりするテストは**使い捨ての DB**（`fresh_db`）でだけ走らせる。

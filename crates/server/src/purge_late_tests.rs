@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 本文ごと消した時間帯に、取り込みの口（`POST /ingest`）から後から届いた位置を、本物の PostgreSQL で確かめる
 //! （ST23 Task 5 / design D8（仮）・D14。申し送り R8）。範囲の数え方と消去の核は `purge_tests` が見る。
 #![allow(clippy::unwrap_used)]

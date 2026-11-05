@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 途切れの通知の決め方と問い合わせ（ST14 / design D11・D13・D14（仮））。
 //!
 //! 携帯（Kotlin の `OutageNotice`）と**同じ表**を書く。試験の印（Scenario 名）も同じものを置く。

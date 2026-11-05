@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 1 日の並び（`GET /stays`。ST16 / design D8）の型と、表示の書き方。
  *

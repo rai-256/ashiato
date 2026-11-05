@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 幅のある出来事の終わりの時刻（ST41）を、本物の PostgreSQL に対して確かめる。
 //!
 //! Task 1 は門と錠と CHECK（DB の側にあるので、どの接続でも同じに拒む）。

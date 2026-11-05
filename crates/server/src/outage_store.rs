@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 途切れの判定の材料を引く SQL と台帳（ST14 / design D1・D4・D7）。判定そのものは `outage::judge`。
 //!
 //! 読むのは `core.event`（削除済みも含む。削除は観測の事実を消さない）・`core.heartbeat`・

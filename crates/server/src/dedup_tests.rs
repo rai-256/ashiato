@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 冪等の判定・更新と履歴・削除済みの保護・門（ST03）を、**本物の PostgreSQL に対して**確かめる。
 //!
 //! 取り込み口を通さない経路（psql から直に撃つ）は `tools/check-immutable.sh` が見る ——

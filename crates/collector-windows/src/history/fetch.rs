@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 読取り結果を未送信と帳面へ反映する取得。
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::cloned_ref_to_slice_refs))]
 use sha2::{Digest as _, Sha256};

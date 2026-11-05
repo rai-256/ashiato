@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 収集アプリとの契約の版と、それを確かめる口 `GET /contract`（ST50 / design D4 / D15）。
 //!
 //! 版は「その版以下を全部受け付ける」の意味。**最初の配った印までは上げない**（D8）。

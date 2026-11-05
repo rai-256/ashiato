@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import type { Achievement } from "./coverage";
 import { msg } from "./messages";
 import { useScheme } from "./scheme";

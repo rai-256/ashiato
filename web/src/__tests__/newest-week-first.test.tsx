@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 新しい週が上（tasks 8.5b / 深掘り 第 6 回 Q25）。
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 版の記録の形・役割・読み方・比べ方（ST48 / design D1・D2・D3・D5）。
 //! 知らない行や壊れた形は、使い捨ての database にだけ作る（D16）。
 #![allow(clippy::unwrap_used)]

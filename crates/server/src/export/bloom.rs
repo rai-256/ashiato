@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの記録のファイルに書いた `id` のブルームフィルタ（ST33 / design D10 / D17）。
 //!
 //! 台帳の `written` に置く。記録の値も `id` そのものも取り出せない。偽陽性は 10⁻⁶ 程度で、

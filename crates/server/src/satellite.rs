@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の識別子と名前の形（ST29 / design D2 / D5 / D15）。DB に触らない純粋関数だけを置く。
 //! **形の検査はここ 1 か所**。移行の CHECK と画面の文言はここの定数に合わせ、テストで突き合わせる
 //! （`satellite_form_tests`）。

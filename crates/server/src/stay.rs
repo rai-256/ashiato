@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 位置の列から滞在を切り出す（ST16 / FR-76。design D7）。**DB に触らない。**
 //!
 //! 作り直し（`stay_store`）も 1 日の並び（`GET /stays`）も、判定はここだけを通す ——

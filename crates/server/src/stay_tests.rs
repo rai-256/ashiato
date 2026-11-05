@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 滞在の移行・作り直し・読み出しを、**本物の PostgreSQL に対して**確かめる（ST16）。
 //!
 //! **利用者で隔離する**（design D10 / R13）。基準の台帳は追記のみで消せないので、

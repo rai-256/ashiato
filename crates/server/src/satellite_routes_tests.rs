@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 衛星の資格情報では、まだどの口も通らない（ST29 / design D8 / D14）。
 //! route は手で列挙せず、契約（`ApiDoc::openapi()`）から取り、`lib.rs` の `.route(` の path と突き合わせる。
 #![allow(clippy::unwrap_used)]

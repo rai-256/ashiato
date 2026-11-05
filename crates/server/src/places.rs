@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 場所の器（ST21 / design D1）。器は記録ではなく、記録を束ねる識別子。
 //!
 //! 識別子は画面が乱数で決めて渡す。サーバは名前・座標から計算しない（C1）。
