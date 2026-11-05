@@ -132,7 +132,7 @@
 
 ## Task 10: 携帯の計測テスト（Q2）
 
-- [ ] 10.1 `collector-android/app/src/androidTest` に design D17 を当てる（条件の待ちの定数と `Tasks.await`・`CountDownLatch.await` など `await(<数>, TimeUnit…)` の秒数を 30 秒に・`SETTLE_MS` は使い方で分ける・`Thread.sleep` は D5・Espresso の待ちは変えない）。
+- [x] 10.1 `collector-android/app/src/androidTest` に design D17 を当てる（条件の待ちの定数と `Tasks.await`・`CountDownLatch.await` など `await(<数>, TimeUnit…)` の秒数を 30 秒に・`SETTLE_MS` は使い方で分ける・`Thread.sleep` は D5・Espresso の待ちは変えない）。
   直したもの・残したもの（`// timing-ok:`）は Task 12 の `inventory.md` に書く。
   検証: `scripts/quiet-run assemble -- ./collector-android/gradlew -p collector-android :app:assembleDebugAndroidTest` rc=0 / `scripts/quiet-run inst -- tools/android-emulator.sh` rc=0
 
