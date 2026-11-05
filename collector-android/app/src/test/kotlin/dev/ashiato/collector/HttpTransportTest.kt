@@ -33,6 +33,7 @@ class HttpTransportTest {
 
     /** 次に返す応答。試験ごとに差し替える。 */
     private var reply: Pair<Int, String> = 200 to "[]"
+    private var replyHeaders: Map<String, String> = emptyMap()
 
     data class Request(val line: String, val headers: Map<String, String>, val body: String)
 
@@ -69,6 +70,7 @@ class HttpTransportTest {
         socket.getOutputStream().apply {
             write(
                 ("HTTP/1.1 $status X\r\ncontent-type: application/json\r\n" +
+                    replyHeaders.entries.joinToString("") { "${it.key}: ${it.value}\r\n" } +
                     "content-length: ${bytes.size}\r\nconnection: close\r\n\r\n").toByteArray()
             )
             write(bytes)
@@ -93,6 +95,15 @@ class HttpTransportTest {
         HttpTransport(baseUrl, "t").post("[]")
 
         assertTrue("要求行が違う: ${sent().line}", sent().line.startsWith("POST /ingest "))
+    }
+
+    @Test
+    fun `GET の応答見出しを Outcome に渡す`() {
+        replyHeaders = mapOf("Ashiato-Channel" to "dev")
+
+        val outcome = HttpTransport(baseUrl, "t", path = "/contract").get()
+
+        assertEquals("dev", (outcome as Outcome.Responded).headers["Ashiato-Channel"])
     }
 
     @Test

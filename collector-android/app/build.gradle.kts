@@ -59,6 +59,9 @@ val resolvedBuildVersion = if (buildVersionInput.isEmpty()) {
     buildVersionInput
 }
 val resolvedVersionCode = versionCodeFor(resolvedBuildVersion)
+val isDevBuild = resolvedBuildVersion.contains("-dev.")
+val appLabel = if (isDevBuild) "あしあと。開発版" else "あしあと。"
+val appChannel = if (isDevBuild) "dev" else "official"
 
 // **Robolectric の android-all を Gradle が取る**（CH03。`tools/tmp-leak-check.sh android` が CI で落ちた）。
 // Robolectric が自分で取ると（`MavenArtifactFetcher`）、試験の JVM の `java.io.tmpdir` に数字だけの名前の
@@ -93,6 +96,7 @@ android {
         versionCode = resolvedVersionCode
         versionName = resolvedBuildVersion
         applicationIdSuffix = if (resolvedBuildVersion.contains("-dev.")) ".dev" else null
+        manifestPlaceholders["appLabel"] = appLabel
 
         // 接続先と資格情報は**コミットしない**（製造準備 A-2）。
         // ~/.gradle/gradle.properties か -P で渡す。既定は空で、空のまま動かすと送信は行われない。
@@ -106,6 +110,7 @@ android {
         // **空のままでもビルドを止めない** —— CI・計測テスト・確認バッチは渡さない。空なら通知は出て、押しても開かない
         buildConfigField("String", "WEB_URL",
             "\"${project.findProperty("ashiato.webUrl") ?: ""}\"")
+        buildConfigField("String", "CHANNEL", "\"$appChannel\"")
         // 計測テスト（src/androidTest）。エミュレータでも実機でも同じものが走る（2026-09-14）
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

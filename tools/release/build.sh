@@ -9,6 +9,7 @@ usage() { echo "使い方: $0 <server-linux|server-windows|collector-windows|apk
 version=""
 out=""
 web_dist=""
+renamed_dir=""
 
 resolve_version() {
   version="${ASHIATO_BUILD_VERSION:-}"
@@ -29,6 +30,8 @@ build_web() {
 cleanup_build_tmp() {
   [[ -z "$web_dist" ]] || rm -rf "$web_dist"
   web_dist=""
+  [[ -z "$renamed_dir" ]] || rm -rf "$renamed_dir"
+  renamed_dir=""
   [[ -z "${TMPDIR:-}" ]] || [[ ! -d "$TMPDIR/node-compile-cache" ]] || rm -rf "$TMPDIR/node-compile-cache"
 }
 
@@ -74,7 +77,22 @@ build_collector() {
   [[ "$target" == native ]] && target_dir_name=""
   local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "PC の収集アプリが無い: $src"
-  archive_windows "$out/ashiato-collector-windows-$version-x86_64.zip" "$src"
+  archive_collector "$out/ashiato-collector-windows-$version-x86_64.zip" "$src"
+}
+
+archive_collector() {
+  local archive="$1" file="$2" archive_name="ashiato-collector-windows"
+  [[ "$version" == *-dev.* ]] && archive_name+="-dev"
+  local archive_src="$file"
+  if [[ "$archive_name" != "ashiato-collector-windows" ]]; then
+    # 名前を変えた写しは一時の置き場に作る（repo の根に作らない）。落ちても EXIT の cleanup_build_tmp が消す
+    renamed_dir="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-collector-name.XXXXXX")"
+    archive_src="$renamed_dir/$archive_name.exe"
+    cp "$file" "$archive_src"
+  fi
+  archive_windows "$archive" "$archive_src"
+  [[ -z "$renamed_dir" ]] || rm -rf "$renamed_dir"
+  renamed_dir=""
 }
 
 archive_windows() {
@@ -150,6 +168,14 @@ self_test() {
   apk_build_config="$("$(android_tool apkanalyzer)" dex code --class dev.ashiato.collector.BuildConfig "$work/out/ashiato-collector-$v.apk")"
   grep -Eq '\.field public static final (BASE_URL|API_TOKEN|USER_ID):.* = ""' <<<"$apk_build_config"
   echo "OK: Linux サーバと APK の名前と中身を確認した"
+
+  echo "== Scenario: 開発版の PC の収集アプリの配布物の実行ファイルは、-dev の名前を持つ"
+  local fake="$work/ashiato-collector-windows.exe"
+  printf 'fake' >"$fake"
+  ASHIATO_BUILD_VERSION="0.4.0-dev.20261102" version="0.4.0-dev.20261102" archive_collector "$work/dev.zip" "$fake"
+  zipinfo -1 "$work/dev.zip" | grep -Fxq ashiato-collector-windows-dev.exe
+  ASHIATO_BUILD_VERSION="0.4.0" version="0.4.0" archive_collector "$work/official.zip" "$work/ashiato-collector-windows.exe"
+  zipinfo -1 "$work/official.zip" | grep -Fxq ashiato-collector-windows.exe
 }
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi

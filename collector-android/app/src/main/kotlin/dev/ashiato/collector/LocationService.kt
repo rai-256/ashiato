@@ -83,8 +83,9 @@ open class LocationService : Service() {
 
     /** 「S-01 の更新を待っている」状態（ST50 / D9）。7 日前の知らせと通知が同じ値を読む */
     private val contractStore by lazy { ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE)) }
-    private val contractGate by lazy { ContractGate(contractStore) { Log.i(TAG, it) } }
+    private val contractGate by lazy { ContractGate(contractStore, { Log.i(TAG, it) }) }
     private val contractNotifier by lazy { ContractNotifier(this, contractStore) { Log.i(TAG, it) } }
+    private val channelNotifier by lazy { ChannelMismatchNotifier(this, contractStore) }
 
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
@@ -981,6 +982,7 @@ open class LocationService : Service() {
             missing = missingSender,
             contract = ContractGuard({ contractGet() }, contractGate),
             onContract = { reasons -> contractNotifier.update(reasons, oldestUnsentDays(outbox, ageClock::now)) },
+            onChannelMismatch = { mismatch -> channelNotifier.update(mismatch) },
             originalsAhead = uploader::hasVersionAbove,
             afterRecords = { answer ->
                 if (!uploader.busy) {

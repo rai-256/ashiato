@@ -81,7 +81,9 @@ class MediaCaptureInstrumentedTest {
         assertNotNull("知らせが出ていない", notice)
         assertEquals(MediaNotifier.MEDIA_CHANNEL, notice!!.notification.channelId)
         assertEquals(MEDIA_NOTICE_TITLE, notice.notification.extras.getString(Notification.EXTRA_TITLE))
-        // 押すとこのアプリの設定が開く: 本物の PendingIntent を送り、設定アプリが前面に出ることを見る
+        // 押すとこのアプリの設定が開く: 通知はアプリの外から押すので、前の試験の Activity を残さず
+        // ホームへ戻してから本物の PendingIntent を送る。残った Activity が前面だと設定の起動が待たされる。
+        device.pressHome()
         notice.notification.contentIntent.send()
         val opened = device.wait(Until.hasObject(By.pkg(Pattern.compile(".*settings.*"))), DIALOG_TIMEOUT_MS)
         assertTrue("知らせを押してもアプリの設定が開かない（前面: ${device.currentPackageName}）", opened == true)

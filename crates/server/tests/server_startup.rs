@@ -20,14 +20,29 @@ fn raw_env(name: &str) -> String {
 }
 
 struct CustomServerBinary {
-    _target: tempfile::TempDir,
     path: PathBuf,
 }
 
 fn custom_server_binary() -> CustomServerBinary {
-    let target = tempfile::tempdir().unwrap();
+    custom_server_binary_with_version(&custom_server_version())
+}
+
+/// 渡した版番号で組んだサーバ。**版ごとにプロセスの中で 1 回だけ**組み、置き場も版ごとに固定の 1 か所
+/// （cargo が統合試験に渡す `CARGO_TARGET_TMPDIR` の下。TMPDIR の外で、走らせ直すと増分で組む。final review R3）。
+fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
+    static BUILT: std::sync::Mutex<Vec<(String, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+    let mut built = BUILT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, path)) = built.iter().find(|(v, _)| v == version) {
+        return CustomServerBinary { path: path.clone() };
+    }
+    let slug: String = version
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("custom-server-{slug}"));
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let version = custom_server_version();
     let build = Command::new("cargo")
         .args([
             "build",
@@ -38,8 +53,8 @@ fn custom_server_binary() -> CustomServerBinary {
             "ashiato-server",
         ])
         .current_dir(&root)
-        .env("ASHIATO_BUILD_VERSION", &version)
-        .env("CARGO_TARGET_DIR", target.path())
+        .env("ASHIATO_BUILD_VERSION", version)
+        .env("CARGO_TARGET_DIR", &target)
         .output()
         .unwrap();
     assert!(
@@ -47,10 +62,9 @@ fn custom_server_binary() -> CustomServerBinary {
         "カスタム版のサーバを組めない: {}",
         String::from_utf8_lossy(&build.stderr)
     );
-    CustomServerBinary {
-        path: target.path().join("debug/ashiato-server"),
-        _target: target,
-    }
+    let path = target.join("debug/ashiato-server");
+    built.push((version.to_owned(), path.clone()));
+    CustomServerBinary { path }
 }
 
 fn custom_server_version() -> String {
@@ -694,11 +708,124 @@ mod st48_migrate {
             Command::new(binary)
                 .arg("migrate")
                 .env_clear()
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
                 .env("DATABASE_OWNER_URL", self.db.owner_url())
                 .env("MIGRATE_BACKUP_DIR", self.backups())
                 .env("PG_DUMP", pg_dump)
                 .output()
                 .unwrap()
+        }
+
+        fn serve_custom(&self, binary: &Path) -> Served {
+            let port = std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let mut cmd = Command::new(binary);
+            cmd.env_clear()
+                .env("API_TOKEN", TEST_TOKEN)
+                .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
+                .env(
+                    "DATABASE_URL",
+                    with_database(&env("DATABASE_URL"), &self.db.name),
+                )
+                .env("BIND", format!("127.0.0.1:{port}"))
+                .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let mut healthy = false;
+            while child.try_wait().unwrap().is_none() {
+                if healthz_ok(port) {
+                    healthy = true;
+                    child.kill().ok();
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    child.kill().ok();
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Served {
+                out: child.wait_with_output().unwrap(),
+                healthy,
+            }
+        }
+
+        /// 組んだサーバを起こし、`/healthz` が 200 になったら `GET /contract` の応答（見出しと本文）を返す。
+        /// `default_bind` が真なら BIND を渡さず既定の待ち受け（開発版は 127.0.0.1:18788）で起こす。
+        fn contract_from_custom(
+            &self,
+            binary: &Path,
+            default_bind: bool,
+            extra: &[(&str, &str)],
+        ) -> String {
+            use std::io::{Read as _, Write as _};
+            let port = if default_bind {
+                18788
+            } else {
+                std::net::TcpListener::bind("127.0.0.1:0")
+                    .unwrap()
+                    .local_addr()
+                    .unwrap()
+                    .port()
+            };
+            let mut cmd = Command::new(binary);
+            cmd.env_clear()
+                .env("API_TOKEN", TEST_TOKEN)
+                .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
+                .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
+                .env(
+                    "DATABASE_URL",
+                    with_database(&env("DATABASE_URL"), &self.db.name),
+                )
+                .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            if !default_bind {
+                cmd.env("BIND", format!("127.0.0.1:{port}"));
+            }
+            for (k, v) in extra {
+                cmd.env(k, v);
+            }
+            let mut child = cmd.spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !healthz_ok(port) {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "サーバが終了した: {status}; {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                if std::time::Instant::now() > deadline {
+                    child.kill().ok();
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "サーバが 127.0.0.1:{port} で待ち受けなかった: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "GET /contract HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TEST_TOKEN}\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            child.kill().ok();
+            let _ = child.wait_with_output();
+            response
         }
 
         fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
@@ -755,6 +882,13 @@ mod st48_migrate {
             .await
             .unwrap();
             (rows, def)
+        }
+
+        async fn history_rows(&self) -> i64 {
+            sqlx::query_scalar("SELECT count(*) FROM core.update_history")
+                .fetch_one(self.db.owner())
+                .await
+                .unwrap()
         }
 
         async fn exec(&self, sql: &str) {
@@ -895,6 +1029,253 @@ mod st48_migrate {
             .await
             .unwrap();
         assert_eq!(form, 2);
+    }
+
+    // Scenario: 開発版の migrate は、正式版の DB に 1 つも当てずに止まる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_refuses_official_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let first_version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(
+            !first_version.contains("-dev."),
+            "正式版 DB ではない: {first_version}"
+        );
+        let before = rig.snapshot().await;
+        let history_before = rig.history_rows().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).starts_with("error: kind=channel_mismatch\n"));
+        assert!(stderr(&out).contains("  db: official\n  self: dev\n"));
+        assert_eq!(rig.dumps(), 1);
+        assert_eq!(rig.snapshot().await, before);
+        assert_eq!(rig.history_rows().await, history_before);
+    }
+
+    // Scenario: 正式版の migrate とサーバは、開発版の DB では止まる
+    #[tokio::test]
+    async fn st54_bin_official_migrate_refuses_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let first_version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(
+            first_version.contains("-dev."),
+            "開発版 DB ではない: {first_version}"
+        );
+        let before = rig.snapshot().await;
+        let history_before = rig.history_rows().await;
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("  db: dev\n  self: official\n"));
+        assert_eq!(rig.snapshot().await, before);
+        assert_eq!(rig.history_rows().await, history_before);
+        let served = rig.serve_on_held_port();
+        assert_eq!(served.out.status.code(), Some(4));
+    }
+
+    // Scenario: 空の DB に開発版の migrate を当てると、開発版の DB になる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_bootstraps_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let version: String = sqlx::query_scalar(
+            "SELECT build_version FROM migration_ledger.applied ORDER BY applied_at, name LIMIT 1",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert!(version.contains("-dev."), "{version}");
+        // 全部の行が開発版の版番号を持つ（最初の 1 行だけでない。final review R4）
+        let (rows, official_rows): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(*) FILTER (WHERE build_version NOT LIKE '%-dev.%')
+               FROM migration_ledger.applied",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(
+            usize::try_from(rows).unwrap(),
+            ashiato_server::MIGRATIONS.len()
+        );
+        assert_eq!(official_rows, 0, "開発版の版番号でない行がある");
+        // 続けて起こした開発版のサーバは、その DB で起動して `/healthz` が 200 になる
+        let served = rig.serve_custom(&custom.path);
+        assert!(served.healthy, "{}", stderr(&served.out));
+    }
+
+    // Scenario: 版の記録の無い古い DB には、開発版の migrate は当てずに止まる
+    #[tokio::test]
+    async fn st54_bin_dev_migrate_refuses_before_ledger_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("DROP SCHEMA migration_ledger CASCADE").await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("  db: official\n  self: dev\n"));
+        let schemas: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_namespace WHERE nspname = 'migration_ledger'",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(schemas, 0);
+    }
+
+    // Scenario: 版の記録の行が 1 つも無い DB には、どちらの系統の migrate も当てる
+    #[tokio::test]
+    async fn st54_bin_empty_ledger_allows_either_channel() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        // 正式版で当てた DB の行を消し、開発版の migrate を当てる（spec の WHEN。code-verify R23）
+        assert_ok(&rig.migrate());
+        rig.exec("DELETE FROM migration_ledger.applied").await;
+        let out = rig.migrate_custom_version(&custom.path);
+        assert_ne!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert_ok(&out);
+        let (rows, official_rows): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(*) FILTER (WHERE build_version NOT LIKE '%-dev.%')
+               FROM migration_ledger.applied",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(
+            usize::try_from(rows).unwrap(),
+            ashiato_server::MIGRATIONS.len()
+        );
+        assert_eq!(official_rows, 0, "開発版の版番号でない行がある");
+        // 逆向き: 開発版の DB の行を消して正式版
+        rig.exec("DELETE FROM migration_ledger.applied").await;
+        assert_ok(&rig.migrate());
+    }
+
+    // Scenario: 待ち受けと退避の置き場を明示で渡せば、開発版でもその値を使う
+    #[tokio::test]
+    async fn st54_bin_explicit_bind_and_backup_dir_win_for_dev() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        // 退避: 開発版の migrate が渡した MIGRATE_BACKUP_DIR に書く（既定 backups/pre-migrate-dev でない。code-verify R26）
+        assert_eq!(rig.dumps(), 0);
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        assert_eq!(rig.dumps(), 1, "渡した置き場に退避が無い");
+        // 待ち受け: 開発版のサーバが渡した BIND（空いた port）で待ち受ける
+        let response = rig.contract_from_custom(&custom.path, false, &[]);
+        assert!(
+            response.contains("ashiato-channel: dev\r\n"),
+            "応答の系統が dev でない: {response}"
+        );
+    }
+
+    // Scenario: 系統の名前の環境変数を渡しても、系統は変わらない
+    #[tokio::test]
+    async fn st54_bin_channel_environment_does_not_override_build_channel() {
+        // 使い捨ての DB に開発版の migrate を当てる（worktree の共有 DB を開発版にしない。final review R1）
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let migrated = rig.migrate_custom_version(&custom.path);
+        assert!(
+            migrated.status.success(),
+            "開発版 DB の migrate が失敗した: {}",
+            String::from_utf8_lossy(&migrated.stderr)
+        );
+        // 既定の待ち受け（開発版は 127.0.0.1:18788）は固定の port。並べた worktree のサーバが使っていれば、
+        // 空いた port を BIND で渡して系統の見出しだけを確かめる（既定の値は st54_tests が確かめる）
+        let default_bind_free = std::net::TcpListener::bind(("127.0.0.1", 18788)).is_ok();
+        if !default_bind_free {
+            eprintln!("127.0.0.1:18788 が使用中なので、BIND に空いた port を渡して確かめる");
+        }
+        let response = rig.contract_from_custom(
+            &custom.path,
+            default_bind_free,
+            &[("ASHIATO_CHANNEL", "official")],
+        );
+        assert!(
+            response.contains("ashiato-channel: dev\r\n"),
+            "応答の系統が dev でない: {response}"
+        );
+        assert!(
+            response.ends_with("{\"contract_version\":1}"),
+            "契約本文が変わった: {response}"
+        );
+    }
+
+    // Scenario: 系統が同じなら、今どおり当てて起動する
+    #[tokio::test]
+    async fn st54_bin_dev_server_starts_on_dev_db() {
+        let rig = Rig::new().await;
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        assert_ok(&rig.migrate_custom_version(&custom.path));
+        let served = rig.serve_custom(&custom.path);
+        assert!(served.healthy, "{}", stderr(&served.out));
+    }
+
+    // Scenario: 開発版のサーバは、正式版の DB では起動しない
+    #[tokio::test]
+    async fn st54_bin_dev_server_on_official_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let served = rig.serve_custom(&custom.path);
+        assert_eq!(served.out.status.code(), Some(4), "{}", stderr(&served.out));
+        assert!(!served.healthy);
+    }
+
+    // Scenario: 系統が違い、知らない版もある DB では、系統の食い違いを示す
+    #[tokio::test]
+    async fn st54_bin_channel_before_ahead() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let custom = custom_server_binary_with_version(&format!(
+            "{}-dev.20261102",
+            env!("CARGO_PKG_VERSION")
+        ));
+        rig.add_future_row().await;
+        let served = rig.serve_custom_on_held_port(&custom.path);
+        let out = served.out;
+        assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+        assert!(stderr(&out).contains("error: kind=channel_mismatch"));
+        assert!(!stderr(&out).contains("db_ahead"));
     }
 
     // Scenario: 退避に失敗すると、終了コード 1 で何も当てない

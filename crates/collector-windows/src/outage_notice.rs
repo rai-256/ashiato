@@ -531,6 +531,7 @@ mod tests {
         let reply = |status, body: &str| Reply {
             status,
             body: body.into(),
+            headers: Default::default(),
         };
         assert_eq!(
             parse_reply(&reply(

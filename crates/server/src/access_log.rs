@@ -207,7 +207,7 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
         Verdict::Unauthorized => {
             tracing::warn!(
                 kind = "unauthorized",
-                credential_present = credential_present(req.headers()),
+                credential_present = credential_present(req.headers(), app.channel),
                 "資格情報が一致しない"
             );
             return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
