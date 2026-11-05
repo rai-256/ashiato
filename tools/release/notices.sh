@@ -72,13 +72,15 @@ sys.stdout.reconfigure(newline='\n')
 root=sys.argv[1]
 meta=json.loads(__import__('subprocess').check_output(['cargo','metadata','--format-version','1'],cwd=root,text=True))
 by={(p['name'],p['version']):p for p in meta['packages']}
+# 自分の部品（workspace の crate）は第三者でない。許諾は配布物の根の LICENSE が持つ（D6 と同じ境目）
+own=set(meta['workspace_members'])
 seen=set()
 for raw in os.environ['CARGO_TREE'].splitlines():
     raw=re.sub(r' \(\*\)$','',raw.strip())
     m=re.match(r'(.+?) v([^ ]+)(?: \(.*\))?$',raw)
     if not m: continue
     key=(m.group(1),m.group(2)); p=by.get(key)
-    if not p or key in seen: continue
+    if not p or key in seen or p['id'] in own: continue
     seen.add(key)
     # Windows の cargo はバックスラッシュの置き場を返す。そのままでは bash の dirname が . になり、置き場を取り違える
     print('\t'.join([p['name'],p['version'],p.get('license') or '-', '; '.join(p.get('authors') or []) or '-',p['manifest_path'].replace('\\','/')]))
@@ -330,6 +332,9 @@ self_test() {
   echo '== Scenario: サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない'
   "$0" server "$work/server" >/dev/null
   grep -q '^== react ' "$work/server" || die 'react が無い'; ! grep -q '^== vitest ' "$work/server" || die 'vitest が入った'
+  echo '== Scenario: 自分の部品（workspace の crate）は第三者の一覧に入らない'
+  "$0" collector-windows "$work/own" >/dev/null || die '自分の部品で一覧の組み立てが落ちた'
+  ! grep -q '^== ashiato-' "$work/own" || die '自分の部品が第三者の一覧に入った'
   echo '== Scenario: 正式版の配布物のソースの場所は、その版の印'; ASHIATO_SOURCE_REF=v0.4.0 "$0" source "$work/ref" 0.4.0 ""; grep -q '^Ref: v0.4.0$' "$work/ref"
   local main_tree="$work/main-tree" pr_tree="$work/pr-tree" main_commit pr_commit actual
   git init -q "$main_tree"; git -C "$main_tree" config user.email test@example.invalid; git -C "$main_tree" config user.name test; : > "$main_tree/file"; git -C "$main_tree" add file; git -C "$main_tree" commit -qm main
