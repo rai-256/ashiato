@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 夜の書き直し（ST23 design D11）。本文を消した表を `VACUUM FULL` で書き直し、古い行の痕跡を追い出す。
 //!
 //! - 毎日 03:30（Asia/Tokyo）に 1 回。時刻は `spawn` に差し込む（壁時計を直に読まない）

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 接続先と資格情報、置き場。**コミットしない**（製造準備 A-2）——
 //! 環境変数から読む。
 //!

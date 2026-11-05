@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 確認の口の「一覧に出ている重なる滞在」（CH08 Task 4 / design D7）を HTTP の口から見る。
 #![allow(clippy::unwrap_used)]
 

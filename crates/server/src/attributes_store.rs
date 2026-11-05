@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 属性の種類の台帳と、個人属性の読み出し（ST19 / FR-44 / FR-29。design D7（仮）/ D8）。
 //!
 //! 解釈と導き方そのものは `attributes`（DB に触らない）。ここが持つのは、

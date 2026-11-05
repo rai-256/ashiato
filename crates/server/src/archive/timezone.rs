@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 取得元にある時差だけを使い、位置から地域を推定しない（ST12 / C2）。
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /** 書き出しの口の応答の読み手（ST33 / tasks 8.1）。形が違えば弾く。 */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isExportStatus, isSummary, passwordChars, startExport } from "../export";

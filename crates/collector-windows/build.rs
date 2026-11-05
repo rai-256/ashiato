@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 組み立ての印（ST49 / design D5）を `ASHIATO_BUILD_STAMP` として焼き込む。S-01 の `build.rs` と同じ作り方。
 use std::{env, path::Path};
 

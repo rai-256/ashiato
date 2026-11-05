@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの重なりの判定から、候補の行 × 消した時間の入れ子を取る change（CH04 / design D9・D11）の試験。
 //!
 //! 試験ごとの database（`testdb::isolated()`）で走らせる。他の試験の消した滞在が混ざらず、読んだ量を測れる。

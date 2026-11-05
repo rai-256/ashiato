@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * Vite の `?raw`（ファイルを文字列として読む）。**検査が自分のソースを読むために使う** ——
  * `master-view-limits.test.tsx` が「色の直書きが無い」を見る（NFR / design D9）。

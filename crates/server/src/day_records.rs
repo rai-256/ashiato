@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の記録の読み出し（ST25 / design D2〜D5）。
 //!
 //! 何を記録として出すかは **許可リスト 1 つ**（`ALLOW`）で決める。ST06 は種別をふるい落とさずに積むので、

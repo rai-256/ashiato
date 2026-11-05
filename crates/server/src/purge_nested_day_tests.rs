@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の並びで、本文ごと消した区間にすっぽり入る消した滞在が入れ子の項目になり、
 //! 後から本文を消した件数が親の区間に足されることを本物の PostgreSQL で確かめる（CH08 Task 5 / design D6）。
 //! 画面の側は `web/e2e/ch08-nested.spec.ts` が見る。

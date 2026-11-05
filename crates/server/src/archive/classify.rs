@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! Takeout の訳された名前に依存しない、中身の形による分類（ST12 / D3）。
 
 use super::open::ArchiveFile;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 設定画面の「衛星と資格情報」の節（ST29 / tasks 9.1 / design D12）。
  * jsdom は実寸を測らない —— 見るのは**指定と勘定だけ**（拒む種別の全部に日本語の理由があること・値が保存領域に書かれないこと・

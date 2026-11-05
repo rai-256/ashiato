@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 実機の OS から読んだ値を**どう解釈するか**。OS を触らないので Linux でも確かめられる
 //! （review/code.md R9 —— `platform.rs` は 0 テストで、判断まで実機にしか無かった）。
 use crate::engine::{IdleRead, UrlRead};

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 取り込み器の環境変数。解釈をここへ集め、綴り違いで写しの扱いを変えない。
 
 use std::collections::BTreeMap;

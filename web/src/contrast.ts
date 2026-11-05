@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 相対輝度と対比比（WCAG 2.2）。**検査が値から計算し直すための道具。**
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 滞在を消す口と、同じまとまりで付く印・台帳・錠を本物の PostgreSQL で確かめる（ST22）。
 #![allow(clippy::unwrap_used)]
 

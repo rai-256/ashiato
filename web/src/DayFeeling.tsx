@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { useEffect, useState } from "react";
 import { calendarDays, isFeelingsView, scaleValue, signed, valenceWord, type Feeling, type FeelingsDay, type Latest } from "./feelings";
 import { msg } from "./messages";

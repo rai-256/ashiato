@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! S-01 の起動口。中身は lib.rs にある（`bin/openapi.rs` から同じ型を読むため）。
 
 #[tokio::main]

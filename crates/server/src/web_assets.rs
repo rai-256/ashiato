@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `build.rs` が組み立てた画面の表を HTTP で配る（ST52 / design D13）。
 
 use std::sync::Arc;

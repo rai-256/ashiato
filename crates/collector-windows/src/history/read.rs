@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! SQLite 履歴 DB の写しを読み取る。
 
 /// Chromium の Windows epoch（1601-01-01）からのマイクロ秒を UTC へ換算する。

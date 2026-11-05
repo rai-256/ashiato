@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 開いた直後に**各ソースが直近 4 週以上を出す**（tasks 8.5c / 深掘り 第 7 回 Q28）。
  *

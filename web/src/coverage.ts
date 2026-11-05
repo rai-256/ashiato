@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 稼働状況の型と、状態の読み方。**形は `crates/server/src/coverage.rs` が正典**
  * （契約は `docs/openapi.json`）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 個人属性の画面の下限（ST19 / tasks 4.4 / NFR-17〜19 / NFR-22 / NFR-23）。
  *

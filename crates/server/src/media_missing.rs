@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 原本の欠けの受け口（ST09 / design D11）。
 //!
 //! 端末が「この原本はもう送れない」と気づいたときの報告を、理由と内容ハッシュつきで `core.media_missing` に 1 行積む。

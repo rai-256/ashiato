@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 滞在の作り直しと、基準の台帳（ST16 / FR-31 / FR-50 / FR-76。design D3 / D4 / D5 / D10）。
 //!
 //! 判定そのものは `stay`（DB に触らない）。ここが持つのは、**何を読んで判定に渡し、

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 定期取得の枠（ST13 / design D5）。本番の一覧は空なので、取る手を差し込める `spawn_with` で回数を数える。
 //! 時間は `tokio::time::pause` / `advance`（壁時計は読まない。その担保は `tools/check-scheduled-clock.sh`）。
 #![allow(clippy::unwrap_used)]

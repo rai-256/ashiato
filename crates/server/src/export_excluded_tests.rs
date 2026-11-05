@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しから除く範囲（SQL の断片）と、書き出す前の件数と見込み（ST33 / design D5 / D5a / D5b / D18）。
 //!
 //! 断片を通した**件数**（そのテストの利用者の行）で形を固定する。ファイルでの確かめは 5.4。

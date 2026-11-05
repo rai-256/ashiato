@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 要約・中身・畳んだ行・取れていない時間の行・記録なしの事情の文字の対比（ST25 / tasks 8.3 / NFR-18）。
  * 組は画面が描くときに引く表（`TIMELINE_PAIRS`）から取る —— 測る色と描く色がずれない。

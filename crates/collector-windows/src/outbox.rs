@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! まだ送れていない記録の置き場（FR-10 / design D3）。
 //!
 //! **上限も破棄も持たない。** 上限を置く判断（`discarded`）は ST04 の担当で、

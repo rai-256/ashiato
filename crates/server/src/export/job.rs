@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの背景の仕事（ST33 / design D2 / D4 / D10 / D16）。
 //!
 //! `POST /export` が `spawn` で 1 本だけ走らせる。順は「台帳の始まりの行（求めの中で）→ 遅着の印 → 写し（`run_named`）→

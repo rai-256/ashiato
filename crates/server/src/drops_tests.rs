@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 破棄の報告の受け口（`/drops`）を、**本物の PostgreSQL に対して**確かめる（ST04 / design D7）。
 //!
 //! 形の検査そのもの（理由・範囲・時間ごとの件数）は `drops::tests` が見る。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 主観の読み出し（ST17 / Task 4。design D6 / D7 / D8）。
 //!
 //! 前半（`st17_read_rules_`）は DB を持たない純粋な関数の試験、後半（`st17_read_api_`）は

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 移行前のロケーション履歴を、書庫の形ごとに 3 本の論理ソースへ分ける。
 
 #[derive(Debug, Clone, PartialEq, Eq)]

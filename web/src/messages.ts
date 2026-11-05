@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 画面の文言（製造準備 A-2「日本語のみ。ただし文言をコードから分離し、後から言語を足せる形にする」）。
  *

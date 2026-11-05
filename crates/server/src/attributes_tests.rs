@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 個人属性の主張を、**本物の PostgreSQL に対して**確かめる（ST19）。
 //!
 //! **利用者で隔離する**（`testdb::user()`）。種類の台帳は追記のみで消せないので、

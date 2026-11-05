@@ -1,3 +1,14 @@
+Additional permission under GNU AGPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining it with the Google Play services libraries listed below (any version of them, but not a modified version), containing parts covered by the terms of the Android Software Development Kit License, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall not include the source code for the parts of those libraries used.
+
+Listed libraries:
+- com.google.android.gms:play-services-location
+- com.google.android.gms:play-services-base
+- com.google.android.gms:play-services-basement
+- com.google.android.gms:play-services-tasks
+
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 

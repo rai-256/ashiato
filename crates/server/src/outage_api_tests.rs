@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `GET /outages` と途切れの台帳を、router を通して本物の PostgreSQL に対して確かめる
 //! （ST14 Task 7 / design D5・D6・D7）。利用者・ソースは試験ごとに固有。時刻と起動時刻は差し込む。
 #![allow(clippy::unwrap_used)]
