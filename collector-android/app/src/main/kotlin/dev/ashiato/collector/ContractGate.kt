@@ -56,19 +56,30 @@ data class ContractOutcome(
 }
 
 /** 問い合わせの口の答えを読む（200 の本文が `{"contract_version": <正の整数>}`）。 */
-fun readContractAnswer(outcome: Outcome, expectedChannel: Channel = buildLocalChannel()): ContractAnswer = when (outcome) {
+fun readContractAnswer(
+    outcome: Outcome,
+    expectedChannel: Channel = buildLocalChannel()
+): ContractAnswer = when (outcome) {
     is Outcome.Unreachable -> ContractAnswer.Transient
     is Outcome.Responded -> when (outcome.status) {
-        HTTP_OK -> parseContractVersion(outcome.body)?.let {
-            val channel = outcome.headers.entries.firstOrNull { (key, _) -> key.equals("Ashiato-Channel", ignoreCase = true) }
-                ?.value?.trim()?.lowercase()?.let { value -> if (value == "dev") Channel.Dev else Channel.Official }
-                ?: Channel.Official
-            if (channel == expectedChannel) ContractAnswer.Version(it)
-            else ContractAnswer.ChannelMismatch(expectedChannel, channel)
-        } ?: ContractAnswer.Unreadable
+        HTTP_OK -> parseContractVersion(outcome.body)
+            ?.let { versionAnswer(it, responseChannel(outcome.headers), expectedChannel) }
+            ?: ContractAnswer.Unreadable
         HTTP_NOT_FOUND -> ContractAnswer.NoEndpoint
         else -> ContractAnswer.Transient
     }
+}
+
+/** 読めた版を、応答の系統が手元と同じときだけ答えにする（違えば系統の食い違い）。 */
+private fun versionAnswer(version: Int, channel: Channel, expected: Channel): ContractAnswer =
+    if (channel == expected) ContractAnswer.Version(version) else ContractAnswer.ChannelMismatch(expected, channel)
+
+/** 応答の `Ashiato-Channel` の見出し（大文字小文字を問わない）。無いか `dev` 以外なら正式版 */
+private fun responseChannel(headers: Map<String, String>): Channel {
+    val value = headers.entries
+        .firstOrNull { (key, _) -> key.equals("Ashiato-Channel", ignoreCase = true) }
+        ?.value?.trim()?.lowercase()
+    return if (value == "dev") Channel.Dev else Channel.Official
 }
 
 private const val HTTP_OK = 200
@@ -165,7 +176,9 @@ data class ContractReasons(
     /** 待っているときの案内（待っていなければ null。画面・通知・7 日前の知らせが使う。D6） */
     val headline: String? get() = if (waiting) {
         contractHeadline(onlyUnreadable)
-    } else null
+    } else {
+        null
+    }
 }
 
 /**
@@ -223,7 +236,15 @@ class ContractGate(
                 known = true
                 store.channelMismatch = true
                 if (!mismatchLogged) {
-                    log(Telemetry.line("channel_mismatch", source = null, error = "channel_mismatch", trigger = channelLabel(answer.expected), availability = channelLabel(answer.actual)))
+                    log(
+                        Telemetry.line(
+                            "channel_mismatch",
+                            source = null,
+                            error = "channel_mismatch",
+                            trigger = channelLabel(answer.expected),
+                            availability = channelLabel(answer.actual)
+                        )
+                    )
                     mismatchLogged = true
                 }
             }
@@ -277,12 +298,16 @@ class ContractGate(
  */
 fun contractHeadlineFor(gate: ContractGate, store: ContractWaitStore): String? =
     if (gate.decided) {
-        gate.reasons.headline?.let { if (gate.channelMismatch) "$it。${channelMismatchHeadline(gate.localChannel)}" else it }
-            ?: gate.channelMismatch.takeIf { it }?.let { channelMismatchHeadline(gate.localChannel) }
+        withChannelMismatch(gate.reasons.headline, gate.channelMismatch, gate.localChannel)
     } else {
-        store.notice?.headline?.let { if (store.channelMismatch) "$it。${channelMismatchHeadline(gate.localChannel)}" else it }
-            ?: store.channelMismatch.takeIf { it }?.let { channelMismatchHeadline(gate.localChannel) }
+        withChannelMismatch(store.notice?.headline, store.channelMismatch, gate.localChannel)
     }
+
+/** 案内に、系統の食い違いの案内を「。」で継ぎ足す（どちらか片方だけならそれだけ。両方無ければ null）。 */
+private fun withChannelMismatch(headline: String?, mismatch: Boolean, local: Channel): String? {
+    val channel = if (mismatch) channelMismatchHeadline(local) else null
+    return listOfNotNull(headline, channel).takeIf { it.isNotEmpty() }?.joinToString("。")
+}
 
 /**
  * 送る契機の頭の確かめと、その結果を状態へ取り込む係（D18（仮）。答えを覚えない）。

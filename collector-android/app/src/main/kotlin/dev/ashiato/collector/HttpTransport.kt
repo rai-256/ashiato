@@ -58,7 +58,9 @@ class HttpTransport(
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             val date = conn.getHeaderField("Date")
-            val headers = conn.headerFields.entries.filter { it.key != null }.associate { it.key!! to (it.value.firstOrNull() ?: "") }
+            val headers = conn.headerFields.entries.filter {
+                it.key != null
+            }.associate { it.key!! to (it.value.firstOrNull() ?: "") }
             // 壁時計は**単調時計の前後の間**で読む（Scenario「差に使う端末の時計は基準を読む前後の間で読む」。review R6）
             val wall = wallClock()
             val monoAfter = monoClock()

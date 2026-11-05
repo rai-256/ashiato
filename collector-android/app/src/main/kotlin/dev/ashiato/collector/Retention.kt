@@ -189,7 +189,6 @@ class RetentionNotifier(
             blockedLogged = false
         }
     }
-
 }
 
 /**

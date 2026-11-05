@@ -24,13 +24,21 @@ data class ContractNotice(
     val local: Channel = buildLocalChannel(),
 ) {
     val headline: String get() = if (channelMismatch) {
-        if (contractWaiting) "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline(local)}"
-        else channelMismatchHeadline(local)
-    } else contractHeadline(onlyUnreadable)
+        if (contractWaiting) {
+            "${contractHeadline(onlyUnreadable)}。${channelMismatchHeadline(local)}"
+        } else {
+            channelMismatchHeadline(local)
+        }
+    } else {
+        contractHeadline(onlyUnreadable)
+    }
 
     /** 画面の 1 行と通知の本文。系統の違いだけの行は日数を添えない（契約の版の待ちの日数ではないので。final review R7） */
-    val line: String get() = if (channelMismatch && !contractWaiting) headline
-        else "$headline（未送信 $days 日分を携帯に残しています）"
+    val line: String get() = if (channelMismatch && !contractWaiting) {
+        headline
+    } else {
+        "$headline（未送信 $days 日分を携帯に残しています）"
+    }
 }
 
 const val CONTRACT_UPDATE_HEADLINE = "サーバを更新してください"
@@ -79,12 +87,17 @@ class ChannelMismatchNotifier(
         }
         val last = store.channelNotifiedAtMs
         if (last != null && now() - last < ContractNotifier.REPEAT.toMillis()) return
-        manager.createNotificationChannel(NotificationChannel(ContractNotifier.CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT))
-        manager.notify(CHANNEL_NOTIFICATION_ID, NotificationCompat.Builder(context, ContractNotifier.CHANNEL)
-            .setContentTitle(ContractNotifier.TITLE)
-            .setContentText(channelMismatchHeadline(local))
-            .setSmallIcon(android.R.drawable.stat_notify_error)
-            .build())
+        manager.createNotificationChannel(
+            NotificationChannel(ContractNotifier.CHANNEL, "サーバの更新", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        manager.notify(
+            CHANNEL_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, ContractNotifier.CHANNEL)
+                .setContentTitle(ContractNotifier.TITLE)
+                .setContentText(channelMismatchHeadline(local))
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .build()
+        )
         store.channelNotifiedAtMs = now()
     }
 
