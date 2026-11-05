@@ -117,7 +117,7 @@
 
 ## Task 8: Windows の実行時テスト（Q2）
 
-- [ ] 8.1 `crates/collector-windows/tests/runtime_windows.rs` に design D3 を当てる: 条件が来た時点で返る待ち（`observe_until`・`run_until`・`focus_window_of` の 10 秒・`:697` の 20 秒・
+- [x] 8.1 `crates/collector-windows/tests/runtime_windows.rs` に design D3 を当てる: 条件が来た時点で返る待ち（`observe_until`・`run_until`・`focus_window_of` の 10 秒・`:697` の 20 秒・
   `:856` の 30 秒・`:1203` の 10 秒と、それを呼ぶ箇所の 5・8・20 秒）を D4 の 30 秒（期限・文言に待った時間）に揃える。`run_for`（決まった時間の窓）は延ばさず `// timing-ok:` を書く。
   相手役を待つ固定の眠り（`:140`・`:406`・`:950`・`:1215`・`:1424`）には D5 を当てる（観測できる条件が無ければ残して `// timing-ok:`）。直したもの・残したものは Task 12 の `inventory.md` に書く。
   検証: `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 /
