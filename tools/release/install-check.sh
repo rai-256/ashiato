@@ -669,14 +669,13 @@ check_release_zip() {
 
   echo '== Scenario: DB のサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-db | tr -d '\r')" ashiato-db
-  local before_pid postmaster_pid
+  local before_pid
   before_pid="$(service_pid ashiato-db)"
-  postmaster_pid="$(postmaster_pid_from "$(<"$STATE/db/17/postmaster.pid")")" ||
-    die 'DB の postmaster.pid から主プロセス番号を読めない'
-  # Scenario の WHEN は PostgreSQL の主を外から終わらせること。pg_ctl のサービス PID を
-  # 終了させると主の終了と SCM の再起動が競合し、回復そのものを確かめられない。
-  taskkill.exe /F /T /PID "$postmaster_pid" >/dev/null 2>&1 || true
-  pid_gone "$postmaster_pid" 10 || die 'DB の PostgreSQL の主を異常に終わらせられない'
+  # SCM の回復はサービス自身の異常終了で動く。PostgreSQL の主だけを落とすと pg_ctl は
+  # 正常な停止を SCM に返すため、回復規則を確かめられない。サービスの木を一度に終え、
+  # pg_ctl と PostgreSQL の終了を SCM に異常終了として観測させる。
+  taskkill.exe /F /T /PID "$before_pid" >/dev/null 2>&1 || true
+  pid_gone "$before_pid" 10 || die 'DB のサービスを異常に終わらせられない'
   # PostgreSQL は強制終了後に WAL を回復してから受け付ける。CI の遅い runner でも
   # 回復そのものを失敗と取り違えないよう、サービスの回復設定より十分長く待つ。
   wait_state ashiato-db 4 60
