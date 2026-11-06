@@ -941,7 +941,7 @@ check_release_zip() {
 
   echo '== Scenario: 設定を退けて止まった後に repair すると、記録を残したままログインできる'
   local old_token
-  old_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["API_TOKEN"])' "$WORK/settings.away")"
+  old_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["API_TOKEN"])' "$(cygpath -m "$WORK/settings.away")")"
   install_with "$PW1" repair >"$out" 2>&1 || { cat "$out" >&2; die 'repair が失敗'; }
   [[ -f "$SETTINGS" ]] || die 'repair の後に設定が無い'
   wait_healthz 150
