@@ -70,7 +70,11 @@ class RetentionInstrumentedTest {
         Config.clearOverrideForTest()
         server?.close()
         runCatching {
-            Tasks.await(LocationServices.getFusedLocationProviderClient(context).setMockMode(false), 30, TimeUnit.SECONDS)
+            Tasks.await(
+                LocationServices.getFusedLocationProviderClient(context).setMockMode(false),
+                30,
+                TimeUnit.SECONDS,
+            )
         }
         shell("appops set ${context.packageName} android:mock_location deny")
         outboxDir.deleteRecursively()

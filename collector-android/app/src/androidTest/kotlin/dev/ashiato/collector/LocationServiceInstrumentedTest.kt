@@ -87,7 +87,13 @@ class LocationServiceInstrumentedTest {
     private fun enableMockMode(client: FusedLocationProviderClient) {
         var lastError: Throwable? = null
         for (attempt in 1..5) {
-            if (runCatching { Tasks.await(client.setMockMode(true), 30, TimeUnit.SECONDS) }.onFailure { lastError = it }.isSuccess) return
+            if (
+                runCatching {
+                    Tasks.await(client.setMockMode(true), 30, TimeUnit.SECONDS)
+                }.onFailure { lastError = it }.isSuccess
+            ) {
+                return
+            }
             Thread.sleep(1_000)
         }
         throw AssertionError("偽装位置を有効にできない", lastError)

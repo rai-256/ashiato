@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /** `source_unavailable` の重複抑止を、実際に糸を重ねて固定する。 */
 class UnavailableLogGateTest {
