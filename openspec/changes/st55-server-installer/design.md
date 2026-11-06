@@ -37,6 +37,8 @@
 
 ### D2. サーバに `ashiato-server service` の口を足し、DB は同梱の `pg_ctl register` でサービスにする
 
+実装: `windows-service` の入口は `crates/winsvc` に分離する（作業場の `unsafe_code = "forbid"` との衝突を閉じ込める）。
+
 - サーバ: `crates/server/src/service.rs`（`#[cfg(windows)]`）がサービスの制御（開始・停止）を受ける。依存は `windows-service`（MIT / Apache-2.0）。停止の知らせで今の router の graceful shutdown を起こし、取り込み器と書き出しに打ち切りを伝え、書き途中の `.` で始まるファイルを消してから終わる
 - `unsafe_code = "forbid"` との両立: `windows-service` の `define_windows_service!` が利用側の crate に `unsafe` の展開を出すなら、サービスの入口だけを持つ小さな crate（`crates/winsvc`。作業場の lint を継がない）に分け、`ashiato-server` からはその安全な関数だけを呼ぶ。下流の最初の Task で `cargo build --target x86_64-pc-windows-gnu` を通して決める
 - DB: `pg_ctl register -N ashiato-db -U "NT SERVICE\ashiato-db" -D <db\17> -S auto -w`（`-P` は付けない。仮想アカウントは合言葉を持たない）。登録の後、`sc.exe config ashiato-db obj= "NT SERVICE\ashiato-db"` で確かめ直す
@@ -51,12 +53,18 @@
 - 仮想アカウントで登録できなければ、共有のアカウントへ倒さず rc≠0 で止まる（review/deep.md R8）
 - 反転条件: Windows の CI の最初の項目（tasks 3.1）で、仮想アカウントの SID に ACL を付けられない・`postgres` がその SID で置き場に書けないと分かったら、サービスごとの専用のローカルアカウント（合言葉を乱数で作り、設定に置く）へ替える。共有のアカウントへは倒さない
 
-### D4. サービスとして動くサーバは、設定と秘密を `settings\server.json` から読む
+### D4. サービスとして動くサーバは、設定と秘密を `settings\server.json` から読む。表の所有者の合言葉だけは `settings\owner.json` に分ける
 
-- 形は JSON（`serde_json` は既に依存にある）。中身は今の環境変数と同じ名前の鍵（`DATABASE_URL`・`DATABASE_OWNER_URL`・`API_TOKEN`・`WEB_SESSION_KEY`・`BIND`・`ASHIATO_INBOX_DIR`・`ASHIATO_DOWNLOADS_DIR`・`ASHIATO_ARCHIVE_USER_ID`・`MIGRATE_BACKUP_DIR`・`PG_DUMP`）と、画面の合言葉の照らすための値 `WEB_PASSWORD_VERIFIER`（D8）と、本人の SID `ASHIATO_OWNER_SID`（走らせ直しで本人を変えないため。D21）
+- 形は JSON（`serde_json` は既に依存にある）。中身は今の環境変数と同じ名前の鍵（`DATABASE_URL`・`API_TOKEN`・`WEB_SESSION_KEY`・`BIND`・`ASHIATO_INBOX_DIR`・`ASHIATO_DOWNLOADS_DIR`・`ASHIATO_ARCHIVE_USER_ID`・`MIGRATE_BACKUP_DIR`・`PG_DUMP`）と、画面の合言葉の照らすための値 `WEB_PASSWORD_VERIFIER`（D8）と、本人の SID `ASHIATO_OWNER_SID`（走らせ直しで本人を変えないため。D21）
 - 原本・書き出し・書庫の写しの置き場（`ASHIATO_MEDIA_DIR`・`ASHIATO_EXPORT_DIR`・`ASHIATO_ARCHIVE_COPY_DIR`）はインストーラが書かない。`service` の口のサーバが、設定のファイルの置き場（`settings` の親 = 状態の置き場）から `media`・`export`・`archive-copies` を既定に組む（`data-durability`・`device-collection` の MODIFIED の「インストールした形で指定が無ければ」。review/spec.md R8）。設定に書かれていればそれが優先する（今の「環境で指定すればそこ」と同じ）
 - `service` の口は、tokio の実行環境を起こす前（1 本のスレッドの間）に設定のファイルを読み、鍵を自分のプロセスの環境変数に置いてから、今の `run()` と同じ道を通る。読み方を 2 つに分けない（開発の台本の振る舞いは変わらない）
 - 設定のファイルの場所は、サービスの起動の引数 `--settings C:\ProgramData\ashiato\settings\server.json`（場所は秘密でない）
+- 表の所有者の接続 `DATABASE_OWNER_URL`（移行を当て、削除の門のトリガを外せる役割の合言葉）は `server.json` に置かず、`settings\owner.json`（鍵はこれ 1 つ）に置く（deep.md Q11 の答え。review/code.md R48）。
+  `owner.json` は継承を切って `Administrators`・`SYSTEM` の F だけにし、持ち主も `Administrators` にする（サーバ・DB のサービスのアカウントと本人に何も付けない）。
+  インストーラは書きかけを、設定の置き場に新しく作ったフォルダ（`settings\.owner-staging-<印>`。継承を切って `Administrators`・`SYSTEM` だけにし、空であることを確かめる）の中に `create_new` で作って中身を書き、`owner.json` へ名前を替えて置き、明示の ACL と持ち主を付けてからフォルダを消す（設定の置き場に直に作ると、ACL を絞る前に本人やサーバのアカウントが開いた handle で、後から書いた中身を読める。前の回の書きかけの置き場は先に消す）。`repair` も同じ形で書き、(d) で置く。
+  置く順は `owner.json` → `server.json`（「設定がある」は 2 つが揃ったとき。片方だけなら D10 の「秘密が無い」と同じに扱い、`repair` が受け付ける）。初めて書く前にサーバのサービスを止める
+- 読むのは移行の段（インストーラが `ashiato-server migrate` の環境へ渡す）・走らせ直し（役割を作り直すとき）・`repair`、のちの版を替える口（ST57・ST58）。サーバの `service` の口は `DATABASE_OWNER_URL` を環境へ入れない（`service::SERVICE_EXCLUDED_KEYS`。手で `server.json` に書かれても持たない）
+- 管理者は読める（D3 と同じく、ほかの管理者からは守れない）。守るのは、サーバのプロセスを乗っ取られたとき・サーバのアカウントで設定を読めたときに、所有者として削除の門を外されること
 - 選ばなかった案: サービスの登録簿の環境変数（P7。ほかのアカウントが読める）・Windows の資格情報マネージャ（サービスの仮想アカウントの保管庫の扱いを確かめていない）
 
 ### D5. 配る番号は DB 55400・サーバ 18700（開発版は 55401・18701）、どちらも `127.0.0.1` だけ
@@ -97,7 +105,9 @@
 
 > 仮で進めていたが、別の席（`provisional-review.md` の D10）が否とし、`deep.md` の Q8 で本人が「この Story で出口を作る（`ashiato-setup.exe repair`）」を選んだ（2026-11-03）。出口は D27
 
-インストーラの段: (1) 置き場と ACL → (2) 秘密が無ければ作って設定に書く → (3) DB の置き場が空なら `initdb` → (4) DB の設定 → (5) サービスの登録（無ければ）→ (6) DB の開始 → (7) 役割（無ければ）→ (8) 移行 → (9) 取り込み待ちとダウンロードの権限 → (10) サーバの開始 → (11) 画面の合言葉（照らすための値が無ければ）→ (12) 「アプリと機能」→ (13) 案内（Tailscale・空き）。
+インストーラの段: (1) 置き場と ACL → (2) 秘密が無ければ作って設定に書く → (3) DB の置き場が空なら `initdb` → (4) DB の設定 → (5) プログラムの置き場への写しとサービスの登録（無ければ。写しと `sc.exe create` は D29（仮））→ (6) DB の開始 → (7) 役割（無ければ）→ (8) 移行 → (9) 取り込み待ちとダウンロードの権限 → (11) 画面の合言葉（照らすための値が無ければ）→ (10) サーバの開始 → (12) 「アプリと機能」→ (13) 案内（Tailscale・空き）。
+(11) を (10) の前に置く: `service` の口のサーバは照らすための値が無いと起動しない（D8）ので、合言葉を決めてからサーバを開始する（final review R6〜R9 の直しで実行順に合わせた。番号は Scenario と tasks の参照のため変えない）。
+(1) の ACL は状態の置き場を初めて作るときだけ付ける（サービスが書いたファイルができた後は変えない。D21）。`initdb` の一時の合言葉のファイルは `settings` に置き、成否に依らず消す（D1）。役割を作る前に落ちた DB の扱いは D30（仮）。
 各段は「既にあるか」を見て、あれば触らない。DB の置き場に `PG_VERSION` があるのに設定のファイルが無ければ、**(2) より前に**判定して何も書かずに rc≠0 で止まる（(2) が先に新しい秘密を書くと、次の走らせ直しで「DB と秘密がある」に見えて食い違いを示せなくなる。provisional-review.md の D10）。
 止まるときの出力に、DB と秘密の食い違い・状態の置き場の場所と、出口の `ashiato-setup.exe repair`（D27）を示す。走らせ直しの口のまま秘密を作り直すことはしない（食い違いを本人が見ずに直ると、収集アプリの資格情報が黙って切れる）。
 
@@ -175,6 +185,7 @@ FR-108 の ★ 2026-11-03（Q5。移したい記録は無い）。
 状態の置き場の持ち主は、作った上がった利用者の `Administrators`（Windows の既定）で、持ち主は ACL を書き換えられる。上がったインストーラは、書く段（(1)〜(11)・`password`・`repair`・`uninstall`）の間だけ、自分の SID に、その段が書く置き場（`settings`・`db\17`・`backups`・`logs`）の `M` を足し、段の終わりと、途中で落ちた走らせ直しの最初に外す。
 `initdb` と `pg_ctl` は管理者の権限を落とした札（利用者の SID は残る）で動くので、この一時の書きで足りる。別の管理者 B で走らせ直したときも、同じ形で B に一時の読み書きを足し、本人は設定の `ASHIATO_OWNER_SID` から読んで変えない（review/spec.md R9）。
 外したことを Windows の CI で ACL を読んで見る（spec の「インストールが終わると、インストールの間の書きの権限が残らない」）。
+- 一時の書きを足す置き場の狭め（final review R4 の直し）は D31（仮）
 - 選ばなかった案: `initdb` を DB のサービスのアカウントで走らせる（仮想アカウントの札を作る口が無い）・`Administrators` に恒久で書きを付ける（FR-109 が崩れる）
 
 ### D22. 上がる前に本人を控え、自分を管理者として起こし直す
@@ -193,11 +204,12 @@ Windows の CI でインストールを最後まで通すため。端末かど�
 
 `ci.yml` の `package-windows` が、配る組み立て（`ASHIATO_RELEASE=1`）の zip と、同じ `package.sh windows --test-build` で組む**試験の組み立て**（`ASHIATO_RELEASE` 無し。差し込みと命令の記録を読む）の zip の 2 つを作る。
 `install-windows`（`windows-latest`）は `tools/release/install-check.sh` を Git Bash で走らせ、差し込みにも記録にも依らない Scenario を配る zip で、差し込み（`ASHIATO_SETUP_TEST_<名前>`・サーバの `ASHIATO_SERVICE_TEST_<名前>`）か命令の記録（`ASHIATO_SETUP_TEST_TRACE=1`）に依る Scenario を試験の zip で走らせる（review/spec.md R2）。
-どちらの zip で走らせたかを台本の各 Scenario の `echo` の行に書く。`check-artifacts.sh` が配る zip の 2 つの実行ファイルに差し込みの名前の文字列が無いことを見る。
+どちらの zip で走らせたかは台本の節の見出し（`=== 配る zip`・`=== 試験の zip`）で示す（各 Scenario の `echo` の行は spec の名前と一字一句合わせるため、後ろに何も付けない）。`check-artifacts.sh` が配る zip の 2 つの実行ファイルに差し込みの名前の文字列が無いことを見る。
 - 台本は始めに、上がった札（High Mandatory Level）で動いていることを `whoami /groups` で見て、違えば全部の前に落ちる（premises P17 が外れたことを 1 行で示す。review/spec.md R3）。次に P19（仮想アカウントの登録と書き込み）を見る
 - 利用者の地域の設定は `Set-Culture ja-JP` で日本語にしてからインストールする（D1 の確かめが OS の設定に倒れないことを見る）
 - 別の利用者（管理者でない A）は `net user` で作り、`Start-Process -Credential` で動かす。終わりに消す
 - job は `crates/installer`・`crates/server`・`migrations`・`tools/release`・`tools/db-roles.*` を触った PR で走る（`changes` の出し分け）
+- Scenario の印（`echo '== Scenario: …'`）は、この job が走らせる実地の確かめ（配る zip と試験の zip の経路）にだけ置き、`--self-test` には置かない（final review R10）。偽の命令に合わせた確かめに印を置くと、印が実物を確かめていないまま緑になる。`--self-test`（chain の job で毎回走る）は、確かめの部品の判定と「`--list` の全部が実地の確かめに 1 つずつ印を持つ」ことを見るので、job の `comm -23` は構造的には欠けない
 
 ### D26（仮）. 再起動の後に動いていることは、Windows サンドボックスで状態が残るときだけ実物で見る。残らなければ CI の「自動・サービスのアカウント」で代える
 
@@ -215,7 +227,7 @@ ST55 の完了の判定 1 つ目の「PC を再起動するとログオンしな
 
 本人の答え（`deep.md` Q8。2026-11-03）。D10 で止まった状態（DB の置き場に `PG_VERSION` があり、設定のファイルが無い）からだけ動く口。
 - 上がり方は `password`・`uninstall` と同じ（D22。管理者の確認 1 回・上がる前に本人を控える）。書く段の間だけの書きの権限も同じ（D21）。止まった状態でなければ（設定のファイルがある・DB が無い）、何も書かずに rc≠0 で「`repair` は要らない」と、走らせ直しか `password` を示して終わる
-- 段: (a) 2 つのサービスを止める → (b) 秘密を全部（DB の 3 つの役割の合言葉・`API_TOKEN`・`WEB_SESSION_KEY`）作り直し、`settings\server.json.repair`（同じ置き場・同じ権限）に書く（本人は、設定が無いので状態の置き場の根の ACL から読む —— 2 つのサービスのアカウントのほかに読みを持つ 1 つの SID。上がる前に控えた利用者が別の管理者でも、本人にしない。D21・spec「別の管理者が repair しても、本人は変わらない」。読みを持つ SID が 1 つでなければ何も書かずに rc≠0）→ (c) DB を合言葉なしで入れる形で一時に起こし、3 つの役割の合言葉を新しい秘密に替える → (d) 一時の形を止め、`server.json.repair` を `server.json` へ名前を替えて置き、ふだんの設定でサービスの DB を開始 → (e) 走らせ直しの (5)〜(13) を同じ判定で通る（画面の合言葉は照らすための値が無いので (11) で決め直す。移行は版が合っていれば当たるものが無い。(9) の取り込み待ちとダウンロードは、本人の SID のプロファイル（登録簿の `ProfileList`）で「既にあるか」を見て、あれば触らない）
+- 段: (a) 2 つのサービスを止める → (b) 秘密を全部（DB の 3 つの役割の合言葉・`API_TOKEN`・`WEB_SESSION_KEY`）作り直し、`settings\server.json.repair`（同じ置き場・同じ権限）に、表の所有者の合言葉は `owner.json` の書きかけ（D4 の書きかけの置き場）に書く（本人は、設定が無いので状態の置き場の根の ACL から読む —— 2 つのサービスのアカウントのほかに読みを持つ 1 つの SID。上がる前に控えた利用者が別の管理者でも、本人にしない。D21・spec「別の管理者が repair しても、本人は変わらない」。読みを持つ SID が 1 つでなければ何も書かずに rc≠0）→ (c) DB を合言葉なしで入れる形で一時に起こし、3 つの役割の合言葉を新しい秘密に替える → (d) 一時の形を止め、`owner.json` の書きかけを `owner.json` へ、次に `server.json.repair` を `server.json` へ名前を替えて置き、ふだんの設定でサービスの DB を開始 → (e) 走らせ直しの (5)〜(13) を同じ判定で通る（画面の合言葉は照らすための値が無いので (11) で決め直す。移行は版が合っていれば当たるものが無い。(9) の取り込み待ちとダウンロードは、本人の SID のプロファイル（登録簿の `ProfileList`）で「既にあるか」を見て、あれば触らない）
 - 途中で落ちても、`server.json` を置くのは役割の合言葉を替えた後なので、状態は「DB はあるのに秘密が無い」のまま（走らせ直しは止まり、`repair` をもう一度走らせれば (b) から作り直す。残った `server.json.repair` は (b) が上書きする）。「秘密はあるのに役割の合言葉が古い」には倒れない
 - (c) の一時の形は D28（管理者の役割の名前は D1 の固定の `ashiato`。Q10）
 - `repair` の最初（(a) の後・(b) の前）に、前の `repair` が (c) の後で落ちて一時の形が残っていれば片付ける: DB の置き場の `postmaster.pid` があり DB のサービスが止まっていれば、一時に起こした `postgres` とみなして `pg_ctl stop -D <DB の置き場> -m fast` で止め、残った一時の接続の規則（一時の `hba_file` と `pg_ident`）を消す。一時の `postgres` はサービスでないので (a) では止まらず、残ると次の `pg_ctl start` が `postmaster.pid` で断られる（provisional-review.md の D28。答えに依らない）。tasks 6.2 の「`repair` の途中で落ちても、もう一度 `repair` できる」は、`STOP_AT=repair-roles` が一時の `postgres` を残したまま落ちる形で走らせて見る
@@ -230,6 +242,68 @@ ST55 の完了の判定 1 つ目の「PC を再起動するとログオンしな
 - `postgres --single` を直に起こす形（Q8 の選択肢の書き方）は使わない: PostgreSQL は管理者の札での起動を断る作りで（確かさ 1。知識）、上がったインストーラからは起こせないとみなす。どちらの形でも、本人に見える振る舞い（記録を残したまま役割と秘密が作り直される）は同じ
 - 失わない側: 一時の形は `repair` の中だけで、記録にも本人に見える振る舞いにも触らない。形を替えても `repair` の口と Scenario は変わらない
 - 反転条件: Windows の CI で一時の形の `sspi` の照合が通らない（上がった札と `pg_ctl` が落とした札で Windows のアカウントが食い違う など）と分かったら、`unix_socket_directories` を状態の置き場の中の一時のフォルダ（上がった利用者と DB のアカウントだけが読み書き）にし、`local all ashiato trust` で入る形に替える。どちらも通らなければ上流へ返す（出口の形を変えるかは本人に聞く）
+
+### D29（仮）. インストーラはプログラムの置き場へ写してから、サーバのサービスを `sc.exe create` で作る
+
+D10 の (5) で、zip を展開した置き場（インストーラ自身の置き場）から `ashiato-server.exe`・`ashiato-setup.exe`・`db-roles.sql`・`pgsql\` を `layout.program_dir`（`C:\Program Files\ashiato`。D14）へ写す（既にあるものは写さない）。続けて DB は同梱の `<program_dir>\pgsql\bin\pg_ctl.exe register`（D2）、サーバは
+`sc.exe create <server_service> binPath= "\"<program_dir>\ashiato-server.exe\" service --settings \"<state_dir>\settings\server.json\"" obj= "NT SERVICE\<server_service>" start= auto depend= <db_service>` で作り、どちらも無いときだけ登録する（走らせ直しと `repair` で重ねない）。`initdb`・`pg_ctl`・`psql`・`pg_dump` は `<program_dir>\pgsql\bin` の絶対の場所で呼ぶ（PATH に頼らない）。命令は PowerShell を通さず引数のまま渡す（引用の崩れを避ける）。
+- 理由: spec の Scenario と D11 の `sc.exe config ashiato-server` は、サーバのサービスとプログラムの置き場の実行ファイルがあることを前提にしていたが、D10 の段に作る段が無かった（final review R6）。`pg_ctl register` は自分の場所をサービスに書くので、写した後の `pgsql` から呼ぶ。`UninstallString`（D25）も写したインストーラを指す
+- 失わない側: 写しと作成はインストールの中だけで、要件も本人に見える振る舞いも変えない。既にある実行ファイルを上書きしないので、更新（ST57・ST58）の形は先取りしない
+- 反転条件: 本物の Windows の CI（`install-windows`）で、仮想アカウントを `sc.exe create … obj=` で名指しできない・`binPath=` の引用が崩れる・動いているサービスの実行ファイルの写しで止まる、などで別の形が要ると分かったら、`New-Service`（PowerShell）で作ってから `sc.exe config obj=` で仮想アカウントへ替える形か、写しを止めた後に行う形に替え、この節を書き直す
+
+### D30（仮）. 役割を作る前に落ちた DB は、DB のサービスを一度も起こしていなければ作り直し、起こしていれば止まって消す手順を示す
+
+**finish（review/code.md R40）で D32（仮）に置き換えた。** 「完了記録とサービスの有無」から「記録は無い」を推していたが、repair の途中で落ちた DB（記録が入っている）も同じに見えた。台帳では resolve 済み。以下は経緯。
+
+final review R5・R9 の直しで、D10 に無かった振る舞いとして足した（re-review N4）。管理者の合言葉はどこにも残らない（Q10・D1）ので、役割を作る前に落ちた DB に役割を作り直す口が無い。
+DB のサービスを一度も起こしていない（`.installer-roles-complete` が無く、DB を起こした印も無い）DB の置き場は自動で消して `initdb` からやり直す。起こしていれば止まって `db\17` を消す手順（`docs/install.md`）と止まった理由「DB の役割を作る前に止まった DB です」を示す。
+- 失わない側: 消すのは役割の前・サービスの起動の前の DB だけで、記録はまだ 1 行も入っていない
+- 反転条件: 本人が自動で消すことを望まないなら、作り直しをやめ、いつも止まって手で消す手順を示す形に戻す
+
+### D31. 一時の書きは、インストーラが持ち主の置き場（`settings`・`backups\pre-migrate`）と、DB を起こす前の `db` にだけ足す
+
+D21 の本文は書く段の間 `settings`・`db\17`・`backups`・`logs` に一時の `M` を足すと書く。final review R4 の直しで次のように狭めた（re-review N4）。
+一時の書きは、インストーラだけが書きその中のファイルの持ち主もインストーラである `settings`・`backups\pre-migrate` に足して `/reset` で外し、`db` には `initdb` と DB の設定を書く間（DB のサービスを起こす前）だけ足す。持ち主がサービスのアカウントのファイル（`logs`・`db\17` の中・根の下にサービスが作るもの）へは ACL の変更が届かない見込みなので、そこへは足さない（`repair` の `db` だけは D28 の一時の形のために足す。Windows の CI で落ちれば D28 の反転条件と一緒に見直す）
+- 失わない側: 一時の書きの置き場を変えるだけで、恒久の ACL（FR-109）も記録も変えない
+- 反転条件: Windows の CI で、`repair` の一時の DB の起動が `logs\db` に書けずに落ちる（review/code.md R32）・持ち主がサービスのファイルへも ACL の変更が届く、などと分かったら、D21 の本文の置き場（`logs` を含む）に戻すか、`repair` の一時の起動にログの置き場を別に渡す
+
+### D32（仮）. 自動で作り直すのは、このインストーラが `initdb` を始めた印のある DB だけ。印が無ければ消さずに止まり、`repair` を示す
+
+D30（仮）を置き換える（review/code.md R40）。インストーラは `initdb` の前に `settings\.installer-initdb-started` を書き、役割を作り終えて `.installer-roles-complete` を書いた後に消す。
+走らせ直しで「DB あり・役割の完了記録なし」のとき、印があり、DB のサービスがまだ無く、移行の完了記録も無ければ（印は設定の置き場にあり、サーバのアカウントも書けるので、印だけでは消さない）、D30 と同じく `db\17` を消して `initdb` からやり直す。印が無ければ消さずに「DB の役割の完了記録がありません。記録が入っているかもしれないので、… は消しません。ashiato-setup.exe repair で DB の役割を作り直してください」で止まる。
+`repair` はこの形（設定はあるが役割の完了記録が無い）も受け付ける（`state::repair_allowed`）。`repair` は役割の完了記録を書いてから `server.json.repair` を `server.json` へ置く（名前替えを最後にする。置いた後・記録の前に落ちると、記録の入った DB が「役割の前の DB」に見えた）。
+移行の完了記録は `repair` が書かない（あればそのまま、無ければ走らせ直しの (8) が移行を当てる。移行は当たっていない版だけを当てるので、当たっている DB でも害が無い）。この出口の DB（役割の前に落ちた DB）は移行していないので、書くと移行を飛ばして表の無い DB でサーバを起こす（finish の scoped re-review N2）。
+- 失わない側: 消すのは、このインストーラ自身が `initdb` を始め、役割をまだ作っていない DB だけ（役割が無ければサーバは繋げず、記録は入らない）。それ以外の DB は消さない（DB のサービスを登録した後に落ちたものも、消さずに `repair` を示す）。費用は印のファイル 1 つと、案内の 1 文
+- 反転条件: 印が残ったまま役割ができている形（役割の SQL が通った直後・完了記録の前に落ちた）で、作り直しが本人に困ると分かったら、印があっても止まって `repair` を示す形にする
+
+### D33（仮）. 同梱の PostgreSQL が要る VC の実行時の DLL（`vcruntime140.dll`・`msvcp140.dll`）を `pgsql\bin` に同梱する
+
+EDB の Windows 版（MSVC の組み立て）の `postgres.exe`・`initdb.exe`・`pg_ctl.exe`・`psql.exe`・`pg_dump.exe`・`pg_isready.exe`・`libpq.dll`・`libssl`・`libcrypto`・`libxml2`・`liblz4`・ICU は `VCRUNTIME140.dll` を、ICU（`icuuc67.dll`）は `MSVCP140.dll` も読む（finish で zip を落として `x86_64-w64-mingw32-objdump -p` で確かめた。zip の `pgsql\bin` には無く、pgAdmin の python の下にだけある）。
+まっさらな Windows には Visual C++ の再頒布パッケージが入っていないことがあり、そのときは `initdb` から起きない（review/code.md R28。Windows の CI の runner には Visual Studio が入っているので、CI では捕まらない）。
+`tools/release/build.sh` は Windows の runner の Visual Studio の再頒布の置き場（`vswhere` で引く `VC\Redist\MSVC\<版>\x64\Microsoft.VC14x.CRT`）から 2 つを `pgsql\bin` に写し（`ASHIATO_VC_CRT_DIR` で置き場を渡せる）、`THIRD-PARTY-NOTICES.txt` に節を足す。`check-artifacts.sh` は 2 つと節が無い zip を落とす。
+根の Rust の 2 つ（`ashiato-setup.exe`・`ashiato-server.exe`）も、Windows の runner（`x86_64-pc-windows-msvc`）で組むと既定では `VCRUNTIME140.dll` を読む（DLL は `pgsql\bin` にだけあるので根の 2 つからは見えない。finish の scoped re-review N1）。`.cargo/config.toml` で msvc に `+crt-static` を付けて実行時を静的に持たせ、`check-artifacts.sh` は根の 2 つが VC の実行時の DLL を読む zip を落とす。
+- 失わない側: 配る zip に DLL を 2 つ足すだけで、インストーラの振る舞いも要件も変えない（D12 のネットワークに出ない形のまま）。費用は約 0.7 MB
+- 反転条件: Visual Studio の Distributable Code の条項で app-local の同梱が許されない・runner の置き場に無い、と分かったら、`vc_redist.x64.exe` を zip に入れてインストーラが黙って入れる形か、インストーラが最初に DLL の有無を見て入れ方を示して止まる形にする
+
+### D34（仮）. プログラムの置き場に別の組み立てのファイルがあれば、何も替えずに止まる
+
+D29（仮）の「既にあるものは写さない」を次のように補う（review/code.md R38・R50）。写すのは無いファイルだけで、`<名前>.copying` に写してから名前を替える（途中で切れても、半端なファイルを本来の名前で残さない）。
+既にあるファイルは中身を zip のものと比べ、違えば「プログラムの置き場に、この zip と違う … があります（別の版が入っています）。版を替える口はまだ無いので、何も替えずに止めます」で止まる（「アプリと機能」の版番号も書かない）。インストールした置き場の `ashiato-setup.exe` から走らせ直すときは比べない（同じ置き場）。
+- 失わない側: 止まるだけで、記録・設定・動いている版を替えない。古い実行ファイルのまま新しい版の番号を書くこと（R50）を防ぐ。費用は走らせ直しで配る zip の中身（約 180 MB）を 1 回読むこと
+- 反転条件: 版を替える口（ST57・ST58 の更新）を作るとき、その口が写し替えとサービスの止め・移行を受け持つ形にし、この止まり方をその口への案内に替える
+
+### D35. サーバのサービスが DB のサービスを見張り、止まっていれば起こし直す（2026-11-06 本人の決定）
+
+spec の `DB のサービスが異常に終わると起こし直される`（WHEN は PostgreSQL の主のプロセスを外から終わらせる）は、D2・D11 だけでは満たせない。
+同梱の `pg_ctl runservice` は主が落ちると SCM へ **正常な停止**（`WIN32_EXIT_CODE 0`）を返し、SCM の回復（`failure`・`failureflag 1`）は非 0 の終わりでしか動かないので、DB は止まったまま残る
+（実測 run 42195954119 の診断: `STATE 1 STOPPED`・`WIN32_EXIT_CODE 0`・SCM のイベントは 7036 の停止だけ）。本人は 2026-11-06 に「仕様はそのまま、作りを直す」を選んだ。
+
+- インストーラは `ashiato-db` のサービスの DACL に、`NT SERVICE\ashiato-server` の SID へ **状態を読む・開始する**（SDDL の `LC`・`RP`）だけの ACE を足す（`sc.exe sdshow` に足して `sc.exe sdset`）。止める・設定を変える権限は渡さない
+- サーバの `service` の口は、5 秒ごとに `ashiato-db` の状態を読み、**サーバが動いている間に DB が `STOPPED`** なら `StartService` で起こし、理由（`kind=db_service_restarted`）をサーバのログに書く。
+  DB を人が止めるには先に依存するサーバを止める（`net stop` は依存を先に止め、`sc stop` は依存が動いていれば拒む）ので、サーバが動いていて DB が止まっているのは意図しない停止とみなせる。インストーラの `repair`・`uninstall` は先にサーバを止める
+- 起こすか否かの判断（サーバの状態・DB の状態 → 何もしない / 起こす）は純粋な関数にして Linux で試す。Windows の呼び出し（`OpenService`・`QueryServiceStatus`・`StartService`）は `crates/winsvc` に閉じる
+- 失わない側: SCM の回復（D11）はそのまま残す（pg_ctl 自身が異常に終わった場合はこれが起こす）。見張りは足すだけ。費用は 5 秒ごとの状態の問い合わせ
+- 反転条件: 同梱の PostgreSQL のサービスの入口を自前の口に替え、主の異常な終わりを非 0 で SCM へ返せるようにしたら、見張りを外して SCM の回復だけにする
 
 ## Risks / Trade-offs
 
@@ -251,4 +325,4 @@ ST55 の完了の判定 1 つ目の「PC を再起動するとログオンしな
 
 ## Open Questions
 
-（無し。Q1〜Q7 は推奨で書き、第 1 回の答えで確かめた。Q8・Q9 は第 2 回の答えを D10・D27・D3・D17 に写した）
+（無し。Q1〜Q7 は推奨で書き、第 1 回の答えで確かめた。Q8・Q9 は第 2 回の答えを D10・D27・D3・D17 に、Q10 は第 3 回の答えを D1・D28 に、Q11 は第 4 回の答えを D4・D27 に写した）

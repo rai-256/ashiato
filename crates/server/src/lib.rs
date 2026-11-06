@@ -244,6 +244,7 @@ mod satellite_routes_tests;
 pub mod scheduled;
 #[cfg(test)]
 mod scheduled_tests;
+pub mod service;
 /// 登録簿の取り方・契機・取得の間隔（ST13）。
 #[cfg(test)]
 mod source_acquisition_tests;
@@ -255,6 +256,8 @@ mod sources_tests;
 mod st52_web_tests;
 #[cfg(test)]
 mod st54_tests;
+#[cfg(test)]
+mod st55_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -502,9 +505,23 @@ impl App {
         session_max_age_days: u32,
         channel: Channel,
     ) -> Self {
+        Self::with_login(
+            pool,
+            token,
+            web_session::WebLogin::new(session_key, web_password, session_max_age_days),
+            channel,
+        )
+    }
+
+    fn with_login(
+        pool: sqlx::PgPool,
+        token: String,
+        login: web_session::WebLogin,
+        channel: Channel,
+    ) -> Self {
         Self {
             channel,
-            login: web_session::WebLogin::new(session_key, web_password, session_max_age_days),
+            login,
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
             token,
@@ -4439,6 +4456,21 @@ pub(crate) async fn startup_upkeep(pool: sqlx::PgPool) -> usize {
 
 pub async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
+    run_inner().await
+}
+
+/// 起動の拒否で終わる。`service` の口では理由をサーバのログのファイルに書き、`exit` せずに誤りを返す
+/// （SCM に「止まった」を返し、異常終了と見なした回復の起こし直しを続けさせない。ST55 review R21）。
+/// 開発の口では今までどおりの終了コードで終わる（ログのファイルには書かない。D17 / review R15）。
+fn refuse_startup(service_mode: bool, kind: &'static str, code: i32) -> anyhow::Error {
+    if service_mode {
+        crate::service::log_startup_refusal(kind);
+        return anyhow::anyhow!("startup_refused kind={kind}");
+    }
+    std::process::exit(code);
+}
+
+pub(crate) async fn run_inner() -> anyhow::Result<()> {
     std::panic::set_hook(Box::new(|info| {
         // 未捕捉の異常が黙って消えないようにする（製造準備 C）
         tracing::error!(kind = "panic", location = ?info.location(), "未捕捉の異常");
@@ -4449,9 +4481,22 @@ pub async fn run() -> anyhow::Result<()> {
     if token.len() < 16 {
         anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
     }
-    // 画面の合言葉の検査（design D16）。値は出さず、理由の種別だけ。
+    // サービス口は verifier 形だけ、開発口は従来の元の値だけを受け付ける（D8）。
+    let service_mode = std::env::var_os("ASHIATO_SERVICE_MODE").is_some();
     let web_password = std::env::var("WEB_PASSWORD").ok();
-    if let Err(refusal) = web_session::check_web_password(web_password.as_deref(), &token) {
+    let verifier = std::env::var("WEB_PASSWORD_VERIFIER").ok();
+    let password_check = if service_mode {
+        web_session::check_installed_password_configuration(
+            web_password.as_deref(),
+            verifier.as_deref(),
+        )
+        .and_then(|()| web_session::check_web_password_verifier(verifier.as_deref(), &token))
+    } else if verifier.is_some() {
+        Err(web_session::WebPasswordRefusal::VerifierInDevelopment)
+    } else {
+        web_session::check_web_password(web_password.as_deref(), &token)
+    };
+    if let Err(refusal) = password_check {
         tracing::error!(
             kind = "web_password",
             reason = refusal.reason(),
@@ -4459,13 +4504,20 @@ pub async fn run() -> anyhow::Result<()> {
         );
         // log-ok: reason() は自分で名付けた &'static str（合言葉の値は出さない）。起動前の拒否を端末にも出す
         eprintln!("error: kind=web_password reason={}", refusal.reason());
-        std::process::exit(2);
+        return Err(refuse_startup(service_mode, "web_password", 2));
     }
     let web_password = web_password.unwrap_or_default();
     let session_key = std::env::var("WEB_SESSION_KEY").ok();
-    if let Err(refusal) =
+    let session_check = if service_mode {
+        web_session::check_web_session_key_verifier(
+            session_key.as_deref(),
+            &token,
+            verifier.as_deref().unwrap_or_default(),
+        )
+    } else {
         web_session::check_web_session_key(session_key.as_deref(), &token, &web_password)
-    {
+    };
+    if let Err(refusal) = session_check {
         tracing::error!(
             kind = "web_session_key",
             reason = refusal.reason(),
@@ -4473,7 +4525,7 @@ pub async fn run() -> anyhow::Result<()> {
         );
         // log-ok: reason() は自分で名付けた &'static str（鍵の値は出さない）。起動前の拒否を端末にも出す
         eprintln!("error: kind=web_session_key reason={}", refusal.reason());
-        std::process::exit(2);
+        return Err(refuse_startup(service_mode, "web_session_key", 2));
     }
     let session_key = session_key.unwrap_or_default();
     // ログインの期限（日。0 = なし。design D18）
@@ -4486,9 +4538,17 @@ pub async fn run() -> anyhow::Result<()> {
     let addr = net_guard::bind_for(server_channel, explicit_bind.as_deref());
     let addrs = match net_guard::check_bind(addr).await? {
         Ok(addrs) => addrs,
+        Err(refusal) if service_mode => {
+            tracing::error!(kind = refusal.kind(), "起動しない");
+            return Err(refuse_startup(service_mode, refusal.kind(), 2));
+        }
         Err(refusal) => net_guard::refuse(refusal.kind()),
     };
     if !net_guard::db_host_is_local(&url) {
+        if service_mode {
+            tracing::error!(kind = "db_not_loopback", "起動しない");
+            return Err(refuse_startup(service_mode, "db_not_loopback", 2));
+        }
         net_guard::refuse("db_not_loopback");
     }
     let pool = PgPoolOptions::new()
@@ -4504,7 +4564,7 @@ pub async fn run() -> anyhow::Result<()> {
         );
         // log-ok: reason() は自分で名付けた &'static str。起動前の拒否を端末にも出す
         eprintln!("error: kind=db_role reason={}", refusal.reason());
-        std::process::exit(2);
+        return Err(refuse_startup(service_mode, "db_role", 2));
     }
     // DB の版がこの組み立てと揃っているか（design D17）。揃っていなければ待ち受けを開かない
     if let Some((kind, report)) =
@@ -4514,7 +4574,12 @@ pub async fn run() -> anyhow::Result<()> {
         tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
         // log-ok: 同上。ST58 が読む（design D6）
         eprint!("{report}");
-        std::process::exit(if kind == "channel_mismatch" { 4 } else { 3 });
+        // 系統の食い違い（ST54）は 4、それ以外の版の不一致は 3
+        return Err(if kind == "channel_mismatch" {
+            refuse_startup(service_mode, "channel_mismatch", 4)
+        } else {
+            refuse_startup(service_mode, "db_version", 3)
+        });
     }
     // 版の検査を通った後・待ち受けの前に更新の履歴を書く（ST51 / D2・D8）。書けなくても起動は続ける（D9）
     match pool.acquire().await {
@@ -4531,24 +4596,25 @@ pub async fn run() -> anyhow::Result<()> {
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
     let scheduled_user = archive_config.user_id;
-    if let Some(user_id) = archive_config.user_id {
+    let archive_handle = if let Some(user_id) = archive_config.user_id {
         // **握ったまま持つ**（落とすと取り込み器が止まる）。
-        std::mem::forget(archive::worker::spawn_inspecting(
+        Some(archive::worker::spawn_inspecting(
             pool.clone(),
             archive_config,
             user_id,
             reading.clone(),
             "s01-archive-inbox",
-        ));
+        ))
     } else {
         tracing::info!(
             kind = "archive_disabled",
             "書庫の利用者が未設定のため取り込み器を起こさない"
         );
-    }
+        None
+    };
     // 定期取得の枠も取り込み器の隣に握る（落とすと止まる）。利用者は取り込み器と同じ（design D5）。
     // 未設定なら `scheduled_disabled` をログに残して起こさない
-    std::mem::forget(scheduled::start(pool.clone(), scheduled_user));
+    let scheduled_handle = scheduled::start(pool.clone(), scheduled_user);
 
     // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
     let warmup =
@@ -4565,7 +4631,7 @@ pub async fn run() -> anyhow::Result<()> {
             tracing::error!(kind = "media_dir_relative", "起動しない");
             // log-ok: setting は自分で名付けた環境変数の名前（値の場所は出さない）。起動前の拒否を端末にも出す
             eprintln!("error: kind=media_dir_relative setting={}", refusal.setting);
-            std::process::exit(2);
+            return Err(refuse_startup(service_mode, "media_dir_relative", 2));
         }
     };
     if let Err(e) = media.prepare() {
@@ -4576,23 +4642,37 @@ pub async fn run() -> anyhow::Result<()> {
             "原本の置き場を用意できない"
         );
     }
-    let state = App::new(
-        pool,
-        token,
-        &web_password,
-        &session_key,
-        session_max_age_days,
-        server_channel,
-    )
+    let state = if service_mode {
+        App::with_login(
+            pool,
+            token,
+            web_session::WebLogin::new_with_verifier(
+                &session_key,
+                verifier.as_deref().unwrap_or_default(),
+                session_max_age_days,
+            ),
+            server_channel,
+        )
+    } else {
+        App::new(
+            pool,
+            token,
+            &web_password,
+            &session_key,
+            session_max_age_days,
+            server_channel,
+        )
+    }
     .with_reading(reading)
     .with_warmup(warmup)
     .with_media(media);
     // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
     // 書き出しの台帳だけを握る（App の全体を仕事の寿命まで持たない。/code-review R28）
     let exports = state.exports.clone();
+    let purge_exports = exports.clone();
     drop(purge_compaction::spawn(
         state.pool.clone(),
-        move || exports.running_view().is_some(),
+        move || purge_exports.running_view().is_some(),
         std::sync::Arc::new(chrono::Utc::now),
     ));
     let mut app = router(state);
@@ -4606,7 +4686,23 @@ pub async fn run() -> anyhow::Result<()> {
     // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
-    axum::serve(listener, app).await?;
+    if std::env::var_os("ASHIATO_SERVICE_MODE").is_some() {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(crate::service::wait_for_stop())
+            .await?;
+    } else {
+        axum::serve(listener, app).await?;
+    }
+    // graceful shutdown が完了した後に、DB を使う背景処理と書き出しを止める。
+    // 書き出しの abort は `.partial-*.zip` を残し得るため、最後に置き場を掃除する。
+    if std::env::var_os("ASHIATO_SERVICE_MODE").is_some() {
+        exports.stop();
+        if let Some(dir) = std::env::var_os("ASHIATO_EXPORT_DIR") {
+            let _ = crate::service::cleanup_partial_files(std::path::Path::new(&dir));
+        }
+    }
+    drop(scheduled_handle);
+    drop(archive_handle);
     Ok(())
 }
 

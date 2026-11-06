@@ -32,6 +32,12 @@ fn main() {
     println!("cargo:rerun-if-changed={}", dir.display());
     println!("cargo:rerun-if-env-changed=ASHIATO_WEB_DIST");
     println!("cargo:rerun-if-env-changed=ASHIATO_RELEASE");
+    // 試験の差し込み（`ASHIATO_SERVICE_TEST_*`）は試験の組み立てだけが読む（ST55 D24）。
+    // 配る組み立て（ASHIATO_RELEASE=1）には差し込みの名前の文字列も入らない
+    println!("cargo:rustc-check-cfg=cfg(ashiato_test_build)");
+    if env::var("ASHIATO_RELEASE").as_deref() != Ok("1") {
+        println!("cargo:rustc-cfg=ashiato_test_build");
+    }
 
     // 組み立ての印（ST49 / design D5・D6）。ST48 の台帳が読む `ASHIATO_BUILD_COMMIT` も同じ commit で出し続ける
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

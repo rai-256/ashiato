@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/server", "crates/collector-windows", "crates/build-stamp"]
+members = ["crates/server", "crates/collector-windows", "crates/build-stamp", "crates/winsvc", "crates/installer"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,7 @@ license = "AGPL-3.0-only WITH AdditionRef-ashiato-play-services"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
