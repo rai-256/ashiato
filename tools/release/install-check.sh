@@ -353,9 +353,38 @@ login() {
 wait_state() {
   local service="$1" code="$2" seconds="$3" deadline=$((SECONDS + $3))
   while [[ "$(state_code "$service")" != "$code" ]]; do
-    [[ "$SECONDS" -lt "$deadline" ]] || die "$service が $seconds 秒で状態 $code にならない"
+    if [[ "$SECONDS" -ge "$deadline" ]]; then
+      service_diagnostics "$service" >&2 || true
+      die "$service が $seconds 秒で状態 $code にならない"
+    fi
     sleep 1
   done
+}
+
+# サービスが期待の状態にならないときの様子（run 42175126266〜42191736601 の DB の回復は、SCM が起こし直さなかったのか・
+# PostgreSQL が回復中か・起きた後に落ちたのかをログから区別できなかった）。秘密は出さない（状態・プロセス・DB のログ・イベント）
+service_diagnostics() {
+  local service="$1"
+  echo "---- 診断: $service"
+  sc.exe queryex "$service" 2>&1 | tr -d '\r'
+  sc.exe qfailure "$service" 2>&1 | tr -d '\r'
+  echo '---- プロセス（postgres / pg_ctl / ashiato）'
+  tasklist.exe /V /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'postgres|pg_ctl|ashiato' || true
+  if [[ -n "${STATE:-}" ]]; then
+    echo '---- postmaster.pid'
+    head -n 4 "$STATE/db/17/postmaster.pid" 2>&1 || true
+    local log
+    for log in $(ls -t "$STATE/logs/db" 2>/dev/null | head -n 2); do
+      echo "---- DB のログの末尾: $log"
+      tail -n 40 "$STATE/logs/db/$log" 2>&1 || true
+    done
+  fi
+  echo '---- サービス制御のイベント（直近）'
+  powershell.exe -NoProfile -NonInteractive -Command \
+    "Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { '{0:HH:mm:ss} {1} {2}' -f \$_.TimeCreated, \$_.Id, (\$_.Message -replace '\\s+', ' ') }" 2>&1 | tr -d '\r' || true
+  powershell.exe -NoProfile -NonInteractive -Command \
+    "Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue | Where-Object { \$_.ProviderName -match 'PostgreSQL|ashiato' } | Select-Object -First 15 | ForEach-Object { '{0:HH:mm:ss} {1} {2}' -f \$_.TimeCreated, \$_.ProviderName, (\$_.Message -replace '\\s+', ' ') }" 2>&1 | tr -d '\r' || true
+  echo '---- 診断ここまで'
 }
 
 wait_healthz() {
