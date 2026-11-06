@@ -96,9 +96,10 @@ const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const at = (day: string, hm: string): Date => new Date(`${day}T${hm}:00+09:00`);
 
-/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（`feel-parts.spec.ts` の `freshDay()` と同じ形）。 */
+/** このファイル専用の未来の日。共有 DB で別 Scenario の記録と衝突させない。 */
+let freshDayOffset = 0;
 function freshDay(): string {
-  return shift("2100-01-01", Math.floor(Math.random() * 3000));
+  return shift("2300-01-01", freshDayOffset++);
 }
 
 interface Stored {

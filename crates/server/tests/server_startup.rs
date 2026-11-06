@@ -3,7 +3,9 @@
 //! 管理者・所有者の接続ではサーバは起動せず、終了コード 2 と理由の種別（値ではなく種別）で終わる。
 #![allow(clippy::unwrap_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 fn env(name: &str) -> String {
@@ -19,10 +21,12 @@ fn raw_env(name: &str) -> String {
         .unwrap_or_else(|_| panic!("{name} が無い。.env を読み込む（set -a; . ./.env; set +a）"))
 }
 
+#[cfg(unix)]
 struct CustomServerBinary {
     path: PathBuf,
 }
 
+#[cfg(unix)]
 fn custom_server_binary() -> CustomServerBinary {
     custom_server_binary_with_version(&custom_server_version())
 }
@@ -67,6 +71,7 @@ fn custom_server_binary_with_version(version: &str) -> CustomServerBinary {
     CustomServerBinary { path }
 }
 
+#[cfg(unix)]
 fn custom_server_version() -> String {
     format!("{}-beta.2", env!("CARGO_PKG_VERSION"))
 }
@@ -202,7 +207,12 @@ const TEST_SESSION_KEY: &str = "test-session-key-0123456789";
 
 fn server_cmd() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ashiato-server"));
-    c.env_clear()
+    // 設定の置き場が無い起動拒否は、作業ディレクトリの logs/server に書く。
+    // 試験の作業ディレクトリ（crates/server）に書き残さないよう、target の下で起こす。
+    let cwd = Path::new(env!("CARGO_TARGET_TMPDIR")).join("server_startup");
+    std::fs::create_dir_all(&cwd).unwrap();
+    c.current_dir(cwd)
+        .env_clear()
         .env("API_TOKEN", TEST_TOKEN)
         .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
         .env("WEB_SESSION_KEY", TEST_SESSION_KEY)
@@ -482,6 +492,95 @@ fn server_startup_web_password_missing_or_short_refuses() {
     assert_kind_refused(&out, "bind_unspecified");
 }
 
+/// インストールした形（`ASHIATO_SERVICE_MODE`。`service` の口と同じ判定）で起こす。照らすための値と元の値を
+/// 与えたとおりに置き、設定のファイルの場所は一時の状態の置き場の下にする（拒否の理由はそこの logs\server へ）。
+/// 検査を通れば次の段（待ち受けの検査）で止まるので、DB には繋がない。
+fn start_service_mode(state: &Path, verifier: Option<&str>, web_password: Option<&str>) -> Output {
+    let mut c = server_cmd();
+    c.env("ASHIATO_SERVICE_MODE", "1")
+        .env(
+            "ASHIATO_SETTINGS_PATH",
+            state.join("settings").join("server.json"),
+        )
+        .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
+        .env("BIND", "0.0.0.0:0")
+        .env_remove("WEB_PASSWORD");
+    if let Some(verifier) = verifier {
+        c.env("WEB_PASSWORD_VERIFIER", verifier);
+    }
+    if let Some(password) = web_password {
+        c.env("WEB_PASSWORD", password);
+    }
+    wait_exit(c.spawn().unwrap())
+}
+
+/// インストーラが作るのと同じ形の照らすための値（Argon2id の PHC 文字列）。
+fn installed_verifier(password: &str) -> String {
+    use argon2::password_hash::{rand_core::OsRng, PasswordHasher as _, SaltString};
+    argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string()
+}
+
+/// インストールした形の拒否: 0 で終わらず、標準エラーとサーバのログのファイルに理由がある。
+fn assert_service_refused(out: &Output, state: &Path, reason: &str, secrets: &[&str]) {
+    assert_ne!(out.status.code(), Some(0), "インストールした形で起動した");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(&format!("kind=web_password reason={reason}")),
+        "理由が無い: {stderr}"
+    );
+    let logs = state.join("logs").join("server");
+    let log = std::fs::read_dir(&logs)
+        .unwrap_or_else(|e| panic!("サーバのログの置き場が無い ({e}): {stderr}"))
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<String>();
+    assert!(
+        log.contains("kind=web_password"),
+        "サーバのログに理由が無い: {log}"
+    );
+    let all = format!("{stderr}{}{log}", String::from_utf8_lossy(&out.stdout));
+    for secret in secrets {
+        assert!(!all.contains(secret), "秘密の値が出ている");
+    }
+}
+
+/// Scenario: インストールした形で照らすための値が無いと起動しない
+#[test]
+fn st55_bin_service_mode_refuses_without_verifier() {
+    let state = tempfile::tempdir().unwrap();
+    let out = start_service_mode(state.path(), None, None);
+    assert_service_refused(&out, state.path(), "missing", &[]);
+}
+
+/// Scenario: インストールした形の設定に画面の合言葉の元の値があると起動しない
+#[test]
+fn st55_bin_service_mode_refuses_raw_password() {
+    let state = tempfile::tempdir().unwrap();
+    let raw = "raw-web-password-0123456789";
+    let out = start_service_mode(state.path(), Some(&installed_verifier(raw)), Some(raw));
+    assert_service_refused(&out, state.path(), "raw_password_present", &[raw]);
+}
+
+/// Scenario: 画面の合言葉が API の合言葉と同じだと起動しない
+#[test]
+fn st55_bin_service_mode_refuses_verifier_of_api_token() {
+    let state = tempfile::tempdir().unwrap();
+    let out = start_service_mode(state.path(), Some(&installed_verifier(TEST_TOKEN)), None);
+    assert_service_refused(&out, state.path(), "same_as_api_token", &[TEST_TOKEN]);
+    // 照らすための値が API の合言葉と違えば、検査を通って次の段（待ち受け）で止まる
+    let other = tempfile::tempdir().unwrap();
+    let out = start_service_mode(
+        other.path(),
+        Some(&installed_verifier("installed-web-password-0123")),
+        None,
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("kind=web_password"), "{stderr}");
+    assert!(stderr.contains("kind=bind_unspecified"), "{stderr}");
+}
+
 /// 起動したサーバの標準出力（ログ）を、`done` が真になる行が出るまで読む（20 秒で諦める）。読み終えたらサーバを止める。
 fn log_until(mut cmd: Command, done: impl Fn(&str) -> bool) -> String {
     use std::io::BufRead as _;
@@ -590,6 +689,7 @@ fn server_startup_without_archive_user_says_scheduled_fetch_is_off() {
 
 // ---- ST48: `migrate` の順と止め方（design D4・D6）。使い捨ての database に実行ファイルを走らせる ----
 
+#[cfg(unix)]
 mod st48_migrate {
     use super::*;
     use ashiato_server::migration_ledger::{BUILD_COMMIT, BUILD_VERSION};
@@ -1507,6 +1607,15 @@ mod st48_migrate {
         );
         assert!(!served.healthy, "待ち受けを開いている");
         err
+    }
+
+    // Scenario: 開発の台本で起こすサーバは、今までどおり環境変数を読む
+    #[tokio::test]
+    async fn st55_bin_env_unchanged() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let served = rig.serve();
+        assert!(served.healthy, "{}", stderr(&served.out));
     }
 
     // Scenario: 渡した版番号で組んだサーバの版の記録は、渡した版番号を持つ

@@ -1625,6 +1625,7 @@ async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_form
 }
 
 /// 走査が台帳の鍵に混ぜる大きさと更新時刻（マイクロ秒に丸める。`scan.rs` の `found_file` と同じ）。
+#[cfg(unix)]
 fn seen_of(path: &Path) -> (i64, chrono::DateTime<chrono::Utc>) {
     let m = std::fs::metadata(path).unwrap();
     let modified: chrono::DateTime<chrono::Utc> = m.modified().unwrap().into();

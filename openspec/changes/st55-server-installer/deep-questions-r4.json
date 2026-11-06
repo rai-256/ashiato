@@ -1,0 +1,45 @@
+{
+  "title": "ST55 の深掘り 第 4 回",
+  "subtitle": "最後のレビュー（security review）で出た、既に決めた D4 を変えるかの問い 1 件（Q11）",
+  "note": "PR を出す前の最後のレビューで、別の席が「サーバのサービスが、使わない表の所有者の合言葉を持っている」と指摘しました。持たせる置き場は本人が決めた design D4 に書いてあるので、AI は D4 を変えずに聞きます（環境変数へ入れるのだけは、D4 を変えずにやめました）。選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q11",
+      "topic": "表の所有者の合言葉（`DATABASE_OWNER_URL`）を、サーバのサービスが読める設定のファイルに置き続けるか",
+      "kind": "premise",
+      "loss": "discarded",
+      "multi": false,
+      "allow_free": true,
+      "question": "表の所有者（`ashiato_owner`。移行を当て、削除の門のトリガを外せる役割）の合言葉は、いま `settings\\server.json` に入っていて、サーバのサービスのアカウントもこのファイルを読めます。サーバは起動に使いません（使うのは移行だけ）。所有者の合言葉を、サーバのサービスが読めない別のファイルに分けますか。",
+      "why": "design D4 は「サーバは設定と秘密を server.json から読む」と決め、鍵の一覧に `DATABASE_OWNER_URL` を入れています。security review（review/code.md R48）は、サーバのプロセスを乗っ取られたとき、またはサーバのアカウントで設定を読まれたときに、表の所有者として削除の門を外して記録を消せる資格が同じ場所にある、と指摘しました（ST28 の「実行時は ashiato_app、所有者は移行のときだけ」の分け方が、DB の接続では保たれても、ファイルの側で分かれていない）。AI は D4 を変えない範囲で、サービスの口が設定を環境へ入れるときに `DATABASE_OWNER_URL` を入れないようにしました（試験 `st55_place_service_entry_fills_default_places_and_keeps_owner_secret_out`）。ファイルを分けるかは D4 の決め直しなので聞きます。",
+      "context": "まだ誰にも配っていません。今決めれば、配った置き場の形を作り直すことはありません（配った後に分けると、更新の口が古い server.json から所有者の合言葉を移す手順を持つことになります）。所有者の合言葉を読むのは、インストーラの移行の段（`ashiato-server.exe migrate` に環境変数で渡す）と `repair` だけで、どちらも管理者として動きます。版を替える口（ST57・ST58）も移行のときに読みます。サーバのサービスの合言葉（`DATABASE_URL`。`ashiato_app`）・`API_TOKEN`・画面の照らすための値は、これまでどおり server.json に置きます。",
+      "options": [
+        {
+          "label": "分ける: 所有者の合言葉は `settings\\owner.json`（管理者と SYSTEM だけが読める）に置く",
+          "detail": "インストーラは `DATABASE_OWNER_URL` を server.json に書かず、継承を切って Administrators と SYSTEM だけにした `settings\\owner.json` に書く。移行の段・`repair`・版を替える口（ST57・ST58）はそこから読む。サーバのサービスのアカウントも本人も読めない。D4 の鍵の一覧から `DATABASE_OWNER_URL` を外し、spec の「サーバは設定のファイルから読む」の Scenario と install-check の秘密の確かめを直す。費用はファイル 1 つと ACL の命令 1 つ、読み先の付け替え",
+          "recommended": true
+        },
+        {
+          "label": "分けない: server.json に置いたまま（環境へ入れないのだけ残す）",
+          "detail": "今の D4 のまま。サーバのプロセスの環境には入らないが、サーバのアカウントで server.json を読めば所有者の合言葉が手に入る。残るリスクとして docs/install.md と GO 資料に書く",
+          "irreversible": "サーバのプロセスを乗っ取られると、所有者として削除の門を外し記録を消せる（消された記録は戻らない）"
+        }
+      ],
+      "family": {
+        "name": "サーバのサービスのアカウントが読める秘密の範囲",
+        "siblings": [
+          {"case": "表の所有者の合言葉（`DATABASE_OWNER_URL`）", "decided": "未決 Q11（環境へは入れない。D4 を変えない範囲で済み）"},
+          {"case": "実行時の役割の合言葉（`DATABASE_URL`。`ashiato_app`）", "decided": "design D4（サーバが起動に使うので server.json に置く）"},
+          {"case": "DB の管理者の役割の合言葉", "decided": "design D1・Q10（`initdb` の一時のファイルだけ。どこにも残らない）"},
+          {"case": "`API_TOKEN`・`WEB_SESSION_KEY`・画面の照らすための値", "decided": "design D4・D8（サーバが使うので server.json に置く）"},
+          {"case": "移行の前の退避（`backups\\pre-migrate`）の中身", "decided": "範囲外（review/code.md の security review の「範囲外」。ST23 の寿命と削除の経路）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "deep-review",
+        "why": "D4 は「今の環境変数と同じ名前の鍵」を 1 つのファイルに移す形で書かれ、鍵ごとに「誰が読むか」を問わなかった。ST28 の役割の分け方（所有者は移行のときだけ）と、ファイルの読み手（サーバのサービスのアカウント）を突き合わせる段が無かった",
+        "prevention": "秘密をファイルに置く決定では、鍵ごとに読む者（どのプロセス・どのアカウント）を表にし、その秘密を使わない者が読めるなら問いにする"
+      }
+    }
+  ]
+}

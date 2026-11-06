@@ -18,9 +18,13 @@ const DAY_MS = 86_400_000;
 const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.request().method() === "POST";
 const isIngestReq = (r: Request): boolean => r.url().includes("/api/ingest") && r.method() === "POST";
 
-/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（実際の今日がいつになっても「これから」の側に残る十分先）。 */
+/**
+ * このファイル専用の未来の日。e2e は DB を共有するため、乱数だと別の Scenario が
+ * 同じ日へ書くことがある。順番に割り当てて、同じ run 内の記録を混ぜない。
+ */
+let freshDayOffset = 0;
 function freshDay(): string {
-  return new Date(Date.UTC(2100, 0, 1) + Math.floor(Math.random() * 3000) * DAY_MS).toISOString().slice(0, 10);
+  return new Date(Date.UTC(2100, 0, 1) + freshDayOffset++ * DAY_MS).toISOString().slice(0, 10);
 }
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const at = (day: string, hm: string): Date => new Date(`${day}T${hm}:00+09:00`);

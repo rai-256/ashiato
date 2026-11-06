@@ -49,7 +49,8 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
           has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
-          has '^(crates/|Cargo\.)|^\.github/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
+          # 移行と画面もサーバの zip に入る（build.rs が migrations を埋め込み、画面を同梱する）ので、Windows の通しを走らせる（review R46）
+          has '^(crates/|Cargo\.)|^\.github/|^tools/release/|^tools/db-roles\.|^migrations/|^web/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
           # 組み立ての印の作り方（ST49 / design D5・D6）。触ったときだけ本物の組み立てで印を見る（review/code.md R23）
           has '^(crates/build-stamp/|crates/server/build\.rs|crates/collector-windows/build\.rs|collector-android/app/build\.gradle\.kts|web/build-stamp\.ts|web/vite\.config\.ts|tools/release/|tools/check-build-stamp\.sh|Cargo\.)|^\.github/' && echo "stamp=true" >> "$GITHUB_OUTPUT" || echo "stamp=false" >> "$GITHUB_OUTPUT"
           echo "--- 判定 ---"; cat "$GITHUB_OUTPUT"
@@ -120,6 +121,9 @@ jobs:
       - run: ./tools/check-no-time-server.sh
       - run: ./tools/check-no-time-server.sh --self-test
       - run: ./tools/check-ports.sh --self-test
+      # 配る DB（pgsql.lock）と開発の DB（docker-compose.yml）のメジャー版をそろえる（review R57）
+      - run: ./tools/check-pg-major.sh --self-test
+      - run: ./tools/check-pg-major.sh
       - run: ./tools/check-verify-env-reset.sh --self-test
       - run: ./tools/check-verify-env-reset.sh
       # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
@@ -399,11 +403,61 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/pgsql-cache
+          key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
+          restore-keys: pgsql-
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
       - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
+        shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: package-windows, path: "${{ runner.temp }}/package-windows" }
+        with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test, path: "${{ runner.temp }}/package-windows-test" }
+
+  install-windows:
+    needs: [changes, package-windows]
+    if: needs.changes.outputs.windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { pattern: package-windows-*, path: package }
+      # Scenario の印は、ここで走らせる実地の確かめ（配る zip と試験の zip）にだけ置く。自己試験は印を持たず、
+      # --list の全部が実地の確かめに 1 つずつ印を持つことを Linux の自己試験（chain の job）が見る（ST55 D24）
+      - shell: bash
+        run: |
+          powershell.exe -NoProfile -NonInteractive -Command 'Set-Culture ja-JP'
+          tools/release/install-check.sh --list | sort -u > "$RUNNER_TEMP/install-scenarios.expected"
+          tools/release/install-check.sh package/package-windows-release/ashiato-server-*.zip | tee "$RUNNER_TEMP/install-release.log"
+          ASHIATO_INSTALL_CHECK_TEST_TAKEOUT=1 tools/release/install-check.sh package/package-windows-test/ashiato-server-*.zip | tee "$RUNNER_TEMP/install-test.log"
+          cat "$RUNNER_TEMP/install-release.log" "$RUNNER_TEMP/install-test.log" | tr -d '\r' |
+            sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/install-scenarios.actual"
+          comm -23 "$RUNNER_TEMP/install-scenarios.expected" "$RUNNER_TEMP/install-scenarios.actual" |
+            tee "$RUNNER_TEMP/install-scenarios.missing"
+          test ! -s "$RUNNER_TEMP/install-scenarios.missing"
+      # spec の Scenario と印の突き合わせ（scripts/check_scenarios.py）。scripts/ は .harness2/scripts への symlink で、
+      # .harness2 は runner に無い（Windows の checkout では symlink も張れない）。chain の job と同じく token があるときだけ
+      # harness2 を取り、その中の台本を直に走らせる。無ければ warning で素通りする（ローカルの merge_gate が同じ検査を走らせる）
+      - id: harness2
+        shell: bash
+        env: { HARNESS2_TOKEN: "${{ secrets.HARNESS2_TOKEN }}" }
+        run: echo "available=$([ -n "$HARNESS2_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.harness2.outputs.available != 'true'
+        shell: bash
+        run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_scenarios を飛ばす（merge_gate がローカルで見る）"
+      - if: steps.harness2.outputs.available == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2, persist-credentials: false }
+      - if: steps.harness2.outputs.available == 'true'
+        shell: bash
+        run: python harness2/scripts/check_scenarios.py . st55-server-installer
 
   package-artifacts:
     needs: [changes, package-linux, package-windows]
@@ -421,7 +475,7 @@ jobs:
         with: { pattern: package-*, path: package }
       - run: |
           mkdir -p package/all
-          find package/package-linux package/package-windows -maxdepth 1 -type f -exec cp {} package/all/ \;
+          find package/package-linux package/package-windows-release -maxdepth 1 -type f -exec cp {} package/all/ \;
           tools/release/check-artifacts.sh package/all --allow-debug-key --expect-version "$(tools/release/version.sh source built/Cargo.toml)" --expect-license built/LICENSE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-package, path: package/all }
@@ -470,6 +524,8 @@ jobs:
       - run: ./tools/release/version.sh --self-test
       - run: ./tools/release/check-guards.sh --self-test
       - run: ./tools/release/package.sh --self-test
+      # ST55: install-windows の確かめの部品と、--list の全部が実地の確かめに印を持つこと（D24。Windows の実地は install-windows）
+      - run: ./tools/release/install-check.sh --self-test
       - run: ./tools/release/draft.sh --self-test
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test

@@ -1,2 +1,4 @@
 # 追記だけの一覧は、並走する Story の追記を両方残す（衝突させない）。並べ替え・途中への差し込みはしない
 migrations/ORDER merge=union
+# `pg_proc.prosrc` の照合値は LF の移行本文から作っている。Windows の checkout でも同じ本文を埋め込む。
+migrations/*.sql text eol=lf

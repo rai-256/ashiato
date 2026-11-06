@@ -25,9 +25,14 @@ const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const jstDate = (d: Date): string => new Date(d.getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
 
-/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（実際の今日がいつになっても「これから」の側に残る十分先）。 */
+/**
+ * このファイル専用の未来の日。`placeStays` は前日から対象日へまたがるため、
+ * 連番にはせず 3 日ずつ空ける。共有 DB で前の Scenario の対象日を次の
+ * Scenario の「前日」として読まない。
+ */
+let freshDayOffset = 0;
 function freshDay(): string {
-  return shift("2100-01-01", Math.floor(Math.random() * 3000));
+  return shift("2200-01-01", freshDayOffset++ * 3);
 }
 
 async function openOn(page: Page, hash: string): Promise<void> {

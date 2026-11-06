@@ -189,12 +189,15 @@ if [ "$section" = release ]; then
   head="$(git -C "$clone" rev-parse HEAD)"
   (cd "$clone/web" && NPM_CONFIG_CACHE="$work/npm-cache" npm ci --ignore-scripts >/dev/null && ASHIATO_BUILD_VERSION="$expected_version" npm run build >/dev/null)
   (cd "$clone" && ASHIATO_BUILD_VERSION="$expected_version" cargo build -q --release -p ashiato-server --bin ashiato-server)
+  (cd "$clone" && ASHIATO_BUILD_VERSION="$expected_version" cargo build -q --release -p ashiato-setup --bin ashiato-setup)
   (cd "$clone" && ASHIATO_BUILD_VERSION="$expected_version" cargo build -q --release -p ashiato-collector-windows)
   (cd "$clone/collector-android" && ASHIATO_BUILD_VERSION="$expected_version" ./gradlew -q :app:assembleRelease)
   web_stamp="$(exact_stamp_in "画面の release 印" "$release_stamp_re" "$clone/web/dist")"
   [ "$web_stamp" = "$expected_version+$head" ] || fail "画面の release 印が違う: $web_stamp"
   server_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-server" | grep -Eo "$release_stamp_re" | sort -u)"
   [ "$server_stamp" = "$expected_version+$head" ] || fail "サーバの release 印が違う: $server_stamp"
+  installer_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-setup" | grep -Eo "$release_stamp_re" | sort -u)"
+  [ "$installer_stamp" = "$expected_version+$head" ] || fail "インストーラの release 印が違う: $installer_stamp"
   windows_stamp="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo "$release_stamp_re" | sort -u)"
   [ "$windows_stamp" = "$expected_version+$head" ] || fail "PC の release 印が違う: $windows_stamp"
   apk="$(find "$clone/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"
@@ -211,12 +214,15 @@ if [ "$section" = release ]; then
   no_env_head="$(git -C "$no_env" rev-parse HEAD)"
   (cd "$no_env/web" && NPM_CONFIG_CACHE="$work/npm-cache-no-env" npm ci --ignore-scripts >/dev/null && env -u ASHIATO_BUILD_VERSION npm run build >/dev/null)
   (cd "$no_env" && env -u ASHIATO_BUILD_VERSION cargo build -q --release -p ashiato-server --bin ashiato-server)
+  (cd "$no_env" && env -u ASHIATO_BUILD_VERSION cargo build -q --release -p ashiato-setup --bin ashiato-setup)
   (cd "$no_env" && env -u ASHIATO_BUILD_VERSION cargo build -q --release -p ashiato-collector-windows)
   (cd "$no_env/collector-android" && env -u ASHIATO_BUILD_VERSION ./gradlew -q :app:assembleRelease)
   no_env_web="$(exact_stamp_in "env 無しの画面の印" "$(re_quote "$cargo_version")\\+([0-9a-f]{40}|unknown)(\\.dirty)?(\\.debug)?" "$no_env/web/dist")"
   [ "$no_env_web" = "$cargo_version+$no_env_head" ] || fail "env 無しの画面の印が出所と違う: $no_env_web"
   no_env_server="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-server" | grep -Eo "$rust_stamp_re" | sort -u)"
   [ "$no_env_server" = "$cargo_version+$no_env_head" ] || fail "env 無しのサーバの印が出所と違う: $no_env_server"
+  no_env_installer="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-setup" | grep -Eo "$rust_stamp_re" | sort -u)"
+  [ "$no_env_installer" = "$cargo_version+$no_env_head" ] || fail "env 無しのインストーラの印が出所と違う: $no_env_installer"
   no_env_windows="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo "$rust_stamp_re" | sort -u)"
   [ "$no_env_windows" = "$cargo_version+$no_env_head" ] || fail "env 無しの PC の印が出所と違う: $no_env_windows"
   no_env_apk="$(find "$no_env/collector-android/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' -print -quit)"

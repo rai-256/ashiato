@@ -79,3 +79,35 @@
 - 答え: DB を作るときに名前を固定する（`initdb -U ashiato`）（本人の選択。推奨と同じ。補足なし。`deep-answers-4.txt`）
 
 > 第 3 回の答え（`deep-answers-4.txt`、2026-11-03）: Q10 は本人が推奨の選択肢を選んだ。要件・Story の本文に効く決定は無い（design D1・D28 と spec の範囲の中。要件へ戻すものなし）。仕様へは `spec --answers Q10` で写す。
+
+## 第 4 回（2026-11-04 起票）—— 最後のレビューで出た、既に決めた D4 を変えるかの問い 1 件
+
+> finish（PR を出す前）で、security review（review/code.md R48）が「サーバのサービスが、使わない表の所有者の合言葉を持つ」と指摘した。
+> 合言葉の置き場は本人が決めた design D4 にあるので、D4 を変えない範囲（サービスの口で環境へ入れない）だけを直し、ファイルを分けるかを聞く。
+> 問いは `deep-questions-r4.json`、渡した形は `docs/briefs/ST55-deep-r4.html`。
+> 出所: Q11 ← review/code.md R48（kind: premise）
+
+### Q11. 表の所有者の合言葉（`DATABASE_OWNER_URL`）を、サーバのサービスが読める設定のファイルに置き続けるか（design D4。review/code.md R48）
+
+- 問い: 表の所有者（移行を当て、削除の門のトリガを外せる役割）の合言葉は `settings\server.json` に入っていて、サーバのサービスのアカウントも読めます。サーバは起動に使いません。所有者の合言葉を、サーバのサービスが読めない別のファイルに分けますか。
+- 推奨: 分ける。`settings\owner.json`（継承を切って Administrators と SYSTEM だけ）に置き、移行の段・`repair`・版を替える口（ST57・ST58）はそこから読む
+- loss: discarded（分けないままサーバのプロセスを乗っ取られると、所有者として削除の門を外し記録を消せる）
+- 済ませたこと: サービスの口（`service::apply_settings_for_service`）は `DATABASE_OWNER_URL` を環境へ入れない（D4 を変えない範囲）
+- 答え: 分ける: 所有者の合言葉は `settings\owner.json`（管理者と SYSTEM だけが読める）に置く（本人の選択。推奨と同じ。補足なし。`deep-answers-5.txt`）
+
+> 第 4 回の答え（`deep-answers-5.txt`、2026-11-04）: Q11 は本人が推奨の選択肢を選んだ。要件・Story の本文に効く決定は無い（design D4 と spec・install-check の範囲の中。requirements.md と ST55.md に `DATABASE_OWNER_URL`・設定のファイルの記述は無い。要件へ戻すものなし）。仕様へは `spec --answers Q11` で写す（D4 の鍵の一覧から `DATABASE_OWNER_URL` を外し、`settings\owner.json` を足す）。
+
+## 第 5 回（2026-11-04 起票）—— `repair` が記録のある DB を直す間の ACL をどう戻すか
+
+> merge gate（PR #243）の前に、別の席（`provisional-review.md`）が D31 を否とした。D31 はサービスのアカウントが持つ `db\17` の中へ一時の書きが届かない見込みを根拠に狭めていたが、`repair` はまさにその DB を一時に起こして役割の合言葉を直す。書きが届かなければ、記録を残す出口 D27 が動かず、携帯の未送信が上限を越えると捨てられる。どちらの ACL の戻し方にするかは、既にある記録への書きをどう扱うかの決定なので聞く。
+> 問いは `deep-questions-r5.json`、渡した形は `docs/briefs/ST55-deep-r5.html`。
+> 出所: Q12 ← provisional-review.md の D31（否）・deep.md Q8・Q10・design D21・D27
+
+### Q12. `repair` が記録のある DB を一時に起こす間、既存の DB ファイルへ必要な書きをどう与え、終わりにどう戻すか（design D31）
+
+- 問い: `repair` は、記録が入っている DB を一時に起こし、役割の合言葉だけを作り直します。DB の中の既存ファイルは DB のサービスのアカウントが持ち主なので、上がったインストーラの一時の書きが中まで届かなければ、WAL や役割の変更を書けず `repair` は失敗します。記録を残したまま `repair` を成立させるため、一時の書きを DB の中へ再帰的に与え、終わりに通常の DB サービス用 ACL と本人の読みへ戻す形にしますか。
+- 推奨: する。`repair` の間だけ `db\17` の中まで必要な書きを与え、終了・失敗後の走らせ直しの最初に、DB のサービスのアカウントの書きと本人の読みに戻す。Windows の CI で、移行と記録を入れた DB に対して `repair` を通し、記録の件数と中身が同じで、余分な一時 ACL が残らないことを見る
+- 否の根拠: D31 の「サービスが持つファイルへは届かないので足さない」という前提どおりなら、`repair` は記録のある DB に書けず、Q8 で本人が選んだ記録を残す出口 D27 が動かない。止まっている間に携帯の未送信が FR-9 の上限（90 日・2 GB）を越えると捨てられる（discarded）。前提が誤りなら狭める根拠が無く、どちらにせよ今の D31 のままでは失わない側を確定できない
+- 答え: 一時に再帰的な書きを与え、repair の終わりと次の走らせ直しの最初に通常の ACL へ戻す（本人の選択。推奨と同じ。補足なし。`deep-answers-6.txt`）
+
+> 第 5 回の答え（`deep-answers-6.txt`、2026-11-04）: Q12 は本人が推奨の選択肢を選んだ。要件・Story の本文に効く決定は無い（design D21・D27・D31 の一時の ACL の範囲の中。requirements.md と ST55.md に `repair`・一時の ACL の記述は無く、恒久の ACL（FR-109）は変えない。要件へ戻すものなし）。仕様へは `spec --answers Q12` で写す（D31 を、`repair` の間だけ `db\17` の中へ再帰的に一時の書きを与え、終わりと次の走らせ直しの最初に通常の ACL へ戻す形に直す。記録を入れた DB で `repair` を通し、記録と ACL を確かめる Windows の CI の検証を足す）。
