@@ -412,6 +412,19 @@ mod tests {
         assert!(line.contains("-notmatch"));
         assert!(line.contains("LCRP"));
         assert!(line.contains("sdset"));
+        assert!(line.contains("S:") && line.contains("Insert"));
+    }
+
+    #[test]
+    fn st55_db_watch_acl_inserts_ace_before_sacl_and_deduplicates() {
+        let sid = commands::service_sid("ashiato-server");
+        let ace = format!("(A;;LCRP;;;{sid})");
+        assert_eq!(
+            commands::add_db_watch_ace("D:(A;;CC;;;S-1-1-0)S:(AU;;FA;;;S-1-1-0)", &ace),
+            format!("D:(A;;CC;;;S-1-1-0){ace}S:(AU;;FA;;;S-1-1-0)")
+        );
+        let existing = format!("D:{ace}S:(AU;;FA;;;S-1-1-0)");
+        assert_eq!(commands::add_db_watch_ace(&existing, &ace), existing);
     }
 
     #[test]

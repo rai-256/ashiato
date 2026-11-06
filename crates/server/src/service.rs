@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DbServiceState {
     Stopped,
     Running,
@@ -19,16 +19,16 @@ pub enum DbServiceState {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DbWatchDecision {
     Restart,
     Ignore,
-    Log(&'static str),
+    Log(String),
 }
 
 pub fn decide_db_watch(
     server_running: bool,
-    db_state: Result<DbServiceState, &'static str>,
+    db_state: Result<DbServiceState, String>,
 ) -> DbWatchDecision {
     if !server_running {
         return DbWatchDecision::Ignore;
@@ -38,6 +38,24 @@ pub fn decide_db_watch(
         Ok(_) => DbWatchDecision::Ignore,
         Err(reason) => DbWatchDecision::Log(reason),
     }
+}
+
+pub fn configured_db_service_name(value: Option<&str>) -> &str {
+    value
+        .filter(|name| !name.is_empty())
+        .unwrap_or("ashiato-db")
+}
+
+pub(crate) fn db_service_name_from_settings_path(path: &Path) -> &'static str {
+    if path.to_string_lossy().contains("ashiato-dev") {
+        "ashiato-db-dev"
+    } else {
+        "ashiato-db"
+    }
+}
+
+pub fn should_log_db_watch_error(previous: Option<&str>, current: &str) -> bool {
+    previous != Some(current)
 }
 
 #[cfg(windows)]
@@ -54,22 +72,32 @@ fn db_service_state(code: u32) -> DbServiceState {
 #[cfg(windows)]
 async fn watch_db_service() {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let service_name =
+        configured_db_service_name(std::env::var("ASHIATO_DB_SERVICE").ok().as_deref()).to_owned();
+    let mut last_query_error = None;
     loop {
         tokio::select! {
             () = STOP.wait() => return,
             _ = interval.tick() => {
-                let state = tokio::task::spawn_blocking(ashiato_winsvc::query_db_service_state)
+                let service_for_query = service_name.clone();
+                let state = tokio::task::spawn_blocking(move || {
+                    ashiato_winsvc::query_db_service_state(&service_for_query)
+                })
                     .await
-                    .ok()
-                    .and_then(Result::ok)
-                    .map(db_service_state)
-                    .ok_or("query_failed");
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result)
+                    .map(db_service_state);
                 match decide_db_watch(true, state) {
-                    DbWatchDecision::Restart => match ashiato_winsvc::start_db_service() {
+                    DbWatchDecision::Restart => match ashiato_winsvc::start_db_service(&service_name) {
                         Ok(()) => tracing::warn!(kind = "db_service_restarted", "DB のサービスを起こし直した"),
-                        Err(_) => tracing::error!(kind = "db_service_start_failed", "DB のサービスを起こし直せない"),
+                        Err(reason) => tracing::error!(kind = "db_service_start_failed", %reason, "DB のサービスを起こし直せない"),
                     },
-                    DbWatchDecision::Log(reason) => tracing::error!(kind = "db_service_query_failed", reason),
+                    DbWatchDecision::Log(reason) => {
+                        if should_log_db_watch_error(last_query_error.as_deref(), &reason) {
+                            tracing::error!(kind = "db_service_query_failed", %reason);
+                        }
+                        last_query_error = Some(reason);
+                    }
                     DbWatchDecision::Ignore => {}
                 }
             }
@@ -274,6 +302,10 @@ where
 /// 状態の置き場の下に補う。読めなければ理由をサーバのログに書いて返す（main.rs の Windows の口が呼ぶ。review R43）。
 pub fn prepare_service(path: &Path) -> Result<(), SettingsError> {
     std::env::set_var("ASHIATO_SETTINGS_PATH", path);
+    std::env::set_var(
+        "ASHIATO_DB_SERVICE",
+        db_service_name_from_settings_path(path),
+    );
     match load_settings(path) {
         Ok(settings) => {
             apply_settings_for_service(path, &settings);

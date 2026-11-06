@@ -37,3 +37,19 @@
 - `cargo clippy -p ashiato-server -p ashiato-winsvc --all-targets --target x86_64-pc-windows-gnu -- -D warnings` は PASS。
 - `cargo test --workspace` は、テスト用 PostgreSQL が `Connection refused` で利用できず、DB依存テストが失敗した。Task 13 の正式検証は `verify-run` の環境準備後に PASS している。
 - Windows 実地のサービス再起動検証は仕様どおり PR CI の `install-windows` に委ねる。
+
+## Fix report: review 1 findings F1-F5
+
+- F1: SDDL の ACE 挿入を `S:` の前へ移す純粋関数 `add_db_watch_ace` とテストを追加し、既存 ACE の重複を防いだ。
+- F2: DB サービス名を `crates/winsvc` の API 引数へ渡し、設定ファイルの置き場から release / development を選ぶようにした。`ashiato-db-dev` のテストを追加した。
+- F3: 問い合わせ・開始失敗の実際の理由を `String` としてログへ渡すようにした。
+- F4: 同一の問い合わせ失敗理由は連続してログへ出さず、理由が変わったときだけ記録する純粋関数とテストを追加した。
+- F5: `assert_db_watch_acl` が DACL 部分だけを検査し、`LCRPWP` / `LCRPDC` のような複合権限も拒む self-test を追加した。
+
+### Fix verification
+
+- `cargo test -p ashiato-setup st55_db_watch_ -- --nocapture`: 3 passed.
+- `cargo test -p ashiato-server st55_db_watch_ -- --nocapture`: 5 passed.
+- `scripts/verify-run 13.1`: PASS、`scripts/verify-run 13.2`: PASS（clippy を含む）、`scripts/verify-run 13.3`: PASS。
+- `cargo test --workspace`: PASS（失敗 0、ignored 3）。
+- `tools/release/install-check.sh --self-test`: PASS。

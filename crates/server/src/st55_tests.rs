@@ -133,9 +133,43 @@ fn st55_db_watch_ignores_running_and_pending_database_states() {
 #[test]
 fn st55_db_watch_logs_query_failure_without_restarting() {
     assert_eq!(
-        super::service::decide_db_watch(true, Err("query_failed")),
-        super::service::DbWatchDecision::Log("query_failed")
+        super::service::decide_db_watch(true, Err("query_failed".to_owned())),
+        super::service::DbWatchDecision::Log("query_failed".to_owned())
     );
+}
+
+#[test]
+fn st55_db_watch_uses_configured_database_service_name() {
+    assert_eq!(
+        super::service::configured_db_service_name(Some("ashiato-db-dev")),
+        "ashiato-db-dev"
+    );
+    assert_eq!(
+        super::service::configured_db_service_name(None),
+        "ashiato-db"
+    );
+    assert_eq!(
+        super::service::db_service_name_from_settings_path(Path::new(
+            r"C:\ProgramData\ashiato-dev\settings\server.json"
+        )),
+        "ashiato-db-dev"
+    );
+}
+
+#[test]
+fn st55_db_watch_suppresses_repeated_query_failure_logs() {
+    assert!(super::service::should_log_db_watch_error(
+        None,
+        "access_denied"
+    ));
+    assert!(!super::service::should_log_db_watch_error(
+        Some("access_denied"),
+        "access_denied"
+    ));
+    assert!(super::service::should_log_db_watch_error(
+        Some("access_denied"),
+        "service_missing"
+    ));
 }
 
 #[test]

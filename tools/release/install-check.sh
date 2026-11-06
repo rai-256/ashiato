@@ -214,9 +214,10 @@ assert_restart_on_failure() {
 
 assert_db_watch_acl() {
   local sddl="$1" server_sid="$2"
-  grep -Fq "(A;;LCRP;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの状態読み・開始の権限が無い'
-  ! grep -Fq "(A;;WP;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの停止権限がある'
-  ! grep -Fq "(A;;DC;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの設定変更権限がある'
+  local dacl="${sddl%%S:*}"
+  grep -Fq "(A;;LCRP;;;$server_sid)" <<<"$dacl" || die 'DB のサービスにサーバの状態読み・開始の権限が無い'
+  ! grep -Eq "\(A;;[^;]*(WP|DC)[^;]*;;;${server_sid//\/\\}\)" <<<"$dacl" ||
+    die 'DB のサービスにサーバの停止・設定変更権限がある'
 }
 
 # sc.exe query の出力の状態の番号（4 = RUNNING・1 = STOPPED）。
@@ -1377,6 +1378,8 @@ EOF
   expect_fail postmaster_pid_from $'not-a-pid\r\nC:/ProgramData/ashiato/db/17\r\n'
   assert_db_watch_acl '(D:(A;;LCRP;;;S-1-5-80-server))' S-1-5-80-server
   expect_fail assert_db_watch_acl '(D:(A;;LCRP;;;S-1-5-80-server)(A;;WP;;;S-1-5-80-server))' S-1-5-80-server
+  expect_fail assert_db_watch_acl '(D:(A;;LCRPWP;;;S-1-5-80-server))' S-1-5-80-server
+  expect_fail assert_db_watch_acl '(D:(A;;LCRP;;;S-1-5-80-other))S:(A;;WP;;;S-1-5-80-server)' S-1-5-80-server
   local netstat=$'  TCP    127.0.0.1:55400        0.0.0.0:0              LISTENING       4242'
   assert_loopback_listener_only "$netstat" 55400
   expect_fail assert_loopback_listener_only "$netstat"$'\n  TCP    0.0.0.0:55400          0.0.0.0:0              LISTENING       4242' 55400

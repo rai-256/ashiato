@@ -92,12 +92,12 @@ pub fn dispatch(run: fn() -> u32, stop: fn()) -> windows_service::Result<()> {
 }
 
 /// DB のサービスの状態を読み、停止なら開始できるハンドルを返す（D35）。
-pub fn query_db_service_state() -> Result<u32, String> {
+pub fn query_db_service_state(service_name: &str) -> Result<u32, String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|error| error.to_string())?;
     let service = manager
         .open_service(
-            "ashiato-db",
+            service_name,
             ServiceAccess::QUERY_STATUS | ServiceAccess::START,
         )
         .map_err(|error| error.to_string())?;
@@ -107,12 +107,12 @@ pub fn query_db_service_state() -> Result<u32, String> {
         .map_err(|error| error.to_string())
 }
 
-pub fn start_db_service() -> Result<(), String> {
+pub fn start_db_service(service_name: &str) -> Result<(), String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|error| error.to_string())?;
     let service = manager
         .open_service(
-            "ashiato-db",
+            service_name,
             ServiceAccess::QUERY_STATUS | ServiceAccess::START,
         )
         .map_err(|error| error.to_string())?;

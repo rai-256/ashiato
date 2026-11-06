@@ -845,10 +845,24 @@ fn db_watch_acl_command(layout: &Layout) -> SetupCommand {
     let sid = service_sid(layout.server_service);
     let ace = format!("(A;;LCRP;;;{sid})");
     SetupCommand::powershell(format!(
-        "$s = (sc.exe sdshow {db} | Select-Object -Last 1).Trim(); $a = '{ace}'; if ($s -notmatch [regex]::Escape($a)) {{ sc.exe sdset {db} ($s + $a) | Out-Null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }} }}",
+        "$s = (sc.exe sdshow {db} | Select-Object -Last 1).Trim(); $a = '{ace}'; if ($s -notmatch [regex]::Escape($a)) {{ $d = $s.IndexOf('S:'); if ($d -ge 0) {{ $s = $s.Insert($d, $a) }} else {{ $s += $a }}; sc.exe sdset {db} $s | Out-Null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }} }}",
         db = layout.db_service,
         ace = ace,
     ))
+}
+
+pub fn add_db_watch_ace(sddl: &str, ace: &str) -> String {
+    if sddl.contains(ace) {
+        return sddl.to_owned();
+    }
+    sddl.find("S:").map_or_else(
+        || format!("{sddl}{ace}"),
+        |sacl_start| {
+            let mut result = sddl.to_owned();
+            result.insert_str(sacl_start, ace);
+            result
+        },
+    )
 }
 
 /// 「アプリと機能」の登録（段 (12)。D25）。`UninstallString` は引数として直に渡す（PowerShell を通すと
