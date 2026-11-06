@@ -1310,29 +1310,29 @@ mod tests {
             ]
         );
         let grant = commands::temporary_write_acl_commands(&release, "S-1-5-21-admin");
-        assert_eq!(grant.len(), 12);
+        assert_eq!(grant.len(), 10);
         for (commands, path) in grant
-            .chunks(6)
+            .chunks(5)
             .zip(commands::temporary_write_paths(&release))
         {
             assert_eq!(commands[0].program, "takeown");
-            assert_eq!(commands[0].args, ["/F", &path, "/A"]);
+            // 別管理者 B は、最初に B 自身を持ち主にして ACL を変更できるようにする。
+            // `/A` では Administrators の所有者になっても B のトークンには WRITE_DAC が渡らず、
+            // 次の `/grant` が Access is denied で止まる。
+            assert_eq!(commands[0].args, ["/F", &path]);
             assert_eq!(
                 commands[1].args[1..],
-                ["/grant", "*S-1-5-32-544:(OI)(CI)F", "/L"]
-            );
-            assert_eq!(
-                commands[2].args[1..],
                 ["/grant", "*S-1-5-21-admin:(OI)(CI)M", "/L"]
             );
-            assert_eq!(commands[3].program, "takeown");
-            assert_eq!(commands[3].args, ["/F", &path, "/A", "/R", "/D", "Y"]);
+            assert_eq!(commands[2].program, "takeown");
+            assert_eq!(commands[2].args, ["/F", &path, "/R", "/D", "Y"]);
             assert_eq!(
-                commands[4].args[1..],
+                commands[3].args[1..],
                 ["/grant", "*S-1-5-21-admin:(OI)(CI)M", "/L"]
             );
-            assert_eq!(commands[5].program, "takeown");
-            assert_eq!(commands[5].args, ["/F", &path, "/A", "/R", "/D", "Y"]);
+            // 一時の書込みを渡した後だけ Administrators を持ち主へ戻す。
+            assert_eq!(commands[4].program, "takeown");
+            assert_eq!(commands[4].args, ["/F", &path, "/A", "/R", "/D", "Y"]);
         }
         let remove = lines(&commands::remove_temporary_write_acl_commands(&release));
         assert!(remove.contains("settings /reset"));
