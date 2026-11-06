@@ -458,6 +458,47 @@ pub fn temporary_write_paths(layout: &Layout) -> [String; 2] {
     ]
 }
 
+/// 管理者が持つ `SeRestorePrivilege` をこのプロセスで有効にしてから `icacls` を起こす。
+/// 閉じた既存の状態の置き場では、`takeown` の後でも所有者の暗黙の `WRITE_DAC` が使えないことが
+/// あるため、最初の一時 ACL を DACL に依存せず付ける。`SeRestorePrivilege` は管理者の token に
+/// 割り当て済みだが、通常は無効なので `AdjustTokenPrivileges` で有効にする。
+fn restore_privileged_grant_command(path: String, sid: &str) -> SetupCommand {
+    let path_for_ps = path.replace('\'', "''");
+    let grant = format!("*{sid}:(OI)(CI)M");
+    SetupCommand::powershell(format!(
+        r#"$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+public static class AshiatoRestorePrivilege {{
+  [StructLayout(LayoutKind.Sequential)] private struct Luid {{ public uint LowPart; public int HighPart; }}
+  [StructLayout(LayoutKind.Sequential)] private struct TokenPrivileges {{ public uint Count; public Luid Luid; public uint Attributes; }}
+  [DllImport("advapi32.dll", SetLastError=true)] private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern bool LookupPrivilegeValue(string system, string name, out Luid luid);
+  [DllImport("advapi32.dll", SetLastError=true)] private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, uint length, IntPtr previous, IntPtr returnedLength);
+  [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(IntPtr handle);
+  public static void Enable() {{
+    IntPtr token;
+    if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x28, out token)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    try {{
+      Luid luid;
+      if (!LookupPrivilegeValue(null, "SeRestorePrivilege", out luid)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      var state = new TokenPrivileges {{ Count = 1, Luid = luid, Attributes = 2 }};
+      if (!AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      int error = Marshal.GetLastWin32Error();
+      if (error != 0) throw new Win32Exception(error);
+    }} finally {{ CloseHandle(token); }}
+  }}
+}}
+'@
+[AshiatoRestorePrivilege]::Enable()
+& icacls.exe '{path_for_ps}' /grant '{grant}' /L
+exit $LASTEXITCODE"#
+    ))
+}
+
 /// 一時の書きを足す。走らせ直した管理者には、まず書込みを足す。先に `/reset` すると、本人以外の
 /// 管理者は権限が無い状態で ACL の変更を求められて止まる。前の回の明示の ACE は終了時の `/reset` で消す。
 pub fn temporary_write_acl_commands(layout: &Layout, sid: &str) -> Vec<SetupCommand> {
@@ -465,26 +506,24 @@ pub fn temporary_write_acl_commands(layout: &Layout, sid: &str) -> Vec<SetupComm
         .into_iter()
         .flat_map(|path| {
             [
-                // 既存の状態では本人だけが ACL に載る。別の上がった管理者 B は、先に B 自身を
-                // 持ち主にして WRITE_DAC を得てから、B の SID に一時の書込みを渡す。`/A` で
-                // Administrators を持ち主にしても B のトークンにはこの権限が渡らず、最初の
-                // `/grant` が終了コード 5 になる。この後、終了前に `/A` で持ち主を戻す。
-                // 先に対象自身へ書込みを足す。閉じた対象を最初から `/R` でたどると、子を列挙できず
-                // `takeown` が拒まれる（run 42033565997）。
-                SetupCommand::new("takeown", ["/F".to_owned(), path.clone()]),
-                icacls([path.clone(), "/grant".into(), format!("*{sid}:(OI)(CI)M")]),
-                // 上の一時の書込みで子を列挙して持ち主も付け替える。最後にもう一度継承することで、
-                // 前の回の管理者が持ち主だった既存の `server.json` などにも今回の書込みを届かせる。
+                // 既存の状態では本人だけが ACL に載る。管理者 B が所有者になっても、暗黙の
+                // WRITE_DAC に頼る `icacls /grant` は終了コード 5 になった（run 42153449016）。
+                // 最初の一時 ACL は管理者の SeRestorePrivilege で付ける。これで親を読めるので、
+                // 子も含めた所有者の回復と一時 ACL の付与ができる。
+                restore_privileged_grant_command(path.clone(), sid),
                 SetupCommand::new(
                     "takeown",
                     [
                         "/F".to_owned(),
                         path.clone(),
+                        "/A".to_owned(),
                         "/R".to_owned(),
                         "/D".to_owned(),
                         "Y".to_owned(),
                     ],
                 ),
+                // 上の一時の書込みで子を列挙できるので、Administrators を持ち主に戻す。前の回の
+                // 管理者が持ち主だった `server.json` などにも今回の書込みを届かせる。
                 icacls([path.clone(), "/grant".into(), format!("*{sid}:(OI)(CI)M")]),
                 // 一時の書込みを足せた後は、子を含む持ち主を Administrators へ戻す。`/reset` が
                 // ACE を外しても今回の管理者が持ち主のまま残り、ACL を戻せる状態にならないようにする。
