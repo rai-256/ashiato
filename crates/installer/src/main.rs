@@ -445,7 +445,7 @@ impl<'a> DatabaseWrite<'a> {
             active: true,
         };
         run_all(
-            &commands::database_write_acl_commands(layout, invoking),
+            &commands::database_write_acl_commands(layout, invoking, owner),
             trace,
         )?;
         Ok(guard)

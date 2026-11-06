@@ -462,7 +462,13 @@ pub fn temporary_write_paths(layout: &Layout) -> [String; 2] {
 /// 閉じた既存の状態の置き場では、`takeown` の後でも所有者の暗黙の `WRITE_DAC` が使えないことが
 /// ある。`icacls` は backup semantics で対象を開かないため、同じプロセスが `CreateFile` で
 /// `READ_CONTROL | WRITE_DAC` のハンドルを開き、DACL を読んでから更新する。
-fn restore_privileged_grant_command(path: String, sid: &str) -> SetupCommand {
+fn privileged_ace_command(
+    path: String,
+    sid: &str,
+    mask: u32,
+    mode: u32,
+    inherit: u32,
+) -> SetupCommand {
     let path_for_ps = path.replace('\'', "''");
     SetupCommand::powershell(format!(
         r#"$ErrorActionPreference = 'Stop'
@@ -505,7 +511,7 @@ public static class AshiatoRestorePrivilege {{
       if (error != 0) throw new Win32Exception(error);
     }} finally {{ CloseHandle(token); }}
   }}
-  public static void GrantModify(string path, string sidText) {{
+  public static void Apply(string path, string sidText, uint mask, uint mode, uint inherit) {{
     Enable("SeBackupPrivilege"); Enable("SeRestorePrivilege");
     IntPtr handle = CreateFile(path, READ_CONTROL | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
     if (handle == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -513,7 +519,7 @@ public static class AshiatoRestorePrivilege {{
     try {{
       Check(GetSecurityInfo(handle, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, out oldAcl, IntPtr.Zero, out descriptor));
       if (!ConvertStringSidToSid(sidText, out sid)) throw new Win32Exception(Marshal.GetLastWin32Error());
-      var access = new ExplicitAccess {{ AccessPermissions = MODIFY, AccessMode = GRANT_ACCESS, Inheritance = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE, Trustee = new Trustee {{ TrusteeForm = 0, TrusteeType = 0, Name = sid }} }};
+      var access = new ExplicitAccess {{ AccessPermissions = mask, AccessMode = mode, Inheritance = inherit, Trustee = new Trustee {{ TrusteeForm = 0, TrusteeType = 0, Name = sid }} }};
       entries = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(ExplicitAccess)));
       Marshal.StructureToPtr(access, entries, false);
       Check(SetEntriesInAcl(1, entries, oldAcl, out newAcl));
@@ -525,8 +531,27 @@ public static class AshiatoRestorePrivilege {{
   }}
 }}
 '@
-[AshiatoRestorePrivilege]::GrantModify('{path_for_ps}', '{sid}')"#
+[AshiatoRestorePrivilege]::Apply('{path_for_ps}', '{sid}', {mask}, {mode}, {inherit})"#
     ))
+}
+
+/// 一時の書き（M・子へ継ぐ）を特権で足す。
+fn restore_privileged_grant_command(path: String, sid: &str) -> SetupCommand {
+    // MODIFY・GRANT_ACCESS・OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+    privileged_ace_command(path, sid, 0x0013_01BF, 1, 1 | 2)
+}
+
+/// 状態の置き場の根だけを見る権限（RX・子へ継がない）を特権で足す。別の利用者を本人として渡した
+/// インストールでは、上がった管理者は根の ACL に載らず、initdb が根を見られずに「File exists」で落ちた
+/// （run 42209316618）。
+fn root_traverse_grant_command(layout: &Layout, sid: &str) -> SetupCommand {
+    // READ_EXECUTE（FILE_GENERIC_READ | FILE_GENERIC_EXECUTE）・GRANT_ACCESS・継がない
+    privileged_ace_command(layout.state_dir.to_owned(), sid, 0x0012_00A9, 1, 0)
+}
+
+/// 上の根の権限を外す（REVOKE_ACCESS は、その主体の明示の ACE を全部外す）。
+fn root_traverse_revoke_command(layout: &Layout, sid: &str) -> SetupCommand {
+    privileged_ace_command(layout.state_dir.to_owned(), sid, 0, 4, 0)
 }
 
 /// 一時の書きを足す。走らせ直した管理者には、まず書込みを足す。先に `/reset` すると、本人以外の
@@ -585,11 +610,22 @@ pub fn remove_temporary_write_acl_commands(layout: &Layout) -> Vec<SetupCommand>
 
 /// `initdb` と DB の設定を書く間だけ、DB の置き場に上がった利用者の書きを足す。
 /// DB のサービスを起こす前（中のファイルの持ち主がまだインストーラ）にだけ使う。
-pub fn database_write_acl_commands(layout: &Layout, sid: &str) -> Vec<SetupCommand> {
-    vec![restore_privileged_grant_command(
+pub fn database_write_acl_commands(
+    layout: &Layout,
+    sid: &str,
+    owner_sid: &str,
+) -> Vec<SetupCommand> {
+    let mut commands = Vec::new();
+    // 本人と上がった管理者が違うと、管理者は根の ACL に載らない。initdb が根をたどれるよう、根だけを見る権限を
+    // 一時に足す（本人と同じなら本人の RX があり、外すときに本人の ACE まで外さないよう足さない）
+    if sid != owner_sid {
+        commands.push(root_traverse_grant_command(layout, sid));
+    }
+    commands.push(restore_privileged_grant_command(
         format!(r"{}\db", layout.state_dir),
         sid,
-    )]
+    ));
+    commands
 }
 
 /// DB の置き場の一時の書きを外し、DB のサービスの書きと本人の読みだけに戻す。
@@ -608,6 +644,7 @@ pub fn remove_database_write_acl_commands(
     ])];
     if invoking_sid != owner_sid {
         commands.push(icacls([db, "/remove:g".into(), format!("*{invoking_sid}")]));
+        commands.push(root_traverse_revoke_command(layout, invoking_sid));
     }
     commands
 }

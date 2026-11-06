@@ -1386,11 +1386,52 @@ mod tests {
     }
 
     #[test]
+    fn st55_other_owner_install_lets_the_admin_traverse_the_state_root_only_while_writing() {
+        // Scenario: 上がった方が別の管理者でも、本人は上がる前に控えた利用者になる
+        // 本人と違う管理者は根の ACL に載らず、initdb が根を見られずに落ちた（run 42209316618）。
+        // DB を書く間だけ根の RX（継がない）を足し、書き終えたら外す
+        let release = layout::Layout::release();
+        let grant =
+            commands::database_write_acl_commands(&release, "S-1-5-21-admin", "S-1-5-21-owner");
+        assert_eq!(grant.len(), 2);
+        let root = grant[0].args.last().expect("PowerShell script");
+        assert!(root.contains(r"'C:\ProgramData\ashiato'"));
+        assert!(root.contains("'S-1-5-21-admin', 1179817, 1, 0)"));
+        let remove = commands::remove_database_write_acl_commands(
+            &release,
+            "S-1-5-21-admin",
+            "S-1-5-21-owner",
+        );
+        let revoke = remove
+            .last()
+            .expect("revoke")
+            .args
+            .last()
+            .expect("PowerShell script");
+        assert!(revoke.contains("'S-1-5-21-admin', 0, 4, 0)"));
+        // 本人と同じなら根には触れない（外すときに本人の ACE まで外さない）
+        let same = commands::remove_database_write_acl_commands(
+            &release,
+            "S-1-5-21-owner",
+            "S-1-5-21-owner",
+        );
+        assert!(same.iter().all(|c| c.program != "powershell.exe"));
+        assert_eq!(
+            commands::database_write_acl_commands(&release, "S-1-5-21-owner", "S-1-5-21-owner")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn st55_repair_database_write_grant_uses_restore_privilege() {
         // 別管理者は DB の DACL を通常の icacls では開けない。repair が一時の M を
         // 足す最初の更新は、既存の設定・退避場所と同じ特権付きハンドルで行う。
-        let commands =
-            commands::database_write_acl_commands(&layout::Layout::release(), "S-1-5-21-admin");
+        let commands = commands::database_write_acl_commands(
+            &layout::Layout::release(),
+            "S-1-5-21-admin",
+            "S-1-5-21-admin",
+        );
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].program, "powershell.exe");
         let script = commands[0].args.last().expect("PowerShell script");
