@@ -93,8 +93,31 @@ fn output_tail(output: &std::process::Output) -> String {
 
 /// 命令を起こし、失敗なら理由を返す。命令には秘密を載せないので、記録の行にも秘密は出ない。
 fn run(command: &SetupCommand, trace: bool) -> Result<(), String> {
-    // `output()` は、起こした命令がさらに常駐する子を作ると、子が継承した pipe を閉じるまで待つ。
-    // repair の pg_ctl は PostgreSQL を起こすため、親の終了だけを待つ `status()` と null の標準ハンドルを使う。
+    let output = Command::new(&command.program)
+        .args(&command.args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("{} を起こせない: {error}", command.program))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} が失敗した (終了コード {:?}): {}",
+            command.line(),
+            output.status.code(),
+            output_tail(&output)
+        ));
+    }
+    if trace {
+        terminal_line(&format!("result=ok {}", command.line()), false);
+    }
+    Ok(())
+}
+
+/// 常駐する子を起こす命令（repair の `pg_ctl start`）を起こし、**親の終了だけ**を待つ。
+/// `output()` は子が継承した pipe を閉じるまで待つので、PostgreSQL が動く間ずっと戻らない
+/// （run 42163474147 の repair が 1 時間戻らなかった）。標準ハンドルを null にして `status()` で待つ。
+/// ほかの命令は `run` のまま（出力の末尾を理由に載せる。全部をこちらにすると、DB のサービスの
+/// 回復の Scenario が落ちるようになった。run 42175126266・42179701302）
+fn run_detached(command: &SetupCommand, trace: bool) -> Result<(), String> {
     let status = Command::new(&command.program)
         .args(&command.args)
         .stdin(Stdio::null())
@@ -1380,7 +1403,7 @@ fn repair(
         .map_err(|error| format!("一時の番号を読めない: {error}"))?
         .port();
     drop(listener);
-    run(
+    run_detached(
         &commands::repair_start_command(layout, &hba, &ident, &repair_log, temporary_port),
         trace,
     )?;
@@ -1522,7 +1545,8 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        expand_downloads_shell_folder, reg_query_value, run, Duration, Instant, SetupCommand,
+        expand_downloads_shell_folder, reg_query_value, run_detached, Duration, Instant,
+        SetupCommand,
     };
 
     #[test]
@@ -1541,7 +1565,7 @@ mod tests {
             SetupCommand::new("sh", ["-c", "sleep 2 &"])
         };
         let started = Instant::now();
-        run(&command, false).expect("親の command は子を待たずに終わる");
+        run_detached(&command, false).expect("親の command は子を待たずに終わる");
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "子孫が標準ハンドルを持つため親の終了を待った"
