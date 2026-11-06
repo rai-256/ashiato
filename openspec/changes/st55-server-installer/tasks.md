@@ -178,14 +178,14 @@
 
 ## Task 13: DB のサービスの見張り（D35）
 
-- [ ] 13.1 インストーラ（D35）: サービスの登録の後、`ashiato-db` のサービスの DACL に `NT SERVICE\ashiato-server` の SID の `(A;;LCRP;;;<SID>)` を足す命令（`sc.exe sdshow` の結果に足して `sc.exe sdset`。既にあれば足さない）を `configure_service_commands` の後に置く。
+- [x] 13.1 インストーラ（D35）: サービスの登録の後、`ashiato-db` のサービスの DACL に `NT SERVICE\ashiato-server` の SID の `(A;;LCRP;;;<SID>)` を足す命令（`sc.exe sdshow` の結果に足して `sc.exe sdset`。既にあれば足さない）を `configure_service_commands` の後に置く。
   試験（Linux。`crates/installer/src/lib.rs`）: 足す ACE が `LC`・`RP` だけで、`WP`（止める）・`DC`（設定）を含まないこと・既にある SDDL に重ねて足さないこと
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st55_db_watch_ && test "$(cargo test -p ashiato-setup st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0
-- [ ] 13.2 サーバ（D35）: `service` の口で 5 秒ごとに `ashiato-db` の状態を読み、サーバが動いている間に `STOPPED` なら `StartService` で起こし、`kind=db_service_restarted` をログに書く。判断は純粋な関数（`crates/server/src/service.rs`）、Windows の呼び出しは `crates/winsvc`。
+- [x] 13.2 サーバ（D35）: `service` の口で 5 秒ごとに `ashiato-db` の状態を読み、サーバが動いている間に `STOPPED` なら `StartService` で起こし、`kind=db_service_restarted` をログに書く。判断は純粋な関数（`crates/server/src/service.rs`）、Windows の呼び出しは `crates/winsvc`。
   試験（Linux。`crates/server/src/st55_tests.rs`）: `STOPPED` → 起こす・`RUNNING`/`START_PENDING`/`STOP_PENDING` → 何もしない・問い合わせが失敗 → 何もせず理由をログに書く
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st55_db_watch_ && test "$(cargo test -p ashiato-server st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 /
   `cargo clippy -p ashiato-server -p ashiato-winsvc --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
-- [ ] 13.3 `install-check.sh` の `DB のサービスが異常に終わると起こし直される` を spec の WHEN に戻す: pg_ctl（サービスの PID）でなく **PostgreSQL の主だけ**（`postmaster.pid` の先頭行）を `taskkill /F` で終わらせ、60 秒以内に `ashiato-db` が実行中になり 55400 が接続を受けることを見る。あわせて `sc.exe sdshow ashiato-db` にサーバの SID の `LCRP` があり、`WP` が無いことを見る
+- [x] 13.3 `install-check.sh` の `DB のサービスが異常に終わると起こし直される` を spec の WHEN に戻す: pg_ctl（サービスの PID）でなく **PostgreSQL の主だけ**（`postmaster.pid` の先頭行）を `taskkill /F` で終わらせ、60 秒以内に `ashiato-db` が実行中になり 55400 が接続を受けることを見る。あわせて `sc.exe sdshow ashiato-db` にサーバの SID の `LCRP` があり、`WP` が無いことを見る
   検証: `tools/release/install-check.sh --self-test` rc=0（実地は PR の CI の `install-windows`）
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
