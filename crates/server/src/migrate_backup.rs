@@ -226,6 +226,7 @@ mod tests {
     }
 
     /// 試験の一時フォルダ。試験の最後まで持つ（手放すと、その時点で中身ごと消える）。
+    #[cfg(unix)]
     fn tmp(name: &str) -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix(&format!("ashiato-mb-{name}-"))

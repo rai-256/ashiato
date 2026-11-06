@@ -79,7 +79,11 @@ build_server() {
   if [[ -n "$target" ]]; then
     binary+=".exe"
   fi
-  (cd "$root" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 ASHIATO_WEB_DIST="$web_dist" \
+  # 試験の zip（package.sh windows --test-build）のサーバだけは、試験の差し込み（ASHIATO_SERVICE_TEST_*）を
+  # 読む試験の組み立てにする（ST55 D24）。それ以外は今までどおり配る組み立て
+  local server_release=1
+  [[ "${ASHIATO_PACKAGE_TEST_BUILD:-}" == 1 ]] && server_release=0
+  (cd "$root" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE="$server_release" ASHIATO_WEB_DIST="$web_dist" \
     cargo build --release -p ashiato-server --bin ashiato-server "${cargo_args[@]}")
   mkdir -p "$out"
   local target_dir="${CARGO_TARGET_DIR:-$root/target}"
@@ -89,12 +93,95 @@ build_server() {
   [[ -f "$src" ]] || die "サーバの実行ファイルが無い: $src"
   make_license_bundle server "$target"
   if [[ "$target" == *windows* || "$binary" == *.exe ]]; then
-    archive_windows "$out/ashiato-server-$version-windows-x86_64.zip" "$src" "$license_bundle/licenses/LICENSE" "$license_bundle/licenses/SOURCE.txt" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt"
+    # インストーラも、同梱するサーバと同じ組み立て（配る / 試験）にする。呼び手の環境の ASHIATO_RELEASE を
+    # 読むと、配るサーバと試験の差し込みを持つインストーラが混ざる（review R55）
+    build_installer "$target" "$server_release"
+    build_postgres_bundle
+    local stage="$out/.ashiato-windows-stage"
+    rm -rf "$stage"; mkdir -p "$stage/pgsql"
+    cp "$src" "$stage/ashiato-server.exe"
+    cp "$installer_src" "$stage/ashiato-setup.exe"
+    # 中身を写す（`cp -a <dir> <既にある dir>` は中に <dir> ごと写し、pgsql/.pgsql-slim/bin になる。review R49）
+    cp -a "$pgsql_dir/." "$stage/pgsql/"
+    [[ -f "$stage/pgsql/bin/postgres.exe" ]] || die "Windows の zip の形が違う: pgsql/bin/postgres.exe が無い"
+    cp "$root/tools/db-roles.sql" "$stage/"
+    # 許諾の 3 点（ST53）。依存の一覧は notices.sh の全体の一覧に、同梱した PostgreSQL と DLL の節を足す
+    cp "$license_bundle/licenses/LICENSE" "$license_bundle/licenses/SOURCE.txt" "$stage/"
+    { cat "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt"; printf '\n'; windows_notices "$pgsql_dir"; } >"$stage/THIRD-PARTY-NOTICES.txt"
+    archive_directory "$out/ashiato-server-$version-windows-x86_64.zip" "$stage"
+    rm -rf "$stage" "$out/.pgsql-slim" "$out/.pgsql-cache" "$out/.pgsql-extracted"
   else
     tar -czf "$out/ashiato-server-$version-linux-x86_64.tar.gz" -C "$(dirname "$src")" "$binary" -C "$license_bundle/licenses" LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   fi
   cleanup_license_bundle
   cleanup_build_tmp
+}
+
+# サーバの Windows の zip に同梱する部品の許諾（ST55 D13。check-artifacts.sh が PostgreSQL の見出しを見る）。
+# 全体の一覧（FR-127）は ST53 の notices.sh が持つ。ここは同梱した PostgreSQL と DLL の節だけを書く
+windows_notices() {
+  local pgsql="$1"
+  printf '%s\n\n' 'THIRD-PARTY NOTICES (ashiato-server for Windows)'
+  printf '%s\n' '== PostgreSQL' \
+    "version: $(sed -n 's/^version=//p' "$root/tools/release/pgsql.lock")" \
+    'location: pgsql\ (full text: pgsql\LICENSES\postgresql-legalnotice.html)' ''
+  sed -e 's/<[^>]*>//g' "$pgsql/LICENSES/postgresql-legalnotice.html" | sed -e '/^[[:space:]]*$/d'
+  printf '\n%s\n' '== PostgreSQL bundled DLLs'
+  sed -n 's/^dlls=//p' "$root/tools/release/pgsql.lock" | tr ',' '\n'
+  printf '\n%s\n' '== Microsoft Visual C++ Runtime' \
+    'files: pgsql\bin\vcruntime140.dll, pgsql\bin\msvcp140.dll' \
+    'source: the Visual Studio redistributable folder (VC\Redist\MSVC\<version>\x64\Microsoft.VC14x.CRT)' \
+    'terms: Microsoft Visual Studio license terms, Distributable Code (app-local deployment of the Visual C++ runtime)'
+}
+
+# 同梱の PostgreSQL（EDB の MSVC の組み立て）の実行ファイルと DLL は VCRUNTIME140.dll（ICU は MSVCP140.dll も）を
+# 読む。まっさらな Windows にはこれが無いので、Visual Studio の再頒布の置き場から pgsql\bin に写す
+# （D33（仮）・review R28。Rust の 2 つは windows-gnu の組み立てで要らない）。置き場は ASHIATO_VC_CRT_DIR で渡せる
+bundle_vc_runtime() {
+  local bin="$1" crt="${ASHIATO_VC_CRT_DIR:-}" dll
+  if [[ -z "$crt" ]]; then
+    local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" install
+    [[ -x "$vswhere" ]] || die "VC の実行時の DLL の置き場が分からない（Visual Studio のある Windows で組むか、ASHIATO_VC_CRT_DIR を渡す）"
+    install="$("$vswhere" -latest -products '*' -property installationPath | tr -d '\r')"
+    [[ -n "$install" ]] || die 'Visual Studio の置き場が分からない'
+    crt="$(ls -d "$(cygpath -u "$install")"/VC/Redist/MSVC/*/x64/Microsoft.VC14*.CRT 2>/dev/null | sort -V | tail -n 1 || true)"
+  fi
+  for dll in vcruntime140.dll msvcp140.dll; do
+    [[ -f "$crt/$dll" ]] || die "VC の実行時の DLL が無い: ${crt:-（置き場なし）}/$dll"
+    cp "$crt/$dll" "$bin/$dll"
+  done
+}
+
+installer_src=""
+pgsql_dir=""
+build_installer() {
+  local target="$1" release="$2" binary="ashiato-setup.exe" args=()
+  [[ -n "$target" && "$target" != native ]] && args=(--target "$target")
+  (cd "$root" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE="$release" cargo build --release -p ashiato-setup --bin ashiato-setup "${args[@]}")
+  local target_dir="${CARGO_TARGET_DIR:-$root/target}" name="${target:+$target/}release/$binary"
+  [[ "$target" == native ]] && name="release/$binary"
+  installer_src="$target_dir/$name"
+  [[ -f "$installer_src" ]] || die "インストーラが無い: $installer_src"
+}
+
+remove_owned_pgsql_cache() {
+  local cache="$1" owned_cache="$2"
+  if [[ "$cache" == "$owned_cache" ]]; then
+    rm -rf "$cache"
+  fi
+}
+
+build_postgres_bundle() {
+  local cache="${PGSQL_CACHE_DIR:-$out/.pgsql-cache}" extracted="$out/.pgsql-extracted"
+  mkdir -p "$cache"
+  local archive; archive="$($root/tools/release/pgsql.sh fetch "$cache")"
+  rm -rf "$extracted"; mkdir -p "$extracted"
+  unzip -q "$archive" -d "$extracted"
+  pgsql_dir="$out/.pgsql-slim"
+  "$root/tools/release/pgsql.sh" slim "$extracted" "$pgsql_dir"
+  rm -rf "$extracted"
+  bundle_vc_runtime "$pgsql_dir/bin"
+  remove_owned_pgsql_cache "$cache" "$out/.pgsql-cache"
 }
 
 build_collector() {
@@ -156,6 +243,29 @@ archive_windows() {
   fi
 }
 
+# Windows PowerShell 5.1 の Compress-Archive は zip の中の場所を `\` 区切りで書く。
+# unzip が警告で rc=1 を返し、`pgsql/bin/postgres.exe` も見つからなくなるので、
+# .NET の ZipFile で entry 名を `/` 区切りにして自分で書く。
+zip_directory_command() {
+  local directory="$1" archive="$2"
+  printf '%s' "\$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem; \$root = (Resolve-Path -LiteralPath '$directory').ProviderPath.TrimEnd('\\', '/'); if (Test-Path -LiteralPath '$archive') { Remove-Item -LiteralPath '$archive' -Force }; \$zip = [System.IO.Compression.ZipFile]::Open('$archive', 'Create'); try { Get-ChildItem -LiteralPath \$root -Recurse -Force -File | ForEach-Object { [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(\$zip, \$_.FullName, \$_.FullName.Substring(\$root.Length + 1).Replace('\\', '/'), 'Optimal') } } finally { \$zip.Dispose() }"
+}
+
+archive_directory() {
+  local archive="$1" directory="$2"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$directory" && zip -q -r "$archive" .)
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    local ps_directory="$directory" ps_archive="$archive"
+    command -v cygpath >/dev/null 2>&1 && ps_directory="$(cygpath -w "$directory")" && ps_archive="$(cygpath -w "$archive")"
+    powershell.exe -NoProfile -NonInteractive -Command "$(zip_directory_command "$ps_directory" "$ps_archive")"
+  elif command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -NonInteractive -Command "$(zip_directory_command "$directory" "$archive")"
+  else
+    die "Windows の zip を作る道具が無い（zip / PowerShell）"
+  fi
+}
+
 windows_target() {
   # Windows runner は native cargo が .exe を出す。WSL 等の Linux runner は
   # 呼び出し側が指定した cross target を使う（既定は GNU toolchain）。
@@ -202,9 +312,16 @@ build_one() {
 }
 
 self_test() {
-  local work
+  local work internal_cache external_cache
   work="$(mktemp -d "${TMPDIR:-/tmp}/release-build.XXXXXX")"
   trap "rm -rf '$work'" EXIT
+  internal_cache="$work/out/.pgsql-cache"
+  external_cache="$work/external-pgsql-cache"
+  mkdir -p "$internal_cache" "$external_cache"
+  remove_owned_pgsql_cache "$internal_cache" "$internal_cache"
+  [[ ! -e "$internal_cache" ]] || die '自分で作った PostgreSQL の cache を消せない'
+  remove_owned_pgsql_cache "$external_cache" "$internal_cache"
+  [[ -d "$external_cache" ]] || die '外から渡した PostgreSQL の cache を消した'
   # Windows の checkout は LICENSE を CRLF にすることがあるが、配布物には Git の
   # blob と同じバイト列を入れる（package-artifacts は Linux で blob と比べる）。
   local checkout="$work/checkout" expected="$work/expected-LICENSE" actual="$work/actual-LICENSE"

@@ -108,7 +108,19 @@ NOTICES
   printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$work/SOURCE.txt"
   local files=(stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
   tar -czf "$work/server-linux.tar.gz" -C "$work" "${files[@]}"
-  (cd "$work" && zip -q server-windows.zip "${files[@]}" && zip -q collector-windows.zip "${files[@]}")
+  (cd "$work" && zip -q collector-windows.zip "${files[@]}")
+  # サーバの Windows の zip は ST55 の形（インストーラ・同梱の PostgreSQL・db-roles.sql）に許諾の 3 点を足す
+  local win="$work/server-windows"
+  mkdir -p "$win/pgsql/bin"
+  cp "$work/stamp" "$win/ashiato-server.exe"
+  cp "$work/stamp" "$win/ashiato-setup.exe"
+  : >"$win/db-roles.sql"
+  : >"$win/pgsql/bin/postgres.exe"
+  : >"$win/pgsql/bin/vcruntime140.dll"
+  : >"$win/pgsql/bin/msvcp140.dll"
+  cp "$work/LICENSE" "$work/SOURCE.txt" "$win/"
+  { cat "$work/THIRD-PARTY-NOTICES.txt"; printf '\n%s\n' '== PostgreSQL' '== Microsoft Visual C++ Runtime'; } >"$win/THIRD-PARTY-NOTICES.txt"
+  (cd "$win" && zip -qr "$work/server-windows.zip" .)
   cat >"$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -176,7 +188,7 @@ if [[ "${1:-}" == run && "${2:-}" == download ]]; then
   [[ "${3:-}" == 42 && "${4:-}" == --name && "${5:-}" == release-package && "${6:-}" == --dir ]] || exit 21
   out="${7:?}"
   v="${DRAFT_SELF_TEST_VERSION:?}"
-  mkdir -p "$out"
+  mkdir -p "$out/server-fixture/pgsql/bin"
   stamp="$v+0000000000000000000000000000000000000000"
   printf '%s\n' "$stamp" >"$out/stamp"
   cp "$DRAFT_SELF_TEST_ROOT/LICENSE" "$out/LICENSE"
@@ -198,7 +210,15 @@ Apache License of play-services-location
 NOTICES
   printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$out/SOURCE.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$out" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt
-  (cd "$out" && zip -q "ashiato-server-$v-windows-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
+  printf '%s\n' "$stamp" >"$out/server-fixture/ashiato-server.exe"
+  printf '%s\n' "$stamp" >"$out/server-fixture/ashiato-setup.exe"
+  : >"$out/server-fixture/db-roles.sql"
+  : >"$out/server-fixture/pgsql/bin/postgres.exe"
+  : >"$out/server-fixture/pgsql/bin/vcruntime140.dll"
+  : >"$out/server-fixture/pgsql/bin/msvcp140.dll"
+  cp "$out/LICENSE" "$out/SOURCE.txt" "$out/server-fixture/"
+  { cat "$out/THIRD-PARTY-NOTICES.txt"; printf '\n%s\n' '== PostgreSQL' '== Microsoft Visual C++ Runtime'; } >"$out/server-fixture/THIRD-PARTY-NOTICES.txt"
+  (cd "$out/server-fixture" && zip -qr "../ashiato-server-$v-windows-x86_64.zip" .)
   (cd "$out" && zip -q "ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
   if [[ "${DRAFT_SELF_TEST_MISSING_APK:-0}" != 1 ]]; then
     cp "$out/stamp" "$out/classes.dex"
@@ -210,7 +230,7 @@ NOTICES
     cp "$out/SOURCE.txt" "$out/assets/licenses/SOURCE.txt"
     (cd "$out" && zip -q "ashiato-collector-$v.apk" classes.dex assets/licenses/LICENSE assets/licenses/THIRD-PARTY-NOTICES.txt assets/licenses/SOURCE.txt)
   fi
-  rm -rf "$out/stamp" "$out/classes.dex" "$out/LICENSE" "$out/THIRD-PARTY-NOTICES.txt" "$out/SOURCE.txt" "$out/assets"
+  rm -rf "$out/server-fixture" "$out/stamp" "$out/classes.dex" "$out/LICENSE" "$out/THIRD-PARTY-NOTICES.txt" "$out/SOURCE.txt" "$out/assets"
   # 検査していないファイルが置き場にあっても、下書きには載らないこと（R22）
   printf 'x\n' >"$out/extra.txt"
   exit 0

@@ -54,16 +54,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/pgsql-cache
+          key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
+          restore-keys: pgsql-
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
-      - run: tools/release/build.sh server-windows "$RUNNER_TEMP/release"
+      - run: tools/release/package.sh windows "$RUNNER_TEMP/release"
         shell: bash
         env:
           ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
-          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
-      - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/release"
-        shell: bash
-        env:
-          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_RELEASE: "1"
+          PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache"
           ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-windows, path: "${{ runner.temp }}/release" }
