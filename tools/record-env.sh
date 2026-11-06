@@ -64,6 +64,7 @@ P.Path(dst+".part").rename(dst)' "$1" "$2"; }
   printf '%s' '[{"header":"検索","title":"録画の確認 を検索しました","time":"2026-09-21T03:00:00Z","products":["Search"]}]' \
     >"$b/Takeout/My Activity/Search/MyActivity.json"
   zipdir "$a" "$ASHIATO_INBOX_DIR/rec-youtube.zip" || { echo "1 冊目を作れない"; return 1; }
+  # timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる取り込み待ち
   for i in $(seq 1 60); do
     shape="$(q "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$uid'::uuid LIMIT 1")"
     [ -n "$shape" ] && break; sleep 1
@@ -71,6 +72,7 @@ P.Path(dst+".part").rename(dst)' "$1" "$2"; }
   [ -n "$shape" ] || { echo "1 冊目が形の確認待ちにならない（60 秒）"; return 1; }
   DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' .env)" ASHIATO_ARCHIVE_USER_ID="$uid" tools/archive-shape.sh --confirm "$shape" >/dev/null 2>&1 \
     || { echo "tools/archive-shape.sh --confirm が落ちた"; return 1; }
+  # timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる取り込み待ち
   for i in $(seq 1 60); do
     status="$(st)"
     printf '%s' "$status" | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d.get("latest_archive") or {}; sys.exit(0 if l.get("file_name")=="rec-youtube.zip" and l.get("outcome") not in ("pending_shape",None) else 1)' 2>/dev/null && break
@@ -78,6 +80,7 @@ P.Path(dst+".part").rename(dst)' "$1" "$2"; }
   done
   [ -n "$status" ] || { echo "1 冊目が取り込まれない（60 秒）"; return 1; }
   zipdir "$b" "$ASHIATO_INBOX_DIR/rec-pending.zip" || { echo "2 冊目を作れない"; return 1; }
+  # timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる取り込み待ち
   for i in $(seq 1 60); do
     st | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d.get("latest_archive") or {}; sys.exit(0 if d.get("pending_shape") and l.get("file_name")=="rec-pending.zip" and l.get("outcome")=="pending_shape" else 1)' 2>/dev/null && break
     sleep 1
@@ -208,6 +211,7 @@ EOF
   SERVER_BIN="$WT/.rec-bin/ashiato-server" WEB_DIST="$WT/web/dist" WEB_PORT="$web" STACK_RESET=1 SEED=normal \
     ./tools/stack.sh up &
   local stack=$! i
+  # timing-ok: 300 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
   for i in $(seq 1 300); do
     # stack.sh の「画面:」の行は、画面の待ち受けと網の外への口の検査の後に出る
     [ -n "$(ss -ltnH "sport = :$web" 2>/dev/null)" ] && curl -sf "http://127.0.0.1:$api/healthz" >/dev/null && break

@@ -48,6 +48,7 @@ echo "== 2. 移行を当ててからサーバを起動（サーバは移行を�
 cargo build -q -p ashiato-server --bin ashiato-server
 MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate   # 縦串の DB は毎回作り直す使い捨て（退避しない）
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
 # 画面の合言葉でログインした印で読む（ST44 D13）。失敗は理由を出して止まる（/code-review R22）
@@ -168,13 +169,15 @@ mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube 2"
 printf '%s' '[{"time":"2026-09-11T03:00:00Z","title":"smoke2 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke2","products":["YouTube"]}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube 2/watch-history.json"
 (cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
-for _ in $(seq 1 15); do
+shape_started=$SECONDS
+shape_deadline=$((shape_started + 30))
+while (( SECONDS < shape_deadline )); do
   SHAPE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
     -c "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$ARCHIVE_USER'::uuid LIMIT 1")
   [ -n "$SHAPE" ] && break
   sleep 1
 done
-[ -n "${SHAPE:-}" ] || { echo "書庫の形が確認待ちにならない"; exit 1; }
+[ -n "${SHAPE:-}" ] || { echo "書庫の形が確認待ちにならない（待った $((SECONDS - shape_started)) 秒、最後に見た値: ${SHAPE:-空}）"; exit 1; }
 # Scenario: 形の確認の出力に見分けた中身と製品の名前と件数が出る
 # 引数なしの一覧（本人が最初に叩く形）。`-c` で渡していたときは必ず構文エラーで落ちた（R49）
 listing=$(tools/archive-shape.sh) || { echo "形の一覧が落ちる"; exit 1; }
@@ -187,15 +190,18 @@ marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
 # 画面と同じく `user_id` を付けずに読む（R47。必須にしていたときは 400 だった）
 curl -sf "${READ[@]}" "http://$BIND/archives/status" >/dev/null \
   || { echo "/archives/status が user_id 無しで読めない（画面の箱が必ず失敗になる）"; exit 1; }
-for _ in $(seq 1 15); do
+status_started=$SECONDS
+status_deadline=$((status_started + 30))
+while (( SECONDS < status_deadline )); do
   status=$(curl -sf "${READ[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
   if printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null; then break; fi
   sleep 1
 done
 printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null \
-  || { echo "書庫の最終日が /archives/status に出ない: $status"; exit 1; }
+  || { echo "書庫の最終日が /archives/status に出ない（待った $((SECONDS - status_started)) 秒、最後に見た値: $status）"; exit 1; }
 before=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
 cp "$ASHIATO_INBOX_DIR/取り込み済み/takeout-smoke.zip" "$ASHIATO_INBOX_DIR/takeout-smoke-again.zip"
+# timing-ok: D12。別名の同じ書庫で件数が増えない短い窓を見る
 sleep 3
 after=$(curl -sf "${READ[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
 [ "$before" = "$after" ] || { echo "別名の同じ書庫で稼働状況の件数が増えた: $before -> $after"; exit 1; }
@@ -208,13 +214,15 @@ mkdir -p "$NOPHRASE_FIXTURE/Takeout/YouTube"
 printf '%s' '[{"time":"2026-09-10T03:00:00Z","title":"Look at this","titleUrl":"https://www.youtube.com/watch?v=nophrase"}]' \
   > "$NOPHRASE_FIXTURE/Takeout/YouTube/watch-history.json"
 (cd "$NOPHRASE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-nophrase.zip" Takeout)
-for _ in $(seq 1 15); do
+nophrase_started=$SECONDS
+nophrase_deadline=$((nophrase_started + 30))
+while (( SECONDS < nophrase_deadline )); do
   NOPHRASE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
     -c "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$ARCHIVE_USER'::uuid AND shape->'languages' = '[]'::jsonb LIMIT 1")
   [ -n "$NOPHRASE" ] && break
   sleep 1
 done
-[ -n "${NOPHRASE:-}" ] || { echo "言語の当たらない YouTube の形が確認待ちにならない"; exit 1; }
+[ -n "${NOPHRASE:-}" ] || { echo "言語の当たらない YouTube の形が確認待ちにならない（待った $((SECONDS - nophrase_started)) 秒、最後に見た値: ${NOPHRASE:-空}）"; exit 1; }
 marks_before=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM core.archive_shape_confirmation")
 # 理由の控えは worktree ごとに別の場所へ（固定の /tmp だと並走する worktree の smoke と取り合う）。
 # $ARCHIVE_ROOT は mktemp -d で、cleanup が消す。

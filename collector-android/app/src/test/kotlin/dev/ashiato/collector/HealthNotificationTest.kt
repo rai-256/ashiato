@@ -153,7 +153,9 @@ class HealthNotificationTest {
         val tookMs = (System.nanoTime() - began) / 1_000_000
 
         assertEquals(before + 2, locationBeats())
-        assertTrue("上限で諦めていない（${tookMs}ms）", tookMs < 10_000)
+        // 打ち切り（design D6）: 相手は `awaitCancellation()` で返らない（上限なし）ので、相手は既に十分長い。
+        // 確かめの上限を実時間の 30 秒にそろえる。上限 100ms が効けば普段の所要時間は変わらない
+        assertTrue("上限で諦めていない（${tookMs}ms）", tookMs < 30_000)
         assertTrue(
             "諦めたことが種別で残っていない",
             org.robolectric.shadows.ShadowLog.getLogsForTag(LocationService.TAG)

@@ -105,6 +105,6 @@ class ForegroundServiceTypeInstrumentedTest {
     }
 
     private companion object {
-        const val LOG_TIMEOUT_MS = 20_000L
+        const val LOG_TIMEOUT_MS = 30_000L
     }
 }

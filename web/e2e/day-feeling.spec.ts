@@ -29,8 +29,8 @@ async function open(page: Page, day: string): Promise<void> {
   await page.goto(`/#/day/${day}`);
   await page.reload();
   await expect(page.getByTestId("day-view")).toBeVisible();
-  await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByTestId("day-feeling-text")).not.toContainText("読み込み中", { timeout: 15_000 });
+  await expect(page.getByTestId("day-loading")).toBeHidden();
+  await expect(page.getByTestId("day-feeling-text")).not.toContainText("読み込み中");
 }
 
 const head = (page: Page) => page.getByTestId("day-feeling");
@@ -96,7 +96,7 @@ test("「書く」を押すと、その日を対象にした主観入力の画�
   await open(page, "2026-09-08");
   await head(page).getByRole("link", { name: "書く" }).click();
   await expect(page).toHaveURL(/#\/feel\/2026-09-08$/);
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   await expect(page.getByTestId("feel-title")).toContainText("9 月 8 日");
 });
 

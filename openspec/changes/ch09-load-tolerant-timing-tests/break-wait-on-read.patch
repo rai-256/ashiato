@@ -1,0 +1,15 @@
+diff --git a/crates/collector-windows/src/history/collect.rs b/crates/collector-windows/src/history/collect.rs
+--- a/crates/collector-windows/src/history/collect.rs
++++ b/crates/collector-windows/src/history/collect.rs
+@@ -405,6 +405,11 @@ impl HistoryCollector {
+     ) -> Option<anyhow::Result<usize>> {
+         if let Stage::Reading(worker) = &self.stage {
+             if !worker.is_finished() {
++                let Stage::Reading(worker) = std::mem::replace(&mut self.stage, Stage::Idle)
++                else {
++                    unreachable!()
++                };
++                let _ = worker.join();
+                 return None;
+             }
+             let Stage::Reading(worker) = std::mem::replace(&mut self.stage, Stage::Idle) else {

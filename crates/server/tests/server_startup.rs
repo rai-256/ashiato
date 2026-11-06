@@ -119,7 +119,7 @@ fn url_as(user: &str, password: &str) -> String {
     format!("{scheme}://{user}:{password}@{host}")
 }
 
-/// 与えた接続先でサーバを起動する。**拒まれなければ待ち続けるので、拒まれない場合に備えて 20 秒で殺す。**
+/// 与えた接続先でサーバを起動する。**拒まれなければ待ち続けるので、拒まれない場合に備えて 30 秒で殺す。**
 fn start_with(database_url: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ashiato-server"))
         .env_clear()
@@ -132,7 +132,7 @@ fn start_with(database_url: &str) -> Output {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while child.try_wait().unwrap().is_none() {
         if std::time::Instant::now() > deadline {
             child.kill().unwrap();
@@ -211,9 +211,9 @@ fn server_cmd() -> Command {
     c
 }
 
-/// 終わるまで待つ（20 秒で殺す）。
+/// 終わるまで待つ（30 秒で殺す）。
 fn wait_exit(mut child: std::process::Child) -> Output {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while child.try_wait().unwrap().is_none() {
         if std::time::Instant::now() > deadline {
             child.kill().unwrap();
@@ -286,7 +286,7 @@ fn server_startup_bind_default_is_loopback_only() {
         .env("DATABASE_URL", env("DATABASE_URL"))
         .spawn()
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut addrs = Vec::new();
     while std::time::Instant::now() < deadline {
         addrs = listening_addrs(child.id());
@@ -482,7 +482,7 @@ fn server_startup_web_password_missing_or_short_refuses() {
     assert_kind_refused(&out, "bind_unspecified");
 }
 
-/// 起動したサーバの標準出力（ログ）を、`done` が真になる行が出るまで読む（20 秒で諦める）。読み終えたらサーバを止める。
+/// 起動したサーバの標準出力（ログ）を、`done` が真になる行が出るまで読む（30 秒で諦める）。読み終えたらサーバを止める。
 fn log_until(mut cmd: Command, done: impl Fn(&str) -> bool) -> String {
     use std::io::BufRead as _;
     let mut child = cmd.spawn().unwrap();
@@ -498,7 +498,7 @@ fn log_until(mut cmd: Command, done: impl Fn(&str) -> bool) -> String {
             }
         }
     });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut seen = String::new();
     while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
         let Ok(line) = rx.recv_timeout(left) else {
@@ -1422,7 +1422,7 @@ mod st48_migrate {
     }
 
     impl Rig {
-        /// アプリの役割でサーバを起動する。落ちるか、`/healthz` が 200 になるか、20 秒で打ち切る。
+        /// アプリの役割でサーバを起動する。落ちるか、`/healthz` が 200 になるか、30 秒で打ち切る。
         fn serve(&self) -> Served {
             let port = std::net::TcpListener::bind("127.0.0.1:0")
                 .unwrap()
@@ -1451,7 +1451,7 @@ mod st48_migrate {
             // 取り込み器の置き場は既定（本人のホーム）を触らないよう、この試験の一時ディレクトリへ
             .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"));
             let mut child = cmd.spawn().unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             let mut healthy = false;
             while child.try_wait().unwrap().is_none() {
                 if healthz_ok(port) {

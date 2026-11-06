@@ -38,7 +38,7 @@ const stayBtn = (page: Page, name: string): Locator => stayRow(page).getByRole("
 
 async function openStays(page: Page, hash: string): Promise<void> {
   await page.goto(`/${hash}`);
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   await expect(page.getByTestId("feel-stays-loading")).toHaveCount(0);
   await expect(page.getByTestId("feel-stay-row").first()).toBeVisible();
 }
@@ -117,7 +117,7 @@ const valenceOf = (r: Stored): number | undefined => r.scales.find((s) => s.id =
 async function openAtNight(page: Page, day: string): Promise<void> {
   await page.clock.install({ time: at(day, "23:58") });
   await page.goto(`/#/feel/${day}`);
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
 }
 
 async function pressSaved(page: Page, testid: string): Promise<void> {

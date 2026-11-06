@@ -99,6 +99,7 @@ internal class HealthConnectScreens(private val context: Context) {
         val y = b.bottom - b.height() / 4
         for (f in listOf(0.6, 0.45, 0.75, 0.3, 0.9, 0.15)) {
             device.click((b.left + b.width() * f).toInt(), y)
+            // timing-ok: 各タップ後の説明画面への遷移を確認する操作単位の短い待ち。
             if (device.wait(Until.hasObject(By.pkg(context.packageName)), 2_000)) return
         }
         throw AssertionError("プライバシーポリシーの案内を押しても説明の画面が出ない（前面: ${device.currentPackageName}）")
@@ -115,7 +116,10 @@ internal class HealthConnectScreens(private val context: Context) {
         }
         device.openNotification()
         val selector = By.text(label)
-        if (!device.wait(Until.hasObject(selector), SHADE_TIMEOUT_MS)) {
+        // トレイが開いて常駐の通知の行が出るまでを条件の待ち（30 秒）にし、畳まれているかは短い窓で見る。
+        // 畳まれているのが普通の端末で、毎回 30 秒を使い切らない（review/code.md R26）
+        device.wait(Until.hasObject(By.text(ONGOING_TITLE)), SHADE_TIMEOUT_MS)
+        if (!device.wait(Until.hasObject(selector), SHADE_PROBE_MS)) {
             // 常駐の通知は「Silent」の節で畳まれる（上に OS の知らせ「画面ロックを設定」などが展開されていると）。その行の展開ボタンを押す
             device.findObject(
                 By.res("com.android.systemui", "expandableNotificationRow").hasDescendant(By.text(ONGOING_TITLE)),
@@ -187,9 +191,12 @@ internal class HealthConnectScreens(private val context: Context) {
     }
 
     companion object {
-        const val SCREEN_TIMEOUT_MS = 20_000L
-        const val SETTLE_MS = 20_000L
-        const val SHADE_TIMEOUT_MS = 5_000L
+        const val SCREEN_TIMEOUT_MS = 30_000L
+        const val SETTLE_MS = 30_000L
+        const val SHADE_TIMEOUT_MS = 30_000L
+
+        // timing-ok: 行が出た後、操作が見えるか（畳まれていないか）を見る窓。見えなければ展開して 30 秒待つ
+        const val SHADE_PROBE_MS = 5_000L
 
         /** 常駐の通知の題（`LocationService` の `setContentTitle`）。 */
         const val ONGOING_TITLE = "あしあと。"

@@ -17,7 +17,7 @@ async function openAll(page: Page): Promise<void> {
   for (const [i, path] of VIEWS.entries()) {
     await page.goto(path);
     await page.reload(); // ハッシュだけの遷移は読み直さない
-    await expect(page.locator(READY[i]!).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(READY[i]!).first()).toBeVisible();
   }
 }
 
@@ -53,7 +53,7 @@ test("画面を開いても読み込みの指示に反した報告は出ない",
   for (const [i, path] of VIEWS.entries()) {
     await page.goto(path);
     await page.reload();
-    await expect(page.locator(READY[i]!).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(READY[i]!).first()).toBeVisible();
     violations.push(...(await page.evaluate(() => (window as unknown as { __violations: string[] }).__violations)));
   }
   expect(violations).toEqual([]);

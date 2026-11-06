@@ -235,6 +235,7 @@ impl Drop for HelperWindow {
     fn drop(&mut self) {
         let _ = writeln!(self.stdin, "quit");
         let _ = self.stdin.flush();
+        // timing-ok: 終了通知を相手役が処理したか観測する口がなく、kill 前の余裕として残す。
         std::thread::sleep(Duration::from_millis(200));
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -306,9 +307,11 @@ fn focus_window_of(pid: u32) {
             cur = walker.get_next_sibling(&w).ok();
         }
         assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "pid {pid} の窓が見つからない"
+            start.elapsed() < Duration::from_secs(30),
+            "pid {pid} の窓が 30 秒以内に見つからない（待った時間: {:?}）",
+            start.elapsed()
         );
+        // timing-ok: UI Automation に窓が現れるまでの再試行間隔で、別の完了条件はない。
         std::thread::sleep(Duration::from_millis(200));
     }
 }
@@ -316,7 +319,7 @@ fn focus_window_of(pid: u32) {
 // ---------------------------------------------------------------------------
 // 観測と記録
 
-/// 前景が `want` を満たすまで、最長 `timeout` の間くり返し読む。
+/// 前景が `want` を満たすまで、最長 `timeout` の間くり返し読む。期限を過ぎたら、待った時間と最後に見た前景を出して落ちる。
 fn observe_until(
     source: &mut WindowsSource,
     timeout: Duration,
@@ -325,9 +328,16 @@ fn observe_until(
     let start = Instant::now();
     loop {
         let obs = source.observe(Utc::now());
-        if obs.foreground.as_ref().is_some_and(&want) || start.elapsed() > timeout {
+        if obs.foreground.as_ref().is_some_and(&want) {
             return obs;
         }
+        assert!(
+            start.elapsed() < timeout,
+            "前景が期待した状態にならない（待った時間: {:?}、上限: {:?}、最後に見た前景: {:?}）",
+            start.elapsed(),
+            timeout,
+            obs.foreground
+        );
         std::thread::sleep(Duration::from_millis(250));
     }
 }
@@ -338,6 +348,7 @@ fn run_for(source: &mut WindowsSource, engine: &mut Engine, secs: f64) -> Vec<Wi
     let start = Instant::now();
     while start.elapsed().as_secs_f64() < secs {
         out.extend(engine.observe(source.observe(Utc::now())));
+        // timing-ok: 指定秒数の観測窓そのものなので、条件待ちとして延ばさない。
         std::thread::sleep(Duration::from_millis(250));
     }
     out
@@ -361,7 +372,8 @@ fn run_until(
         }
         assert!(
             start.elapsed() < timeout,
-            "前景が期待した状態にならない（{:?} 待った）",
+            "前景が期待した状態にならない（待った時間: {:?}、上限: {:?}）",
+            start.elapsed(),
             timeout
         );
         std::thread::sleep(Duration::from_millis(250));
@@ -410,7 +422,7 @@ fn helper_window_is_observed_with_its_title() {
     let mut w = HelperWindow::open("ashiato-rt 足場");
     w.focus();
     let mut src = WindowsSource::open();
-    let obs = observe_until(&mut src, Duration::from_secs(5), |f| {
+    let obs = observe_until(&mut src, Duration::from_secs(30), |f| {
         f.process_name.eq_ignore_ascii_case("powershell.exe") && f.title == "ashiato-rt 足場"
     });
     let fg = obs
@@ -426,7 +438,7 @@ fn helper_window_is_observed_with_its_title() {
     assert_eq!(fg.url, UrlRead::NotBrowser, "{}", describe(&obs));
 
     w.set_title("ashiato-rt 足場 2");
-    let obs = observe_until(&mut src, Duration::from_secs(5), |f| {
+    let obs = observe_until(&mut src, Duration::from_secs(30), |f| {
         f.title == "ashiato-rt 足場 2"
     });
     assert_eq!(
@@ -446,7 +458,7 @@ fn switching_app_adds_one_record_with_the_new_app() {
     a.focus();
     let mut src = WindowsSource::open();
     let mut eng = engine(Vec::new());
-    let before = run_until(&mut src, &mut eng, Duration::from_secs(5), |f| {
+    let before = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.title == "ashiato-rt A"
     });
     assert_eq!(
@@ -462,7 +474,7 @@ fn switching_app_adds_one_record_with_the_new_app() {
     pages.wait_loaded(0);
     edge.focus();
     // 滞留を待たない —— 前景になった観測で即座に読む
-    let after = run_until(&mut src, &mut eng, Duration::from_secs(20), |f| {
+    let after = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.process_name.eq_ignore_ascii_case("msedge.exe")
     });
     let fg = foregrounds(&after);
@@ -492,7 +504,7 @@ fn rapid_title_changes_add_only_the_last_title() {
     a.focus();
     let mut src = WindowsSource::open();
     let mut eng = engine(Vec::new());
-    let before = run_until(&mut src, &mut eng, Duration::from_secs(5), |f| {
+    let before = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.title == "ashiato-rt T0"
     });
     assert_eq!(foregrounds(&before).len(), 1, "{}", summarize(&before));
@@ -501,6 +513,7 @@ fn rapid_title_changes_add_only_the_last_title() {
     let mut during = Vec::new();
     for i in 1..=10 {
         a.set_title(&format!("ashiato-rt T{i}"));
+        // timing-ok: 1 秒未満の題名変化を再現するための固定間隔で、観測条件ではない。
         std::thread::sleep(Duration::from_millis(120));
         during.extend(eng.observe(src.observe(Utc::now())));
     }
@@ -535,7 +548,7 @@ fn excluded_app_leaves_no_text_in_any_record() {
     let mut eng = engine(vec![Rule::ProcessName {
         value: "msedge.exe".into(),
     }]);
-    let mut all = run_until(&mut src, &mut eng, Duration::from_secs(5), |f| {
+    let mut all = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.title == "ashiato-rt A"
     });
 
@@ -545,7 +558,7 @@ fn excluded_app_leaves_no_text_in_any_record() {
     all.extend(run_until(
         &mut src,
         &mut eng,
-        Duration::from_secs(20),
+        Duration::from_secs(30),
         |f| {
             f.process_name.eq_ignore_ascii_case("msedge.exe")
                 && matches!(&f.url, UrlRead::Read(u) if u.contains("XK7"))
@@ -554,9 +567,12 @@ fn excluded_app_leaves_no_text_in_any_record() {
     all.extend(run_for(&mut src, &mut eng, 1.5));
     // 戻す —— 除外の区間が閉じて件数の記録が出る
     a.focus();
-    all.extend(run_until(&mut src, &mut eng, Duration::from_secs(8), |f| {
-        f.title == "ashiato-rt A"
-    }));
+    all.extend(run_until(
+        &mut src,
+        &mut eng,
+        Duration::from_secs(30),
+        |f| f.title == "ashiato-rt A",
+    ));
     all.extend(eng.flush(Utc::now()));
 
     let text = serde_json::to_string(&all).unwrap();
@@ -586,7 +602,7 @@ fn idle_enter_and_leave_are_both_recorded() {
     let mut src = WindowsSource::open();
     let mut eng = engine(Vec::new());
     a.input();
-    let mut all = run_until(&mut src, &mut eng, Duration::from_secs(5), |f| {
+    let mut all = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.title == "ashiato-rt idle"
     });
     // 入力を止めて閾値（2 秒）を超える
@@ -803,11 +819,17 @@ fn clock_skew_runtime() {
             .any(|text| text.contains("clock-skew"))
     };
     let started = Instant::now();
-    while !measured(&transport) && started.elapsed() < Duration::from_secs(20) {
+    while !measured(&transport) && started.elapsed() < Duration::from_secs(30) {
         rt.tick(&mut source);
         std::thread::sleep(Duration::from_millis(100));
     }
+    let measured_in_time = measured(&transport);
+    let waited = started.elapsed();
     rt.stop();
+    assert!(
+        measured_in_time,
+        "測定記録が期限 30 秒のうちに置き場にも送信にも出ない（待った時間: {waited:?}）"
+    );
     let state_after = w32time_running();
 
     let sent: Vec<serde_json::Value> = transport
@@ -1055,6 +1077,7 @@ impl Drop for Edge {
             .status();
         let _ = self.child.wait();
         // プロファイルは Edge が終わるのを待った後、フィールドの `TempDir` が消す
+        // timing-ok: プロファイル削除前の終了余裕で、観測できる完了条件がない。
         std::thread::sleep(Duration::from_millis(500));
     }
 }
@@ -1075,7 +1098,7 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
     let mut eng = engine(Vec::new());
     pages.wait_loaded(0);
     edge.focus();
-    let all = run_until(&mut src, &mut eng, Duration::from_secs(20), |f| {
+    let all = run_until(&mut src, &mut eng, Duration::from_secs(30), |f| {
         f.process_name.eq_ignore_ascii_case("msedge.exe")
             && matches!(&f.url, UrlRead::Read(u) if u.contains("/one"))
     });
@@ -1110,7 +1133,7 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
     let more = run_until(
         &mut src,
         &mut eng,
-        Duration::from_secs(20),
+        Duration::from_secs(30),
         |f| matches!(&f.url, UrlRead::Read(u) if u.contains("/two")),
     );
     let all: Vec<_> = all.into_iter().chain(more).collect();
@@ -1306,20 +1329,27 @@ mod outage_toast {
             .unwrap();
     }
 
-    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。
+    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。期限 30 秒を過ぎたら、待った時間と最後に見た件数を出して落ちる。
     fn wait_history(want: impl Fn(&[ToastNotification]) -> bool) -> Vec<ToastNotification> {
-        let end = Instant::now() + Duration::from_secs(10);
+        let start = Instant::now();
         loop {
             let h = history();
-            if want(&h) || Instant::now() > end {
+            if want(&h) {
                 return h;
             }
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "通知の履歴が期待した状態にならない（待った時間: {:?}、最後に見た件数: {}）",
+                start.elapsed(),
+                h.len()
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
 
     /// 契機ごとに 1 回、問い合わせ係を動かす。前の問い合わせが終わるまで待ってから呼ぶ。
     fn trigger(poller: &mut OutagePoller) {
+        // timing-ok: 前の問い合わせが完了したか観測できる口がなく、契機間の余裕として残す。
         std::thread::sleep(Duration::from_millis(500));
         poller.poll("dev-1");
     }
@@ -1529,6 +1559,7 @@ impl Drop for HistoryBrowser {
             .stderr(Stdio::null())
             .status();
         let _ = self.child.wait();
+        // timing-ok: Firefox の子プロセス終了後のプロファイル解放待ちで、観測できる完了条件がない。
         std::thread::sleep(Duration::from_millis(500));
     }
 }

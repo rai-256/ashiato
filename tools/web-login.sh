@@ -53,7 +53,16 @@ pathlib.Path(sys.argv[1]).write_text(str(server.server_port))
 server.serve_forever()
 PY
   self_test_pid=$!
-  for _ in $(seq 1 100); do [ -s "$self_test_root/port" ] && break; sleep 0.01; done
+  self_test_started=$SECONDS
+  self_test_deadline=$((self_test_started + 30))
+  while (( SECONDS < self_test_deadline )); do
+    [ -s "$self_test_root/port" ] && break
+    sleep 0.01
+  done
+  [ -s "$self_test_root/port" ] || {
+    echo "web-login: self-test の待ちが期限切れ（待った $((SECONDS - self_test_started)) 秒、最後に見た値: port ファイル無し）" >&2
+    return 1
+  }
   port=$(cat "$self_test_root/port")
   good=$(WEB_PASSWORD='self-test-password' login "http://127.0.0.1:$port")
   if [ "$good" != 'cookie: self_test_session=opaque-value' ]; then return 1; fi

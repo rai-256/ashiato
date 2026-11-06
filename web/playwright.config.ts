@@ -30,6 +30,8 @@ process.env.ASHIATO_E2E_SERVER_BIND = SERVER_BIND;
 
 export default defineConfig({
   testDir: "./e2e",
+  expect: { timeout: 30_000 },
+  timeout: 120_000,
   fullyParallel: false, // 1 つの DB を共有する。並列にすると偽データが互いを踏む
   workers: 1,
   forbidOnly: !!process.env.CI,

@@ -33,6 +33,7 @@ trap cleanup EXIT
 echo "== エミュレータを起動（画面なし）"
 emulator -avd "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
 adb wait-for-device
+# timing-ok: 180 回 × 2 秒で、混雑時に長くなる側へだけ外れるエミュレータ起動待ち
 for _ in $(seq 1 180); do
   [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
   sleep 2
