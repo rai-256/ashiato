@@ -379,6 +379,14 @@ pid_gone() {
   done
   return 1
 }
+# postmaster.pid の先頭行は、DB の親プロセスの PID。サービス（pg_ctl.exe）を異常終了させた後に
+# 子を片付ける対象を、ほかの PostgreSQL の過程と混ぜずに決める。
+postmaster_pid_from() {
+  local pid
+  pid="$(sed -n '1{s/\r$//;p;}' <<<"$1")"
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "$pid"
+}
 service_pid() {
   sc.exe queryex "$1" | tr -d '\r' | awk -F ':' 'toupper($1) ~ /PID/ { gsub(/ /, "", $2); print $2; exit }'
 }
@@ -622,12 +630,17 @@ check_release_zip() {
 
   echo '== Scenario: DB のサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-db | tr -d '\r')" ashiato-db
-  local before_pid
+  local before_pid postmaster_pid
   before_pid="$(service_pid ashiato-db)"
-  # /T は子（postgres の子や conhost）まで止める。子の一部は「not supported」「no running instance」で止められず
-  # taskkill が非 0 を返す（CI run 41971080647）ので、終了コードでなく本体が消えたかで判定する
-  taskkill.exe /F /T /PID "$before_pid" >/dev/null 2>&1 || true
+  postmaster_pid="$(postmaster_pid_from "$(<"$STATE/db/17/postmaster.pid")")" ||
+    die 'DB の postmaster.pid から親プロセス番号を読めない'
+  # Windows の PostgreSQL のサービス本体は pg_ctl.exe。これだけを先に落とすと SCM が異常終了を
+  # 確実に数える。一括の /T では子の終了が非同期で残り、SCM の再起動が古い postmaster と競合した。
+  taskkill.exe /F /PID "$before_pid" >/dev/null || die 'DB のサービスを異常に終わらせられない'
   pid_gone "$before_pid" 10 || die 'DB のサービスを異常に終わらせられない'
+  # pg_ctl を落としても PostgreSQL は残る。既知の DB の親だけを木ごと止め、SCM の再起動を妨げない。
+  taskkill.exe /F /T /PID "$postmaster_pid" >/dev/null 2>&1 || true
+  pid_gone "$postmaster_pid" 10 || die 'DB の PostgreSQL を異常に終わらせられない'
   sleep 3
   # PostgreSQL は強制終了後に WAL を回復してから受け付ける。CI の遅い runner でも
   # 回復そのものを失敗と取り違えないよう、サービスの回復設定より十分長く待つ。
@@ -1298,6 +1311,9 @@ EOF
   expect_fail assert_restart_on_failure 'FAILURE_ACTIONS              :' ashiato-db
   [[ "$(service_state_of $'        STATE              : 4  RUNNING\r\n')" == 4 ]] || die '状態の番号を読めない'
   [[ "$(service_state_of $'        STATE              : 1  STOPPED')" == 1 ]] || die '止まった状態の番号を読めない'
+  [[ "$(postmaster_pid_from $'4242\r\nC:/ProgramData/ashiato/db/17\r\n')" == 4242 ]] ||
+    die 'postmaster.pid の親プロセス番号を読めない'
+  expect_fail postmaster_pid_from $'not-a-pid\r\nC:/ProgramData/ashiato/db/17\r\n'
 
   local netstat=$'  TCP    127.0.0.1:55400        0.0.0.0:0              LISTENING       4242'
   assert_loopback_listener_only "$netstat" 55400
