@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services -->
 # C-02 — PC のウィンドウを集める（ST07）
 
 前景のアプリ・ウィンドウ題名・URL の変化を 1 件ずつ、離席・PC が止まっていた期間・

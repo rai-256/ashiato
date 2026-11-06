@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 5 本の達成日数と分母、合否、確定か暫定か（tasks 8.6 / NFR-13 /
  * 深掘り 第 4 回 Q9, 第 5 回 Q18, 第 7 回 Q27）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `GET /sources` —— 登録簿の取り方・契機・取得の間隔と、書庫の通知までの残り日数（ST13 / design D10）。
 //!
 //! 最後の書庫の導き方は途切れの判定と同じ式（`outage_store::LAST_ARCHIVE_AT_SQL`）。

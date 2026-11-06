@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 通知の時刻の台帳と通知の判断の口（ST17 / Task 5。design D9）。**利用者で隔離する**（`testdb::user()`）。
 #![allow(clippy::unwrap_used)]
 

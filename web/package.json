@@ -1,7 +1,7 @@
 {
   "name": "ashiato-web",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "AGPL-3.0-only WITH AdditionRef-ashiato-play-services",
   "type": "module",
   "scripts": {
     "dev": "vite",

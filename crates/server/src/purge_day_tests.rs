@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 1 日の並び（`GET /day` の読み出し）に出る「本文ごと消した」の区間を、本物の PostgreSQL で確かめる
 //! （ST23 Task 9.1 / design D12 / D13）。画面の側は `web/e2e/st23-purge.spec.ts` が見る。
 #![allow(clippy::unwrap_used)]

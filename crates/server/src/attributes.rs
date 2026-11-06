@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 個人属性の主張の解釈と、「いまの値」の導き方（ST19 / FR-44 / FR-45。design D5 / D6）。
 //! **DB に触らない。**
 //!

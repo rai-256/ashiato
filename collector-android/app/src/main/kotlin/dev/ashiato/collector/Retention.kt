@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import java.io.File
@@ -189,7 +189,6 @@ class RetentionNotifier(
             blockedLogged = false
         }
     }
-
 }
 
 /**
@@ -234,6 +233,7 @@ class Drainer(
     private val originalsAhead: (Int) -> Boolean = { false },
     /** 契機の終わりに、いまの理由を渡す（画面と通知。ST50 / D6）。確かめを 1 度でも終えてから */
     private val onContract: (ContractReasons) -> Unit = {},
+    private val onChannelMismatch: (Boolean) -> Unit = {},
     /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */
     private val maintenance: () -> Unit = {},
     private val log: (String) -> Unit = {},
@@ -282,6 +282,9 @@ class Drainer(
             if (guard.gate.decided) {
                 runCatching { onContract(guard.gate.reasons) }.onFailure {
                     log(Telemetry.line("contract_notice_crashed", source = null, error = it.javaClass.simpleName))
+                }
+                runCatching { onChannelMismatch(guard.gate.channelMismatch) }.onFailure {
+                    log(Telemetry.line("channel_notice_crashed", source = null, error = it.javaClass.simpleName))
                 }
             }
         }

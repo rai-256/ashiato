@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 設定画面の「全記録の書き出し」の節（ST33 / tasks 8.2 / design D13）。
  * 応答を固定して描画と操作を見る。何を返すかは Rust の結合テストが見る。

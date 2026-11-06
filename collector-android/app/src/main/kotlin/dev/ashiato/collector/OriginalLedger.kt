@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import kotlinx.serialization.EncodeDefault
@@ -426,5 +426,5 @@ class OriginalPipeline(
         transport: OriginalTransport,
         env: OriginalEnvironment,
         log: (String) -> Unit,
-    ): OriginalUploader = OriginalUploader(originals, source, transport, reporter, env, log)
+    ): OriginalUploader = OriginalUploader(originals, source, transport, reporter, env, log = log)
 }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import android.os.SystemClock
@@ -58,10 +58,13 @@ class HttpTransport(
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             val date = conn.getHeaderField("Date")
+            val headers = conn.headerFields.entries.filter {
+                it.key != null
+            }.associate { it.key!! to (it.value.firstOrNull() ?: "") }
             // 壁時計は**単調時計の前後の間**で読む（Scenario「差に使う端末の時計は基準を読む前後の間で読む」。review R6）
             val wall = wallClock()
             val monoAfter = monoClock()
-            Outcome.Responded(status, body, date, monoBefore, monoAfter, wall, hostPort)
+            Outcome.Responded(status, body, date, monoBefore, monoAfter, wall, hostPort, headers)
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
         } finally {
@@ -84,7 +87,10 @@ class HttpTransport(
             }
             val status = conn.responseCode
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-            Outcome.Responded(status, stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "")
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            val headers = conn.headerFields.entries.filter { it.key != null }
+                .associate { it.key!! to (it.value.firstOrNull() ?: "") }
+            Outcome.Responded(status, body, headers = headers)
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
         } finally {

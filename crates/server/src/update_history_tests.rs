@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 更新の履歴の置き場・列の形・門・付与を、本物の PostgreSQL に対して確かめる（ST51 / design D4 / D10）。
 #![allow(clippy::unwrap_used)]
 
@@ -277,7 +277,15 @@ mod migrate_rows {
         grants: &str,
     ) -> Result<Vec<String>, MigrateError> {
         let conn = db.owner().acquire().await.unwrap();
-        apply_migrations_recorded(conn, versions, before, grants, stamp).await
+        apply_migrations_recorded(
+            conn,
+            versions,
+            before,
+            grants,
+            stamp,
+            ashiato_build_stamp::channel(crate::migration_ledger::BUILD_VERSION),
+        )
+        .await
     }
 
     /// 表ができた後の素の DB（行は 0）。

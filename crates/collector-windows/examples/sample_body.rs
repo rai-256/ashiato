@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! **収集側の crate が組んだ本文**を 1 件ぶん標準出力へ出す（`tools/smoke.sh` の手順 37 / 39）。
 //!
 //! smoke が `jq` で手書きした本文を送っていたので、収集側の組み立て（`IngestRequest::of` /

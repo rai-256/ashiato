@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 取り込みの「人が書いた記録」の規則（主張・主観・場所）の拒み方を固定する（CH01 / Task 4 / design D7）。
 //!
 //! 3 種類は同じ規則（由来が authored・端末 id 無し・外部識別子無し）を見るが、順と地域の扱いが少しずつ違う。

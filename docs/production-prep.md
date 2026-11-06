@@ -234,7 +234,7 @@ PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止
 | docstring の方針 | **公開する項目には「何を保証するか」を 1 行書く。「何をするか」はコードが語るので書かない** | — |
 | プラットフォーム既定値の棚卸し | PostgreSQL を `log_statement=none` / `log_min_duration_statement=-1` / `log_error_verbosity=terse` で起動（**私的データが SQL ごとログに落ちるのを止める**）。**DB の待ち受けを `127.0.0.1` に固定**（既定では全インタフェースに出ていた） | 設定変更後に `./tools/smoke.sh` が **rc=0** |
 | アーキ境界の検査 | `./tools/check-boundaries.sh` —— **本体にコードを読み込む経路（FR-77 違反）** / 収集側がサーバ内部に依存 / 画面がサーバ実装を直接見る、の 3 つを機械で見る | **確かめた** — `libloading` を 1 行足したら `NG 本体にコードを読み込む経路がある（FR-77 違反）` で **rc=1**。戻したら rc=0 |
-| 依存ライセンスの検査 | `./tools/check-licenses.sh` —— Rust 237 件 / Node 170 件の許諾を SPDX 式で評価し、AGPL-3.0 での配布と両立しないものを落とす | **確かめた** — 許可一覧から MIT を外したら **67 件を検出して rc=1**。通常時は不許可 0 件で rc=0 |
+| 依存ライセンスの検査 | `./tools/check-licenses.sh` —— Rust 237 件 / Node 170 件の許諾を SPDX 式で評価し、AGPL-3.0 での配布と両立しないものを落とす。**★ ST53 の確認では、携帯の依存も `./tools/check-licenses.sh android` で検査し、APK に許諾の表示を同梱する。携帯を接続しない準備の段階で `tools/verify-prep-device.sh --self-test` を走らせ、表示の検査と合わせて確認する。** | **確かめた** — 許可一覧から MIT を外したら **67 件を検出して rc=1**。通常時は不許可 0 件で rc=0 |
 | マイグレーションの安全性検査 | `./tools/check-migrations.sh` —— 前進側の破壊的変更（`DROP TABLE/COLUMN/SCHEMA`）と、戻し手順の欠落を落とす | **確かめた** — `ALTER TABLE ... DROP COLUMN` を入れたら rc=1、戻し手順の無い版を足したら rc=1。どちらも後始末後は rc=0 |
 | API の契約とコードのずれ | `./tools/check-openapi.sh` —— `docs/openapi.json` はコードから生成する。**手書きしない**（A-1） | **確かめた** — `info.version` を書き換えたら差分を出して rc=1 |
 | CI の費用（2026-09-19 に追加） | `changes` job が差分を見て重い job を出し分ける。**1 PR 約 52 分**（Windows は 2 倍課金）で、月 2,000 分では 38 回しか回せない。docs だけの PR で 9 job 全部を走らせていた | **実測で使い切った**。上流 PR は 52 分 → 0.5 分になる |

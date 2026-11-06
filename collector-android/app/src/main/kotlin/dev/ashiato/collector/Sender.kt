@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import kotlinx.serialization.KSerializer
@@ -28,6 +28,8 @@ sealed interface Outcome {
         val wallAfterMs: Long = 0,
         /** 叩いた宛先の `host:port`（`s01-date` の参照が持つ。測ったときにしか取れない） */
         val host: String? = null,
+        /** 契約の系統を読む応答見出し。キー比較は大文字小文字を無視する。 */
+        val headers: Map<String, String> = emptyMap(),
     ) : Outcome
 }
 
@@ -248,6 +250,8 @@ class Sender<T : Outboxable>(
         val limit = when (answer) {
             null -> null
             is ContractAnswer.Version -> answer.version
+            // 系統が違えば何も送らない。ログは gate が状態の変わり目に 1 回だけ出す（/code-review R31）
+            is ContractAnswer.ChannelMismatch -> return finish(Flushed(0, 0), ContractOutcome())
             else -> {
                 log(Telemetry.line("send_held", source = null, error = answer.javaClass.simpleName.lowercase()))
                 return finish(Flushed(0, 0), ContractOutcome())

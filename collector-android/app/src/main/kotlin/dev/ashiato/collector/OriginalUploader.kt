@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import java.io.IOException
@@ -132,6 +132,7 @@ class OriginalUploader(
             val limit = when (answer) {
                 null -> Int.MAX_VALUE
                 is ContractAnswer.Version -> answer.version
+                // 系統が違う答え（ChannelMismatch）を含め、ほかは送らない。ログは gate が出す（/code-review R31）
                 else -> null
             }
             return if (limit != null && mayOpenFiles()) {

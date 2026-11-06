@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `GET /sources`（ST13 Task 8 / design D10）を、router を通して本物の PostgreSQL に対して確かめる。
 //! 書庫は試験ごとに固有の利用者・固有のソースに置く（台帳は追記だけ）。共有の登録簿の行は読むだけ。
 #![allow(clippy::unwrap_used)]

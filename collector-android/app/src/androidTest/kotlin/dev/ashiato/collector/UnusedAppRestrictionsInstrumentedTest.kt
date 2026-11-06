@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
 import android.Manifest
@@ -63,6 +63,14 @@ class UnusedAppRestrictionsInstrumentedTest {
     @Test
     fun theLineAndTheButtonAreVisibleAndTheButtonOpensSettings() {
         shell("appops set ${context.packageName} AUTO_REVOKE_PERMISSIONS_IF_UNUSED allow")
+        // app-op は shell の終了後に PackageManagerCompat 側へ反映される。反映前に Activity を起動すると
+        // EXEMPT と読んで閉じるため、試験が見る「対象から外れていない」状態を先に確かめる。
+        assertTrue(
+            "未使用アプリ制限の状態が反映されない",
+            waitUntil {
+                SystemUnusedAppRestrictionsReader.read(context) == UnusedAppRestrictionsState.NOT_EXEMPT
+            },
+        )
         // 自動の案内（ダイアログ）は済んだことにして、画面の 1 行とボタンだけを見る
         context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(MainActivity.SENT_TO_USAGE_ACCESS, true)

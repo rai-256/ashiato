@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 部品の見た目（2026-10-12 の表面）。**値は `tokens.ts` だけから引き、ここでは組むだけ。**
  *

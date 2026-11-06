@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの骨組み（置き場・分類・列の突き合わせ・権限。ST33 / design D3 / D8 / D9）。
 #![allow(clippy::unwrap_used)]
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! アプリ利用の集計（ST14 / design D10（仮）/ D16）。開始日の借り方と格子の並び。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 

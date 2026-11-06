@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /** `vite.config.ts` / `vitest.config.ts` が `define` で埋める画面の組み立ての印（`web/build-stamp.ts`）。 */
 declare const __ASHIATO_WEB_VERSION__: string;
 

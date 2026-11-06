@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * S-3 の部品（ST17 / design D10・D13・D14）—— 快–不快の 5 つのボタン・滞在の行・30 日の暦・通知の時刻。
  * 送る・読む処理は `FeelView.tsx` が持ち、ここは受け取った値を描き、押されたことを返す。

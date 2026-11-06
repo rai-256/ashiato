@@ -8,7 +8,8 @@
 #     → dist/verify-<tag>/run.sh           DB → サーバ → 画面 → 偽データ を 1 コマンドで起動
 #     → dist/verify-<tag>/manifest.md      起動手順（確認手順書の冒頭に載る）
 #
-# **確認しないといけないタイミングで、できる準備は全部ここでやる。** 実機が繋がっていれば APK も入れる。
+# **確認しないといけないタイミングで、できる準備は全部ここでやる。** エミュレータが繋がっていれば APK も入れる
+# （実機には入れない。debug の鍵の版が本人の携帯に入らないように。ST53 D14）。
 # 人間がやるのは run.sh を叩いて、手順書のとおりに見ることだけ。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,7 +46,7 @@ echo "== 画面（build）"
 rm -rf "$out/web" && cp -r web/dist "$out/web"
 
 echo "== Android（APK）"
-apk=""; device=""; android_note="ビルドしていない（~/.local/opt/jdk21 が無い。tools/android-env.sh を見る）"
+apk=""; android_note="ビルドしていない（~/.local/opt/jdk21 が無い。tools/android-env.sh を見る）"
 if [ -f tools/android-env.sh ] && [ -d "$HOME/.local/opt/jdk21" ]; then
   # shellcheck disable=SC1091
   . ./tools/android-env.sh
@@ -55,14 +56,13 @@ if [ -f tools/android-env.sh ] && [ -d "$HOME/.local/opt/jdk21" ]; then
   elif (cd collector-android && ./gradlew -q :app:assembleDebug >/dev/null 2>&1); then
     cp collector-android/app/build/outputs/apk/debug/app-debug.apk "$out/app-debug.apk"
     apk="$out/app-debug.apk"
-    android_note="\`$apk\`"
-    if command -v adb >/dev/null; then
-      device="$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}' | head -1 || true)"
-      if [ -n "$device" ] && adb -s "$device" install -r "$apk" >/dev/null 2>&1; then
-        android_note="\`$apk\` を端末 $device に入れた（adb install -r）"
-      else
-        android_note="\`$apk\`。端末が繋がっていないので手で入れる: \`adb install -r $apk\`"
-      fi
+    # shellcheck disable=SC1091
+    . ./tools/verify-prep-device.sh
+    # エミュレータへ入れられなくても準備は止めない。手順書に APK の場所と失敗を書いて続ける
+    if placed="$(install_on_emulators "$apk" 2>&1)"; then
+      android_note="\`$apk\` を作った。$(printf '%s' "$placed" | paste -sd ' ' -)"
+    else
+      android_note="\`$apk\` を作ったが、エミュレータへ入れられなかった（$(printf '%s' "$placed" | paste -sd ' ' -)）。手で入れて確かめる"
     fi
   else
     android_note="gradle が落ちた。\`cd collector-android && ./gradlew :app:assembleDebug\` で確かめる"

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -70,7 +70,7 @@
          これが無いと targetSdk 28 以降は遮断され、送信が黙って失敗し続ける -->
     <application
         android:networkSecurityConfig="@xml/network_security_config"
-        android:label="あしあと。"
+        android:label="${appLabel}"
         android:dataExtractionRules="@xml/health_data_extraction_rules"
         android:fullBackupContent="@xml/health_full_backup_content"
         android:supportsRtl="true"

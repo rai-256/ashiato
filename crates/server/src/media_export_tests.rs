@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真と画像と動画の書き出しの分類（ST09 tasks 9.1 / design D16 / D18）と、滞在を消したときの写真（9.2 / D23）を、
 //! 本物の PostgreSQL と本物の置き場（一時ディレクトリ）で確かめる。
 //! 書き出しを走らせるテストは `EXPORT_SERIAL` を取り、記録と消す滞在は `unique_day()` の日に置き、その利用者の行だけを見る。

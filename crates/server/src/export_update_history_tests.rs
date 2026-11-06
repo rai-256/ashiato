@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しの更新の履歴・収集アプリの版の変化・生存信号の版（ST51 / design D11）。**書き出した zip を開き**、行と説明書を見る
 //! （配置と読み方は `export_file_tests.rs` に合わせる）。試験ごとの database なので、読む行は自分が置いたものだけ。
 #![allow(clippy::unwrap_used)]

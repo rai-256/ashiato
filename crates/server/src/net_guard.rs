@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 待ち受けと DB の接続先の検査（ST28 / design D7・D14）。
 //! 拒否の理由は種別だけを返す。アドレスや接続先の値は出さない（製造準備 A-2 / C3）。
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr as _;
 
+use ashiato_build_stamp::Channel;
 use sqlx::postgres::PgConnectOptions;
 
 /// 待ち受けを拒む理由の種別（design D7）。
@@ -29,6 +30,19 @@ impl BindRefusal {
 /// `BIND` が無いときの待ち受け（design D7。loopback）。
 /// **`.env.example` の `BIND` と同じ値**（2026-10-11 の整合の確認 K12。8787 と食い違い、README どおりの C-02 が繋がらなかった）。
 pub const DEFAULT_BIND: &str = "127.0.0.1:18787";
+
+/// 系統ごとの既定の待ち受けを返す。`BIND` の明示値は呼び出し側で優先する。
+pub const fn default_bind(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Dev => "127.0.0.1:18788",
+        Channel::Official => DEFAULT_BIND,
+    }
+}
+
+/// 明示された待ち受けを優先し、無ければ系統の既定を返す。
+pub fn bind_for(channel: Channel, explicit: Option<&str>) -> &str {
+    explicit.unwrap_or_else(|| default_bind(channel))
+}
 
 /// 待ち受けてよいのは loopback（`127.0.0.0/8` / `::1`）だけ。
 pub fn bind_allowed(addr: &SocketAddr) -> Result<(), BindRefusal> {

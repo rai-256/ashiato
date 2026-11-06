@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 組み立ての印 `<版番号>+<commit>[.dirty][.debug]`（ST49 / design D5・D6）。S-01 と C-02 の `build.rs` が共有する。
 //!
 //! 依存は `std` だけ。git は `std::process::Command` で呼ぶ。
@@ -10,6 +10,32 @@ use std::process::Command;
 pub const COMMIT_ENV: &str = "ASHIATO_BUILD_COMMIT";
 /// 組み立てに渡す版番号。
 pub const VERSION_ENV: &str = "ASHIATO_BUILD_VERSION";
+
+/// 組み立てた版の系統。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    Dev,
+    Official,
+}
+
+impl Channel {
+    /// 系統を契約で使う文字列に変換する。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Official => "official",
+        }
+    }
+}
+
+/// 版番号から組み立ての系統を判定する。
+pub fn channel(version: &str) -> Channel {
+    if version.contains("-dev.") {
+        Channel::Dev
+    } else {
+        Channel::Official
+    }
+}
 
 /// 出所の版番号と、組み立てに渡された版番号を検査する。
 pub fn version(source: &str) -> Result<String, String> {
@@ -366,6 +392,16 @@ mod tests {
             std::env::remove_var(VERSION_ENV);
             assert_eq!(resolved.as_deref(), Ok(given));
         }
+    }
+
+    #[test]
+    fn st54_channel_is_dev_only_for_dev_versions() {
+        // Scenario: 版番号に -dev. を持つ組み立ては開発版になる
+        assert_eq!(channel("0.4.0-dev.20261102"), Channel::Dev);
+        assert_eq!(channel("0.4.0"), Channel::Official);
+        assert_eq!(channel("0.4.0-beta.2"), Channel::Official);
+        assert_eq!(Channel::Dev.as_str(), "dev");
+        assert_eq!(Channel::Official.as_str(), "official");
     }
 
     #[test]

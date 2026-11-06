@@ -1,4 +1,4 @@
-﻿# SPDX-License-Identifier: AGPL-3.0-only
+﻿# SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 # 録画専用・前半（ハーネスの record-run が Windows Sandbox の中で走らせる。デスクトップ全体が撮られている）。
 # ST50「送信契約の版」: サーバが ST50 より古い（版を問い合わせる口 `GET /contract` が 404）→ 収集アプリは送らずに PC に残し、
 # 「サーバを更新してください」の通知を出す → サーバを更新した（版の答えが読める）→ 起こし直した最初の送る契機で通知が消える。

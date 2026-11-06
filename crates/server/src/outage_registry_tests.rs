@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 途切れの通知の登録簿と台帳を、全移行を当てた後の状態で見る（ST14 Task 1 / design D2 / D7）。
 #![allow(clippy::unwrap_used)]
 

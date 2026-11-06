@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! `tools/smoke.sh` 用の台本。Chromium の形の小さな履歴 DB を作り、本物の `Runtime` で取得して送る。
 //!
 //! - `make <db> [<url> <title>]` … 履歴 DB を作る
@@ -87,6 +87,7 @@ fn run(state_dir: &str, base_url: &str, token: &str, db: Option<&String>) -> any
         &transport,
         clock,
         chrono::Utc::now(),
+        ashiato_build_stamp::Channel::Official,
     )?;
     if let Some(db) = db {
         rt = rt.with_history(Arc::new(OneDb(db.into())));
@@ -119,6 +120,7 @@ fn next_day(db: &str, state_dir: &str, base_url: &str, token: &str) -> anyhow::R
         &transport,
         clock,
         day1,
+        ashiato_build_stamp::Channel::Official,
     )?;
     rt = rt.with_history(Arc::new(OneDb(db.into())));
     let mut source = LockedPc;
@@ -175,6 +177,9 @@ fn parts(
         user_id: uuid::Uuid::nil(),
         device_id: "history-smoke".into(),
         state_dir: state_dir.into(),
+        exclusions_path: std::path::PathBuf::from(state_dir).join("exclusions.json"),
+        launch_state_dir: state_dir.into(),
+        launch_device_id: "history-smoke".into(),
     };
     let zone = Zone {
         id: "Asia/Tokyo".into(),

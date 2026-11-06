@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 形の合わない主観の記録を断ることを、**本物の PostgreSQL に対して**確かめる（ST17 / Task 3）。
 //!
 //! 断る理由の種別は spec「形の合わない主観の記録は受け付けない」の表。取り込み口を通して送り、

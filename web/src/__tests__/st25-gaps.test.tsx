@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 取れていない時間の行・記録なしの事情（ST25 / tasks 8.2 / design D9 / D11）。固定の `/api/day` の応答の文字と並びを確かめる。
  */

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * **格子のセルに実際に塗られた色**が状態と結びついていること
  * （review/code.md の R3 / F4）。

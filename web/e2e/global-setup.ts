@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { request, type FullConfig } from "@playwright/test";
 
 declare const process: { env: Record<string, string | undefined> };

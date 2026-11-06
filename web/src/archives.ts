@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { msg } from "./messages";
 import { DAY_TZ } from "./tokens";
 import { isRetired, type SourceCoverage } from "./coverage";

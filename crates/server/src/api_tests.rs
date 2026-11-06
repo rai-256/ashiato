@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 受け口（`/ingest` / `/heartbeat`）と DB の不変条件を、**本物の PostgreSQL に対して**確かめる。
 //!
 //! 取り込み口を通さずに行を置く検査は `coverage::tests` にある。ここは

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 収集アプリとの契約の版と、それを確かめる口 `GET /contract`（ST50 / design D4 / D15）。
 //!
 //! 版は「その版以下を全部受け付ける」の意味。**最初の配った印までは上げない**（D8）。
@@ -51,15 +51,28 @@ pub struct ContractAnswer {
 
 /// 契約の版を答える。API の合言葉だけが通る（画面のログイン・衛星は 403、無ければ 401）。
 #[utoipa::path(get, path = "/contract",
-    responses((status = 200, body = ContractAnswer), (status = 401), (status = 403)))]
+    responses((status = 200, body = ContractAnswer,
+        headers(("Ashiato-Channel" = String, description = "サーバの系統（dev または official）"))),
+        (status = 401), (status = 403)))]
 pub async fn contract_get(
     State(app): State<App>,
     headers: HeaderMap,
-) -> Result<Json<ContractAnswer>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     match authorize(&app, &headers).await? {
-        Caller::ApiToken => Ok(Json(ContractAnswer {
-            contract_version: app.contract_version,
-        })),
+        Caller::ApiToken => {
+            let mut response = axum::Json(ContractAnswer {
+                contract_version: app.contract_version,
+            })
+            .into_response();
+            response.headers_mut().insert(
+                "Ashiato-Channel",
+                app.channel
+                    .as_str()
+                    .parse()
+                    .expect("系統名は有効な見出し値"),
+            );
+            Ok(response)
+        }
         _ => Err((StatusCode::FORBIDDEN, "forbidden".into())),
     }
 }

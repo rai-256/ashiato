@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 版の記録の形・役割・読み方・比べ方（ST48 / design D1・D2・D3・D5）。
 //! 知らない行や壊れた形は、使い捨ての database にだけ作る（D16）。
 #![allow(clippy::unwrap_used)]
@@ -8,6 +8,7 @@ use crate::migration_ledger::{
     UnknownVersion, Verdict, BOOTSTRAP, BUILD_COMMIT, BUILD_VERSION,
 };
 use crate::testdb::TempDb;
+use ashiato_build_stamp::Channel;
 use std::collections::BTreeSet;
 
 fn set(names: &[&str]) -> BTreeSet<String> {
@@ -102,6 +103,21 @@ fn st48_ahead_report_caps_db_lines_and_counts_the_rest() {
     assert_eq!(lines.iter().filter(|l| l.starts_with("  db: ")).count(), 20);
     assert_eq!(lines[21], "  more: 3");
     assert_eq!(lines[22], format!("  self: {BUILD_VERSION} {BUILD_COMMIT}"));
+}
+
+// Scenario: 系統が違い、知らない版もある DB では、系統の食い違いを示す
+#[test]
+fn st54_channel_mismatch_report_is_distinct_from_db_ahead() {
+    let (kind, report) = MigrateError::ChannelMismatch {
+        db: Channel::Official,
+        me: Channel::Dev,
+    }
+    .mismatch_report()
+    .unwrap();
+    assert_eq!(kind, "channel_mismatch");
+    assert_eq!(report.lines().next(), Some("error: kind=channel_mismatch"));
+    assert!(report.contains("  db: official"));
+    assert!(report.contains("  self: dev"));
 }
 
 /// Scenario: S-01 の実行時の役割は版の記録を読めるが、書き換えられない
@@ -278,7 +294,7 @@ async fn apply_without_ledger(pool: &sqlx::PgPool) {
 
 async fn apply(pool: &sqlx::PgPool, versions: &[(&str, &str)]) -> Result<(), MigrateError> {
     let conn = pool.acquire().await.unwrap();
-    apply_migrations(conn, versions).await
+    apply_migrations(conn, versions, ashiato_build_stamp::channel(BUILD_VERSION)).await
 }
 
 async fn recorded_names(pool: &sqlx::PgPool) -> Vec<String> {
@@ -516,9 +532,15 @@ async fn st48_apply_grants_run_inside_lock_and_not_on_refusal() {
     let grants = "CREATE TABLE st48_grants AS
         SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid();";
     let conn = db.owner().acquire().await.unwrap();
-    apply_migrations_with(conn, &versions, || Ok(()), grants)
-        .await
-        .unwrap();
+    apply_migrations_with(
+        conn,
+        &versions,
+        || Ok(()),
+        grants,
+        ashiato_build_stamp::channel(BUILD_VERSION),
+    )
+    .await
+    .unwrap();
     let n: i64 = sqlx::query_scalar("SELECT n FROM st48_grants")
         .fetch_one(db.owner())
         .await
@@ -538,9 +560,15 @@ async fn st48_apply_grants_run_inside_lock_and_not_on_refusal() {
     .await
     .unwrap();
     let conn = db.owner().acquire().await.unwrap();
-    let e = apply_migrations_with(conn, &versions, || Ok(()), grants)
-        .await
-        .unwrap_err();
+    let e = apply_migrations_with(
+        conn,
+        &versions,
+        || Ok(()),
+        grants,
+        ashiato_build_stamp::channel(BUILD_VERSION),
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(e, MigrateError::Ahead { .. }), "{e}");
     let exists: bool = sqlx::query_scalar("SELECT to_regclass('public.st48_grants') IS NOT NULL")
         .fetch_one(db.owner())

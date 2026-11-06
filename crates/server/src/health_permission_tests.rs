@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 健康データの権限の記録（論理ソース `c01-health-permission`。ST11 / design D1・D12）を、
 //! **本物の PostgreSQL に対して**確かめる。登録簿の行・取り込み・途切れの判定・稼働状況の格子・書き出し。
 #![allow(clippy::unwrap_used)]
@@ -81,9 +81,13 @@ where
     let result = async {
         // 本番と同じく版の記録を持たせて当てる（戻しが版の記録の行を消すので、記録の表が要る）
         let conn = fresh.acquire().await.map_err(|e| e.to_string())?;
-        crate::migration_ledger::apply_migrations(conn, crate::MIGRATIONS)
-            .await
-            .map_err(|e| format!("移行が当たらない: {e:?}"))?;
+        crate::migration_ledger::apply_migrations(
+            conn,
+            crate::MIGRATIONS,
+            ashiato_build_stamp::channel(crate::migration_ledger::BUILD_VERSION),
+        )
+        .await
+        .map_err(|e| format!("移行が当たらない: {e:?}"))?;
         f(fresh.clone()).await
     }
     .await;

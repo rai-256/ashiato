@@ -1,4 +1,4 @@
-﻿# SPDX-License-Identifier: AGPL-3.0-only
+﻿# SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 # 録画専用・前半（ハーネスの record-run が Windows Sandbox の中で走らせる。デスクトップ全体が撮られている）。
 # ST08「PC のブラウザ履歴を集める」: ブラウザでページ A → ページ B、ページ C を新しいタブで開いてすぐ閉じる →
 # 収集アプリを起こす → 初回の取得で、訪問 1 件ごとの記録が積まれる（一瞬だけ開いたページも入る）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 /**
  * 場所（`GET /places` / `GET /places/candidates`。ST21 / design D12 / D15）の型と形の検査、
  * 時間・日付・座標の書き方、記録の原文の組み立て（D13）。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 写真と画像の量と原本の進みの読み出し（ST09 / design D12。`GET /media/summary`）。
 //!
 //! 記録と 2 つの表（`core.media_original` / `core.media_missing`）から数え直す。

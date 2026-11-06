@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
 import { readAuthHeaders } from "../../../web/e2e/auth.js";
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 途切れの判定の材料（`outage_store::inputs`）を、本物の PostgreSQL に記録と生存信号を置いて見る
 //! （ST14 Task 5 / design D3・D4）。`inputs` → `judge` の結果で確かめる。
 //!

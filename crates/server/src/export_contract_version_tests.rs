@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 書き出しが送信契約の版の列を持ち、説明書がそれを説明すること（ST50 / design D20）。
 //!
 //! 配置と読み方は `export_excluded_tests` の `World` と `export_file_tests` の `export_once` / `scan` / `text` に合わせる。

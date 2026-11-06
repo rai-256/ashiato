@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! C-02 Windows 収集（ST07）。**PC の上で起きていることを集める。**
 //!
 //! 送信の形・冪等キー・エンベロープ・生存信号の受け口は ST01 / ST02 / ST03 が
@@ -19,6 +19,7 @@
 //! 迷ったら**取る側・残す側**に倒す。
 pub mod autostart;
 pub mod browsers;
+pub mod channel_notice;
 pub mod clock;
 pub mod clock_record;
 pub mod clock_worker;
@@ -43,6 +44,7 @@ pub mod telemetry;
 pub mod time_sync;
 #[cfg(windows)]
 pub mod toast;
+pub mod toast_names;
 pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**

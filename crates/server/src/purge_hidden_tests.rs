@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! 作り直しが隠した、本文ごと消した時間帯と重なる滞在の本文が、同じまとまりで消えることを本物の PostgreSQL で確かめる
 //! （CH08 Task 1 / design D2・D3）。本文ごと消す口の核は `purge_tests`、後から届いた位置は `purge_late_tests` が見る。
 #![allow(clippy::unwrap_used)]
