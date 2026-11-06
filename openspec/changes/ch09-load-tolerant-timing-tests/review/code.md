@@ -176,7 +176,7 @@ scoped re-review 1 回で R1〜R13 は全部 ADDRESSED、新しい Critical / Im
   「2,000 件以下」は runtime.rs:3781 が製品の定数 `QUEUE_PER_TICK`（collect.rs:169 `= 2_000`）と比べるだけで、`grep -rn 'QUEUE_PER_TICK' crates/collector-windows/src` に値そのものを固定する assert は無い。定数を大きくすると `max_queued_per_tick <= QUEUE_PER_TICK` も `queueing_ticks >= (N - 10) / QUEUE_PER_TICK` も一緒に緩む（30,000 以上なら下限が 0 になり、AND 節「2 回以上の見回りに分かれ」も見なくなる）
 - kind: daily
 - 提案: 2,000 は `assert_eq!(QUEUE_PER_TICK, 2_000)` を 1 行（試験のモジュールの中で足りる。製品は変えない）。testdb の 60/30 は R15 の検査に「打ち切りの型は相手 ≥ 60・上限 ≥ 30」を足すか、残るものとして受け入れる
-- 処置: fixed D18 仮 —— 2,000 件は試験の中で `assert_eq!(QUEUE_PER_TICK, 2_000)`。打ち切りの 60/30 は検査に足さない（archive 後は期待の行を check_agreed_tests が守る）。反転条件は design D18、台帳 provisional.jsonl（5c7b8b6c0）
+- 処置: escalated —— D18 の仮は `provisional-review.md` で否となり、台帳から解消した。Q11 に、`pg_sleep(60)` と `Duration::from_secs(30)` の両方を一覧の検査で固定する本人の答えを記録した。
 
 ## R18. `load-repeat.sh` を KILL で止めると、全コアの busy loop が残り続ける
 - 成果物: tools/load-repeat.sh
