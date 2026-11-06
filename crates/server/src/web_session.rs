@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use argon2::{Algorithm, Argon2, PasswordHash, PasswordVerifier};
 use axum::{
     body::Bytes,
     extract::{Request, State},
@@ -76,6 +77,10 @@ pub enum WebPasswordRefusal {
     /// `.env.example` の雛形（`change-me` で始まる）のまま（D16（仮））。
     Placeholder,
     SameAsApiToken,
+    Malformed,
+    RawPasswordPresent,
+    /// 開発の口（環境変数で起こす形）に照らすための値が渡された。開発の口は元の値の形だけ（D8）。
+    VerifierInDevelopment,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +109,9 @@ impl WebPasswordRefusal {
             Self::TooShort => "too_short",
             Self::Placeholder => "placeholder",
             Self::SameAsApiToken => "same_as_api_token",
+            Self::Malformed => "malformed",
+            Self::RawPasswordPresent => "raw_password_present",
+            Self::VerifierInDevelopment => "verifier_in_development",
         }
     }
 }
@@ -121,6 +129,67 @@ pub fn check_web_password(
         Some(p) if token_matches(p, api_token) => Err(WebPasswordRefusal::SameAsApiToken),
         Some(_) => Ok(()),
     }
+}
+
+/// 照らす形の設定にある PHC 文字列を検査し、API の合言葉との一致も拒む。
+pub fn check_web_password_verifier(
+    verifier: Option<&str>,
+    api_token: &str,
+) -> Result<(), WebPasswordRefusal> {
+    let verifier = verifier
+        .filter(|value| !value.is_empty())
+        .ok_or(WebPasswordRefusal::Missing)?;
+    let hash = PasswordHash::new(verifier).map_err(|_| WebPasswordRefusal::Malformed)?;
+    if hash.algorithm != Algorithm::Argon2id.ident() {
+        return Err(WebPasswordRefusal::Malformed);
+    }
+    check_verifier_against_api(verifier, api_token)
+}
+
+/// インストールした形では、元の画面の合言葉を設定に置かない。
+pub fn check_installed_password_configuration(
+    raw_password: Option<&str>,
+    verifier: Option<&str>,
+) -> Result<(), WebPasswordRefusal> {
+    if raw_password.is_some() {
+        return Err(WebPasswordRefusal::RawPasswordPresent);
+    }
+    if verifier.is_none() {
+        return Err(WebPasswordRefusal::Missing);
+    }
+    Ok(())
+}
+
+/// PHC 文字列と入力値を Argon2id で照合する。
+pub fn verify_password_verifier(verifier: &str, password: &str) -> bool {
+    PasswordHash::new(verifier).is_ok_and(|hash| {
+        Argon2::default()
+            .verify_password(password.as_bytes(), &hash)
+            .is_ok()
+    })
+}
+
+pub fn check_verifier_against_api(
+    verifier: &str,
+    api_token: &str,
+) -> Result<(), WebPasswordRefusal> {
+    if verify_password_verifier(verifier, api_token) {
+        Err(WebPasswordRefusal::SameAsApiToken)
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn password_verifier_for_test(
+    password: &str,
+) -> Result<String, argon2::password_hash::Error> {
+    use argon2::password_hash::{rand_core::OsRng, SaltString};
+    use argon2::PasswordHasher as _;
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
 }
 
 pub fn check_web_session_key(
@@ -141,6 +210,25 @@ pub fn check_web_session_key(
     }
 }
 
+/// 照らす形で `WEB_SESSION_KEY` が画面の合言葉と同じでないかを検査する。
+pub fn check_web_session_key_verifier(
+    key: Option<&str>,
+    api_token: &str,
+    verifier: &str,
+) -> Result<(), WebSessionKeyRefusal> {
+    match key {
+        None | Some("") => Err(WebSessionKeyRefusal::Missing),
+        Some(key) if key.chars().count() < MIN_WEB_SESSION_KEY_LEN => {
+            Err(WebSessionKeyRefusal::TooShort)
+        }
+        Some(key) if token_matches(key, api_token) => Err(WebSessionKeyRefusal::SameAsApiToken),
+        Some(key) if verify_password_verifier(verifier, key) => {
+            Err(WebSessionKeyRefusal::SameAsWebPassword)
+        }
+        Some(_) => Ok(()),
+    }
+}
+
 /// 合言葉の世代の印（D7）。HMAC-SHA256、鍵は `WEB_SESSION_KEY`。
 pub fn secret_tag(session_key: &str, web_password: &str) -> Vec<u8> {
     // HMAC はどの長さの鍵も受ける
@@ -148,6 +236,15 @@ pub fn secret_tag(session_key: &str, web_password: &str) -> Vec<u8> {
         .unwrap_or_else(|_| unreachable!("HMAC は任意の長さの鍵を受ける"));
     mac.update(b"ashiato-web-session-v1");
     mac.update(web_password.as_bytes());
+    mac.finalize().into_bytes().to_vec()
+}
+
+/// 照らす形で使う印の材料。verifier の塩を含め、決め直しで全印を失効させる。
+pub fn secret_tag_for_verifier(session_key: &str, verifier: &str) -> Vec<u8> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(session_key.as_bytes())
+        .unwrap_or_else(|_| unreachable!("HMAC は任意の長さの鍵を受ける"));
+    mac.update(b"ashiato-web-session-v2");
+    mac.update(verifier.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
 
@@ -202,12 +299,16 @@ pub fn session_max_age_days(var: Option<&str>) -> anyhow::Result<u32> {
     }
 }
 
+/// ログインの合言葉の照合を 1 つずつ通す（ST55 review R23 の security の指摘）。
+static LOGIN_CHECK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
 /// ログインの設定と状態。`App` が持つ。
 #[derive(Clone, Debug)]
 pub struct WebLogin {
     #[cfg(test)]
     session_key: String,
     password: String,
+    verifier: Option<String>,
     tag: Vec<u8>,
     /// 0 = 期限なし（D18）。
     max_age_days: u32,
@@ -222,11 +323,33 @@ impl WebLogin {
             #[cfg(test)]
             session_key: session_key.to_owned(),
             password: web_password.to_owned(),
+            verifier: None,
             tag: secret_tag(session_key, web_password),
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
         }
+    }
+
+    /// 照らす形のログイン状態を作る。元の合言葉は保持しない。
+    pub fn new_with_verifier(session_key: &str, verifier: &str, max_age_days: u32) -> Self {
+        Self {
+            #[cfg(test)]
+            session_key: session_key.to_owned(),
+            password: String::new(),
+            verifier: Some(verifier.to_owned()),
+            tag: secret_tag_for_verifier(session_key, verifier),
+            max_age_days,
+            failure_delay: Duration::from_secs(1),
+            limiter: Arc::default(),
+        }
+    }
+
+    fn accepts(&self, password: &str) -> bool {
+        self.verifier.as_deref().map_or_else(
+            || !password.is_empty() && token_matches(password, &self.password),
+            |verifier| verify_password_verifier(verifier, password),
+        )
     }
 
     #[cfg(test)]
@@ -242,9 +365,26 @@ impl WebLogin {
     /// 鍵だけを差し替えた複製。合言葉・期限・失敗の待ちは保つ（鍵を変えて起動し直したときと同じ）。
     #[cfg(test)]
     pub(crate) fn with_session_key_for_test(&self, session_key: &str) -> Self {
-        let mut login = Self::new(session_key, &self.password, self.max_age_days);
+        let mut login = self.verifier.as_deref().map_or_else(
+            || Self::new(session_key, &self.password, self.max_age_days),
+            |verifier| Self::new_with_verifier(session_key, verifier, self.max_age_days),
+        );
         login.failure_delay = self.failure_delay;
         login
+    }
+
+    #[cfg(test)]
+    pub(crate) fn status_for_tag_for_test(&self, tag: &[u8]) -> StatusCode {
+        if self.tag == tag {
+            StatusCode::NO_CONTENT
+        } else {
+            StatusCode::UNAUTHORIZED
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tag_for_test(&self) -> &[u8] {
+        &self.tag
     }
 }
 
@@ -377,6 +517,12 @@ pub async fn session_post(
             "unsupported media type".into(),
         ));
     }
+    // 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
+    // 数え上げより先に照合が並んで上限をすり抜けないように（review R23）
+    let permit = LOGIN_CHECK
+        .acquire()
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "unavailable".to_owned()))?;
     if app.login.limiter.throttled() {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access
@@ -397,8 +543,24 @@ pub async fn session_post(
                 .and_then(|p| p.as_str().map(str::to_owned))
         })
         .unwrap_or_default();
-    if given.is_empty() || !token_matches(&given, &app.login.password) {
+    // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
+    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡す。接続が切れてこの future が捨てられても、
+    // 照合が終わって数え上げるまで次の照合は始まらない（review R78）
+    let login = app.login.clone();
+    let accepted = tokio::task::spawn_blocking(move || {
+        let accepted = login.accepts(&given);
+        if !accepted {
+            login.limiter.record_failure();
+        }
+        drop(permit);
+        accepted
+    })
+    .await
+    .unwrap_or_else(|_| {
         app.login.limiter.record_failure();
+        false
+    });
+    if !accepted {
         tracing::warn!(kind = "login_failed", "ログインの合言葉が一致しない");
         app.access
             .write(session_entry(

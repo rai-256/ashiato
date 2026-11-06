@@ -17,8 +17,12 @@ package() {
       ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" apk "$out"
       ;;
     windows)
-      ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" server-windows "$out"
-      ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" collector-windows "$out"
+      if [[ "${ASHIATO_PACKAGE_TEST_BUILD:-}" == 1 ]]; then
+        env -u ASHIATO_BUILD_VERSION "$build" server-windows "$out"
+      else
+        ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" server-windows "$out"
+        ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" collector-windows "$out"
+      fi
       ;;
     *) usage ;;
   esac
@@ -51,9 +55,19 @@ EOF
   grep -q '^server-linux ' "$calls" || die 'Linux の server build が走っていない'
   grep -q '^apk ' "$calls" || die '失敗した APK build が走っていない'
   [[ "$(wc -l <"$calls")" == 2 ]] || die 'APK の前に別の build が余計に走った'
+  # Windows の配る経路も、残った ASHIATO_BUILD_VERSION を持ち込まない（Linux と同じ。review R56）
+  : >"$calls"
+  PACKAGE_CALLS="$calls" ASHIATO_BUILD_VERSION=wrong ASHIATO_PACKAGE_BUILD="$fake" "$0" windows "$work/windows" ||
+    die 'Windows の配る経路が ASHIATO_BUILD_VERSION を持ち込んだ'
+  grep -q '^server-windows ' "$calls" && grep -q '^collector-windows ' "$calls" || die 'Windows の build が走っていない'
   echo "OK: package の build 失敗を伝播した"
 }
 
 if [[ "${1:-}" == --self-test ]]; then self_test; exit 0; fi
-[[ $# == 2 ]] || usage
-package "$1" "$2"
+if [[ $# == 3 && "$1" == windows && "$3" == --test-build ]]; then
+  ASHIATO_PACKAGE_TEST_BUILD=1 package windows "$2"
+elif [[ $# == 2 ]]; then
+  package "$1" "$2"
+else
+  usage
+fi

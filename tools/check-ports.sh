@@ -26,6 +26,17 @@ want() {  # want <説明> <実際> <期待>
   if [[ $2 == "$3" ]]; then echo "  self-test ok: $1"; else echo "  self-test NG: $1（$2。期待は $3）" >&2; fail=1; fi
 }
 
+echo "== Scenario: 配る番号は開発の台本の割り当てと被らない"
+for port in 55400 18700 55401 18701; do
+  if (( port == 5432 || port == 55432 || port == 55499 ||
+        (port >= 55500 && port <= 55599) || (port >= 55600 && port <= 55700) ||
+        port == 18787 || (port >= 19000 && port <= 19199) ||
+        (port >= 19200 && port <= 19399) )); then
+    echo "fixed port collides with development allocation: $port" >&2
+    fail=1
+  fi
+done
+
 for w in demo-st05 demo-verify demo-ch01 demo-ch02 demo-up-st05 demo-rec-st22 demo-st06-t7; do mk "$w"; done
 want "main の checkout は 55432 / 18787" "$(ports demo)" "55432 18787"
 want "下流の Story は 55500+NN / 19000+2×NN" "$(ports demo-st05)" "55505 19010"

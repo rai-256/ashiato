@@ -764,6 +764,7 @@ async fn sync_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unused_async)]
 async fn sync_dir(_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }

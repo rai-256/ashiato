@@ -26,6 +26,7 @@ struct Running {
     export_id: Uuid,
     started_at: DateTime<Utc>,
     progress: Arc<Progress>,
+    abort: Option<tokio::task::AbortHandle>,
 }
 
 /// 走っている書き出し（同時に 1 本。D2）と、状態を読むたびに数え直さないための覚え（D17 / D11）。`App` が持つ。
@@ -110,6 +111,22 @@ impl ExportJobs {
         })
     }
 
+    /// サービス停止時に背景の書き出しを打ち切る。部分ファイルは呼び出し側が清掃する。
+    pub fn stop(&self) {
+        if let Some(running) = self.slot().as_ref() {
+            if let Some(abort) = &running.abort {
+                abort.abort();
+            }
+        }
+    }
+
+    fn set_abort(&self, export_id: Uuid, abort: tokio::task::AbortHandle) {
+        let mut slot = self.slot();
+        if let Some(running) = slot.as_mut().filter(|r| r.export_id == export_id) {
+            running.abort = Some(abort);
+        }
+    }
+
     /// 走っているものが無ければ置く。置けなければ `None`（2 本目は 409）。
     fn try_start(&self, cfg: &ExportConfig) -> Option<(Uuid, ExportConfig)> {
         let mut slot = self.slot();
@@ -122,6 +139,7 @@ impl ExportJobs {
             export_id,
             started_at: Utc::now(),
             progress: progress.clone(),
+            abort: None,
         });
         Some((
             export_id,
@@ -179,10 +197,11 @@ pub async fn spawn(
         tracing::error!(kind = e.kind.as_str(), "台帳に始まりを書けない");
         return Spawned::Unrecorded;
     }
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let _guard = guard;
         execute(&pool, &cfg, passphrase, export_id, &stamp, &planned).await;
     });
+    jobs.set_abort(export_id, task.abort_handle());
     Spawned::Started(export_id)
 }
 
