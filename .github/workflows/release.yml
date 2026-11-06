@@ -59,13 +59,21 @@ jobs:
           path: ${{ runner.temp }}/pgsql-cache
           key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
           restore-keys: pgsql-
-      # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
-      - run: tools/release/package.sh windows "$RUNNER_TEMP/release"
+      # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる。
+      # package.sh は PR の組み立てで残った版を持ち込まないよう ASHIATO_BUILD_VERSION を外す（review R56）ので、
+      # tag の版（plan の版。beta の `-beta.N` も）で組むここは Linux の job と同じく build.sh を直に呼ぶ（review R61）
+      - run: tools/release/build.sh server-windows "$RUNNER_TEMP/release"
         shell: bash
         env:
           ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
           ASHIATO_RELEASE: "1"
           PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache"
+          ASHIATO_SOURCE_REF: ${{ github.ref_name }}
+      - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/release"
+        shell: bash
+        env:
+          ASHIATO_BUILD_VERSION: "${{ needs.plan.outputs.version }}"
+          ASHIATO_RELEASE: "1"
           ASHIATO_SOURCE_REF: ${{ github.ref_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-windows, path: "${{ runner.temp }}/release" }

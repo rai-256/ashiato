@@ -2,6 +2,10 @@
 //! サーバの起動を、**実行ファイルを起動して**確かめる（ST28 / design D4）。
 //! 管理者・所有者の接続ではサーバは起動せず、終了コード 2 と理由の種別（値ではなく種別）で終わる。
 #![allow(clippy::unwrap_used)]
+// この試験は実行ファイルを起こして手元の DB に繋ぎ、偽の pg_dump を unix の実行の権限で作る（`PermissionsExt`）ので、
+// Linux の CI と手元でだけ走る。部品の一部（`CustomServerBinary`・`PathBuf` の取り込み）が `cfg(unix)` で、
+// Windows の target では組めない。Windows 向けの clippy（`--all-targets`。ci.yml の collector-windows の job）が
+// このファイルで落ちないよう、ファイルごと unix に限る（ST55 Task 13 の ea3988d80 で足した。review R68）
 #![cfg(unix)]
 
 use std::path::Path;

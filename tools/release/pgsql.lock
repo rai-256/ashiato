@@ -12,4 +12,8 @@ executables=postgres.exe,initdb.exe,pg_ctl.exe,psql.exe,pg_dump.exe,pg_restore.e
 
 # DLLs reachable from the executables above, following local DLL imports with
 # x86_64-w64-mingw32-objdump -p.  Windows system DLLs are supplied by Windows.
+# Visual C++ runtime imports (checked 2026-11-07 on the zip with the sha256 above, objdump -p over
+# the executables, these DLLs and every lib/*.dll): VCRUNTIME140.dll everywhere, MSVCP140.dll only
+# from icuuc67.dll.  VCRUNTIME140_1.dll is imported only by pgAdmin/StackBuilder files (wx*.dll,
+# stackbuilder.exe) that slim does not copy, so build.sh bundles vcruntime140.dll and msvcp140.dll only.
 dlls=icuuc67.dll,icuin67.dll,icudt67.dll,libintl-9.dll,libiconv-2.dll,libwinpthread-1.dll,libxml2.dll,liblz4.dll,libssl-3-x64.dll,libcrypto-3-x64.dll,libzstd.dll,libpq.dll

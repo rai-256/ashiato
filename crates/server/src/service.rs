@@ -1,6 +1,5 @@
 //! Windows サービスの起動口と、サービス起動前に共有する純粋な待機処理。
 
-use anyhow::Context as _;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io::Write as _;
@@ -40,22 +39,37 @@ pub fn decide_db_watch(
     }
 }
 
+/// 見張る DB のサービスの名前。インストーラが `server.json` の `ASHIATO_DB_SERVICE` に書く
+/// （配る形は `ashiato-db`、開発版は `ashiato-db-dev`。review R66）。鍵が無ければ配る形の名前にする。
 pub fn configured_db_service_name(value: Option<&str>) -> &str {
     value
         .filter(|name| !name.is_empty())
         .unwrap_or("ashiato-db")
 }
 
-pub(crate) fn db_service_name_from_settings_path(path: &Path) -> &'static str {
-    if path.to_string_lossy().contains("ashiato-dev") {
-        "ashiato-db-dev"
-    } else {
-        "ashiato-db"
-    }
-}
-
 pub fn should_log_db_watch_error(previous: Option<&str>, current: &str) -> bool {
     previous != Some(current)
+}
+
+/// 見張りの失敗の理由を、変わったときだけ書くための控え。うまくいったら忘れるので、
+/// 回復の後に同じ理由が再発したらまた書く（review R65）。
+#[derive(Debug, Default)]
+pub struct DbWatchErrorLog {
+    last: Option<String>,
+}
+
+impl DbWatchErrorLog {
+    /// 失敗の理由を控え、書くべき（前と違う理由）なら `true` を返す。
+    pub fn failed(&mut self, reason: &str) -> bool {
+        let log = should_log_db_watch_error(self.last.as_deref(), reason);
+        self.last = Some(reason.to_owned());
+        log
+    }
+
+    /// うまくいった。控えた理由を忘れる。
+    pub fn succeeded(&mut self) {
+        self.last = None;
+    }
 }
 
 #[cfg(windows)]
@@ -74,7 +88,9 @@ async fn watch_db_service() {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     let service_name =
         configured_db_service_name(std::env::var("ASHIATO_DB_SERVICE").ok().as_deref()).to_owned();
-    let mut last_query_error = None;
+    // 同じ理由を 5 秒ごとに書かない。うまくいったら忘れ、回復の後に同じ理由が再発したらまた書く（review R65）
+    let mut query_errors = DbWatchErrorLog::default();
+    let mut start_errors = DbWatchErrorLog::default();
     loop {
         tokio::select! {
             () = STOP.wait() => return,
@@ -88,17 +104,37 @@ async fn watch_db_service() {
                     .and_then(|result| result)
                     .map(db_service_state);
                 match decide_db_watch(true, state) {
-                    DbWatchDecision::Restart => match ashiato_winsvc::start_db_service(&service_name) {
-                        Ok(()) => tracing::warn!(kind = "db_service_restarted", "DB のサービスを起こし直した"),
-                        Err(reason) => tracing::error!(kind = "db_service_start_failed", %reason, "DB のサービスを起こし直せない"),
-                    },
+                    DbWatchDecision::Restart => {
+                        query_errors.succeeded();
+                        // StartService は SCM の答えを待って塞ぐので、async の糸の外で呼ぶ（review R64）
+                        let service_for_start = service_name.clone();
+                        let started = tokio::task::spawn_blocking(move || {
+                            ashiato_winsvc::start_db_service(&service_for_start)
+                        })
+                            .await
+                            .map_err(|error| error.to_string())
+                            .and_then(|result| result);
+                        match started {
+                            Ok(()) => {
+                                start_errors.succeeded();
+                                tracing::warn!(kind = "db_service_restarted", "DB のサービスを起こし直した");
+                            }
+                            Err(reason) => {
+                                if start_errors.failed(&reason) {
+                                    tracing::error!(kind = "db_service_start_failed", %reason, "DB のサービスを起こし直せない");
+                                }
+                            }
+                        }
+                    }
                     DbWatchDecision::Log(reason) => {
-                        if should_log_db_watch_error(last_query_error.as_deref(), &reason) {
+                        if query_errors.failed(&reason) {
                             tracing::error!(kind = "db_service_query_failed", %reason);
                         }
-                        last_query_error = Some(reason);
                     }
-                    DbWatchDecision::Ignore => {}
+                    DbWatchDecision::Ignore => {
+                        query_errors.succeeded();
+                        start_errors.succeeded();
+                    }
                 }
             }
         }
@@ -302,10 +338,6 @@ where
 /// 状態の置き場の下に補う。読めなければ理由をサーバのログに書いて返す（main.rs の Windows の口が呼ぶ。review R43）。
 pub fn prepare_service(path: &Path) -> Result<(), SettingsError> {
     std::env::set_var("ASHIATO_SETTINGS_PATH", path);
-    std::env::set_var(
-        "ASHIATO_DB_SERVICE",
-        db_service_name_from_settings_path(path),
-    );
     match load_settings(path) {
         Ok(settings) => {
             apply_settings_for_service(path, &settings);
@@ -500,6 +532,89 @@ pub fn cleanup_partial_files(directory: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 起こし直しても直らない起動の拒否（設定・合言葉・役割・DB の版・待ち受けの検査など）。
+/// 理由は返す前にサーバのログへ書いてある。SCM へは終了コード 0 で「止まった」を返し、
+/// `failureflag 1` の回復に起こし直させない（`service_exit_code`。review R21・R60）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartupRefused {
+    kind: &'static str,
+}
+
+impl StartupRefused {
+    pub const fn new(kind: &'static str) -> Self {
+        Self { kind }
+    }
+
+    pub const fn kind(self) -> &'static str {
+        self.kind
+    }
+}
+
+impl std::fmt::Display for StartupRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "startup_refused kind={}", self.kind)
+    }
+}
+
+impl std::error::Error for StartupRefused {}
+
+/// DB を 120 秒待っても繋げなかった。理由は返す前にサーバのログへ書いてある。
+/// これだけは起こし直せば直りうるので、非 0 で終わって回復に任せる（spec distribution「サービスの回復が起こし直す」）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DatabaseUnavailable;
+
+impl std::fmt::Display for DatabaseUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("database_unavailable")
+    }
+}
+
+impl std::error::Error for DatabaseUnavailable {}
+
+/// サービスの終わり方。SCM へ返す終了コードと、終わりの理由をもうサーバのログに書いたかを決める。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceEnd {
+    /// 停止の知らせで終わった（または正常に終わった）。
+    Stopped,
+    /// 起こし直しても直らない拒否。理由は書いてある。
+    Refused,
+    /// DB を待ちきれなかった。理由は書いてある。回復が起こし直す。
+    DatabaseUnavailable,
+    /// 非同期の実行環境を作れなかった。
+    RuntimeUnavailable,
+    /// それ以外の失敗（待った後の DB の切断・起動後の待ち受けの失敗など）。理由はまだ書いていない。
+    /// 起こし直せば直りうるので回復に任せる（`reset= 86400` で 1 日 3 回まで）。
+    Failed,
+}
+
+impl ServiceEnd {
+    /// `run_service` の結果を分ける。型の付いた誤り（`StartupRefused`・`DatabaseUnavailable`）で見分け、文言は読まない。
+    pub fn classify(result: &anyhow::Result<()>) -> Self {
+        match result {
+            Ok(()) => Self::Stopped,
+            Err(error) if error.downcast_ref::<StartupRefused>().is_some() => Self::Refused,
+            Err(error) if error.downcast_ref::<DatabaseUnavailable>().is_some() => {
+                Self::DatabaseUnavailable
+            }
+            Err(_) => Self::Failed,
+        }
+    }
+
+    /// SCM へ返す終了コード。`failureflag 1` の回復は「止まった かつ 非 0」で動くので、
+    /// 起こし直しても直らない拒否は 0 にする（review R60）。
+    pub const fn exit_code(self) -> u32 {
+        match self {
+            Self::Stopped | Self::Refused => 0,
+            Self::DatabaseUnavailable | Self::RuntimeUnavailable | Self::Failed => 1,
+        }
+    }
+
+    /// 終わりの理由がまだサーバのログに無いか（`kind=service_startup` を 1 行足すか。review R67）。
+    pub const fn needs_log(self) -> bool {
+        matches!(self, Self::Failed)
+    }
+}
+
 /// DB を待ってから通常のサーバ起動へ渡す。
 pub async fn run_service() -> anyhow::Result<()> {
     std::env::set_var("ASHIATO_SERVICE_MODE", "1");
@@ -522,7 +637,10 @@ pub async fn run_service() -> anyhow::Result<()> {
         .with_ansi(false)
         .with_env_filter("info")
         .init();
-    let url = std::env::var("DATABASE_URL").context("DATABASE_URL が未設定")?;
+    let Ok(url) = std::env::var("DATABASE_URL") else {
+        log_startup_refusal("database_url_missing");
+        return Err(StartupRefused::new("database_url_missing").into());
+    };
     let delay = test_db_delay();
     let started = tokio::time::Instant::now();
     let outcome = wait_for_db_until_stopped(
@@ -558,7 +676,7 @@ pub async fn run_service() -> anyhow::Result<()> {
         WaitOutcome::TimedOut => {
             tracing::error!(kind = "database_unavailable", "DB に繋げないため起動しない");
             log_startup_refusal("database_unavailable");
-            anyhow::bail!("database_unavailable");
+            Err(DatabaseUnavailable.into())
         }
     }
 }

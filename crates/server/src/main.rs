@@ -18,8 +18,9 @@ fn main() -> anyhow::Result<()> {
             }
             let settings_path = std::path::Path::new(path.as_deref().unwrap_or_default());
             if ashiato_server::service::prepare_service(settings_path).is_err() {
-                // SCM に繋いでから「止まった」を返す。繋ぐ前に終わると異常終了とみなされ、
-                // 回復の設定で起こし直しが続く（review R21）
+                // SCM に繋いでから終了コード 0 で「止まった」を返す。繋ぐ前に終わると異常終了とみなされ、
+                // 非 0 で返すと `failureflag 1` の回復が 10 秒ごとに起こし直す（設定は起こし直しても直らない。
+                // 理由は prepare_service がサーバのログに書いた。review R21・R60）
                 SETTINGS_REFUSED.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             return ashiato_winsvc::dispatch(run_windows_service, request_service_stop)
@@ -42,23 +43,27 @@ fn main() -> anyhow::Result<()> {
 #[cfg(windows)]
 static SETTINGS_REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// SCM へ返す終了コードは `ServiceEnd` が決める。起こし直しても直らない拒否は 0、DB を待ちきれない・
+/// 実行環境を作れない・それ以外の失敗は 1（`failureflag 1` の回復が起こし直す。review R60）。
 #[cfg(windows)]
 fn run_windows_service() -> u32 {
+    use ashiato_server::service::{self, ServiceEnd};
     if SETTINGS_REFUSED.load(std::sync::atomic::Ordering::SeqCst) {
-        return 1;
+        return ServiceEnd::Refused.exit_code();
     }
     let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     else {
-        ashiato_server::service::log_startup_refusal("service_runtime");
-        return 1;
+        service::log_startup_refusal("service_runtime");
+        return ServiceEnd::RuntimeUnavailable.exit_code();
     };
-    if let Err(_error) = runtime.block_on(ashiato_server::service::run_service()) {
-        ashiato_server::service::log_startup_refusal("service_startup");
-        return 1;
+    let end = ServiceEnd::classify(&runtime.block_on(service::run_service()));
+    // 拒否と DB の時間切れは、返す前に理由を書いてある。2 行目を書かない（review R67）
+    if end.needs_log() {
+        service::log_startup_refusal("service_startup");
     }
-    0
+    end.exit_code()
 }
 
 #[cfg(windows)]

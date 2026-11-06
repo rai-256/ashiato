@@ -148,12 +148,56 @@ fn st55_db_watch_uses_configured_database_service_name() {
         super::service::configured_db_service_name(None),
         "ashiato-db"
     );
+    // 空の値も鍵が無いのと同じに扱う（インストーラは必ず書く。review R66）
     assert_eq!(
-        super::service::db_service_name_from_settings_path(Path::new(
-            r"C:\ProgramData\ashiato-dev\settings\server.json"
-        )),
-        "ashiato-db-dev"
+        super::service::configured_db_service_name(Some("")),
+        "ashiato-db"
     );
+}
+
+#[test]
+fn st55_db_watch_settings_name_reaches_the_service_environment() {
+    let _env = env_lock();
+    // インストーラが server.json に書いた ASHIATO_DB_SERVICE を、service の口の準備がそのまま環境へ入れる。
+    // 置き場のパスから名前を推さない（開発版の置き場でも、書かれた名前が勝つ。review R66）
+    let dir = tempfile::tempdir().unwrap();
+    let settings_path = dir
+        .path()
+        .join("ashiato-dev")
+        .join("settings")
+        .join("server.json");
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &settings_path,
+        serde_json::json!({ "ASHIATO_DB_SERVICE": "ashiato-db-custom" }).to_string(),
+    )
+    .unwrap();
+    std::env::remove_var("ASHIATO_DB_SERVICE");
+    super::service::prepare_service(&settings_path).unwrap();
+    assert_eq!(
+        std::env::var("ASHIATO_DB_SERVICE").unwrap(),
+        "ashiato-db-custom"
+    );
+    for key in [
+        "ASHIATO_DB_SERVICE",
+        "ASHIATO_EXPORT_DIR",
+        "ASHIATO_MEDIA_DIR",
+        "ASHIATO_ARCHIVE_COPY_DIR",
+        "ASHIATO_SETTINGS_PATH",
+    ] {
+        std::env::remove_var(key);
+    }
+}
+
+#[test]
+fn st55_db_watch_error_log_writes_changes_and_forgets_on_success() {
+    // 同じ理由は 5 秒ごとに書かない。うまくいったら忘れ、再発したらまた書く（review R65）
+    let mut log = super::service::DbWatchErrorLog::default();
+    assert!(log.failed("service_disabled"));
+    assert!(!log.failed("service_disabled"));
+    assert!(log.failed("access_denied"));
+    log.succeeded();
+    assert!(log.failed("access_denied"));
 }
 
 #[test]
@@ -603,6 +647,72 @@ fn st55_place_service_entry_fills_default_places_and_keeps_owner_secret_out() {
     ] {
         std::env::remove_var(key);
     }
+}
+
+#[test]
+fn st55_service_unrecoverable_refusals_end_with_exit_code_zero() {
+    let _env = env_lock();
+    // 起こし直しても直らない拒否（設定・合言葉・鍵・待ち受け・役割・DB の版など）は SCM へ 0 を返し、
+    // `failureflag 1` の回復に 10 秒ごとに起こし直させない（review R21・R60）。
+    // 本番の拒否の口（refuse_startup・refuse_setting）が作る誤りを分ける。ログの置き場が無いので何も書かない
+    use super::service::ServiceEnd;
+    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    for (kind, code) in [
+        ("web_password", 2),
+        ("web_session_key", 2),
+        ("bind_not_loopback", 2),
+        ("db_not_loopback", 2),
+        ("db_role", 2),
+        ("db_version", 3),
+        ("channel_mismatch", 4),
+        ("media_dir_relative", 2),
+    ] {
+        let end = ServiceEnd::classify(&Err(super::refuse_startup(true, kind, code)));
+        assert_eq!(end, ServiceEnd::Refused, "{kind}");
+        assert_eq!(end.exit_code(), 0, "{kind}");
+        assert!(!end.needs_log(), "{kind}");
+    }
+    for kind in [
+        "database_url_missing",
+        "api_token_missing",
+        "api_token_short",
+        "web_session_max_age",
+        "archive_config",
+        "outage_warmup",
+    ] {
+        let error = super::refuse_setting(true, kind, anyhow::anyhow!("設定の誤り"));
+        let end = ServiceEnd::classify(&Err(error));
+        assert_eq!(end.exit_code(), 0, "{kind}");
+        assert!(!end.needs_log(), "{kind}");
+    }
+    // 設定のファイルを読めない（main.rs の SETTINGS_REFUSED）も同じ拒否
+    assert_eq!(ServiceEnd::Refused.exit_code(), 0);
+    // 停止の知らせで終わったときも 0
+    assert_eq!(ServiceEnd::classify(&Ok(())).exit_code(), 0);
+}
+
+#[test]
+fn st55_service_database_timeout_and_other_failures_end_non_zero() {
+    // DB を 120 秒待っても繋げないときだけは回復に起こし直させる（spec distribution「サービスの回復が起こし直す」）。
+    // 実行環境を作れない・型の無い失敗（待った後の切断・待ち受けの失敗など）も起こし直せば直りうるので非 0（review R60）
+    use super::service::{DatabaseUnavailable, ServiceEnd};
+    let timeout = ServiceEnd::classify(&Err(DatabaseUnavailable.into()));
+    assert_eq!(timeout, ServiceEnd::DatabaseUnavailable);
+    assert_ne!(timeout.exit_code(), 0);
+    // 理由は run_service が書いた。2 行目を書かない（review R67）
+    assert!(!timeout.needs_log());
+    assert_ne!(ServiceEnd::RuntimeUnavailable.exit_code(), 0);
+    let other = ServiceEnd::classify(&Err(anyhow::anyhow!("connection reset")));
+    assert_eq!(other, ServiceEnd::Failed);
+    assert_ne!(other.exit_code(), 0);
+    assert!(other.needs_log());
+    // 開発の口では設定の誤りを型で包まない（端末に今までの文が出る）
+    let dev = super::refuse_setting(
+        false,
+        "api_token_short",
+        anyhow::anyhow!("API_TOKEN が短すぎる"),
+    );
+    assert_eq!(ServiceEnd::classify(&Err(dev)), ServiceEnd::Failed);
 }
 
 #[test]

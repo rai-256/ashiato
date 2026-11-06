@@ -413,6 +413,24 @@ wait_database() {
   done
 }
 
+# サーバのログに、見張りが DB のサービスを起こし直した印（db_service_restarted）が何行あるか（D35・review R62）。
+db_restart_count() {
+  cat "$STATE"/logs/server/* 2>/dev/null | grep -Fc 'db_service_restarted' || true
+}
+
+# 見張りの起こし直しの印が、$1 行より増えるのを $2 秒まで待つ。増えなければ診断を出して落ちる。
+wait_db_restarted_by_server() {
+  local before="$1" seconds="$2" deadline=$((SECONDS + $2))
+  while [[ "$(db_restart_count)" -le "$before" ]]; do
+    if [[ "$SECONDS" -ge "$deadline" ]]; then
+      service_diagnostics ashiato-db >&2 || true
+      tail -n 40 "$(ls -t "$STATE"/logs/server/* 2>/dev/null | head -n 1)" >&2 2>/dev/null || true
+      die "サーバの見張りが $seconds 秒で DB のサービスを起こし直さない（サーバのログに db_service_restarted が無い）"
+    fi
+    sleep 1
+  done
+}
+
 # 止める・開始する（既に止まっている・回復で起こし直し中でも落ちない）。
 stop_service() { sc.exe stop "$1" >/dev/null 2>&1 || true; wait_state "$1" 1 60; }
 start_service() { sc.exe start "$1" >/dev/null 2>&1 || true; }
@@ -677,14 +695,19 @@ check_release_zip() {
 
   echo '== Scenario: DB のサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-db | tr -d '\r')" ashiato-db
-  local postmaster_pid
+  local postmaster_pid restarted_before
   postmaster_pid="$(postmaster_pid_from "$(<"$STATE/db/17/postmaster.pid")")" ||
     die 'DB の postmaster.pid から主プロセス番号を読めない'
+  restarted_before="$(db_restart_count)"
   # pg_ctl のサービスではなく、postmaster.pid の先頭にある PostgreSQL の主だけを終える。
   taskkill.exe /F /PID "$postmaster_pid" >/dev/null || die 'PostgreSQL の主を異常に終わらせられない'
   pid_gone "$postmaster_pid" 10 || die 'DB の PostgreSQL の主を異常に終わらせられない'
+  # 起こし直したのがサーバの見張り（D35）であることを、サーバのログの kind=db_service_restarted で確かめる。
+  # 状態 4 だけを見ると、pg_ctl が主の死にまだ気づいていない間にも通ってしまう（review R62）。
+  # 見張りは 5 秒ごとに読むので、pg_ctl が止まるまでの間を足しても 60 秒あれば足りる
+  wait_db_restarted_by_server "$restarted_before" 60
   # PostgreSQL は強制終了後に WAL を回復してから受け付ける。CI の遅い runner でも
-  # 回復そのものを失敗と取り違えないよう、サービスの回復設定より十分長く待つ。
+  # 回復そのものを失敗と取り違えないよう、十分長く待つ。
   wait_state ashiato-db 4 60
   wait_database 60
   assert_db_watch_acl "$(sc.exe sdshow ashiato-db | tr -d '\r')" "$(service_sid ashiato-server)"

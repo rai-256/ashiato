@@ -396,9 +396,8 @@ mod tests {
         assert_eq!(
             commands
                 .iter()
-                .position(|command| command.line().contains("sdset ashiato-db"))
-                .unwrap(),
-            commands.len() - 1
+                .position(|command| command.line().contains("sdset ashiato-db")),
+            Some(commands.len() - 1)
         );
     }
 
@@ -929,6 +928,7 @@ mod tests {
             vec![
                 "API_TOKEN",
                 "ASHIATO_ARCHIVE_USER_ID",
+                "ASHIATO_DB_SERVICE",
                 "ASHIATO_DOWNLOADS_DIR",
                 "ASHIATO_INBOX_DIR",
                 "ASHIATO_OWNER_SID",
@@ -941,6 +941,15 @@ mod tests {
             ]
         );
         assert_eq!(settings["BIND"], "127.0.0.1:18700");
+        // 見張りが起こす DB のサービスの名前を、置き場ごとに書く（開発版は ashiato-db-dev。review R66）
+        assert_eq!(settings["ASHIATO_DB_SERVICE"], "ashiato-db");
+        let dev = secrets.settings_json(
+            &layout::Layout::development(),
+            r"C:\Users\A",
+            r"C:\Users\A\Downloads",
+            "S-1-5-21-42",
+        );
+        assert_eq!(dev["ASHIATO_DB_SERVICE"], "ashiato-db-dev");
         assert_eq!(
             settings["ASHIATO_INBOX_DIR"],
             "C:/Users/A/ashiato/取り込み待ち"

@@ -4459,15 +4459,26 @@ pub async fn run() -> anyhow::Result<()> {
     run_inner().await
 }
 
-/// 起動の拒否で終わる。`service` の口では理由をサーバのログのファイルに書き、`exit` せずに誤りを返す
-/// （SCM に「止まった」を返し、異常終了と見なした回復の起こし直しを続けさせない。ST55 review R21）。
-/// 開発の口では今までどおりの終了コードで終わる（ログのファイルには書かない。D17 / review R15）。
+/// 起動の拒否で終わる。`service` の口では理由をサーバのログのファイルに書き、`exit` せずに型の付いた誤り
+/// （`service::StartupRefused`）を返す。main.rs の Windows の口がそれを `ServiceEnd::Refused` と読み、SCM へ
+/// 終了コード 0 で「止まった」を返す（`failureflag 1` の回復に、起こし直しても直らない拒否を繰り返させない。
+/// ST55 review R21・R60）。開発の口では今までどおりの終了コードで終わる（ログのファイルには書かない。D17 / review R15）。
 fn refuse_startup(service_mode: bool, kind: &'static str, code: i32) -> anyhow::Error {
     if service_mode {
         crate::service::log_startup_refusal(kind);
-        return anyhow::anyhow!("startup_refused kind={kind}");
+        return crate::service::StartupRefused::new(kind).into();
     }
     std::process::exit(code);
+}
+
+/// 設定の値の誤り（無い・短い・形が違う）。`service` の口では起こし直しても直らない拒否として理由を書いて返し、
+/// 開発の口では今までどおりの誤り（端末に文が出て終了コード 1）を返す（review R60）。
+fn refuse_setting(service_mode: bool, kind: &'static str, error: anyhow::Error) -> anyhow::Error {
+    if service_mode {
+        crate::service::log_startup_refusal(kind);
+        return crate::service::StartupRefused::new(kind).into();
+    }
+    error
 }
 
 pub(crate) async fn run_inner() -> anyhow::Result<()> {
@@ -4476,13 +4487,21 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         tracing::error!(kind = "panic", location = ?info.location(), "未捕捉の異常");
     }));
 
-    let url = std::env::var("DATABASE_URL").context("DATABASE_URL が未設定")?;
-    let token = std::env::var("API_TOKEN").context("API_TOKEN が未設定")?;
-    if token.len() < 16 {
-        anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
-    }
     // サービス口は verifier 形だけ、開発口は従来の元の値だけを受け付ける（D8）。
     let service_mode = std::env::var_os("ASHIATO_SERVICE_MODE").is_some();
+    let url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL が未設定")
+        .map_err(|e| refuse_setting(service_mode, "database_url_missing", e))?;
+    let token = std::env::var("API_TOKEN")
+        .context("API_TOKEN が未設定")
+        .map_err(|e| refuse_setting(service_mode, "api_token_missing", e))?;
+    if token.len() < 16 {
+        return Err(refuse_setting(
+            service_mode,
+            "api_token_short",
+            anyhow::anyhow!("API_TOKEN が短すぎる（16 文字以上にする）"),
+        ));
+    }
     let web_password = std::env::var("WEB_PASSWORD").ok();
     let verifier = std::env::var("WEB_PASSWORD_VERIFIER").ok();
     let password_check = if service_mode {
@@ -4531,7 +4550,8 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
     // ログインの期限（日。0 = なし。design D18）
     let session_max_age_days = web_session::session_max_age_days(
         std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
-    )?;
+    )
+    .map_err(|e| refuse_setting(service_mode, "web_session_max_age", e))?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
     let server_channel = build_channel();
     let explicit_bind = std::env::var("BIND").ok();
@@ -4592,7 +4612,8 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
 
     startup_upkeep(pool.clone()).await;
 
-    let archive_config = archive::config::from_env()?;
+    let archive_config = archive::config::from_env()
+        .map_err(|e| refuse_setting(service_mode, "archive_config", e))?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
     let scheduled_user = archive_config.user_id;
@@ -4617,13 +4638,16 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
     let scheduled_handle = scheduled::start(pool.clone(), scheduled_user);
 
     // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
-    let warmup =
-        match std::env::var("OUTAGE_WARMUP_SEC") {
-            Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
-                anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
-            })?),
-            Err(_) => outage::OUTAGE_WARMUP,
-        };
+    let warmup = match std::env::var("OUTAGE_WARMUP_SEC") {
+        Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
+            refuse_setting(
+                service_mode,
+                "outage_warmup",
+                anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する"),
+            )
+        })?),
+        Err(_) => outage::OUTAGE_WARMUP,
+    };
     // 原本の置き場（D-02。design D10）。相対の場所なら起動しない。既定の置き場だけを作り、書きかけを消す
     let media = match media::MediaConfig::from_env(|k| std::env::var(k).ok()) {
         Ok(media) => media,

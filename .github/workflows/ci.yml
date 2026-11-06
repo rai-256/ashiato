@@ -155,6 +155,9 @@ jobs:
       # **型だけでなく lint も当てる**（review/code.md B-5 / R34）。ubuntu の clippy は
       # cfg(windows) の中身をコンパイルしないので、作業場の lint が platform.rs に届かない
       - run: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+      # サーバのサービスの口（main.rs・service.rs の cfg(windows)）・winsvc・インストーラも同じく
+      # ubuntu の clippy では中身を見ない。package-windows の組み立ては型しか見ないので、lint もここで当てる（ST55 review R68）
+      - run: cargo clippy -p ashiato-server -p ashiato-winsvc -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
   # 組み立ての印（ST49 / design D5・D6）。repo を使い捨ての場所へ clone し、本物の組み立て（cargo / gradle）で
   # commit を進めた後・add していない変更の後に印が作り直されることを見る。節ごとに使い捨ての target で組み立てて重いので、

@@ -56,6 +56,8 @@ impl InstallSecrets {
             "PG_DUMP": format!("{program}/pgsql/bin/pg_dump.exe"),
             "WEB_PASSWORD_VERIFIER": self.web_password_verifier,
             "ASHIATO_OWNER_SID": owner_sid,
+            // サーバの見張り（D35）が起こす DB のサービスの名前。置き場のパスから推させない（review R66）
+            "ASHIATO_DB_SERVICE": layout.db_service,
         })
     }
 

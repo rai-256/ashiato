@@ -67,9 +67,14 @@ slim() {
   cp -a "$base/share/." "$output/share/"
   license="$(lock_value license)"
   license_destination="$(lock_value license_destination)"
-  [[ -f "$source/$license" ]] && cp -p "$source/$license" "$output/$license_destination" ||
-    [[ -f "$base/${license#pgsql/}" ]] && cp -p "$base/${license#pgsql/}" "$output/$license_destination" ||
+  # 写しの失敗を次の枝へ流さない（`A && cp || B && cp || die` だと、cp の失敗で別の置き場を探しに行く。review R69）
+  if [[ -f "$source/$license" ]]; then
+    cp -p "$source/$license" "$output/$license_destination" || die "許諾の文を写せない: $license"
+  elif [[ -f "$base/${license#pgsql/}" ]]; then
+    cp -p "$base/${license#pgsql/}" "$output/$license_destination" || die "許諾の文を写せない: $license"
+  else
     die "許諾の文が無い: $license"
+  fi
 }
 
 self_test() {
