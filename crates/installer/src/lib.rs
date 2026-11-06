@@ -1384,4 +1384,20 @@ mod tests {
         assert!(text.contains("/grant:r") && text.contains("*S-1-5-21-owner:(OI)(CI)RX"));
         assert!(!text.contains("/remove:g"));
     }
+
+    #[test]
+    fn st55_repair_database_write_grant_uses_restore_privilege() {
+        // 別管理者は DB の DACL を通常の icacls では開けない。repair が一時の M を
+        // 足す最初の更新は、既存の設定・退避場所と同じ特権付きハンドルで行う。
+        let commands =
+            commands::database_write_acl_commands(&layout::Layout::release(), "S-1-5-21-admin");
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].program, "powershell.exe");
+        let script = commands[0].args.last().expect("PowerShell script");
+        assert!(script.contains("SeRestorePrivilege"));
+        assert!(script.contains("SeBackupPrivilege"));
+        assert!(script.contains(r"C:\ProgramData\ashiato\db"));
+        assert!(script.contains("S-1-5-21-admin"));
+        assert!(!script.contains("icacls.exe"));
+    }
 }

@@ -586,11 +586,10 @@ pub fn remove_temporary_write_acl_commands(layout: &Layout) -> Vec<SetupCommand>
 /// `initdb` と DB の設定を書く間だけ、DB の置き場に上がった利用者の書きを足す。
 /// DB のサービスを起こす前（中のファイルの持ち主がまだインストーラ）にだけ使う。
 pub fn database_write_acl_commands(layout: &Layout, sid: &str) -> Vec<SetupCommand> {
-    vec![icacls([
+    vec![restore_privileged_grant_command(
         format!(r"{}\db", layout.state_dir),
-        "/grant".into(),
-        format!("*{sid}:(OI)(CI)M"),
-    ])]
+        sid,
+    )]
 }
 
 /// DB の置き場の一時の書きを外し、DB のサービスの書きと本人の読みだけに戻す。
