@@ -501,6 +501,7 @@ N1・N2 は HEAD でも直っている。N4〜N6 は HEAD でもそのまま（�
 - 根拠: `origin/feat/st55-server-installer` は 90245585e のまま。最後の緑の install-windows（run 42235492040）は Task 13 の前の木。`sc.exe sdshow | Select-Object -Last 1` の SDDL の取り方・`sdset`（commands.rs の見張りの ACE）、見張りが本当に StartService を呼ぶか、主だけを殺す DB の回復の Scenario（install-check.sh:678-690）は Linux では確かめられない
 - kind: premise
 - 提案: push して install-windows が HEAD で緑になるのを待つ
+- 処置: rejected: 主張（HEAD は Windows の通しを一度も通っていない）はそのとおりで、提案の「push して HEAD で緑」は機械が持っている —— push と PR はグラフの `publish`、merge は `merge_gate.sh` が head の CI が全部緑であることを見てからしか進まない（R45 と同じ）。この PR は `crates/` を変えるので install-windows が走る。PR 本文は Task 13 と R60〜R62 の Windows での振る舞いを未観測と書く
 
 ## R60. 設定を拒んだサーバが `failureflag 1` で 10 秒ごとに起こし直され続ける（R21 の直しが打ち消されている）
 - 成果物: crates/installer/src/commands.rs / crates/server/src/main.rs / crates/server/src/service.rs / design.md（D11）
@@ -571,3 +572,10 @@ N1・N2 は HEAD でも直っている。N4〜N6 は HEAD でもそのまま（�
 - 根拠: D33 の objdump の結果は VCRUNTIME140・MSVCP140 だけを挙げる。MSVC x64 の C++（ICU・libxml2）は `vcruntime140_1.dll` を読むことがある
 - kind: technical
 - 処置: fixed 1.1 —— 要らないことを実物で確かめた。指紋が pgsql.lock と合う EDB の zip（sha256 d378882a…）を展開し、`x86_64-w64-mingw32-objdump -p` を 7 つの実行ファイル・lock の 12 の DLL・`lib/*.dll` の 89 個に当てると、VCRUNTIME140.dll（MSVCP140.dll は icu*）だけ。`VCRUNTIME140_1.dll` を読むのは pgAdmin・StackBuilder の `wx*.dll`・`stackbuilder.exe` だけで、slim は写さない。結果を pgsql.lock のコメントに残した（DLL の追加は無し）
+
+## final review の scoped re-review（45825ea..a185e38）
+
+fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）。R60〜R70 は全部 ADDRESSED、fix が持ち込んだ Critical / Important は無し。R59 は範囲外（上の処置）。
+- Minor（処置しない）: install-check.sh の `db_restart_count` はログのファイル全体の行数を数える。日付でファイルが替わる 60 秒の窓だけ数え方がずれうるが、増えたかを見るだけなので実害は無い
+- PR 本文へ: `proposal.md:66` と `tasks.md` 3.4 の「release.yml も同じ package.sh を通る」は R61 の直しで成り立たなくなった（上流の文は書き換えていない）
+- 本物の Windows でしか確かめられない: 終了コード 0 / 1 で SCM の回復が止まる・動くか（R60）、見張りの `spawn_blocking` の起こし（R64）、`db_service_restarted` の待ち（R62）、新しい Windows 向け clippy の step（R68）。release.yml（R61）は tag を打つまで走らない
