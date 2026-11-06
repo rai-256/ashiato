@@ -1116,7 +1116,7 @@ fn install(
         &commands::stop_service_and_wait_command(layout.server_service),
         trace,
     )?;
-    run(&commands::start_server_command(layout), trace)?;
+    ensure_running(layout.server_service, trace)?;
     if !wait_for_port(layout.server_port, Duration::from_secs(180)) {
         return Err(format!(
             "サーバが起きない。ログ: {}",
@@ -1317,7 +1317,7 @@ fn password(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &secrets::replace_web_password_verifier(&settings, &verifier),
     )?;
     temporary.finish(trace)?;
-    run(&commands::start_server_command(layout), trace)?;
+    ensure_running(layout.server_service, trace)?;
     if !wait_for_port(layout.server_port, Duration::from_secs(180)) {
         return Err("決め直した後にサーバが起きない".into());
     }
