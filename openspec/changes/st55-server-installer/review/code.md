@@ -490,3 +490,73 @@ Q11 の答えを写した fix と N1〜N3 の直しの後の scoped re-review（
 - N4: 写しは起きたが遅れて消す台本を起こす前に失敗すると（サービスが 180 秒で止まらない など）、`C:\ProgramData\ashiato-uninstall-*`（写しと `.cmd`。管理者と SYSTEM だけ）が残る（main.rs の `uninstall` の親。確かさ 3）。直し方: 親で写しが非 0 のときも置き場を消す
 - N5: `place_owner_settings` で rename の後の `icacls` が失敗すると、owner.json は受け継いだ項目のまま保護されず、`TemporaryWrite` の Drop の `/reset` で設定の置き場の形（サーバの M・本人の RX）を受け継ぎ直しうる（確かさ 2。icacls が失敗するときだけ）。直し方: 書きかけの置き場の中で rename の前に保護の ACL と持ち主を付ける
 - N6: repair の R40 の出口（server.json があり役割の完了記録が無い）で、owner.json を置いた後・server.json を置く前に落ちると、新しい owner.json と古い server.json が残り、`repair_allowed` が偽で repair をやり直せない（確かさ 2。前からある記録と rename の間の窓に、外の命令の段が入った）
+
+## final review（0548aad..45825ea）
+
+squash（19c44ef28）と Task 13（D35 の DB の見張り）の後の whole-branch review（`superpowers:requesting-code-review` の `code-reviewer.md`、別の文脈）。判定は **With fixes**（Critical なし）。
+N1・N2 は HEAD でも直っている。N4〜N6 は HEAD でもそのまま（前の Ruling どおり park のまま PR 本文で渡す）。I2・I3 は final の controller が該当行を読んで再現した。
+
+## R59. Task 13（HEAD 45825ea）は Windows の CI を一度も通っていない
+- 成果物: crates/server/src/service.rs / crates/winsvc/src/lib.rs / crates/installer/src/commands.rs / tools/release/install-check.sh
+- 根拠: `origin/feat/st55-server-installer` は 90245585e のまま。最後の緑の install-windows（run 42235492040）は Task 13 の前の木。`sc.exe sdshow | Select-Object -Last 1` の SDDL の取り方・`sdset`（commands.rs の見張りの ACE）、見張りが本当に StartService を呼ぶか、主だけを殺す DB の回復の Scenario（install-check.sh:678-690）は Linux では確かめられない
+- kind: premise
+- 提案: push して install-windows が HEAD で緑になるのを待つ
+
+## R60. 設定を拒んだサーバが `failureflag 1` で 10 秒ごとに起こし直され続ける（R21 の直しが打ち消されている）
+- 成果物: crates/installer/src/commands.rs / crates/server/src/main.rs / crates/server/src/service.rs / design.md（D11）
+- 根拠: commands.rs:790-808 は両方のサービスに `failure … restart/10000 ×3` と `failureflag 1`。main.rs:44-63 の `run_windows_service` は設定の拒否（`SETTINGS_REFUSED`）・ランタイムの失敗・`run_service` のどの失敗（web_password・db_role・db_version・bind の拒否、DB 待ちの時間切れ）でも 1 を返す。`failureflag 1` では「STOPPED かつ終了コード非 0」で回復が動くので、起こし直しても直らない拒否が 10 秒ごとに繰り返され、サーバの依る `ashiato-db` も起こされる（repair が DB を止めた後の一時の postmaster と取り合いうる）。main.rs:21-23 のコメント（R21: 回復で起こし直しが続くのを防ぐ）と食い違う。spec の distribution:71 が回復に任せるのは「120 秒待っても DB に繋げない」だけ
+- kind: technical
+- 提案: 起こし直しても直らない拒否（設定・合言葉・役割・版・bind）は終了コード 0 で SERVICE_STOPPED を返し、DB 待ちの時間切れ（と runtime の失敗）だけ非 0 にする。試験で拒否の種類ごとの終了コードを固定する
+
+## R61. 正式版の配布（release.yml）で、Windows の成果物の版番号が tag の版でなく Cargo.toml の版になる
+- 成果物: .github/workflows/release.yml / tools/release/package.sh
+- 根拠: release.yml:63-69 は `package.sh windows` を `ASHIATO_BUILD_VERSION=<plan の版>` で呼ぶが、package.sh:19-25 は（R56 の直しで）`env -u ASHIATO_BUILD_VERSION` で build.sh を呼ぶので、build.sh:16-20 は `version.sh source` に倒れる。Linux の job は build.sh を直に呼び plan の版のまま。beta の tag（`v1.2.3-beta.1`）では publish の `check-artifacts.sh --expect-version` が Windows の zip で落ちる。main では release.yml は build.sh を直に呼んでいた（この枝で package.sh に替えた）
+- kind: technical
+- 提案: release.yml は build.sh を直に呼ぶ形に戻し（`ASHIATO_RELEASE=1`・`PGSQL_CACHE_DIR` を渡す）、server-windows と collector-windows の 2 本にする。または package.sh に版を渡す口を足す
+
+## R62. DB の回復の Scenario が、何が DB を起こし直したか（D35 の見張りか）を確かめない
+- 成果物: tools/release/install-check.sh
+- 根拠: install-check.sh:678-690 は Task 13 で service_pid の比較を消し、`wait_state ashiato-db 4 60`・`wait_database 60`・ACL だけを見る。pg_ctl が主の死にまだ気づいていなければ状態 4 はすぐ通る。spec の Scenario を D35 で満たした仕組み（見張りの起こし直し）を固定していない
+- kind: technical
+- 提案: 主を終えた後に、サーバのログに `db_service_restarted` が書かれるのを待って確かめる
+
+## R63. design.md D11 の回復の動作が実装と違う
+- 成果物: openspec/changes/st55-server-installer/design.md
+- 根拠: D11 は `restart/10000/restart/10000/restart/60000`、commands.rs:803 は `restart/10000` ×3（理由はコードのコメントだけ）。`failureflag 1` も D11 に無い
+- kind: technical
+- 提案: D11 に実装の注として 3 回とも 10 秒・`failureflag 1`・R60 の終了コードの方針を書く
+
+## R64. 見張りが塞ぐ呼び出し `start_db_service` を async の中で直に呼ぶ
+- 成果物: crates/server/src/service.rs
+- 根拠: service.rs:91 付近。問い合わせは spawn_blocking なのに起こしは直（Task 13 F6）
+- kind: technical
+
+## R65. 見張りの `db_service_start_failed` が同じ理由で 5 秒ごとに書かれる・`last_query_error` が成功で戻らない
+- 成果物: crates/server/src/service.rs
+- 根拠: service.rs:93 は理由が同じでも毎回書く（DB のサービスを無効にした場合など）。:99 の `last_query_error` は問い合わせが成功しても None に戻らないので、回復の後に同じ理由が再発しても書かれない（Task 13 F13）
+- kind: technical
+
+## R66. DB のサービス名を設定の置き場のパスから推している
+- 成果物: crates/server/src/service.rs / crates/installer/src/secrets.rs
+- 根拠: service.rs:49-55 の `db_service_name_from_settings_path` はパスに `ashiato-dev` を含むかで決める。インストーラが `server.json` に `ASHIATO_DB_SERVICE` を書けば推さずに済む
+- kind: technical
+
+## R67. 拒否が 2 行書かれる
+- 成果物: crates/server/src/main.rs
+- 根拠: main.rs:57-58 は `run_service` が既に理由（`database_unavailable` など）を書いた後に、もう一度 `service_startup` を書く
+- kind: technical
+
+## R68. server/tests/server_startup.rs の `#![cfg(unix)]` の理由が無い・server と winsvc の Windows 向け clippy が CI に無い
+- 成果物: crates/server/tests/server_startup.rs / .github/workflows/ci.yml
+- 根拠: server_startup.rs:5。ci.yml:157 の Windows 向け clippy は collector-windows だけで、winsvc と service の `cfg(windows)` の中身は package-windows のビルドでしか型を見ていない
+- kind: technical
+
+## R69. pgsql.sh の `A && cp || B && cp || die` の連鎖（Task 1 F2）
+- 成果物: tools/release/pgsql.sh
+- 根拠: pgsql.sh:70-72。今は害が無いが、`cp` の失敗が次の枝に流れる
+- kind: technical
+
+## R70. 同梱の DLL に `vcruntime140_1.dll` が要らないことを実物で確かめていない
+- 成果物: tools/release/pgsql.lock / tools/release/build.sh
+- 根拠: D33 の objdump の結果は VCRUNTIME140・MSVCP140 だけを挙げる。MSVC x64 の C++（ICU・libxml2）は `vcruntime140_1.dll` を読むことがある
+- kind: technical
