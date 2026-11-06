@@ -1205,7 +1205,7 @@ check_test_zip() {
   if [[ "${ASHIATO_INSTALL_CHECK_TEST_TAKEOUT:-0}" == 1 ]]; then
     echo '== Scenario: ダウンロードに置いた Takeout が、インストールした形で取り込まれる'
     local archive_name='takeout-20261103T000000Z-001.zip'
-    (cd "$root/tools/fixtures/takeout" && zip -q -j "$WORK/$archive_name" shape.txt)
+    create_takeout_archive "$WORK/$archive_name"
     cp "$WORK/$archive_name" "$DOWNLOADS_U/$archive_name"
     [[ "$(app_sql "UPDATE core.source SET fetch_interval_sec = 300 WHERE logical_source = 's01-archive-inbox' RETURNING 1")" == 1 ]] ||
       die '取り込み器の見回りの間隔を短くできない（登録簿に s01-archive-inbox が 1 行ない）'
@@ -1238,6 +1238,26 @@ check_test_zip() {
 
   clean_machine
   echo 'OK: 試験の zip の実地の確かめ'
+}
+
+create_takeout_archive() {
+  local archive="$1" fixture="$root/tools/fixtures/takeout/shape.txt"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$(dirname "$fixture")" && zip -q -j "$archive" "$(basename "$fixture")")
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    local ps_archive="$archive" ps_fixture="$fixture"
+    if command -v cygpath >/dev/null 2>&1; then
+      ps_archive="$(cygpath -w "$archive")"
+      ps_fixture="$(cygpath -w "$fixture")"
+    fi
+    powershell.exe -NoProfile -NonInteractive -Command \
+      "Compress-Archive -LiteralPath '$ps_fixture' -DestinationPath '$ps_archive' -Force"
+  elif command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -NonInteractive -Command \
+      "Compress-Archive -LiteralPath '$fixture' -DestinationPath '$archive' -Force"
+  else
+    die 'Takeout の fixture を zip にする道具が無い（zip / PowerShell）'
+  fi
 }
 
 check_zip() {
@@ -1388,6 +1408,34 @@ EOF
   expect_fail assert_no_pwfile "$work/state"
   rm -f "$work/state/settings/.initdb.pwfile"; touch "$work/state/.pwfile"
   expect_fail assert_no_pwfile "$work/state"
+
+  # GitHub Actions の Windows runner には zip が無い。PowerShell の経路でも、
+  # Takeout の fixture を実際に読める zip として作れることを確かめる。
+  local fallback_bin fallback_archive
+  fallback_bin="$work/no-zip-bin"
+  fallback_archive="$work/takeout.zip"
+  mkdir -p "$fallback_bin"
+  cat >"$fallback_bin/powershell.exe" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+command="${!#}"
+[[ "$command" =~ -LiteralPath\ \'([^\']+)\'.*-DestinationPath\ \'([^\']+)\' ]] || exit 2
+fixture="${BASH_REMATCH[1]}"
+archive="${BASH_REMATCH[2]}"
+/usr/bin/python3 - "$fixture" "$archive" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+fixture, archive = map(Path, sys.argv[1:])
+with zipfile.ZipFile(archive, "w") as output:
+    output.write(fixture, fixture.name)
+PY
+EOF
+  chmod +x "$fallback_bin/powershell.exe"
+  PATH="$fallback_bin" create_takeout_archive "$fallback_archive"
+  [[ "$(/usr/bin/unzip -Z1 "$fallback_archive")" == 'shape.txt' ]] ||
+    die 'zip が無い Windows で Takeout の fixture を zip にできない'
 
   # 管理者トークンでは所有者の書込拒否を確かめられない。実地の確かめが、初回の所有者にした
   # 非管理者の利用者として書込を試す経路を持つことを固定する。
