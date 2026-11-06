@@ -79,9 +79,9 @@ async function openWith(page: Page, patch: (base: Status) => Status): Promise<vo
   // 読み込み中の 1 行が消えるまで待つ（直近の書庫の行は、溢れると「ほか N 件」に畳まれることがある）
   const box = page.getByTestId("latest-archive");
   await expect(box).toBeVisible();
-  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0, { timeout: 15_000 });
+  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0);
   await expect(box.getByTestId("archive-row-failed")).toHaveCount(0);
-  await expect(page.locator("[data-role=grid]").nth(4)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("[data-role=grid]").nth(4)).toBeVisible();
 }
 
 /** 行の箱が、箱の枠の内側に収まって見えている。 */

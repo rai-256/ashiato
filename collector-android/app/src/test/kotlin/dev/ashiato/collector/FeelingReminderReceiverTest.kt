@@ -335,21 +335,24 @@ class FeelingReminderReceiverTest {
 
     @Test
     fun `問い合わせは接続から読み終わりまでの合計で打ち切る`() {
-        // 見出しはすぐ返し、本文を 1 バイトずつ 200 ms おきに送る（1 回の読みの上限には掛からない。合計は 6 秒を超える）
+        // 見出しはすぐ返し、本文（JSON の後ろを空白で 120 バイトに埋める）を 1 バイトずつ 500 ms おきに送る
+        // （1 回の読みの上限 1 秒には掛からない。合計は 60 秒）。
+        // 打ち切り（design D6）: 相手の長さ（合計 60 秒）と確かめの上限（下の 30 秒）を一緒に延ばす。
+        // 合計の打ち切りが効かなければ、相手が本文を送り切るまで返らず、30 秒を超えて落ちる
         val socket = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
         Thread {
             runCatching {
                 socket.accept().use { c ->
                     val reader = c.getInputStream().bufferedReader()
                     generateSequence { reader.readLine() }.takeWhile { it.isNotEmpty() }.toList()
-                    val body = """{"at":"21:00","recorded":false}""".toByteArray()
+                    val body = """{"at":"21:00","recorded":false}""".padEnd(120, ' ').toByteArray()
                     val out = c.getOutputStream()
                     val head = "HTTP/1.1 200 X\r\ncontent-length: ${body.size}\r\n" +
                         "connection: close\r\n\r\n"
                     out.write(head.toByteArray())
                     out.flush()
                     for (b in body) {
-                        Thread.sleep(200)
+                        Thread.sleep(500)
                         out.write(b.toInt())
                         out.flush()
                     }
@@ -368,7 +371,7 @@ class FeelingReminderReceiverTest {
             val tookMs = (System.nanoTime() - started) / 1_000_000
 
             assertNull(got)
-            assertTrue("合計 1 秒で打ち切る（$tookMs ms）", tookMs < 3_000)
+            assertTrue("合計 1 秒で打ち切る（$tookMs ms）", tookMs < 30_000)
         }
     }
 

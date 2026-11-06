@@ -5,7 +5,9 @@
  * **これが無いと描いたものが積み上がり**、2 本目以降の検査が前の検査の DOM も一緒に見る
  * （`Found multiple elements` になるか、**もっと悪いことに前の結果で通ってしまう**）。
  */
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
+
+configure({ asyncUtilTimeout: 10_000 });
 
 afterEach(cleanup);

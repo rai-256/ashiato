@@ -31,7 +31,7 @@ async function openWith(page: Page, gaps?: unknown[]): Promise<Locator> {
   }
   await page.goto("/#/coverage");
   const section = page.locator("section[data-source='c01-app-usage']");
-  await expect(section).toBeVisible({ timeout: 15_000 });
+  await expect(section).toBeVisible();
   await section.getByRole("button", { name: "1 年ぶんを見る" }).click();
   await section.getByRole("button", { name: WEEK }).click();
   return section.getByTestId("week-detail");

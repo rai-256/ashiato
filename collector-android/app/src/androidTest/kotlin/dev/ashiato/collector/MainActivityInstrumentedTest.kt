@@ -47,7 +47,7 @@ class MainActivityInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             // Activity は権限が揃っていればサービスを起動して自分を閉じる（`finish()`）
             val nm = context.getSystemService(NotificationManager::class.java)
-            val deadline = System.currentTimeMillis() + 15_000
+            val deadline = System.currentTimeMillis() + 30_000
             var shown = false
             while (System.currentTimeMillis() < deadline) {
                 shown = nm.activeNotifications.any { it.id == LocationService.NOTIFICATION_ID }

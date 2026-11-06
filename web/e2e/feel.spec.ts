@@ -38,7 +38,7 @@ async function records(page: Page, day: string): Promise<Stored[]> {
 }
 
 async function ready(page: Page): Promise<void> {
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
 }
 
 /** 時計を `time` に置いて（以後は進む）、アドレスを開く。 */
@@ -205,6 +205,7 @@ test("記録の無い日に元気さだけを押しても、記録は送られ�
   await openAt(page, at(day, "12:00"), "#/feel");
   await page.getByTestId("energy-2").click();
   await expect(page.getByTestId("energy-2")).toHaveAttribute("aria-pressed", "true");
+  // timing-ok: 送信されないことは観測できる表示条件がなく、固定時間で猶予を置く
   await page.waitForTimeout(500);
   expect(sends.n()).toBe(0);
   expect((await records(page, day)).length - before).toBe(0);
@@ -287,6 +288,7 @@ test("2,001 文字のまま、快・元気さ・欄を離れる・「ひとこ�
     await expect(page.getByTestId("feel-note")).toHaveValue(EMOJI.repeat(2001));
     if (name === "快を押す") await expect(page.getByTestId("valence-1")).toHaveAttribute("aria-pressed", "true");
     if (name === "元気さを押す") await expect(page.getByTestId("energy-1")).toHaveAttribute("aria-pressed", "true");
+    // timing-ok: 送信されないことは観測できる表示条件がなく、固定時間で猶予を置く
     await page.waitForTimeout(300);
     expect(sends.n(), name).toBe(0);
     await page.close();

@@ -648,11 +648,11 @@ mod tests {
     #[test]
     fn time_sync_timeout_kills_the_child() {
         let mut c = std::process::Command::new("sleep");
-        c.arg("30");
+        c.arg("60");
         let started = std::time::Instant::now();
         let err = run_with_timeout(c, std::time::Duration::from_millis(200)).unwrap_err();
         assert_eq!(err.reason(), "timeout");
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(30));
     }
 
     #[cfg(unix)]

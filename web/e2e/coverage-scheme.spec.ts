@@ -16,8 +16,8 @@ const TEXT_MIN = 4.5;
 async function open(page: Page): Promise<void> {
   await page.goto("/#/coverage");
   await page.reload();
-  await expect(page.getByTestId("coverage-loading")).toBeHidden({ timeout: 15_000 });
-  await expect(page.locator("[data-role=grid]").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("coverage-loading")).toBeHidden();
+  await expect(page.locator("[data-role=grid]").first()).toBeVisible();
 }
 
 async function groundOf(page: Page): Promise<number[]> {

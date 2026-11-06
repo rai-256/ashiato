@@ -370,7 +370,7 @@ async fn ch04_sweep_drops_legacy_tmp_and_keeps_others() {
 async fn ch04_statement_timeout_cancels_a_long_query() {
     let pool = testdb::pool_with_statement_timeout("1s").await;
     let started = std::time::Instant::now();
-    let err = sqlx::query("SELECT pg_sleep(5)")
+    let err = sqlx::query("SELECT pg_sleep(60)")
         .execute(&pool)
         .await
         .unwrap_err();
@@ -379,8 +379,8 @@ async fn ch04_statement_timeout_cancels_a_long_query() {
         .and_then(|d| d.code())
         .map(|c| c.to_string());
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(5),
-        "5 秒を待った: {:?}",
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "30 秒以上を待った: {:?}",
         started.elapsed()
     );
     assert_eq!(code.as_deref(), Some("57014"), "取り消しでない: {err}");

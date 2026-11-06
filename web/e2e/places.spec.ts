@@ -34,7 +34,7 @@ const test = base.extend({
  *   - 場所が 0 件・居た所が 0 件・登録 6 の量・読み出しの失敗・届かない・`place_id_taken` は `page.route` で応答を差し替えて作る
  *   - 「届いたが応答が返らなかった」は **`route.fetch()` でサーバへ通してから応答を捨てて**作る（`route.abort()` は届かない側）
  */
-test.describe.configure({ timeout: 90_000 });
+test.describe.configure({ timeout: 120_000 });
 
 const USER = "00000000-0000-0000-0000-000000000000";
 const TODAY = "2026-10-02";
@@ -198,7 +198,7 @@ async function openPlaces(page: Page): Promise<void> {
   await page.goto("/#/master/places");
   await page.reload();
   await expect(page.getByTestId("places-view")).toBeVisible();
-  await expect(page.getByTestId("places-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("places-loading")).toBeHidden();
 }
 
 const cards = (page: Page): Locator => page.getByTestId("place-card");

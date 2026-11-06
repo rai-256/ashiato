@@ -80,7 +80,7 @@ class HttpTransportInstrumentedTest {
 
         val outcome = transport.post("""[{"hello":"world"}]""")
 
-        assertTrue("サーバに届く", server.done.await(10, TimeUnit.SECONDS))
+        assertTrue("サーバに届く", server.done.await(30, TimeUnit.SECONDS))
         assertEquals("POST /ingest HTTP/1.1", server.requestLine)
         assertEquals("Bearer test-token-0123456789abcdef", server.headers["authorization"])
         assertEquals("application/json", server.headers["content-type"])
@@ -97,7 +97,7 @@ class HttpTransportInstrumentedTest {
 
         val outcome = transport.post("{}")
 
-        assertTrue(server.done.await(10, TimeUnit.SECONDS))
+        assertTrue(server.done.await(30, TimeUnit.SECONDS))
         assertEquals(Outcome.Responded(400, """[{"accepted":false,"error":"malformed"}]"""), outcome.withoutClockFields())
     }
 

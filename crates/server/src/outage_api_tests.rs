@@ -415,8 +415,9 @@ async fn st14_ledger_judges_inside_the_lock() {
         let (app, uri) = (app.clone(), uri(user, Some("dev-a")));
         async move { get(&app, &uri).await }
     });
-    let mut waited = false;
-    for _ in 0..200 {
+    let started_waiting = std::time::Instant::now();
+    let deadline = started_waiting + std::time::Duration::from_secs(30);
+    loop {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pg_stat_activity
               WHERE wait_event_type = 'Lock' AND wait_event = 'advisory'
@@ -426,12 +427,16 @@ async fn st14_ledger_judges_inside_the_lock() {
         .await
         .unwrap();
         if n > 0 {
-            waited = true;
             break;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "A が台帳のロックで待たなかった: 待った時間 {:?}、最後に見た待機数 {n}",
+                started_waiting.elapsed()
+            );
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    assert!(waited, "A が台帳のロックで待たなかった");
     // B: 位置が戻った（1 分前の記録）と判定して `closed` を書き、抜ける
     sqlx::query(
         "INSERT INTO core.event

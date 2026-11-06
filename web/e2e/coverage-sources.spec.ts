@@ -33,7 +33,7 @@ test("読み出せなかったファイルは「読み出せません」と出�
   });
   await page.goto("/#/coverage");
   const latest = page.getByTestId("latest-archive").getByTestId("archive-row-latest");
-  await expect(latest).toContainText("Timeline.json", { timeout: 15_000 });
+  await expect(latest).toContainText("Timeline.json");
   await expect(latest).toContainText("読み出せません");
   await expect(latest).toContainText("権限を確かめてください");
   await expect(latest).not.toContainText("扱えない形式");
@@ -70,7 +70,7 @@ async function openCoverage(page: Page): Promise<void> {
   // 同じ URL への goto は読み直さない（hash の移動だけ）。route を差し替えた後は必ず読み直させる
   await page.goto("about:blank");
   await page.goto("/#/coverage");
-  await expect(page.locator("[data-role=grid]").nth(4)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("[data-role=grid]").nth(4)).toBeVisible();
 }
 
 /** `/api/sources` の応答の `device_notice` だけ差し替える（行は本物のまま）。 */
@@ -100,7 +100,7 @@ async function withArchiveRow(page: Page, source: string, patch: Partial<SourceA
 
 async function noteOf(page: Page, source: string): Promise<string> {
   const note = page.getByTestId(`source-note-${source}`);
-  await expect(note).toBeVisible({ timeout: 15_000 });
+  await expect(note).toBeVisible();
   return (await note.textContent()) ?? "";
 }
 
@@ -237,7 +237,7 @@ test("360 × 640 で、除外の状態が外れていてもいなくても Must 
   for (const state of ["exempt", "not_exempt"]) {
     await withNotice(page, state);
     await openCoverage(page);
-    await expect(page.getByTestId("source-note-c01-location")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("source-note-c01-location")).toBeVisible();
     await expectOneLineHeadings(page);
     expect(Math.abs((await gridBottom(page, 1)) - base[0]!), `${state}: 2 本目の下端`).toBeLessThanOrEqual(1);
     expect(Math.abs((await gridBottom(page, 4)) - base[1]!), `${state}: 5 本目の下端`).toBeLessThanOrEqual(1);
@@ -284,7 +284,7 @@ test("S-7 設定には取り方と間隔の節が無く、全記録の書き出�
 // Scenario: 格子に添えた取り方と間隔に変える操作は無い
 test("各格子の見出しの行の中に入力欄・選択・ボタンが 1 つも無い", async ({ page }) => {
   await openCoverage(page);
-  await expect(page.getByTestId("source-note-c01-location")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("source-note-c01-location")).toBeVisible();
   await expect(page.locator("section[data-source] h2 :is(input, select, button, textarea)")).toHaveCount(0);
 });
 
@@ -293,7 +293,7 @@ test("360 px で画面は横に溢れず、各見出しの行も溢れない", a
   await page.setViewportSize(PHONE);
   await withNotice(page, "not_exempt");
   await openCoverage(page);
-  await expect(page.getByTestId("source-note-c03-youtube-watch")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("source-note-c03-youtube-watch")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
   const h2s = page.locator("section[data-source] h2");
   for (let i = 0; i < (await h2s.count()); i++) {

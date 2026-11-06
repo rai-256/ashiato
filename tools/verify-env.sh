@@ -128,6 +128,7 @@ reset_done=
 clear_blocking_network
 docker compose up -d --wait db >/dev/null
 # --wait は healthcheck を待つ。テストが繋ぐのと同じ口（127.0.0.1:<ポート>）で受け付けるまで確かめる
+# timing-ok: 30 回 × 1 秒で、混雑時に長くなる側へだけ外れる DB 接続待ち
 for _ in $(seq 1 30); do
   if docker compose exec -T db pg_isready -q -h 127.0.0.1 -U ashiato -d ashiato \
      && (exec 3<>"/dev/tcp/127.0.0.1/${ASHIATO_DB_PORT}") 2>/dev/null; then

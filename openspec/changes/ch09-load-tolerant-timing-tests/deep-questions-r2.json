@@ -1,0 +1,55 @@
+{
+  "title": "CH09 の深掘り 第 2 回",
+  "subtitle": "別の席が仮のままにできないとした D18（打ち切りの試験の値）",
+  "note": "AI は、打ち切りの試験の 60 秒・30 秒を archive 後にも守れるとして D18 を仮で決めました。別の席が検査の実装と実際の行を照らして否としました。AI は決めずに聞きます。選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q11",
+      "topic": "打ち切りの試験の相手 60 秒・上限 30 秒を archive 後もどう守るか",
+      "kind": "irreversible",
+      "loss": "uncaptured",
+      "multi": false,
+      "allow_free": true,
+      "question": "`ch04_statement_timeout_cancels_a_long_query` の `pg_sleep(60)` と `Duration::from_secs(30)` を、archive 後にも値を変えると落ちる形で固定しますか。",
+      "why": "AI は D18 で「上限の比べの行は `check_agreed_tests.py` が守る」として、相手の `pg_sleep(60)` だけは捕まらない側だと仮で決めました。しかし `assert!(` は複数行で、同検査が守るのは `assert!(` の行と SQLSTATE を比べる行だけです。上限の `Duration::from_secs(30)` は別の行なので、60 秒と 30 秒のどちらも archive 後に小さく書き換えても機械が捕まえません。試験は打ち切りの性質を引き続き見る一方、混雑への余裕として本人が選んだ 60/30 の値は変えられます。",
+      "context": "D6 は本人の Q3 の答えを受け、元の `pg_sleep(5)` と「5 秒未満」を相手 60 秒・上限 30 秒へ一緒に延ばしました。2,000 件の方は 1 行の `assert_eq!(QUEUE_PER_TICK, 2_000)` なので同じ問題はありません。`check-inventory.sh` に値の検査を足すと、60 未満または 30 秒未満への変更を機械で止められます。検査を足さない側を選ぶと、将来の変更で値が小さくなっても archive 後の機械は知らせません。",
+      "options": [
+        {
+          "label": "60 秒・30 秒の両方を一覧の検査で固定する",
+          "detail": "`check-inventory.sh` に `pg_sleep(60)` と `Duration::from_secs(30)` を確かめる検査を足す。将来どちらかを短くすると落ち、混雑への余裕を archive 後も守れる。製品の挙動は変えず、試験と検査だけが増える。",
+          "recommended": true
+        },
+        {
+          "label": "値は固定せず、打ち切りが効くことだけを試験に残す",
+          "detail": "D18 の元の側。`pg_sleep` と上限は将来書き換えてよい。打ち切りの試験自体は残るが、60/30 より短くなっても archive 後の機械は知らせない。"
+        }
+      ],
+      "family": {
+        "name": "混雑への余裕として延ばした試験の値を archive 後に機械で守るか",
+        "siblings": [
+          {
+            "case": "statement timeout の相手 `pg_sleep(60)` と上限 30 秒",
+            "decided": "未決 Q11"
+          },
+          {
+            "case": "time sync の相手 `sleep 60` と上限 30 秒",
+            "decided": "design D6（Q3 の答えで一緒に延ばす。D18 の検査対象には入れていない）"
+          },
+          {
+            "case": "条件待ちの上限を 30 秒にそろえる値",
+            "decided": "deep Q5・design D4/D17（本人は一律 30 秒を選択）"
+          },
+          {
+            "case": "画面の非同期待ち 10 秒・試験 30 秒、e2e の expect 30 秒・試験 120 秒",
+            "decided": "deep Q9・design D9/D15（設定の値を専用試験で確認）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "deep-review",
+        "why": "D18 を P として確かめるとき、`check_agreed_tests.py` が assert 式全体でなく正規表現に当たった 1 行だけを保存することと、対象の `assert!` が複数行であることを照合しなかった。さらに D6 の 60/30 に依存する決定なのに `rests_on: D6` を台帳へ記録しなかった。",
+        "prevention": "P にする前に、守ると書く各値について archive 後の検査が実際に読む行を対象ファイルで確かめる。複数行の式は各行を変えたときに検査が落ちるかを確認し、値の出所となる design D を `rests_on` に全て記録する。"
+      }
+    }
+  ]
+}
