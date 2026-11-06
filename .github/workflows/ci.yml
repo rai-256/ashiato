@@ -457,6 +457,7 @@ jobs:
         with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2, persist-credentials: false }
       - if: steps.harness2.outputs.available == 'true'
         shell: bash
+        env: { PYTHONIOENCODING: utf-8 }
         run: python harness2/scripts/check_scenarios.py . st55-server-installer
 
   package-artifacts:
