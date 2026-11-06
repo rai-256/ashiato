@@ -93,17 +93,20 @@ fn output_tail(output: &std::process::Output) -> String {
 
 /// 命令を起こし、失敗なら理由を返す。命令には秘密を載せないので、記録の行にも秘密は出ない。
 fn run(command: &SetupCommand, trace: bool) -> Result<(), String> {
-    let output = Command::new(&command.program)
+    // `output()` は、起こした命令がさらに常駐する子を作ると、子が継承した pipe を閉じるまで待つ。
+    // repair の pg_ctl は PostgreSQL を起こすため、親の終了だけを待つ `status()` と null の標準ハンドルを使う。
+    let status = Command::new(&command.program)
         .args(&command.args)
         .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
         .map_err(|error| format!("{} を起こせない: {error}", command.program))?;
-    if !output.status.success() {
+    if !status.success() {
         return Err(format!(
-            "{} が失敗した (終了コード {:?}): {}",
+            "{} が失敗した (終了コード {:?})",
             command.line(),
-            output.status.code(),
-            output_tail(&output)
+            status.code(),
         ));
     }
     if trace {
@@ -1518,7 +1521,32 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_downloads_shell_folder, reg_query_value};
+    use super::{
+        expand_downloads_shell_folder, reg_query_value, run, Duration, Instant, SetupCommand,
+    };
+
+    #[test]
+    fn st55_run_does_not_wait_for_a_descendant_holding_its_output_handles() {
+        // Scenario: 設定を退けて止まった後に repair すると、記録を残したままログインできる
+        // pg_ctl は PostgreSQL を子として起こす。子が標準出力・標準エラーを継承しても、親の終了だけを待つ。
+        let command = if cfg!(windows) {
+            SetupCommand::new(
+                "cmd.exe",
+                [
+                    "/C",
+                    "start \"\" /B powershell.exe -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 2\"",
+                ],
+            )
+        } else {
+            SetupCommand::new("sh", ["-c", "sleep 2 &"])
+        };
+        let started = Instant::now();
+        run(&command, false).expect("親の command は子を待たずに終わる");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "子孫が標準ハンドルを持つため親の終了を待った"
+        );
+    }
 
     #[test]
     fn st55_expands_userprofile_downloads_value() {
