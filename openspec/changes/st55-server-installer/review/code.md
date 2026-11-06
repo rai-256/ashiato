@@ -507,56 +507,67 @@ N1・N2 は HEAD でも直っている。N4〜N6 は HEAD でもそのまま（�
 - 根拠: commands.rs:790-808 は両方のサービスに `failure … restart/10000 ×3` と `failureflag 1`。main.rs:44-63 の `run_windows_service` は設定の拒否（`SETTINGS_REFUSED`）・ランタイムの失敗・`run_service` のどの失敗（web_password・db_role・db_version・bind の拒否、DB 待ちの時間切れ）でも 1 を返す。`failureflag 1` では「STOPPED かつ終了コード非 0」で回復が動くので、起こし直しても直らない拒否が 10 秒ごとに繰り返され、サーバの依る `ashiato-db` も起こされる（repair が DB を止めた後の一時の postmaster と取り合いうる）。main.rs:21-23 のコメント（R21: 回復で起こし直しが続くのを防ぐ）と食い違う。spec の distribution:71 が回復に任せるのは「120 秒待っても DB に繋げない」だけ
 - kind: technical
 - 提案: 起こし直しても直らない拒否（設定・合言葉・役割・版・bind）は終了コード 0 で SERVICE_STOPPED を返し、DB 待ちの時間切れ（と runtime の失敗）だけ非 0 にする。試験で拒否の種類ごとの終了コードを固定する
+- 処置: fixed 2.2 —— 拒否を型（`service::StartupRefused`）で返し、`service::ServiceEnd` が SCM への終了コードを決める。設定のファイルの拒否・設定の値の誤り（DATABASE_URL・API_TOKEN・期限・書庫・warmup。service の口だけ `refuse_setting` で型を付ける）・合言葉・鍵・bind・接続先・役割・版の拒否は 0、DB の時間切れ（`DatabaseUnavailable`）・実行環境の失敗・型の無い失敗は 1（`reset= 86400` で 1 日 3 回まで）。R21 のコメントを直し、`st55_service_unrecoverable_refusals_end_with_exit_code_zero`・`st55_service_database_timeout_and_other_failures_end_non_zero` で固定した。e4463b16f の `ensure_running` は終了コードに依らず冪等で正しいので残した
 
 ## R61. 正式版の配布（release.yml）で、Windows の成果物の版番号が tag の版でなく Cargo.toml の版になる
 - 成果物: .github/workflows/release.yml / tools/release/package.sh
 - 根拠: release.yml:63-69 は `package.sh windows` を `ASHIATO_BUILD_VERSION=<plan の版>` で呼ぶが、package.sh:19-25 は（R56 の直しで）`env -u ASHIATO_BUILD_VERSION` で build.sh を呼ぶので、build.sh:16-20 は `version.sh source` に倒れる。Linux の job は build.sh を直に呼び plan の版のまま。beta の tag（`v1.2.3-beta.1`）では publish の `check-artifacts.sh --expect-version` が Windows の zip で落ちる。main では release.yml は build.sh を直に呼んでいた（この枝で package.sh に替えた）
 - kind: technical
 - 提案: release.yml は build.sh を直に呼ぶ形に戻し（`ASHIATO_RELEASE=1`・`PGSQL_CACHE_DIR` を渡す）、server-windows と collector-windows の 2 本にする。または package.sh に版を渡す口を足す
+- 処置: fixed 3.4 —— release.yml の Windows を `build.sh server-windows`・`build.sh collector-windows` の 2 本にし、Linux の job と同じく plan の版・`ASHIATO_RELEASE=1`・`PGSQL_CACHE_DIR`・`ASHIATO_SOURCE_REF` を渡す。package.sh は R56 のまま（PR の組み立てで残った版を外す）。proposal.md:66・tasks.md 3.4 の「release.yml も同じ package.sh を通る」はもう成り立たない（上流の文は書き換えていない）。actionlint は手元に無く、`check-guards.sh workflows`・`--self-test` が rc=0
 
 ## R62. DB の回復の Scenario が、何が DB を起こし直したか（D35 の見張りか）を確かめない
 - 成果物: tools/release/install-check.sh
 - 根拠: install-check.sh:678-690 は Task 13 で service_pid の比較を消し、`wait_state ashiato-db 4 60`・`wait_database 60`・ACL だけを見る。pg_ctl が主の死にまだ気づいていなければ状態 4 はすぐ通る。spec の Scenario を D35 で満たした仕組み（見張りの起こし直し）を固定していない
 - kind: technical
 - 提案: 主を終えた後に、サーバのログに `db_service_restarted` が書かれるのを待って確かめる
+- 処置: fixed 13.1 —— 主を終える前にサーバのログの `db_service_restarted` の行数を控え、終えた後に 60 秒まで増えるのを待つ（`wait_db_restarted_by_server`。増えなければ診断を出して落ちる）。Windows の実地（install-windows）はまだ走らせていない（R59）
 
 ## R63. design.md D11 の回復の動作が実装と違う
 - 成果物: openspec/changes/st55-server-installer/design.md
 - 根拠: D11 は `restart/10000/restart/10000/restart/60000`、commands.rs:803 は `restart/10000` ×3（理由はコードのコメントだけ）。`failureflag 1` も D11 に無い
 - kind: technical
 - 提案: D11 に実装の注として 3 回とも 10 秒・`failureflag 1`・R60 の終了コードの方針を書く
+- 処置: fixed D11 —— D11 に実装の注として、回復は 3 回とも 10 秒（理由は commands.rs のコメント）・両方のサービスに `failureflag 1`・R60 の終了コードの方針を書いた。決定の本文は変えていない
 
 ## R64. 見張りが塞ぐ呼び出し `start_db_service` を async の中で直に呼ぶ
 - 成果物: crates/server/src/service.rs
 - 根拠: service.rs:91 付近。問い合わせは spawn_blocking なのに起こしは直（Task 13 F6）
 - kind: technical
+- 処置: fixed 13.1 —— `start_db_service` も `spawn_blocking` で呼び、JoinError は失敗の理由にまとめる
 
 ## R65. 見張りの `db_service_start_failed` が同じ理由で 5 秒ごとに書かれる・`last_query_error` が成功で戻らない
 - 成果物: crates/server/src/service.rs
 - 根拠: service.rs:93 は理由が同じでも毎回書く（DB のサービスを無効にした場合など）。:99 の `last_query_error` は問い合わせが成功しても None に戻らないので、回復の後に同じ理由が再発しても書かれない（Task 13 F13）
 - kind: technical
+- 処置: fixed 13.1 —— `service::DbWatchErrorLog`（理由が変わったときだけ書く・成功で忘れる）を問い合わせと起こしの両方に使う。`st55_db_watch_error_log_writes_changes_and_forgets_on_success` で固定した
 
 ## R66. DB のサービス名を設定の置き場のパスから推している
 - 成果物: crates/server/src/service.rs / crates/installer/src/secrets.rs
 - 根拠: service.rs:49-55 の `db_service_name_from_settings_path` はパスに `ashiato-dev` を含むかで決める。インストーラが `server.json` に `ASHIATO_DB_SERVICE` を書けば推さずに済む
 - kind: technical
+- 処置: fixed 5.2 —— インストーラが `server.json` に `ASHIATO_DB_SERVICE`（`layout.db_service`。開発版は `ashiato-db-dev`）を書き、サーバはそれを読む。置き場のパスから推す `db_service_name_from_settings_path` を消した（鍵が無ければ `ashiato-db`）。installer の鍵の一覧の試験と、`st55_db_watch_settings_name_reaches_the_service_environment` で固定した
 
 ## R67. 拒否が 2 行書かれる
 - 成果物: crates/server/src/main.rs
 - 根拠: main.rs:57-58 は `run_service` が既に理由（`database_unavailable` など）を書いた後に、もう一度 `service_startup` を書く
 - kind: technical
+- 処置: fixed 2.2 —— `ServiceEnd::needs_log` が真（型の無い失敗）のときだけ `kind=service_startup` を書く。拒否と DB の時間切れは返す前に書いた 1 行だけ
 
 ## R68. server/tests/server_startup.rs の `#![cfg(unix)]` の理由が無い・server と winsvc の Windows 向け clippy が CI に無い
 - 成果物: crates/server/tests/server_startup.rs / .github/workflows/ci.yml
 - 根拠: server_startup.rs:5。ci.yml:157 の Windows 向け clippy は collector-windows だけで、winsvc と service の `cfg(windows)` の中身は package-windows のビルドでしか型を見ていない
 - kind: technical
+- 処置: fixed 3.4 —— server_startup.rs の `#![cfg(unix)]` に理由（unix の権限で偽の pg_dump を作る・部品の一部が cfg(unix) で Windows の target では組めない。ea3988d80 で足した）を書いた。ci.yml の collector-windows の job に `cargo clippy -p ashiato-server -p ashiato-winsvc -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` を足した。手元で走らせると installer の試験の `unwrap`（lib.rs の見張りの ACE の試験）で落ちたので、それも直した
 
 ## R69. pgsql.sh の `A && cp || B && cp || die` の連鎖（Task 1 F2）
 - 成果物: tools/release/pgsql.sh
 - 根拠: pgsql.sh:70-72。今は害が無いが、`cp` の失敗が次の枝に流れる
 - kind: technical
+- 処置: fixed 1.2 —— 許諾の文の写しを if/elif/else にし、`cp` の失敗はその場で落ちる
 
 ## R70. 同梱の DLL に `vcruntime140_1.dll` が要らないことを実物で確かめていない
 - 成果物: tools/release/pgsql.lock / tools/release/build.sh
 - 根拠: D33 の objdump の結果は VCRUNTIME140・MSVCP140 だけを挙げる。MSVC x64 の C++（ICU・libxml2）は `vcruntime140_1.dll` を読むことがある
 - kind: technical
+- 処置: fixed 1.1 —— 要らないことを実物で確かめた。指紋が pgsql.lock と合う EDB の zip（sha256 d378882a…）を展開し、`x86_64-w64-mingw32-objdump -p` を 7 つの実行ファイル・lock の 12 の DLL・`lib/*.dll` の 89 個に当てると、VCRUNTIME140.dll（MSVCP140.dll は icu*）だけ。`VCRUNTIME140_1.dll` を読むのは pgAdmin・StackBuilder の `wx*.dll`・`stackbuilder.exe` だけで、slim は写さない。結果を pgsql.lock のコメントに残した（DLL の追加は無し）
