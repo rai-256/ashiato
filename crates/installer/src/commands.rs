@@ -200,6 +200,17 @@ pub fn admin_only_directory_acl_command(directory: &Path) -> SetupCommand {
     ])
 }
 
+/// 管理者と SYSTEM だけに絞った置き場に、インストーラを走らせている利用者（`sid`）の読みだけを足す。
+/// `initdb` は管理者として起こされると Administrators を deny-only にした制限付きの token で自分を起こし直すので、
+/// 管理者の ACE では `--pwfile` を読めない。利用者の SID の読みは残る（本人とサーバのアカウントには読ませない。review R76）。
+pub fn staging_reader_grant_command(directory: &Path, sid: &str) -> SetupCommand {
+    icacls([
+        directory.display().to_string(),
+        "/grant".into(),
+        format!("*{sid}:(OI)(CI)R"),
+    ])
+}
+
 /// プログラムの置き場に別の組み立てのファイルがあるときの理由（review R50）。
 pub fn program_version_mismatch_message(path: &str) -> String {
     format!(

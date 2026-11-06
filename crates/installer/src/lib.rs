@@ -391,6 +391,18 @@ mod tests {
     }
 
     #[test]
+    fn st55_secret_initdb_staging_adds_only_invoking_reader() {
+        // initdb の合言葉の置き場は管理者と SYSTEM に絞った後、走らせている利用者の読みだけを足す（review R76）
+        let line = commands::staging_reader_grant_command(
+            Path::new(r"C:\ProgramData\ashiato\settings\.initdb-staging-1-2"),
+            "S-1-5-21-9",
+        )
+        .line();
+        assert!(line.contains("/grant *S-1-5-21-9:(OI)(CI)R"), "{line}");
+        assert!(!line.contains(":F") && !line.contains(":M") && !line.contains("/inheritance:e"));
+    }
+
+    #[test]
     fn st55_db_watch_acl_grants_only_query_and_start_to_server_sid() {
         let release = layout::Layout::release();
         assert_eq!(

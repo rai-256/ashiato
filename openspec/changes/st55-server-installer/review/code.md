@@ -776,3 +776,10 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: fixed 2.4 —— ログのファイルの日付を `service::log_day`（Asia/Tokyo。画面の日の区切り `coverage::DAY_TZ` と同じ固定のずれ）で決める。起動の拒否のログ・30 日の片付けも同じ日付。`st55_log_day_splits_at_tokyo_midnight` を足した
+
+## finish の scoped re-review（9cc919b..b1d62ae）
+
+fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）。R71〜R86 は全部 ADDRESSED、R77 は REJECTION HOLDS（D32（仮）のとおり。repair が作り直す秘密に対の相手はまだ無い）。
+- N7（Critical・Windows で未確認）: R76 の直しで、initdb の合言葉の置き場を管理者と SYSTEM だけにした。PostgreSQL の `initdb` は管理者として起こされると Administrators を deny-only にした制限付きの token で自分を起こし直し（restricted_token.c）、`--pwfile` をその子で読むので、置き場を読めずに新規のインストールと作り直しが止まる見込みが高い。前の版は設定の置き場に `TemporaryWrite` が走らせている利用者の SID を足していたので読めていた
+  - 処置: fixed 5.2 —— 自分の直しが持ち込んだ退行なので park せずに直した。置き場を絞った後、走らせている利用者（`identity.invoking`）の SID に `(OI)(CI)R` だけを足す（`commands::staging_reader_grant_command`。試験 `st55_secret_initdb_staging_adds_only_invoking_reader`）。サーバのアカウントは引き続き読めない。本人を別に渡したインストール（`--owner-sid`）の本人も、走らせている管理者と別なら読めない。この直しは re-review を通していない（fix は 1 回・re-review は 1 回）。Windows での確かめは PR の CI の install-windows（初回のインストール）
+- 文の上の傷（処置しない）: tasks.md 3.4・proposal.md の本文「同じ package.sh を通る」は残り、直後の注で打ち消す書き方になっている

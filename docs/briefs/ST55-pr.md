@@ -14,10 +14,12 @@ design の（仮）（台帳 `provisional.jsonl`。別の席の確かめはグ�
 - **D34（仮）** —— プログラムの置き場に zip と違うファイルがあれば、何も替えずに止まる（版を替える口はまだ無い）。無いファイルは `.copying` から rename で置く（R38・R50）
 - D24 の「どちらの zip かを各 echo の行に書く」は、印の名前を spec と一字一句合わせるため、節の見出しに書く形に替えた（手段の変更。R34）
 
-ledger の Ruling（全 Task の `progress.md`。Task 1〜11 の ledger に `Ruling:` の行は無く、あるのは final の ledger の 2 行だけ）:
+ledger の Ruling（全 Task の `progress.md`。Task 1〜11・13 の ledger に `Ruling:` の行は無く、あるのは final の ledger の 3 行だけ）:
 - Ruling: N1・N2・N3 は finish の fix の後の scoped re-review で見つかった。SDD の final review と同じく fix は 1 回だけなので、この回では直さず park する — Q11（R48）の答えの後にグラフが finish をもう一度呼ぶので、そこで直す（N1 は `.cargo/config.toml` の msvc の `crt-static` か DLL を根にも写す、N2 は repair の前に移行の完了記録の有無を控えて、無ければ書かない）— 直さずに merge すると、N1 は VC の再頒布パッケージの無い機械でインストーラが起動しない、N2 は repair の後にサーバが表の無い DB で動く（どちらも記録は失わない。merge gate は Q11 の (未回答) で止まる）
 
 - Ruling: N4・N5・N6 は 2 回目の finish の fix の後の scoped re-review で見つかった。SDD の final review と同じく fix は 1 回だけなので直さず park し、PR 本文で人間に渡す — どれも記録を失わず、起きるのは命令の失敗か途中で落ちたときだけ（N5 は icacls の失敗、N6 は数個の命令の間の窓）— 直すなら change で: N4 は親で写しが非 0 でも置き場を消す、N5 は書きかけの置き場の中で rename の前に保護の ACL を付ける、N6 は owner.json を置く段を役割の完了記録より前に移す（または `repair_allowed` に「owner.json が server.json より新しい」を足す）
+
+- Ruling: N7 は fix の後の scoped re-review で見つかった。SDD では fix は 1 回だけで残りは park だが、N7 はこの回の直し（R76）が持ち込んだ退行で、park すると新規のインストールが initdb で止まる（merge gate は install-windows の赤で止まるが、直すのが 1 行の ACL なので待たせる理由が無い）ので直した — その直しは re-review を通していない。Windows の確かめは PR の CI の install-windows（初回のインストール）が持つ — 赤なら、置き場の ACL（`staging_reader_grant_command`）を最初に疑う
 
 上の 1 行目の N1〜N3 は、2 回目の finish（Q11 の答えの後）で直した:
 - N1: `.cargo/config.toml` で `x86_64-pc-windows-msvc` に `+crt-static`。`check-artifacts.sh` は根の 2 つの exe が VC の実行時の DLL を読む zip を落とす（self-test で落ちることを確かめた）。design D33 を直した
@@ -31,7 +33,7 @@ ledger の Ruling（全 Task の `progress.md`。Task 1〜11 の ledger に `Rul
 
 ## Task
 
-- 埋めた Task: 27 / 30（1.1〜11.3）
+- 埋めた Task: 30 / 33（1.1〜11.3・13.1〜13.3。Task 13 は D35 の DB のサービスの見張り。2026-11-06 の本人の決定）
 - 残した Task: 12.1〜12.3（人間の確認待ち。確認バッチで Windows サンドボックスの録画・再起動の後・Tailscale の無人で動かす）—— `human` の正常な残り
 
 ## 検証（evidence.jsonl と finish の走らせ直し）
@@ -44,9 +46,30 @@ ledger の Ruling（全 Task の `progress.md`。Task 1〜11 の ledger に `Rul
 - 1 回目の finish（464f10ab・f5f103a1・9c41a46d の後）: `cargo test --workspace` rc=0（408 秒）・`pgsql.sh --self-test`・`check-guards.sh workflows`・`check-pg-major.sh --self-test`・`check-licenses.sh`・`check-log-private.sh` rc=0。ガードを壊して落ちることも確かめた（照らす形の照合・`prepare_service`）
 - **Windows の本物の通し（install-windows。spec の 72 本 + 今回の owner.json の Scenario）はまだ一度も走っていない。** 上の rc=0 は Linux の確かめで、Windows の担保ではない。owner.json の ACL・書きかけの置き場・crt-static も本物の Windows では未確認。この PR の CI が初めて走らせる（初回は赤の見込みもある）。merge は head の CI が全部緑でないと進まない
 
+## 3 回目の finish（Task 13 の後。R59〜R86）
+
+- whole-branch final review（R59〜R70）: R60〜R70 を直した（サービスの終了コード・release.yml の版・DB の見張りほか）。R59 は rejected（Windows の通しの緑は merge gate が head の CI で見る）。scoped re-review は全部 ADDRESSED
+- **R61 の直しで、`release.yml` の Windows の組み立ては `package.sh` を通らなくなった**（`build.sh server-windows`・`collector-windows` を直に呼ぶ）。proposal・tasks 3.4 の「同じ package.sh を通る」には注を足した（R75）
+- code_verify（R71〜R75）・security review（R76）・`/code-review`（R77〜R86）は、R77 を除いて直した（b1d62aef5）:
+  - R71・R83: DB のサービスへ見張りの ACE を足す処理は、本番も試験が照らす Rust の関数を通る（`sc.exe sdshow` の結果を `db_watch_sdset_command` に通して `sdset`。PowerShell の式は消した）
+  - **R76（security）**: initdb に渡す DB の管理者の合言葉のファイルを、本人とサーバのアカウントが読める設定の置き場に作っていた。`owner.json` と同じ管理者と SYSTEM だけの置き場に作り、役割を作るときに管理者の合言葉を控えない使い捨ての乱数に替える（initdb の値は役割の後は使えない）
+  - R80: 合言葉の誤り（28P01・28000）・DB が無い（3D000）・接続の文字列の誤りは、120 秒待たずに終了コード 0 の拒否にする（回復が起こし直し続けない）
+  - R72・R74: 設定の拒否が終了コード 0 になる配線、見張りの 5 秒、回復の `reset= 86400` を試験で固定した（R72 は配線を壊すと落ちることを確かめた）
+  - R73: install-check の網羅の免除を「`.rs` に印があるか」から名前の一覧（`covered_elsewhere` 15 本）にした（Windows の通しの Scenario を `--list` から消すと落ちることを確かめた）
+  - R78: ログインの照合の 1 つずつの印と失敗の数え上げを blocking の側へ移した（接続を切っても照合が並ばない）
+  - R79・R86: サーバのログは日付が変わるたびに 30 日より古いものを消し、日付は Asia/Tokyo で区切る
+  - R81: 停止のときの片付けは `.partial-ashiato-export-*` だけを消し、書き出しが止まるのを最大 5 秒待つ
+  - R82・R84・R85: `service_mode` を 1 か所で読む・base64 は crate を使う・インストーラの組み立ての印に `tools/db-roles.sql` を入れる
+  - **R77 は rejected**: 初回のインストールがサービスの登録の後・役割の前に落ちると、走らせ直しは repair を示して止まる。D32（仮）の決定どおり（印だけで DB を消さない条件）。インストールが終わっていないので、repair が作り直す秘密に対の相手はまだ無い
+- この回の scoped re-review（別の文脈）: R71〜R86 は全部 ADDRESSED、R77 は REJECTION HOLDS。ただ、**R76 の直しが Critical を 1 件持ち込んだ**（N7）—— initdb は管理者として起こされると、管理者の権限を外した token で自分を起こし直すので、管理者と SYSTEM だけの置き場の合言葉のファイルを読めない。走らせている利用者の SID に読みだけを足して直した（上の Ruling。この直しは re-review を通していない）
+- 検証（この回）: `cargo test --workspace --no-fail-fast --exclude ashiato-collector-windows` rc=0（266 秒）/ `cargo test -p ashiato-setup` rc=0（N7 の後に 83 本）/ `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `cargo clippy -p ashiato-server -p ashiato-winsvc -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0（N7 の後に ashiato-setup を両方で再度 rc=0）/ `install-check.sh --self-test` rc=0 / `--check-coverage` rc=0（88 本）/ `scripts/check_scenarios.py . st55-server-installer` rc=0 / check-openapi・migrations・licenses・log-private・secrets rc=0 / `review_triage.py` rc=0
+  - **`ashiato-collector-windows` の `history_large_fetch_keeps_observing_foreground` は手元で 2 回とも落ちた**（「見回り 1 回が 2.6 秒 / 1.09 秒かかった」。1 回 1 秒以内を求める時間の試験で、機械の load average は約 5）。この枝は collector-windows を変えていない（`git diff origin/main -- crates/collector-windows` は空）ので、範囲の外として直していない。CI で落ちたら main でも同じかを見る
+  - 新しい試験: `st55_service_wait_db_rejects_wrong_password_without_waiting`・`st55_service_run_inner_setting_refusals_are_typed_as_refused`・`st55_stop_cleanup_removes_only_partial_exports`・`st55_log_prunes_old_files_when_the_date_changes_without_restart`・`st55_log_day_splits_at_tokyo_midnight`・`st55_db_watch_interval_is_five_seconds`・`st55_secret_initdb_staging_adds_only_invoking_reader`
+- **本物の Windows でしか確かめられないもの**（PR の CI の install-windows が初めて走らせる）: 見張りの ACE の `sdshow`→`sdset`（R71）・initdb の合言葉の置き場の ACL と制限付きの token での読み（R76・N7）・`database_rejected` の終了コード 0（R80）・R60〜R68 の SCM の振る舞い
+
 ## レビューの処置（review/code.md）
 
-- final review（R1〜R30）・code_verify（R40〜R46）・security review（R47・R48）・`/code-review`（R49〜R58）・final の re-review（R31〜R39）の 96 件すべてに処置がある。finish の 2 回の scoped re-review の N1〜N6 は上の Ruling のとおり
+- review/code.md の指摘 124 件すべてに処置がある（`review_triage.py` rc=0）。1・2 回目の finish までの内訳: final review（R1〜R30）・code_verify（R40〜R46）・security review（R47・R48）・`/code-review`（R49〜R58）・final の re-review（R31〜R39）。finish の 2 回の scoped re-review の N1〜N6 は上の Ruling のとおり
 - finish で直したもの: R28・R31〜R33・R35〜R38・R40〜R44・R46・R47・R49〜R58
 - rejected: R39（code_verify が独立に走らせ直した）・R45（merge gate が head の CI の緑を見る）
 - escalated: R48（Q11）→ 答えが出て、2 回目の finish で D4・spec・コードに写した

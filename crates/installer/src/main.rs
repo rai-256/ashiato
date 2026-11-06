@@ -541,7 +541,12 @@ struct PwFile {
 }
 
 impl PwFile {
-    fn write(settings_dir: &Path, password: &str, trace: bool) -> Result<Self, String> {
+    fn write(
+        settings_dir: &Path,
+        invoking_sid: &str,
+        password: &str,
+        trace: bool,
+    ) -> Result<Self, String> {
         let directory = admin_only_staging_dir(
             settings_dir,
             INITDB_STAGING_PREFIX,
@@ -552,6 +557,11 @@ impl PwFile {
             file: directory.join("initdb.pwfile"),
             directory,
         };
+        // initdb は制限付きの token（Administrators は deny-only）で読むので、走らせている利用者の読みを足す
+        run(
+            &commands::staging_reader_grant_command(&pwfile.directory, invoking_sid),
+            trace,
+        )?;
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1100,7 +1110,12 @@ fn install(
             fs::write(db_dir.join("initdb-interrupted"), b"").map_err(|error| error.to_string())?;
             return Err("initdb の段で停止しました".into());
         }
-        let pwfile = PwFile::write(&settings_dir, &generated.admin_password, trace)?;
+        let pwfile = PwFile::write(
+            &settings_dir,
+            &identity.invoking,
+            &generated.admin_password,
+            trace,
+        )?;
         run(&commands::initdb_command(layout, &pwfile.file), trace)?;
         drop(pwfile);
         // (4) initdb の後・DB の起動の前に postgresql.conf の末尾へ足す（D6。review R7）
