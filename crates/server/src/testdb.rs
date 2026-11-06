@@ -293,20 +293,26 @@ pub async fn sweep() {
 
 /// `CREATE DATABASE <name> TEMPLATE <template>`。直前に閉じた接続の backend が残っていると
 /// 「source database is being accessed by other users」（55006）で断られるので、少し待って打ち直す。
+/// 打ち直しは実時間の期限 30 秒で切る（CH09 design D4）。
 async fn create_from_template(admin: &mut sqlx::PgConnection, name: &str, template: &str) {
     let sql = format!("CREATE DATABASE {name} TEMPLATE {template}");
-    for attempt in 0..100 {
+    let started = std::time::Instant::now();
+    let deadline = started + std::time::Duration::from_secs(30);
+    loop {
         match sqlx::query(&sql).execute(&mut *admin).await {
             Ok(_) => return,
             Err(e)
-                if attempt < 99
+                if std::time::Instant::now() < deadline
                     && e.as_database_error()
                         .and_then(|d| d.code())
                         .is_some_and(|c| c == "55006") =>
             {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-            Err(e) => panic!("{sql} が通らない: {e}"),
+            Err(e) => panic!(
+                "{sql} が通らない（待った時間 {:?}）: {e}",
+                started.elapsed()
+            ),
         }
     }
 }
@@ -419,27 +425,27 @@ impl Drop for TestDb {
                         let mut conn = sqlx::PgConnection::connect(&postgres_url)
                             .await
                             .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
-                        let mut dropped = Ok(());
+                        let mut dropped: Result<(), String>;
                         // WITH (FORCE) が「permission denied to terminate process」で拒まれたことが 1 度ある
                         // （ch04_isolated_many_in_parallel。app の役で繋いだ試験は無く、ashiato_app の接続ではない）。
                         // 原因は突き止めていない（autovacuum など superuser の backend を疑うが、確かめていない）。
-                        // そうした接続はすぐ去るので、100ms から倍々（上限 3.2 秒）で 7 回待つ合計約 9.5 秒までやり直して吸収する。
+                        // そうした接続はすぐ去るので、100ms から倍々（上限 3.2 秒）で待ち、実時間の期限 30 秒（CH09 design D4）までやり直して吸収する。
                         // それでも消せなければ、下で pg_stat_activity の繋がっているものを書き出し、次に起きたときに原因を名指す。
                         let mut wait_ms = 100;
-                        for attempt in 0..8 {
-                            if attempt > 0 {
-                                tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
-                                wait_ms = (wait_ms * 2).min(3200);
-                            }
+                        let deadline =
+                            std::time::Instant::now() + std::time::Duration::from_secs(30);
+                        loop {
                             dropped =
                                 sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
                                     .execute(&mut conn)
                                     .await
                                     .map(|_| ())
                                     .map_err(|e| format!("DROP DATABASE が通らない: {e}"));
-                            if dropped.is_ok() {
+                            if dropped.is_ok() || std::time::Instant::now() >= deadline {
                                 break;
                             }
+                            tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                            wait_ms = (wait_ms * 2).min(3200);
                         }
                         if dropped.is_err() {
                             let who: Vec<String> = sqlx::query_scalar(

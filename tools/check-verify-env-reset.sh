@@ -163,6 +163,7 @@ YML
   holder ch06-holder; holder ch06-holder
   for i in $(seq -w 1 10); do holder "ch06-holder-$i"; done
   held() { q -c "select count(*) from pg_stat_activity where application_name like 'ch06-holder%'"; }
+  # timing-ok: 30 回 × 1 秒で、混雑時に長くなる側へだけ外れる接続待ち
   for _ in $(seq 1 30); do
     [[ $(held) == 12 ]] && break
     sleep 1

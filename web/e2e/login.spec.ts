@@ -50,7 +50,7 @@ test("合言葉でログインすると画面が記録を読める", async ({ pa
   // Scenario: 合言葉でログインすると画面が記録を読める
   await page.goto("/#/coverage");
   await loginByForm(page, process.env.WEB_PASSWORD);
-  await expect(page.getByTestId("coverage-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("coverage-loading")).toBeHidden();
   await expect(page.locator('[data-testid^="grid-"]').first()).toBeVisible();
   await expect(page.getByTestId("coverage-error")).toHaveCount(0);
   await expect(page.getByLabel("合言葉")).toHaveCount(0);

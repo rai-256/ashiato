@@ -12,7 +12,7 @@ import { readAuthHeaders } from "./auth";
  */
 declare const process: { env: Record<string, string | undefined> };
 
-test.describe.configure({ timeout: 90_000 });
+test.describe.configure({ timeout: 120_000 });
 
 const version = sourceVersion(readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8"));
 
@@ -82,7 +82,7 @@ test("気分・場所・個人属性の主張を 1 件ずつ送ると、どの�
   const day = new Date(Date.UTC(2100, 0, 1) + Math.floor(Math.random() * 3000) * DAY_MS).toISOString().slice(0, 10);
   await page.clock.install({ time: new Date(`${day}T12:00:00+09:00`) });
   await page.goto("/#/feel");
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
   check(await ingestBodyOf(page, () => page.getByTestId("valence-1").click()));
 
   // 場所（places.spec.ts の登録の流れ）
@@ -90,7 +90,7 @@ test("気分・場所・個人属性の主張を 1 件ずつ送ると、どの�
   await page.goto("/#/master/places");
   await page.reload();
   await expect(page.getByTestId("places-view")).toBeVisible();
-  await expect(page.getByTestId("places-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("places-loading")).toBeHidden();
   await page.getByRole("button", { name: "場所を足す" }).click();
   await expect(page.getByTestId("place-candidate").first()).toBeVisible();
   const coord = `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`;
@@ -106,7 +106,7 @@ test("気分・場所・個人属性の主張を 1 件ずつ送ると、どの�
   await page.goto("/#/master");
   await page.reload();
   await expect(page.getByTestId("master-view")).toBeVisible();
-  await expect(page.getByTestId("master-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("master-loading")).toBeHidden();
   await page.getByRole("button", { name: "種類を足す" }).click();
   await page.getByLabel("種類を足す", { exact: true }).fill(`種類-${TAG}`);
   await page.getByRole("button", { name: "決める" }).click();

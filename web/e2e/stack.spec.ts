@@ -18,7 +18,7 @@ test("縦串が立って、S-1 稼働状況が本物のブラウザで開く", a
   expect(box?.height ?? 0).toBeGreaterThan(0);
 
   // 画面はサーバと話せている（偽データが入っているので、読み込み中のまま止まらない）
-  await expect(page.getByTestId("coverage-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("coverage-loading")).toBeHidden();
   await expect(page.getByTestId("coverage-error")).toHaveCount(0);
 
   // 横スクロールが出ていない（縦 1 本で読む。実寸は本物のブラウザにしか分からない）

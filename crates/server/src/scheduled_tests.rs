@@ -100,13 +100,42 @@ fn log_text() -> String {
 
 /// 取る手が走るのを実時間で待つ（止めた時計は進まない）。
 async fn wait_for_calls(probe: &Probe, n: usize) {
-    for _ in 0..200 {
-        if probe.calls() >= n {
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    loop {
+        let calls = probe.calls();
+        if calls >= n {
             return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "取りに行った回数が {n} に届かない: 待った時間 {:?}、最後に見た値 {calls}",
+                started.elapsed()
+            );
         }
         settle(25).await;
     }
-    panic!("取りに行った回数が {n} に届かない: {}", probe.calls());
+}
+
+async fn wait_for_log<F>(description: &str, mut observed: F)
+where
+    F: FnMut() -> (bool, String),
+{
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    loop {
+        let (done, last) = observed();
+        if done {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "{description}: 待った時間 {:?}、最後に見た値 {last}",
+                started.elapsed()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 /// 100 ミリ秒ずつ進め、そのつど眠りの timer と DB の読み直しを済ませる。刻みが粗いと、
@@ -286,12 +315,14 @@ async fn scheduled_source_without_a_fetcher_is_skipped_and_named_in_the_log() {
     let pool = testdb::pool().await;
     let name = add_row(&pool, 3600).await;
     let handle = crate::scheduled::spawn_with(Vec::new(), pool.clone(), testdb::user());
-    for _ in 0..200 {
-        if log_text().contains(&name) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("論理ソースの名前がログに出ない", || {
+        let log = log_text();
+        (
+            log.contains(&name),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -386,15 +417,15 @@ async fn scheduled_failure_log_carries_no_error_text() {
         pool.clone(),
         testdb::user(),
     );
-    for _ in 0..200 {
-        if log_text()
-            .lines()
-            .any(|l| l.contains("scheduled_fetch_failed") && l.contains(&name))
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("失敗のログが出ない", || {
+        let log = log_text();
+        (
+            log.lines()
+                .any(|l| l.contains("scheduled_fetch_failed") && l.contains(&name)),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -433,16 +464,18 @@ async fn scheduled_a_panicking_source_is_named_in_the_log() {
         testdb::user(),
     );
     let mut line = None;
-    for _ in 0..200 {
-        line = log_text()
+    wait_for_log("止まった task のログが出ない", || {
+        let log = log_text();
+        line = log
             .lines()
             .find(|l| l.contains("scheduled_task_ended") && l.contains(&name))
             .map(str::to_owned);
-        if line.is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+        (
+            line.is_some(),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -472,6 +505,7 @@ async fn scheduled_rereads_the_registry_until_it_can() {
     hold_clock(settle(100)).await;
     let before = probe.calls();
     // 読み直しの待ち（60 秒）を 2 回過ぎると読める
+    // timing-ok: 61 秒刻みで停止時計を進める試験で、実時間の期限待ちではない。
     for _ in 0..2 {
         tokio::time::advance(Duration::from_secs(61)).await;
         settle(100).await;
@@ -511,12 +545,14 @@ async fn scheduled_source_without_interval_trigger_is_named_in_the_log() {
         pool.clone(),
         testdb::user(),
     );
-    for _ in 0..200 {
-        if log_text().contains(&name) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_for_log("契機の無い行の名前がログに出ない", || {
+        let log = log_text();
+        (
+            log.contains(&name),
+            log.lines().last().unwrap_or("(ログなし)").to_owned(),
+        )
+    })
+    .await;
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
@@ -548,17 +584,21 @@ async fn scheduled_retired_source_is_not_fetched() {
         pool.clone(),
         testdb::user(),
     );
-    for _ in 0..40 {
-        if handle.is_finished() {
-            break;
-        }
+    // 枠が終わるのを実時間の期限 30 秒で待つ（design D4）。取りに行かないことは `probe.calls()` で見る
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    while !handle.is_finished() && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     let finished = handle.is_finished();
+    let waited = started.elapsed();
     drop(handle);
     drop_rows(&pool, &[&name]).await;
 
-    assert!(finished, "取りに行く task を起こさない（枠はすぐ終わる）");
+    assert!(
+        finished,
+        "取りに行く task を起こさない（枠はすぐ終わる）: 待った時間 {waited:?}、最後に見た値 {finished}"
+    );
     assert_eq!(probe.calls(), 0, "退役した行は取りに行かない");
 }
 

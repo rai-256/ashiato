@@ -117,6 +117,7 @@ trap 'kill 0' EXIT
 echo "== サーバ $BIND"
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL "$server" &
 srv=$!
+# timing-ok: 30 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 30); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null || { echo "サーバが起動しない（BIND=$BIND）"; exit 1; }
 # 起動した口が網の外に開いていないこと（design D11 (a)）。落ちたら止める（trap が全部止める）
@@ -145,6 +146,7 @@ echo "== 画面 http://127.0.0.1:$WEB_PORT"
 (cd web && npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort --outDir "$web_abs" >/dev/null 2>&1) &
 # vite preview が待ち受けるまで待つ（上限 30 秒）。待ち受ける前に検査すると、どのアドレスで
 # 待ち受けても通ってしまう（final review R4）
+# timing-ok: 60 回 × 0.5 秒で合計30秒。混雑時に長くなる側へだけ外れる待ち
 for _ in $(seq 1 60); do [ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] && break; sleep 0.5; done
 [ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] || { echo "error: 画面が待ち受けない（WEB_PORT=$WEB_PORT）" >&2; exit 1; }
 ./tools/check-exposure.sh --listen-only || exit 1

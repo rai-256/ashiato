@@ -1,17 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** `source_unavailable` の重複抑止を、実際に糸を重ねて固定する。 */
 class UnavailableLogGateTest {
+    private fun awaitWithinD4(latch: CountDownLatch, message: String) {
+        val started = System.nanoTime()
+        val completed = latch.await(30, TimeUnit.SECONDS)
+        val waitedMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue("$message（待機=${waitedMs}ms、最後に見た値=${latch.count}）", completed)
+    }
+
+    /** 糸の中で投げた失敗（`AssertionError` を含む）を、呼んだ側の失敗として出す。 */
+    private fun rethrowFrom(task: Future<*>) {
+        try {
+            task.get(30, TimeUnit.SECONDS)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
+    }
+
     @Test
     fun `同じ理由が並行して来てもログは一度だけ`() {
         val gate = UnavailableLogGate()
@@ -23,17 +41,18 @@ class UnavailableLogGateTest {
         val pool = Executors.newFixedThreadPool(workers)
 
         try {
-            repeat(workers) {
-                pool.execute {
+            val tasks = List(workers) {
+                pool.submit {
                     ready.countDown()
                     start.await()
                     gate.unavailable("permission") { calls.incrementAndGet() }
                     done.countDown()
                 }
             }
-            assertTrue("並行呼び出しの準備が整わない", ready.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(ready, "並行呼び出しの準備が整わない")
             start.countDown()
-            assertTrue("並行呼び出しが終わらない", done.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(done, "並行呼び出しが終わらない")
+            tasks.forEach(::rethrowFrom)
         } finally {
             pool.shutdownNow()
         }
@@ -52,27 +71,31 @@ class UnavailableLogGateTest {
         val pool = Executors.newFixedThreadPool(2)
 
         try {
-            pool.execute {
+            val first = pool.submit {
                 gate.unavailable("permission") {
                     logging.countDown()
-                    assertTrue("ログを再開できない", finishLog.await(5, TimeUnit.SECONDS))
+                    awaitWithinD4(finishLog, "ログを再開できない")
                     calls.incrementAndGet()
                 }
             }
-            assertTrue("最初のログまで進まない", logging.await(5, TimeUnit.SECONDS))
-            pool.execute {
+            awaitWithinD4(logging, "最初のログまで進まない")
+            val clear = pool.submit {
                 clearing.countDown()
                 gate.available()
                 recovered.countDown()
             }
             // `available()` がログと同じ排他区間を使うなら、ログが終わるまでここでは完了しない。
-            assertTrue("解除の糸が始まらない", clearing.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(clearing, "解除の糸が始まらない")
+            // timing-ok: D12。ログ中に復旧しない短い窓で、解除が割り込まないことだけを見る。
             assertFalse(
                 "ログ中の解除が比較と代入の間へ割り込んだ",
+                // timing-ok: D12 の 200ms 窓を検証する下限で、条件成立を待つ処理ではない。
                 recovered.await(200, TimeUnit.MILLISECONDS),
             )
             finishLog.countDown()
-            assertTrue("復旧の反映が終わらない", recovered.await(5, TimeUnit.SECONDS))
+            awaitWithinD4(recovered, "復旧の反映が終わらない")
+            rethrowFrom(first)
+            rethrowFrom(clear)
 
             gate.unavailable("permission") { calls.incrementAndGet() }
         } finally {

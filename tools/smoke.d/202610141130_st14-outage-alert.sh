@@ -7,6 +7,7 @@ printf '%s' "$out" | jq -e '.status == "warming_up" and (has("outages") | not)' 
 kill "$SRV"; wait "$SRV" 2>/dev/null || true
 # 待ち時間の値（既定 30 分）は変えない。この起動だけが環境変数で 0 にする
 OUTAGE_WARMUP_SEC=0 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 out=$(curl -fsS "${AUTH[@]}" "http://$BIND/outages?device_id=smoke-dev")
 printf '%s' "$out" | jq -e '.status == "ready" and (.outages | type == "array")' >/dev/null \

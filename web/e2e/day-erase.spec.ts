@@ -7,8 +7,8 @@ const DAY_URL = `/#/day/${DAY}`;
 async function openDay(page: Page): Promise<void> {
   await page.goto(DAY_URL);
   await page.reload();
-  await expect(page.getByTestId("day-view")).toBeVisible({ timeout: 15_000 }); // 画面が出てから（surface.spec.ts の open と同じ理由）
-  await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("day-view")).toBeVisible(); // 画面が出てから（surface.spec.ts の open と同じ理由）
+  await expect(page.getByTestId("day-loading")).toBeHidden();
   await expect(page.getByTestId("day-error")).toHaveCount(0);
 }
 
@@ -67,6 +67,7 @@ test("確認して消すと同じ時刻の消した行になり、戻すと滞�
     await expect(page).toHaveURL(/#\/day\/2026-09-07$/);
   } finally {
     if (!restored) {
+      // timing-ok: 任意の復元操作は押せなければ後処理を省略する
       await erased.getByRole("button", { name: "戻す" }).click({ timeout: 5_000 }).catch(() => undefined);
     }
   }

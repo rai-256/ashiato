@@ -23,8 +23,8 @@ async function open(page: Page, patch?: (base: Status) => Status): Promise<void>
   await page.goto("/#/coverage");
   const box = page.getByTestId("latest-archive");
   await expect(box).toBeVisible();
-  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0, { timeout: 15_000 });
-  await expect(page.locator("[data-role=grid]").nth(5)).toBeVisible({ timeout: 15_000 });
+  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0);
+  await expect(page.locator("[data-role=grid]").nth(5)).toBeVisible();
 }
 
 const sourcesInOrder = (page: Page): Promise<string[]> =>

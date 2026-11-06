@@ -36,8 +36,8 @@ async function open(page: Page, url: string, root: string, ready: string): Promi
   // **画面が出てから**「読み込み中」が消えるのを待つ。toBeHidden は要素がまだ無いときも即座に通るので、
   // 画面が描かれる前に通って「読み込み中…」だけの画面を測っていた（2026-10-14 実測: マスタ管理 360 px light）。
   // 「読み込み中」は画面と同じ描画で出るので、画面が見えた後なら消えたことを待てる（places.spec.ts と同じ順）
-  await expect(page.getByTestId(root)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId(ready)).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId(root)).toBeVisible();
+  await expect(page.getByTestId(ready)).toBeHidden();
 }
 
 type Measured = { what: string; ratio: number };
