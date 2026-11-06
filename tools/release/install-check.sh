@@ -485,12 +485,27 @@ clean_machine() {
 
 install_with() {
   # $1 = 標準入力に渡す 2 行の合言葉（空なら標準入力を閉じる）。残りはインストーラの引数
-  local password="$1"; shift
+  # インストーラが戻らないと job の上限（6 時間）まで止まり、どこで止まったかも残らない（run 42163474147 の
+  # repair が 1 時間戻らなかった）。上限を付け、超えたら理由を書いて失敗にする（呼び手が出力を見せる）
+  local password="$1" rc=0; shift
+  local limit="${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}"
   if [[ -n "$password" ]]; then
-    printf '%s\n%s\n' "$password" "$password" | "$SETUP" "$@"
+    printf '%s\n%s\n' "$password" "$password" | timeout -k 10 "$limit" "$SETUP" "$@" || rc=$?
   else
-    "$SETUP" "$@" </dev/null
+    timeout -k 10 "$limit" "$SETUP" "$@" </dev/null || rc=$?
   fi
+  if [[ "$rc" == 124 || "$rc" == 137 ]]; then
+    # 呼び手は出力を $out へ向け、「失敗するはず」の Scenario では失敗を合格と読む。止まったことを紛れさせないよう、
+    # 呼び手の向け先でない元の標準エラー（fd 9）へ書き、その場で落とす
+    {
+      echo "NG: インストーラ（$*）が ${limit} 秒で戻らない"
+      # 呼び手の多くは出力を $out へ向ける（bash の動的な見え方で呼び手の local が見える）
+      [[ -n "${out:-}" && -f "${out:-}" ]] && tail -n 80 "$out"
+      tasklist.exe /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'ashiato|postgres|pg_ctl|psql|takeown|icacls|powershell|sc\.exe' || true
+    } >&9
+    exit 1
+  fi
+  return "$rc"
 }
 
 common_setup() {
@@ -499,6 +514,8 @@ common_setup() {
   # Git Bash の引数を Windows の場所に読み替えさせない（`/grant` などが場所に化ける）。
   # Python の出力は UTF-8 にする（取り込み待ちの日本語の場所を、パイプの先でも崩さない）
   export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+  # 元の標準エラー。install_with が、呼び手が出力を向けた先とは別に止まった理由を書く
+  exec 9>&2
   windows_whoami /groups | grep -Fq 'S-1-16-12288' || die 'P17: 上がった札（High Mandatory Level）で動いていない'
   [[ -f "$archive" ]] || die "配布 zip が無い: $archive"
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-install.XXXXXX")"
