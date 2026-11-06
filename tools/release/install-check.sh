@@ -418,14 +418,22 @@ pid_gone() {
   done
   return 1
 }
-# postmaster.pid の先頭行は、DB の主プロセスの PID。サービス（pg_ctl.exe）でなくこの主を
-# 終了させると、サービスが異常を検知して SCM の回復設定どおりに起き直す。
+# postmaster.pid の先頭行は、DB の主プロセスの PID。
 postmaster_pid_from() {
   local pid
   pid="$(sed -n '1{s/\r$//;p;}' <<<"$1")"
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
   printf '%s\n' "$pid"
 }
+
+# pg_ctl は PostgreSQL の主を別のプロセスとして起こす。サービスを異常終了させても主は残るため、
+# 先に pg_ctl を終えて SCM の回復を発火させ、直後に主も終えて新しい pg_ctl と共有メモリが競合しないようにする。
+terminate_db_processes() {
+  local service_pid="$1" postmaster_pid="$2"
+  taskkill.exe /F /PID "$service_pid" >/dev/null 2>&1 || true
+  taskkill.exe /F /PID "$postmaster_pid" >/dev/null 2>&1 || true
+}
+
 service_pid() {
   sc.exe queryex "$1" | tr -d '\r' | awk -F ':' 'toupper($1) ~ /PID/ { gsub(/ /, "", $2); print $2; exit }'
 }
@@ -669,13 +677,15 @@ check_release_zip() {
 
   echo '== Scenario: DB のサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-db | tr -d '\r')" ashiato-db
-  local before_pid
+  local before_pid postmaster_pid
   before_pid="$(service_pid ashiato-db)"
-  # SCM の回復はサービス自身の異常終了で動く。PostgreSQL の主だけを落とすと pg_ctl は
-  # 正常な停止を SCM に返すため、回復規則を確かめられない。サービスの木を一度に終え、
-  # pg_ctl と PostgreSQL の終了を SCM に異常終了として観測させる。
-  taskkill.exe /F /T /PID "$before_pid" >/dev/null 2>&1 || true
+  postmaster_pid="$(postmaster_pid_from "$(<"$STATE/db/17/postmaster.pid")")" ||
+    die 'DB の postmaster.pid から主プロセス番号を読めない'
+  # pg_ctl のサービス PID を終えると SCM の回復が動く。一方で PostgreSQL の主は pg_ctl の
+  # 子プロセスとして残るため、同じ回復の前に主も終える。
+  terminate_db_processes "$before_pid" "$postmaster_pid"
   pid_gone "$before_pid" 10 || die 'DB のサービスを異常に終わらせられない'
+  pid_gone "$postmaster_pid" 10 || die 'DB の PostgreSQL の主を異常に終わらせられない'
   # PostgreSQL は強制終了後に WAL を回復してから受け付ける。CI の遅い runner でも
   # 回復そのものを失敗と取り違えないよう、サービスの回復設定より十分長く待つ。
   wait_state ashiato-db 4 60
@@ -1349,6 +1359,14 @@ EOF
   [[ "$(postmaster_pid_from $'4242\r\nC:/ProgramData/ashiato/db/17\r\n')" == 4242 ]] ||
     die 'postmaster.pid の親プロセス番号を読めない'
   expect_fail postmaster_pid_from $'not-a-pid\r\nC:/ProgramData/ashiato/db/17\r\n'
+  local termination_log
+  termination_log="$work/terminate-db.log"
+  (
+    taskkill.exe() { printf '%s\n' "$*" >>"$termination_log"; }
+    terminate_db_processes 101 202
+  )
+  [[ "$(<"$termination_log")" == $'/F /PID 101\n/F /PID 202' ]] ||
+    die 'DB の異常終了でサービスと PostgreSQL の主を順に終了しない'
   local netstat=$'  TCP    127.0.0.1:55400        0.0.0.0:0              LISTENING       4242'
   assert_loopback_listener_only "$netstat" 55400
   expect_fail assert_loopback_listener_only "$netstat"$'\n  TCP    0.0.0.0:55400          0.0.0.0:0              LISTENING       4242' 55400
