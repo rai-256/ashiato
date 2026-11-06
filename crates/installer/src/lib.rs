@@ -1316,7 +1316,8 @@ mod tests {
             .zip(commands::temporary_write_paths(&release))
         {
             // 別管理者 B は所有者になっても `icacls /grant` を実行できなかった。最初の ACL 更新は
-            // SeRestorePrivilege を有効にした同じプロセスから行い、既存の DACL に依存しない。
+            // 同じプロセスが backup/restore 用のハンドルで既存 DACL に ACE を加える。この形なら
+            // 特権を有効にした親から、通常のハンドルで開く子プロセスへ失敗を持ち込まない。
             assert_eq!(commands[0].program, "powershell.exe");
             assert!(commands[0]
                 .args
@@ -1325,9 +1326,22 @@ mod tests {
             assert!(commands[0]
                 .args
                 .last()
-                .is_some_and(|script| script.contains(&format!(
-                    "icacls.exe '{path}' /grant '*S-1-5-21-admin:(OI)(CI)M' /L"
-                ))));
+                .is_some_and(|script| script.contains("SeBackupPrivilege")));
+            for required in [
+                "FILE_FLAG_BACKUP_SEMANTICS",
+                "GetSecurityInfo",
+                "SetEntriesInAcl",
+                "SetSecurityInfo",
+            ] {
+                assert!(commands[0]
+                    .args
+                    .last()
+                    .is_some_and(|script| script.contains(required)));
+            }
+            assert!(commands[0]
+                .args
+                .last()
+                .is_some_and(|script| !script.contains("icacls.exe")));
             assert_eq!(commands[1].program, "takeown");
             assert_eq!(commands[1].args, ["/F", &path, "/A", "/R", "/D", "Y"]);
             assert_eq!(

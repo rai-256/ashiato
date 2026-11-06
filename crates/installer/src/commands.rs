@@ -458,13 +458,12 @@ pub fn temporary_write_paths(layout: &Layout) -> [String; 2] {
     ]
 }
 
-/// 管理者が持つ `SeRestorePrivilege` をこのプロセスで有効にしてから `icacls` を起こす。
+/// 管理者が持つ backup/restore 特権を有効にして、既存 DACL に一時の ACE を加える。
 /// 閉じた既存の状態の置き場では、`takeown` の後でも所有者の暗黙の `WRITE_DAC` が使えないことが
-/// あるため、最初の一時 ACL を DACL に依存せず付ける。`SeRestorePrivilege` は管理者の token に
-/// 割り当て済みだが、通常は無効なので `AdjustTokenPrivileges` で有効にする。
+/// ある。`icacls` は backup semantics で対象を開かないため、同じプロセスが `CreateFile` で
+/// `READ_CONTROL | WRITE_DAC` のハンドルを開き、DACL を読んでから更新する。
 fn restore_privileged_grant_command(path: String, sid: &str) -> SetupCommand {
     let path_for_ps = path.replace('\'', "''");
-    let grant = format!("*{sid}:(OI)(CI)M");
     SetupCommand::powershell(format!(
         r#"$ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -473,29 +472,60 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 public static class AshiatoRestorePrivilege {{
+  private const uint READ_CONTROL = 0x00020000, WRITE_DAC = 0x00040000;
+  private const uint FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, FILE_SHARE_DELETE = 4;
+  private const uint OPEN_EXISTING = 3, FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+  private const uint DACL_SECURITY_INFORMATION = 4, SE_FILE_OBJECT = 1;
+  private const uint GRANT_ACCESS = 1, OBJECT_INHERIT_ACE = 1, CONTAINER_INHERIT_ACE = 2;
+  private const uint MODIFY = 0x001301BF;
   [StructLayout(LayoutKind.Sequential)] private struct Luid {{ public uint LowPart; public int HighPart; }}
   [StructLayout(LayoutKind.Sequential)] private struct TokenPrivileges {{ public uint Count; public Luid Luid; public uint Attributes; }}
+  [StructLayout(LayoutKind.Sequential)] private struct Trustee {{ public IntPtr MultipleTrustee; public int MultipleTrusteeOperation; public int TrusteeForm; public int TrusteeType; public IntPtr Name; }}
+  [StructLayout(LayoutKind.Sequential)] private struct ExplicitAccess {{ public uint AccessPermissions; public uint AccessMode; public uint Inheritance; public Trustee Trustee; }}
   [DllImport("advapi32.dll", SetLastError=true)] private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
   [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern bool LookupPrivilegeValue(string system, string name, out Luid luid);
   [DllImport("advapi32.dll", SetLastError=true)] private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, uint length, IntPtr previous, IntPtr returnedLength);
+  [DllImport("advapi32.dll", SetLastError=true)] private static extern uint GetSecurityInfo(IntPtr handle, uint objectType, uint securityInformation, IntPtr owner, IntPtr group, out IntPtr dacl, IntPtr sacl, out IntPtr securityDescriptor);
+  [DllImport("advapi32.dll", SetLastError=true)] private static extern uint SetEntriesInAcl(uint count, IntPtr entries, IntPtr oldAcl, out IntPtr newAcl);
+  [DllImport("advapi32.dll", SetLastError=true)] private static extern uint SetSecurityInfo(IntPtr handle, uint objectType, uint securityInformation, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern bool ConvertStringSidToSid(string value, out IntPtr sid);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern IntPtr CreateFile(string path, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
   [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(IntPtr handle);
-  public static void Enable() {{
+  [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
+  private static void Check(uint error) {{ if (error != 0) throw new Win32Exception((int)error); }}
+  private static void Enable(string name) {{
     IntPtr token;
     if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x28, out token)) throw new Win32Exception(Marshal.GetLastWin32Error());
     try {{
       Luid luid;
-      if (!LookupPrivilegeValue(null, "SeRestorePrivilege", out luid)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      if (!LookupPrivilegeValue(null, name, out luid)) throw new Win32Exception(Marshal.GetLastWin32Error());
       var state = new TokenPrivileges {{ Count = 1, Luid = luid, Attributes = 2 }};
       if (!AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
       int error = Marshal.GetLastWin32Error();
       if (error != 0) throw new Win32Exception(error);
     }} finally {{ CloseHandle(token); }}
   }}
+  public static void GrantModify(string path, string sidText) {{
+    Enable("SeBackupPrivilege"); Enable("SeRestorePrivilege");
+    IntPtr handle = CreateFile(path, READ_CONTROL | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
+    if (handle == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    IntPtr descriptor = IntPtr.Zero, oldAcl = IntPtr.Zero, sid = IntPtr.Zero, entries = IntPtr.Zero, newAcl = IntPtr.Zero;
+    try {{
+      Check(GetSecurityInfo(handle, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, out oldAcl, IntPtr.Zero, out descriptor));
+      if (!ConvertStringSidToSid(sidText, out sid)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      var access = new ExplicitAccess {{ AccessPermissions = MODIFY, AccessMode = GRANT_ACCESS, Inheritance = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE, Trustee = new Trustee {{ TrusteeForm = 0, TrusteeType = 0, Name = sid }} }};
+      entries = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(ExplicitAccess)));
+      Marshal.StructureToPtr(access, entries, false);
+      Check(SetEntriesInAcl(1, entries, oldAcl, out newAcl));
+      Check(SetSecurityInfo(handle, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, newAcl, IntPtr.Zero));
+    }} finally {{
+      if (newAcl != IntPtr.Zero) LocalFree(newAcl); if (entries != IntPtr.Zero) Marshal.FreeHGlobal(entries);
+      if (sid != IntPtr.Zero) LocalFree(sid); if (descriptor != IntPtr.Zero) LocalFree(descriptor); CloseHandle(handle);
+    }}
+  }}
 }}
 '@
-[AshiatoRestorePrivilege]::Enable()
-& icacls.exe '{path_for_ps}' /grant '{grant}' /L
-exit $LASTEXITCODE"#
+[AshiatoRestorePrivilege]::GrantModify('{path_for_ps}', '{sid}')"#
     ))
 }
 
