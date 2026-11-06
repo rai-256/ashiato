@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::service::{
-    load_settings, request_stop, wait_for_db, wait_for_db_until_stopped, ServerLog, SettingsError,
-    StopSignal, WaitOutcome,
+    load_settings, log_day, request_stop, wait_for_db, wait_for_db_until_stopped, ServerLog,
+    SettingsError, StopSignal, WaitOutcome,
 };
 use super::web_session::{self, WebPasswordRefusal};
 use chrono::NaiveDate;
@@ -105,6 +105,12 @@ fn st55_service_settings_missing_is_classified_without_secret() {
     let error = load_settings(&path).unwrap_err();
     assert_eq!(error, SettingsError::Missing);
     assert!(!error.to_string().contains("secret-value"));
+}
+
+#[test]
+fn st55_db_watch_interval_is_five_seconds() {
+    // D35: 5 秒ごとに DB のサービスの状態を読む（review R74）
+    assert_eq!(super::service::DB_WATCH_INTERVAL, Duration::from_secs(5));
 }
 
 #[test]
@@ -335,6 +341,42 @@ async fn st55_service_waits_for_db_until_connector_succeeds() {
 }
 
 #[tokio::test]
+async fn st55_service_wait_db_rejects_wrong_password_without_waiting() {
+    // 合言葉が DB と合わないのは待っても直らない。120 秒待って終了コード 1 で起こし直されを繰り返さず、
+    // すぐ `Rejected`（終了コード 0 の拒否）にする（review R80）
+    super::testdb::pool().await;
+    let url = super::testdb::url();
+    let scheme_end = url.find("://").unwrap() + 3;
+    let at = url.rfind('@').unwrap();
+    let user = url[scheme_end..at].split(':').next().unwrap();
+    let wrong = format!(
+        "{}{user}:wrong-password-r80{}",
+        &url[..scheme_end],
+        &url[at..]
+    );
+    let attempts = std::sync::atomic::AtomicUsize::new(0);
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        wait_for_db(Duration::from_secs(120), || {
+            attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let wrong = wrong.clone();
+            async move { sqlx::PgPool::connect(&wrong).await.map(|_| ()) }
+        }),
+    )
+    .await
+    .expect("合言葉の誤りで待ち続けた");
+    assert_eq!(outcome, WaitOutcome::Rejected);
+    assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    // 接続の文字列の誤りも同じ
+    let outcome = wait_for_db(Duration::from_secs(120), || async {
+        sqlx::PgPool::connect("not-a-url").await.map(|_| ())
+    })
+    .await;
+    assert_eq!(outcome, WaitOutcome::Rejected);
+}
+
+#[tokio::test]
 async fn st55_service_wait_db_times_out_with_reason() {
     let dir = tempfile::tempdir().unwrap();
     let outcome = wait_for_db(Duration::from_millis(5), || async {
@@ -382,6 +424,39 @@ fn st55_log_keeps_non_server_files() {
     std::fs::write(dir.path().join("other.log"), "keep").unwrap();
     let _log = ServerLog::new(dir.path(), today).unwrap();
     assert!(dir.path().join("other.log").exists());
+}
+
+#[test]
+fn st55_log_prunes_old_files_when_the_date_changes_without_restart() {
+    // 止めずに動き続けるサービスでも、日付が変わって開き直すときに 30 日より古いログを消す（review R79）
+    let dir = tempfile::tempdir().unwrap();
+    let today = NaiveDate::from_ymd_opt(2026, 11, 3).unwrap();
+    let mut log = ServerLog::new(dir.path(), today).unwrap();
+    log.write_at(today, "first").unwrap();
+    // 起動の後に 30 日の境を越える名前のファイル（起動のときには残す日付）
+    std::fs::write(dir.path().join("server-2026-10-04.log"), "old").unwrap();
+    std::fs::write(dir.path().join("server-2026-10-05.log"), "keep").unwrap();
+    log.write_at(today.succ_opt().unwrap(), "second").unwrap();
+    assert!(!dir.path().join("server-2026-10-04.log").exists());
+    assert!(dir.path().join("server-2026-10-05.log").exists());
+}
+
+#[test]
+fn st55_log_day_splits_at_tokyo_midnight() {
+    // ログのファイルは日本の 0 時で替わる（UTC の 0 時 = 日本の 9 時ではない。review R86）
+    use chrono::TimeZone;
+    let before = chrono::Utc
+        .with_ymd_and_hms(2026, 11, 3, 14, 59, 59)
+        .unwrap();
+    let after = chrono::Utc.with_ymd_and_hms(2026, 11, 3, 15, 0, 0).unwrap();
+    assert_eq!(
+        log_day(before),
+        NaiveDate::from_ymd_opt(2026, 11, 3).unwrap()
+    );
+    assert_eq!(
+        log_day(after),
+        NaiveDate::from_ymd_opt(2026, 11, 4).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -452,6 +527,23 @@ async fn st55_stop_removes_partial_dot_files() {
 
     std::env::remove_var("ASHIATO_EXPORT_SELFTEST_DELAY_MS");
     std::env::remove_var("ASHIATO_EXPORT_DIR");
+}
+
+#[test]
+fn st55_stop_cleanup_removes_only_partial_exports() {
+    // 片付けは書き出しの書きかけだけを消し、置き場のほかの隠しファイルは残す（review R81）
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".partial-ashiato-export-x-1.zip"), "p").unwrap();
+    std::fs::write(dir.path().join(".partial-ashiato-export-x-2.zip"), "p").unwrap();
+    std::fs::write(dir.path().join(".keep"), "k").unwrap();
+    std::fs::write(dir.path().join("ashiato-export.zip"), "z").unwrap();
+    super::service::cleanup_partial_files(dir.path()).unwrap();
+    let mut left: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, [".keep", "ashiato-export.zip"]);
 }
 
 #[tokio::test]
@@ -646,6 +738,57 @@ fn st55_place_service_entry_fills_default_places_and_keeps_owner_secret_out() {
         "API_TOKEN",
     ] {
         std::env::remove_var(key);
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)] // 環境変数を書き換えて run_inner を回す間ずっと、ほかの試験に触らせない
+async fn st55_service_run_inner_setting_refusals_are_typed_as_refused() {
+    let _env = env_lock();
+    // 本番の起動の口（run_inner）が、設定の誤りを型の付いた拒否で返すこと。型の無い誤りに戻ると
+    // service の口では終了コード 1 になり、`failureflag 1` の回復が起こし直し続ける（review R72）
+    use super::service::ServiceEnd;
+    let keys = [
+        "ASHIATO_SERVICE_MODE",
+        "ASHIATO_SETTINGS_PATH",
+        "DATABASE_URL",
+        "API_TOKEN",
+    ];
+    let saved: Vec<_> = keys
+        .iter()
+        .map(|key| (*key, std::env::var_os(key)))
+        .collect();
+    std::env::set_var("ASHIATO_SERVICE_MODE", "1");
+    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    // run_inner は panic の hook を差し替えるので、終わったら元に戻す
+    let hook = std::panic::take_hook();
+    let mut ends = Vec::new();
+    std::env::remove_var("DATABASE_URL");
+    std::env::remove_var("API_TOKEN");
+    ends.push((
+        "database_url_missing",
+        ServiceEnd::classify(&super::run_inner().await),
+    ));
+    std::env::set_var("DATABASE_URL", "postgres://ashiato_app@127.0.0.1:1/ashiato");
+    ends.push((
+        "api_token_missing",
+        ServiceEnd::classify(&super::run_inner().await),
+    ));
+    std::env::set_var("API_TOKEN", "short");
+    ends.push((
+        "api_token_short",
+        ServiceEnd::classify(&super::run_inner().await),
+    ));
+    std::panic::set_hook(hook);
+    for (key, value) in saved {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+    for (kind, end) in ends {
+        assert_eq!(end, ServiceEnd::Refused, "{kind}");
+        assert_eq!(end.exit_code(), 0, "{kind}");
     }
 }
 

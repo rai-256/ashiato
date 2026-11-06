@@ -142,6 +142,43 @@ fn run_all(commands: &[SetupCommand], trace: bool) -> Result<(), String> {
     commands.iter().try_for_each(|command| run(command, trace))
 }
 
+/// サーバの仮想アカウントに DB のサービスの見張り（状態を読む・開始する）を許す（D35）。
+/// `sc.exe sdshow` の結果を `commands::db_watch_sdset_command` に通し、足すものがあるときだけ `sdset` を起こす。
+fn grant_db_watch(layout: &layout::Layout, trace: bool) -> Result<(), String> {
+    let show = commands::db_service_sdshow_command(layout);
+    let output = Command::new(&show.program)
+        .args(&show.args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("{} を起こせない: {error}", show.program))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} が失敗した (終了コード {:?}): {}",
+            show.line(),
+            output.status.code(),
+            output_tail(&output)
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let current = commands::sddl_from_sdshow(&text)
+        .ok_or_else(|| format!("{} の出力に SDDL が無い", show.line()))?;
+    match commands::db_watch_sdset_command(layout, current) {
+        Some(set) => run(&set, trace),
+        None => {
+            if trace {
+                terminal_line("result=ok db watch ace already present", false);
+            }
+            Ok(())
+        }
+    }
+}
+
+/// サービスの確かめ直し・回復の設定と、見張りの ACE。
+fn configure_services(layout: &layout::Layout, trace: bool) -> Result<(), String> {
+    run_all(&commands::configure_service_commands(layout), trace)?;
+    grant_db_watch(layout, trace)
+}
+
 /// サービスの状態の番号。サービスが無ければ `None`。
 fn service_state(service: &str) -> Option<u32> {
     let command = commands::query_service_command(service);
@@ -496,20 +533,39 @@ impl Drop for TemporaryPostmaster<'_> {
     }
 }
 
-/// `initdb` の一時の合言葉のファイル。状態の置き場（DB の置き場の外。D1）に置き、成否に依らず消す。
-struct PwFile(PathBuf);
+/// `initdb` の一時の合言葉のファイル。管理者と SYSTEM だけの置き場（`admin_only_staging_dir`）に作り、
+/// 成否に依らず置き場ごと消す（本人とサーバのアカウントに読ませない。review R76）。
+struct PwFile {
+    directory: PathBuf,
+    file: PathBuf,
+}
 
 impl PwFile {
-    fn write(path: PathBuf, password: &str) -> Result<Self, String> {
-        fs::write(&path, password)
+    fn write(settings_dir: &Path, password: &str, trace: bool) -> Result<Self, String> {
+        let directory = admin_only_staging_dir(
+            settings_dir,
+            INITDB_STAGING_PREFIX,
+            "DB の一時の合言葉",
+            trace,
+        )?;
+        let pwfile = Self {
+            file: directory.join("initdb.pwfile"),
+            directory,
+        };
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&pwfile.file)
+            .and_then(|mut file| file.write_all(password.as_bytes()))
             .map_err(|error| format!("DB の一時の合言葉を書けない: {error}"))?;
-        Ok(Self(path))
+        Ok(pwfile)
     }
 }
 
 impl Drop for PwFile {
     fn drop(&mut self) {
-        let _ = db::remove_pwfile(&self.0);
+        let _ = db::remove_pwfile(&self.file);
+        discard_directory(&self.directory);
     }
 }
 
@@ -560,23 +616,22 @@ fn write_settings(path: &Path, settings: &serde_json::Value) -> Result<(), Strin
 /// `owner.json` の書きかけの置き場の名前の頭（`settings\.owner-staging-<印>`）。
 const OWNER_STAGING_PREFIX: &str = ".owner-staging-";
 
-/// 表の所有者の合言葉（`owner.json`）の書きかけを作り、その場所を返す（置くのは `place_owner_settings`）。
-/// 設定の置き場はサーバのアカウントと本人が受け継ぐので、そこに直に作ると、ACL を絞る前に開かれた handle で
-/// 後から書いた中身を読まれる。先に新しいフォルダを作って継承を切り、管理者と SYSTEM だけにし、空であることを
-/// 確かめてから、その中に作る（中のファイルは作られたときから絞った形を受け継ぐ。design D4。deep.md Q11・
-/// review R48）。前の回の書きかけの置き場は先に消す。
-fn stage_owner_settings(
+/// `initdb` の一時の合言葉の置き場の名前の頭（`settings\\.initdb-staging-<印>`）。
+const INITDB_STAGING_PREFIX: &str = ".initdb-staging-";
+
+/// 設定の置き場の下に、管理者と SYSTEM だけが開ける新しいフォルダを作って返す。前の回の同じ頭の置き場は先に消す。
+/// 設定の置き場はサーバのアカウントと本人が受け継ぐので、秘密をそこに直に作ると読まれる。新しいフォルダを
+/// 作って継承を切り、空であることを確かめてから使う（中のファイルは作られたときから絞った形を受け継ぐ。
+/// design D4。deep.md Q11・review R48・R76）。
+fn admin_only_staging_dir(
     settings_dir: &Path,
-    settings: &serde_json::Value,
+    prefix: &str,
+    label: &str,
     trace: bool,
 ) -> Result<PathBuf, String> {
     if let Ok(entries) = fs::read_dir(settings_dir) {
         for entry in entries.flatten() {
-            if entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(OWNER_STAGING_PREFIX)
-            {
+            if entry.file_name().to_string_lossy().starts_with(prefix) {
                 discard_directory(&entry.path());
             }
         }
@@ -584,28 +639,47 @@ fn stage_owner_settings(
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
-    let directory = settings_dir.join(format!(
-        "{OWNER_STAGING_PREFIX}{}-{stamp}",
-        std::process::id()
-    ));
-    fs::create_dir(&directory)
-        .map_err(|error| format!("所有者の設定の書きかけの置き場を作れない: {error}"))?;
-    let staged = directory.join("owner.json");
-    let written = (|| {
+    let directory = settings_dir.join(format!("{prefix}{}-{stamp}", std::process::id()));
+    fs::create_dir(&directory).map_err(|error| format!("{label}の置き場を作れない: {error}"))?;
+    let prepared = (|| {
         run(
             &commands::admin_only_directory_acl_command(&directory),
             trace,
         )?;
         ensure_real_directory(&directory)?;
         let empty = fs::read_dir(&directory)
-            .map_err(|error| format!("所有者の設定の書きかけの置き場を読めない: {error}"))?
+            .map_err(|error| format!("{label}の置き場を読めない: {error}"))?
             .next()
             .is_none();
         if !empty {
-            return Err(
-                "所有者の設定の書きかけの置き場に知らないファイルがあるので止めます".to_owned(),
-            );
+            return Err(format!(
+                "{label}の置き場に知らないファイルがあるので止めます"
+            ));
         }
+        Ok(())
+    })();
+    if let Err(error) = prepared {
+        discard_directory(&directory);
+        return Err(error);
+    }
+    Ok(directory)
+}
+
+/// 表の所有者の合言葉（`owner.json`）の書きかけを作り、その場所を返す（置くのは `place_owner_settings`）。
+/// 管理者と SYSTEM だけの書きかけの置き場（`admin_only_staging_dir`）の中に作る。
+fn stage_owner_settings(
+    settings_dir: &Path,
+    settings: &serde_json::Value,
+    trace: bool,
+) -> Result<PathBuf, String> {
+    let directory = admin_only_staging_dir(
+        settings_dir,
+        OWNER_STAGING_PREFIX,
+        "所有者の設定の書きかけ",
+        trace,
+    )?;
+    let staged = directory.join("owner.json");
+    let written = (|| {
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -770,6 +844,9 @@ fn run_psql(
     port: u16,
     trace: bool,
 ) -> Result<(), String> {
+    // DB の管理者の合言葉は、入るときの値（initdb の値）と別の新しい乱数に置き直し、どこにも控えない。
+    // initdb の値が漏れても、役割を作った後は使えない（以後の管理は repair の一時の sspi で行う。review R76）
+    let admin_after = secrets::new_admin_password();
     for (database, script) in [
         ("postgres", commands::create_database_sql().as_bytes()),
         (
@@ -781,7 +858,7 @@ fn run_psql(
         let mut child = Command::new(&command.program)
             .args(&command.args)
             .env("PGPASSWORD", &generated.admin_password)
-            .env("ADMIN_PW", &generated.admin_password)
+            .env("ADMIN_PW", &admin_after)
             .env("OWNER_PW", &generated.owner_password)
             .env("APP_PW", &generated.app_password)
             .env_remove("PGPASSFILE")
@@ -932,6 +1009,7 @@ fn install(
                 &commands::fresh_state_setup_commands(layout, &identity.owner),
                 trace,
             )?;
+            grant_db_watch(layout, trace)?;
         } else {
             if !db_service_exists {
                 run(&commands::register_database_command(layout), trace)?;
@@ -939,7 +1017,7 @@ fn install(
             if !server_service_exists {
                 run(&commands::create_server_command(layout), trace)?;
             }
-            run_all(&commands::configure_service_commands(layout), trace)?;
+            configure_services(layout, trace)?;
             run_all(&commands::acl_commands(layout, &identity.owner), trace)?;
         }
     }
@@ -962,9 +1040,9 @@ fn install(
     )
     .to_owned();
 
-    // 前の回が落ちて残った一時の合言葉のファイルを消す（中身は使わない）
-    let pwfile_path = settings_dir.join(".initdb.pwfile");
-    db::remove_pwfile(&pwfile_path)
+    // 前の版が設定の置き場に直に残した一時の合言葉のファイルを消す（中身は使わない）。
+    // 今の版の置き場（`.initdb-staging-*`）は `PwFile::write` が作る前に消す
+    db::remove_pwfile(&settings_dir.join(".initdb.pwfile"))
         .map_err(|error| format!("DB の一時の合言葉を消せない: {error}"))?;
 
     // (2) 秘密（ACL を絞った後に書く。review R13）
@@ -1022,8 +1100,8 @@ fn install(
             fs::write(db_dir.join("initdb-interrupted"), b"").map_err(|error| error.to_string())?;
             return Err("initdb の段で停止しました".into());
         }
-        let pwfile = PwFile::write(pwfile_path, &generated.admin_password)?;
-        run(&commands::initdb_command(layout, &pwfile.0), trace)?;
+        let pwfile = PwFile::write(&settings_dir, &generated.admin_password, trace)?;
+        run(&commands::initdb_command(layout, &pwfile.file), trace)?;
         drop(pwfile);
         // (4) initdb の後・DB の起動の前に postgresql.conf の末尾へ足す（D6。review R7）
         let conf = db_dir.join("postgresql.conf");
@@ -1049,7 +1127,7 @@ fn install(
         if !server_service_exists {
             run(&commands::create_server_command(layout), trace)?;
         }
-        run_all(&commands::configure_service_commands(layout), trace)?;
+        configure_services(layout, trace)?;
     }
 
     // (6) DB の開始。待ち受けが開いても回復の途中は接続を断るので、pg_isready が受け付けるまで待つ

@@ -1127,6 +1127,9 @@ pub(crate) async fn run_named(
     .await
 }
 
+/// 書きかけの書き出しの名前の頭。停止のときの片付け（`service::cleanup_partial_files`）もこれで見分ける。
+pub(crate) const PARTIAL_PREFIX: &str = ".partial-ashiato-export-";
+
 /// 置き場を（無ければ 0700 で）作り、`.partial-….zip`（0600）に書いて閉じ、本来の名前へ `rename` する。
 /// `.` で始まる名前は書き終えるまで。失敗したら消す。
 async fn write_zip(
@@ -1139,7 +1142,7 @@ async fn write_zip(
 ) -> Result<Written, ExportError> {
     ensure_dir(dir)?;
     let partial = dir.join(format!(
-        ".partial-ashiato-export-{stamp}-{}.zip",
+        "{PARTIAL_PREFIX}{stamp}-{}.zip",
         &uuid::Uuid::new_v4().simple().to_string()[..8]
     ));
     let file = create_private_file(&partial)?;

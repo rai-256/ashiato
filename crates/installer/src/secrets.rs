@@ -1,4 +1,5 @@
 use crate::layout::Layout;
+use base64::Engine as _;
 use rand::{rngs::OsRng, RngCore as _};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -138,29 +139,13 @@ pub fn new_install_secrets() -> InstallSecrets {
     }
 }
 
+/// DB の管理者の役割に置き直す合言葉（控えない使い捨て。review R76）。
+pub fn new_admin_password() -> String {
+    secret()
+}
+
 fn secret() -> String {
     let mut bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    base64url(&bytes)
-}
-
-fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut output = String::with_capacity(43);
-    for chunk in bytes.chunks(3) {
-        let first = chunk[0];
-        output.push(ALPHABET[(first >> 2) as usize] as char);
-        let second = chunk.get(1).copied().unwrap_or(0);
-        output.push(ALPHABET[((first & 3) << 4 | second >> 4) as usize] as char);
-        if chunk.len() > 1 {
-            if chunk.len() > 2 {
-                let third = chunk[2];
-                output.push(ALPHABET[((second & 15) << 2 | third >> 6) as usize] as char);
-                output.push(ALPHABET[(third & 63) as usize] as char);
-            } else {
-                output.push(ALPHABET[((second & 15) << 2) as usize] as char);
-            }
-        }
-    }
-    output
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }

@@ -543,14 +543,24 @@ pub async fn session_post(
                 .and_then(|p| p.as_str().map(str::to_owned))
         })
         .unwrap_or_default();
-    // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）
+    // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
+    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡す。接続が切れてこの future が捨てられても、
+    // 照合が終わって数え上げるまで次の照合は始まらない（review R78）
     let login = app.login.clone();
-    let accepted = tokio::task::spawn_blocking(move || login.accepts(&given))
-        .await
-        .unwrap_or(false);
-    if !accepted {
-        app.login.limiter.record_failure();
+    let accepted = tokio::task::spawn_blocking(move || {
+        let accepted = login.accepts(&given);
+        if !accepted {
+            login.limiter.record_failure();
+        }
         drop(permit);
+        accepted
+    })
+    .await
+    .unwrap_or_else(|_| {
+        app.login.limiter.record_failure();
+        false
+    });
+    if !accepted {
         tracing::warn!(kind = "login_failed", "ログインの合言葉が一致しない");
         app.access
             .write(session_entry(
@@ -564,7 +574,6 @@ pub async fn session_post(
         tokio::time::sleep(app.login.failure_delay).await;
         return Err(unauthorized());
     }
-    drop(permit);
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);

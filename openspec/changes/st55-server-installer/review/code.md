@@ -640,6 +640,7 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
   M2: その式の `$s.Insert($d, $a)` を `$s.Insert(0, $a)`（ACE を `D:` より前に置く。壊れた SDDL）に替えて `cargo test -p ashiato-setup` → rc=0（82 passed ほか）、`install-check.sh --self-test` → rc=0。式を見る試験（lib.rs:405-416）は `"S:"`・`"Insert"`・`"-notmatch"` を含むかしか見ない。install-check の `assert_db_watch_acl`（:214-220）は Windows で `sdshow` の結果を読む側で、HEAD では一度も走っていない
 - kind: technical
 - 提案: インストーラが `sc.exe sdshow` の出力を Rust で受け取り、`add_db_watch_ace` で作った SDDL を引数にして `sc.exe sdset` を起こす形にし、試験が照らす関数を本番の経路にする（PowerShell の式を消す）
+- 処置: fixed 13.1 —— PowerShell の式を消し、インストーラが `sc.exe sdshow ashiato-db` の出力を Rust で受け取り（`commands::sddl_from_sdshow`）、`commands::db_watch_sdset_command`（中は試験が照らす `add_db_watch_ace`）で作った SDDL を引数に `sc.exe sdset` を起こす形にした（main.rs の `grant_db_watch`。回復の設定の後に毎回呼ぶ）。試験は本番の関数の引数そのものを見る（lib.rs の `st55_db_watch_*` 3 本）。Windows での通しは install-check の `assert_db_watch_acl`（PR の CI）
 
 ## R72. 設定の値の拒否を「終了コード 0」に分ける配線を外しても、どの試験も落ちない（R60 の直しは関数の戻り値でしか固定されていない）
 - 成果物: crates/server/src/lib.rs / crates/server/src/st55_tests.rs / tools/release/install-check.sh
@@ -647,6 +648,7 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
   `st55_service_unrecoverable_refusals_end_with_exit_code_zero`（st55_tests.rs:653-687）は `refuse_startup`・`refuse_setting` を直に呼んで `ServiceEnd::classify` に渡すので、`run_inner` のどの `?` がどちらを返すかは見ない。`run_windows_service` は `cfg(windows)` で Linux では組まれない。install-check.sh にも `WIN32_EXIT_CODE` や拒否の後に起こし直されないことの確かめは無い（`grep -n 'EXIT_CODE\|failureflag' tools/release/install-check.sh` は 0 件）
 - kind: technical
 - 提案: `st55_tests.rs` に env_lock つきで、`ASHIATO_SERVICE_MODE=1`・短い `API_TOKEN`（と `DATABASE_URL` 無し・`WEB_SESSION_MAX_AGE_DAYS` の誤り）で `run_inner()` を回し、`ServiceEnd::classify` が `Refused` になることを見る試験を置く。Windows の側は「設定のファイルが無いと…」の後に `sc.exe query ashiato-server` の `WIN32_EXIT_CODE` が 0 で、15 秒後も STOPPED のままであることを見る
+- 処置: fixed 2.2 —— `st55_service_run_inner_setting_refusals_are_typed_as_refused` を足した（`ASHIATO_SERVICE_MODE=1` で `run_inner()` を回し、DATABASE_URL 無し・API_TOKEN 無し・短い API_TOKEN が `ServiceEnd::Refused`・終了コード 0 になる）。M1 と同じく `api_token_short` の `refuse_setting` を型の無い `anyhow!` に替えると落ちる（st55_tests.rs:790 で panic）ことを確かめて戻した。Windows の `WIN32_EXIT_CODE` の確かめは足していない
 
 ## R73. `--check-coverage` は `.rs` に印がある Scenario を全部免除するので、Windows でしか確かめられない Scenario を install-check から消しても通る（73 本のうち 37 本）
 - 成果物: tools/release/install-check.sh / crates/server/src/st55_tests.rs / crates/installer/src/main.rs / crates/installer/src/lib.rs
@@ -655,18 +657,21 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
   その Rust の印は主張より下の階層にある: st55_tests.rs:112 は `decide_db_watch(true, Ok(Stopped)) == Restart` だけ（spec の THEN は「1 分以内に実行中・55400 が接続を受ける」）、main.rs:1554 は `sh -c 'sleep 2 &'` が 1 秒以内に戻ること（spec の THEN は「記録を残したままログインできる」）
 - kind: technical
 - 提案: 免除を「`.rs` に印があるか」から、install-check で見なくてよい Scenario の明示の表（名前の一覧）に替える。あわせて、THEN がサービス・ACL・SCM の振る舞いの Scenario の Rust 側の印（st55_tests.rs:112・main.rs:1554 ほか）は外し、下支えの試験として残す
+- 処置: fixed 10.1 —— 免除を「`.rs` に印があるか」から、install-check.sh の `covered_elsewhere`（15 本の名前の一覧）に替えた。`--check-coverage` は spec の Scenario が `--list` か一覧のどちらかにあること・一覧の名前が spec にあり試験の印を持ち `--list` と被らないことを見る。M3 と同じく「DB のサービスが異常に終わると起こし直される」を写しの `--list` から消すと rc=1（`NG: --list に無い Scenario`）、本体は rc=0（88 本）。下の階層の Rust の印（st55_tests.rs・main.rs）は下支えの試験として残した（免除の根拠ではなくなった）
 
 ## R74. D35 の見張りの間隔 5 秒と、回復の `reset= 86400` は、値を変えても全部通る
 - 成果物: crates/server/src/service.rs / crates/installer/src/commands.rs / crates/installer/src/lib.rs
 - 根拠: M4: commands.rs:798 の `"86400"` を `"3600"` に、service.rs:88 の `interval(Duration::from_secs(5))` を `from_secs(55)` に替えて `cargo test -p ashiato-setup` → rc=0（82 passed ほか）、`cargo test -p ashiato-server --lib st55_db_watch_` → rc=0（7 passed）。試験は `restart/10000/restart/10000/restart/10000`（lib.rs:372）と `failureflag … 1` を見るが、`reset=` の値を参照しない（`grep -n 86400 crates/installer/src/lib.rs` 0 件）。5 秒は `cfg(windows)` の `watch_db_service` の中の値で、Linux の試験からは参照できない。R60 の処置（「`reset= 86400` で 1 日 3 回まで」service.rs:586）と D35（「5 秒ごと」design.md:307）はこの 2 つの値に乗っている
 - kind: technical
 - 提案: 5 秒を `service::DB_WATCH_INTERVAL` の定数にして試験で固定する（R44 の `DB_WAIT`・`DB_RETRY` と同じ形）。lib.rs の回復の試験に `reset= 86400` を足す
+- 処置: fixed 13.2 —— 5 秒を `service::DB_WATCH_INTERVAL` にして `st55_db_watch_interval_is_five_seconds` で固定し、lib.rs の回復の試験に `sc.exe failure <サービス> reset= 86400 actions=` を 2 つのサービスで足した
 
 ## R75. tasks 3.4 の `[x]` の本文「release.yml の Windows の組み立ても同じ package.sh を通る」は、いまの release.yml で成り立たない
 - 成果物: openspec/changes/st55-server-installer/tasks.md / openspec/changes/st55-server-installer/proposal.md / .github/workflows/release.yml
 - 根拠: `grep -n package.sh .github/workflows/release.yml` はコメントの 1 件（:63）だけで、Windows の job は `build.sh server-windows`・`build.sh collector-windows` を直に呼ぶ（R61 の直し）。tasks.md:86 と proposal.md:66 は「同じ package.sh を通る」のまま。検証コマンド（actionlint・`check-guards.sh workflows`）はこの主張を見ないので rc=0。final の scoped re-review は「PR 本文へ」として、上流の文は書き換えていない
 - kind: technical
 - 提案: tasks.md 3.4 と proposal.md:66 に、R61 で release.yml は build.sh を直に呼ぶ形に替えたこと（理由: package.sh は残った `ASHIATO_BUILD_VERSION` を外す）を注として足す
+- 処置: fixed 3.4 —— tasks.md 3.4 と proposal.md の該当の文に、R61 で release.yml は build.sh を直に呼ぶ形に替えたこと（理由つき）を注として足した
 
 ## security review（0548aad..63b74d2）
 
@@ -696,6 +701,7 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
 - 提案: `.initdb.pwfile` を `owner.json` と同じく `admin_only_directory_acl_command` で絞った書きかけの置き場に作る。あわせて `run_psql` の `ADMIN_PW` を initdb の値と別の新しい乱数にし（`PGPASSWORD` は initdb の値のまま）、ファイルが漏れても役割を作った後は使えないようにする。install-check に「本人の利用者で `settings\.initdb.pwfile` を読めない」を足す
 
 範囲外: なし
+- 処置: fixed 5.2 —— (1) initdb の合言葉のファイルを `owner.json` と同じ形の管理者と SYSTEM だけの置き場（`settings\.initdb-staging-<印>`。`admin_only_staging_dir` に括り出し、`stage_owner_settings` も同じ関数を通る）に `create_new` で作り、成否に依らず置き場ごと消す。前の版の `settings\.initdb.pwfile` は始めに消す。(2) `run_psql` の `ADMIN_PW` を `secrets::new_admin_password()`（控えない使い捨ての乱数）にし、`PGPASSWORD` は initdb の値のまま。initdb の値は役割を作った後は使えない。install-check の `assert_no_pwfile` は `.initdb-staging-*` の残りも落とす（self-test に足した）。Windows の ACL の実地は PR の CI（install-windows）
 
 ## /code-review（0548aad..63b74d2）
 
@@ -706,57 +712,67 @@ fix の後の scoped re-review（SDD の `re-review-prompt.md`、別の文脈）
 - 根拠: First install: services are registered, initdb writes PG_VERSION, then the DB fails to start within 120s (wait_for_database) and the install returns Err. On rerun: database_exists=true, roles_done=false, initdb_marker exists, but db_service_exists=true, so recreatable=false and install stops with roles_missing_message. The user is forced into `repair`, which regenerates every secret (API token and so on) and makes the collectors re-pair, for a DB that holds no records.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 再現した —— 初回で services を (1) で登録した後、initdb の後に DB が起きずに落ちると、走らせ直しは `db_service_exists` で `recreatable=false` になり `roles_missing_message`（repair を示す）で止まる。これは D32（仮）の決定そのもの（design.md「DB のサービスを登録した後に落ちたものも、消さずに `repair` を示す」。印は設定の置き場にありサーバのアカウントも書けるので、印だけで DB を消さないための条件）。repair が作り直す秘密（API の合言葉ほか）は、インストールが終わっていないので収集アプリの対がまだ無く、失うものも無い。作り直しの条件を緩めると、サーバのアカウントが印を書いて記録の入った DB を消させうる形に戻る
 
 ## R78. The LOGIN_CHECK permit is held by the request future, but the Argon2 check runs in spawn_blocking. If the client disconnects, the future is dropped and the permit released while the blocking check keeps running, and record_failure is never called.
 - 成果物: crates/server/src/web_session.rs:548
 - 根拠: An attacker sends POST /session repeatedly and closes each connection right away. Every request starts a tens-of-milliseconds Argon2id verify on a blocking thread while the semaphore is freed immediately, so many verifies run at once, saturating CPU and the blocking pool. Because the failures are never counted, the limiter (throttled) never engages. The 'one at a time' guarantee from R23 is lost.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 7.1 —— 1 つずつの印（permit）と失敗の数え上げを `spawn_blocking` の中へ移した。接続が切れて future が捨てられても、照合が終わって `record_failure` するまで次の照合は始まらない（blocking の仕事が panic したときも数える）
 
 ## R79. Deleting server logs older than 30 days only happens in ServerLog::new (at startup). When write_bytes_at reopens the file on a date change it does not prune, so a long-running service never deletes old logs.
 - 成果物: crates/server/src/service.rs:426
 - 根拠: The service runs for 90 days without restarting (normal for an always-on server) and server-YYYY-MM-DD.log files keep accumulating under logs\server, breaching the spec's 30-day retention. Separately, if remove_file fails on an old log (e.g. another process has it open), new() returns Err, run_service ends as Failed with exit 1, and recovery restarts the service every 10 seconds.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.4 —— 古いログの片付けを `ServerLog::prune` に括り出し、起動のときに加えて、日付が変わってファイルを開き直すたびに行う。消せないファイルは飛ばして次の機会に回し、ログの書きもサービスも止めない（`new` が Err を返さない）。`st55_log_prunes_old_files_when_the_date_changes_without_restart` を足した
 
 ## R80. wait_for_db retries every connect error the same way. Non-transient errors such as auth failure or a malformed URL also wait 120s and become DatabaseUnavailable (exit 1), so the failureflag-1 recovery restarts the service forever.
 - 成果物: crates/server/src/service.rs:654
 - 根拠: The ashiato_app password in server.json no longer matches the DB (half-finished repair, manual edit). Every attempt fails with 28P01 auth error, then TimedOut, then exit 1, then a restart 10s later, repeating forever: a loop that restarting cannot fix, which is exactly the situation R21/R60 tried to prevent.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.2 —— `wait_for_db` に `DbWaitError::is_permanent` を足し、接続の文字列の誤り（`Configuration`）・認証の失敗（28P01・28000）・DB が無い（3D000）は待たずに `WaitOutcome::Rejected` を返す。service の口はそれを `StartupRefused("database_rejected")`（終了コード 0）にしてログに書く。起動の途中の断り（57P03）や待ち受けが無いのは今までどおり待つ。`st55_service_wait_db_rejects_wrong_password_without_waiting`（本物の試験の DB に誤った合言葉で 1 回で Rejected）を足した
 
 ## R81. cleanup_partial_files deletes every dotfile in the export directory (not just `.partial-ashiato-export-*`) and stops at the first deletion error via `?`. It is also called right after exports.stop() (abort) without waiting for the task to actually stop.
 - 成果物: crates/server/src/service.rs:517
 - 根拠: If ASHIATO_EXPORT_DIR points at a user folder, unrelated hidden files such as `.keep` are deleted on every stop. And if the aborted export task is still mid-write on another worker, remove_file fails with a sharing violation on Windows, the loop exits early, the error is dropped by `let _`, and the remaining partial files stay behind.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.3 —— 片付けは `export::PARTIAL_PREFIX`（`.partial-ashiato-export-`）の名前だけを消し、1 つ消せなくても残りを消して最初の失敗を返す。run_inner は `exports.stop()` の後、走っている書き出しが無くなるまで最大 5 秒待ってから片付け、失敗はログに書く（`let _` で捨てない）。`st55_stop_cleanup_removes_only_partial_exports` を足した
 
 ## R82. The `service_mode` computed at the top of run_inner is ignored here and `ASHIATO_SERVICE_MODE` is read from the environment twice more, so the mode decision has three sources.
 - 成果物: crates/server/src/lib.rs:4713
 - 根拠: If the environment changed partway through (set_var/remove_var by a test or other code), the password checks and the graceful-shutdown/cleanup decisions could disagree. Using the `service_mode` variable in both places is enough.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.2 —— run_inner の後半の 2 か所も最初に読んだ `service_mode` を使う
 
 ## R83. add_db_watch_ace is a test-only Rust copy of the ACE insertion that actually ships, which is the PowerShell in db_watch_acl_command. The tests check only the Rust copy.
 - 成果物: crates/installer/src/commands.rs:854
 - 根拠: If the PowerShell SDDL handling (Select-Object -Last 1, the S: insertion point, -notmatch) breaks, the tests stay green and the server SID never gets LCRP on ashiato-db, so the DB watcher only ever records query failures. Either generate the PowerShell from the Rust function or point the tests at the command string.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 13.1 —— R71 と同じ直し（本番の経路が試験の照らす Rust の関数を通る）
 
 ## R84. A hand-written base64url encoder; the workspace already uses the `base64` crate (`URL_SAFE_NO_PAD` in server/web_session.rs).
 - 成果物: crates/installer/src/secrets.rs:147
 - 根拠: The hand-written bit operations and padding handling add maintenance and verification cost. `base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)` would replace it.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 5.2 —— 手書きの符号化を消し、`base64::engine::general_purpose::URL_SAFE_NO_PAD`（server と同じ 0.22。Cargo.lock に既にある）にした。`st55_secret_values_are_unique_base64url` は通る
 
 ## R85. The installer's build-stamp inputs do not include tools/db-roles.sql, which main.rs embeds with include_bytes!.
 - 成果物: crates/installer/build.rs:18
 - 根拠: Change db-roles.sql without committing it and build: the installer exe embeds different SQL, but its stamp has no `.dirty`, so check-artifacts.sh's 'no .dirty stamp' check passes. The source the stamp claims and what is actually embedded disagree.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 3.3 —— installer/build.rs の印の入力を `INPUTS` にまとめ、`tools/db-roles.sql` を足した（印と `rerun-if-changed` の両方）
 
 ## R86. Server log files are named by UTC date (chrono::Utc::now().date_naive()), so the file switches at 09:00 JST, not at local midnight.
 - 成果物: crates/server/src/service.rs:507
 - 根拠: A Japanese user opening the log for 'today' to investigate finds events from 00:00 to 09:00 local time in the previous day's file, and the 30-day pruning also counts in UTC days.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.4 —— ログのファイルの日付を `service::log_day`（Asia/Tokyo。画面の日の区切り `coverage::DAY_TZ` と同じ固定のずれ）で決める。起動の拒否のログ・30 日の片付けも同じ日付。`st55_log_day_splits_at_tokyo_midnight` を足した

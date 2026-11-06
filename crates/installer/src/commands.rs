@@ -835,22 +835,34 @@ pub fn configure_service_commands(layout: &Layout) -> Vec<SetupCommand> {
     ];
     commands.extend(failure(layout.db_service));
     commands.extend(failure(layout.server_service));
-    commands.push(db_watch_acl_command(layout));
     commands
 }
 
-/// サーバの仮想アカウントが DB の状態を読み、停止時だけ開始できる DACL を足す。
-/// 既存の SDDL に同じ ACE があればそのままにし、停止・設定変更の権限は与えない（D35）。
-fn db_watch_acl_command(layout: &Layout) -> SetupCommand {
-    let sid = service_sid(layout.server_service);
-    let ace = format!("(A;;LCRP;;;{sid})");
-    SetupCommand::powershell(format!(
-        "$s = (sc.exe sdshow {db} | Select-Object -Last 1).Trim(); $a = '{ace}'; if ($s -notmatch [regex]::Escape($a)) {{ $d = $s.IndexOf('S:'); if ($d -ge 0) {{ $s = $s.Insert($d, $a) }} else {{ $s += $a }}; sc.exe sdset {db} $s | Out-Null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }} }}",
-        db = layout.db_service,
-        ace = ace,
-    ))
+/// DB のサービスの今の SDDL を読む命令（D35 の見張りの ACE を足す前に読む）。
+pub fn db_service_sdshow_command(layout: &Layout) -> SetupCommand {
+    SetupCommand::new("sc.exe", ["sdshow", layout.db_service])
 }
 
+/// `sc.exe sdshow` の出力から SDDL（最後の空でない行）を取り出す。
+pub fn sddl_from_sdshow(output: &str) -> Option<&str> {
+    output.lines().map(str::trim).rfind(|line| !line.is_empty())
+}
+
+/// サーバの仮想アカウントに、DB のサービスの状態を読むことと開始することだけを許す ACE（D35）。
+/// 停止・設定変更の権限は与えない。
+pub fn db_watch_ace(layout: &Layout) -> String {
+    format!("(A;;LCRP;;;{})", service_sid(layout.server_service))
+}
+
+/// 今の SDDL に見張りの ACE を足して書く命令。既に同じ ACE があれば `None`（何も書かない）。
+/// インストーラは `sdshow` の結果をこれに通して `sdset` を起こす（試験が照らす関数が本番の経路。review R71・R83）。
+pub fn db_watch_sdset_command(layout: &Layout, current_sddl: &str) -> Option<SetupCommand> {
+    let updated = add_db_watch_ace(current_sddl, &db_watch_ace(layout));
+    (updated != current_sddl)
+        .then(|| SetupCommand::new("sc.exe", ["sdset", layout.db_service, updated.as_str()]))
+}
+
+/// SDDL の DACL の末尾（`S:` の前、無ければ末尾）に ACE を足す。同じ ACE があればそのまま返す。
 pub fn add_db_watch_ace(sddl: &str, ace: &str) -> String {
     if sddl.contains(ace) {
         return sddl.to_owned();

@@ -368,6 +368,13 @@ mod tests {
             lines(&commands::configure_service_commands(&release))
         );
         assert!(text.contains("sc.exe config ashiato-db") && text.contains("sc.exe failure"));
+        // 失敗の数え直しは 1 日（R60 の「1 日 3 回まで」はこの値に乗る。review R74）
+        for service in ["ashiato-db", "ashiato-server"] {
+            assert!(
+                text.contains(&format!("sc.exe failure {service} reset= 86400 actions=")),
+                "{service} の回復の数え直しが 1 日でない"
+            );
+        }
         assert!(
             text.contains("restart/10000/restart/10000/restart/10000"),
             "DB の再起動が競合しても、90 秒の実地検査中に次の回復を試せる間隔にする"
@@ -385,33 +392,47 @@ mod tests {
 
     #[test]
     fn st55_db_watch_acl_grants_only_query_and_start_to_server_sid() {
-        let commands = commands::configure_service_commands(&layout::Layout::release());
-        let text = lines(&commands);
-        assert!(text.contains("sc.exe sdshow ashiato-db"));
-        assert!(text.contains("sc.exe sdset ashiato-db"));
-        assert!(text.contains("(A;;LCRP;;;"));
-        assert!(text.contains(&commands::service_sid("ashiato-server")));
-        assert!(!text.contains("WP"));
-        assert!(!text.contains("DC"));
+        let release = layout::Layout::release();
         assert_eq!(
-            commands
-                .iter()
-                .position(|command| command.line().contains("sdset ashiato-db")),
-            Some(commands.len() - 1)
+            commands::db_service_sdshow_command(&release).line(),
+            "sc.exe sdshow ashiato-db"
         );
+        let ace = commands::db_watch_ace(&release);
+        assert_eq!(
+            ace,
+            format!("(A;;LCRP;;;{})", commands::service_sid("ashiato-server"))
+        );
+        let set =
+            commands::db_watch_sdset_command(&release, "D:(A;;CC;;;S-1-1-0)S:(AU;;FA;;;S-1-1-0)")
+                .expect("ACE が無ければ sdset を起こす");
+        assert_eq!(set.program, "sc.exe");
+        assert_eq!(
+            set.args,
+            [
+                "sdset".to_owned(),
+                "ashiato-db".to_owned(),
+                format!("D:(A;;CC;;;S-1-1-0){ace}S:(AU;;FA;;;S-1-1-0)"),
+            ]
+        );
+        // 足すのは状態を読む（LC・RP）だけ。停止（WP）・設定変更（DC）は与えない
+        assert!(!ace.contains("WP") && !ace.contains("DC"));
+        // 回復の設定の命令には見張りの ACE を混ぜない（sdset は sdshow の結果を見てから起こす）
+        assert!(!lines(&commands::configure_service_commands(&release)).contains("sdset"));
     }
 
     #[test]
     fn st55_db_watch_acl_does_not_append_existing_server_ace_twice() {
-        let command = commands::configure_service_commands(&layout::Layout::release())
-            .into_iter()
-            .find(|command| command.line().contains("sdshow ashiato-db"))
-            .expect("DB watch ACL command");
-        let line = command.line();
-        assert!(line.contains("-notmatch"));
-        assert!(line.contains("LCRP"));
-        assert!(line.contains("sdset"));
-        assert!(line.contains("S:") && line.contains("Insert"));
+        let release = layout::Layout::release();
+        let ace = commands::db_watch_ace(&release);
+        // sdshow は SDDL の前に空の行を出す。最後の空でない行を読む
+        let output = format!("\r\nD:(A;;CC;;;S-1-1-0){ace}S:(AU;;FA;;;S-1-1-0)\r\n\r\n");
+        let current = commands::sddl_from_sdshow(&output).expect("SDDL の行");
+        assert_eq!(
+            current,
+            format!("D:(A;;CC;;;S-1-1-0){ace}S:(AU;;FA;;;S-1-1-0)")
+        );
+        assert!(commands::db_watch_sdset_command(&release, current).is_none());
+        assert!(commands::sddl_from_sdshow("\r\n\r\n").is_none());
     }
 
     #[test]
@@ -421,6 +442,10 @@ mod tests {
         assert_eq!(
             commands::add_db_watch_ace("D:(A;;CC;;;S-1-1-0)S:(AU;;FA;;;S-1-1-0)", &ace),
             format!("D:(A;;CC;;;S-1-1-0){ace}S:(AU;;FA;;;S-1-1-0)")
+        );
+        assert_eq!(
+            commands::add_db_watch_ace("D:(A;;CC;;;S-1-1-0)", &ace),
+            format!("D:(A;;CC;;;S-1-1-0){ace}")
         );
         let existing = format!("D:{ace}S:(AU;;FA;;;S-1-1-0)");
         assert_eq!(commands::add_db_watch_ace(&existing, &ace), existing);

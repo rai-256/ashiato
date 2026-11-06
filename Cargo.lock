@@ -179,6 +179,7 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "ashiato-build-stamp",
+ "base64 0.22.1",
  "rand",
  "rpassword",
  "serde_json",

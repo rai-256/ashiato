@@ -83,7 +83,7 @@
   `check-artifacts.sh` に、Windows の zip の中身の検査（spec の目録）・`ashiato-setup.exe` の組み立ての印の版番号がサーバと同じ・配る組み立ての `ashiato-setup.exe` と `ashiato-server.exe` に `ASHIATO_SETUP_TEST_`・`ASHIATO_SERVICE_TEST_` の文字列が無い・Linux の配布物に `pgsql` と `ashiato-setup` が無い、を足す。
   `check-artifacts.sh --self-test` に `Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない`・`インストーラとサーバの版番号はそろう`（`0.4.0-beta.1` の印の写し）・`Linux の配布物は PostgreSQL を持たない`・`配る組み立ては試験の差し込みを持たない`（差し込みの名前を含む写しで rc≠0）を足す（足りない・余計な・版の違う写しで rc≠0）
   検証: `tools/release/check-artifacts.sh --self-test` rc=0 / `tools/release/package.sh --self-test` rc=0
-- [x] 3.4 CI の `package-windows` が `pgsql.sh fetch` の zip を `actions/cache`（鍵は版と指紋）に置き、配る zip と試験の zip の 2 つを `install-windows` に渡す。`release.yml` の Windows の組み立ても同じ `package.sh` を通る
+- [x] 3.4 CI の `package-windows` が `pgsql.sh fetch` の zip を `actions/cache`（鍵は版と指紋）に置き、配る zip と試験の zip の 2 つを `install-windows` に渡す。`release.yml` の Windows の組み立ても同じ `package.sh` を通る（final review R61 の直しで、`release.yml` の Windows の job は `build.sh server-windows`・`build.sh collector-windows` を直に呼ぶ形に替えた。`package.sh` は残った `ASHIATO_BUILD_VERSION` を外すので、tag の版で組めない。review R75）
   検証: `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0 / `tools/release/check-guards.sh workflows` rc=0
 
 ## Task 4: 配る DB を作り、設定する

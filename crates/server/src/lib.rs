@@ -4710,7 +4710,7 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
     // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
-    if std::env::var_os("ASHIATO_SERVICE_MODE").is_some() {
+    if service_mode {
         axum::serve(listener, app)
             .with_graceful_shutdown(crate::service::wait_for_stop())
             .await?;
@@ -4719,10 +4719,22 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
     }
     // graceful shutdown が完了した後に、DB を使う背景処理と書き出しを止める。
     // 書き出しの abort は `.partial-*.zip` を残し得るため、最後に置き場を掃除する。
-    if std::env::var_os("ASHIATO_SERVICE_MODE").is_some() {
+    // 打ち切った仕事が止まるのを待ってから消す（書いている途中のファイルは Windows では消せない。review R81）
+    if service_mode {
         exports.stop();
+        let stopped = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while exports.running_view().is_some() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        if stopped.is_err() {
+            tracing::warn!(kind = "export_stop_timeout", "書き出しが 5 秒で止まらない");
+        }
         if let Some(dir) = std::env::var_os("ASHIATO_EXPORT_DIR") {
-            let _ = crate::service::cleanup_partial_files(std::path::Path::new(&dir));
+            if let Err(error) = crate::service::cleanup_partial_files(std::path::Path::new(&dir)) {
+                tracing::warn!(kind = "export_partial_cleanup", %error, "書きかけの書き出しを消せない");
+            }
         }
     }
     drop(scheduled_handle);

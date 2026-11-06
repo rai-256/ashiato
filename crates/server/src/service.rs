@@ -25,6 +25,9 @@ pub enum DbWatchDecision {
     Log(String),
 }
 
+/// サーバのサービスが DB のサービスの状態を読む間隔（D35 の「5 秒ごと」）。
+pub const DB_WATCH_INTERVAL: Duration = Duration::from_secs(5);
+
 pub fn decide_db_watch(
     server_running: bool,
     db_state: Result<DbServiceState, String>,
@@ -85,7 +88,7 @@ fn db_service_state(code: u32) -> DbServiceState {
 
 #[cfg(windows)]
 async fn watch_db_service() {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let mut interval = tokio::time::interval(DB_WATCH_INTERVAL);
     let service_name =
         configured_db_service_name(std::env::var("ASHIATO_DB_SERVICE").ok().as_deref()).to_owned();
     // 同じ理由を 5 秒ごとに書かない。うまくいったら忘れ、回復の後に同じ理由が再発したらまた書く（review R65）
@@ -287,6 +290,32 @@ pub enum WaitOutcome {
     TimedOut,
     /// 待っている間に停止の知らせが来た。
     Stopped,
+    /// 待っても直らない失敗（合言葉の誤り・接続先の書き誤りなど）。起こし直しても同じなので待たない（review R80）。
+    Rejected,
+}
+
+/// DB への接続の失敗が、待てば直るものか。
+pub trait DbWaitError {
+    /// 待っても直らない失敗なら `true`。既定は待つ。
+    fn is_permanent(&self) -> bool {
+        false
+    }
+}
+
+impl DbWaitError for &str {}
+
+impl DbWaitError for sqlx::Error {
+    /// 接続の文字列の誤り、認証の失敗（28P01・28000）、DB が無い（3D000）は、DB が起きても直らない。
+    /// 起動の途中の断り（57P03）や待ち受けがまだ無いのは待つ。
+    fn is_permanent(&self) -> bool {
+        match self {
+            sqlx::Error::Configuration(_) => true,
+            sqlx::Error::Database(error) => {
+                matches!(error.code().as_deref(), Some("28P01" | "28000" | "3D000"))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// サービスの口が DB を待つ上限（spec の 120 秒）。
@@ -297,15 +326,19 @@ pub const DB_RETRY: Duration = Duration::from_secs(1);
 pub const SERVER_LOG_KEEP_DAYS: u64 = 30;
 
 /// DB を 1 秒ごとに試し、指定時間を超えたら値を返す。
+/// 待っても直らない失敗（`DbWaitError::is_permanent`）はすぐ `Rejected` を返す。
 pub async fn wait_for_db<F, Fut, E>(timeout: Duration, mut connect: F) -> WaitOutcome
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<(), E>>,
+    E: DbWaitError,
 {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if connect().await.is_ok() {
-            return WaitOutcome::Ready;
+        match connect().await {
+            Ok(()) => return WaitOutcome::Ready,
+            Err(error) if error.is_permanent() => return WaitOutcome::Rejected,
+            Err(_) => {}
         }
         let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
             return WaitOutcome::TimedOut;
@@ -326,6 +359,7 @@ pub async fn wait_for_db_until_stopped<F, Fut, E>(
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<(), E>>,
+    E: DbWaitError,
 {
     tokio::select! {
         outcome = wait_for_db(timeout, connect) => outcome,
@@ -357,7 +391,7 @@ pub fn log_settings_refusal(path: &Path, error: SettingsError) -> std::io::Resul
         .and_then(Path::parent)
         .unwrap_or_else(|| Path::new("."));
     let directory = state.join("logs").join("server");
-    let today = chrono::Utc::now().date_naive();
+    let today = log_day(chrono::Utc::now());
     let mut log = ServerLog::new(directory, today)?;
     log.write_at(today, &error.to_string())
 }
@@ -373,7 +407,7 @@ pub fn log_startup_refusal(kind: &str) {
     }) else {
         return;
     };
-    let today = chrono::Utc::now().date_naive();
+    let today = log_day(chrono::Utc::now());
     match ServerLog::new(directory, today)
         .and_then(|mut log| log.write_at(today, &format!("kind={kind}")))
     {
@@ -414,6 +448,13 @@ fn test_db_delay() -> Option<Duration> {
     None
 }
 
+/// ログのファイルの日付。日の区切りは画面と同じ Asia/Tokyo（`coverage::DAY_TZ`。夏時間が無いので固定のずれ）。
+/// UTC で区切ると、日本の 0 時〜9 時の行が前の日のファイルに入る（review R86）。
+pub fn log_day(now: chrono::DateTime<chrono::Utc>) -> chrono::NaiveDate {
+    let tokyo = chrono::FixedOffset::east_opt(9 * 3600).expect("+09:00");
+    now.with_timezone(&tokyo).date_naive()
+}
+
 /// サーバの月日ごとのログを書き、日付の変わり目にファイルを開き直す書き手。
 #[derive(Debug)]
 pub struct ServerLog {
@@ -429,9 +470,23 @@ impl ServerLog {
     ) -> std::io::Result<Self> {
         let directory = directory.into();
         std::fs::create_dir_all(&directory)?;
+        let log = Self {
+            directory,
+            current: None,
+        };
+        log.prune(today);
+        Ok(log)
+    }
+
+    /// 30 日より古い名前のログを消す。起動のときと、日付が変わってファイルを開き直すたびに行う
+    /// （止めずに動き続けるサービスでも古いログが溜まらないように。review R79）。
+    /// 消せないファイル（ほかの手が開いている）は次の機会に回し、ログの書きもサービスも止めない。
+    fn prune(&self, today: chrono::NaiveDate) {
         let cutoff = today - chrono::Days::new(SERVER_LOG_KEEP_DAYS);
-        for entry in std::fs::read_dir(&directory)? {
-            let entry = entry?;
+        let Ok(entries) = std::fs::read_dir(&self.directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             let Some(stamp) = name
@@ -444,34 +499,14 @@ impl ServerLog {
                 continue;
             };
             if date < cutoff {
-                std::fs::remove_file(entry.path())?;
+                let _ = std::fs::remove_file(entry.path());
             }
         }
-        Ok(Self {
-            directory,
-            current: None,
-        })
     }
 
     /// 指定日の日誌へ 1 行書く。秘密の値を引数に含めない呼び出し側で使う。
     pub fn write_at(&mut self, date: chrono::NaiveDate, line: &str) -> std::io::Result<()> {
-        let stamp = date.format("%Y-%m-%d").to_string();
-        let needs_open = self
-            .current
-            .as_ref()
-            .is_none_or(|(current, _)| current != &stamp);
-        if needs_open {
-            let file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.directory.join(format!("server-{stamp}.log")))?;
-            self.current = Some((stamp.clone(), file));
-        }
-        if let Some((_, file)) = self.current.as_mut() {
-            writeln!(file, "{line}")
-        } else {
-            Err(std::io::Error::other("log file was not opened"))
-        }
+        self.write_bytes_at(date, format!("{line}\n").as_bytes())
     }
 
     fn write_bytes_at(&mut self, date: chrono::NaiveDate, bytes: &[u8]) -> std::io::Result<()> {
@@ -485,7 +520,11 @@ impl ServerLog {
                 .create(true)
                 .append(true)
                 .open(self.directory.join(format!("server-{stamp}.log")))?;
+            let reopened = self.current.is_some();
             self.current = Some((stamp, file));
+            if reopened {
+                self.prune(date);
+            }
         }
         self.current
             .as_mut()
@@ -504,7 +543,7 @@ impl std::io::Write for LogWriter {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .write_bytes_at(chrono::Utc::now().date_naive(), line.as_bytes())?;
+            .write_bytes_at(log_day(chrono::Utc::now()), line.as_bytes())?;
         Ok(bytes.len())
     }
 
@@ -513,23 +552,34 @@ impl std::io::Write for LogWriter {
     }
 }
 
-/// 停止時に書き途中の隠しファイルを残さない。
+/// 停止時に書き途中の書き出し（`.partial-ashiato-export-*`）を残さない。
+/// 消すのは書き出しの書きかけの名前だけ（置き場が本人のフォルダでも、ほかの隠しファイルに触れない）。
+/// 1 つ消せなくても残りは消し、最初の失敗を返す（review R81）。
 pub fn cleanup_partial_files(directory: &Path) -> std::io::Result<()> {
     if !directory.exists() {
         return Ok(());
     }
+    let mut first_error = None;
     for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        if entry
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                first_error.get_or_insert(error);
+                continue;
+            }
+        };
+        let is_partial = entry
             .file_name()
             .to_str()
-            .is_some_and(|name| name.starts_with('.'))
-            && entry.file_type()?.is_file()
-        {
-            std::fs::remove_file(entry.path())?;
+            .is_some_and(|name| name.starts_with(crate::export::PARTIAL_PREFIX));
+        if !is_partial || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(entry.path()) {
+            first_error.get_or_insert(error);
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 /// 起こし直しても直らない起動の拒否（設定・合言葉・役割・DB の版・待ち受けの検査など）。
@@ -630,7 +680,7 @@ pub async fn run_service() -> anyhow::Result<()> {
         );
     let log = Arc::new(Mutex::new(ServerLog::new(
         state,
-        chrono::Utc::now().date_naive(),
+        log_day(chrono::Utc::now()),
     )?));
     tracing_subscriber::fmt()
         .with_writer(move || LogWriter(log.clone()))
@@ -672,6 +722,15 @@ pub async fn run_service() -> anyhow::Result<()> {
                 "DB を待つ間に停止の知らせを受けた"
             );
             Ok(())
+        }
+        WaitOutcome::Rejected => {
+            // 起こし直しても同じ失敗なので、終了コード 0 で止まる（R60 の拒否と同じ扱い。review R80）
+            tracing::error!(
+                kind = "database_rejected",
+                "DB が接続を断ったため起動しない"
+            );
+            log_startup_refusal("database_rejected");
+            Err(StartupRefused::new("database_rejected").into())
         }
         WaitOutcome::TimedOut => {
             tracing::error!(kind = "database_unavailable", "DB に繋げないため起動しない");

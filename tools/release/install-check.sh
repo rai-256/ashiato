@@ -81,6 +81,26 @@ scenario_names=(
   '空きが見積もりより少なければ知らせ、インストールは続ける'
 )
 
+# Windows の通しで見ない Scenario（Linux の試験・配る組み立ての検査が担保する）。免除はこの名前の一覧だけ
+# （`.rs` に印があるかで免除すると、両方にある Scenario を --list から消しても通った。review R73）
+covered_elsewhere=(
+  'Linux の配布物は PostgreSQL を持たない'
+  'Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない'
+  'インストーラとサーバの版番号はそろう'
+  'インストールした形では、指定が無ければ状態の置き場の export に書く'
+  'インストールした形では、設定が無ければ状態の置き場の media に置く'
+  'インストールした形でも、照らすための値と合う合言葉でだけログインできる'
+  'インストールした形で照らすための値が無いと起動しない'
+  'インストールした形の設定に画面の合言葉の元の値があると起動しない'
+  'サービスの停止を受けると、書き途中の書き出しを残さずに終わる'
+  '上がっていない状態から開くと、管理者に上がる起こし直しは 1 回だけ'
+  '上がる前の段は、開いた利用者を本人として控える'
+  '同梱する PostgreSQL の指紋が違えば組まない'
+  '配る番号は開発の台本の割り当てと被らない'
+  '配る組み立ては試験の差し込みを持たない'
+  '開発の台本で起こすサーバは、今までどおり環境変数を読む'
+)
+
 list_scenarios() {
   printf '%s\n' "${scenario_names[@]}"
 }
@@ -88,7 +108,7 @@ list_scenarios() {
 check_coverage() {
   local change="$1"
   [[ -d "$change/specs" ]] || die "spec の置き場が無い: $change/specs"
-  python3 - "$change" "$0" <<'PY'
+  python3 - "$change" "$0" "${covered_elsewhere[@]}" <<'PY'
 import re
 import subprocess
 import sys
@@ -105,31 +125,43 @@ for path in (change.parent.parent / "specs").glob("**/spec.md"):
     canonical.update(re.findall(r"^#### Scenario: (.+)$", path.read_text(encoding="utf-8"), re.M))
 scenarios = [name for name in scenarios if name not in canonical]
 
+elsewhere = set(sys.argv[3:])
 tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
-exempt_paths = {
+marker_paths = {
     Path("tools/release/pgsql.sh"),
     Path("tools/release/check-artifacts.sh"),
     Path("tools/check-ports.sh"),
     Path("tools/check-pg-major.sh"),
 }
-rust_files = [Path(p) for p in tracked if p.endswith(".rs")]
-other_files = [Path(p) for p in tracked if Path(p) in exempt_paths]
-exempt_scenarios = set()
-for path in rust_files + other_files:
+marker_files = [Path(p) for p in tracked if p.endswith(".rs") or Path(p) in marker_paths]
+marked = set()
+for path in marker_files:
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
             comment = re.match(r"^\s*//+\s*Scenario:\s*(.+?)\s*$", line)
             shell = re.match(r"^\s*echo\s+['\"]== Scenario:\s*(.+?)['\"]\s*$", line)
             if comment:
-                exempt_scenarios.add(comment.group(1))
+                marked.add(comment.group(1))
             elif shell:
-                exempt_scenarios.add(shell.group(1))
+                marked.add(shell.group(1))
     except (OSError, UnicodeDecodeError):
         pass
-missing = [name for name in scenarios if name not in listed and name not in exempt_scenarios]
-if missing:
-    for name in missing:
+failed = False
+for name in scenarios:
+    if name not in listed and name not in elsewhere:
         print(f"NG: --list に無い Scenario: {name}", file=sys.stderr)
+        failed = True
+for name in sorted(elsewhere):
+    if name not in scenarios:
+        print(f"NG: covered_elsewhere の名前が spec に無い: {name}", file=sys.stderr)
+        failed = True
+    elif name not in marked:
+        print(f"NG: covered_elsewhere の Scenario に試験の印が無い: {name}", file=sys.stderr)
+        failed = True
+    if name in listed:
+        print(f"NG: covered_elsewhere と --list の両方にある: {name}", file=sys.stderr)
+        failed = True
+if failed:
     raise SystemExit(1)
 print(f"OK: {len(scenarios)} Scenario の coverage")
 PY
@@ -258,7 +290,7 @@ session_cookie_from_headers() {
 # 状態の置き場に一時の合言葉のファイル（名前に pwfile を持つ）が無い（-o は括弧でくくる。review R25）。
 assert_no_pwfile() {
   local dir="$1" found
-  found="$(find "$dir" \( -name '*pwfile*' -o -name '.pwfile' \) -print 2>/dev/null || true)"
+  found="$(find "$dir" \( -name '*pwfile*' -o -name '.pwfile' -o -name '.initdb-staging-*' \) -print 2>/dev/null || true)"
   [[ -z "$found" ]] || die "一時の合言葉のファイルが残っている: $found"
 }
 
@@ -1424,6 +1456,9 @@ EOF
   expect_fail assert_no_pwfile "$work/state"
   rm -f "$work/state/settings/.initdb.pwfile"; touch "$work/state/.pwfile"
   expect_fail assert_no_pwfile "$work/state"
+  rm -f "$work/state/.pwfile"; mkdir "$work/state/settings/.initdb-staging-1-2"
+  expect_fail assert_no_pwfile "$work/state"
+  rmdir "$work/state/settings/.initdb-staging-1-2"
 
   # GitHub Actions の Windows runner には zip が無い。PowerShell の経路でも、
   # Takeout の fixture を実際に読める zip として作れることを確かめる。
