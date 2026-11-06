@@ -835,7 +835,20 @@ pub fn configure_service_commands(layout: &Layout) -> Vec<SetupCommand> {
     ];
     commands.extend(failure(layout.db_service));
     commands.extend(failure(layout.server_service));
+    commands.push(db_watch_acl_command(layout));
     commands
+}
+
+/// サーバの仮想アカウントが DB の状態を読み、停止時だけ開始できる DACL を足す。
+/// 既存の SDDL に同じ ACE があればそのままにし、停止・設定変更の権限は与えない（D35）。
+fn db_watch_acl_command(layout: &Layout) -> SetupCommand {
+    let sid = service_sid(layout.server_service);
+    let ace = format!("(A;;LCRP;;;{sid})");
+    SetupCommand::powershell(format!(
+        "$s = (sc.exe sdshow {db} | Select-Object -Last 1).Trim(); $a = '{ace}'; if ($s -notmatch [regex]::Escape($a)) {{ sc.exe sdset {db} ($s + $a) | Out-Null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }} }}",
+        db = layout.db_service,
+        ace = ace,
+    ))
 }
 
 /// 「アプリと機能」の登録（段 (12)。D25）。`UninstallString` は引数として直に渡す（PowerShell を通すと

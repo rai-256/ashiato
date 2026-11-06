@@ -384,6 +384,37 @@ mod tests {
     }
 
     #[test]
+    fn st55_db_watch_acl_grants_only_query_and_start_to_server_sid() {
+        let commands = commands::configure_service_commands(&layout::Layout::release());
+        let text = lines(&commands);
+        assert!(text.contains("sc.exe sdshow ashiato-db"));
+        assert!(text.contains("sc.exe sdset ashiato-db"));
+        assert!(text.contains("(A;;LCRP;;;"));
+        assert!(text.contains(&commands::service_sid("ashiato-server")));
+        assert!(!text.contains("WP"));
+        assert!(!text.contains("DC"));
+        assert_eq!(
+            commands
+                .iter()
+                .position(|command| command.line().contains("sdset ashiato-db"))
+                .unwrap(),
+            commands.len() - 1
+        );
+    }
+
+    #[test]
+    fn st55_db_watch_acl_does_not_append_existing_server_ace_twice() {
+        let command = commands::configure_service_commands(&layout::Layout::release())
+            .into_iter()
+            .find(|command| command.line().contains("sdshow ashiato-db"))
+            .expect("DB watch ACL command");
+        let line = command.line();
+        assert!(line.contains("-notmatch"));
+        assert!(line.contains("LCRP"));
+        assert!(line.contains("sdset"));
+    }
+
+    #[test]
     fn st55_layout_server_service_runs_installed_server_with_settings() {
         // サーバのサービスはプログラムの置き場の実行ファイルを、設定のファイルを渡して起こす（D29（仮）。review R6）
         let create = commands::create_server_command(&layout::Layout::release());

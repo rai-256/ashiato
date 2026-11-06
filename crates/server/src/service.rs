@@ -10,6 +10,73 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbServiceState {
+    Stopped,
+    Running,
+    StartPending,
+    StopPending,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbWatchDecision {
+    Restart,
+    Ignore,
+    Log(&'static str),
+}
+
+pub fn decide_db_watch(
+    server_running: bool,
+    db_state: Result<DbServiceState, &'static str>,
+) -> DbWatchDecision {
+    if !server_running {
+        return DbWatchDecision::Ignore;
+    }
+    match db_state {
+        Ok(DbServiceState::Stopped) => DbWatchDecision::Restart,
+        Ok(_) => DbWatchDecision::Ignore,
+        Err(reason) => DbWatchDecision::Log(reason),
+    }
+}
+
+#[cfg(windows)]
+fn db_service_state(code: u32) -> DbServiceState {
+    match code {
+        1 => DbServiceState::Stopped,
+        4 => DbServiceState::Running,
+        2 => DbServiceState::StartPending,
+        3 => DbServiceState::StopPending,
+        _ => DbServiceState::Other,
+    }
+}
+
+#[cfg(windows)]
+async fn watch_db_service() {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    loop {
+        tokio::select! {
+            () = STOP.wait() => return,
+            _ = interval.tick() => {
+                let state = tokio::task::spawn_blocking(ashiato_winsvc::query_db_service_state)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .map(db_service_state)
+                    .ok_or("query_failed");
+                match decide_db_watch(true, state) {
+                    DbWatchDecision::Restart => match ashiato_winsvc::start_db_service() {
+                        Ok(()) => tracing::warn!(kind = "db_service_restarted", "DB のサービスを起こし直した"),
+                        Err(_) => tracing::error!(kind = "db_service_start_failed", "DB のサービスを起こし直せない"),
+                    },
+                    DbWatchDecision::Log(reason) => tracing::error!(kind = "db_service_query_failed", reason),
+                    DbWatchDecision::Ignore => {}
+                }
+            }
+        }
+    }
+}
+
 /// 停止の知らせ。知らせが待つ者より先に来ても取りこぼさない（旗を立ててから起こす）。
 #[derive(Debug, Default)]
 pub struct StopSignal {
@@ -441,7 +508,14 @@ pub async fn run_service() -> anyhow::Result<()> {
     )
     .await;
     match outcome {
-        WaitOutcome::Ready => crate::run_inner().await,
+        WaitOutcome::Ready => {
+            #[cfg(windows)]
+            let watcher = tokio::spawn(watch_db_service());
+            let result = crate::run_inner().await;
+            #[cfg(windows)]
+            watcher.abort();
+            result
+        }
         WaitOutcome::Stopped => {
             tracing::info!(
                 kind = "service_stopped",

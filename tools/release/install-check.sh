@@ -212,6 +212,13 @@ assert_restart_on_failure() {
   grep -Eiq 'RESTART' <<<"$qfailure" || die "$service の回復の設定に起こし直しが無い"
 }
 
+assert_db_watch_acl() {
+  local sddl="$1" server_sid="$2"
+  grep -Fq "(A;;LCRP;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの状態読み・開始の権限が無い'
+  ! grep -Fq "(A;;WP;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの停止権限がある'
+  ! grep -Fq "(A;;DC;;;$server_sid)" <<<"$sddl" || die 'DB のサービスにサーバの設定変更権限がある'
+}
+
 # sc.exe query の出力の状態の番号（4 = RUNNING・1 = STOPPED）。
 service_state_of() {
   awk -F ':' 'toupper($1) ~ /^[ \t]*STATE[ \t]*$/ { split($2, f, " "); print f[1]; exit }' <<<"${1//$'\r'/}"
@@ -424,14 +431,6 @@ postmaster_pid_from() {
   pid="$(sed -n '1{s/\r$//;p;}' <<<"$1")"
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
   printf '%s\n' "$pid"
-}
-
-# pg_ctl は PostgreSQL の主を別のプロセスとして起こす。サービスを異常終了させても主は残るため、
-# 先に pg_ctl を終えて SCM の回復を発火させ、直後に主も終えて新しい pg_ctl と共有メモリが競合しないようにする。
-terminate_db_processes() {
-  local service_pid="$1" postmaster_pid="$2"
-  taskkill.exe /F /PID "$service_pid" >/dev/null 2>&1 || true
-  taskkill.exe /F /PID "$postmaster_pid" >/dev/null 2>&1 || true
 }
 
 service_pid() {
@@ -677,20 +676,17 @@ check_release_zip() {
 
   echo '== Scenario: DB のサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-db | tr -d '\r')" ashiato-db
-  local before_pid postmaster_pid
-  before_pid="$(service_pid ashiato-db)"
+  local postmaster_pid
   postmaster_pid="$(postmaster_pid_from "$(<"$STATE/db/17/postmaster.pid")")" ||
     die 'DB の postmaster.pid から主プロセス番号を読めない'
-  # pg_ctl のサービス PID を終えると SCM の回復が動く。一方で PostgreSQL の主は pg_ctl の
-  # 子プロセスとして残るため、同じ回復の前に主も終える。
-  terminate_db_processes "$before_pid" "$postmaster_pid"
-  pid_gone "$before_pid" 10 || die 'DB のサービスを異常に終わらせられない'
+  # pg_ctl のサービスではなく、postmaster.pid の先頭にある PostgreSQL の主だけを終える。
+  taskkill.exe /F /PID "$postmaster_pid" >/dev/null || die 'PostgreSQL の主を異常に終わらせられない'
   pid_gone "$postmaster_pid" 10 || die 'DB の PostgreSQL の主を異常に終わらせられない'
   # PostgreSQL は強制終了後に WAL を回復してから受け付ける。CI の遅い runner でも
   # 回復そのものを失敗と取り違えないよう、サービスの回復設定より十分長く待つ。
   wait_state ashiato-db 4 60
-  [[ "$(service_pid ashiato-db)" != "$before_pid" ]] || die 'DB のサービスが起こし直されていない'
   wait_database 60
+  assert_db_watch_acl "$(sc.exe sdshow ashiato-db | tr -d '\r')" "$(service_sid ashiato-server)"
 
   echo '== Scenario: サーバのサービスが異常に終わると起こし直される'
   assert_restart_on_failure "$(sc.exe qfailure ashiato-server | tr -d '\r')" ashiato-server
@@ -1379,14 +1375,8 @@ EOF
   [[ "$(postmaster_pid_from $'4242\r\nC:/ProgramData/ashiato/db/17\r\n')" == 4242 ]] ||
     die 'postmaster.pid の親プロセス番号を読めない'
   expect_fail postmaster_pid_from $'not-a-pid\r\nC:/ProgramData/ashiato/db/17\r\n'
-  local termination_log
-  termination_log="$work/terminate-db.log"
-  (
-    taskkill.exe() { printf '%s\n' "$*" >>"$termination_log"; }
-    terminate_db_processes 101 202
-  )
-  [[ "$(<"$termination_log")" == $'/F /PID 101\n/F /PID 202' ]] ||
-    die 'DB の異常終了でサービスと PostgreSQL の主を順に終了しない'
+  assert_db_watch_acl '(D:(A;;LCRP;;;S-1-5-80-server))' S-1-5-80-server
+  expect_fail assert_db_watch_acl '(D:(A;;LCRP;;;S-1-5-80-server)(A;;WP;;;S-1-5-80-server))' S-1-5-80-server
   local netstat=$'  TCP    127.0.0.1:55400        0.0.0.0:0              LISTENING       4242'
   assert_loopback_listener_only "$netstat" 55400
   expect_fail assert_loopback_listener_only "$netstat"$'\n  TCP    0.0.0.0:55400          0.0.0.0:0              LISTENING       4242' 55400

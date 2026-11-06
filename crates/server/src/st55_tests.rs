@@ -108,6 +108,37 @@ fn st55_service_settings_missing_is_classified_without_secret() {
 }
 
 #[test]
+fn st55_db_watch_restarts_only_a_stopped_database() {
+    // Scenario: DB のサービスが異常に終わると起こし直される
+    assert_eq!(
+        super::service::decide_db_watch(true, Ok(super::service::DbServiceState::Stopped)),
+        super::service::DbWatchDecision::Restart
+    );
+}
+
+#[test]
+fn st55_db_watch_ignores_running_and_pending_database_states() {
+    for state in [
+        super::service::DbServiceState::Running,
+        super::service::DbServiceState::StartPending,
+        super::service::DbServiceState::StopPending,
+    ] {
+        assert_eq!(
+            super::service::decide_db_watch(true, Ok(state)),
+            super::service::DbWatchDecision::Ignore
+        );
+    }
+}
+
+#[test]
+fn st55_db_watch_logs_query_failure_without_restarting() {
+    assert_eq!(
+        super::service::decide_db_watch(true, Err("query_failed")),
+        super::service::DbWatchDecision::Log("query_failed")
+    );
+}
+
+#[test]
 fn st55_service_settings_unreadable_is_classified_without_secret() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("not-a-file");

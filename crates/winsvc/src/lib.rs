@@ -4,12 +4,13 @@
 
 use std::ffi::OsString;
 use std::sync::{Arc, OnceLock};
-use windows_service::service::ServiceControl;
+use windows_service::service::{ServiceAccess, ServiceControl};
 use windows_service::service::{
     ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::service_dispatcher;
+use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 windows_service::define_windows_service!(ffi_service_main, service_main);
 static RUN: OnceLock<fn() -> u32> = OnceLock::new();
@@ -88,4 +89,34 @@ pub fn dispatch(run: fn() -> u32, stop: fn()) -> windows_service::Result<()> {
     let _ = RUN.set(run);
     let _ = STOP.set(stop);
     service_dispatcher::start("ashiato-server", ffi_service_main)
+}
+
+/// DB のサービスの状態を読み、停止なら開始できるハンドルを返す（D35）。
+pub fn query_db_service_state() -> Result<u32, String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|error| error.to_string())?;
+    let service = manager
+        .open_service(
+            "ashiato-db",
+            ServiceAccess::QUERY_STATUS | ServiceAccess::START,
+        )
+        .map_err(|error| error.to_string())?;
+    service
+        .query_status()
+        .map(|status| status.current_state as u32)
+        .map_err(|error| error.to_string())
+}
+
+pub fn start_db_service() -> Result<(), String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|error| error.to_string())?;
+    let service = manager
+        .open_service(
+            "ashiato-db",
+            ServiceAccess::QUERY_STATUS | ServiceAccess::START,
+        )
+        .map_err(|error| error.to_string())?;
+    service
+        .start::<&std::ffi::OsStr>(&[])
+        .map_err(|error| error.to_string())
 }
