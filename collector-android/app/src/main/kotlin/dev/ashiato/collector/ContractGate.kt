@@ -70,6 +70,32 @@ fun readContractAnswer(
     }
 }
 
+/** 保存画面で 1 回だけ行う契約確認の結果。記録の送信契機とは別の問い合わせ。 */
+enum class SetupProbeResult {
+    SAME_CHANNEL,
+    DIFFERENT_CHANNEL,
+    UNAUTHORIZED,
+    UNREACHABLE,
+}
+
+fun setupResultMessage(result: SetupProbeResult, appIsDev: Boolean = false): String = when (result) {
+    SetupProbeResult.SAME_CHANNEL -> "繋がりました"
+    SetupProbeResult.DIFFERENT_CHANNEL -> if (appIsDev) "送り先が正式版のサーバです" else "送り先が開発版のサーバです"
+    SetupProbeResult.UNAUTHORIZED -> "資格情報か送り先が違います"
+    SetupProbeResult.UNREACHABLE -> "保存しました。繋がったら送ります"
+}
+
+/** `GET /contract` の応答を、設定画面の利用者向けの 4 分類へ畳む。 */
+fun setupProbeResult(outcome: Outcome, appIsDev: Boolean = false): SetupProbeResult = when (outcome) {
+    is Outcome.Unreachable -> SetupProbeResult.UNREACHABLE
+    is Outcome.Responded -> when {
+        outcome.status == 401 -> SetupProbeResult.UNAUTHORIZED
+        outcome.status != 200 || parseContractVersion(outcome.body) == null -> SetupProbeResult.UNREACHABLE
+        (responseChannel(outcome.headers) == Channel.Dev) == appIsDev -> SetupProbeResult.SAME_CHANNEL
+        else -> SetupProbeResult.DIFFERENT_CHANNEL
+    }
+}
+
 /** 読めた版を、応答の系統が手元と同じときだけ答えにする（違えば系統の食い違い）。 */
 private fun versionAnswer(version: Int, channel: Channel, expected: Channel): ContractAnswer =
     if (channel == expected) ContractAnswer.Version(version) else ContractAnswer.ChannelMismatch(expected, channel)

@@ -132,6 +132,28 @@ class Outbox<T : Outboxable>(
     fun hasMoreThan(n: Int): Boolean =
         unwritten.size > n || store.hasMoreThan(n - unwritten.size)
 
+    /**
+     * 件数と、`timeOf` の最も古い・新しい時刻（送り先の保留の件数と期間。ST56）。**1 件ずつ読んで溜めない** ——
+     * [snapshot] で全部を載せると、溜まった置き場（90 日分・1.9 GB）でアプリがメモリ切れで落ちる（review/code.md R46）。
+     */
+    @Synchronized
+    fun span(timeOf: (T) -> java.time.Instant?): DestinationBacklog {
+        var count = 0
+        var oldest: java.time.Instant? = null
+        var newest: java.time.Instant? = null
+        val visit: (T) -> Unit = { item ->
+            count++
+            val at = timeOf(item)
+            if (at != null) {
+                if (oldest == null || at < oldest) oldest = at
+                if (newest == null || at > newest) newest = at
+            }
+        }
+        store.forEachItem(visit)
+        unwritten.forEach { visit(it.item) }
+        return DestinationBacklog(count, oldest, newest)
+    }
+
     /** いま溜まっているもの全部。**試験と診断のため** —— 送信は `head` を使う。 */
     @Synchronized
     fun snapshot(): List<T> = store.readAll() + unwritten.map { it.item }

@@ -75,6 +75,9 @@ fn st54_side_by_side_autostart_and_aumid() {
         } else {
             state.clone()
         },
+        settings_mtime: None,
+        credential_mtime: None,
+        config_from_env: false,
         exclusions_path: state.join("exclusions.json"),
         launch_state_dir: state.clone(),
         launch_device_id: "pc-side-by-side".into(),
@@ -149,6 +152,147 @@ fn st54_side_by_side_autostart_and_aumid() {
 
 fn engine(rules: Vec<Rule>) -> Engine {
     Engine::with_thresholds(Exclusions { rules }, MIN_DWELL, IDLE_THRESHOLD)
+}
+
+// Scenario: 置き場のファイルに資格情報の平文が無い
+#[test]
+fn st56_dpapi_setup_has_no_plaintext_and_can_send() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let env = |key: &str| match key {
+        "LOCALAPPDATA" => Some(tmp.path().to_string_lossy().into_owned()),
+        _ => None,
+    };
+    let cfg = Config::from_sources(&[], env, None, ashiato_build_stamp::Channel::Official)
+        .expect("config");
+    let token = "token-for-test-0123456789";
+    let encoded = "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9";
+    cfg.save_setup_string(encoded).expect("save setup");
+
+    fn files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read state") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                files(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    files(&cfg.state_dir, &mut paths);
+    for path in paths {
+        let body = std::fs::read(&path).expect("read state file");
+        assert!(
+            !String::from_utf8_lossy(&body).contains(token),
+            "平文が残った: {}",
+            path.display()
+        );
+    }
+
+    let loaded = Config::from_sources(&[], env, None, ashiato_build_stamp::Channel::Official)
+        .expect("reload config");
+    assert_eq!(loaded.api_token, token);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let address = listener.local_addr().expect("address");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("request");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+        let mut request = String::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("request line");
+            if line == "\r\n" || line == "\n" {
+                break;
+            }
+            request.push_str(&line);
+        }
+        assert!(request.contains("authorization: Bearer token-for-test-0123456789"));
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .expect("reply");
+    });
+    let transport = ashiato_collector_windows::sender::HttpTransport::new(
+        &format!("http://{address}"),
+        &loaded.api_token,
+    );
+    transport.post("/ingest", "{}", 1).expect("send");
+    server.join().expect("server");
+}
+
+/// `--install-autostart` が書く本物の台本（スタートアップの置き場は一時的な `APPDATA` に向ける）に、
+/// 資格情報も送り先も無い（tasks 10.2。review/code.md R30）。
+#[test]
+fn st56_install_autostart_script_has_no_credentials() {
+    let _desktop = desktop(); // 環境変数を書き換えるので、ほかの試験と重ねない
+    let appdata = tempfile::tempdir().expect("appdata");
+    let startup = appdata
+        .path()
+        .join(r"Microsoft\Windows\Start Menu\Programs\Startup");
+    std::fs::create_dir_all(&startup).expect("startup dir");
+    let state = tempfile::tempdir().expect("state");
+    let previous = std::env::var_os("APPDATA");
+    std::env::set_var("APPDATA", appdata.path());
+    let cfg = Config {
+        base_url: "https://pc.example.ts.net/api".into(),
+        api_token: "token-for-test-0123456789".into(),
+        user_id: uuid::Uuid::nil(),
+        device_id: "pc-0123456789ab".into(),
+        state_dir: state.path().to_path_buf(),
+        settings_mtime: None,
+        credential_mtime: None,
+        config_from_env: false,
+        exclusions_path: state.path().join("exclusions.json"),
+        launch_state_dir: state.path().to_path_buf(),
+        launch_device_id: "pc-0123456789ab".into(),
+    };
+    let written =
+        ashiato_collector_windows::autostart::install(&cfg, ashiato_build_stamp::Channel::Official);
+    match previous {
+        Some(value) => std::env::set_var("APPDATA", value),
+        None => std::env::remove_var("APPDATA"),
+    }
+    let path = written.expect("install autostart");
+    assert!(path.starts_with(&startup), "{}", path.display());
+    let script = std::fs::read_to_string(&path).expect("script");
+    assert!(!script.contains("ASHIATO_API_TOKEN"), "{script}");
+    assert!(!script.contains("token-for-test-0123456789"), "{script}");
+    assert!(!script.contains("ASHIATO_BASE_URL"), "{script}");
+    assert!(script.contains("ASHIATO_STATE_DIR"), "{script}");
+}
+
+/// 開発と試験の起動（`--config-from-env`）は、本物の Windows でも今どおり環境変数だけで組み立つ（tasks 10.2）。
+/// この試験の台本には収集アプリの実行ファイルを起こす試験が無い（review/code.md R30）ので、起動の入口
+/// （`Config::from_sources`）を Windows の上で通す。
+#[test]
+fn st56_config_from_env_marker_works_on_windows() {
+    let state = tempfile::tempdir().expect("state");
+    let dir = state.path().to_string_lossy().into_owned();
+    let env = |key: &str| {
+        Some(
+            match key {
+                "ASHIATO_BASE_URL" => "http://127.0.0.1:18787",
+                "ASHIATO_API_TOKEN" => "token-for-test-0123456789",
+                "ASHIATO_USER_ID" => "11111111-1111-1111-1111-111111111111",
+                "ASHIATO_DEVICE_ID" => "pc-env-01",
+                "ASHIATO_STATE_DIR" => dir.as_str(),
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    };
+    let cfg = Config::from_sources(
+        &["--config-from-env".to_owned()],
+        env,
+        None,
+        ashiato_build_stamp::Channel::Official,
+    )
+    .expect("marked config");
+    assert!(cfg.config_from_env);
+    assert_eq!(cfg.base_url, "http://127.0.0.1:18787");
+    assert_eq!(cfg.api_token, "token-for-test-0123456789");
+    assert_eq!(cfg.device_id, "pc-env-01");
+    assert!(!state.path().join("settings.json").exists());
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +848,9 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        settings_mtime: None,
+        credential_mtime: None,
+        config_from_env: false,
         exclusions_path: dir.join("exclusions.json"),
         launch_state_dir: dir.clone(),
         launch_device_id: "rt".into(),
@@ -777,6 +924,9 @@ fn clock_skew_runtime() {
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
         state_dir: dir.clone(),
+        settings_mtime: None,
+        credential_mtime: None,
+        config_from_env: false,
         exclusions_path: dir.join("exclusions.json"),
         launch_state_dir: dir.clone(),
         launch_device_id: "rt".into(),

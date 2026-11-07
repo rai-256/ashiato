@@ -14,6 +14,7 @@ import {
 } from "./export";
 import { msg } from "./messages";
 import { SatellitesPanel } from "./SatellitesPanel";
+import { CollectorSetupPanel } from "./CollectorSetupPanel";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
 import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
@@ -157,6 +158,7 @@ export function SettingsView(): React.ReactElement {
         </a>
       </header>
 
+      <CollectorSetupPanel colors={c} />
       <SatellitesPanel colors={c} />
 
       <section data-testid="export-section" aria-labelledby="export-title" style={sectionStyle(c, c.surface1)}>

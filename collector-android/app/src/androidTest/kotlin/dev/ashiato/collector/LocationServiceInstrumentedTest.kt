@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.os.SystemClock
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -105,7 +104,7 @@ class LocationServiceInstrumentedTest {
         val client = LocationServices.getFusedLocationProviderClient(context)
         enableMockMode(client)
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).close()
+        launchMainSkippingSetup().close()
 
         val fix = Location("fused").apply {
             latitude = 35.681236

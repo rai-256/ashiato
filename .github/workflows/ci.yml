@@ -129,6 +129,9 @@ jobs:
       # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
       - run: ./tools/check-satellite-boundary.sh --self-test
       - run: ./tools/check-satellite-boundary.sh
+      # unsafe を許すのは PC の DPAPI（secret.rs）だけ。作業場の lint は deny で、allow を止めない（ST56 / R32）
+      - run: ./tools/check-unsafe-scope.sh --self-test
+      - run: ./tools/check-unsafe-scope.sh
       # 道具が API の合言葉で許可の一覧の外を読まない・env-init が印の鍵を足す（ST44 / R26）
       - run: ./tools/check-api-token-reads.sh --self-test
       - run: ./tools/check-api-token-reads.sh web/e2e tools/recording tools/smoke.sh tools/smoke.d tools/seed.sh tools/seed.d tools/verify-prep.sh tools/st25-seed-check.sh tools/record-env.sh tools/stack.sh
@@ -282,6 +285,7 @@ jobs:
         with: { distribution: temurin, java-version: "21" }
       # lint（2026-10-11）: detekt の既定 + formatting（ktlint）。今ある違反は config/detekt-baseline.xml に
       # 凍結してあり、**新しい違反だけ**で落ちる（設定は config/detekt.yml）。
+      - run: ../tools/check-android-backup-rules.sh
       - run: ./gradlew detekt
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug
@@ -332,7 +336,11 @@ jobs:
           # ST09: 写真と動画は**別のアプリが入れたもの**として入れる（位置を伏せるのは他のアプリの項目だけ。tools/android-media-fixtures.sh）
           script: |
             ../tools/android-media-fixtures.sh
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.UsageVolumeInstrumentedTest
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest
+            ./gradlew :app:installDebug :app:installDebugAndroidTest
+            adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee /dev/stderr | grep '^OK (1 test)' >/dev/null || { echo "error: St56BackupTest のバックアップ準備が通らない" >&2; exit 1; }
+            ../tools/android-backup-roundtrip.sh
+            adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee /dev/stderr | grep '^OK (1 test)' >/dev/null || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest,dev.ashiato.collector.HealthPermissionGrantInstrumentedTest,dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest,dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest

@@ -13,11 +13,14 @@ $env:ASHIATO_API_TOKEN = "<合言葉>"
 $env:ASHIATO_USER_ID   = "<uuid>"
 $env:ASHIATO_DEVICE_ID = "pc-01"
 $env:ASHIATO_STATE_DIR = "$env:APPDATA\ashiato"      # **絶対パス。既定は無い**
-.\ashiato-collector-windows.exe
+.\ashiato-collector-windows.exe --config-from-env
 ```
 
-**5 つとも必須**（置き場も含む）。1 つでも欠けると起動しない —— 既定で埋めると
+環境変数から起動する場合は**5 つとも必須**（置き場も含む）。1 つでも欠けると起動しない —— 既定で埋めると
 送り先や置き場を間違えたまま動き、前の置き場の未送信・印・除外の登録が置き去りになる。
+
+開発 PC で自動起動する場合は、利用者の環境変数に `ASHIATO_CONFIG_FROM_ENV=1` と上の
+5 つの変数を設定しておく。自動起動の台本には資格情報を書かない。
 
 **Windows の上でだけ動く**（前景・最後の入力・UI Automation を読む）。
 他の OS では起動時に落ちる。ビルドも Windows の上で行う
