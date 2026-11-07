@@ -109,13 +109,16 @@ case "$*" in
       serial=${entry%%:*}; state=${entry#*:}
       printf '%s\t%s\n' "$serial" "$state"
     done
-    [ -f "$FAKE_VISIBLE" ] && printf 'emulator-5554\tdevice\n' ;;
+    [ -f "$FAKE_VISIBLE" ] && printf 'emulator-5554\tdevice\n' || true ;;
   wait-for-device) while [ ! -f "$FAKE_VISIBLE" ]; do sleep 1; done; echo device ;;
-  get-state) [ -f "$FAKE_VISIBLE" ] && echo device || echo no device ;;
+  get-state) if [ -f "$FAKE_VISIBLE" ] || printf '%s\n' "${FAKE_EXISTING_DEVICES:-}" | grep -q 'emulator-5554:device'; then echo device; else echo no device; fi ;;
   *'shell getprop sys.boot_completed'*)
     if [ "${FAKE_ADB_MODE:-normal}" = hang ]; then sleep 1000; fi
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
     [ -f "$FAKE_VISIBLE" ] && echo 1 || echo 0 ;;
+  *'shell am instrument'*) printf 'OK (1 test)\n' ;;
+  *'exec-out run-as'*'usage-volume.jsonl'*) printf '{"event":"fake"}\n' ;;
+  *'exec-out run-as'*'usage-volume.meta'*) printf 'span_seconds=86400\n' ;;
   *'shell settings put global'*) : ;;
   *'emu avd name'*)
     case "$*" in
@@ -311,6 +314,55 @@ assert_other_device() {
     && grep -Fq 'emulator-5556' "$root/adb.log"
 }
 
+run_usage() {
+  local root=$1 key=$2 fake_emu=${3:-ok} kvm_device=${4:-$root/kvm} existing=${5:-} rc
+  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
+  rm -f "$root/visible" "$root/child"
+  local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
+    ANDROID_HOME="$root/sdk" FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child"
+    FAKE_ROOT="$root" FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
+    FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS=1 FAKE_EMU="$fake_emu" FAKE_ADB_MODE=normal
+    ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="$existing")
+  set +e
+  env "${envs[@]}" timeout 30 "$root/tools/usage-volume.sh" >"$root/stdout" 2>"$root/stderr"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 124 ]; then
+    echo "見張りで打ち切った: $key" >&2
+  fi
+  echo "$rc"
+}
+
+assert_usage_dies() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_usage "$root" usage-dies die)
+  if [ "$rc" -ne 2 ] || ! grep -Fq 'error: エミュレータが起動の途中で終わった' "$root/stderr" \
+    || [ -n "$(pgrep -f "$root/" || true)" ]; then
+    cat "$root/stderr" >&2
+    return 1
+  fi
+}
+
+assert_usage_kvm() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_usage "$root" usage-kvm ok "$root/no-kvm")
+  [ "$rc" -eq 2 ] \
+    && grep -Fq 'error: /dev/kvm を開けない' "$root/stderr" \
+    && [ ! -s "$root/run.log" ]
+}
+
+assert_usage_reuse() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_usage "$root" usage-reuse ok "$root/kvm" 'emulator-5554:device')
+  if [ "$rc" -ne 0 ] || grep -Fq 'emulator ' "$root/run.log" || ! grep -Fq 'emulator-5554' "$root/adb.log"; then
+    cat "$root/stdout" "$root/stderr" "$root/adb.log" >&2
+    return 1
+  fi
+}
+
 self_test() {
   local root rc
   new_tree; root=$NEW_ROOT
@@ -347,6 +399,9 @@ run_only missing && { echo 'Scenario: emulator かシステムイメージが無
 run_only avd-create && { echo 'Scenario: AVD が無ければ作ってから起こす'; assert_avd_create; }
 run_only same-avd && { echo 'Scenario: 同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる'; assert_same_avd; }
 run_only other-device && { echo 'Scenario: 実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす'; assert_other_device; }
+run_only usage-dies && { echo 'Scenario: 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる'; assert_usage_dies; }
+run_only usage-kvm && { echo 'Scenario: 採寸の台本でも /dev/kvm を開けなければ、起こさずに rc=2 で止まる'; assert_usage_kvm; }
+run_only usage-reuse && { echo 'Scenario: 採寸の台本は、adb に見えているエミュレータがあれば起こさない'; assert_usage_reuse; }
 run_only usage-shape && { echo 'Scenario: 計測テストの台本の行の形の検査は、今のまま通る'; tools/test-usage-volume.sh; }
 run_only kvm-missing && { echo 'Scenario: 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる'; assert_kvm_failure missing; }
 run_only kvm-denied && { echo 'Scenario: 在っても読み書きできない場所を渡しても、同じく起こさずに止まる'; [ "$(id -u)" -eq 0 ] && echo 'root のため飛ばす: kvm-denied' || assert_kvm_failure denied; }

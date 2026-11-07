@@ -18,6 +18,8 @@
 # 終わったら外し、書いた採寸ファイルも消す。
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck disable=SC1091
+. ./tools/emulator-start.sh
 
 PKG=dev.ashiato.collector
 TEST_CLASS=dev.ashiato.collector.UsageVolumeInstrumentedTest
@@ -134,12 +136,13 @@ emulator_sample() {
     if ! avdmanager list avd -c 2>/dev/null | grep -qx "$avd"; then
       echo no | avdmanager create avd -n "$avd" -k "$image" -d pixel_6 >/dev/null
     fi
-    "$ANDROID_HOME/emulator/emulator" -avd "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
-      -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
+    emu_check_kvm || return 2
+    emu_start "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
+      -no-boot-anim -camera-back none -no-snapshot
     serial=emulator-5554
+    emu_wait_device "$serial" || return 2
     started=$serial
-    tools/wait-android-boot.sh "$serial" \
-      || { echo "error: エミュレータの起動が終わらない" >&2; return 2; }
+    emu_wait_boot "$serial" || return 2
   fi
 
   build :app:assembleDebug :app:assembleDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787
