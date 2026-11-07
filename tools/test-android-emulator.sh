@@ -1,9 +1,29 @@
 #!/usr/bin/env bash
 # android-emulator.sh の正常経路と、起動の失敗経路を実 SDK・実端末なしで固定する試験（CH10）。
-# 場合の鍵: args/stages/keep/missing/avd-create/usage-shape（正常）、
-# kvm-missing/kvm-denied/kvm-sign/dies/tail40/late-die/device-default/bad-value/
-# device-timeout/getprop-hang/keep-cleanup/no-named-kill（Task 2）、
-# same-avd/other-device（Task 3）、usage-dies/usage-kvm/usage-reuse（Task 4）。
+# 鍵 | Scenario
+# args | 正常に立つとき、今と同じ引数でエミュレータを起こす
+# stages | 正常に最後まで走ると、6 段の結果を残してエミュレータを止める
+# keep | KEEP=1 なら、通った後にエミュレータを止めない
+# missing | emulator かシステムイメージが無いときは、今の文言で止まる
+# avd-create | AVD が無ければ作ってから起こす
+# usage-shape | 計測テストの台本の行の形の検査は、今のまま通る
+# kvm-missing | 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる
+# kvm-denied | 在っても読み書きできない場所を渡しても、同じく起こさずに止まる
+# kvm-sign | /dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる
+# dies | 起こしたエミュレータが起動直後に終わると、すぐ止まって出力の末尾を出す
+# tail40 | 標準エラーに出す出力の末尾は 40 行まで
+# late-die | 端末が見えた後、起動の完了を待つ間に終わっても、すぐ止まる
+# device-default | 上限を渡さなければ、端末を最大 120 秒待つ
+# bad-value | 上限に正の整数でない値を渡すと、起こさずに止まる
+# device-timeout | 生きたまま端末が現れなければ、上限で止まる
+# getprop-hang | 起動の完了の問い合わせが返らなくても、回数の上限で止まる
+# keep-cleanup | 上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない
+# no-named-kill | 起動の途中で終わったとき、名指しの端末を止めない
+# same-avd | 同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる
+# other-device | 実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす
+# usage-dies | 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる
+# usage-kvm | 採寸の台本でも /dev/kvm を開けなければ、起こさずに rc=2 で止まる
+# usage-reuse | 採寸の台本は、adb に見えているエミュレータがあれば起こさない
 # 本物の台本を使い捨て木へ写し、隣に偽 SDK/adb/gradle を置いて、起動引数・6 段・KEEP・既存エラー・AVD 作成・
 # 起動失敗時の出力と後片付けを確かめる。失敗経路を部品に集めるのは、起動できない計測テストが無期限に待たないため（CH10）。
 # 実行: tools/test-android-emulator.sh [--self-test]
@@ -118,7 +138,7 @@ new_tree() {
 
 run_emulator() {
   local root=$1 keep=${2:-} avd_exists=${3:-1} key=${4:-emulator} rc
-  local fake_emu=${5:-ok} adb_mode=${6:-normal} kvm_device=${7:-/dev/null}
+  local fake_emu=${5:-ok} adb_mode=${6:-normal} kvm_device=${7:-$root/kvm}
   local device_timeout=${8:-} boot_attempts=${9:-} adb_timeout=${10:-}
   : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
   rm -f "$root/visible" "$root/child"
@@ -159,7 +179,21 @@ assert_kvm_sign() {
   new_tree; root=$NEW_ROOT
   run_emulator "$root" '' 1 kvm-sign ok normal "$root/no-kvm" >"$root/rc"
   rc=$(cat "$root/rc")
-  [ "$rc" -eq 1 ] && grep -Fq '/dev/kvm' "$root/stderr"
+  [ "$rc" -eq 1 ] || return 1
+  if [ -f "$ROOT/.harness2/scripts/evidence.py" ]; then
+    python3 -I - "$root/stderr" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(".harness2/scripts").resolve()))
+from evidence import INFRA_SIGNS
+
+if not INFRA_SIGNS.search(Path(sys.argv[1]).read_text(encoding="utf-8")):
+    raise SystemExit(1)
+PY
+  else
+    grep -Fq '/dev/kvm' "$root/stderr"
+  fi
 }
 
 assert_dies() {
@@ -194,7 +228,7 @@ assert_device_wait() {
   case "$kind" in
     default) run_emulator "$root" '' 1 device-default ok normal "$root/kvm" >"$root/rc"; grep -Fq '最大 120 秒' "$root/stdout" ;;
     timeout) run_emulator "$root" '' 1 device-timeout sleep normal "$root/kvm" 2 >"$root/rc"; grep -Fq 'error: 2 秒待っても端末が adb に現れない' "$root/stderr" ;;
-    bad) run_emulator "$root" '' 1 bad-value ok normal "$root/kvm" 0 >"$root/rc"; grep -Fq 'ASHIATO_EMULATOR_DEVICE_TIMEOUT' "$root/stderr" ;;
+    bad) run_emulator "$root" '' 1 bad-value ok normal "$root/kvm" 0 >"$root/rc"; grep -Fq 'ASHIATO_EMULATOR_DEVICE_TIMEOUT' "$root/stderr" && [ ! -s "$root/run.log" ] ;;
     hang) run_emulator "$root" '' 1 getprop-hang ok hang "$root/kvm" '' 2 1 >"$root/rc"; grep -Fq 'error: 起動が終わらない' "$root/stderr" ;;
   esac
   rc=$(cat "$root/rc")
