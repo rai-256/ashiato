@@ -135,6 +135,8 @@ jobs:
       - run: ./tools/check-env-init-session-key.sh
       - run: ./tools/check-test-db-killed.sh --self-test
       - run: ./tools/docker-tidy.sh --self-test
+      - run: ./tools/test-android-emulator.sh
+      - run: ./tools/test-android-emulator.sh --self-test
       - run: ./tools/docker-tidy.sh --verify-env-check
       - run: ./tools/check-test-db-killed.sh
   # C-02（Windows 収集）の**実機側**。ubuntu の runner には Windows が無いので、
@@ -458,7 +460,7 @@ jobs:
       - if: steps.harness2.outputs.available == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2, persist-credentials: false }
-      - if: steps.harness2.outputs.available == 'true'
+      - if: steps.harness2.outputs.available == 'true' && hashFiles('openspec/changes/st55-server-installer/**') != ''
         shell: bash
         env: { PYTHONIOENCODING: utf-8 }
         run: python harness2/scripts/check_scenarios.py . st55-server-installer

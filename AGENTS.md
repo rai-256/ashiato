@@ -55,6 +55,7 @@ source し直したりしない。gradle が「JDK が無い」「Robolectric �
 `/dev/kvm` は Codex の sandbox の中では開けない。エミュレータが要る検証（`scripts/verify-run` が `BLOCKED_INFRA`:「/dev/kvm を開けない」を返したもの）
 **だけ**を、`sandbox_permissions: require_escalated` で sandbox の外での実行を申請して走らせ直す。それ以外の操作は sandbox の中で行い、
 外での実行を申請しない（2026-09-26 実測: `scripts/verify-run 7.1` は申請 1 回・承認 1 回で PASS）。
+`scripts/quiet-run` で直に走らせて `error: /dev/kvm を開けない` で落ちたときも、`scripts/verify-run` で走らせ直す（そこで BLOCKED_INFRA になったものを申請する）。
 Claude（`claude -p`）は sandbox を設定していない（`~/.claude/settings.json` にも project にも無い）ので、この申請は無い。
 
 ## 正典
