@@ -87,7 +87,8 @@
 
 - [ ] 5.1 `AGENTS.md` の「/dev/kvm（Codex のとき）」に design D14 の 1 文を足す。`tools/android-emulator.sh:9` の注記「無ければ数十倍遅い」を実測（無ければ起動直後に終わる。この台本は起こす前に確かめて止まる）に直す。
   `docs/testing.md` の `手元: \`./tools/android-emulator.sh\`` の行（今は 177 行目）に「起こせなければ理由つきで rc=1（/dev/kvm を開けない・起動の途中で終わる・120 秒で端末が現れない・同じ AVD が動いている）」を書き足す（**行を直すだけ。末尾に足さない**）。
-  検証: `bash -c 'grep -q "error: /dev/kvm を開けない" AGENTS.md && ! grep -q "数十倍遅い" tools/android-emulator.sh && grep "手元: \`./tools/android-emulator.sh\`" docs/testing.md | grep -q "同じ AVD"'` rc=0
+  検証: `./openspec/changes/ch10-emulator-start-timeout/check-5.1.sh`./tools/android-emulator.sh\`" docs/testing.md | grep -q "同じ AVD"'` rc=0
+  （訂正 2026-11-07: 検証の入口を「bash -c 'grep -q "error: /dev/kvm を開けない" AGENTS.md && ! grep -q "数十倍遅い" tools/android-emulator.sh && grep "手元: \」から上の入口に。受け入れ条件は変えない。理由: 旧コマンドは code span の中に \` を含み、検証として拾うと「grep "手元: \」で切れて bash の構文エラー（rc=2）になる。同じ 3 つの確かめを check-5.1.sh に置いた（壊すと 3 つとも落ちることを doctor が確かめた） 実証: evidence.jsonl 2026-11-07T05:11:44+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-07T05:36:32+00:00 PASS。記録: plan-corrections.md）
 - [ ] 5.2 `.github/workflows/ci.yml` の `rust` の job の `- run: ./tools/docker-tidy.sh --self-test` の直後に `- run: ./tools/test-android-emulator.sh` と `- run: ./tools/test-android-emulator.sh --self-test` を足す（design D9）。
   検証: `bash -c 'grep -A2 -- "- run: ./tools/docker-tidy.sh --self-test" .github/workflows/ci.yml | grep -q "./tools/test-android-emulator.sh"'` rc=0 / `tools/check-shared-appends.sh` rc=0
 
