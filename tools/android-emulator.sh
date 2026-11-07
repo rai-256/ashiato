@@ -36,6 +36,20 @@ trap cleanup EXIT
 
 # shellcheck disable=SC1091
 . ./tools/emulator-start.sh
+
+emu_reject_existing_avd() {
+  local avd=$1 serial existing_avd
+  while read -r serial; do
+    [ -n "$serial" ] || continue
+    existing_avd=$(timeout 5 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
+    if [ "$existing_avd" = "$avd" ]; then
+      echo "error: 同じ AVD（$avd）のエミュレータが既に動いている（$serial）。KEEP=1 の残りなら adb -s $serial emu kill で止めてから" >&2
+      return 1
+    fi
+  done < <(adb devices 2>/dev/null | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1 }')
+}
+
+emu_reject_existing_avd "$AVD" || exit 1
 emu_positive_int ASHIATO_EMULATOR_DEVICE_TIMEOUT "${ASHIATO_EMULATOR_DEVICE_TIMEOUT:-120}" || exit 1
 emu_positive_int ASHIATO_EMULATOR_BOOT_ATTEMPTS "${ASHIATO_EMULATOR_BOOT_ATTEMPTS:-180}" || exit 1
 emu_positive_int ASHIATO_ADB_CALL_TIMEOUT "${ASHIATO_ADB_CALL_TIMEOUT:-10}" || exit 1

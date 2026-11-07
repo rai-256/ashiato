@@ -103,7 +103,13 @@ EMU
 set -euo pipefail
 printf '%s\n' "$*" >> "${FAKE_ADB_LOG:?}"
 case "$*" in
-  devices) printf 'List of devices attached\n'; [ -f "$FAKE_VISIBLE" ] && printf 'emulator-5554\tdevice\n' ;;
+  devices)
+    printf 'List of devices attached\n'
+    for entry in ${FAKE_EXISTING_DEVICES:-}; do
+      serial=${entry%%:*}; state=${entry#*:}
+      printf '%s\t%s\n' "$serial" "$state"
+    done
+    [ -f "$FAKE_VISIBLE" ] && printf 'emulator-5554\tdevice\n' ;;
   wait-for-device) while [ ! -f "$FAKE_VISIBLE" ]; do sleep 1; done; echo device ;;
   get-state) [ -f "$FAKE_VISIBLE" ] && echo device || echo no device ;;
   *'shell getprop sys.boot_completed'*)
@@ -111,7 +117,11 @@ case "$*" in
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
     [ -f "$FAKE_VISIBLE" ] && echo 1 || echo 0 ;;
   *'shell settings put global'*) : ;;
-  *'emu avd name'*) echo ashiato-api35 ;;
+  *'emu avd name'*)
+    case "$*" in
+      *'emulator-5556 emu avd name'*) echo "${FAKE_EXISTING_AVD:-other-avd}" ;;
+      *) echo ashiato-api35 ;;
+    esac ;;
   *'emu kill'*) echo kill >> "$FAKE_LOG" ;;
   *) : ;;
 esac
@@ -148,7 +158,8 @@ run_emulator() {
     FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
     FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS="$avd_exists" FAKE_EMU="$fake_emu" FAKE_ADB_MODE="$adb_mode"
     ASHIATO_EMULATOR_DEVICE_TIMEOUT="$device_timeout" ASHIATO_EMULATOR_BOOT_ATTEMPTS="$boot_attempts" ASHIATO_ADB_CALL_TIMEOUT="$adb_timeout"
-    ASHIATO_KVM_DEVICE="$kvm_device")
+    ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="${FAKE_EXISTING_DEVICES:-}"
+    FAKE_EXISTING_AVD="${FAKE_EXISTING_AVD:-}")
   set +e
   env "${envs[@]}" ${keep:+KEEP=1} timeout 30 "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr"
   rc=$?
@@ -278,6 +289,28 @@ assert_avd_create() {
   { [ "$rc" -eq 0 ] && grep -Fq 'create avd -n ashiato-api35' "$root/avd.log"; } || return 1
 }
 
+assert_same_avd() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  FAKE_EXISTING_DEVICES='R5CT00000:device emulator-5556:device' FAKE_EXISTING_AVD='ashiato-api35' \
+    run_emulator "$root" '' 1 same-avd >"$root/rc"
+  rc=$(cat "$root/rc")
+  [ "$rc" -eq 1 ] \
+    && grep -Fq 'error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている（emulator-5556）' "$root/stderr" \
+    && [ ! -s "$root/run.log" ] \
+    && ! grep -q 'emu kill' "$root/adb.log"
+}
+
+assert_other_device() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  FAKE_EXISTING_DEVICES='R5CT00000:device emulator-5556:device' FAKE_EXISTING_AVD='other-avd' \
+    run_emulator "$root" '' 1 other-device >"$root/rc"
+  rc=$(cat "$root/rc")
+  [ "$rc" -eq 0 ] && grep -Fq -- '-avd ashiato-api35' "$root/args" \
+    && grep -Fq 'emulator-5556' "$root/adb.log"
+}
+
 self_test() {
   local root rc
   new_tree; root=$NEW_ROOT
@@ -312,6 +345,8 @@ run_only stages && { echo 'Scenario: 正常に最後まで走ると、6 段の�
 run_only keep && { echo 'Scenario: KEEP=1 なら、通った後にエミュレータを止めない'; assert_keep; }
 run_only missing && { echo 'Scenario: emulator かシステムイメージが無いときは、今の文言で止まる'; assert_missing; }
 run_only avd-create && { echo 'Scenario: AVD が無ければ作ってから起こす'; assert_avd_create; }
+run_only same-avd && { echo 'Scenario: 同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる'; assert_same_avd; }
+run_only other-device && { echo 'Scenario: 実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす'; assert_other_device; }
 run_only usage-shape && { echo 'Scenario: 計測テストの台本の行の形の検査は、今のまま通る'; tools/test-usage-volume.sh; }
 run_only kvm-missing && { echo 'Scenario: 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる'; assert_kvm_failure missing; }
 run_only kvm-denied && { echo 'Scenario: 在っても読み書きできない場所を渡しても、同じく起こさずに止まる'; [ "$(id -u)" -eq 0 ] && echo 'root のため飛ばす: kvm-denied' || assert_kvm_failure denied; }
