@@ -48,7 +48,7 @@ emu_reject_existing_avd() {
     [ -n "$serial" ] || continue
     for _ in 1 2 3 4 5; do
       # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、まず boot property を使う。
-      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name </dev/null 2>/dev/null | sed -n '1p' || true)
+      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name </dev/null 2>/dev/null | tr -d '\r' | sed -n '1p' || true)
       [ -n "$existing_avd" ] || existing_avd=$(timeout 1 adb -s "$serial" emu avd name </dev/null 2>/dev/null | tr -d '\r' | sed -n '1p' || true)
       [ -n "$existing_avd" ] && break
       sleep 1
@@ -65,9 +65,9 @@ emu_check_kvm || exit 1
 emu_start "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
 emu_wait_device "${SERIAL:-}" || exit 1
 emu_wait_boot "${SERIAL:-}" || exit 1
-timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global window_animation_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
-timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global transition_animation_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
-timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global animator_duration_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
+for key in window_animation_scale transition_animation_scale animator_duration_scale; do
+  timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global "$key" 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
+done
 EMU_CLEANUP_WITH_ADB=1
 
 echo "== 計測テストの写真と動画を入れる（別のアプリが入れたものとして。ST09）"

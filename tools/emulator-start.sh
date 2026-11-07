@@ -60,7 +60,6 @@ emu_start() {
   shift
   EMU_LOG=${EMU_LOG:-collector-android/app/build/outputs/emulator.log}
   mkdir -p "$(dirname "$EMU_LOG")"
-  : > "$EMU_LOG"
   echo "== エミュレータを起動（画面なし）"
   "$ANDROID_HOME/emulator/emulator" -avd "$avd" "$@" >"$EMU_LOG" 2>&1 &
   EMU_PID=$!
@@ -79,6 +78,8 @@ emu_stop_own() {
     kill -KILL "$EMU_PID" 2>/dev/null || true
   fi
   wait "$EMU_PID" 2>/dev/null || true
+  # bash は終わった背景の job を自分で回収するので、PID は空いて別のプロセスに使われうる。止めた後は持たない
+  EMU_PID=
 }
 
 emu_fail() {
@@ -86,6 +87,7 @@ emu_fail() {
   echo "error: $message" >&2
   if [ -n "${EMU_PID:-}" ] && ! emu_pid_alive; then
     wait "$EMU_PID" 2>/dev/null || true
+    EMU_PID=
   fi
   if [ -f "$log" ]; then
     tail -n 40 "$log" >&2
@@ -129,6 +131,7 @@ emu_wait_boot() {
   emu_positive_int ASHIATO_EMULATOR_BOOT_ATTEMPTS "$attempts" || { emu_stop_own; return 1; }
   emu_positive_int ASHIATO_ADB_CALL_TIMEOUT "$call_timeout" || { emu_stop_own; return 1; }
   # timing-ok: 180 回 × 2 秒で、混雑時に長くなる側へだけ外れるエミュレータ起動待ち
+  echo "== 起動の完了を最大 $attempts 回（2 秒ごと。1 回の問い合わせは最大 $call_timeout 秒）待つ"
   for ((i=0; i<attempts; i++)); do
     if ! emu_pid_alive; then
       emu_fail 'エミュレータが起動の途中で終わった'

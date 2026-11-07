@@ -191,7 +191,8 @@ assert_kvm_failure() {
   fi
   rc=$(cat "$root/rc")
   [ "$rc" -eq 1 ] && grep -Fq 'error: /dev/kvm を開けない' "$root/stderr" \
-    && grep -Fq 'verify-run' "$root/stderr" && [ ! -s "$root/run.log" ] && ! grep -q 'emu kill' "$root/adb.log"
+    && grep -Fq 'verify-run' "$root/stderr" && [ ! -s "$root/run.log" ] && ! grep -q 'emu kill' "$root/adb.log" \
+    && { [ "$mode" = denied ] || [ ! -e "$root/no-kvm" ]; }  # 調べるだけで作らない（code-verify R11）
 }
 
 assert_kvm_sign() {
@@ -226,6 +227,12 @@ assert_dies() {
     sed -n '1,120p' "$root/stderr" >&2
     return 1
   fi
+  # 出力の全文は決まった置き場に残る（後から理由を読むため。code-verify R13）
+  if [ "$mode" = dies ] && { ! grep -Fq 'error: エミュレータの出力全文: collector-android/app/build/outputs/emulator.log' "$root/stderr" \
+    || ! grep -Fq 'x86_64 emulation currently requires hardware acceleration!' "$root/collector-android/app/build/outputs/emulator.log"; }; then
+    sed -n '1,120p' "$root/stderr" >&2
+    return 1
+  fi
   if [ "$mode" = tail40 ]; then
     if grep -Fq line-60 "$root/stderr" || ! grep -Fq line-61 "$root/stderr" || ! grep -Fq line-100 "$root/stderr"; then
       sed -n '1,120p' "$root/stderr" >&2
@@ -246,9 +253,16 @@ assert_device_wait() {
   local kind=$1 root rc
   new_tree; root=$NEW_ROOT
   case "$kind" in
-    default) run_emulator "$root" '' 1 device-default ok normal "$root/kvm" >"$root/rc"; grep -Fq '最大 120 秒' "$root/stdout" ;;
+    default) run_emulator "$root" '' 1 device-default ok normal "$root/kvm" >"$root/rc"; grep -Fq '最大 120 秒' "$root/stdout" \
+      && grep -Fq '起動の完了を最大 180 回（2 秒ごと。1 回の問い合わせは最大 10 秒）' "$root/stdout" ;;  # code-verify R14
     timeout) run_emulator "$root" '' 1 device-timeout sleep normal "$root/kvm" 2 >"$root/rc"; grep -Fq 'error: 2 秒待っても端末が adb に現れない' "$root/stderr" ;;
-    bad) run_emulator "$root" '' 1 bad-value ok normal "$root/kvm" 0 >"$root/rc"; grep -Fq 'ASHIATO_EMULATOR_DEVICE_TIMEOUT' "$root/stderr" && [ ! -s "$root/run.log" ] ;;
+    bad)
+      # spec の WHEN は `0` と `abc` の 2 回（code-verify R12）
+      local value
+      for value in 0 abc; do
+        run_emulator "$root" '' 1 bad-value ok normal "$root/kvm" "$value" >"$root/rc"
+        grep -Eq '^error: .*ASHIATO_EMULATOR_DEVICE_TIMEOUT' "$root/stderr" && [ ! -s "$root/run.log" ] && [ "$(cat "$root/rc")" -eq 1 ] || return 1
+      done ;;
     hang) run_emulator "$root" '' 1 getprop-hang ok hang "$root/kvm" '' 2 1 >"$root/rc"; grep -Fq 'error: 起動が終わらない' "$root/stderr" ;;
   esac
   rc=$(cat "$root/rc")
@@ -360,7 +374,7 @@ assert_usage_kvm() {
   rc=$(run_usage "$root" usage-kvm ok "$root/no-kvm")
   [ "$rc" -eq 2 ] \
     && grep -Fq 'error: /dev/kvm を開けない' "$root/stderr" \
-    && [ ! -s "$root/run.log" ]
+    && [ ! -s "$root/run.log" ] && [ ! -e "$root/no-kvm" ]
 }
 
 assert_usage_reuse() {
