@@ -23,7 +23,7 @@
 
 ## Task 1: 偽の SDK の試験と、今の正常な経路の固定
 
-- [ ] 1.1 `tools/test-android-emulator.sh` を design D16 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH10）・走らせ方）。使い捨ての木に本物の `tools/android-emulator.sh`（と、あれば `tools/emulator-start.sh`・`tools/usage-volume.sh`）を写し、
+- [x] 1.1 `tools/test-android-emulator.sh` を design D16 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH10）・走らせ方）。使い捨ての木に本物の `tools/android-emulator.sh`（と、あれば `tools/emulator-start.sh`・`tools/usage-volume.sh`）を写し、
   偽の `tools/android-env.sh`・`tools/android-media-fixtures.sh`・`collector-android/gradlew`（`collector-android/app/build/outputs/androidTest-results/connected/TEST-fake-_app-.xml` を 1 つ書く）と、
   偽の SDK（`emulator/emulator`・`system-images/android-35/google_apis/x86_64/`）・PATH の偽の `adb`・`avdmanager` を置く。偽の adb は `devices`・`get-state`・`wait-for-device`・`-s <serial> …`・`shell getprop sys.boot_completed`・`emu avd name`・`emu kill` に答え、受け取った引数を 1 行ずつ記録する。
   偽のエミュレータは D16 の `FAKE_EMU`（`die` / `sleep` / `late-die` / `ok`）で振る舞いを変え、引数を記録する。**この段では今の台本（直す前）に当てて**、次の 5 つを確かめる。それぞれの前に印を出す:
@@ -35,7 +35,7 @@
   `echo "Scenario: 計測テストの台本の行の形の検査は、今のまま通る"`（`tools/test-usage-volume.sh` を走らせて rc=0）。
   採寸の台本は `android-env.sh` を読まないので、`ANDROID_HOME=<偽の SDK>` を渡して走らせる（D16）。
   検証: `tools/test-android-emulator.sh` rc=0
-- [ ] 1.2 1.1 の試験が今の台本の形を本当に見ていることを、写した台本を壊して確かめる手を試験の `--self-test` に置く: 写した `tools/android-emulator.sh` の `-no-snapshot` を消すと 1 つ目の場合が、`KEEP` の扱いを消すと 2 つ目の場合が落ちる
+- [x] 1.2 1.1 の試験が今の台本の形を本当に見ていることを、写した台本を壊して確かめる手を試験の `--self-test` に置く: 写した `tools/android-emulator.sh` の `-no-snapshot` を消すと 1 つ目の場合が、`KEEP` の扱いを消すと 2 つ目の場合が落ちる
   （壊すのは使い捨ての木の写しだけ。元の木は変えない）。
   検証: `tools/test-android-emulator.sh --self-test` rc=0
 
