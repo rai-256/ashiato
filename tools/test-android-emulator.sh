@@ -65,6 +65,10 @@ make_tree() {
   cp "$source_root/tools/emulator-start.sh" "$root/tools/"
   cp "$source_root/tools/usage-volume.sh" "$root/tools/"
   cp "$source_root/tools/test-usage-volume.sh" "$root/tools/"
+  # 計測テストの台本が呼ぶ隣の台本は本物を写す（無い版の台本はこれを呼ばない。確認バッチ 20261108-0519 で ST56 と重なった）
+  if [ -f "$source_root/tools/android-backup-roundtrip.sh" ]; then
+    cp "$source_root/tools/android-backup-roundtrip.sh" "$root/tools/"
+  fi
   cat > "$root/tools/android-env.sh" <<'ENV'
 #!/usr/bin/env bash
 export ANDROID_HOME="${FAKE_ANDROID_HOME:?}"
@@ -124,6 +128,10 @@ case "$*" in
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
     [ -f "$FAKE_VISIBLE" ] && echo 1 || echo 0 ;;
   *'shell am instrument'*) printf 'OK (1 test)\n' ;;
+  *'shell bmgr enabled'*) printf 'Backup Manager currently enabled\n' ;;
+  *'shell bmgr transport'*) printf 'Selected transport com.android.localtransport/.LocalTransport\n' ;;
+  *'shell bmgr backupnow'*) printf 'Package dev.ashiato.collector with result: Success\n' ;;
+  *'shell bmgr restore'*) printf 'restoreFinished: 0\n' ;;
   *'exec-out run-as'*'usage-volume.jsonl'*) printf '{"event":"fake"}\n' ;;
   *'exec-out run-as'*'usage-volume.meta'*) printf 'span_seconds=86400\n' ;;
   *'shell settings put global'*) : ;;
@@ -283,7 +291,12 @@ assert_normal() {
   rc=$(run_emulator "$root" '' 1 normal)
   [ "$rc" -eq 0 ] || { cat "$root/stderr" >&2; return 1; }
   [ "$(cat "$root/args")" = '-avd ashiato-api35 -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot' ] || return 1
-  [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 6 ] || return 1
+  # 段の数は写した台本の keep_stage の呼び出しの数（CH10 の時点では 6。ほかの Story が段を足しても、どの段も結果を残すことを見る。
+  # 6 を決め打つと ST56 の St56BackupTest の 2 段で落ちた —— 確認バッチ 20261108-0519）
+  local stages
+  stages=$(grep -c '^keep_stage$' "$root/tools/android-emulator.sh")
+  [ "$stages" -ge 6 ] || return 1
+  [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq "$stages" ] || return 1
   grep -Fq 'settings put global window_animation_scale 0' "$root/adb.log" || return 1
   grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log" || return 1
 }
