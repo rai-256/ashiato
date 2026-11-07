@@ -41,10 +41,10 @@
 
 ## Task 2: 部品と、計測テストの台本の失敗の経路
 
-- [ ] 2.1 `tools/emulator-start.sh` を design D1・D2・D6〜D8・D11〜D13・D15・D17 のとおりに書く（source して使う関数: `emu_check_kvm` / `emu_start` / `emu_wait_device` / `emu_wait_boot` / `emu_fail`。冒頭のコメントに使い方・環境変数の表・なぜ要るか（CH10））。
+- [x] 2.1 `tools/emulator-start.sh` を design D1・D2・D6〜D8・D11〜D13・D15・D17 のとおりに書く（source して使う関数: `emu_check_kvm` / `emu_start` / `emu_wait_device` / `emu_wait_boot` / `emu_fail`。冒頭のコメントに使い方・環境変数の表・なぜ要るか（CH10））。
   `tools/android-emulator.sh` の `:33-43` をこの部品の呼び出しに替え、`cleanup` を D13 のとおりに失敗の経路で `emu kill` を送らない形にする（`:44` 以降は変えない）。
   検証: `bash -n tools/emulator-start.sh` rc=0 / `bash -n tools/android-emulator.sh` rc=0
-- [ ] 2.2 `tools/test-android-emulator.sh` に次の 8 つを足す。それぞれの前に印を出す:
+- [x] 2.2 `tools/test-android-emulator.sh` に次の 8 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる"` /
   `echo "Scenario: 在っても読み書きできない場所を渡しても、同じく起こさずに止まる"`（`id -u` が 0 なら飛ばし、飛ばしたことを出す） /
   `echo "Scenario: /dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる"`（`.harness2/scripts/evidence.py` があれば `python3 -I` で `sys.path` に足して import し、`INFRA_SIGNS.search` が当たること。無ければ `/dev/kvm` の語だけ。D10） /
@@ -61,7 +61,7 @@
   冒頭のコメントに鍵と Scenario の名前の表を置く。`ASHIATO_TEST_ONLY` に知らない鍵が渡されたら rc=2。
   正常な経路の場合（Task 1 の 6 つ）は、開ける場所（使い捨ての木の中の普通のファイル）を `ASHIATO_KVM_DEVICE` に渡して走らせる（CI の検査の job には本物の /dev/kvm が無い）。
   検証: `tools/test-android-emulator.sh` rc=0
-- [ ] 2.3 2.2 の失敗の経路の場合が、直す前の台本では落ちることを確かめる。試験に 2 つの環境変数を持たせる（試験自身の選び方で、台本の口ではない）: `ASHIATO_TEST_ONLY=<場合の名前>`（その場合だけ走らせる）と
+- [x] 2.3 2.2 の失敗の経路の場合が、直す前の台本では落ちることを確かめる。試験に 2 つの環境変数を持たせる（試験自身の選び方で、台本の口ではない）: `ASHIATO_TEST_ONLY=<場合の名前>`（その場合だけ走らせる）と
   `ASHIATO_TEST_SCRIPT_REV=<rev>`（写す `tools/android-emulator.sh` を `git show <rev>:tools/android-emulator.sh` から取る）。偽の adb の `wait-for-device` は、端末が見えるまで返らない（本物と同じ）。
   直す前の版（`11c0c043`。この change の上流の分かれ目で、main の履歴に残る）では「起動直後に終わる」場合が 30 秒の見張りで落ちる。
   検証: `bash -c 'ASHIATO_TEST_ONLY=dies ASHIATO_TEST_SCRIPT_REV=11c0c043 tools/test-android-emulator.sh 2>&1 | grep -q "見張りで打ち切った: dies"'` rc=0 / `bash -c 'ASHIATO_TEST_ONLY=dies tools/test-android-emulator.sh'` rc=0
