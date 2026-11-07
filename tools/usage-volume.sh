@@ -18,6 +18,8 @@
 # 終わったら外し、書いた採寸ファイルも消す。
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck disable=SC1091
+. ./tools/emulator-start.sh
 
 PKG=dev.ashiato.collector
 TEST_CLASS=dev.ashiato.collector.UsageVolumeInstrumentedTest
@@ -100,7 +102,12 @@ main() {
 }
 
 cleanup_main() {
-  [ -z "${started:-}" ] || adb -s "$started" emu kill >/dev/null 2>&1 || true
+  # adb に現れる前（started が空）に止められたときも、自分の起こしたものは残さない（final R2）
+  if [ -n "${started:-}" ]; then
+    adb -s "$started" emu kill >/dev/null 2>&1 || true
+  else
+    emu_stop_own
+  fi
   rm -rf "$1"
 }
 
@@ -131,15 +138,17 @@ emulator_sample() {
     [ -x "$ANDROID_HOME/emulator/emulator" ] || { echo "error: emulator が無い" >&2; return 2; }
     [ -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64" ] \
       || { echo "error: $image が無い" >&2; return 2; }
+    emu_check_env || return 2
+    emu_check_kvm || return 2
     if ! avdmanager list avd -c 2>/dev/null | grep -qx "$avd"; then
       echo no | avdmanager create avd -n "$avd" -k "$image" -d pixel_6 >/dev/null
     fi
-    "$ANDROID_HOME/emulator/emulator" -avd "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
-      -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
+    emu_start "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
+      -no-boot-anim -camera-back none -no-snapshot
     serial=emulator-5554
+    emu_wait_device "$serial" || return 2
     started=$serial
-    tools/wait-android-boot.sh "$serial" \
-      || { echo "error: エミュレータの起動が終わらない" >&2; return 2; }
+    emu_wait_boot "$serial" || return 2
   fi
 
   build :app:assembleDebug :app:assembleDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787
