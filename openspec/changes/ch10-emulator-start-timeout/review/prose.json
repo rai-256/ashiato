@@ -1,0 +1,23 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 89,
+ "applied": [
+  "points[usage.2].text",
+  "impact.findings[IMP-01].text",
+  "impact.scope.preconditions[0].text"
+ ],
+ "kept": [
+  {
+   "field": "walkthroughs[W2].why",
+   "why": [
+    "否定の言い方の数が変わった（1 → 2）"
+   ],
+   "old": "同じ AVD の 2 台目は起こしても数秒で死ぬ。今の台本は「どれかの端末」が現れたら進むので、前からある端末で走っていた。この change はその端末を使わず・止めずに止まる。",
+   "new": "同じ AVD の 2 台目は起こしても数秒で死ぬ。今の台本は「どれかの端末」が現れたら進むので、前からある端末で走っていた。この change の後の台本はその端末を使わず、止めもせずに止まる。"
+  }
+ ],
+ "missing": [],
+ "unknown": []
+}

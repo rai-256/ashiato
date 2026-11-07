@@ -1,0 +1,31 @@
+{
+  "status": "accepted",
+  "digest": "62a8782f5d49c0325935c7acca30925b7cb4bbc2e5a44481a642fcca38447dd3",
+  "head": "f3be35b62578f40aa455b6dde252989020cd464c",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-07T00:13:21Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "同じ AVD で止まったときの文言が、他人の計測テストを止める手を勧めうる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "low",
+      "title": "2 つの台本は、現れた端末が自分のものかを確かめずに使い、最後に止める"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "実機や別の端末が繋がっていると、端末の待ちが上限まで続いて誤って止まりうる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "混んだ機械では、120 秒の上限が正常な起動を落としうる"
+    }
+  ]
+}
