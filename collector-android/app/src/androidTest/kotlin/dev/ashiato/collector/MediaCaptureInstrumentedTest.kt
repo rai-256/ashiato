@@ -240,7 +240,8 @@ class MediaCaptureInstrumentedTest {
                 unmetered = { true },
                 now = { Instant.now() },
             ),
-        ) {}
+            log = {},
+        )
     }
 
     // Scenario: 写真を撮るとメタが D-01 に、原本が D-02 に入る

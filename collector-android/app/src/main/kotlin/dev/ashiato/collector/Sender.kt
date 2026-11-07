@@ -28,7 +28,7 @@ sealed interface Outcome {
         val wallAfterMs: Long = 0,
         /** 叩いた宛先の `host:port`（`s01-date` の参照が持つ。測ったときにしか取れない） */
         val host: String? = null,
-        /** 契約の系統を読む応答見出し。キー比較は大文字小文字を無視する。 */
+        /** 契約の系統を読む応答見出し。設定の確認でも使い、キー比較は大文字小文字を無視する。 */
         val headers: Map<String, String> = emptyMap(),
     ) : Outcome
 }
@@ -74,6 +74,7 @@ class Sender<T : Outboxable>(
     private val responseDates: ResponseDateCache? = null,
     /** いまの送信契約の版（試験だけが差し替える。ST50 / D9） */
     private val currentVersion: () -> Int = { CONTRACT_VERSION },
+    private val onOutcome: (Outcome) -> Unit = {},
     private val log: (String) -> Unit = {},
 ) {
     /**
@@ -271,7 +272,7 @@ class Sender<T : Outboxable>(
             stored.map { s -> withUnknownFields(s.json, ingestJson.encodeToJsonElement(serializer, s.item)) },
         ).toString()
         val sentVersion = batch.maxOf { it.contractVersion }
-        val verdict = when (val outcome = transport.post(body, sentVersion)) {
+        val verdict = when (val outcome = transport.post(body, sentVersion).also(onOutcome)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
                 logEachSource("send_failed", batch, error = outcome.kind)
@@ -280,7 +281,13 @@ class Sender<T : Outboxable>(
 
             is Outcome.Responded -> {
                 responseDates?.put(
-                    ResponseDateCache.Received(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs, outcome.host),
+                    ResponseDateCache.Received(
+                        outcome.date,
+                        outcome.monoBeforeMs,
+                        outcome.monoAfterMs,
+                        outcome.wallAfterMs,
+                        outcome.host
+                    ),
                 )
                 verdictOf(batch, outcome)
             }
@@ -376,6 +383,7 @@ class Sender<T : Outboxable>(
             return Verdict(emptyList(), emptyList())
         }
         val responded = true
+
         // **捨てるのは、許可リストに載った種別だけ**（R107）。
         // 残りは「捨てない側」と同じ扱い（未送信に残し、次の契機では先に飛ばす）。
         fun isPermanent(i: Int) =
@@ -401,7 +409,11 @@ class Sender<T : Outboxable>(
                     // **何を失ったかを後から数えられるようにする**（R118）。
                     // `id` と `event_time` は私的データではなく、捨てた記録を突き合わせる
                     // 唯一の材料 —— 種別と件数だけでは「どれが消えたか」が残らない。
-                    idx.forEach { log(Telemetry.line("dropped_item", source = batch[it].logicalSource, error = batch[it].id)) }
+                    idx.forEach {
+                        log(
+                            Telemetry.line("dropped_item", source = batch[it].logicalSource, error = batch[it].id)
+                        )
+                    }
                 }
             }
 

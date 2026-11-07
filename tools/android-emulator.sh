@@ -102,7 +102,25 @@ rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数え�
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
-   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.UsageVolumeInstrumentedTest")
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest")
+keep_stage
+# St56BackupTest は instrumentation が対象プロセス内で動くため、データ消去と restore は
+# テストプロセスの外で行う。Gradle の connected task は invocation 後に APK を外すので、
+# APK を一度 install してから am instrument を直接呼ぶ。
+(cd collector-android && ./gradlew -q :app:installDebug :app:installDebugAndroidTest)
+adb shell bmgr enable true
+adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
+adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
+  dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner
+keep_stage
+./tools/android-backup-roundtrip.sh
+# 確かめも am instrument で直接呼ぶ。Gradle の connected task は APK を入れ直し、復元したデータを消す
+# （prepare と verify の間で入れ直さない。2026-11-06 に verify が「未送信が戻らない」で落ちた）。
+verify_out=$(adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored \
+  dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r')
+echo "$verify_out"
+grep -q '^OK (1 test)' <<<"$verify_out" \
+  || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
 keep_stage
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）

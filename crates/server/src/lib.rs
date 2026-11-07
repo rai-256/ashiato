@@ -258,6 +258,8 @@ mod st52_web_tests;
 mod st54_tests;
 #[cfg(test)]
 mod st55_tests;
+#[cfg(test)]
+mod st56_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -618,6 +620,10 @@ impl App {
     #[cfg(test)]
     pub(crate) fn web_password_for_test(&self) -> &str {
         self.login.password_for_test()
+    }
+
+    pub(crate) fn collector_token(&self) -> &str {
+        &self.token
     }
 
     /// いまの時刻。試験は `at()` で差し込める。
@@ -4414,6 +4420,7 @@ fn api_router(app: App) -> Router {
                 .delete(web_session::session_delete)
                 .get(web_session::session_get),
         )
+        .route("/collector-setup", post(web_session::collector_setup_post))
         // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
         .route_layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -4782,6 +4789,7 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         web_session::session_post,
         web_session::session_delete,
         web_session::session_get,
+        web_session::collector_setup_post,
         satellite_admin::satellites_get,
         satellite_admin::satellites_post,
         satellite_admin::satellites_delete,
@@ -4898,6 +4906,8 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         contract_version::ContractAnswer,
         web_session::LoginRequest,
         web_session::SessionState,
+        web_session::CollectorSetupResponse,
+        web_session::CollectorSetupError,
         satellite_admin::SatelliteOut,
         satellite_admin::CredentialOut,
         satellite_admin::IssueRequest,

@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.os.SystemClock
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -137,7 +136,7 @@ class RetentionInstrumentedTest {
         Config.overrideForTest("http://127.0.0.1:${fake.port}", "test-token-0123456789abcdef", "00000000-0000-0000-0000-000000000000")
 
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).close()
+        launchMainSkippingSetup().close()
         val client = mockLocations()
 
         // 送信の最初の契機（5 分）を待つあいだにも、取得の契機ごとに積まれる
@@ -166,7 +165,7 @@ class RetentionInstrumentedTest {
     fun nearlyTwoGigabytesStillStartsAndKeepsCollecting() {
         placeBytes(1_900L * 1_000_000)
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).close()
+        launchMainSkippingSetup().close()
         val client = mockLocations()
         val grew = waitUntil(120_000) {
             client.inject(35.3, 139.3)

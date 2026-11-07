@@ -85,6 +85,12 @@ open class LocationService : Service() {
     private val contractStore by lazy { ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE)) }
     private val contractGate by lazy { ContractGate(contractStore, { Log.i(TAG, it) }) }
     private val contractNotifier by lazy { ContractNotifier(this, contractStore) { Log.i(TAG, it) } }
+    private val setupNotifier by lazy {
+        SetupNotifier(this, getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE)) { Log.i(TAG, it) }
+    }
+    private val destinationGate by lazy {
+        DestinationGate(getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE))
+    }
     private val channelNotifier by lazy { ChannelMismatchNotifier(this, contractStore) }
 
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
@@ -115,6 +121,8 @@ open class LocationService : Service() {
             deviceId = { deviceId },
             log = { Log.w(TAG, it) },
             executor = newOutageExecutor(),
+            canQuery = { destinationGate.maySend },
+            onOutcome = setupNotifier::observe,
         )
     }
     private var flusher: FlushScheduler? = null
@@ -232,14 +240,25 @@ open class LocationService : Service() {
 
     /** 原本の受け口（`HEAD` / `PUT`）と端末のファイル・通信の種類。**試験だけが差し替える** */
     protected open fun newOriginalTransport(): OriginalTransport =
-        HttpOriginalTransport(Config.baseUrl, Config.apiToken) { Config.userId }
+        HttpOriginalTransport({ Config.baseUrl }, ::sendingToken) { Config.userId }
 
     protected open fun newOriginalSource(): OriginalSource = ContentResolverOriginalSource(this)
 
     protected open fun readUnmetered(): Boolean = isUnmetered(this)
 
     /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
-    protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
+    protected open fun newTransport(path: String): Transport = HttpTransport({ Config.baseUrl }, ::sendingToken, path)
+
+    /**
+     * 送る要求の資格情報。**送り先を読んだ後・要求を出す前に**門を見る（送り先 → 資格情報 → 門の順。
+     * 保存は送り先・資格情報・保留を 1 つの編集で書くので、新しい送り先を読んだ要求は必ず保留を見る）。
+     * 保留なら要求を出さずに「届かない」で終える（review/code.md R31 の最後の守り。門は Drainer と原本の 1 件ごとにもある）
+     */
+    private fun sendingToken(): String {
+        val token = Config.apiToken
+        if (destinationGate.blocked) throw java.io.IOException("destination_held")
+        return token
+    }
 
     /**
      * 途切れの問い合わせ（`GET /outages?device_id=&user_id=`。ST14 / design D12・D29（仮））。
@@ -252,11 +271,11 @@ open class LocationService : Service() {
 
     /** `GET /outages` に問い合わせの文字列を付けて打つ口。**試験だけが差し替える**。 */
     protected open fun newOutageGet(): (String) -> Outcome =
-        HttpTransport(Config.baseUrl, Config.apiToken, "/outages")::get
+        HttpTransport({ Config.baseUrl }, { Config.apiToken }, "/outages")::get
 
     /** 送る契機の頭の確かめ（`GET /contract`。ST50 / D18（仮））。**試験だけが差し替える** */
     protected open fun newContractGet(): () -> Outcome =
-        HttpTransport(Config.baseUrl, Config.apiToken, "/contract")::get
+        HttpTransport({ Config.baseUrl }, { Config.apiToken }, "/contract")::get
 
     /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */
     protected open fun newOutageExecutor(): ExecutorService = Executors.newSingleThreadExecutor()
@@ -373,6 +392,7 @@ open class LocationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Config.initialize(this)
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
         val type = foregroundServiceType()
@@ -393,9 +413,65 @@ open class LocationService : Service() {
             onFix = { locationCounters?.recordSuccess() },
         )
         sources = buildSources()
+        reconcileDestination()
         // 起動の時点で 1 度見回る（設定が揃っていなくても上限はかかる。深掘り Q1）
         maintain(force = true)
         watchTimeChange()
+    }
+
+    /**
+     * 保存された設定と、4 種類の未送信および原本の送り待ちを一度だけ突き合わせる。
+     *
+     * **数えるのは主糸の外**（review/code.md R15）—— 未送信が多いと置き場を全部読むので、
+     * `onCreate`・`onStartCommand`（主糸）で回すと応答なしになる。数え終えるまでの間は、保存の
+     * commit で立てた保留（[DestinationGate.holdOnSave]）が送信を止めている。
+     */
+    private fun reconcileDestination() {
+        runCollection {
+            runCatching {
+                // 承認と突き合わせを同じ糸で続けて回す（承認で保留が外れてから立て直すまでの隙間を作らない）
+                // -P（組み立て）の送り先は承認済み（D13）。保存した設定が無い間は、-P の値を替えて組み直した APK も
+                // 今どおり送る（前の -P の承認が残って保留に倒れない。review/code.md R47）。保存済み URL はここで
+                // 承認しない —— 保存した設定があれば、それと未送信を通常の門で突き合わせる。
+                if (Config.hasBuildSetup && (destinationGate.approved == null || !Config.hasSavedSetup)) {
+                    destinationGate.approve(Config.buildBaseUrl)
+                }
+                destinationGate.reconcile(Config.baseUrl, countBacklog())
+                if (destinationGate.blocked) showDestinationNotice()
+            }.onFailure {
+                Log.w(
+                    TAG,
+                    Telemetry.line("destination_reconcile_crashed", source = null, error = it.javaClass.simpleName)
+                )
+            }
+        }
+    }
+
+    /** 4 種類の未送信と原本の送り待ちの件数と期間。置き場は 1 件ずつ読み、全部をメモリに載せない（review/code.md R46）。 */
+    private fun countBacklog(): DestinationBacklog {
+        fun parse(text: String): Instant? = runCatching { Instant.parse(text) }.getOrNull()
+        val originals = originalPipeline.originals.all()
+        val parts = listOf(
+            outbox.span { parse(it.eventTime) },
+            heartbeatOutbox.span { parse(it.emittedAt) },
+            dropsOutbox.span { parse(it.createdAt) },
+            originalPipeline.missingOutbox.span { parse(it.noticedAt) },
+            DestinationBacklog(
+                originals.size,
+                originals.minOfOrNull { Instant.ofEpochMilli(it.queuedAt) },
+                originals.maxOfOrNull { Instant.ofEpochMilli(it.queuedAt) },
+            ),
+        )
+        val count = parts.sumOf { it.count }
+        return if (count == 0) {
+            DestinationBacklog.EMPTY
+        } else {
+            DestinationBacklog(
+                count,
+                parts.mapNotNull { it.oldest }.minOrNull(),
+                parts.mapNotNull { it.newest }.maxOrNull(),
+            )
+        }
     }
 
     /**
@@ -699,6 +775,10 @@ open class LocationService : Service() {
             runCatching { notifier.update() }.onFailure {
                 Log.w(TAG, Telemetry.line("notifier_crashed", source = null, error = it.javaClass.simpleName))
             }
+            // 未設定の知らせは 24 時間ごと。積む契機（60 秒）に相乗りして見る（review/code.md R7）
+            runCatching { refreshSetupNotice() }.onFailure {
+                Log.w(TAG, Telemetry.line("setup_notice_crashed", source = null, error = it.javaClass.simpleName))
+            }
         }
     }
 
@@ -813,6 +893,13 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_SETUP_CHANGED) {
+            flusher?.cancel()
+            flusher = null
+            // 設定画面がサービスを再起動せずに保存した場合も、保存後の URL と
+            // その時点の未送信を同じ門で直ちに突き合わせる。
+            reconcileDestination()
+        }
         // **主糸では回さない**（[runCollection]）—— `onStartCommand` は主糸で呼ばれる。
         // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
         // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
@@ -821,6 +908,7 @@ open class LocationService : Service() {
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
         for (running in sources) runCollection { collect(running) }
         startFlushing()
+        refreshSetupNotice()
         startBeating()
         startTicking()
         startClockSkew()
@@ -939,6 +1027,7 @@ open class LocationService : Service() {
             IngestRequest.serializer(),
             dropPermanentlyRejected = true,
             responseDates = responseDates,
+            onOutcome = setupNotifier::observe,
         ) { Log.i(TAG, it) }.also {
             // 受理された画像の原本は送ってよくなり、断られた記録の原本は欠けになる（design D8）
             it.listener = originalPipeline.link
@@ -951,6 +1040,7 @@ open class LocationService : Service() {
             HeartbeatRequest.serializer(),
             // 応答の `Date` は `/ingest` `/heartbeat` `/drops` のどれでも同じ置き場へ（design D2。review R2）
             responseDates = responseDates,
+            onOutcome = setupNotifier::observe,
         ) { Log.i(TAG, it) }
         // **破棄の報告は断られても取り除かない**（ST04 / C2 / design D13）—— 扉 #14 の唯一の証拠
         val dropSender = Sender(
@@ -959,10 +1049,14 @@ open class LocationService : Service() {
             DropReport.serializer(),
             dropPermanentlyRejected = false,
             responseDates = responseDates,
+            onOutcome = setupNotifier::observe,
         ) { Log.i(TAG, it) }
-        val missingSender = originalPipeline.missingSender(newTransport("/media/missing"), responseDates) {
-            Log.i(TAG, it)
-        }
+        val missingSender = originalPipeline.missingSender(
+            newTransport("/media/missing"),
+            responseDates,
+            { Log.i(TAG, it) },
+            setupNotifier::observe,
+        )
         val uploader = originalPipeline.uploader(
             newOriginalSource(),
             newOriginalTransport(),
@@ -971,7 +1065,10 @@ open class LocationService : Service() {
                 unmetered = ::readUnmetered,
                 now = { Instant.now() },
             ),
-        ) { Log.i(TAG, it) }
+            log = { Log.i(TAG, it) },
+            canSend = { destinationGate.maySend },
+            onOutcome = setupNotifier::observe,
+        )
         val contractGet = newContractGet()
         val drainer = Drainer(
             records = sender,
@@ -980,8 +1077,17 @@ open class LocationService : Service() {
             drops = dropSender,
             ledger = ledger,
             missing = missingSender,
-            contract = ContractGuard({ contractGet() }, contractGate),
-            onContract = { reasons -> contractNotifier.update(reasons, oldestUnsentDays(outbox, ageClock::now)) },
+            contract = ContractGuard({
+                contractGet().also {
+                    setupNotifier.observe(it)
+                    setupNotifier.update()
+                }
+            }, contractGate),
+            onContract = {
+                    reasons ->
+                contractNotifier.update(reasons, oldestUnsentDays(outbox, ageClock::now))
+                setupNotifier.update()
+            },
             onChannelMismatch = { mismatch -> channelNotifier.update(mismatch) },
             originalsAhead = uploader::hasVersionAbove,
             afterRecords = { answer ->
@@ -994,6 +1100,8 @@ open class LocationService : Service() {
             },
             maintenance = { maintain(force = true) },
             log = { Log.i(TAG, it) },
+            destination = destinationGate,
+            onDestination = { showDestinationNotice(it) },
         )
         // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない。
         // 溜まっている間だけ、1 回の契機の中で続けて送る（ST04 / 深掘り Q6 / design D12）。
@@ -1246,6 +1354,80 @@ open class LocationService : Service() {
         return builder.build()
     }
 
+    /**
+     * 未設定の知らせを、未設定が続く間は 24 時間ごとに出し直し、設定したら消す（spec。review/code.md R7）。
+     * 最後に出した時刻は設定の置き場に持つ（再起動のたびに出し直さない）。
+     */
+    internal fun refreshSetupNotice(nowMs: Long = System.currentTimeMillis()) {
+        val prefs = getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE)
+        if (Config.isComplete) {
+            if (prefs.contains(SetupNotifier.UNSET_NOTIFIED_AT_KEY)) {
+                getSystemService(NotificationManager::class.java).cancel(SETUP_NOTIFICATION_ID)
+                prefs.edit().remove(SetupNotifier.UNSET_NOTIFIED_AT_KEY).apply()
+            }
+            return
+        }
+        val last = prefs.getLong(SetupNotifier.UNSET_NOTIFIED_AT_KEY, Long.MIN_VALUE)
+        if (last != Long.MIN_VALUE && nowMs - last < SETUP_NOTICE_INTERVAL_MS) return
+        showSetupNotice()
+        prefs.edit().putLong(SetupNotifier.UNSET_NOTIFIED_AT_KEY, nowMs).apply()
+    }
+
+    /** 設定を後回しにした端末へ、通知から設定画面へ戻る道を残す。 */
+    internal fun showSetupNotice() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(SETUP_CHANNEL, "送り先の設定", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        manager.notify(
+            SETUP_NOTIFICATION_ID,
+            Notification.Builder(this, SETUP_CHANNEL)
+                .setContentTitle("あしあと。")
+                .setContentText("送り先が設定されていません")
+                .setSmallIcon(android.R.drawable.ic_menu_manage)
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        this,
+                        SETUP_NOTIFICATION_ID,
+                        Intent(this, SetupActivity::class.java),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ),
+                )
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    internal fun showDestinationNotice(summary: DestinationBacklog = destinationGate.summary) {
+        // 保存の直後で、まだ数えていない保留（0 件）は知らせない。数え終えたら出す
+        if (summary.count <= 0 || !destinationGate.notificationDue()) return
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(SETUP_CHANNEL, "送り先の設定", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        val dates = listOfNotNull(summary.oldest, summary.newest)
+            .distinct()
+            .joinToString(" ～ ") { it.atZone(ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ') }
+        manager.notify(
+            DESTINATION_NOTIFICATION_ID,
+            Notification.Builder(this, SETUP_CHANNEL)
+                .setContentTitle("あしあと。")
+                .setContentText("送り先の確認を待っています（未送信 ${summary.count} 件${if (dates.isEmpty()) "" else ", $dates"}）")
+                .setSmallIcon(android.R.drawable.ic_menu_manage)
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        this,
+                        DESTINATION_NOTIFICATION_ID,
+                        Intent(this, SetupActivity::class.java),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ),
+                )
+                .setAutoCancel(true)
+                .build(),
+        )
+        destinationGate.markNotified()
+    }
+
     /** 権限の画面が無いことをログに出した（[healthPermissionPendingIntent]）。 */
     @Volatile
     private var healthSettingsMissingLogged = false
@@ -1275,8 +1457,13 @@ open class LocationService : Service() {
     )
 
     internal companion object {
+        const val ACTION_SETUP_CHANGED = "dev.ashiato.collector.ACTION_SETUP_CHANGED"
         const val TAG = "ashiato"
         const val CHANNEL = "location"
+        const val SETUP_CHANNEL = "setup"
+        const val SETUP_NOTIFICATION_ID = 6
+        const val DESTINATION_NOTIFICATION_ID = 9
+        const val SETUP_NOTICE_INTERVAL_MS = 24L * 60L * 60L * 1000L
         const val NOTIFICATION_ID = 1
 
         /** Health Connect の読みを待つ上限（review/code.md R3）。IPC 1 回ぶんには十分に長い。 */

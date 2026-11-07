@@ -86,6 +86,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SetupActivity"
+            android:exported="false" />
+
         <!-- ST11 design D7: 健康データの権限の画面の「プライバシーポリシー」の行き先。文だけの画面 -->
         <activity
             android:name=".HealthRationaleActivity"

@@ -247,6 +247,12 @@ class SegmentStore<T : Outboxable>(
         return n
     }
 
+    /** 取り除かれていない行を 1 件ずつ渡す（溜めない。未送信が 1.9 GB でもメモリに載せない）。 */
+    fun forEachItem(visit: (T) -> Unit) = scan {
+        visit(it.item)
+        true
+    }
+
     /** 全件（試験と診断のため。**送信の経路では使わない**）。 */
     fun readAll(): List<T> {
         val out = ArrayList<T>()
