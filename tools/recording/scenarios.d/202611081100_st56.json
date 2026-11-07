@@ -22,7 +22,7 @@
       "collector-android/app/src/main/kotlin/dev/ashiato/collector/SetupStore.kt",
       "tools/recording/st56/St56RecordingTest.kt"
     ],
-    "note": "ST56（Android）: まっさらな携帯の設定画面で、録画用サーバを向く設定文字列を貼って保存する → 「設定済み」と送り先、接続確認の結果が出る。貼った文字列と資格情報は保存後に画面から消える。"
+    "note": "ST56（Android）: まっさらな携帯の設定画面で、共有契約の有効な設定文字列を貼って保存する → 「設定済み」と送り先が出る。録画用 APK の loopback は携帯から届かないため保存が拒否されるので使わない。貼った文字列と資格情報は保存後に画面から消える。"
   },
   {
     "id": "ST56-windows-collector-setup",

@@ -15,9 +15,9 @@ function Front([string]$Title) {
 }
 
 New-Item -ItemType Directory -Path $state -Force | Out-Null
-# URL と録画専用の資格情報から作った設定文字列。PowerShell の pipeline が UTF-16 に変換して
-# Rust 側へ渡す差を避けるため、ASCII の完成形を標準入力へ直接書く。
-$setup = 'ashiato-collector:1:eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjkvYXBpIiwidG9rZW4iOiJzdDU2LXJlY29yZGluZy10b2tlbi0wMTIzNDU2Nzg5In0'
+# 共有契約の valid vector をそのまま貼る。Sandbox の網は切ってあるので接続確認は届かないが、
+# 保存と秘密の置き方は本物の `setup` と同じ経路で確かめられる。
+$setup = 'ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9'
 
 Show-RecCaption '1. PC の setup に設定文字列を貼る（資格情報は画面に出さない）'
 $start = New-Object System.Diagnostics.ProcessStartInfo
@@ -28,7 +28,6 @@ $start.CreateNoWindow = $true
 $start.RedirectStandardInput = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
-$start.StandardInputEncoding = [Text.Encoding]::ASCII
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo = $start
 [void]$process.Start()
@@ -46,7 +45,7 @@ $credential = Join-Path $state 'credential.bin'
 if (-not (Test-Path $settings) -or -not (Test-Path $credential)) { throw 'settings.json または credential.bin が無い' }
 $textFiles = Get-ChildItem -Path $state -Recurse -File | Where-Object { $_.Extension -ne '.bin' }
 foreach ($file in $textFiles) {
-  if ((Get-Content $file.FullName -Raw -Encoding UTF8) -match 'st56-recording-token-0123456789') {
+  if ((Get-Content $file.FullName -Raw -Encoding UTF8) -match 'token-for-test-0123456789') {
     throw "資格情報の平文が $($file.FullName) に残っている"
   }
 }
