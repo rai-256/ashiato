@@ -27,21 +27,26 @@ if ! avdmanager list avd -c 2>/dev/null | grep -qx "$AVD"; then
   echo no | avdmanager create avd -n "$AVD" -k "$IMAGE" -d pixel_6 >/dev/null
 fi
 
-cleanup() { [ "${KEEP:-}" = "1" ] || { adb -s "${SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true; }; }
+EMU_CLEANUP_WITH_ADB=0
+cleanup() {
+  [ "${EMU_CLEANUP_WITH_ADB:-0}" = 1 ] || return 0
+  [ "${KEEP:-}" = "1" ] || { adb -s "${SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true; }
+}
 trap cleanup EXIT
 
-echo "== エミュレータを起動（画面なし）"
-emulator -avd "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
-adb wait-for-device
-# timing-ok: 180 回 × 2 秒で、混雑時に長くなる側へだけ外れるエミュレータ起動待ち
-for _ in $(seq 1 180); do
-  [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
-  sleep 2
-done
-[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] || { echo "error: 起動が終わらない" >&2; exit 1; }
-adb shell settings put global window_animation_scale 0 >/dev/null
-adb shell settings put global transition_animation_scale 0 >/dev/null
-adb shell settings put global animator_duration_scale 0 >/dev/null
+# shellcheck disable=SC1091
+. ./tools/emulator-start.sh
+emu_positive_int ASHIATO_EMULATOR_DEVICE_TIMEOUT "${ASHIATO_EMULATOR_DEVICE_TIMEOUT:-120}" || exit 1
+emu_positive_int ASHIATO_EMULATOR_BOOT_ATTEMPTS "${ASHIATO_EMULATOR_BOOT_ATTEMPTS:-180}" || exit 1
+emu_positive_int ASHIATO_ADB_CALL_TIMEOUT "${ASHIATO_ADB_CALL_TIMEOUT:-10}" || exit 1
+emu_check_kvm || exit 1
+emu_start "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+emu_wait_device "${SERIAL:-}" || exit 1
+emu_wait_boot "${SERIAL:-}" || exit 1
+timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global window_animation_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
+timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global transition_animation_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
+timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global animator_duration_scale 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
+EMU_CLEANUP_WITH_ADB=1
 
 echo "== 計測テストの写真と動画を入れる（別のアプリが入れたものとして。ST09）"
 ./tools/android-media-fixtures.sh

@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# エミュレータの起動と、adb に現れて起動完了するまでの待ちを共有する部品（CH10）。
+#
+# source tools/emulator-start.sh の後、次の関数を呼ぶ:
+#   emu_check_kvm; emu_start <AVD> <引数…>; emu_wait_device [serial]
+#   emu_wait_boot [serial]; emu_fail <文言>
+#
+# 環境変数                 既定       用途
+# ASHIATO_KVM_DEVICE       /dev/kvm   起動前に読み書きで開く場所
+# ASHIATO_EMULATOR_DEVICE_TIMEOUT 120 adb に端末が現れるまでの秒
+# ASHIATO_EMULATOR_BOOT_ATTEMPTS  180 起動完了を調べる回数（2 秒ごと）
+# ASHIATO_ADB_CALL_TIMEOUT 10        起動完了・設定の adb shell 1 回の秒
+#
+# 起動直後に終わる・端末が現れない経路で無期限に待たず、理由とログを残すために使う。
+
+emu_positive_int() {
+  local name=$1 value=$2
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    echo "error: $name は正の整数でなければならない" >&2
+    return 1
+  }
+}
+
+emu_pid_alive() {
+  local stat
+  kill -0 "${EMU_PID:?}" 2>/dev/null || return 1
+  stat=$(ps -o stat= -p "$EMU_PID" 2>/dev/null || true)
+  [[ "$stat" == Z* ]] && return 1
+  return 0
+}
+
+emu_check_kvm() {
+  local device=${ASHIATO_KVM_DEVICE:-/dev/kvm}
+  if [ ! -e "$device" ] || ! ( exec 3<>"$device" ) 2>/dev/null; then
+    echo "error: /dev/kvm を開けない（調べた場所: $device）。エミュレータを起こさない。verify-run で走らせ直す（Codex なら AGENTS.md の「/dev/kvm」の手順で sandbox の外を申請する）" >&2
+    return 1
+  fi
+}
+
+emu_start() {
+  local avd=$1
+  shift
+  EMU_LOG=${EMU_LOG:-collector-android/app/build/outputs/emulator.log}
+  mkdir -p "$(dirname "$EMU_LOG")"
+  : > "$EMU_LOG"
+  echo "== エミュレータを起動（画面なし）"
+  "$ANDROID_HOME/emulator/emulator" -avd "$avd" "$@" >"$EMU_LOG" 2>&1 &
+  EMU_PID=$!
+}
+
+emu_fail() {
+  local message=$1 log=${EMU_LOG:-collector-android/app/build/outputs/emulator.log} deadline now
+  echo "error: $message" >&2
+  if [ -n "${EMU_PID:-}" ] && ! emu_pid_alive; then
+    wait "$EMU_PID" 2>/dev/null || true
+  fi
+  if [ -f "$log" ]; then
+    tail -n 40 "$log" >&2
+    echo "error: エミュレータの出力全文: $log" >&2
+    if grep -Eq 'requires hardware acceleration|permissions to use KVM' "$log"; then
+      echo "error: エミュレータが /dev/kvm（ハードウェアの加速）を使えなかった。verify-run で走らせ直す（Codex なら AGENTS.md の「/dev/kvm」の手順）" >&2
+    fi
+  fi
+  if [ -n "${EMU_PID:-}" ] && emu_pid_alive; then
+    pkill -TERM -P "$EMU_PID" 2>/dev/null || true
+    kill -TERM "$EMU_PID" 2>/dev/null || true
+    deadline=$((SECONDS + 5))
+    while emu_pid_alive && [ "$SECONDS" -lt "$deadline" ]; do sleep 1; done
+    if emu_pid_alive; then
+      pkill -KILL -P "$EMU_PID" 2>/dev/null || true
+      kill -KILL "$EMU_PID" 2>/dev/null || true
+    fi
+    wait "$EMU_PID" 2>/dev/null || true
+  fi
+}
+
+emu_wait_device() {
+  local serial=${1:-} limit=${ASHIATO_EMULATOR_DEVICE_TIMEOUT:-120} state i
+  emu_positive_int ASHIATO_EMULATOR_DEVICE_TIMEOUT "$limit" || return 1
+  echo "== 端末が adb に現れるのを最大 $limit 秒待つ"
+  for ((i=0; i<limit; i++)); do
+    if ! emu_pid_alive; then
+      emu_fail 'エミュレータが起動の途中で終わった'
+      return 1
+    fi
+    if [ -n "$serial" ]; then
+      state=$(timeout 5 adb -s "$serial" get-state 2>/dev/null || true)
+    else
+      state=$(timeout 5 adb get-state 2>/dev/null || true)
+    fi
+    [ "$state" = device ] && return 0
+    sleep 1
+  done
+  emu_fail "$limit 秒待っても端末が adb に現れない"
+  return 1
+}
+
+emu_wait_boot() {
+  local serial=${1:-} attempts=${ASHIATO_EMULATOR_BOOT_ATTEMPTS:-180} call_timeout=${ASHIATO_ADB_CALL_TIMEOUT:-10} state i
+  emu_positive_int ASHIATO_EMULATOR_BOOT_ATTEMPTS "$attempts" || return 1
+  emu_positive_int ASHIATO_ADB_CALL_TIMEOUT "$call_timeout" || return 1
+  # timing-ok: 180 回 × 2 秒で、混雑時に長くなる側へだけ外れるエミュレータ起動待ち
+  for ((i=0; i<attempts; i++)); do
+    if ! emu_pid_alive; then
+      emu_fail 'エミュレータが起動の途中で終わった'
+      return 1
+    fi
+    if [ -n "$serial" ]; then
+      state=$(timeout "$call_timeout" adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+    else
+      state=$(timeout "$call_timeout" adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+    fi
+    [ "$state" = 1 ] && return 0
+    [ "$i" -lt $((attempts - 1)) ] && sleep 2
+  done
+  emu_fail '起動が終わらない'
+  return 1
+}
