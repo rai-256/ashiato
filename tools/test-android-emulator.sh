@@ -338,6 +338,8 @@ assert_usage_dies() {
   new_tree; root=$NEW_ROOT
   rc=$(run_usage "$root" usage-dies die)
   if [ "$rc" -ne 2 ] || ! grep -Fq 'error: エミュレータが起動の途中で終わった' "$root/stderr" \
+    || [ "$(cat "$root/args")" != '-avd ashiato-api35 -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot' ] \
+    || grep -Fq 'emu kill' "$root/adb.log" \
     || [ -n "$(pgrep -f "$root/" || true)" ]; then
     cat "$root/stderr" >&2
     return 1
