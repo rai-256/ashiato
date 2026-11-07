@@ -53,14 +53,15 @@ GRADLE
 set -euo pipefail
 printf '%s\n' "$*" > "${FAKE_ARGS:?}"
 printf 'emulator %s\n' "$*" >> "${FAKE_LOG:?}"
-sleep 1000 & child=$!
+fake_sleep() { exec -a "${FAKE_ROOT}/ch10-fake-emulator" sleep "$1"; }
+fake_sleep 1000 & child=$!
 echo "$child" > "${FAKE_CHILD:?}"
 cleanup() { kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; }
 trap cleanup EXIT
 case "${FAKE_EMU:-ok}" in
-  ok) : > "${FAKE_VISIBLE:?}"; sleep 1000 ;;
+  ok) : > "${FAKE_VISIBLE:?}"; fake_sleep 1000 ;;
   die) echo 'fake emulator died' >&2; exit 1 ;;
-  sleep) sleep 1000 ;;
+  sleep) fake_sleep 1000 ;;
   late-die) : > "${FAKE_VISIBLE:?}"; sleep 2; exit 1 ;;
   *) echo "unknown FAKE_EMU" >&2; exit 2 ;;
 esac
@@ -100,67 +101,70 @@ new_tree() {
 }
 
 run_emulator() {
-  local root=$1 keep=${2:-} avd_exists=${3:-1} rc
+  local root=$1 keep=${2:-} avd_exists=${3:-1} key=${4:-emulator} rc
   : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
   rm -f "$root/visible" "$root/child"
   local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
     FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child"
+    FAKE_ROOT="$root"
     FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
     FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS="$avd_exists" FAKE_EMU=ok)
   set +e
   env "${envs[@]}" ${keep:+KEEP=1} timeout 30 "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr"
   rc=$?
   set -e
+  if [ "$rc" -eq 124 ]; then
+    echo "見張りで打ち切った: $key" >&2
+  fi
   echo "$rc"
 }
 
 assert_normal() {
-  local root rc
-  new_tree; root=$NEW_ROOT
-  rc=$(run_emulator "$root")
+  local root=${1:-} rc
+  [ -n "$root" ] || { new_tree; root=$NEW_ROOT; }
+  rc=$(run_emulator "$root" '' 1 normal)
   [ "$rc" -eq 0 ] || { cat "$root/stderr" >&2; return 1; }
-  [ "$(cat "$root/args")" = '-avd ashiato-api35 -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot' ]
-  [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 6 ]
-  grep -Fq 'settings put global window_animation_scale 0' "$root/adb.log"
-  grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log"
+  [ "$(cat "$root/args")" = '-avd ashiato-api35 -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot' ] || return 1
+  [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 6 ] || return 1
+  grep -Fq 'settings put global window_animation_scale 0' "$root/adb.log" || return 1
+  grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log" || return 1
 }
 
 assert_keep() {
-  local root rc
-  new_tree; root=$NEW_ROOT; rc=$(run_emulator "$root" 1)
+  local root=${1:-} rc
+  [ -n "$root" ] || { new_tree; root=$NEW_ROOT; }
+  rc=$(run_emulator "$root" 1 1 keep)
   [ "$rc" -eq 0 ] || { cat "$root/stderr" >&2; return 1; }
-  ! grep -q 'emu kill' "$root/adb.log"
+  ! grep -q 'emu kill' "$root/adb.log" || return 1
 }
 
 assert_missing() {
   local root rc
   new_tree; root=$NEW_ROOT; rm "$root/sdk/emulator/emulator"
-  rc=$(run_emulator "$root")
-  [ "$rc" -eq 1 ] && grep -Fq 'error: emulator が無い。' "$root/stderr"
+  rc=$(run_emulator "$root" '' 1 missing-emulator)
+  { [ "$rc" -eq 1 ] && grep -Fq 'error: emulator が無い。' "$root/stderr"; } || return 1
   new_tree; root=$NEW_ROOT; rm -rf "$root/sdk/system-images/android-35/google_apis/x86_64"
-  rc=$(run_emulator "$root")
-  [ "$rc" -eq 1 ] && grep -Fq 'error: system-images;android-35;google_apis;x86_64 が無い' "$root/stderr"
+  rc=$(run_emulator "$root" '' 1 missing-system-image)
+  { [ "$rc" -eq 1 ] && grep -Fq 'error: system-images;android-35;google_apis;x86_64 が無い' "$root/stderr"; } || return 1
 }
 
 assert_avd_create() {
   local root rc
-  new_tree; root=$NEW_ROOT; rc=$(run_emulator "$root" '' 0)
-  [ "$rc" -eq 0 ] && grep -Fq 'create avd -n ashiato-api35' "$root/avd.log"
+  new_tree; root=$NEW_ROOT; rc=$(run_emulator "$root" '' 0 avd-create)
+  { [ "$rc" -eq 0 ] && grep -Fq 'create avd -n ashiato-api35' "$root/avd.log"; } || return 1
 }
 
 self_test() {
   local root rc
   new_tree; root=$NEW_ROOT
   sed -i 's/ -no-snapshot//' "$root/tools/android-emulator.sh"
-  rc=$(run_emulator "$root")
-  if [ "$rc" -eq 0 ] && [ "$(cat "$root/args")" = '-avd ashiato-api35 -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot' ]; then
+  if assert_normal "$root"; then
     echo 'self-test: -no-snapshot の破壊を検出できない' >&2
     return 1
   fi
   new_tree; root=$NEW_ROOT
   sed -i 's/\[ "${KEEP:-}" = "1" \] || //' "$root/tools/android-emulator.sh"
-  rc=$(run_emulator "$root" 1)
-  if [ "$rc" -eq 0 ] && ! grep -q 'emu kill' "$root/adb.log"; then
+  if assert_keep "$root"; then
     echo 'self-test: KEEP の破壊を検出できない' >&2
     return 1
   fi

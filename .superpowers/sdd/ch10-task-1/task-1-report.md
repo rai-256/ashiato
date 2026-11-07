@@ -42,3 +42,30 @@
 ## Issues / concerns
 
 `verify-run` の 2 項目は `/dev/kvm` 不可で走らず、sandbox 外再実行の申請も環境側で aborted になった。これは試験の失敗ではなく、証跡に記録されたインフラ制約である。
+
+## Fix report: review 1 F1〜F4
+
+### 変更
+
+- 偽 emulator の子と前景 sleep を使い捨て木の絶対パスおよび `ch10-fake-emulator` を argv に持つ形で起こし、既存の `pgrep -f "$root/"` cleanup が回収できるようにした。
+- `run_emulator` に場合の鍵を渡し、timeout の rc=124 を `見張りで打ち切った: <場合の鍵>` として報告するようにした。
+- missing emulator、missing system image、AVD 作成の判定を `|| return 1` で失敗伝播する形にした。
+- self-test が壊した写しを通常の `assert_normal` / `assert_keep` に渡し、同じ Scenario 判定で `-no-snapshot` と KEEP の破壊を検出するようにした。各 assert の判定も非 0 を返すようにした。
+
+### TDD Evidence
+
+#### RED
+
+F4 の判定を通常 assert に統一した直後、まだ assert が最後の grep の終了値を返していた段階で、`tools/test-android-emulator.sh --self-test` を実行した。`self-test: -no-snapshot の破壊を検出できない`、rc=1 となり、壊した写しを通常判定へ渡しても失敗を検出できない欠陥を再現した。
+
+#### GREEN
+
+- `tools/test-android-emulator.sh --self-test`: rc=0
+- `tools/test-android-emulator.sh`: rc=0、6 Scenario 印
+- `scripts/quiet-run task1-fix -- bash -c 'tools/test-android-emulator.sh && tools/test-android-emulator.sh --self-test && bash -n tools/test-android-emulator.sh && git diff --check'`: rc=0
+- `scripts/verify-run 1.1`: PASS、rc=0（sandbox 外、ログ `20261107-124444-evidence-1.1-0-f5649a-vued71q7r.log`）
+- `scripts/verify-run 1.2`: PASS、rc=0（sandbox 外、ログ `20261107-124458-evidence-1.2-0-aa9140-v2k6wl9j2.log`）
+
+### Fix 後の self-review
+
+対象の F1〜F4 だけを修正した。`tools/test-android-emulator.sh` と正式検証の `evidence.jsonl` が変更対象であり、元の Android 台本や tasks.md は変更していない。self-test は通常の assert 関数を直接使うため、後から通常判定を緩めた場合にも同じ検出経路で失敗する。
