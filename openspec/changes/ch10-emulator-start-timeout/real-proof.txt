@@ -1,0 +1,5 @@
+dies: pass
+timeout: pass
+same-avd-name: ashiato-api35
+same-avd-accel-lines: 0
+same-avd: fail

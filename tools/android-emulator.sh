@@ -41,7 +41,13 @@ emu_reject_existing_avd() {
   local avd=$1 serial existing_avd
   while read -r serial; do
     [ -n "$serial" ] || continue
-    existing_avd=$(timeout 5 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
+    for _ in 1 2 3 4 5; do
+      existing_avd=$(timeout 5 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
+      # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、同じ端末の boot property を使う。
+      [ -n "$existing_avd" ] || existing_avd=$(timeout 5 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p' || true)
+      [ -n "$existing_avd" ] && break
+      sleep 1
+    done
     if [ "$existing_avd" = "$avd" ]; then
       echo "error: 同じ AVD（$avd）のエミュレータが既に動いている（$serial）。KEEP=1 の残りなら adb -s $serial emu kill で止めてから" >&2
       return 1
