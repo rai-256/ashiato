@@ -56,7 +56,7 @@ class St56RecordingTest {
         assertNotNull("保存後に設定済みと出ない", device.wait(Until.findObject(By.textContains("設定済み")), TIMEOUT_MS))
         assertNotNull("保存後に送り先が出ない", device.wait(Until.findObject(By.textContains("送り先:")), TIMEOUT_MS))
         assertFalse("設定文字列が保存後も残っている", device.hasObject(By.text(setup)))
-        assertFalse("資格情報が保存後も画面に残っている", device.hasObject(TOKEN))
+        assertFalse("資格情報が保存後も画面に残っている", device.hasObject(By.text(TOKEN)))
         hold(5_000)
     }
 

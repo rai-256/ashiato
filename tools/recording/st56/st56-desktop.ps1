@@ -31,7 +31,8 @@ $start.RedirectStandardError = $true
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo = $start
 [void]$process.Start()
-$process.StandardInput.WriteLine($setup)
+$inputBytes = [Text.Encoding]::ASCII.GetBytes($setup + "`n")
+$process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
 $process.StandardInput.Close()
 $setupOutput = $process.StandardOutput.ReadToEnd() + $process.StandardError.ReadToEnd()
 $process.WaitForExit()
