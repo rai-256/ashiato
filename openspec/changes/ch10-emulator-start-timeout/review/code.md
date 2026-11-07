@@ -248,3 +248,7 @@ R1〜R4・R6・R7（対象の 5 件）・R8（F13・F14）は ADDRESSED。fix �
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: fixed D12 （`: > "$EMU_LOG"` を消した。次の行の `>"$EMU_LOG"` が毎回書き直す。tail40・dies は rc=0）
+
+## scoped re-review（9df54ee0..15ae74ae）
+
+R11〜R14・R18・R19・R24・R25（直した 8 件）は ADDRESSED。fix による新しい破損は無い（`./tools/test-android-emulator.sh` rc=0・`tools/test-usage-volume.sh` rc=0、`tools/wait-android-boot.sh` と `tools/test-usage-volume.sh` は不変）。退けたもの（R15〜R17・R20〜R23）は上の処置のとおり。
