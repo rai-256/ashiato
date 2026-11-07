@@ -107,8 +107,9 @@
   `PC で繋がれば「繋がりました」`・`PC で系統の違うサーバなら、その旨を出す`・`PC の確かめの問い合わせでは記録を送らない`・`戻せない資格情報は未設定として扱う`（試験用の包みで戻せない中身を置く）。
   Linux の試験用の包みには `置き場のファイルに資格情報の平文が無い` の印を置かない（本物の DPAPI の 10.2 が持つ。review/spec.md R13）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st56_setupcmd_ && test "$(cargo test -p ashiato-collector-windows st56_setupcmd_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'` rc=0 / `tools/check-licenses.sh` rc=0
-- [ ] 10.2 本物の Windows で DPAPI と台本を確かめる: `tests/runtime_windows.rs` に `st56_` の試験を足す —— `// Scenario: 置き場のファイルに資格情報の平文が無い`（本物の `CryptProtectData` で包んだ `credential.bin` と置き場の全ファイルに平文が無く、同じ利用者で戻せる）・`--install-autostart` が書いた `ashiato-collector.cmd` に `ASHIATO_API_TOKEN` が無い・`--config-from-env` を付けた既存の起動が今どおり動く。既存の `runtime_windows` の起動に `--config-from-env` を足す（D17（仮））。
+- [x] 10.2 本物の Windows で DPAPI と台本を確かめる: `tests/runtime_windows.rs` に `st56_` の試験を足す —— `// Scenario: 置き場のファイルに資格情報の平文が無い`（本物の `CryptProtectData` で包んだ `credential.bin` と置き場の全ファイルに平文が無く、同じ利用者で戻せる）・`--install-autostart` が書いた `ashiato-collector.cmd` に `ASHIATO_API_TOKEN` が無い・`--config-from-env` を付けた既存の起動が今どおり動く。既存の `runtime_windows` の起動に `--config-from-env` を足す（D17（仮））。
   検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows st56_ -- --test-threads=1` が rc=0（CI の Windows の job）
+  記録: 2026-11-07 の CI run 42372782665（head 7af6cef）の collector-windows-runtime で `st56_config_from_env_marker_works_on_windows`・`st56_dpapi_setup_has_no_plaintext_and_can_send`・`st56_install_autostart_script_has_no_credentials` の 3 本が ok。Task agent は Windows を持たないので、CI の結果で閉じる（人間が gate_help で付けた）
 
 ## Task 11: PC の保留と知らせ
 
