@@ -86,6 +86,8 @@ case_same_avd() {
   local log="$ROOT/collector-android/app/build/outputs/emulator.log"
   local out="$TMP/same-avd.out" serial= name pid rc accel
   prepare_env "$((21000 + $$ % 1000))"
+  # emulator は ANDROID_ADB_SERVER_PORT を引き継がず既定の adb server に接続する。
+  unset ANDROID_ADB_SERVER_PORT
   # 既存の実 AVD を使い、AVD 作成・初回 userdata 展開を same-avd の 30 秒監視から外す。
   export ANDROID_AVD_HOME="$ORIGINAL_HOME/.android/avd"
   ensure_avd
@@ -104,12 +106,14 @@ case_same_avd() {
     sleep 1
   done
   [ -n "$serial" ] || die "same-avd の端末が adb に現れない"
-  for _ in $(seq 1 20); do
-    name=$(timeout 5 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p')
-    [ -n "$name" ] || name=$(timeout 5 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p')
+  for _ in $(seq 1 60); do
+    name=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p')
     [ -n "$name" ] && break
     sleep 1
   done
+  if [ -z "$name" ]; then
+    name=$(timeout 1 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p')
+  fi
   printf 'same-avd-name: %s\n' "$name" >> "$PROOF"
   if [ "$name" != ashiato-api35 ]; then
     die "AVD 名が $name"
@@ -133,6 +137,7 @@ case_same_avd() {
 case_ok() {
   local log="$ROOT/collector-android/app/build/outputs/emulator.log" out="$TMP/ok.out" rc accel stage
   prepare_env "$((22000 + $$ % 1000))"
+  unset ANDROID_ADB_SERVER_PORT
   export EMU_LOG="$log"
   set +e
   timeout 30m "$ROOT/tools/android-emulator.sh" >"$out" 2>&1
@@ -159,6 +164,16 @@ run_case() {
   esac
 }
 
+cleanup_tmp() {
+  local rc=$? attempt
+  for attempt in $(seq 1 30); do
+    rm -rf "$TMP" 2>/dev/null && { return "$rc"; }
+    sleep 1
+  done
+  echo "warning: 一時 AVD の後片付けが完了しない: $TMP" >&2
+  return "$rc"
+}
+
 if [ "$CASE" = __internal ]; then
   TMP=${REAL_PROOF_TMP:?}
   run_case "${2:-}"
@@ -172,7 +187,7 @@ esac
 
 TMP=$(mktemp -d)
 export REAL_PROOF_TMP="$TMP"
-trap 'rm -rf "$TMP"' EXIT
+trap cleanup_tmp EXIT
 mkdir -p "$CHANGE_DIR"
 sed -i -e "/^${CASE}:/d" -e "/^${CASE}-/d" "$PROOF" 2>/dev/null || true
 set +e

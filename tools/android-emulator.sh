@@ -42,9 +42,9 @@ emu_reject_existing_avd() {
   while read -r serial; do
     [ -n "$serial" ] || continue
     for _ in 1 2 3 4 5; do
-      existing_avd=$(timeout 5 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
-      # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、同じ端末の boot property を使う。
-      [ -n "$existing_avd" ] || existing_avd=$(timeout 5 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p' || true)
+      # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、まず boot property を使う。
+      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p' || true)
+      [ -n "$existing_avd" ] || existing_avd=$(timeout 1 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
       [ -n "$existing_avd" ] && break
       sleep 1
     done
