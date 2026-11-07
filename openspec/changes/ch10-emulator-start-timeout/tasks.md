@@ -94,7 +94,7 @@
 
 ## Task 6: 本物のエミュレータで確かめる（手元・kvm あり）
 
-- [ ] 6.1 change の中に `real-proof.sh` を書く（`<case>`: `dies` / `timeout` / `same-avd` / `ok`。本物の SDK と kvm が要る。Codex では sandbox の外の申請が 1 回要る）:
+- [x] 6.1 change の中に `real-proof.sh` を書く（`<case>`: `dies` / `timeout` / `same-avd` / `ok`。本物の SDK と kvm が要る。Codex では sandbox の外の申請が 1 回要る）:
   `dies` は `unshare -rm` で /dev/kvm に /dev/null を被せ（`premises.md` 1 行目と同じ形）、その中で `tools/android-emulator.sh` を走らせ、30 秒以内に rc=1・`error: エミュレータが起動の途中で終わった`・`/dev/kvm` の語があることを見る。
   `timeout` は `ASHIATO_EMULATOR_DEVICE_TIMEOUT=1` で走らせ、rc=1・`秒待っても端末が adb に現れない` と、終わった 10 秒後に `-avd ashiato-api35` を持つ過程が 0 本であることを見る（D13 の子の qemu）。
   `same-avd` は台本と同じ引数でエミュレータを背景で起こし、端末が見えた後に `tools/android-emulator.sh` を走らせ、rc=1・`error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている` を見て、`emu avd name` の 1 行目が AVD の名前であることを記録し（D3）、最後に止める。
@@ -104,5 +104,5 @@
   結果を change の中の `real-proof.txt` に `<case>: pass|fail` で書く。
   検証: `scripts/quiet-run real-dies -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh dies` rc=0 / `scripts/quiet-run real-timeout -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh timeout` rc=0 /
   `scripts/quiet-run real-same -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh same-avd` rc=0 / `scripts/quiet-run real-ok -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh ok` rc=0
-- [ ] 6.2 Scenario の印が全部あることを確かめる。
+- [x] 6.2 Scenario の印が全部あることを確かめる。
   検証: `bash -c '[ "$(tools/test-android-emulator.sh 2>/dev/null | grep -c "^Scenario: ")" -ge 23 ]'` rc=0 / `tools/test-android-emulator.sh --self-test` rc=0 / `python3 scripts/check_scenarios.py . ch10-emulator-start-timeout` rc=0
