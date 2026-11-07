@@ -14,18 +14,28 @@ function Front([string]$Title) {
   throw "「$Title」の窓を前景にできない"
 }
 
-function SetupString([string]$Url, [string]$Token) {
-  $json = @{ url = $Url; token = $Token } | ConvertTo-Json -Compress
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-  return "ashiato-collector:1:$encoded"
-}
-
 New-Item -ItemType Directory -Path $state -Force | Out-Null
-$setup = SetupString 'http://127.0.0.1:9/api' 'st56-recording-token-0123456789'
+# URL と録画専用の資格情報から作った設定文字列。PowerShell の pipeline が UTF-16 に変換して
+# Rust 側へ渡す差を避けるため、ASCII の完成形を標準入力へ直接書く。
+$setup = 'ashiato-collector:1:eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjkvYXBpIiwidG9rZW4iOiJzdDU2LXJlY29yZGluZy10b2tlbi0wMTIzNDU2Nzg5In0'
 
 Show-RecCaption '1. PC の setup に設定文字列を貼る（資格情報は画面に出さない）'
-$setupOutput = $setup | & $exe setup 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) { throw "setup が失敗した（rc=$LASTEXITCODE）: $setupOutput" }
+$start = New-Object System.Diagnostics.ProcessStartInfo
+$start.FileName = $exe
+$start.Arguments = 'setup'
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.RedirectStandardInput = $true
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
+$process = New-Object System.Diagnostics.Process
+$process.StartInfo = $start
+[void]$process.Start()
+$process.StandardInput.WriteLine($setup)
+$process.StandardInput.Close()
+$setupOutput = $process.StandardOutput.ReadToEnd() + $process.StandardError.ReadToEnd()
+$process.WaitForExit()
+if ($process.ExitCode -ne 0) { throw "setup が失敗した（rc=$($process.ExitCode)）: $setupOutput" }
 if ($setupOutput -notmatch '保存しました。繋がったら送ります') { throw "届かない送り先の結果が違う: $setupOutput" }
 Start-Sleep -Seconds 4
 

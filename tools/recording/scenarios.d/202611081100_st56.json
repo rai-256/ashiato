@@ -2,9 +2,10 @@
   {
     "id": "ST56-web-collector-setup",
     "story": "ST56",
-    "spec": "web/e2e/st56-collector-setup.spec.ts",
+    "spec": "tools/recording/st56/st56-collector-setup.rec.ts",
     "requires": [
       "web/e2e/st56-collector-setup.spec.ts",
+      "tools/recording/st56/st56-collector-setup.rec.ts",
       "web/e2e/global-setup.ts",
       "web/src/CollectorSetupPanel.tsx"
     ],

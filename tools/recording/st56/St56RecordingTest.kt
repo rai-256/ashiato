@@ -33,7 +33,7 @@ class St56RecordingTest {
 
     @Test
     fun collectorSetupForRecording() {
-        assumeTrue("録画のときだけ走る（-e recording 1）", instrumentation.arguments.getString("recording") == "1")
+        assumeTrue("録画のときだけ走る（-e recording 1）", InstrumentationRegistry.getArguments().getString("recording") == "1")
         context.getSharedPreferences(Config.SETUP_PREFS, Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE).edit().clear().commit()
         Config.initialize(context)
