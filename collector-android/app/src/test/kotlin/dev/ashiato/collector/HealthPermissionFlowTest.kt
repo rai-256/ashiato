@@ -532,14 +532,23 @@ class HealthPermissionFlowTest {
     @Test
     fun `Health Connect の読みが返らなくても、上限で諦めて求めずに収集が始まる`() {
         val controller = Robolectric.buildActivity(HangingHealthFlowActivity::class.java).create().resume()
-        val deadline = System.currentTimeMillis() + 10_000
+        val started = System.nanoTime()
+        val deadline = started + java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
         var service: Intent? = null
-        while (service == null && System.currentTimeMillis() < deadline) {
+        while (service == null && System.nanoTime() < deadline) {
             shadowOf(android.os.Looper.getMainLooper()).idle()
             service = shadowOf(app).nextStartedService
             if (service == null) Thread.sleep(50)
         }
-        assertEquals("読みが返らないと収集が始まらない", LocationService::class.java.name, service?.component?.className)
+        val waitedMs = (System.nanoTime() - started) / 1_000_000
+        try {
+            assertEquals("読みが返らないと収集が始まらない", LocationService::class.java.name, service?.component?.className)
+        } catch (failure: AssertionError) {
+            throw AssertionError(
+                "読みが返らないと収集が始まらない（待機=${waitedMs}ms、最後に見た値=$service）",
+                failure,
+            )
+        }
         assertEquals(0, health.requests.size)
         assertFalse(controller.get().isDestroyed)
     }

@@ -234,8 +234,8 @@ async function purgeByApi(request: APIRequestContext, stayId: string): Promise<v
 async function openDay(page: Page, date: string): Promise<void> {
   await page.goto(`/#/day/${date}`);
   await page.reload();
-  await expect(page.getByTestId("day-view")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("day-view")).toBeVisible();
+  await expect(page.getByTestId("day-loading")).toBeHidden();
   await expect(page.getByTestId("day-error")).toHaveCount(0);
 }
 

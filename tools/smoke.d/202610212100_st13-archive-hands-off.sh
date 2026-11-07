@@ -18,6 +18,7 @@ pending_before=$(psql -c "SELECT count(*) FROM core.archive_pending_shape WHERE 
 marks_before=$(psql -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid;")
 # 2 か月後に作られた同じ製品・同じ言語の書庫を、ダウンロードのフォルダへ落とす。ほかには何もしない
 (cd "$HANDS_FIXTURE" && zip -q -r "$ASHIATO_DOWNLOADS_DIR/takeout-20261113T041200Z-001.zip" Takeout)
+# timing-ok: 30 回 × 1 秒で、混雑時に長くなる側へだけ外れる取り込み待ち
 for _ in $(seq 1 30); do
   [ "$(youtube_events "$ARCHIVE_USER")" -gt "$hands_before" ] && break
   sleep 1
@@ -49,12 +50,14 @@ HANDS_SRV=$(env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL 
 # HANDS_SRV が空のときに kill しない（kill 0 はプロセスグループ全体を止める。tools/smoke.sh と同じ）
 hands_cleanup() { if [ -n "${HANDS_SRV:-}" ]; then kill "$HANDS_SRV" 2>/dev/null || true; fi; cleanup; }
 trap hands_cleanup EXIT
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$HANDS_BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$HANDS_BIND/healthz" >/dev/null || { kill "$HANDS_SRV" 2>/dev/null || true; echo "2 つ目の S-01 が起動しない"; exit 1; }
 [ -d "$HANDS_ROOT/inbox" ] || { kill "$HANDS_SRV" 2>/dev/null || true; echo "起動しても専用のフォルダが作られない"; exit 1; }
 # 本人はフォルダを作らず、作られたフォルダへ端末から書き出した Timeline.json を運ぶ
 printf '%s' '{"semanticSegments":[{"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T04:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.0116°, 135.7681°"}}}}]}' \
   > "$HANDS_ROOT/inbox/Timeline.json"
+# timing-ok: 30 回 × 1 秒で、混雑時に長くなる側へだけ外れる取り込み待ち
 for _ in $(seq 1 30); do
   tl=$(psql -c "SELECT count(*) FROM core.event WHERE user_id = '$HANDS_USER'::uuid AND logical_source = 'c03-timeline-visit' AND deleted_at IS NULL;")
   [ "$tl" -ge 1 ] && break

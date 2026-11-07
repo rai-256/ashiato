@@ -65,7 +65,7 @@ class LocationServiceInstrumentedTest {
         context.stopService(Intent(context, LocationService::class.java))
         runCatching {
             val client = LocationServices.getFusedLocationProviderClient(context)
-            Tasks.await(client.setMockMode(false), 5, TimeUnit.SECONDS)
+            Tasks.await(client.setMockMode(false), 30, TimeUnit.SECONDS)
         }
         shell("appops set ${context.packageName} android:mock_location deny")
     }
@@ -87,7 +87,13 @@ class LocationServiceInstrumentedTest {
     private fun enableMockMode(client: FusedLocationProviderClient) {
         var lastError: Throwable? = null
         for (attempt in 1..5) {
-            if (runCatching { Tasks.await(client.setMockMode(true), 10, TimeUnit.SECONDS) }.onFailure { lastError = it }.isSuccess) return
+            if (
+                runCatching {
+                    Tasks.await(client.setMockMode(true), 30, TimeUnit.SECONDS)
+                }.onFailure { lastError = it }.isSuccess
+            ) {
+                return
+            }
             Thread.sleep(1_000)
         }
         throw AssertionError("偽装位置を有効にできない", lastError)
@@ -113,7 +119,7 @@ class LocationServiceInstrumentedTest {
         var stored = emptyList<IngestRequest>()
         // 測定記録（c01-clock）や、偽装の前に届いた本物の位置も同じ未送信に積まれるので、偽装した位置の記録だけを見る
         while (System.currentTimeMillis() < deadline) {
-            Tasks.await(client.setMockLocation(fix), 10, TimeUnit.SECONDS)
+            Tasks.await(client.setMockLocation(fix), 30, TimeUnit.SECONDS)
             Thread.sleep(1_000)
             stored = SegmentStore(File(outboxDir, "records"), IngestRequest.serializer(), File(outboxDir, "u.jsonl"), {}).readAll()
                 .filter { it.logicalSource == "c01-location" && it.raw.contains("35.681236") }

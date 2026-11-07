@@ -122,7 +122,7 @@ class FeelingReminderInstrumentedTest {
     private fun awaitWake() = assertTrue("受け手が最後まで走らない", finished.await(30, TimeUnit.SECONDS))
 
     private fun awaitNotification() {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (feelNotifications().isEmpty() && System.nanoTime() < deadline) Thread.sleep(100)
     }
 
@@ -147,9 +147,9 @@ class FeelingReminderInstrumentedTest {
         // 本物の押し方: 通知の欄を開き、通知を押す（PendingIntent を自分で送るとバックグラウンドからの起動として止められる）
         device.wakeUp()
         device.openNotification()
-        assertTrue("通知が欄に出ない", device.wait(Until.hasObject(By.text("今日はどうでしたか")), 15_000))
+        assertTrue("通知が欄に出ない", device.wait(Until.hasObject(By.text("今日はどうでしたか")), 30_000))
         device.findObject(By.text("今日はどうでしたか")).click()
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         var opened = emptyList<String>()
         while (opened.isEmpty() && System.nanoTime() < deadline) {
             Thread.sleep(200)

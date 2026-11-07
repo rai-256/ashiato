@@ -237,13 +237,19 @@ async fn purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_nigh
         .await
         .unwrap()
     };
-    for _ in 0..500 {
-        if waiting().await {
-            break;
-        }
+    // 実時間の期限 30 秒で待つ（design D4）
+    let started = std::time::Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    let mut waited_on_lock = waiting().await;
+    while !waited_on_lock && std::time::Instant::now() < deadline {
         tokio::time::sleep(POLL).await;
+        waited_on_lock = waiting().await;
     }
-    assert!(waiting().await, "消去が錠を待っている");
+    assert!(
+        waited_on_lock,
+        "消去が錠を待っている: 待った時間 {:?}、最後に見た値 {waited_on_lock}",
+        started.elapsed()
+    );
 
     let first = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
     assert_eq!(

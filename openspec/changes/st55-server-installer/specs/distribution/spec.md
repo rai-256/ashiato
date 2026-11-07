@@ -64,19 +64,25 @@ THE SYSTEM SHALL インストールの間、ネットワークに出ない。
 THE SYSTEM SHALL サーバの実行ファイルに、Windows のサービスとして動く口（`ashiato-server service`）を持たせ、サービスの開始と停止の知らせを受ける。
 WHEN サービスの停止を知らされる THE SYSTEM SHALL 新しい求めの受け付けを止め、今の取り込みと書き出しを書き終えるか打ち切りの印を残してから終わる。
 WHILE サービスとして動く THE SYSTEM SHALL 設定と秘密を、状態の置き場の設定のファイル（`settings\server.json`）から読み、サービスの登録簿（環境変数）から秘密を読まない。
+THE SYSTEM SHALL 表の所有者（移行を当て、削除の門のトリガを外せる役割）の合言葉を `settings\server.json` に置かず、親から受け継がず管理者と SYSTEM だけが読み書きできる `settings\owner.json` に置き、サーバのサービスのプロセスに渡さない。移行の段・`repair` はそこから読む。
 THE SYSTEM SHALL インストーラが、サービスの登録簿（サービスの環境変数と起動の引数）に秘密を書かない。
 IF 設定のファイルが無い・読めない・形が違う THEN THE SYSTEM SHALL サーバを起動せず、どれに当たるかを理由にログに書いて終わり、秘密の値をログに出さない。
 WHILE サービスとして起動する THE SYSTEM SHALL DB が接続を受けるまで 120 秒まで待ってから起動の検査（DB の版・役割・合言葉）に入り、待つ間は起動を失敗にしない。
 IF 120 秒待っても DB に繋げない THEN THE SYSTEM SHALL DB に繋げないことを理由にログに書いて終わる（サービスの回復が起こし直す）。
 THE SYSTEM SHALL サービスとして動かない（開発の台本で起こす）ときの、環境変数から設定を読む今の振る舞いを変えない。
 
-導出元: FR-108・FR-109・FR-110。C2 / C4 / C11 / review/deep.md R8。
+導出元: FR-108・FR-109・FR-110。C2 / C4 / C11 / review/deep.md R8・deep.md Q11（review/code.md R48）。
 サービスの登録簿は同じ PC のほかのアカウントが読める（premises P7）ので、秘密を置かない。サーバは起動の時に DB へ 1 度だけ繋いで繋げなければ終わる（`lib.rs`）ので、サービスでは DB の起動を待つ。
 
 #### Scenario: サービスの登録簿に秘密が無い
 
 - **WHEN** インストールした後に、2 つのサービスの登録簿の鍵（`HKLM\SYSTEM\CurrentControlSet\Services\ashiato-*`）の値をすべて読む
 - **THEN** どの値にも、DB の合言葉・API の合言葉・ログインの印の鍵・画面の合言葉の照らすための値が含まれない
+
+#### Scenario: 表の所有者の合言葉は、サーバのサービスが読めないファイルにだけある
+
+- **WHEN** インストールした後に、`settings\server.json` の鍵と、`settings\owner.json` の中身と権限（ACL）を読み、別の利用者として `owner.json` を開く
+- **THEN** `server.json` に表の所有者の接続（`DATABASE_OWNER_URL`）が無く、`owner.json` にだけあり、`owner.json` は親から受け継がず、権限の主体は `Administrators` と `SYSTEM` だけで、別の利用者は開けない
 
 #### Scenario: 設定のファイルが無いと、理由を書いて起動しない
 
@@ -145,7 +151,7 @@ THE SYSTEM SHALL 配る DB の PostgreSQL のメジャー版を、開発と試�
 ### Requirement: 状態の置き場は、2 つのサービスのアカウントだけが書け、それとインストールした本人だけが読める
 
 THE SYSTEM SHALL サーバが持ち続ける状態のすべて（DB・写真の原本・移行の前の退避・バックアップ・書き出し・書庫の写し・ログ・設定と秘密）を状態の置き場（`C:\ProgramData\ashiato`）の下に置く。
-THE SYSTEM SHALL 状態の置き場の権限を、親のフォルダから受け継がず、2 つのサービスのアカウントに読み書き、インストールした本人に読みだけを付け、`Users`・`Authenticated Users`・`Everyone` に何も付けない。
+THE SYSTEM SHALL 状態の置き場の権限を、親のフォルダから受け継がず、2 つのサービスのアカウントに読み書き、インストールした本人に読みだけを付け、`Users`・`Authenticated Users`・`Everyone` に何も付けない（表の所有者の設定 `settings\owner.json` だけは、サービスのアカウントにも本人にも付けず、管理者と SYSTEM だけにする）。
 THE SYSTEM SHALL DB の置き場（`db`）と DB のログの置き場（`logs\db`）には DB のサービスのアカウントだけが書け、ほかの置き場にはサーバのサービスのアカウントだけが書けるようにする。
 THE SYSTEM SHALL 「インストールした本人」を、管理者に上がる前のインストーラを開いた利用者とし、別の管理者の資格情報で上がっても、その管理者を本人にしない。
 WHEN インストール・合言葉の決め直し・`repair`・消すが終わる THE SYSTEM SHALL その間だけ足した書きの権限を外す。
@@ -158,7 +164,7 @@ THE SYSTEM SHALL 走らせ直しで、前のインストールの本人を変え
 #### Scenario: 状態の置き場はほかのアカウントから読めない
 
 - **WHEN** インストールした後に、状態の置き場とその下の全部のフォルダ・ファイルの権限（ACL）を読む
-- **THEN** どれも親から受け継がず、読みを持つのは 2 つのサービスのアカウントとインストールした本人だけで、`Users`・`Authenticated Users`・`Everyone` の項目が無い
+- **THEN** どれも親から受け継がず、読みを持つのは 2 つのサービスのアカウントとインストールした本人だけ（表の所有者の設定 `settings\owner.json` は管理者と SYSTEM だけ）で、`Users`・`Authenticated Users`・`Everyone` の項目が無い
 
 #### Scenario: 本人は状態の置き場を読めるが書けない
 

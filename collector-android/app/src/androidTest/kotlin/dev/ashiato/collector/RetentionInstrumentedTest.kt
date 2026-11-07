@@ -70,7 +70,11 @@ class RetentionInstrumentedTest {
         Config.clearOverrideForTest()
         server?.close()
         runCatching {
-            Tasks.await(LocationServices.getFusedLocationProviderClient(context).setMockMode(false), 5, TimeUnit.SECONDS)
+            Tasks.await(
+                LocationServices.getFusedLocationProviderClient(context).setMockMode(false),
+                30,
+                TimeUnit.SECONDS,
+            )
         }
         shell("appops set ${context.packageName} android:mock_location deny")
         outboxDir.deleteRecursively()
@@ -235,7 +239,7 @@ class RetentionInstrumentedTest {
                 time = System.currentTimeMillis()
                 elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
             }
-            runCatching { Tasks.await(client.setMockLocation(loc), 10, TimeUnit.SECONDS) }
+            runCatching { Tasks.await(client.setMockLocation(loc), 30, TimeUnit.SECONDS) }
         }
     }
 
@@ -245,7 +249,7 @@ class RetentionInstrumentedTest {
         // 許可が反映されるまで少し掛かることがあるので、断られたら数回だけ当たり直す
         var lastError: Throwable? = null
         for (attempt in 1..5) {
-            val ok = runCatching { Tasks.await(c.client.setMockMode(true), 10, TimeUnit.SECONDS) }
+            val ok = runCatching { Tasks.await(c.client.setMockMode(true), 30, TimeUnit.SECONDS) }
                 .onFailure { lastError = it }.isSuccess
             if (ok) return c
             Thread.sleep(1_000)

@@ -8,6 +8,7 @@ BIND="$SAT_BIND" env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER
 # 以降のどこで exit 1 しても 2 台目を止める（止めないと古いバイナリが port+1 に残り、次の走りの healthz に答える）。smoke.sh の cleanup に足す
 eval "_st29_base_$(declare -f cleanup)"
 cleanup() { kill "$SAT_SRV" 2>/dev/null || true; _st29_base_cleanup; }
+# timing-ok: 60 回 × 1 秒で、混雑時に長くなる側へだけ外れる起動待ち
 for _ in $(seq 1 60); do curl -sf "http://$SAT_BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$SAT_BIND/healthz" >/dev/null || { echo "ST29 の 2 台目が起動しない"; kill "$SAT_SRV" 2>/dev/null || true; exit 1; }
 

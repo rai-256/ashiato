@@ -18,9 +18,13 @@ const DAY_MS = 86_400_000;
 const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.request().method() === "POST";
 const isIngestReq = (r: Request): boolean => r.url().includes("/api/ingest") && r.method() === "POST";
 
-/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（実際の今日がいつになっても「これから」の側に残る十分先）。 */
+/**
+ * このファイル専用の未来の日。e2e は DB を共有するため、乱数だと別の Scenario が
+ * 同じ日へ書くことがある。順番に割り当てて、同じ run 内の記録を混ぜない。
+ */
+let freshDayOffset = 0;
 function freshDay(): string {
-  return new Date(Date.UTC(2100, 0, 1) + Math.floor(Math.random() * 3000) * DAY_MS).toISOString().slice(0, 10);
+  return new Date(Date.UTC(2100, 0, 1) + freshDayOffset++ * DAY_MS).toISOString().slice(0, 10);
 }
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const at = (day: string, hm: string): Date => new Date(`${day}T${hm}:00+09:00`);
@@ -38,7 +42,7 @@ async function records(page: Page, day: string): Promise<Stored[]> {
 }
 
 async function ready(page: Page): Promise<void> {
-  await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("valence-1")).toBeVisible();
 }
 
 /** 時計を `time` に置いて（以後は進む）、アドレスを開く。 */
@@ -205,6 +209,7 @@ test("記録の無い日に元気さだけを押しても、記録は送られ�
   await openAt(page, at(day, "12:00"), "#/feel");
   await page.getByTestId("energy-2").click();
   await expect(page.getByTestId("energy-2")).toHaveAttribute("aria-pressed", "true");
+  // timing-ok: 送信されないことは観測できる表示条件がなく、固定時間で猶予を置く
   await page.waitForTimeout(500);
   expect(sends.n()).toBe(0);
   expect((await records(page, day)).length - before).toBe(0);
@@ -287,6 +292,7 @@ test("2,001 文字のまま、快・元気さ・欄を離れる・「ひとこ�
     await expect(page.getByTestId("feel-note")).toHaveValue(EMOJI.repeat(2001));
     if (name === "快を押す") await expect(page.getByTestId("valence-1")).toHaveAttribute("aria-pressed", "true");
     if (name === "元気さを押す") await expect(page.getByTestId("energy-1")).toHaveAttribute("aria-pressed", "true");
+    // timing-ok: 送信されないことは観測できる表示条件がなく、固定時間で猶予を置く
     await page.waitForTimeout(300);
     expect(sends.n(), name).toBe(0);
     await page.close();

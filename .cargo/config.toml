@@ -1,0 +1,6 @@
+# Windows（msvc）で組む実行ファイルは VC の実行時（vcruntime140.dll）を静的に持つ。
+# 配る zip の根の ashiato-setup.exe・ashiato-server.exe は、Visual C++ の再頒布パッケージの無い
+# まっさらな Windows で起きなければならない（ST55 design D33（仮）・review N1）。
+# `tools/release/check-artifacts.sh` が、根の 2 つが VC の DLL を読まないことを見る。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

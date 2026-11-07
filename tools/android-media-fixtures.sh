@@ -16,6 +16,7 @@ VIDEO=/sdcard/Movies/ashiato-premise-video.mp4
 # `secure_mkdirs() failed: No such file or directory`、繋がっても書けるようになる前は `mkdir -p` が通るのに
 # `remote couldn't create file: Operation not permitted`（どちらも実測 2026-10-21 CI）。
 # なので置き先を作れるかでなく、**置き先にファイルを書いて消せるか**で待つ
+# timing-ok: 90 回 × 1 秒で、混雑時に長くなる側へだけ外れる端末保存領域待ち
 for i in $(seq 1 90); do
   adb shell 'mkdir -p /sdcard/Pictures /sdcard/Movies && for d in /sdcard/Pictures /sdcard/Movies; do echo x > $d/.ashiato-probe && rm $d/.ashiato-probe || exit 1; done' >/dev/null 2>&1 && break
   [ "$i" = 90 ] && { echo "error: 90 秒待っても /sdcard の置き先に書けない（外部の保存領域が使えるようにならない）" >&2; exit 1; }

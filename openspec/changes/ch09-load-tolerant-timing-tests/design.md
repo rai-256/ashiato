@@ -262,12 +262,20 @@
 - 確かめ: `tools/android-emulator.sh` が通る（全部の計測テスト。`retention` の 1 本で 13 分余りかかる）
 - 反転条件: 30 秒の待ちで計測テストの全体が CI の `android-instrumented` job（`ci.yml:281`。`timeout-minutes` の指定なし）が長くなりすぎるなら、`Tasks.await` を 15 秒に下げる
 
+### D18. 1 回に積む 2,000 件は試験で値を固定し、打ち切りの 60 秒・30 秒は検査を足さない（review/code.md R17）
+
+- `history_large_fetch_keeps_observing_foreground` は製品の定数 `QUEUE_PER_TICK` と比べるだけだったので、定数を大きくすると上限の比べも分け方の下限も一緒に緩んだ。
+  試験の中で `assert_eq!(QUEUE_PER_TICK, 2_000)` を見る（製品は変えない）
+- `ch04_statement_timeout_cancels_a_long_query` の相手 60 秒・上限 30 秒は試験の字面そのもので、一覧の検査には足さない。
+  archive の後は、上限の比べの行（期待の行）を `check_agreed_tests.py` が守る。相手の `pg_sleep(60)` は期待の行でないので守られない
+- 反転条件: 打ち切りの相手と上限も機械で固定したいなら、`check-inventory.sh` に「`pg_sleep(<数>)` が 60 未満・打ち切りの上限が 30 秒未満」を足す
+
 ## Risks / Trade-offs
 
 - [Saving を待つ退行は捕まらない] → D1 で受け入れた。Q1 の別の選択肢で捕まえられる（反転条件）
 - [2 の試験は「1 秒以内に効く」を粗くしか見ない] → 古い間隔・30 秒ごとの読み直しの退行は捕まる（D2）。数秒の遅れは捕まえない。正典の Scenario の文を確かめられる形に書き直し、嘘の印を残さない
 - [期限 30 秒で、本当に壊れた試験は落ちるまでが延びる] → 待ち 1 か所ごとに最大 30 秒（画面は 10 秒）。下流の fix の往復が延びうる（Q5・Q9 の why）
 - [`load-proof.sh before` で再現しない] → `db` の負荷でも試し、それでも出なければ `no` と書く。直した後の 10 回は、そのときは「直したことの証」としては弱い（D7）
-- [`break-check.sh` の作業木の組み立てが遅い] → `CARGO_TARGET_DIR` を元の木と共有する。共有中に元の木で cargo を走らせない（tasks の順で避ける）
+- [`break-check.sh` の作業木の組み立てが遅い] → 受け入れる。壊した木は毎回、使い捨ての木の下の target で組み立てる（元の木や受け継いだ `CARGO_TARGET_DIR` を共有すると、壊した組み立てが成果物を上書きする。review/code.md R9・R25）
 - [走っている st53・st55 と同じファイル] → proposal の Impact。1 行目（SPDX）と別の箇所で、後から merge する側が rebase で追う
 - [範囲を広げた確かめが重い（Q2）] → e2e・計測テスト・縦串・Windows の試験を 1 回ずつ走らせる。計測テストは 20 分前後、Windows は手元の clone で。手元で走らない場所は CI を証にする（D3 の反転条件）

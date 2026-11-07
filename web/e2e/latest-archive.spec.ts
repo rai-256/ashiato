@@ -19,7 +19,7 @@ test("直近に置いた書庫の名前と件数が箱に出る（読み出し�
   const box = page.getByTestId("latest-archive");
   await expect(box).toBeVisible();
   // 読み込み中のまま止まらず、失敗の文にもならない
-  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0, { timeout: 15_000 });
+  await expect(box.getByTestId("archive-row-loading")).toHaveCount(0);
   await expect(box.getByTestId("archive-row-failed")).toHaveCount(0);
   const latest = box.getByTestId("archive-row-latest");
   await expect(latest).toContainText(SEEDED_ARCHIVE);
@@ -35,8 +35,8 @@ test("箱は成功条件 1 の達成の下、最初の格子の上に描かれ�
   const achievement = page.getByTestId("achievement");
   const firstGrid = page.locator("[data-role=grid]").first();
   await expect(box).toBeVisible();
-  await expect(achievement).toBeVisible({ timeout: 15_000 });
-  await expect(firstGrid).toBeVisible({ timeout: 15_000 });
+  await expect(achievement).toBeVisible();
+  await expect(firstGrid).toBeVisible();
   const a = await achievement.boundingBox();
   const b = await box.boundingBox();
   const g = await firstGrid.boundingBox();

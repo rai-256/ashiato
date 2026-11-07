@@ -1625,6 +1625,7 @@ async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_form
 }
 
 /// 走査が台帳の鍵に混ぜる大きさと更新時刻（マイクロ秒に丸める。`scan.rs` の `found_file` と同じ）。
+#[cfg(unix)]
 fn seen_of(path: &Path) -> (i64, chrono::DateTime<chrono::Utc>) {
     let m = std::fs::metadata(path).unwrap();
     let modified: chrono::DateTime<chrono::Utc> = m.modified().unwrap().into();
@@ -6024,8 +6025,11 @@ async fn archive_ledger_atomic_source_row_failure_has_its_own_log_kind() {
     testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
     inbox.spawn(true);
     let text = || String::from_utf8_lossy(&captured_log().0.lock().unwrap().clone()).into_owned();
+    // ログの行が出るのを実時間の期限 30 秒で待つ（design D4）
+    let started = std::time::Instant::now();
+    let deadline = started + std::time::Duration::from_secs(30);
     let mut line = None;
-    for _ in 0..400 {
+    while std::time::Instant::now() < deadline {
         line = text()
             .lines()
             .find(|l| {
@@ -6038,7 +6042,13 @@ async fn archive_ledger_atomic_source_row_failure_has_its_own_log_kind() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
-    let line = line.expect("論理ソースごとの行の失敗がログに出ない");
+    let line = line.unwrap_or_else(|| {
+        panic!(
+            "論理ソースごとの行の失敗がログに出ない: 待った時間 {:?}、最後に見たログの行数 {}",
+            started.elapsed(),
+            text().lines().count()
+        )
+    });
     assert!(
         line.contains(r#"kind="archive_ledger_source""#),
         "論理ソースごとの行の失敗の種別: {line}"
