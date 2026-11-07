@@ -1,0 +1,49 @@
+{
+  "tag": "20261108-0519",
+  "run_id": "20261108-052052-62ca469",
+  "commit": "62ca469a67b917dbb380256159f08d182b97acee",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261108-052052-62ca469",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261108-052052-62ca469",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST56-web-collector-setup",
+      "story": "ST56",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST56-web-collector-setup/video.webm",
+      "trace": "scenarios/ST56-web-collector-setup/trace.zip"
+    },
+    {
+      "id": "ST56-android-collector-setup",
+      "story": "ST56",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST56-android-collector-setup/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST56-windows-collector-setup",
+      "story": "ST56",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Windows の工程が止まった: tools/record-env.sh after-windows が落ちた（logs/windows-ST56-windows-collector-setup/after-windows.log）。後半: passed 0 / failed 1 / skipped 0 / interrupted 0 / Playwright rc=1。通っていないテストがある",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST56-windows-collector-setup/video.webm",
+      "trace": "scenarios/ST56-windows-collector-setup/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "CH10"
+  ]
+}
