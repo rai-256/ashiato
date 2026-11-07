@@ -455,23 +455,6 @@ jobs:
           comm -23 "$RUNNER_TEMP/install-scenarios.expected" "$RUNNER_TEMP/install-scenarios.actual" |
             tee "$RUNNER_TEMP/install-scenarios.missing"
           test ! -s "$RUNNER_TEMP/install-scenarios.missing"
-      # spec の Scenario と印の突き合わせ（scripts/check_scenarios.py）。scripts/ は .harness2/scripts への symlink で、
-      # .harness2 は runner に無い（Windows の checkout では symlink も張れない）。chain の job と同じく token があるときだけ
-      # harness2 を取り、その中の台本を直に走らせる。無ければ warning で素通りする（ローカルの merge_gate が同じ検査を走らせる）
-      - id: harness2
-        shell: bash
-        env: { HARNESS2_TOKEN: "${{ secrets.HARNESS2_TOKEN }}" }
-        run: echo "available=$([ -n "$HARNESS2_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - if: steps.harness2.outputs.available != 'true'
-        shell: bash
-        run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_scenarios を飛ばす（merge_gate がローカルで見る）"
-      - if: steps.harness2.outputs.available == 'true'
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2, persist-credentials: false }
-      - if: steps.harness2.outputs.available == 'true'
-        shell: bash
-        env: { PYTHONIOENCODING: utf-8 }
-        run: python harness2/scripts/check_scenarios.py . st55-server-installer
 
   package-artifacts:
     needs: [changes, package-linux, package-windows]

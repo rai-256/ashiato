@@ -61,9 +61,8 @@ impl WindowsToaster {
     fn show_opening_setup(&self, xml: &str, sound: bool, tag: &'static str) -> anyhow::Result<()> {
         let toast = build_toast_tagged(xml, sound, tag)
             .map_err(|_| anyhow::anyhow!("toast build failed"))?;
-        let exe = std::env::current_exe().context("収集アプリの場所を読めない")?;
         let handler = TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, _| {
-            let _ = spawn_setup_window(&exe);
+            let _ = spawn_setup_window();
             Ok(())
         });
         let token = toast
@@ -155,9 +154,9 @@ fn setup_toast_xml(title: &str, body: &str) -> String {
     )
 }
 
-fn spawn_setup_window(exe: &std::path::Path) -> std::io::Result<std::process::Child> {
+fn spawn_setup_window() -> std::io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt as _;
-    std::process::Command::new(exe)
+    std::process::Command::new(std::env::current_exe()?)
         .arg(crate::SETUP_ARGUMENT)
         .creation_flags(0x0000_0010)
         .spawn()
