@@ -338,6 +338,8 @@ jobs:
             ../tools/android-media-fixtures.sh
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest
             ./gradlew :app:installDebug :app:installDebugAndroidTest
+            adb shell bmgr enable true
+            adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
             adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee /dev/stderr | grep '^OK (1 test)' >/dev/null || { echo "error: St56BackupTest のバックアップ準備が通らない" >&2; exit 1; }
             ../tools/android-backup-roundtrip.sh
             adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee /dev/stderr | grep '^OK (1 test)' >/dev/null || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }

@@ -81,6 +81,8 @@ keep_stage
 # テストプロセスの外で行う。Gradle の connected task は invocation 後に APK を外すので、
 # APK を一度 install してから am instrument を直接呼ぶ。
 (cd collector-android && ./gradlew -q :app:installDebug :app:installDebugAndroidTest)
+adb shell bmgr enable true
+adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
 adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
   dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner
 keep_stage

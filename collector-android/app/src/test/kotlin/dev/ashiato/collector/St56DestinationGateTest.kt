@@ -428,8 +428,9 @@ class St56DestinationGateTest {
             (activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as ViewGroup)
                 .children().filterIsInstance<TextView>()
             ).joinToString(" ") { it.text }
-        assertTrue(text, text.contains("2026-11-01 08:00"))
-        assertTrue(text, text.contains("2026-11-03 21:30"))
+        val zone = java.time.ZoneId.systemDefault()
+        assertTrue(text, text.contains(old.atZone(zone).toLocalDateTime().toString().replace('T', ' ')))
+        assertTrue(text, text.contains(recent.atZone(zone).toLocalDateTime().toString().replace('T', ' ')))
     }
 
     @Test
