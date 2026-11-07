@@ -292,11 +292,11 @@ assert_avd_create() {
 assert_same_avd() {
   local root rc
   new_tree; root=$NEW_ROOT
-  FAKE_EXISTING_DEVICES='R5CT00000:device emulator-5556:device' FAKE_EXISTING_AVD='ashiato-api35' \
+  FAKE_EXISTING_DEVICES='emulator-5554:device' FAKE_EXISTING_AVD='ashiato-api35' \
     run_emulator "$root" '' 1 same-avd >"$root/rc"
   rc=$(cat "$root/rc")
   [ "$rc" -eq 1 ] \
-    && grep -Fq 'error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている（emulator-5556）' "$root/stderr" \
+    && grep -Eq 'error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている（emulator-5554）.*adb -s emulator-5554 emu kill' "$root/stderr" \
     && [ ! -s "$root/run.log" ] \
     && ! grep -q 'emu kill' "$root/adb.log"
 }
