@@ -28,6 +28,7 @@ $start.CreateNoWindow = $true
 $start.RedirectStandardInput = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
+$start.StandardInputEncoding = [Text.Encoding]::ASCII
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo = $start
 [void]$process.Start()

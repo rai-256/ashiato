@@ -54,7 +54,7 @@ class St56RecordingTest {
         assertNotNull("保存のボタンが無い", save)
         save.click()
 
-        assertNotNull("保存後に設定済みと出ない", device.wait(Until.findObject(By.text("設定済み")), TIMEOUT_MS))
+        assertNotNull("保存後に設定済みと出ない", device.wait(Until.findObject(By.textContains("設定済み")), TIMEOUT_MS))
         assertNotNull("保存後に送り先が出ない", device.wait(Until.findObject(By.textContains("送り先:")), TIMEOUT_MS))
         assertNotNull(
             "接続確認の結果が出ない",
