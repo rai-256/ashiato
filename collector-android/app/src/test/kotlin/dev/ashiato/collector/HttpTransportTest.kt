@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.ServerSocket
-import java.net.Socket
-import kotlin.concurrent.thread
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -13,6 +8,11 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.ServerSocket
+import java.net.Socket
+import kotlin.concurrent.thread
 
 /**
  * 送信に**資格情報が付く**（tasks 9.9 / PERM-10 /
@@ -67,11 +67,13 @@ class HttpTransportTest {
 
         val (status, payload) = reply
         val bytes = payload.toByteArray(Charsets.UTF_8)
+        val extraHeaders = replyHeaders.entries.joinToString("") { "${it.key}: ${it.value}\r\n" }
         socket.getOutputStream().apply {
             write(
-                ("HTTP/1.1 $status X\r\ncontent-type: application/json\r\n" +
-                    replyHeaders.entries.joinToString("") { "${it.key}: ${it.value}\r\n" } +
-                    "content-length: ${bytes.size}\r\nconnection: close\r\n\r\n").toByteArray()
+                (
+                    "HTTP/1.1 $status X\r\ncontent-type: application/json\r\n" +
+                        extraHeaders + "content-length: ${bytes.size}\r\nconnection: close\r\n\r\n"
+                    ).toByteArray()
             )
             write(bytes)
             flush()
@@ -172,5 +174,24 @@ class HttpTransportTest {
     fun `既定の送り先は ingest`() {
         HttpTransport(baseUrl, "t").post("[]")
         assertTrue("既定が /ingest でない: ${sent().line}", sent().line.startsWith("POST /ingest "))
+    }
+
+    @Test
+    fun `送り先と資格情報を要求ごとに読み直す`() {
+        // Scenario: 貼った設定の文字列の送り先と資格情報で送る
+        var currentUrl = baseUrl
+        var currentToken = "first-token"
+        val transport = HttpTransport({ currentUrl }, { currentToken })
+
+        transport.post("[]")
+        currentUrl = "$baseUrl/second"
+        currentToken = "second-token"
+        transport.post("[]")
+
+        assertEquals(2, requests.size)
+        assertEquals("Bearer first-token", requests[0].headers["authorization"])
+        assertEquals("Bearer second-token", requests[1].headers["authorization"])
+        assertTrue(requests[0].line.startsWith("POST /ingest "))
+        assertTrue(requests[1].line.startsWith("POST /second/ingest "))
     }
 }

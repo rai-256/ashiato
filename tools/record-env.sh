@@ -257,6 +257,7 @@ EOF
       # Sandbox の網は切ってある（windows.networking）。収集アプリは送れずに未送信に積み、閉じた後に after-windows が送る。
       # 接続先は Sandbox の中で誰も待ち受けていない loopback。置き場は Sandbox の書く側（閉じた後に読める）
       echo "WINDOWS_PAYLOAD=$STATE/windows-payload"
+      echo "WINDOWS_ENV_ASHIATO_CONFIG_FROM_ENV=1"
       echo "WINDOWS_ENV_ASHIATO_BASE_URL=http://127.0.0.1:9"
       echo "WINDOWS_ENV_ASHIATO_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
       echo "WINDOWS_ENV_ASHIATO_USER_ID=00000000-0000-0000-0000-000000000000"

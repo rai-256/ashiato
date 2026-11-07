@@ -27,6 +27,7 @@ pub mod config;
 pub mod contract;
 pub mod contract_gate;
 pub mod contract_notice;
+pub mod destination_gate;
 pub mod engine;
 pub mod exclusion;
 pub mod fsutil;
@@ -39,7 +40,10 @@ pub mod outbox;
 #[cfg(windows)]
 pub mod platform;
 pub mod runtime;
+pub mod secret;
 pub mod sender;
+pub mod setup;
+pub mod setup_string;
 pub mod telemetry;
 pub mod time_sync;
 #[cfg(windows)]
@@ -49,6 +53,10 @@ pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**
 pub const LOGICAL_SOURCE: &str = "c02-window";
+/// 未設定通知を押したときに新しい setup 窓へ渡す起動引数。
+pub const SETUP_ARGUMENT: &str = "setup";
+/// 設定のない起動時に、コンソールで貼り付けを促す文。
+pub const SETUP_PROMPT: &str = "画面の設定の『収集アプリの設定』で出した文字列を貼ってください";
 
 /// 生存信号の間隔。**登録簿の `c02-window.expected_gap_sec` と同じ値**
 /// （`migrations/202609111111_coverage_rebuild.sql` の 21600 秒 = 6 時間）。

@@ -39,9 +39,9 @@ class CollectionThreadTest {
 
         controller.create().startCommand(0, 1)
 
-        // 預かったのは**ソースの数**と、健康データの権限の 2 本（ST11: 画面が預けた記録を積む・使えるかを読む）。
-        // 1 本も主糸で走っていない
-        assertEquals(SourceCadence.entries.size + 2, service.parked.size)
+        // 預かったのは**ソースの数**と、健康データの権限の 2 本（ST11: 画面が預けた記録を積む・使えるかを読む）と、
+        // 送り先の保留のための未送信の数え（ST56 review/code.md R15）。1 本も主糸で走っていない
+        assertEquals(SourceCadence.entries.size + 3, service.parked.size)
         assertEquals("主糸で取得元へ登録している", 0, service.source.starts)
 
         // 預かった分を回せば、いつもどおり取得が走る

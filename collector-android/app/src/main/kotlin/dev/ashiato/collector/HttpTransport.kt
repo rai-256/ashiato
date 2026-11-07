@@ -12,8 +12,8 @@ import java.net.URL
  * 例外は種別だけに畳む。文言は送った本文を含むことがあり、ログへ流すと私的データが漏れる。
  */
 class HttpTransport(
-    baseUrl: String,
-    private val token: String,
+    private val baseUrl: () -> String,
+    private val token: () -> String,
     /**
      * 送り先の道。**受け口ごとに違う**（design D9）—— `/ingest` は記録のエンベロープを
      * 必須にしており、生存信号はそのどれも持たない。混ぜると片方のために必須の欄が緩む。
@@ -23,18 +23,24 @@ class HttpTransport(
     private val monoClock: () -> Long = { SystemClock.elapsedRealtime() },
     private val wallClock: () -> Long = { System.currentTimeMillis() },
 ) : Transport {
-    /** 末尾のスラッシュを落としてから組み立てる。`https://host/` が渡ると `//ingest` になり、
-     *  404 が返り続けて**収集は動いているのに 1 件も届かない**状態が黙って続く（review R22）。 */
-    private val baseUrl = baseUrl.trimEnd('/')
+    constructor(
+        baseUrl: String,
+        token: String,
+        path: String = "/ingest",
+        monoClock: () -> Long = { SystemClock.elapsedRealtime() },
+        wallClock: () -> Long = { System.currentTimeMillis() },
+    ) : this({ baseUrl }, { token }, path, monoClock, wallClock)
 
     /**
      * `s01-date` の宛先の `host:port`（ST05 / design D2）。**コンストラクタでは読まない** ——
      * 不正な `BASE_URL` で `URL()` が投げるとサービスの起動が落ち、`START_STICKY` で落ち続ける。
      * 読むのは応答を受け取った後（そのときは `post()` の `URL()` が既に通っている）。読めなければ null（review R1）。
      */
-    private val hostPort: String? by lazy {
-        runCatching { URL(this.baseUrl).let { u -> if (u.port >= 0) "${u.host}:${u.port}" else u.host } }.getOrNull()
-    }
+    private fun currentBaseUrl(): String = baseUrl().trimEnd('/')
+
+    private fun currentHostPort(): String? = runCatching {
+        URL(currentBaseUrl()).let { u -> if (u.port >= 0) "${u.host}:${u.port}" else u.host }
+    }.getOrNull()
 
     override fun post(bodyJson: String): Outcome = post(bodyJson, CONTRACT_VERSION)
 
@@ -43,13 +49,13 @@ class HttpTransport(
         var conn: HttpURLConnection? = null
         val monoBefore = monoClock()
         return try {
-            conn = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
+            conn = (URL("${currentBaseUrl()}$path").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15_000
                 readTimeout = 15_000
                 doOutput = true
                 setRequestProperty("content-type", "application/json")
-                setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty("authorization", "Bearer ${token()}")
                 setRequestProperty(CONTRACT_HEADER, contractVersion.toString())
             }
             conn.outputStream.use { it.write(bodyJson.toByteArray(Charsets.UTF_8)) }
@@ -64,7 +70,7 @@ class HttpTransport(
             // 壁時計は**単調時計の前後の間**で読む（Scenario「差に使う端末の時計は基準を読む前後の間で読む」。review R6）
             val wall = wallClock()
             val monoAfter = monoClock()
-            Outcome.Responded(status, body, date, monoBefore, monoAfter, wall, hostPort, headers)
+            Outcome.Responded(status, body, date, monoBefore, monoAfter, wall, currentHostPort(), headers)
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
         } finally {
@@ -79,11 +85,11 @@ class HttpTransport(
     fun get(query: String = ""): Outcome {
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL("$baseUrl$path$query").openConnection() as HttpURLConnection).apply {
+            conn = (URL("${currentBaseUrl()}$path$query").openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = GET_TIMEOUT_MS
                 readTimeout = GET_TIMEOUT_MS
-                setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty("authorization", "Bearer ${token()}")
             }
             val status = conn.responseCode
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream

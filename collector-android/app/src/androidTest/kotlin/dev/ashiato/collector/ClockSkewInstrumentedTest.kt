@@ -4,7 +4,6 @@ package dev.ashiato.collector
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -87,7 +86,7 @@ class ClockSkewInstrumentedTest {
     @Test
     fun startingTheServiceQueuesOneClockRecordWithEveryReferenceAccountedFor() {
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).close()
+        launchMainSkippingSetup().close()
         waitFor("start の測定記録が未送信に積まれる") { clockRecords().any { trigger(it) == "start" } }
 
         val start = clockRecords().first { trigger(it) == "start" }
@@ -105,7 +104,7 @@ class ClockSkewInstrumentedTest {
     @Test
     fun changingTheDeviceClockQueuesATimeSetRecordRightAway() {
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).close()
+        launchMainSkippingSetup().close()
         waitFor("start の測定記録が未送信に積まれる") { clockRecords().any { trigger(it) == "start" } }
         val before = clockRecords().count { trigger(it) == "time_set" }
 

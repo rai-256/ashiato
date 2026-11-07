@@ -106,6 +106,8 @@ pub struct SendOutcome {
     /// **その回に断られたかでなく、残っているかで立てる** —— 断られた行を飛ばして新しい行が受け付けられた回に
     /// 待ちを抜けると、通知が消えて次の契機で出直す（final review R2）
     pub rejected_by_version: bool,
+    /// HTTP 応答の状態符号。接続できなかった場合は `None`。
+    pub response_status: Option<u16>,
 }
 
 /// 1 件ごとの結果（送った順に並ぶ。**位置で対応づける**）。
@@ -255,6 +257,7 @@ impl Sender {
                 });
             }
         };
+        self.last.response_status = Some(reply.status);
 
         // **426 は何も取り除かない**（捨てない側。飛ばす印も付けない。design D4・D17）
         if reply.status == 426 {
@@ -362,8 +365,8 @@ pub fn agent() -> ureq::Agent {
 
 /// 実際に HTTP を叩く係。**TLS を持たない**（design D16。オンプレ前提）。
 pub struct HttpTransport {
-    base_url: String,
-    token: String,
+    base_url: std::cell::RefCell<String>,
+    token: std::cell::RefCell<String>,
     agent: ureq::Agent,
 }
 
@@ -371,7 +374,7 @@ pub struct HttpTransport {
 impl std::fmt::Debug for HttpTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpTransport")
-            .field("base_url", &self.base_url)
+            .field("base_url", &self.base_url.borrow())
             .field("token", &"***")
             .finish()
     }
@@ -381,20 +384,25 @@ impl HttpTransport {
     /// 接続先と合言葉。
     pub fn new(base_url: &str, token: &str) -> Self {
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
-            token: token.to_string(),
+            base_url: std::cell::RefCell::new(base_url.trim_end_matches('/').to_string()),
+            token: std::cell::RefCell::new(token.to_string()),
             agent: agent(),
         }
+    }
+
+    pub fn reload(&self, base_url: &str, token: &str) {
+        *self.base_url.borrow_mut() = base_url.trim_end_matches('/').to_string();
+        *self.token.borrow_mut() = token.to_string();
     }
 }
 
 impl Transport for HttpTransport {
     fn post(&self, path: &str, body: &str, contract_version: u32) -> anyhow::Result<Reply> {
-        let url = format!("{}{path}", self.base_url);
+        let url = format!("{}{path}", self.base_url.borrow());
         let mut res = self
             .agent
             .post(&url)
-            .header("authorization", &format!("Bearer {}", self.token))
+            .header("authorization", &format!("Bearer {}", self.token.borrow()))
             .header("ashiato-contract-version", &contract_version.to_string())
             .header("content-type", "application/json")
             .send(body)
@@ -411,11 +419,11 @@ impl Transport for HttpTransport {
     }
 
     fn get(&self, path: &str) -> anyhow::Result<Reply> {
-        let url = format!("{}{path}", self.base_url);
+        let url = format!("{}{path}", self.base_url.borrow());
         let mut res = self
             .agent
             .get(&url)
-            .header("authorization", &format!("Bearer {}", self.token))
+            .header("authorization", &format!("Bearer {}", self.token.borrow()))
             .call()
             .map_err(|e| anyhow::anyhow!("get failed: {}", e))?;
         let status = res.status().as_u16();
@@ -439,8 +447,9 @@ pub const OUTAGE_QUERY_TIMEOUT_SEC: u64 = 10;
 /// `GET /outages?device_id=&user_id=`（ST14 / design D6・D29（仮））。届かない・読めないは `Unreachable`。
 /// 利用者を付けないとサーバは既定の利用者で判定する（review/code.md R13）。
 pub struct HttpOutageQuery {
-    base_url: String,
-    token: String,
+    /// 送り先を読み直したら差し替える（review/code.md R9）
+    base_url: std::sync::RwLock<String>,
+    token: std::sync::RwLock<String>,
     user_id: uuid::Uuid,
     agent: ureq::Agent,
 }
@@ -449,7 +458,7 @@ pub struct HttpOutageQuery {
 impl std::fmt::Debug for HttpOutageQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpOutageQuery")
-            .field("base_url", &self.base_url)
+            .field("base_url", &self.base_url())
             .field("token", &"***")
             .field("user_id", &self.user_id)
             .finish()
@@ -466,11 +475,41 @@ impl HttpOutageQuery {
             .build()
             .new_agent();
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
-            token: token.to_string(),
+            base_url: std::sync::RwLock::new(base_url.trim_end_matches('/').to_string()),
+            token: std::sync::RwLock::new(token.to_string()),
             user_id,
             agent,
         }
+    }
+
+    /// 設定を保存し直したら、次の問い合わせから新しい送り先と資格情報を使う（D11。review/code.md R9）。
+    pub fn reload(&self, base_url: &str, token: &str) {
+        *self
+            .base_url
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            base_url.trim_end_matches('/').to_string();
+        *self
+            .token
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = token.to_string();
+    }
+
+    /// いま問い合わせる先（試験が読み直しを確かめる）。
+    pub fn base_url(&self) -> String {
+        self.base_url
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn bearer(&self) -> String {
+        format!(
+            "Bearer {}",
+            self.token
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        )
     }
 }
 
@@ -478,10 +517,10 @@ impl crate::outage_notice::OutageQuery for HttpOutageQuery {
     fn fetch(&self, device_id: &str) -> crate::outage_notice::OutageResult {
         let sent = self
             .agent
-            .get(&format!("{}/outages", self.base_url))
+            .get(&format!("{}/outages", self.base_url()))
             .query("device_id", device_id)
             .query("user_id", self.user_id.to_string())
-            .header("authorization", &format!("Bearer {}", self.token))
+            .header("authorization", &self.bearer())
             .call();
         let Ok(mut res) = sent else {
             return crate::outage_notice::OutageResult::Unreachable;
@@ -503,6 +542,16 @@ mod tests {
     use super::*;
     use crate::contract::{IngestRequest, RecordKind, WindowPayload};
     use std::cell::RefCell;
+
+    /// 設定を読み直したら、途切れの問い合わせも新しい送り先と資格情報を使う（review/code.md R9）。
+    #[test]
+    fn st56_outage_query_follows_reloaded_destination() {
+        let query = HttpOutageQuery::new("https://a.example/api", "token-a", uuid::Uuid::nil());
+        query.reload("https://b.example/api/", "token-for-test-0123456789");
+        assert_eq!(query.base_url(), "https://b.example/api");
+        assert_eq!(query.bearer(), "Bearer token-for-test-0123456789");
+        assert!(!format!("{query:?}").contains("token-for-test-0123456789"));
+    }
 
     /// 試験の最後まで `TempDir` を持つ（落ちても消える）。
     fn tmp_path() -> (tempfile::TempDir, std::path::PathBuf) {

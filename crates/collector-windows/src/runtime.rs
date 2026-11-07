@@ -32,6 +32,7 @@ use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
 use crate::contract_gate::ContractGate;
 use crate::contract_notice::ContractNotice;
+use crate::destination_gate::{self, State as DestinationState};
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
@@ -86,6 +87,12 @@ pub struct ClockInputs {
 
 /// 収集の本体。
 pub struct Runtime<'a> {
+    destination_enabled: bool,
+    destination_state: DestinationState,
+    /// 印（`--config-from-env`）で起動した。送り先は承認したものとして門を開け、「届かない」は鳴らさない（D13。R11）
+    config_from_env: bool,
+    /// 「送り先が設定されていません」の知らせ（24 時間ごとに出し直し、設定したら消す。R7）
+    setup_notice: SetupNotice,
     user_id: uuid::Uuid,
     device_id: String,
     zone: Zone,
@@ -109,6 +116,7 @@ pub struct Runtime<'a> {
     outage: Option<OutagePoller>,
     /// 「サーバを更新してください」の通知係（ST50 / design D5）。付けなければ通知は出ない
     contract_notice: Option<ContractNotice>,
+    destination_toaster: Option<Arc<dyn destination_gate::DestinationToaster>>,
     /// 系統の違いの通知係（D12（仮））。契約の版の通知とは別の札を使う。
     channel_notice: Option<ChannelNotice>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
@@ -212,12 +220,63 @@ impl HistoryBeat {
     }
 }
 
+/// 「送り先が設定されていません」の知らせの状態（プロセスの中だけ。起動したら 1 度出す）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupNotice {
+    /// 設定済みで、知らせは出ていない
+    Configured,
+    /// 設定済みになったが、前に出した知らせが残っている（次の見回りで消す）
+    ConfiguredWhileShown,
+    /// 未設定。最後に出した時刻
+    Unset(Option<DateTime<Utc>>),
+}
+
+impl SetupNotice {
+    /// 読み直した設定で状態を進める。
+    fn with_setup(self, needs_setup: bool) -> Self {
+        match (needs_setup, self) {
+            (true, Self::Unset(last)) => Self::Unset(last),
+            (true, _) => Self::Unset(None),
+            (false, Self::Unset(Some(_)) | Self::ConfiguredWhileShown) => {
+                Self::ConfiguredWhileShown
+            }
+            (false, _) => Self::Configured,
+        }
+    }
+}
+
+/// 送ってよいか。印で渡した送り先は承認したものとして扱う（D13。review/code.md R11）。
+fn destination_open(
+    cfg: &Config,
+    store: &destination_gate::Store,
+    state: &DestinationState,
+    pending: usize,
+) -> bool {
+    (cfg.config_from_env
+        || !store.exists()
+        || destination_gate::allows(state, &cfg.base_url, pending))
+        && !cfg.base_url.is_empty()
+        && !cfg.api_token.is_empty()
+}
+
 fn info(line: String) {
     // log-ok: 呼び出し元は telemetry::line の行だけを渡す（件数・所要時間・種別しか受け取らない組み立て）
     tracing::info!("{line}");
 }
 
 impl<'a> Runtime<'a> {
+    /// `setup` の別プロセス保存を次の送信契機へ反映する。
+    pub fn reload_config(&mut self, cfg: &Config) -> anyhow::Result<()> {
+        let store = destination_gate::Store::new(&cfg.state_dir);
+        self.destination_state = store.load()?;
+        let pending = self.pending_count();
+        self.destination_enabled = destination_open(cfg, &store, &self.destination_state, pending);
+        self.config_from_env = cfg.config_from_env;
+        self.setup_notice = self.setup_notice.with_setup(cfg.needs_setup());
+        self.user_id = cfg.user_id;
+        self.device_id = cfg.device_id.clone();
+        Ok(())
+    }
     /// 置き場を開き、数えを読み戻す。
     ///
     /// **未送信の置き場が読めないときだけは起動しない** —— 読めないまま進むと、
@@ -258,7 +317,24 @@ impl<'a> Runtime<'a> {
                 ));
             }
         }
+        let destination_store = destination_gate::Store::new(&cfg.state_dir);
+        let (destination_state, broken_destination) = destination_store.load_or_quarantine()?;
+        if broken_destination {
+            info(telemetry::line(
+                "destination_state_quarantined",
+                Some(1),
+                None,
+                None,
+            ));
+        }
+        let pending = events.len() + beats.len() + destination_gate::pending_drops(&cfg.state_dir);
+        let destination_enabled =
+            destination_open(cfg, &destination_store, &destination_state, pending);
         Ok(Self {
+            destination_enabled,
+            destination_state,
+            config_from_env: cfg.config_from_env,
+            setup_notice: SetupNotice::Configured.with_setup(cfg.needs_setup()),
             user_id: cfg.user_id,
             device_id: cfg.device_id.clone(),
             zone,
@@ -276,6 +352,7 @@ impl<'a> Runtime<'a> {
             clock_worker: None,
             outage: None,
             contract_notice: None,
+            destination_toaster: None,
             channel_notice: None,
             #[cfg(test)]
             settle_clock_worker: true,
@@ -317,6 +394,13 @@ impl<'a> Runtime<'a> {
     /// 「サーバを更新してください」の通知係を付ける。**付けなければ通知は出ない**（収集は続く）。
     pub fn set_contract_notice(&mut self, notice: ContractNotice) {
         self.contract_notice = Some(notice);
+    }
+
+    pub fn set_destination_toaster(
+        &mut self,
+        toaster: Arc<dyn destination_gate::DestinationToaster>,
+    ) {
+        self.destination_toaster = Some(toaster);
     }
 
     /// 系統の違いの通知係を付ける。
@@ -433,11 +517,52 @@ impl<'a> Runtime<'a> {
         }
 
         // 4. 契機（**単調時計で測る**）
-        self.maybe_measure_skew(wall, mono, &*source);
+        if self.destination_enabled {
+            self.maybe_measure_skew(wall, mono, &*source);
+        }
         self.maybe_beat(wall, mono);
         self.maybe_history(wall);
         self.maybe_history_beat(wall, mono);
-        self.maybe_send(wall, mono);
+        self.maybe_setup_notice(wall);
+        if self.destination_enabled {
+            self.maybe_send(wall, mono);
+        } else {
+            let mut log = self.log;
+            self.emit_destination_notice(wall, &mut log);
+        }
+    }
+
+    /// 未設定の間は「送り先が設定されていません」を 24 時間ごとに出し直し、設定したら消す（spec。review/code.md R7）。
+    fn maybe_setup_notice(&mut self, now: DateTime<Utc>) {
+        match self.setup_notice {
+            SetupNotice::Configured => {}
+            SetupNotice::ConfiguredWhileShown => {
+                self.setup_notice = SetupNotice::Configured;
+                if let Some(toaster) = &self.destination_toaster {
+                    if toaster.dismiss_setup().is_err() {
+                        (self.log)(telemetry::line(
+                            "setup_notice_dismiss_failed",
+                            None,
+                            None,
+                            Some("setup"),
+                        ));
+                    }
+                }
+            }
+            SetupNotice::Unset(last) => {
+                if last.is_some_and(|at| now - at < destination_gate::RENOTIFY_AFTER) {
+                    return;
+                }
+                let shown = self
+                    .destination_toaster
+                    .as_ref()
+                    .is_none_or(|toaster| toaster.show_setup().is_ok());
+                if shown {
+                    (self.log)(telemetry::line("setup_notice", None, None, Some("setup")));
+                    self.setup_notice = SetupNotice::Unset(Some(now));
+                }
+            }
+        }
     }
 
     /// 終わるときに手元のものを吐き出す（除外の数えを抱えたまま消さない）。
@@ -468,7 +593,9 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
-        self.send();
+        if self.destination_enabled {
+            self.send();
+        }
     }
 
     /// 溜まっている件数（記録・生存信号）。
@@ -600,6 +727,9 @@ impl<'a> Runtime<'a> {
 
     /// 時計の測定の契機で途切れを問い合わせる（測り直しは契機ではない）。待たない。
     fn poll_outages(&mut self) {
+        if !self.destination_enabled {
+            return;
+        }
         if self.skew_trigger == ClockTrigger::Retry {
             return;
         }
@@ -832,9 +962,25 @@ impl<'a> Runtime<'a> {
     fn send_at(&mut self, now: DateTime<Utc>) {
         let log = self.log;
         let mut log = |line: String| log(line);
-        let reply = self.transport.get("/contract");
-        let channel = crate::sender::read_contract_channel(&reply);
-        let answer = read_contract_answer(&reply);
+        let pending = self.pending_count();
+        if !self.destination_enabled {
+            log(telemetry::line(
+                "send_held",
+                Some(pending),
+                None,
+                Some("destination"),
+            ));
+            return;
+        }
+        let contract_reply = self.transport.get("/contract");
+        destination_gate::observe_response(
+            &mut self.destination_state,
+            contract_reply.as_ref().ok().map(|reply| reply.status),
+            now,
+        );
+        self.save_destination_state();
+        let channel = crate::sender::read_contract_channel(&contract_reply);
+        let answer = read_contract_answer(&contract_reply);
         if let Some(server) = channel {
             if server != self.channel {
                 if self.channel_mismatch_logged != Some(server) {
@@ -885,6 +1031,14 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
+        let ingest_outcome = self.ingest.last_outcome();
+        if ingest_outcome.posted {
+            destination_gate::observe_response(
+                &mut self.destination_state,
+                ingest_outcome.response_status,
+                now,
+            );
+        }
         let sent = self
             .beat_sender
             .flush(&mut self.beats, self.transport, accepted, &mut log);
@@ -896,6 +1050,16 @@ impl<'a> Runtime<'a> {
                 Some(telemetry::error_kind(&e)),
             ));
         }
+        let beat_outcome = self.beat_sender.last_outcome();
+        if beat_outcome.posted {
+            destination_gate::observe_response(
+                &mut self.destination_state,
+                beat_outcome.response_status,
+                now,
+            );
+        }
+        self.save_destination_state();
+        self.emit_destination_notice(now, &mut log);
         let outcomes = [self.ingest.last_outcome(), self.beat_sender.last_outcome()];
         if self.contract_gate.observe(answer, now, &outcomes, &mut log) {
             // 待っている状態を抜けた。断られた印のせいで先頭に居座らせない（design D14）
@@ -923,6 +1087,114 @@ impl<'a> Runtime<'a> {
             };
             notice.after_send(&mut self.contract_gate, now, oldest, &mut log);
         }
+    }
+
+    fn save_destination_state(&mut self) {
+        let store = destination_gate::Store::new(&self.state_dir);
+        // `setup` は別プロセスで承認 URL を保存する。送信中にその保存が
+        // 起きても、巡回開始時の古い state 全体で上書きしない。
+        if let Ok(persisted) = store.load() {
+            if persisted.setup_saved_at > self.destination_state.setup_saved_at {
+                // 見回りの間に設定が保存し直された。保存は数えを消して起点を置き直すので、この契機の
+                // 観測で書き戻さない（届かない・断られの数えを復活させない。review/code.md R10）
+                self.destination_state = persisted;
+            } else {
+                // 承認と保留は `setup` の持ち物。見回りが握っている古い値で書き戻さない —— y の後に
+                // 「確認を待っています」が出続ける（review/code.md R36）
+                if persisted.approved_url.is_some() {
+                    self.destination_state.approved_url = persisted.approved_url;
+                }
+                self.destination_state.destination_notified_at = persisted.destination_notified_at;
+                // `setup` の確かめが書いた「届いた」を、見回りの古い値で消さない（review/code.md R44）
+                self.destination_state.first_response_at = self
+                    .destination_state
+                    .first_response_at
+                    .or(persisted.first_response_at);
+                if persisted.destination_notified_at.is_none() {
+                    self.destination_state.destination_notice_at = None;
+                }
+            }
+        }
+        // 環境変数起動や初回起動の一時的な失敗だけで「承認済み送り先なし」の
+        // 門を作らない。設定副命令が作った state、または承認済み送り先がある
+        // state だけを再起動越しに保持する。
+        if self.destination_state.approved_url.is_none() && !store.exists() {
+            return;
+        }
+        if let Err(error) = store.save(&self.destination_state) {
+            (self.log)(telemetry::line(
+                "destination_state_save_failed",
+                None,
+                None,
+                Some(telemetry::error_kind(&error)),
+            ));
+        }
+    }
+
+    fn emit_destination_notice(&mut self, now: DateTime<Utc>, log: &mut dyn FnMut(String)) {
+        if destination_gate::destination_notice(&self.destination_state, now) {
+            let shown = self.destination_toaster.as_ref().is_none_or(|toaster| {
+                toaster
+                    .show_destination_hold(destination_gate::HOLD_TEXT)
+                    .is_ok()
+            });
+            if shown {
+                log(telemetry::line(
+                    "destination_notice",
+                    None,
+                    None,
+                    Some("destination"),
+                ));
+                self.destination_state.destination_notice_at = Some(now);
+                self.save_destination_state();
+            }
+        }
+        // 印で渡した送り先には「届かない」を当てない（spec。前の `setup` の状態が残っていても。R10）。
+        // 門が閉じている間（保留・未設定）は送らず答えも受けないので、「届かない」を数えない（review/code.md R21・R33）
+        let kind = destination_gate::notice_kind(&self.destination_state, now).filter(|kind| {
+            !((self.config_from_env || !self.destination_enabled)
+                && *kind == destination_gate::NoticeKind::Unreachable)
+        });
+        if let Some(kind) = kind {
+            let kind_name = match kind {
+                destination_gate::NoticeKind::Auth => "auth",
+                destination_gate::NoticeKind::Unreachable => "unreachable",
+            };
+            let message = match kind {
+                destination_gate::NoticeKind::Auth => destination_gate::AUTH_TEXT,
+                destination_gate::NoticeKind::Unreachable => destination_gate::UNREACHABLE_TEXT,
+            };
+            let shown = self
+                .destination_toaster
+                .as_ref()
+                .is_none_or(|toaster| toaster.show_destination(kind, message).is_ok());
+            if shown {
+                log(telemetry::line(
+                    "destination_notice",
+                    None,
+                    None,
+                    Some(kind_name),
+                ));
+                match kind {
+                    destination_gate::NoticeKind::Auth => {
+                        self.destination_state.auth_notified_at = Some(now)
+                    }
+                    destination_gate::NoticeKind::Unreachable => {
+                        self.destination_state.unreachable_notified_at = Some(now)
+                    }
+                }
+                self.save_destination_state();
+            }
+        }
+    }
+
+    /// 未送信の数。記録と生存信号は手元の待ち行列から数え、破棄の報告だけを置き場から数える
+    /// （見回りのたびに未送信の置き場を全部読み直さない。review/code.md R38・R39）。
+    fn pending_count(&self) -> usize {
+        self.events.len()
+            + self.beats.len()
+            + self.unsaved.len()
+            + destination_gate::pending_drops(&self.state_dir)
     }
 }
 
@@ -1017,6 +1289,9 @@ mod tests {
             user_id: uuid::Uuid::nil(),
             device_id: "dev-1".into(),
             state_dir: tmp.path().join("state"),
+            settings_mtime: None,
+            credential_mtime: None,
+            config_from_env: false,
             exclusions_path: tmp.path().join("state/exclusions.json"),
             launch_state_dir: tmp.path().join("state"),
             launch_device_id: "dev-1".into(),
@@ -1117,6 +1392,31 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct Unauthorized {
+        attempts: RefCell<usize>,
+    }
+
+    impl Transport for Unauthorized {
+        fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+            self.attempts.replace_with(|n| *n + 1);
+            Ok(Reply {
+                status: 401,
+                body: String::new(),
+                headers: Default::default(),
+            })
+        }
+
+        fn post(&self, _path: &str, _body: &str, _version: u32) -> anyhow::Result<Reply> {
+            self.attempts.replace_with(|n| *n + 1);
+            Ok(Reply {
+                status: 401,
+                body: String::new(),
+                headers: Default::default(),
+            })
+        }
+    }
+
     /// 偽の取り込み口が受け取った本文の中身（`path` の分だけ）。
     fn sent(t: &AcceptAll, path: &str) -> Vec<serde_json::Value> {
         t.bodies
@@ -1182,7 +1482,7 @@ mod tests {
     fn runtime<'a>(
         cfg: &Config,
         engine: Engine,
-        transport: &'a AcceptAll,
+        transport: &'a dyn Transport,
         reference: &'a FixedReference,
     ) -> Runtime<'a> {
         Runtime::new(
@@ -1206,6 +1506,566 @@ mod tests {
         for sec in (from..=to).step_by(step) {
             rt.tick_at(src, t(sec), t(sec));
         }
+    }
+
+    // Scenario: 設定が無くても起動して前景の窓を積む
+    // Scenario: 設定の無い起動は窓で貼らせ、待つ間も収集する
+    #[test]
+    fn st56_runtime_collects_without_destination() {
+        let (mut cfg, tmp) = cfg();
+        cfg.base_url.clear();
+        cfg.api_token.clear();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let mut source = FakeSource::new("editor");
+
+        rt.start(&source);
+        rt.tick_at(&mut source, t(0), t(0));
+
+        assert_eq!(
+            crate::SETUP_PROMPT,
+            "画面の設定の『収集アプリの設定』で出した文字列を貼ってください"
+        );
+        assert!(rt.pending().0 >= 1, "前景の窓が未送信に積まれていない");
+        assert!(transport.bodies.borrow().is_empty(), "送り先なしで送信した");
+        let pending_before_paste = rt.pending().0;
+
+        let setup = "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9";
+        cfg.save_setup_string(setup).expect("貼った設定を保存");
+        let loaded = Config::from_sources(
+            &[],
+            |key| {
+                (key == "ASHIATO_STATE_DIR")
+                    .then(|| tmp.path().join("state").to_string_lossy().into_owned())
+            },
+            None,
+            ashiato_build_stamp::channel(env!("ASHIATO_VERSION")),
+        )
+        .expect("貼った設定を再読込");
+        assert_eq!(loaded.base_url, "https://pc.example.ts.net/api");
+        assert_eq!(loaded.api_token, "token-for-test-0123456789");
+        assert!(
+            rt.pending().0 >= pending_before_paste,
+            "設定を待つ間の記録を保持する"
+        );
+    }
+
+    /// 受けた知らせを覚える偽の差出人。
+    #[derive(Debug, Default)]
+    struct RecordingToaster {
+        shown: std::sync::Mutex<Vec<String>>,
+        setup_shown: std::sync::atomic::AtomicUsize,
+        setup_dismissed: std::sync::atomic::AtomicUsize,
+    }
+
+    impl destination_gate::DestinationToaster for RecordingToaster {
+        fn show_destination(
+            &self,
+            _kind: destination_gate::NoticeKind,
+            message: &str,
+        ) -> anyhow::Result<()> {
+            self.shown.lock().unwrap().push(message.to_owned());
+            Ok(())
+        }
+        fn show_destination_hold(&self, message: &str) -> anyhow::Result<()> {
+            self.shown.lock().unwrap().push(message.to_owned());
+            Ok(())
+        }
+        fn show_setup(&self) -> anyhow::Result<()> {
+            self.setup_shown
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+        fn dismiss_setup(&self) -> anyhow::Result<()> {
+            self.setup_dismissed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    /// どこにも届かない口。
+    #[derive(Debug, Default)]
+    struct Offline;
+
+    impl Transport for Offline {
+        fn get(&self, _path: &str) -> anyhow::Result<Reply> {
+            anyhow::bail!("offline")
+        }
+        fn post(&self, _path: &str, _body: &str, _version: u32) -> anyhow::Result<Reply> {
+            anyhow::bail!("offline")
+        }
+    }
+
+    #[test]
+    fn st56_runtime_setup_notice_repeats_daily_and_clears_after_setup() {
+        // review/code.md R7: 未設定の知らせは 24 時間ごと、設定したら消す
+        let (mut cfg, _tmp) = cfg();
+        cfg.base_url.clear();
+        cfg.api_token.clear();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let toaster = Arc::new(RecordingToaster::default());
+        rt.set_destination_toaster(toaster.clone());
+        let mut source = FakeSource::new("editor");
+        let shown = || {
+            toaster
+                .setup_shown
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        let day = 24 * 60 * 60;
+        rt.tick_at(&mut source, t(0), t(0));
+        assert_eq!(shown(), 1);
+        rt.tick_at(&mut source, t(day - 60), t(day - 60));
+        assert_eq!(shown(), 1, "24 時間より前に出し直した");
+        rt.tick_at(&mut source, t(day + 60), t(day + 60));
+        assert_eq!(shown(), 2, "24 時間で出し直していない");
+
+        cfg.base_url = "https://b.example".into();
+        cfg.api_token = "token-for-test-0123456789".into();
+        rt.reload_config(&cfg).unwrap();
+        rt.tick_at(&mut source, t(day + 120), t(day + 120));
+        assert_eq!(
+            toaster
+                .setup_dismissed
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "設定した後も未設定の知らせが残る"
+        );
+        rt.tick_at(&mut source, t(3 * day), t(3 * day));
+        assert_eq!(shown(), 2);
+    }
+
+    #[test]
+    fn st56_runtime_config_from_env_is_not_held_by_previous_setup_state() {
+        // review/code.md R11: 印で渡した送り先は承認したものとして扱う（前の setup の状態と未送信があっても）
+        for marked in [false, true] {
+            let (mut cfg, _tmp) = cfg();
+            cfg.config_from_env = marked;
+            std::fs::create_dir_all(&cfg.state_dir).unwrap();
+            destination_gate::Store::new(&cfg.state_dir)
+                .save(&destination_gate::State {
+                    approved_url: Some("https://approved-by-setup.example".into()),
+                    ..Default::default()
+                })
+                .unwrap();
+            let transport = AcceptAll::default();
+            let reference = FixedReference::new(t(0));
+            let mut source = FakeSource::new("editor");
+            // 前の起動（送り先なし）が積んだ未送信を残す
+            {
+                let mut unset = cfg.clone();
+                unset.base_url.clear();
+                let mut before = runtime(
+                    &unset,
+                    Engine::new(Exclusions::default()),
+                    &transport,
+                    &reference,
+                );
+                before.start_at(&source, t(0), t(0));
+                before.tick_at(&mut source, t(0), t(0));
+                before.stop_at(t(1));
+            }
+            assert!(destination_gate::pending_in(&cfg.state_dir) > 0);
+            let mut rt = runtime(
+                &cfg,
+                Engine::new(Exclusions::default()),
+                &transport,
+                &reference,
+            );
+            rt.reload_config(&cfg).unwrap();
+            rt.send();
+            assert_eq!(
+                !sent(&transport, "/ingest").is_empty(),
+                marked,
+                "印 {marked} で送った/送らなかったが逆"
+            );
+        }
+    }
+
+    #[test]
+    fn st56_runtime_unreachable_notice_uses_spec_text_and_skips_marked_destination() {
+        // review/code.md R10: 文は spec のとおり。起点は保存の時刻。印の送り先には鳴らさない
+        for marked in [false, true] {
+            let (mut cfg, _tmp) = cfg();
+            cfg.config_from_env = marked;
+            std::fs::create_dir_all(&cfg.state_dir).unwrap();
+            destination_gate::Store::new(&cfg.state_dir)
+                .save(&destination_gate::State {
+                    approved_url: Some(cfg.base_url.clone()),
+                    setup_saved_at: Some(t(0)),
+                    ..Default::default()
+                })
+                .unwrap();
+            let transport = Offline;
+            let reference = FixedReference::new(t(0));
+            let mut rt = runtime(
+                &cfg,
+                Engine::new(Exclusions::default()),
+                &transport,
+                &reference,
+            );
+            let toaster = Arc::new(RecordingToaster::default());
+            rt.set_destination_toaster(toaster.clone());
+            rt.send_at(t(24 * 60 * 60 - 60));
+            assert!(toaster.shown.lock().unwrap().is_empty());
+            rt.send_at(t(24 * 60 * 60 + 60));
+            let shown = toaster.shown.lock().unwrap().clone();
+            if marked {
+                assert!(
+                    shown.is_empty(),
+                    "印の送り先で「届かない」が鳴った: {shown:?}"
+                );
+            } else {
+                assert_eq!(shown, vec![destination_gate::UNREACHABLE_TEXT.to_owned()]);
+            }
+        }
+    }
+
+    #[test]
+    fn st56_runtime_does_not_overwrite_a_setup_saved_during_send() {
+        // 見回りの最中に setup が保存し直しても、古い数えで書き戻さない（review/code.md R10）
+        let (cfg, _tmp) = cfg();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        let store = destination_gate::Store::new(&cfg.state_dir);
+        store
+            .save(&destination_gate::State {
+                approved_url: Some(cfg.base_url.clone()),
+                ..Default::default()
+            })
+            .unwrap();
+        let transport = Unauthorized::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        rt.send_at(t(0));
+        assert!(store.load().unwrap().auth_since.is_some());
+        // 別のプロセスの setup が保存し直した
+        store
+            .save(&destination_gate::State {
+                approved_url: Some(cfg.base_url.clone()),
+                setup_saved_at: Some(t(10)),
+                ..Default::default()
+            })
+            .unwrap();
+        rt.send_at(t(20));
+        let state = store.load().unwrap();
+        assert_eq!(state.setup_saved_at, Some(t(10)));
+        assert_eq!(state.auth_since, None, "保存で消した数えを書き戻した");
+    }
+
+    // Scenario: 設定を保存すると、起動し直さずに送り始める
+    #[test]
+    fn st56_runtime_reload_uses_saved_destination_and_sends_pending_record() {
+        let (mut cfg, _tmp) = cfg();
+        cfg.base_url.clear();
+        cfg.api_token.clear();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let mut source = FakeSource::new("editor");
+        rt.start_at(&source, t(0), t(0));
+        rt.tick_at(&mut source, t(0), t(0));
+        assert_eq!(rt.pending().0, 1, "送信前の記録が積まれていない");
+
+        let destination = "https://b.example";
+        let store = crate::destination_gate::Store::new(&cfg.state_dir);
+        store
+            .save(&crate::destination_gate::State {
+                approved_url: Some(destination.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        cfg.base_url = destination.into();
+        cfg.api_token = "token".into();
+        rt.reload_config(&cfg).unwrap();
+        rt.send();
+
+        assert_eq!(rt.pending().0, 0, "設定保存後の送信で記録が残っている");
+        assert!(
+            !sent(&transport, "/ingest").is_empty(),
+            "実ランタイムが記録を送っていない"
+        );
+    }
+
+    // Scenario: PC は 401 で断られた記録を取り除かない
+    #[test]
+    fn st56_runtime_unauthorized_keeps_pending_records() {
+        let (cfg, _tmp) = cfg();
+        let transport = Unauthorized::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let mut source = FakeSource::new("editor");
+        rt.start_at(&source, t(0), t(0));
+        rt.tick_at(&mut source, t(0), t(0));
+        assert_eq!(rt.pending().0, 1, "送信前の記録が積まれていない");
+
+        rt.send();
+        assert_eq!(rt.pending().0, 1, "401 で未送信の記録を取り除いた");
+        assert!(
+            *transport.attempts.borrow() > 0,
+            "実ランタイムの送信契機を通っていない"
+        );
+    }
+
+    /// 承認した送り先 A・未送信あり・送り先 B の置き場（`setup` で B を貼り、y と答えていない状態）を作る。
+    fn held_at_b(cfg: &mut Config) {
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut source = FakeSource::new("editor");
+        {
+            let mut unset = cfg.clone();
+            unset.base_url.clear();
+            let mut before = runtime(
+                &unset,
+                Engine::new(Exclusions::default()),
+                &transport,
+                &reference,
+            );
+            before.start_at(&source, t(0), t(0));
+            before.tick_at(&mut source, t(0), t(0));
+            before.stop_at(t(1));
+        }
+        assert!(destination_gate::pending_in(&cfg.state_dir) > 0);
+        destination_gate::Store::new(&cfg.state_dir)
+            .save(&destination_gate::State {
+                approved_url: Some("https://a.example".into()),
+                destination_notified_at: Some(t(0)),
+                setup_saved_at: Some(t(0)),
+                ..Default::default()
+            })
+            .unwrap();
+        cfg.base_url = "https://b.example".into();
+    }
+
+    // Scenario: 未送信があるまま送り先を変えると、答えるまで送らない
+    #[test]
+    fn st56_runtime_held_destination_sends_nothing_and_asks_no_outages_until_yes() {
+        // review/code.md R24: 門を runtime の配線ごと見る（記録・生存信号・時計の記録・途切れの問い合わせが 0 件、y の後は届く）
+        let (mut cfg, _tmp) = cfg();
+        held_at_b(&mut cfg);
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let (asked, _) = with_outage_poller(&mut rt, &cfg, true);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(2), t(2));
+        for sec in (2..=2 * 60 * 60).step_by(10) {
+            rt.reload_config(&cfg).unwrap();
+            rt.tick_at(&mut src, t(sec), t(sec));
+        }
+        assert!(
+            transport.bodies.borrow().is_empty(),
+            "保留の間に送った: {:?}",
+            transport
+                .bodies
+                .borrow()
+                .iter()
+                .map(|(p, _)| p.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            asked.0.lock().unwrap().is_empty(),
+            "保留の間に途切れを問い合わせた"
+        );
+
+        // y と答えた（`setup` が承認を書いた）
+        crate::setup::approve_destination(&cfg, "https://b.example").unwrap();
+        for sec in (2 * 60 * 60..=4 * 60 * 60).step_by(10) {
+            rt.reload_config(&cfg).unwrap();
+            rt.tick_at(&mut src, t(sec), t(sec));
+        }
+        assert!(
+            !sent(&transport, "/ingest").is_empty(),
+            "y の後も記録を送らない"
+        );
+        assert!(
+            !sent(&transport, "/heartbeat").is_empty(),
+            "y の後も生存信号を送らない"
+        );
+        assert!(
+            !asked.0.lock().unwrap().is_empty(),
+            "y の後も途切れを問い合わせない"
+        );
+    }
+
+    #[test]
+    fn st56_runtime_held_destination_does_not_report_unreachable() {
+        // review/code.md R21・R33: 保留の間は送らず答えも受けない。保存から 24 時間たっても「届かない」を出さない
+        let (mut cfg, _tmp) = cfg();
+        held_at_b(&mut cfg);
+        let transport = Offline;
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let toaster = Arc::new(RecordingToaster::default());
+        rt.set_destination_toaster(toaster.clone());
+        let mut src = FakeSource::new("editor");
+        for sec in (0..=26 * 60 * 60).step_by(600) {
+            rt.reload_config(&cfg).unwrap();
+            rt.tick_at(&mut src, t(sec), t(sec));
+        }
+        let shown = toaster.shown.lock().unwrap().clone();
+        assert!(
+            !shown
+                .iter()
+                .any(|m| m == destination_gate::UNREACHABLE_TEXT),
+            "保留の間に「届かない」を出した: {shown:?}"
+        );
+        assert!(shown.iter().any(|m| m == destination_gate::HOLD_TEXT));
+    }
+
+    #[test]
+    fn st56_runtime_does_not_write_back_a_hold_answered_in_setup() {
+        // review/code.md R36: setup で y と答えた後、見回りが古い保留を書き戻さない
+        let (mut cfg, _tmp) = cfg();
+        held_at_b(&mut cfg);
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let toaster = Arc::new(RecordingToaster::default());
+        rt.set_destination_toaster(toaster.clone());
+        let mut src = FakeSource::new("editor");
+        rt.reload_config(&cfg).unwrap();
+        rt.tick_at(&mut src, t(10), t(10));
+        assert_eq!(
+            toaster.shown.lock().unwrap().len(),
+            1,
+            "保留を知らせていない"
+        );
+        // 見回りが読み直す前に y が書かれ、24 時間後の見回りが知らせを出し直して書く
+        crate::setup::approve_destination(&cfg, "https://b.example").unwrap();
+        rt.tick_at(&mut src, t(24 * 60 * 60 + 20), t(24 * 60 * 60 + 20));
+        let state = destination_gate::Store::new(&cfg.state_dir).load().unwrap();
+        assert_eq!(
+            state.destination_notified_at, None,
+            "y で消した保留を書き戻した"
+        );
+        assert_eq!(state.approved_url.as_deref(), Some("https://b.example"));
+        rt.reload_config(&cfg).unwrap();
+        let before = toaster.shown.lock().unwrap().len();
+        rt.tick_at(&mut src, t(3 * 24 * 60 * 60), t(3 * 24 * 60 * 60));
+        let shown = toaster.shown.lock().unwrap().clone();
+        assert!(
+            !shown[before..]
+                .iter()
+                .any(|m| m == destination_gate::HOLD_TEXT),
+            "承認の後も「確認を待っています」を出した: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn st56_runtime_starts_with_a_broken_setup_state_and_holds() {
+        // review/code.md R26: 壊れた setup-state.json で起動を止めず、退避して閉じた門で進み、setup で直せる
+        let (mut cfg, _tmp) = cfg();
+        held_at_b(&mut cfg);
+        std::fs::write(cfg.state_dir.join("setup-state.json"), "{").unwrap();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+            Channel::Official,
+        )
+        .expect("壊れた setup-state.json で起動が止まった");
+        assert!(cfg.state_dir.join("setup-state.broken.json").exists());
+        let toaster = Arc::new(RecordingToaster::default());
+        rt.set_destination_toaster(toaster.clone());
+        let mut src = FakeSource::new("editor");
+        rt.reload_config(&cfg).unwrap();
+        rt.tick_at(&mut src, t(10), t(10));
+        assert_eq!(
+            toaster.shown.lock().unwrap().clone(),
+            vec![destination_gate::HOLD_TEXT.to_owned()],
+            "退避した後、黙って止まった（R43）"
+        );
+        rt.reload_config(&cfg).unwrap();
+        rt.send();
+        assert!(
+            transport.bodies.borrow().is_empty(),
+            "承認の無いまま未送信を送った"
+        );
+        cfg.save_setup_string(
+            "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9",
+        )
+        .expect("setup で保存し直せない");
+    }
+
+    #[test]
+    fn st56_runtime_save_preserves_approval_written_by_setup() {
+        let (cfg, _tmp) = cfg();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let destination = "https://approved-by-setup.example";
+        crate::destination_gate::Store::new(&cfg.state_dir)
+            .save(&crate::destination_gate::State {
+                approved_url: Some(destination.into()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        rt.send();
+
+        let state = crate::destination_gate::Store::new(&cfg.state_dir)
+            .load()
+            .unwrap();
+        assert_eq!(state.approved_url.as_deref(), Some(destination));
     }
 
     #[derive(Debug)]

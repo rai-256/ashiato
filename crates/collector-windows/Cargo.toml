@@ -51,7 +51,7 @@ ctrlc = { version = "3", features = ["termination"] }
 winreg = "0.56"
 # 途切れの通知（ST14 / design D11）。**機能は 3 つだけ**（全機能の `windows` crate はコンパイルが OOM する）。
 # 差出人（AUMID）の登録は `winreg`（unsafe を書かない。作業場は `unsafe_code = "forbid"`）
-windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation"] }
+windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
 # 試験の一時フォルダ（panic しても消える）。CH03

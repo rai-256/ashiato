@@ -186,8 +186,9 @@ pub fn host_of(base_url: &str) -> String {
 /// **刻みは 1 秒**（HTTP の日付の形がそれしか持たない）。扉 #5 が求めるのは
 /// 「破れたことを後から知る」ことなので、秒の分解能で足りる。
 pub struct HttpDateClock {
-    url: String,
-    source: String,
+    /// 送り先を読み直したら差し替える（review/code.md R9）。見回りの糸から読むので鍵を持つ
+    url: std::sync::RwLock<String>,
+    source: std::sync::RwLock<String>,
     agent: ureq::Agent,
     uptime: Arc<dyn Uptime>,
 }
@@ -195,7 +196,7 @@ pub struct HttpDateClock {
 impl std::fmt::Debug for HttpDateClock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpDateClock")
-            .field("url", &self.url)
+            .field("url", &*read_lock(&self.url))
             .finish()
     }
 }
@@ -204,13 +205,39 @@ impl HttpDateClock {
     /// 取り込み口の生存確認の口（`/healthz`）を叩く。**合言葉を要しない口**を使う。
     pub fn new(base_url: &str, uptime: Arc<dyn Uptime>) -> Self {
         Self {
-            url: format!("{}/healthz", base_url.trim_end_matches('/')),
-            source: host_of(base_url),
+            url: std::sync::RwLock::new(healthz_url(base_url)),
+            source: std::sync::RwLock::new(host_of(base_url)),
             // **timeout を持つ**（見回りの輪の中で呼ぶ。R22）
             agent: crate::sender::agent(),
             uptime,
         }
     }
+
+    /// 設定を保存し直したら、次の測定から新しい送り先へ問い合わせる（D11。review/code.md R9）。
+    pub fn reload(&self, base_url: &str) {
+        *write_lock(&self.url) = healthz_url(base_url);
+        *write_lock(&self.source) = host_of(base_url);
+    }
+
+    /// いま問い合わせる先（試験が読み直しを確かめる）。
+    pub fn url(&self) -> String {
+        read_lock(&self.url).clone()
+    }
+}
+
+fn healthz_url(base_url: &str) -> String {
+    format!("{}/healthz", base_url.trim_end_matches('/'))
+}
+
+/// 鍵が毒されても値は文字列だけなので、そのまま読む（落とさない）。
+fn read_lock(lock: &std::sync::RwLock<String>) -> std::sync::RwLockReadGuard<'_, String> {
+    lock.read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn write_lock(lock: &std::sync::RwLock<String>) -> std::sync::RwLockWriteGuard<'_, String> {
+    lock.write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl ReferenceClock for HttpDateClock {
@@ -218,7 +245,7 @@ impl ReferenceClock for HttpDateClock {
         let uptime_before_ms = self.uptime.millis();
         let res = self
             .agent
-            .get(&self.url)
+            .get(&self.url())
             .call()
             .map_err(|e| anyhow::anyhow!("基準時刻を取れない: {}", e))?;
         // **応答を受け取った直後**に読む（Q3 ②）。差にはこの壁時計を使う
@@ -240,7 +267,7 @@ impl ReferenceClock for HttpDateClock {
     }
 
     fn source(&self) -> String {
-        self.source.clone()
+        read_lock(&self.source).clone()
     }
 }
 
@@ -249,6 +276,22 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    /// 設定を読み直したら、時計合わせも新しい送り先へ向く（review/code.md R9）。
+    #[test]
+    fn st56_http_date_clock_follows_reloaded_destination() {
+        #[derive(Debug)]
+        struct Zero;
+        impl Uptime for Zero {
+            fn millis(&self) -> u64 {
+                0
+            }
+        }
+        let clock = HttpDateClock::new("", Arc::new(Zero));
+        clock.reload("https://b.example/api/");
+        assert_eq!(clock.url(), "https://b.example/api/healthz");
+        assert_eq!(clock.source(), host_of("https://b.example/api/"));
+    }
 
     fn t(sec: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-13T00:00:00Z")

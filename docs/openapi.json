@@ -184,6 +184,56 @@
         }
       }
     },
+    "/collector-setup": {
+      "post": {
+        "tags": [
+          "web_session"
+        ],
+        "summary": "収集アプリの資格情報を、画面の有効なログインに一度だけ返す。",
+        "operationId": "collector_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorSetupResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorSetupError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": ""
+          },
+          "429": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/contract": {
       "get": {
         "tags": [
@@ -2498,6 +2548,28 @@
               "null"
             ],
             "description": "`null` が「なし」"
+          }
+        }
+      },
+      "CollectorSetupError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectorSetupResponse": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       },

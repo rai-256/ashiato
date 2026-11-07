@@ -5,7 +5,6 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -44,7 +43,7 @@ class MainActivityInstrumentedTest {
     @Test
     fun openingTheActivityWithPermissionsStartsTheForegroundService() {
         skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
-        ActivityScenario.launch(MainActivity::class.java).use {
+        launchMainSkippingSetup().use {
             // Activity は権限が揃っていればサービスを起動して自分を閉じる（`finish()`）
             val nm = context.getSystemService(NotificationManager::class.java)
             val deadline = System.currentTimeMillis() + 30_000
