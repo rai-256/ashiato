@@ -1,7 +1,9 @@
+dies-kvm-form: mount --bind /dev/null /dev/kvm
 dies: pass
-timeout: pass
-same-avd-name: ashiato-api35
-same-avd-accel-lines: 0
-same-avd: pass
 ok-accel-lines: 0
 ok: pass
+same-avd-name: ashiato-api35
+same-avd-emu-avd-name: ashiato-api35
+same-avd-accel-lines: 0
+same-avd: pass
+timeout: pass

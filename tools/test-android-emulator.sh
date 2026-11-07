@@ -112,6 +112,11 @@ case "$*" in
     [ -f "$FAKE_VISIBLE" ] && printf 'emulator-5554\tdevice\n' || true ;;
   wait-for-device) while [ ! -f "$FAKE_VISIBLE" ]; do sleep 1; done; echo device ;;
   get-state) if [ -f "$FAKE_VISIBLE" ] || printf '%s\n' "${FAKE_EXISTING_DEVICES:-}" | grep -q 'emulator-5554:device'; then echo device; else echo no device; fi ;;
+  *'shell getprop ro.boot.qemu.avd_name'*)
+    case "$*" in
+      *'emulator-5556'*) echo "${FAKE_EXISTING_AVD:-other-avd}" ;;
+      *) echo ashiato-api35 ;;
+    esac ;;
   *'shell getprop sys.boot_completed'*)
     if [ "${FAKE_ADB_MODE:-normal}" = hang ]; then sleep 1000; fi
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
@@ -301,6 +306,7 @@ assert_same_avd() {
   [ "$rc" -eq 1 ] \
     && grep -Eq 'error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている（emulator-5554）.*adb -s emulator-5554 emu kill' "$root/stderr" \
     && [ ! -s "$root/run.log" ] \
+    && grep -Fq 'shell getprop ro.boot.qemu.avd_name' "$root/adb.log" \
     && ! grep -q 'emu kill' "$root/adb.log"
 }
 

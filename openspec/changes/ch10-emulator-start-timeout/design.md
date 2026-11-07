@@ -54,10 +54,10 @@
 
 ### D3（仮）. 同じ AVD のエミュレータが既に動いていれば、計測テストの台本は起こさずに止まる（Q3）
 
-- 起こす前に `adb devices` の `emulator-*` で `device` の端末ごとに `adb -s <serial> emu avd name`（5 秒の `timeout`）を聞き、1 行目が `AVD` と同じなら
+- 起こす前に `adb devices` の `emulator-*` で `device` の端末ごとに `adb -s <serial> shell getprop ro.boot.qemu.avd_name` を 1 秒ずつ最大 5 回聞き、空なら `adb -s <serial> emu avd name`（同じく 1 秒の `timeout`）へ fallback し、答えの 1 行目が `AVD` と同じなら
   `error: 同じ AVD（<AVD>）のエミュレータが既に動いている（<serial>）。KEEP=1 の残りなら adb -s <serial> emu kill で止めてから` で rc=1。起こさず、その端末に何も送らない
 - adb に見えない同じ AVD のプロセス（起動の途中）は、この確かめでは見つけない。そのときは新しいプロセスが約 3 秒で `FATAL | Running multiple emulators with the same AVD …` で終わり（`premises.md` 9 行目）、D6 の「起動の途中で終わった」で止まる。どちらでも止まり方は同じく理由つき
-- `emu avd name` の答えの形は、本物では確かめていない（確かさ 1。Task 6 の本物の確かめで見る）。偽の adb はこの形を答える
+- emulator 37.1.11 の実機では `emu avd name` の答えが空になるため、同じ AVD の判定は `ro.boot.qemu.avd_name` を本線にする。Task 6 は両方の生の 1 行目を記録し、偽の adb は本線を返す
 - 採寸の台本には当てない（adb に見えているエミュレータがあれば起こさずに使うので、同じ AVD を見つける前にそれを使う）
 - 反転条件: Q3 が「動いている端末を使う」なら、確かめで見つけた端末の serial を使って起動を飛ばし、後片付けもその端末を止めない。「`-read-only` で別に立てる」なら、空いている番号を選んで `-port` と `-read-only` で起こし、
   待つ・使う・止めるをその番号に限る（D4 の反転と同じ直しが要る）

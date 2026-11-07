@@ -9,7 +9,9 @@ CASE=${1:-}
 TMP=${REAL_PROOF_TMP:-}
 SDK_SOURCE=${ANDROID_HOME:-}
 JDK_SOURCE=${JAVA_HOME:-}
-ORIGINAL_HOME=${HOME:?}
+SAME_SERIAL=
+SAME_PID=
+SAME_PORT=
 
 die() {
   echo "error: $*" >&2
@@ -45,93 +47,119 @@ ensure_avd() {
 case_dies() {
   local log="$TMP/dies-emulator.log" out="$TMP/dies.out" rc
   prepare_env "$((19000 + $$ % 1000))"
-  : > "$TMP/null-source"
-  : > "$TMP/kvm-fallback"
   export EMU_LOG="$log"
   set +e
   timeout 30 env EMU_LOG="$log" HOME="$HOME" ANDROID_AVD_HOME="$ANDROID_AVD_HOME" \
     ANDROID_ADB_SERVER_PORT="$ANDROID_ADB_SERVER_PORT" \
-    unshare -rm bash -c 'mount --bind /dev/null "$2" && mount --make-rprivate /dev && mount -t tmpfs tmpfs /dev && ln -s /proc/self/fd /dev/fd && ln -s /proc/self/stdin /dev/stdin && ln -s /proc/self/stdout /dev/stdout && ln -s /proc/self/stderr /dev/stderr && : > /dev/kvm && mount --bind "$2" /dev/kvm && (exec 3<>/dev/kvm) 2>/dev/null || { umount /dev/kvm; mount --bind "$3" /dev/kvm; } && exec "$1"' bash \
-    "$ROOT/tools/android-emulator.sh" "$TMP/null-source" "$TMP/kvm-fallback" >"$out" 2>&1
+    unshare -rm bash -c 'mount --bind /dev/null /dev/kvm && exec "$1"' bash \
+    "$ROOT/tools/android-emulator.sh" >"$out" 2>&1
   rc=$?
   set -e
-  [ "$rc" -eq 1 ] || die "dies の rc が $rc"
-  grep -Fq 'error: エミュレータが起動の途中で終わった' "$out" || die "dies の終了理由が無い"
-  grep -Fq '/dev/kvm' "$out" || die "dies の /dev/kvm の語が無い"
+  [ "$rc" -eq 1 ] || { die "dies の rc が $rc"; return 1; }
+  grep -Fq 'error: エミュレータが起動の途中で終わった' "$out" || { die "dies の終了理由が無い"; return 1; }
+  grep -Fq 'error: エミュレータが /dev/kvm' "$out" || { die "dies の D17 の終了理由が無い"; return 1; }
+  grep -Fq '/dev/kvm' "$out" || { die "dies の /dev/kvm の語が無い"; return 1; }
+  printf 'dies-kvm-form: mount --bind /dev/null /dev/kvm\n' >> "$PROOF"
 }
 
 case_timeout() {
-  local out="$TMP/timeout.out" pid rc remaining
+  local out="$TMP/timeout.out" wrapper_pid wrapper_pgid script_pid= rc remaining pid baseline_pids
   prepare_env "$((20000 + $$ % 1000))"
   export ASHIATO_EMULATOR_DEVICE_TIMEOUT=1
+  # 並走する実 emulator をこの回の残りと数えない。
+  baseline_pids=$(pgrep -f -- '[-]avd ashiato-api35' || true)
   set +e
   timeout 30 "$ROOT/tools/android-emulator.sh" >"$out" 2>&1 &
-  pid=$!
-  wait "$pid"
+  wrapper_pid=$!
+  wrapper_pgid=$(ps -o pgid= -p "$wrapper_pid" | tr -d ' ')
+  for _ in 1 2 3 4 5; do
+    script_pid=$(pgrep -P "$wrapper_pid" -n 2>/dev/null || true)
+    [ -n "$script_pid" ] && break
+    sleep 1
+  done
+  wait "$wrapper_pid"
   rc=$?
-  set +e
+  set -e
   sleep 10
+  # emulator の qemu 子が終了処理を完了するまで、上限の確認後に少しだけ待つ。
+  sleep 5
   # 角括弧で pgrep 自身（引数に検索文字列を持つ）を数えない。
-  remaining=$(pgrep -f -- '[-]avd ashiato-api35' | wc -l)
-  [ "$rc" -eq 1 ] || die "timeout の rc が $rc"
-  grep -Fq '1 秒待っても端末が adb に現れない' "$out" || die "timeout の終了理由が無い"
-  if kill -0 "$pid" 2>/dev/null; then
+  remaining=0
+  while read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$wrapper_pgid" ] || continue
+    case " $baseline_pids " in
+      *" $pid "*) ;;
+      *) remaining=$((remaining + 1)) ;;
+    esac
+  done < <(pgrep -f -- '[-]avd ashiato-api35' || true)
+  [ "$rc" -eq 1 ] || { die "timeout の rc が $rc"; return 1; }
+  grep -Fq '1 秒待っても端末が adb に現れない' "$out" || { die "timeout の終了理由が無い"; return 1; }
+  [ -n "$script_pid" ] || { die "timeout の台本 PID を取得できない"; return 1; }
+  if kill -0 "$script_pid" 2>/dev/null && [ "$(ps -o stat= -p "$script_pid" 2>/dev/null)" != Z* ]; then
     die "timeout の台本 PID が残っている"
+    return 1
   fi
-  [ "$remaining" -eq 0 ] || die "timeout 後の -avd 過程が $remaining 本残っている"
+  [ "$remaining" -eq 0 ] || { die "timeout 後の -avd 過程が $remaining 本残っている"; return 1; }
   return 0
 }
 
 case_same_avd() {
   local log="$ROOT/collector-android/app/build/outputs/emulator.log"
-  local out="$TMP/same-avd.out" serial= name pid rc accel
+  local out="$TMP/same-avd.out" name raw_name= rc accel same_port
   prepare_env "$((21000 + $$ % 1000))"
-  # emulator は ANDROID_ADB_SERVER_PORT を引き継がず既定の adb server に接続する。
-  unset ANDROID_ADB_SERVER_PORT
-  # 既存の実 AVD を使い、AVD 作成・初回 userdata 展開を same-avd の 30 秒監視から外す。
-  export ANDROID_AVD_HOME="$ORIGINAL_HOME/.android/avd"
+  same_port=$((5600 + RANDOM % 400))
+  while pgrep -f -- "[-]port $same_port" >/dev/null 2>&1; do
+    same_port=$((same_port + 1))
+  done
+  SAME_PORT=$same_port
   ensure_avd
   mkdir -p "$(dirname "$log")"
   : > "$log"
   "$ANDROID_HOME/emulator/emulator" -avd ashiato-api35 -no-window \
-    -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none \
+    -port "$same_port" -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none \
     -no-snapshot >"$log" 2>&1 &
-  pid=$!
-  trap 'if [ -n "$serial" ]; then adb -s "$serial" emu kill >/dev/null 2>&1 || true; fi; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' RETURN
+  SAME_PID=$!
+  cleanup_same_avd() {
+    if [ -n "$SAME_SERIAL" ]; then adb -s "$SAME_SERIAL" emu kill >/dev/null 2>&1 || true; fi
+    pkill -TERM -f -- "-port $SAME_PORT" 2>/dev/null || true
+    kill "$SAME_PID" 2>/dev/null || true
+    wait "$SAME_PID" 2>/dev/null || true
+    sleep 2
+    pkill -KILL -f -- "-port $SAME_PORT" 2>/dev/null || true
+    cleanup_tmp
+  }
+  trap cleanup_same_avd EXIT
   for _ in $(seq 1 60); do
-    serial=$(adb devices 2>/dev/null | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }')
-    if [ -n "$serial" ]; then
+    SAME_SERIAL=$(adb devices 2>/dev/null | awk -v expected="emulator-$same_port" '$1 == expected && $2 == "device" { print $1; exit }')
+    if [ -n "$SAME_SERIAL" ]; then
       break
     fi
     sleep 1
   done
-  [ -n "$serial" ] || die "same-avd の端末が adb に現れない"
+  [ -n "$SAME_SERIAL" ] || { die "same-avd の端末が adb に現れない"; return 1; }
   for _ in $(seq 1 60); do
-    name=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p')
+    name=$(timeout 1 adb -s "$SAME_SERIAL" shell getprop ro.boot.qemu.avd_name 2>/dev/null | tr -d '\r' | sed -n '1p')
     [ -n "$name" ] && break
     sleep 1
   done
   if [ -z "$name" ]; then
-    name=$(timeout 1 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p')
+    name=$(timeout 1 adb -s "$SAME_SERIAL" emu avd name 2>/dev/null | tr -d '\r' | sed -n '1p')
   fi
+  raw_name=$(timeout 1 adb -s "$SAME_SERIAL" emu avd name 2>/dev/null | tr -d '\r' | sed -n '1p')
   printf 'same-avd-name: %s\n' "$name" >> "$PROOF"
-  if [ "$name" != ashiato-api35 ]; then
-    die "AVD 名が $name"
-    return 1
-  fi
+  printf 'same-avd-emu-avd-name: %s\n' "$raw_name" >> "$PROOF"
+  [ "$name" = ashiato-api35 ] || { die "AVD 名が $name"; return 1; }
   set +e
   timeout 30 "$ROOT/tools/android-emulator.sh" >"$out" 2>&1
   rc=$?
   set -e
-  [ "$rc" -eq 1 ] || die "same-avd の rc が $rc"
+  [ "$rc" -eq 1 ] || { die "same-avd の rc が $rc"; return 1; }
   grep -Fq 'error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている' "$out" \
-    || die "same-avd の終了理由が無い"
+    || { die "same-avd の終了理由が無い"; return 1; }
   accel=$(count_accel_lines "$log")
   printf 'same-avd-accel-lines: %s\n' "$accel" >> "$PROOF"
-  [ "$accel" -eq 0 ] || die "same-avd の加速不足文言が $accel 行ある"
-  trap - RETURN
-  adb -s "$serial" emu kill >/dev/null 2>&1 || true
-  wait "$pid" 2>/dev/null || true
+  [ "$accel" -eq 0 ] || { die "same-avd の加速不足文言が $accel 行ある"; return 1; }
 }
 
 case_ok() {

@@ -37,6 +37,16 @@ emu_check_kvm() {
   fi
 }
 
+emu_signal_descendants() {
+  local signal=$1 parent child
+  parent=$2
+  while read -r child; do
+    [ -n "$child" ] || continue
+    emu_signal_descendants "$signal" "$child"
+    kill -"$signal" "$child" 2>/dev/null || true
+  done < <(pgrep -P "$parent" 2>/dev/null || true)
+}
+
 emu_start() {
   local avd=$1
   shift
@@ -62,12 +72,12 @@ emu_fail() {
     fi
   fi
   if [ -n "${EMU_PID:-}" ] && emu_pid_alive; then
-    pkill -TERM -P "$EMU_PID" 2>/dev/null || true
+    emu_signal_descendants TERM "$EMU_PID"
     kill -TERM "$EMU_PID" 2>/dev/null || true
     deadline=$((SECONDS + 5))
     while emu_pid_alive && [ "$SECONDS" -lt "$deadline" ]; do sleep 1; done
     if emu_pid_alive; then
-      pkill -KILL -P "$EMU_PID" 2>/dev/null || true
+      emu_signal_descendants KILL "$EMU_PID"
       kill -KILL "$EMU_PID" 2>/dev/null || true
     fi
     wait "$EMU_PID" 2>/dev/null || true
