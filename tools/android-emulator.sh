@@ -22,6 +22,10 @@ IMAGE="system-images;android-35;google_apis;x86_64"
 [ -x "$ANDROID_HOME/emulator/emulator" ] || { echo "error: emulator が無い。sdkmanager --install \"emulator\" \"$IMAGE\"" >&2; exit 1; }
 [ -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64" ] || { echo "error: $IMAGE が無い" >&2; exit 1; }
 
+# shellcheck disable=SC1091
+. ./tools/emulator-start.sh
+emu_check_env || exit 1
+
 if ! avdmanager list avd -c 2>/dev/null | grep -qx "$AVD"; then
   echo "== AVD $AVD を作る"
   echo no | avdmanager create avd -n "$AVD" -k "$IMAGE" -d pixel_6 >/dev/null
@@ -29,13 +33,14 @@ fi
 
 EMU_CLEANUP_WITH_ADB=0
 cleanup() {
-  [ "${EMU_CLEANUP_WITH_ADB:-0}" = 1 ] || return 0
+  # 待ちの途中で止められたときも、自分の起こしたものは残さない（final R2）
+  if [ "${EMU_CLEANUP_WITH_ADB:-0}" != 1 ]; then
+    emu_stop_own
+    return 0
+  fi
   [ "${KEEP:-}" = "1" ] || { adb -s "${SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true; }
 }
 trap cleanup EXIT
-
-# shellcheck disable=SC1091
-. ./tools/emulator-start.sh
 
 emu_reject_existing_avd() {
   local avd=$1 serial existing_avd
@@ -43,8 +48,8 @@ emu_reject_existing_avd() {
     [ -n "$serial" ] || continue
     for _ in 1 2 3 4 5; do
       # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、まず boot property を使う。
-      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name 2>/dev/null | sed -n '1p' || true)
-      [ -n "$existing_avd" ] || existing_avd=$(timeout 1 adb -s "$serial" emu avd name 2>/dev/null | sed -n '1p' || true)
+      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name </dev/null 2>/dev/null | sed -n '1p' || true)
+      [ -n "$existing_avd" ] || existing_avd=$(timeout 1 adb -s "$serial" emu avd name </dev/null 2>/dev/null | tr -d '\r' | sed -n '1p' || true)
       [ -n "$existing_avd" ] && break
       sleep 1
     done
@@ -56,9 +61,6 @@ emu_reject_existing_avd() {
 }
 
 emu_reject_existing_avd "$AVD" || exit 1
-emu_positive_int ASHIATO_EMULATOR_DEVICE_TIMEOUT "${ASHIATO_EMULATOR_DEVICE_TIMEOUT:-120}" || exit 1
-emu_positive_int ASHIATO_EMULATOR_BOOT_ATTEMPTS "${ASHIATO_EMULATOR_BOOT_ATTEMPTS:-180}" || exit 1
-emu_positive_int ASHIATO_ADB_CALL_TIMEOUT "${ASHIATO_ADB_CALL_TIMEOUT:-10}" || exit 1
 emu_check_kvm || exit 1
 emu_start "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
 emu_wait_device "${SERIAL:-}" || exit 1

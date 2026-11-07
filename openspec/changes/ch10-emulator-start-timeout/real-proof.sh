@@ -90,7 +90,7 @@ case_dies() {
 }
 
 case_timeout() {
-  local out="$TMP/timeout.out" wrapper_pid script_pid=emu_pid= rc remaining pid baseline_pids args
+  local out="$TMP/timeout.out" wrapper_pid script_pid= emu_pid= rc remaining pid baseline_pids args
   prepare_env "$((20000 + $$ % 1000))"
   export ASHIATO_EMULATOR_DEVICE_TIMEOUT=1
   # 並走する実 emulator をこの回の残りと数えない。
@@ -126,9 +126,12 @@ case_timeout() {
   [ "$rc" -eq 1 ] || { die "timeout の rc が $rc"; return 1; }
   grep -Fq '1 秒待っても端末が adb に現れない' "$out" || { die "timeout の終了理由が無い"; return 1; }
   [ -n "$emu_pid" ] || { die "timeout の台本が出した EMU_PID を取得できない"; return 1; }
-  if kill -0 "$emu_pid" 2>/dev/null && [ "$(ps -o stat= -p "$emu_pid" 2>/dev/null)" != Z* ]; then
-    die "timeout の台本が出した EMU_PID が残っている"
-    return 1
+  if kill -0 "$emu_pid" 2>/dev/null; then
+    # zombie（stat が Z で始まる）は終わったものとして数えない。`[ … != Z* ]` は文字列の比較で除けなかった
+    case "$(ps -o stat= -p "$emu_pid" 2>/dev/null | tr -d ' ')" in
+      Z*) ;;
+      *) die "timeout の台本が出した EMU_PID が残っている"; return 1 ;;
+    esac
   fi
   [ "$remaining" -eq 0 ] || { die "timeout 後の -avd 過程が $remaining 本残っている"; return 1; }
   return 0

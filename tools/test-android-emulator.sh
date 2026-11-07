@@ -24,6 +24,8 @@
 # usage-dies | 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる
 # usage-kvm | 採寸の台本でも /dev/kvm を開けなければ、起こさずに rc=2 で止まる
 # usage-reuse | 採寸の台本は、adb に見えているエミュレータがあれば起こさない
+# usage-bad-value | （Scenario 外・final R1）採寸の台本も、上限が正の整数でなければ起こさずに rc=2 で止まる
+# term-cleanup | （Scenario 外・final R2）端末の待ちの最中に台本へ SIGTERM を送っても、偽のエミュレータは残らない
 # 本物の台本を使い捨て木へ写し、隣に偽 SDK/adb/gradle を置いて、起動引数・6 段・KEEP・既存エラー・AVD 作成・
 # 起動失敗時の出力と後片付けを確かめる。失敗経路を部品に集めるのは、起動できない計測テストが無期限に待たないため（CH10）。
 # 実行: tools/test-android-emulator.sh [--self-test]
@@ -183,7 +185,6 @@ assert_kvm_failure() {
   new_tree; root=$NEW_ROOT
   if [ "$mode" = denied ]; then
     : > "$root/kvm"; chmod 000 "$root/kvm"
-    [ "$(id -u)" -eq 0 ] && return 0
     run_emulator "$root" '' 1 kvm-denied ok normal "$root/kvm" >"$root/rc"
   else
     run_emulator "$root" '' 1 kvm-missing ok normal "$root/no-kvm" >"$root/rc"
@@ -200,11 +201,11 @@ assert_kvm_sign() {
   rc=$(cat "$root/rc")
   [ "$rc" -eq 1 ] || return 1
   if [ -f "$ROOT/.harness2/scripts/evidence.py" ]; then
-    python3 -I - "$root/stderr" <<'PY'
+    python3 -I - "$root/stderr" "$ROOT" <<'PY'
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(".harness2/scripts").resolve()))
+sys.path.insert(0, str(Path(sys.argv[2], ".harness2/scripts").resolve()))
 from evidence import INFRA_SIGNS
 
 if not INFRA_SIGNS.search(Path(sys.argv[1]).read_text(encoding="utf-8")):
@@ -321,14 +322,15 @@ assert_other_device() {
 }
 
 run_usage() {
-  local root=$1 key=$2 fake_emu=${3:-ok} kvm_device=${4:-$root/kvm} existing=${5:-} rc
+  local root=$1 key=$2 fake_emu=${3:-ok} kvm_device=${4:-$root/kvm} existing=${5:-} device_timeout=${6:-} rc
   : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
   rm -f "$root/visible" "$root/child"
   local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
     ANDROID_HOME="$root/sdk" FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child"
     FAKE_ROOT="$root" FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
     FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS=1 FAKE_EMU="$fake_emu" FAKE_ADB_MODE=normal
-    ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="$existing")
+    ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="$existing"
+    ASHIATO_EMULATOR_DEVICE_TIMEOUT="$device_timeout")
   set +e
   env "${envs[@]}" timeout 30 "$root/tools/usage-volume.sh" >"$root/stdout" 2>"$root/stderr"
   rc=$?
@@ -371,6 +373,54 @@ assert_usage_reuse() {
   fi
 }
 
+# final R1: 採寸の台本は値を起こす前に確かめる（起こしてから落ちると偽のエミュレータが残った）
+assert_usage_bad_value() {
+  local root rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_usage "$root" usage-bad-value ok "$root/kvm" '' 0)
+  if [ "$rc" -ne 2 ] || ! grep -Fq 'error: ASHIATO_EMULATOR_DEVICE_TIMEOUT' "$root/stderr" \
+    || [ -s "$root/run.log" ] || [ -n "$(pgrep -f "$root/" || true)" ]; then
+    cat "$root/stderr" "$root/run.log" >&2
+    return 1
+  fi
+}
+
+# final R2: 端末の待ちの最中に止められても、EXIT の後片付けが自分の起こしたものを止める
+assert_term_cleanup() {
+  local root pid rc
+  new_tree; root=$NEW_ROOT
+  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
+  rm -f "$root/visible" "$root/child"
+  env HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH" \
+    FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child" FAKE_ROOT="$root" \
+    FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log" FAKE_AVD_LOG="$root/avd.log" \
+    FAKE_AVD_EXISTS=1 FAKE_EMU=sleep FAKE_ADB_MODE=normal ASHIATO_EMULATOR_DEVICE_TIMEOUT=30 \
+    ASHIATO_KVM_DEVICE="$root/kvm" FAKE_EXISTING_DEVICES='' FAKE_EXISTING_AVD='' \
+    "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr" &
+  pid=$!
+  for _ in $(seq 1 20); do
+    [ -s "$root/child" ] && grep -Fq '端末が adb に現れるのを' "$root/stdout" && break
+    sleep 0.5
+  done
+  if [ ! -s "$root/child" ]; then
+    kill -KILL "$pid" 2>/dev/null || true
+    echo 'term-cleanup: 偽のエミュレータが起きない' >&2
+    return 1
+  fi
+  sleep 1
+  kill -TERM "$pid"
+  set +e
+  wait "$pid"
+  rc=$?
+  set -e
+  # emu_stop_own は TERM の後に最大 5 秒待つ。待ちの外へ漏れた分も数えるため少しだけ余裕を見る
+  sleep 1
+  if [ "$rc" -eq 0 ] || [ -n "$(pgrep -f "$root/" || true)" ]; then
+    echo "term-cleanup: rc=$rc / 残り: $(pgrep -af "$root/" || true)" >&2
+    return 1
+  fi
+}
+
 self_test() {
   local root rc
   new_tree; root=$NEW_ROOT
@@ -394,7 +444,7 @@ fi
 
 ONLY=${ASHIATO_TEST_ONLY:-}
 case "$ONLY" in
-  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse) ;;
+  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup) ;;
   *) echo "未知の ASHIATO_TEST_ONLY: $ONLY" >&2; exit 2 ;;
 esac
 
@@ -410,7 +460,7 @@ run_only other-device && { echo 'Scenario: 実機か別の AVD のエミュレ�
 run_only usage-dies && { echo 'Scenario: 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる'; assert_usage_dies; }
 run_only usage-kvm && { echo 'Scenario: 採寸の台本でも /dev/kvm を開けなければ、起こさずに rc=2 で止まる'; assert_usage_kvm; }
 run_only usage-reuse && { echo 'Scenario: 採寸の台本は、adb に見えているエミュレータがあれば起こさない'; assert_usage_reuse; }
-run_only usage-shape && { echo 'Scenario: 計測テストの台本の行の形の検査は、今のまま通る'; tools/test-usage-volume.sh; }
+run_only usage-shape && { echo 'Scenario: 計測テストの台本の行の形の検査は、今のまま通る'; "$ROOT/tools/test-usage-volume.sh"; }
 run_only kvm-missing && { echo 'Scenario: 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる'; assert_kvm_failure missing; }
 run_only kvm-denied && { echo 'Scenario: 在っても読み書きできない場所を渡しても、同じく起こさずに止まる'; [ "$(id -u)" -eq 0 ] && echo 'root のため飛ばす: kvm-denied' || assert_kvm_failure denied; }
 run_only kvm-sign && { echo 'Scenario: /dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる'; assert_kvm_sign; }
@@ -423,4 +473,6 @@ run_only device-timeout && { echo 'Scenario: 生きたまま端末が現れな�
 run_only getprop-hang && { echo 'Scenario: 起動の完了の問い合わせが返らなくても、回数の上限で止まる'; assert_device_wait hang; }
 run_only keep-cleanup && { echo 'Scenario: 上限で止まったとき、KEEP=1 でも自分の起こしたプロセスは残らない'; assert_keep_cleanup; }
 run_only no-named-kill && { echo 'Scenario: 起動の途中で終わったとき、名指しの端末を止めない'; assert_late_die; }
+run_only usage-bad-value && { echo '== 採寸の台本の上限の値（Scenario 外・final R1）'; assert_usage_bad_value; }
+run_only term-cleanup && { echo '== 待ちの最中の SIGTERM の後片付け（Scenario 外・final R2）'; assert_term_cleanup; }
 true
