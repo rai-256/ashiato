@@ -75,7 +75,7 @@
 
 ## Task 4: 利用状況の採寸の台本も同じ部品で起こす
 
-- [ ] 4.1 `tools/usage-volume.sh` の `emulator_sample` の `:137-142` を `tools/emulator-start.sh` の呼び出しに替える（design D1。失敗は `return 2`・`started` は端末が現れてから置く・`-wipe-data` の引数は今のまま・動いている端末を使う `:127` は変えない）。
+- [x] 4.1 `tools/usage-volume.sh` の `emulator_sample` の `:137-142` を `tools/emulator-start.sh` の呼び出しに替える（design D1。失敗は `return 2`・`started` は端末が現れてから置く・`-wipe-data` の引数は今のまま・動いている端末を使う `:127` は変えない）。
   失敗で止まるときは自分の起こしたプロセスを止める（部品の `emu_fail`）。台本は `ANDROID_HOME` を環境から受け取るので、試験は偽の SDK を渡す（D16）。
   `tools/test-android-emulator.sh` に次の 3 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる"` /
