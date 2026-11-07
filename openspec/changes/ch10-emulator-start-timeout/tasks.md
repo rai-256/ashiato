@@ -68,7 +68,7 @@
 
 ## Task 3: 同じ AVD のエミュレータが既に動いているとき
 
-- [ ] 3.1 `tools/android-emulator.sh` に design D3 の確かめを足す（部品の呼び出しの前。`adb devices` の `emulator-*` の `device` ごとに 5 秒の `timeout` で `emu avd name`）。`tools/test-android-emulator.sh` に次の 2 つを足す。それぞれの前に印を出す:
+- [x] 3.1 `tools/android-emulator.sh` に design D3 の確かめを足す（部品の呼び出しの前。`adb devices` の `emulator-*` の `device` ごとに 5 秒の `timeout` で `emu avd name`）。`tools/test-android-emulator.sh` に次の 2 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"` /
   `echo "Scenario: 実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"`（偽の adb が `R5CT00000\tdevice` と、`emu avd name` に `other-avd` と答える `emulator-5556\tdevice` を見せる）。
   検証: `tools/test-android-emulator.sh` rc=0
