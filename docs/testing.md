@@ -174,7 +174,7 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 **Android**（`collector-android/app/src/androidTest`）
 
 - 本物の framework で前景サービス・権限の入口・HTTP を通す。位置は Play services の mock mode、HTTP は端末の中の 127.0.0.1
-- 手元: `./tools/android-emulator.sh`（AVD を作って画面なしで起動 → `connectedDebugAndroidTest` → 止める。WSL2 は `/dev/kvm` が要る）
+- 手元: `./tools/android-emulator.sh`（AVD を作って画面なしで起動 → `connectedDebugAndroidTest` → 止める。起こせなければ理由つきで rc=1（/dev/kvm を開けない・起動の途中で終わる・120 秒で端末が現れない・同じ AVD が動いている）。WSL2 は `/dev/kvm` が要る）
 - 実機: adb で繋いで `./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787`（同じテスト）
 - `-Pashiato.baseUrl` は平文 HTTP を 127.0.0.1 に許すためだけ
 

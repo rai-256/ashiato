@@ -6,7 +6,7 @@
 #
 # 前提: tools/android-env.sh の SDK に emulator と system-images;android-35;google_apis;x86_64 が入っていること
 #   sdkmanager --install "emulator" "system-images;android-35;google_apis;x86_64"
-# WSL2 では /dev/kvm が要る（無ければ数十倍遅い）。CI（ubuntu）は KVM を有効にしてから同じことをする。
+# WSL2 では /dev/kvm が要る。無ければ起動直後に終わる（この台本は起こす前に確かめて止まる）。CI（ubuntu）は KVM を有効にしてから同じことをする。
 #
 # 実機を adb で繋いでいるときはエミュレータを立てず、そのまま同じテストを実機で走らせる:
 #   (cd collector-android && ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787)

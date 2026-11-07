@@ -135,6 +135,8 @@ jobs:
       - run: ./tools/check-env-init-session-key.sh
       - run: ./tools/check-test-db-killed.sh --self-test
       - run: ./tools/docker-tidy.sh --self-test
+      - run: ./tools/test-android-emulator.sh
+      - run: ./tools/test-android-emulator.sh --self-test
       - run: ./tools/docker-tidy.sh --verify-env-check
       - run: ./tools/check-test-db-killed.sh
   # C-02（Windows 収集）の**実機側**。ubuntu の runner には Windows が無いので、
