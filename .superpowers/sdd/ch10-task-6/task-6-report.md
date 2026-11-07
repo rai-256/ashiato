@@ -77,3 +77,12 @@
 ### 懸念
 
 - `verify-run 6.1` は各ケースの後に `adb.0.log`、`android-yosis`、`hostapd_*.conf` などの残存を警告した。実 emulator/adb が生成する外部状態で、各検証は PASS し、今回の検証スクリプトが作った一時 AVD 木と自分の emulator は後片付け済みである。
+
+## Fix round 3（re-review 2 の F12）
+
+- D3 の記述を、`emu avd name` が空になる実機があるため `ro.boot.qemu.avd_name` を本線・`emu avd name` を fallback とする設計と、今回の実機で raw の 1 行目が `ashiato-api35` だった実測の両方を説明する内容に修正した。fallback を残す理由も明記した。
+
+### Fix round 3 verification
+
+- `git diff --check`: PASS
+- `rg -n "実機によって|今回の実機検証|same-avd-name" openspec/changes/ch10-emulator-start-timeout/design.md openspec/changes/ch10-emulator-start-timeout/real-proof.txt`: PASS（設計記述と実測値の両方を確認）
