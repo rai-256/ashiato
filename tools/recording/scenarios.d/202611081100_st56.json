@@ -1,0 +1,42 @@
+[
+  {
+    "id": "ST56-web-collector-setup",
+    "story": "ST56",
+    "spec": "web/e2e/st56-collector-setup.spec.ts",
+    "requires": [
+      "web/e2e/st56-collector-setup.spec.ts",
+      "web/e2e/global-setup.ts",
+      "web/src/CollectorSetupPanel.tsx"
+    ],
+    "note": "ST56（Web）: 設定から合言葉を入れ直す → 収集アプリへ貼る設定文字列とコピーのボタンが出る → 画面を移るか開き直すと文字列は消える。間違った合言葉では文字列を出さない。資格情報は画面に残さない。"
+  },
+  {
+    "id": "ST56-android-collector-setup",
+    "story": "ST56",
+    "platform": "android",
+    "spec": "tools/recording/st56/St56RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St56RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/SetupActivity.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/SetupStore.kt",
+      "tools/recording/st56/St56RecordingTest.kt"
+    ],
+    "note": "ST56（Android）: まっさらな携帯の設定画面で、録画用サーバを向く設定文字列を貼って保存する → 「設定済み」と送り先、接続確認の結果が出る。貼った文字列と資格情報は保存後に画面から消える。"
+  },
+  {
+    "id": "ST56-windows-collector-setup",
+    "story": "ST56",
+    "platform": "windows",
+    "desktop": "tools/recording/st56/st56-desktop.ps1",
+    "spec": "tools/recording/st56/st56-result.rec.ts",
+    "requires": [
+      "crates/collector-windows/src/setup.rs",
+      "crates/collector-windows/src/config.rs",
+      "tools/recording/st56/st56-desktop.ps1",
+      "tools/recording/st56/st56-result.rec.ts",
+      "web/e2e/global-setup.ts",
+      "web/src/DayView.tsx"
+    ],
+    "note": "ST56（PC）: Windows Sandbox で `setup` に設定文字列を貼る → 届かない間も設定を保存して接続結果を示す → 置き場の設定ファイルに資格情報の平文が無いことを確かめる → 収集を起こしてフォルダ「ST56 の設定」の記録を未送信に積む。後半はその記録が 1 日の画面に PC の記録として届くところを見せる。"
+  }
+]
