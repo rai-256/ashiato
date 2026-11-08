@@ -19,7 +19,7 @@
 
 ## Task 1: ADR の形の検査の台本
 
-- [ ] 1.1 `tools/check-adr.sh` を design D9 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH12）・4 つの口（引数なし・`--self-test`・`--verbatim`・`--backlog`）・CI の chain job が引数なしと `--self-test` を走らせること・`--verbatim` は ADR の手入れの後に落ちうること（D1））。
+- [x] 1.1 `tools/check-adr.sh` を design D9 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH12）・4 つの口（引数なし・`--self-test`・`--verbatim`・`--backlog`）・CI の chain job が引数なしと `--self-test` を走らせること・`--verbatim` は ADR の手入れの後に落ちうること（D1））。
   引数なしの口は、次の 11 を順に確かめ、それぞれの前に印を出す:
   `echo "Scenario: README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する"` /
   `echo "Scenario: 一覧の日付と題は ADR の日付と見出しに一致する"` /
