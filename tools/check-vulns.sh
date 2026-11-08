@@ -260,6 +260,70 @@ PY
   if printf '%s\n' crates/server/src/lib.rs docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" code; then return 1; fi
   printf '%s\n' crates/server/src/lib.rs | "$ROOT/tools/release/changes.sh" code || return 1
+  local fake_gh="$tmp/gh" gh_log="$tmp/gh.log"
+  cat >"$fake_gh" <<'GH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >>"$GH_LOG"
+case "$1 ${2:-}" in
+  "label list") [[ "${GH_LABEL_EXISTS:-}" == 1 ]] && printf '[{"name":"脆弱性"}]\n' || printf '[]\n' ;;
+  "label create") printf '[]\n' ;;
+  "issue list") if [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
+  "issue view") [[ "${GH_OPEN_ISSUE:-}" == 1 ]] && printf '{"comments":[]}\n' || printf '{"comments":[]}\n' ;;
+  "issue create"|"issue comment") exit 0 ;;
+esac
+GH
+  chmod +x "$fake_gh"
+  echo "== Scenario: 届かなかった夜は issue を立てない"
+  vulnerable_tree
+  printf 'com.example:safe:1.0.0=runtimeClasspath\n' >"$tmp/root/collector-android/gradle.lockfile"
+  : >"$gh_log"
+  ! PATH="$tmp:$PATH" GH_LOG="$gh_log" OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || return 1
+  ! rg -q 'issue (create|comment)' "$gh_log" || return 1
+  echo "== Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ"
+  vulnerable_tree
+  printf 'com.example:safe:1.0.0=runtimeClasspath\n' >"$tmp/root/collector-android/gradle.lockfile"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_LABEL_EXISTS=0 OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || [[ $? -eq 1 ]] || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_LABEL_EXISTS=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
+  [[ "$(rg -c '^issue create ' "$gh_log")" == 2 ]] || return 1
+  rg -q '^label create 脆弱性' "$gh_log" || return 1
+  echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
+  printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/existing.json"
+  mkdir -p "$tmp/existing-dir"
+  cp "$tmp/existing.json" "$tmp/existing-dir/vulnerabilities.json"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/existing-dir"; local duplicate_rc=$?
+  [[ "$duplicate_rc" == 0 ]] || return 1
+  ! rg -q '^issue (create|comment) ' "$gh_log" || return 1
+  echo "== Scenario: 勧告が増えたときだけ、開いている issue に追記する"
+  cat >"$tmp/finding.json" <<'JSON'
+[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"},{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-new","severity":"LOW"}]
+JSON
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  [[ "$(rg -c '^issue comment ' "$gh_log")" == 1 ]] || return 1
+  rg -q 'GHSA-new' "$gh_log" && ! rg -q 'GHSA-35jh-r3h4-6jhm.*GHSA-new' "$gh_log" || return 1
+  echo "== Scenario: issue に書くのは決まった項目だけ"
+  rg -q 'issue comment .*勧告: GHSA-new' "$gh_log" || return 1
+  ! rg -q '届く|分析|見出し' "$gh_log" || return 1
+  echo "== Scenario: 勧告が消えた依存の issue は閉じない"
+  ! rg -q '^issue close ' "$gh_log" || return 1
+  echo "== Scenario: 表の行の問題は、例外の表の 1 件の issue になる"
+  printf '%s\n' '[{"kind":"exception_table","id":"A-1","reason":"届かない: 網"},{"kind":"exception_table","id":"A-2","reason":"上げる予定: 次回"}]' >"$tmp/table.json"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/table.json" || return 1
+  [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
+  rg -q '脆弱性: 例外の表' "$gh_log" && rg -q 'A-1' "$gh_log" && rg -q '届かない' "$gh_log" && rg -q 'A-2' "$gh_log" && rg -q '上げる予定' "$gh_log" || return 1
+  echo "== Scenario: PostgreSQL の遅れは 1 件の issue になり、開いていれば立て直さない"
+  mkdir -p "$tmp/pg-findings"
+  printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.11' >"$tmp/pg-findings/postgresql-minor.txt"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  ! rg -q '^issue (create|comment) ' "$gh_log" || return 1
   return 0
 }
 
@@ -267,6 +331,17 @@ main() {
   if [[ "${1:-}" == "--self-test" ]]; then self_test; return $?; fi
   if [[ "${1:-}" == "allow-ghsas" ]]; then
     CHECK_VULNS_ROOT="$ROOT" python3 "$SCRIPT_DIR/check-vulns.py" --allow-ghsas
+    return $?
+  fi
+  if [[ "${1:-}" == "nightly" || "${1:-}" == "file-issues" ]]; then
+    [[ $# == 2 ]] || { echo "error: 検査できなかった（使い方）"; return 2; }
+    if [[ "$1" == nightly ]]; then
+      local scanner
+      scanner="$(scanner_path)" || return $?
+      CHECK_VULNS_ROOT="$ROOT" OSV_SCANNER_BIN="$scanner" python3 "$SCRIPT_DIR/check-vulns-issues.py" "$@"
+    else
+      CHECK_VULNS_ROOT="$ROOT" python3 "$SCRIPT_DIR/check-vulns-issues.py" "$@"
+    fi
     return $?
   fi
   local scanner
