@@ -47,7 +47,7 @@
 上流が登録の commit `ff9a78dd7` の節と、いまの節の両方で同じ値になることを確かめた。commit の SHA でなく中身の値にするのは、枝が rebase されると SHA が履歴から消えうるから。
 こうしないと、ADR と節を一緒に書き換えたときにどの検証も落ちない。
 
-### D2（仮・C2）. 足すのは 6 ファイル・`CLAUDE.md` と `AGENTS.md` の 1 行ずつ・ADR の形の検査 `tools/check-adr.sh`・CI の chain job の 1 行（Q3）
+### D2（仮）. 足すのは 6 ファイル・`CLAUDE.md` と `AGENTS.md` の 1 行ずつ・ADR の形の検査 `tools/check-adr.sh`・CI の chain job の 1 行（Q3。既定 C2 を改めた）
 
 本人の答え（Q3。推奨と違う）: 「足す（`tools/check-adr.sh` と CI の chain job の 1 行）」。README の一覧と `docs/adr/` の実ファイルの一致・ファイル名の形・見出しの形を、
 この change の 1 回の検証で終わらせず、CI で毎回見る。推奨（足さない・この change の検証で 1 回だけ見る）は採らない。
