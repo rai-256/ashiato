@@ -22,8 +22,17 @@ jobs:
             grep '^version=' plan.txt
             grep '^prerelease=' plan.txt
           } >> "$GITHUB_OUTPUT"
-  package-linux:
+  vulns:
     needs: plan
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 1, persist-credentials: false }
+      - run: tools/check-vulns.sh
+  package-linux:
+    needs: [plan, vulns]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -46,7 +55,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: release-linux, path: "${{ runner.temp }}/release" }
   package-windows:
-    needs: plan
+    needs: [plan, vulns]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
