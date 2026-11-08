@@ -47,11 +47,11 @@ check_index_and_files() {
   files_file=$(mktemp)
   trap 'rm -f "$list_file" "$files_file"' RETURN
   awk '
-    /^## 一覧$/ { in_list=1; next }
+    /^## 一覧（新しい順）$/ { in_list=1; next }
     in_list && /^## / { exit }
     in_list && /^- \[[0-9]{4}-[0-9]{2}-[0-9]{2} / { print }
   ' "$readme" | sed -E 's/^-[[:space:]]+\[[^]]+\]\([^)]*\)$/&/' > "$list_file"
-  find "$ADR_DIR" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort -r > "$files_file"
+  find "$ADR_DIR" -maxdepth 1 -type f -name '*.md' ! -name README.md -printf '%f\n' | sort -r > "$files_file"
 
   local listed_count file_count
   listed_count=$(count_lines "$list_file")
@@ -87,6 +87,7 @@ check_index_and_files() {
   while IFS= read -r name; do
     [[ "$name" =~ ^[0-9]{12}-[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || error "$name: ファイル名が時刻と英小文字 slug の形でない"
   done < "$files_file"
+  trap - RETURN
 }
 
 check_shape() {
@@ -115,7 +116,7 @@ check_shape() {
 check_guidance() {
   local claude_section agents_section count
   claude_section=$(section_lines "$CLAUDE_FILE" '### 文書とハーネス' 2>/dev/null || true)
-  count=$(printf '%s\n' "$claude_section" | grep -Ec '^\| `docs/adr/` \|' || true)
+  count=$(printf '%s\n' "$claude_section" | awk -F'|' '$2 ~ /^[[:space:]]*`docs\/adr\/[[:space:]]*`[[:space:]]*$/ && $3 ~ /Story をまたぐ判断の記録/ && $4 ~ /する/ { count++ } END { print count + 0 }')
   [ "$count" -eq 1 ] || error "$CLAUDE_FILE: 文書の表から docs/adr/ に辿る行が $count 個"
 
   agents_section=$(section_lines "$AGENTS_FILE" '## 実装と計画の規約' 2>/dev/null || true)
@@ -135,20 +136,39 @@ check_ci() {
 }
 
 check_tracked() {
-  local files count
+  local files count expected name
+  expected=(
+    docs/adr/README.md
+    docs/adr/202610030000-worktree-port-allocation.md
+    docs/adr/202610080000-foundation-for-satellites.md
+    docs/adr/202610110000-pure-crate-split.md
+    docs/adr/202610110001-ui-surface-only.md
+    docs/adr/202610110002-stricter-lint.md
+  )
   files=$(git ls-files docs/adr)
   count=$(printf '%s\n' "$files" | sed '/^$/d' | wc -l)
   [ "$count" -eq 6 ] || { error "docs/adr/ がまだ追跡されていない"; return; }
-  printf '%s\n' "$files" | grep -Fxq docs/adr/README.md || error "docs/adr/README.md が追跡されていない"
+  for name in "${expected[@]}"; do
+    printf '%s\n' "$files" | grep -Fxq "$name" || error "$name が追跡されていない"
+  done
 }
 
 check_sources() {
-  local name count
-  while IFS= read -r name; do
-    [ "$name" = README.md ] && continue
-    count=$(grep -Ec '^- 出所: .*メモリ .*\.md' "$ADR_DIR/$name" 2>/dev/null || true)
-    [ "$count" -ge 1 ] || error "$name: 出所に移したメモリのファイル名が無い"
-  done < <(find "$ADR_DIR" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+  local name memory
+  declare -A sources=(
+    [202610030000-worktree-port-allocation.md]='worktree-port-allocation-followup.md prefer-collision-free-allocation-over-checks.md'
+    [202610080000-foundation-for-satellites.md]='foundation-for-satellites-premise.md'
+    [202610110000-pure-crate-split.md]='lint-purity-ui-refresh-plan.md'
+    [202610110001-ui-surface-only.md]='lint-purity-ui-refresh-plan.md'
+    [202610110002-stricter-lint.md]='lint-purity-ui-refresh-plan.md'
+  )
+  for name in "${!sources[@]}"; do
+    while IFS= read -r memory; do
+      [ -n "$memory" ] || continue
+      grep -F -- "- 出所:" "$ADR_DIR/$name" | grep -Fq -- "$memory" ||
+        error "$name: 出所に $memory が無い"
+    done < <(printf '%s\n' ${sources[$name]})
+  done
 }
 
 run_main() {
@@ -174,6 +194,9 @@ run_main() {
   check_sources
   echo 'Scenario: docs/adr/ を含む追跡ファイルで、網の名前の検査が通る'
   check_tracked
+  if grep -Eq '^docs/adr/' tools/check-private.allow; then
+    error 'tools/check-private.allow に docs/adr/ の例外がある'
+  fi
   tools/check-private.sh || errors=1
   return "$errors"
 }
@@ -184,7 +207,11 @@ verbatim() {
   trap 'rm -rf "$tmp"' RETURN
   awk '/^## 依頼（逐語）$/{on=1} on && NR>1 && /^## / && $0 != "## 依頼（逐語）"{exit} on{print}' "$source" > "$tmp/section"
   actual=$(sha256sum "$tmp/section" | awk '{print $1}')
-  [ "$actual" = "$expected" ] || { error "$source: 依頼（逐語）の sha256 が違う"; return 1; }
+  if [ "$actual" != "$expected" ]; then
+    error "$source: 依頼（逐語）の sha256 が違う"
+    trap - RETURN
+    return 1
+  fi
   python3 - "$tmp/section" "$ADR_DIR" <<'PY'
 import pathlib, re, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -203,6 +230,7 @@ for name, body in blocks:
         print(f'error: {path} が依頼（逐語）と一致しない', file=sys.stderr)
         sys.exit(1)
 PY
+  trap - RETURN
 }
 
 self_test() {
@@ -210,39 +238,42 @@ self_test() {
   [ -d "$ADR_DIR" ] || { error "self-test の基準となる $ADR_DIR が無い"; return 1; }
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
-  mkdir -p "$tmp/docs/adr" "$tmp/.github/workflows"
-  cp -a "$ADR_DIR/." "$tmp/docs/adr/"
-  cp "$CLAUDE_FILE" "$tmp/CLAUDE.md"
-  cp "$AGENTS_FILE" "$tmp/AGENTS.md"
-  cp "$CI_FILE" "$tmp/.github/workflows/ci.yml"
-  run_broken() {
-    ADR_DIR="$tmp/docs/adr" ADR_CLAUDE_MD="$tmp/CLAUDE.md" ADR_AGENTS_MD="$tmp/AGENTS.md" ADR_CI_YML="$tmp/.github/workflows/ci.yml" \
-      "$0" >/dev/null 2>&1
-  }
+  base="$tmp/base"
+  mkdir -p "$base/docs/adr" "$base/.github/workflows"
+  cp -a "$ADR_DIR/." "$base/docs/adr/"
+  cp "$CLAUDE_FILE" "$base/CLAUDE.md"
+  cp "$AGENTS_FILE" "$base/AGENTS.md"
+  cp "$CI_FILE" "$base/.github/workflows/ci.yml"
   for case_name in list-missing list-swapped title source filename claude decision agents ci; do
-    cp -a "$tmp" "$tmp-$case_name"
+    case_dir="$tmp/$case_name"
+    cp -a "$base" "$case_dir"
+    target=$(find "$case_dir/docs/adr" -maxdepth 1 -type f -name '20*.md' -printf '%f\n' | sort | head -n1)
     case "$case_name" in
-      list-missing) sed -i '0,/^- \[/d' "$tmp-$case_name/docs/adr/README.md" ;;
-      list-swapped) python3 - "$tmp-$case_name/docs/adr/README.md" <<'PY'
+      list-missing) sed -i '0,/^- \[/ { /^- \[/d; }' "$case_dir/docs/adr/README.md" ;;
+      list-swapped) python3 - "$case_dir/docs/adr/README.md" <<'PY'
 import pathlib
 p = pathlib.Path(__import__('sys').argv[1]); lines = p.read_text().splitlines(True)
 i = next(i for i, x in enumerate(lines) if x.startswith('- [')); j = next(j for j in range(i+1, len(lines)) if lines[j].startswith('- ['))
 lines[i], lines[j] = lines[j], lines[i]; p.write_text(''.join(lines))
 PY
         ;;
-      title) sed -i '0,/^# /s//^# changed /' "$tmp-$case_name/docs/adr"/*.md ;;
-      source) echo 'Scenario: 出所の行が無い ADR は落ちる'; sed -i '0,/^- 出所: /d' "$tmp-$case_name/docs/adr"/*.md ;;
-      filename) first=$(find "$tmp-$case_name/docs/adr" -maxdepth 1 -name '20*.md' | head -1); mv "$first" "${first%.md}-BAD.md" ;;
-      claude) sed -i '/`docs\/adr\/`/d' "$tmp-$case_name/CLAUDE.md" ;;
-      decision) echo 'Scenario: 決まった見出しの欠けた ADR は落ちる'; sed -i '0,/^## 決定$/d' "$tmp-$case_name/docs/adr"/*.md ;;
-      agents) sed -i '/Story をまたぐ判断.*`docs\/adr\/`/d' "$tmp-$case_name/AGENTS.md" ;;
-      ci) sed -i '/check-adr\.sh --self-test/d' "$tmp-$case_name/.github/workflows/ci.yml" ;;
+      title) sed -i '0,/^# /s/^# /# changed /' "$case_dir/docs/adr/$target" ;;
+      source) echo 'Scenario: 出所の行が無い ADR は落ちる'; sed -i '0,/^- 出所: / { /^- 出所: /d; }' "$case_dir/docs/adr/$target" ;;
+      filename) mv "$case_dir/docs/adr/$target" "$case_dir/docs/adr/${target%.md}-BAD.md" ;;
+      claude) sed -i '/`docs\/adr\/`/d' "$case_dir/CLAUDE.md" ;;
+      decision) echo 'Scenario: 決まった見出しの欠けた ADR は落ちる'; sed -i '0,/^## 決定$/ { /^## 決定$/d; }' "$case_dir/docs/adr/$target" ;;
+      agents) sed -i '/Story をまたぐ判断.*`docs\/adr\/`/d' "$case_dir/AGENTS.md" ;;
+      ci) sed -i '/check-adr\.sh --self-test/d' "$case_dir/.github/workflows/ci.yml" ;;
     esac
-    if ADR_DIR="$tmp-$case_name/docs/adr" ADR_CLAUDE_MD="$tmp-$case_name/CLAUDE.md" ADR_AGENTS_MD="$tmp-$case_name/AGENTS.md" ADR_CI_YML="$tmp-$case_name/.github/workflows/ci.yml" "$0" >/dev/null 2>&1; then
+    output="$case_dir/output"
+    if ADR_DIR="$case_dir/docs/adr" ADR_CLAUDE_MD="$case_dir/CLAUDE.md" ADR_AGENTS_MD="$case_dir/AGENTS.md" ADR_CI_YML="$case_dir/.github/workflows/ci.yml" "$0" >"$output" 2>&1; then
       error "self-test の壊し方 $case_name で検査が落ちなかった"
     fi
-    rm -rf "$tmp-$case_name"
+    if [ "$case_name" = source ] || [ "$case_name" = decision ]; then
+      grep -Fq "$target" "$output" || error "self-test の壊し方 $case_name が $target を出さなかった"
+    fi
   done
+  trap - RETURN
   return "$errors"
 }
 
