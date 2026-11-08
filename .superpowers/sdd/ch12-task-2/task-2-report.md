@@ -13,7 +13,7 @@
 - `tools/check-adr.sh --self-test`: PASS
 - `tools/check-adr.sh`: PASS
 - `tools/check-private.sh`: PASS
-- 3 ファイルの差分が各 1 行追加であることの検査: commit 前は HEAD 比較のため FAIL、commit 後に再実行予定
+- 3 ファイルの差分が各 1 行追加であることの検査: commit 後に PASS
 
 ## TDD Evidence
 
