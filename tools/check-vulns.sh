@@ -245,23 +245,11 @@ PY
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
   rg -q '^error: 検査できなかった' "$tmp/actual" || return 1
   echo "== Scenario: 許可の一覧は例外の表と別名から組む"
-  cat >"$tmp/fake-curl" <<'SH'
-#!/usr/bin/env bash
-if [[ "${FAIL_PROXY:-}" == 1 ]]; then exit 7; fi
-if [[ "$*" == *RUSTSEC-2020-0071* ]]; then
-  printf '%s\n' '{"id":"RUSTSEC-2020-0071","aliases":["CVE-2020-26235","GHSA-wcg3-cvx6-7396"]}'
-else
-  printf '%s\n' '{"id":"GHSA-35jh-r3h4-6jhm","aliases":[]}'
-fi
-SH
-  chmod +x "$tmp/fake-curl"
   printf '%s\n' '[[IgnoredVulns]]' 'id = "RUSTSEC-2020-0071"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' '[[IgnoredVulns]]' 'id = "GHSA-35jh-r3h4-6jhm"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' > "$tmp/root/osv-scanner.toml"
-  expect_rc 0 env PATH="$tmp:$PATH" CURL="$tmp/fake-curl" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
-  PATH="$tmp:$PATH" CURL="$tmp/fake-curl" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas >"$tmp/actual" 2>&1 || return 1
+  expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
   [[ "$(cat "$tmp/actual")" == 'GHSA-wcg3-cvx6-7396,GHSA-35jh-r3h4-6jhm' ]] || return 1
   echo "== Scenario: 別名を問い合わせられなければ、許可の一覧を出さない"
-  expect_rc 2 env PATH="$tmp:$PATH" CURL="$tmp/fake-curl" FAIL_PROXY=1 CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
-  env PATH="$tmp:$PATH" CURL="$tmp/fake-curl" FAIL_PROXY=1 CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas >"$tmp/actual" 2>&1 || true
+  expect_rc 2 env HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
   ! rg -q '^GHSA-' "$tmp/actual" || return 1
   echo "== Scenario: 依存に関わるファイルを変えた PR で走り、それ以外では走らない"
   for path in Cargo.lock web/package-lock.json collector-android/app/gradle.lockfile osv-scanner.toml tools/check-vulns.sh; do

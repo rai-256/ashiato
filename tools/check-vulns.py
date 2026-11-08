@@ -97,7 +97,7 @@ def allow_ghsas(root: Path) -> int:
             continue
         url = "https://api.osv.dev/v1/vulns/" + ident
         proc = subprocess.run(
-            [os.environ.get("CURL", "curl"), "--fail", "--location", "--silent", "--show-error", url],
+            ["curl", "--fail", "--location", "--silent", "--show-error", url],
             text=True, capture_output=True,
         )
         if proc.returncode != 0:
