@@ -1,9 +1,16 @@
 {
   "status": "accepted",
-  "digest": "c88d8565f8dd63e755fd8ff13bb680a1572076bfc7a49d5bda6d0e7bfe40e04e",
-  "head": "6286034ea970848057bd060cbc19df504154e6a2",
-  "answers": "deep-answers-1.txt",
+  "digest": "c06cdf634e2462132e2014d8fd580a7366521d8f223ad108f6de47592251e7c4",
+  "head": "65f15cdb2d2bc8715affbb1f3df6ec8f5aacad24",
+  "answers": "deep-answers-2.txt",
   "picked": "合意する",
   "notes": [],
-  "at": "2026-11-08T08:32:48Z"
+  "at": "2026-11-08T12:55:24Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "low",
+      "title": "CLAUDE.md・AGENTS.md・chain job の行・CH12 の ADR の名前を変える PR は、ADR の検査も一緒に直す"
+    }
+  ]
 }
