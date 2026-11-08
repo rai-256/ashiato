@@ -1,0 +1,531 @@
+{
+ "purpose": "Claude のメモリにしか無かった ashiato2 の判断 5 件（ポートの割り当て・衛星の基盤が主・純粋な計算の分け方・画面は表面だけ直す・lint を一段厳しく）が、repo の docs/adr/ に ADR として残る。メモリが消えても、Codex やほかの席からも、なぜそう決めたかを repo の中で読める。",
+ "model": {
+  "kind": "diagram",
+  "caption": "この change が置くものと、辿り方",
+  "text": "メモリ（手元だけ・commit されない）\n   │  4 つのメモリの判断を移す（本文は依頼のまま）\n   ▼\ndocs/adr/\n   ├─ README.md ……… 書き方と一覧（新しい順）\n   └─ ADR 5 件 ……… 出所にメモリのファイル名\n   ▲\nCLAUDE.md の文書の表に 1 行（docs/adr/）\n\n確かめる: tools/test-adr-docs.sh（手元で走らせる。CI には載せない）"
+ },
+ "before_after": [],
+ "highlights": [
+  "body.2",
+  "check.2",
+  "body.3",
+  "origin.2"
+ ],
+ "features": [
+  {
+   "id": "place",
+   "title": "ADR を置き、辿れるようにする",
+   "summary": "docs/adr/ に README と ADR 5 件を置き、CLAUDE.md の表から辿れるようにする",
+   "figure": null,
+   "points": [
+    {
+     "id": "place.1",
+     "kind": "normal",
+     "text": "docs/adr/ に README（書き方と一覧）と ADR 5 件の計 6 ファイルを置く。ADR は 1 件 1 ファイルで、名前は「時刻-英小文字の slug.md」",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ],
+      "scenarios": [
+       "CH12 で置いた README と 5 件の ADR がある",
+       "ADR のファイル名は時刻と英小文字の slug の形を持つ"
+      ]
+     }
+    },
+    {
+     "id": "place.2",
+     "kind": "normal",
+     "text": "README の一覧は ADR のファイルと 1 対 1 で対応し、日付と題は各 ADR の日付と見出しに一致し、新しい順に並ぶ",
+     "refs": {
+      "scenarios": [
+       "README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する",
+       "一覧の日付と題は ADR の日付と見出しに一致する",
+       "一覧はファイル名の新しい順に並ぶ"
+      ]
+     }
+    },
+    {
+     "id": "place.3",
+     "kind": "normal",
+     "text": "CLAUDE.md の「文書とハーネス」の表に `docs/adr/` の 1 行（Story をまたぐ判断の記録・書き込み: する）を docs/ の行の直後に足す。agent への案内はこの 1 行だけで、AGENTS.md には「ADR を書け」の指示を足さない。いつ ADR を書くかは README が持つ",
+     "refs": {
+      "scenarios": [
+       "CLAUDE.md の文書の表から docs/adr/ に辿れる"
+      ],
+      "decisions": [
+       "Q4",
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "body",
+   "title": "ADR の本文は依頼のまま置く",
+   "summary": "本文は 1 字も変えず、事実と食い違う箇所は直さずに別の場所に挙げる",
+   "figure": null,
+   "points": [
+    {
+     "id": "body.1",
+     "kind": "normal",
+     "text": "6 ファイルの中身は docs/changes/CH12.md の「依頼（逐語）」の各塊と 1 字も違わない。比べる元の節そのものも、登録したときの中身（sha256）と一致することを確かめる",
+     "refs": {
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "body.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "ADR の本文は repo の今と食い違う箇所を 8 つ含んだまま入る。たとえば衛星の ADR は「要件の書き直しは未着手・接続は未決」と書くが、要件は 2026-10-11 に書き直し済みで、接続は「いったん MCP」になっている。直さずに PR 本文と docs/changes/CH12.md の「ADR と repo の今の食い違い（直していない）」の節に一覧で挙げる。直す change を起こすかは、一覧を見て本人が決める",
+     "examples": [
+      {
+       "wrong": "ADR を置くついでに「その後」を書き足す",
+       "right": "ADR は依頼のまま。8 つは CH12.md の節と PR 本文に挙げるだけ"
+      }
+     ],
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "body.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "README と 3 つの ADR（ポート・純粋な計算の分け方・lint）は harness2 の ADR を題名で参照するが、その ADR は 2026-11-08 の時点で harness2 の main に無い（push も PR も無い）。リンクではないので壊れたリンクの検査には掛からない。PR 本文にそう書く",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "origin",
+   "title": "どのメモリから移したかを名指しする",
+   "summary": "ADR の出所にメモリのファイル名を書き、メモリの残りを数える台本からも外れることを確かめる",
+   "figure": null,
+   "points": [
+    {
+     "id": "origin.1",
+     "kind": "normal",
+     "text": "各 ADR は出所の行を持つ。移した 4 つのメモリ（ポートの 2 つ・衛星の 1 つ・lint と純粋な計算と表面の 1 つ）は、移した先の ADR の出所に名前が出る",
+     "refs": {
+      "requirements": [
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+      ],
+      "scenarios": [
+       "5 件の ADR の出所に、移したメモリのファイル名がある",
+       "出所の行が無い ADR は落ちる"
+      ]
+     }
+    },
+    {
+     "id": "origin.2",
+     "kind": "exception",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "完了の判定の 1 つ（harness2 の adr_backlog.py が 4 つのメモリを残りに数えない）は、手元でしか確かめられない。台本は harness2 の手元の作業ツリーにしか無く、メモリも手元にしか無い。harness2 の側が main に入るのは待たない。台本かメモリが見つからなければ「環境の欠落」で止まり、黙って合格にはしない",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "origin.3",
+     "kind": "caution",
+     "text": "台本がそのメモリを本当に数えているかも見る。ADR を渡さずに走らせると 4 つとも残りに出ること（数える対象に入っている）を先に確かめ、そのうえで docs/adr/ を渡すと 4 つとも消えることを見る",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "private",
+   "title": "公開してよいものだけを出す",
+   "summary": "repo は公開なので、網の名前・私設 IP と、公開していないメモリの中身を出さない",
+   "figure": null,
+   "points": [
+    {
+     "id": "private.1",
+     "kind": "normal",
+     "text": "docs/adr/ は網の名前・私設 IP を含まない。確かめは既存の tools/check-private.sh に任せ、docs/adr/ のための例外は足さない。この検査は git が追跡しているファイルしか見ないので、先に docs/adr/ の 6 ファイルが追跡されていることを見る",
+     "tags": [
+      "Privacy"
+     ],
+     "refs": {
+      "requirements": [
+       "ADR は網の名前・私設 IP を含まない"
+      ],
+      "scenarios": [
+       "docs/adr/ を含む追跡ファイルで、網の名前の検査が通る"
+      ]
+     }
+    },
+    {
+     "id": "private.2",
+     "kind": "normal",
+     "text": "ADR の本文は依頼として既に公開の origin にあるので、docs/adr/ に置いても新しく外に出る中身は無い。外に出ることは問いにしていない",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "title": "確かめ方",
+   "summary": "検証の台本を 1 本足すが、CI には載せない",
+   "figure": null,
+   "points": [
+    {
+     "id": "check.1",
+     "kind": "normal",
+     "text": "足すのは docs/adr/ の 6 ファイル・CLAUDE.md の 1 行・検証の台本 tools/test-adr-docs.sh の 1 本だけ。コード・移行・既存の台本・CI は変えない。台本は、一覧と実ファイルの対応・出所・CLAUDE.md の表・網の名前を見て、自己検査ではわざと壊した木で落ちることを確かめる",
+     "refs": {
+      "decisions": [
+       "D2",
+       "D8",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "check.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "台本は CI に載せない。そのため、後で ADR を足した人が一覧に書き忘れても、CI は止めない（台本を自分で走らせれば見つかる）。書き忘れが実際に起きたら、CI に 1 行足す change を起こす",
+     "refs": {
+      "decisions": [
+       "Q3",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "check.3",
+     "kind": "caution",
+     "text": "依頼の本文と一致するかを見る判定（--verbatim）は、CH12 を受け入れる 1 回のための判定で、正典の Scenario にはしない。後で ADR を「置き換え済み」に直すと、この判定は落ちうる（README が認める手入れなので、それでよい）",
+     "refs": {
+      "decisions": [
+       "D1",
+       "D8"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "ADR の本文の手入れ（食い違いの直し・「その後」の追記）",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "ADR の形を CI で毎回見る検査",
+   "refs": {
+    "decisions": [
+     "Q3",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "AGENTS.md に「ADR を書け」の指示を足すこと",
+   "refs": {
+    "decisions": [
+     "Q4",
+     "D7"
+    ]
+   }
+  },
+  {
+   "text": "harness2 の ADR 24 件と adr_backlog.py を harness2 の main に入れること（この repo の外）",
+   "refs": {
+    "decisions": [
+     "Q2"
+    ]
+   }
+  },
+  {
+   "text": "ハーネスのメモリ（19 件）を ADR にすること（harness2 の側の仕事）",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "検証の台本が出す行の形（4 つのメモリ名の有無と結果の 1 行だけ。adr_backlog.py の出力は一時の場所に受けて捨てる。公開していないメモリの名前と説明を、commit される証跡に出さないため）",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "ADR",
+   "def": "設計上の判断を 1 件 1 ファイルで残す記録。背景・決定・退けた案・見直す条件・影響を書く"
+  },
+  {
+   "term": "メモリ",
+   "def": "Claude が手元に残す覚え書き（~/.claude/projects/…/memory/）。commit されず、ほかの席や Codex からは見えない"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "ポートの決め方の理由を、メモリの無い席で調べる",
+   "trigger": "Codex で動いている席が、新しい種類の作業ツリーを足すことになった。tools/ports.sh を名前のハッシュで簡単にしたくなったが、なぜ台帳で割り当てているのかが分からない。",
+   "steps": [
+    {
+     "do": "CLAUDE.md の「文書とハーネス」の表を読む",
+     "see": "`docs/adr/` の行（Story をまたぐ判断の記録）"
+    },
+    {
+     "do": "docs/adr/README.md の一覧を見る",
+     "see": "「2026-10-03 worktree の待ち受けのポートは、どの worktree でも被らないよう機械が割り当てる」"
+    },
+    {
+     "do": "その ADR を開く",
+     "see": "背景（ST08 の再検証が ST22 の DB に書いた）と、退けた案に「名前のハッシュで番号を決める。衝突しうる」"
+    }
+   ],
+   "outcome": "ハッシュは一度退けた案だと分かり、台帳の割り当てに沿って足す。変えたいなら新しい ADR で置き換える",
+   "without": "理由は手元の Claude のメモリにしか無く、Codex の席からは読めない。同じ取り違えをもう一度起こしうる",
+   "refs": {
+    "requirements": [
+     "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+     "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+    ],
+    "scenarios": [
+     "CLAUDE.md の文書の表から docs/adr/ に辿れる"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [],
+ "impact": {
+  "overview": "メモリにしか無かった判断 5 件が docs/adr/ に ADR として入り、CLAUDE.md の表から辿れるようになる。本文は依頼のまま置くので、repo の今と食い違う 8 つの箇所も含んだまま入る（一覧は docs/changes/CH12.md の節にある）。この分析では、できなくなることは見つけていない。足すのは文書と検証の台本 1 本で、CI には載せないので、後の ADR の書き忘れは CI が止めない。",
+  "problem": "判断の理由が手元の Claude のメモリにしか無く、Codex やほかの席が tools/ports.sh や lint の設定を変えるとき、一度退けた案を知らずに選び直しうる。メモリが消えれば理由も戻らない。",
+  "depth": "light",
+  "depth_why": "文書と検証の台本を足すだけで、止める規則・既存の振る舞いの変更・MODIFIED / REMOVED の Requirement を持たない",
+  "lost": [],
+  "lost_none": "足すだけで、既存の操作に触らない。CLAUDE.md は表に 1 行増えるだけで、ほかの行は変えない",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "CLAUDE.md の表 → README の一覧 → ADR の順で判断の理由を読める。ADR を足したら tools/test-adr-docs.sh で一覧の対応を確かめられる",
+    "cannot": "ADR を足したときの一覧の書き忘れを、CI に止めてもらうこと（台本を CI に載せない）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": false,
+    "why": "製品・配布物・データに触らない文書の追加で、版をまたぐ振る舞いが無い"
+   },
+   {
+    "id": "rollback",
+    "applies": false,
+    "why": "戻すときは docs/adr/ と台本を消し、CLAUDE.md の 1 行を消すだけ。データ・移行に触らない"
+   },
+   {
+    "id": "carryover",
+    "applies": false,
+    "why": "引き継ぐデータが無い。メモリ自体は消さず、手元にそのまま残る"
+   },
+   {
+    "id": "mixed",
+    "applies": false,
+    "why": "環境や版の組み合わせで振る舞いが変わるものを持たない。--backlog の確かめだけは手元にしか無いものに依る（origin.2）"
+   },
+   {
+    "id": "recovery",
+    "applies": false,
+    "why": "異常時の復旧の経路に触らない"
+   }
+  ],
+  "rules": [],
+  "scenarios": [],
+  "findings": [],
+  "acceptance": [
+   {
+    "text": "spec の 9 本の Scenario が tools/test-adr-docs.sh（引数なしと --self-test）で通る",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする",
+      "ADR は網の名前・私設 IP を含まない"
+     ]
+    }
+   },
+   {
+    "text": "依頼の本文との一致（--verbatim）と、メモリの残りの確かめ（--backlog。手元）が通る",
+    "refs": {
+     "decisions": [
+      "D1",
+      "D4"
+     ]
+    }
+   },
+   {
+    "text": "main からの差分が docs/adr/・CLAUDE.md の 1 行・tools/test-adr-docs.sh と、この change の文書だけ",
+    "refs": {
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "依頼に挙がった ashiato2 に固有の判断 5 件と README",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "一覧が対応を持つのは docs/adr/ の README 以外の .md だけ",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ]
+     }
+    },
+    {
+     "text": "網の名前の検査は git が追跡しているファイルしか見ないので、docs/adr/ が追跡されているときだけ効く",
+     "refs": {
+      "requirements": [
+       "ADR は網の名前・私設 IP を含まない"
+      ]
+     }
+    },
+    {
+     "text": "出所にメモリのファイル名を書くのは、メモリから移した判断の ADR だけ",
+     "refs": {
+      "requirements": [
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "ハーネスの判断（harness2 の docs/adr/ が持つ）",
+     "refs": {}
+    },
+    {
+     "text": "ADR の本文の手入れ",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "ADR の本文は repo の今と食い違う 8 つの箇所を含む。読む人が古い「影響」を今の状態と取り違えうる（一覧は docs/changes/CH12.md の節）",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "harness2 の ADR への参照は、harness2 の側が main に入るまで行き先が無い",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "台本を CI に載せないので、後の ADR の一覧の書き忘れは止まらない",
+     "refs": {
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "spec の 3 本の Requirement と 9 本の Scenario、design の D1〜D9、premises.md の前提の表（ADR が述べる repo の事実と、harness2 の台本の有無）、review/deep.md と review/spec.md の指摘",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする",
+       "ADR は網の名前・私設 IP を含まない"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "harness2 の adr_backlog.py の今の版を走らせた結果",
+     "why": "台本は harness2 の手元の作業ツリーにしか無く、この段では走らせていない（上流の deep-review と spec-review が走らせた結果は premises.md と review/spec.md にある）"
+    },
+    {
+     "text": "ADR の 5 件の本文に書かれた事実のうち、premises.md に挙げていないもの",
+     "why": "本文は依頼のまま置き直さないので、上流で拾った 8 つの食い違いのほかは読み直していない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "製品のコード・移行・画面",
+     "why": "この change は触らない"
+    },
+    {
+     "text": "走っている ch10-emulator-start-timeout と st53-license-bundle が触る .github/workflows/ci.yml",
+     "why": "この change は ci.yml に触らない（design が名前を出すのは D2 の反転条件の中だけ）。組み合わせて起きることは、この分析では見つけていない"
+    }
+   ]
+  }
+ }
+}
