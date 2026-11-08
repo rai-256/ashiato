@@ -172,6 +172,125 @@ check_sources() {
   done
 }
 
+backlog_names=(
+  worktree-port-allocation-followup.md
+  prefer-collision-free-allocation-over-checks.md
+  foundation-for-satellites-premise.md
+  lint-purity-ui-refresh-plan.md
+)
+
+find_backlog_script() {
+  if [ "${ADR_BACKLOG+x}" = x ]; then
+    [ -f "$ADR_BACKLOG" ] || { echo 'error: ADR_BACKLOG の台本が無い' >&2; return 127; }
+    BACKLOG_SCRIPT=$ADR_BACKLOG
+    return 0
+  fi
+
+  if [ -f "$ROOT/.harness2/scripts/adr_backlog.py" ]; then
+    BACKLOG_SCRIPT=$ROOT/.harness2/scripts/adr_backlog.py
+    return 0
+  fi
+
+  local harness_root worktree
+  harness_root=$(readlink -f "$ROOT/.harness2" 2>/dev/null || true)
+  if [ -n "$harness_root" ] && [ -d "$harness_root" ]; then
+    while IFS= read -r worktree; do
+      [ -n "$worktree" ] || continue
+      if [ -f "$worktree/scripts/adr_backlog.py" ]; then
+        BACKLOG_SCRIPT=$worktree/scripts/adr_backlog.py
+        return 0
+      fi
+    done < <(git -C "$harness_root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  fi
+
+  echo 'error: adr_backlog.py の台本が無い' >&2
+  return 127
+}
+
+find_memory_dir() {
+  if [ "${ADR_MEMORY+x}" = x ]; then
+    [ -d "$ADR_MEMORY" ] || { echo 'error: ADR_MEMORY の置き場が無い' >&2; return 127; }
+    MEMORY_DIR=$ADR_MEMORY
+    return 0
+  fi
+
+  local main_repo repo_key
+  main_repo=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | sed -n '1p')
+  [ -n "$main_repo" ] || { echo 'error: ADR_MEMORY の置き場が無い' >&2; return 127; }
+  repo_key=$(printf '%s' "$main_repo" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')
+  MEMORY_DIR="${HOME:-}/.claude/projects/$repo_key/memory"
+  [ -d "$MEMORY_DIR" ] || { echo 'error: ADR_MEMORY の置き場が無い' >&2; return 127; }
+}
+
+backlog_json_check() {
+  local json_file=$1 mode=$2
+  shift 2
+  python3 -I - "$json_file" "$mode" "$@" <<'PY' >/dev/null 2>&1
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
+names = set(sys.argv[3:])
+try:
+    value = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(2)
+if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+    raise SystemExit(2)
+found = {row.get("memory") for row in value}
+if mode == "positive":
+    raise SystemExit(0 if names <= found else 1)
+raise SystemExit(1 if found & names else 0)
+PY
+}
+
+backlog() {
+  local tmp empty_dir positive_output production_output positive_rc production_rc check_rc name
+  local backlog_has_target=0
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' RETURN
+
+  find_backlog_script || return $?
+  find_memory_dir || return $?
+
+  empty_dir=$(mktemp -d "$tmp/empty.XXXXXX")
+  positive_output="$tmp/positive.json"
+  python3 -I "$BACKLOG_SCRIPT" --memory "$MEMORY_DIR" --adr "$empty_dir" --json >"$positive_output" 2>"$tmp/positive.err"
+  positive_rc=$?
+  if [ "$positive_rc" -gt 1 ] || ! backlog_json_check "$positive_output" positive "${backlog_names[@]}"; then
+    echo 'error: --adr の空の正の対照で 4 つのメモリを数えられない' >&2
+    return 1
+  fi
+
+  production_output="$tmp/production.json"
+  python3 -I "$BACKLOG_SCRIPT" --memory "$MEMORY_DIR" --adr "$ADR_DIR" --json >"$production_output" 2>"$tmp/production.err"
+  production_rc=$?
+  if [ "$production_rc" -gt 1 ]; then
+    echo 'error: adr_backlog.py の結果が読めない' >&2
+    return 1
+  fi
+  backlog_json_check "$production_output" production "${backlog_names[@]}"
+  check_rc=$?
+  [ "$check_rc" -ne 2 ] || { echo 'error: adr_backlog.py の結果が JSON の配列でない' >&2; return 1; }
+  backlog_has_target=$check_rc
+
+  for name in "${backlog_names[@]}"; do
+    if [ "$backlog_has_target" -eq 0 ]; then
+      printf '%s: 残りに無い\n' "$name"
+    else
+      printf '%s: 残りにある\n' "$name"
+    fi
+  done
+  if [ "$backlog_has_target" -eq 0 ]; then
+    echo 'OK backlog'
+    return 0
+  fi
+  echo 'NG backlog'
+  return 1
+}
+
 run_main() {
   echo 'Scenario: README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する'
   check_index_and_files
@@ -263,7 +382,7 @@ PY
 }
 
 self_test() {
-  local base tmp case_rc expected_message
+  local base tmp case_rc expected_message backlog_test fake_backlog output line
   [ -d "$ADR_DIR" ] || { error "self-test の基準となる $ADR_DIR が無い"; return 1; }
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
@@ -316,6 +435,50 @@ PY
     fi
     grep -Fq "$expected_message" "$output" || error "self-test の壊し方 $case_name が期待する error を出さなかった: $expected_message"
   done
+
+  backlog_test="$tmp/backlog"
+  mkdir -p "$backlog_test"
+  if ADR_BACKLOG="$backlog_test/missing.py" "$0" --backlog >"$tmp/backlog-missing.out" 2>"$tmp/backlog-missing.err"; then
+    error 'self-test の ADR_BACKLOG 欠落を通した'
+  else
+    case_rc=$?
+    [ "$case_rc" -eq 127 ] || error "self-test の ADR_BACKLOG 欠落が rc=127 でない: $case_rc"
+    grep -Fq 'error: ADR_BACKLOG の台本が無い' "$tmp/backlog-missing.err" ||
+      error 'self-test の ADR_BACKLOG 欠落が台本の error を出さない'
+  fi
+
+  fake_backlog="$backlog_test/empty.py"
+  cat >"$fake_backlog" <<'PY'
+#!/usr/bin/env python3
+import json
+print(json.dumps([]))
+PY
+  if ADR_BACKLOG="$fake_backlog" ADR_MEMORY="$backlog_test/missing-memory" "$0" --backlog >"$tmp/memory-missing.out" 2>"$tmp/memory-missing.err"; then
+    error 'self-test の ADR_MEMORY 欠落を通した'
+  else
+    case_rc=$?
+    [ "$case_rc" -eq 127 ] || error "self-test の ADR_MEMORY 欠落が rc=127 でない: $case_rc"
+    grep -Fq 'error: ADR_MEMORY の置き場が無い' "$tmp/memory-missing.err" ||
+      error 'self-test の ADR_MEMORY 欠落が置き場の error を出さない'
+  fi
+
+  if ADR_BACKLOG="$fake_backlog" ADR_MEMORY="$backlog_test" "$0" --backlog >"$tmp/backlog-positive-missing.out" 2>"$tmp/backlog-positive-missing.err"; then
+    error 'self-test の空の --adr の正の対照を通した偽の台本を通した'
+  fi
+
+  output="$tmp/backlog-child.out"
+  if "$0" --backlog >"$output" 2>"$tmp/backlog-child.err"; then
+    :
+  else
+    case_rc=$?
+    [ "$case_rc" -eq 127 ] || error "self-test の --backlog 子が予期せず失敗した: $case_rc"
+  fi
+  local backlog_line_re='^(worktree-port-allocation-followup\.md|prefer-collision-free-allocation-over-checks\.md|foundation-for-satellites-premise\.md|lint-purity-ui-refresh-plan\.md):[[:space:]]残りに(無い|ある)$|^(OK|NG)[[:space:]].*$|^error: .*無い$'
+  while IFS= read -r line; do
+    [[ "$line" =~ $backlog_line_re ]] ||
+      error "self-test の --backlog 子が公開してはいけない行を出した: $line"
+  done < <(cat "$output" "$tmp/backlog-child.err")
+
   return "$errors"
 }
 
@@ -323,6 +486,6 @@ case "${1:-}" in
   '') run_main ;;
   --self-test) self_test ;;
   --verbatim) verbatim ;;
-  --backlog) echo 'error: --backlog は未実装' >&2; exit 2 ;;
+  --backlog) backlog ;;
   *) echo "error: unknown option: $1" >&2; exit 2 ;;
 esac
