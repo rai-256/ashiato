@@ -80,7 +80,7 @@ require("needs: changes" in vulns, "CI vulns が changes を待っていない")
 require("if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'" in vulns,
         "CI vulns の条件が PR かつ deps ではない")
 require("git fetch --no-tags --depth=1 origin \"$BASE_SHA\"" in vulns, "base の commit を取得していない")
-require("git show \"$BASE_SHA:" in vulns, "base のロックファイルを git show していない")
+require("git cat-file -e \"$BASE_SHA^{commit}\"" in vulns, "base の commit を確認していない")
 require("tools/check-vulns.sh --self-test" in vulns and "tools/check-vulns.sh --base \"$BASE_SHA\"" in vulns,
         "CI vulns の検査が不足している")
 require("tools/check-vulns.sh allow-ghsas" in vulns, "allow-ghsas を生成していない")

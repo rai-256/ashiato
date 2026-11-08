@@ -75,15 +75,14 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
-          git show "$BASE_SHA:Cargo.lock" >/dev/null
-          git show "$BASE_SHA:web/package-lock.json" >/dev/null
-          git show "$BASE_SHA:osv-scanner.toml" >/dev/null
       - run: tools/check-vulns.sh --self-test
       - run: tools/check-vulns.sh --base "$BASE_SHA"
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
       - id: allow
-        run: echo "ghsas=$(tools/check-vulns.sh allow-ghsas)" >> "$GITHUB_OUTPUT"
+        run: |
+          ghsas="$(tools/check-vulns.sh allow-ghsas)"
+          echo "ghsas=$ghsas" >> "$GITHUB_OUTPUT"
       - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-severity: high

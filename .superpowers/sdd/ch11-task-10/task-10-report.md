@@ -48,3 +48,20 @@
 
 - `scripts/check_scenarios.py . ch11-dependency-vulnerability-scan` は、Task 9 が担保する「設定を API で読み返す」の印が既存木に無いため 1 件 FAIL した。この Task の対象外であり、Task 10 の 5 本の印は追加済み。
 - 10.1 と通常の 10.3 は `verify-run` の準備失敗で `BLOCKED_INFRA` の証跡が残っている。直接コマンドは成功しているため、証跡の状態は置き換えていない。
+
+## Fix report: review 1 F1/F2
+
+- F1 を修正し、`.github/workflows/ci.yml` の base 取得手順は base commit の取得・存在確認だけにした。base 側の `Cargo.lock`、`web/package-lock.json`、`osv-scanner.toml` の存在は決め打ちせず、`tools/check-vulns.sh --base` に委ねる。
+- 配線検査もこの契約に合わせ、`tools/check-vulns-wiring.sh` は個別ファイルの `git show` ではなく base commit の確認を検査する。
+- F2 を修正し、`allow-ghsas` の出力を変数へ代入してから `GITHUB_OUTPUT` に書くことで、コマンド置換の失敗を隠さないようにした。
+- F3〜F7 は今回の open findings ではないため変更していない。
+
+### Fix verification
+
+- `tools/check-vulns-wiring.sh --self-test`: PASS
+- `tools/check-vulns-wiring.sh`: PASS（5 Scenario 印）
+- `scripts/verify-run 10.1`: PASS
+- `scripts/verify-run 10.2`: PASS
+- `scripts/verify-run 10.3`: PASS（通常検査・self-test）
+- `scripts/quiet-run task10-suite -- bash -c 'tools/check-vulns.sh --self-test && tools/check-vulns-wiring.sh --self-test && tools/check-vulns-wiring.sh'`: PASS、rc=0
+- `bash -n tools/check-vulns-wiring.sh`, `bash -n tools/check-vulns.sh`, `git diff --check`: PASS
