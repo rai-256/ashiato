@@ -37,3 +37,30 @@
 
 - Task 11.1 の指定文字列は両文書に存在し、既存の表・節の構造を壊していない。
 - Task 11.2 は未完了の Task 6.1 に依存している。空の印で検査を通す変更は実際の API 検査を担保しないため行っていない。
+
+## Fix round 1
+
+### 対応
+
+- F1: `docs/testing.md` の CI 表から `rust` job の脆弱性検査の誤記を外し、`vulns` job（PR かつ `deps`、self-test / `--base` / dependency-review）の行を追加した。
+- F2: Scenario の印を偽 `gh` の self-test から `github-settings` 本体へ移し、SBOM が取れない場合の `security_and_analysis` PATCH と再取得を実装した。
+- F3: GitHub API の 401/403 のみ rc=2（管理者権限不足）とし、404・その他の API/通信失敗は状態と rc を出して rc=1 にした。
+
+### 検証
+
+- 偽 `gh` による成功、404（rc=1）、403（rc=2）、SBOM 404 後の PATCH 再取得（rc=0）を確認した。
+- `scripts/quiet-run task11-vulns-self -- tools/check-vulns.sh --self-test`: rc=0、40 行。
+- `scripts/verify-run 11.1`: PASS、rc=0。
+- `scripts/verify-run 11.2`: PASS、rc=0、`scenarios: OK`。
+- `openspec validate ch11-dependency-vulnerability-scan --strict`: PASS。
+- `bash -n tools/check-vulns.sh`、`git diff --check`: PASS。
+
+### TDD Evidence
+
+- RED: 修正前ファイル（`git show HEAD^:tools/check-vulns.sh`）に偽 `gh` の HTTP 404/rc=1 を与えると、`red_rc=2` かつ「管理者の権限が要る」になった。これは 404 を権限不足と誤分類する失敗。
+- GREEN: 修正後の偽 `gh` 検証で 404 は rc=1 と HTTP 404 を出し、403 は rc=2、SBOM 404 後の PATCH 経由は rc=0 になった。
+
+### Fix round self-review
+
+- Scenario 名は 50 本の内訳を増やさず、本体の `github-settings` に 1 箇所だけ残した。
+- Task 6.1 の本物の GitHub 設定有効化は管理者資格が必要なため実行していない。偽 `gh` の自己試験とローカルの状態分岐のみを検証した。

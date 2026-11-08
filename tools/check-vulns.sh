@@ -41,31 +41,67 @@ scanner_path() {
 }
 
 github_settings() {
-  local response status settings_root="${GH_SETTINGS_ROOT:-$ROOT}"
-  response="$(gh api --include -X PUT repos/rai-256/ashiato/vulnerability-alerts 2>&1)" || {
+  local response status settings_root="${GH_SETTINGS_ROOT:-$ROOT}" rc
+  echo "== Scenario: 設定を API で読み返す"
+
+  response="$(gh api --include -X PUT repos/rai-256/ashiato/vulnerability-alerts 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
     echo "error: 検査できなかった（管理者の権限が要る）" >&2
     return 2
-  }
-  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
-  [[ "$status" == 204 ]] || { echo "error: 検査できなかった（vulnerability-alerts: HTTP $status）" >&2; return 1; }
+  fi
+  if [[ $rc -ne 0 || "$status" != 204 ]]; then
+    echo "error: 検査できなかった（vulnerability-alerts: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+    return 1
+  fi
   echo "vulnerability-alerts: 204"
 
-  response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)" || {
+  response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" != 200 || $rc -ne 0 ]]; then
+    if [[ "$status" == 401 || "$status" == 403 ]]; then
+      echo "error: 検査できなかった（管理者の権限が要る）" >&2
+      return 2
+    fi
+    response="$(gh api --include -X PATCH repos/rai-256/ashiato -f 'security_and_analysis[dependency_graph][status]=enabled' -f 'security_and_analysis[dependabot_security_updates][status]=enabled' 2>&1)"
+    rc=$?
+    status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+    if [[ "$status" == 401 || "$status" == 403 ]]; then
+      echo "error: 検査できなかった（管理者の権限が要る）" >&2
+      return 2
+    fi
+    if [[ $rc -ne 0 || "$status" != 200 ]]; then
+      echo "error: 検査できなかった（security_and_analysis: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+      return 1
+    fi
+    response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)"
+    rc=$?
+    status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  fi
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
     echo "error: 検査できなかった（管理者の権限が要る）" >&2
     return 2
-  }
-  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
-  [[ "$status" == 200 ]] || { echo "error: 検査できなかった（dependency-graph/sbom: HTTP $status）" >&2; return 1; }
+  fi
+  [[ $rc -eq 0 && "$status" == 200 ]] || { echo "error: 検査できなかった（dependency-graph/sbom: HTTP ${status:-unknown}, gh rc=$rc）" >&2; return 1; }
   echo "dependency-graph/sbom: 200"
 
-  response="$(gh api repos/rai-256/ashiato/automated-security-fixes 2>&1)" || {
+  response="$(gh api --include repos/rai-256/ashiato/automated-security-fixes 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
     echo "error: 検査できなかった（管理者の権限が要る）" >&2
     return 2
-  }
-  grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' <<<"$response" || {
+  fi
+  if [[ $rc -ne 0 ]]; then
+    echo "error: 検査できなかった（automated-security-fixes: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+    return 1
+  fi
+  if ! grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' <<<"$response"; then
     echo "error: 検査できなかった（automated-security-fixes が有効）" >&2
     return 1
-  }
+  fi
   echo "automated-security-fixes: enabled=false"
 
   if [[ -e "$settings_root/.github/dependabot.yml" ]]; then
@@ -98,7 +134,6 @@ case "$*" in
 esac
 GH
   chmod +x "$tmp/gh"
-  echo "== Scenario: 設定を API で読み返す"
   mkdir -p "$tmp/root/.github"
   PATH="$tmp:$PATH" GH_SETTINGS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" github-settings >"$tmp/settings-output" 2>&1 || return 1
   rg -q 'vulnerability-alerts: 204' "$tmp/settings-output" || return 1
