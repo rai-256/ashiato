@@ -52,3 +52,10 @@
 - `osv-scanner.toml` の該当行を、製品に届かない理由ではなく互換範囲内に修正版がないため更新予定として `上げる予定: 互換範囲内に修正版なし` に修正した。
 - `scripts/verify-run 7.1` は 2 コマンドとも検証環境の `mkdir: Read-only file system` により rc=2（FAIL）となった。この結果を証跡に記録し、別の結果で置き換えていない。
 - 環境制約を切り分けるため、`scripts/quiet-run ch11-vulns-current -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache tools/check-vulns.sh'` は rc=0、`scripts/quiet-run ch11-vulns-base -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` も rc=0 だった。
+
+## Fix report（review 1 / F1 再修正）
+
+- `osv-scanner.toml` の該当行を、現時点で修正版が無いという事実ではなく、修正版公開後に互換範囲内へ更新する計画として `上げる予定: 修正版公開後に互換範囲内へ更新` に修正した。
+- `scripts/verify-run 7.1` は 2 コマンドとも検証環境の `mkdir: Read-only file system` により rc=2（FAIL）。
+- `scripts/verify-run 7.2` は Rust と Android が PASS、Web は `npm ci` の `node_modules` 展開・削除エラーで rc=226（FAIL）。
+- 切り分けとして `scripts/quiet-run ch11-vulns-current-fix-cache -- env XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-fix tools/check-vulns.sh` は rc=0、`scripts/quiet-run ch11-vulns-base-fix-cache2 -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-fix-base tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` も rc=0。検証証跡の FAIL/PASS は置き換えていない。

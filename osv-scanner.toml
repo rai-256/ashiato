@@ -242,7 +242,7 @@ reason = "上げる予定: 推移的依存の修正版待ち"
 [[IgnoredVulns]]
 id = "RUSTSEC-2023-0071"
 ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲内に修正版なし"
+reason = "上げる予定: 修正版公開後に互換範囲内へ更新"
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0367"
 ignoreUntil = "2027-02-06"
