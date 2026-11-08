@@ -1,0 +1,5 @@
+# 例外を追加する場合は、次の形を使う。期限は 90 日以内にする。
+# [[IgnoredVulns]]
+# id = "GHSA-..."
+# ignoreUntil = "YYYY-MM-DD"
+# reason = "CH11: <決まった理由>"
