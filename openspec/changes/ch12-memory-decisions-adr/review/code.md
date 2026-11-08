@@ -174,3 +174,67 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 指摘なし
 
 範囲外: `tools/check-private.sh` は網の名前・私設 IP だけを見て、メモリの名前・`~/.claude` の中身の写しは見ない（差分が触れたのは allow の検査 :317 だけ）。
+
+## /code-review（a658d12..706d67b）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R8. self-test starts its child runs through the relative "$0" after the script has already done `cd "$ROOT"`. The children are only found when the script is invoked from the repo root.
+- 成果物: tools/check-adr.sh:396
+- 根拠: `cd tools && ./check-adr.sh --self-test` sets $0 to ./check-adr.sh, which does not exist under ROOT, so every child exits 127. I ran it: rc=1, with 'self-test の基準の木で本番検査が通らない' and every break case reporting the wrong error. Fix: resolve the path once, e.g. SELF="$ROOT/tools/check-adr.sh", and use that (lines 396/433/441/456/465/470).（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. check_tracked requires exactly 6 tracked files under docs/adr. This contradicts README, which says to keep adding ADRs and to add a new one when a decision is replaced.
+- 成果物: tools/check-adr.sh:151
+- 根拠: Adding a 7th ADR and `git add`-ing it gives count=7, so CI fails with the wrong message 'docs/adr/ がまだ追跡されていない'. The check should be 'the expected files are included', or 'every file in ADR_DIR is tracked'.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. In --verbatim, if the file content differs but splitlines() gives the same lines, first_difference is None and `None + 1` raises a TypeError.
+- 成果物: tools/check-adr.sh:372
+- 根拠: An ADR with no trailing newline, an extra trailing newline, or CRLF line endings (.gitattributes was also changed) gives actual != wanted but identical line lists. Python crashes with a traceback instead of naming the block and the differing line.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. --self-test runs the real --backlog against the developer's memory and harness2, and only accepts rc 0 or 127. Its result depends on the local environment.
+- 成果物: tools/check-adr.sh:470
+- 根拠: Once the ADR is written, the natural next step is deleting the 4 memory files. Then the empty --adr positive control fails and returns rc=1, so `--self-test` fails on that machine with '--backlog 子が予期せず失敗した: 1'. The emitted line 'error: …数えられない' also fails the `無い$` regex, which adds a 'line that must not be published' error. CI happens to pass only because there is no memory there.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. run_main calls the same check function again under several Scenario labels (check_index_and_files 4 times, check_guidance and check_tracked twice each). The labels do not correspond to individual checks.
+- 成果物: tools/check-adr.sh:296
+- 根拠: A single title mismatch prints the same error 4 times, under 4 different Scenario headings. That makes it look as if the file-correspondence and order Scenarios failed too, and the reader cannot tell which Scenario actually broke. The fix is to split the functions by Scenario.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. run_main runs tools/check-private.sh itself, but the chain job in CI already runs check-private.sh on the line just before. It runs twice.
+- 成果物: tools/check-adr.sh:321
+- 根拠: The CI chain job runs `./tools/check-private.sh` and then `./tools/check-adr.sh`, so the same full-repo scan runs twice. Any failure is also reported twice. Leaving check-private to CI and dropping the call here is enough.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. If tools/check-private.allow does not exist, grep exits 2 and the condition is false, so the check passes silently.
+- 成果物: tools/check-adr.sh:317
+- 根拠: If the allow file is renamed or moved, the check that should reject a docs/adr/ exception never runs and nobody notices. Missing files are not handled as errors.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R15. The `sed -E 's/…$/&/'` replaces each match with itself (`&`), so it does nothing. It is dead code.
+- 成果物: tools/check-adr.sh:53
+- 根拠: It looks like it filters out list lines that are not in the link format, but it does not. Lines in the wrong format go straight into list_file, and readers misread what the check covers.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R16. find_backlog_script uses adr_backlog.py from the first worktree that has one in `git worktree list` for the harness2 repo. It may run an unmerged branch's version.
+- 成果物: tools/check-adr.sh:203
+- 根拠: If the main checkout of .harness2 does not have the script yet but a working branch's worktree does, that unreviewed version decides the --backlog result, and the result changes depending on which worktrees exist.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R17. --verbatim runs `python3 -` without -I, unlike backlog_json_check and the adr_backlog.py call, which use -I.
+- 成果物: tools/check-adr.sh:337
+- 根拠: Because the script has `cd "$ROOT"`, a module such as `re.py` or `pathlib.py` placed in the repo root or on PYTHONPATH gets imported and changes the result of the verbatim check. This is inconsistent with the rest of the same file, which isolates with -I.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
