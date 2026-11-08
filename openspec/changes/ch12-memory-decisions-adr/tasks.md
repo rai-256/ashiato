@@ -40,10 +40,10 @@
 
 ## Task 2: ADR を置き、CLAUDE.md・AGENTS.md・CI に 1 行ずつ足す
 
-- [ ] 2.1 `docs/changes/CH12.md` の `## 依頼（逐語）` から D1 の取り出し方で 6 つの塊を取り、`docs/adr/<名前>` に書く（README・5 件の ADR）。`tools/check-adr.sh --verbatim` を D1 のとおりに書く（先に節の sha256 が design D1 の定数と一致することを見る。次に 6 つの塊それぞれについて一致を見て、違えば塊の名前と最初に違う行を出す。塊が 6 つでなければ落ちる）。
+- [x] 2.1 `docs/changes/CH12.md` の `## 依頼（逐語）` から D1 の取り出し方で 6 つの塊を取り、`docs/adr/<名前>` に書く（README・5 件の ADR）。`tools/check-adr.sh --verbatim` を D1 のとおりに書く（先に節の sha256 が design D1 の定数と一致することを見る。次に 6 つの塊それぞれについて一致を見て、違えば塊の名前と最初に違う行を出す。塊が 6 つでなければ落ちる）。
   書いたら `git add docs/adr` で追跡に入れる（check-private は追跡しているファイルしか見ない）。
   検証: `tools/check-adr.sh --verbatim` rc=0
-- [ ] 2.2 `CLAUDE.md` の「文書とハーネス」の表の `docs/` の行の直後に `` | `docs/adr/` | Story をまたぐ判断の記録 | する | `` の 1 行を足す（D7（仮））。
+- [x] 2.2 `CLAUDE.md` の「文書とハーネス」の表の `docs/` の行の直後に `` | `docs/adr/` | Story をまたぐ判断の記録 | する | `` の 1 行を足す（D7（仮））。
   `AGENTS.md` の「## 実装と計画の規約」の導入の段落（「上流が `tasks.md` に書く検証・置き場も、…」の行）の直後に、design D7 の 1 行を足す（D7（仮））。
   `.github/workflows/ci.yml` の chain job の `- run: ./tools/check-private.sh` の直後に `      - run: ./tools/check-adr.sh --self-test && ./tools/check-adr.sh` の 1 行を足す（D2（仮））。
   検証: `tools/check-adr.sh` rc=0 / `tools/check-adr.sh --self-test` rc=0 / `tools/check-private.sh` rc=0 /
