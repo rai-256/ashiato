@@ -64,3 +64,22 @@
 
 - Scenario 名は 50 本の内訳を増やさず、本体の `github-settings` に 1 箇所だけ残した。
 - Task 6.1 の本物の GitHub 設定有効化は管理者資格が必要なため実行していない。偽 `gh` の自己試験とローカルの状態分岐のみを検証した。
+
+## Fix round 2
+
+### 対応
+
+- F2: Task 11 の範囲を越えていた `tools/check-vulns.sh` の Task 6.1 実装、偽 `gh` self-test、Scenario の印を削除した。Task 6.1 は未完了のまま下流へ戻し、本物の GitHub での有効化・読み返しをこの Task で完了扱いしない状態に戻した。
+- F7: 上記の削除により、依存グラフ有効化時の PATCH 自体を Task 11 から除去した。自動更新 PR を有効化する誤った PATCH は残っていない。
+
+### 検証
+
+- `scripts/verify-run 11.1`: PASS、rc=0。
+- `scripts/verify-run 11.2`: FAIL、rc=1。未実装の Task 6.1 に対応する `設定を API で読み返す` が担保されていないことを確認した。偽の印で緑にしていない。
+- `openspec validate ch11-dependency-vulnerability-scan --strict`: PASS。
+- `bash -n tools/check-vulns.sh`、`git diff --check`: PASS。
+
+### Fix round 2 self-review
+
+- `tools/check-vulns.sh` は Task 11 着手前の状態と一致し、Task 6.1 のコード・Scenario 印・依存グラフ PATCH を含まない。
+- 残る未解決事項は Task 6.1 の実装と、管理者権限を持つ本物の GitHub での検証であり、Task 11 内で推測により埋めていない。
