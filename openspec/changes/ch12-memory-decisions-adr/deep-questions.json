@@ -1,0 +1,83 @@
+{
+  "title": "CH12 の深掘り",
+  "subtitle": "メモリにしか無かった判断を ADR に置く",
+  "note": "どの問いも文書と検証の範囲だけに効き、後から書き直せば戻ります（仮でよい）。推奨のままでよければ触らなくて構いません。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "範囲: ADR の本文と repo の今が食い違う・その後が書かれていない箇所",
+      "kind": "open",
+      "question": "依頼の逐語を読み合わせると、矛盾ではないが「その後」が抜けている箇所が 3 つありました。逐語のまま置いて PR 本文で挙げますか、それとも ADR に追記しますか。",
+      "why": "ADR は残る記録で、PR 本文は流れていく。ただし依頼は「書き換えはしない」と明示している。どちらも後から ADR を直せば戻る。",
+      "context": "(1) 衛星の ADR の「影響」は「要件の書き直しは未着手」「接続は未決」と書くが、要件は 2026-10-11 に ★ で書き直し済みで、接続は「いったん MCP」（`docs/requirements.md` の FR-59）。ADR は「メモリの記録の時点で」と断っている。(2) 表面の ADR の後、表面は 2026-10-12 に作り直された（`docs/ui-direction.md` の ★ 2026-10-12）。(3) lint の ADR は 1.99 の規則を足した日を 2026-10-12 と書き、`Cargo.toml` の注記は「2026-10-11 実測」。足した commit の日付は 2026-10-12。ほかの事実（ポートの規則・pedantic の表・detekt の baseline・分けた crate がまだ無いこと）は repo と一致した。",
+      "options": [
+        {
+          "label": "逐語のまま置き、3 つを PR 本文で挙げる（依頼どおり）",
+          "detail": "差分が依頼と 1 字も違わない。追記は後の ADR の手入れで行える",
+          "recommended": true
+        },
+        {
+          "label": "逐語のまま置き、(1)(2) の ADR の「影響」の末尾に「その後」の 1 行を足す",
+          "detail": "ADR だけ読めば今の状態に辿り着ける。依頼の「書き換えはしない」から外れる（追記であって既存の文は変えない）"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "完了の判定の確かめ方（harness2 の台本がまだ main に無い）",
+      "kind": "open",
+      "question": "完了の判定は harness2 の `scripts/adr_backlog.py` を使いますが、この台本と harness2 の ADR 24 件は、まだ push されておらず PR もありません（手元の worktree の枝 `docs/adr-backfill` にだけある）。この change の検証をどう置きますか。",
+      "why": "検証は書いたまま走る必要がある。別の worktree のパスを書くと、その枝が消えた・動いたときに検証が落ちる。どちらを選んでも後から検証を書き換えれば戻る。",
+      "context": "この repo の `.harness2` は harness2 の main を指す。adr_backlog.py は今いるフォルダのパスからメモリの置き場を決めるので、この worktree で依頼どおり走らせると「メモリが無い」で rc=0 になる（空の合格）。`--memory ~/.claude/projects/-home-yosis-dev-ashiato2/memory` を渡すと、ハーネスのメモリ 19 件が残るので rc=1 のまま。CI にはメモリの置き場が無く、手元でしか走らない。完了の判定の中身（6 ファイルがある・各 ADR の「出所」にメモリのファイル名がある）は、repo の中のコマンドでも確かめられる。README と 3 つの ADR は harness2 の ADR を参照しており、harness2 の側が入るまで行き先が無い。",
+      "options": [
+        {
+          "label": "repo の中のコマンドで確かめ、待たずに進める。adr_backlog.py は手元で、メモリの置き場を明示し、rc でなく「4 つのメモリ名が残りに無いこと」で見る（置き場が無ければ通さない）",
+          "detail": "検証は今の木で走る。6 ファイル・出所のメモリ名・README の一覧と実ファイルの一致・逐語との一致・`tools/check-private.sh` を見る。harness2 への参照の行き先がまだ無いことは PR 本文に書く",
+          "recommended": true
+        },
+        {
+          "label": "harness2 の ADR を push して PR にし、それが main に入るのを待ってから確かめる",
+          "detail": "参照の行き先が揃ってから入る。harness2 の PR を作って merge するまで、この change は止まる"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "範囲: ADR の形を見る検査を常設するか",
+      "kind": "open",
+      "question": "README の一覧と `docs/adr/` の実ファイルの一致・ファイル名の形・見出しの形を、CI で毎回見る検査（`tools/check-adr.sh`）をこの change で足しますか。",
+      "why": "ADR を足すたびに一覧の書き忘れが起きうる。ただし依頼は「早めに欲しい」で、置くことが主。足す・足さないは後から変えられる。",
+      "context": "依頼が求める機械の検査は `tools/check-private.sh` だけ。harness2 の adr_backlog.py は「メモリにしか無い判断」の残りを数える側で、ADR の形は見ない。",
+      "options": [
+        {
+          "label": "足さない。この change は置くだけにし、一致はこの change の検証で 1 回だけ見る",
+          "detail": "早く入る。2 件目以降の ADR で一覧の書き忘れが起きたら、そのとき change で足す",
+          "recommended": true
+        },
+        {
+          "label": "足す（`tools/check-adr.sh` と CI の chain job の 1 行）",
+          "detail": "一覧と実ファイルのずれを毎回止める。台本・試験・CI の分だけ差分と検証が増える"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "topic": "範囲: agent への案内をどこまで足すか",
+      "kind": "open",
+      "question": "`CLAUDE.md` の表に 1 行を足すのに加えて、`AGENTS.md` に「Story をまたぐ判断は docs/adr/ に書く」という指示を足しますか。",
+      "why": "AGENTS.md は Codex も読むので、指示を足すと agent が ADR を書き始める。書くきっかけはハーネス側の adr_backlog（「書いた会話のうちに ADR を促す」）も持つ予定だが、まだ harness2 の main に無い。どちらも後から書き足せる。",
+      "context": "依頼は `CLAUDE.md` の「文書とハーネス」の表の 1 行（何か: Story をまたぐ判断の記録。書き込み: する）だけを挙げている。いつ書くかの規則は `docs/adr/README.md` が持つ。",
+      "options": [
+        {
+          "label": "CLAUDE.md の表の 1 行だけ（依頼どおり）",
+          "detail": "表から README に辿れる。書く規則の正本は README の 1 か所",
+          "recommended": true
+        },
+        {
+          "label": "AGENTS.md にも 1 行の指示を足す",
+          "detail": "Codex を含む agent が判断を ADR に書くようになる。どの判断を ADR にするかを agent が決めることになる"
+        }
+      ]
+    }
+  ]
+}
