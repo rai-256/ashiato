@@ -34,7 +34,11 @@ if mkdir -p "$_jars" 2>/dev/null; then
     export ASHIATO_ROBOLECTRIC_JARS="$_jars"
   fi
 fi
-export HARNESS_CODEX_WRITABLE_DIRS="$HOME/.cargo:$HOME/.gradle:$HOME/.android"
+# ~/.npm は `npm ci` のキャッシュ、~/.cache/ashiato2 は tools/check-vulns.sh が osv-scanner を置く場所。
+# 無いと sandbox の中で EROFS / `mkdir: Read-only file system` で落ちる（2026-11-08 CH11 Task 7 実測）。
+# harness2 は実在するものだけを足すので、検査の置き場は先に作っておく。
+mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/ashiato2" 2>/dev/null || true
+export HARNESS_CODEX_WRITABLE_DIRS="$HOME/.cargo:$HOME/.gradle:$HOME/.android:$HOME/.npm:${XDG_CACHE_HOME:-$HOME/.cache}/ashiato2"
 if [ "${HARNESS_EXECUTOR:-}" = codex ]; then
   export GRADLE_OPTS="${GRADLE_OPTS:+$GRADLE_OPTS }-Dorg.gradle.daemon=false"
 fi
