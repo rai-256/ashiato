@@ -1,25 +1,26 @@
 # CH12 — メモリにしか無かった判断を ADR に置く（上流）
 
-> 第 1 回の深掘りは**推奨の答えで先に**書いた（2026-10-20 の流れ）。本人の答えはまだ無い。推奨と違う答えが返ったら、`spec --answers` がその問いだけを写す。
+> 第 1 回の深掘りは**推奨の答えで先に**書いた（2026-10-20 の流れ）。本人の答え（2026-11-08）は Q1・Q2 が推奨のまま、Q3・Q4 が推奨と違い、`spec --answers Q3,Q4` で写した。
 
 ## 何をするか
 
 メモリ（commit されない）にしか無かった ashiato2 に固有の判断 5 件を、`docs/adr/` に ADR として置き、README で書き方と一覧を示す。
 本文は依頼（`docs/changes/CH12.md` の「依頼（逐語）」）のまま 1 字も変えない。`CLAUDE.md` の「文書とハーネス」の表に `docs/adr/` の 1 行を足す。
-確かめるための台本 `tools/test-adr-docs.sh` を 1 本足す（CI には載せない）。
+`AGENTS.md` の「実装と計画の規約」にも「Story をまたぐ判断は `docs/adr/` に書く」1 行の指示を足す（Q4）。
+ADR の形の検査 `tools/check-adr.sh` を 1 本足し、CI の chain job の 1 行で PR ごとに自己検査と本番を走らせる（Q3）。
 
-## 深掘り（第 1 回。4 問とも B・推奨で先に書いた）
+## 深掘り（第 1 回。4 問とも B）
 
-- Q1 ADR の本文と repo の今の食い違い → 推奨: 逐語のまま置き、PR 本文と `docs/changes/CH12.md` の節で挙げる（D3（仮））。一覧は下
-- Q2 完了の判定の確かめ方（harness2 の `adr_backlog.py` が main に無い）→ 推奨: repo の中のコマンドで確かめ、待たない。`adr_backlog.py` は手元で、メモリの置き場を明示し、4 つのメモリ名が残りに無いことで見る（D4（仮））
-- Q3 ADR の形を CI で毎回見る検査 → 推奨: 足さない（D2（仮））
-- Q4 agent への案内 → 推奨: `CLAUDE.md` の表の 1 行だけ（D7（仮））
+- Q1 ADR の本文と repo の今の食い違い → (推奨のまま) 逐語のまま置き、PR 本文と `docs/changes/CH12.md` の節で挙げる（D3（仮））。一覧は下
+- Q2 完了の判定の確かめ方（harness2 の `adr_backlog.py` が main に無い）→ (推奨のまま) repo の中のコマンドで確かめ、待たない。`adr_backlog.py` は手元で、メモリの置き場を明示し、4 つのメモリ名が残りに無いことで見る（D4（仮））
+- Q3 ADR の形を CI で毎回見る検査 → **本人の選択（推奨と違う）: 足す**（`tools/check-adr.sh` と CI の chain job の 1 行。D2（仮））。見出しの形・`AGENTS.md` の行・CI の行の Scenario と、見出しの欠けた ADR が落ちる自己検査を足した
+- Q4 agent への案内 → **本人の選択（推奨と違う）: `AGENTS.md` にも 1 行の指示を足す**（D7（仮））
 
 A（止める問い）は無い。
 
 ## 仮決め（design.md の（仮））
 
-- D2（仮）・D3（仮）・D4（仮）・D7（仮）: 上の Q3・Q1・Q2・Q4 の推奨。反転条件は design.md の各 D
+- D2（仮）・D7（仮）: 上の Q3・Q4 の本人の答え。D3（仮）・D4（仮）: Q1・Q2 の推奨のまま。反転条件は design.md の各 D
 - D5（仮）: 検証の出力に、公開されていないメモリの名前と説明を出さない（4 つのメモリ名の有無だけ）。失わない側を選んだ仮として台帳 `provisional.jsonl` に載せた（`review/deep.md` R5 の `loss: exported`）
 
 聞かずに決めた既定（`premises.md` の C1〜C4 → design の D1・D2・D5・D6）と、AI の既定 D8（capability を立て `skip_specs` を使わない）・D9（台本の形）。
@@ -46,7 +47,7 @@ A（止める問い）は無い。
 
 ## tasks
 
-4 Task・5 項目。Scenario は 9 本（どれも `tools/test-adr-docs.sh` が印を出す）。`--backlog`（完了の判定の 4.）は手元のメモリと harness2 の台本が要り、CI では走らない。無ければ環境の欠落で止まる（空の合格にしない）。ADR を渡さない対照で 4 つとも数えられることを先に確かめる。
+4 Task・5 項目。Scenario は 13 本（どれも `tools/check-adr.sh` が印を出す。引数なし 11 本・`--self-test` 2 本）。`--backlog`（完了の判定の 4.）は手元のメモリと harness2 の台本が要り、CI では走らない。無ければ環境の欠落で止まる（空の合格にしない）。ADR を渡さない対照で 4 つとも数えられることを先に確かめる。
 
 ## レビュー
 
@@ -55,6 +56,7 @@ A（止める問い）は無い。
 - spec-review（`review/spec.md`）: 12 件（technical 11・defer 1）。全部 fixed（仮 6 件）。人間に返すものは無い。
   R2 は reviewer が premise としたが、決定の前提が崩れたのではなく前の段の写し漏れなので technical に読み替えて直した。
   主な直し: `--backlog` が中身を見ずに通る経路を塞いだ（正の対照・rc と JSON の形・環境変数の指す先が無ければ落ちる・出力の全行の形）、`--backlog` を正典から外した、逐語の比べる元を登録の commit に固定した、自己検査の壊し方を 6 つにした
-- 走っている Story との重なり: 無い（`CLAUDE.md`・`docs/adr/`・`tools/test-adr-docs.sh` を触る枝は無い）
+- 答えの写し（`review/answers.md`）: 下記
+- 走っている Story との重なり: `CLAUDE.md`・`docs/adr/`・`tools/check-adr.sh` を触る枝は無い。`AGENTS.md` は ch10（`/dev/kvm` の節）、`.github/workflows/ci.yml` は ch10・st56（rust・android の job）も触るが、触る節が違い同じ行を取り合わない
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
