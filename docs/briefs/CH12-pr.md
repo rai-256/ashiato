@@ -56,7 +56,7 @@ A（止める問い）は無い。
 - spec-review（`review/spec.md`）: 12 件（technical 11・defer 1）。全部 fixed（仮 6 件）。人間に返すものは無い。
   R2 は reviewer が premise としたが、決定の前提が崩れたのではなく前の段の写し漏れなので technical に読み替えて直した。
   主な直し: `--backlog` が中身を見ずに通る経路を塞いだ（正の対照・rc と JSON の形・環境変数の指す先が無ければ落ちる・出力の全行の形）、`--backlog` を正典から外した、逐語の比べる元を登録の commit に固定した、自己検査の壊し方を 6 つにした
-- 答えの写し（`review/answers.md`）: 下記
+- 答えの写し（`review/answers.md`。spec-review の観点 6、3 巡）: Q3・Q4 とも写った。1 巡目は D6 の 1 文の写し漏れと、答えに依らない足し物 2 つ（D9・tasks 1.1）が見つかり、直す・戻すで処置した。答え以外の変更は仮の D2 の中だけ（台本を 1 本にまとめた・本番の口で CH12 の 6 ファイルとメモリ名も見る・見出しの仮の印の形）で、合意は引き継げる判定（`deep_draft.py status`: settled、聞き直しなし）
 - 走っている Story との重なり: `CLAUDE.md`・`docs/adr/`・`tools/check-adr.sh` を触る枝は無い。`AGENTS.md` は ch10（`/dev/kvm` の節）、`.github/workflows/ci.yml` は ch10・st56（rust・android の job）も触るが、触る節が違い同じ行を取り合わない
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
