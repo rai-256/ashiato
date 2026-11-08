@@ -157,6 +157,7 @@ self_test() {
   rm -f "$edb/postgresql-17.11-1-windows-x64-binaries.zip"
   printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$old" >"$versions"
   echo '== Scenario: EDB に無くても、公開から 30 日を越えたら落ちる'
+  rc=0
   output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" 2>&1)" || rc=$?; rc=${rc:-0}
   (( rc == 1 )) && grep -q '30 日' <<<"$output" || return 1
   printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$recent" >"$versions"
@@ -167,14 +168,17 @@ self_test() {
   output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE='http://127.0.0.1:9/postgresql-' "$0" 2>&1)" || return 1
   grep -q 'EDB 不明' <<<"$output" || return 1
   printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$old" >"$versions"
+  rc=0
   output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE='http://127.0.0.1:9/postgresql-' "$0" 2>&1)" && return 1
-  grep -q 'EDB 不明' <<<"$output" || return 1
+  rc=$?
+  (( rc == 1 )) && grep -q 'EDB 不明' <<<"$output" || return 1
   printf '[{"major":"17","latestMinor":"6","relDate":"%s"}]\n' "$recent" >"$versions"
   echo '== Scenario: 同梱の版が最新なら通る'
   PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" >/dev/null || return 1
   echo '== Scenario: 版の一覧を取れなければ rc=2'
-  output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$tmp/missing.json" "$0" 2>&1)" && return 1
-  grep -q '^error: 検査できなかった' <<<"$output" || return 1
+  rc=0
+  output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$tmp/missing.json" "$0" 2>&1)" || rc=$?
+  (( rc == 2 )) && grep -q '^error: 検査できなかった' <<<"$output" || return 1
   echo 'OK: PostgreSQL minor 検査の自己テストに成功'
 }
 
