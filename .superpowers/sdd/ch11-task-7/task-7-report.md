@@ -59,3 +59,11 @@
 - `scripts/verify-run 7.1` は 2 コマンドとも検証環境の `mkdir: Read-only file system` により rc=2（FAIL）。
 - `scripts/verify-run 7.2` は Rust と Android が PASS、Web は `npm ci` の `node_modules` 展開・削除エラーで rc=226（FAIL）。
 - 切り分けとして `scripts/quiet-run ch11-vulns-current-fix-cache -- env XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-fix tools/check-vulns.sh` は rc=0、`scripts/quiet-run ch11-vulns-base-fix-cache2 -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-fix-base tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` も rc=0。検証証跡の FAIL/PASS は置き換えていない。
+
+## Fix report（review 1 / F1 ラウンド 3）
+
+- 現行 HEAD の `osv-scanner.toml` では、F1 の理由が `上げる予定: 修正版公開後に互換範囲内へ更新` となっており、`届かない:` と事実の不一致を解消済みであることを確認した。追加の依存・例外表変更は行っていない。
+- `scripts/quiet-run ch11-vulns-current-r3 -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-r3 tools/check-vulns.sh'` — rc=0。
+- `scripts/quiet-run ch11-vulns-base-r3 -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache-r3-base tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` — rc=0。
+- `scripts/quiet-run ch11-web-r3-cache2 -- bash -c 'cd web && npm_config_cache=/tmp/ashiato2-ch11-npm-cache-r3-2 npm ci && npm_config_cache=/tmp/ashiato2-ch11-npm-cache-r3-2 npm test -- --run'` — rc=0、52 files / 513 tests passed。
+- 参考として、指定どおりの Web 検証は既定 npm キャッシュの読み取り専用制約で rc=226 となった。既存の FAIL 証跡を成功結果で置き換えていない。
