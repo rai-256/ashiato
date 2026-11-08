@@ -46,3 +46,12 @@
 
 - `scripts/verify-run 1.1` — PASS、rc=0（変更後コード）。
 - `scripts/verify-run 1.2` — PASS、rc=0、9 Scenario 印を確認。
+
+## Fix report 1（review 1 の F1〜F9）
+
+- 変更: 自己試験の Rust 依存をリポジトリに無い `ansi_term` へ変更し、選択した全依存のロックファイル不在を台本内で確認した。3 ロックファイルの名前・勧告 ID、開発依存、informational、low severity、キャッシュ内偽バイナリ、欠落 lockfile、osv.dev 到達不能について、rc と出力を検査する専用ケースを追加した。自己試験の一時木を Git repo にして gradle lockfile の `git ls-files` 経路を検証し、`trap` で cleanup するようにした。
+- 変更: Python の scanner 失敗・JSON 失敗・osv.dev 問い合わせ失敗の理由を保持して表示し、gradle lockfile が 0 件の実リポジトリを rc=2 とした。
+- 検証: `scripts/verify-run 1.1` — PASS、rc=0、`bash -n tools/check-vulns.sh`。
+- 検証: `scripts/verify-run 1.2` — PASS、rc=0、9 Scenario 印を確認。
+- 自己試験: `scripts/quiet-run ch11-task1-selftest-fix5 -- tools/check-vulns.sh --self-test` — PASS、rc=0、42 秒。
+- 自己レビュー: F1〜F9 の指摘箇所を再確認し、レビュー対象外の版固定・最終レビュー確認事項は変更していない。

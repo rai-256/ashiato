@@ -23,7 +23,10 @@ def lockfiles(root: Path) -> list[Path]:
     )
     if result.returncode != 0:
         return paths + [root / "collector-android/gradle.lockfile"]
-    return paths + [root / line for line in result.stdout.splitlines()]
+    gradle = [root / line for line in result.stdout.splitlines()]
+    if not gradle:
+        raise ValueError("携帯の gradle.lockfile が無い")
+    return paths + gradle
 
 
 def exceptions(path: Path) -> set[str]:
@@ -54,16 +57,19 @@ def exceptions(path: Path) -> set[str]:
     return allowed
 
 
-def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict]]:
+def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict], str | None]:
     command = [str(scanner), "scan", "source", "--lockfile", str(lock), "--format", "json",
                "--all-vulns", "--all-packages", "--config", "/dev/null"]
     proc = subprocess.run(command, cwd=root, text=True, capture_output=True)
     if proc.returncode not in (0, 1):
-        return error_code("osv.dev への問い合わせ" if proc.returncode else "osv-scanner"), []
+        detail = proc.stderr.strip()
+        if detail:
+            return 2, [], f"osv.dev への問い合わせ: {detail}"
+        return 2, [], "osv-scanner の実行"
     try:
         data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return error_code("JSON の読み取り"), []
+    except json.JSONDecodeError as exc:
+        return 2, [], f"JSON の読み取り: {exc}"
     findings: list[dict] = []
     for result in data.get("results", []):
         for package in result.get("packages", []):
@@ -79,11 +85,7 @@ def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict]]:
                         "aliases": group.get("aliases", []),
                         "severity": group.get("max_severity", ""),
                     })
-    return proc.returncode, findings
-
-
-def error_code(_: str) -> int:
-    return 2
+    return proc.returncode, findings, None
 
 
 def main() -> int:
@@ -96,15 +98,18 @@ def main() -> int:
         allowed = exceptions(config)
     except ValueError as exc:
         return error(str(exc))
-    files = lockfiles(root)
+    try:
+        files = lockfiles(root)
+    except ValueError as exc:
+        return error(str(exc))
     missing = [p for p in files if not p.is_file()]
     if missing:
         return error("見つからないロックファイル: " + ", ".join(str(p.relative_to(root)) for p in missing))
     findings: list[dict] = []
     for path in files:
-        rc, rows = scan(scanner, root, path)
-        if rc == 2:
-            return error("osv.dev への問い合わせ")
+        rc, rows, failure = scan(scanner, root, path)
+        if failure:
+            return error(failure)
         findings.extend(rows)
     outstanding = [row for row in findings if row["id"] not in allowed and not any(a in allowed for a in row["aliases"])]
     for row in outstanding:
