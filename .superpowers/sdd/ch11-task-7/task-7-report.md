@@ -40,3 +40,9 @@
 ## 懸念
 
 - 脆弱性検査のデータベース上、互換範囲外または推移的依存に由来する残存勧告は例外表で管理している。期限はすべて 90 日以内で、次回更新時に再評価する。
+
+## Task gate 指摘への追検証
+
+- `XDG_CACHE_HOME=/tmp/ashiato2-vuln-cache scripts/verify-run 7.1` — 2 コマンドとも PASS、`evidence.jsonl` に記録済み。
+- `XDG_CACHE_HOME=/tmp/ashiato2-vuln-cache npm_config_cache=/tmp/ashiato2-npm-cache scripts/verify-run 7.2` — 3 コマンドとも PASS、`evidence.jsonl` に記録済み。
+- Web 検証は 52 files / 513 tests passed。ただしハーネスの一時領域に `node-compile-cache` 1 件が残った注意が証跡に記録された。
