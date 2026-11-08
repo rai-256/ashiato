@@ -26,6 +26,9 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail 'all deps' sed -i 's/for k in code android windows stamp deps/for k in code android windows stamp/' "$tmp/.github/workflows/ci.yml"
   expect_fail 'vulns PR 条件' sed -i "s/if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'/if: needs.changes.outputs.deps == 'true'/" "$tmp/.github/workflows/ci.yml"
   expect_fail 'wiring checks' sed -i '/check-vulns-wiring.sh --self-test/d' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'release vulns を無効化' sed -i 's@run: tools/check-vulns.sh$@run: tools/check-vulns.sh || true@' "$tmp/.github/workflows/release.yml"
+  expect_fail 'dependency-review を無効化' sed -i '/uses: actions\/dependency-review-action/a\        continue-on-error: true' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'PR vulns を無効化' sed -i 's@run: tools/check-vulns.sh --base "\$BASE_SHA"$@run: tools/check-vulns.sh --base "\$BASE_SHA" || echo skip@' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review severity' sed -i '/fail-severity: high/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review scopes' sed -i '/fail-on-scopes:/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review allow list' sed -i '/allow-ghsas:/d' "$tmp/.github/workflows/ci.yml"
@@ -65,6 +68,10 @@ def require(condition, message):
     if not condition:
         raise SystemExit(f"配線エラー: {message}")
 
+def has_exact_run(body, command):
+    pattern = rf"^\s*- run: (?:\./)?{re.escape(command)}\s*$"
+    return any(re.match(pattern, line) for line in body.splitlines())
+
 ci = jobs(root / ".github/workflows/ci.yml")
 release = jobs(root / ".github/workflows/release.yml")
 vulns_nightly = jobs(root / ".github/workflows/vulns-nightly.yml")
@@ -81,7 +88,8 @@ require("if: github.event_name == 'pull_request' && needs.changes.outputs.deps =
         "CI vulns の条件が PR かつ deps ではない")
 require("git fetch --no-tags --depth=1 origin \"$BASE_SHA\"" in vulns, "base の commit を取得していない")
 require("git cat-file -e \"$BASE_SHA^{commit}\"" in vulns, "base の commit を確認していない")
-require("tools/check-vulns.sh --self-test" in vulns and "tools/check-vulns.sh --base \"$BASE_SHA\"" in vulns,
+require(has_exact_run(vulns, "tools/check-vulns.sh --self-test") and
+        has_exact_run(vulns, 'tools/check-vulns.sh --base "$BASE_SHA"'),
         "CI vulns の検査が不足している")
 require("tools/check-vulns.sh allow-ghsas" in vulns, "allow-ghsas を生成していない")
 require("actions/dependency-review-action@" in vulns and
@@ -92,15 +100,19 @@ require(all(x in vulns for x in ("runtime", "development", "unknown")), "depende
 require("allow-ghsas: ${{ steps.allow.outputs.ghsas }}" in vulns, "dependency-review に許可一覧を渡していない")
 require("comment-summary-in-pr" not in vulns or "comment-summary-in-pr: never" in vulns,
         "dependency-review に PR コメントを書かせる設定がある")
-require("tools/check-vulns-wiring.sh --self-test" in ci.get("rust", "") and
-        "tools/check-vulns-wiring.sh" in ci.get("rust", ""), "rust に配線検査がない")
+require("continue-on-error: true" not in vulns and "set +e" not in vulns,
+        "CI vulns に失敗を無視する設定がある")
+rust = ci.get("rust", "")
+require(has_exact_run(rust, "tools/check-vulns-wiring.sh --self-test") and
+        has_exact_run(rust, "tools/check-vulns-wiring.sh"), "rust に配線検査がない")
 require("tools/check-pg-minor.sh --self-test" in ci.get("rust", ""), "rust に pg minor 検査がない")
 android = ci.get("android", "")
 require(re.search(r"./gradlew detekt.*\n.*check-gradle-locks.sh", android, re.S),
         "android の detekt 後に Gradle lock 検査がない")
 
 require("vulns" in release and "needs: plan" in release["vulns"] and
-        "contents: read" in release["vulns"] and "tools/check-vulns.sh" in release["vulns"],
+        "contents: read" in release["vulns"] and has_exact_run(release["vulns"], "tools/check-vulns.sh") and
+        "continue-on-error: true" not in release["vulns"] and "set +e" not in release["vulns"],
         "release の vulns job が不足")
 require("needs: [plan, vulns]" in release.get("package-linux", ""), "Linux package が vulns を待っていない")
 require("needs: [plan, vulns]" in release.get("package-windows", ""), "Windows package が vulns を待っていない")

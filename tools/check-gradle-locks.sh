@@ -94,6 +94,20 @@ self_test() {
   fi
   grep -Eq 'dependency lock|lock state|junit' <<<"$output" || { echo "$output" >&2; return 1; }
   echo "== Scenario: ロックに無い依存を足すと、組み立てが落ちる"
+  cat >>"$copied/app/build.gradle.kts" <<'KOTLIN'
+
+val selfTestUnlocked by configurations.creating
+dependencies.add("selfTestUnlocked", "junit:junit:4.13.2")
+tasks.register("resolveSelfTestUnlocked") {
+    doLast { configurations.getByName("selfTestUnlocked").resolve() }
+}
+KOTLIN
+  if output=$("$copied/gradlew" -p "$copied" --no-daemon --no-configuration-cache -q :app:resolveSelfTestUnlocked 2>&1); then
+    echo "self-test NG: ロックに無い構成を通した" >&2
+    return 1
+  fi
+  grep -Eq 'dependency lock|lock state|junit' <<<"$output" || { echo "$output" >&2; return 1; }
+  echo "== Scenario: ロックに無い構成を解こうとすると落ちる"
   rm -rf -- "$tmp"
   trap - EXIT
 }

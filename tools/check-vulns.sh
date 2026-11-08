@@ -9,7 +9,7 @@ set -u
 # | check-vulns.sh | 全体の検査 |
 # | --base <commit> / allow-ghsas / nightly <dir> / file-issues <dir> / github-settings | 計画済みの入口 |
 # | --self-test | 自己試験 |
-# 例外: osv-scanner.toml の [[IgnoredVulns]] に ID、90 日以内の期限、CH11: 理由を書く。
+# 例外: osv-scanner.toml の [[IgnoredVulns]] に ID、90 日以内の期限、届かない: 理由 または 上げる予定: 見込み。
 # 網失敗の実測（HTTPS_PROXY=http://127.0.0.1:9）: rc=2、`error: 検査できなかった（osv.dev への問い合わせ: ...）`。
 
 set -o pipefail
@@ -129,7 +129,7 @@ self_test() {
   safe_tree() {
     mkdir -p "$tmp/root/web" "$tmp/root/collector-android"
     printf 'version = 3\n[[package]]\nname = "ashiato-self-test-safe"\nversion = "1.0.0"\n' > "$tmp/root/Cargo.lock"
-    printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.21"}},"node_modules/lodash":{"version":"4.17.21"}}}\n' > "$tmp/root/web/package-lock.json"
+    printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"ms":"2.1.3"}},"node_modules/ms":{"version":"2.1.3","resolved":"https://registry.npmjs.org/ms/-/ms-2.1.3.tgz"}}}\n' > "$tmp/root/web/package-lock.json"
     printf 'com.example:safe:1.0.0=runtimeClasspath\n' > "$tmp/root/collector-android/gradle.lockfile"
     printf '# empty\n' > "$tmp/root/osv-scanner.toml"
     git -C "$tmp/root" add Cargo.lock web/package-lock.json collector-android/gradle.lockfile osv-scanner.toml
@@ -143,10 +143,10 @@ self_test() {
     git -C "$tmp/root" add Cargo.lock web/package-lock.json collector-android/gradle.lockfile osv-scanner.toml
   }
   assert_self_test_dependencies_absent() {
-    ! rg -n 'name = "ansi_term"' "$ROOT/Cargo.lock"
-    ! rg -n '"lodash"' "$ROOT/web/package-lock.json"
-    ! rg -n '(^|:)jackson-databind:' "$ROOT/collector-android" --glob '*.lockfile'
-    ! rg -n '"node-forge"' "$ROOT/web/package-lock.json"
+    ! grep -Eq 'name = "ansi_term"' "$ROOT/Cargo.lock" || return 1
+    ! grep -Eq '"lodash"' "$ROOT/web/package-lock.json" || return 1
+    ! grep -REq --include='*.lockfile' '(^|:)jackson-databind:' "$ROOT/collector-android" || return 1
+    ! grep -Eq '"node-forge"' "$ROOT/web/package-lock.json" || return 1
   }
   assert_self_test_dependencies_absent || return 1
   expect_rc() {
@@ -163,22 +163,22 @@ self_test() {
   vulnerable_tree
   exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '理由が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '理由が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 期限の無い行で落ちる"
   vulnerable_tree
   exception_config 'reason = "届かない: 自己試験"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '期限が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '期限が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 期限の切れた行で落ちる"
   vulnerable_tree
   exception_config "ignoreUntil = \"2000-01-01\""$'\n''reason = "届かない: 自己試験"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '期限切れ.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '期限切れ.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 期限が 90 日より先の行で落ちる"
   vulnerable_tree
   exception_config "ignoreUntil = \"$(date -u -d '+91 days' +%F)\""$'\n''reason = "届かない: 自己試験"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '期限が 90 日を越える.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '期限が 90 日を越える.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 期限が 90 日ちょうどの行は通る"
   vulnerable_tree
   printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.21"}},"node_modules/lodash":{"version":"4.17.21"}}}\n' > "$tmp/root/web/package-lock.json"
@@ -189,17 +189,17 @@ self_test() {
   vulnerable_tree
   exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "問題ない"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '理由の形が違う.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '理由の形が違う.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 勧告がもう出ない行は残せない"
   safe_tree
   exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "届かない: 自己試験"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q '勧告がもう出ない.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq '勧告がもう出ない.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 3 つのロックファイルのどれに勧告のある版を入れても、全体の検査が落ちる"
   vulnerable_tree; expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'ansi_term.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
-  rg -q 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
-  rg -q 'jackson-databind.*GHSA-57j2-w4cx-62h2' "$tmp/actual" || return 1
+  grep -Eq 'ansi_term.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  grep -Eq 'jackson-databind.*GHSA-57j2-w4cx-62h2' "$tmp/actual" || return 1
   echo "== Scenario: 勧告の無い版だけなら、全体の検査は通る"
   safe_tree; expect_rc 0 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   echo "== Scenario: 例外の表に勧告の ID があれば、その組では落ちない"
@@ -215,15 +215,18 @@ import json, sys
 p = json.load(open(sys.argv[1])); p['packages']['']['dependencies'] = {'lodash': '4.17.20'}; p['packages']['']['devDependencies'] = {'lodash': '4.17.20'}; p['packages']['node_modules/lodash'] = {'version': '4.17.20', 'resolved': 'https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz', 'dev': True}; json.dump(p, open(sys.argv[1], 'w'))
 PY
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  grep -Eq 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
   echo "== Scenario: 「健全でない」「保守されていない」の知らせだけを持つ版でも落ちる"
   safe_tree; printf 'version = 3\n[[package]]\nname = "ansi_term"\nversion = "0.12.1"\n' > "$tmp/root/Cargo.lock"; git -C "$tmp/root" add Cargo.lock
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  grep -Eq 'RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 重大度の低い勧告だけを持つ版でも落ちる"
-  safe_tree; printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"node-forge":"1.3.1"}},"node_modules/node-forge":{"version":"1.3.1","resolved":"https://registry.npmjs.org/node-forge/-/node-forge-1.3.1.tgz"}}}\n' > "$tmp/root/web/package-lock.json"; git -C "$tmp/root" add web/package-lock.json
-  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'GHSA-4487-j8r4-4g2f' "$tmp/actual" || return 1
+  safe_tree
+  local low_scanner="$tmp/low-scanner"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' '{\"results\":[{\"packages\":[{\"package\":{\"ecosystem\":\"npm\",\"name\":\"low-only\",\"version\":\"1.0.0\"},\"groups\":[{\"ids\":[\"GHSA-low-only\"],\"aliases\":[],\"max_severity\":\"3.7\"}]}]}]}'" 'exit 1' > "$low_scanner"
+  chmod +x "$low_scanner"
+  expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$low_scanner" python3 "$SCRIPT_DIR/check-vulns.py" || return 1
+  grep -Eq 'low-only.*GHSA-low-only.*severity=3\.7' "$tmp/actual" || return 1
   echo "== Scenario: 台本の sha256 と合わない osv-scanner は使わない"
   local fake="$tmp/fake-scanner" mark="$tmp/ran"
   printf '#!/usr/bin/env bash\ntouch "$MARK"\n' > "$fake"; chmod +x "$fake"
@@ -234,30 +237,30 @@ PY
   chmod +x "$tmp/fake-cache/ashiato2/osv-scanner-${VERSION}/osv-scanner_linux_amd64"
   rm -f "$mark"
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" XDG_CACHE_HOME="$tmp/fake-cache" MARK="$mark" "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'sha256' "$tmp/actual" || return 1
+  grep -Eq 'sha256' "$tmp/actual" || return 1
   [[ ! -e "$mark" ]] || return 1
   echo "== Scenario: 見るはずのロックファイルが無ければ、黙って飛ばさない"
   safe_tree
   rm "$tmp/root/web/package-lock.json"
   "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" >"$tmp/missing" 2>&1; [[ $? -eq 2 ]] || return 1
-  rg -q 'error: 検査できなかった.*web/package-lock.json' "$tmp/missing" || return 1
+  grep -Eq 'error: 検査できなかった.*web/package-lock.json' "$tmp/missing" || return 1
   echo "== Scenario: osv.dev に届かないときは rc=2 で、勧告なしとしない"
   vulnerable_tree
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" || return 1
-  rg -q 'error: 検査できなかった（osv.dev への問い合わせ' "$tmp/actual" || return 1
+  grep -Eq 'error: 検査できなかった（osv.dev への問い合わせ' "$tmp/actual" || return 1
   git -C "$tmp/root" config user.email self-test@example.invalid
   git -C "$tmp/root" config user.name self-test
   safe_tree; git -C "$tmp/root" commit -qm base
   vulnerable_tree
   echo "== Scenario: 勧告のある版を足した PR は落ちる"
   expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '新しく持ち込んだ: [1-9][0-9]* 件' "$tmp/actual" || return 1
-  rg -q 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  grep -Eq '新しく持ち込んだ: [1-9][0-9]* 件' "$tmp/actual" || return 1
+  grep -Eq 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
   echo "== Scenario: base にもある勧告は、版を変えても新しいと数えない"
   git -C "$tmp/root" add . && git -C "$tmp/root" commit -qm vulnerable-base
   printf '%s\n' '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.19"}},"node_modules/lodash":{"version":"4.17.19","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.19.tgz"}}}' > "$tmp/root/web/package-lock.json"
   git -C "$tmp/root" add web/package-lock.json && expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
+  grep -Eq '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
   echo "== Scenario: base にロックファイルも例外の表も無ければ、今の木の組と行は全部新しい"
   git -C "$tmp/root" rm -q Cargo.lock collector-android/gradle.lockfile osv-scanner.toml
   git -C "$tmp/root" commit -qm no-base-files
@@ -277,12 +280,12 @@ with open(sys.argv[3], 'w') as output:
 PY
   git -C "$tmp/root" add Cargo.lock web/package-lock.json collector-android/gradle.lockfile osv-scanner.toml
   expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
-  rg -q '== 例外の表で足した・変えた行' "$tmp/actual" || return 1
-  rg -q 'GHSA-57j2-w4cx-62h2' "$tmp/actual" || return 1
+  grep -Eq '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
+  grep -Eq '== 例外の表で足した・変えた行' "$tmp/actual" || return 1
+  grep -Eq 'GHSA-57j2-w4cx-62h2' "$tmp/actual" || return 1
   echo "== Scenario: base の commit を取り寄せられなければ比べない"
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base does-not-exist || return 1
-  rg -q '^error: 検査できなかった' "$tmp/actual" || return 1
+  grep -Eq '^error: 検査できなかった' "$tmp/actual" || return 1
   echo "== Scenario: 足した行と期限を延ばした行が一覧に出る"
   safe_tree
   printf '%s\n' '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.20"}},"node_modules/lodash":{"version":"4.17.20","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"}}}' > "$tmp/root/web/package-lock.json"
@@ -302,29 +305,29 @@ PY
   sed -i "0,/$(date -u -d '+1 day' +%F)/s//$(date -u -d '+2 days' +%F)/" "$tmp/root/osv-scanner.toml"
   printf '%s\n' '[[IgnoredVulns]]' 'id = "GHSA-35jh-r3h4-6jhm"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: B"' >> "$tmp/root/osv-scanner.toml"
   expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q "GHSA-29mw-wpgm-hmr9.*$(date -u -d '+2 days' +%F)" "$tmp/actual" || return 1
-  rg -q 'GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  grep -Eq "GHSA-29mw-wpgm-hmr9.*$(date -u -d '+2 days' +%F)" "$tmp/actual" || return 1
+  grep -Eq 'GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
   echo "== Scenario: 例外の表を変えていなければ「なし」と出る"
   git -C "$tmp/root" checkout -q -- osv-scanner.toml
   expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '== 例外の表で足した・変えた行' "$tmp/actual" && rg -q 'なし' "$tmp/actual" || return 1
+  grep -Eq '== 例外の表で足した・変えた行' "$tmp/actual" && grep -Eq 'なし' "$tmp/actual" || return 1
   echo "== Scenario: PR の検査でも、表の行の検査が走る"
   sed -i "s/$(date -u -d '+1 day' +%F)/2000-01-01/" "$tmp/root/osv-scanner.toml"
   expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '期限切れ' "$tmp/actual" || return 1
-  rg -q '^新しく持ち込んだ: ' "$tmp/actual" || return 1
-  rg -q '^== 例外の表で足した・変えた行$' "$tmp/actual" || return 1
+  grep -Eq '期限切れ' "$tmp/actual" || return 1
+  grep -Eq '^新しく持ち込んだ: ' "$tmp/actual" || return 1
+  grep -Eq '^== 例外の表で足した・変えた行$' "$tmp/actual" || return 1
   echo "== Scenario: PR の検査でも、osv.dev に届かなければ rc=2"
   git -C "$tmp/root" checkout -q -- osv-scanner.toml
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
-  rg -q '^error: 検査できなかった' "$tmp/actual" || return 1
+  grep -Eq '^error: 検査できなかった' "$tmp/actual" || return 1
   echo "== Scenario: 許可の一覧は例外の表と別名から組む"
   printf '%s\n' '[[IgnoredVulns]]' 'id = "RUSTSEC-2020-0071"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' '[[IgnoredVulns]]' 'id = "GHSA-35jh-r3h4-6jhm"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' > "$tmp/root/osv-scanner.toml"
   expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
   [[ "$(cat "$tmp/actual")" == 'GHSA-wcg3-cvx6-7396,GHSA-35jh-r3h4-6jhm' ]] || return 1
   echo "== Scenario: 別名を問い合わせられなければ、許可の一覧を出さない"
   expect_rc 2 env HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
-  ! rg -q '^GHSA-' "$tmp/actual" || return 1
+  ! grep -Eq '^GHSA-' "$tmp/actual" || return 1
   echo "== Scenario: 依存に関わるファイルを変えた PR で走り、それ以外では走らない"
   for path in Cargo.lock web/package-lock.json collector-android/app/gradle.lockfile osv-scanner.toml tools/check-vulns.sh; do
     printf '%s\n' "$path" | "$ROOT/tools/release/changes.sh" deps || return 1
@@ -374,15 +377,15 @@ GH
   PATH="$tmp:$PATH" GH_LOG="$gh_log" "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || file_unreachable_rc=$?
   [[ "$file_unreachable_rc" == 2 ]] || return 1
   [[ ! -e "$tmp/findings/vulnerabilities.json" ]] || return 1
-  ! rg -q 'issue (create|comment)' "$gh_log" || return 1
+  ! grep -Eq 'issue (create|comment)' "$gh_log" || return 1
   echo "== Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ"
   vulnerable_tree
   printf 'com.example:safe:1.0.0=runtimeClasspath\n' >"$tmp/root/collector-android/gradle.lockfile"
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=0 OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || [[ $? -eq 1 ]] || return 1
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
-  [[ "$(rg -c '^issue create ' "$gh_log")" == 2 ]] || return 1
-  rg -q '^label create 脆弱性' "$gh_log" || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 2 ]] || return 1
+  grep -Eq '^label create 脆弱性' "$gh_log" || return 1
   printf '%s' $'依存: ansi_term\n版: 0.12.1\n勧告: RUSTSEC-2021-0139\n重大度: \nURL: https://osv.dev/vulnerability/RUSTSEC-2021-0139' | diff -u - "$gh_body_dir/create-1" || return 1
   printf '%s' $'依存: lodash\n版: 4.17.20\n勧告: GHSA-29mw-wpgm-hmr9\n重大度: 5.3\nURL: https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9\n依存: lodash\n版: 4.17.20\n勧告: GHSA-35jh-r3h4-6jhm\n重大度: 7.2\nURL: https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm\n依存: lodash\n版: 4.17.20\n勧告: GHSA-r5fr-rjxr-66jc\n重大度: 8.1\nURL: https://osv.dev/vulnerability/GHSA-r5fr-rjxr-66jc\n依存: lodash\n版: 4.17.20\n勧告: GHSA-xxjr-mmjv-4gpg\n重大度: 6.9\nURL: https://osv.dev/vulnerability/GHSA-xxjr-mmjv-4gpg' | diff -u - "$gh_body_dir/create-2" || return 1
   echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
@@ -392,20 +395,20 @@ GH
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/existing-dir"; local duplicate_rc=$?
   [[ "$duplicate_rc" == 0 ]] || return 1
-  ! rg -q '^issue (create|comment) ' "$gh_log" || return 1
+  ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
   echo "== Scenario: 勧告が増えたときだけ、開いている issue に追記する"
   cat >"$tmp/finding.json" <<'JSON'
 [{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"},{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-new","severity":"LOW"}]
 JSON
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
-  [[ "$(rg -c '^issue comment ' "$gh_log")" == 1 ]] || return 1
+  [[ "$(grep -Ec '^issue comment ' "$gh_log")" == 1 ]] || return 1
   printf '%s' '勧告: GHSA-new' | cmp -s - "$gh_body_dir/comment-1" || return 1
   echo "== Scenario: issue に書くのは決まった項目だけ"
-  rg -q 'issue comment .*勧告: GHSA-new' "$gh_log" || return 1
-  ! rg -q '届く|分析|見出し' "$gh_log" || return 1
+  grep -Eq 'issue comment .*勧告: GHSA-new' "$gh_log" || return 1
+  ! grep -Eq '届く|分析|見出し' "$gh_log" || return 1
   echo "== Scenario: 勧告が消えた依存の issue は閉じない"
-  ! rg -q '^issue close ' "$gh_log" || return 1
+  ! grep -Eq '^issue close ' "$gh_log" || return 1
   echo "== Scenario: 表の行の問題は、例外の表の 1 件の issue になる"
   safe_tree
   printf '%s\n' '[[IgnoredVulns]]' 'id = "A-1"' 'ignoreUntil = "2000-01-01"' 'reason = "届かない: 網"' '[[IgnoredVulns]]' 'id = "A-2"' 'ignoreUntil = "2099-01-01"' >"$tmp/root/osv-scanner.toml"
@@ -416,17 +419,17 @@ JSON
   PATH="$tmp:$PATH" GH_LOG="$gh_log" OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || table_rc=$?
   [[ "$table_rc" == 1 ]] || return 1
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
-  [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
-  rg -q '脆弱性: 例外の表' "$gh_log" && rg -q 'A-1' "$gh_log" && rg -q '期限切れ' "$gh_log" && rg -q 'A-2' "$gh_log" && rg -q '理由が無い' "$gh_log" || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
+  grep -Eq '脆弱性: 例外の表' "$gh_log" && grep -Eq 'A-1' "$gh_log" && grep -Eq '期限切れ' "$gh_log" && grep -Eq 'A-2' "$gh_log" && grep -Eq '理由が無い' "$gh_log" || return 1
   echo "== Scenario: PostgreSQL の遅れは 1 件の issue になり、開いていれば立て直さない"
   mkdir -p "$tmp/pg-findings"
   printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.11' >"$tmp/pg-findings/postgresql-minor.txt"
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
-  [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
-  ! rg -q '^issue (create|comment) ' "$gh_log" || return 1
+  ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
   return 0
 }
 

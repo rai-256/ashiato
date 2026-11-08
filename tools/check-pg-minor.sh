@@ -139,7 +139,7 @@ EOF
 }
 
 self_test() {
-  local tmp lock versions edb output rc recent old
+  local tmp lock versions edb output rc recent boundary old
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/check-pg-minor-self-test.XXXXXX")"
   trap "rm -rf -- '$tmp'" EXIT
   lock="$tmp/pgsql.lock"
@@ -148,6 +148,7 @@ self_test() {
   mkdir -p "$edb"
   printf 'version=17.6-1\nurl=https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64-binaries.zip\n' >"$lock"
   recent="$(date -u -d '-5 days' +%F)"
+  boundary="$(date -u -d '-30 days' +%F)"
   old="$(date -u -d '-31 days' +%F)"
   printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$recent" >"$versions"
   : >"$edb/postgresql-17.11-1-windows-x64-binaries.zip"
@@ -155,6 +156,10 @@ self_test() {
   output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" 2>&1)" || rc=$?; rc=${rc:-0}
   (( rc == 1 )) && grep -q '17\.6' <<<"$output" && grep -q '17\.11' <<<"$output" || return 1
   rm -f "$edb/postgresql-17.11-1-windows-x64-binaries.zip"
+  printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$boundary" >"$versions"
+  echo '== Scenario: EDB に無く、公開から 30 日ちょうどなら待つ'
+  output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" 2>&1)" || return 1
+  grep -q 'EDB を待っている（公開から 30 日）' <<<"$output" || return 1
   printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$old" >"$versions"
   echo '== Scenario: EDB に無くても、公開から 30 日を越えたら落ちる'
   rc=0
