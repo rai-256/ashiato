@@ -46,3 +46,9 @@
 - `XDG_CACHE_HOME=/tmp/ashiato2-vuln-cache scripts/verify-run 7.1` — 2 コマンドとも PASS、`evidence.jsonl` に記録済み。
 - `XDG_CACHE_HOME=/tmp/ashiato2-vuln-cache npm_config_cache=/tmp/ashiato2-npm-cache scripts/verify-run 7.2` — 3 コマンドとも PASS、`evidence.jsonl` に記録済み。
 - Web 検証は 52 files / 513 tests passed。ただしハーネスの一時領域に `node-compile-cache` 1 件が残った注意が証跡に記録された。
+
+## Fix report（review 1 / F1）
+
+- `osv-scanner.toml` の該当行を、製品に届かない理由ではなく互換範囲内に修正版がないため更新予定として `上げる予定: 互換範囲内に修正版なし` に修正した。
+- `scripts/verify-run 7.1` は 2 コマンドとも検証環境の `mkdir: Read-only file system` により rc=2（FAIL）となった。この結果を証跡に記録し、別の結果で置き換えていない。
+- 環境制約を切り分けるため、`scripts/quiet-run ch11-vulns-current -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache tools/check-vulns.sh'` は rc=0、`scripts/quiet-run ch11-vulns-base -- bash -c 'XDG_CACHE_HOME=/tmp/ashiato2-ch11-vuln-cache tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` も rc=0 だった。
