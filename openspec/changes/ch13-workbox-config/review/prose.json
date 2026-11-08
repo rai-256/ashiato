@@ -2,15 +2,27 @@
  "tool": "yomiyasu",
  "version": "2.4.0",
  "source": "prose.final.md",
- "fields": 40,
+ "fields": 57,
  "applied": [
-  "uses[U1].outcome",
-  "walkthroughs[W1].scene",
-  "walkthroughs[W1].why",
+  "walkthroughs[W1].figure.caption",
+  "points[place.4].text",
+  "points[done.1].text",
   "points[done.2].text",
+  "points[done.3].text",
+  "points[done.4].text",
+  "impact.scope.preconditions[1].text",
   "impact.scope.excludes[0].text"
  ],
- "kept": [],
+ "kept": [
+  {
+   "field": "points[homework.4].text",
+   "why": [
+    "否定の言い方の数が変わった（3 → 4）"
+   ],
+   "old": "第 1 回の深掘りで一覧に載せたもののうち、docker が渡らない・当たりすぎ・`prep_files` の不足・後の Story の漏れ・知らない鍵を黙って無視する・古いイメージが溜まる、は harness2 #157 / #161 で済んだ。一覧からは消し、案内だけを置く。第 1 回で立てる予定だった harness2 の issue 3 つは立てない",
+   "new": "第 1 回の深掘りで一覧に載せたもののうち、docker が渡らない・当たりすぎ・`prep_files` の不足・後の Story の漏れ・知らない鍵を知らせずに無視する・古いイメージが溜まる、は harness2 #157 / #161 で済んだ。一覧からは消し、案内だけを置く。第 1 回で立てる予定だった harness2 の issue 3 つは立てない"
+  }
+ ],
  "missing": [],
  "unknown": []
 }
