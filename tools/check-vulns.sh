@@ -238,6 +238,8 @@ PY
   sed -i "s/$(date -u -d '+1 day' +%F)/2000-01-01/" "$tmp/root/osv-scanner.toml"
   expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
   rg -q '期限切れ' "$tmp/actual" || return 1
+  rg -q '^新しく持ち込んだ: ' "$tmp/actual" || return 1
+  rg -q '^== 例外の表で足した・変えた行$' "$tmp/actual" || return 1
   echo "== Scenario: PR の検査でも、osv.dev に届かなければ rc=2"
   git -C "$tmp/root" checkout -q -- osv-scanner.toml
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
@@ -247,6 +249,8 @@ PY
     printf '%s\n' "$path" | "$ROOT/tools/release/changes.sh" deps || return 1
   done
   if printf '%s\n' .github/workflows/ci.yml | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
+  if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
+  if printf '%s\n' crates/server/src/lib.rs docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" code; then return 1; fi
   printf '%s\n' crates/server/src/lib.rs | "$ROOT/tools/release/changes.sh" code || return 1
   return 0

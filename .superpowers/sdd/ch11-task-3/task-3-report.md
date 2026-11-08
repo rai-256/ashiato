@@ -42,3 +42,19 @@ rc=0。Task 3 の PR 差分、例外表一覧、例外表検査、osv.dev 到達
 ## 懸念
 
 Scenario checker の change 全体 FAIL は、この Task が担保する範囲外の未実装 Task によるもの。Task 3 の検証コマンド自体は両項目 rc=0。
+
+## Fix round 1
+
+レビューの F1〜F4 に対応した。
+
+- `deps` 自己試験で `crates/server/src/lib.rs` と `docs/x.md` の組を判定し、rc=1 を確認するようにした。
+- PR 検査の出力順を、件数行・新規勧告行・例外表の変更一覧の順に固定した。
+- base の例外表は期限・理由の検査をせず、差分比較用の生データとして読むようにした。
+- PR 側の表検査失敗時にも、比較しなかった印または件数行と例外表変更一覧を出すようにし、自己試験で件数行と見出しを確認した。
+
+検証:
+
+- `scripts/verify-run 3.1` — PASS、rc=0、`tools/check-vulns.sh --self-test`。
+- `scripts/verify-run 3.2` — PASS、rc=0、`tools/check-vulns.sh --self-test`。
+- `python3 -m py_compile tools/check-vulns.py` — rc=0。
+- `git diff --check` — rc=0。
