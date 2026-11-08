@@ -79,6 +79,46 @@ self_test() {
     local actual=$?
     [[ "$actual" == "$expected" ]]
   }
+  exception_config() {
+    printf '%s\n' "[[IgnoredVulns]]" "id = \"RUSTSEC-2021-0139\"" "$1" > "$tmp/root/osv-scanner.toml"
+    git -C "$tmp/root" add osv-scanner.toml
+  }
+  echo "== Scenario: 理由の無い行で落ちる"
+  vulnerable_tree
+  exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '理由が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 期限の無い行で落ちる"
+  vulnerable_tree
+  exception_config 'reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '期限が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 期限の切れた行で落ちる"
+  vulnerable_tree
+  exception_config "ignoreUntil = \"2000-01-01\""$'\n''reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '期限切れ.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 期限が 90 日より先の行で落ちる"
+  vulnerable_tree
+  exception_config "ignoreUntil = \"$(date -u -d '+91 days' +%F)\""$'\n''reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '期限が 90 日を越える.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 期限が 90 日ちょうどの行は通る"
+  vulnerable_tree
+  printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.21"}},"node_modules/lodash":{"version":"4.17.21"}}}\n' > "$tmp/root/web/package-lock.json"
+  printf 'com.example:safe:1.0.0=runtimeClasspath\n' > "$tmp/root/collector-android/gradle.lockfile"
+  exception_config "ignoreUntil = \"$(date -u -d '+90 days' +%F)\""$'\n''reason = "届かない: 自己試験"'
+  expect_rc 0 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  echo "== Scenario: 理由が決まった形で始まらない行で落ちる"
+  vulnerable_tree
+  exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "問題ない"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '理由の形が違う.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 勧告がもう出ない行は残せない"
+  safe_tree
+  exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  rg -q '勧告がもう出ない.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 3 つのロックファイルのどれに勧告のある版を入れても、全体の検査が落ちる"
   vulnerable_tree; expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   rg -q 'ansi_term.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
@@ -89,7 +129,7 @@ self_test() {
   echo "== Scenario: 例外の表に勧告の ID があれば、その組では落ちない"
   safe_tree
   printf 'version = 3\n[[package]]\nname = "ansi_term"\nversion = "0.12.1"\n' > "$tmp/root/Cargo.lock"
-  printf '[[IgnoredVulns]]\nid = "RUSTSEC-2021-0139"\nignoreUntil = "%s"\nreason = "CH11: 自己試験"\n' "$(date -d '+1 day' +%F)" > "$tmp/root/osv-scanner.toml"
+  printf '[[IgnoredVulns]]\nid = "RUSTSEC-2021-0139"\nignoreUntil = "%s"\nreason = "届かない: 自己試験"\n' "$(date -u -d '+1 day' +%F)" > "$tmp/root/osv-scanner.toml"
   git -C "$tmp/root" add Cargo.lock osv-scanner.toml
   expect_rc 0 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   printf '# empty\n' > "$tmp/root/osv-scanner.toml"

@@ -10,6 +10,10 @@ import tomllib
 from pathlib import Path
 
 
+class ExceptionTableError(ValueError):
+    """An exception row violates the repository's rules."""
+
+
 def error(message: str) -> int:
     print(f"error: 検査できなかった（{message}）")
     return 2
@@ -36,23 +40,27 @@ def exceptions(path: Path) -> set[str]:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ValueError(f"例外の表: {exc}") from exc
     allowed: set[str] = set()
-    today = dt.date.today()
+    today = dt.datetime.now(dt.timezone.utc).date()
     for row in config.get("IgnoredVulns", []):
         ident = row.get("id")
         until = row.get("ignoreUntil")
         reason = row.get("reason")
-        if not isinstance(ident, str) or not isinstance(until, str) or not isinstance(reason, str):
-            raise ValueError("例外の表: id / ignoreUntil / reason が必要")
+        if not isinstance(ident, str):
+            raise ExceptionTableError("例外の表: 勧告の ID が無い")
+        if not isinstance(reason, str):
+            raise ExceptionTableError(f"例外の表: 理由が無い ({ident})")
+        if not isinstance(until, str):
+            raise ExceptionTableError(f"例外の表: 期限が無い ({ident})")
         try:
             expiry = dt.date.fromisoformat(until)
         except ValueError as exc:
-            raise ValueError(f"例外の表: 期限が不正 ({ident})") from exc
+            raise ExceptionTableError(f"例外の表: 期限が不正 ({ident})") from exc
         if expiry < today:
-            raise ValueError(f"例外の表: 期限切れ ({ident})")
+            raise ExceptionTableError(f"例外の表: 期限切れ ({ident})")
         if expiry > today + dt.timedelta(days=90):
-            raise ValueError(f"例外の表: 期限が 90 日を越える ({ident})")
-        if not reason.startswith("CH11:"):
-            raise ValueError(f"例外の表: 理由の形が不正 ({ident})")
+            raise ExceptionTableError(f"例外の表: 期限が 90 日を越える ({ident})")
+        if not reason.startswith(("届かない: ", "上げる予定: ")):
+            raise ExceptionTableError(f"例外の表: 理由の形が違う ({ident})")
         allowed.add(ident)
     return allowed
 
@@ -96,6 +104,9 @@ def main() -> int:
         return error("osv-scanner の場所")
     try:
         allowed = exceptions(config)
+    except ExceptionTableError as exc:
+        print(f"error: {exc}")
+        return 1
     except ValueError as exc:
         return error(str(exc))
     try:
@@ -111,6 +122,12 @@ def main() -> int:
         if failure:
             return error(failure)
         findings.extend(rows)
+    finding_ids = {ident for row in findings for ident in [row["id"], *row["aliases"]]}
+    stale = sorted(ident for ident in allowed if ident not in finding_ids)
+    for ident in stale:
+        print(f"error: 例外の表: 勧告がもう出ない ({ident})")
+    if stale:
+        return 1
     outstanding = [row for row in findings if row["id"] not in allowed and not any(a in allowed for a in row["aliases"])]
     for row in outstanding:
         print(f"{row['ecosystem']} {row['name']} {row['version']} {row['id']} aliases={','.join(row['aliases'])} severity={row['severity']}")
