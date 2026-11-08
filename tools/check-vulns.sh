@@ -10,6 +10,7 @@ set -u
 set -o pipefail
 readonly VERSION="v2.7.0"
 readonly SHA256="160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+readonly ASSET_URL="https://api.github.com/repos/google/osv-scanner/releases/assets/632251666"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ROOT="${CHECK_VULNS_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
@@ -18,8 +19,8 @@ scanner_path() {
   local path="${OSV_SCANNER_BIN:-$cache_root/osv-scanner_linux_amd64}"
   if [[ -z "${OSV_SCANNER_BIN:-}" && ! -x "$path" ]]; then
     mkdir -p "$(dirname "$path")" || return 2
-    curl --fail --location --retry 3 --retry-all-errors --silent --show-error --output "$path" \
-      "https://github.com/google/osv-scanner/releases/download/${VERSION}/osv-scanner_linux_amd64" || {
+    curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
+      -H 'Accept: application/octet-stream' --output "$path" "$ASSET_URL" || {
       echo "error: 検査できなかった（osv-scanner の取り寄せ）"; return 2;
     }
     chmod 755 "$path" || return 2
@@ -77,7 +78,7 @@ self_test() {
   echo "== Scenario: 開発用の依存の勧告でも落ちる"
   safe_tree; python3 - "$tmp/root/web/package-lock.json" <<'PY'
 import json, sys
-p = json.load(open(sys.argv[1])); p['packages']['']['devDependencies'] = {'lodash': '4.17.20'}; p['packages']['node_modules/lodash'] = {'version': '4.17.20', 'dev': True}; json.dump(p, open(sys.argv[1], 'w'))
+p = json.load(open(sys.argv[1])); p['packages']['']['dependencies'] = {'lodash': '4.17.20'}; p['packages']['']['devDependencies'] = {'lodash': '4.17.20'}; p['packages']['node_modules/lodash'] = {'version': '4.17.20', 'resolved': 'https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz', 'dev': True}; json.dump(p, open(sys.argv[1], 'w'))
 PY
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   echo "== Scenario: 「健全でない」「保守されていない」の知らせだけを持つ版でも落ちる"

@@ -35,3 +35,9 @@
 - 原因: 例外表を scanner の `--config` に渡していたため、例外ケースで scanner 自身が rc=2 になっていた。また dev dependency を JSON に含める `--all-packages` が不足していた。
 - 修正: scanner には `/dev/null` の空設定を渡し、`--all-packages` を追加した。例外の判定は引き続き Python 側で行う。
 - 検証: `scripts/quiet-run ch11-task1-selftest -- tools/check-vulns.sh --self-test`。公式 asset の取得が HTTP 504 のため BLOCKED_INFRA。
+
+## Fix report 2
+
+- 原因: GitHub の browser download URL が HTTP 504 になっていた。公式 GitHub API の asset endpoint は同じ固定 sha256 の実行ファイルを取得できた。また自己試験の dev lockfile は scanner が解決済み package として扱う `resolved` を欠いていた。
+- 修正: 公式 API の octet-stream endpoint と固定 asset ID を使い、自己試験の dev package に `resolved` を追加した。
+- 検証: `scripts/quiet-run ch11-task1-selftest -- tools/check-vulns.sh --self-test` — PASS、rc=0、9 Scenario 印を確認。
