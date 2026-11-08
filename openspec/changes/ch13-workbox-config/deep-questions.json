@@ -1,0 +1,157 @@
+{
+  "title": "CH13 の深掘り",
+  "subtitle": "作業箱（コンテナ隔離）の設定を置く",
+  "note": "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。どの問いも「仮でよい」（後から書き直せば戻る）なので、推奨のままでよければ触らなくて構いません。",
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "見つけた不足の一覧をどこに残すか",
+      "kind": "open",
+      "family": {
+        "name": "箱の中で検証が受け取るもの（docker・ホスト）",
+        "siblings": [
+          {
+            "case": "docker が要るのに渡らない（e2e・actionlint・cargo test --workspace・中で docker を呼ぶ台本）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "ホストが要るのに host_only に当たらない（powershell.exe・エミュレータ）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "docker が要らないのに渡る（当たりすぎ）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "準備が読むのに prep_files に無い",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "メモリと席が足りるか（測っていない）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "後の Story が新しく書く検証で同じ漏れが起きる",
+            "decided": "未決 Q2"
+          }
+        ]
+      },
+      "question": "依頼の中身のままでは、`HARNESS_WORKBOX` を有効にした日に箱の中で落ちる・当たりすぎる検証が見つかりました。この一覧をどこに残し、有効にする前に誰が見るようにしますか。",
+      "why": "依頼は「書き換えない。足りないものに気付いたら PR 本文に挙げる」です。ただし見終えた PR は機械が merge するので、PR 本文だけでは人の目に触れないまま main に入りえます。いまは既定 `off` で、どれを選んでも失うものはありません（仮でよい）。",
+      "context": "箱が docker を渡すかは、検証コマンドの**字面**に `docker` の欄の正規表現が当たるかで決まり、コマンドが中で呼ぶ台本は見ません（harness2 `feat/workbox` の `scripts/workbox.py` の `needs_docker`）。見つけた不足:\n\n- **docker が渡らずに落ちる**: 画面の e2e（`cd web && npm run test:e2e`。playwright が `tools/stack.sh up` を起こす。archive の tasks に 21 行・走っている st56）/ workflow の検査（`actionlint … || docker run rhysd/actionlint`。ホストに actionlint が無い。走っている st53 など）/ `cargo test --workspace`（`server_startup.rs` の試験が docker を直に呼ぶ。archive の tasks に 39 行）/ `tools/load-repeat.sh`・`tools/st25-seed-check.sh`・`tools/check-st23-derived-erasure.sh`（中で docker を使う台本を呼ぶ）\n- **ホストが要るのに `host_only` に当たらない**: `tools/release/install-check.sh`・`tools/release/build.sh`（`powershell.exe`）/ `tools/android-side-by-side.sh`・`tools/usage-volume.sh`（エミュレータを自分で起こす）\n- **当たりすぎ**: 正規表現に錨が無く、台本の名前を grep するだけの検証 9 件にも docker の socket が渡る（socket があれば箱からホームが見え、「`.aws` が見えない」が成り立たない）\n- **`prep_files` の不足**（`all` のときだけ効く）: `tools/db-roles.sql`・`docker-compose.override.yml`\n- **測っていない**: 手元の確かめは `tests` の cargo test だけ。e2e 1 本が 6g に収まるか、`all` で 5 本（4g×5 + 6g×2 = 32g。VM と同じ大きさ）のときの空き、agent の箱の中の cargo のビルドが 4g に収まるか\n- **未 merge の形**: harness2 の `load_config` は知らない鍵を黙って無視する。merge までに鍵の名前が変わっても気付けない\n\nこのファイルの中身を変える（欄に足す）なら、依頼の差し戻しになります。そうしたいときは補足に書いてください。",
+      "options": [
+        {
+          "label": "PR 本文に挙げ、有効にする前の宿題として issue にも残す",
+          "detail": "依頼どおり PR 本文に挙げたうえで、merge の後も人の目に触れる場所に残す。直すのは別の change か harness2 側",
+          "recommended": true
+        },
+        {
+          "label": "PR 本文に挙げるだけ",
+          "detail": "依頼の文面どおり。機械の merge で読まれずに入りうる"
+        },
+        {
+          "label": "新しい change の依頼として登録する（`hx change`）",
+          "detail": "有効にする前に直す作業として流れに乗せる。この change の外の作業が 1 本増える"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "箱の制約を後の Story に知らせるか",
+      "kind": "open",
+      "family": {
+        "name": "箱の中で検証が受け取るもの（docker・ホスト）",
+        "siblings": [
+          {
+            "case": "docker が要るのに渡らない（e2e・actionlint・cargo test --workspace・中で docker を呼ぶ台本）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "ホストが要るのに host_only に当たらない（powershell.exe・エミュレータ）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "docker が要らないのに渡る（当たりすぎ）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "準備が読むのに prep_files に無い",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "メモリと席が足りるか（測っていない）",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "後の Story が新しく書く検証で同じ漏れが起きる",
+            "decided": "未決 Q2"
+          }
+        ]
+      },
+      "question": "後の Story が tasks に書く検証コマンドが、箱の中で docker を受け取れない形（字面に正規表現が当たらない）にならないよう、この change で何か置きますか。",
+      "why": "箱を有効にした後に新しく書かれる検証にも、Q1 と同じ漏れが起きえます。いまは既定 `off` で、置かなくても失うものはありません（仮でよい）。",
+      "context": "AGENTS.md の「テスト」と `docs/testing.md` は、検証コマンドの書き方の規約の置き場です。機械で見るなら、走っている change の tasks の検証コマンドのうち docker を使う（`docker` の字面か、docker を使う台本・e2e を呼ぶ）のに `tools/workbox.json` の `docker` の欄に当たらないものを落とす検査になります。",
+      "options": [
+        {
+          "label": "この change では何も置かない",
+          "detail": "依頼の範囲（ファイル 1 つ）に留める。箱を有効にするときにまとめて決める",
+          "recommended": true
+        },
+        {
+          "label": "`docs/testing.md` に箱の中の制約を短く書く",
+          "detail": "人が読んで気を付ける形。守られたかは機械が見ない"
+        },
+        {
+          "label": "検査（tools/check-*.sh）を足して CI で落とす",
+          "detail": "機械が判定する。この change が台本を 1 本持つことになり、範囲が広がる"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "完了の判定の pgrep の確かめをどこに置くか",
+      "kind": "open",
+      "question": "完了の判定の「`workbox.py run . -- bash -c 'pgrep -fc /'` が 10 未満」を、この change のどこで確かめますか。",
+      "why": "harness2 の main に `feat/workbox` がまだ無いので、tasks の検証に置くと証跡は BLOCKED になり、ハーネスの規則では BLOCKED の項目を持つ Task は完了しません。つまり CH13 は harness2 の merge まで下流で止まります。どれを選んでも失うものはありません（仮でよい）。",
+      "context": "依頼は「入っていなければ BLOCKED として残す」です。さらに `HARNESS_WORKBOX=tests` の下でこのコマンドを走らせると、コマンド自身が箱に包まれ、箱の中には docker が無いので落ちます（確かめるときは `HARNESS_WORKBOX` を off にするか、`host_only` に `scripts/workbox\\.py` が要る）。",
+      "options": [
+        {
+          "label": "tasks には置かず、PR 本文と Q1 の宿題に回す",
+          "detail": "CH13 は中身の一致と JSON の妥当性だけで閉じ、harness2 の merge を待たない。pgrep の確かめは箱を有効にするときに行う",
+          "recommended": true
+        },
+        {
+          "label": "tasks に置き、harness2 の merge まで CH13 を止める",
+          "detail": "完了の判定の全部をこの change で確かめる。止まる期間は harness2 次第"
+        },
+        {
+          "label": "harness2 の merge を CH13 の着手の前提にする",
+          "detail": "上流もそこで待つ。いまの答えは無駄にならないが、全体が後ろにずれる"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "topic": "この change が触る範囲（仕様を持つか）",
+      "kind": "open",
+      "question": "この change は `tools/workbox.json` を置くことのほかに、正典の仕様（検証の環境の約束）や文書に手を入れますか。",
+      "why": "正典に「検証の環境」の capability があり、ここに Requirement を足すと、Scenario を確かめる試験か台本が要ってファイル 1 つの範囲を越えます。どれを選んでも後から足せるので、失うものはありません（仮でよい）。",
+      "context": "変えないものの候補: `tools/*.sh`、`docs/testing.md`、`AGENTS.md`、`CLAUDE.md` の構成の表、検証の環境の正典（`openspec/specs/verify-environment`）。Q2 の 2・3 番目の選択肢はこの境界を越えます。仕様を持たない場合も、確かめは「ファイルが依頼の中身と同じで、JSON として読める」を tasks の検証にします。",
+      "options": [
+        {
+          "label": "ファイル 1 つだけ。正典にも文書にも手を入れない",
+          "detail": "既定 off の間は振る舞いが変わらないので、仕様に足すことが無い。確かめは中身の一致と JSON の妥当性",
+          "recommended": true
+        },
+        {
+          "label": "検証の環境の正典に「箱の設定を置く」Requirement を足す",
+          "detail": "置き場と意味が正典に残る。確かめる台本が 1 本要る"
+        },
+        {
+          "label": "`CLAUDE.md` の構成の表に `workbox.json` を書き足す",
+          "detail": "道具の置き場の案内に載る。正典は触らない"
+        }
+      ]
+    }
+  ]
+}
