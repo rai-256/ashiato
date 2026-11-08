@@ -60,7 +60,7 @@
 
 ## Task 4: 範囲と Scenario の突き合わせ
 
-- [ ] 4.1 main からの差分が、触ってよいものとこの change の文書だけであることと、spec の全 Scenario に印があることを確かめる。
+- [x] 4.1 main からの差分が、触ってよいものとこの change の文書だけであることと、spec の全 Scenario に印があることを確かめる。
   `docs/changes/CH12.md` の `## ADR と repo の今の食い違い（直していない）` の節が、下流で見つけたものも含めて最新であることを確かめる（足したら同じ節に足す。ADR と「依頼（逐語）」の節は直さない。design D3）。
   検証: `bash -c 'd=$(git diff --name-only origin/main...HEAD) || exit 1; test -n "$d" && test -z "$(printf "%s\n" "$d" | grep -vE "^(docs/adr/|CLAUDE\.md$|AGENTS\.md$|\.github/workflows/ci\.yml$|tools/check-adr\.sh$|openspec/|docs/changes/CH12\.md$|docs/briefs/|\.superpowers/)")"'` rc=0 /
   `python3 scripts/check_scenarios.py . ch12-memory-decisions-adr` rc=0
