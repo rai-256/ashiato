@@ -159,3 +159,18 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
   主張（項目と見出しの並び）と検査（見出しだけの並び）の階層が違う
 - kind: technical
 - 提案: 3 行が `日付 → 状態 → 出所` の順で、どれも `## 背景` より前にあることを確かめる。自己検査に「出所の行を `## 影響` の後へ移す」壊し方を足す
+
+## security review（a658d12..dd63369）
+
+見た経路:
+- 差分の入口: 新しい API・画面・listen・依存は無い。足したのは `docs/adr/` の文書 6 件、`tools/check-adr.sh`、CI の chain job の 1 行、`CLAUDE.md`・`AGENTS.md` の案内 1 行ずつ（`git diff --stat` で 15 ファイルを確かめた）（3）
+- 手元のメモリ → `--backlog`（`find_memory_dir` :210-223 → `adr_backlog.py` の stdout/stderr は `$tmp` の中のファイルへ :260・:268 → 出力は固定文の 4 行と `OK|NG backlog` だけ :279-291）。手元の本物のメモリで走らせると 4 行と `OK backlog`、rc=0（4）
+- 偽の `adr_backlog.py`（stderr と JSON の `description` に `SECRET-…` を出し、5 つめの名前も返す）を `ADR_BACKLOG` に差して `--backlog`: 出力は 4 行と `NG backlog`、`SECRET` は 0 件（4）
+- 追跡ファイル → 公開の repo（`gh repo view` は `PUBLIC`）: 差分の全ファイルに、手元のメモリ 43 件の名前を突き合わせた。出たのは移した 4 件と、harness2 の ADR の名前（`change-flow`。`review/code.md` の R5）だけ。ほかのメモリの説明に特有の語（`KB5127648`・`OOM kill`・`agent-logs`・`herdr` など）も 0 件。`/home/`・`ts.net`・私設 IP も無い（4）
+- CI: `check-adr.sh` の step（ci.yml:503）は、`secrets.HARNESS2_TOKEN` を渡す step（:542・:549）より前にある。token は job の env に無い（:493 の注記どおり）ので、この台本から token は読めない。runner にはメモリの置き場が無く、自己検査の子の `--backlog` は rc=127 の枝を通る（:222・:469-475）（2）
+
+安全の決め手: `--backlog` は、手元のメモリを読む台本の出力を一行も出さず、決まった 4 つの名前の有無だけを固定文で出す —— 確かさ 4。上の偽の台本（秘密の名前と説明を stdout・stderr に出すもの）を差して走らせ、出力の `SECRET` が 0 件、rc=1、出力は `…: 残りにある` ×4 と `NG backlog` だった。
+
+指摘なし
+
+範囲外: `tools/check-private.sh` は網の名前・私設 IP だけを見て、メモリの名前・`~/.claude` の中身の写しは見ない（差分が触れたのは allow の検査 :317 だけ）。
