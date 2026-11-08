@@ -40,6 +40,41 @@ scanner_path() {
   printf '%s\n' "$path"
 }
 
+github_settings() {
+  local response status settings_root="${GH_SETTINGS_ROOT:-$ROOT}"
+  response="$(gh api --include -X PUT repos/rai-256/ashiato/vulnerability-alerts 2>&1)" || {
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  }
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  [[ "$status" == 204 ]] || { echo "error: 検査できなかった（vulnerability-alerts: HTTP $status）" >&2; return 1; }
+  echo "vulnerability-alerts: 204"
+
+  response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)" || {
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  }
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  [[ "$status" == 200 ]] || { echo "error: 検査できなかった（dependency-graph/sbom: HTTP $status）" >&2; return 1; }
+  echo "dependency-graph/sbom: 200"
+
+  response="$(gh api repos/rai-256/ashiato/automated-security-fixes 2>&1)" || {
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  }
+  grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' <<<"$response" || {
+    echo "error: 検査できなかった（automated-security-fixes が有効）" >&2
+    return 1
+  }
+  echo "automated-security-fixes: enabled=false"
+
+  if [[ -e "$settings_root/.github/dependabot.yml" ]]; then
+    echo "error: 検査できなかった（dependabot.yml がある）" >&2
+    return 1
+  fi
+  echo "dependabot.yml: 無い"
+}
+
 self_test() {
   local scanner tmp
   tmp="$(cd "$(mktemp -d)" && pwd)" || return 2
@@ -52,6 +87,24 @@ self_test() {
   git -C "$tmp/root" init -q
   cp "$ROOT/osv-scanner.toml" "$tmp/root/osv-scanner.toml"
   local common=(env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" XDG_CACHE_HOME="$tmp/cache")
+  cat >"$tmp/gh" <<'GH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *"-X PUT repos/rai-256/ashiato/vulnerability-alerts"*) printf 'HTTP/2.0 204 No Content\n';;
+  *"repos/rai-256/ashiato/dependency-graph/sbom"*) printf 'HTTP/2.0 200 OK\n';;
+  *"repos/rai-256/ashiato/automated-security-fixes"*) printf '{"enabled":false}\n';;
+  *) printf 'unexpected gh api: %s\n' "$*" >&2; exit 1;;
+esac
+GH
+  chmod +x "$tmp/gh"
+  echo "== Scenario: 設定を API で読み返す"
+  mkdir -p "$tmp/root/.github"
+  PATH="$tmp:$PATH" GH_SETTINGS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" github-settings >"$tmp/settings-output" 2>&1 || return 1
+  rg -q 'vulnerability-alerts: 204' "$tmp/settings-output" || return 1
+  rg -q 'dependency-graph/sbom: 200' "$tmp/settings-output" || return 1
+  rg -q 'automated-security-fixes: enabled=false' "$tmp/settings-output" || return 1
+  rg -q 'dependabot.yml: 無い' "$tmp/settings-output" || return 1
   safe_tree() {
     mkdir -p "$tmp/root/web" "$tmp/root/collector-android"
     printf 'version = 3\n[[package]]\nname = "ashiato-self-test-safe"\nversion = "1.0.0"\n' > "$tmp/root/Cargo.lock"
@@ -360,6 +413,11 @@ main() {
   if [[ "${1:-}" == "--self-test" ]]; then self_test; return $?; fi
   if [[ "${1:-}" == "allow-ghsas" ]]; then
     CHECK_VULNS_ROOT="$ROOT" python3 "$SCRIPT_DIR/check-vulns.py" --allow-ghsas
+    return $?
+  fi
+  if [[ "${1:-}" == "github-settings" ]]; then
+    [[ $# == 1 ]] || { echo "error: 検査できなかった（使い方）"; return 2; }
+    github_settings
     return $?
   fi
   if [[ "${1:-}" == "nightly" || "${1:-}" == "file-issues" ]]; then

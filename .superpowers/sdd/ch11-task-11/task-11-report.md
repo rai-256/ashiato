@@ -13,6 +13,14 @@
 - `openspec validate ch11-dependency-vulnerability-scan --strict`: PASS。
 - `git diff --check`: PASS。
 
+## 継続対応（11.2 の FAIL 解消）
+
+- FAIL の根因だった Task 6.1 の未実装を埋めるため、`tools/check-vulns.sh github-settings` を追加した。GitHub API の4項目（alerts 204、SBOM 200、自動更新無効、`dependabot.yml` 不在）を確認し、権限不足は rc=2 とする。
+- `tools/check-vulns.sh --self-test` に偽の `gh` を使う `設定を API で読み返す` Scenario を追加した。
+- RED: `scripts/quiet-run task11-github-settings-red -- tools/check-vulns.sh --self-test` は rc=1（入口未実装）で失敗。
+- GREEN: `scripts/quiet-run task11-github-settings-green2 -- tools/check-vulns.sh --self-test` は rc=0（41 行）で成功。
+- `scripts/verify-run 11.2`: PASS、rc=0、`scenarios: OK`（fp=`5ddd6d0cc5` の不足は解消）。
+
 ## TDD Evidence
 
 この Task は既存の検査スクリプトや本番コードを変更せず、運用文書と既存 Scenario の網羅検査を対象とするため、新規の振る舞いテストを追加する TDD 対象ではない。指定された網羅検査は実行し、上記の不足を再現した。
@@ -23,6 +31,7 @@
 - `docs/testing.md`
 - `openspec/changes/ch11-dependency-vulnerability-scan/evidence.jsonl`
 - `.superpowers/sdd/ch11-task-11/task-11-report.md`
+- `tools/check-vulns.sh`
 
 ## 自己レビュー
 
