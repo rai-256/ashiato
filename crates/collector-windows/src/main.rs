@@ -11,10 +11,14 @@
 use ashiato_collector_windows as c02;
 
 fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
     let channel = ashiato_build_stamp::channel(env!("ASHIATO_VERSION"));
-    let cfg = c02::config::Config::from_lookup(|k| std::env::var(k).ok(), channel)?;
+    let cfg = c02::config::Config::from_launch(&args, channel)?;
     init_logging(&cfg);
-    if std::env::args().any(|a| a == "--install-autostart") {
+    if args.iter().any(|a| a == c02::SETUP_ARGUMENT) {
+        return run_setup(&cfg, channel);
+    }
+    if args.iter().any(|a| a == "--install-autostart") {
         return install_autostart(&cfg, channel);
     }
     run(cfg, channel)
@@ -38,6 +42,37 @@ fn load_engine(exclusions_path: &std::path::Path) -> anyhow::Result<c02::engine:
         )
     );
     Ok(c02::engine::Engine::new(exclusions))
+}
+
+fn run_setup(
+    cfg: &c02::config::Config,
+    channel: ashiato_build_stamp::Channel,
+) -> anyhow::Result<()> {
+    let outcome = c02::setup::run_setup_flow(
+        cfg,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+        &connect,
+    )?;
+    match outcome {
+        c02::setup::SetupOutcome::Saved => {}
+        c02::setup::SetupOutcome::Unreadable => anyhow::bail!(c02::setup::UNREADABLE_TEXT),
+        c02::setup::SetupOutcome::Closed => anyhow::bail!(c02::setup::CLOSED_TEXT),
+    }
+    rewrite_autostart(channel)
+}
+
+/// 確かめの口（貼った送り先と資格情報で `GET /contract` だけを引く）。
+fn connect(url: &str, token: &str) -> Box<dyn c02::sender::Transport> {
+    Box::new(c02::sender::HttpTransport::new(url, token))
+}
+
+/// 前の形の自動起動の台本を、秘密を持たない形へ書き換える。
+fn rewrite_autostart(channel: ashiato_build_stamp::Channel) -> anyhow::Result<()> {
+    if let Ok(exe) = std::env::current_exe() {
+        c02::autostart::rewrite_existing_for_setup(&exe, channel)?;
+    }
+    Ok(())
 }
 
 /// ログは tracing に一本化する（製造準備 A-2）。**置き場のファイルにも書く** ——
@@ -83,7 +118,7 @@ fn install_autostart(
 
 /// 収集を回す。**止まるのは終了の合図を受けたときだけ**（design D7 / D22）。
 #[cfg(windows)]
-fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyhow::Result<()> {
+fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyhow::Result<()> {
     use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -104,14 +139,50 @@ fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyho
     }
 
     let zone = c02::config::Zone::current()?;
-    // 除外の登録が壊れていたら**止まる**（空に倒すと除外が黙って外れる）。
+    if cfg.needs_setup() && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        // `setup` 副命令と同じ流れ（保存と確かめ → 結果の文 → y/N → 承認か保留）を窓で回す（D14。review/code.md R2）。
+        // 読めなければ貼り直させる。収集は待たずに続ける
+        let setup_cfg = cfg.clone();
+        let _ = std::thread::Builder::new()
+            .name("collector-setup-input".into())
+            .spawn(move || loop {
+                match c02::setup::run_setup_flow(
+                    &setup_cfg,
+                    &mut std::io::stdin().lock(),
+                    &mut std::io::stdout().lock(),
+                    &connect,
+                ) {
+                    // 読めなければ貼り直させる
+                    Ok(c02::setup::SetupOutcome::Unreadable) => {}
+                    Ok(c02::setup::SetupOutcome::Saved) => {
+                        if let Err(error) = rewrite_autostart(channel) {
+                            tracing::warn!(target: "setup", error = %c02::telemetry::error_kind(&error), "自動起動の台本を書き換えられない");
+                        }
+                        break;
+                    }
+                    Ok(c02::setup::SetupOutcome::Closed) => break,
+                    Err(error) => {
+                        tracing::warn!(target: "setup", error = %c02::telemetry::error_kind(&error), "設定の文字列を保存できない");
+                        break;
+                    }
+                }
+            });
+    }
+    // 除外の登録が壊れていたら**止まる**（空に倒すと除外が黙って外れる）。理由はログに残る
     let engine = load_engine(&cfg.exclusions_path)?;
     let transport = c02::sender::HttpTransport::new(&cfg.base_url, &cfg.api_token);
     let uptime = std::sync::Arc::new(c02::clock::SystemUptime);
-    let reference = std::sync::Arc::new(c02::clock::HttpDateClock::new(
+    // 時計合わせと途切れの問い合わせも、設定を読み直したら新しい送り先へ向ける（D11。review/code.md R9）
+    let date_clock = std::sync::Arc::new(c02::clock::HttpDateClock::new(
         &cfg.base_url,
         uptime.clone(),
     ));
+    let outage_query = std::sync::Arc::new(c02::sender::HttpOutageQuery::new(
+        &cfg.base_url,
+        &cfg.api_token,
+        cfg.user_id,
+    ));
+    let reference = date_clock.clone();
     let time_sync = std::sync::Arc::new(c02::time_sync::ProcessTimeSync::new());
     let rt = c02::runtime::Runtime::new(
         &cfg,
@@ -135,6 +206,8 @@ fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyho
     match c02::toast::WindowsToaster::register(channel) {
         Ok(toaster) => {
             let toaster = std::sync::Arc::new(toaster);
+            // 未設定の知らせは収集の見回りが 24 時間ごとに出し、設定したら消す（R7）
+            rt.set_destination_toaster(toaster.clone());
             // 「サーバを更新してください」の通知（ST50）。札は途切れの通知と別
             rt.set_contract_notice(c02::contract_notice::ContractNotice::new(toaster.clone()));
             // 系統の違いの通知。契約の版の通知とは別の札・状態を持つ
@@ -143,11 +216,7 @@ fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyho
                 &cfg.state_dir,
             ));
             rt.set_outage_poller(c02::outage_notice::OutagePoller::new(
-                std::sync::Arc::new(c02::sender::HttpOutageQuery::new(
-                    &cfg.base_url,
-                    &cfg.api_token,
-                    cfg.user_id,
-                )),
+                outage_query.clone(),
                 toaster,
                 c02::outage_notice::NoticeStore::new(&cfg.state_dir),
                 // log-ok: 渡されるのは telemetry::line の行だけ（件数・種別しか受け取らない組み立て）
@@ -181,6 +250,20 @@ fn run(cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> anyho
     rt.start(&source);
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
+        match cfg.reload_from_disk() {
+            Ok(true) => {
+                transport.reload(&cfg.base_url, &cfg.api_token);
+                date_clock.reload(&cfg.base_url);
+                outage_query.reload(&cfg.base_url, &cfg.api_token);
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(error = %c02::telemetry::error_kind(&error), "設定の再読み込みに失敗")
+            }
+        }
+        if let Err(error) = rt.reload_config(&cfg) {
+            tracing::warn!(error = %c02::telemetry::error_kind(&error), "設定状態の再読み込みに失敗");
+        }
         rt.tick(&mut source);
         wait_for_change(&source, &stop);
     }

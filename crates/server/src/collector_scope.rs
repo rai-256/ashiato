@@ -30,4 +30,5 @@ pub fn collector_allows(method: &Method, matched_path: &str) -> bool {
 pub fn credential_exempt(method: &Method, matched_path: &str) -> bool {
     matched_path == "/healthz"
         || (matched_path == "/session" && (*method == Method::POST || *method == Method::DELETE))
+        || (matched_path == "/collector-setup" && *method == Method::POST)
 }

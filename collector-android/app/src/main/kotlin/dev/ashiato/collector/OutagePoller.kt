@@ -45,6 +45,8 @@ class OutagePoller(
     private val deviceId: () -> String,
     private val log: (String) -> Unit = {},
     private val executor: ExecutorService = Executors.newSingleThreadExecutor(),
+    private val canQuery: () -> Boolean = { true },
+    private val onOutcome: (Outcome) -> Unit = {},
 ) {
     /** 契機ごとに 1 回。呼び出し元を待たせない（失敗しても収集は止めない）。 */
     fun poll() {
@@ -60,7 +62,10 @@ class OutagePoller(
     }
 
     private fun pollOnce() {
-        val decision = OutageNotice.decide(notice.load(), parse(query.fetch(deviceId())))
+        if (!canQuery()) return
+        val outcome = query.fetch(deviceId())
+        onOutcome(outcome)
+        val decision = OutageNotice.decide(notice.load(), parse(outcome))
         val delivered = when (val action = decision.action) {
             NoticeAction.Nothing -> true
             NoticeAction.Dismiss -> true.also { notifier.dismiss() }

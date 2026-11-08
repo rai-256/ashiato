@@ -237,33 +237,49 @@ class Drainer(
     /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */
     private val maintenance: () -> Unit = {},
     private val log: (String) -> Unit = {},
+    /** 送り先変更の保留。すべての送信経路はこの門を通る。 */
+    private val destination: DestinationGate? = null,
+    private val onDestination: (DestinationBacklog) -> Unit = {},
     /** 続けて送る回数の上限（止まらない不具合から端末を守るだけ。90 日ぶんは 648 回） */
     private val maxRounds: Int = 100_000,
 ) {
     /** 1 回の契機。記録を送った回数を返す。 */
     fun tick(): Int {
         var rounds = 0
+        // **上限は保留の間も当てる**（spec「保持の上限（FR-8）は今どおり当たる」。review/code.md R4）
+        runMaintenance()
+        // **保留の間は確かめも送らない** —— 新しい送り先が受けてよいのは保存の時の `GET /contract` だけ（R4）
+        if (destination?.blocked == true) {
+            runCatching { onDestination(destination?.summary ?: DestinationBacklog.EMPTY) }
+            return 0
+        }
         // **確かめは 1 つの契機で 1 回**。続けて送る間も同じ答えを使い、覚えない（D18（仮））
         val answer = contract?.let { runCatching { it.ask() }.getOrDefault(ContractAnswer.Transient) }
         val outcomes = ArrayList<ContractOutcome>()
+        // 続けて送っている間に別の送り先が保存されたら（保存と同じ編集で保留が立つ）、次の 1 本から送らない。
+        // 送り先は要求ごとに読むので、頭の 1 回の確かめだけでは残りが新しい送り先へ届く（review/code.md R31）
+        val held = { destination?.blocked == true }
         while (true) {
-            runCatching { maintenance() }.onFailure {
-                log(Telemetry.line("maintenance_crashed", source = null, error = it.javaClass.simpleName))
-            }
+            // 頭の 1 回は上で回した。続けて送る 2 回目からここで回す
+            if (rounds > 0) runMaintenance()
+            if (held()) break
             // **記録の送信が落ちても生存信号と破棄の報告は送る**（ST02 と同じ規律）
             val flushed = runCatching { records.flush(answer) }.onFailure {
                 log(Telemetry.line("flush_crashed", source = null, error = it.javaClass.simpleName))
             }.getOrNull()
+            if (held()) break
             runCatching { beats.flush(answer) }.onFailure {
                 log(Telemetry.line("heartbeat_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
             // **送信に載せる前に凍結する**（spec「送ろうとした報告は書き換えられない」）
+            if (held()) break
             runCatching {
                 ledger.freeze()
                 drops.flush(answer)
             }.onFailure {
                 log(Telemetry.line("drops_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
+            if (held()) break
             runCatching { missing?.flush(answer) }.onFailure {
                 log(Telemetry.line("missing_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
@@ -292,6 +308,12 @@ class Drainer(
             log(Telemetry.line("originals_kick_crashed", source = null, error = it.javaClass.simpleName))
         }
         return rounds
+    }
+
+    private fun runMaintenance() {
+        runCatching { maintenance() }.onFailure {
+            log(Telemetry.line("maintenance_crashed", source = null, error = it.javaClass.simpleName))
+        }
     }
 
     /** 契機の結果を状態へ取り込む。**待っている状態を抜けたら、断られて飛ばす印を捨てる**（D14）。 */

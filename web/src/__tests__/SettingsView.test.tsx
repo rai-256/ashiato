@@ -147,7 +147,7 @@ describe("設定の書き出しの節", () => {
     expect(posts()[0].path).toBe("/api/export");
     expect(JSON.parse(posts()[0].init?.body as string)).toEqual({ password: PW });
     expect(document.body.innerHTML).not.toContain(PW);
-    expect(document.querySelectorAll("input[type=password]")).toHaveLength(0);
+    expect(screen.getByTestId("export-section").querySelectorAll("input[type=password]")).toHaveLength(0);
     expect(JSON.stringify({ ...localStorage })).not.toContain(PW);
     expect(JSON.stringify({ ...sessionStorage })).not.toContain(PW);
     expect(window.location.href).not.toContain(PW);
@@ -172,7 +172,7 @@ describe("設定の書き出しの節", () => {
     const before = gets("/api/export").length;
     fireEvent.click(goButton());
     await waitFor(() => expect(screen.getByTestId("export-refusal").textContent).toContain("すでに書き出し中"));
-    expect(document.querySelectorAll("input[type=password]")).toHaveLength(0);
+    expect(screen.getByTestId("export-section").querySelectorAll("input[type=password]")).toHaveLength(0);
     expect(document.body.innerHTML).not.toContain(PW);
     expect(gets("/api/export").length).toBeGreaterThan(before);
     expect((screen.getByTestId("export-start") as HTMLButtonElement).disabled).toBe(false);
@@ -189,7 +189,7 @@ describe("設定の書き出しの節", () => {
     type(PW, PW);
     fireEvent.click(goButton());
     await waitFor(() => expect(screen.getByTestId("export-refusal").textContent).toContain("通信できませんでした"));
-    expect(document.querySelectorAll("input[type=password]")).toHaveLength(0);
+    expect(screen.getByTestId("export-section").querySelectorAll("input[type=password]")).toHaveLength(0);
   });
 
   it("running の間は「全記録を書き出す」を押せず、1 秒ごとに読み直し、消えたら止まる", async () => {

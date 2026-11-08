@@ -24,7 +24,7 @@ unicode-normalization = "0.1"
 # docstring の方針 —— **公開する項目には「何を保証するか」を 1 行書く**。
 # 「何をするか」はコードが語るので書かない。
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]

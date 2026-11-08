@@ -5,9 +5,9 @@
 #   ./tools/check-no-time-server.sh --self-test  → 経路を 1 種ずつ植えた一時ディレクトリで、どれも見つかることを確かめる
 #
 # 見るのは 5 種類: 時刻のプロトコルの送信（部品の名前も）/ 時刻サーバの宛先 / 同期を起こす・設定する・
-# 外へ問い合わせる `w32tm` の指示 / **PC の子プロセスは `w32tm` と `wevtutil` の照会だけ**（`Command::new` の相手は
-# `Command::new(w32tm_program())` / `Command::new(wevtutil_program())` の 2 つの形だけを許す。exe 名を引数に取る口を許すと
-# System32 のどの exe でも通る —— review の I-3。引数の固定は `time_sync_*arguments_are_pinned_to_the_query` の試験が持つ。
+# 外へ問い合わせる `w32tm` の指示 / **PC の子プロセスは `w32tm` と `wevtutil` の照会、または自分自身の起動だけ**（`Command::new` の相手は
+# `Command::new(w32tm_program())` / `Command::new(wevtutil_program())` / `Command::new(std::env::current_exe()?)` の 3 つの形だけを許す。exe 名を引数に取る口を許すと
+# System32 のどの exe でも通る —— review の I-3。自分自身の起動は ST56 の setup 窓だけ。引数の固定は `time_sync_*arguments_are_pinned_to_the_query` の試験が持つ。
 # `sc start w32time` のような同期させる操作もここで止まる）/ 端末の子プロセス。
 # **依存（`Cargo.toml` / `build.gradle.kts`）も同じ一覧で見る**（NTP の部品を足しただけで通っていた。review R20）。
 # **コメント行と、Rust の最上位の `#[cfg(test)]` が付いた `mod … {` の塊（試験の値）は数えない** ——
@@ -41,7 +41,7 @@ scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。
         }
         /^#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
         /^[[:space:]]*(\/\/|\*|\/\*|#)/ { next }
-        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/) {
+        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/ && $0 !~ /Command::new\(std::env::current_exe\(\)\?\)/) {
           printf "%s:%d: %s\n", file, FNR, $0
         }
       ' "$f" || { echo "読めない: $f" >&2; return 2; }
@@ -95,11 +95,14 @@ if [ "${1:-}" = "--self-test" ]; then
     printf 'fn main() {}\n' > "$tmp/unreadable/a.rs"; chmod 000 "$tmp/unreadable/a.rs"
     if scan "$tmp/unreadable" >/dev/null 2>&1; then fail "読めないファイルを通した"; fi
   fi
-  # 許してよい子プロセスは `w32tm` と `wevtutil` の照会（`Command::new(w32tm_program())` / `Command::new(wevtutil_program())`）だけ
+  # 許してよい子プロセスは時刻の照会と、自分自身の `setup` 起動だけ
   mkdir -p "$tmp/allowed"
   printf 'fn c() { let mut c = Command::new(w32tm_program()); }\nfn e() { let mut c = Command::new(wevtutil_program()); }\n' > "$tmp/allowed/a.rs"
   out="$(scan "$tmp/allowed")" || fail "照会の子プロセスで検査が落ちた"
   [ -z "$out" ] || fail "照会の子プロセスを止めた: $out"
+  printf 'fn s() { let c = Command::new(std::env::current_exe()?); }\n' > "$tmp/allowed/a.rs"
+  out="$(scan "$tmp/allowed")" || fail "自分自身を起こす子プロセスで検査が落ちた"
+  [ -z "$out" ] || fail "自分自身を起こす子プロセスを止めた: $out"
   echo "自己検査 OK（経路の無い場所と照会の子プロセスは通り、植えた経路は 21 種とも止まり、読めないものは落ちる）"
   exit 0
 fi

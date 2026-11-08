@@ -1,0 +1,36 @@
+{
+  "prefix": "ashiato-collector:1:",
+  "valid": [
+    {
+      "name": "基本形",
+      "input": "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9",
+      "output": {
+        "url": "https://pc.example.ts.net/api",
+        "token": "token-for-test-0123456789"
+      }
+    },
+    {
+      "name": "前後の空白と改行",
+      "input": "  \nashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9\n  ",
+      "output": {
+        "url": "https://pc.example.ts.net/api",
+        "token": "token-for-test-0123456789"
+      }
+    },
+    {
+      "name": "知らない欄",
+      "input": "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSIsImZ1dHVyZSI6Imlnbm9yZWQifQ",
+      "output": {
+        "url": "https://pc.example.ts.net/api",
+        "token": "token-for-test-0123456789"
+      }
+    }
+  ],
+  "invalid": [
+    { "name": "接頭辞がない", "input": "hello", "output": null },
+    { "name": "版が違う", "input": "ashiato-collector:2:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSIsInRva2VuIjoidG9rZW4tZm9yLXRlc3QtMDEyMzQ1Njc4OSJ9", "output": null },
+    { "name": "url がない", "input": "ashiato-collector:1:eyJ0b2tlbiI6InRva2VuLWZvci10ZXN0LTAxMjM0NTY3ODkifQ", "output": null },
+    { "name": "token がない", "input": "ashiato-collector:1:eyJ1cmwiOiJodHRwczovL3BjLmV4YW1wbGUudHMubmV0L2FwaSJ9", "output": null },
+    { "name": "base64url でない", "input": "ashiato-collector:1:not_base64url!", "output": null }
+  ]
+}

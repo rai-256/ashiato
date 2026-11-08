@@ -411,6 +411,7 @@ class OriginalPipeline(
         transport: Transport,
         dates: ResponseDateCache?,
         log: (String) -> Unit,
+        onOutcome: (Outcome) -> Unit = {},
     ): Sender<MediaMissingReport> =
         Sender(
             missingOutbox,
@@ -418,6 +419,7 @@ class OriginalPipeline(
             MediaMissingReport.serializer(),
             dropPermanentlyRejected = false,
             responseDates = dates,
+            onOutcome = onOutcome,
             log = log,
         )
 
@@ -426,5 +428,16 @@ class OriginalPipeline(
         transport: OriginalTransport,
         env: OriginalEnvironment,
         log: (String) -> Unit,
-    ): OriginalUploader = OriginalUploader(originals, source, transport, reporter, env, log = log)
+        canSend: () -> Boolean = { true },
+        onOutcome: (Outcome) -> Unit = {},
+    ): OriginalUploader = OriginalUploader(
+        originals,
+        source,
+        transport,
+        reporter,
+        env,
+        log = log,
+        canSend = canSend,
+        onOutcome = onOutcome,
+    )
 }

@@ -1,0 +1,1 @@
+{"id": "D25", "question": "続けて送っている最中に別の送り先が保存されたら、残りをどうするか", "chosen": "次の要求から止め、押すまで新しい送り先へ送らない", "keeps": null, "cost": null, "follows": "Q7", "rests_on": ["D11", "Q7"], "source": "review/code.md#R31", "at": "2026-11-07"}

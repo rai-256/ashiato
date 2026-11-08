@@ -46,11 +46,11 @@ class ContentResolverOriginalSource(private val context: Context) : OriginalSour
  * 本文は**固定長の流し送り**（端末にもメモリにも写しを作らない）。例外は種別だけに畳む。
  */
 class HttpOriginalTransport(
-    baseUrl: String,
-    private val token: String,
+    private val baseUrl: () -> String,
+    private val token: () -> String,
     private val userId: () -> String,
 ) : OriginalTransport {
-    private val baseUrl = baseUrl.trimEnd('/')
+    constructor(baseUrl: String, token: String, userId: () -> String) : this({ baseUrl }, { token }, userId)
 
     override fun head(sha256: String): Outcome = head(sha256, CONTRACT_VERSION)
 
@@ -76,13 +76,13 @@ class HttpOriginalTransport(
     ): Outcome {
         var conn: HttpURLConnection? = null
         return try {
-            val url = URL("$baseUrl/media/originals/$sha256?user_id=${userId()}")
+            val url = URL("${baseUrl().trimEnd('/')}/media/originals/$sha256?user_id=${userId()}")
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = CONNECT_TIMEOUT_MS
                 // 本文を送り終えてから受け口がハッシュを確かめて答えるまでの待ち
                 readTimeout = READ_TIMEOUT_MS
-                setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty("authorization", "Bearer ${token()}")
                 setRequestProperty(CONTRACT_HEADER, contractVersion.toString())
             }
             send(conn)

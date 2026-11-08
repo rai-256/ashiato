@@ -120,7 +120,7 @@ function watchPosts(page: Page): string[] {
 
 const startButton = (page: Page) => page.getByTestId("export-start");
 const goButton = (page: Page) => page.getByRole("button", { name: "書き出す", exact: true });
-const pwInputs = (page: Page) => page.locator("input[type=password]");
+const pwInputs = (page: Page) => page.getByTestId("export-confirm").locator("input[type=password]");
 
 async function openConfirm(page: Page): Promise<void> {
   await startButton(page).click();
@@ -468,14 +468,20 @@ test.describe("360 px", () => {
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("export-confirm")).toBeVisible();
     await expect
-      .poll(() => page.evaluate(() => document.activeElement === document.querySelectorAll("input[type=password]")[0]))
+      .poll(() =>
+        page.evaluate(
+          () => document.activeElement === document.querySelector('[data-testid="export-confirm"] input[type=password]'),
+        ),
+      )
       .toBe(true);
     expect(await outlined(), "合言葉の入力に輪郭が無い").toBe(true);
 
     await page.keyboard.type(PW);
     await page.keyboard.press("Tab");
     expect(
-      await page.evaluate(() => document.activeElement === document.querySelectorAll("input[type=password]")[1]),
+      await page.evaluate(
+        () => document.activeElement === document.querySelectorAll('[data-testid="export-confirm"] input[type=password]')[1],
+      ),
       "Tab で確かめの入力へ移れない",
     ).toBe(true);
     expect(await outlined(), "確かめの入力に輪郭が無い").toBe(true);
