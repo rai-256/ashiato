@@ -47,3 +47,15 @@
 
 - QA: 合意する（`agreement.json` に機械が記録）
 - 補足（逐語）: Q1 の答えで変わる部分（完了の判定・enable-before.md・tasks）は、書き直した後の版で見る。
+
+## 仕様への違和感（第 2 回の合意）
+
+- QA: 違和感がある（`deep-answers-2.txt`。`agreement.json` に機械が記録、status: rejected）
+- 補足（逐語）: 前提が変わった。harness2 #161（2026-11-08 13:55Z merge、issue #157）で、作業箱は検証の箱ごとに箱の中だけの rootless の dockerd を持ち、検証の準備（tools/verify-env.sh）も同じ箱の中で走るようになった。字面の正規表現で docker を渡す形は無くなり、`workbox.needs_docker` は消え、`docker` と `prep_files` の鍵は「もう効かない」と出る（知らない鍵は読み込みで止まる）。仕様を次のとおり新しい形に合わせて直す。
+  - (1) tools/workbox.json: 依頼の版から `docker` と `prep_files` を消し、`"docker_images": ["postgres:17-alpine"]` を足す。`host_only` の追加分（tools/release/(build|install-check)\.sh・tools/android-side-by-side\.sh・tools/usage-volume\.sh）は残す。ほかの欄は依頼の版のまま。
+  - (2) 当たり方の確かめ（Task 4.1・4.2）は `workbox.host_only` だけで分ける（`host` / `box` の 2 つ）。`needs_docker` を呼ばない。分類の一覧も 2 つの節にする。
+  - (3) enable-before.md から、#161 で消えたもの（1 の docker が渡らない・3 の当たりすぎ・4 の prep_files の不足・6 の後の Story の漏れと古いイメージ）を消し、harness2 #157 / #161 への案内に置き換える。残すのは、測っていないもの（e2e 1 本が 6g に収まるか・all で 5 本のときの空き・agent の箱の cargo が 4g に収まるか。DB の容器も箱のメモリに数えられるようになった）と、2 のホストが要る台本のうち host_only に足した分の確かめ。
+  - (4) pgrep の確かめ（Task 3.1）は残す。準備が無い `workbox.py run` では dockerd は立たないので、10 未満のままでよい。
+  - (5) 依頼の版の JSON は差し戻し済みの扱い（Q1 の答え）。変えてよい欄は `docker`（消す）・`prep_files`（消す）・`docker_images`（足す）・`host_only`（後ろに足す）。
+
+> 記録の注: この違和感は第 1 回の答えのうち Q1 (1) の docker の正規表現・`prep_files` の直しと、Q3 の `needs_docker` での当たり方の確かめ、Q1 (2) の harness2 の issue（字面の判定・古いイメージ）を、harness2 #161 の形に合わせて置き換える。Q1 (1) の `host_only` の追加・Q1 (3) の測るもの・Q3 の pgrep の確かめ・Q4 の範囲は残る（補足の (1)〜(5)）。直すのは次の `spec`（各行の下に `→ 対応:` を書く）。
