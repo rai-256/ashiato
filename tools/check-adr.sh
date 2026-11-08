@@ -31,7 +31,7 @@ count_lines() {
 section_lines() {
   local file=$1 start=$2
   awk -v start="$start" '
-    $0 == start { in_section=1; next }
+    $0 ~ ("^" start) { in_section=1; next }
     in_section && /^## / { exit }
     in_section { print }
   ' "$file"
@@ -70,7 +70,7 @@ check_index_and_files() {
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     date=$(printf '%s\n' "$line" | sed -E 's/^- \[([0-9-]+) .*/\1/')
-    title=$(printf '%s\n' "$line" | sed -E 's/^- \[[^]]+ ([^]]+)\]\([^)]*\)$/\1/')
+    title=$(printf '%s\n' "$line" | sed -E 's/^- \[[0-9]{4}-[0-9]{2}-[0-9]{2} (.*)\]\([^)]*\)$/\1/')
     name=$(printf '%s\n' "$line" | sed -E 's/^- \[[^]]+\]\(([^)]+)\)$/\1/')
     [ -f "$ADR_DIR/$name" ] || continue
     local h1 adate
@@ -87,6 +87,8 @@ check_index_and_files() {
   while IFS= read -r name; do
     [[ "$name" =~ ^[0-9]{12}-[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || error "$name: ファイル名が時刻と英小文字 slug の形でない"
   done < "$files_file"
+  rm -f "$list_file" "$files_file"
+  trap - RETURN
 }
 
 check_shape() {
@@ -197,6 +199,7 @@ run_main() {
     error 'tools/check-private.allow に docs/adr/ の例外がある'
   fi
   tools/check-private.sh || errors=1
+  trap - RETURN
   return "$errors"
 }
 
