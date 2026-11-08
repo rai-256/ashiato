@@ -44,3 +44,18 @@ harness2 の main に未 merge）が決める。前提はその読み方と、as
 | `server_startup` の試験のうち docker を直に呼ぶのは `st51_bin_migrate_attempt_survives_restore` だけで、既存の検証コマンドの絞り込みでそれに当たり、D1 で docker が渡らないものは無い | D6（仮）の残り | `grep -n 'Command::new("docker")\|pg_dump-docker' crates/server/tests/server_startup.rs` と、1,781 本の `cargo test` の絞り込みを試験の名前に当てた | 1904・1949・1973 行（同じ試験の中）。当たるものは 0 本 | 実物 | 4 |
 | D1 の中身を置いた木で、リポジトリの検査 6 本が rc=0 | 壊してはいけないもの 3 | 一時に置いて走らせ、消した | 6 本とも rc=0 | 実物（この worktree） | 4 |
 | `tools/db-roles.sql` は追跡されている。`docker-compose.override.yml` は追跡されず、木にあれば `env-init.sh` が使う | `prep_files` の足し算が空振りしないか | `git ls-files`・`tools/env-init.sh:24` | `db-roles.sql` はある。override は無いのが普通（R5 の意図どおり、置いた木でだけ効く） | 実物 | 4 |
+
+## 追記（第 2 回の合意の違和感の後。spec、2026-11-08）
+
+前提の変化: harness2 #161（issue #157）が main に入り、作業箱の形が変わった。上の表の `docker` の正規表現・`prep_files`・`needs_docker`・「`load_config` は知らない鍵を黙って無視する」の行は古い。
+
+| 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
+|---|---|---|---|---|---|
+| harness2 の main に #161 が入っている | この版の D1・Task 3・4 | `git -C .harness2 log --oneline -2` | `d65ff3b4a Merge pull request #161 from rai-256/feat/workbox-dind`。harness2 #157 は CLOSED（`gh issue view 157 -R rai-256/harness2`） | 実物 | 4 |
+| `load_config` は知らない鍵で止まり、`docker` と `prep_files` は止めずに「もう効かない」と出す | D1 で 2 つの鍵を消す理由・Task 3.2 | `.harness2/scripts/workbox.py` の `KEYS` `RETIRED` `load_config` を読み、D1 の中身を `load_config(text=…)` で読んだ | D1 の 8 個の鍵は全部 `KEYS` の中・`RETIRED` に当たる鍵は無い。読み込みは警告なし | 実物 | 4 |
+| 箱に入れるかは `host_only` だけで決まる（`needs_docker` は無い） | D8・Task 4 | `evidence.py` の `in_box = … not workbox.host_only(…)` と `grep -n needs_docker .harness2/scripts/*.py`（0 件） | `host_only` に当たればホスト、それ以外は箱（箱の中で準備と検証が走る） | `.harness2/scripts/evidence.py:398` | 4 |
+| `docker-compose.yml` の DB のイメージは `postgres:17-alpine` | `docker_images` の値 | `grep -n image: docker-compose.yml` | `image: postgres:17-alpine` | `docker-compose.yml:3` | 4 |
+| `workbox.py run` は `docker` を呼ばない限り dockerd を立てない | Task 3.1 の数が 10 未満のまま（違和感 (4)） | D1 の中身を `HARNESS_WORKBOX_CONFIG` で指し、`env -u HARNESS_WORKBOX … workbox.py run . -- bash -c 'pgrep -fc /'` を走らせた | `1`、rc=0、1 秒（`postgres:17-alpine` の tar は `~/.cache/harness2-workbox/images` に save 済み）。`docker images` を先に呼ぶと dockerd が立ち、数は `4` | 実物（この機械） | 5 |
+| **箱の中の dockerd はホストの `PATH` に `/usr/sbin` が無いと立たない** | 有効にした日に docker を使う検証と準備が落ちる（D9（仮）・enable-before の 2.） | このセッションの `PATH`（`/usr/sbin` 無し）で `workbox.py run . -- bash -c 'docker images'`、`PATH=$PATH:/usr/sbin:/sbin` を足して同じもの。`systemctl --user show hx-dev.service -p Environment` | 無し: `failed to create NAT chain DOCKER: iptables not found`（rootlesskit の子が exit 1）。足す: `postgres:17-alpine` が出て rc=0、12 秒。`hx-dev.service` の `PATH` は `…:/usr/local/bin:/usr/bin:/bin` で `/usr/sbin` が無い | 実物（この機械） | 5 |
+| `host_only` だけの判定で、`match-cases.json` の 35 行が期待どおりに分かれる | D8・Task 4.1 | `workbox.host_only` を import して D1 と依頼の版に当てた | D1: 35 行とも一致（host 6・box 29）。依頼の版: 足した `host_only` の 4 行が外れる | 実物 | 4 |
+| 既存の検証コマンド 1,786 本の分かれ方 | Task 4.2 の件数の目安 | `evidence.items` → `declared` → `unwrap_quiet` で集め、`host_only` だけで分けた | D1: ホスト 35・箱 1,751 / 依頼の版: ホスト 18・箱 1,768 | 実物 | 4 |
