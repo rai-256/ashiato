@@ -1,0 +1,16 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 40,
+ "applied": [
+  "uses[U1].outcome",
+  "walkthroughs[W1].scene",
+  "walkthroughs[W1].why",
+  "points[done.2].text",
+  "impact.scope.excludes[0].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
