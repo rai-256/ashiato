@@ -29,12 +29,12 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 23 本（test-db-growth の self-test・lint・本体 / migrations / contract-version の self-test と本体（ST50） / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2 / CH05 の 4 本: check-test-db-killed の self-test・docker-tidy の self-test と `--verify-env-check`・check-test-db-killed の本体） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査（test-db-growth の self-test・lint・本体 / migrations / contract-version の self-test と本体（ST50） / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / `tools/check-vulns.sh` / `tools/check-vulns-wiring.sh` / `tools/check-pg-minor.sh` / check-verify-env-reset の self-test と本体 / satellite-boundary ×2 / CH05 の 4 本: check-test-db-killed の self-test・docker-tidy の self-test と `--verify-env-check`・check-test-db-killed の本体） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
-| `web` | `code` | licenses / tsc / lint / vitest / build |
+| `web` | `code` | `tools/check-licenses.sh` / tsc / lint / vitest / build |
 | **`e2e`** | `code` | playwright + 本物の Chromium（`STACK_RESET=1`） |
-| `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
+| `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ `tools/check-gradle-locks.sh` / assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
 | `build-stamp` | `stamp`（印の作り方を触ったとき。ST49） | `tools/check-build-stamp.sh tool` / `server` / `windows` / `android` |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
