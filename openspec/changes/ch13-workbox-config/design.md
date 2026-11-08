@@ -75,7 +75,7 @@
     "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*(\\./)?tools/(smoke|seed|db|dev|stack|env-init|verify-env|docker-tidy|db-roles|pg_dump-docker|archive-shape|record-env|load-repeat|st25-seed-check|st23-compaction-volume)\\.sh",
     "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*(\\./)?tools/check-(db-secret|exposure|pg-major|db-version-stop|panic-log|verify-env-reset|immutable|test-db-growth|test-db-killed|st23-derived-erasure)\\.sh",
     "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*(npm\\s+run\\s+test:e2e|npx\\s+playwright\\s+test)\\b",
-    "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*cargo\\s+test\\b([^;&|'\"]*\\s--(workspace|test\\s+server_startup)\\b|\\s*($|['\";&|)]|[0-9]?>)|\\s+-p\\s+ashiato-server\\s*($|['\";&|)]|[0-9]?>))",
+    "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*cargo\\s+test\\b([^;&|'\"]*\\s--(workspace|test\\s+server_startup)\\b|\\s*($|[;&|)]|[0-9]?>|['\"](\\s|$|[;&|)]))|\\s+-p\\s+ashiato-server\\s*($|[;&|)]|[0-9]?>|['\"](\\s|$|[;&|)])))",
     "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*actionlint\\b",
     "(^|[;&|(]\\s*|\\$\\(\\s*|-c\\s+['\"]\\s*)((bash|sh|setsid|exec|time|nice|timeout\\s+\\S+|env(\\s+-u\\s+\\S+)*)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*docker\\s+[a-z]"
   ],
@@ -144,9 +144,9 @@
   引数の位置（`grep … tools/record-env.sh`）・`bash -n`（構文の検査だけ）・`"$d/tools/env-init.sh"`（写した先の台本）には当たらない
 - 答えが名指ししたものに加えて、同じ族を足した（答えの「JSON で直せるものは CH13 の中で直す」に従う。どれも既存の検証コマンドに実在する型）:
   - 画面の e2e の `npx playwright test`（`npm run test:e2e` と同じく `playwright.config.ts` の `webServer` が `tools/stack.sh up` を起こす。tasks に 31 行）
-  - 絞り込みなしの `cargo test -p ashiato-server` と裸の `cargo test`（`server_startup` の試験も全部走る。`st51_bin_migrate_attempt_survives_restore` が docker を直に呼ぶ。根の `Cargo.toml` に `default-members` が無いので、裸の `cargo test` は `--workspace` と同じ。後に `2>&1` などが続く形も含む。review/spec.md R9）
+  - 絞り込みなしの `cargo test -p ashiato-server` と裸の `cargo test`（`server_startup` の試験も全部走る。`st51_bin_migrate_attempt_survives_restore` が docker を直に呼ぶ。根の `Cargo.toml` に `default-members` が無いので、裸の `cargo test` は `--workspace` と同じ。後に `2>&1` などが続く形も含む。review/spec.md R9。引用符は閉じのとき（後が空白・行末・`;&|)`）だけ終わりとみなし、`"$1" -- --list` のような絞り込みの引数は絞り込みなしと読まない。R10）
   - `docker` を直に呼ぶ検証（`docker network inspect` など 13 行）
-- 当たり方の変化（1,781 本）: 依頼の版はホスト 18・docker 209・箱 1,554、この版はホスト 35・docker 319・箱 1,427。依頼の版で docker が渡り、この版で渡らなくなった 34 本は、どれも台本の名前を grep するか `bash -n` で構文を見るだけ（`premises.md` の追記）
+- 当たり方の変化（1,781 本）: 依頼の版はホスト 18・docker 209・箱 1,554、この版はホスト 35・docker 299・箱 1,447。依頼の版で docker が渡り、この版で渡らなくなった 34 本は、どれも台本の名前を grep するか `bash -n` で構文を見るだけ（`premises.md` の追記）
 - 残るもの: 絞り込みつきの `cargo test -p ashiato-server <名前>` が `st51_bin_migrate_attempt_survives_restore` に当たると docker が要る。既存の検証コマンドに当たるものは無い（2026-11-08 に走査）。根本（字面で決める）は D7（仮）の issue
 - 反転条件: harness2 が字面でなく実行する台本で判定する形になったら、錨と族の足し算を外して台本の名前だけに戻す。箱を有効にした後に、錨で外れた検証が docker を要ると分かったら（Task gate が箱の中で落ちる）、その型を錨に足す
 

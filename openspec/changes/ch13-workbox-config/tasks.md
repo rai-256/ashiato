@@ -48,10 +48,10 @@ docker と harness2 の作業箱のイメージを要るのは Task 3.1 だけ�
 
 - [ ] 4.1 `openspec/changes/ch13-workbox-config/check-workbox-match.py` を書く（design D8（仮））。`.harness2/scripts` を `sys.path` に足して `workbox` を import し、`match-cases.json` の各行を `workbox.host_only(cfg, cmd)` → `workbox.needs_docker(cfg, cmd)` の順で `host` / `docker` / `box` に分け、`want` と違う行を全部出して **rc=3**（表との不一致だけを 3 にし、読めない・例外などほかの失敗と分ける。review/spec.md R6）。正規表現を台本に写さない。
   `cfg` は既定で `tools/workbox.json`、`--request` を付けると `docs/changes/CH13.md` の「依頼（逐語）」の JSON の塊（行頭の `> ` を外す）。依頼の版では表の行が落ちること（台本が表を見分けること）も確かめる。
-  検証: `bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 34'` rc=0
+  検証: `bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 35'` rc=0
 - [ ] 4.2 同じ台本に `--list <出力>` を足し、既存の `openspec/**/tasks.md`（archive を含む）の検証コマンドを、`.harness2/scripts/evidence.py` の `items` → `declared` → `unwrap_quiet` で取り出して、同じ判定で `## ホストで走る（host_only）` / `## 箱で docker を渡す` / `## 箱で docker を渡さない` の 3 つの節に分けて書き出す。
   各行は `- <tasks.md のパス> <項目の番号>: <コマンド>`（コマンドは 1 行に。長ければ切らずにそのまま）。冒頭に節ごとの件数と、書き出したときの HEAD を書く。
-  `openspec/changes/ch13-workbox-config/command-classes.md` に書き出して commit し、`enable-before.md` の「分類の一覧」の節に件数を写す（2026-11-08 の上流の走査ではホスト 35・docker 319・箱 1,427。下流のときの数が違ってよい）。
+  `openspec/changes/ch13-workbox-config/command-classes.md` に書き出して commit し、`enable-before.md` の「分類の一覧」の節に件数を写す（2026-11-08 の上流の走査ではホスト 35・docker 299・箱 1,447。下流のときの数が違ってよい）。
   検証: `bash -c 'f=openspec/changes/ch13-workbox-config/command-classes.md; grep -q "^## ホストで走る（host_only）" "$f" && grep -q "^## 箱で docker を渡す" "$f" && grep -q "^## 箱で docker を渡さない" "$f" && test "$(grep -c "^- openspec/" "$f")" -ge 1700'` rc=0
 
 ## Task 5: 宿題の一覧を PR 本文と issue に残す
@@ -60,10 +60,10 @@ docker と harness2 の作業箱のイメージを要るのは Task 3.1 だけ�
   検証: `bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'` rc=0
 - [ ] 5.2 harness2 に、根本の 3 つを 1 つずつ issue にする（Q1 (2)。design D7（仮））。題は `作業箱: docker を渡すかを検証コマンドの字面で決めている`・`作業箱: load_config が知らない鍵を黙って無視する`・`作業箱: apt を変えるたびに古いイメージが溜まる`。
   **同じ題の issue が既にあれば立てない**（題ごとに `gh issue list -R rai-256/harness2 --state all --search "<題> in:title"` で確かめてから `gh issue create -R rai-256/harness2 --title … --body …`）。
-  本文は ashiato2 での実測（`enable-before.md` と `review/deep.md` の R2・R4・R9・R10 の根拠）と、この change への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に `- rai-256/harness2#<番号> <題>` の形で書く。
+  本文は ashiato2 での実測（`enable-before.md` と `review/deep.md` の R2・R4・R9・R10 の根拠）と、この change への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に `- rai-256/harness2#<番号> <題>` の形で書く（同じ題が既にあれば、その番号を書く。立てた・既存のどちらでも 3 行揃える）。
   gh が網に出られないときは、別の手で立てようとせず、design D2 の最後の行（PR 本文に「merge の後に人間が立てる」1 行）を A として人間に返す。
   検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 3 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json number >/dev/null || exit 1; done'` rc=0
 - [ ] 5.3 `enable-before.md` を本文にした ashiato2 の issue を 1 つ立てる（Q1 (3)。design D2）。5.2 の番号を一覧に書いた後に立てる。題は `作業箱を有効にする前の宿題（CH13）`。
   **同じ題の issue が既にあれば立てない**（`gh issue list --state all --search "作業箱を有効にする前の宿題 in:title"` で確かめてから `gh issue create --title … --body-file openspec/changes/ch13-workbox-config/enable-before.md`）。
-  立てた issue の番号を `enable-before.md` の冒頭に 1 行で書く（`issue: #<番号>`）。gh が網に出られないときは 5.2 と同じく人間に返す。
+  立てた issue の番号を `enable-before.md` の冒頭に 1 行で書く（`issue: #<番号>`。同じ題が既にあれば、その番号を書く）。gh が網に出られないときは 5.2 と同じく人間に返す。
   検証: `bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'` rc=0

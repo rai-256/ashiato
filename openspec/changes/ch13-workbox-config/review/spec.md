@@ -155,3 +155,42 @@ R1・R3・R5。そのほかの項目（1.1・2.1・2.3・2.4）はコマンド�
 - 観点 4: R6・R7・R8。ほかの項目（1.1・1.2・2.1〜2.3・3.2・4.1・4.2・5.2）はコマンドと終了条件があり、走らせたものは書いたまま rc=0（3.2・3.3 は GitHub に出るので走らせていない）。人間の確認待ちは無く、CH13.md の「人間の確認待ちは無い」と一致
 - 観点 5: `docs/changes/CH13.md` の完了の判定は Q3・Q4 の答えで書き直されており、tasks の 1.1〜5.2 と 1 対 1 で対応する。壊してはいけないもの 1〜4 は Task 2.1・2.2・2.3・1.2 / 5.1 が確かめる。依頼の範囲を越える足し算（D6〜D8（仮）の細部）は Q1・Q3 の答えに従うものとして deep に決定がある
 - 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。proposal の Impact の st53・st56・ch10 の読みは、D1 での当たり方（actionlint・e2e が docker、`tools/test-android-emulator.sh` が box）を match-cases.json と走査で確かめ、どれも独立のまま
+
+## R6〜R9 の処置の後（2026-11-08。2 回目）
+
+対象: commit `9014a3b3f`（R6〜R9 の処置を含む）と作業ツリー（tasks.md の 5.2・5.3 に「同じ題が既にあれば、その番号を書く」）。`git diff a0a0644e5` で推奨の版からの差分を読み直した。
+
+### 機械の検査
+| コマンド | 結果 |
+|---|---|
+| `openspec validate ch13-workbox-config --strict` | rc=0 |
+| `python3 scripts/check_chain.py .` / `check_scenarios.py . ch13-workbox-config` | rc=0 / rc=0 |
+| `python3 scripts/review_triage.py . ch13-workbox-config` | triage: OK（R6〜R9 の処置が付いた） |
+| `python3 scripts/spec_overlap.py candidates . ch13-workbox-config` | `[]`（0 件） |
+| `python3 scripts/evidence.py lint openspec/changes/ch13-workbox-config` | rc=0 |
+| `python3 scripts/provisional.py check openspec/changes/ch13-workbox-config` | rc=1（D6〜D8 の provisional-review.md が無い。グラフの席が書く前の状態） |
+
+追加で確かめたこと:
+- 処置の確かめ: `match-cases.json` 34 行は D1 で全部一致、依頼の版で 20 行が外れる。裸の `cargo test`・`cargo test -p ashiato-server 2>&1 | tee x`・`bash -c 'cargo test 2>&1 | tail'` は D1 で docker（R9 は閉じた）。`cargo test foo_bar`・`cargo test --lib`・`cargo test -- --nocapture` は box のまま
+- 4.1 の検証（`{ … --request; test $? -eq 3; }`）を使い捨ての木で、不一致で 3 を返す台本では rc=0、`--request` が `FileNotFoundError` で落ちる台本では rc=1（R6 は閉じた）
+- 2.4 は今の enable-before.md で rc=0。項目ごとの固有の句で grep するので、測るものを消すと落ちる（R7 は閉じた）
+- D1 の塊を一時に置いて 1.1・1.2・3.2 が rc=0。置いたファイルは消した
+- 並べ替えの番号は tasks・design・CH13.md・enable-before.md で揃っている。PR 本文の 1 か所だけ古い（→ R11）
+- 1,786 本の走査（D1）: ホスト 35・docker 319・箱 1,432（文書の 1,781 本との差は CH13 自身の tasks.md）
+- R7（2.4 の grep）と R8（Task の並べ替え・5.1 の `pgrep: [0-9]+`）の直しは、検証の強さと Task の順で、D2 の中身（何を一覧に残し、何を issue にするか）を変えない。answers.md の「答え以外の変更」には入れなかった。R6 の終了コード（4.1 の rc=3）も同じく検証の形で、D8（仮）の節には書かれていないので入れなかった。R9（裸の `cargo test`）は D6（仮）の節に書かれているので入れた
+
+## R10. D1 の `-p ashiato-server` と裸の `cargo test` の終わりの判定が、引用符で囲んだ絞り込み（`"$1"`）を「絞り込みなし」と読み、`-- --list` で数えるだけの検証に docker の socket を渡す
+- 成果物: openspec/changes/ch13-workbox-config/design.md
+- 根拠: design.md:78 の 4 本目の正規表現は、`-p\s+ashiato-server\s*` と裸の `cargo\s+test\b\s*` の後に `($|['";&|)]|[0-9]?>)` を求める。`"` も終わりとして数えるので、`cargo test -p ashiato-server "$1" -- --list` の `"$1"` の開きの引用符で当たる。
+  走査（`evidence.items` → `declared` → `unwrap_quiet` の 1,786 本）で、依頼の版では docker が渡らず D1 で渡るもののうち、`-- --list` で試験の本数を数えるだけのものが 20 本（archive の ch03・ch04。例 `bash -c 'set -- ch04_testdb_ 3; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'`）。
+  `cargo test -p ashiato-server "st99_name"` も docker。この形は AGENTS.md:24（「`cargo test <名前>` 型は `-- --list` で 1 本以上あることも確かめる」）が勧める型で、後の Story が書き続ける。答えの (1)「台本の名前を grep するだけの検証に socket が渡らないようにする（当たりすぎ）」と同じ種類の当たりすぎで、design.md:149 の D6（仮）の当たり方の変化はこれを挙げていない。match-cases.json の `--list` の行（170 行目）は引用符の無い形だけ
+- kind: technical
+- 提案: 終わりの判定の引用符を「閉じの引用符」に限る（例 `(['"](\s|$|[;&|)])|$|[;&|)]|[0-9]?>)`。`bash -c 'cargo test -p ashiato-server'` の閉じは当たり、`"$1"` の開きは当たらない）。match-cases.json に上の `set -- …; cargo test -p ashiato-server "$1" -- --list` の形を `box` で 1 行足す。直さないなら D6（仮）の「残るもの」に、この形が socket を受け取ることを書く
+- 処置: fixed D6 仮 — 引用符は閉じのとき（後が空白・行末・`;&|)`）だけ終わりとみなす形にし、match-cases.json に `"$1" -- --list` の形を box で 1 行足した（35 行）。1,781 本の分かれ方はホスト 35・docker 299・箱 1,447
+
+## R11. PR 本文の Q3 の行が、当たり方の確かめを並べ替える前の「tasks 5」と呼んでいる
+- 成果物: docs/briefs/CH13-pr.md
+- 根拠: docs/briefs/CH13-pr.md:30「直した正規表現の当たり方の確かめ（D8（仮）・tasks 5）」/ 並べ替えの後、当たり方の確かめは Task 4（tasks.md:47-55）で、Task 5 は PR 本文と issue（tasks.md:57-69）。同じ本文の 47 行目は「当たり方の確かめと分類の一覧（4.1・4.2）」で、食い違う
+- kind: technical
+- 提案: 30 行目の「tasks 5」を「tasks 4」に直す
+- 処置: fixed 5.1 — PR 本文（Task 5.1 が見る docs/briefs/CH13-pr.md）の Q3 の行を tasks 4 に直した

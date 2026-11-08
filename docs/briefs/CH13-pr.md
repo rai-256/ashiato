@@ -27,7 +27,7 @@ harness2 の作業箱（#152 で 2026-11-08 に main へ merge 済み）を ashi
 
 - Q1 見つけた不足 → 依頼の「書き換えない」を外す。(1) JSON で直せるものは CH13 で直す（D1・D6（仮））/ (2) 根本は harness2 の issue（D7（仮））/ (3) 測るものだけを宿題の一覧と issue に（D2）
 - Q2 後の Story に箱の制約を知らせるか → この change では何も置かない。根本は harness2 の issue で直す（D5）
-- Q3 pgrep の確かめ → tasks に置く。harness2 は merge 済みなので止まらない（D3・tasks 3.1）。鍵の突き合わせ（3.2）と、直した正規表現の当たり方の確かめ（D8（仮）・tasks 5）も tasks に置く
+- Q3 pgrep の確かめ → tasks に置く。harness2 は merge 済みなので止まらない（D3・tasks 3.1）。鍵の突き合わせ（3.2）と、直した正規表現の当たり方の確かめ（D8（仮）・tasks 4）も tasks に置く
 - Q4 範囲 → 触るのは `tools/workbox.json` と change の中の文書だけ（D4。`skip_specs: true`）
 
 A（止める問い）は無い。仕様への合意（第 1 回）: 合意する（補足: Q1 の答えで変わる部分は書き直した後の版で見る）。

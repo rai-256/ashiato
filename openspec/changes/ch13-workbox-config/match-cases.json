@@ -170,6 +170,11 @@
       "cmd": "bash -c 'cargo test -p ashiato-server st55_log_ -- --list'",
       "want": "box",
       "why": "絞り込みつき（server_startup の docker の試験に当たらない）"
+    },
+    {
+      "cmd": "bash -c 'set -- app_role 3; [ \"$(cargo test -p ashiato-server \"$1\" -- --list 2>/dev/null | grep -c \": test$\")\" -ge \"$2\" ]'",
+      "want": "box",
+      "why": "絞り込みを引数で渡して本数を数えるだけ（AGENTS.md の型。review/spec.md R10）"
     }
   ]
 }
