@@ -1,0 +1,11 @@
+{
+  "status": "accepted",
+  "digest": "0cbd89b9daf1621b3a9a7dffa5b26932088aad485a7302ac48978c677672a770",
+  "head": "f2428b45b53e01195e88d054ad657d943b62fee8",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [
+    "補足: Q1 の答えで変わる部分（完了の判定・enable-before.md・tasks）は、書き直した後の版で見る。"
+  ],
+  "at": "2026-11-08T10:40:01Z"
+}
