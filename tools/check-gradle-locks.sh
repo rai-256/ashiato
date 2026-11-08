@@ -16,11 +16,18 @@ resolve_all() {
     :app:dependencies --configuration releaseRuntimeClasspath
 }
 
+cleanup_worktree() {
+  local tree=$1 tmp=$2 status=$3
+  git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || true
+  rm -rf -- "$tmp"
+  return "$status"
+}
+
 check_fresh() {
   local tmp tree
   tmp=$(mktemp -d)
-  trap 'rm -rf -- "$tmp"' RETURN
   tree="$tmp/tree"
+  trap 'status=$?; cleanup_worktree "$tree" "$tmp"; trap - EXIT; exit "$status"' EXIT
   git -C "$root" worktree add --detach -q "$tree" HEAD
   resolve_all "$tree"
   if ! git -C "$tree" diff --quiet -- '*.lockfile' || [[ -n "$(git -C "$tree" ls-files --others --exclude-standard -- '*.lockfile')" ]]; then
@@ -29,6 +36,8 @@ check_fresh() {
     return 1
   fi
   echo "== Scenario: ロックは今の宣言の解決と一致する"
+  cleanup_worktree "$tree" "$tmp" "$?"
+  trap - EXIT
 }
 
 make_release_init() {
@@ -53,9 +62,9 @@ check_same_release() {
   [[ $# -eq 2 ]] || usage
   local before=$1 after=$2 tmp init before_tree after_tree before_modules after_modules
   tmp=$(mktemp -d)
-  trap 'rm -rf -- "$tmp"' RETURN
   before_tree="$tmp/before"
   after_tree="$tmp/after"
+  trap 'status=$?; git -C "$root" worktree remove --force "$before_tree" >/dev/null 2>&1 || true; git -C "$root" worktree remove --force "$after_tree" >/dev/null 2>&1 || true; rm -rf -- "$tmp"; trap - EXIT; exit "$status"' EXIT
   git -C "$root" worktree add --detach -q "$before_tree" "$before"
   git -C "$root" worktree add --detach -q "$after_tree" "$after"
   init="$tmp/release-init.gradle"
@@ -65,12 +74,16 @@ check_same_release() {
   "$before_tree/collector-android/gradlew" -p "$before_tree/collector-android" --no-daemon --no-configuration-cache -q -I "$init" :app:ashiatoPrintReleaseModules | sort -u >"$before_modules"
   "$after_tree/collector-android/gradlew" -p "$after_tree/collector-android" --no-daemon --no-configuration-cache -q -I "$init" :app:ashiatoPrintReleaseModules | sort -u >"$after_modules"
   diff -u "$before_modules" "$after_modules"
+  git -C "$root" worktree remove --force "$before_tree" >/dev/null 2>&1 || true
+  git -C "$root" worktree remove --force "$after_tree" >/dev/null 2>&1 || true
+  rm -rf -- "$tmp"
+  trap - EXIT
 }
 
 self_test() {
   local tmp copied output
   tmp=$(mktemp -d)
-  trap 'rm -rf -- "$tmp"' RETURN
+  trap 'status=$?; rm -rf -- "$tmp"; trap - EXIT; exit "$status"' EXIT
   copied="$tmp/collector-android"
   cp -a "$root/collector-android" "$copied"
   cp "$root/Cargo.toml" "$tmp/Cargo.toml"
@@ -81,6 +94,8 @@ self_test() {
   fi
   grep -Eq 'dependency lock|lock state|junit' <<<"$output" || { echo "$output" >&2; return 1; }
   echo "== Scenario: ロックに無い依存を足すと、組み立てが落ちる"
+  rm -rf -- "$tmp"
+  trap - EXIT
 }
 
 case "${1:-}" in

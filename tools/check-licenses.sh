@@ -359,13 +359,12 @@ MODULE
   grep -Eq "POM を取れない|Could not find missing-${missing_version}\.pom" <<<"$output" || return 1
   ! grep -q "Could not find $missing_coordinate" <<<"$output" || return 1
 
-  echo "== Scenario: 許諾の検査の自己試験は、固定を入れた後も通る"
-
   echo "== Scenario: 検査する対象が無い節は、通さずに落ちる"
   if output=$(ASHIATO_GRADLEW=false ASHIATO_LICENSES_POM_LIST= "$self" android 2>&1); then
     echo "  self-test NG: 対象の無い Android 節を通した" >&2; return 1
   fi
   grep -q '対象が無い' <<<"$output" || return 1
+  echo "== Scenario: 許諾の検査の自己試験は、固定を入れた後も通る"
   echo "self-test OK"
 }
 

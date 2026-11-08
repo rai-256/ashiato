@@ -10,6 +10,12 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
 }
 
+buildscript {
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+}
+
 dependencyLocking {
     lockAllConfigurations()
     lockMode.set(LockMode.STRICT)
