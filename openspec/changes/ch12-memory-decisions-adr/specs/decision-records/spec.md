@@ -18,9 +18,13 @@ README の「一覧（新しい順）」の項目は `- [<日付> <題>](<ファ
 - **WHEN** 検証の台本が README の一覧の項目と `docs/adr/` の README 以外の `.md` を比べる
 - **THEN** 一覧にあって実ファイルが無いもの・実ファイルがあって一覧に無いものが、どちらも 0 件である
 
-#### Scenario: 一覧の日付と題は ADR の日付と見出しに一致し、新しい順に並ぶ
-- **WHEN** 検証の台本が一覧の各項目を、名指す ADR の `- 日付:` の行と 1 行目の見出しと比べ、項目の並びをファイル名と比べる
-- **THEN** 日付と題がすべて一致し、項目はファイル名の降順に並ぶ
+#### Scenario: 一覧の日付と題は ADR の日付と見出しに一致する
+- **WHEN** 検証の台本が一覧の各項目を、名指す ADR の `- 日付:` の行と 1 行目の `# ` の見出しと比べる
+- **THEN** すべての項目で、日付と題が一致する
+
+#### Scenario: 一覧はファイル名の新しい順に並ぶ
+- **WHEN** 検証の台本が一覧の項目の並びを、名指すファイル名と比べる
+- **THEN** 項目はファイル名の降順に並ぶ
 
 #### Scenario: ADR のファイル名は時刻と英小文字の slug の形を持つ
 - **WHEN** 検証の台本が `docs/adr/` の README 以外の `.md` の名前を見る
@@ -32,15 +36,13 @@ README の「一覧（新しい順）」の項目は `- [<日付> <題>](<ファ
 
 #### Scenario: CLAUDE.md の文書の表から docs/adr/ に辿れる
 - **WHEN** 検証の台本が `CLAUDE.md` の「文書とハーネス」の表を読む
-- **THEN** 1 列目が `` `docs/adr/` `` の行がちょうど 1 つあり、2 列目が「Story をまたぐ判断の記録」を含み、3 列目が「する」である
+- **THEN** 1 列目が `` `docs/adr/` `` で、2 列目が「Story をまたぐ判断の記録」を含み、3 列目が「する」の行がちょうど 1 つある
 
 ### Requirement: 各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする
 
 各 ADR は `- 出所:` の行を持つ SHALL。メモリから移した判断の ADR は、その行にメモリのファイル名（`<名前>.md`）を書く SHALL。
 CH12 で移した 4 つのメモリ（`worktree-port-allocation-followup.md`・`prefer-collision-free-allocation-over-checks.md`・`foundation-for-satellites-premise.md`・`lint-purity-ui-refresh-plan.md`）は、
-それぞれ移した先の ADR の出所に名指しされる SHALL。メモリの残りを数える台本（harness2 の `adr_backlog.py`）にメモリの置き場を明示して走らせたとき、この 4 つは残りに数えられない SHALL。
-検証は、公開されていないメモリの名前と説明を出力に出さず、4 つのメモリ名それぞれが残りに有るか無いかだけを出す SHALL。
-数える台本かメモリの置き場が無いとき、検証は通ったことにせず、環境の欠落として止まる SHALL。
+それぞれ移した先の ADR の出所に名指しされる SHALL。
 
 導出元: CH12
 
@@ -52,24 +54,13 @@ CH12 で移した 4 つのメモリ（`worktree-port-allocation-followup.md`・`
 - **WHEN** 検証の台本の自己検査が、使い捨ての木に写した ADR の 1 件から `- 出所:` の行を消して検査を走らせる
 - **THEN** 検査は rc≠0 で終わり、その ADR のファイル名を出す
 
-#### Scenario: メモリの残りを数える台本は、CH12 の 4 つのメモリを残りに数えない
-- **WHEN** 検証の台本が `--backlog` で、メモリの置き場と `docs/adr/` を明示して数える台本を走らせる
-- **THEN** 4 つのメモリ名のどれも残りの一覧に無く、台本は 4 つの名前ごとに「残りに無い」とだけ出して rc=0 で終わる
-
-#### Scenario: 残りを数えた結果は、4 つのメモリ名の有無だけを出す
-- **WHEN** 検証の台本が `--backlog` で走り終える
-- **THEN** 標準出力と標準エラーに出るメモリの名前は 4 つのメモリ名だけで、メモリの説明（description）は出ない
-
-#### Scenario: 数える台本かメモリの置き場が無ければ、通ったことにしない
-- **WHEN** 検証の台本が `--backlog` で、数える台本が見つからないか、メモリの置き場のフォルダが無い
-- **THEN** 台本は rc=127 で終わり、何が無いかを `error:` で始まる 1 行で出す（4 つのメモリ名の判定は出さない）
-
 ### Requirement: ADR は網の名前・私設 IP を含まない
 
 `docs/adr/` のファイルは、手元の網の名前・私設 IP を含まない SHALL。確かめは repo の既存の検査（`tools/check-private.sh`）に任せ、ADR の側で例外を足さない SHALL（`tools/check-private.allow` に `docs/adr/` のパスを足さない）。
+既存の検査は追跡しているファイルしか見ないので、`docs/adr/` のファイルは追跡されている SHALL。
 
 導出元: CH12
 
 #### Scenario: docs/adr/ を含む追跡ファイルで、網の名前の検査が通る
 - **WHEN** 検証の台本が `tools/check-private.sh` を走らせる
-- **THEN** rc=0 で終わり、`tools/check-private.allow` に `docs/adr/` で始まる行が無い
+- **THEN** `git ls-files docs/adr` が README と 5 件の ADR を返し、`tools/check-private.sh` が rc=0 で終わり、`tools/check-private.allow` に `docs/adr/` で始まる行が無い

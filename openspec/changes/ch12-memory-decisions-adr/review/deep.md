@@ -26,14 +26,14 @@
 - kind: technical
 - 提案: Q2 の context と推奨の選択肢に、(a) `--memory ~/.claude/projects/-home-yosis-dev-ashiato2/memory` を必ず渡す、(b) rc ではなく「4 つのメモリ名が出力に無いこと」で判定する、(c) メモリの置き場が無いときは PASS でなく BLOCKED にする、を書く。この検証は手元でしか走らないことも context に書く
 
-- 処置: fixed: Q2 の context と推奨の選択肢に、メモリの置き場の明示・名前での判定・置き場が無ければ通さない・手元でしか走らないことを書いた。premises に 1 行足した
+- 処置: fixed D4 仮 —— Q2 の context と推奨の選択肢に、メモリの置き場の明示・名前での判定・置き場が無ければ通さない・手元でしか走らないことを書いた。premises に 1 行足した。spec の段で design D4 に写した
 ## R2. 「harness2 の docs/adr/ に別の PR で置いた」は今は成り立たない（push されていない・PR が無い）。premises に無く、Q2 の選択肢 2 は待つ相手が無い
 - 成果物: openspec/changes/ch12-memory-decisions-adr/premises.md・deep-questions.json（Q2・Q4）
 - 根拠: docs/changes/CH12.md:15。`git -C ~/dev/harness2 fetch && git branch -r --contains ae1a0b77f` → 空。`git ls-remote origin 'refs/heads/docs/adr*'` → 空。`gh pr list -R rai-256/harness2 --state all --search adr` → `[]`。harness2 の ADR 24 件は、ローカルの worktree `/home/yosis/dev/harness2-adr`（docs/adr-backfill）にだけある。harness2 は PRIVATE（`gh repo view rai-256/harness2`）。ADR の本文は、harness2 の ADR を題名で 3 か所参照している（CH12.md の ports の影響・純粋 crate の影響・lint の影響）。README も「harness2 の docs/adr/ にある」と書く。Q4 の why は「adr_backlog の書いた会話のうちに ADR を促す」に頼っているが、これも同じ未 merge の commit にある
 - kind: premise
 - 提案: premises の 2 行目に「push されていない・PR は無い（確かめ方: ls-remote・gh pr list）」を足す。Q2 の選択肢 2 は「harness2 の ADR を push して PR にし、merge を待つ」と書き直す。族の兄弟として、README と ADR からの harness2 の参照が merge の時点で行き先を持たないことを、Q2 か新しい B の問い（推奨つき。例: 待たずに merge し、PR 本文に書く）で扱う。harness2 の 24 件がローカルにしか無いことは、この change の外の話として呼び出し元へ伝える
 
-- 処置: fixed: premises の 2 行目を直し（push・PR 無し・PRIVATE）、Q2 の問いと選択肢 2 を「push して PR にし merge を待つ」に書き直した。参照の行き先が無いことは Q1 の context と Q2 の推奨（PR 本文に書く）で扱う。harness2 の 24 件がローカルにしか無いことは人間へ伝える
+- 処置: fixed premises.md —— 2 行目を直し（push・PR 無し・PRIVATE）、Q2 の問いと選択肢 2 を「push して PR にし merge を待つ」に書き直した。参照の行き先が無いことは PR 本文と CH12.md の節に書く（design D3）。harness2 の 24 件がローカルにしか無いことは人間へ伝える
 ## R3. ADR の本文と repo の今の食い違いで、Q1 の 3 つに入っていないものが 5 つある。Q1 の「ほかの事実は repo と一致した」は誤り
 - 成果物: openspec/changes/ch12-memory-decisions-adr/deep-questions.json（Q1 の context）・premises.md
 - 根拠:
@@ -45,14 +45,14 @@
 - kind: premise
 - 提案: Q1 の context（と PR 本文に挙げる一覧）に 1〜5 を足し、「ほかの事実は一致した」を消す。premises の `ports.sh`・`Cargo.toml` の行は「読んだ」から「走らせた」に上げるか、確かさ 2 のまま食い違いを書く
 
-- 処置: fixed: 5 つを Q1 の context の一覧と premises に足し、「ほかは一致」の文を消した
+- 処置: fixed deep-questions.json —— 5 つを premises に足した。Q1 の context への写しと「ほかは一致」の文の削除は、questions の段では漏れていた（commit 05c007015 の json は直す前のまま）。spec の段（2026-11-08）で Q1 の context に 8 つを書き、「一致した」の文を消した（`review/spec.md` R2）
 ## R4. Q1 は依頼が既に決めている（不要）。問うべきなのは、食い違いの一覧を後で見つける置き場
 - 成果物: openspec/changes/ch12-memory-decisions-adr/deep-questions.json（Q1）
 - 根拠: docs/changes/CH12.md:17-18「書き換えはしない（事実と食い違う箇所を見つけたら、直さずに PR 本文で挙げる）」。Q1 の選択肢 2（ADR に追記する）は、この文に反する。Q1 の why は自分で「PR 本文は流れていく」と書き、推奨の detail は「追記は後の ADR の手入れで行える」と書くが、手入れのきっかけ（issue・change・台帳）がどこにも無い。upstream_misses の観点「X を後のために残すなら、後でどう見つけるかと置き場の寿命を context に書く」に当たる。adr_backlog の docstring は「判断の正本は ADR」と言うので、古い「影響」（例: 接続は未決）を読んだ agent が、今の状態を取り違えうる
 - kind: defer
 - 提案: Q1 は削り、C として「逐語のまま置き、R3 を含む食い違いを PR 本文に挙げる」とする。代わりに B の問い（推奨つき）を 1 つ置く:「食い違いの一覧を PR 本文のほかにどこへ残すか（issue／ADR の手入れの change を `hx change` で起こす／残さない）」
 
-- 処置: fixed: Q1 を「食い違いの一覧を PR 本文のほかにどこへ残すか」に置き換えた（推奨: docs/changes/CH12.md の節）
+- 処置: fixed D3 仮 —— Q1 は置き換えずに残した（questions の段の「置き換えた」は写っていなかった。`review/spec.md` R2）。Q1 は依頼どおりの推奨を持つ B の問いで、答えの意味は変わらない。R4 の実質（後で見つける置き場）は、spec の段で design D3（仮）に「同じ一覧を `docs/changes/CH12.md` の節にも置く」と書き、Q1 の推奨の文面にも入れた
 ## R5. C3「外に出ることは問わない」は ADR の本文だけを見ている。検証の出力と PR 本文を通って、公開されていないメモリの名前と説明が外に出る
 - 成果物: openspec/changes/ch12-memory-decisions-adr/premises.md（C3）・deep-questions.json（Q2）
 - 根拠: Q2 の推奨は adr_backlog.py を走らせ、その結果を PR 本文に書く。adr_backlog.py の出力は、残っているメモリ 1 件ごとに「ファイル名（type）: description」の 1 行を出す（実測 19 行と合計 1 行で計 20 行）。`.harness2/scripts/evidence.py:447` は出力の末尾 20 行を `summary` として evidence.jsonl に入れ、evidence.jsonl は commit される（例: `openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/evidence.jsonl` は追跡されている）。repo は PUBLIC。今の 19 行には `check-private` の型（`.ts.net`・私設 IP）・ホームのパス・tailscale の語は 0 件。ただしメモリの中身は今後も変わる
@@ -60,13 +60,13 @@
 - loss: exported
 - 提案: 失わない側は高くつかない。だから問いにはせず、C に 1 行足す:「完了の判定の検証は、4 つのメモリ名が残りに無いかどうかだけを出す（`--json` を絞り込む）。adr_backlog の一覧は evidence にも PR 本文にも載せない」。C3 の根拠の欄に、本文以外の出口（evidence・PR 本文）も見たことを書く
 
-- 処置: fixed: premises に C4（出力は 4 つの名前の有無だけ）を足した
+- 処置: fixed D5 仮 —— premises に C4（出力は 4 つの名前の有無だけ）を足した。spec の段で design D5（仮）に写し、失わない側（出さない）を選んだ仮として `provisional.jsonl` に載せた
 ## R6. C1 の「逐語との一致を機械で見る」は、比べる元と最後の塊の終わりを決めていない。深掘りの後に CH12.md の上半分は書き直される
 - 成果物: openspec/changes/ch12-memory-decisions-adr/premises.md（C1）
 - 根拠: docs/changes/CH12.md:255「上流の深掘りの後に、何のために変えるかを 1〜3 文に整える」。整えると、`## 価値` の下にある素のままの写し（CH12.md:28-253）は消えうる。残るのは `## 依頼（逐語）` の引用（`> ` 付き。CH12.md:257 以降）だけになる。最後の塊（stricter-lint）は、次の `=== ファイル` を区切りにすると、その後ろの注記と引用の節まで取り込む。実測: 2 つの写しを、上は CH12.md:255 の注記の手前で切り、下は `> ` / `>` を外して比べた。6 つの塊はすべて一致した（README 1122 字ほか）
 - kind: technical
 - 提案: C1 に「比べる元は `## 依頼（逐語）` の引用で、行頭の `> ` と `>` を外す。塊は `=== ファイル: … ===` から、次の印か引用の終わりまで。末尾の改行は 1 つにそろえる」と書く
-- 処置: fixed: C1 に比べる元（`## 依頼（逐語）` の引用）と塊の終わりを書いた
+- 処置: fixed D1 —— C1 に比べる元（`## 依頼（逐語）` の引用）と塊の終わりを書いた。spec の段で design D1 に写し、比べる元の節そのものも登録の commit と比べる形にした
 
 ## 一覧の問いのうち、指摘しなかったもの
 

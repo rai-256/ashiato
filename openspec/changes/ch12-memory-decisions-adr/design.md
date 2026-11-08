@@ -40,9 +40,13 @@
 書いており、後の ADR の手入れで本文は変わってよい。逐語の一致は CH12 の受け入れの 1 回の判定で、常に成り立つ性質ではない。
 `--verbatim` は CH12 の archive の後に走らせると、手入れの後では落ちうる（台本の冒頭のコメントにそう書く）。
 
+**比べる元そのものも固定する**（`review/spec.md` R9）: `--verbatim` は、いまの `docs/changes/CH12.md` の `## 依頼（逐語）` の節が、依頼を登録した commit
+`ff9a78dd7`（`git show ff9a78dd7:docs/changes/CH12.md`）の同じ節とバイト単位で一致することを先に見る。違えば `error:` で落とす。commit は台本に定数で書く
+（上流の PR が main に merge されれば main の履歴にある）。こうしないと、ADR と節を一緒に書き換えたときにどの検証も落ちない。
+
 ### D2（仮・C2）. 足すのは 6 ファイル・`CLAUDE.md` の 1 行・検証の台本 1 本。台本は CI に載せない（Q3）
 
-C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった。spec の Scenario は印をコードの拡張子のファイルからしか拾わない（`scripts/check_scenarios.py`）ので、
+C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった（`premises.md` の C2 に、この段で改めたことを書き足した。`review/spec.md` R11）。spec の Scenario は印をコードの拡張子のファイルからしか拾わない（`scripts/check_scenarios.py`）ので、
 印を持つ検証の台本 `tools/test-adr-docs.sh` を 1 本足す。**`.github/workflows/` には載せない**（Q3 の推奨「この change の検証で 1 回だけ見る」）。
 コード・移行・既存の台本・CI は変えない。
 
@@ -53,30 +57,43 @@ C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった�
 ADR の本文と repo の今が食い違う箇所は、`premises.md` の表にある 8 つ（Q1 の context の 3 つと、`review/deep.md` R3 の 5 つ）。
 加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと。これらを `docs/briefs/CH12-pr.md` に一覧で挙げる。ADR には書き足さない。
 
+**後で見つける置き場**（`review/deep.md` R4・`review/spec.md` R3）: PR 本文は merge の後に流れていくので、同じ一覧を `docs/changes/CH12.md` の
+`## ADR と repo の今の食い違い（直していない）` の節にも置く（「依頼（逐語）」の外。archive の後も repo に残る）。ADR の手入れの change を起こすとき、ここから拾う。
+手入れの change はこの change では起こさない（本人が一覧を見て決める）。
+
 反転条件: Q1 の答えが「(1)(2) の ADR の『影響』の末尾に『その後』の 1 行を足す」なら、その 2 件の ADR だけ末尾に 1 行を足し、D1 の逐語の一致はその 2 件について「逐語の塊が先頭からそのまま入っている」に緩める。
 
 ### D4（仮）. 完了の判定は repo の中のコマンドで確かめ、harness2 の側を待たない（Q2）
 
 `tools/test-adr-docs.sh --backlog` が harness2 の `adr_backlog.py` を走らせる。どこにも手元のパスを書かずに、次の順で探す:
 
-1. 環境変数 `ADR_BACKLOG`（台本のパス）があればそれ
+1. 環境変数 `ADR_BACKLOG`（台本のパス）が設定されていれば、それだけを使う。指す先が無ければ次へ落ちずに rc=127（`review/spec.md` R6）
 2. `.harness2/scripts/adr_backlog.py`（harness2 の main に入れば、ここで見つかる）
 3. `.harness2` の指す repo の worktree（`git -C "$(readlink -f .harness2)" worktree list --porcelain` の順）のうち、`scripts/adr_backlog.py` を持つ最初のもの
 
-メモリの置き場は、環境変数 `ADR_MEMORY` があればそれ、無ければこの repo の main の checkout（`git worktree list --porcelain` の 1 つめ）のパスから、
+メモリの置き場は、環境変数 `ADR_MEMORY` が設定されていればそれだけ（指す先が無ければ rc=127）、設定されていなければこの repo の main の checkout（`git worktree list --porcelain` の 1 つめ）のパスから、
 `adr_backlog.py` と同じ規則（英数字以外を `-` に）で `~/.claude/projects/<それ>/memory` を組む。worktree のパス（`…-up-ch12` など）から組まない（R1 の空の合格）。
 走らせ方は `python3 -I <台本> --memory <置き場> --adr docs/adr --json`。`--adr` には `docs/adr` だけを渡す（4 つのメモリはこの repo の ADR が名指す。harness2 の ADR は要らない）。
-rc は見ない（ハーネスのメモリが残る限り rc=1）。JSON の各行のファイル名に 4 つの名前のどれかがあれば落とす。
+判定（`review/spec.md` R4。「名前が出力に無い」だけでは、台本が落ちても・数える対象から外れても通るので、次の 3 つを全部見る）:
+
+1. **正の対照**: 同じ置き場で `--adr <空の mktemp -d>` を走らせ、4 つの名前が**すべて**残りに出ること（数える対象に 4 つが在る）。出なければ落とす
+2. 本番（`--adr docs/adr`）の rc が 0 か 1 で、標準出力が JSON の配列として読めること（rc=1 はハーネスのメモリが残る限り普通）。でなければ落とす
+3. 本番の配列の各要素のファイル名に、4 つの名前のどれも無いこと
 
 台本かメモリの置き場のどちらかが見つからなければ rc=127 と `error: …が無い` の 1 行で終える。verify-run は rc=127 を環境の欠落（BLOCKED_INFRA）と読み、FAIL にしない（`.harness2/scripts/evidence.py:437-440`）。
 
 反転条件: Q2 の答えが「harness2 の ADR が main に入るのを待つ」なら、探し方を 2. だけにし、この change は harness2 の merge まで `--backlog` の検証で止まる。
 
-### D5（C4）. 検証の出力には、4 つのメモリ名の有無だけを出す
+### D5（仮・C4）. 検証の出力には、4 つのメモリ名の有無だけを出す
 
-`adr_backlog.py` の出力（残りのメモリ 1 件ごとのファイル名と description）は、`tools/test-adr-docs.sh` の中で受けて捨て、外に出さない。出すのは 4 行
+`adr_backlog.py` の標準出力（残りのメモリ 1 件ごとのファイル名と description）と標準エラーは、`tools/test-adr-docs.sh` の中で一時の場所に受けて捨て、外に出さない（`review/spec.md` R5）。出すのは 4 行
 （`<メモリ名>: 残りに無い` か `<メモリ名>: 残りにある`）と、結果の 1 行だけ。verify-run は出力の末尾 20 行を証跡（commit される）に入れ、この repo は公開なので、
 ハーネスのメモリの名前と説明が外に出る経路になる（`review/deep.md` R5）。4 つの名前は既に `docs/changes/CH12.md` に公開されている。
+出してよい行の形は 4 つだけ: `Scenario: …` は使わない（`--backlog` は正典に Scenario を持たない。D8）ので、`<4 つの名前のどれか>: 残りに(無い|ある)`・`OK …` / `NG …` の結果の 1 行・`error: …`。
+`--self-test` が `--backlog` を子として走らせ、標準出力と標準エラーの全行がこの形のどれかに当たることを見る（メモリか台本が無い環境では子が rc=127 で、形だけを見る）。
+
+（仮）である理由: 失わない側（出さない）を選んだ。反転条件は、メモリの残りを公開してよいと本人が決めたとき（その場合も一覧を出す理由は無いので、変える見込みは小さい）。
+台帳 `provisional.jsonl` に載せる（`review/deep.md` R5 の `loss: exported`）。
 
 ### D6（C3）. 外に出ることは問わない
 
@@ -93,16 +110,26 @@ ADR の本文は、依頼の逐語として既に公開の origin にある（`p
 
 schema は docs の change に `skip_specs: true` を勧めるが、この repo の change で `skip_specs` を使った前例は無く、Requirement が 0 件の change がグラフ
 （`check_scenarios`・`go_brief`・merge gate・archive）を通るかを確かめていない。また、索引と実ファイルの対応・出所の名指しは外から機械で確かめられる性質で、
-CH10 の `emulator-startup`・CH09 の `test-timing` と同じく、開発の約束として正典に置ける。依頼の逐語との一致だけは正典に置かない（D1）。
+CH10 の `emulator-startup`・CH09 の `test-timing` と同じく、開発の約束として正典に置ける。
+
+正典に置かないもの（`review/spec.md` R10）: 依頼の逐語との一致（D1）と、`adr_backlog.py` の残りの判定（D4）。どちらも CH12 の受け入れの 1 回の判定で、
+後者は手元にしか無いメモリと、harness2 の main に無い台本に依る。どちらも `docs/changes/CH12.md` の完了の判定と tasks の検証にだけ置く。
+
+正典に置くもの（索引と実ファイルの 1 対 1・並び・ファイル名の形・`CLAUDE.md` の表・出所の名指し・網の名前）は、ADR を足すたびに成り立つべき性質。
+ただし Q3 の推奨で台本を CI に載せないので、archive の後にこれを毎回確かめるものは無い（ADR を足した人が `tools/test-adr-docs.sh` を走らせるか、
+書き忘れが起きたら D2 の反転条件で CI に載せる）。正典は「何が成り立つべきか」を残し、Q3 は「毎回見るかどうか」を決める —— 両者は食い違わない。
 
 ### D9. 検証の台本の形
 
-`tools/test-adr-docs.sh`（bash。冒頭のコメントに何を確かめるか・なぜ要るか（CH12）・走らせ方の 3 つの口）:
+`tools/test-adr-docs.sh`（bash。冒頭のコメントに何を確かめるか・なぜ要るか（CH12）・走らせ方の 4 つの口）:
 
 - 引数なし: 1 つ目と 3 つ目の Requirement と、2 つ目の「出所に名指しがある」を見る。各検査の前に `echo "Scenario: <名前>"` を出す。見る `docs/adr/` は環境変数 `ADR_DIR`（既定 `docs/adr`）、`CLAUDE.md` は `ADR_CLAUDE_MD`（既定 `CLAUDE.md`）。
-  `tools/check-private.sh` は repo の根で走らせる（`ADR_DIR` を変えても、check-private は repo の追跡ファイルを見る）
-- `--self-test`: `mktemp -d` の使い捨ての木に `docs/adr/` と `CLAUDE.md` を写し、`ADR_DIR` と `ADR_CLAUDE_MD` をそこへ向けて壊す。壊し方は 4 つ（一覧の 1 項目を消す・ADR の 1 件の出所の行を消す・ADR の名前を大文字にする・`CLAUDE.md` の表の行を消す）で、どれでも検査が rc≠0 になることを確かめる。`trap` で木を消す。
-  「出所の行が無い ADR は落ちる」の印はここで出す
+  `tools/check-private.sh` は repo の根で走らせる（`ADR_DIR` を変えても、check-private は repo の追跡ファイルを見る）。
+  check-private は `git ls-files` の範囲しか見ないので、呼ぶ前に `git ls-files docs/adr` が README と 5 件の ADR を返すことを確かめ、返さなければ `error: docs/adr/ がまだ追跡されていない` で落とす（`review/spec.md` R8）
+- `--self-test`: `mktemp -d` の使い捨ての木に `docs/adr/` と `CLAUDE.md` を写し、`ADR_DIR` と `ADR_CLAUDE_MD` をそこへ向けて壊す。壊し方は 6 つ（一覧の 1 項目を消す・一覧の 2 項目を入れ替える・ADR の 1 件の見出しを 1 字変える・ADR の 1 件の出所の行を消す・ADR の名前を大文字にする・`CLAUDE.md` の表の行を消す）で、
+  どれでも検査が rc≠0 になることを確かめる（`review/spec.md` R7）。`trap` で木を消す。「出所の行が無い ADR は落ちる」の印はここで出す。
+  `--backlog` の欠落の 2 つ（`ADR_BACKLOG` を無いパスに・`ADR_MEMORY` を無いフォルダにして、`ADR_BACKLOG` は使い捨ての木に置いた偽の台本に向ける）と、D5 の出力の形もここで見る。
+  欠落の 2 つは `error:` の文面で、どちらの枝を通ったかを見る（R6）
 - `--verbatim`: D1
 - `--backlog`: D4・D5。一時の出力は `mktemp` の場所（`/tmp` の固定名に書かない）
 - 落ちるときは `error: ` で始まる行で、何が・どのファイルで違うかを出す
