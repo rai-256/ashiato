@@ -1,0 +1,22 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 42,
+ "applied": [
+  "points[body.1].text",
+  "points[check.3].text"
+ ],
+ "kept": [
+  {
+   "field": "points[origin.3].text",
+   "why": [
+    "数値が変わった"
+   ],
+   "old": "その確かめが本当に効いていることも見る: ADR を渡さずに走らせると 4 つとも残りに出ること（数える対象に入っている）を先に確かめ、そのうえで docs/adr/ を渡すと 4 つとも消えることを見る",
+   "new": "台本が 4 つのメモリを本当に数えているかも見る。ADR を渡さずに走らせると 4 つとも残りに出ること（数える対象に入っている）を先に確かめ、そのうえで docs/adr/ を渡すと 4 つとも消えることを見る"
+  }
+ ],
+ "missing": [],
+ "unknown": []
+}

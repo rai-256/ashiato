@@ -1,0 +1,1084 @@
+{
+ "purpose": "Claude のメモリにしか無かった ashiato2 の判断 5 件（ポートの割り当て・衛星の基盤が主・純粋な計算の分け方・画面は表面だけ直す・lint を一段厳しく）が、repo の docs/adr/ に ADR として残る。メモリが消えても、Codex やほかの席からも、なぜそう決めたかを repo の中で読める。",
+ "model": {
+  "kind": "diagram",
+  "caption": "この change が置くものと、辿り方",
+  "text": "メモリ（手元だけ・commit されない）\n   │  4 つのメモリの判断を移す（本文は依頼のまま）\n   ▼\ndocs/adr/\n   ├─ README.md ……… 書き方と一覧（新しい順）\n   └─ ADR 5 件 ……… 出所にメモリのファイル名\n   ▲\nCLAUDE.md の文書の表に 1 行（docs/adr/）\nAGENTS.md の規約に 1 行（判断は docs/adr/ に書く）\n\n確かめる: tools/check-adr.sh（CI の chain job が PR ごとに走らせる）"
+ },
+ "before_after": [],
+ "highlights": [
+  "body.2",
+  "check.2",
+  "body.3",
+  "origin.2"
+ ],
+ "features": [
+  {
+   "id": "place",
+   "title": "ADR を置き、辿れるようにする",
+   "summary": "docs/adr/ に README と ADR 5 件を置き、CLAUDE.md の表から辿れるようにする",
+   "figure": null,
+   "points": [
+    {
+     "id": "place.1",
+     "kind": "normal",
+     "text": "docs/adr/ に README（書き方と一覧）と ADR 5 件の計 6 ファイルを置く。ADR は 1 件 1 ファイルで、名前は「時刻-英小文字の slug.md」",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ],
+      "scenarios": [
+       "CH12 で置いた README と 5 件の ADR がある",
+       "ADR のファイル名は時刻と英小文字の slug の形を持つ"
+      ]
+     }
+    },
+    {
+     "id": "place.2",
+     "kind": "normal",
+     "text": "README の一覧は ADR のファイルと 1 対 1 で対応し、日付と題は各 ADR の日付と見出しに一致し、新しい順に並ぶ",
+     "refs": {
+      "scenarios": [
+       "README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する",
+       "一覧の日付と題は ADR の日付と見出しに一致する",
+       "一覧はファイル名の新しい順に並ぶ"
+      ]
+     }
+    },
+    {
+     "id": "place.3",
+     "kind": "normal",
+     "text": "CLAUDE.md の「文書とハーネス」の表に `docs/adr/` の 1 行（Story をまたぐ判断の記録・書き込み: する）を docs/ の行の直後に足す。AGENTS.md の「実装と計画の規約」の導入の直後にも 1 行の指示（Story をまたぐ判断は docs/adr/ に ADR として書く。いつ書くか・形の正本は docs/adr/README.md）を足す。Codex を含む agent が、どの判断を ADR にするかを README に従って決めることになる。AGENTS.md の行は規則を写さず、置き場と README への道だけを言う",
+     "refs": {
+      "scenarios": [
+       "CLAUDE.md の文書の表から docs/adr/ に辿れる",
+       "AGENTS.md の規約から docs/adr/ に辿れる"
+      ],
+      "decisions": [
+       "Q4",
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "body",
+   "title": "ADR の本文は依頼のまま置く",
+   "summary": "本文は 1 字も変えず、事実と食い違う箇所は直さずに別の場所に挙げる",
+   "figure": null,
+   "points": [
+    {
+     "id": "body.1",
+     "kind": "normal",
+     "text": "6 ファイルの中身は docs/changes/CH12.md の「依頼（逐語）」の各塊と 1 字も違わない。比べる元の節そのものも、登録したときの中身（sha256）と一致することを確かめる",
+     "refs": {
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "body.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "ADR の本文は repo の今と食い違う箇所を 8 つ含んだまま入る。たとえば衛星の ADR は「要件の書き直しは未着手・接続は未決」と書くが、要件は 2026-10-11 に書き直し済みで、接続は「いったん MCP」になっている。直さずに PR 本文と docs/changes/CH12.md の「ADR と repo の今の食い違い（直していない）」の節に一覧で挙げる。直す change を起こすかは、一覧を見て本人が決める",
+     "examples": [
+      {
+       "wrong": "ADR を置くついでに「その後」を書き足す",
+       "right": "ADR は依頼のまま。8 つは CH12.md の節と PR 本文に挙げるだけ"
+      }
+     ],
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "body.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "README と 3 つの ADR（ポート・純粋な計算の分け方・lint）は harness2 の ADR を題名で参照するが、その ADR は 2026-11-08 の時点で harness2 の main に無い（push も PR も無い）。リンクではないので壊れたリンクの検査には掛からない。PR 本文にそう書く",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "origin",
+   "title": "どのメモリから移したかを名指しする",
+   "summary": "ADR の出所にメモリのファイル名を書き、メモリの残りを数える台本からも外れることを確かめる",
+   "figure": null,
+   "points": [
+    {
+     "id": "origin.1",
+     "kind": "normal",
+     "text": "各 ADR は出所の行を持つ。移した 4 つのメモリ（ポートの 2 つ・衛星の 1 つ・lint と純粋な計算と表面の 1 つ）は、移した先の ADR の出所に名前が出る",
+     "refs": {
+      "requirements": [
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+      ],
+      "scenarios": [
+       "5 件の ADR の出所に、移したメモリのファイル名がある",
+       "出所の行が無い ADR は落ちる"
+      ]
+     }
+    },
+    {
+     "id": "origin.2",
+     "kind": "exception",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "完了の判定の 1 つ（harness2 の adr_backlog.py が 4 つのメモリを残りに数えない）は、手元でしか確かめられない。台本は harness2 の手元の作業ツリーにしか無く、メモリも手元にしか無い。harness2 の側が main に入るのは待たない。台本かメモリが見つからなければ「環境の欠落」で止まり、黙って合格にはしない",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "origin.3",
+     "kind": "caution",
+     "text": "台本がそのメモリを本当に数えているかも見る。ADR を渡さずに走らせると 4 つとも残りに出ること（数える対象に入っている）を先に確かめ、そのうえで docs/adr/ を渡すと 4 つとも消えることを見る",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "private",
+   "title": "公開してよいものだけを出す",
+   "summary": "repo は公開なので、網の名前・私設 IP と、公開していないメモリの中身を出さない",
+   "figure": null,
+   "points": [
+    {
+     "id": "private.1",
+     "kind": "normal",
+     "text": "docs/adr/ は網の名前・私設 IP を含まない。確かめは既存の tools/check-private.sh に任せ、docs/adr/ のための例外は足さない。この検査は git が追跡しているファイルしか見ないので、先に docs/adr/ の 6 ファイルが追跡されていることを見る",
+     "tags": [
+      "Privacy"
+     ],
+     "refs": {
+      "requirements": [
+       "ADR は網の名前・私設 IP を含まない"
+      ],
+      "scenarios": [
+       "docs/adr/ を含む追跡ファイルで、網の名前の検査が通る"
+      ]
+     }
+    },
+    {
+     "id": "private.2",
+     "kind": "normal",
+     "text": "ADR の本文は依頼として既に公開の origin にあるので、docs/adr/ に置いても新しく外に出る中身は無い。外に出ることは問いにしていない",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "title": "確かめ方",
+   "summary": "ADR の形の検査を 1 本足し、CI の chain job で PR ごとに走らせる",
+   "figure": null,
+   "points": [
+    {
+     "id": "check.1",
+     "kind": "normal",
+     "text": "足すのは docs/adr/ の 6 ファイル・CLAUDE.md と AGENTS.md の 1 行ずつ・検査の台本 tools/check-adr.sh の 1 本・.github/workflows/ci.yml の chain job の 1 行だけ。コード・移行・既存の台本・CI のほかの段は変えない。台本は、一覧と実ファイルの対応・ファイル名と見出しの形・出所・CLAUDE.md と AGENTS.md の行・網の名前を見て、自己検査ではわざと壊した木で落ちることを確かめる。CH12 を受け入れる 1 回だけの判定（--verbatim・--backlog）も同じ台本が持つ",
+     "refs": {
+      "decisions": [
+       "D2",
+       "D8",
+       "D9"
+      ],
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ]
+     }
+    },
+    {
+     "id": "check.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CI の chain job が `./tools/check-adr.sh --self-test && ./tools/check-adr.sh` を PR ごとに走らせる。chain job は出し分けの対象外なので、docs/ だけの PR でも走る。後で ADR を足した人が一覧に書き忘れる・決まった見出しを欠く・CH12 で置いた ADR や AGENTS.md の行を消すと、その PR の CI が落ちる。ADR の本文が事実として正しいかは見ない（形だけ）",
+     "refs": {
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ],
+      "scenarios": [
+       "CI の chain job が ADR の形の検査を走らせる",
+       "決まった見出しの欠けた ADR は落ちる",
+       "ADR は決まった項目と見出しをこの順に持つ"
+      ],
+      "decisions": [
+       "Q3",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "check.3",
+     "kind": "caution",
+     "text": "依頼の本文と一致するかを見る判定（--verbatim）は、CH12 を受け入れる 1 回のための判定で、正典の Scenario にはしない。後で ADR を「置き換え済み」に直すと、この判定は落ちうる（README が認める手入れなので、それでよい）",
+     "refs": {
+      "decisions": [
+       "D1",
+       "D8"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "ADR の本文の手入れ（食い違いの直し・「その後」の追記）",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "ADR の本文が事実として正しいかを CI で見ること（CI の検査が見るのは形だけ）",
+   "refs": {
+    "decisions": [
+     "Q3",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "いつ ADR を書くか・形の規則を AGENTS.md に写すこと（正本は docs/adr/README.md の 1 か所）",
+   "refs": {
+    "decisions": [
+     "Q4",
+     "D7"
+    ]
+   }
+  },
+  {
+   "text": "harness2 の ADR 24 件と adr_backlog.py を harness2 の main に入れること（この repo の外）",
+   "refs": {
+    "decisions": [
+     "Q2"
+    ]
+   }
+  },
+  {
+   "text": "ハーネスのメモリ（19 件）を ADR にすること（harness2 の側の仕事）",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [
+  {
+   "text": "第 1 回の答え Q3（ADR の形の検査を足し、CI の chain job で毎回見る。推奨は「足さない」）で、検証の台本を tools/check-adr.sh の 1 本にまとめて CI に載せた。「CI には載せない」とした点・やらないこと・残るリスクを書き直し、Requirement「ADR の形は CI で PR ごとに確かめる」を確かめ方の点に足した",
+   "refs": {
+    "requirements": [
+     "ADR の形は CI で PR ごとに確かめる"
+    ],
+    "decisions": [
+     "Q3",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "第 1 回の答え Q4（AGENTS.md にも 1 行の指示を足す。推奨は CLAUDE.md の表の 1 行だけ）で、案内の点に AGENTS.md の行を足し、やらないことから外した",
+   "refs": {
+    "scenarios": [
+     "AGENTS.md の規約から docs/adr/ に辿れる"
+    ],
+    "decisions": [
+     "Q4",
+     "D7"
+    ]
+   }
+  }
+ ],
+ "delegated": [
+  {
+   "text": "検証の台本が出す行の形（4 つのメモリ名の有無と結果の 1 行だけ。adr_backlog.py の出力は一時の場所に受けて捨てる。公開していないメモリの名前と説明を、commit される証跡に出さないため）",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "ADR",
+   "def": "設計上の判断を 1 件 1 ファイルで残す記録。背景・決定・退けた案・見直す条件・影響を書く"
+  },
+  {
+   "term": "メモリ",
+   "def": "Claude が手元に残す覚え書き（~/.claude/projects/…/memory/）。commit されず、ほかの席や Codex からは見えない"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "ポートの決め方の理由を、メモリの無い席で調べる",
+   "trigger": "Codex で動いている席が、新しい種類の作業ツリーを足すことになった。tools/ports.sh を名前のハッシュで簡単にしたくなったが、なぜ台帳で割り当てているのかが分からない。",
+   "steps": [
+    {
+     "do": "CLAUDE.md の「文書とハーネス」の表を読む",
+     "see": "`docs/adr/` の行（Story をまたぐ判断の記録）"
+    },
+    {
+     "do": "docs/adr/README.md の一覧を見る",
+     "see": "「2026-10-03 worktree の待ち受けのポートは、どの worktree でも被らないよう機械が割り当てる」"
+    },
+    {
+     "do": "その ADR を開く",
+     "see": "背景（ST08 の再検証が ST22 の DB に書いた）と、退けた案に「名前のハッシュで番号を決める。衝突しうる」"
+    }
+   ],
+   "outcome": "ハッシュは一度退けた案だと分かり、台帳の割り当てに沿って足す。変えたいなら新しい ADR で置き換える",
+   "without": "理由は手元の Claude のメモリにしか無く、Codex の席からは読めない。同じ取り違えをもう一度起こしうる",
+   "refs": {
+    "requirements": [
+     "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+     "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+    ],
+    "scenarios": [
+     "CLAUDE.md の文書の表から docs/adr/ に辿れる"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "後で ADR を足して、一覧に書き忘れる",
+   "feature": "check",
+   "scene": "CH12 の後の change で、agent が AGENTS.md の行に従って 6 件目の ADR を docs/adr/ に足し、PR を出す。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "6 件目の ADR を足した PR の chain job（ファイル名は説明用）",
+    "head": [
+     "PR の中身",
+     "check-adr.sh",
+     "PR"
+    ],
+    "rows": [
+     [
+      "202612010000-x.md と README の一覧の 1 行",
+      "rc=0",
+      "自動 merge できる"
+     ],
+     [
+      "202612010000-x.md だけ（一覧に書き忘れ）",
+      "rc≠0。一覧に無いファイルとして名前を出す",
+      "CI が赤く、自動 merge が止まる"
+     ],
+     [
+      "一覧にも足したが ## 決定 の見出しが無い",
+      "rc≠0。そのファイル名を出す",
+      "CI が赤く、自動 merge が止まる"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "一覧にも足し、README の形どおり",
+     "outcome": "ok",
+     "result": "chain job は緑のまま"
+    },
+    {
+     "label": "一覧に書き忘れた",
+     "outcome": "neutral",
+     "result": "その PR の chain job が落ちて、書き忘れに merge の前に気づく"
+    }
+   ],
+   "why": "chain job は出し分けの対象外で、docs/ だけの PR でも走る。本番の口は一覧と実ファイルの 1 対 1 と、ADR の項目・見出しを見る。",
+   "conditions": {
+    "occurs_when": [
+     "docs/adr/ の .md が一覧・形と合わない"
+    ],
+    "not_when": [
+     "README の形どおりに足し、一覧にも 1 行足す"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "ADR の本文が事実として正しいかは見ない",
+     "refs": {
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "requirements": [
+     "ADR の形は CI で PR ごとに確かめる",
+     "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+    ],
+    "scenarios": [
+     "CI の chain job が ADR の形の検査を走らせる",
+     "README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する",
+     "決まった見出しの欠けた ADR は落ちる"
+    ],
+    "decisions": [
+     "Q3",
+     "D2"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "CLAUDE.md の表を作り直す",
+   "feature": "place",
+   "scene": "ADR と関係の無い理由で、本人が CLAUDE.md の「文書とハーネス」の表を 2 つに分ける PR を出す。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "表を作り直した PR の chain job",
+    "head": [
+     "PR の中身",
+     "check-adr.sh"
+    ],
+    "rows": [
+     [
+      "表を分け、docs/adr/ の行を「文書」の表へ移す",
+      "rc≠0（「文書とハーネス」の表に docs/adr/ の行が無い）"
+     ],
+     [
+      "表を分け、check-adr.sh の読み方も同じ PR で直す",
+      "rc=0"
+     ],
+     [
+      "表の形を変えずに、ほかの行を足す",
+      "rc=0"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "表の形を変え、検査は直さない",
+     "outcome": "problem",
+     "result": "chain job が赤くなり、自動 merge が止まる。ADR とは関係の無い PR でも止まる"
+    },
+    {
+     "label": "表の形を変えずに行を足す",
+     "outcome": "ok",
+     "result": "chain job は緑のまま"
+    }
+   ],
+   "why": "本番の口は「文書とハーネス」の表の中の docs/adr/ の行を形で探す（AGENTS.md の行も同じ）。行を残すことを CI で守る代わりに、表の形を変える PR は検査も直すことになる。",
+   "conditions": {
+    "occurs_when": [
+     "表の名前・列、または AGENTS.md の節の名前か ADR の行を変える"
+    ],
+    "not_when": [
+     "表と節の形を変えない"
+    ]
+   },
+   "exceptions": [],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+     "ADR の形は CI で PR ごとに確かめる"
+    ],
+    "scenarios": [
+     "CLAUDE.md の文書の表から docs/adr/ に辿れる",
+     "AGENTS.md の規約から docs/adr/ に辿れる"
+    ],
+    "decisions": [
+     "D2",
+     "D7"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "メモリにしか無かった判断 5 件が docs/adr/ に ADR として入り、CLAUDE.md の表と AGENTS.md の 1 行から辿れるようになる。本文は依頼のまま置くので、repo の今と食い違う 8 つの箇所も含んだまま入る（一覧は docs/changes/CH12.md の節にある）。ADR の形（一覧の対応・ファイル名と見出しの形・CLAUDE.md と AGENTS.md の行）は CI の chain job が PR ごとに見るので、後の ADR の一覧の書き忘れはその PR の CI を赤くし、自動 merge が止まる（GitHub の保護ではないので、人間は手で merge できる）。代わりに、CLAUDE.md の表・AGENTS.md の規約の節・ci.yml の chain job の行を作り直す PR や、CH12 の ADR を改名する PR も、検査を一緒に直さないと赤くなる（手間が増える。IMP-01）。本文の中身が正しいかは CI も見ない。",
+  "problem": "判断の理由が手元の Claude のメモリにしか無く、Codex やほかの席が tools/ports.sh や lint の設定を変えるとき、一度退けた案を知らずに選び直しうる。メモリが消えれば理由も戻らない。",
+  "depth": "full",
+  "depth_why": "Q3 の答えで、形から外れた ADR・一覧の書き忘れ・CLAUDE.md と AGENTS.md の行の欠けを含む PR を CI の chain job が落とす規則を持った（止める規則がある）",
+  "lost": [
+   {
+    "id": "L1",
+    "before": "CLAUDE.md の「文書とハーネス」の表・AGENTS.md の「実装と計画の規約」の節・ci.yml の chain job の段・CH12 の ADR のファイル名は、どの PR でも検査なしに書き直せた",
+    "after": "docs/adr/ の行（表）・ADR を書く指示の行（節）・chain job の check-adr.sh の行・CH12 で置いた 6 つのファイル名を残さないと、その PR の chain job が赤くなり自動 merge が止まる。変えるなら tools/check-adr.sh も同じ PR で直す",
+    "who": "CLAUDE.md・AGENTS.md を直す人と agent（harness2 の差し込みの節の手入れを含む）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   }
+  ],
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "CLAUDE.md の表 → README の一覧 → ADR の順で判断の理由を読める。agent は AGENTS.md の行から ADR を書く場所を知る。ADR を足した PR では、CI が tools/check-adr.sh で一覧の対応と形を確かめる",
+    "cannot": "この分析では見つけていない（CI の検査は形だけを見て、ADR の本文の中身は確かめない）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": false,
+    "why": "製品・配布物・データに触らない文書の追加で、版をまたぐ振る舞いが無い"
+   },
+   {
+    "id": "rollback",
+    "applies": false,
+    "why": "データ・移行に触らない。戻すときは docs/adr/・tools/check-adr.sh・CLAUDE.md と AGENTS.md の 1 行ずつ・ci.yml の chain job の 1 行を同じ PR で戻す（一部だけ戻すと chain job が赤くなる）"
+   },
+   {
+    "id": "carryover",
+    "applies": false,
+    "why": "引き継ぐデータが無い。メモリ自体は消さず、手元にそのまま残る"
+   },
+   {
+    "id": "mixed",
+    "applies": false,
+    "why": "環境や版の組み合わせで振る舞いが変わるものを持たない。--backlog の確かめだけは手元にしか無いものに依る（origin.2）"
+   },
+   {
+    "id": "recovery",
+    "applies": false,
+    "why": "異常時の復旧の経路に触らない"
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "制約",
+    "rule": "docs/adr/ の README 以外の .md は README の形（ファイル名・日付・状態・出所の行・5 つの見出し）を持ち、一覧と 1 対 1 で対応する。決定が変わったら消さずに「置き換え済み」にする",
+    "target": "一覧の書き忘れ・形の崩れた ADR・ADR を消して理由ごと失うこと",
+    "legit": "README の形に合う ADR を足す・置き換え済みにする操作は止まらない。CH12 で置いた ADR の改名・統合を止めるのは、この形の規則ではなく CI の停止（R2。S1・IMP-01 で扱う）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "形から外れた ADR・一覧の書き忘れ・CLAUDE.md と AGENTS.md の行の欠け・chain job の行の欠け・CH12 の 6 ファイルの欠けを含む PR は、CI の chain job で赤くなり、自動 merge が止まる",
+    "target": "ADR を足した人の一覧の書き忘れや形の崩れ",
+    "legit": "ADR と関係の無い目的で CLAUDE.md の表・AGENTS.md の規約の節・ci.yml の chain job の段を作り直す PR、CH12 の ADR の slug を直す PR も、検査を同じ PR で直さないと赤くなる。docs/adr/ に ADR でない .md（雛形など）を置く PR も赤くなる",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ADR の形は CI で PR ごとに確かめる",
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+     ],
+     "decisions": [
+      "Q3",
+      "D2",
+      "D7"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R2",
+    "goal": "CLAUDE.md の「文書とハーネス」の表を、文書とハーネスの 2 つの表に分けて読みやすくしたい",
+    "initial": "CH12 が merge 済みで、chain job が check-adr.sh を走らせている",
+    "action": "表を分け、docs/adr/ の行を「文書」の表へ移し、列の並びも変えた PR を出す",
+    "trigger": "本番の口が「文書とハーネス」の表に、1 列目 `docs/adr/`・2 列目「Story をまたぐ判断の記録」・3 列目「する」の行がちょうど 1 つあることを見る",
+    "result": "その PR の chain job が赤くなり、自動 merge が止まる。表を元の形に戻すか、tools/check-adr.sh の読み方を同じ PR で直すまで自動では入らない（GitHub の保護は無いので、人間は手で merge できる）。赤い CI は ci-fix の agent に回る",
+    "lost": "表の書き直しを、ADR の検査に触れずに 1 つの PR で済ませること",
+    "decision": "表や節の形を変える PR が検査も直す手間を受け入れるか（IMP-01）",
+    "occurs_when": [
+     "CLAUDE.md の表の名前・列、AGENTS.md の「実装と計画の規約」の節の名前か ADR の行、ci.yml の chain job の check-adr.sh の行、CH12 の ADR のファイル名のどれかを変える"
+    ],
+    "not_when": [
+     "表と節の形を変えずに、ほかの行だけを足し引きする"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "low",
+    "status": "open",
+    "title": "CLAUDE.md・AGENTS.md・chain job の行・CH12 の ADR の名前を変える PR は、ADR の検査も一緒に直す",
+    "text": "check-adr.sh の本番の口は 4 か所を形で掴む: CLAUDE.md の表の行・AGENTS.md の節の行・ci.yml の chain job の check-adr.sh の行・CH12 で置いた 6 つのファイル名。ADR と関係の無い書き直しや ADR の改名でも、どれかの形が変わると chain job が赤くなり、自動 merge が止まる。検査を同じ PR で直す手間が増える",
+    "basis": "derived",
+    "derived": "本番の口は CLAUDE.md・AGENTS.md の行と 6 つのファイル名を見て（R1 の Requirement）、ci.yml の行も見る（design D9）。chain job はどの PR でも走り（R3）、自動 merge は head の CI が全部緑のときだけ merge する（E8）ので、形を変える PR は自動では入らない",
+    "undefined": "形が変わったときに検査をどう直すかの手順（README も design も書いていない）。赤い CI を受けた ci-fix の agent が、PR の書き直しを戻すか、check-adr.sh・ADR の側を直すかも決まっていない",
+    "feasibility": "unverified",
+    "deps": [
+     "D1",
+     "D6"
+    ],
+    "evidence": [
+     "E5",
+     "E8"
+    ],
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "spec の 13 本の Scenario が tools/check-adr.sh（引数なしと --self-test）で通る",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+      "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする",
+      "ADR の形は CI で PR ごとに確かめる",
+      "ADR は網の名前・私設 IP を含まない"
+     ]
+    }
+   },
+   {
+    "text": "依頼の本文との一致（--verbatim）と、メモリの残りの確かめ（--backlog。手元）が通る",
+    "refs": {
+     "decisions": [
+      "D1",
+      "D4"
+     ]
+    }
+   },
+   {
+    "text": "main からの差分が docs/adr/・CLAUDE.md と AGENTS.md の 1 行ずつ・tools/check-adr.sh・ci.yml の chain job の 1 行と、この change の文書だけ",
+    "refs": {
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   },
+   {
+    "text": "CLAUDE.md・AGENTS.md の形を変える PR が ADR の検査も直す手間（IMP-01）を受け入れる",
+    "refs": {
+     "requirements": [
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2",
+      "D7"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "依頼に挙がった ashiato2 に固有の判断 5 件と README",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ]
+     }
+    },
+    {
+     "text": "CI の chain job が PR ごとに見る ADR の形（一覧と実ファイルの対応・ファイル名と見出しの形・出所・CLAUDE.md と AGENTS.md の行）。赤くなった PR を止めるのは harness2 の自動 merge で、GitHub の保護ではない",
+     "refs": {
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "一覧が対応を持つのは docs/adr/ の README 以外の .md だけ",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+      ]
+     }
+    },
+    {
+     "text": "網の名前の検査は git が追跡しているファイルしか見ないので、docs/adr/ が追跡されているときだけ効く",
+     "refs": {
+      "requirements": [
+       "ADR は網の名前・私設 IP を含まない"
+      ]
+     }
+    },
+    {
+     "text": "出所にメモリのファイル名を書くのは、メモリから移した判断の ADR だけ",
+     "refs": {
+      "requirements": [
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする"
+      ]
+     }
+    },
+    {
+     "text": "CI が見るのは ADR の形だけで、CH12 の受け入れの 1 回だけの判定（依頼の逐語との一致・harness2 の台本でのメモリの残り）は CI に載せない",
+     "refs": {
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "ハーネスの判断（harness2 の docs/adr/ が持つ）",
+     "refs": {}
+    },
+    {
+     "text": "ADR の本文の手入れ",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "ADR の本文は repo の今と食い違う 8 つの箇所を含む。読む人が古い「影響」を今の状態と取り違えうる（一覧は docs/changes/CH12.md の節）",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "harness2 の ADR への参照は、harness2 の側が main に入るまで行き先が無い",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "CI の検査は形だけを見る。ADR の本文が repo の今と食い違っても、CI は落ちない",
+     "refs": {
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "spec の 4 本の Requirement と 13 本の Scenario、design の D1〜D9、premises.md の前提の表（ADR が述べる repo の事実と、harness2 の台本の有無）、review/deep.md・review/spec.md・review/answers.md の指摘",
+     "refs": {
+      "requirements": [
+       "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる",
+       "各 ADR は出所を持ち、メモリから移した判断はメモリのファイル名を名指しする",
+       "ADR の形は CI で PR ごとに確かめる",
+       "ADR は網の名前・私設 IP を含まない"
+      ]
+     }
+    },
+    {
+     "text": "chain job の段（ci.yml:491〜）と、同じ job の check-shared-appends.sh・check-tmp-hygiene.sh の範囲、AGENTS.md の節の見出し、ci.yml を触る ch10 の proposal（st53 の範囲は ch10 の proposal が挙げる行で見た）",
+     "refs": {
+      "requirements": [
+       "ADR の形は CI で PR ごとに確かめる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "harness2 の adr_backlog.py の今の版を走らせた結果",
+     "why": "台本は harness2 の手元の作業ツリーにしか無く、この段では走らせていない（上流の deep-review と spec-review が走らせた結果は premises.md と review/spec.md にある）"
+    },
+    {
+     "text": "ADR の 5 件の本文に書かれた事実のうち、premises.md に挙げていないもの",
+     "why": "本文は依頼のまま置き直さないので、上流で拾った 8 つの食い違いのほかは読み直していない"
+    },
+    {
+     "text": "harness2 の側で AGENTS.md・CLAUDE.md の節を書き換える台本の全部",
+     "why": "init.py は印の後に項目が無いときに知らせるだけと読んだが、harness2 のほかの台本は読んでいない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "製品のコード・移行・画面",
+     "why": "この change は触らない"
+    },
+    {
+     "text": "走っている ch10-emulator-start-timeout と st53-license-bundle が触る .github/workflows/ci.yml",
+     "why": "この change も ci.yml の chain job（ファイルの最後の job）に 1 行を足す（D2）。chain job を触る st53 の check-spdx の行は main に入済み（st53 の tasks.md:214）、ch10 は rust の job と install-windows の if: を触る。組み合わせて振る舞いが変わることは、この分析では見つけていない"
+    }
+   ]
+  },
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "file",
+    "name": "docs/adr/ の 6 ファイル",
+    "change": "新しく置く。README の形と一覧の対応を CI が PR ごとに見る",
+    "searched": "`docs/adr` の名前で repo 全体を impact_deps.py で探した（docs/changes/CH12.md のほかに出てこない）",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    },
+    "no_dependents_why": "まだ無いフォルダで、読むのはこの change の tools/check-adr.sh と人だけ。名前を挙げる台本・コードは repo に無かった（impact_deps.py）"
+   },
+   {
+    "id": "T2",
+    "kind": "file",
+    "name": "CLAUDE.md の表の 1 行と AGENTS.md の規約の 1 行",
+    "change": "足し、CI の検査がその行の在ることを見る",
+    "searched": "AGENTS.md・CLAUDE.md を書く台本を harness2 の init.py と tools/ で探し、AGENTS.md の節の見出しを読んだ",
+    "refs": {
+     "requirements": [
+      "ADR は docs/adr/ に 1 件 1 ファイルで置き、README の一覧から辿れる"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "lifecycle",
+    "name": ".github/workflows/ci.yml の chain job",
+    "change": "check-private の直後に check-adr.sh の 1 行を足す。どの PR でも走る",
+    "searched": "chain job の段を読み、同じ job のほかの検査（check-shared-appends・check-tmp-hygiene）の範囲と、ci.yml を触る走っている change（ch10・st53）の proposal を読んだ",
+    "refs": {
+     "requirements": [
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "code",
+    "name": "tools/check-adr.sh",
+    "change": "新しく足す。本番・自己検査・CH12 の受け入れの口（--verbatim・--backlog）を持つ",
+    "searched": "同じ chain job で tools/ の台本を対象にする検査を探した（check-tmp-hygiene.sh）",
+    "refs": {
+     "requirements": [
+      "ADR の形は CI で PR ごとに確かめる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T2",
+    "who": "後で CLAUDE.md の表や AGENTS.md の規約の節を書き直す change と agent",
+    "role": "writes",
+    "assumes": "表の形や節の名前・行の言い方は、ほかの検査に縛られず変えてよい",
+    "holds": "no",
+    "affects": "その PR の chain job が check-adr.sh で落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ],
+    "leads_to": [
+     "S1",
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T3",
+    "who": "chain job の check-shared-appends.sh（共有の本体の末尾の取り合いを見る）",
+    "role": "reads",
+    "assumes": "見るのは smoke.sh などの共有の台本だけで、ci.yml の段の追加は対象外",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E3"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T4",
+    "who": "chain job の check-tmp-hygiene.sh（一時フォルダを手で作る書き方を落とす）",
+    "role": "reads",
+    "assumes": "見るのは Rust と Kotlin の試験だけで、bash の台本の使い捨ての木は見ない",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T3",
+    "who": "同じ ci.yml を触る走っている change（ch10-emulator-start-timeout・st53-license-bundle）",
+    "role": "writes",
+    "assumes": "chain job を触るのは st53 の check-spdx の 2 行だけで、それは main の chain job に既に入っている。ch10 は rust の job と install-windows の if: を触る",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E7",
+     "E6"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T3",
+    "who": "chain job の段の並び（出し分けの対象外で、どの PR でも走る）",
+    "role": "reads",
+    "assumes": "軽い検査だけを置き、全 PR に掛けても費用にならない",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T3",
+    "who": "harness2 の自動 merge（auto_merge.py）と、赤い CI を ci-fix の agent に回す経路（story_ci.py）",
+    "role": "reads",
+    "assumes": "PR の head の CI が全部緑なら merge してよい。赤は原因の PR を直して緑にする",
+    "holds": "unknown",
+    "affects": "ADR と関係の無い PR が check-adr.sh で赤くなると、自動 merge が止まり、ci-fix の agent が呼ばれる。agent がどちらを直すかは決まっていない",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:501",
+    "quote": "この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。"
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": "tools/check-shared-appends.sh:28",
+    "quote": "SCRIPTS=(tools/smoke.sh tools/check-immutable.sh tools/seed.sh)"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": "tools/check-tmp-hygiene.sh:12",
+    "quote": "範囲: `git ls-files` の `crates/**/*.rs`"
+   },
+   {
+    "id": "E5",
+    "source": "code",
+    "loc": "AGENTS.md:14",
+    "quote": "## 実装と計画の規約（上流の計画 agent・Task agent・reviewer に共通）"
+   },
+   {
+    "id": "E6",
+    "source": "story",
+    "loc": "openspec/changes/ch10-emulator-start-timeout/proposal.md:42",
+    "quote": "`.github/workflows/ci.yml` の検査の job（`rust`）に `./tools/test-android-emulator.sh` を 1 行足す"
+   },
+   {
+    "id": "E7",
+    "source": "story",
+    "loc": "openspec/changes/st53-license-bundle/tasks.md:214",
+    "quote": "`chain` の job（全 PR）: `tools/check-spdx.sh --self-test` と `tools/check-spdx.sh`"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": ".harness2/scripts/auto_merge.py:18",
+    "quote": "3. **いまの head の** CI が全部緑（`ci_wait.py`。gate の後に push されていたら、その head で待ち直す）"
+   }
+  ]
+ }
+}
