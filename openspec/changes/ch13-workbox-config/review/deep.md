@@ -31,7 +31,7 @@ harness2 の作業箱は `.harness2` の `feat/workbox`（HEAD `9b8d1c27a`）を
 - 根拠: docs/changes/CH13.md の「完了の判定」（「feat/workbox が入っていなければ…BLOCKED として残す」）/ .harness2/docs/flow-gates.md:172（Task gate: `BLOCKED_INFRA` なら Task は完了しない）/ `ls scripts/workbox.py` → No such file（`.harness2` は harness2 の main）→ `feat/workbox:scripts/evidence.py:387` の `missing_executable` で `BLOCKED_INFRA` / さらに `HARNESS_WORKBOX=tests` の下で走らせると、このコマンド自身が `docker` の欄にも `host_only` にも当たらず箱に包まれ（`evidence.py:398`）、箱のイメージには docker が無い（`docker run --rm harness2-workbox:f1887cd41fb6 bash -c 'command -v docker'` → 無し）ので `workbox.py:162` の `Unavailable` で落ちる
 - kind: conflict
 - 提案: 問いを 1 つ足す（B・推奨つき）。「pgrep の確かめを tasks の検証項目に置くか（置けば harness2 の merge まで CH13 は下流で止まる）／置かずに PR 本文と確認バッチに回すか／harness2 の merge を CH13 の着手の前提にするか」。どれでも、確かめるときは `HARNESS_WORKBOX` が off であること（または `host_only` に `scripts/workbox\.py`）を前提に書く
-- 処置: fixed D3 仮 — Q3 を足した（pgrep の確かめの置き場。推奨は tasks に置かず宿題に回す）
+- 処置: escalated — Q3 として本人に問うた（推奨は tasks に置かず宿題に回す）。第 1 回の答え（tasks に置く。harness2 は merge 済み）を spec --answers で D3・tasks 4.1 に写した
 
 ## R2. Q1 の挙げる漏れは e2e と actionlint だけで、いちばん多い `cargo test --workspace` と、中で docker を呼ぶ台本 3 本が抜けている
 - 成果物: openspec/changes/ch13-workbox-config/deep-questions.json
@@ -66,21 +66,21 @@ harness2 の作業箱は `.harness2` の `feat/workbox`（HEAD `9b8d1c27a`）を
 - 根拠: 依頼の「確かめたこと」は `HARNESS_WORKBOX=tests` の cargo test 5 本だけ / `agent_memory` 4g × 5 + `memory` 6g × `parallel_verify` 2 = 32g（`feat/workbox:scripts/workbox.py:330` が書く WSL の VM は 32GB。ホストの langgraph・DB の容器はこの外）/ 箱の `/tmp` は tmpfs（同 248）で、tmpfs の中身は箱のメモリの上限に数えられる / e2e は `tools/stack.sh up` が release のビルドをしてから Chromium を起こし（tools/stack.sh:64、web/playwright.config.ts:57 の待ちは 10 分）、6g と席 1 つをその間握る / agent の箱の中で agent 自身が走らせる cargo のビルド（`verify-run` を通らない）も 4g に収まるかは測っていない
 - kind: daily
 - 提案: `premises.md` に「e2e 1 本が 6g の箱で通るか」「`all` で 5 本のときの空きメモリの最低」「agent の箱の中の `cargo build` が 4g で落ちないか」を確かさ 1〜2 の行として足す。どれも `loss` は無いので問いにはしない（有効にする前に測る項目として、R7 の行き先に載せる）
-- 処置: fixed D2 仮 — premises.md に確かさ 1 の行として足し、Q1 の宿題に入れた
+- 処置: escalated — premises.md に確かさ 1 の行として足し、Q1 の宿題として本人に問うた。第 1 回の答え（Q1 (3) 測るものだけを宿題に残す）で enable-before.md の 1 節に残した（D2）
 
 ## R7. Q1 は依頼で既に決まっている。開いているのは「不足の一覧をどこに残し、有効にする前に誰が見るか」の方
 - 成果物: openspec/changes/ch13-workbox-config/deep-questions.json
 - 根拠: docs/changes/CH13.md「書き換えない。足りないものに気付いたら PR 本文に挙げる」「完了の判定: `tools/workbox.json` が上の中身であり」/ Q1 の 2 番目の選択肢（欄に足す）は完了の判定の本文を変えるので、仮（P）で選べる側ではない / 見終えた PR は機械が merge する運用のため、PR 本文に書いた不足は人間の目に触れずに main に入りうる
 - kind: defer
 - 提案: Q1 を「不足の一覧（R2〜R6）をどこに残すか —— PR 本文だけ／harness2 の issue／`docs/handoff` か新しい change の依頼」に問い直す（B・推奨つき）。2 番目の選択肢は「依頼の本文を変える」と明記して、人間に返す側（A でなく依頼の差し戻し）として分ける
-- 処置: fixed D2 仮 — Q1 を「不足の一覧をどこに残すか」に問い直した。欄に足す案は依頼の差し戻しとして補足へ回した
+- 処置: escalated — Q1 を「不足の一覧をどこに残すか」に問い直して本人に問うた。第 1 回の答えで本人が依頼を差し戻し（「書き換えない」を外す）、D1・D2・D7（仮）に写した
 
 ## R8. spec を持つか（`skip_specs`）と、触らないもの（「ついでに直す」の境界）を問うていない
 - 成果物: openspec/changes/ch13-workbox-config/deep-questions.json
 - 根拠: openspec/changes/ch13-workbox-config/.openspec.yaml に `skip_specs` が無い / 正典に `verify-environment`（openspec/specs/verify-environment/spec.md:4「並走する Story と change が同じ機械の上で証跡を取り続けるための、開発の道具の約束」）があり、spec の段が Requirement を足すと Scenario の印のある試験か台本が要る（`check_scenarios.py`）= ファイル 1 つの範囲を越える / CLAUDE.md の「構成」の `tools` の行は「ハーネスの差し込み口（`agent-env.sh` `verify-prep.sh` `pre-commit.sh`）」を列挙しており、下流が `workbox.json` を書き足す動機がある / docs/changes/CH13.md の「壊してはいけないもの」は空
 - kind: technical
 - 提案: 問いを 1 つ足す（B・推奨つき）。「この change は spec を持たない（`skip_specs: true`）か、`verify-environment` に Requirement を足すか」。あわせて「変えないもの」（`tools/*.sh`・`docs/testing.md`・`AGENTS.md`・`CLAUDE.md` の構成表・`verify-environment` の正典）を `context` に列挙し、Q2 の 2・3 番目の選択肢がその境界を越えることを書く
-- 処置: fixed D4 仮 — Q4 を足した（範囲と変えないもの）。spec の段で、openspec の `.openspec.yaml` の `skip_specs: true` を採った。questions の段の「skip_specs はこのハーネスに無い」は誤りで、proposal の Capabilities に訂正を書いた
+- 処置: fixed D4 — Q4 を足した（範囲と変えないもの。第 1 回の答えで本人が決めた）。spec の段で、openspec の `.openspec.yaml` の `skip_specs: true` を採った。questions の段の「skip_specs はこのハーネスに無い」は誤りで、proposal の Capabilities に訂正を書いた
 
 ## R9. 設定の形は harness2 の未 merge のブランチのもので、未知の鍵を黙って無視する。確かめた版が記録されていない
 - 成果物: openspec/changes/ch13-workbox-config/premises.md
@@ -94,5 +94,5 @@ harness2 の作業箱は `.harness2` の `feat/workbox`（HEAD `9b8d1c27a`）を
 - 根拠: `feat/workbox:scripts/workbox.py:159`（`image_tag` は Dockerfile と `apt` の一覧の hash。古いタグを消す処理は無い）/ `docker images` に既に `harness2-workbox:5188825443bf`（783MB）と `:f1887cd41fb6`（1.25GB）
 - kind: daily
 - 提案: CH13 の範囲外（harness2 の片付け）。R7 の不足の一覧に 1 行載せる。問いは足さない
-- 処置: fixed D2 仮 — harness2 側の話で問いは足さず、宿題の一覧（enable-before.md）の 6 に載せた
+- 処置: fixed D7 仮 — harness2 側の話で問いは足さず、宿題の一覧に載せた。第 1 回の答え（Q1 (2)）で harness2 の issue にする（D7（仮））
 

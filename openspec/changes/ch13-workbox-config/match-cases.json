@@ -1,0 +1,175 @@
+{
+  "note": "CH13 の当たり方の表（design D8（仮））。want: host = host_only に当たりホストで走る / docker = 箱で docker を渡す / box = 箱で docker を渡さない。判定は .harness2/scripts/workbox.py の host_only → needs_docker の順（evidence.py と同じ）",
+  "cases": [
+    {
+      "cmd": "bash -c 'cd web && npm run test:e2e'",
+      "want": "docker",
+      "why": "画面の e2e（webServer が tools/stack.sh up を起こす）"
+    },
+    {
+      "cmd": "bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee \"$TMPDIR/et.log\"'",
+      "want": "docker",
+      "why": "画面の e2e（npx playwright test。D6）"
+    },
+    {
+      "cmd": "bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test --workspace'",
+      "want": "docker",
+      "why": "cargo test --workspace（server_startup の docker の試験を含む）"
+    },
+    {
+      "cmd": "cargo test -p ashiato-server --test server_startup server_startup_",
+      "want": "docker",
+      "why": "server_startup"
+    },
+    {
+      "cmd": "bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'",
+      "want": "docker",
+      "why": "絞り込みなしの -p ashiato-server（D6）"
+    },
+    {
+      "cmd": "bash -c 'set -a; . ./.env; set +a; cargo test'",
+      "want": "docker",
+      "why": "裸の cargo test（default-members が無く全 crate の試験が走る。review/spec.md R9）"
+    },
+    {
+      "cmd": "bash -o pipefail -c 'cargo test -p ashiato-server 2>&1 | tee \"$TMPDIR/ct.log\"'",
+      "want": "docker",
+      "why": "絞り込みなしの -p ashiato-server の後に 2>&1（R9）"
+    },
+    {
+      "cmd": "bash -c 'f=\"$1\"; actionlint \"$f\" || docker run --rm rhysd/actionlint:1.7.7 \"$f\"' _ .github/workflows/ci.yml",
+      "want": "docker",
+      "why": "actionlint（無ければ docker に退く）"
+    },
+    {
+      "cmd": "tools/load-repeat.sh --self-test",
+      "want": "docker",
+      "why": "中で tools/db.sh exec を呼ぶ"
+    },
+    {
+      "cmd": "tools/st25-seed-check.sh",
+      "want": "docker",
+      "why": "中で tools/stack.sh up を呼ぶ"
+    },
+    {
+      "cmd": "tools/check-st23-derived-erasure.sh",
+      "want": "docker",
+      "why": "中で tools/check-immutable.sh を呼ぶ"
+    },
+    {
+      "cmd": "tools/smoke.sh",
+      "want": "docker",
+      "why": "依頼の版から docker の欄にある台本"
+    },
+    {
+      "cmd": "./tools/check-pg-major.sh",
+      "want": "docker",
+      "why": "依頼の版から（./ つき）"
+    },
+    {
+      "cmd": "bash -c 'set -a; . ./.env; set +a; tools/check-db-secret.sh'",
+      "want": "docker",
+      "why": "; の後の呼び出し"
+    },
+    {
+      "cmd": "SS_VERIFY=1 tools/smoke.sh",
+      "want": "docker",
+      "why": "変数の代入の後の呼び出し"
+    },
+    {
+      "cmd": "bash -c '[ -z \"$(env -u HARNESS_VERIFY tools/verify-env.sh 2>&1 | grep x)\" ]'",
+      "want": "docker",
+      "why": "$( と env -u の後の呼び出し"
+    },
+    {
+      "cmd": "bash -c '. tools/ports.sh; docker network ls'",
+      "want": "docker",
+      "why": "docker を直に呼ぶ（D6）"
+    },
+    {
+      "cmd": "! grep -n 'gradle.properties' tools/record-env.sh",
+      "want": "box",
+      "why": "台本の名前を grep するだけ（review/deep.md R4 の例）"
+    },
+    {
+      "cmd": "bash -n tools/record-env.sh",
+      "want": "box",
+      "why": "構文を見るだけ"
+    },
+    {
+      "cmd": "bash -c 'grep -q COMPOSE_PROJECT_NAME tools/verify-prep.sh && grep -q \"STACK_RESET=1\" tools/stack.sh'",
+      "want": "box",
+      "why": "grep の引数の位置"
+    },
+    {
+      "cmd": "bash -c '[ \"$(grep -c \"echo \\\"Scenario: \" tools/check-verify-env-reset.sh)\" -ge 7 ]'",
+      "want": "box",
+      "why": "$( の中でも grep の引数の位置"
+    },
+    {
+      "cmd": "cargo test -p ashiato-server --lib access_log_tests",
+      "want": "box",
+      "why": "DB は網で届く。docker は要らない（依頼の「確かめたこと」）"
+    },
+    {
+      "cmd": "bash -c 'grep -q \"test:e2e\" web/package.json'",
+      "want": "box",
+      "why": "e2e の名前を grep するだけ"
+    },
+    {
+      "cmd": "bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings'",
+      "want": "box",
+      "why": "--workspace でも cargo test ではない"
+    },
+    {
+      "cmd": "tools/check-migrations.sh",
+      "want": "box",
+      "why": "docker を使わない検査"
+    },
+    {
+      "cmd": "tools/test-usage-volume.sh",
+      "want": "box",
+      "why": "偽の SDK の試験。ホストは要らない"
+    },
+    {
+      "cmd": "tools/test-android-emulator.sh",
+      "want": "box",
+      "why": "偽の SDK の試験（ch10）。ホストは要らない"
+    },
+    {
+      "cmd": "tools/release/install-check.sh --check-coverage openspec/changes/st55-server-installer",
+      "want": "host",
+      "why": "powershell.exe を中で呼ぶ台本"
+    },
+    {
+      "cmd": "bash -c 'tools/release/build.sh --self-test'",
+      "want": "host",
+      "why": "powershell.exe を中で呼ぶ台本"
+    },
+    {
+      "cmd": "bash -c 'tools/android-side-by-side.sh'",
+      "want": "host",
+      "why": "エミュレータを自分で起こす"
+    },
+    {
+      "cmd": "tools/usage-volume.sh",
+      "want": "host",
+      "why": "エミュレータを自分で起こす"
+    },
+    {
+      "cmd": "tools/android-emulator.sh",
+      "want": "host",
+      "why": "依頼の版から host_only"
+    },
+    {
+      "cmd": "/mnt/c/Windows/System32/cmd.exe /c ver",
+      "want": "host",
+      "why": "依頼の版から host_only"
+    },
+    {
+      "cmd": "bash -c 'cargo test -p ashiato-server st55_log_ -- --list'",
+      "want": "box",
+      "why": "絞り込みつき（server_startup の docker の試験に当たらない）"
+    }
+  ]
+}

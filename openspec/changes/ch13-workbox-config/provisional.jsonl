@@ -1,0 +1,3 @@
+{"id": "D6", "question": "錨の形と、答えが名指ししていない同じ族（npx playwright test・絞り込みなしの -p ashiato-server・docker を直に呼ぶもの）を docker の欄に足すか", "chosen": "呼び出しの位置に錨を置き、同じ族を足す", "keeps": null, "cost": null, "follows": "Q1", "rests_on": [], "source": "deep.md#Q1", "at": "2026-11-08"}
+{"id": "D7", "question": "harness2 の根本の issue を 1 つにまとめるか 3 つに分けるか", "chosen": "直す場所ごとに 3 つ立てる", "keeps": null, "cost": null, "follows": "Q1", "rests_on": [], "source": "deep.md#Q1", "at": "2026-11-08"}
+{"id": "D8", "question": "当たり方の確かめをどこに置き、どう判定するか", "chosen": "change の中の表と台本で、harness2 の host_only・needs_docker をそのまま呼ぶ", "keeps": null, "cost": null, "follows": "Q3", "rests_on": [], "source": "deep.md#Q3", "at": "2026-11-08"}
