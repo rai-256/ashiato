@@ -51,7 +51,7 @@
 
 ## Task 3: メモリの残りを数える台本で確かめる（手元）
 
-- [ ] 3.1 `tools/check-adr.sh --backlog` を design D4・D5 のとおりに書く（`ADR_BACKLOG` → `.harness2/scripts/adr_backlog.py` → `.harness2` の指す repo の worktree の順に探す。環境変数が設定されていればそれだけを使い、指す先が無ければ rc=127・
+- [x] 3.1 `tools/check-adr.sh --backlog` を design D4・D5 のとおりに書く（`ADR_BACKLOG` → `.harness2/scripts/adr_backlog.py` → `.harness2` の指す repo の worktree の順に探す。環境変数が設定されていればそれだけを使い、指す先が無ければ rc=127・
   メモリの置き場は `ADR_MEMORY` か main の checkout のパスから組む・`python3 -I <台本> --memory <置き場> --adr … --json`・判定は D4 の 3 つ（空の `--adr` での正の対照・本番の rc が 0 か 1 で JSON の配列・本番に 4 つの名前が無い）・
   `adr_backlog.py` の標準出力と標準エラーは一時の場所に受けて捨てる・出すのは D5 の形の行だけ）。Scenario の印は出さない（D8）。
   `--self-test` に次を足す: (a) `ADR_BACKLOG` を存在しないパスにすると rc=127 で、`error:` の行が台本の欠落を言う、(b) `ADR_BACKLOG` を使い捨ての木に置いた偽の台本（空の配列を出す）に向け、`ADR_MEMORY` を存在しないフォルダにすると rc=127 で、`error:` の行が置き場の欠落を言う、
