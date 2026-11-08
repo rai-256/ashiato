@@ -38,7 +38,7 @@
 
 ## Task 2: ADR を置き、CLAUDE.md の表に 1 行を足す
 
-- [ ] 2.1 `docs/changes/CH12.md` の `## 依頼（逐語）` から D1 の取り出し方で 6 つの塊を取り、`docs/adr/<名前>` に書く（README・5 件の ADR）。`tools/test-adr-docs.sh --verbatim` を D1 のとおりに書く（先に節そのものが `ff9a78dd7` の節と一致することを見る。次に 6 つの塊それぞれについて一致を見て、違えば塊の名前と最初に違う行を出す。塊が 6 つでなければ落ちる）。
+- [ ] 2.1 `docs/changes/CH12.md` の `## 依頼（逐語）` から D1 の取り出し方で 6 つの塊を取り、`docs/adr/<名前>` に書く（README・5 件の ADR）。`tools/test-adr-docs.sh --verbatim` を D1 のとおりに書く（先に節の sha256 が design D1 の定数と一致することを見る。次に 6 つの塊それぞれについて一致を見て、違えば塊の名前と最初に違う行を出す。塊が 6 つでなければ落ちる）。
   書いたら `git add docs/adr` で追跡に入れる（check-private は追跡しているファイルしか見ない）。
   検証: `tools/test-adr-docs.sh --verbatim` rc=0
 - [ ] 2.2 `CLAUDE.md` の「文書とハーネス」の表の `docs/` の行の直後に `` | `docs/adr/` | Story をまたぐ判断の記録 | する | `` の 1 行を足す（D7（仮））。

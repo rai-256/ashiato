@@ -76,7 +76,7 @@
 - 根拠: CH12.md:270「この文書の『依頼（逐語）』の節: 逐語との比較の元なので、1 字も変えない」。`--verbatim`（design.md:35-37）は docs/adr/ と CH12.md の節を比べるだけ。4.1 の差分の検査（tasks.md:57）は `docs/changes/CH12.md` の変更を許す。今の節は登録の commit ff9a78dd7 の節と一致する（`awk` で両方の節を取り出して diff → 同じ、242 行）が、それを固定する検証は無い。下流が食い違いを「直す」とき、ADR と節を一緒に書き換えれば、どの検証も落ちない。ADR の逐語の一致は D1 のとおり意図して Scenario にしていないので、ここが唯一の歯止めになる
 - kind: technical
 - 提案: `--verbatim` が、節を `git show ff9a78dd7:docs/changes/CH12.md` の同じ節と比べ、違えば落ちるようにする（D1 に書く）。比べる元の commit は台本に定数で書く
-- 処置: fixed D1 —— `--verbatim` は先に、いまの「依頼（逐語）」の節が登録の commit `ff9a78dd7` の節とバイト単位で一致することを見る（commit は台本に定数で書く。HEAD の祖先であることを確かめた）。tasks 2.1・CH12.md の完了の判定 2. にも書いた
+- 処置: fixed D1 —— `--verbatim` は先に、いまの「依頼（逐語）」の節の sha256 が、登録の commit `ff9a78dd7` の節から計算した定数と一致することを見る（rebase で SHA が消えても動くよう、commit でなく中身の値を台本に書く。いまの節と登録時の節で同じ値を確かめた）。tasks 2.1・CH12.md の完了の判定 2. にも書いた
 
 ## R10. `--backlog` の 3 本は CH12 の受け入れの 1 回の判定で、D1 の基準では正典に置かないもの。正典が private で未 merge の外の台本を名指す
 - 成果物: openspec/changes/ch12-memory-decisions-adr/specs/decision-records/spec.md（2 つ目の Requirement の後半と 3 本の Scenario）・design.md D1・D8
