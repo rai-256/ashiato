@@ -307,6 +307,8 @@ TSV
   copied_cargo="$test_root/Cargo.toml"
   cp -a collector-android "$copied_android"
   cp Cargo.toml "$copied_cargo"
+  # この自己試験は偽の依存を後から足すため、固定の検査は check-gradle-locks.sh に任せる。
+  sed -i '/^dependencyLocking {$/,/^}$/d' "$copied_android/build.gradle.kts" "$copied_android/app/build.gradle.kts"
   mkdir -p "$fake_repo/com/example/parent/1.0.0" "$fake_repo/com/example/child/1.0.0"
   : >"$fake_repo/com/example/child/1.0.0/child-1.0.0.jar"
   cat >"$fake_repo/com/example/parent/1.0.0/parent-1.0.0.pom" <<'POM'
@@ -346,6 +348,7 @@ MODULE
   printf '%s\n' 'tasks.register("resolveFakeReleaseRuntime") { doLast { configurations.getByName("releaseRuntimeClasspath").resolve() } }' >>"$copied_android/app/build.gradle.kts"
   local resolve_output
   resolve_output=$("$copied_android/gradlew" -p "$copied_android" --no-configuration-cache --refresh-dependencies -q :app:resolveFakeReleaseRuntime \
+    --write-locks \
     "-Pashiato.extraRepo=$fake_repo" 2>&1) || { printf '%s\n' "$resolve_output" >&2; return 1; }
   if output=$("$copied_android/gradlew" -p "$copied_android" --offline --no-configuration-cache --rerun-tasks -q :app:ashiatoDependencyPoms \
     "-Pashiato.pomOut=$test_root/missing.tsv" "-Pashiato.extraRepo=$fake_repo" 2>&1); then
@@ -355,6 +358,8 @@ MODULE
   grep -q "$missing_coordinate" <<<"$output" || return 1
   grep -Eq "POM を取れない|Could not find missing-${missing_version}\.pom" <<<"$output" || return 1
   ! grep -q "Could not find $missing_coordinate" <<<"$output" || return 1
+
+  echo "== Scenario: 許諾の検査の自己試験は、固定を入れた後も通る"
 
   echo "== Scenario: 検査する対象が無い節は、通さずに落ちる"
   if output=$(ASHIATO_GRADLEW=false ASHIATO_LICENSES_POM_LIST= "$self" android 2>&1); then
