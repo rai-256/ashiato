@@ -87,7 +87,6 @@ check_index_and_files() {
   while IFS= read -r name; do
     [[ "$name" =~ ^[0-9]{12}-[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || error "$name: ファイル名が時刻と英小文字 slug の形でない"
   done < "$files_file"
-  trap - RETURN
 }
 
 check_shape() {
@@ -209,7 +208,6 @@ verbatim() {
   actual=$(sha256sum "$tmp/section" | awk '{print $1}')
   if [ "$actual" != "$expected" ]; then
     error "$source: 依頼（逐語）の sha256 が違う"
-    trap - RETURN
     return 1
   fi
   python3 - "$tmp/section" "$ADR_DIR" <<'PY'
@@ -230,7 +228,6 @@ for name, body in blocks:
         print(f'error: {path} が依頼（逐語）と一致しない', file=sys.stderr)
         sys.exit(1)
 PY
-  trap - RETURN
 }
 
 self_test() {
@@ -273,7 +270,6 @@ PY
       grep -Fq "$target" "$output" || error "self-test の壊し方 $case_name が $target を出さなかった"
     fi
   done
-  trap - RETURN
   return "$errors"
 }
 
