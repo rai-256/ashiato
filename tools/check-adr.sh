@@ -198,7 +198,9 @@ run_main() {
   if grep -Eq '^docs/adr/' tools/check-private.allow; then
     error 'tools/check-private.allow に docs/adr/ の例外がある'
   fi
-  tools/check-private.sh || errors=1
+  if [ "${ADR_SELF_TEST_CHILD:-0}" != 1 ]; then
+    tools/check-private.sh || errors=1
+  fi
   trap - RETURN
   return "$errors"
 }
@@ -222,19 +224,46 @@ for line in source.splitlines():
     section.append(line[2:] if line.startswith('> ') else '' if line == '>' else line)
 text = '\n'.join(section) + '\n'
 blocks = re.findall(r'^=== ファイル: ([^=]+) ===\n(.*?)(?=^=== ファイル: |\Z)', text, re.M | re.S)
+failed = False
 if len(blocks) != 6:
-    print('error: 依頼（逐語）のファイル塊が 6 つでない', file=sys.stderr); sys.exit(1)
+    print(f'error: 依頼（逐語）のファイル塊が {len(blocks)} つで、6 つでない', file=sys.stderr)
+    failed = True
+names = [name.strip() for name, _ in blocks]
+if len(set(names)) != len(names):
+    print('error: 依頼（逐語）のファイル名に重複がある', file=sys.stderr)
+    failed = True
 for name, body in blocks:
     wanted = body.strip('\n') + '\n'
     path = adr / name.strip()
-    if not path.is_file() or path.read_text() != wanted:
-        print(f'error: {path} が依頼（逐語）と一致しない', file=sys.stderr)
-        sys.exit(1)
+    if not path.is_file():
+        print(f'error: {path} が無い', file=sys.stderr)
+        failed = True
+        continue
+    actual = path.read_text()
+    if actual == wanted:
+        continue
+    expected_lines = wanted.splitlines()
+    actual_lines = actual.splitlines()
+    first_difference = next(
+        (index for index in range(max(len(expected_lines), len(actual_lines)))
+         if (expected_lines[index] if index < len(expected_lines) else None)
+         != (actual_lines[index] if index < len(actual_lines) else None)),
+        None,
+    )
+    line_number = first_difference + 1
+    expected_line = expected_lines[first_difference] if first_difference < len(expected_lines) else '<EOF>'
+    actual_line = actual_lines[first_difference] if first_difference < len(actual_lines) else '<EOF>'
+    print(f'error: {path}: {line_number} 行目が依頼（逐語）と一致しない', file=sys.stderr)
+    print(f'  依頼: {expected_line}', file=sys.stderr)
+    print(f'  ADR: {actual_line}', file=sys.stderr)
+    failed = True
+if failed:
+    sys.exit(1)
 PY
 }
 
 self_test() {
-  local base tmp case_rc
+  local base tmp case_rc expected_message
   [ -d "$ADR_DIR" ] || { error "self-test の基準となる $ADR_DIR が無い"; return 1; }
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
@@ -244,6 +273,11 @@ self_test() {
   cp "$CLAUDE_FILE" "$base/CLAUDE.md"
   cp "$AGENTS_FILE" "$base/AGENTS.md"
   cp "$CI_FILE" "$base/.github/workflows/ci.yml"
+  base_output="$tmp/base-output"
+  if ! ADR_SELF_TEST_CHILD=1 ADR_DIR="$base/docs/adr" ADR_CLAUDE_MD="$base/CLAUDE.md" ADR_AGENTS_MD="$base/AGENTS.md" ADR_CI_YML="$base/.github/workflows/ci.yml" "$0" >"$base_output" 2>&1; then
+    error "self-test の基準の木で本番検査が通らない"
+    sed -n '/error:/p' "$base_output" >&2
+  fi
   for case_name in list-missing list-swapped title source filename claude decision agents ci; do
     case_dir="$tmp/$case_name"
     cp -a "$base" "$case_dir"
@@ -265,13 +299,22 @@ PY
       agents) sed -i '/Story をまたぐ判断.*`docs\/adr\/`/d' "$case_dir/AGENTS.md" ;;
       ci) sed -i '/check-adr\.sh --self-test/d' "$case_dir/.github/workflows/ci.yml" ;;
     esac
+    case "$case_name" in
+      list-missing) expected_message='README の一覧' ;;
+      list-swapped) expected_message='一覧がファイル名の新しい順でない' ;;
+      title) expected_message='README の題と見出しが違う' ;;
+      source) expected_message="$target: 出所の行が 0 個" ;;
+      filename) expected_message='ファイル名が一致しない' ;;
+      claude) expected_message='CLAUDE.md: 文書の表から docs/adr/ に辿る行が 0 個' ;;
+      decision) expected_message='## 決定 の見出しが 0 個' ;;
+      agents) expected_message='AGENTS.md: Story をまたぐ判断から docs/adr/ に辿る行が 0 個' ;;
+      ci) expected_message='ci.yml: chain job の ADR 検査の行が 0 個' ;;
+    esac
     output="$case_dir/output"
-    if ADR_DIR="$case_dir/docs/adr" ADR_CLAUDE_MD="$case_dir/CLAUDE.md" ADR_AGENTS_MD="$case_dir/AGENTS.md" ADR_CI_YML="$case_dir/.github/workflows/ci.yml" "$0" >"$output" 2>&1; then
+    if ADR_SELF_TEST_CHILD=1 ADR_DIR="$case_dir/docs/adr" ADR_CLAUDE_MD="$case_dir/CLAUDE.md" ADR_AGENTS_MD="$case_dir/AGENTS.md" ADR_CI_YML="$case_dir/.github/workflows/ci.yml" "$0" >"$output" 2>&1; then
       error "self-test の壊し方 $case_name で検査が落ちなかった"
     fi
-    if [ "$case_name" = source ] || [ "$case_name" = decision ]; then
-      grep -Fq "$target" "$output" || error "self-test の壊し方 $case_name が $target を出さなかった"
-    fi
+    grep -Fq "$expected_message" "$output" || error "self-test の壊し方 $case_name が期待する error を出さなかった: $expected_message"
   done
   return "$errors"
 }

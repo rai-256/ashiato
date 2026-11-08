@@ -40,3 +40,21 @@
 ## 懸念
 
 なし。
+
+## Fix report（review 1）
+
+### 修正内容
+
+- F1: `--verbatim` が6塊を最後まで検査し、塊数・名前の重複を検査するよう修正。不一致は全件について行番号、依頼側の行、ADR側の行を出すようにした。
+- F2: self-test の子プロセスでは `check-private.sh` を実行しないようにした。
+- F3: self-test の基準木が本番検査を通ることを確認し、9ケースすべてで期待する error 文言を確認するようにした。
+
+### テストと検証
+
+- RED: 2つのADRを壊して現行 `--verbatim` を実行。最初のパスだけを出し、2つ目のパス・行番号・両側の行を出さないことを確認した。
+- GREEN: `bash -n tools/check-adr.sh`、`tools/check-adr.sh --verbatim`、`scripts/quiet-run adr-self-test -- tools/check-adr.sh --self-test`（rc=0、約12秒）、`scripts/quiet-run adr-main -- tools/check-adr.sh`（rc=0、約58秒）。
+- `scripts/verify-run 2.1` と `scripts/verify-run 2.2` はともに PASS。`tools/check-private.sh` と3ファイルの差分検査も PASS。
+
+### 自己レビュー
+
+F1〜F3以外の指摘・仕様・既存ファイルは変更していない。`git diff --check` も PASS。
