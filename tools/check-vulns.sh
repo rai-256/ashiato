@@ -40,6 +40,80 @@ scanner_path() {
   printf '%s\n' "$path"
 }
 
+github_settings() {
+  local response status settings_root="${GH_SETTINGS_ROOT:-$ROOT}" rc
+  echo "== Scenario: 設定を API で読み返す"
+
+  response="$(gh api --include -X PUT repos/rai-256/ashiato/vulnerability-alerts 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  fi
+  if [[ $rc -ne 0 || "$status" != 204 ]]; then
+    echo "error: 検査できなかった（vulnerability-alerts: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+    return 1
+  fi
+  echo "vulnerability-alerts: 204"
+
+  response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" != 200 || $rc -ne 0 ]]; then
+    if [[ "$status" == 401 || "$status" == 403 ]]; then
+      echo "error: 検査できなかった（管理者の権限が要る）" >&2
+      return 2
+    fi
+    response="$(gh api --include -X PATCH repos/rai-256/ashiato -f 'security_and_analysis[dependency_graph][status]=enabled' 2>&1)"
+    rc=$?
+    status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+    if [[ "$status" == 401 || "$status" == 403 ]]; then
+      echo "error: 検査できなかった（管理者の権限が要る）" >&2
+      return 2
+    fi
+    if [[ $rc -ne 0 || "$status" != 200 ]]; then
+      echo "error: 検査できなかった（security_and_analysis: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+      return 1
+    fi
+    response="$(gh api --include repos/rai-256/ashiato/dependency-graph/sbom 2>&1)"
+    rc=$?
+    status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  fi
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  fi
+  if [[ $rc -ne 0 || "$status" != 200 ]]; then
+    echo "error: 検査できなかった（dependency-graph/sbom: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+    return 1
+  fi
+  echo "dependency-graph/sbom: 200"
+
+  response="$(gh api --include repos/rai-256/ashiato/automated-security-fixes 2>&1)"
+  rc=$?
+  status="$(sed -nE 's/^HTTP[^ ]* ([0-9]{3}).*/\1/p' <<<"$response" | tail -n 1)"
+  if [[ "$status" == 401 || "$status" == 403 ]]; then
+    echo "error: 検査できなかった（管理者の権限が要る）" >&2
+    return 2
+  fi
+  if [[ $rc -ne 0 ]]; then
+    echo "error: 検査できなかった（automated-security-fixes: HTTP ${status:-unknown}, gh rc=$rc）" >&2
+    return 1
+  fi
+  if ! grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' <<<"$response"; then
+    echo "error: 検査できなかった（automated-security-fixes が有効）" >&2
+    return 1
+  fi
+  echo "automated-security-fixes: enabled=false"
+
+  if [[ -e "$settings_root/.github/dependabot.yml" ]]; then
+    echo "error: 検査できなかった（dependabot.yml がある）" >&2
+    return 1
+  fi
+  echo "dependabot.yml: 無い"
+}
+
 self_test() {
   local scanner tmp
   tmp="$(cd "$(mktemp -d)" && pwd)" || return 2
@@ -360,6 +434,11 @@ main() {
   if [[ "${1:-}" == "--self-test" ]]; then self_test; return $?; fi
   if [[ "${1:-}" == "allow-ghsas" ]]; then
     CHECK_VULNS_ROOT="$ROOT" python3 "$SCRIPT_DIR/check-vulns.py" --allow-ghsas
+    return $?
+  fi
+  if [[ "${1:-}" == "github-settings" ]]; then
+    [[ $# == 1 ]] || { echo "error: 検査できなかった（使い方）" >&2; return 2; }
+    github_settings
     return $?
   fi
   if [[ "${1:-}" == "nightly" || "${1:-}" == "file-issues" ]]; then

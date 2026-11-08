@@ -83,3 +83,24 @@
 
 - `tools/check-vulns.sh` は Task 11 着手前の状態と一致し、Task 6.1 のコード・Scenario 印・依存グラフ PATCH を含まない。
 - 残る未解決事項は Task 6.1 の実装と、管理者権限を持つ本物の GitHub での検証であり、Task 11 内で推測により埋めていない。
+
+## Fix round 3
+
+### 対応
+
+- F2: `tools/check-vulns.sh github-settings` の本体に `設定を API で読み返す` の印を戻し、Task 6.1 の指定どおり、alerts の有効化と 4 項目の API 読み返しを同じ入口で行うようにした。
+- F7: SBOM が取れない場合の PATCH は `security_and_analysis[dependency_graph][status]=enabled` だけに限定した。自動の更新 PR は有効化しない。
+
+### 検証
+
+- `scripts/quiet-run task11-vulns-self-fix3 -- tools/check-vulns.sh --self-test`: rc=0、114 秒、40 行。
+- `scripts/verify-run 11.1`: PASS、rc=0。
+- `scripts/verify-run 11.2`: PASS、rc=0、`scenarios: OK`。
+- `openspec validate ch11-dependency-vulnerability-scan --strict`: PASS。
+- `bash -n tools/check-vulns.sh`、PATCH に自動更新 PR の指定が無いこと、`git diff --check`: PASS。
+
+### 自己レビュー
+
+- Scenario の印は偽 `gh` self-test ではなく `github-settings` 本体に 1 箇所だけ置いた。
+- SBOM の失敗経路を含め、PATCH に `dependabot_security_updates` の指定は無い。
+- 管理者権限を要する本物の GitHub への `github-settings` 実行は、この環境では行っていない。これはコードの self-test 成功とは別の Task 6.1 の外部確認事項として残る。
