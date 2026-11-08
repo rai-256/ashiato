@@ -9,7 +9,7 @@
     {
       "cmd": "bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee \"$TMPDIR/et.log\"'",
       "want": "box",
-      "why": "docker を使うが、箱の中の dockerd で走る（#161）: 画面の e2e（npx playwright test。D6）"
+      "why": "docker を使うが、箱の中の dockerd で走る（#161）: 画面の e2e（npx playwright test。前の D6（仮））"
     },
     {
       "cmd": "bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test --workspace'",
@@ -24,7 +24,7 @@
     {
       "cmd": "bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'",
       "want": "box",
-      "why": "docker を使うが、箱の中の dockerd で走る（#161）: 絞り込みなしの -p ashiato-server（D6）"
+      "why": "docker を使うが、箱の中の dockerd で走る（#161）: 絞り込みなしの -p ashiato-server（前の D6（仮）。#161 で docker の欄ごと消えた）"
     },
     {
       "cmd": "bash -c 'set -a; . ./.env; set +a; cargo test'",
@@ -84,7 +84,7 @@
     {
       "cmd": "bash -c '. tools/ports.sh; docker network ls'",
       "want": "box",
-      "why": "docker を使うが、箱の中の dockerd で走る（#161）: docker を直に呼ぶ（D6）"
+      "why": "docker を使うが、箱の中の dockerd で走る（#161）: docker を直に呼ぶ（前の D6（仮）。#161 で docker の欄ごと消えた）"
     },
     {
       "cmd": "! grep -n 'gradle.properties' tools/record-env.sh",

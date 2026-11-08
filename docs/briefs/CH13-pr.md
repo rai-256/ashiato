@@ -7,7 +7,7 @@
 
 一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
 
-- **上流で見つけたこと（有効にする前に直す）**: ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない。グラフを走らせる `hx-dev.service` の `PATH` にも無いので、このまま `tests` にすると docker を使う検証と準備が箱の中で落ちる見込み（下流が harness2 に issue を 1 つ立てる）
+- **上流で見つけたこと（有効にする前に直す）**: ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない。グラフを走らせる `hx-dev.service` の `PATH` にも無いので、このまま `tests` にすると、準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので、箱に入る検証は全部（1,786 本のうち 1,751 本）BLOCKED_INFRA になる見込み（下流が harness2 に issue を 1 つ立てる）
 - **測っていない**: e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか
 - **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（下流が書き出す）
 
@@ -45,12 +45,12 @@ A（止める問い）は無い。
 
 ## tasks
 
-5 Task・14 項目。置く（1.1・1.2）/ off の間に何も変わらない（2.1〜2.4）/ pgrep と鍵（3.1・3.2）/ `host_only` の当たり方の確かめと分類の一覧（4.1・4.2）/ PR 本文と issue（5.1 PR 本文・5.2 harness2 に 1 つ・5.3 ashiato2 に 1 つ）。
+5 Task・14 項目（5.4 を足した）。置く（1.1・1.2）/ off の間に何も変わらない（2.1〜2.4）/ pgrep と鍵（3.1・3.2）/ `host_only` の当たり方の確かめと分類の一覧（4.1・4.2）/ PR 本文と issue（5.1 PR 本文・5.2 harness2 に 1 つ・5.3 ashiato2 に 1 つ・5.4 PR 本文に issue の番号）。
 docker と作業箱のイメージを要るのは 3.1 だけ。GitHub に出るのは 5.2・5.3（どれも同じ題があれば立てない）。
 
 ## レビュー
 
 - 深掘りの問いの独立検査（`review/deep.md`）: 10 件。問いとして本人に渡したもの 4（R1・R6・R7・R8）、宿題・前提・仮決めへ 6
-- spec-review（`review/spec.md`）: 第 1 回の先読みで 5 件（R1〜R5）、`spec --answers` の後で 6 件（R6〜R11）。第 2 回の違和感の後の回は `review/spec.md` の末尾
+- spec-review（`review/spec.md`）: 第 1 回の先読みで 5 件（R1〜R5）、`spec --answers` の後で 6 件（R6〜R11）、第 2 回の違和感の後で 6 件（R12〜R17。technical 6）。全部 fixed（R2 の処置を escalated に・R9/R10 を仮でない形に直した・5.2 の検証で題を見る・2.4 で 2 節も見る・PATH の件の影響を「箱に入る検証の全部」に直した・5.4 を足した・字句）
 - 答えの写し（`review/answers.md`）: Q1〜Q4 とも写った
 - 走っている change との重なり: st53・st56・ch10 とも独立（触るファイルが重ならない）。st53 の actionlint と st56 の画面の e2e は、有効にした後は箱の中の dockerd で走る

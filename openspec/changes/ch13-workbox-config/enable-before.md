@@ -18,7 +18,7 @@
 ## 2. 上流で見つけたこと（有効にする前に直す）
 
 - [ ] ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない（箱はホストの `PATH` を受け継ぐ）。
-  グラフを走らせる `hx-dev.service` の `PATH` にも `/usr/sbin` が無いので、このまま `tests` にすると、docker を使う検証と検証の準備（`tools/verify-env.sh`）が箱の中で落ちる見込み。
+  グラフを走らせる `hx-dev.service` の `PATH` にも `/usr/sbin` が無いので、このまま `tests` にすると、検証の準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので準備が落ち、箱に入る検証は docker を使わないものも含めて全部 BLOCKED_INFRA になる見込み（2026-11-08 の走査で 1,786 本のうち 1,751 本）。
   再現（2026-11-08、`premises.md`）: `PATH` に `/usr/sbin` が無いシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'docker images'` → `failed to create NAT chain DOCKER: iptables not found`。`PATH` に `/usr/sbin:/sbin` を足すと立ち、`postgres:17-alpine` が読み込まれている。
   直す場所は harness2（下の issue。design D9（仮））。ashiato2 の `tools/workbox.json` の `env` では回避しない
 

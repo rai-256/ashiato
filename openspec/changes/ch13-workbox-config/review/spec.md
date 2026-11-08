@@ -35,7 +35,7 @@ deep.md の答えは全部 `（答え待ち・推奨: …）` なので、推奨
 - 根拠: deep.md Q1「答え: （答え待ち・推奨: PR 本文に挙げ、有効にする前の宿題として issue にも残す）」/ design.md:42「**issue は立てない**（推奨の「issue にも残す」をこの形にした）」/ design.md:45 の反転条件は「本人が issue を求める（Q1 の補足）」だけで、推奨の選択肢そのものが issue を求めていることを反転の引き金にしていない / docs/changes/CH13.md の「価値」・tasks.md:11 も「issue は立てない」/ 第 1 回の `spec --answers` は推奨と違った答えだけを名指すので、本人が推奨を選ぶと Q1 は見直されず、選んだ「issue にも残す」は実現しない。なお D2 の理由「`publish.sh` の issue は CH13 の merge で閉じる」は自動ではない: `publish.sh:64` は PR 本文に `refs #N` を足すだけで、閉じるのは PR 本文が `closes #N` を書いたとき（`.harness2/docs/flow-gates.md:212`「`closes #N` は残タスク 0 のときだけ。それ以外は `refs #N`。issue が残タスクの入口」・`.harness2/scripts/issue_body.py:142`「残タスクが 0 になるまで閉じない」）。宿題を残タスクとして書けば、既存の CH13 の issue が置き場になりうる
 - kind: conflict
 - 提案: どちらかに揃える。(a) 推奨どおり issue に残す形にする —— agent に gh を持たせずに済む置き場（publish.sh が作る CH13 の issue を、下流の PR 本文で `closes` にせず `refs` のまま残し、宿題を残タスクとして載せる。または archive の後に人間が立てる 1 行を PR 本文に置く）を D2 に書く。(b) issue を立てない形を採るなら、推奨の文と違うことを GO 資料の highlights に出して本人に見せる（推奨のまま答えても見落とさない形）。どちらでも D2 の「merge で閉じる」は「下流の PR 本文が `closes` を書けば閉じる」に直す
-- 処置: fixed D2 仮 — 推奨どおり issue にも残す形にした: 下流の Task 3.2 が同じ題が無いときだけ 1 つ立てる。CH13 の issue を置き場にしない理由を「`closes` を書けば閉じる」に直した。CH13.md の価値・完了の判定と proposal も揃えた
+- 処置: escalated — Q1 で本人に問い、Q1 (3) の答え（issue にも残す）を D2 に写した（3 回目の R12 で直した。前は fixed D2 仮）。推奨どおり issue にも残す形にした: 下流の Task 3.2 が同じ題が無いときだけ 1 つ立てる。CH13 の issue を置き場にしない理由を「`closes` を書けば閉じる」に直した。CH13.md の価値・完了の判定と proposal も揃えた
 
 ## R3. PR 本文に載せる宿題が「1〜6 の見出し」で、Q3 で回した pgrep の確かめ（§0）が PR 本文から落ちる。PR 本文を確かめる Task も無いのに CH13.md は「Task 3.1」を指す
 - 成果物: openspec/changes/ch13-workbox-config/tasks.md
@@ -146,7 +146,7 @@ R1・R3・R5。そのほかの項目（1.1・2.1・2.3・2.4）はコマンド�
 - 根拠: design.md:78（`cargo\s+test\b([^;&|'"]*\s--(workspace|test\s+server_startup)\b|\s+-p\s+ashiato-server\s*($|['";&|)]))`）/ `Cargo.toml` は virtual manifest で `default-members` が無く、根で裸の `cargo test` を走らせると全 crate の試験（`server_startup.rs:1901` の `st51_bin_migrate_attempt_survives_restore` を含む）が走る = `--workspace` と同じ。design.md:147 の D6（仮）の根拠がそのまま当てはまる / 実在: `openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md` の 3.1・12.2 の `cargo test` は、D1 で box（5.2 の `command-classes.md` に誤って「docker を渡さない」で載る）/ `bash -c 'cargo test -p ashiato-server 2>&1 | tee x'` も D1 で box（実例は 0 本）。design.md:150 の「残るもの」はこの 2 つを挙げていない
 - kind: technical
 - 提案: 4 本目の正規表現に、裸の `cargo test`（例 `cargo\s+test\s*($|['";&|)]|\d?>)`。後ろに絞り込みの名前もフラグも無いもの）と、`-p ashiato-server` の後が `\d?>` で始まる形を足し、`match-cases.json` に `cargo test` と `bash -c 'cargo test -p ashiato-server 2>&1 | tee "$TMPDIR/x"'` を `docker` で 1 行ずつ足す。直さないなら D6（仮）の「残るもの」にこの 2 つを書く
-- 処置: fixed D6 仮 — 裸の `cargo test` と `-p ashiato-server` の後に `2>&1` などが続く形を docker の欄の cargo の型に足し、match-cases.json に 3 行足した（34 行）。D6（仮）に書いた
+- 処置: fixed D6 — 第 2 回の合意の違和感 (1) で docker の欄ごと消えた（台帳で resolve。3 回目の R12 で処置の形を直した）。当時は裸の `cargo test` と `-p ashiato-server` の後に `2>&1` などが続く形を docker の欄の cargo の型に足し、match-cases.json に 3 行足した（34 行）。D6（仮）に書いた
 
 ## 観点 1〜5・7（spec --answers の後）
 - 観点 1: deep の Q1〜Q4 の答えと補足は proposal・design（D1〜D8）・tasks・CH13.md の完了の判定と壊してはいけないものに写っている（Q ごとは `review/answers.md`）。数値（10 未満・6g・4g・5 本・31 行・1,700 本）は tasks の検証にある。要件へ戻すものは無い（`satisfies: []`）
@@ -186,7 +186,7 @@ R1・R3・R5。そのほかの項目（1.1・2.1・2.3・2.4）はコマンド�
   `cargo test -p ashiato-server "st99_name"` も docker。この形は AGENTS.md:24（「`cargo test <名前>` 型は `-- --list` で 1 本以上あることも確かめる」）が勧める型で、後の Story が書き続ける。答えの (1)「台本の名前を grep するだけの検証に socket が渡らないようにする（当たりすぎ）」と同じ種類の当たりすぎで、design.md:149 の D6（仮）の当たり方の変化はこれを挙げていない。match-cases.json の `--list` の行（170 行目）は引用符の無い形だけ
 - kind: technical
 - 提案: 終わりの判定の引用符を「閉じの引用符」に限る（例 `(['"](\s|$|[;&|)])|$|[;&|)]|[0-9]?>)`。`bash -c 'cargo test -p ashiato-server'` の閉じは当たり、`"$1"` の開きは当たらない）。match-cases.json に上の `set -- …; cargo test -p ashiato-server "$1" -- --list` の形を `box` で 1 行足す。直さないなら D6（仮）の「残るもの」に、この形が socket を受け取ることを書く
-- 処置: fixed D6 仮 — 引用符は閉じのとき（後が空白・行末・`;&|)`）だけ終わりとみなす形にし、match-cases.json に `"$1" -- --list` の形を box で 1 行足した（35 行）。1,781 本の分かれ方はホスト 35・docker 299・箱 1,447
+- 処置: fixed D6 — 第 2 回の合意の違和感 (1) で docker の欄ごと消えた（台帳で resolve。3 回目の R12 で処置の形を直した）。当時は引用符は閉じのとき（後が空白・行末・`;&|)`）だけ終わりとみなす形にし、match-cases.json に `"$1" -- --list` の形を box で 1 行足した（35 行）。1,781 本の分かれ方はホスト 35・docker 299・箱 1,447
 
 ## R11. PR 本文の Q3 の行が、当たり方の確かめを並べ替える前の「tasks 5」と呼んでいる
 - 成果物: docs/briefs/CH13-pr.md
@@ -194,3 +194,103 @@ R1・R3・R5。そのほかの項目（1.1・2.1・2.3・2.4）はコマンド�
 - kind: technical
 - 提案: 30 行目の「tasks 5」を「tasks 4」に直す
 - 処置: fixed 5.1 — PR 本文（Task 5.1 が見る docs/briefs/CH13-pr.md）の Q3 の行を tasks 4 に直した
+
+## 第 2 回の合意の違和感の後（2026-11-08。3 回目）
+
+対象: commit `8caf47e94`（`git diff 730decb9d HEAD`。proposal・design・tasks・enable-before.md・match-cases.json・premises.md・provisional.jsonl・deep.md の `→ 対応:`・`docs/changes/CH13.md`・`docs/briefs/CH13-pr.md`）。
+harness2 は `/home/yosis/dev/harness2` の main `d65ff3b4a`（#161 の merge）の `scripts/workbox.py`・`scripts/evidence.py`・`workbox/`（`docker-shim` `dockerd-up` `Dockerfile`）を読んだ。mode は `spec`（`--answers` / `--iwakan` ではない）。
+
+### 機械の検査
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate ch13-workbox-config --strict` | rc=0（`skip_specs is set … zero deltas accepted`） |
+| `python3 scripts/check_chain.py .` | rc=0（chain: OK） |
+| `python3 scripts/check_scenarios.py . ch13-workbox-config` | rc=0（scenarios: OK。warn は他の Story の印だけ） |
+| `python3 scripts/review_triage.py . ch13-workbox-config` | **rc=1（triage: FAIL 1 件）`spec.md R2: design.md の D2 に「仮」の印が無い`**（→ R12） |
+| `python3 scripts/spec_overlap.py candidates . ch13-workbox-config` | `[]`（0 件） |
+| `python3 scripts/spec_overlap.py check . ch13-workbox-config` | rc=0（`{"ok": true, "candidates": 0}`） |
+| `python3 scripts/evidence.py lint openspec/changes/ch13-workbox-config` | rc=0 |
+| `python3 scripts/provisional.py check openspec/changes/ch13-workbox-config` | rc=1（D9 の `provisional-review.md` が無い）—— グラフの provisional_review が書く前の状態で、この段では正常 |
+
+### 追加で確かめたこと
+
+- **違和感 (1)〜(5) の写り**（見てほしいもの 1）:
+  - (1)(5) design D1 の JSON は `docker` `prep_files` が無く、`docker_images: ["postgres:17-alpine"]`、`host_only` は依頼の 4 本 + 3 本、ほかの 6 欄は依頼の版と同じ。Task 1.2 がこの 4 つの欄だけを機械で見る形になった。`docs/changes/CH13.md` の「依頼（逐語）」の節は `730decb9d` と HEAD で sha1 が同じ（書き換えていない）
+  - (2) tasks 4.1・4.2 は `host_only` だけで `host` / `box`、`needs_docker` を呼ばない。`match-cases.json` は前の版の `docker` 17 行を `box` にしただけ（`cmd` の差分 0。35 行 = host 6・box 29）
+  - (3) enable-before.md から #161 で消えた項目が「harness2 #157 / #161 で済んだもの」の案内に移り、測るもの 3 つ（DB の容器も数える旨つき）と「ホストで走らせる台本（`host_only` に足した分）」が残る。deep.md (3) の `→ 対応:` と一致
+  - (4) Task 3.1 は残り、3.2 は `load_config` と `RETIRED` で見る形。deep.md (4) の `→ 対応:` と一致
+  - deep.md の `→ 対応:` 5 行は、どれも実際の変更と合っている（食い違いは見つからなかった）
+- **harness2 の実物との突き合わせ**（見てほしいもの 2）: Context の 5 項目・D1・D3・D7・D8 の主張は実物と合う —— `KEYS`（`workbox.py:61`）に `docker_images` があり `docker` `prep_files` は無い / `RETIRED`（:64）は止めずに stderr に出す（:124-125）/ 知らない鍵は `ValueError`（:121-123）/ `host_only` は `re.search`（:137-142）/ `evidence.py:398` の `in_box = box_cfg is not None and not workbox.host_only(box_cfg, cmd)` / `needs_docker` は無い / `image_tars` は `~/.cache/harness2-workbox/images` に save（:59・:203-229）/ `prune_images` は `until=168h`（:66・:174-178）/ `main` の `run` は `mode()` を見ずに `load_config` → `wrap`（:566-）/ `docker-shim` が最初の `docker` で `dockerd-up` を呼ぶ / 箱はホストの `PATH` を受け継ぐ（`env_flags` が `PATH` を落とさない。`ENV_DENY` に無い）。harness2 #157 は CLOSED（`gh issue view 157`）
+- **D9 の再現**: D1 の中身を一時に `tools/workbox.json` に置き、`/usr/sbin` の無いこのシェルから `env -u HARNESS_WORKBOX python3 .harness2/scripts/workbox.py run . -- bash -c 'docker images'` → `failed to create NAT chain DOCKER: iptables not found`、rc=75（`dockerd-up` の終わり）。`PATH="$PATH:/usr/sbin:/sbin"` を足すと `postgres:17-alpine` が出て rc=0。`hx-dev.service` は `~/.config/systemd/user/` の利用者のファイルで、`Environment=PATH=…:/usr/local/bin:/usr/bin:/bin`（`/usr/sbin` 無し）。harness2 の `systemd/hx-tick@.service:16` の `PATH` にも `/usr/sbin` は無い
+- **検証コマンド**（見てほしいもの 3。`evidence.items` → `declared` → `unwrap_quiet` で取り出した字面をそのまま走らせた）: D1 の塊を一時に置いて 1.1・1.2・2.1・2.2・2.4・3.2 が rc=0、2.3 が rc=0（67 秒）、3.1 が `pgrep: 1` rc=0。5.1 は rc=1（`pgrep: [0-9]+` は下流が書き足す。設計どおり）。
+  壊した写し: 1.2 は `docker` を残す・`prep_files` を残す・知らない鍵を足す・`host_only` の順を変える・`env` を変える・`docker_images` を空にする、のどれも AssertionError で rc=1。3.2 は `docker` / `prep_files` を残すと `もう効かない鍵`、知らない鍵で `ValueError` の rc=1。
+  design と依頼の写しを置いた使い捨ての木で、D1 の `memory` を `7g` にすると 1.2 は「変えてよい 4 つの欄の外が依頼の版と違う」、`host_only` に 1 本足すと「依頼の版の足し算でない」で rc=1。
+  4.1 は、本文どおりに書いた使い捨ての台本（`workbox.host_only` を import、不一致で rc=3）を使い捨ての木に置いて rc=0。D1 では 35 行一致、`--request` では足した 4 行（install-check・build・side-by-side・usage-volume）だけが外れて rc=3。
+  1,786 本の走査は D1 でホスト 35・箱 1,751、依頼の版でホスト 18（enable-before.md・premises.md の数と一致）。
+  置いた `tools/workbox.json` は消し、`git status --short` が空であることを確かめた。5.2・5.3 は走らせていない（5.2 の検証の字面だけを、番号を差し替えた使い捨ての写しで走らせた。→ R13）
+- **前回の R の直しが壊れていないか**（見てほしいもの 5）: R6 —— 4.1 の検証の字面は `730decb9d` から変わっていない（`{ … --request; test $? -eq 3; }`）。上の使い捨ての木で rc=0。R7 —— 2.4 は測るもの 3 つを項目ごとの句で grep したまま、`^## harness2 #157 / #161 で済んだもの` が足された。R10 —— D6 の正規表現は欄ごと消えたので前提が無くなった。`"$1" -- --list` の行は `box` で残り、D1 で一致。R1（`\x60{3}`）・R5（2.2 の未追跡）・R8（Task 5 が最後）・R11 も壊れていない。ただし triage が R2 で落ちる（→ R12）
+- `host_only` の当たりすぎ（情報のみ。指摘にしない）: 1,786 本のホスト 35 本に、`bash -n tools/android-emulator.sh`（ch10）と `grep -c HealthPermission tools/android-emulator.sh`（st11 の archive）が入る。依頼の版の `tools/android-emulator\.sh` が字面に当たるためで、違和感 (5) が依頼の版のままとした欄。ホストで走るだけで落ちない（`all` で箱の中の agent から来たものは Task gate がホストで取り直す。`evidence.py:399-405`）
+
+## R12. review_triage が R2 の処置 `fixed D2 仮` で落ちる（この commit で design の冒頭の行が変わったため）。merge_gate を通らない
+- 成果物: openspec/changes/ch13-workbox-config/review/spec.md（R2 の処置）/ openspec/changes/ch13-workbox-config/design.md
+- 根拠: `python3 scripts/review_triage.py . ch13-workbox-config` → `[FAIL] spec.md R2: design.md の D2 に「仮」の印が無い`（rc=1）。`review_triage.py:531` は「D2 と 仮 を同じ行に持つ行」を探す。`730decb9d` の design.md:4「本人の答えで決まった D2〜D5 は（仮）を外した」がたまたまそれに当たっていた。HEAD の design.md:6 は「D6〜D8 は（仮）を外した」で D2 の行が無くなった。
+  D2 は Q1 (3) で本人が決めた決定なので、design に（仮）を戻すのは事実と違う。なお R9・R10 の `fixed D6 仮` が通っているのも、design.md:6・137・139 の「前の D6（仮）」の字面に当たっているだけ（D6 は台帳で resolve 済み）
+- kind: technical
+- 提案: R2 の処置を、実際の経路どおり `escalated — Q1 で本人に問い、Q1 (3) の答え（issue にも残す）で D2 に写した` に直す（kind=conflict は `escalated` で閉じられる。`review_triage.py:26`）。R9・R10 は字面の偶然に頼らないよう、処置を `fixed D6 — 違和感 (1) で docker の欄ごと消えた（台帳で resolve）` のような仮でない形に直すかを呼び出し元で決める
+- 処置: fixed review/spec.md — R2 の処置を `escalated`（Q1 で本人に問い、Q1 (3) の答えを D2 に写した）に、R9・R10 の処置を仮でない `fixed D6`（違和感 (1) で欄ごと消えた）に直した。design に（仮）は戻していない
+
+## R13. Task 5.2 の検証は、harness2 の issue の番号が存在するかだけを見て、題を見ない。無関係の #157 を書いても通る
+- 成果物: openspec/changes/ch13-workbox-config/tasks.md
+- 根拠: tasks.md の 5.2 の検証（`grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: "` が 1 本 → `gh issue view "$n" -R rai-256/harness2 --json number`）/ enable-before.md の写しで `## harness2 の issue` の行を `- rai-256/harness2#157 作業箱: ホストの PATH に …` にして検証の字面を走らせると rc=0（#157 は CLOSED の別件「作業箱: docker を渡すかを字面で決めない・…」）。本文の「同じ題が既にあれば、その番号を書く」の誤読（似た題の #157 を「同じ題」と読む）を検証が止めない
+- kind: technical
+- 提案: 番号ごとに題を比べる（例 `gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと"`）。行の題の字面と一致させるだけでなく、GitHub 側の題で見る
+- 処置: fixed 5.2 — 番号ごとに GitHub 側の題を `gh issue view --json title` で取り、`作業箱: ホストの PATH に /usr/sbin が無いと` を含むかを見る形にした
+
+## R14. Task 2.4 は、一覧に残すと決めた 4 つのうち「上流で見つけた PATH の件」と「`host_only` に足した台本」の節を消しても通る
+- 成果物: openspec/changes/ch13-workbox-config/tasks.md
+- 根拠: 違和感 (3)「残すのは、測っていないもの…と、2 のホストが要る台本のうち host_only に足した分の確かめ」/ design D2（載せるものに `host_only` に足した台本の確かめ・D9（仮）の `PATH` の件）/ docs/changes/CH13.md:128 の完了の判定は「測るもの 3 つ・上流で見つけた `PATH` の件・…があり（Task 2.4）」と 2.4 を指す。
+  enable-before.md の写しから `## 2. 上流で見つけたこと` と `## ホストで走らせる台本（host_only に足した分）` の 2 節を消して 2.4 の検証の字面を走らせると rc=0（`## harness2 の issue` の題の 1 行は残るので、5.2 も PATH の再現を消されたまま通る）。R7 と同じ形
+- kind: technical
+- 提案: 2.4 の検証に `grep -q "^## 2\. 上流で見つけたこと" "$f" && grep -qF "iptables not found" "$f" && grep -q "^## ホストで走らせる台本" "$f"` を足し、本文の「下流は一覧の測るものを消さない」を 2 つの節にも広げる
+- 処置: fixed 2.4 — `^## 2\. 上流で見つけたこと`・`iptables not found`・`^## ホストで走らせる台本` の grep を足し、本文の「消さない」を 2 つの節にも広げた
+
+## R15. D9（仮）と enable-before.md・PR 本文は、PATH の件の影響を「docker を使う検証と準備」と書くが、実際は箱に入る検証の全部（1,751 本）が BLOCKED になる
+- 成果物: openspec/changes/ch13-workbox-config/design.md（D9（仮））/ openspec/changes/ch13-workbox-config/enable-before.md / docs/briefs/CH13-pr.md / openspec/changes/ch13-workbox-config/premises.md
+- 根拠: design.md:163・enable-before.md:21・CH13-pr.md:10「docker を使う検証と検証の準備が箱の中で落ちる見込み」/ `evidence.py:422-450` は箱に入る検証のたびに先に `tools/verify-env.sh` を同じ箱で走らせ、rc≠0 なら検証を走らせずに BLOCKED_INFRA にする / `tools/verify-env.sh:128-129` は毎回 `clear_blocking_network`（`docker network ls`）と `docker compose up -d --wait db` を呼ぶ / 再現で `dockerd-up` は rc=75。
+  したがって `/usr/sbin` が無いまま `tests` にすると、grep だけの検証も含めて箱に入る全部が BLOCKED_INFRA になる。下流の Task 5.2 は D9 の再現をそのまま harness2 の issue の本文にするので、重さが小さく伝わる。
+  あわせて、issue の本文の材料として: 直す場所の候補は `workbox/dockerd-up:25` の `PATH="$bin:$PATH" setsid rootlesskit …`（ここで `/usr/sbin:/sbin` を足せば利用者の unit に依らない）、harness2 自身の `systemd/hx-tick@.service:16` の `PATH` にも `/usr/sbin` が無い（`hx-dev.service` は harness2 の repo に無い利用者のファイル）
+- kind: technical
+- 提案: 3 か所の文を「準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので、箱に入る検証は全部 BLOCKED_INFRA になる見込み（2026-11-08 の走査で 1,786 本のうち 1,751 本）」に直し、D9（仮）の本文の材料に `dockerd-up:25` と `hx-tick@.service:16` を足す。D9 の決定（issue を 1 つ・`env` で回避しない）は変えない
+- 処置: fixed D9 仮 — design D9（仮）・enable-before.md・PR 本文の影響を「準備が毎回 docker を呼ぶので、箱に入る検証は全部（1,751 本）BLOCKED_INFRA の見込み」に直し、issue の本文の材料に `dockerd-up` の PATH の行と `hx-tick@.service` を足した。D9 の決定は変えていない
+
+## R16. Global Constraints は PR 本文に Task 5.2・5.3 の issue の番号を載せると言うが、確かめる Task が無く、5.1 は 5.2・5.3 より前に閉じる
+- 成果物: openspec/changes/ch13-workbox-config/tasks.md
+- 根拠: tasks.md:19「下流の PR 本文…の先頭に、…Task 5.2・5.3 の issue の番号を載せる」/ tasks.md:62 の 5.1 の検証は `enable-before.md`・`pgrep -fc /`・`pgrep: [0-9]+` だけを grep し、番号を見ない / グラフは Task を順に閉じるので、5.1 の時点で 5.2・5.3 の番号は無い。`730decb9d` の tasks.md:17 から同じ（今回の退行ではない）。R8 と同じ形
+- kind: technical
+- 提案: 5.3 の後に PR 本文の番号を確かめる項目を置く（例 5.4: `grep -qE "rai-256/harness2#[0-9]+" docs/briefs/CH13-pr.md && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" docs/briefs/CH13-pr.md`）か、Global Constraints から番号の句を外す
+- 処置: fixed 5.4 — 5.3 の後に、PR 本文に 2 つの issue の番号があることを確かめる 5.4 を足した
+
+## R17. 字句の古さ: match-cases.json の `why` が消えた D6 を指し、PR 本文の項目数が 14 になっている
+- 成果物: openspec/changes/ch13-workbox-config/match-cases.json / docs/briefs/CH13-pr.md
+- 根拠: match-cases.json:12・27・87 の `why` が「（D6）」を出所に挙げる —— HEAD の design D6 は「docker の正規表現は持たない」で、この行の出所（前の D6（仮）の族の足し算）は消えた / CH13-pr.md:48「5 Task・14 項目」だが tasks.md の `- [ ]` は 13 本（`730decb9d` から同じ）
+- kind: technical
+- 提案: `why` の「D6」を「前の D6（仮）。#161 で docker の欄ごと消えた」か削除に、PR 本文を「13 項目」に直す
+- 処置: fixed match-cases.json — `why` の「D6」を「前の D6（仮）。#161 で docker の欄ごと消えた」に直した。PR 本文の項目数は 5.4 を足して 14 になった
+
+### 見てほしいもの 4: D9（仮）の範囲と、P でよいか
+
+- 範囲: 違和感 (5) は `tools/workbox.json` の変えてよい欄を 4 つに限り、`env` を依頼の版のままとしている。D9（仮）は `env` に `PATH` を足す回避を採らず（design.md:164）、`tools/workbox.json` も D1 から変えない —— (5) を越えていない。
+  違和感 (3) は「残すのは」で一覧に残すものを 2 種に挙げたが、PATH の件はその後に上流が見つけた新しい事実で、(3) が消せと言った項目（#161 で消えたもの）には当たらない。宿題の一覧に 1 節足すのは (3) の列挙の外だが、Q1 (2)「根本は harness2 の issue」が拠り所で、design の Goals / Non-Goals（harness2 を直さない）とも矛盾しない
+- P でよいか: 失う側は見当たらない。issue は閉じれば戻り、`HARNESS_WORKBOX` が off の間 ashiato2 の振る舞いは変わらない。逆の選択（一覧に置くだけ・issue を立てない）も失うものは無く、反転条件（design.md:168）にその場合が書いてある。台帳（`provisional.jsonl` の D9）と design の（仮）の印が揃い、PR 本文の「仮決め」にも出ている。本人は次の合意でこれを見る。外向きの作用（harness2 への issue）は、第 1 回の Q1 (2) で本人が harness2 に issue を立てる形を選んでおり、前の版も 3 つ立てる予定だった
+- 影響の書き方だけは R15
+
+### 観点 1〜7（この回）
+
+- 観点 1: deep の決定（Q1〜Q4・違和感 (1)〜(5)）は proposal・design（D1〜D9）・tasks・enable-before.md・match-cases.json・CH13.md の価値と完了の判定に写っている。数値（10 未満・6g・4g・5 本・35 行・1,700 本・`postgres:17-alpine`）は tasks の検証か D1 の JSON にある。要件へ戻すものは無い（`satisfies: []`）。写りの穴は検証の側（R13・R14・R16）
+- 観点 2: 該当なし（確かめた範囲: `specs/` が無い。`.openspec.yaml` の `skip_specs: true`）
+- 観点 3: 該当なし（確かめた範囲: D1〜D9 は置き場・中身・確かめ方・範囲で、ashiato2 の観測できる振る舞いを述べていない。proposal の Capabilities「無い」・`specs/` が無いこと・CH13.md の `capability: []` が一致）
+- 観点 4: R13・R14・R16。ほかの項目はコマンドと終了条件があり、走らせたものは書いたまま通り、壊すと落ちた。人間の確認待ちは無く、CH13.md の「人間の確認待ちは無い」と一致。依存順は 5.2 → 5.3（5.3 は 5.2 の番号を書いた後に立てる）で正しい
+- 観点 5: `docs/changes/CH13.md` の「完了の判定」は空でなく、違和感 (1)〜(5) に合わせて書き直されている。「壊してはいけないもの」1〜4 は Task 2.1・2.2・2.3・1.2 / 4.1 が確かめる。「依頼（逐語）」は書き換えていない（節の sha1 が `730decb9d` と同じ）。依頼の範囲を越える足し算（`host_only` の 3 本・`docker_images`・当たり方の確かめ・issue）は Q1・Q3・違和感 (1)(5) に決定がある。D9（仮）は上の「見てほしいもの 4」
+- 観点 6: 該当なし（mode は `spec`。`--answers` / `--iwakan` ではない）。グラフへの注意として: `review/answers.md` の `spec-digest`（`fc83512a…`）は今の `agreement.py spec-digest`（`646b8179…`）と違い、「答え以外の変更の決定: D6 D7 D8」は台帳で resolve 済みの決定を名指している
+- 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。proposal の Impact の st53（actionlint）・st56（e2e）・ch10（`tools/test-android-emulator.sh` は `box`、`tools/android-emulator.sh` は `host`）の読みは match-cases.json と走査で確かめ、どれも独立のまま

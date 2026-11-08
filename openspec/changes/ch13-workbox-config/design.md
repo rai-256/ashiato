@@ -160,10 +160,10 @@
 
 - 見つけたこと（2026-11-08。`premises.md` の第 2 回の追記、確かさ 5）: 検証の箱はホストの `PATH` を受け継ぐ。`PATH` に `/usr/sbin` が無いと、箱の中の dockerd（`workbox/dockerd-up`）が
   `failed to create NAT chain DOCKER: iptables not found` で立たない。`/usr/sbin` を足すと立ち、`docker_images` の `postgres:17-alpine` が読み込まれている。
-  グラフを走らせる `hx-dev.service` の `PATH` にも `/usr/sbin` が無い。このまま `HARNESS_WORKBOX=tests` にすると、docker を使う検証と検証の準備が箱の中で落ちる見込み
+  グラフを走らせる `hx-dev.service` の `PATH` にも `/usr/sbin` が無い。このまま `HARNESS_WORKBOX=tests` にすると、検証の準備（`tools/verify-env.sh`）が毎回 docker を呼ぶ（`clear_blocking_network` と `docker compose up -d --wait db`）ので、準備が落ち、箱に入る検証は docker を使わないものも含めて全部 BLOCKED_INFRA になる見込み（2026-11-08 の走査で 1,786 本のうち 1,751 本。review/spec.md R15）
 - 本人の Q1 (2) は「根本は harness2 側の issue にする」。直す場所は harness2 の `dockerd-up`（か箱の `PATH`）で、ashiato2 の `tools/workbox.json` の `env` で回避しない（違和感 (5) が `env` を依頼の版のままとしている）
 - 下流の Task 5.2 が `rai-256/harness2` に 1 つ立てる。題は `作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない`。同じ題があれば立てない。
-  本文は上の再現（コマンドと出力）と、この change の PR への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に書く
+  本文は上の再現（コマンドと出力。`dockerd-up` は rc=75）・影響（箱に入る検証の全部が BLOCKED_INFRA）・直す場所の候補（`workbox/dockerd-up` の `PATH="$bin:$PATH" setsid rootlesskit …` で `/usr/sbin:/sbin` を足せば利用者の unit に依らない。harness2 の `systemd/hx-tick@.service` の `PATH` にも `/usr/sbin` が無い）と、この change の PR への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に書く
 - 失わない理由: issue は閉じれば戻る。ashiato2 の振る舞いは変わらない（off の間は読まれない）
 - 反転条件: harness2 側で同じ件が先に直った・issue が立っていれば、立てずにその番号を書く。本人が issue でなく宿題の一覧に置くだけでよいと言えば、Task 5.2 を外す
 

@@ -36,8 +36,8 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|openspec/changes/ch13-workbox-config/|docs/changes/CH13\.md|docs/briefs/CH13|$)"'` rc=0
 - [ ] 2.3 ファイルを置いた木で、リポジトリの検査 6 本が通ることを確かめる（壊してはいけないもの 3）。
   検証: `bash -c 'set -e; for s in check-private check-secrets check-spdx check-shared-appends check-tmp-hygiene check-boundaries; do tools/$s.sh; done'` rc=0
-- [ ] 2.4 有効にする前の宿題の一覧が change の中にあり、測るもの 3 つと、harness2 #157 / #161 で済んだものの節と、harness2 の issue の節と、分類の一覧への案内を持つことを確かめる（Q1 (3)・違和感 (3)。design D2）。下流は一覧の測るものを消さない（#161 で消えた項目は上流が消した）。
-  検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test -s "$f" && grep -qF "画面の e2e 1 本が検証の箱の 6g に収まるか" "$f" && grep -qF "で 5 本のときの空きメモリ" "$f" && grep -qF "cargo のビルドが 4g に収まるか" "$f" && grep -q "^## harness2 #157 / #161 で済んだもの" "$f" && grep -q "^## harness2 の issue" "$f" && grep -q "command-classes.md" "$f"'` rc=0
+- [ ] 2.4 有効にする前の宿題の一覧が change の中にあり、測るもの 3 つと、harness2 #157 / #161 で済んだものの節と、harness2 の issue の節と、分類の一覧への案内を持つことを確かめる（Q1 (3)・違和感 (3)。design D2）。下流は一覧の測るもの・「2. 上流で見つけたこと」・「ホストで走らせる台本」の節を消さない（#161 で消えた項目は上流が消した）。
+  検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test -s "$f" && grep -qF "画面の e2e 1 本が検証の箱の 6g に収まるか" "$f" && grep -qF "で 5 本のときの空きメモリ" "$f" && grep -qF "cargo のビルドが 4g に収まるか" "$f" && grep -q "^## harness2 #157 / #161 で済んだもの" "$f" && grep -q "^## harness2 の issue" "$f" && grep -q "^## 2\. 上流で見つけたこと" "$f" && grep -qF "iptables not found" "$f" && grep -q "^## ホストで走らせる台本" "$f" && grep -q "command-classes.md" "$f"'` rc=0
 
 ## Task 3: 箱の中で pgrep が箱の中しか見ないことと、鍵が今の harness2 で読めることを確かめる
 
@@ -65,8 +65,10 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
   **同じ題の issue が既にあれば立てない**（`gh issue list -R rai-256/harness2 --state all --search "<題> in:title"` で確かめてから `gh issue create -R rai-256/harness2 --title … --body …`）。
   本文は design D9（仮）の再現（`PATH` に `/usr/sbin` が無いシェルから `workbox.py run . -- bash -c 'docker images'` が `iptables not found` で落ち、足すと立つ・`hx-dev.service` の `PATH` にも無い）と、この change への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に `- rai-256/harness2#<番号> <題>` の形で書く（同じ題が既にあれば、その番号を書く）。
   gh が網に出られないときは、別の手で立てようとせず、design D2 の最後の行（PR 本文に「merge の後に人間が立てる」1 行）を A として人間に返す。
-  検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json number >/dev/null || exit 1; done'` rc=0
+  検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと" || exit 1; done'` rc=0
 - [ ] 5.3 `enable-before.md` を本文にした ashiato2 の issue を 1 つ立てる（Q1 (3)。design D2）。5.2 の番号を一覧に書いた後に立てる。題は `作業箱を有効にする前の宿題（CH13）`。
   **同じ題の issue が既にあれば立てない**（`gh issue list --state all --search "作業箱を有効にする前の宿題 in:title"` で確かめてから `gh issue create --title … --body-file openspec/changes/ch13-workbox-config/enable-before.md`）。
   立てた issue の番号を `enable-before.md` の冒頭に 1 行で書く（`issue: #<番号>`。同じ題が既にあれば、その番号を書く）。gh が網に出られないときは 5.2 と同じく人間に返す。
   検証: `bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'` rc=0
+- [ ] 5.4 PR 本文（`docs/briefs/CH13-pr.md`）に、5.2 の harness2 の issue と 5.3 の ashiato2 の issue の番号を書く（Global Constraints の最後。review/spec.md R16）。5.2・5.3 の後に閉じる。
+  検証: `bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'` rc=0
