@@ -83,6 +83,41 @@ def exceptions(path: Path) -> set[str]:
     return set(exception_rows(path))
 
 
+def allow_ghsas(root: Path) -> int:
+    try:
+        rows = exception_rows(root / "osv-scanner.toml")
+    except (ExceptionTableError, ValueError) as exc:
+        print(f"error: {exc}", file=os.sys.stderr)
+        return 2
+
+    allowed: list[str] = []
+    for ident in rows:
+        if ident.startswith("GHSA-"):
+            allowed.append(ident)
+            continue
+        url = "https://api.osv.dev/v1/vulns/" + ident
+        proc = subprocess.run(
+            [os.environ.get("CURL", "curl"), "--fail", "--location", "--silent", "--show-error", url],
+            text=True, capture_output=True,
+        )
+        if proc.returncode != 0:
+            detail = proc.stderr.strip()
+            suffix = f": {detail}" if detail else ""
+            print(f"error: 許可の一覧を組めない（osv.dev への問い合わせ{suffix}）", file=os.sys.stderr)
+            return 2
+        try:
+            aliases = json.loads(proc.stdout)["aliases"]
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            print(f"error: 許可の一覧を組めない（osv.dev の応答: {exc}）", file=os.sys.stderr)
+            return 2
+        if not isinstance(aliases, list):
+            print("error: 許可の一覧を組めない（osv.dev の aliases が不正）", file=os.sys.stderr)
+            return 2
+        allowed.extend(alias for alias in aliases if isinstance(alias, str) and alias.startswith("GHSA-"))
+    print(",".join(dict.fromkeys(allowed)))
+    return 0
+
+
 def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict], str | None]:
     command = [str(scanner), "scan", "source", "--lockfile", str(lock), "--format", "json",
                "--all-vulns", "--all-packages", "--config", "/dev/null"]
@@ -164,6 +199,8 @@ def main() -> int:
     root = Path(os.environ.get("CHECK_VULNS_ROOT", Path.cwd()))
     scanner = Path(os.environ.get("OSV_SCANNER_BIN", ""))
     config = root / "osv-scanner.toml"
+    if len(os.sys.argv) == 2 and os.sys.argv[1] == "--allow-ghsas":
+        return allow_ghsas(root)
     if not scanner:
         return error("osv-scanner の場所")
     try:
