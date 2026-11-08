@@ -1,9 +1,9 @@
 {
- "purpose": "ハーネスの作業箱（検証と agent を thread ごとのコンテナで走らせる仕組み）を、ashiato2 でいつでも有効にできるように、箱の設定ファイルを依頼の中身のまま置く。置いただけでは何も変わらない。依頼の中身のまま有効にすると落ちる検証が見つかったので、その一覧を「有効にする前の宿題」として残す。",
+ "purpose": "ハーネスの作業箱（検証と agent を thread ごとのコンテナで走らせる仕組み）を、ashiato2 でいつでも有効にできるように、箱の設定ファイルを置く。中身は依頼の版に、上流で見つけた不足の直しを当てたもの。置いただけでは何も変わらない。根本の直しは harness2 の issue に、測っていないメモリの前提は「有効にする前の宿題」に残す。",
  "model": {
   "kind": "diagram",
   "caption": "置くものと、それが効く時",
-  "text": "tools/workbox.json（依頼の中身のまま）\n        │\n        │  HARNESS_WORKBOX が off（既定）\n        ├──────────────→ 誰も読まない。検証も CI も今と同じ\n        │\n        │  本人が tests / all にした日\n        └──────────────→ ハーネスが読んで箱を組む\n                              ↑\n          その前に読む: enable-before.md（宿題 0〜6）\n                        = PR 本文の先頭 = issue 1 つ"
+  "text": "tools/workbox.json（依頼の版 + 直し: 錨・足した型・host_only・prep_files）\n        │\n        │  HARNESS_WORKBOX が off（既定）\n        ├──────────────→ 誰も読まない。検証も CI も今と同じ\n        │\n        │  本人が tests / all にした日\n        └──────────────→ ハーネスが読んで箱を組む\n                              ↑\n   この change で確かめる: pgrep が 10 未満・鍵が harness2 に通じる・当たり方の表\n   その前に読む: enable-before.md（測っていないメモリ 3 つ）= issue 1 つ\n   根本の直し: harness2 の issue 3 つ（字面の判定・知らない鍵・古いイメージ）"
  },
  "uses": [
   {
@@ -13,23 +13,24 @@
    "steps": [
     {
      "do": "GitHub の issue「作業箱を有効にする前の宿題（CH13）」を開く（PR 本文の先頭からも同じ一覧へ飛べる）",
-     "see": "0〜6 の見出しの宿題。0 は「harness2 の鍵の名前と突き合わせる」「pgrep の確かめを HARNESS_WORKBOX を外したシェルから走らせる」"
+     "see": "測っていないもの 3 つ（e2e 1 本が 6g に収まるか・`all` で 5 本のときの空き・agent の箱の cargo が 4g に収まるか）と、harness2 の issue 3 つの番号。PR 本文には pgrep の結果（`pgrep: 1` のような値）がある"
     },
     {
-     "do": "1 の「docker が要るのに渡らない」を読む",
-     "see": "画面の e2e（`cd web && npm run test:e2e`）・`cargo test --workspace`・workflow の検査が、箱の中で docker を受け取れずに落ちること。どのファイルの何行目が理由かも書いてある"
+     "do": "まず `HARNESS_WORKBOX=tests`（検証だけ）にする",
+     "see": "画面の e2e・`cargo test --workspace`・workflow の検査も、箱の中で docker を受け取る（この change で docker の欄に足した）。メモリの宿題は主に `all` の話"
     },
     {
-     "do": "直す作業を別の change として登録し、それが済んでから `HARNESS_WORKBOX=tests` にする",
+     "do": "`all` にする前に、宿題の 3 つを測る",
      "see": "ashiato2 の側に止める口は無い。環境変数を変えた時点から箱が使われる"
     }
    ],
-   "outcome": "有効にした日に画面を持つ Story の検証が一斉に落ちることを、有効にする前に知って順番を決められる",
-   "without": "設定ファイルだけが main にあり、有効にした日に e2e や workspace の試験が落ちてから原因を探すことになる",
+   "outcome": "`tests` なら今ある検証は箱の中で docker の有無を正しく受け取れる。`all` にする前に何を測ればよいかが分かる",
+   "without": "設定ファイルが無く、有効にできない。依頼の版のまま置いていたら、有効にした日に画面の e2e などが落ちてから原因を探すことになった",
    "refs": {
     "decisions": [
      "Q1",
-     "D2"
+     "D2",
+     "D6"
     ]
    }
   }
@@ -37,65 +38,81 @@
  "walkthroughs": [
   {
    "id": "W1",
-   "title": "依頼の中身のまま有効にした日の、画面の e2e",
-   "feature": "homework",
-   "scene": "本人が `HARNESS_WORKBOX=tests` にした後、画面を持つ Story の下流が tasks の検証 `cd web && npm run test:e2e` を走らせる。",
+   "title": "箱を有効にした日に、検証が docker を受け取るか",
+   "feature": "place",
+   "scene": "本人が `HARNESS_WORKBOX=tests` にした後、下流が tasks の検証を走らせる。箱は検証コマンドの字面を `docker` の欄に当てて、docker を渡すかを決める。",
    "values": "actual",
    "evidence": [
-    "E1",
-    "E2"
+    "E3",
+    "E4",
+    "E5"
    ],
    "figure": {
     "kind": "table",
-    "form": "decision",
-    "caption": "箱が docker を渡すかは、検証コマンドの字面だけで決まる",
+    "form": "before_after",
+    "caption": "同じ検証コマンドが、依頼の版とこの版でどこへ行くか（match-cases.json の行から）",
     "head": [
      "検証コマンドの字面",
-     "docker の欄に当たるか",
-     "箱の中で"
+     "依頼の版",
+     "この版"
     ],
     "rows": [
      [
-      "`tools/smoke.sh`",
-      "当たる",
-      "docker が渡り、DB を起こせる"
+      "`bash -c 'cd web && npm run test:e2e'`",
+      "箱・docker なし（落ちる）",
+      "箱・docker あり"
      ],
      [
-      "`cd web && npm run test:e2e`",
-      "当たらない（中で `tools/stack.sh up` を呼ぶが、字面に出ない）",
-      "docker が無く、DB を起こせずに落ちる"
+      "`! grep -n 'gradle.properties' tools/record-env.sh`",
+      "箱・docker あり（渡りすぎ）",
+      "箱・docker なし"
+     ],
+     [
+      "`bash -c 'tools/android-side-by-side.sh'`",
+      "箱（エミュレータが無い）",
+      "ホスト"
+     ],
+     [
+      "`cargo test -p ashiato-server --lib access_log_tests`",
+      "箱・docker なし",
+      "箱・docker なし（変わらない）"
      ]
     ]
    },
    "cases": [
     {
-     "label": "`tools/smoke.sh` を直に書いた検証",
+     "label": "画面の e2e（字面に `tools/stack.sh` は出ないが、playwright が裏で起こす）",
      "outcome": "ok",
-     "result": "字面が `docker` の欄の正規表現に当たるので docker が渡る"
+     "result": "この版は `npm run test:e2e` の型を docker の欄に足したので、docker が渡る"
     },
     {
-     "label": "画面の e2e（playwright が裏で `tools/stack.sh up` を起こす）",
+     "label": "台本の名前を grep するだけの検証",
+     "outcome": "ok",
+     "result": "錨（呼び出しの位置）が効き、docker の socket は渡らない"
+    },
+    {
+     "label": "後の Story が新しい書き方で、中で docker を使う台本を呼ぶ検証を書いた",
      "outcome": "problem",
-     "result": "字面に `tools/stack.sh` が出ないので docker が渡らず、`docker compose up` で落ちる"
+     "result": "字面に当たらなければ docker が渡らず、箱の中で落ちる。今ある 1,781 本は確かめたが、新しい書き方は harness2 の issue が閉じるまで漏れうる"
     }
    ],
-   "why": "作業箱は、検証コマンドの文字列に `docker` の欄の正規表現が当たるかだけを見て docker を渡す。コマンドが中で呼ぶ台本は見ない。依頼の中身は直に呼ばれる台本の名前だけを挙げている。",
+   "why": "作業箱は検証コマンドの文字列に正規表現を `re.search` で当てるだけで、コマンドが中で呼ぶ台本は見ない。だから、この版は今ある検証の書き方を全部当てて、足りない型を足し、当たりすぎを錨で止めた。",
    "conditions": {
     "occurs_when": [
      "`HARNESS_WORKBOX` が `tests` か `all`",
-     "検証が中で docker を使う台本を、字面に出さずに呼ぶ"
+     "（問題の行）字面に当たらない書き方で、中で docker を使う検証"
     ],
     "not_when": [
-     "`HARNESS_WORKBOX` が off（既定。この change の後もそのまま）"
+     "`HARNESS_WORKBOX` が off（既定。この change の後もそのまま）",
+     "今ある `openspec/**/tasks.md` の検証コマンド（1,781 本を両方の版に当てて分けた）"
     ]
    },
    "exceptions": [
     {
-     "text": "この change では直さない。宿題の一覧の 1 に載せるだけ（依頼が中身の書き換えを禁じている）",
+     "text": "絞り込みつきの `cargo test -p ashiato-server <名前>` が docker を直に呼ぶ試験 1 本に当たると docker が要る。今ある検証コマンドに当たるものは無い",
      "refs": {
       "decisions": [
-       "Q1",
-       "D2"
+       "D6"
       ]
      }
     }
@@ -104,13 +121,17 @@
    "refs": {
     "decisions": [
      "Q1",
-     "D2"
+     "Q3",
+     "D1",
+     "D6",
+     "D8"
     ]
    }
   }
  ],
  "before_after": [],
  "highlights": [
+  "place.3",
   "homework.2",
   "done.2"
  ],
@@ -118,15 +139,17 @@
   {
    "id": "place",
    "title": "箱の設定を置く",
-   "summary": "依頼の JSON を 1 字も変えずに `tools/workbox.json` に置く",
+   "summary": "依頼の版に、上流で見つけた不足の直しを当てた JSON を `tools/workbox.json` に置く",
    "figure": null,
    "points": [
     {
      "id": "place.1",
      "kind": "normal",
-     "text": "依頼（`docs/changes/CH13.md` の逐語）の JSON の塊を機械で取り出し、そのまま `tools/workbox.json` に書く。中身は JSON として読んで依頼と等しいことで確かめる",
+     "text": "本人が依頼の「書き換えない」を外した。置く中身は依頼の版に直しを当てたもので、正本は design の D1 の JSON の塊。下流は塊を機械で取り出して書く。依頼から変えるのは `docker` `host_only` `prep_files` の 3 つの欄だけで、`host_only` と `prep_files` は後ろに足すだけ（機械で確かめる）",
      "refs": {
       "decisions": [
+       "Q1",
+       "Q4",
        "D1"
       ]
      }
@@ -143,19 +166,39 @@
        "D4"
       ]
      }
+    },
+    {
+     "id": "place.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "箱が docker を渡すかは検証コマンドの字面だけで決まる。そこで `docker` の欄を、呼び出しの位置に錨を置いた 6 本に書き直し、画面の e2e・`cargo test --workspace` と `server_startup`・絞り込みなしの `cargo test`・actionlint・`docker` を直に呼ぶもの・中で docker を使う台本を呼ぶ 3 本を足した。`host_only` には Windows とエミュレータを使う台本を、`prep_files` には `tools/db-roles.sql` と `docker-compose.override.yml` を足した",
+     "examples": [
+      {
+       "wrong": "台本の名前が字面にあれば docker が渡る（`grep … tools/record-env.sh` にも）",
+       "right": "錨があるので、台本を呼ぶ位置にあるときだけ渡る。grep の引数や `bash -n` では渡らない"
+      }
+     ],
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D6"
+      ]
+     }
     }
    ]
   },
   {
    "id": "homework",
    "title": "有効にする前の宿題を残す",
-   "summary": "依頼の中身のままでは箱の中で落ちる検証の一覧を、3 か所に残す",
+   "summary": "測っていないものを宿題に、根本を harness2 の issue に残す",
    "figure": null,
    "points": [
     {
      "id": "homework.1",
      "kind": "normal",
-     "text": "一覧の正本は change の中の `enable-before.md`（archive の後も repo に残る）。PR 本文の先頭に案内を置き、同じ一覧を本文にした issue を下流が 1 つ立てる",
+     "text": "有効にする前の宿題の一覧（change の中の `enable-before.md`。archive の後も repo に残る）に載せるのは、測っていないもの 3 つだけ: e2e 1 本が 6g に収まるか・`all` で 5 本のときの空き・agent の箱の cargo が 4g に収まるか。この change で直した項目は一覧から消し、harness2 の issue への案内を置く。PR 本文の先頭に案内を置き、同じ一覧を本文にした ashiato2 の issue を下流が 1 つ立てる",
      "refs": {
       "decisions": [
        "Q1",
@@ -169,17 +212,19 @@
      "tags": [
       "直感注意"
      ],
-     "text": "依頼の中身のまま有効にすると、画面の e2e・`cargo test --workspace`・workflow の検査などが docker を受け取れずに落ちる。逆に、台本の名前を grep するだけの検証にも docker が渡る。設定は直さず、一覧に載せるだけ",
+     "text": "直したのは今ある検証の書き方の分だけ。後の Story が新しい書き方で書く検証は、harness2 が字面での判定をやめるまで同じ漏れが起きうる。後の Story に知らせる規約は置かない（根本は harness2 で直す）。`enable-before.md` に 1 行だけ書く",
      "examples": [
       {
-       "wrong": "依頼の中身で手元の cargo test が箱の中で通ったから、どの検証も箱で通る",
-       "right": "通ったのは字面に台本の名前が出る検証だけ。中で docker を使う台本を呼ぶ検証は落ちる（W1）"
+       "wrong": "この change の後は、どの検証も箱の中で docker を正しく受け取る",
+       "right": "確かめたのは今ある 1,781 本と表の行。新しい書き方は harness2 の issue が閉じるまで漏れうる"
       }
      ],
      "refs": {
       "decisions": [
        "Q1",
-       "D2"
+       "Q2",
+       "D5",
+       "D6"
       ]
      }
     },
@@ -189,10 +234,23 @@
      "tags": [
       "未解決"
      ],
-     "text": "下流の agent が GitHub に issue を立てる（外向きの作用はこの 1 つだけ。同じ題があれば立てない）。agent が網に出られなければ、PR 本文に「merge の後に人間が立てる」1 行を置く形に切り替え、本人に返す",
+     "text": "下流の agent が GitHub に issue を 4 つ立てる（harness2 に 3・ashiato2 に 1。外向きの作用はこれだけ。同じ題があれば立てない）。agent が網に出られなければ、PR 本文に「merge の後に人間が立てる」1 行を置く形に切り替え、本人に返す",
      "refs": {
       "decisions": [
-       "D2"
+       "Q1",
+       "D2",
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "homework.4",
+     "kind": "normal",
+     "text": "harness2 の issue は直す場所ごとに 3 つ: docker を渡すかを検証コマンドの字面で決めている・`load_config` が知らない鍵を黙って無視する・`apt` を変えるたびに古いイメージが溜まる。立てた番号を `enable-before.md` に書く",
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D7"
       ]
      }
     }
@@ -201,15 +259,18 @@
   {
    "id": "done",
    "title": "完了の判定",
-   "summary": "中身の一致・JSON として読める・ほかを変えていない、で閉じる",
+   "summary": "中身・off の間に変わらないこと・箱の中の pgrep・鍵・当たり方・issue で閉じる",
    "figure": null,
    "points": [
     {
      "id": "done.1",
      "kind": "normal",
-     "text": "閉じる条件は、中身が依頼と等しい・JSON として読める・ashiato2 に読むものが無い・触ったのがこのファイルと change の文書だけ・リポジトリの検査 6 本が通る、の 5 つ。どれも docker も作業箱も要らない",
+     "text": "閉じる条件: 中身が D1 の塊と等しく JSON として読める・ashiato2 に読むものが無い・触ったのがこのファイルと change の文書だけ・リポジトリの検査 6 本が通る・pgrep が 10 未満・鍵が harness2 に通じる・当たり方の表が合う・分類の一覧を書き出した・PR 本文と issue に残した。docker と作業箱のイメージが要るのは pgrep の確かめだけ",
      "refs": {
       "decisions": [
+       "Q1",
+       "Q3",
+       "Q4",
        "D1",
        "D4"
       ]
@@ -221,11 +282,22 @@
      "tags": [
       "直感注意"
      ],
-     "text": "依頼の完了の判定にあった「作業箱の中で `pgrep -fc /` が 10 未満」は、この change で確かめる項目から外した。harness2 の main に作業箱がまだ無く、置くと CH13 が harness2 の merge まで閉じないからだ。この確認は宿題の 0 に載せ、有効にするときに行う",
+     "text": "依頼の完了の判定の「箱の中で `pgrep -fc /` が 10 未満」は、この change の tasks で確かめる。harness2 の作業箱は main へ merge 済みなので止まらない。ただし `HARNESS_WORKBOX` を外したシェルからでないと成り立たない（有効の下では、このコマンド自身が箱に包まれ、docker の無い箱の中から箱を起こそうとして落ちる）。結果は PR 本文に書く",
      "refs": {
       "decisions": [
        "Q3",
        "D3"
+      ]
+     }
+    },
+    {
+     "id": "done.3",
+     "kind": "normal",
+     "text": "直した正規表現の当たり方は、harness2 の判定の関数（`host_only` → `needs_docker`）をそのまま呼ぶ台本で、表（35 行以上）に当てて確かめる。正規表現を写し直さない。依頼の版に当てると落ちることも確かめる（台本が表を見分けている証拠）。同じ台本で、今ある検証コマンドを全部、ホスト / docker あり / docker なしに分けた一覧を書き出す",
+     "refs": {
+      "decisions": [
+       "Q3",
+       "D8"
       ]
      }
     }
@@ -234,24 +306,25 @@
   {
    "id": "scope",
    "title": "触る範囲",
-   "summary": "ファイル 1 つ。仕様にも文書にも手を入れない",
+   "summary": "仕様を持たない。触るのは設定ファイル 1 つと change の中の文書だけ",
    "figure": null,
    "points": [
     {
      "id": "scope.1",
      "kind": "normal",
-     "text": "仕様を持たない change（`skip_specs: true`）。off の間に外から確かめられる振る舞いが無いので、正典の仕様・`tools/*.sh`・`docs/testing.md`・`AGENTS.md`・`CLAUDE.md`・CI を変えない",
+     "text": "仕様を持たない change（`skip_specs: true`）。off の間に外から確かめられる振る舞いが無いので、正典の仕様・`tools/*.sh`・`docs/testing.md`・`AGENTS.md`・`CLAUDE.md`・CI を変えない。change の中に置くのは宿題の一覧・当たり方の表・確かめの台本・分類の一覧で、どれも archive で change と一緒に移る",
      "refs": {
       "decisions": [
        "Q4",
-       "D4"
+       "D4",
+       "D8"
       ]
      }
     },
     {
      "id": "scope.2",
      "kind": "normal",
-     "text": "後の Story が箱の中で落ちる検証を書かないための規約や検査は、この change では置かない。箱を有効にするときにまとめて決める（宿題の 6）",
+     "text": "後の Story が箱の中で落ちる検証を書かないための規約や検査は、この change では置かない。根本は harness2 の issue（字面で判定しない形）で直す",
      "refs": {
       "decisions": [
        "Q2",
@@ -264,37 +337,94 @@
  ],
  "out_of_scope": [
   {
-   "text": "依頼の設定の欄に足りないものを足すこと（依頼が書き換えを禁じている。宿題に挙げるだけ）",
+   "text": "測っていないメモリの前提をこの change で測ること（宿題に残す）",
    "refs": {
     "decisions": [
-     "D1"
+     "Q1",
+     "D2"
     ]
    }
   },
   {
-   "text": "harness2 側（作業箱の本体・証跡の判定・イメージの片付け）を直すこと",
+   "text": "harness2 側（作業箱の本体・判定・イメージの片付け）を直すこと。issue を立てるまで",
    "refs": {
     "decisions": [
-     "D3"
+     "Q1",
+     "D7"
     ]
    }
   },
   {
-   "text": "作業箱を有効にすること・箱の中での振る舞いを確かめること",
+   "text": "作業箱を有効にすること・箱の中で検証が通るかを確かめること（pgrep の確かめは除く）",
    "refs": {
     "decisions": [
+     "Q3",
      "D3"
     ]
    }
   }
  ],
  "open": [],
- "since_last": [],
+ "since_last": [
+  {
+   "text": "第 1 回の答えで直したこと（Q1・Q4）: 依頼の JSON を 1 字も変えずに置く形から、依頼の版に直し（錨・足した型・`host_only`・`prep_files`）を当てて置く形に変えた。宿題の一覧は測るもの 3 つだけになり、直した項目は消した",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "Q4",
+     "D1",
+     "D6"
+    ]
+   }
+  },
+  {
+   "text": "第 1 回の答えで直したこと（Q1 (2)）: 根本は harness2 の issue 3 つに分けて立てる（D7（仮）。AI が決めた分け方）",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "D7"
+    ]
+   }
+  },
+  {
+   "text": "第 1 回の答えで直したこと（Q3）: harness2 の作業箱が main に入ったので、pgrep の確かめと鍵の突き合わせを tasks に置いた。当たり方を harness2 と同じ判定で確かめる表と台本も置いた（D8（仮））",
+   "refs": {
+    "decisions": [
+     "Q3",
+     "D3",
+     "D8"
+    ]
+   }
+  },
+  {
+   "text": "第 1 回の答え（Q2）: 後の Story に知らせるものは置かない、は推奨と同じ選択。補足のとおり、根本を harness2 の issue に任せる理由を書いた",
+   "refs": {
+    "decisions": [
+     "Q2",
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "答えに伴って、本人の答えを直接は引いていない点も直した（置く中身・完了の条件・issue の数・やらないこと・harness2 の版の組み合わせ・受け入れ条件・30 秒の概要）。どれも前の版が「依頼の JSON を 1 字も変えずに置く」「harness2 の main に作業箱が無い」を前提にしていたため",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "Q3",
+     "Q4",
+     "D1",
+     "D2",
+     "D3",
+     "D4"
+    ]
+   }
+  }
+ ],
  "delegated": [],
  "terms": [
   {
    "term": "作業箱",
-   "def": "ハーネス（harness2）が検証と agent を thread ごとに閉じ込めるコンテナ。harness2 の feat/workbox にあり、main にはまだ無い"
+   "def": "ハーネス（harness2）が検証と agent を thread ごとに閉じ込めるコンテナ。harness2 #152 で 2026-11-08 に main へ入った"
   },
   {
    "term": "HARNESS_WORKBOX",
@@ -302,7 +432,7 @@
   }
  ],
  "impact": {
-  "overview": "設定ファイル `tools/workbox.json` が 1 つ増える。`HARNESS_WORKBOX` が off（既定）の間は誰も読まないので、検証・CI・agent の振る舞いはこの分析で見た範囲では変わらない。できなくなることはこの分析では見つけていない。ただし依頼の中身のまま箱を有効にすると、画面の e2e などが箱の中で落ちる。その一覧を有効にする前の宿題として残す。",
+  "overview": "設定ファイル `tools/workbox.json` が 1 つ増える。`HARNESS_WORKBOX` が off（既定）の間は誰も読まないので、検証・CI・agent の振る舞いはこの分析で見た範囲では変わらない。できなくなることはこの分析では見つけていない。中身は依頼の版に直しを当てたもので、今ある検証コマンドについては、箱を有効にしたときに docker の有無が正しく決まることを表と全数の分類で確かめる。新しい書き方の検証の漏れと、測っていないメモリの前提は残る（harness2 の issue と宿題の一覧）。",
   "problem": "並走する Story の検証が同じ機械を取り合い、試験の漏れが共有の /tmp を埋め（10-23）、メモリ不足で langgraph が落ち（10-25）、試験の `pgrep -f \"/\"` が利用者の全プロセスに当たった（11-07 CH10）。作業箱で隔離するには、repo に箱の設定が要る。",
   "depth": "light",
   "depth_why": "ファイルを 1 つ足すだけで、止める規則・既存の振る舞いの変更・MODIFIED / REMOVED の Requirement を持たない（仕様を持たない change）",
@@ -311,11 +441,13 @@
     "id": "T1",
     "kind": "file",
     "name": "`tools/workbox.json`（新しいファイル）",
-    "change": "依頼の中身のまま足す",
+    "change": "依頼の版に直し（`docker` の錨と足した型・`host_only`・`prep_files`）を当てて足す",
     "searched": "`git grep -i workbox` を repo 全体に当て、`openspec/changes` と `docs/changes/CH13.md` の外で 0 件。同じファイルを触る走っている change を `impact_deps.py` で探した",
     "no_dependents_why": "ashiato2 の中に読むものが無い。読むのは harness2 だけで、それも `HARNESS_WORKBOX` が off なら読まない",
     "refs": {
      "decisions": [
+      "Q1",
+      "D1",
       "D4"
      ]
     }
@@ -334,6 +466,24 @@
     "source": "ops",
     "loc": "tools/stack.sh:99",
     "quote": "docker compose up -d --wait db"
+   },
+   {
+    "id": "E3",
+    "source": "code",
+    "loc": ".harness2/scripts/workbox.py:122",
+    "quote": "return any(re.search(p, cmd) for p in patterns or [])"
+   },
+   {
+    "id": "E4",
+    "source": "design",
+    "loc": "openspec/changes/ch13-workbox-config/match-cases.json:5",
+    "quote": "\"cmd\": \"bash -c 'cd web && npm run test:e2e'\","
+   },
+   {
+    "id": "E5",
+    "source": "design",
+    "loc": "openspec/changes/ch13-workbox-config/premises.md:43",
+    "quote": "既存の検証コマンド 1,781 本の分かれ方"
    }
   ],
   "lost": [],
@@ -354,18 +504,20 @@
    {
     "id": "update",
     "applies": true,
-    "can": "箱を有効にする日に、宿題の一覧を見てから `HARNESS_WORKBOX` を変えられる",
-    "cannot": "依頼の中身のまま有効にすると、画面の e2e・`cargo test --workspace`・workflow の検査が箱の中で落ちる（宿題の 1）",
+    "can": "`tests` にした日に、今ある検証（画面の e2e・`cargo test --workspace`・workflow の検査を含む）が箱の中で docker の有無を正しく受け取る",
+    "cannot": "後の Story が新しい書き方で書く検証は漏れうる（harness2 の issue が閉じるまで）。`all` のメモリの足りる・足りないは測っていない（宿題）",
     "basis": "observed",
     "refs": {
      "decisions": [
       "Q1",
-      "D2"
+      "D2",
+      "D6",
+      "D8"
      ]
     },
     "evidence": [
-     "E1",
-     "E2"
+     "E3",
+     "E5"
     ]
    },
    {
@@ -388,12 +540,14 @@
    {
     "id": "mixed",
     "applies": true,
-    "can": "harness2 の main に作業箱が無い版でも、このファイルは読まれないだけ",
-    "cannot": "harness2 の作業箱が merge までに鍵の名前を変えると、この設定の欄は黙って効かなくなる（宿題の 0）",
+    "can": "harness2 の main（作業箱が入った版）で、鍵 9 個が説明に出ることを確かめる（tasks 3.2）",
+    "cannot": "harness2 が後で鍵の名前を変えると、この設定の欄は黙って効かなくなる（harness2 の issue）",
     "basis": "derived",
     "refs": {
      "decisions": [
-      "D2"
+      "Q3",
+      "D3",
+      "D7"
      ]
     }
    },
@@ -408,21 +562,24 @@
   "findings": [],
   "acceptance": [
    {
-    "text": "tasks の Task 1〜3 の検証が rc=0（中身の一致・読むものが無い・触った範囲・リポジトリの検査・宿題の一覧・PR 本文・issue）",
+    "text": "tasks の Task 1〜5 の検証が rc=0（中身・読むものが無い・触った範囲・リポジトリの検査・宿題の一覧・pgrep・鍵・当たり方の表・分類の一覧・PR 本文・issue）",
     "refs": {
      "decisions": [
+      "Q1",
+      "Q3",
       "D1",
       "D2",
-      "D4"
+      "D4",
+      "D8"
      ]
     }
    },
    {
-    "text": "作業箱を有効にするのは、宿題の一覧（`enable-before.md`）を片付けた後。この change の受け入れには含めない",
+    "text": "作業箱を `all` で有効にするのは、宿題の一覧（`enable-before.md`）の 3 つを測った後。この change の受け入れには含めない",
     "refs": {
      "decisions": [
-      "Q3",
-      "D3"
+      "Q1",
+      "D2"
      ]
     }
    }
@@ -430,11 +587,13 @@
   "scope": {
    "covers": [
     {
-     "text": "repo に箱の設定ファイルを置くことと、有効にする前の宿題を残すことだけ",
+     "text": "repo に箱の設定ファイルを置くこと・今ある検証コマンドの当たり方を確かめること・根本と宿題を issue と一覧に残すこと",
      "refs": {
       "decisions": [
+       "Q1",
        "D1",
-       "D2"
+       "D2",
+       "D8"
       ]
      }
     }
@@ -451,7 +610,7 @@
    ],
    "excludes": [
     {
-     "text": "箱を有効にすることと、箱の中で検証が通るかを確かめること（pgrep の確認を含む）",
+     "text": "箱を有効にすることと、箱の中で検証が通るかを確かめること（pgrep の確かめを除く）",
      "refs": {
       "decisions": [
        "Q3",
@@ -471,11 +630,13 @@
    ],
    "residual": [
     {
-     "text": "依頼の中身のまま有効にすると、箱の中で落ちる・当たりすぎる検証がある。有効にするかは本人の環境変数の操作で決まり、ashiato2 の側に止める口は無い（宿題の一覧が読まれることに頼る）",
+     "text": "新しい書き方の検証は、harness2 が字面での判定をやめるまで docker の欄から漏れうる。有効にするかは本人の環境変数の操作で決まり、ashiato2 の側に止める口は無い",
      "refs": {
       "decisions": [
        "Q1",
-       "D2"
+       "D5",
+       "D6",
+       "D7"
       ]
      }
     },
@@ -483,6 +644,7 @@
      "text": "メモリの前提（e2e 1 本が 6g・all で 5 本のときの空き・agent の箱の cargo が 4g）は測っていない",
      "refs": {
       "decisions": [
+       "Q1",
        "D2"
       ]
      }
@@ -492,31 +654,34 @@
   "coverage": {
    "examined": [
     {
-     "text": "repo の中で `workbox` を読むもの（0 件）と、依頼の `docker` `host_only` `prep_files` の欄を、archive と走っている change の tasks の検証コマンドの字面に当てたもの（premises.md・review/deep.md R1〜R10）",
+     "text": "repo の中で `workbox` を読むもの（0 件）。既存の `openspec/**/tasks.md` の検証コマンド 1,781 本を harness2 の取り出しで集め、依頼の版とこの版に当てて分けたもの（依頼の版: ホスト 18・docker 209・箱 1,554 / この版: ホスト 35・docker 299・箱 1,447。premises.md）と、当たり方の表 35 行",
      "refs": {
       "decisions": [
+       "Q3",
        "D1",
-       "D2"
+       "D6",
+       "D8"
       ]
      }
     },
     {
-     "text": "同じファイル名を挙げる走っている change: ch10-emulator-start-timeout（`tools/android-emulator.sh` は `host_only` に当たり、新しく足す `tools/test-android-emulator.sh` は当たらない。偽の SDK の試験でホストは要らない）。st53-license-bundle（workflow の検査が docker に退く）と st56-collector-connection-setup（画面の e2e）は宿題の一覧に載せるだけ。どれも off の間は影響せず、差し戻さない",
+     "text": "同じファイル名を挙げる走っている change: ch10-emulator-start-timeout（`tools/android-emulator.sh` は `host_only` に当たり、新しく足す `tools/test-android-emulator.sh` は当たらない。偽の SDK の試験でホストは要らない）。st53-license-bundle（`actionlint` が無ければ docker に退く workflow の検査）と st56-collector-connection-setup（画面の e2e）は、この版で docker の欄に当たる。どれも off の間は影響せず、差し戻さない",
      "refs": {
       "decisions": [
-       "D2"
+       "D2",
+       "D6"
       ]
      }
     }
    ],
    "not_examined": [
     {
-     "text": "作業箱の中で実際に検証を走らせること",
-     "why": "harness2 の main に作業箱が無い。依頼にある本人の手元の確かめ（tests で cargo test 5 本）を超えては見ていない"
+     "text": "作業箱の中で画面の e2e などを実際に走らせること",
+     "why": "上流で走らせたのは箱の中の pgrep だけ。当たり方は判定の関数で確かめたが、箱の中で通るかは有効にしてから分かる"
     },
     {
-     "text": "harness2 の作業箱の本体の読み方",
-     "why": "読んだのは feat/workbox の b4797fbbb だけ。merge までに変わりうる"
+     "text": "メモリの前提 3 つ",
+     "why": "測っていない（宿題の一覧）"
     }
    ],
    "excluded": [
