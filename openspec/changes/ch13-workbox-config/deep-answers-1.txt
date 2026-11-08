@@ -1,0 +1,14 @@
+=== CH13 の深掘り の回答 ===
+Q1 [見つけた不足の一覧をどこに残すか] -> (選択なし)
+  補足: 依頼の「tools/workbox.json を書き換えない」を外す（依頼は本人のもの。差し戻しとして扱ってよい）。見つけた不足を 3 つに分ける。
+        (1) JSON で直せるものは CH13 の中で直す: docker の正規表現に錨を置き、台本の名前を grep するだけの検証に socket が渡らないようにする（当たりすぎ・R4）/ prep_files に tools/db-roles.sql と docker-compose.override.yml を足す（R5）/ docker の欄に画面の e2e（npm run test:e2e）・cargo test --workspace（と -p ashiato-server --test server_startup）・actionlint の検査を足す（R2 の対症療法）/ host_only に tools/release/(build|install-check)\.sh・tools/android-side-by-side\.sh・tools/usage-volume\.sh を足す（R3）。中で docker を使う台本を呼ぶ台本（load-repeat.sh・st25-seed-check.sh・check-st23-derived-erasure.sh）も docker の欄に足す。
+        (2) 根本は harness2 側の issue にする: docker を渡すかを検証コマンドの字面で決める設計（中で呼ぶ台本を見ない。後の Story で同じ漏れが繰り返される）/ load_config が知らない鍵を黙って無視する（R9）/ apt を変えるたびに溜まる古いイメージの掃除（R10）。
+        (3) 測るものだけ有効にする前の宿題として enable-before.md と ashiato2 の issue に残す: e2e 1 本が 6g に収まるか・all で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか（R6）と、pgrep の確かめ（Q3）。直した項目は一覧から消し、harness2 の issue への案内を置く。
+Q2 [箱の制約を後の Story に知らせるか] -> この change では何も置かない
+  補足: 根本は Q1 (2) の harness2 の issue で直す（字面で判定しない形になれば、後の Story に制約を知らせる必要が無くなる）。
+Q3 [完了の判定の pgrep の確かめをどこに置くか] -> tasks に置き、harness2 の merge まで CH13 を止める
+  補足: 前提が変わった。harness2 の feat/workbox は 2026-11-08 07:27Z に main へ merge 済み（harness2 #152、a1ef6bcf5）なので止まらない。pgrep の確かめ（HARNESS_WORKBOX を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` が 10 未満）を tasks に置く。enable-before.md の「0. 先に確かめること」の鍵の突き合わせ（R9）も main の workbox.py で今やる。加えて、 Q1 (1) で直す正規表現は、harness2 と同じ判定（feat/workbox の workbox.py:121 の `re.search(p, cmd)`）で当たる・当たらないを確かめる検証を tasks に置く: docker が要るコマンド（e2e・cargo test --workspace・server_startup・actionlint・中で docker を呼ぶ台本）が docker の欄に当たる / 台本の名前を grep するだけのコマンドが当たらない（錨が効く）/ powershell・エミュレータを使う台本が host_only に当たる。既存の openspec/**/tasks.md の検証コマンドを全部この判定で分類した一覧も enable-before.md に添える。
+Q4 [この change が触る範囲（仕様を持つか）] -> ファイル 1 つだけ。正典にも文書にも手を入れない
+  補足: 触るのは tools/workbox.json と change の中の文書だけ、は変えない。ただし中身は Q1 (1) のとおり依頼の版から直す。完了の判定の「依頼の JSON と同じ中身」は「依頼の版に Q1 (1) の直しを当てたもの」に変える。
+QA [仕様への合意] -> 合意する
+  補足: Q1 の答えで変わる部分（完了の判定・enable-before.md・tasks）は、書き直した後の版で見る。
