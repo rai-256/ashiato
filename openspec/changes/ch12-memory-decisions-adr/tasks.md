@@ -32,10 +32,10 @@
   `echo "Scenario: CI の chain job が ADR の形の検査を走らせる"` /
   `echo "Scenario: 5 件の ADR の出所に、移したメモリのファイル名がある"` /
   `echo "Scenario: docs/adr/ を含む追跡ファイルで、網の名前の検査が通る"`（check-private の前に `git ls-files docs/adr` が 6 ファイルを返すことを見る。D9）。
-  `--self-test` の口は、先に壊していない写しで引数なしの検査が rc=0 になることを見てから、D9 の 9 つの壊し方を使い捨ての木で試し、どれでも引数なしの検査が rc≠0 になることを確かめる。
+  `--self-test` の口は D9 の 9 つの壊し方を使い捨ての木で試し、どれでも引数なしの検査が rc≠0 になることを確かめる。
   出所の行を消す場合の前に `echo "Scenario: 出所の行が無い ADR は落ちる"`、`## 決定` の見出しを消す場合の前に `echo "Scenario: 決まった見出しの欠けた ADR は落ちる"` を出し、どちらも出力にそのファイル名が出ることも見る。
-  `--verbatim` は Task 2、`--backlog` は Task 3 で足す（この段では `error: --verbatim は未実装` / `error: --backlog は未実装` で rc=2 でよい）。
-  この段ではまだ `docs/adr/` が無いので、引数なしの口と `--self-test` は落ちる（それでよい。Task 2 で通す）。
+  `--verbatim` は D1、`--backlog` は Task 3 で足す（この段では `error: --backlog は未実装` で rc=2 でよい）。
+  この段ではまだ `docs/adr/` が無いので、引数なしの口は落ちる（それでよい。Task 2 で通す）。
   検証: `bash -n tools/check-adr.sh` rc=0
 
 ## Task 2: ADR を置き、CLAUDE.md・AGENTS.md・CI に 1 行ずつ足す

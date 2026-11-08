@@ -115,7 +115,7 @@ ADR の本文と repo の今が食い違う箇所は、`premises.md` の表に�
 
 ### D6（C3）. 外に出ることは問わない
 
-ADR の本文は、依頼の逐語として既に公開の origin にある（`premises.md` の 1 行目）。新しく出るのは `CLAUDE.md` の 1 行と検証の台本だけで、どちらも私的なものを含まない。
+ADR の本文は、依頼の逐語として既に公開の origin にある（`premises.md` の 1 行目）。新しく出るのは `CLAUDE.md`・`AGENTS.md`・`.github/workflows/ci.yml` の 1 行ずつ（D2（仮）・D7（仮））と検査の台本だけで、どれも私的なものを含まない。
 
 ### D7（仮）. agent への案内は `CLAUDE.md` の表の 1 行と、`AGENTS.md` の 1 行の指示（Q4）
 
@@ -157,11 +157,10 @@ Q3 の本人の答えで台本を CI の chain job に載せるので、archive 
   - 見出しの形: README 以外の各 ADR について、1 行目が `# ` で始まり、`- 日付: YYYY-MM-DD`・`- 状態: 採用` か `- 状態: 置き換え済み（→ <ファイル名>）`・`- 出所: ` の 3 行がそれぞれちょうど 1 つあり、
     `## 背景`・`## 決定`・`## 退けた案`・`## 反転の条件`・`## 影響` の 5 つの見出しがそれぞれちょうど 1 つ、この順に出る。足りない・重なる・順が違う見出しを、ファイル名と一緒に `error:` で出す
   - `AGENTS.md`: `## 実装と計画の規約` の行から次の `## ` の行の手前までに、`` `docs/adr/` `` と「Story をまたぐ判断」の両方を含む行がちょうど 1 つ
-  - CI: `ADR_CI_YML` の `  chain:` の行から次の job の行（行頭の空白 2 つ + 名前 + `:`）の手前までに、`- run: ./tools/check-adr.sh --self-test && ./tools/check-adr.sh` の行がちょうど 1 つ（D2（仮））
+  - CI: `ADR_CI_YML` の `  chain:` の行から次の job の行（行頭の空白 2 つ + 名前 + `:`）の手前（chain が最後の job なら、ファイルの終わり）までに、`- run: ./tools/check-adr.sh --self-test && ./tools/check-adr.sh` の行がちょうど 1 つ（D2（仮））
   `tools/check-private.sh` は repo の根で走らせる（`ADR_DIR` を変えても、check-private は repo の追跡ファイルを見る）。
   check-private は `git ls-files` の範囲しか見ないので、呼ぶ前に `git ls-files docs/adr` が README と 5 件の ADR を返すことを確かめ、返さなければ `error: docs/adr/ がまだ追跡されていない` で落とす（`review/spec.md` R8）
 - `--self-test`: `mktemp -d` の使い捨ての木に `docs/adr/`・`CLAUDE.md`・`AGENTS.md`・`.github/workflows/ci.yml` を写し、`ADR_DIR`・`ADR_CLAUDE_MD`・`ADR_AGENTS_MD`・`ADR_CI_YML` をそこへ向けて壊す。
-  先に、壊していない写しで引数なしの検査が rc=0 になることを見る（写し方の誤りで全部が落ちて、壊し方の確かめが空振りにならないように）。
   壊し方は 9 つ（一覧の 1 項目を消す・一覧の 2 項目を入れ替える・ADR の 1 件の見出しを 1 字変える・ADR の 1 件の出所の行を消す・ADR の名前を大文字にする・`CLAUDE.md` の表の行を消す・
   ADR の 1 件から `## 決定` の見出しを消す・`AGENTS.md` の指示の行を消す・CI の定義の chain job から `check-adr.sh` の行を消す）で、
   どれでも検査が rc≠0 になることを確かめる（`review/spec.md` R7）。`trap` で木を消す。「出所の行が無い ADR は落ちる」の印はここで出す。
