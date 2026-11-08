@@ -14,7 +14,9 @@ assert _spec and _spec.loader
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 ExceptionTableError = _module.ExceptionTableError
+exception_row_error = _module.exception_row_error
 exception_rows = _module.exception_rows
+raw_exception_rows = _module.raw_exception_rows
 lockfiles = _module.lockfiles
 scan_root = _module.scan_root
 
@@ -31,28 +33,32 @@ def write_material(directory: Path, rows: list[dict]) -> None:
 def nightly(root: Path, scanner: Path, directory: Path) -> int:
     try:
         config = root / "osv-scanner.toml"
-        rows = exception_rows(config)
+        raw_rows = raw_exception_rows(config)
+        invalid_rows = []
+        valid_rows = {}
+        for ident, row in raw_rows.items():
+            problem = exception_row_error(ident, row)
+            if problem:
+                invalid_rows.append({"kind": "exception_table", "id": ident, "reason": problem.split(" (", 1)[0]})
+            else:
+                valid_rows[ident] = row
         files = lockfiles(root)
         findings, failure = scan_root(scanner, root, files, require_all=True)
         if failure:
             print(f"error: 検査できなかった（{failure}）")
             return 2
-    except (ExceptionTableError, ValueError) as exc:
+    except ExceptionTableError as exc:
         print(f"error: 検査できなかった（{exc}）")
-        try:
-            raw = exception_rows(config, validate=False)
-        except ValueError:
-            return 2
-        material = [{"kind": "exception_table", "id": ident, "reason": row["reason"]}
-                    for ident, row in raw.items()]
-        write_material(directory, material)
-        return 1
-    allowed = set(rows)
+        return 2
+    except ValueError as exc:
+        print(f"error: 検査できなかった（{exc}）")
+        return 2
+    allowed = set(valid_rows)
     outstanding = [row for row in findings
                    if row["id"] not in allowed and not any(alias in allowed for alias in row["aliases"])]
-    if not outstanding:
+    if not outstanding and not invalid_rows:
         return 0
-    material = [{"kind": "vulnerability", **row} for row in outstanding]
+    material = invalid_rows + [{"kind": "vulnerability", **row} for row in outstanding]
     write_material(directory, material)
     return 1
 
@@ -100,9 +106,13 @@ def load_material(directory: Path) -> list[dict]:
 
 
 def file_issues(directory: Path) -> int:
+    if not directory.exists():
+        print("error: issue を記録できなかった（材料が無い）", file=sys.stderr)
+        return 2
     rows = load_material(directory)
     if not rows:
-        return 0
+        print("error: issue を記録できなかった（材料が無い）", file=sys.stderr)
+        return 2
     grouped: dict[str, list[dict]] = {}
     for row in rows:
         grouped.setdefault(title_for(row), []).append(row)

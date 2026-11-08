@@ -52,30 +52,37 @@ def raw_exception_rows(path: Path) -> dict[str, dict[str, str]]:
     return rows
 
 
+def exception_row_error(ident: str, row: dict[str, str]) -> str | None:
+    until = row["ignoreUntil"]
+    reason = row["reason"]
+    if not ident:
+        return "勧告の ID が無い"
+    if not reason:
+        return f"理由が無い ({ident})"
+    if not until:
+        return f"期限が無い ({ident})"
+    try:
+        expiry = dt.date.fromisoformat(until)
+    except ValueError:
+        return f"期限が不正 ({ident})"
+    today = dt.datetime.now(dt.timezone.utc).date()
+    if expiry < today:
+        return f"期限切れ ({ident})"
+    if expiry > today + dt.timedelta(days=90):
+        return f"期限が 90 日を越える ({ident})"
+    if not reason.startswith(("届かない: ", "上げる予定: ")):
+        return f"理由の形が違う ({ident})"
+    return None
+
+
 def exception_rows(path: Path, *, validate: bool = True) -> dict[str, dict[str, str]]:
     rows = raw_exception_rows(path)
     if not validate:
         return rows
-    today = dt.datetime.now(dt.timezone.utc).date()
     for ident, row in rows.items():
-        until = row["ignoreUntil"]
-        reason = row["reason"]
-        if not ident:
-            raise ExceptionTableError("例外の表: 勧告の ID が無い")
-        if not reason:
-            raise ExceptionTableError(f"例外の表: 理由が無い ({ident})")
-        if not until:
-            raise ExceptionTableError(f"例外の表: 期限が無い ({ident})")
-        try:
-            expiry = dt.date.fromisoformat(until)
-        except ValueError as exc:
-            raise ExceptionTableError(f"例外の表: 期限が不正 ({ident})") from exc
-        if expiry < today:
-            raise ExceptionTableError(f"例外の表: 期限切れ ({ident})")
-        if expiry > today + dt.timedelta(days=90):
-            raise ExceptionTableError(f"例外の表: 期限が 90 日を越える ({ident})")
-        if not reason.startswith(("届かない: ", "上げる予定: ")):
-            raise ExceptionTableError(f"例外の表: 理由の形が違う ({ident})")
+        problem = exception_row_error(ident, row)
+        if problem:
+            raise ExceptionTableError(f"例外の表: {problem}")
     return rows
 
 

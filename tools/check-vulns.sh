@@ -260,17 +260,31 @@ PY
   if printf '%s\n' crates/server/src/lib.rs docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" code; then return 1; fi
   printf '%s\n' crates/server/src/lib.rs | "$ROOT/tools/release/changes.sh" code || return 1
-  local fake_gh="$tmp/gh" gh_log="$tmp/gh.log"
+  local fake_gh="$tmp/gh" gh_log="$tmp/gh.log" gh_body_dir="$tmp/gh-bodies"
+  mkdir -p "$gh_body_dir"
   cat >"$fake_gh" <<'GH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >>"$GH_LOG"
+body=""
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == --body && $((i + 1)) -le $# ]]; then
+    j=$((i + 1)); body="${!j}"
+  fi
+done
 case "$1 ${2:-}" in
   "label list") [[ "${GH_LABEL_EXISTS:-}" == 1 ]] && printf '[{"name":"脆弱性"}]\n' || printf '[]\n' ;;
   "label create") printf '[]\n' ;;
   "issue list") if [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
   "issue view") [[ "${GH_OPEN_ISSUE:-}" == 1 ]] && printf '{"comments":[]}\n' || printf '{"comments":[]}\n' ;;
-  "issue create"|"issue comment") exit 0 ;;
+  "issue create")
+    n=$(find "$GH_BODY_DIR" -name 'create-*' | wc -l)
+    printf '%s' "$body" >"$GH_BODY_DIR/create-$((n + 1))"
+    exit 0 ;;
+  "issue comment")
+    n=$(find "$GH_BODY_DIR" -name 'comment-*' | wc -l)
+    printf '%s' "$body" >"$GH_BODY_DIR/comment-$((n + 1))"
+    exit 0 ;;
 esac
 GH
   chmod +x "$fake_gh"
@@ -278,16 +292,25 @@ GH
   vulnerable_tree
   printf 'com.example:safe:1.0.0=runtimeClasspath\n' >"$tmp/root/collector-android/gradle.lockfile"
   : >"$gh_log"
-  ! PATH="$tmp:$PATH" GH_LOG="$gh_log" OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || return 1
+  rm -rf "$tmp/findings"
+  local unreachable_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || unreachable_rc=$?
+  [[ "$unreachable_rc" == 2 ]] || return 1
+  local file_unreachable_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || file_unreachable_rc=$?
+  [[ "$file_unreachable_rc" == 2 ]] || return 1
+  [[ ! -e "$tmp/findings/vulnerabilities.json" ]] || return 1
   ! rg -q 'issue (create|comment)' "$gh_log" || return 1
   echo "== Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ"
   vulnerable_tree
   printf 'com.example:safe:1.0.0=runtimeClasspath\n' >"$tmp/root/collector-android/gradle.lockfile"
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_LABEL_EXISTS=0 OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || [[ $? -eq 1 ]] || return 1
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_LABEL_EXISTS=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=0 OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || [[ $? -eq 1 ]] || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   [[ "$(rg -c '^issue create ' "$gh_log")" == 2 ]] || return 1
   rg -q '^label create 脆弱性' "$gh_log" || return 1
+  printf '%s' $'依存: ansi_term\n版: 0.12.1\n勧告: RUSTSEC-2021-0139\n重大度: \nURL: https://osv.dev/vulnerability/RUSTSEC-2021-0139' | diff -u - "$gh_body_dir/create-1" || return 1
+  printf '%s' $'依存: lodash\n版: 4.17.20\n勧告: GHSA-29mw-wpgm-hmr9\n重大度: 5.3\nURL: https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9\n依存: lodash\n版: 4.17.20\n勧告: GHSA-35jh-r3h4-6jhm\n重大度: 7.2\nURL: https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm\n依存: lodash\n版: 4.17.20\n勧告: GHSA-r5fr-rjxr-66jc\n重大度: 8.1\nURL: https://osv.dev/vulnerability/GHSA-r5fr-rjxr-66jc\n依存: lodash\n版: 4.17.20\n勧告: GHSA-xxjr-mmjv-4gpg\n重大度: 6.9\nURL: https://osv.dev/vulnerability/GHSA-xxjr-mmjv-4gpg' | diff -u - "$gh_body_dir/create-2" || return 1
   echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
   printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/existing.json"
   mkdir -p "$tmp/existing-dir"
@@ -301,28 +324,34 @@ GH
 [{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"},{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-new","severity":"LOW"}]
 JSON
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
   [[ "$(rg -c '^issue comment ' "$gh_log")" == 1 ]] || return 1
-  rg -q 'GHSA-new' "$gh_log" && ! rg -q 'GHSA-35jh-r3h4-6jhm.*GHSA-new' "$gh_log" || return 1
+  printf '%s' '勧告: GHSA-new' | cmp -s - "$gh_body_dir/comment-1" || return 1
   echo "== Scenario: issue に書くのは決まった項目だけ"
   rg -q 'issue comment .*勧告: GHSA-new' "$gh_log" || return 1
   ! rg -q '届く|分析|見出し' "$gh_log" || return 1
   echo "== Scenario: 勧告が消えた依存の issue は閉じない"
   ! rg -q '^issue close ' "$gh_log" || return 1
   echo "== Scenario: 表の行の問題は、例外の表の 1 件の issue になる"
-  printf '%s\n' '[{"kind":"exception_table","id":"A-1","reason":"届かない: 網"},{"kind":"exception_table","id":"A-2","reason":"上げる予定: 次回"}]' >"$tmp/table.json"
+  safe_tree
+  printf '%s\n' '[[IgnoredVulns]]' 'id = "A-1"' 'ignoreUntil = "2000-01-01"' 'reason = "届かない: 網"' '[[IgnoredVulns]]' 'id = "A-2"' 'ignoreUntil = "2099-01-01"' >"$tmp/root/osv-scanner.toml"
+  git -C "$tmp/root" add osv-scanner.toml
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/table.json" || return 1
+  rm -rf "$tmp/findings"
+  local table_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" OSV_SCANNER_BIN="$scanner" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" nightly "$tmp/findings" || table_rc=$?
+  [[ "$table_rc" == 1 ]] || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
-  rg -q '脆弱性: 例外の表' "$gh_log" && rg -q 'A-1' "$gh_log" && rg -q '届かない' "$gh_log" && rg -q 'A-2' "$gh_log" && rg -q '上げる予定' "$gh_log" || return 1
+  rg -q '脆弱性: 例外の表' "$gh_log" && rg -q 'A-1' "$gh_log" && rg -q '期限切れ' "$gh_log" && rg -q 'A-2' "$gh_log" && rg -q '理由が無い' "$gh_log" || return 1
   echo "== Scenario: PostgreSQL の遅れは 1 件の issue になり、開いていれば立て直さない"
   mkdir -p "$tmp/pg-findings"
   printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.11' >"$tmp/pg-findings/postgresql-minor.txt"
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
   [[ "$(rg -c '^issue create ' "$gh_log")" == 1 ]] || return 1
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
   ! rg -q '^issue (create|comment) ' "$gh_log" || return 1
   return 0
 }
