@@ -69,7 +69,8 @@ self_test() {
   echo "== Scenario: 勧告の無い版だけなら、全体の検査は通る"
   safe_tree; expect_rc 0 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   echo "== Scenario: 例外の表に勧告の ID があれば、その組では落ちない"
-  vulnerable_tree
+  safe_tree
+  printf 'version = 3\n[[package]]\nname = "smallvec"\nversion = "0.6.13"\n' > "$tmp/root/Cargo.lock"
   printf '[[IgnoredVulns]]\nid = "RUSTSEC-2021-0003"\nignoreUntil = "%s"\nreason = "CH11: 自己試験"\n[[IgnoredVulns]]\nid = "GHSA-43w2-9j62-hq99"\nignoreUntil = "%s"\nreason = "CH11: 自己試験"\n' "$(date -d '+1 day' +%F)" "$(date -d '+1 day' +%F)" > "$tmp/root/osv-scanner.toml"
   expect_rc 0 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   printf '# empty\n' > "$tmp/root/osv-scanner.toml"

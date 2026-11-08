@@ -6,8 +6,6 @@ import datetime as dt
 import json
 import os
 import subprocess
-import sys
-import tempfile
 import tomllib
 from pathlib import Path
 
@@ -56,9 +54,9 @@ def exceptions(path: Path) -> set[str]:
     return allowed
 
 
-def scan(scanner: Path, root: Path, lock: Path, config: Path) -> tuple[int, list[dict]]:
+def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict]]:
     command = [str(scanner), "scan", "source", "--lockfile", str(lock), "--format", "json",
-               "--all-vulns", "--config", str(config)]
+               "--all-vulns", "--all-packages", "--config", "/dev/null"]
     proc = subprocess.run(command, cwd=root, text=True, capture_output=True)
     if proc.returncode not in (0, 1):
         return error_code("osv.dev への問い合わせ" if proc.returncode else "osv-scanner"), []
@@ -104,7 +102,7 @@ def main() -> int:
         return error("見つからないロックファイル: " + ", ".join(str(p.relative_to(root)) for p in missing))
     findings: list[dict] = []
     for path in files:
-        rc, rows = scan(scanner, root, path, config)
+        rc, rows = scan(scanner, root, path)
         if rc == 2:
             return error("osv.dev への問い合わせ")
         findings.extend(rows)

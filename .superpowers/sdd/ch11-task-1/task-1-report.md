@@ -29,3 +29,9 @@
 ## Concerns
 
 - ネットワーク障害のため、実 osv-scanner による 1.2 の PASS 証跡がない。controller はネットワーク復旧後に 1.2 を再実行する必要がある。
+
+## Fix report
+
+- 原因: 例外表を scanner の `--config` に渡していたため、例外ケースで scanner 自身が rc=2 になっていた。また dev dependency を JSON に含める `--all-packages` が不足していた。
+- 修正: scanner には `/dev/null` の空設定を渡し、`--all-packages` を追加した。例外の判定は引き続き Python 側で行う。
+- 検証: `scripts/quiet-run ch11-task1-selftest -- tools/check-vulns.sh --self-test`。公式 asset の取得が HTTP 504 のため BLOCKED_INFRA。
