@@ -28,7 +28,7 @@
 
 ## Concerns
 
-- ネットワーク障害のため、実 osv-scanner による 1.2 の PASS 証跡がない。controller はネットワーク復旧後に 1.2 を再実行する必要がある。
+- なし。公式 API asset の取得と osv.dev への問い合わせを含む自己試験が PASS した。
 
 ## Fix report
 
@@ -41,3 +41,8 @@
 - 原因: GitHub の browser download URL が HTTP 504 になっていた。公式 GitHub API の asset endpoint は同じ固定 sha256 の実行ファイルを取得できた。また自己試験の dev lockfile は scanner が解決済み package として扱う `resolved` を欠いていた。
 - 修正: 公式 API の octet-stream endpoint と固定 asset ID を使い、自己試験の dev package に `resolved` を追加した。
 - 検証: `scripts/quiet-run ch11-task1-selftest -- tools/check-vulns.sh --self-test` — PASS、rc=0、9 Scenario 印を確認。
+
+## Final verification
+
+- `scripts/verify-run 1.1` — PASS、rc=0（変更後コード）。
+- `scripts/verify-run 1.2` — PASS、rc=0、9 Scenario 印を確認。
