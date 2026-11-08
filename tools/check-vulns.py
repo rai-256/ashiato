@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tomllib
+import tempfile
 from pathlib import Path
 
 
@@ -33,13 +34,13 @@ def lockfiles(root: Path) -> list[Path]:
     return paths + gradle
 
 
-def exceptions(path: Path) -> set[str]:
+def exception_rows(path: Path) -> dict[str, dict[str, str]]:
     try:
         with path.open("rb") as f:
             config = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ValueError(f"例外の表: {exc}") from exc
-    allowed: set[str] = set()
+    allowed: dict[str, dict[str, str]] = {}
     today = dt.datetime.now(dt.timezone.utc).date()
     for row in config.get("IgnoredVulns", []):
         ident = row.get("id")
@@ -61,8 +62,12 @@ def exceptions(path: Path) -> set[str]:
             raise ExceptionTableError(f"例外の表: 期限が 90 日を越える ({ident})")
         if not reason.startswith(("届かない: ", "上げる予定: ")):
             raise ExceptionTableError(f"例外の表: 理由の形が違う ({ident})")
-        allowed.add(ident)
+        allowed[ident] = {"id": ident, "ignoreUntil": until, "reason": reason}
     return allowed
+
+
+def exceptions(path: Path) -> set[str]:
+    return set(exception_rows(path))
 
 
 def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict], str | None]:
@@ -96,6 +101,52 @@ def scan(scanner: Path, root: Path, lock: Path) -> tuple[int, list[dict], str | 
     return proc.returncode, findings, None
 
 
+def scan_root(scanner: Path, root: Path, files: list[Path], require_all: bool) -> tuple[list[dict], str | None]:
+    if require_all:
+        missing = [p for p in files if not p.is_file()]
+        if missing:
+            return [], "見つからないロックファイル: " + ", ".join(str(p.relative_to(root)) for p in missing)
+    findings: list[dict] = []
+    for path in files:
+        rc, rows, failure = scan(scanner, root, path)
+        if failure:
+            return [], failure
+        findings.extend(rows)
+    return findings, None
+
+
+def git_file(root: Path, revision: str, relative: str) -> bytes | None:
+    proc = subprocess.run(["git", "-C", str(root), "show", f"{revision}:{relative}"], capture_output=True)
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def resolve_base(root: Path, revision: str) -> str | None:
+    proc = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", f"{revision}^{{commit}}"], text=True, capture_output=True)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def finding_key(row: dict) -> tuple[str, str, str]:
+    return row["ecosystem"], row["name"], row["id"]
+
+
+def print_exception_changes(base: dict[str, dict[str, str]], head: dict[str, dict[str, str]]) -> None:
+    print("== 例外の表で足した・変えた行")
+    changed = [head[ident] for ident in sorted(head)
+               if ident not in base or (base[ident].get("ignoreUntil"), base[ident].get("reason")) !=
+               (head[ident].get("ignoreUntil"), head[ident].get("reason"))]
+    if not changed:
+        print("なし")
+    else:
+        for row in changed:
+            print(f"{row['id']} ignoreUntil={row['ignoreUntil']} reason={row['reason']}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write("\n== 例外の表で足した・変えた行\n")
+            out.write("なし\n" if not changed else "".join(
+                f"{row['id']} ignoreUntil={row['ignoreUntil']} reason={row['reason']}\n" for row in changed))
+
+
 def main() -> int:
     root = Path(os.environ.get("CHECK_VULNS_ROOT", Path.cwd()))
     scanner = Path(os.environ.get("OSV_SCANNER_BIN", ""))
@@ -103,7 +154,7 @@ def main() -> int:
     if not scanner:
         return error("osv-scanner の場所")
     try:
-        allowed = exceptions(config)
+        rows = exception_rows(config)
     except ExceptionTableError as exc:
         print(f"error: {exc}")
         return 1
@@ -113,22 +164,50 @@ def main() -> int:
         files = lockfiles(root)
     except ValueError as exc:
         return error(str(exc))
-    missing = [p for p in files if not p.is_file()]
-    if missing:
-        return error("見つからないロックファイル: " + ", ".join(str(p.relative_to(root)) for p in missing))
-    findings: list[dict] = []
-    for path in files:
-        rc, rows, failure = scan(scanner, root, path)
-        if failure:
-            return error(failure)
-        findings.extend(rows)
+    findings, failure = scan_root(scanner, root, files, require_all=True)
+    if failure:
+        return error(failure)
+    allowed = set(rows)
     finding_ids = {ident for row in findings for ident in [row["id"], *row["aliases"]]}
     stale = sorted(ident for ident in allowed if ident not in finding_ids)
     for ident in stale:
         print(f"error: 例外の表: 勧告がもう出ない ({ident})")
     if stale:
         return 1
-    outstanding = [row for row in findings if row["id"] not in allowed and not any(a in allowed for a in row["aliases"])]
+    base_revision = None
+    if len(os.sys.argv) == 3 and os.sys.argv[1] == "--base":
+        base_revision = resolve_base(root, os.sys.argv[2])
+        if not base_revision:
+            return error("base の commit")
+        with tempfile.TemporaryDirectory(prefix="check-vulns-base-") as temp:
+            base_root = Path(temp)
+            base_files: list[Path] = []
+            for path in files:
+                relative = str(path.relative_to(root))
+                content = git_file(root, base_revision, relative)
+                if content is not None:
+                    target = base_root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(content)
+                    base_files.append(target)
+            base_config = git_file(root, base_revision, "osv-scanner.toml")
+            if base_config is None:
+                base_config = b"# no exceptions\n"
+            (base_root / "osv-scanner.toml").write_bytes(base_config)
+            try:
+                base_rows = exception_rows(base_root / "osv-scanner.toml")
+            except (ExceptionTableError, ValueError) as exc:
+                return error(str(exc))
+            base_findings, failure = scan_root(scanner, base_root, base_files, require_all=False)
+            if failure:
+                return error(failure)
+        base_keys = {finding_key(row) for row in base_findings}
+        new_findings = [row for row in findings if finding_key(row) not in base_keys]
+        outstanding = [row for row in new_findings if row["id"] not in allowed and not any(a in allowed for a in row["aliases"])]
+        print(f"新しく持ち込んだ: {len(outstanding)} 件")
+        print_exception_changes(base_rows, rows)
+    else:
+        outstanding = [row for row in findings if row["id"] not in allowed and not any(a in allowed for a in row["aliases"])]
     for row in outstanding:
         print(f"{row['ecosystem']} {row['name']} {row['version']} {row['id']} aliases={','.join(row['aliases'])} severity={row['severity']}")
     return 1 if outstanding else 0

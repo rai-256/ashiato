@@ -53,6 +53,7 @@ self_test() {
   cp "$ROOT/osv-scanner.toml" "$tmp/root/osv-scanner.toml"
   local common=(env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" XDG_CACHE_HOME="$tmp/cache")
   safe_tree() {
+    mkdir -p "$tmp/root/web" "$tmp/root/collector-android"
     printf 'version = 3\n[[package]]\nname = "ashiato-self-test-safe"\nversion = "1.0.0"\n' > "$tmp/root/Cargo.lock"
     printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.21"}},"node_modules/lodash":{"version":"4.17.21"}}}\n' > "$tmp/root/web/package-lock.json"
     printf 'com.example:safe:1.0.0=runtimeClasspath\n' > "$tmp/root/collector-android/gradle.lockfile"
@@ -60,6 +61,7 @@ self_test() {
     git -C "$tmp/root" add Cargo.lock web/package-lock.json collector-android/gradle.lockfile osv-scanner.toml
   }
   vulnerable_tree() {
+    mkdir -p "$tmp/root/web" "$tmp/root/collector-android"
     printf 'version = 3\n[[package]]\nname = "ansi_term"\nversion = "0.12.1"\n' > "$tmp/root/Cargo.lock"
     printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.20"}},"node_modules/lodash":{"version":"4.17.20","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"}}}\n' > "$tmp/root/web/package-lock.json"
     printf 'com.fasterxml.jackson.core:jackson-databind:2.9.10.8=runtimeClasspath\n' > "$tmp/root/collector-android/gradle.lockfile"
@@ -169,6 +171,84 @@ PY
   vulnerable_tree
   expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" || return 1
   rg -q 'error: 検査できなかった（osv.dev への問い合わせ' "$tmp/actual" || return 1
+  git -C "$tmp/root" config user.email self-test@example.invalid
+  git -C "$tmp/root" config user.name self-test
+  safe_tree; git -C "$tmp/root" commit -qm base
+  vulnerable_tree
+  echo "== Scenario: 勧告のある版を足した PR は落ちる"
+  expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '新しく持ち込んだ: [1-9][0-9]* 件' "$tmp/actual" || return 1
+  rg -q 'lodash.*GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  echo "== Scenario: base にもある勧告は、版を変えても新しいと数えない"
+  git -C "$tmp/root" add . && git -C "$tmp/root" commit -qm vulnerable-base
+  printf '%s\n' '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.19"}},"node_modules/lodash":{"version":"4.17.19","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.19.tgz"}}}' > "$tmp/root/web/package-lock.json"
+  git -C "$tmp/root" add web/package-lock.json && expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
+  echo "== Scenario: base にロックファイルも例外の表も無ければ、今の木の組と行は全部新しい"
+  git -C "$tmp/root" rm -q Cargo.lock collector-android/gradle.lockfile osv-scanner.toml
+  git -C "$tmp/root" commit -qm no-base-files
+  safe_tree
+  printf 'com.fasterxml.jackson.core:jackson-databind:2.9.10.8=runtimeClasspath\n' > "$tmp/root/collector-android/gradle.lockfile"
+  python3 - "$scanner" "$tmp/root/collector-android/gradle.lockfile" "$tmp/root/osv-scanner.toml" "$(date -u -d '+1 day' +%F)" <<'PY'
+import json, subprocess, sys
+data = subprocess.run([sys.argv[1], 'scan', 'source', '--lockfile', sys.argv[2], '--format', 'json', '--all-vulns', '--all-packages', '--config', '/dev/null'], capture_output=True, text=True).stdout
+ids = []
+for result in json.loads(data).get('results', []):
+    for package in result.get('packages', []):
+        for group in package.get('groups', []):
+            ids.extend(group.get('ids', []))
+with open(sys.argv[3], 'w') as output:
+    for ident in sorted(set(ids)):
+        output.write(f'[[IgnoredVulns]]\nid = "{ident}"\nignoreUntil = "{sys.argv[4]}"\nreason = "届かない: 自己試験"\n')
+PY
+  git -C "$tmp/root" add Cargo.lock web/package-lock.json collector-android/gradle.lockfile osv-scanner.toml
+  expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '新しく持ち込んだ: 0 件' "$tmp/actual" || return 1
+  rg -q '== 例外の表で足した・変えた行' "$tmp/actual" || return 1
+  rg -q 'GHSA-57j2-w4cx-62h2' "$tmp/actual" || return 1
+  echo "== Scenario: base の commit を取り寄せられなければ比べない"
+  expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base does-not-exist || return 1
+  rg -q '^error: 検査できなかった' "$tmp/actual" || return 1
+  echo "== Scenario: 足した行と期限を延ばした行が一覧に出る"
+  safe_tree
+  printf '%s\n' '{"name":"x","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"x","version":"1.0.0","dependencies":{"lodash":"4.17.20"}},"node_modules/lodash":{"version":"4.17.20","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"}}}' > "$tmp/root/web/package-lock.json"
+  python3 - "$scanner" "$tmp/root/web/package-lock.json" "$tmp/root/osv-scanner.toml" "$(date -u -d '+1 day' +%F)" <<'PY'
+import json, subprocess, sys
+data = subprocess.run([sys.argv[1], 'scan', 'source', '--lockfile', sys.argv[2], '--format', 'json', '--all-vulns', '--all-packages', '--config', '/dev/null'], capture_output=True, text=True).stdout
+ids = []
+for result in json.loads(data).get('results', []):
+    for package in result.get('packages', []):
+        for group in package.get('groups', []): ids.extend(group.get('ids', []))
+with open(sys.argv[3], 'w') as output:
+    for ident in sorted(set(ids)):
+        if ident != 'GHSA-35jh-r3h4-6jhm':
+            output.write(f'[[IgnoredVulns]]\nid = "{ident}"\nignoreUntil = "{sys.argv[4]}"\nreason = "届かない: A"\n')
+PY
+  git -C "$tmp/root" add web/package-lock.json osv-scanner.toml && git -C "$tmp/root" commit -qm exception-base
+  sed -i "0,/$(date -u -d '+1 day' +%F)/s//$(date -u -d '+2 days' +%F)/" "$tmp/root/osv-scanner.toml"
+  printf '%s\n' '[[IgnoredVulns]]' 'id = "GHSA-35jh-r3h4-6jhm"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: B"' >> "$tmp/root/osv-scanner.toml"
+  expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q "GHSA-29mw-wpgm-hmr9.*$(date -u -d '+2 days' +%F)" "$tmp/actual" || return 1
+  rg -q 'GHSA-35jh-r3h4-6jhm' "$tmp/actual" || return 1
+  echo "== Scenario: 例外の表を変えていなければ「なし」と出る"
+  git -C "$tmp/root" checkout -q -- osv-scanner.toml
+  expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '== 例外の表で足した・変えた行' "$tmp/actual" && rg -q 'なし' "$tmp/actual" || return 1
+  echo "== Scenario: PR の検査でも、表の行の検査が走る"
+  sed -i "s/$(date -u -d '+1 day' +%F)/2000-01-01/" "$tmp/root/osv-scanner.toml"
+  expect_rc 1 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '期限切れ' "$tmp/actual" || return 1
+  echo "== Scenario: PR の検査でも、osv.dev に届かなければ rc=2"
+  git -C "$tmp/root" checkout -q -- osv-scanner.toml
+  expect_rc 2 env CHECK_VULNS_ROOT="$tmp/root" OSV_SCANNER_BIN="$scanner" HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= "$SCRIPT_DIR/check-vulns.sh" --base HEAD || return 1
+  rg -q '^error: 検査できなかった' "$tmp/actual" || return 1
+  echo "== Scenario: 依存に関わるファイルを変えた PR で走り、それ以外では走らない"
+  for path in Cargo.lock web/package-lock.json collector-android/app/gradle.lockfile osv-scanner.toml tools/check-vulns.sh; do
+    printf '%s\n' "$path" | "$ROOT/tools/release/changes.sh" deps || return 1
+  done
+  if printf '%s\n' .github/workflows/ci.yml | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
+  if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" code; then return 1; fi
+  printf '%s\n' crates/server/src/lib.rs | "$ROOT/tools/release/changes.sh" code || return 1
   return 0
 }
 
@@ -178,6 +258,7 @@ main() {
   scanner="$(scanner_path)" || return $?
   case "${1:-}" in
     "") CHECK_VULNS_ROOT="$ROOT" OSV_SCANNER_BIN="$scanner" python3 "$SCRIPT_DIR/check-vulns.py" ;;
+    --base) [[ $# == 2 ]] || { echo "error: 検査できなかった（使い方）"; return 2; }; CHECK_VULNS_ROOT="$ROOT" OSV_SCANNER_BIN="$scanner" python3 "$SCRIPT_DIR/check-vulns.py" --base "$2" ;;
     *) echo "error: 検査できなかった（使い方）"; return 2 ;;
   esac
 }
