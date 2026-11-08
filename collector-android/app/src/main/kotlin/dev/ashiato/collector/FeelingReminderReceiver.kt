@@ -45,10 +45,18 @@ class FeelingReminderRunner(
     private val notifier: ReminderNotifier,
     private val clock: () -> Instant = Instant::now,
     private val log: (String) -> Unit = {},
+    internal val canQuery: () -> Boolean = { true },
 ) {
     fun wake() {
         val now = clock()
         val today = FeelingReminderPolicy.dayOf(now)
+        if (!canQuery()) {
+            alarms.scheduleReminder(
+                FeelingReminderPolicy.nextReminder(now, state.at ?: DEFAULT_REMINDER_AT, state.lastNotified)
+            )
+            alarms.scheduleRefresh(FeelingReminderPolicy.nextRefresh(now))
+            return
+        }
         val answer = source.fetch(today)
         if (answer != null) state.at = answer.at
         val at = answer?.at ?: state.at ?: DEFAULT_REMINDER_AT
@@ -86,13 +94,20 @@ internal object FeelingReminderWiring {
     @Volatile
     internal var async: (() -> Unit) -> Unit = { task -> Thread(task, "feeling-reminder").start() }
 
-    fun runner(context: Context): FeelingReminderRunner = runnerForTest?.invoke(context) ?: FeelingReminderRunner(
-        source = HttpReminderSource(Config.baseUrl, Config.apiToken, Config.userId),
-        state = FeelingReminderState(context),
-        alarms = FeelingReminderScheduler(context),
-        notifier = FeelingNotification(context, Config.webUrl),
-        log = { Log.i(TAG, it) },
-    )
+    fun runner(context: Context): FeelingReminderRunner {
+        Config.initialize(context)
+        return runnerForTest?.invoke(context) ?: FeelingReminderRunner(
+            source = HttpReminderSource(
+                Config.baseUrl, Config.apiToken, Config.userId,
+                onOutcome = SetupNotifier(context)::observe
+            ),
+            state = FeelingReminderState(context),
+            alarms = FeelingReminderScheduler(context),
+            notifier = FeelingNotification(context, Config.webUrl),
+            canQuery = { !DestinationGate(context.getSharedPreferences(Config.SETUP_PREFS, Context.MODE_PRIVATE)).blocked },
+            log = { Log.i(TAG, it) },
+        )
+    }
 
     /** 受け手から。網に触れるので主糸の外で回し、終わるまで `goAsync` で受け手を生かす。 */
     fun wakeAsync(receiver: BroadcastReceiver, context: Context) {

@@ -88,6 +88,7 @@ open class MainActivity : Activity() {
 
     /** この起動の `app_open` の観測を済ませた（D9）。 */
     private var healthOpenObserved = false
+    private var setupLaunched = false
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
         val marks = healthMarks()
@@ -112,8 +113,17 @@ open class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // ここでは何もしない。onResume が状態を見る（設定画面からの戻りも同じ経路になる）
+        Config.initialize(this)
+        if (shouldOfferInitialSetup() && !Config.isComplete &&
+            !getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE).getBoolean(SETUP_SKIPPED, false)
+        ) {
+            setupLaunched = true
+            startActivityForResult(Intent(this, SetupActivity::class.java), SETUP_REQUEST)
+        }
     }
+
+    /** 初回の自動導線はランチャーからの起動だけ。設定画面から戻る経路は onActivityResult が扱う。 */
+    protected open fun shouldOfferInitialSetup(): Boolean = intent?.action == Intent.ACTION_MAIN
 
     override fun onResume() {
         super.onResume()
@@ -164,6 +174,7 @@ open class MainActivity : Activity() {
 
     /** 足りない権限を 1 段ずつ求め、求め終わったら収集を始める。 */
     private fun proceed() {
+        if (setupLaunched) return
         val fine = Manifest.permission.ACCESS_FINE_LOCATION
         if (!granted(fine) && fine !in asked) {
             ask(fine)
@@ -287,6 +298,11 @@ open class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SETUP_REQUEST) {
+            setupLaunched = false
+            proceed()
+            return
+        }
         if (requestCode != HEALTH_REQUEST) return
         onHealthRequestReturned(answered = true)
     }
@@ -394,9 +410,13 @@ open class MainActivity : Activity() {
         // S-01 の更新を待っている間だけ、手元に残している日数つきの 1 行を出す（ST50 / D6）
         val waitStore = ContractWaitStore(getSharedPreferences(ContractWaitStore.PREFS, MODE_PRIVATE))
         val notice = screenNotice(waitStore)
-        if (restricted || notice != null) {
+        val setupNeeded = !Config.isComplete
+        // ランチャーから開く通常のメイン画面では、設定済みでも変更の入口を残す。
+        // 権限・設定の途中経路は従来どおり収集を始めて直ちに閉じる。
+        val setupRow = shouldOfferInitialSetup()
+        if (restricted || notice != null || setupRow) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
-            showStatus(state.takeIf { restricted }, notice)
+            showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
         } else {
             finish()
@@ -449,7 +469,12 @@ open class MainActivity : Activity() {
      * 画面の行。休止の除外（外れていない / 読めなかった。外れていないときだけ「設定を開く」を添える）と、
      * S-01 の更新を待っている間の 1 行。どちらも無ければ呼ばない。
      */
-    private fun showStatus(state: UnusedAppRestrictionsState?, notice: ContractNotice?) {
+    private fun showStatus(
+        state: UnusedAppRestrictionsState?,
+        notice: ContractNotice?,
+        setupNeeded: Boolean = false,
+        setupRow: Boolean = false,
+    ) {
         val density = resources.displayMetrics.density
         val pad = (PADDING_DP * density).toInt()
         val column = LinearLayout(this).apply {
@@ -466,6 +491,15 @@ open class MainActivity : Activity() {
         }
         actionBar?.hide()
         if (notice != null) column.addView(TextView(this).apply { text = notice.line })
+        if (setupRow) {
+            if (setupNeeded) column.addView(TextView(this).apply { text = SETUP_LINE })
+            column.addView(
+                Button(this).apply {
+                    text = SETUP_LABEL
+                    setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }
+                }
+            )
+        }
         if (state != null) {
             column.addView(
                 TextView(this).apply {
@@ -525,10 +559,14 @@ open class MainActivity : Activity() {
         /** 「1 度だけ」を端末に残す置き場（design D6（仮））。**試験も同じ名前を読む。** */
         const val PREFS = "collector"
         const val SENT_TO_USAGE_ACCESS = "sent_to_usage_access"
+        const val SETUP_SKIPPED = "setup_skipped"
+        private const val SETUP_REQUEST = 3
 
         const val NOT_EXEMPT_LINE = "使っていないアプリの一時停止の対象になっています"
         const val UNKNOWN_LINE = "使っていないアプリの一時停止の除外の状態を読めなかった"
         const val OPEN_SETTINGS_LABEL = "設定を開く"
+        const val SETUP_LABEL = "送り先の設定"
+        const val SETUP_LINE = "送り先が設定されていません"
         const val NOT_NOW_LABEL = "あとで"
         private const val PADDING_DP = 16
         private const val BUTTON_MIN_HEIGHT_DP = 48f

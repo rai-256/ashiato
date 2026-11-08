@@ -23,7 +23,7 @@
 
 ## Task 1: 偽の SDK の試験と、今の正常な経路の固定
 
-- [ ] 1.1 `tools/test-android-emulator.sh` を design D16 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH10）・走らせ方）。使い捨ての木に本物の `tools/android-emulator.sh`（と、あれば `tools/emulator-start.sh`・`tools/usage-volume.sh`）を写し、
+- [x] 1.1 `tools/test-android-emulator.sh` を design D16 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH10）・走らせ方）。使い捨ての木に本物の `tools/android-emulator.sh`（と、あれば `tools/emulator-start.sh`・`tools/usage-volume.sh`）を写し、
   偽の `tools/android-env.sh`・`tools/android-media-fixtures.sh`・`collector-android/gradlew`（`collector-android/app/build/outputs/androidTest-results/connected/TEST-fake-_app-.xml` を 1 つ書く）と、
   偽の SDK（`emulator/emulator`・`system-images/android-35/google_apis/x86_64/`）・PATH の偽の `adb`・`avdmanager` を置く。偽の adb は `devices`・`get-state`・`wait-for-device`・`-s <serial> …`・`shell getprop sys.boot_completed`・`emu avd name`・`emu kill` に答え、受け取った引数を 1 行ずつ記録する。
   偽のエミュレータは D16 の `FAKE_EMU`（`die` / `sleep` / `late-die` / `ok`）で振る舞いを変え、引数を記録する。**この段では今の台本（直す前）に当てて**、次の 5 つを確かめる。それぞれの前に印を出す:
@@ -35,16 +35,16 @@
   `echo "Scenario: 計測テストの台本の行の形の検査は、今のまま通る"`（`tools/test-usage-volume.sh` を走らせて rc=0）。
   採寸の台本は `android-env.sh` を読まないので、`ANDROID_HOME=<偽の SDK>` を渡して走らせる（D16）。
   検証: `tools/test-android-emulator.sh` rc=0
-- [ ] 1.2 1.1 の試験が今の台本の形を本当に見ていることを、写した台本を壊して確かめる手を試験の `--self-test` に置く: 写した `tools/android-emulator.sh` の `-no-snapshot` を消すと 1 つ目の場合が、`KEEP` の扱いを消すと 2 つ目の場合が落ちる
+- [x] 1.2 1.1 の試験が今の台本の形を本当に見ていることを、写した台本を壊して確かめる手を試験の `--self-test` に置く: 写した `tools/android-emulator.sh` の `-no-snapshot` を消すと 1 つ目の場合が、`KEEP` の扱いを消すと 2 つ目の場合が落ちる
   （壊すのは使い捨ての木の写しだけ。元の木は変えない）。
   検証: `tools/test-android-emulator.sh --self-test` rc=0
 
 ## Task 2: 部品と、計測テストの台本の失敗の経路
 
-- [ ] 2.1 `tools/emulator-start.sh` を design D1・D2・D6〜D8・D11〜D13・D15・D17 のとおりに書く（source して使う関数: `emu_check_kvm` / `emu_start` / `emu_wait_device` / `emu_wait_boot` / `emu_fail`。冒頭のコメントに使い方・環境変数の表・なぜ要るか（CH10））。
+- [x] 2.1 `tools/emulator-start.sh` を design D1・D2・D6〜D8・D11〜D13・D15・D17 のとおりに書く（source して使う関数: `emu_check_kvm` / `emu_start` / `emu_wait_device` / `emu_wait_boot` / `emu_fail`。冒頭のコメントに使い方・環境変数の表・なぜ要るか（CH10））。
   `tools/android-emulator.sh` の `:33-43` をこの部品の呼び出しに替え、`cleanup` を D13 のとおりに失敗の経路で `emu kill` を送らない形にする（`:44` 以降は変えない）。
   検証: `bash -n tools/emulator-start.sh` rc=0 / `bash -n tools/android-emulator.sh` rc=0
-- [ ] 2.2 `tools/test-android-emulator.sh` に次の 8 つを足す。それぞれの前に印を出す:
+- [x] 2.2 `tools/test-android-emulator.sh` に次の 8 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 開けない場所を渡すと、エミュレータを起こさずに /dev/kvm の文言で止まる"` /
   `echo "Scenario: 在っても読み書きできない場所を渡しても、同じく起こさずに止まる"`（`id -u` が 0 なら飛ばし、飛ばしたことを出す） /
   `echo "Scenario: /dev/kvm を開けないときの文言は、verify-run の環境の欠落の判定に掛かる"`（`.harness2/scripts/evidence.py` があれば `python3 -I` で `sys.path` に足して import し、`INFRA_SIGNS.search` が当たること。無ければ `/dev/kvm` の語だけ。D10） /
@@ -61,21 +61,21 @@
   冒頭のコメントに鍵と Scenario の名前の表を置く。`ASHIATO_TEST_ONLY` に知らない鍵が渡されたら rc=2。
   正常な経路の場合（Task 1 の 6 つ）は、開ける場所（使い捨ての木の中の普通のファイル）を `ASHIATO_KVM_DEVICE` に渡して走らせる（CI の検査の job には本物の /dev/kvm が無い）。
   検証: `tools/test-android-emulator.sh` rc=0
-- [ ] 2.3 2.2 の失敗の経路の場合が、直す前の台本では落ちることを確かめる。試験に 2 つの環境変数を持たせる（試験自身の選び方で、台本の口ではない）: `ASHIATO_TEST_ONLY=<場合の名前>`（その場合だけ走らせる）と
+- [x] 2.3 2.2 の失敗の経路の場合が、直す前の台本では落ちることを確かめる。試験に 2 つの環境変数を持たせる（試験自身の選び方で、台本の口ではない）: `ASHIATO_TEST_ONLY=<場合の名前>`（その場合だけ走らせる）と
   `ASHIATO_TEST_SCRIPT_REV=<rev>`（写す `tools/android-emulator.sh` を `git show <rev>:tools/android-emulator.sh` から取る）。偽の adb の `wait-for-device` は、端末が見えるまで返らない（本物と同じ）。
   直す前の版（`11c0c043`。この change の上流の分かれ目で、main の履歴に残る）では「起動直後に終わる」場合が 30 秒の見張りで落ちる。
   検証: `bash -c 'ASHIATO_TEST_ONLY=dies ASHIATO_TEST_SCRIPT_REV=11c0c043 tools/test-android-emulator.sh 2>&1 | grep -q "見張りで打ち切った: dies"'` rc=0 / `bash -c 'ASHIATO_TEST_ONLY=dies tools/test-android-emulator.sh'` rc=0
 
 ## Task 3: 同じ AVD のエミュレータが既に動いているとき
 
-- [ ] 3.1 `tools/android-emulator.sh` に design D3 の確かめを足す（部品の呼び出しの前。`adb devices` の `emulator-*` の `device` ごとに 5 秒の `timeout` で `emu avd name`）。`tools/test-android-emulator.sh` に次の 2 つを足す。それぞれの前に印を出す:
+- [x] 3.1 `tools/android-emulator.sh` に design D3 の確かめを足す（部品の呼び出しの前。`adb devices` の `emulator-*` の `device` ごとに 5 秒の `timeout` で `emu avd name`）。`tools/test-android-emulator.sh` に次の 2 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 同じ AVD が既に動いていると、起こさず・止めずに理由つきで止まる"` /
   `echo "Scenario: 実機か別の AVD のエミュレータだけが繋がっているときは、今のとおり起こす"`（偽の adb が `R5CT00000\tdevice` と、`emu avd name` に `other-avd` と答える `emulator-5556\tdevice` を見せる）。
   検証: `tools/test-android-emulator.sh` rc=0
 
 ## Task 4: 利用状況の採寸の台本も同じ部品で起こす
 
-- [ ] 4.1 `tools/usage-volume.sh` の `emulator_sample` の `:137-142` を `tools/emulator-start.sh` の呼び出しに替える（design D1。失敗は `return 2`・`started` は端末が現れてから置く・`-wipe-data` の引数は今のまま・動いている端末を使う `:127` は変えない）。
+- [x] 4.1 `tools/usage-volume.sh` の `emulator_sample` の `:137-142` を `tools/emulator-start.sh` の呼び出しに替える（design D1。失敗は `return 2`・`started` は端末が現れてから置く・`-wipe-data` の引数は今のまま・動いている端末を使う `:127` は変えない）。
   失敗で止まるときは自分の起こしたプロセスを止める（部品の `emu_fail`）。台本は `ANDROID_HOME` を環境から受け取るので、試験は偽の SDK を渡す（D16）。
   `tools/test-android-emulator.sh` に次の 3 つを足す。それぞれの前に印を出す:
   `echo "Scenario: 採寸の台本で起こしたエミュレータが起動直後に終わると、すぐ rc=2 で止まる"` /
@@ -85,15 +85,16 @@
 
 ## Task 5: 文書と CI
 
-- [ ] 5.1 `AGENTS.md` の「/dev/kvm（Codex のとき）」に design D14 の 1 文を足す。`tools/android-emulator.sh:9` の注記「無ければ数十倍遅い」を実測（無ければ起動直後に終わる。この台本は起こす前に確かめて止まる）に直す。
+- [x] 5.1 `AGENTS.md` の「/dev/kvm（Codex のとき）」に design D14 の 1 文を足す。`tools/android-emulator.sh:9` の注記「無ければ数十倍遅い」を実測（無ければ起動直後に終わる。この台本は起こす前に確かめて止まる）に直す。
   `docs/testing.md` の `手元: \`./tools/android-emulator.sh\`` の行（今は 177 行目）に「起こせなければ理由つきで rc=1（/dev/kvm を開けない・起動の途中で終わる・120 秒で端末が現れない・同じ AVD が動いている）」を書き足す（**行を直すだけ。末尾に足さない**）。
-  検証: `bash -c 'grep -q "error: /dev/kvm を開けない" AGENTS.md && ! grep -q "数十倍遅い" tools/android-emulator.sh && grep "手元: \`./tools/android-emulator.sh\`" docs/testing.md | grep -q "同じ AVD"'` rc=0
-- [ ] 5.2 `.github/workflows/ci.yml` の `rust` の job の `- run: ./tools/docker-tidy.sh --self-test` の直後に `- run: ./tools/test-android-emulator.sh` と `- run: ./tools/test-android-emulator.sh --self-test` を足す（design D9）。
+  検証: `./openspec/changes/ch10-emulator-start-timeout/check-5.1.sh`./tools/android-emulator.sh\`" docs/testing.md | grep -q "同じ AVD"'` rc=0
+  （訂正 2026-11-07: 検証の入口を「bash -c 'grep -q "error: /dev/kvm を開けない" AGENTS.md && ! grep -q "数十倍遅い" tools/android-emulator.sh && grep "手元: \」から上の入口に。受け入れ条件は変えない。理由: 旧コマンドは code span の中に \` を含み、検証として拾うと「grep "手元: \」で切れて bash の構文エラー（rc=2）になる。同じ 3 つの確かめを check-5.1.sh に置いた（壊すと 3 つとも落ちることを doctor が確かめた） 実証: evidence.jsonl 2026-11-07T05:11:44+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-07T05:36:32+00:00 PASS。記録: plan-corrections.md）
+- [x] 5.2 `.github/workflows/ci.yml` の `rust` の job の `- run: ./tools/docker-tidy.sh --self-test` の直後に `- run: ./tools/test-android-emulator.sh` と `- run: ./tools/test-android-emulator.sh --self-test` を足す（design D9）。
   検証: `bash -c 'grep -A2 -- "- run: ./tools/docker-tidy.sh --self-test" .github/workflows/ci.yml | grep -q "./tools/test-android-emulator.sh"'` rc=0 / `tools/check-shared-appends.sh` rc=0
 
 ## Task 6: 本物のエミュレータで確かめる（手元・kvm あり）
 
-- [ ] 6.1 change の中に `real-proof.sh` を書く（`<case>`: `dies` / `timeout` / `same-avd` / `ok`。本物の SDK と kvm が要る。Codex では sandbox の外の申請が 1 回要る）:
+- [x] 6.1 change の中に `real-proof.sh` を書く（`<case>`: `dies` / `timeout` / `same-avd` / `ok`。本物の SDK と kvm が要る。Codex では sandbox の外の申請が 1 回要る）:
   `dies` は `unshare -rm` で /dev/kvm に /dev/null を被せ（`premises.md` 1 行目と同じ形）、その中で `tools/android-emulator.sh` を走らせ、30 秒以内に rc=1・`error: エミュレータが起動の途中で終わった`・`/dev/kvm` の語があることを見る。
   `timeout` は `ASHIATO_EMULATOR_DEVICE_TIMEOUT=1` で走らせ、rc=1・`秒待っても端末が adb に現れない` と、終わった 10 秒後に `-avd ashiato-api35` を持つ過程が 0 本であることを見る（D13 の子の qemu）。
   `same-avd` は台本と同じ引数でエミュレータを背景で起こし、端末が見えた後に `tools/android-emulator.sh` を走らせ、rc=1・`error: 同じ AVD（ashiato-api35）のエミュレータが既に動いている` を見て、`emu avd name` の 1 行目が AVD の名前であることを記録し（D3）、最後に止める。
@@ -103,5 +104,5 @@
   結果を change の中の `real-proof.txt` に `<case>: pass|fail` で書く。
   検証: `scripts/quiet-run real-dies -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh dies` rc=0 / `scripts/quiet-run real-timeout -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh timeout` rc=0 /
   `scripts/quiet-run real-same -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh same-avd` rc=0 / `scripts/quiet-run real-ok -- openspec/changes/ch10-emulator-start-timeout/real-proof.sh ok` rc=0
-- [ ] 6.2 Scenario の印が全部あることを確かめる。
+- [x] 6.2 Scenario の印が全部あることを確かめる。
   検証: `bash -c '[ "$(tools/test-android-emulator.sh 2>/dev/null | grep -c "^Scenario: ")" -ge 23 ]'` rc=0 / `tools/test-android-emulator.sh --self-test` rc=0 / `python3 scripts/check_scenarios.py . ch10-emulator-start-timeout` rc=0

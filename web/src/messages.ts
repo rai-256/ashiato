@@ -90,6 +90,20 @@ const ja = {
     next: "ほかの設定は、ここに足していきます。",
   },
 
+  /** S-7 設定の「収集アプリの設定」の節（CollectorSetupPanel.tsx。ST56 / design D8）。 */
+  collectorSetup: {
+    sectionTitle: "収集アプリの設定",
+    lead: "携帯に入れるなら、携帯から開いているアドレス（Tailscale）でこの画面を開いてください。",
+    password: "合言葉",
+    show: "表示",
+    valueLabel: "設定の文字列",
+    copy: "値をコピー",
+    copied: "コピーしました。",
+    copyFailed: "コピーできませんでした。値を選んでコピーしてください。",
+    wrongPassword: "合言葉が違います。",
+    failed: "設定の文字列を表示できませんでした。",
+  },
+
   /** S-7 設定の「衛星と資格情報」の節（SatellitesPanel.tsx。ST29 / design D12）。拒む種別は `satellites.ts` の `REFUSAL_KINDS` 全部 */
   satellites: {
     sectionTitle: "衛星と資格情報",

@@ -36,6 +36,7 @@ class HttpReminderSource(
     private val token: String,
     private val userId: String,
     private val timeoutMs: Int = TIMEOUT_MS,
+    private val onOutcome: (Outcome) -> Unit = {},
 ) : ReminderSource {
     private val baseUrl = baseUrl.trimEnd('/')
 
@@ -53,11 +54,14 @@ class HttpReminderSource(
             }
             val c = conn
             watchdog.schedule(timerTask { c.disconnect() }, timeoutMs.toLong())
-            if (conn.responseCode in HttpURLConnection.HTTP_OK until HttpURLConnection.HTTP_MULT_CHOICE) {
+            val status = conn.responseCode
+            if (status in HttpURLConnection.HTTP_OK until HttpURLConnection.HTTP_MULT_CHOICE) {
                 val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                onOutcome(Outcome.Responded(status, body))
                 val wire = JSON.decodeFromString(ReminderWire.serializer(), body)
                 ReminderAnswer(LocalTime.parse(wire.at), wire.recorded)
             } else {
+                onOutcome(Outcome.Responded(status, ""))
                 null
             }
         } catch (_: IOException) {

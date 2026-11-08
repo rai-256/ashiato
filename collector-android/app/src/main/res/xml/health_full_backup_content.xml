@@ -3,4 +3,5 @@
 <!-- design D14（仮）: Android 11 以前の自動バックアップ。health_permission の置き場だけを外す。 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="health_permission.xml" />
+    <exclude domain="sharedpref" path="collector_setup.xml" />
 </full-backup-content>

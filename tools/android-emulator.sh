@@ -6,7 +6,7 @@
 #
 # 前提: tools/android-env.sh の SDK に emulator と system-images;android-35;google_apis;x86_64 が入っていること
 #   sdkmanager --install "emulator" "system-images;android-35;google_apis;x86_64"
-# WSL2 では /dev/kvm が要る（無ければ数十倍遅い）。CI（ubuntu）は KVM を有効にしてから同じことをする。
+# WSL2 では /dev/kvm が要る。無ければ起動直後に終わる（この台本は起こす前に確かめて止まる）。CI（ubuntu）は KVM を有効にしてから同じことをする。
 #
 # 実機を adb で繋いでいるときはエミュレータを立てず、そのまま同じテストを実機で走らせる:
 #   (cd collector-android && ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787)
@@ -22,26 +22,53 @@ IMAGE="system-images;android-35;google_apis;x86_64"
 [ -x "$ANDROID_HOME/emulator/emulator" ] || { echo "error: emulator が無い。sdkmanager --install \"emulator\" \"$IMAGE\"" >&2; exit 1; }
 [ -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64" ] || { echo "error: $IMAGE が無い" >&2; exit 1; }
 
+# shellcheck disable=SC1091
+. ./tools/emulator-start.sh
+emu_check_env || exit 1
+
 if ! avdmanager list avd -c 2>/dev/null | grep -qx "$AVD"; then
   echo "== AVD $AVD を作る"
   echo no | avdmanager create avd -n "$AVD" -k "$IMAGE" -d pixel_6 >/dev/null
 fi
 
-cleanup() { [ "${KEEP:-}" = "1" ] || { adb -s "${SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true; }; }
+EMU_CLEANUP_WITH_ADB=0
+cleanup() {
+  # 待ちの途中で止められたときも、自分の起こしたものは残さない（final R2）
+  if [ "${EMU_CLEANUP_WITH_ADB:-0}" != 1 ]; then
+    emu_stop_own
+    return 0
+  fi
+  [ "${KEEP:-}" = "1" ] || { adb -s "${SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true; }
+}
 trap cleanup EXIT
 
-echo "== エミュレータを起動（画面なし）"
-emulator -avd "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
-adb wait-for-device
-# timing-ok: 180 回 × 2 秒で、混雑時に長くなる側へだけ外れるエミュレータ起動待ち
-for _ in $(seq 1 180); do
-  [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
-  sleep 2
+emu_reject_existing_avd() {
+  local avd=$1 serial existing_avd
+  while read -r serial; do
+    [ -n "$serial" ] || continue
+    for _ in 1 2 3 4 5; do
+      # emulator 37.1.11 は emu avd name が空でも rc=0 を返すため、まず boot property を使う。
+      existing_avd=$(timeout 1 adb -s "$serial" shell getprop ro.boot.qemu.avd_name </dev/null 2>/dev/null | tr -d '\r' | sed -n '1p' || true)
+      [ -n "$existing_avd" ] || existing_avd=$(timeout 1 adb -s "$serial" emu avd name </dev/null 2>/dev/null | tr -d '\r' | sed -n '1p' || true)
+      [ -n "$existing_avd" ] && break
+      sleep 1
+    done
+    if [ "$existing_avd" = "$avd" ]; then
+      echo "error: 同じ AVD（$avd）のエミュレータが既に動いている（$serial）。KEEP=1 の残りなら adb -s $serial emu kill で止めてから" >&2
+      return 1
+    fi
+  done < <(adb devices 2>/dev/null | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1 }')
+}
+
+emu_reject_existing_avd "$AVD" || exit 1
+emu_check_kvm || exit 1
+emu_start "$AVD" -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+emu_wait_device "${SERIAL:-}" || exit 1
+emu_wait_boot "${SERIAL:-}" || exit 1
+for key in window_animation_scale transition_animation_scale animator_duration_scale; do
+  timeout "${ASHIATO_ADB_CALL_TIMEOUT:-10}" adb shell settings put global "$key" 0 >/dev/null || { emu_fail 'アニメーション設定が終わらない'; exit 1; }
 done
-[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] || { echo "error: 起動が終わらない" >&2; exit 1; }
-adb shell settings put global window_animation_scale 0 >/dev/null
-adb shell settings put global transition_animation_scale 0 >/dev/null
-adb shell settings put global animator_duration_scale 0 >/dev/null
+EMU_CLEANUP_WITH_ADB=1
 
 echo "== 計測テストの写真と動画を入れる（別のアプリが入れたものとして。ST09）"
 ./tools/android-media-fixtures.sh
@@ -75,7 +102,25 @@ rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数え�
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
-   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.UsageVolumeInstrumentedTest")
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest")
+keep_stage
+# St56BackupTest は instrumentation が対象プロセス内で動くため、データ消去と restore は
+# テストプロセスの外で行う。Gradle の connected task は invocation 後に APK を外すので、
+# APK を一度 install してから am instrument を直接呼ぶ。
+(cd collector-android && ./gradlew -q :app:installDebug :app:installDebugAndroidTest)
+adb shell bmgr enable true
+adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
+adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
+  dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner
+keep_stage
+./tools/android-backup-roundtrip.sh
+# 確かめも am instrument で直接呼ぶ。Gradle の connected task は APK を入れ直し、復元したデータを消す
+# （prepare と verify の間で入れ直さない。2026-11-06 に verify が「未送信が戻らない」で落ちた）。
+verify_out=$(adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored \
+  dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r')
+echo "$verify_out"
+grep -q '^OK (1 test)' <<<"$verify_out" \
+  || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
 keep_stage
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）

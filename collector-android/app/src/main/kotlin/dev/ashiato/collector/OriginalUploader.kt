@@ -112,8 +112,10 @@ class OriginalUploader(
     reporter: OriginalMissingReporter,
     private val env: OriginalEnvironment,
     private val log: (String) -> Unit = {},
+    private val canSend: () -> Boolean = { true },
+    private val onOutcome: (Outcome) -> Unit = {},
 ) {
-    private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now, env.bodyLimit)
+    private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now, env.bodyLimit, onOutcome)
     private val running = AtomicBoolean(false)
     private val backoff = HashMap<String, Backoff>()
 
@@ -127,6 +129,7 @@ class OriginalUploader(
      * それ以外の答えは何も送らない。`null` は確かめない呼び方（試験）で、全部が送れる。
      */
     fun run(answer: ContractAnswer? = null): Int {
+        if (!canSend()) return 0
         if (!running.compareAndSet(false, true)) return 0
         try {
             val limit = when (answer) {
@@ -170,7 +173,8 @@ class OriginalUploader(
         val failures = LinkedHashMap<String, Int>()
         var stopped = false
         while (!stopped) {
-            val row = next(tried, limit)
+            // 1 件ごとに門を見直す。送っている間に別の送り先が保存されたら残りを送らない（review/code.md R31）
+            val row = if (canSend()) next(tried, limit) else null
             if (row == null) {
                 stopped = true
             } else {
@@ -257,6 +261,7 @@ private class OriginalExchange(
     private val reporter: OriginalMissingReporter,
     private val now: () -> Instant,
     private val bodyLimit: Long,
+    private val onOutcome: (Outcome) -> Unit,
 ) {
     fun send(row: OriginalEntry): Step {
         headStep(row)?.let { return it }
@@ -271,12 +276,14 @@ private class OriginalExchange(
         val outcome = transport.head(row.sha256, row.contractVersion)
     ) {
         is Outcome.Unreachable -> Step.Retry("unreachable", stop = true)
-        is Outcome.Responded -> when (outcome.status) {
-            HTTP_UPGRADE_REQUIRED -> Step.Retry(CONTRACT_UNSUPPORTED, stop = true)
-            // 受け取り済み: 読まずに行を消す（入れ直した後に読み直して送り直さない。R9）
-            HTTP_OK -> removed(row, Step.Settled)
-            HTTP_NOT_FOUND -> null
-            else -> Step.Retry("server_${outcome.status}", stop = true)
+        is Outcome.Responded -> outcome.also(onOutcome).let {
+            when (it.status) {
+                HTTP_UPGRADE_REQUIRED -> Step.Retry(CONTRACT_UNSUPPORTED, stop = true)
+                // 受け取り済み: 読まずに行を消す（入れ直した後に読み直して送り直さない。R9）
+                HTTP_OK -> removed(row, Step.Settled)
+                HTTP_NOT_FOUND -> null
+                else -> Step.Retry("server_${it.status}", stop = true)
+            }
         }
     }
 
@@ -325,7 +332,7 @@ private class OriginalExchange(
             val outcome = opened.input.use { transport.put(row.sha256, length, it, row.contractVersion) }
         ) {
             is Outcome.Unreachable -> Step.Retry("unreachable", stop = true)
-            is Outcome.Responded -> putResult(row, outcome.status, outcome.body)
+            is Outcome.Responded -> outcome.also(onOutcome).let { putResult(row, it.status, it.body) }
         }
         else -> unopened(row, opened)
     }

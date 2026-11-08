@@ -464,6 +464,16 @@ pub struct SessionState {
     pub credential: String,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CollectorSetupResponse {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CollectorSetupError {
+    pub error: &'static str,
+}
+
 /// `/session` の求めの 1 行。ログインの結果はハンドラが判定した場で書く（D8）。
 fn session_entry(
     headers: &HeaderMap,
@@ -486,6 +496,138 @@ fn unauthorized() -> (StatusCode, String) {
     (StatusCode::UNAUTHORIZED, "unauthorized".into())
 }
 
+fn collector_setup_entry(
+    headers: &HeaderMap,
+    caller: Option<Caller>,
+    outcome: &'static str,
+    status: StatusCode,
+) -> AccessEntry {
+    AccessEntry::for_caller(
+        caller,
+        via_of(headers),
+        "/collector-setup".into(),
+        "POST".into(),
+        outcome,
+        status.as_u16(),
+    )
+}
+
+/// 本文が JSON と名乗っているか（ログインと収集アプリの設定の口）。
+fn is_json(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.trim()
+                .to_ascii_lowercase()
+                .starts_with("application/json")
+        })
+}
+
+/// 収集アプリの資格情報を、画面の有効なログインに一度だけ返す。
+#[utoipa::path(post, path = "/collector-setup", request_body = LoginRequest,
+    responses((status = 200, body = CollectorSetupResponse),
+              (status = 401), (status = 403, body = CollectorSetupError), (status = 415), (status = 429)))]
+pub async fn collector_setup_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let caller = match crate::decided(&app, &headers).await {
+        crate::Authn::Decided(caller) => caller,
+        crate::Authn::LookupFailed => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
+    };
+    let Some(caller) = caller else {
+        app.access
+            .write(collector_setup_entry(
+                &headers,
+                None,
+                "unauthorized",
+                StatusCode::UNAUTHORIZED,
+            ))
+            .await?;
+        return Err(unauthorized());
+    };
+    if caller != Caller::WebSession {
+        app.access
+            .write(collector_setup_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+    }
+    // ログインの口と同じく JSON だけを受ける（よそのサイトの単純な text/plain の送信を受けない。review/code.md R40）
+    if !is_json(&headers) {
+        app.access
+            .write(collector_setup_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ))
+            .await?;
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported media type".into(),
+        ));
+    }
+    if app.login.limiter.throttled() {
+        app.access
+            .write(collector_setup_entry(
+                &headers,
+                Some(caller),
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
+    }
+    let given = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("password")
+                .and_then(|p| p.as_str().map(str::to_owned))
+        })
+        .unwrap_or_default();
+    if given.is_empty() || !token_matches(&given, &app.login.password) {
+        app.login.limiter.record_failure();
+        app.access
+            .write(collector_setup_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        tokio::time::sleep(app.login.failure_delay).await;
+        return Ok((
+            StatusCode::FORBIDDEN,
+            Json(CollectorSetupError {
+                error: "wrong_password",
+            }),
+        )
+            .into_response());
+    }
+    app.access
+        .write(collector_setup_entry(
+            &headers,
+            Some(caller),
+            "ok",
+            StatusCode::OK,
+        ))
+        .await?;
+    Ok(Json(CollectorSetupResponse {
+        token: app.collector_token().to_owned(),
+    })
+    .into_response())
+}
+
 /// ログイン。**画面の合言葉そのものを資格情報として要求する**（`authorize()` は通さない）。
 #[utoipa::path(post, path = "/session", request_body = LoginRequest,
     responses((status = 204), (status = 401), (status = 415), (status = 429)))]
@@ -494,15 +636,7 @@ pub async fn session_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let is_json = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| {
-            v.trim()
-                .to_ascii_lowercase()
-                .starts_with("application/json")
-        });
-    if !is_json {
+    if !is_json(&headers) {
         app.access
             .write(session_entry(
                 &headers,
