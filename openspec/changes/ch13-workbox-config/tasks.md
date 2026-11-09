@@ -20,10 +20,10 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
 
 ## Task 1: 箱の設定を置く
 
-- [ ] 1.1 `design.md` の `### D1.` の節の ```` ```json ```` の塊を、そのまま `tools/workbox.json` に書く（末尾に改行 1 つ）。
+- [x] 1.1 `design.md` の `### D1.` の節の ```` ```json ```` の塊を、そのまま `tools/workbox.json` に書く（末尾に改行 1 つ）。
   手で打ち直さず、塊を機械で取り出して書く（写し間違いを避ける）。
   検証: `python3 -c 'import json; json.load(open("tools/workbox.json", encoding="utf-8"))'` rc=0
-- [ ] 1.2 置いたファイルが D1 の塊と同じ中身であること（JSON として読んで等しい。D1 の節に塊がちょうど 1 つ）と、依頼の版から変えたのが 4 つの欄だけであることを確かめる（design D1・違和感 (5)）:
+- [x] 1.2 置いたファイルが D1 の塊と同じ中身であること（JSON として読んで等しい。D1 の節に塊がちょうど 1 つ）と、依頼の版から変えたのが 4 つの欄だけであることを確かめる（design D1・違和感 (5)）:
   `docker` と `prep_files` が無い・`docker_images` が `["postgres:17-alpine"]`・`host_only` は依頼の版の後ろに 3 本を足しただけ・ほかの欄は依頼の版と同じ。
   検証: `python3 -c 'import json,re;g=lambda p,h:open(p,encoding="utf-8").read().split(h,1)[1];d=re.split(r"\n### D",g("openspec/changes/ch13-workbox-config/design.md","### D1."),1)[0];b=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",d,re.S);assert len(b)==1,"D1 の JSON の塊が %d 個" % len(b);w=json.loads(b[0]);assert w==json.load(open("tools/workbox.json",encoding="utf-8")),"tools/workbox.json が D1 と違う";t=g("docs/changes/CH13.md","## 依頼（逐語）").split("\n## ",1)[0];t="\n".join(re.sub(r"^> ?","",l) for l in t.splitlines());r=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",t,re.S);assert len(r)==1,"依頼の JSON の塊が %d 個" % len(r);r=json.loads(r[0]);k={"docker","prep_files","docker_images","host_only"};assert {a:v for a,v in w.items() if a not in k}=={a:v for a,v in r.items() if a not in k},"変えてよい 4 つの欄の外が依頼の版と違う";assert "docker" not in w and "prep_files" not in w,"docker か prep_files が残っている";assert w["docker_images"]==["postgres:17-alpine"],"docker_images が違う";assert w["host_only"]==r["host_only"]+["tools/release/(build|install-check)\\.sh","tools/android-side-by-side\\.sh","tools/usage-volume\\.sh"],"host_only が依頼の版の足し算でない"'` rc=0
 
