@@ -103,6 +103,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （`check_tracked` は 6 つの名前が `git ls-files docs/adr` にあるかだけを見て、数を問わない。自己検査に正の対照「形の正しい ADR を 1 件足して `git add` しても通る」を足し、`ADR_GIT_ROOT` で使い捨ての木（`git init` した写し）の索引へ向けて試せるようにした）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R2. 自己検査（CI が「台本が壊れても緑にならない」ために走らせる口）が、4 つのガードの消失を見抜かない
 - 成果物: `tools/check-adr.sh`（`self_test`）
@@ -115,6 +116,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （自己検査の壊し方を 9 から 21 に足し、正の対照を 1 つ足した。どれも期待する `error:` の文面まで見る。追跡と allow の検査は `ADR_GIT_ROOT`・`ADR_PRIVATE_ALLOW` で自己検査から届く。検査の行を 1 本ずつ潰すと、自己検査が全部で落ちることを確かめた（report）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R3. `--backlog` は 1 つのメモリが残っただけでも、4 つとも「残りにある」と出す
 - 成果物: `tools/check-adr.sh`（`backlog` :274-285・`backlog_json_check`）
@@ -127,6 +129,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 3.1 （`backlog_json_check` が残りにある名前を 1 行ずつ返し、`backlog` は名前ごとに `残りに無い` / `残りにある` を出す。自己検査に「1 つだけ名指しを外すと、その 1 つだけ `残りにある`」を足した）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R4. メモリを消すと、手元の `--self-test` が rc=1 になる（CI は緑のまま）
 - 成果物: `tools/check-adr.sh`（`self_test` :469-480・`backlog` :262-265）
@@ -141,6 +144,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 3.1 （自己検査の `--backlog` の子は、偽の台本と使い捨てのメモリの置き場で走らせ、手元のメモリと harness2 に依らない。正の対照の失敗の文面を D5 の形 `error: …無い` にし、自己検査で rc と文面を見る）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R5. 「harness2 の ADR はまだ harness2 の main に無い」は、もう事実でない（CH12.md の節と PR 本文）
 - 成果物: `docs/changes/CH12.md`（`## ADR と repo の今の食い違い（直していない）` の末尾の段落） / `docs/briefs/CH12-pr.md:41` / `design.md` の Context（`adr_backlog.py` は `.harness2` に無い）
@@ -154,6 +158,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed D3 仮 （CH12.md の節の末尾の段落・完了の判定の前置き、PR 本文の同じ段落を「いまは harness2 の main にある（`1e140a4b3`・`ae1a0b77f`）。参照の 2 件も行き先がある」に直した。design の Context と D3 には 2026-11-09 の追記を足した。`## 依頼（逐語）` の外なので `--verbatim` は rc=0 のまま）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R6. 決まった形に当たる行しか数えないので、形の違う行は落ちずに見えなくなる
 - 成果物: `tools/check-adr.sh:52`（一覧の項目）・`:102`（状態の行）
@@ -169,6 +174,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （状態・日付の行は形を問わず `^- 状態:` / `^- 日付:` で数えてから値の形を見る。一覧の節の `- ` の行は全部項目として読み、形の違う行は `README の一覧の項目の形が違う: <行>` で落とす。自己検査に (a)(b) を足した）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R7. 日付・状態・出所の 3 行の位置を見ていない
 - 成果物: `tools/check-adr.sh`（`check_shape` :94-115）
@@ -182,6 +188,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （日付 → 状態 → 出所の順で、どれも `## 背景` より前にあることを見る。自己検査に「出所の行を末尾へ移す」を足した）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## security review（a658d12..dd63369）
 
@@ -210,6 +217,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （`SELF="$ROOT/tools/<台本の名前>"` を一度決め、子は全部それで起こす。`cd tools && ./check-adr.sh --self-test` が rc=0）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R9. check_tracked requires exactly 6 tracked files under docs/adr. This contradicts README, which says to keep adding ADRs and to add a new one when a decision is replaced.
 - 成果物: tools/check-adr.sh:151
@@ -219,6 +227,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （R1 と同じ直し。数の一致をやめ、6 つの名前の追跡だけを見る）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R10. In --verbatim, if the file content differs but splitlines() gives the same lines, first_difference is None and `None + 1` raises a TypeError.
 - 成果物: tools/check-adr.sh:372
@@ -228,6 +237,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 2.1 （`first_difference` が None のときは「末尾の改行か改行の形が依頼（逐語）と一致しない」を出す。ADR は改行を変換せずに読み、CRLF も落とす）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R11. --self-test runs the real --backlog against the developer's memory and harness2, and only accepts rc 0 or 127. Its result depends on the local environment.
 - 成果物: tools/check-adr.sh:470
@@ -237,6 +247,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 3.1 （R4 と同じ直し。自己検査は本物の `--backlog` を走らせない）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R12. run_main calls the same check function again under several Scenario labels (check_index_and_files 4 times, check_guidance and check_tracked twice each). The labels do not correspond to individual checks.
 - 成果物: tools/check-adr.sh:296
@@ -246,6 +257,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （一覧とファイル名は `load_index` で 1 回だけ読み、Scenario ごとに `check_correspondence`・`check_list_titles`・`check_list_order`・`check_filenames`・`check_claude`・`check_agents`・`check_tracked`・`check_private_scope` に分けた。どの関数も 1 回だけ呼ぶ）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R13. run_main runs tools/check-private.sh itself, but the chain job in CI already runs check-private.sh on the line just before. It runs twice.
 - 成果物: tools/check-adr.sh:321
@@ -255,6 +267,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: rejected: 2 回走ることは再現した（`.github/workflows/ci.yml:502` の `./tools/check-private.sh` の次の行 :503 が check-adr.sh で、check-adr.sh も呼ぶ）。ただし design.md D9 が「`tools/check-private.sh` は repo の根で走らせる」と check-adr.sh の中で呼ぶことを決めている。Scenario「docs/adr/ を含む追跡ファイルで、網の名前の検査が通る」の印は check-adr.sh にあり、tasks 2.2 の検証（verify-run）は check-adr.sh を単独で走らせるので、呼ぶのをやめるとその印の先が網の名前を何も観測しなくなる。重複の費用は chain job で 1 回分（job 全体で 0.2 分。ci.yml:501 の注記）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R14. If tools/check-private.allow does not exist, grep exits 2 and the condition is false, so the check passes silently.
 - 成果物: tools/check-adr.sh:317
@@ -264,6 +277,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （allow の置き場（`ADR_PRIVATE_ALLOW`、既定 `tools/check-private.allow`）が無ければ `error: … が無い` で落とす。自己検査に「allow を消す」と「allow に docs/adr/ を足す」を足した）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R15. The `sed -E 's/…$/&/'` replaces each match with itself (`&`), so it does nothing. It is dead code.
 - 成果物: tools/check-adr.sh:53
@@ -273,6 +287,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 1.1 （何もしない `sed` を消した。形の違う項目は R6 の直しで error になる）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R16. find_backlog_script uses adr_backlog.py from the first worktree that has one in `git worktree list` for the harness2 repo. It may run an unmerged branch's version.
 - 成果物: tools/check-adr.sh:203
@@ -282,6 +297,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: rejected: 探し方の 3.（`.harness2` の指す repo の worktree）は design.md D4 が決めた順で、Risks（design.md の「harness2 の worktree の探し方は、別の枝の古い `adr_backlog.py` を拾いうる」）に挙げて受けている。しかも 2. が先に当たる: `ls .harness2/scripts/adr_backlog.py` は在り、`.harness2` は harness2 の `main` の checkout（`git -C "$(readlink -f .harness2)" branch --show-current` → `main`、台本は `ae1a0b77f`）なので、3. に落ちるのは main に台本が無い場合だけ。判定は 4 つのメモリ名の有無だけで、版の違いに依らない
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R17. --verbatim runs `python3 -` without -I, unlike backlog_json_check and the adr_backlog.py call, which use -I.
 - 成果物: tools/check-adr.sh:337
@@ -291,6 +307,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 処置: fixed 2.1 （`--verbatim` の python を `python3 -I` にした。自己検査の中の python も `-I`）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## final review（a658d12..2d9391c）
 
@@ -305,6 +322,7 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
 - 提案: (a) 対象を `202610030000-worktree-port-allocation.md` に名前で固定し、無ければ error にする。(b) `status-value` / `status-extra` の sed を `^- 状態: .*` に当たる形へ緩める（期待する error の文面は変えない）。(c) 正の対照を 2 つ足す —— 既存の ADR を置き換え済みにした木、どの ADR より古いファイル名の ADR を足した木で、どちらも本番が通ること。直した後、上の 2 つの再現で `--self-test` が rc=0 になることを確かめる
 - 処置: fixed 1.1 （提案の (a)(b)(c) のとおり。自己検査の対象は `202610030000-worktree-port-allocation.md` に名前で固定し、無ければ `self-test の対象 … が無い` で落とす。`status-value` / `status-extra` は値に依らず最初の `- 状態:` の行を壊す。正の対照を `next-adr` に `superseded`（対象を置き換え済みにして後継を足す）・`older-adr`（どの ADR より古いファイル名の ADR を一覧の末尾に足す）を足した 3 つにした。根拠の 2 つの再現で `--self-test` が rc=0（report））
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R19. 使い捨ての木の掃除が `trap … RETURN` だけで、中断（SIGINT・kill）では動かない
 - 成果物: `tools/check-adr.sh`
@@ -313,6 +331,7 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
 - 提案: 入口で一時ディレクトリを 1 つの親の下に集め、`trap … EXIT INT TERM` で消す
 - 処置: fixed 1.1 （入口で `TMP_ROOT` を 1 つ作り、`load_index`・`backlog`・`verbatim`・`self_test` の一時ファイルは全部その下に置く。`trap … EXIT` で消し、INT・TERM は 130・143 で exit させて EXIT の trap を通す。`trap … RETURN` は消した。`--self-test` の process group に SIGINT・SIGTERM を送ると、残るファイルが 0（旧版は SIGINT で 286）（report））
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R20. `section_lines` が見出しを正規表現として扱う
 - 成果物: `tools/check-adr.sh`
@@ -321,6 +340,7 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
 - 提案: 見出しを固定文字列で比べる（awk の `$0 == h` など）
 - 処置: fixed 1.1 （`index($0, start) == 1` の固定文字列の前方一致にした。AGENTS.md の見出しは `## 実装と計画の規約（…）` と後ろに続くので、完全一致でなく前方一致。`## 規約(x)` を探す試しで、旧版は `## 規約x` の節を返し、新版は `## 規約(x)` の節を返す（report））
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R21. ファイル名の日付と `- 日付:` の一致、`置き換え済み（→ X）` の X の実在を誰も見ていない（spec の隙間）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/specs/decision-records/spec.md` / `tools/check-adr.sh`
@@ -341,6 +361,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 提案: 自己検査の一覧（:704）に壊し方を 2 つ足す。後継を `README.md` にするものと、`../README.md`（`docs/adr/` の外に実在するファイル）にするもの。期待する文面は今と同じ `置き換え済みの後継 … が` でよい
 （確かさ 4）
 - 処置: fixed 1.1 （自己検査に壊し方 `successor-readme`（後継を `README.md` に）と `successor-outside`（後継を `docs/adr/` の外に実在する `../../CLAUDE.md` に。使い捨ての木の根に写した CLAUDE.md を指す）を足し、期待する文面 `置き換え済みの後継 … が` まで見る。`check_successors` の `README.md` の条件を外すと `successor-readme` が、`*/*` の条件を外すと `successor-outside` が自己検査を rc=1 で落とすことを確かめた（report）。自分自身を後継に指す置き換えは spec が禁じていないので、この回では足さない）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R23. tasks.md の Task 1.1 の本文が直しに追いついていない（数と印の一覧）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/tasks.md`
@@ -349,6 +370,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 提案: 数と印の一覧を台本に合わせる（Task の当時の数を残すなら、そう注記する）
 （確かさ 4）
 - 処置: fixed 1.1 （Task 1.1 の数を「13（Task の当時は 11。第 2 回 Q5 で 2 本足した）」に直し、印の一覧に R21 の 2 本を足した。壊し方の数も「Task の当時は 9 つ。今は 30」と書いた。Global Constraints の「引数なし 13 本」と台本の印 13 本に合う）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 
 ## R24. design D9 の自己検査の説明が台本と合わない（壊し方の数・正の対照・掃除の作り）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/design.md`
@@ -357,3 +379,4 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 提案: 抜けた 5 つの壊し方、正の対照の 3 つ、`TMP_ROOT` と `trap … EXIT` を D9 に書き足す
 （確かさ 4）
 - 処置: fixed D9 （抜けた 5 つ（`date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all`）と R22 の 2 つを足し、9＋12＋2＋5＋2＝30 で台本の一覧と同じと書いた。正の対照を `next-adr`・`superseded`・`older-adr` の 3 つにし、掃除を `TMP_ROOT` と `trap … EXIT`（INT・TERM は exit で EXIT の trap を通す）に直した。CH12.md の完了の判定の「28 の壊し方」も 30 に直した）
+- 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
