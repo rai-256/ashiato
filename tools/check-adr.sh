@@ -24,6 +24,12 @@ GIT_ROOT=${ADR_GIT_ROOT:-.}
 ALLOW_FILE=${ADR_PRIVATE_ALLOW:-tools/check-private.allow}
 errors=0
 
+# 一時ファイルは全部この 1 つの親の下に置き、終わり方を問わず消す（中断の SIGINT・SIGTERM でも。review/code.md R19）
+TMP_ROOT=$(mktemp -d) || { echo 'error: 一時ディレクトリを作れない' >&2; exit 2; }
+trap 'rm -rf "$TMP_ROOT"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 error() {
   echo "error: $*" >&2
   errors=1
@@ -33,10 +39,11 @@ count_lines() {
   awk 'END { print NR + 0 }' "$1"
 }
 
+# 見出しは固定文字列の前方一致で探す（正規表現として読まない。review/code.md R20）
 section_lines() {
   local file=$1 start=$2
   awk -v start="$start" '
-    $0 ~ ("^" start) { in_section=1; next }
+    !in_section && index($0, start) == 1 { in_section=1; next }
     in_section && /^## / { exit }
     in_section { print }
   ' "$file"
@@ -51,8 +58,8 @@ load_index() {
   local readme="$ADR_DIR/README.md" line
   [ -d "$ADR_DIR" ] || { error "$ADR_DIR が無い"; return; }
   [ -f "$readme" ] || { error "$readme が無い"; return; }
-  LIST_FILE=$(mktemp)
-  FILES_FILE=$(mktemp)
+  LIST_FILE=$(mktemp -p "$TMP_ROOT")
+  FILES_FILE=$(mktemp -p "$TMP_ROOT")
   # 一覧の節の `- ` で始まる行は全部項目として数え、形の違う行は error で名指す（review/code.md R6）
   while IFS= read -r line; do
     if [[ "$line" =~ ^-\ \[[0-9]{4}-[0-9]{2}-[0-9]{2}\ .+\]\([^\)]+\)$ ]]; then
@@ -310,8 +317,7 @@ PY
 
 backlog() {
   local tmp empty_dir positive_output production_output positive_rc production_rc check_rc name remaining
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
+  tmp=$(mktemp -d -p "$TMP_ROOT")
 
   find_backlog_script || return $?
   find_memory_dir || return $?
@@ -384,8 +390,7 @@ run_main() {
 
 verbatim() {
   local source=docs/changes/CH12.md expected=7e1b0a5c755c8b19fcb7c138db6f2f87897d96baa46f90b3bc889ba872e58b94 actual tmp
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
+  tmp=$(mktemp -d -p "$TMP_ROOT")
   awk '/^## 依頼（逐語）$/{on=1} on && NR>1 && /^## / && $0 != "## 依頼（逐語）"{exit} on{print}' "$source" > "$tmp/section"
   actual=$(sha256sum "$tmp/section" | awk '{print $1}')
   if [ "$actual" != "$expected" ]; then
@@ -486,8 +491,10 @@ i = next(i for i, x in enumerate(lines) if x.startswith('- 出所: '))
 moved = lines.pop(i); p.write_text(''.join(lines) + '\n' + moved)
 PY
       ;;
-    status-value) sed -i 's/^- 状態: 採用$/- 状態: 検討中/' "$adr/$target" ;;
-    status-extra) sed -i '/^- 状態: 採用$/a - 状態: 検討中' "$adr/$target" ;;
+    # 対象の状態の値に依らず壊す（置き換え済みの ADR でも当たる。review/code.md R18）
+    status-value) sed -i 's/^- 状態: .*/- 状態: 検討中/' "$adr/$target" ;;
+    status-extra) sed -i '0,/^- 状態: / { /^- 状態: /a - 状態: 検討中
+}' "$adr/$target" ;;
     heading-swap) sed -i 's/^## 背景$/## TMP-SWAP/; s/^## 決定$/## 背景/; s/^## TMP-SWAP$/## 決定/' "$adr/$target" ;;
     decision) sed -i '0,/^## 決定$/ { /^## 決定$/d; }' "$adr/$target" ;;
     filename) mv "$adr/$target" "$adr/${target%.md}-BAD.md" ;;
@@ -504,7 +511,7 @@ PY
     ci) sed -i '/check-adr\.sh --self-test/d' "$dir/.github/workflows/ci.yml" ;;
     allow-adr) echo 'docs/adr/README.md' >>"$dir/tools/check-private.allow" ;;
     allow-missing) rm "$dir/tools/check-private.allow" ;;
-    next-adr)
+    next-adr | superseded)
       cat >"$adr/209912310000-sample-next.md" <<'MD'
 # 次の判断の見本
 
@@ -533,6 +540,47 @@ PY
 見本。
 MD
       sed -i '0,/^- \[/s/^- \[/- [2099-12-31 次の判断の見本](209912310000-sample-next.md)\n- [/' "$adr/README.md"
+      # README の「決定が後で変わったら」の手順: 元の ADR を置き換え済みにして後継を指す
+      if [ "$case_name" = superseded ]; then
+        sed -i 's/^- 状態: .*/- 状態: 置き換え済み（→ 209912310000-sample-next.md）/' "$adr/$target"
+      fi
+      git -C "$dir" add docs/adr
+      ;;
+    older-adr)
+      # どの ADR より古いファイル名の ADR（一覧の末尾に並ぶ）。メモリには 2026-10-03 より前の判断も残っている
+      cat >"$adr/200001010000-sample-older.md" <<'MD'
+# 古い判断の見本
+
+- 日付: 2000-01-01
+- 状態: 採用
+- 出所: 自己検査
+
+## 背景
+
+見本。
+
+## 決定
+
+見本。
+
+## 退けた案
+
+記録なし
+
+## 反転の条件
+
+記録なし
+
+## 影響
+
+見本。
+MD
+      python3 -I - "$adr/README.md" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); lines = p.read_text().splitlines(True)
+last = max(i for i, x in enumerate(lines) if x.startswith('- ['))
+lines.insert(last + 1, '- [2000-01-01 古い判断の見本](200001010000-sample-older.md)\n'); p.write_text(''.join(lines))
+PY
       git -C "$dir" add docs/adr
       ;;
   esac
@@ -595,8 +643,7 @@ check_backlog_child() {
 self_test() {
   local base tmp case_rc expected_message backlog_test fake_backlog output target case_dir case_name memory rc name line
   [ -d "$ADR_DIR" ] || { error "self-test の基準となる $ADR_DIR が無い"; return 1; }
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
+  tmp=$(mktemp -d -p "$TMP_ROOT")
   base="$tmp/base"
   mkdir -p "$base/docs/adr" "$base/.github/workflows" "$base/tools"
   cp -a "$ADR_DIR/." "$base/docs/adr/"
@@ -610,7 +657,10 @@ self_test() {
     error "self-test の基準の木で本番検査が通らない"
     sed -n '/error:/p' "$tmp/base-output" >&2
   fi
-  target=$(find "$base/docs/adr" -maxdepth 1 -type f -name '20*.md' -printf '%f\n' | sort | head -n1)
+  # 壊す対象は名前で固定する（出所・追跡・状態の壊し方はこの ADR を前提にする。ADR を足しても
+  # 置き換えても対象は動かない。review/code.md R18）
+  target=202610030000-worktree-port-allocation.md
+  [ -f "$base/docs/adr/$target" ] || { error "self-test の対象 $ADR_DIR/$target が無い"; return 1; }
 
   for case_name in list-missing list-swapped list-bad-form title h1-missing date date-extra date-form source source-name source-moved \
     status-value status-extra heading-swap decision filename upper-name untracked untracked-all claude agents ci allow-adr allow-missing \
@@ -632,14 +682,19 @@ self_test() {
     done <<<"$expected_message"
   done
 
-  # 正の対照: 形の正しい ADR を 1 件足して追跡しても通る（review/code.md R1）
-  case_dir="$tmp/next-adr"
-  cp -a "$base" "$case_dir"
-  break_tree next-adr "$case_dir" "$target"
-  if ! run_child "$case_dir" >"$case_dir/output" 2>&1; then
-    error 'self-test の形の正しい ADR を 1 件足した木で検査が落ちた'
-    sed -n '/error:/p' "$case_dir/output" >&2
-  fi
+  # 正の対照: README どおりの手入れをした木は通る（review/code.md R1・R18）
+  #   next-adr   = 形の正しい ADR を 1 件足して追跡する
+  #   superseded = 既存の ADR を置き換え済みにして、後継の ADR を足す
+  #   older-adr  = どの ADR より古いファイル名の ADR を足す
+  for case_name in next-adr superseded older-adr; do
+    case_dir="$tmp/$case_name"
+    cp -a "$base" "$case_dir"
+    break_tree "$case_name" "$case_dir" "$target"
+    if ! run_child "$case_dir" >"$case_dir/output" 2>&1; then
+      error "self-test の正の対照 $case_name の木で検査が落ちた"
+      sed -n '/error:/p' "$case_dir/output" >&2
+    fi
+  done
 
   backlog_test="$tmp/backlog"
   mkdir -p "$backlog_test"

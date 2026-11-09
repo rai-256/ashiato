@@ -286,22 +286,26 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
   ci.yml の行は `--self-test && 本番` なので、正しい ADR を含む無関係の PR が赤になる。メモリには 2026-10-03 より前の判断（human-verify-scope 2026-09-14 など）が残っており、ADR にすれば先頭へ並ぶ。Q3 の答え・design D2「ADR を足しても消しても成り立つべき性質」に反する
 - kind: technical
 - 提案: (a) 対象を `202610030000-worktree-port-allocation.md` に名前で固定し、無ければ error にする。(b) `status-value` / `status-extra` の sed を `^- 状態: .*` に当たる形へ緩める（期待する error の文面は変えない）。(c) 正の対照を 2 つ足す —— 既存の ADR を置き換え済みにした木、どの ADR より古いファイル名の ADR を足した木で、どちらも本番が通ること。直した後、上の 2 つの再現で `--self-test` が rc=0 になることを確かめる
+- 処置: fixed 1.1 （提案の (a)(b)(c) のとおり。自己検査の対象は `202610030000-worktree-port-allocation.md` に名前で固定し、無ければ `self-test の対象 … が無い` で落とす。`status-value` / `status-extra` は値に依らず最初の `- 状態:` の行を壊す。正の対照を `next-adr` に `superseded`（対象を置き換え済みにして後継を足す）・`older-adr`（どの ADR より古いファイル名の ADR を一覧の末尾に足す）を足した 3 つにした。根拠の 2 つの再現で `--self-test` が rc=0（report））
 
 ## R19. 使い捨ての木の掃除が `trap … RETURN` だけで、中断（SIGINT・kill）では動かない
 - 成果物: `tools/check-adr.sh`
 - 根拠: `tools/check-adr.sh:313`・`:388`・`:599` の掃除は `trap … RETURN` のみ。中断した `--self-test` は mktemp の下に約 27 本の木の写しを残す。`load_index` の mktemp も同じ。tasks.md の Global Constraints「trap で必ず消す」に照らすと中断の経路が抜けている（Task 1 F9・F14 の残り）
 - kind: technical
 - 提案: 入口で一時ディレクトリを 1 つの親の下に集め、`trap … EXIT INT TERM` で消す
+- 処置: fixed 1.1 （入口で `TMP_ROOT` を 1 つ作り、`load_index`・`backlog`・`verbatim`・`self_test` の一時ファイルは全部その下に置く。`trap … EXIT` で消し、INT・TERM は 130・143 で exit させて EXIT の trap を通す。`trap … RETURN` は消した。`--self-test` の process group に SIGINT・SIGTERM を送ると、残るファイルが 0（旧版は SIGINT で 286）（report））
 
 ## R20. `section_lines` が見出しを正規表現として扱う
 - 成果物: `tools/check-adr.sh`
 - 根拠: `tools/check-adr.sh:39`。Task 2 の指摘 F4 が残っている。今の呼び出し元の 2 つの見出しにメタ文字は無いので実害は無い
 - kind: technical
 - 提案: 見出しを固定文字列で比べる（awk の `$0 == h` など）
+- 処置: fixed 1.1 （`index($0, start) == 1` の固定文字列の前方一致にした。AGENTS.md の見出しは `## 実装と計画の規約（…）` と後ろに続くので、完全一致でなく前方一致。`## 規約(x)` を探す試しで、旧版は `## 規約x` の節を返し、新版は `## 規約(x)` の節を返す（report））
 
 ## R21. ファイル名の日付と `- 日付:` の一致、`置き換え済み（→ X）` の X の実在を誰も見ていない（spec の隙間）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/specs/decision-records/spec.md` / `tools/check-adr.sh`
 - 根拠: `docs/adr/README.md` は「時刻は判断が決まった日」と書くが、ファイル名の日付と `- 日付:` の一致を検査が見ない。R18 の再現 (2) では存在しない後継 `202611090000-port-v2.md` を指したまま本番が rc=0 で通った。spec が求めていないので台本の漏れではなく spec の隙間
 - kind: premise
-- loss: 合わない日付・指す先の無い置き換えが CI を通り、ADR の履歴の辿りが切れる
+- loss: rewrite-all —— 合わない日付・指す先の無い置き換えが CI を通り、ADR の履歴の辿りが切れる（後で検査を足すと、それまでに入った ADR を直すことになる）
 - 提案: この change では直さず、別の change の候補にする
+- 処置: escalated （premise。仕様の範囲を広げるかは Q3 と同じ範囲の決定なので本人に問う。deep.md 第 2 回 Q5・`deep-questions-r2.json`・`docs/briefs/CH12-deep-r2.html`。推奨はこの change で足す（Q3 と同じ向き））
