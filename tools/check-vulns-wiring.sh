@@ -38,13 +38,16 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail 'dependency-review allow list' sed -i '/allow-ghsas:/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review comments' sed -i '/fail-severity: high/a\          comment-summary-in-pr: always' "$tmp/.github/workflows/ci.yml"
   expect_fail 'issues always' sed -i '/if: always()/d' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail 'CI vulns の時間の上限' sed -i '/R24/{n;d}' "$tmp/.github/workflows/ci.yml"
+  expect_fail '毎晩の時間の上限' sed -i '0,/timeout-minutes: 20/{/timeout-minutes: 20/d}' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail 'release needs' sed -i 's/needs: \[plan, vulns\]/needs: plan/' "$tmp/.github/workflows/release.yml"
   echo 'OK: 脆弱性 CI 配線の自己テストに成功'
   exit 0
 fi
 
-python3 - "$ROOT" <<'PY'
+python3 - "$ROOT" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" <<'PY'
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -107,6 +110,14 @@ require("comment-summary-in-pr" not in vulns or "comment-summary-in-pr: never" i
         "dependency-review に PR コメントを書かせる設定がある")
 require("continue-on-error: true" not in vulns and "set +e" not in vulns,
         "CI vulns に失敗を無視する設定がある")
+require(re.search(r"^    timeout-minutes: [0-9]+\s*$", vulns, re.M), "CI vulns に時間の上限が無い")
+for name in ("vulns", "pg-minor", "issues"):
+    require(re.search(r"^    timeout-minutes: [0-9]+\s*$", vulns_nightly.get(name, ""), re.M),
+            f"毎晩の {name} に時間の上限が無い")
+# 判定の台本を変えた PR で、判定の自己試験の入った vulns の job が走ること（review/code.md R32）
+changes_sh = Path(sys.argv[2]) / "release/changes.sh"
+require(subprocess.run([str(changes_sh), "deps"], input="tools/release/changes.sh\n", text=True).returncode == 0,
+        "deps の判定が tools/release/changes.sh の変更を拾わない")
 rust = ci.get("rust", "")
 require(has_exact_run(rust, "tools/check-vulns-wiring.sh --self-test") and
         has_exact_run(rust, "tools/check-vulns-wiring.sh"), "rust に配線検査がない")

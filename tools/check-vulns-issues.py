@@ -57,6 +57,10 @@ def nightly(root: Path, scanner: Path, directory: Path) -> int:
         print(f"error: 検査できなかった（{exc}）")
         return 2
     allowed = set(valid_rows)
+    # 全体の検査（check-vulns.py の main）と同じく、今夜 1 度も当たらなかった行は「勧告がもう出ない」として材料にする。
+    finding_ids = {ident for row in findings for ident in [row["id"], *row["aliases"]]}
+    invalid_rows.extend({"kind": "exception_table", "id": ident, "reason": "勧告がもう出ない"}
+                        for ident in sorted(allowed) if ident not in finding_ids)
     outstanding = [row for row in findings
                    if row["id"] not in allowed and not any(alias in allowed for alias in row["aliases"])]
     if not outstanding and not invalid_rows:
@@ -85,6 +89,10 @@ def issue_body(row: dict) -> str:
     if row["kind"] == "exception_table":
         return f"勧告: {row['id']}\n理由: {row['reason'].split(':', 1)[0]}"
     return row["body"]
+
+
+def latest_line(row: dict) -> str:
+    return next((line for line in issue_body(row).splitlines() if line.startswith("最新:")), issue_body(row))
 
 
 def title_for(row: dict) -> str:
@@ -147,6 +155,9 @@ def file_issues(directory: Path) -> int:
             # （題が同じまま 2 つ目の期限切れの行・新しい minor が出ても、黙って捨てない）。
             if row["kind"] == "vulnerability":
                 missing = [f"勧告: {item['id']}" for item in title_rows if item["id"] not in text]
+            elif row["kind"] == "text":
+                # PostgreSQL の遅れは題と `最新:` の行で見る。EDB の状態や公開日の行は夜ごとに揺れるので比べない（R29）。
+                missing = [issue_body(item) for item in title_rows if latest_line(item) not in text.splitlines()]
             else:
                 missing = [issue_body(item) for item in title_rows if issue_body(item) not in text]
             if not missing:

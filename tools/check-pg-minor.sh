@@ -52,8 +52,12 @@ PY
 }
 
 edb_base_from_lock() {
-  local url="$1" bundled="$2"
-  printf '%s' "${url%$bundled-1-windows-x64-binaries.zip}"
+  # lock の version（例 17.6-1）はビルド番号まで持つ。-1 を決め打ちすると -2 の lock で外し損ね、
+  # 最新の URL が壊れて absent と読まれる（review/code.md R28）。合わなければ検査できないとして止める。
+  local url="$1" version="$2" suffix
+  suffix="$version-windows-x64-binaries.zip"
+  [[ "$url" == *"$suffix" ]] || return 1
+  printf '%s' "${url%"$suffix"}"
 }
 
 edb_status() {
@@ -71,15 +75,10 @@ edb_status() {
 }
 
 write_finding() {
-  local target="$findings"
-  [[ -n "$target" ]] || return 0
-  if [[ -d "$target" || "$target" != *.* ]]; then
-    mkdir -p "$target"
-    target="$target/postgresql-minor.txt"
-  else
-    mkdir -p "$(dirname "$target")"
-  fi
-  cat >"$target"
+  # --findings の置き場は常にディレクトリ（file-issues が postgresql-minor.txt を探す。review/code.md R23）
+  [[ -n "$findings" ]] || return 0
+  mkdir -p "$findings"
+  cat >"$findings/postgresql-minor.txt"
 }
 
 check() {
@@ -93,7 +92,13 @@ check() {
   [[ "$bundled" =~ ^[0-9]+\.[0-9]+$ ]] || die "pgsql.lock の version を読めない"
   fetch_versions "$work/versions.json" || die "postgresql.org の版の一覧"
   read -r minor rel_date < <(version_info "$work/versions.json" "$major") || die "版の一覧を読めない"
-  latest_url="${PG_EDB_URL_BASE:-$(edb_base_from_lock "$(lock_value url)" "$bundled")}${major}.${minor}-1-windows-x64-binaries.zip"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+-[0-9]+$ ]] || die "pgsql.lock の version を読めない"
+  edb_base="${PG_EDB_URL_BASE:-}"
+  if [[ -z "$edb_base" ]]; then
+    edb_base="$(edb_base_from_lock "$(lock_value url)" "$version")" || die "pgsql.lock の url が version と合わない"
+  fi
+  # EDB の新しい minor の最初のビルドは -1。-1 が無ければ、まだ EDB に出ていない（absent）と読む。
+  latest_url="${edb_base}${major}.${minor}-1-windows-x64-binaries.zip"
   edb="$(edb_status "$latest_url")"
   if [[ "$minor" == "${bundled##*.}" ]]; then
     echo "OK: PostgreSQL $bundled は最新 minor"
@@ -177,6 +182,26 @@ self_test() {
   output="$(PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE='http://127.0.0.1:9/postgresql-' "$0" 2>&1)" && return 1
   rc=$?
   (( rc == 1 )) && grep -q 'EDB 不明' <<<"$output" || return 1
+  printf '[{"major":"17","latestMinor":"6","relDate":"%s"}]\n' "$recent" >"$versions"
+  echo '== Scenario: lock のビルド番号が -1 でなくても、最新の minor を EDB で探せる'
+  printf 'version=17.6-2\nurl=file://%s/postgresql-17.6-2-windows-x64-binaries.zip\n' "$edb" >"$tmp/pgsql-2.lock"
+  printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$recent" >"$versions"
+  : >"$edb/postgresql-17.11-1-windows-x64-binaries.zip"
+  rc=0
+  output="$(PGSQL_LOCK_FILE="$tmp/pgsql-2.lock" PG_VERSIONS_URL="file://$versions" "$0" 2>&1)" || rc=$?
+  (( rc == 1 )) && grep -q 'EDB の zip: present' <<<"$output" || return 1
+  rm -f "$edb/postgresql-17.11-1-windows-x64-binaries.zip"
+  echo '== Scenario: lock の url が version と合わなければ rc=2'
+  printf 'version=17.6-2\nurl=file://%s/postgresql-17.6-1-windows-x64-binaries.zip\n' "$edb" >"$tmp/pgsql-bad.lock"
+  rc=0
+  output="$(PGSQL_LOCK_FILE="$tmp/pgsql-bad.lock" PG_VERSIONS_URL="file://$versions" "$0" 2>&1)" || rc=$?
+  (( rc == 2 )) && grep -q '^error: 検査できなかった' <<<"$output" || return 1
+  echo '== Scenario: 遅れの材料は、置き場のパスに . があってもディレクトリに書く'
+  : >"$edb/postgresql-17.11-1-windows-x64-binaries.zip"
+  rc=0
+  PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" --findings "$tmp/a.b/findings" >/dev/null 2>&1 || rc=$?
+  (( rc == 1 )) && [[ -f "$tmp/a.b/findings/postgresql-minor.txt" ]] || return 1
+  rm -f "$edb/postgresql-17.11-1-windows-x64-binaries.zip"
   printf '[{"major":"17","latestMinor":"6","relDate":"%s"}]\n' "$recent" >"$versions"
   echo '== Scenario: 同梱の版が最新なら通る'
   PGSQL_LOCK_FILE="$lock" PG_VERSIONS_URL="file://$versions" PG_EDB_URL_BASE="file://$edb/postgresql-" "$0" >/dev/null || return 1

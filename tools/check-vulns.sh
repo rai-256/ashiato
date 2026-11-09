@@ -6,16 +6,21 @@ set -u
 # 使い方:
 # | 呼び方 | 内容 |
 # |---|---|
-# | check-vulns.sh | 全体の検査 |
-# | --base <commit> / allow-ghsas / nightly <dir> / file-issues <dir> / github-settings | 計画済みの入口 |
-# | --self-test | 自己試験 |
+# | check-vulns.sh | 全体の検査。勧告か表の行の問題があれば rc=1、検査できなければ rc=2 |
+# | check-vulns.sh --base <commit> | PR の検査。base に無かった組だけを数え、表の足した・変えた行を出す。rc は全体の検査と同じ |
+# | check-vulns.sh allow-ghsas | dependency-review に渡す許可の GHSA の一覧（表と osv.dev の別名から）。組めなければ rc=2 |
+# | check-vulns.sh nightly <dir> | 毎晩の検査。問題があれば <dir> に材料を書いて rc=1、検査できなければ rc=2（材料は書かない） |
+# | check-vulns.sh file-issues <dir> | <dir> の材料（nightly と check-pg-minor.sh --findings）を issue にする。記録できなければ rc=2 |
+# | check-vulns.sh github-settings | GitHub の依存の設定を API で整えて読み返す。権限が無ければ rc=2、合わなければ rc=1 |
+# | check-vulns.sh --self-test | 自己試験 |
 # 例外: osv-scanner.toml の [[IgnoredVulns]] に ID、90 日以内の期限、届かない: 理由 または 上げる予定: 見込み。
 # 網失敗の実測（HTTPS_PROXY=http://127.0.0.1:9）: rc=2、`error: 検査できなかった（osv.dev への問い合わせ: ...）`。
 
 set -o pipefail
 readonly VERSION="v2.7.0"
 readonly SHA256="160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
-readonly ASSET_URL="https://api.github.com/repos/google/osv-scanner/releases/assets/632251666"
+# 認証の要らない releases/download から取る（api.github.com は認証なしだと 1 IP あたり 60 回/時）。中身は SHA256 で固定する。
+readonly ASSET_URL="https://github.com/google/osv-scanner/releases/download/${VERSION}/osv-scanner_linux_amd64"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ROOT="${CHECK_VULNS_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
@@ -24,8 +29,8 @@ scanner_path() {
   local path="${OSV_SCANNER_BIN:-$cache_root/osv-scanner_linux_amd64}"
   if [[ -z "${OSV_SCANNER_BIN:-}" && ! -x "$path" ]]; then
     mkdir -p "$(dirname "$path")" || return 2
-    curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
-      -H 'Accept: application/octet-stream' --output "$path" "$ASSET_URL" || {
+    curl --fail --location --retry 3 --retry-all-errors --max-time 300 --silent --show-error \
+      --output "$path" "$ASSET_URL" || {
       echo "error: 検査できなかった（osv-scanner の取り寄せ）" >&2; return 2;
     }
     chmod 755 "$path" || return 2
@@ -170,6 +175,11 @@ self_test() {
   echo "== Scenario: 期限の無い行で落ちる"
   vulnerable_tree
   exception_config 'reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  grep -Eq '期限が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  # 日付として読めない期限も、spec の 6 種の「期限が無い」で落とす（review/code.md R30）
+  vulnerable_tree
+  exception_config 'ignoreUntil = "2026-13-01"'$'\n''reason = "届かない: 自己試験"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   grep -Eq '期限が無い.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
   echo "== Scenario: 期限の切れた行で落ちる"
@@ -348,7 +358,7 @@ PY
   done
   if printf '%s\n' .github/workflows/ci.yml | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   local deps_path
-  for deps_path in tools/check-vulns.py tools/check-vulns-issues.py tools/check-vulns.sh tools/check-pg-minor.sh; do
+  for deps_path in tools/check-vulns.py tools/check-vulns-issues.py tools/check-vulns.sh tools/check-pg-minor.sh tools/release/changes.sh; do
     printf '%s\n' "$deps_path" | "$ROOT/tools/release/changes.sh" deps || return 1
   done
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
@@ -442,7 +452,8 @@ JSON
   ! grep -Eq '^issue close ' "$gh_log" || return 1
   echo "== Scenario: 表の行の問題は、例外の表の 1 件の issue になる"
   safe_tree
-  printf '%s\n' '[[IgnoredVulns]]' 'id = "A-1"' 'ignoreUntil = "2000-01-01"' 'reason = "届かない: 網"' '[[IgnoredVulns]]' 'id = "A-2"' 'ignoreUntil = "2099-01-01"' >"$tmp/root/osv-scanner.toml"
+  # A-3 は形の正しい行だが、勧告の無い木では当たらない（勧告がもう出ない。review/code.md R22）
+  printf '%s\n' '[[IgnoredVulns]]' 'id = "A-1"' 'ignoreUntil = "2000-01-01"' 'reason = "届かない: 網"' '[[IgnoredVulns]]' 'id = "A-2"' 'ignoreUntil = "2099-01-01"' '[[IgnoredVulns]]' 'id = "A-3"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' >"$tmp/root/osv-scanner.toml"
   git -C "$tmp/root" add osv-scanner.toml
   : >"$gh_log"
   rm -rf "$tmp/findings"
@@ -452,29 +463,47 @@ JSON
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
   grep -Eq '脆弱性: 例外の表' "$gh_log" && grep -Eq 'A-1' "$gh_log" && grep -Eq '期限切れ' "$gh_log" && grep -Eq 'A-2' "$gh_log" && grep -Eq '理由が無い' "$gh_log" || return 1
+  grep -Eq 'A-3' "$gh_log" && grep -Eq '勧告がもう出ない' "$gh_log" || return 1
   echo "== Scenario: 例外の表の issue が開いていれば、新しい行の問題だけを追記する"
   : >"$gh_log"
   rm -f "$gh_body_dir"/comment-*
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_TABLE_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   ! grep -Eq '^issue create ' "$gh_log" || return 1
   [[ "$(grep -Ec '^issue comment 11 ' "$gh_log")" == 1 ]] || return 1
-  printf '%s' $'勧告: A-2\n理由: 理由が無い' | diff -u - "$gh_body_dir/comment-1" || return 1
+  printf '%s' $'勧告: A-2\n理由: 理由が無い\n勧告: A-3\n理由: 勧告がもう出ない' | diff -u - "$gh_body_dir/comment-1" || return 1
   echo "== Scenario: PostgreSQL の遅れは 1 件の issue になり、開いていれば立て直さない"
-  mkdir -p "$tmp/pg-findings"
-  printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.11' >"$tmp/pg-findings/postgresql-minor.txt"
+  # 材料は手で書かず、check-pg-minor.sh --findings が書いたものをそのまま file-issues に渡す（review/code.md R23）。
+  # 置き場の親に . を含めて、パスの形で置き場の扱いが変わらないことも見る。
+  local pg_edb="$tmp/pg-edb" pg_versions="$tmp/pg-versions.json" pg_findings="$tmp/pg.v1/findings" pg_date
+  pg_date="$(date -u -d '-5 days' +%F)"
+  mkdir -p "$pg_edb"
+  printf 'version=17.6-1\nurl=file://%s/postgresql-17.6-1-windows-x64-binaries.zip\n' "$pg_edb" >"$tmp/pgsql.lock"
+  printf '[{"major":"17","latestMinor":"11","relDate":"%s"}]\n' "$pg_date" >"$pg_versions"
+  : >"$pg_edb/postgresql-17.11-1-windows-x64-binaries.zip"
+  local pg_rc=0
+  PGSQL_LOCK_FILE="$tmp/pgsql.lock" PG_VERSIONS_URL="file://$pg_versions" "$SCRIPT_DIR/check-pg-minor.sh" --findings "$pg_findings" >/dev/null 2>&1 || pg_rc=$?
+  [[ "$pg_rc" == 1 && -f "$pg_findings/postgresql-minor.txt" ]] || return 1
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  rm -f "$gh_body_dir"/create-*
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$pg_findings" || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
+  grep -Eq '^issue create --title 脆弱性: PostgreSQL 17 の minor の遅れ ' "$gh_log" || return 1
+  printf '%s' "同梱: 17.6"$'\n'"最新: 17.11"$'\n'"EDB の zip: present"$'\n'"公開日: $pg_date" | diff -u - "$gh_body_dir/create-1" || return 1
+  echo "== Scenario: PostgreSQL の issue が開いていれば、EDB の状態や公開日の行が違っても追記しない"
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$pg_findings" || return 1
   ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
   echo "== Scenario: PostgreSQL の issue が開いたまま新しい minor が出たら、追記する"
-  printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.12' >"$tmp/pg-findings/postgresql-minor.txt"
+  printf '[{"major":"17","latestMinor":"12","relDate":"%s"}]\n' "$pg_date" >"$pg_versions"
+  : >"$pg_edb/postgresql-17.12-1-windows-x64-binaries.zip"
+  pg_rc=0
+  PGSQL_LOCK_FILE="$tmp/pgsql.lock" PG_VERSIONS_URL="file://$pg_versions" "$SCRIPT_DIR/check-pg-minor.sh" --findings "$pg_findings" >/dev/null 2>&1 || pg_rc=$?
+  [[ "$pg_rc" == 1 ]] || return 1
   : >"$gh_log"
   rm -f "$gh_body_dir"/comment-*
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$pg_findings" || return 1
   ! grep -Eq '^issue create ' "$gh_log" || return 1
-  printf '%s' $'同梱: 17.6\n最新: 17.12' | diff -u - "$gh_body_dir/comment-1" || return 1
+  printf '%s' "同梱: 17.6"$'\n'"最新: 17.12"$'\n'"EDB の zip: present"$'\n'"公開日: $pg_date" | diff -u - "$gh_body_dir/comment-1" || return 1
   return 0
 }
 

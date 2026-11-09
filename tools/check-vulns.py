@@ -77,7 +77,8 @@ def exception_row_error(ident: str, row: dict[str, str]) -> str | None:
     try:
         expiry = dt.date.fromisoformat(until)
     except ValueError:
-        return f"期限が不正 ({ident})"
+        # 日付として読めない期限は、spec の 6 種のうち「期限が無い」に寄せる（読めない期限は、無いのと同じに扱う）。
+        return f"期限が無い ({ident}: 日付として読めない {until!r})"
     today = dt.datetime.now(dt.timezone.utc).date()
     if expiry < today:
         return f"期限切れ ({ident})"
@@ -117,7 +118,8 @@ def allow_ghsas(root: Path) -> int:
             continue
         url = "https://api.osv.dev/v1/vulns/" + ident
         proc = subprocess.run(
-            ["curl", "--fail", "--location", "--silent", "--show-error", url],
+            ["curl", "--fail", "--location", "--silent", "--show-error",
+             "--max-time", "30", "--retry", "3", "--retry-all-errors", url],
             text=True, capture_output=True,
         )
         if proc.returncode != 0:

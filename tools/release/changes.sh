@@ -11,7 +11,8 @@ code() {
 }
 
 deps() {
-  if grep -qE '^(Cargo\.lock|web/package-lock\.json|osv-scanner\.toml|tools/check-vulns(-issues)?\.(sh|py)|tools/check-pg-minor\.sh)$|^collector-android/.*\.lockfile$'; then
+  # 判定そのもの（この台本）を変えた PR でも vulns の job を走らせ、判定の自己試験（check-vulns.sh --self-test）を通す
+  if grep -qE '^(Cargo\.lock|web/package-lock\.json|osv-scanner\.toml|tools/check-vulns(-issues)?\.(sh|py)|tools/check-pg-minor\.sh|tools/release/changes\.sh)$|^collector-android/.*\.lockfile$'; then
     exit 0
   fi
   exit 1

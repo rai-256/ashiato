@@ -65,6 +65,8 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-24.04
+    # osv.dev や GitHub が応答しないとき、runner を 6 時間の上限まで握らない（review/code.md R24）
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 1, persist-credentials: false }
