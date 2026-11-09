@@ -10,11 +10,12 @@ change: `openspec/changes/ch12-memory-decisions-adr/`
 
 design の（仮）:
 - D2（仮）. 足すのは 6 ファイル・`CLAUDE.md` と `AGENTS.md` の 1 行ずつ・ADR の形の検査 `tools/check-adr.sh`・CI の chain job の 1 行（Q3。既定 C2 を改めた）
-- D3（仮）. 食い違いは直さずに PR 本文で挙げる（Q1）
+- D3（仮）. 食い違いは直さずに `docs/changes/CH12.md` の節で挙げる（Q1）
 - D4（仮）. 完了の判定は repo の中のコマンドで確かめ、harness2 の側を待たない（Q2）
 - D7（仮）. agent への案内は `CLAUDE.md` の表の 1 行と、`AGENTS.md` の 1 行の指示（Q4）
 
-全 Task の ledger に `Ruling:` の行は無い。
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger に `Ruling:` の行は無い。
 
 ## Task
 
@@ -36,8 +37,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 24 件（escalated 1・fixed 21・rejected 2）
-- 処置の re-review: 3 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 27 件（escalated 1・fixed 23・rejected 3）
+- 処置の re-review: 6 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
