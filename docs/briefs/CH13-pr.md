@@ -47,8 +47,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 22 件（fixed 18・rejected 4）
-- 処置の re-review: 10 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 23 件（escalated 4・fixed 15・rejected 4）
+- 処置の re-review: 11 回。最後の判定が NOT ADDRESSED のもの: R20, R21, R22
 
 ## 未処置の申し送り
 
