@@ -102,6 +102,7 @@
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## R2. `docker_images` の `postgres:17-alpine` が compose の版と結ばれておらず、compose を上げても全部の検査が通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/check-workbox-match.py` / `docker-compose.yml`
@@ -221,6 +222,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## final review（baf9253..96ce730）
 
@@ -241,6 +243,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## R13. `enable-before.md` の「harness2 の issue」の節に作業の経緯の 1 文が残っている
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:24
@@ -288,6 +291,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## R17. 上流のときの未来形の言い回しが残っている（R12 と同じ型）
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:53, docs/briefs/CH13-pr.md:56
@@ -303,6 +307,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## settle_review（re-review 4 @79bcf42）: 処置の直しが新しく壊したもの
 
@@ -317,6 +322,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## R19. PR 本文から enable-before.md・#275・harness2#165・測っていない 3 項目・sandbox-probe の漏れへの案内が消えた。merge する人間が有効化の前の宿題を知る手がかりが本文に無い。
 - 成果物: docs/briefs/CH13-pr.md
@@ -329,6 +335,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 
 ## settle_review（re-review 5 @5a8f637）: 処置の直しが新しく壊したもの
 
@@ -342,6 +349,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: NOT ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）: grep -n '全 Task の ledger' docs/briefs/CH13-pr.md が 15 行目（見出し）と 16 行目（箇条）を返す。3a87c39 の台本の再生成で重複が戻った
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: NOT ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）: head 8faa3ab で grep -n '全 Task の ledger' docs/briefs/CH13-pr.md が 15 行目（見出し）と 16 行目（箇条）を返す。2a244db が消した箇条が 8faa3ab の台本の再生成で戻った
 
 ## settle_review（re-review 7 @e2b3b06）: 処置の直しが新しく壊したもの
 
@@ -353,6 +361,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: NOT ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）: R20 と同じ。head の CH13-pr.md:15-16 に重複が残っている
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: NOT ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）: R20 と同じ。CH13-pr.md:15-16 に重複が残っている
 
 ## settle_review（re-review 9 @3a87c39）: 処置の直しが新しく壊したもの
 
@@ -362,3 +371,11 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 処置: fixed 5.1 —— `docs/briefs/CH13-pr.md` の 16 行目の重複した箇条を消した（grep -n '全 Task の ledger' が 15 行目だけを返す）。再発の仕組み: harness2 の `scripts/pr_body.py` の `rulings()` が前の本文の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾うため、台本が自分で書いた見出しの行（`全 Task の ledger の `Ruling:`（逐語）:`）も Ruling として拾い、箇条にする。finish が本文を組み直すたびに戻る（e2b3b06・3a87c39 で実測）。根の直しは harness2 側（`rulings()` で `ln.lstrip("- ").startswith("Ruling:")` の行だけ拾う）で、`.harness2` は harness2 の main の checkout を指すため、この branch からは直せない。持ち越し
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
+- 判定: NOT ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）: R20 と同じ。CH13-pr.md:16 の箇条が head に残っている（fix diff の CH13-pr.md の差分はレビュー件数の 2 行だけ）
+
+## settle_review（re-review 11 @8faa3ab）: 処置の直しが新しく壊したもの
+
+## R23. 8faa3ab の台本の再生成が、2a244db で消した「全 Task の ledger の `Ruling:`（逐語）:」の重複した箇条を戻した。code.md の R20・R22 は 2a244db を見て ADDRESSED と書いているが、head の木では重複が残っている。原因は pr_body.py の rulings()。害は読みづらさだけ。
+- 成果物: docs/briefs/CH13-pr.md
+- 根拠: docs/briefs/CH13-pr.md:16（re-review 11 の New Breakage。Minor）
+- kind: technical
