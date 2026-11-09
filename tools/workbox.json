@@ -26,7 +26,8 @@
     "connected\\w*AndroidTest",
     "tools/release/(build|install-check)\\.sh",
     "tools/android-side-by-side\\.sh",
-    "tools/usage-volume\\.sh"
+    "tools/usage-volume\\.sh",
+    "tools/release/sandbox-probe\\.sh"
   ],
   "env": {
     "CARGO_BUILD_JOBS": "4"

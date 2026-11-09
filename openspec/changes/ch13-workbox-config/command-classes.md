@@ -2,9 +2,9 @@
 
 既存の `openspec/**/tasks.md`（archive を含む）の検証コマンドを、harness2 と同じ取り出し（`evidence.items` → `declared` → `unwrap_quiet`）と判定（`workbox.host_only`）で分けた一覧。`check-workbox-match.py --list` が書き出す。
 
-- 書き出したときの HEAD: 80faa50cc5f9386c8ac3b319eed54b8b1f63cbe5
-- ホストで走る（host_only）: 34 本
-- 箱で走る: 1792 本
+- 書き出したときの HEAD: 59da73a92e6503456efa1cf8cabb150ec79f4fc8
+- ホストで走る（host_only）: 35 本
+- 箱で走る: 1791 本
 
 ## ホストで走る（host_only）
 
@@ -27,6 +27,7 @@
 - openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 9.3: bash -c 'tools/android-side-by-side.sh'
 - openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 8.1: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-ch09/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-ch09 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1" > "$TMPDIR/rt.log" 2>&1; rc=$?; cat "$TMPDIR/rt.log"; [ $rc -eq 0 ] && n=$(grep -oE "test result: ok\. [0-9]+ passed" "$TMPDIR/rt.log" | grep -oE "[0-9]+" | head -1) && [ "${n:-0}" -ge 13 ]'
 - openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 10.1: tools/android-emulator.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.0: tools/release/sandbox-probe.sh p19
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.2: tools/release/install-check.sh --self-test
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 4.1: tools/release/install-check.sh --self-test
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.2: tools/release/install-check.sh --self-test
@@ -38,10 +39,10 @@
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 10.1: tools/release/install-check.sh --self-test
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 10.1: tools/release/install-check.sh --check-coverage openspec/changes/st55-server-installer
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.3: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/android-emulator.sh
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'o="$TMPDIR/b"; tools/release/build.sh server-linux "$o" && t=$(ls "$o"/ashiato-server-*-linux-x86_64.tar.gz) && tar -tzf "$t" | sort | tr "\n" " " | grep -q "LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt ashiato-server"'
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'o="$TMPDIR/b"; tools/release/build.sh apk "$o" && unzip -l "$o"/ashiato-collector-*.apk | grep -c "assets/licenses/\(LICENSE\|THIRD-PARTY-NOTICES.txt\|SOURCE.txt\)$" | grep -qx 3'
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/android-emulator.sh
-- openspec/changes/st56-collector-connection-setup/tasks.md 5.2: tools/android-emulator.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.2: tools/android-emulator.sh
 
 ## 箱で走る
 
@@ -1656,7 +1657,6 @@
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_stop_ && test "$(cargo test -p ashiato-server st55_stop_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.4: bash -c 'cargo test -p ashiato-server st55_log_ && test "$(cargo test -p ashiato-server st55_log_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.4: tools/check-log-private.sh
-- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.0: tools/release/sandbox-probe.sh p19
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: bash -c 'cargo test -p ashiato-setup st55_layout_ && test "$(cargo test -p ashiato-setup st55_layout_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: cargo clippy -p ashiato-setup --all-targets -- -D warnings
@@ -1694,6 +1694,25 @@
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.1: bash -c 'cargo test -p ashiato-setup st55_db_watch_ && test "$(cargo test -p ashiato-setup st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_db_watch_ && test "$(cargo test -p ashiato-server st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
 - openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.2: cargo clippy -p ashiato-server -p ashiato-winsvc --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 1.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 1.2: tools/test-android-emulator.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/emulator-start.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.2: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies ASHIATO_TEST_SCRIPT_REV=11c0c043 tools/test-android-emulator.sh 2>&1 | grep -q "見張りで打ち切った: dies"'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies tools/test-android-emulator.sh'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 3.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 4.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 4.1: tools/test-usage-volume.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.1: ./openspec/changes/ch10-emulator-start-timeout/check-5.1.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.2: bash -c 'grep -A2 -- "- run: ./tools/docker-tidy.sh --self-test" .github/workflows/ci.yml | grep -q "./tools/test-android-emulator.sh"'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.2: tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh dies
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh timeout
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh same-avd
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh ok
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: bash -c '[ "$(tools/test-android-emulator.sh 2>/dev/null | grep -c "^Scenario: ")" -ge 23 ]'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: tools/test-android-emulator.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: python3 scripts/check_scenarios.py . ch10-emulator-start-timeout
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'n=$(wc -l < LICENSES/AdditionRef-ashiato-play-services.txt); head -n "$n" LICENSE | cmp - LICENSES/AdditionRef-ashiato-play-services.txt'
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'grep -q "AdditionRef-ashiato-play-services" README.md && grep -q "参考訳" README.md && grep -q "追加の許可" CONTRIBUTING.md'
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'git diff --quiet origin/main -- docs/CLA.md'
@@ -1740,25 +1759,31 @@
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.2: bash -c 'a=$(grep -n "check-guards.sh approvals" docs/release.md | head -1 | cut -d: -f1); r=$(grep -n "必須の承認者" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test -n "$a" && test -n "$r" && test "$a" -lt "$b" && test "$r" -lt "$b"'
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.3: bash -c 'grep -q "check-licenses.sh rust node" docs/testing.md && grep -q "check-licenses.sh rust node" CONTRIBUTING.md && grep -q "ST53" docs/production-prep.md && grep -q "licenses/" CLAUDE.md'
 - openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.3: python3 scripts/check_scenarios.py . st53-license-bundle
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 1.1: tools/test-android-emulator.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 1.2: tools/test-android-emulator.sh --self-test
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/emulator-start.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 2.2: tools/test-android-emulator.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies ASHIATO_TEST_SCRIPT_REV=11c0c043 tools/test-android-emulator.sh 2>&1 | grep -q "見張りで打ち切った: dies"'
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies tools/test-android-emulator.sh'
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 3.1: tools/test-android-emulator.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 4.1: tools/test-android-emulator.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 4.1: tools/test-usage-volume.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 5.1: ./openspec/changes/ch10-emulator-start-timeout/check-5.1.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 5.2: bash -c 'grep -A2 -- "- run: ./tools/docker-tidy.sh --self-test" .github/workflows/ci.yml | grep -q "./tools/test-android-emulator.sh"'
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 5.2: tools/check-shared-appends.sh
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh dies
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh timeout
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh same-avd
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh ok
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.2: bash -c '[ "$(tools/test-android-emulator.sh 2>/dev/null | grep -c "^Scenario: ")" -ge 23 ]'
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.2: tools/test-android-emulator.sh --self-test
-- openspec/changes/ch10-emulator-start-timeout/tasks.md 6.2: python3 scripts/check_scenarios.py . ch10-emulator-start-timeout
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c 'cd web && npx vitest run src/__tests__/collectorSetup.test.ts'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c 'cargo test -p ashiato-collector-windows st56_setup_string && test "$(cargo test -p ashiato-collector-windows st56_setup_string -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupStringTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupStringTest*.xml | grep -c "<testcase ")" -ge 2'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st56_ && test "$(cargo test -p ashiato-server st56_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 2.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npm run test:e2e -- st56-collector-setup.spec.ts'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npx tsc --noEmit && npx vitest run'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56ConfigTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56ConfigTest*.xml | grep -c "<testcase ")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh --self-test
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: bash -c 'grep -q "check-android-backup-rules.sh" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 6.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupActivityTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupActivityTest*.xml | grep -c "<testcase ")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 7.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56DestinationGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56DestinationGateTest*.xml | grep -c "<testcase ")" -ge 11'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 8.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupNotifierTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupNotifierTest*.xml | grep -c "<testcase ")" -ge 8'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows st56_config && test "$(cargo test -p ashiato-collector-windows st56_config -- --list 2>/dev/null | grep -c ": test$")" -ge 9'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.1: bash -c 'cargo test -p ashiato-collector-windows st56_setupcmd_ && test "$(cargo test -p ashiato-collector-windows st56_setupcmd_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.2: cargo test -p ashiato-collector-windows --test runtime_windows st56_ -- --test-threads=1
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 11.1: bash -c 'cargo test -p ashiato-collector-windows st56_gate && test "$(cargo test -p ashiato-collector-windows st56_gate -- --list 2>/dev/null | grep -c ": test$")" -ge 12'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.1: bash -c 'grep -q "WINDOWS_ENV_ASHIATO_CONFIG_FROM_ENV=1" tools/record-env.sh'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.1: bash -c 'for h in "ashiato-collector-windows.exe setup" "この送り先へ送る" "repair" "--config-from-env" "収集アプリの設定"; do grep -q -- "$h" docs/collector-setup.md || exit 1; done && grep -q "collector-setup.md" docs/release.md'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.2: python3 scripts/check_scenarios.py . st56-collector-connection-setup
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.2: tools/check-contract-version.sh
 - openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 1.1: bash -n tools/check-vulns.sh
 - openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 1.2: tools/check-vulns.sh --self-test
 - openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 2.1: tools/check-vulns.sh --self-test
@@ -1799,7 +1824,7 @@
 - openspec/changes/ch12-memory-decisions-adr/tasks.md 4.1: bash -c 'd=$(git diff --name-only origin/main...HEAD) || exit 1; test -n "$d" && test -z "$(printf "%s\n" "$d" | grep -vE "^(docs/adr/|CLAUDE\.md$|AGENTS\.md$|\.github/workflows/ci\.yml$|tools/check-adr\.sh$|openspec/|docs/changes/CH12\.md$|docs/briefs/|\.superpowers/)")"'
 - openspec/changes/ch12-memory-decisions-adr/tasks.md 4.1: python3 scripts/check_scenarios.py . ch12-memory-decisions-adr
 - openspec/changes/ch13-workbox-config/tasks.md 1.1: python3 -c 'import json; json.load(open("tools/workbox.json", encoding="utf-8"))'
-- openspec/changes/ch13-workbox-config/tasks.md 1.2: python3 -c 'import json,re;g=lambda p,h:open(p,encoding="utf-8").read().split(h,1)[1];d=re.split(r"\n### D",g("openspec/changes/ch13-workbox-config/design.md","### D1."),1)[0];b=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",d,re.S);assert len(b)==1,"D1 の JSON の塊が %d 個" % len(b);w=json.loads(b[0]);assert w==json.load(open("tools/workbox.json",encoding="utf-8")),"tools/workbox.json が D1 と違う";t=g("docs/changes/CH13.md","## 依頼（逐語）").split("\n## ",1)[0];t="\n".join(re.sub(r"^> ?","",l) for l in t.splitlines());r=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",t,re.S);assert len(r)==1,"依頼の JSON の塊が %d 個" % len(r);r=json.loads(r[0]);k={"docker","prep_files","docker_images","host_only"};assert {a:v for a,v in w.items() if a not in k}=={a:v for a,v in r.items() if a not in k},"変えてよい 4 つの欄の外が依頼の版と違う";assert "docker" not in w and "prep_files" not in w,"docker か prep_files が残っている";assert w["docker_images"]==["postgres:17-alpine"],"docker_images が違う";assert w["host_only"]==r["host_only"]+["tools/release/(build|install-check)\\.sh","tools/android-side-by-side\\.sh","tools/usage-volume\\.sh"],"host_only が依頼の版の足し算でない"'
+- openspec/changes/ch13-workbox-config/tasks.md 1.2: python3 -c 'import json,re;g=lambda p,h:open(p,encoding="utf-8").read().split(h,1)[1];d=re.split(r"\n### D",g("openspec/changes/ch13-workbox-config/design.md","### D1."),1)[0];b=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",d,re.S);assert len(b)==1,"D1 の JSON の塊が %d 個" % len(b);w=json.loads(b[0]);assert w==json.load(open("tools/workbox.json",encoding="utf-8")),"tools/workbox.json が D1 と違う";t=g("docs/changes/CH13.md","## 依頼（逐語）").split("\n## ",1)[0];t="\n".join(re.sub(r"^> ?","",l) for l in t.splitlines());r=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",t,re.S);assert len(r)==1,"依頼の JSON の塊が %d 個" % len(r);r=json.loads(r[0]);k={"docker","prep_files","docker_images","host_only"};assert {a:v for a,v in w.items() if a not in k}=={a:v for a,v in r.items() if a not in k},"変えてよい 4 つの欄の外が依頼の版と違う";assert "docker" not in w and "prep_files" not in w,"docker か prep_files が残っている";assert w["docker_images"]==["postgres:17-alpine"],"docker_images が違う";assert w["host_only"]==r["host_only"]+["tools/release/(build|install-check)\\.sh","tools/android-side-by-side\\.sh","tools/usage-volume\\.sh","tools/release/sandbox-probe\\.sh"],"host_only が依頼の版の足し算でない"'
 - openspec/changes/ch13-workbox-config/tasks.md 2.1: bash -c '! git grep -n -i workbox -- . ":!tools/workbox.json" ":!openspec/changes" ":!docs/changes/CH13.md" ":!docs/briefs"'
 - openspec/changes/ch13-workbox-config/tasks.md 2.2: bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|openspec/changes/ch13-workbox-config/|docs/changes/CH13\.md|docs/briefs/CH13|$)"'
 - openspec/changes/ch13-workbox-config/tasks.md 2.3: bash -c 'set -e; for s in check-private check-secrets check-spdx check-shared-appends check-tmp-hygiene check-boundaries; do tools/$s.sh; done'
@@ -1812,28 +1837,3 @@
 - openspec/changes/ch13-workbox-config/tasks.md 5.2: bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと" || exit 1; done'
 - openspec/changes/ch13-workbox-config/tasks.md 5.3: bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'
 - openspec/changes/ch13-workbox-config/tasks.md 5.4: bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'
-- openspec/changes/st56-collector-connection-setup/tasks.md 1.1: bash -c 'cd web && npx vitest run src/__tests__/collectorSetup.test.ts'
-- openspec/changes/st56-collector-connection-setup/tasks.md 1.1: bash -c 'cargo test -p ashiato-collector-windows st56_setup_string && test "$(cargo test -p ashiato-collector-windows st56_setup_string -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
-- openspec/changes/st56-collector-connection-setup/tasks.md 1.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupStringTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupStringTest*.xml | grep -c "<testcase ")" -ge 2'
-- openspec/changes/st56-collector-connection-setup/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st56_ && test "$(cargo test -p ashiato-server st56_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
-- openspec/changes/st56-collector-connection-setup/tasks.md 2.1: ./tools/check-openapi.sh
-- openspec/changes/st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npm run test:e2e -- st56-collector-setup.spec.ts'
-- openspec/changes/st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npx tsc --noEmit && npx vitest run'
-- openspec/changes/st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56ConfigTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56ConfigTest*.xml | grep -c "<testcase ")" -ge 10'
-- openspec/changes/st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest'
-- openspec/changes/st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh
-- openspec/changes/st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh --self-test
-- openspec/changes/st56-collector-connection-setup/tasks.md 5.1: bash -c 'grep -q "check-android-backup-rules.sh" .github/workflows/ci.yml'
-- openspec/changes/st56-collector-connection-setup/tasks.md 6.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupActivityTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupActivityTest*.xml | grep -c "<testcase ")" -ge 10'
-- openspec/changes/st56-collector-connection-setup/tasks.md 7.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56DestinationGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56DestinationGateTest*.xml | grep -c "<testcase ")" -ge 11'
-- openspec/changes/st56-collector-connection-setup/tasks.md 8.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupNotifierTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupNotifierTest*.xml | grep -c "<testcase ")" -ge 8'
-- openspec/changes/st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows st56_config && test "$(cargo test -p ashiato-collector-windows st56_config -- --list 2>/dev/null | grep -c ": test$")" -ge 9'
-- openspec/changes/st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows'
-- openspec/changes/st56-collector-connection-setup/tasks.md 10.1: bash -c 'cargo test -p ashiato-collector-windows st56_setupcmd_ && test "$(cargo test -p ashiato-collector-windows st56_setupcmd_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'
-- openspec/changes/st56-collector-connection-setup/tasks.md 10.1: tools/check-licenses.sh
-- openspec/changes/st56-collector-connection-setup/tasks.md 10.2: cargo test -p ashiato-collector-windows --test runtime_windows st56_ -- --test-threads=1
-- openspec/changes/st56-collector-connection-setup/tasks.md 11.1: bash -c 'cargo test -p ashiato-collector-windows st56_gate && test "$(cargo test -p ashiato-collector-windows st56_gate -- --list 2>/dev/null | grep -c ": test$")" -ge 12'
-- openspec/changes/st56-collector-connection-setup/tasks.md 12.1: bash -c 'grep -q "WINDOWS_ENV_ASHIATO_CONFIG_FROM_ENV=1" tools/record-env.sh'
-- openspec/changes/st56-collector-connection-setup/tasks.md 12.1: bash -c 'for h in "ashiato-collector-windows.exe setup" "この送り先へ送る" "repair" "--config-from-env" "収集アプリの設定"; do grep -q -- "$h" docs/collector-setup.md || exit 1; done && grep -q "collector-setup.md" docs/release.md'
-- openspec/changes/st56-collector-connection-setup/tasks.md 12.2: python3 scripts/check_scenarios.py . st56-collector-connection-setup
-- openspec/changes/st56-collector-connection-setup/tasks.md 12.2: tools/check-contract-version.sh

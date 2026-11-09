@@ -82,3 +82,10 @@
 - 直し方の候補（harness2 側。1 行）: 69 行目の条件を `ln.lstrip("- ").startswith("Ruling:")` にする（`Ruling:` で始まる行だけ拾う）。harness2 の origin/main にこの直しはまだありません（`git log HEAD..origin/main -- scripts/pr_body.py` は空。2026-11-09）
 - 答え: 重複を残して merge する（harness2 は別に直す）（本人の選択。`deep-answers-4.txt`。推奨の選択肢と同じ・補足なし）
 - 決まったこと: R20〜R23 は持ち越し（PR 本文の重複した見出しの行は残したまま merge してよい）。CH13 は止めない。harness2 の `scripts/pr_body.py` の `rulings()` の直し（`Ruling:` で始まる行だけ拾う）は、CH13 の外で別の PR として行う。同じ台本が組むほかの Story / change の PR 本文の同じ重複も、この答えに従う（family の兄弟）。要件・Story に戻すものは無い
+
+### Q-D10. 下流で見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`。design D10（仮）の否）
+
+- loss: なし（足しても足さなくても失われるものは無い。provisional-review.md の D10 (1)）。kind: 本人の答えとの向き —— 仮の D10 が Q1 (1) の答えと逆向きと、別の席が否とした
+- 問い: `tools/release/sandbox-probe.sh`（中で `powershell.exe` を呼ぶ）が `host_only` から漏れていた。D10（仮）は「直さず宿題に挙げる」としたが、Q1 (1)「JSON で直せるものは CH13 の中で直す」と逆向き。CH13 で直すか、直さず宿題に残すか
+- 答え: CH13 で直す（本人の選択。`deep-answers-5.txt`。推奨の選択肢と同じ・補足なし。gate_help の手当ての会話で 2026-11-10）
+- 決まったこと: D1 の JSON・`tools/workbox.json` の `host_only` の最後に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行、tasks 1.2 の期待する並びに 1 本を足す（design D10。仮を外した）

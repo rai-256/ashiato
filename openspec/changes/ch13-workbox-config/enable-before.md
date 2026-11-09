@@ -41,18 +41,16 @@ issue: #275
 
 ## ホストで走らせる台本（`host_only` に足した分）
 
-`host_only` は字面の判定のまま。依頼の版の 4 本に、ホストが要る台本 3 本を足した（R3）: `tools/release/(build|install-check).sh`（中で `powershell.exe` を呼ぶ）・`tools/android-side-by-side.sh`・`tools/usage-volume.sh`（エミュレータを自分で起こす）。
+`host_only` は字面の判定のまま。依頼の版の 4 本に、ホストが要る台本 4 本を足した（R3・D10）: `tools/release/(build|install-check).sh`（中で `powershell.exe` を呼ぶ）・`tools/android-side-by-side.sh`・`tools/usage-volume.sh`（エミュレータを自分で起こす）・`tools/release/sandbox-probe.sh`（中で `powershell.exe` を呼ぶ。D10）。
 当たる・当たらないは `match-cases.json` と tasks 4.1 で確かめる（依頼の版ではこの 4 行が外れる）。後の Story がホストの要る台本を新しい名前で書くと箱に入るので、そのときは `host_only` に名前を足す（design D5）。
 
-漏れ（下流のレビューで見つけた。review/code.md R3・R5。design D10（仮））: `tools/release/sandbox-probe.sh` も中で `powershell.exe` を呼んで Windows サンドボックスを起こすが、`host_only` に無い。
-箱の中では `powershell.exe` が無いので `P16=UNAVAILABLE` `P19=UNAVAILABLE` を書いて rc=0 で通る（何も確かめずに緑）。呼ぶ検証は archive 済みの st55 の 3.0 だけで、今の木の検証は変わらない。
-`tools/workbox.json` は D1 のとおりで直していない（Global Constraints の 1 つ目）。有効にする前か、この台本を検証に使う Story の前に、`host_only` に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す。
+下流のレビューで見つけた漏れ（review/code.md R3・R5）: `tools/release/sandbox-probe.sh` も中で `powershell.exe` を呼んで Windows サンドボックスを起こすので、`host_only` の最後に足し、`match-cases.json` に `want: host` の 1 行を足した（design D10・deep.md Q-D10。CH13 の中で直すと本人が答えた）。
 
 ## 分類の一覧
 
 既存の `openspec/**/tasks.md` の検証コマンドを、harness2 と同じ取り出しと判定（`host_only`）で、ホストで走る / 箱で走る に分けた一覧は `command-classes.md`（下流の Task 4.2 で書き出した。件数は下の 2 行）。
 2026-11-08 の上流の走査（1,786 本）: ホスト 35・箱 1,751。依頼の版ではホスト 18・箱 1,768 だった。
-下流の Task 4.2 の書き出し（1,826 本。この change の tasks.md を含む）: ホスト 34・箱 1,792（HEAD 80faa50cc）。
+下流の Task 4.2 の書き出し（1,826 本。この change の tasks.md を含む）: ホスト 35・箱 1,791（HEAD 59da73a92。D10 で `sandbox-probe.sh` を足した後）。
 上流の 35 は再現できない。上流の走査の木は記録が無く、同じ取り出し・判定・`tools/workbox.json` を、この change の始まりの木（`03bd08301`。1,812 本）と第 2 回の合意を写した木（`7942f1603`。1,825 本）に当て直すと、どちらもホスト 34 で、ホストの 34 行は `command-classes.md` と同じだった。
 この間に harness2 の `evidence.py` と `host_only` は変わっていない。ホストから箱へ移った検証は無く、件数の違いは上流の走査のほうにある（走査した木か数え方の違い。特定していない）。
 

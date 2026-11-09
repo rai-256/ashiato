@@ -10,13 +10,12 @@ change: `openspec/changes/ch13-workbox-config/`
 
 design の（仮）:
 - D9（仮）. 上流で見つけた `PATH` の件を harness2 の issue に 1 つ立てる（Q1 (2) に従う）
-- D10（仮）. 下流で見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は、ファイルを直さず宿題の一覧と PR 本文に挙げる（review/code.md R3）
 
 全 Task の ledger の `Ruling:`（逐語）:
 - 全 Task の ledger の `Ruling:`（逐語）:
 - Ruling: settle（review/code.md R18・R19）—— 作業箱を有効にする前の宿題は終わっていない。正本は `openspec/changes/ch13-workbox-config/enable-before.md`（同じ本文で ashiato2 の issue #275 作業箱を有効にする前の宿題（CH13）を立てた）。merge の後、`HARNESS_WORKBOX` を有効にする操作の前にこれを読む
 - Ruling: settle（R19）—— 宿題のうち測っていないもの 3 つ: 画面の e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空きメモリ・agent の箱の中の cargo のビルドが 4g に収まるか
-- Ruling: settle（R19。design D10（仮））—— `host_only` の漏れ: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼ぶが `host_only` に無く、箱の中では UNAVAILABLE を書いて rc=0 で通る。有効にする前に `host_only` に `tools/release/sandbox-probe\.sh` を、`match-cases.json` に `want: host` の 1 行を足す
+- Ruling: 本人の答え（deep.md Q-D10）—— `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は CH13 の中で `host_only` と `match-cases.json` に足した（design D10）
 - Ruling: settle（R18・R19）—— 上流で見つけた `PATH` の件（ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が iptables を見つけられず立たない）は rai-256/harness2#165（CLOSED。#164 で直った）。直すものとしては残っていない
 - Ruling: settle（R19）—— 依頼の完了の判定の pgrep の確かめ（Task 3.1）: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` → `pgrep: 1`（10 未満）
 
