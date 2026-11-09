@@ -14,7 +14,8 @@
 
 一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
 
-- **上流で見つけたこと**: ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が立たない件は、harness2 #165 が CLOSED（#164 で直った）。一覧では「済んだもの」へ移し、有効にする前に直すものは残っていない
+- **上流で見つけたこと**: ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が立たない件は、harness2 #165 が CLOSED（#164 で直った）。この 1 件は直すものとしては残っていない。**ただし有効にする前の宿題は残っている**（下の測っていないもの 3 つと、`host_only` の漏れ 1 本）
+- **`host_only` の漏れ（下流のレビューで見つけた。design D10（仮））**: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼ぶが `host_only` に無く、箱の中では UNAVAILABLE を書いて rc=0 で通る。`tools/workbox.json` は D1 のとおりで直さず、一覧に載せた（有効にする前に `host_only` に足す）
 - **測っていない**: e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか
 - **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（下流が書き出す）
 

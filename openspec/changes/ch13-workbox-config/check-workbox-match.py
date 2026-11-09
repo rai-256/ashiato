@@ -6,18 +6,24 @@
     check-workbox-match.py --list <出力>      既存の openspec/**/tasks.md の検証コマンドをホスト / 箱に分けて書き出す
 
 判定は `.harness2/scripts/workbox.host_only` だけ。正規表現をここに写さない。
-rc: 0 = 表と一致 / 3 = 表との不一致 / 1 = 読めない・例外などそのほかの失敗
+表のほかに、`docker_images` の各項が `docker-compose.yml` の `image:` に在ることも見る（compose の版を上げて
+`docker_images` を直し忘れると、箱が先に渡すイメージが使われず、DB を立てるたびに pull に戻る。review/code.md R2）。
+rc: 0 = 表と一致 / 3 = 表との不一致・compose との不一致 / 1 = 読めない・例外などそのほかの失敗
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
 CHANGE = Path(__file__).resolve().parent
+# 根は `.harness2` を持つ最初の親（archive の後は openspec/changes/archive/<日付>-<change>/ に移るので、段数で決めない。R6）
+ROOT = next((p for p in CHANGE.parents if (p / ".harness2" / "scripts").is_dir()), None)
+if ROOT is None:
+    sys.exit(f"error: {CHANGE} の親に .harness2/scripts が無い")
 sys.path.insert(0, str(ROOT / ".harness2" / "scripts"))
 import evidence  # noqa: E402
 import workbox  # noqa: E402
@@ -30,35 +36,32 @@ def route(cfg: dict, cmd: str) -> str:
 
 
 def request_config() -> dict:
-    """CH13.md の「依頼（逐語）」の ```json の塊（行頭の `> ` を外す）。"""
-    lines, inside, buf, fenced = (ROOT / "docs/changes/CH13.md").read_text(encoding="utf-8").splitlines(), False, [], False
-    for ln in lines:
-        if ln.startswith("## 依頼（逐語）"):
-            inside = True
-            continue
-        if inside and ln.startswith("## "):
-            break
-        if not inside:
-            continue
-        body = ln[2:] if ln.startswith("> ") else ln.lstrip(">")
-        if body.strip() == "```json":
-            fenced = True
-        elif fenced and body.strip() == "```":
-            break
-        elif fenced:
-            buf.append(body)
-    if not buf:
-        raise ValueError("docs/changes/CH13.md の「依頼（逐語）」に json の塊が無い")
-    return json.loads("\n".join(buf))
+    """CH13.md の「依頼（逐語）」の ```json の塊。tasks 1.2 と同じ取り出し（行頭の `> ?` を外して正規表現。塊はちょうど 1 つ）。"""
+    t = (ROOT / "docs/changes/CH13.md").read_text(encoding="utf-8").split("## 依頼（逐語）", 1)[1].split("\n## ", 1)[0]
+    t = "\n".join(re.sub(r"^> ?", "", ln) for ln in t.splitlines())
+    blocks = re.findall(r"`{3}json\n(.*?)\n`{3}", t, re.S)
+    if len(blocks) != 1:
+        raise ValueError(f"docs/changes/CH13.md の「依頼（逐語）」の json の塊が {len(blocks)} 個（1 つのはず）")
+    return json.loads(blocks[0])
+
+
+def compose_mismatch(cfg: dict) -> list[str]:
+    """`docker_images` のうち `docker-compose.yml` の `image:` に無いもの。"""
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    images = set(re.findall(r"^\s*image:\s*[\"']?([^\s\"'#]+)", text, re.M))
+    return [i for i in cfg.get("docker_images", []) if i not in images]
 
 
 def check(cfg: dict) -> int:
     cases = json.loads((CHANGE / "match-cases.json").read_text(encoding="utf-8"))["cases"]
-    bad = [(c, route(cfg, c["cmd"])) for c in cases if route(cfg, c["cmd"]) != c["want"]]
+    bad = [(c, got) for c in cases if (got := route(cfg, c["cmd"])) != c["want"]]
     for c, got in bad:
         print(f"MISMATCH want={c['want']} got={got}: {c['cmd']}\n  why: {c.get('why', '')}")
     print(f"{len(cases) - len(bad)}/{len(cases)} 行が表と一致")
-    return RC_MISMATCH if bad else 0
+    stale = compose_mismatch(cfg)
+    for i in stale:
+        print(f"MISMATCH docker_images の {i} が docker-compose.yml の image: に無い（compose の版を上げたら docker_images も直す）")
+    return RC_MISMATCH if bad or stale else 0
 
 
 def listing(cfg: dict, out: Path) -> None:

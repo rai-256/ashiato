@@ -19,7 +19,7 @@ issue: #275
 
 ## 2. 上流で見つけたこと
 
-有効にする前に直すものは、今は無い。見つけた 1 件は harness2 #164 で直り、下の「済んだもの」に移した。
+- ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない（2026-11-08、`premises.md`）→ rai-256/harness2#165。CLOSED（harness2 #164 で直った）ので、有効にする前に直すものとしては残っていない。再現と直り方は下の「済んだもの」の 1 行目
 
 ## harness2 の issue
 
@@ -44,6 +44,10 @@ issue: #275
 `host_only` は字面の判定のまま。依頼の版の 4 本に、ホストが要る台本 3 本を足した（R3）: `tools/release/(build|install-check).sh`（中で `powershell.exe` を呼ぶ）・`tools/android-side-by-side.sh`・`tools/usage-volume.sh`（エミュレータを自分で起こす）。
 当たる・当たらないは `match-cases.json` と tasks 4.1 で確かめる（依頼の版ではこの 4 行が外れる）。後の Story がホストの要る台本を新しい名前で書くと箱に入るので、そのときは `host_only` に名前を足す（design D5）。
 
+漏れ（下流のレビューで見つけた。review/code.md R3・R5。design D10（仮））: `tools/release/sandbox-probe.sh` も中で `powershell.exe` を呼んで Windows サンドボックスを起こすが、`host_only` に無い。
+箱の中では `powershell.exe` が無いので `P16=UNAVAILABLE` `P19=UNAVAILABLE` を書いて rc=0 で通る（何も確かめずに緑）。呼ぶ検証は archive 済みの st55 の 3.0 だけで、今の木の検証は変わらない。
+`tools/workbox.json` は D1 のとおりで直していない（Global Constraints の 1 つ目）。有効にする前か、この台本を検証に使う Story の前に、`host_only` に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す。
+
 ## 分類の一覧
 
 既存の `openspec/**/tasks.md` の検証コマンドを、harness2 と同じ取り出しと判定（`host_only`）で、ホストで走る / 箱で走る に分けた一覧は `command-classes.md`（下流の Task 4.2 が書き出す。件数もそこに写す）。
@@ -55,3 +59,4 @@ issue: #275
 - 鍵の確かめ（R9）→ tasks 3.2（今の main の `load_config` で読め、もう効かない鍵を持たない）
 - 依頼の完了の判定の pgrep（R1）→ tasks 3.1（`HARNESS_WORKBOX` を外したシェルから。`docker` を呼ばないので dockerd は立たない。上流の試しでは `1`）
 - `host_only` の当たる・当たらないの確かめ → `match-cases.json` と tasks 4.1
+- `docker_images` と compose の版の結び付き（review/code.md R2）→ `check-workbox-match.py`（tasks 4.1）が `docker-compose.yml` の `image:` と突き合わせ、無ければ rc=3。compose の版を上げたら `docker_images` も直す
