@@ -125,3 +125,55 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 
 範囲外: `.harness2/tests/test_workbox.py::Relay::test_inside_verify_run_goes_through_the_relay_and_keeps_rc` がこの worktree の深いパスで `OSError: AF_UNIX path too long` で落ちる（中継の socket を worktree の中に置くため。harness2 側。`all` で深いパスの worktree だと中継が立たない）。
 範囲外: `all` のとき Task gate がホストで取り直す `host_only` の台本（`tools/usage-volume.sh` 等）は箱から書ける worktree にあり、中身はホストで走る。ハーネスは「事故の隔離で、わざと抜けようとする agent への境界ではない」と明記している（`workbox.py:487-491`）。
+
+## /code-review（baf9253..982802c）
+
+見た: Claude Code の組み込みの `/code-review`（8 件）。写しは scripts/code_review_record.py
+
+## R4. Tasks 5.2 and 5.3 are still `[ ]`, yet 5.4, whose text says it closes after 5.2 and 5.3, is `[x]`. Both 5.2 and 5.3 already pass their checks and their results exist (harness2#165, #275).
+- 成果物: openspec/changes/ch13-workbox-config/tasks.md:64
+- 根拠: The completion check in CH13.md lists 5.2 and 5.3. With those two still `[ ]`, the final or merge gate reads the change as unfinished, or treats 5.4 as closed out of order. Commit e342c083a ('Task 5 を完了にする') ticked only 5.1 and 5.4, so the checkboxes no longer match the actual state.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R5. `host_only` does not list `tools/release/sandbox-probe.sh`. That script calls powershell.exe to start the Windows sandbox, the same kind of host-only script as the three entries just added.
+- 成果物: tools/workbox.json:22
+- 根拠: With HARNESS_WORKBOX=tests, st55 task 3.0 (`tools/release/sandbox-probe.sh p19`) is routed to the box (command-classes.md:1659). There `command -v powershell.exe` fails, the script writes P16/P19=UNAVAILABLE and exits rc=0, so the check passes green without probing anything. match-cases.json has no row for this script either, so check-workbox-match.py cannot catch the gap.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. `ROOT = Path(__file__).resolve().parents[3]` assumes the script sits at `openspec/changes/<change>/`. After archive it moves to `openspec/changes/archive/<date>-ch13-workbox-config/`, where ROOT becomes `openspec/` and the script breaks.
+- 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:19
+- 根拠: Rerunning the archived 4.1/4.2 checks, or calling this script to regenerate command-classes.md, fails at `import evidence` with ModuleNotFoundError because `openspec/.harness2/scripts` does not exist. The failure happens at module load, outside the try block that maps errors to rc=1.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. `docker_images: ["postgres:17-alpine"]` is a hard-coded copy of `docker-compose.yml:3`, and no check ties the two together.
+- 成果物: tools/workbox.json:36
+- 根拠: If the compose image is bumped to postgres:18-alpine, checks 1.1, 1.2, 3.2 and 4.1 all still pass at rc=0 (shown by the code-verify break test). workbox.py keeps pulling and saving the old image for the box, so the box's dockerd pulls the new image on every DB start: slower runs and failures when offline, with no warning.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. Task 2.4 says downstream must not remove the '2. 上流で見つけたこと' section. Downstream kept the heading but replaced its only item with '今は無い' and moved the reproduction steps to the 'done' section.
+- 成果物: openspec/changes/ch13-workbox-config/enable-before.md:20
+- 根拠: Issue #275 was created from enable-before.md. If its body was taken before the rewrite, the issue and the file disagree. Also, check 2.4 (`grep -qF "iptables not found"`) now passes only because that text sits in the 'done' section, so the check no longer confirms the section's intended content is still there.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. `request_config` extracts the JSON block with its own line-based parser, separate from the regex in the tasks 1.2 check (`^> ?` strip plus a ```json regex). It also does not check that there is exactly one block.
+- 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:33
+- 根拠: If CH13.md's verbatim-request section gains a second ```json block or a line like `>```json`, the script silently uses the first block while 1.2 fails with an assertion. The two checks then read different JSON, and the --request rc=3 result checks the wrong input.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. The comprehension calls `route(cfg, c["cmd"])` twice per case: once in the filter and again to build the tuple.
+- 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:56
+- 根拠: Every pattern is matched twice per case. The cost is small, but evaluating the same check twice is redundant; compute `got` once (e.g. `[(c, g) for c in cases if (g := route(cfg, c['cmd'])) != c['want']]`).（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. The PR body says nothing needs fixing before enabling ('有効にする前に直すものは残っていない'), but enable-before.md still has three unmeasured items (whether e2e fits in 6g, free memory at 5 runs, whether cargo fits in 4g) and no note about the sandbox-probe gap.
+- 成果物: docs/briefs/CH13-pr.md:17
+- 根拠: A reader who sees 'nothing left to fix' in the PR body may set HARNESS_WORKBOX=tests without doing the measurements. Out-of-memory in the box, or the probe's empty green pass, then shows up in real runs.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
