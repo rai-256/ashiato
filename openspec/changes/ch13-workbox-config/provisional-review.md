@@ -1,0 +1,5 @@
+# CH13 の仮で進めた決定の確かめ（provisional_review）
+
+## D9
+- 判定: 確か
+- 根拠: (1) 失うもの: 選んだ側は `tools/workbox.json` に手を入れず（design.md:164、D1 の `env` は依頼の版のまま）、`HARNESS_WORKBOX` が既定 off の間は読まれない（premises.md 第 2 回の追記）。issue の本文は再現コマンドと出力だけで、利用者のデータは外に出ない —— uncaptured / discarded / exported / rewrite-all のどれも起きない。直す場所の harness2 は `workbox/dockerd-up:27` が `PATH="$bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"` になっており（`git -C .harness2 log origin/main` の `527e1731c` = #164、`gh pr view 164 -R rai-256/harness2` は MERGED 2026-11-09T00:00:17Z）、env で回避しなかったことで残る穴も無い。(2) cost: issue 1 つと宿題の 1 節で、要件の本文も Story の範囲も変えない。題の issue は既に rai-256/harness2#165（`gh issue view 165` の題が tasks.md:64 の題と一字一致、CLOSED）として本人が立てており、tasks 5.2 の検証（tasks.md:68 の題の突き合わせ）もこの番号で通る。(3) follows Q1: deep-answers-1.txt:5 の Q1 (2)「根本は harness2 側の issue にする」と同じ向き。第 3 回の合意の補足（agreement.json:8・deep.md:71）も #165 の番号を書き 2. を「#164 で済み」とするよう述べ、D9 の向きを追認している。(4) rests_on: 土台は D1（`env` を変えない。違和感 (5)）と D2（宿題の一覧）だが、どちらも本人の答えで決まった仮でない決定で、台帳に仮の土台は無い。挙がっていない仮の土台は無い
