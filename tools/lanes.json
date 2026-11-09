@@ -1,0 +1,120 @@
+{
+  "_note": "ashiato2 の軽い路の設定（harness2 の scripts/lanes.py が読む。雛形は harness2 の docs/lanes/ashiato2-lanes.json、2026-11-09 に写した）。パスは CLAUDE.md の「構成」の表から引いた。shots の台本（tools/lane-shots.sh）はまだ無く、見た目だけの change は前後の比較の代わりに録画で見る。_ で始まるキーは読まれない。",
+  "classes": {
+    "docs": [
+      "**/*.md"
+    ],
+    "tests": [
+      "crates/**/*_tests.rs",
+      "crates/server/src/testdb.rs",
+      "crates/**/tests/**",
+      "web/src/__tests__/**",
+      "web/e2e/**",
+      "collector-android/app/src/test/**",
+      "collector-android/app/src/androidTest/**",
+      "tools/smoke.d/**",
+      "tools/check-immutable.d/**",
+      "tools/seed.d/**",
+      "tools/recording/scenarios.d/**"
+    ],
+    "tooling": [
+      "tools/**",
+      ".github/**",
+      ".githooks/**"
+    ],
+    "look": [
+      "web/src/**/*View.tsx",
+      "web/src/**/*Panel.tsx",
+      "web/src/CoverageGrid.tsx",
+      "web/src/PlaceBand.tsx",
+      "web/src/FeelParts.tsx",
+      "web/src/DayFeeling.tsx",
+      "web/src/LatestArchive.tsx",
+      "web/src/messages.ts",
+      "web/src/tokens.ts",
+      "web/src/scheme.ts",
+      "web/src/contrast.ts",
+      "web/src/surface.ts",
+      "web/src/**/*.css",
+      "web/index.html"
+    ],
+    "screen": [
+      "web/**"
+    ],
+    "collector": [
+      "collector-android/**",
+      "crates/collector-windows/**"
+    ],
+    "server": [
+      "crates/server/**",
+      "crates/installer/**"
+    ],
+    "api_contract": {
+      "paths": [
+        "docs/openapi.json",
+        "crates/server/src/bin/openapi.rs",
+        "web/src/stays.ts",
+        "web/src/coverage.ts",
+        "web/src/attributes.ts"
+      ],
+      "check": [
+        "tools/check-openapi.sh"
+      ]
+    },
+    "send_contract": {
+      "paths": [
+        "docs/collector-contract.md",
+        "docs/contract/**",
+        "crates/server/src/ingest.rs",
+        "crates/server/src/contract_version.rs"
+      ],
+      "check": [
+        "tools/check-contract-version.sh"
+      ]
+    },
+    "migration": {
+      "paths": [
+        "migrations/**",
+        "crates/server/build.rs"
+      ],
+      "check": [
+        "tools/check-migrations.sh"
+      ]
+    },
+    "risky": [
+      "crates/server/src/web_session.rs",
+      "crates/server/src/net_guard.rs",
+      "crates/server/src/access_log.rs",
+      "crates/server/src/satellite*.rs",
+      "crates/server/src/ingest.rs",
+      "crates/server/src/deletion.rs",
+      "crates/server/src/grants.sql",
+      "crates/installer/**",
+      "tools/env-init.sh",
+      "tools/db-roles.*",
+      "tools/release/**"
+    ],
+    "deps": [
+      "**/Cargo.toml",
+      "Cargo.lock",
+      "**/package.json",
+      "**/package-lock.json",
+      "collector-android/**/*.gradle.kts",
+      "collector-android/gradle/**"
+    ]
+  },
+  "except": {
+    "docs": [
+      "docs/collector-contract.md",
+      "docs/contract/**"
+    ],
+    "tooling": [
+      "tools/release/**",
+      "tools/licenses/**"
+    ]
+  },
+  "shots": "tools/lane-shots.sh",
+  "_shots": "tools/lane-shots.sh <出力先> を、前（main）と後（change のブランチ）の一時 worktree の中で harness が走らせる（環境に LANE_SHOTS_SIDE=before|after・LANE_SHOTS_SID）。台本の約束: 同じ偽データ（tools/seed.d）と同じ操作で、変わった画面の PNG を同じ名前で <出力先> に書く。例: tools/stack.sh で起動 → tools/seed.sh → playwright で画面ごとに screenshot。",
+  "recipes": [],
+  "_recipes": "合意を前払いしたレシピ（今は 0 件）。形: {\"name\": \"…\", \"when\": \"入場条件を人間の言葉で\", \"paths\": [\"glob\"], \"check\": \"tools/recipes/<名前>.sh（LANE_BASE・LANE_HEAD を読み、入場条件に当たれば rc=0）\"}"
+}
