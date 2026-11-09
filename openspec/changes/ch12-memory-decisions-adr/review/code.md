@@ -308,4 +308,4 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
 - kind: premise
 - loss: rewrite-all —— 合わない日付・指す先の無い置き換えが CI を通り、ADR の履歴の辿りが切れる（後で検査を足すと、それまでに入った ADR を直すことになる）
 - 提案: この change では直さず、別の change の候補にする
-- 処置: escalated （premise。仕様の範囲を広げるかは Q3 と同じ範囲の決定なので本人に問う。deep.md 第 2 回 Q5・`deep-questions-r2.json`・`docs/briefs/CH12-deep-r2.html`。推奨はこの change で足す（Q3 と同じ向き））
+- 処置: escalated —— deep.md 第 2 回 Q5 で答えが出た。本人が推奨「この change で足す」を選んだ（2026-11-09、`deep-answers-2.txt`）ので、答えに沿って design D9 のとおり直した。spec decision-records の 1 つ目の Requirement に 2 文と Scenario 2 本（「ADR のファイル名の日付は ADR の日付に一致する」「置き換え済みの ADR が指す後継は docs/adr/ にある」）、`tools/check-adr.sh` に `check_filename_dates`・`check_successors` と自己検査の壊し方 `filename-date`・`successor-missing`（どちらも期待する error の文面まで見る）を足し、design D9 に検査と壊し方を書いた。再現と出力は `.superpowers/sdd/ch12-settle/report.md`

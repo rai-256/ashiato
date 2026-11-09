@@ -47,7 +47,7 @@ README と 3 つの ADR（ポート・純粋 crate・lint）が参照する harn
 
 ## tasks
 
-4 Task・5 項目。Scenario は 13 本（どれも `tools/check-adr.sh` が印を出す。引数なし 11 本・`--self-test` 2 本）。`--backlog`（完了の判定の 4.）は手元のメモリと harness2 の台本が要り、CI では走らない。無ければ環境の欠落で止まる（空の合格にしない）。ADR を渡さない対照で 4 つとも数えられることを先に確かめる。
+4 Task・5 項目。Scenario は 15 本（どれも `tools/check-adr.sh` が印を出す。引数なし 13 本・`--self-test` 2 本。第 2 回 Q5 で 2 本足した）。`--backlog`（完了の判定の 4.）は手元のメモリと harness2 の台本が要り、CI では走らない。無ければ環境の欠落で止まる（空の合格にしない）。ADR を渡さない対照で 4 つとも数えられることを先に確かめる。
 
 ## レビュー
 

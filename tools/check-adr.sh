@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CH12 の ADR の形を機械で確かめる台本。
-# README の一覧と docs/adr/ の対応、順序、ファイル名、本文の形、出所、
+# README の一覧と docs/adr/ の対応、順序、ファイル名、ファイル名の日付、置き換えの後継、本文の形、出所、
 # CLAUDE.md / AGENTS.md の案内、CI の chain job、追跡済みの範囲を確かめる。
 # メモリにしか無かった判断を repo の正本へ移した CH12 で、後から ADR を足しても
 # 同じ形を保つために要る。引数なしは CI の chain job が走らせ、--self-test は
@@ -159,6 +159,32 @@ check_shape() {
       fi
     fi
   done < <(find "$ADR_DIR" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+}
+
+# ファイル名の先頭の日付（YYYYMMDD）と `- 日付:` が一致する（README「時刻は判断が決まった日」。review/code.md R21・Q5）
+check_filename_dates() {
+  [ "$INDEX_OK" = 1 ] || return
+  local name prefix adate
+  while IFS= read -r name; do
+    [[ "$name" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})[0-9]{4}- ]] || continue
+    prefix="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    adate=$(sed -n 's/^- 日付: //p' "$ADR_DIR/$name" | sed -n '1p')
+    [ -n "$adate" ] || continue
+    [ "$prefix" = "$adate" ] || error "$name: ファイル名の日付 $prefix と ADR の日付 $adate が違う"
+  done < "$FILES_FILE"
+}
+
+# `- 状態: 置き換え済み（→ X）` の X が docs/adr/ の ADR として実在する（review/code.md R21・Q5）
+check_successors() {
+  [ "$INDEX_OK" = 1 ] || return
+  local name successor
+  while IFS= read -r name; do
+    successor=$(sed -n 's/^- 状態: 置き換え済み（→ \([^）]*\)）$/\1/p' "$ADR_DIR/$name" | sed -n '1p')
+    [ -n "$successor" ] || continue
+    if [ "$successor" = README.md ] || [[ "$successor" == */* ]] || [ ! -f "$ADR_DIR/$successor" ]; then
+      error "$name: 置き換え済みの後継 $successor が $ADR_DIR に無い"
+    fi
+  done < "$FILES_FILE"
 }
 
 check_claude() {
@@ -370,6 +396,10 @@ run_main() {
   check_list_order
   echo 'Scenario: ADR のファイル名は時刻と英小文字の slug の形を持つ'
   check_filenames
+  echo 'Scenario: ADR のファイル名の日付は ADR の日付に一致する'
+  check_filename_dates
+  echo 'Scenario: 置き換え済みの ADR が指す後継は docs/adr/ にある'
+  check_successors
   unload_index
   echo 'Scenario: ADR は決まった項目と見出しをこの順に持つ'
   check_shape
@@ -480,6 +510,13 @@ PY
     date) sed -i 's/^- 日付: .*/- 日付: 1999-01-01/' "$adr/$target" ;;
     date-extra) sed -i '/^- 日付: /p' "$adr/$target" ;;
     date-form) sed -i 's/^\(- 日付: .*\)$/\1 頃/' "$adr/$target" ;;
+    # ADR の日付と一覧の日付をそろえて変え、ファイル名の日付とだけ食い違わせる（R21）
+    filename-date)
+      sed -i 's/^- 日付: .*/- 日付: 2026-10-04/' "$adr/$target"
+      sed -i "s/^- \[[0-9-]* \(.*\](${target//./\\.})\)\$/- [2026-10-04 \1/" "$adr/README.md"
+      ;;
+    # 後継を指すが、その ADR を足さない（R21）
+    successor-missing) sed -i 's/^- 状態: .*/- 状態: 置き換え済み（→ 209912310000-missing-next.md）/' "$adr/$target" ;;
     readme-missing) rm "$adr/README.md" ;;
     adr-dir-missing) rm -rf "$adr" ;;
     source) sed -i '0,/^- 出所: / { /^- 出所: /d; }' "$adr/$target" ;;
@@ -597,6 +634,8 @@ expected_error() {
     date) echo "$target: README の日付と ADR の日付が違う" ;;
     date-extra) echo "$target: 日付の行が 2 個" ;;
     date-form) echo "$target: 日付の値が YYYY-MM-DD でない" ;;
+    filename-date) echo "$target: ファイル名の日付 2026-10-03 と ADR の日付 2026-10-04 が違う" ;;
+    successor-missing) echo "$target: 置き換え済みの後継 209912310000-missing-next.md が" ;;
     readme-missing) echo 'docs/adr/README.md が無い' ;;
     adr-dir-missing) echo 'docs/adr が無い' ;;
     source) echo "$target: 出所の行が 0 個" ;;
@@ -662,7 +701,7 @@ self_test() {
   target=202610030000-worktree-port-allocation.md
   [ -f "$base/docs/adr/$target" ] || { error "self-test の対象 $ADR_DIR/$target が無い"; return 1; }
 
-  for case_name in list-missing list-swapped list-bad-form title h1-missing date date-extra date-form source source-name source-moved \
+  for case_name in list-missing list-swapped list-bad-form title h1-missing date date-extra date-form filename-date successor-missing source source-name source-moved \
     status-value status-extra heading-swap decision filename upper-name untracked untracked-all claude agents ci allow-adr allow-missing \
     readme-missing adr-dir-missing; do
     case_dir="$tmp/$case_name"

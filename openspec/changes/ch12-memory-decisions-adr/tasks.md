@@ -11,7 +11,7 @@
 - **触ってよいのは `docs/adr/`（6 ファイル）・`CLAUDE.md`（表の 1 行の追加だけ）・`AGENTS.md`（指示の 1 行の追加だけ）・`.github/workflows/ci.yml`（chain job の 1 行の追加だけ）・`tools/check-adr.sh`（新しいファイル）だけ**（D2（仮）・D7（仮））。
   コード・移行・既存の `tools/` の台本・ci.yml のほかの段とほかの job・`tools/check-private.allow` は変えない。`CLAUDE.md` と `AGENTS.md` のほかの行と `<!-- harness2:… -->` の印も変えない
 - **テストには `Scenario: <名前>` の印を置く。** 台本は bash なので、その検査を走らせる直前に `echo "Scenario: <名前>"` を出す。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせる。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 13 本**（`decision-records` の ADDED 4 つ: 8・2・2・1 本）。どれも `tools/check-adr.sh` が印を出す（引数なし 11 本・`--self-test` 2 本）。
+- **この change の Scenario は 15 本**（`decision-records` の ADDED 4 つ: 10・2・2・1 本。第 2 回 Q5 で 2 本足した）。どれも `tools/check-adr.sh` が印を出す（引数なし 13 本・`--self-test` 2 本）。
   `--verbatim` と `--backlog` は CH12 の受け入れの 1 回の判定で、正典に Scenario を持たない（design D1・D8）ので、印を出さない
 - **本人の決定（下流は変えない）**: Q1 食い違いは直さず PR 本文で挙げる（D3）/ Q2 repo の中のコマンドで確かめ、harness2 の側を待たない（D4）/ Q3 ADR の形の検査 `tools/check-adr.sh` を CI の chain job の 1 行で毎回走らせる（D2）/ Q4 `CLAUDE.md` の表の 1 行に加えて `AGENTS.md` にも 1 行の指示を足す（D7）
 - **検証の出力に、公開されていないメモリの名前と説明を出さない**（D5）。`--backlog` が出すのは 4 つのメモリ名の有無だけ。`adr_backlog.py` の出力をそのまま流さない。手元のパス（`/home/…`）も台本に書かない（D4 の探し方で組む）
