@@ -160,6 +160,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 - 判定: ADDRESSED（re-review 4 @9e70f08094e02a09942326096a8eeff37f3c1c1b）
+- 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
 
 ## R6. 決まった形に当たる行しか数えないので、形の違う行は落ちずに見えなくなる
 - 成果物: `tools/check-adr.sh:52`（一覧の項目）・`:102`（状態の行）
@@ -381,6 +382,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 （確かさ 4）
 - 処置: fixed D9 （抜けた 5 つ（`date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all`）と R22 の 2 つを足し、9＋12＋2＋5＋2＝30 で台本の一覧と同じと書いた。正の対照を `next-adr`・`superseded`・`older-adr` の 3 つにし、掃除を `TMP_ROOT` と `trap … EXIT`（INT・TERM は exit で EXIT の trap を通す）に直した。CH12.md の完了の判定の「28 の壊し方」も 30 に直した）
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
+- 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
 
 ## settle_review（re-review 4 @9e70f08）: 処置の直しが新しく壊したもの
 
@@ -389,9 +391,18 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 根拠: openspec/changes/ch12-memory-decisions-adr/design.md:183（re-review 4 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed D3 （Risks の 2 行を今に合わせた。harness2 の ADR への参照の行は「上流の時点では行き先が無かった → 2026-11-08 に harness2 の main に入り（`1e140a4b3`）解けた。いまはあることを `docs/changes/CH12.md` の節の末尾に書いた」にし、「PR 本文に書く」を消した。食い違いの行の「PR 本文に一覧で挙げ」も R26 に合わせて CH12.md の節に直した）
+- 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
 
 ## R26. 組み直した PR 本文は食い違い 8 件の一覧を落としている。design D3 の「PR 本文で挙げる」とは形が合わない。一覧は CH12.md の節にある。
 - 成果物: docs/briefs/CH12-pr.md
 - 根拠: docs/briefs/CH12-pr.md（re-review 4 の New Breakage。Minor）
 - kind: technical
 - 処置: rejected: PR 本文は成果物として直せない。`docs/briefs/CH12-pr.md` はグラフの `finish` が `scripts/pr_body.py` で毎回組み直し、前の本文から引き継ぐのは `## 仮決め（B）と Ruling` の節の `Ruling:` の行だけ（`scripts/pr_body.py` の `rulings` と `build`。`build` は一覧の節を持たない）。手で一覧を足しても、この settle の後の `finish` で消える（9e70f08 で 8 件の一覧が消えたのがその再現）。`scripts/` は harness2 への symlink で、この change では直さない。形の食い違いは design の側で解いた: D3（仮）に 2026-11-09 の追記を足し、一覧の置き場を `docs/changes/CH12.md` の `## ADR と repo の今の食い違い（直していない）` の節だけにした（PR の差分に入るので merge の前に人間が読める。Q1 の意図「直さずに挙げ、後で change を起こせる」は変わらない）。Risks の行と CH12.md の完了の判定の文も合わせた
+- 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
+
+## settle_review（re-review 5 @898546c）: 処置の直しが新しく壊したもの
+
+## R27. D3 の本文と見出しが「PR 本文に一覧で挙げる」と元のまま残り、同じ節の 2026-11-09 の追記（一覧の置き場は CH12.md の節だけ）と食い違う。追記を読めば分かるが、本文と見出しが古い。
+- 成果物: openspec/changes/ch12-memory-decisions-adr/design.md
+- 根拠: openspec/changes/ch12-memory-decisions-adr/design.md:77（re-review 5 の New Breakage。Minor）
+- kind: technical
