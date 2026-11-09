@@ -300,3 +300,4 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md:14-15（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 5.1 —— `docs/briefs/CH13-pr.md` の重複した箇条（`- 全 Task の ledger の `Ruling:`（逐語）:`）を 1 行消した。見出しの行は 1 つだけ（grep -c で 1）。原因は harness2 の `scripts/pr_body.py` の `rulings()` が前の本文の節から `Ruling:` を含む行を拾うときに見出しの行も拾うこと。finish が本文を組み直すと同じ重複が戻る（台本は harness2 側で直す。持ち越し）

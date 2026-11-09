@@ -13,7 +13,6 @@ design の（仮）:
 - D10（仮）. 下流で見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は、ファイルを直さず宿題の一覧と PR 本文に挙げる（review/code.md R3）
 
 全 Task の ledger の `Ruling:`（逐語）:
-- 全 Task の ledger の `Ruling:`（逐語）:
 - Ruling: settle（review/code.md R18・R19）—— 作業箱を有効にする前の宿題は終わっていない。正本は `openspec/changes/ch13-workbox-config/enable-before.md`（同じ本文で ashiato2 の issue #275 作業箱を有効にする前の宿題（CH13）を立てた）。merge の後、`HARNESS_WORKBOX` を有効にする操作の前にこれを読む
 - Ruling: settle（R19）—— 宿題のうち測っていないもの 3 つ: 画面の e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空きメモリ・agent の箱の中の cargo のビルドが 4g に収まるか
 - Ruling: settle（R19。design D10（仮））—— `host_only` の漏れ: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼ぶが `host_only` に無く、箱の中では UNAVAILABLE を書いて rc=0 で通る。有効にする前に `host_only` に `tools/release/sandbox-probe\.sh` を、`match-cases.json` に `want: host` の 1 行を足す
