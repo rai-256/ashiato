@@ -64,3 +64,10 @@
     → 対応: design D1 と tasks 1.2 で、変えてよい 4 つの欄（`docker` 消す・`prep_files` 消す・`docker_images` 足す・`host_only` 後ろに足す）の外が依頼の版と等しいことを機械で見る。「依頼（逐語）」は書き換えていない
 
 > 記録の注: この違和感は第 1 回の答えのうち Q1 (1) の docker の正規表現・`prep_files` の直しと、Q3 の `needs_docker` での当たり方の確かめ、Q1 (2) の harness2 の issue（字面の判定・古いイメージ）を、harness2 #161 の形に合わせて置き換える。Q1 (1) の `host_only` の追加・Q1 (3) の測るもの・Q3 の pgrep の確かめ・Q4 の範囲は残る（補足の (1)〜(5)）。直すのは次の `spec`（各行の下に `→ 対応:` を書く）。
+
+## 仕様への合意（第 3 回）
+
+- QA: 合意する（`deep-answers-3.txt`。`agreement.json` に機械が記録、status: accepted）
+- 補足（逐語。下流への申し送り）: 2 点だけ下流への申し送り。(1) PATH の件（design D9・enable-before.md の 2.）は harness2 #164（2026-11-09 merge 済み。dockerd-up が rootlesskit を起こすときに PATH の前へ /usr/local/sbin:/usr/sbin:/sbin を足す）で直り、本体（~/dev/harness2）にも取り込み済み。Task 5.2 の題の issue は記録として rai-256/harness2#165 を立てて閉じてあるので、5.2 は新しく立てずにその番号を書く。enable-before.md の 2. は「#164 で済み」として [x] にしてよい。(2) 「e2e 1 本が 6g に収まるか」は 2026-11-08 に実測済み（release ビルドからの e2e login 7 本、箱の memory.peak 2.63GiB、上限 6g。同じ worktree で 2 本同時もホストの空き最小 19.8GB で通った）。宿題の一覧にはこの結果を書き、済みの扱いにする。
+
+> 記録の注: 合意した仕様（digest b07ef5af…）は変えていない（変えると合意が外れる）。申し送りは下流が扱う。(1) の 5.2 は、いまの手順（同じ題の issue が `--state all` で既にあればその番号を書く）のままで #165 を書く（題の一致を 2026-11-09 に確かめた。CLOSED）。enable-before.md の 2. の [x] と、(2) の実測の結果を宿題の一覧に書くのも下流（Task 2.4 の検証が見る文言は消さない）。
