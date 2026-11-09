@@ -1,0 +1,1161 @@
+{
+ "purpose": "日本語の Windows でインストーラが合言葉を聞くとき、問いの文が化けずに読めるようになる。最初の問いの前に「16 文字以上・change-me で始めない」などの条件が出るので、何文字要るかを知ってから打てる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "合言葉を聞く 1 つの関数と、文字の行き先（この change の後）",
+  "text": "インストールの最後 ─┐\npassword の口 ───────┼─→ 合言葉を聞く関数（1 つ）\nrepair の口 ─────────┘          │\n              ┌──────────────┴──────────────┐\n        標準入力が窓                     標準入力が管（CI）\n  条件の 1 行・問いの文                条件の 1 行 → 標準出力\n   → 窓へ直に UTF-16 で書く            2 行を読む（問いは出さない）\n  打った文字 ← rpassword が読む\n   （窓には出さない）\n              └──────────────┬──────────────┘\n                    検査（16 文字・change-me・API の合言葉・\n                    ログインの印の鍵・2 回の一致）は今のまま"
+ },
+ "before_after": [
+  {
+   "area": "日本語の Windows の窓での合言葉の問い",
+   "before": "『逕ｻ髱｢縺ｮ蜷郁ｨ闡』のように化ける",
+   "after": "「画面の合言葉: 」と読める"
+  },
+  {
+   "area": "最初の問いの前",
+   "before": "何も出ない（条件を知らずに打つ）",
+   "after": "条件の 1 行が 1 回だけ出る（窓なら「入れた文字は表示されません」も添える）"
+  },
+  {
+   "area": "短い・雛形で断られたときの理由",
+   "before": "「短い」「雛形」だけ",
+   "after": "「短い（16 文字以上）」「雛形（change-me で始めない）」"
+  },
+  {
+   "area": "CI のインストールの試験",
+   "before": "合言葉を管で流すだけで、窓の経路を一度も通らない",
+   "after": "疑似コンソールで本物の窓を作り、問いが読めること・打った文字が出ないことを毎回確かめる"
+  }
+ ],
+ "highlights": [
+  "prompt.3",
+  "test.2",
+  "test.3",
+  "scope.2",
+  "scope.3",
+  "test.5"
+ ],
+ "features": [
+  {
+   "id": "prompt",
+   "title": "窓で合言葉を聞く",
+   "summary": "問いの文を窓へ直に書き、打った文字は rpassword が見せずに読む",
+   "figure": null,
+   "points": [
+    {
+     "id": "prompt.1",
+     "kind": "normal",
+     "text": "標準入力が窓のとき、「画面の合言葉: 」「画面の合言葉（もう一度）: 」を窓へ直に書く。窓のコード頁が 932 でも化けない",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める",
+       "窓で打った合言葉で決め直せる"
+      ],
+      "decisions": [
+       "Q5",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "prompt.2",
+     "kind": "normal",
+     "text": "インストールの最後・password の口・repair の口は、どれも同じ 1 つの関数を通る。直すのは 1 か所で、3 つの口に効く",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "決めた合言葉で、そのまま画面にログインできる",
+       "合言葉を決め終えると、既定のブラウザで画面を開く"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "prompt.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "標準出力と標準エラーをファイルへ向け替えても、問いは窓に出る。ファイルには入らない（今の rpassword と同じ性質を残す）",
+     "examples": [
+      {
+       "wrong": "ashiato-setup.exe password >out.txt 2>err.txt → 問いは out.txt に入り、窓は黙ったまま",
+       "right": "問いと条件は窓に出る。out.txt・err.txt に「画面の合言葉: 」は無い"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る"
+      ],
+      "decisions": [
+       "Q5",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "prompt.4",
+     "kind": "normal",
+     "tags": [
+      "Security"
+     ],
+     "text": "打った合言葉は窓に出ない。元の値は設定・ログ・インストーラの出力のどこにも残らない（今と同じ）",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "窓で打った合言葉は、窓に出ない",
+       "合言葉の元の値は、どこにも残らない"
+      ]
+     }
+    },
+    {
+     "id": "prompt.5",
+     "kind": "exception",
+     "text": "標準入力が管のとき（CI）は今のまま。問いの文は出さず、標準入力の 2 行を 2 回入れた合言葉として読む",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "rules",
+   "title": "条件を先に示す",
+   "summary": "最初の問いの前に 1 回だけ条件を示し、短い・雛形の断りには条件を添える。検査の中身は変えない",
+   "figure": {
+    "kind": "table",
+    "caption": "断りの理由の言い方（断りの行の形「合言葉を受け付けない: <理由>。入れ直してください」は変えない）",
+    "head": [
+     "断る理由",
+     "いま",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "16 文字より短い",
+      "短い",
+      "短い（16 文字以上）"
+     ],
+     [
+      "change-me で始まる",
+      "雛形",
+      "雛形（change-me で始めない）"
+     ],
+     [
+      "API の合言葉と同じ",
+      "API の合言葉と同じ",
+      "（変えない）"
+     ],
+     [
+      "ログインの印の鍵と同じ",
+      "ログインの印の鍵と同じ",
+      "（変えない）"
+     ],
+     [
+      "2 回が一致しない",
+      "一致しない",
+      "（変えない）"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "rules.1",
+     "kind": "normal",
+     "text": "最初の問いの前に、条件の 1 行（16 文字以上・change-me で始めない・自動で作った API の合言葉やログインの印の鍵と同じにしない）を 1 回だけ出す。3 つの口のどれでも出る",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "端末でないときも、断りより前に合言葉の条件を 1 回だけ示す"
+      ],
+      "decisions": [
+       "Q3",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "rules.2",
+     "kind": "normal",
+     "text": "短い・雛形で断るときは、理由に条件を添える。条件の数（16）と語（change-me）は検査と同じ定数から組むので、検査と文言がずれない",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "短い・雛形で断るときは、理由に条件を添える",
+       "短い・既定の雛形・一致しない合言葉は受け付けない",
+       "API の合言葉やログインの印の鍵と同じ値は受け付けない"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "rules.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "断られても条件の行は出し直さない。断りの行だけが出る（条件は最初の 1 回だけ）",
+     "examples": [
+      {
+       "wrong": "15 文字で断られる → 条件の行がもう一度出て、問いに戻る",
+       "right": "15 文字で断られる → 「合言葉を受け付けない: 短い（16 文字以上）。入れ直してください」だけが出て、問いに戻る"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "端末でないときも、断りより前に合言葉の条件を 1 回だけ示す"
+      ],
+      "decisions": [
+       "Q3",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "rules.4",
+     "kind": "exception",
+     "text": "「入れた文字は表示されません」は窓のときだけ添える。管（CI）では付けない",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "端末でないときも、断りより前に合言葉の条件を 1 回だけ示す"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "test",
+   "title": "本物の窓で確かめる",
+   "summary": "Windows の CI が疑似コンソールで窓を作って毎回確かめ、本人が日本語の Windows で 1 回見る",
+   "figure": null,
+   "points": [
+    {
+     "id": "test.1",
+     "kind": "normal",
+     "tags": [
+      "Windows"
+     ],
+     "text": "Windows の CI（install-windows）が、疑似コンソールで窓を作ってコード頁を 932 に替え、password の口で合言葉を 2 回打つ。問いと条件が読めること・条件が問いより前にあること・決め直せること・打った文字が出ないこと・向け替えても問いが窓に出ることを見る",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める",
+       "窓で打った合言葉で決め直せる",
+       "窓で打った合言葉は、窓に出ない",
+       "標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る"
+      ],
+      "decisions": [
+       "Q4",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "test.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "試験は先に、rpassword と同じ書き方の子が化けて見えることを確かめる。化けを見分けられない窓（UTF-8 の窓など）で「化けなかった」と言わないためである",
+     "examples": [
+      {
+       "wrong": "直した後の問いが読めた → 化けは直った",
+       "right": "同じ窓で、直す前の書き方の子が『逕ｻ髱｢縺ｮ蜷郁ｨ闡』を出すのを先に見る → そのうえで直した後の問いが読めたら、直ったと言える"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "test.3",
+     "kind": "caution",
+     "tags": [
+      "未解決",
+      "Windows"
+     ],
+     "text": "GitHub の Windows の runner で疑似コンソールが使えるかは、まだ走らせていない（本人の PC では通った）。使えなければ下流が止まり、窓の Scenario 4 本の置き場を人間に問い直す",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "test.5",
+     "kind": "caution",
+     "tags": [
+      "未解決"
+     ],
+     "text": "条件の 1 行は表示幅で約 168 桁あり、試験の疑似コンソール（120 桁）では折り返す。試験は 5 つの語を 1 行の中に探すので、折り返しの表し方しだいで落ちうる（IMP-03）",
+     "refs": {
+      "decisions": [
+       "D3",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "test.4",
+     "kind": "normal",
+     "text": "確認バッチで本人が日本語の Windows で password の口を開き、昇格して開き直した窓で問いと条件が読めること・打った文字が出ないこと・15 文字で「短い（16 文字以上）」と断られることを 1 回見る（CI の runner は昇格して開き直す窓を作らない）",
+     "refs": {
+      "decisions": [
+       "Q4",
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "scope",
+   "title": "変えないもの・後に回すもの",
+   "summary": "検査の中身・管での読み方は変えない。子の命令の出力の化けは別の change",
+   "figure": null,
+   "points": [
+    {
+     "id": "scope.1",
+     "kind": "normal",
+     "text": "合言葉の検査（16 文字・change-me・API の合言葉・ログインの印の鍵・2 回の一致）と、断りの行の形は変えない",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "scenarios": [
+       "短い・既定の雛形・一致しない合言葉は受け付けない",
+       "API の合言葉やログインの印の鍵と同じ値は受け付けない"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "scope.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "インストーラが子の命令（sc.exe・icacls・whoami・reg.exe・tasklist）の出力を読む口も cp932 で化けうるが、この change では直さない。日本語の利用者名や日本語のダウンロードの場所では、repair やインストールが止まる見込みがある（本人の PC は英字の利用者名で、今は当たらない）",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "scope.3",
+     "kind": "caution",
+     "tags": [
+      "未解決"
+     ],
+     "text": "設計は窓へ書く部品にだけ unsafe を許す（console.rs）。ただし CI の検査（tools/check-unsafe-scope.sh）は、unsafe を許す属性を PC の収集アプリの secret.rs の外に置くと落とす。tasks はこの検査に触れていない。検査の許す場所を広げるか、unsafe の要らない書き方にするかを、仕様の段で決め直す必要がある（IMP-01）",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "子の命令の出力（失敗の理由に添える表示・whoami の利用者名・reg.exe のダウンロードの場所）の化けを直すこと。別の change にする",
+   "refs": {
+    "decisions": [
+     "Q2",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "合言葉の検査の中身を変えること・rpassword を外すこと",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "D1"
+    ]
+   }
+  }
+ ],
+ "open": [
+  {
+   "text": "design D4 の console.rs の `allow(unsafe_code)` を、CI の tools/check-unsafe-scope.sh（許すのは secret.rs だけ）が落とす。仕様と tasks はこの食い違いを扱っていない（IMP-01）",
+   "refs": {
+    "decisions": [
+     "D4"
+    ]
+   }
+  },
+  {
+   "text": "tasks 4.2 は条件の 5 つの語を 1 行の中に求めるが、design の Risks は「短い行だけを探す」と書いており、120 桁の疑似コンソールでは条件の行が折り返す（IMP-03）",
+   "refs": {
+    "decisions": [
+     "D3",
+     "D6"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "窓を開けないときに標準エラーへ書いて続ける倒し方（振る舞いとしては約束しない）と、窓へ書く部品の置き場（console.rs）",
+   "refs": {
+    "decisions": [
+     "D4"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "窓",
+   "def": "Windows のコンソールの画面。インストーラを開くと出る黒い画面"
+  },
+  {
+   "term": "コード頁",
+   "def": "窓がバイトを文字として読む表。日本語の Windows は 932（Shift_JIS の一種）、UTF-8 は 65001"
+  },
+  {
+   "term": "疑似コンソール",
+   "def": "Windows の機能（ConPTY）。プログラムから窓を作り、窓に出た文字を読み取れる。CI で本物の窓の代わりに使う"
+  },
+  {
+   "term": "管",
+   "def": "標準入力・標準出力をほかのプログラムやファイルにつないだ状態。CI はインストーラへ合言葉を管で流す"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "日本語の Windows で合言葉を決め直す",
+   "trigger": "本人が日本語の Windows で ashiato-setup.exe password を開く。管理者の確認を通すと、新しい窓が開く。",
+   "steps": [
+    {
+     "do": "管理者の確認を通す",
+     "see": "開き直した窓に「画面の合言葉を決めます。16 文字以上・change-me で始めない・…。入れた文字は表示されません」の 1 行と、その後に「画面の合言葉: 」"
+    },
+    {
+     "do": "15 文字の合言葉を 2 回打つ",
+     "see": "打った文字は出ない。「合言葉を受け付けない: 短い（16 文字以上）。入れ直してください」と出て、「画面の合言葉: 」に戻る"
+    },
+    {
+     "do": "20 文字の合言葉を 2 回打つ",
+     "see": "受け付けられ、サーバが起こし直されて、その合言葉で画面にログインできる"
+    }
+   ],
+   "outcome": "問いが読めて、何文字要るかを最初から知ったうえで合言葉を決められる",
+   "without": "問いが『逕ｻ髱｢縺ｮ蜷郁ｨ闡』と化けて何を聞かれているか分からない。断られても「短い」としか出ず、何文字要るか分からない",
+   "refs": {
+    "requirements": [
+     "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+    ],
+    "scenarios": [
+     "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める",
+     "短い・雛形で断るときは、理由に条件を添える",
+     "窓で打った合言葉で決め直せる"
+    ],
+    "decisions": [
+     "Q3",
+     "Q5",
+     "D7"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "同じ問いの文が、書き方で化けたり化けなかったりする",
+   "feature": "prompt",
+   "scene": "コード頁 932 の窓（日本語の Windows）で、インストーラが「画面の合言葉: 」を窓に出す。",
+   "values": "reproduced",
+   "evidence": [
+    "E9"
+   ],
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "書き方ごとの窓の表示（2026-11-09 に本人の PC の疑似コンソールで再現）",
+    "head": [
+     "書き方",
+     "窓に届くもの",
+     "窓の表示"
+    ],
+    "rows": [
+     [
+      "UTF-8 のバイトのまま書く（いまの rpassword の問い）",
+      "UTF-8 のバイト列を 932 で読む",
+      "逕ｻ髱｢縺ｮ蜷郁ｨ闡"
+     ],
+     [
+      "文字として書く（Rust の標準出力・この change の後の問い）",
+      "UTF-16 の文字",
+      "画面の合言葉: "
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "いまの問い（rpassword が書く）",
+     "outcome": "problem",
+     "result": "化けて読めない"
+    },
+    {
+     "label": "ほかの行（案内・断り。Rust の標準出力）",
+     "outcome": "ok",
+     "result": "いまも化けない"
+    },
+    {
+     "label": "この change の後の問い（窓へ文字として直に書く）",
+     "outcome": "ok",
+     "result": "読める。向け替えても窓に出る"
+    }
+   ],
+   "why": "rpassword は問いの文を窓へバイトのまま書き、窓はバイトを自分のコード頁で読む。Rust の標準出力は窓のとき文字として書くので、コード頁に依らない。この change は問いも文字として窓へ書き、rpassword は読みだけに使う。",
+   "conditions": {
+    "occurs_when": [
+     "窓のコード頁が UTF-8（65001）でない",
+     "標準入力が窓につながっている"
+    ],
+    "not_when": [
+     "窓のコード頁が 65001",
+     "標準入力が管（CI。問いを出さない）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "GitHub の runner で疑似コンソールが使えるかはまだ確かめていない",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-02"
+   ],
+   "refs": {
+    "requirements": [
+     "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+    ],
+    "scenarios": [
+     "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める"
+    ],
+    "decisions": [
+     "Q5",
+     "D4",
+     "D6"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "日本語の Windows の窓で、合言葉の問いが化けずに読めるようになり、最初の問いの前に条件が 1 回出る（インストールの最後・password・repair の 3 つの口で、標準入力が窓のとき）。検査の中身と、管で流すときの読み方は変えない。本人ができなくなることは、この分析では見つけていない（長い条件の行の折り返しは確かめていない）。設計のままでは CI の unsafe の検査が落ち（IMP-01）、窓の試験が長い行の折り返しで落ちうる（IMP-03）。",
+  "problem": "2026-11-09、本人が日本語の Windows でインストーラを開くと、昇格して開き直した窓で、合言葉の問いだけが化けた。何を聞かれているか読めず、短い合言葉を打つと「短い」とだけ断られて、何文字要るか分からなかった。CI は合言葉を管で流すので、この経路を一度も通っておらず、見逃していた。",
+  "depth": "full",
+  "depth_why": "MODIFIED の Requirement で、合言葉を断る規則と、既存の振る舞いの変更（断りの文言・管の出力に条件の行）を持つ",
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "code",
+    "name": "合言葉を聞く関数（read_web_passwords）と、窓へ書く新しい部品",
+    "change": "問いの文と条件を窓へ文字として直に書き、rpassword は読みだけにする。窓へ書く部品は unsafe を使う",
+    "searched": "read_web_passwords・prompt_password の呼び出しを crates/installer で検索し、3 つの口（:1199・:1400・repair）を開いた。unsafe を許す場所の決まりを tools/ と ci.yml で探した",
+    "refs": {
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "ui",
+    "name": "断りの理由の文言と、管のときの標準出力",
+    "change": "「短い」→「短い（16 文字以上）」・「雛形」→「雛形（change-me で始めない）」。管のときも標準出力に条件の 1 行が増える",
+    "searched": "PasswordRefusal と reason() の使い手を crates で、「受け付けない:」の字面と install.out の読み手を tools/release/install-check.sh で探した",
+    "refs": {
+     "scenarios": [
+      "短い・雛形で断るときは、理由に条件を添える",
+      "端末でないときも、断りより前に合言葉の条件を 1 回だけ示す"
+     ],
+     "decisions": [
+      "D3",
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "lifecycle",
+    "name": "Windows の CI（install-windows）の step と install-check の節",
+    "change": "インストールの確かめの前に、疑似コンソールが使えるかを見る step を 1 つ足す。install-check の password の節の途中に窓の節を足す。install-check は CI で release と test の zip に 2 回走るので、窓の節も 2 回走る（install-windows に時間の上限は無い）",
+    "searched": "ci.yml の install-windows の step を読み、install-check.sh の呼ばれ方（| tee の管）と Scenario の突き合わせ（--list と出力）を読んだ。同じ ci.yml を触る走っている change（ch11・ch12）と、install-check.sh を名前で指す ch13 を見た",
+    "refs": {
+     "decisions": [
+      "D6"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "CI の unsafe の検査（tools/check-unsafe-scope.sh。ci.yml の lint の job で毎回走る）",
+    "role": "reads",
+    "assumes": "unsafe_code を許す属性は crates/collector-windows/src/secret.rs にしか無い",
+    "holds": "no",
+    "affects": "design D4 のとおり console.rs に allow(unsafe_code) を置くと、CI が落ちて merge できない",
+    "basis": "observed",
+    "evidence": [
+     "E1",
+     "E2"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T1",
+    "who": "インストール・password・repair の 3 つの口",
+    "role": "reads",
+    "assumes": "合言葉を聞くのは read_web_passwords の 1 つで、どの口も同じ問い方・同じ検査になる",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E3"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "install-check の断りの確かめ（「受け付けない: 短い」などの字面で探す）",
+    "role": "reads",
+    "assumes": "断りの行に「受け付けない: 短い」「受け付けない: 雛形」の並びがある",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "install-check のインストールの出力の確かめ（Docker・WSL の語が無い・合言葉の元の値が無い）",
+    "role": "reads",
+    "assumes": "インストールの出力に、特定の語や合言葉の元の値が出ない",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T3",
+    "who": "GitHub の Windows の runner（install-windows の job）",
+    "role": "reads",
+    "assumes": "install-check を | tee の管の下で走らせても、疑似コンソールで子を窓につないで起こせる",
+    "holds": "unknown",
+    "affects": "使えなければ窓の Scenario 4 本を CI で確かめられず、下流が止まる",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E6",
+     "E9"
+    ],
+    "verify": "PR の CI の install-windows で install-check.sh --probe-console が通るかを見る（design D6 の step）",
+    "leads_to": [
+     "IMP-02",
+     "IMP-03"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "ops",
+    "loc": "tools/check-unsafe-scope.sh:8",
+    "quote": "ALLOWED=\"crates/collector-windows/src/secret.rs\""
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:134",
+    "quote": "./tools/check-unsafe-scope.sh"
+   },
+   {
+    "id": "E3",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:1199",
+    "quote": "read_web_passwords(&generated.api_token, &generated.web_session_key)"
+   },
+   {
+    "id": "E4",
+    "source": "test",
+    "loc": "tools/release/install-check.sh:975",
+    "quote": "grep -Fq '受け付けない: 短い' \"$out\""
+   },
+   {
+    "id": "E5",
+    "source": "test",
+    "loc": "tools/release/install-check.sh:721",
+    "quote": "grep -Eiq 'docker|wsl' \"$WORK/install.out\""
+   },
+   {
+    "id": "E6",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:453",
+    "quote": "tee \"$RUNNER_TEMP/install-release.log\""
+   },
+   {
+    "id": "E7",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:291",
+    "quote": "rpassword::prompt_password(\"画面の合言葉: \")"
+   },
+   {
+    "id": "E8",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:81",
+    "quote": "fn output_tail"
+   },
+   {
+    "id": "E9",
+    "source": "test",
+    "loc": "openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/result.txt:2",
+    "quote": "RAW[逕ｻ髱｢縺ｮ蜷郁ｨ闡"
+   },
+   {
+    "id": "E10",
+    "source": "test",
+    "loc": "openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/probe.ps1:30",
+    "quote": "CreatePseudoConsole(new COORD{X=120,Y=40}"
+   }
+  ],
+  "lost": [
+   {
+    "before": "断りの理由は「短い」「雛形」の語だけだった",
+    "after": "理由に条件が添わる（「短い（16 文字以上）」）。理由の語で始まる並びは残る",
+    "who": "断りの行を字面で読む台本（install-check）",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ],
+    "refs": {
+     "scenarios": [
+      "短い・雛形で断るときは、理由に条件を添える"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "before": "管で流すとき、標準出力に合言葉に関わる行は出なかった",
+    "after": "最初に条件の 1 行が出る",
+    "who": "インストーラの出力を読む台本（install-check・CI の記録）",
+    "basis": "derived",
+    "refs": {
+     "scenarios": [
+      "端末でないときも、断りより前に合言葉の条件を 1 回だけ示す"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "日本語の Windows の窓で問いと条件を読み、合言葉を決められる（仕様の Scenario。実物で通したのは短い問いの文だけ）",
+    "cannot": "この分析では見つけていない。ただし長い条件の行が窓でどう折り返して見えるかは確かめていない（IMP-03）",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める",
+      "窓で打った合言葉で決め直せる"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "新しいインストーラで password・repair を開けば、今の合言葉の設定のまま決め直せる（設定の形は変えない）",
+    "cannot": "この分析では見つけていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "古いインストーラに戻しても合言葉の設定はそのまま使える",
+    "cannot": "古いインストーラでは問いがまた化ける",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": false,
+    "why": "合言葉の検査も、照らすための値の形も変えない。前に決めた合言葉はそのまま通る"
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "コード頁が 932 でも 65001 でも、問いは文字として書くので読める。窓でなく管なら今どおり 2 行を読む",
+    "cannot": "この分析では見つけていない。Windows Terminal など conhost 以外の窓は確かめていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+     ],
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "repair の口でも同じ問い方・同じ条件で合言葉を決め直せる",
+    "cannot": "日本語の利用者名の PC では、子の命令の出力の化けで repair が止まる見込みがある（この change では直さない）",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "Q2",
+      "D2"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "拒否",
+    "rule": "16 文字より短い・change-me で始まる・API の合言葉と同じ・ログインの印の鍵と同じ・2 回が一致しない合言葉は受け付けない",
+    "target": "推し量りやすい合言葉・ほかの秘密と同じ値・打ち間違い",
+    "legit": "規則の中身はこの change で変えない。条件が先に出るので、本人は断られる前に知ることができる",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+     ],
+     "scenarios": [
+      "短い・既定の雛形・一致しない合言葉は受け付けない",
+      "API の合言葉やログインの印の鍵と同じ値は受け付けない"
+     ]
+    }
+   }
+  ],
+  "scenarios": [],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "窓へ書く部品の unsafe を、CI の unsafe の検査が落とす",
+    "text": "design D4 は console.rs の先頭に allow(unsafe_code) を置く。CI の tools/check-unsafe-scope.sh は、unsafe_code を許す属性を crates/collector-windows/src/secret.rs の外に置くと落とす（ST56 の決定）。tasks はこの検査に触れていないので、書いたとおりに作ると CI が落ちて merge できない。",
+    "basis": "derived",
+    "derived": "検査は allow(unsafe_code) の並びを secret.rs 以外の .rs から探す（E1）。D4 の cfg_attr(windows, allow(unsafe_code)) はその並びを含むので、CI の lint の job で落ちる（E2）",
+    "undefined": "インストーラに unsafe を許すか。今の検査は「許すのは secret.rs だけ」（ST56 の review R32）と決めており、広げるならその決定を覆すことになる。仕様と tasks はこの食い違いを扱っていない",
+    "feasibility": "unverified",
+    "unknowns": [
+     "向け替えたときも窓へ文字として書く手で、unsafe を書かずに済む既存の crate があるかは確かめていない（Rust の std だけでは、CONOUT$ を開いて書くとバイトの経路になり化ける）"
+    ],
+    "options": [
+     {
+      "label": "検査の許す場所を広げて console.rs を足す（R32 の決定を覆す。検査の台本の許す場所・その自己試験・ci.yml の注記の 3 点を直す）"
+     },
+     {
+      "label": "窓が向け替えられていないときは Rust の標準出力・標準エラー（窓のとき文字として書くので化けない）で書き、unsafe を使わない。向け替えたときに問いが窓に出る性質は諦める（Q5 の案 2・3 に近い）"
+     },
+     {
+      "label": "unsafe を包んだ既存の crate を探して使う（新しい依存が増える）"
+     }
+    ],
+    "verify": "console.rs に D4 の属性を置いた木で tools/check-unsafe-scope.sh を走らせ、rc=1 になるのを見る",
+    "deps": [
+     "D1"
+    ],
+    "evidence": [
+     "E1",
+     "E2"
+    ],
+    "refs": {
+     "decisions": [
+      "D4",
+      "Q5"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "runner で疑似コンソールが使えなければ、窓の Scenario 4 本の置き場が無くなる",
+    "text": "窓の試験は、GitHub の Windows の runner で疑似コンソールが使えることを前提にする。本人の PC では通ったが、runner ではまだ走らせていない。使えなければ下流が止まり、試験の置き場を人間に問い直す（design D6 の反転条件）。install-check は CI で release と test の zip に 2 回走るので、窓の節も 2 回走り、password の口の起こし直し（最大 180 秒待つ）が 1 回あたり 2 回増える。",
+    "basis": "unconfirmed",
+    "derived": "D6 の反転条件のとおり、下流は窓の Scenario 4 本を人間の確認待ちへ移さず、A として人間に返す",
+    "undefined": "そのときの置き場（Rust の試験から疑似コンソールを起こすか、窓の Scenario を外すか）",
+    "feasibility": "unverified",
+    "unknowns": [
+     "windows-latest の runner で CreatePseudoConsole と子の窓へのつなぎが動くか",
+     "runner の既定のコード頁と、chcp 932 に替えられるか"
+    ],
+    "options": [
+     {
+      "label": "D6 のまま進め、PR の CI の --probe-console で確かめる"
+     },
+     {
+      "label": "落ちたら、PC の収集アプリの Windows の試験（Rust）から疑似コンソールを起こす"
+     }
+    ],
+    "verify": "PR の CI の install-windows で install-check.sh --probe-console が rc=0 になるかを見る",
+    "deps": [
+     "D5"
+    ],
+    "evidence": [
+     "E6",
+     "E9"
+    ],
+    "refs": {
+     "decisions": [
+      "D6",
+      "Q4"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "medium",
+    "status": "open",
+    "title": "条件の 1 行が疑似コンソールの幅を超え、窓の試験が「1 行」を探して落ちうる",
+    "text": "D3 の条件の行は表示幅で約 168 桁ある。試験の疑似コンソールは 120 桁で作る（premise-probe/probe.ps1 の下敷き）。tasks 4.2 は 5 つの語を全部含む 1 行を窓の文字から探す。折り返しで改行や桁の移動が入ると、表示は正しくても試験が落ちうる。design の Risks は「短い行だけを探す」と書いており、4.2 と食い違う。",
+    "basis": "derived",
+    "derived": "条件の行は 168 桁（全角を 2 桁で数えた）で、120 桁の窓では 2 行に折り返す。4.2 は語を 1 行の中に全部求める",
+    "undefined": "疑似コンソールが折り返した行を、出力の並びでどう表すか（改行・桁の移動・そのまま続けるか）",
+    "feasibility": "unverified",
+    "unknowns": [
+     "疑似コンソールが折り返しを出力の並びでどう表すかは、本人の PC でも確かめていない（短い問いの文しか通していない）",
+     "本人の窓（既定の幅）でも 2 行に折り返して見えるが、読みやすさは確かめていない"
+    ],
+    "options": [
+     {
+      "label": "試験は条件の語を 1 つずつ探す（行にまとめない）。位置は最初の語が最初の問いより前にあることで見る"
+     },
+     {
+      "label": "条件を 120 桁以内の複数行に分けて出す"
+     },
+     {
+      "label": "疑似コンソールを広く作る（実際の窓の幅とずれる）"
+     }
+    ],
+    "verify": "本人の PC で premise-probe の台本に条件の行と同じ長さの文を通し、VT を除いた窓の文字に 5 つの語が同じ行にあるかを見る",
+    "deps": [],
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "scenarios": [
+      "コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める",
+      "標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る"
+     ],
+     "decisions": [
+      "D3",
+      "D6"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "Windows の CI の install-windows が緑で、この change が足した 6 本と今の 5 本の Scenario の印が出る",
+    "refs": {
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "text": "CI の unsafe の検査（tools/check-unsafe-scope.sh）が通る形で窓へ書く。今の tasks 2.1 のままでは落ちるので、合意の前に IMP-01 の直し方を選ぶ（違和感として返せば、仕様の段が design D4 と tasks 2.1 を直す）",
+    "refs": {
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "text": "確認バッチで本人が日本語の Windows の窓で問いと条件を読めた",
+    "refs": {
+     "decisions": [
+      "D7"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "標準入力が窓のときの、インストールの最後・password・repair の合言葉の問いと条件の表示",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "問いを窓へ出すのは、標準入力が端末（Windows の窓）につながっているときだけ。管のときは問いを出さず、条件の行だけを標準出力に出す",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ]
+     }
+    },
+    {
+     "text": "条件は最初の問いの前に 1 回だけ。断るたびには出し直さない",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "子の命令の出力の化け（失敗の理由の表示・whoami の利用者名・reg.exe のダウンロードの場所）",
+     "refs": {
+      "decisions": [
+       "Q2",
+       "D2"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "日本語の利用者名・日本語のダウンロードの場所の PC では、repair やインストールが子の命令の出力の化けで止まる見込みが残る",
+     "refs": {
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "text": "CI の unsafe の検査との食い違い（IMP-01）・runner で疑似コンソールが使えるか（IMP-02）・長い条件の行の折り返しで試験が落ちうる（IMP-03）",
+     "refs": {
+      "decisions": [
+       "D3",
+       "D4",
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "合言葉を聞く関数と 3 つの口、断りの理由の使い手、install-check の断りと出力の確かめ、CI の install-windows の step、unsafe を許す場所の検査、本人の PC での疑似コンソールの再現（premises.md）",
+     "refs": {
+      "requirements": [
+       "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ],
+      "decisions": [
+       "D4",
+       "D6"
+      ]
+     }
+    },
+    {
+     "text": "同じファイルを触る走っている change: ch11-dependency-vulnerability-scan（ci.yml に vulns の job・tools/check-licenses.sh）・ch12-memory-decisions-adr（ci.yml の chain の job に 1 行）・ch13-workbox-config（tools/workbox.json の作業箱の外で走らせる道具に install-check.sh を足す）。この change は ci.yml の install-windows に step を 1 つ足し、check-licenses.sh は走らせるだけで中身に触らず、workbox.json にも触らない。ch13 の後は install-check.sh が作業箱の外で走る前提になり、tasks 3.2 の「作業箱の中では rc=2、外で走らせる」と合う",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "GitHub の Windows の runner で疑似コンソールが動くか",
+     "why": "PR の CI で初めて走る（IMP-02）"
+    },
+    {
+     "text": "Windows Terminal など、conhost 以外の窓での表示",
+     "why": "本人の PC の conhost と疑似コンソールでしか見ていない"
+    },
+    {
+     "text": "子の命令の出力の化けが、日本語の利用者名で実際に repair を止めるか",
+     "why": "この change の範囲外（Q2）。本人の PC の利用者名は英字"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "サーバ・画面・収集アプリ・移行",
+     "why": "インストーラの表示と試験だけを変え、API と保存の形に触らない"
+    }
+   ]
+  }
+ }
+}
