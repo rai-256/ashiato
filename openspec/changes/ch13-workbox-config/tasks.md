@@ -59,7 +59,7 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
 
 ## Task 5: 宿題の一覧を PR 本文と issue に残す
 
-- [ ] 5.1 `docs/briefs/CH13-pr.md`（上流が書いた PR 本文。下流の finish も同じファイルを PR 本文にする）に、`enable-before.md` への案内と、Task 3.1 の pgrep の確かめがあることを確かめる（Q1・Q3）。無ければ足す。下流は Task 3.1 の出力を `pgrep: <数>` の形で書き足す（review/spec.md R8）。
+- [x] 5.1 `docs/briefs/CH13-pr.md`（上流が書いた PR 本文。下流の finish も同じファイルを PR 本文にする）に、`enable-before.md` への案内と、Task 3.1 の pgrep の確かめがあることを確かめる（Q1・Q3）。無ければ足す。下流は Task 3.1 の出力を `pgrep: <数>` の形で書き足す（review/spec.md R8）。
   検証: `bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'` rc=0
 - [ ] 5.2 harness2 に、上流で見つけた `PATH` の件を issue にする（Q1 (2)。design D9（仮））。題は `作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない`。
   **同じ題の issue が既にあれば立てない**（`gh issue list -R rai-256/harness2 --state all --search "<題> in:title"` で確かめてから `gh issue create -R rai-256/harness2 --title … --body …`）。
@@ -70,5 +70,5 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
   **同じ題の issue が既にあれば立てない**（`gh issue list --state all --search "作業箱を有効にする前の宿題 in:title"` で確かめてから `gh issue create --title … --body-file openspec/changes/ch13-workbox-config/enable-before.md`）。
   立てた issue の番号を `enable-before.md` の冒頭に 1 行で書く（`issue: #<番号>`。同じ題が既にあれば、その番号を書く）。gh が網に出られないときは 5.2 と同じく人間に返す。
   検証: `bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'` rc=0
-- [ ] 5.4 PR 本文（`docs/briefs/CH13-pr.md`）に、5.2 の harness2 の issue と 5.3 の ashiato2 の issue の番号を書く（Global Constraints の最後。review/spec.md R16）。5.2・5.3 の後に閉じる。
+- [x] 5.4 PR 本文（`docs/briefs/CH13-pr.md`）に、5.2 の harness2 の issue と 5.3 の ashiato2 の issue の番号を書く（Global Constraints の最後。review/spec.md R16）。5.2・5.3 の後に閉じる。
   検証: `bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'` rc=0
