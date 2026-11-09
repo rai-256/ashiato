@@ -329,3 +329,28 @@ whole-branch の final reviewer（`superpowers:requesting-code-review` の code-
 - loss: rewrite-all —— 合わない日付・指す先の無い置き換えが CI を通り、ADR の履歴の辿りが切れる（後で検査を足すと、それまでに入った ADR を直すことになる）
 - 提案: この change では直さず、別の change の候補にする
 - 処置: escalated —— deep.md 第 2 回 Q5 で答えが出た。本人が推奨「この change で足す」を選んだ（2026-11-09、`deep-answers-2.txt`）ので、答えに沿って design D9 のとおり直した。spec decision-records の 1 つ目の Requirement に 2 文と Scenario 2 本（「ADR のファイル名の日付は ADR の日付に一致する」「置き換え済みの ADR が指す後継は docs/adr/ にある」）、`tools/check-adr.sh` に `check_filename_dates`・`check_successors` と自己検査の壊し方 `filename-date`・`successor-missing`（どちらも期待する error の文面まで見る）を足し、design D9 に検査と壊し方を書いた。再現と出力は `.superpowers/sdd/ch12-settle/report.md`
+
+## final review（a658d12..38fba73）
+
+whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review` の code-reviewer）。R18〜R21 の直し（2d9391c..38fba73）を 1 行ずつ読んだ。引数なし・`--self-test`（`LC_ALL=C` でも）・`--verbatim`・`scripts/check_scenarios.py` は rc=0。R1〜R21 と重なる指摘も、処置の後の再発も無い。判定: Ready to merge（Minor 3 件）。
+
+## R22. `check_successors` の防御の枝 2 つ（`README.md` と `/` を含む名前）を自己検査が見ていない
+- 成果物: `tools/check-adr.sh`
+- 根拠: `tools/check-adr.sh:184` は `[ "$successor" = README.md ] || [[ "$successor" == */* ]] || [ ! -f … ]` で落とす。design D9 も「`/` を含む名前と `README.md` は落とす」と書く。しかし自己検査の壊し方 `successor-missing`（:519・:638）は、存在しない名前 `209912310000-missing-next.md` しか試さない。前の 2 つの条件を消しても `--self-test` は緑のまま。あわせて、自分自身を後継に指す置き換えも今の検査を通る（spec では禁じていない）
+- kind: technical
+- 提案: 自己検査の一覧（:704）に壊し方を 2 つ足す。後継を `README.md` にするものと、`../README.md`（`docs/adr/` の外に実在するファイル）にするもの。期待する文面は今と同じ `置き換え済みの後継 … が` でよい
+（確かさ 4）
+
+## R23. tasks.md の Task 1.1 の本文が直しに追いついていない（数と印の一覧）
+- 成果物: `openspec/changes/ch12-memory-decisions-adr/tasks.md`
+- 根拠: Global Constraints（`tasks.md:14`）は「引数なし 13 本」に直っている。一方 Task 1.1（`tasks.md:23`）は「次の 11 を順に確かめ」のままで、印の一覧に R21 の 2 本（「ADR のファイル名の日付は ADR の日付に一致する」「置き換え済みの ADR が指す後継は docs/adr/ にある」）が無い。`tasks.md:35` も「D9 の 9 つの壊し方」のままで、台本と CH12.md の 28 と合わない。同じファイルの中で数が食い違う
+- kind: technical
+- 提案: 数と印の一覧を台本に合わせる（Task の当時の数を残すなら、そう注記する）
+（確かさ 4）
+
+## R24. design D9 の自己検査の説明が台本と合わない（壊し方の数・正の対照・掃除の作り）
+- 成果物: `openspec/changes/ch12-memory-decisions-adr/design.md`
+- 根拠: `design.md:165-171` に書いた壊し方は 9＋12＋2＝23 で、台本（`tools/check-adr.sh:704` の一覧）と CH12.md の 28 と合わない。抜けているのは `date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all` の 5 つ。正の対照も「形の正しい ADR を 1 件足す（R1）」だけで、R18 で足した `superseded`・`older-adr` が無い。「`trap` で木を消す」も、R19 の後の作り（`TMP_ROOT` を `trap … EXIT` で消す）と合わない
+- kind: technical
+- 提案: 抜けた 5 つの壊し方、正の対照の 3 つ、`TMP_ROOT` と `trap … EXIT` を D9 に書き足す
+（確かさ 4）
