@@ -36,8 +36,9 @@
 - 推奨: この change で足す（検査 2 つ・spec の Scenario 2 つ・自己検査の壊し方 2 つ）。Q3（形の検査を常設する）と同じ向き
 - loss: rewrite-all —— 足さない間に入った、日付の合わない・指す先の無い ADR は、後で検査を足すときに直すことになる
 - 出所: review/code.md R21（R18 の再現 (2) で、存在しない後継を指したまま本番が rc=0）
-- 答え: (未回答)
+- 答え: この change で足す（検査 2 つ・Scenario 2 つ・自己検査の壊し方 2 つ）
+- 本人の選択（2026-11-09、第 2 回。`deep-answers-2.txt`）。値は推奨の選択肢と同じで、補足は無い。第 2 回の答えは推奨を先に仕様へ書いていないので、`spec --answers Q5` で仕様（`tools/check-adr.sh`・spec decision-records の Scenario 2 つ・自己検査の壊し方 2 つ）へ写す
 
 ## 要件へ戻すもの
 
-なし（change。`satisfies: []`。Q3・Q4 は範囲の決定で、要件に効かない）。答えは `docs/changes/CH12.md` の「価値」「壊してはいけないもの」に写した。
+なし（change。`satisfies: []`。Q3・Q4・Q5 は範囲の決定で、要件に効かない）。答えは `docs/changes/CH12.md` の「価値」「壊してはいけないもの」に写した。
