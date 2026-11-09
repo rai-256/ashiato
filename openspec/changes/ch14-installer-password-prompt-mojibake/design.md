@@ -69,7 +69,7 @@
 
 ### D6（仮）. 窓の試験は、疑似コンソール（ConPTY）を起こす PowerShell の台本で、install-check の中から走らせる（Q4）
 
-- 台本 `tools/release/conpty-run.ps1`（新しいファイル）: `Add-Type` の C# で `CreatePseudoConsole` を使い、子を窓につないで起こし、窓に出た文字（VT の並び）を UTF-8 のファイルへ書き出す。入力は、出力が 1 秒静まってから 1 行ずつ送る（`\r`）。上限 120 秒で子を止めて rc≠0。台本の source は ASCII だけにする（Windows PowerShell 5.1 は BOM の無い UTF-8 を cp に読む。日本語の期待値は bash の側に置き、台本は書き出しだけ）
+- 台本 `tools/release/conpty-run.ps1`（新しいファイル）: `Add-Type` の C# で `CreatePseudoConsole` を使い、子を窓につないで起こし、窓に出た文字（VT の並び）を UTF-8 のファイルへ書き出す。入力は、出力が 1 秒静まってから 1 行ずつ送る（`\r`）。上限（`-TimeoutSec`。install-check からは `install_with` と同じ `${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}` 秒を渡す。`password` の口はサービスを起こし直して最大 180 秒ポートを待つので、短い上限では起こし直しの途中で止めてしまう）を超えたら子を止めて rc≠0。台本の source は ASCII だけにする（Windows PowerShell 5.1 は BOM の無い UTF-8 を cp932 に読み、日本語のコメントが次の行を飲み込む。`premises.md` 9 行目で実際に起きた。日本語の期待値は bash の側に置き、台本は書き出しだけ）。確かめに使った台本 `premise-probe/probe.ps1` を下敷きにしてよい
 - **子の標準の handle は疑似コンソールにつなぐ**: CI は install-check の出力を `| tee` で流す（`ci.yml:453`）ので、台本の標準の handle は管になっている。`STARTUPINFOEX` に `STARTF_USESTDHANDLES` を**立て**、`hStdInput`・`hStdOutput`・`hStdError` を空（`IntPtr.Zero`）にし、`bInheritHandles = false` で起こす。立てないと、子は親の管を継いで窓につながらない（`premises.md` 9 行目。2026-11-09 に本人の PC で確かめた: 立てない形は子の `IsInputRedirected` が真、立てた形は偽）。作業の場所は `C:\`（WSL の UNC のままだと `cmd.exe` が断りの行を出す）
 - 呼び出しは `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <台本>`（前例 `tools/release/sandbox-probe.sh:17`。WSL からは UNC の未署名の台本になり、既定の実行ポリシーでは読まれない。review/spec.md R3）
 - 子は `cmd.exe /d /c "chcp 932 >nul & chcp & <exe> password"` で起こす（向け替えの場合は `<exe> password >out.txt 2>err.txt`）。`chcp` の出力からコード頁を読み、65001 なら試験を落とす（UTF-8 の窓では化けが見えない）。932 に替えられなくても、65001 でなければ直す前の形は化ける（`premises.md` 7 行目）

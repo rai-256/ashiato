@@ -40,7 +40,7 @@
 
 ## Task 3: 疑似コンソールで子を起こし、窓に出た文字を書き出す台本
 
-- [ ] 3.1 `tools/release/conpty-run.ps1` を design D6 のとおりに書く（source は ASCII だけ。冒頭のコメントに何をするか・なぜ要るか（CH14）・引数）。引数: `-Command <cmd.exe /d /c に渡す文字列>`・`-InputFile <1 行ずつ送る文字列のファイル>`（無くてよい）・`-Out <窓に出た文字を UTF-8 で書くファイル>`・`-TimeoutSec`（既定 120）。
+- [ ] 3.1 `tools/release/conpty-run.ps1` を design D6 のとおりに書く（source は ASCII だけ。冒頭のコメントに何をするか・なぜ要るか（CH14）・引数）。引数: `-Command <cmd.exe /d /c に渡す文字列>`・`-InputFile <1 行ずつ送る文字列のファイル>`（無くてよい）・`-Out <窓に出た文字を UTF-8 で書くファイル>`・`-TimeoutSec`（既定 120。install-check からは 4.2 のとおり長く渡す）。下敷きは `openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/probe.ps1`（本人の PC で動いた形）。
   `Add-Type` の C# で `CreatePseudoConsole`（120×40）・`CreateProcess`（`EXTENDED_STARTUPINFO_PRESENT` と `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`。**`STARTF_USESTDHANDLES` を立てて 3 つの std handle を空にし**、`bInheritHandles = false`、作業の場所は `C:\`。立てないと子は親の管を継ぐ —— `premises.md` 9 行目）を使い、出力の管を読み続ける。入力は、出力が 1 秒静まってから 1 行ずつ `\r` を付けて送る。子が終わったら子の終了コードで終わり、上限を超えたら子を止めて rc=124。
   `-Probe` を持たせる（陰性の対照。design D6）: `chcp 932` の窓で子を 2 つ順に起こし、出力を `-Out` の隣に `.raw.txt`・`.console.txt` で書く。どちらの子も最初に、`[Console]::IsInputRedirected` と `IsOutputRedirected` が偽なら `CONSOLE-OK` を窓に出す。
   `.raw.txt` の子は『画面の合言葉: 』（文字は `[char]0x753B` などで組む。source を ASCII に保つ）の UTF-8 のバイトを `[Console]::OpenStandardOutput()` に書く（`WriteFile` の経路。`[IO.File]::Open('CONOUT$', …)` は 5.1 では断られる）。`.console.txt` の子は同じ文を `[Console]::Out` に書く。
@@ -62,7 +62,7 @@
   `scenario_names` に 2 つの名前を足す（配列の途中。末尾に足さない）。
   検証: `tools/release/install-check.sh --self-test` rc=0 / `bash -n tools/release/install-check.sh` rc=0
 - [ ] 4.2 `echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'` の前に、窓の節を置く（design D6）。最初に `console_probe`（3.2）を走らせ、次の 4 つを確かめる。それぞれの前に印を出す:
-  `echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'`（`conpty-run.ps1 -Command 'chcp 932 >nul & chcp & "<SETUP>" password'`、入力は `$PW2` を 2 行。`chcp` の出力のコード頁が 65001 でないこと・VT を除いた窓の文字に `画面の合言葉: `・`画面の合言葉（もう一度）: ` があること・`16 文字以上`・`change-me で始めない`・`API の合言葉`・`ログインの印の鍵`・`表示されません` を全部含む行があり、その位置が最初の `画面の合言葉: ` より前であること）/
+  `echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'`（`conpty-run.ps1 -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" -Command 'chcp 932 >nul & chcp & "<SETUP>" password'`、入力は `$PW2` を 2 行。窓の 2 回の起動はどちらも同じ上限を渡す（`password` の口は起こし直しで最大 180 秒待つ。design D6）。`chcp` の出力のコード頁が 65001 でないこと・VT を除いた窓の文字に `画面の合言葉: `・`画面の合言葉（もう一度）: ` があること・`16 文字以上`・`change-me で始めない`・`API の合言葉`・`ログインの印の鍵`・`表示されません` を全部含む行があり、その位置が最初の `画面の合言葉: ` より前であること）/
   `echo '== Scenario: 窓で打った合言葉で決め直せる'`（同じ回の rc=0・`wait_healthz 150` の後に `$PW2` でログインできる）/
   `echo '== Scenario: 窓で打った合言葉は、窓に出ない'`（同じ回の窓の文字に `$PW2` が無い）/
   `echo '== Scenario: 標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'`（`-Command 'chcp 932 >nul & "<SETUP>" password >"<out.txt>" 2>"<err.txt>"'`、入力は `$PW2` を 2 行。窓の文字に `画面の合言葉: ` と `16 文字以上` を含む行があり、`out.txt`・`err.txt` に `画面の合言葉: ` が無い・rc=0・`wait_healthz 150`）。

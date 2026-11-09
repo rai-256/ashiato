@@ -20,8 +20,8 @@ D1〜D4・D6・D7 が（仮）。どれも反転条件を design.md に書いて
 
 - capability の前倒し: 無い。`distribution` の Requirement「インストールの最後に、端末で画面の合言葉を決め、そのままログインできる」を MODIFIED にした。今の SHALL 5 行と Scenario 5 本は逐語で残し、SHALL を 4 行、Scenario を 6 本足した（インストールの最後・`password`・`repair` の 3 つの口に効く）
 - 費用の見えるところ: Q5 の推奨を採ると、インストーラに `unsafe` の小さなモジュール（`console.rs`）と `windows-sys` の直の依存（rpassword が既に使う版）が入る
-- 前提: 疑似コンソール（ConPTY）の試験の形は、本人の PC（Windows 11）で確かめた。親の出力が管でも、子は窓につながる。rpassword と同じ書き方では、本人が見たのと同じ『逕ｻ髱｢縺ｮ蜷郁ｨ闡』が出た（premises.md 9 行目）。windows-latest の runner では未確認なので、`install-windows` のインストールの前の step で先に確かめる
-- tasks: 6 Task・12 項目（人間の確認待ち 1 を含む）
+- 前提: 疑似コンソール（ConPTY）の試験の形は、本人の PC（Windows 11）で確かめた。親の出力が管でも、子は窓につながる。rpassword と同じ書き方では、本人が見たのと同じ『逕ｻ髱｢縺ｮ蜷郁ｨ闡』が出た（premises.md 9 行目。台本と結果は `premise-probe/`）。windows-latest の runner では未確認なので、`install-windows` のインストールの前の step で先に確かめる
+- tasks: 6 Task・10 項目と、人間の確認待ち 1
 
 ## レビュー
 
