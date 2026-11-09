@@ -10,3 +10,9 @@
 - harness2 の確かめ: `git -C ~/dev/harness2 fetch && git log HEAD..origin/main -- scripts/pr_body.py` → 空。open の PR・issue にも該当なし（`gh pr list` / `gh issue list --search rulings` → `[]`）。
 - 根の直しの案（harness2。この席はしない）: 69 行目の条件を `ln.lstrip("- ").startswith("Ruling:")` にする。
 - 確かめ: `python3 scripts/review_triage.py . ch13-workbox-config --no-verdict` → `triage: OK`（rc=0）。
+
+## settle（答えの後の見直し・Q-R20）
+
+- R20・R21・R22・R23: deep.md Q-R20 の答え（重複を残して merge する。harness2 の `pr_body.py` の `rulings()` は CH13 の外で別に直す）に沿って、`処置:` を `escalated —— 答え済み … 持ち越し` に書き直した。
+  `docs/briefs/CH13-pr.md` は変えていない（答えのとおり、重複した見出しの行は残したまま）。コード・テストは変えていないので、走らせたテストは無い。
+  `python3 scripts/review_triage.py . ch13-workbox-config --no-verdict` の結果は下の commit の前に確かめた。

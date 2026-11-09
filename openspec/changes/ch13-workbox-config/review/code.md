@@ -343,7 +343,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md:14-15（re-review 5 の New Breakage。Minor）
 - kind: technical
-- 処置: escalated —— deep.md Q-R20（deep-questions-r1.json・docs/briefs/CH13-deep-r1.html）。ブランチで重複した箇条を消しても、次の finish が必ず戻す: harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）が前の本文（`docs/briefs/CH13-pr.md`）の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾い、台本が自分で書く見出しの行（175 行目）も箇条にするため（e2b3b06・3a87c39・8faa3ab で 3 回再発、消す直しは 84b7cba・d3edcb8・2a244db で 3 回）。この席は harness2 に push・PR をしないので、`成果物` を持続的に直せない。重複を残して merge するか、harness2 を先に直すかを本人に問う
+- 処置: escalated —— 答え済み（deep.md Q-R20。`deep-answers-4.txt`）: 重複を残して merge する。持ち越し —— CH13 では `docs/briefs/CH13-pr.md` を直さない（消しても次の finish が harness2 の `scripts/pr_body.py` の `rulings()` で戻すため）。根の直し（`Ruling:` で始まる行だけ拾う）は CH13 の外で harness2 の別の PR として行う。害は PR 本文の読みづらさだけで、検証には影響しない
 - 判定: ADDRESSED（re-review 6 @84b7cbac91a0e6b98eea13764642989436d58af8）
 - 判定: NOT ADDRESSED（re-review 7 @e2b3b061bbbe5acc41b2dcc8cb1bef755ed3f8f4）: head e2b3b06（台本の再生成）で重複が戻った。docs/briefs/CH13-pr.md の「全 Task の ledger の `Ruling:`（逐語）:」が見出しの行と直下の箇条で 2 回出る。84b7cba では消えていた。原因は pr_body.py の癖で、report にも「戻る」と書いてある。害は読みづらさだけ
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
@@ -357,7 +357,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md（「## 仮決め（B）と Ruling」の節）
 - 根拠: docs/briefs/CH13-pr.md（「## 仮決め（B）と Ruling」の節）（re-review 7 の New Breakage。Minor）
 - kind: technical
-- 処置: escalated —— deep.md Q-R20（deep-questions-r1.json・docs/briefs/CH13-deep-r1.html）。ブランチで重複した箇条を消しても、次の finish が必ず戻す: harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）が前の本文（`docs/briefs/CH13-pr.md`）の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾い、台本が自分で書く見出しの行（175 行目）も箇条にするため（e2b3b06・3a87c39・8faa3ab で 3 回再発、消す直しは 84b7cba・d3edcb8・2a244db で 3 回）。この席は harness2 に push・PR をしないので、`成果物` を持続的に直せない。重複を残して merge するか、harness2 を先に直すかを本人に問う
+- 処置: escalated —— 答え済み（deep.md Q-R20。`deep-answers-4.txt`）: 重複を残して merge する。持ち越し —— CH13 では `docs/briefs/CH13-pr.md` を直さない（消しても次の finish が harness2 の `scripts/pr_body.py` の `rulings()` で戻すため）。根の直し（`Ruling:` で始まる行だけ拾う）は CH13 の外で harness2 の別の PR として行う。害は PR 本文の読みづらさだけで、検証には影響しない
 - 判定: ADDRESSED（re-review 8 @d3edcb806858f9f1d40ef8e412177dbf4f13996c）
 - 判定: NOT ADDRESSED（re-review 9 @3a87c395c990459d8bf21fef0f7d1dd12960e72c）: R20 と同じ。head の CH13-pr.md:15-16 に重複が残っている
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
@@ -369,7 +369,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md:15（re-review 9 の New Breakage。Minor）
 - kind: technical
-- 処置: escalated —— deep.md Q-R20（deep-questions-r1.json・docs/briefs/CH13-deep-r1.html）。ブランチで重複した箇条を消しても、次の finish が必ず戻す: harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）が前の本文（`docs/briefs/CH13-pr.md`）の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾い、台本が自分で書く見出しの行（175 行目）も箇条にするため（e2b3b06・3a87c39・8faa3ab で 3 回再発、消す直しは 84b7cba・d3edcb8・2a244db で 3 回）。この席は harness2 に push・PR をしないので、`成果物` を持続的に直せない。重複を残して merge するか、harness2 を先に直すかを本人に問う
+- 処置: escalated —— 答え済み（deep.md Q-R20。`deep-answers-4.txt`）: 重複を残して merge する。持ち越し —— CH13 では `docs/briefs/CH13-pr.md` を直さない（消しても次の finish が harness2 の `scripts/pr_body.py` の `rulings()` で戻すため）。根の直し（`Ruling:` で始まる行だけ拾う）は CH13 の外で harness2 の別の PR として行う。害は PR 本文の読みづらさだけで、検証には影響しない
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: NOT ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）: R20 と同じ。CH13-pr.md:16 の箇条が head に残っている（fix diff の CH13-pr.md の差分はレビュー件数の 2 行だけ）
 
@@ -379,4 +379,4 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md:16（re-review 11 の New Breakage。Minor）
 - kind: technical
-- 処置: escalated —— deep.md Q-R20（deep-questions-r1.json・docs/briefs/CH13-deep-r1.html）。ブランチで重複した箇条を消しても、次の finish が必ず戻す: harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）が前の本文（`docs/briefs/CH13-pr.md`）の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾い、台本が自分で書く見出しの行（175 行目）も箇条にするため（e2b3b06・3a87c39・8faa3ab で 3 回再発、消す直しは 84b7cba・d3edcb8・2a244db で 3 回）。この席は harness2 に push・PR をしないので、`成果物` を持続的に直せない。重複を残して merge するか、harness2 を先に直すかを本人に問う
+- 処置: escalated —— 答え済み（deep.md Q-R20。`deep-answers-4.txt`）: 重複を残して merge する。持ち越し —— CH13 では `docs/briefs/CH13-pr.md` を直さない（消しても次の finish が harness2 の `scripts/pr_body.py` の `rulings()` で戻すため）。根の直し（`Ruling:` で始まる行だけ拾う）は CH13 の外で harness2 の別の PR として行う。害は PR 本文の読みづらさだけで、検証には影響しない
