@@ -161,6 +161,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 - 判定: ADDRESSED（re-review 4 @9e70f08094e02a09942326096a8eeff37f3c1c1b）
 - 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
+- 判定: ADDRESSED（re-review 7 @ae4a4144a2cb0a446c3b59f5fd479a64c3f2248b）
 
 ## R6. 決まった形に当たる行しか数えないので、形の違う行は落ちずに見えなくなる
 - 成果物: `tools/check-adr.sh:52`（一覧の項目）・`:102`（状態の行）
@@ -401,6 +402,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - kind: technical
 - 処置: rejected: PR 本文は成果物として直せない。`docs/briefs/CH12-pr.md` はグラフの `finish` が `scripts/pr_body.py` で毎回組み直し、前の本文から引き継ぐのは `## 仮決め（B）と Ruling` の節の `Ruling:` の行だけ（`scripts/pr_body.py` の `rulings` と `build`。`build` は一覧の節を持たない）。手で一覧を足しても、この settle の後の `finish` で消える（9e70f08 で 8 件の一覧が消えたのがその再現）。`scripts/` は harness2 への symlink で、この change では直さない。形の食い違いは design の側で解いた: D3（仮）に 2026-11-09 の追記を足し、一覧の置き場を `docs/changes/CH12.md` の `## ADR と repo の今の食い違い（直していない）` の節だけにした（PR の差分に入るので merge の前に人間が読める。Q1 の意図「直さずに挙げ、後で change を起こせる」は変わらない）。Risks の行と CH12.md の完了の判定の文も合わせた
 - 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
+- 判定: ADDRESSED（re-review 7 @ae4a4144a2cb0a446c3b59f5fd479a64c3f2248b）
 
 ## settle_review（re-review 5 @898546c）: 処置の直しが新しく壊したもの
 
