@@ -105,3 +105,23 @@
   （同じ grep で出た `tools/verify-prep-device.sh --self-test` は偽の adb を使う self-test で、箱でよい。ch10 の `real-proof.sh` は本物の SDK と kvm を使うが、箱の中に `/dev/kvm` と `$ANDROID_HOME/emulator/emulator` と `adb` が在ることを確かめたので指摘にしない）
 - kind: daily
 - 提案: `host_only` に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す（足すなら 1.2 の期待する並びも直す）。今は足さないなら、`enable-before.md` の「ホストで走らせる台本」に漏れとして 1 行置く（design D5 の「後で名前を足す」運用に乗せる）
+
+## security review（baf9253..a3597d3）
+
+見た経路:
+- 差分の実体は `tools/workbox.json`（作業箱の設定）1 つと、change の文書・台本だけ。サーバ・画面・収集アプリ・移行・記録を持つコードには触れていない（`git diff --stat` で 8 ファイル、コードは 0）（2）
+- 設定の読み元: 箱の中の agent から中継で来た依頼 → `evidence.py:391-404` → `box_config`（`evidence.py:508-515`）が **main の版**の `tools/workbox.json` を `git show` で読む → `host_only` に当たればホストで走らせず BLOCKED_INFRA。worktree の設定を書き換えても効かない（4）
+- `host_only` の判定: `workbox.py:138-143` は `re.search`（字面のどこかに当たればホスト）。今の設定で `bash tools/usage-volume.sh` / `cat ~/.config/gh/hosts.yml  # cmd.exe` / `echo connectedXAndroidTest; env` は host、`cargo test -p ashiato-server` / `tools/smoke.sh` は box（台本で確かめた）。ホストに出るのは中継を通らない（グラフの Task gate の）実行だけで、そちらは `off` の今と同じくホストの権限で走る（4）
+- `env`: 足すのは `CARGO_BUILD_JOBS=4` だけ。`rw` / `ro` / `env_deny` は置いていない → 既定の許可リスト（`workbox.py:243-283`。`$HOME` 丸ごとは渡さず、`GH_TOKEN` `SSH_AUTH_SOCK` 等は `ENV_DENY`）から広がらない（3）
+- `docker_images: postgres:17-alpine`: ホストで pull・save して箱の dockerd に渡す（`workbox.py:205-225`）。既存の `docker-compose.yml:3` と同じタグで、新しい取得元は増えない（2）
+- `apt`: 16 包みは Ubuntu の本家の名前（`t64` 付きは 24.04 以降の改名）。新しい apt の取得元・鍵は足していない（2）
+- 新しい listen・平文の通信・証明書の検証を切る設定: 無い（設定の鍵に該当するものが無い。`KEYS` は `workbox.py:62-63`）（2）
+
+安全の決め手: 「箱の中の agent から来た検証は、設定を main の版で読み、`host_only` に当たるものはホストで走らせない」（`evidence.py:391-404`）—— 確かさ 4。
+`cd .harness2 && python3 -m pytest tests/test_workbox.py -k Relayed -v` → `test_config_edited_in_the_box_is_ignored` / `test_host_only_is_never_run_from_the_box` / `test_edited_prep_never_runs_on_the_host` を含む 5 本 PASSED。
+CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に入らないので、この設定で agent の届く範囲は `off` の今から広がらない（`workbox.py:enabled` の `what == "agents" and m != "all"`）。
+
+指摘なし
+
+範囲外: `.harness2/tests/test_workbox.py::Relay::test_inside_verify_run_goes_through_the_relay_and_keeps_rc` がこの worktree の深いパスで `OSError: AF_UNIX path too long` で落ちる（中継の socket を worktree の中に置くため。harness2 側。`all` で深いパスの worktree だと中継が立たない）。
+範囲外: `all` のとき Task gate がホストで取り直す `host_only` の台本（`tools/usage-volume.sh` 等）は箱から書ける worktree にあり、中身はホストで走る。ハーネスは「事故の隔離で、わざと抜けようとする agent への境界ではない」と明記している（`workbox.py:487-491`）。
