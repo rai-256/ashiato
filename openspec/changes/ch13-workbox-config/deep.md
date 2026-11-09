@@ -80,4 +80,5 @@
 - 問い: PR 本文（`docs/briefs/CH13-pr.md`）で見出しの行「全 Task の ledger の `Ruling:`（逐語）:」が直下の箇条として 2 回出ます。CH13 のブランチで消しても、次の finish が必ず戻します。重複を残したまま merge してよいですか。それとも harness2 を先に直しますか。
 - なぜ止めるか: 根は harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）です。前の本文の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾うため、台本が自分で書いた見出しの行も Ruling として拾い、箇条にします。settle が消す → finish が戻す → re-review が NOT ADDRESSED、を 4 回繰り返しました（e2b3b06・3a87c39・8faa3ab で実測）。この席は harness2 に push も PR もしないので、ブランチの中では直しきれません。
 - 直し方の候補（harness2 側。1 行）: 69 行目の条件を `ln.lstrip("- ").startswith("Ruling:")` にする（`Ruling:` で始まる行だけ拾う）。harness2 の origin/main にこの直しはまだありません（`git log HEAD..origin/main -- scripts/pr_body.py` は空。2026-11-09）
-- 答え: (未回答)
+- 答え: 重複を残して merge する（harness2 は別に直す）（本人の選択。`deep-answers-4.txt`。推奨の選択肢と同じ・補足なし）
+- 決まったこと: R20〜R23 は持ち越し（PR 本文の重複した見出しの行は残したまま merge してよい）。CH13 は止めない。harness2 の `scripts/pr_body.py` の `rulings()` の直し（`Ruling:` で始まる行だけ拾う）は、CH13 の外で別の PR として行う。同じ台本が組むほかの Story / change の PR 本文の同じ重複も、この答えに従う（family の兄弟）。要件・Story に戻すものは無い
