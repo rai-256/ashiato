@@ -17,23 +17,21 @@ issue: #275
 手元で確かめ済み（依頼の「確かめたこと」。`tests`、harness2 #161 の前の形）: 箱の中で cargo・node・JDK・psql・claude・codex が動く・`cargo test -p ashiato-server --lib access_log_tests` と `tools/check-migrations.sh`・`tools/check-pg-major.sh` が PASS・worktree 5 本の cargo test が席 2 つで順に流れて空きメモリの最低 12GB。
 #161 の形（箱の中の dockerd）では、まだ測っていない。
 
-## 2. 上流で見つけたこと（有効にする前に直す）
+## 2. 上流で見つけたこと
 
-- [ ] ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない（箱はホストの `PATH` を受け継ぐ）。
-  グラフを走らせる `hx-dev.service` の `PATH` にも `/usr/sbin` が無いので、このまま `tests` にすると、検証の準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので準備が落ち、箱に入る検証は docker を使わないものも含めて全部 BLOCKED_INFRA になる見込み（2026-11-08 の走査で 1,786 本のうち 1,751 本）。
-  再現（2026-11-08、`premises.md`）: `PATH` に `/usr/sbin` が無いシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'docker images'` → `failed to create NAT chain DOCKER: iptables not found`。`PATH` に `/usr/sbin:/sbin` を足すと立ち、`postgres:17-alpine` が読み込まれている。
-  直す場所は harness2（下の issue。design D9（仮））。ashiato2 の `tools/workbox.json` の `env` では回避しない
+有効にする前に直すものは、今は無い。見つけた 1 件は harness2 #164 で直り、下の「済んだもの」に移した。
 
 ## harness2 の issue
 
-上流で見つけた件（design D9（仮））。同じ題の issue が既にあったので立てず、その番号を書く。
+上流で見つけた件（design D9（仮））。同じ題の issue が既にあったので立てず、その番号を書く。issue は CLOSED（#164 で直った）。
 
 - rai-256/harness2#165 作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない —— 上の 2.
 
 ## harness2 #157 / #161 で済んだもの
 
-第 1 回の深掘りで一覧に載せ、harness2 #157（issue。CLOSED）と #161（2026-11-08 merge）で要らなくなったもの。CH13 では直さず、issue も立てない（design D7）:
+第 1 回の深掘りで一覧に載せ、harness2 #157（issue。CLOSED）・#161（2026-11-08 merge）・#164（#165 を直した）で要らなくなったもの。CH13 では直さず、issue も立てない（design D7）:
 
+- ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない → harness2 #165（CLOSED）。#164 で `workbox/dockerd-up` が `PATH` の前に `/usr/local/sbin:/usr/sbin:/sbin` を足すようになった。再現（2026-11-08、`premises.md`）は直る前の形: `PATH` に `/usr/sbin` が無いシェルから `workbox.py run . -- bash -c 'docker images'` → `failed to create NAT chain DOCKER: iptables not found`
 - docker が要るのに渡らない（画面の e2e・`cargo test --workspace` と `server_startup`・`actionlint`・中で docker を使う台本を呼ぶ台本）→ 検証の箱は箱の中の dockerd を持ち、`docker` を呼べば立つ（R2）
 - 当たりすぎ（台本の名前を grep するだけの検証にホストの docker の socket が渡る）→ ホストの socket は渡さない（R4）
 - `prep_files` の不足（`tools/db-roles.sql`・`docker-compose.override.yml`）→ 検証の準備は箱の中で走り、main の版との突き合わせは要らない（R5）

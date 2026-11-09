@@ -7,14 +7,14 @@
 
 - pgrep の確かめ（Task 3.1）: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` → `pgrep: 1`（10 未満）
 - 宿題の一覧: `openspec/changes/ch13-workbox-config/enable-before.md`
-- harness2 の issue（Task 5.2。同じ題が既にあったので立てず番号を書いた）: rai-256/harness2#165 作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない
+- harness2 の issue（Task 5.2。同じ題が既にあったので立てず番号を書いた）: rai-256/harness2#165（CLOSED。#164 で直った）作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない
 - ashiato2 の issue（Task 5.3）: #275 作業箱を有効にする前の宿題（CH13）
 
 ## 先に: 作業箱を有効にする前の宿題
 
 一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
 
-- **上流で見つけたこと（有効にする前に直す）**: ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない。グラフを走らせる `hx-dev.service` の `PATH` にも無いので、このまま `tests` にすると、準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので、箱に入る検証は全部（1,786 本のうち 1,751 本）BLOCKED_INFRA になる見込み（下流が harness2 に issue を 1 つ立てる）
+- **上流で見つけたこと**: ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が立たない件は、harness2 #165 が CLOSED（#164 で直った）。一覧では「済んだもの」へ移し、有効にする前に直すものは残っていない
 - **測っていない**: e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか
 - **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（下流が書き出す）
 
