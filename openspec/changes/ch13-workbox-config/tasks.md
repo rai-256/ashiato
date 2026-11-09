@@ -49,10 +49,10 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
 
 ## Task 4: `host_only` が harness2 と同じ判定で当たる・当たらないことを確かめる
 
-- [ ] 4.1 `openspec/changes/ch13-workbox-config/check-workbox-match.py` を書く（design D8・違和感 (2)）。`.harness2/scripts` を `sys.path` に足して `workbox` を import し、`match-cases.json` の各行を `workbox.host_only(cfg, cmd)` だけで `host` / `box` に分け、`want` と違う行を全部出して **rc=3**（表との不一致だけを 3 にし、読めない・例外などほかの失敗と分ける。review/spec.md R6）。`needs_docker` は呼ばない（harness2 #161 で消えた）。正規表現を台本に写さない。
+- [x] 4.1 `openspec/changes/ch13-workbox-config/check-workbox-match.py` を書く（design D8・違和感 (2)）。`.harness2/scripts` を `sys.path` に足して `workbox` を import し、`match-cases.json` の各行を `workbox.host_only(cfg, cmd)` だけで `host` / `box` に分け、`want` と違う行を全部出して **rc=3**（表との不一致だけを 3 にし、読めない・例外などほかの失敗と分ける。review/spec.md R6）。`needs_docker` は呼ばない（harness2 #161 で消えた）。正規表現を台本に写さない。
   `cfg` は既定で `tools/workbox.json`、`--request` を付けると `docs/changes/CH13.md` の「依頼（逐語）」の JSON の塊（行頭の `> ` を外す）。依頼の版では、足した `host_only` の行が落ちること（台本が表を見分けること）も確かめる。
   検証: `bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 35'` rc=0
-- [ ] 4.2 同じ台本に `--list <出力>` を足し、既存の `openspec/**/tasks.md`（archive を含む）の検証コマンドを、`.harness2/scripts/evidence.py` の `items` → `declared` → `unwrap_quiet` で取り出して、同じ判定で `## ホストで走る（host_only）` / `## 箱で走る` の 2 つの節に分けて書き出す（違和感 (2)）。
+- [x] 4.2 同じ台本に `--list <出力>` を足し、既存の `openspec/**/tasks.md`（archive を含む）の検証コマンドを、`.harness2/scripts/evidence.py` の `items` → `declared` → `unwrap_quiet` で取り出して、同じ判定で `## ホストで走る（host_only）` / `## 箱で走る` の 2 つの節に分けて書き出す（違和感 (2)）。
   各行は `- <tasks.md のパス> <項目の番号>: <コマンド>`（コマンドは 1 行に。長ければ切らずにそのまま）。冒頭に節ごとの件数と、書き出したときの HEAD を書く。
   `openspec/changes/ch13-workbox-config/command-classes.md` に書き出して commit し、`enable-before.md` の「分類の一覧」の節に件数を写す（2026-11-08 の上流の走査では 1,786 本のうちホスト 35・箱 1,751。下流のときの数が違ってよい）。
   検証: `bash -c 'f=openspec/changes/ch13-workbox-config/command-classes.md; grep -q "^## ホストで走る（host_only）" "$f" && grep -q "^## 箱で走る" "$f" && ! grep -q "^## 箱で docker を渡" "$f" && test "$(grep -c "^- openspec/" "$f")" -ge 1700'` rc=0
