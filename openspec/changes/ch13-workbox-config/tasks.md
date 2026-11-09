@@ -29,14 +29,14 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
 
 ## Task 2: off の間に何も変わらないことを確かめる
 
-- [ ] 2.1 ashiato2 の台本・コード・CI・文書が `workbox` を読まないことを確かめる（`HARNESS_WORKBOX` が off の間、このファイルを読むのは harness2 だけ。壊してはいけないもの 1）。
+- [x] 2.1 ashiato2 の台本・コード・CI・文書が `workbox` を読まないことを確かめる（`HARNESS_WORKBOX` が off の間、このファイルを読むのは harness2 だけ。壊してはいけないもの 1）。
   検証: `bash -c '! git grep -n -i workbox -- . ":!tools/workbox.json" ":!openspec/changes" ":!docs/changes/CH13.md" ":!docs/briefs"'` rc=0
-- [ ] 2.2 この change が触ったファイルが、許した範囲（Global Constraints の 3 つ目）の中だけであることを確かめる（壊してはいけないもの 2）。
+- [x] 2.2 この change が触ったファイルが、許した範囲（Global Constraints の 3 つ目）の中だけであることを確かめる（壊してはいけないもの 2）。
   作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|openspec/changes/ch13-workbox-config/|docs/changes/CH13\.md|docs/briefs/CH13|$)"'` rc=0
-- [ ] 2.3 ファイルを置いた木で、リポジトリの検査 6 本が通ることを確かめる（壊してはいけないもの 3）。
+- [x] 2.3 ファイルを置いた木で、リポジトリの検査 6 本が通ることを確かめる（壊してはいけないもの 3）。
   検証: `bash -c 'set -e; for s in check-private check-secrets check-spdx check-shared-appends check-tmp-hygiene check-boundaries; do tools/$s.sh; done'` rc=0
-- [ ] 2.4 有効にする前の宿題の一覧が change の中にあり、測るもの 3 つと、harness2 #157 / #161 で済んだものの節と、harness2 の issue の節と、分類の一覧への案内を持つことを確かめる（Q1 (3)・違和感 (3)。design D2）。下流は一覧の測るもの・「2. 上流で見つけたこと」・「ホストで走らせる台本」の節を消さない（#161 で消えた項目は上流が消した）。
+- [x] 2.4 有効にする前の宿題の一覧が change の中にあり、測るもの 3 つと、harness2 #157 / #161 で済んだものの節と、harness2 の issue の節と、分類の一覧への案内を持つことを確かめる（Q1 (3)・違和感 (3)。design D2）。下流は一覧の測るもの・「2. 上流で見つけたこと」・「ホストで走らせる台本」の節を消さない（#161 で消えた項目は上流が消した）。
   検証: `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test -s "$f" && grep -qF "画面の e2e 1 本が検証の箱の 6g に収まるか" "$f" && grep -qF "で 5 本のときの空きメモリ" "$f" && grep -qF "cargo のビルドが 4g に収まるか" "$f" && grep -q "^## harness2 #157 / #161 で済んだもの" "$f" && grep -q "^## harness2 の issue" "$f" && grep -q "^## 2\. 上流で見つけたこと" "$f" && grep -qF "iptables not found" "$f" && grep -q "^## ホストで走らせる台本" "$f" && grep -q "command-classes.md" "$f"'` rc=0
 
 ## Task 3: 箱の中で pgrep が箱の中しか見ないことと、鍵が今の harness2 で読めることを確かめる
