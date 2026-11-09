@@ -26,6 +26,7 @@ jobs:
       android: ${{ steps.f.outputs.android }}
       windows: ${{ steps.f.outputs.windows }}
       stamp: ${{ steps.f.outputs.stamp }}
+      deps: ${{ steps.f.outputs.deps }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
@@ -35,7 +36,7 @@ jobs:
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          all() { for k in code android windows stamp; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
+          all() { for k in code android windows stamp deps; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
           if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             echo "base が引けないので全部走らせる（BASE='${BASE:-}'）"; all; exit 0
           fi
@@ -48,12 +49,47 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
-          has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
+          if printf '%s\n' "$files" | tools/release/changes.sh deps; then
+            echo "deps=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deps=false" >> "$GITHUB_OUTPUT"
+          fi
+          has '^(collector-android/|tools/android|tools/check-gradle-locks\.sh$)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
           # 移行と画面もサーバの zip に入る（build.rs が migrations を埋め込み、画面を同梱する）ので、Windows の通しを走らせる（review R46）
           has '^(crates/|Cargo\.)|^\.github/|^tools/release/|^tools/db-roles\.|^migrations/|^web/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
           # 組み立ての印の作り方（ST49 / design D5・D6）。触ったときだけ本物の組み立てで印を見る（review/code.md R23）
           has '^(crates/build-stamp/|crates/server/build\.rs|crates/collector-windows/build\.rs|collector-android/app/build\.gradle\.kts|web/build-stamp\.ts|web/vite\.config\.ts|tools/release/|tools/check-build-stamp\.sh|Cargo\.)|^\.github/' && echo "stamp=true" >> "$GITHUB_OUTPUT" || echo "stamp=false" >> "$GITHUB_OUTPUT"
           echo "--- 判定 ---"; cat "$GITHUB_OUTPUT"
+
+  vulns:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'
+    runs-on: ubuntu-24.04
+    # osv.dev や GitHub が応答しないとき、runner を 6 時間の上限まで握らない（review/code.md R24）
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 1, persist-credentials: false }
+      - id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+      - run: tools/check-vulns.sh --self-test
+      - run: tools/check-vulns.sh --base "$BASE_SHA"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - id: allow
+        run: |
+          ghsas="$(tools/check-vulns.sh allow-ghsas)"
+          echo "ghsas=$ghsas" >> "$GITHUB_OUTPUT"
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development, unknown
+          allow-ghsas: ${{ steps.allow.outputs.ghsas }}
 
   rust:
     needs: changes
@@ -124,6 +160,9 @@ jobs:
       # 配る DB（pgsql.lock）と開発の DB（docker-compose.yml）のメジャー版をそろえる（review R57）
       - run: ./tools/check-pg-major.sh --self-test
       - run: ./tools/check-pg-major.sh
+      - run: ./tools/check-vulns-wiring.sh --self-test
+      - run: ./tools/check-vulns-wiring.sh
+      - run: ./tools/check-pg-minor.sh --self-test
       - run: ./tools/check-verify-env-reset.sh --self-test
       - run: ./tools/check-verify-env-reset.sh
       # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
@@ -289,6 +328,8 @@ jobs:
       # 凍結してあり、**新しい違反だけ**で落ちる（設定は config/detekt.yml）。
       - run: ../tools/check-android-backup-rules.sh
       - run: ./gradlew detekt
+      - run: ../tools/check-gradle-locks.sh --self-test
+      - run: ../tools/check-gradle-locks.sh
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug
       # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。
