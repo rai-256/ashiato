@@ -16,13 +16,16 @@ python3 scripts/review_triage.py . ch14-…                            → triag
 python3 scripts/spec_overlap.py candidates . ch14-…                  → []（0 件）
 ```
 
+第 2 回（0d2eedfcf を読んで。2026-11-09）: `openspec validate --strict` valid / `check_scenarios.py` は FAIL 6 件で、どれも足した 6 本（印は Task 4 が置く。想定どおり）/ `review_triage.py` は「R1: kind=premise は fixed にできない」の 1 件だけ FAIL（R1 の kind を technical にしたので解ける）/ `spec_overlap.py candidates` は `[]`。R2〜R9 の処置は成果物で確かめ、指摘を満たしている（R2: design D6 `:76-77`・tasks 3.2 `:49` が `CONSOLE-OK` と化けた並びの**存在**を見る。R3: `-ExecutionPolicy Bypass`。R4: 窓の Scenario の THEN に順・管の Scenario を改名。R5: 管の Scenario の WHEN が 3 つの口・tasks 4.1 が 3 つの出力。R6: SHALL 2 行を足し、(c) は約束しないと design D4 `:61`。R7: `D7（仮）`。R8: 語を名指し・ログインを別の Scenario に分けた・backtick を外した。R9: `capability: [distribution]`）。新しく見つけたのは R10。R9 の処置の行が観点の節の後ろ（ファイルの末尾）に付いていたので、字面を変えずに R9 の節の中へ移した
+
 正典との突き合わせ: `diff <(sed -n 1773,1807p openspec/specs/distribution/spec.md) <(sed -n 3,41p specs/distribution/spec.md)` の差は、SHALL 3 行・導出元の 1 句・理由の 1 行の**追加だけ**。既存の SHALL 5 行と Scenario 5 本は逐語で残っている（Scenario は落ちていない）。
 
 ## R1. ConPTY が runner で使えるかは「spec の段で確かめる」と書いたまま未確認で、D6 の反転条件は今の Task では起きない
 - 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/premises.md・design.md
 - 根拠: `review/deep.md:71`（R6 の処置「ConPTY が runner で使えるかは spec の段で確かめる」）/ `premises.md:16`（確かめていない・確かさ 1 のまま。しかもこの行は `:15` の段落の後にあり、表の外に落ちている）/ `design.md:76`（反転条件「ConPTY が windows-latest の runner の step から使えない…と **Task 3 の確かめで**分かれば A として人間に返す」）/ `tasks.md:49`（Task 3.2 の確かめは「WSL から本人の PC の PowerShell で」—— runner では走らない）。runner で初めて走るのは PR の CI の `install-windows`（`ci.yml:453`）で、Task 1〜4 を全部書いた後。下流から spec へ戻る辺も無い。
   あわせて、CI はインストールの確かめを `| tee` で流す（`ci.yml:453`）ので、台本の PowerShell の標準の handle は管になっている。子が疑似コンソールにつながるか（`STARTUPINFOEX` の std handle をどう渡すか）は design にも tasks にも無く、つながらなければ子の `is_terminal()` が偽で管の道を通る。これも runner の上でしか分からない
-- kind: premise
+- kind: technical
+- kind の判定し直し（第 2 回。0d2eedfcf を読んで）: premise から technical に変えた。理由: (1) 前提のうち本人の PC の分（Windows PowerShell 5.1 の `Add-Type` の C# で `CreatePseudoConsole`、親の出力が `| tee` の管、`STARTF_USESTDHANDLES` を立てて std handle を空にすれば子の `IsInput/OutputRedirected` が偽、cp932 の窓で UTF-8 のバイトが本人の見た『逕ｻ髱｢縺ｮ蜷郁ｨ闡』になる）は実物で確かめられ、`premises.md` の表の 9 行目（確かさ 5）にある。(2) 残る runner の分（表の 8 行目、確かさ 2）が乗る決定は D6（仮）だけで、失うもの（`loss`）が無い（試験の置き場で、外れたら置き場を替えれば戻る）。確かさ 4 未満の前提が人間に返るのは失うもののある決定に乗るときなので、これは人間に聞く前提ではない。(3) 指摘の残り（反転条件にたどり着けるか・std handle の形）は技術の問題で、どちらも直っている: tasks 3.3 が `install-windows` のインストールの前に `--probe-console` の step を足すので、runner で使えないことは PR の CI の最初の step で、`CreatePseudoConsole` の失敗か `CONSOLE-OK` が無いことで見分けて落ちる（design D6 `:81` の反転条件の入口と同じ印）。std handle の形は design D6 `:73`・tasks 3.1 `:44` に「立てて空にする」と書いてある。なお、処置の行の「`STARTF_USESTDHANDLES` を立てない・継がない」は成果物（design `:73`・tasks `:44`・premises の表の 9 行目の実測）と逆の字面。成果物の側が実測どおりで正しく、下流は成果物を読む
 - 提案: GO の前に、本人の PC と（できれば）runner で `CreatePseudoConsole` → 子が窓につながる（子の `[Console]::IsInputRedirected` が偽）ことを 1 回確かめて premises の確かさを上げるか、確かさ 1 のまま進むと明記する。反転条件は「PR の CI の install-windows で probe が落ちたら」に書き直し、そのときの行き先（窓の Scenario 3 本を外して別の change に出す、など）を到達できる形で書く。premises の行は表の中へ戻す。
 - 処置: fixed D6 仮 — 失うものが無い（試験の置き場で、後から替えれば戻る）ので確かさ 1 のまま進むと D6 と premises に明記し、premises の行を表の中へ戻した。runner で先に確かめる step（`install-check.sh --probe-console`）を `install-windows` のインストールの前に足し（tasks 3.3）、反転条件を「PR の CI のその step が落ち、原因が runner で ConPTY が使えないことなら A として人間へ」に書き直した。子の std handle を疑似コンソールにつなぐ形（`STARTF_USESTDHANDLES` を立てない・継がない）と、子が窓につながった印 `CONSOLE-OK` を D6・tasks 3.1 に足した
 
@@ -80,6 +83,14 @@ python3 scripts/spec_overlap.py candidates . ch14-…                  → []（
 - 根拠: `docs/changes/CH14.md:6`（`capability: []`）/ `proposal.md:28`（Modified Capabilities: `distribution`）/ `specs/distribution/spec.md`。正典の delta を持った change の前例 `docs/changes/CH01.md`・`CH08.md` は capability を書いている（CH10 は空で揃っていない）。`scripts/board.py:13` は change の capability を front matter から読む（着手は止めないが、何を触るかの表示と照合の入力）
 - kind: technical
 - 提案: `capability: [distribution]` にする。
+- 処置: fixed proposal.md — proposal の Modified Capabilities（`distribution`）に合わせ、`docs/changes/CH14.md` の front matter を `capability: [distribution]` にした
+
+## R10. D1 の反転条件が、改名前の Scenario の名前と古い SHALL の数を指している
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md
+- 根拠: `design.md:36`（D1（仮）の反転条件「spec の追加の SHALL 2 つと Scenario『合言葉の条件は、最初の問いの前に示す』『短い・雛形で断るときは、理由に条件を添える』を落とす」）。R4 の処置でこの Scenario は「端末でないときも、断りより前に合言葉の条件を 1 回だけ示す」に改名された（`specs/distribution/spec.md`）。条件に関わる SHALL も R6 の処置で 3 つ（1 回だけ示す・端末のとき「表示されない」を添える・断りに条件を添える）になり、窓の Scenario「コード頁が UTF-8 でない窓でも…」の THEN にも条件の行と順の確かめが入った。Q1 で「文字化けだけ」が選ばれたとき、`spec --answers` がこの反転条件のとおりに書き直すと、無い名前を探し、窓の Scenario の THEN と「表示されない」の SHALL・tasks 4.1 の `assert_requirements_line` を残す
+- kind: technical
+- 提案: D1 の反転条件を今の名前と中身に合わせる（落とす: SHALL 3 つ・Scenario「端末でないときも、断りより前に合言葉の条件を 1 回だけ示す」「短い・雛形で断るときは、理由に条件を添える」・tasks 1.1 の `requirements_line` と 4.1。直す: 窓の Scenario の THEN から条件の語と順を外し、問いの文だけにする）。
+- 処置: fixed D1 仮 — D1 の反転条件を今の名前と中身に合わせた（落とす SHALL 3 つ・改名後の Scenario 2 本・窓の Scenario 2 本の THEN から条件を外す・tasks 1.1 の requirements_line と 4.1・4.2 の条件の確かめ）
 
 ## 観点ごとの該当なし
 
@@ -91,5 +102,3 @@ python3 scripts/spec_overlap.py candidates . ch14-…                  → []（
 - design の前提と実物: 該当なし（確かめた範囲: rpassword 7.5.4 `lib.rs:270-292`（`prompt_password` → `OpenOptions::open(CONOUT$)` に `as_bytes()` を `write_all`）・`windows.rs:15-16`（既定の入出力は `CONIN$`／`CONOUT$`）・`:380`（`SetConsoleMode(ENABLE_PROCESSED_INPUT)`）・`read_password()` は既定の設定で `CONIN$` から読む（`lib.rs:265`・`config.rs:125-132`）。rpassword の `windows-sys` は `0.61` で `Win32_Foundation`・`Win32_System_Console`・`Win32_Storage_FileSystem` を既に有効にしている（rpassword の `Cargo.toml`）、`Cargo.lock` は `windows-sys 0.61.2`。`Cargo.toml:27` の `unsafe_code = "deny"` と `crates/collector-windows/src/secret.rs:3` の前例。`crates/installer/Cargo.toml` に `[target.'cfg(windows)'.dependencies]` の節は今無く、Task 2.1 が新しく作る。windows-gnu の clippy は `ci.yml:165` が `-p ashiato-setup` を含む）
 - 観点 6: 該当なし（`spec --draft`。`--answers` でない）
 - 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。参考: ch13 は `tools/workbox.json` の `host_only` に `tools/release/(build|install-check)\.sh` と `powershell\.exe` を持つ（`origin/feat/ch13-workbox-config`）。Task 3.2・4.2 の検証は `install-check.sh` を名指すのでホストで走り、`tasks.md:49` の「作業箱の外で走らせる」と矛盾しない。ch11 は `tools/check-licenses.sh` に 4 行足すが、Task 2.1 は呼ぶだけ
-- 処置: fixed proposal.md — proposal の Modified Capabilities（`distribution`）に合わせ、`docs/changes/CH14.md` の front matter を `capability: [distribution]` にした
-
