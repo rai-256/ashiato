@@ -512,6 +512,7 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      - run: ./tools/check-adr.sh --self-test && ./tools/check-adr.sh
       - run: ./tools/verify-prep-device.sh --self-test
       - run: ./tools/check-spdx.sh --self-test
       - run: ./tools/check-spdx.sh
