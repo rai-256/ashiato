@@ -241,15 +241,18 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 根拠: `evidence.jsonl` の 4.1・4.2 の最新は head `b7d8ed62d`（台本を置いた commit）。`openspec/changes/ch13-workbox-config/check-workbox-match.py` は 1dcfb0980（R2・R6・R9・R10 の処置）で 51 行変わったが、その後の `verify-run 4.1` / `4.2` の記録が無い。`.superpowers/sdd/ch13-settle/report.md` は手で走らせた結果だけを書いている。Task gate は `openspec/` を除いた木の hash で見る（`.harness2/scripts/evidence.py:46-47`）ので、change の中の台本の書き換えでは古い証跡が捕まらない。今の木で 4.1 の検証コマンドは rc=0（reviewer が確かめた）ので害は無いが、台帳が今の台本を証明していない（確かさ 3）
 - kind: technical
 - 提案: `scripts/verify-run 4.1` と `scripts/verify-run 4.2` を今の木で 1 回ずつ走らせ、証跡を足す。ハーネス側の課題（settle が検証コマンドの指す台本を変えたら、その項目の取り直しを求める）は harness2 に回す
+- 処置: fixed 4.1
 
 ## R16. PR 本文の「仮決め」の節に D10（仮）が無い
 - 成果物: docs/briefs/CH13-pr.md:45
 - 根拠: `docs/briefs/CH13-pr.md:45-48` の見出しは「仮決め（design.md の（仮）。台帳 `provisional.jsonl`）」だが、挙げているのは D9 だけ。settle 1（1dcfb0980、R3・R5 の処置）で `design.md` と `provisional.jsonl` に D10（仮）（`tools/release/sandbox-probe.sh` を `host_only` に足さず宿題に置く）が増えたのに、この節を合わせていない。同じ本文の :18 には D10 が出ているので、本文の中で数が合わない。`scripts/pr_body.py` が台帳から仮決めを出すので PR では見えるが、手書きの節と食い違って読める（確かさ 3）
 - kind: technical
 - 提案: :47 の下に D10（仮）の 1 行（何を決めたか・反転条件）を足す
+- 処置: fixed 5.1
 
 ## R17. 上流のときの未来形の言い回しが残っている（R12 と同じ型）
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:53, docs/briefs/CH13-pr.md:56
 - 根拠: `enable-before.md:53`「（下流の Task 4.2 が書き出す。件数もそこに写す）」—— 直後の :55-57 に書き出した結果が既にある。`docs/briefs/CH13-pr.md:56`「14 項目（5.4 を足した）」と :57「どれも同じ題があれば立てない」は計画のときの書き方のまま（#165 は既存、#275 は立てた）。merge する人間が読む本文（確かさ 3）
 - kind: technical
 - 提案: 済んだことを過去の形に直す。`enable-before.md` を変えたら `gh issue edit 275 --body-file` で issue #275 の本文も揃え、5.3 の検証で一致を確かめる
+- 処置: fixed 5.3
