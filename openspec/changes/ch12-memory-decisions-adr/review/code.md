@@ -94,71 +94,80 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 
 ## R1. 形の正しい ADR を 1 件足すと、CI の検査が「まだ追跡されていない」で落ちる
 - 成果物: `tools/check-adr.sh` / `.github/workflows/ci.yml`（chain job）
-- 根拠: 使い捨ての clone に `docs/adr/202611080000-sample-next.md`（README の形どおり。日付・状態・出所と 5 つの見出し）を足し、一覧の先頭に `- [2026-11-08 次の判断の見本](202611080000-sample-next.md)` を足した。
-  未追跡のままでは `ADR_SELF_TEST_CHILD=1 tools/check-adr.sh` が rc=0。`git add docs/adr` の後は rc=1 で `error: docs/adr/ がまだ追跡されていない` が 2 回。`--self-test` も rc=1（`self-test の基準の木で本番検査が通らない`）。
-  原因は `tools/check-adr.sh:151` の `[ "$count" -eq 6 ]`（追跡が 6 つ**ちょうど**でなければ落ちる）。`check_tracked` は :306 と :316 の 2 回呼ばれる。
-  design D2 は本番の口が見るものを「ADR を足しても消しても成り立つべき性質」と書き、Q3 の意図は後から足す ADR を同じ形に保つこと。いまの検査は次に ADR を足す最初の PR を CI で止め、誤った理由（未追跡）を出す。
-  `check_tracked` は `ADR_DIR` を見ずに実の repo の索引を見るので、自己検査ではこの経路を試せない
+- 根拠: 使い捨ての clone で `docs/adr/202611080000-sample-next.md`（README の「形」どおり。日付・状態・出所・5 つの見出し）を足し、README の一覧の先頭に `- [2026-11-08 次の判断の見本](202611080000-sample-next.md)` を足して `git add docs/adr`。
+  `ADR_SELF_TEST_CHILD=1 tools/check-adr.sh` → rc=1・`error: docs/adr/ がまだ追跡されていない` ×2。`tools/check-adr.sh --self-test` → rc=1・`error: self-test の基準の木で本番検査が通らない`。
+  原因は `tools/check-adr.sh:151` の `[ "$count" -eq 6 ]`（追跡されているファイルが 6 つ**ちょうど**でなければ落ちる）。`check_tracked` は印「CH12 で置いた README と 5 件の ADR がある」と「網の名前の検査が通る」の 2 回呼ばれる（:306・:316）。
+  Q3 の本人の答えは「後から足す ADR も同じ形に保たれる」、design D2 は「ADR を足しても消しても成り立つべき性質」。いまの検査は、次の ADR を足す最初の PR を CI で止め、誤った理由（未追跡）を出す。自己検査は `check_tracked` が `ADR_DIR` を見ず実の repo の索引を見るので、この経路を試せない
 - kind: technical
-- 提案: 「6 つちょうど」を「6 つの名前がすべて `git ls-files docs/adr` にある」に変える（:152-154 で 1 つずつの確かめはもうある）。自己検査に「形の正しい ADR を 1 件足すと**通る**」場合を足す
+- 提案: 「6 つちょうど」を「6 つの名前がすべて `git ls-files docs/adr` にある」に変える（:152-154 の個別の確かめはもうある）。自己検査に「形の正しい ADR を 1 件足すと**通る**」の正の壊し方を足す
+- 処置: fixed 1.1 （`check_tracked` は 6 つの名前が `git ls-files docs/adr` にあるかだけを見て、数を問わない。自己検査に正の対照「形の正しい ADR を 1 件足して `git add` しても通る」を足し、`ADR_GIT_ROOT` で使い捨ての木（`git init` した写し）の索引へ向けて試せるようにした）
 
-## R2. CI が走らせる自己検査は、8 本の検査の行が消えても緑のまま
+## R2. 自己検査（CI が「台本が壊れても緑にならない」ために走らせる口）が、4 つのガードの消失を見抜かない
 - 成果物: `tools/check-adr.sh`（`self_test`）
-- 根拠: 使い捨ての clone で、検査の行を 1 本ずつ `:` に置き換えて `tools/check-adr.sh --self-test` を走らせた（19 本）。
-  rc=0 のままだったのは 11 本: :60・:80・:88・:100・:101・:102・:111・:151・:153・:170・:318。
-  このうち 3 本は、本物の違反をほかの行が代わりに拾う: :60（件数）は :67、:100（1 行目の `# `）は :79（手 2 で 1 行目の `# ` を消すと `README の題と見出しが違う` で落ちた）、:101（日付の行の形）は :80。
-  残りの 8 本（:80・:88・:102・:111・:151・:153・:170・:318）は、代わりに拾う行が無い。
-  rc=1 で気づいたのは :67・:79・:85・:103・:107・:121・:125・:136。
-  この 8 本のうち :80・:88・:111・:170・:318 は、元の台本なら本物の違反で落ちることを手 2 で確かめた（日付・ファイル名の形・見出しの順序・出所のメモリ名・allow）。:102 も、`ADR_DIR` の写しで状態を `- 状態: 検討中` に変えると rc=1（`状態の行が 0 個`）で落ちた。
-  特に :170 は Scenario「5 件の ADR の出所に、移したメモリのファイル名がある」の唯一の検査だが、自己検査のどの壊し方も守らない（`source` は出所の行ごと消すので :103 で落ちる）。
-  :151・:153・:318 は `ADR_DIR` でなく実の repo（`git ls-files`・`tools/check-private.allow`）を読むので、自己検査の木から届かない。
-  design D2 は「自己検査を外すと、台本が壊れて何も落とさなくなっても CI は緑のまま」を 1 行に入れる理由にしているが、D9 の 9 つの壊し方ではこれらの行を守れない
+- 根拠: 使い捨ての clone で検査の台本の行を `:` に置き換え、`tools/check-adr.sh --self-test` を走らせた。
+  ファイル名の正規表現（:88）→ rc=0 / 一覧と ADR の日付の比較（:80）→ rc=0 / 見出しの順序の比較（:111）→ rc=0 / 状態の行の検査（:102）→ rc=0 / 4 つ同時 → `--self-test` rc=0・本番 rc=0。
+  対照: 見出しの個数（:107）を潰すと rc=1（`decision` の壊し方が拾う）。:111 が守るものは実在する: `## 背景` と `## 決定` を入れ替えた ADR は元の台本で rc=1（`見出しの順序が違う`）、:111 を消した台本で rc=0。
+  `filename` の壊し方（大文字の名前に変える）は一覧との不一致（:67）で落ちるので、:88 が無くても緑。design D9 の 9 つの壊し方はすべて実装されているが、その 9 つは Scenario「一覧の日付と題」「ファイル名の形」「この順に持つ」の 3 本と、状態の値の規則を守っていない
 - kind: technical
-- 提案: 壊し方を足す: 名前を大文字にそろえる・`- 日付:` だけ変える・見出し 2 つを入れ替える・`- 状態: 検討中` にする・1 行目の `# ` を消す・出所の行は残してメモリ名だけ消す（どれも期待する `error:` の文面まで見る）。
-  `check_tracked` と allow の検査は、見る場所を環境変数で差し替えられるようにして自己検査から届かせる
+- 提案: 自己検査に、一覧と ADR の両方の名前を大文字にそろえる・ADR の `- 日付:` だけを変える・2 つの見出しを入れ替える・`- 状態: 検討中` にする、の 4 つの壊し方を足す（どれも期待する `error:` の文面まで見る）
+- 処置: fixed 1.1 （自己検査の壊し方を 9 から 21 に足し、正の対照を 1 つ足した。どれも期待する `error:` の文面まで見る。追跡と allow の検査は `ADR_GIT_ROOT`・`ADR_PRIVATE_ALLOW` で自己検査から届く。検査の行を 1 本ずつ潰すと、自己検査が全部で落ちることを確かめた（report）
 
-## R3. `--backlog` は、残りに戻ったメモリが 1 つだけでも 4 つとも「残りにある」と出す
-- 成果物: `tools/check-adr.sh`（`backlog` :279-285・`backlog_json_check` :225-247）
-- 根拠: clone で衛星の ADR の出所から `foundation-for-satellites-premise.md` だけを消し、`ADR_MEMORY=<手元のメモリの置き場> tools/check-adr.sh --backlog` を走らせた。rc=1（落ちること自体は正しい）。
-  出力は 4 行とも `…: 残りにある`、最後に `NG backlog`。ほかの 3 つは出所に名指しされたままで残りには無い。
-  `backlog_json_check` は「4 つのどれかが在る」を 1 つの rc にまとめ（:245）、:279-285 はその rc で 4 行を同じ文面にしている。D5 は名前ごとに `残りに無い|ある` と決めている。どれを直すべきかを出力が誤って言う
+## R3. `--backlog` は 1 つのメモリが残っただけでも、4 つとも「残りにある」と出す
+- 成果物: `tools/check-adr.sh`（`backlog` :274-285・`backlog_json_check`）
+- 根拠: `ADR_DIR` の写しで衛星の ADR の出所から `foundation-for-satellites-premise.md` だけを消し、`ADR_BACKLOG=<harness2>/scripts/adr_backlog.py ADR_DIR=<写し> tools/check-adr.sh --backlog` → rc=1（正しく落ちる）が、
+  出力は `worktree-port-allocation-followup.md: 残りにある` / `prefer-collision-free-allocation-over-checks.md: 残りにある` / `foundation-for-satellites-premise.md: 残りにある` / `lint-purity-ui-refresh-plan.md: 残りにある` / `NG backlog`。
+  ほかの 3 つは出所に名指しされたままで、残りに無い。`backlog_json_check` が「4 つのどれかが在る」を 1 つの rc にまとめ、その rc で 4 行を同じ文面にしている。D5 は 1 行ごとに `<メモリ名>: 残りに無い|ある`。
+  判定（rc）は正しいが、落ちたときにどれを直すかを出力が誤って言う
 - kind: technical
-- 提案: python の側で名前ごとの有無を返し、名前ごとに `残りに無い` / `残りにある` を出す
+- 提案: python 側で名前ごとの有無を返し（例: 残る名前を 1 行ずつ）、名前ごとに `残りに無い` / `残りにある` を出す
+- 処置: fixed 3.1 （`backlog_json_check` が残りにある名前を 1 行ずつ返し、`backlog` は名前ごとに `残りに無い` / `残りにある` を出す。自己検査に「1 つだけ名指しを外すと、その 1 つだけ `残りにある`」を足した）
 
 ## R4. メモリを消すと、手元の `--self-test` が rc=1 になる（CI は緑のまま）
 - 成果物: `tools/check-adr.sh`（`self_test` :469-480・`backlog` :262-265）
-- 根拠: 空のフォルダを置き場にして（4 つのメモリを消した後を模す）`ADR_MEMORY=<空> tools/check-adr.sh --self-test` を走らせた。rc=1、出力は
+- 根拠: 空のフォルダをメモリの置き場にして（4 つのメモリを消した後を模す）`ADR_BACKLOG=<harness2>/scripts/adr_backlog.py ADR_MEMORY=<空> tools/check-adr.sh --self-test` → rc=1、
   `error: self-test の --backlog 子が予期せず失敗した: 1` と `error: self-test の --backlog 子が公開してはいけない行を出した: error: --adr の空の正の対照で 4 つのメモリを数えられない`。
-  自己検査の (d) は子の `--backlog` を**手元の本物の**台本とメモリで走らせ、rc が 0 か 127 でなければ落とす。正の対照が落ちると rc=1 になる。その `error:` の行は `無い` で終わらず、台本自身の D5 の形（:476 `^error: .*無い$`）にも当たらない。
-  CH12 の目的は「メモリは失われうるので正本を repo に移す」で、移した後にメモリを消すのは自然な次の操作。そのとき tasks 2.2・3.1 の検証（verify-run は rc=1 を FAIL と読む）が、台本の壊れでなく環境の事情で赤になる。CI の runner は rc=127 の枝を通るので見えない
+  自己検査の (d) は子の `--backlog` を**手元の本物の**台本とメモリで走らせ、rc が 0 か 127 でなければ落とす。正の対照が落ちると rc=1 なので自己検査が赤になる。
+  さらにその error の行は `無い` で終わらないので、台本自身の D5 の形の検査（:476 `^error: .*無い$`）に当たらない。
+  CH12 の目的は「メモリは失われうるので正本を repo に移す」で、移した後にメモリを消すのは自然な次の操作。そのとき手元の `--self-test`（tasks 2.2・3.1 の検証、verify-run で走る）が台本の壊れでなく環境で赤になる。
+  CI の runner は台本が無く rc=127 の枝を通るので見えない。正の対照の失敗は rc=1 で、verify-run は環境の欠落（BLOCKED_INFRA）でなく FAIL と読む
 - kind: technical
-- 提案: (d) の子を偽の台本と使い捨ての置き場に向け、手元のメモリに依らせない。正の対照が落ちたときの文面を D5 の形に合わせる
+- 提案: 自己検査の (d) は子を偽の台本と使い捨ての置き場に向けて走らせ、手元のメモリに依らせない。正の対照の失敗の文面を D5 の形に合わせる（または形の正規表現を、台本が出しうる `error:` の文面に合わせる）
+- 処置: fixed 3.1 （自己検査の `--backlog` の子は、偽の台本と使い捨てのメモリの置き場で走らせ、手元のメモリと harness2 に依らない。正の対照の失敗の文面を D5 の形 `error: …無い` にし、自己検査で rc と文面を見る）
 
-## R5. 「harness2 の ADR は、まだ harness2 の main に無い」は、もう事実でない（CH12.md の節・PR 本文・design）
-- 成果物: `docs/changes/CH12.md:288`・`:303` / `docs/briefs/CH12-pr.md:41` / `design.md:13`・`:76`・`:146`
-- 根拠: `git -C "$(readlink -f .harness2)" ls-tree --name-only origin/main docs/adr/` が 28 行。`scripts/adr_backlog.py` も origin/main にある（`ae1a0b77f`、2026-11-08 13:06 +0900）。
-  ADR が題名で参照する `docs/adr/202610030000-collision-free-allocation.md` と `docs/adr/202610170001-change-flow.md` も origin/main にある。
-  `--backlog` も D4 の探し方の 2.（`.harness2/scripts/adr_backlog.py`）で台本を見つけている。
-  それでも CH12.md:303 は「2026-11-08 の時点で harness2 の main に無い（push も PR も無い）」、PR 本文:41 は「まだ harness2 の main に無い」と書く。Task 4.1 はこの節が「最新」であることを `[x]` にしている
+## R5. 「harness2 の ADR はまだ harness2 の main に無い」は、もう事実でない（CH12.md の節と PR 本文）
+- 成果物: `docs/changes/CH12.md`（`## ADR と repo の今の食い違い（直していない）` の末尾の段落） / `docs/briefs/CH12-pr.md:41` / `design.md` の Context（`adr_backlog.py` は `.harness2` に無い）
+- 根拠: `git -C "$(readlink -f .harness2)" ls-tree --name-only origin/main docs/adr/` → 27 行（ADR 26 件 + README）。`scripts/adr_backlog.py` も origin/main にある（足した commit `ae1a0b77f`、2026-11-08 13:06 +0900。ADR は `1e140a4b3`）。
+  ADR が題名で参照する 2 件も origin/main にある: 「取り違えは、被らない割り当てを機械が決めて防ぐ」→ `docs/adr/202610030000-collision-free-allocation.md`、「要件から来ない作業は change として Story と同じグラフに流す」→ `docs/adr/202610170001-change-flow.md`。
+  手 2 の表の `tools/check-adr.sh --backlog` も、D4 の探し方の 2.（`.harness2/scripts/adr_backlog.py`）で台本を見つけている。
+  それでも CH12.md の節は「2026-11-08 の時点で harness2 の main に無い（push も PR も無い）」、PR 本文は「まだ harness2 の main に無い」と書く。Task 4.1 はこの節が「最新」であることを `[x]` にしている（task-4-report は 8 件と未配置の 1 項目を数えただけ）。
+  ADR の本文（逐語）は変えなくてよい。食い違いの一覧が、存在しない食い違いを 1 つ挙げている
 - kind: daily
-- 提案: CH12.md の節の末尾の段落と PR 本文の同じ段落を「harness2 の main に入った（`ae1a0b77f` など）。参照の 2 件は行き先がある」に直す。節は `## 依頼（逐語）` の外なので `--verbatim` の sha256 は変わらない
+- 提案: CH12.md の節の末尾の段落と PR 本文の同じ段落を「harness2 の main に入った（`1e140a4b3`・`ae1a0b77f`）。参照の 2 件は行き先がある」に直す（`## 依頼（逐語）` の節の外なので `--verbatim` の sha256 は変わらない）
+- 処置: fixed D3 仮 （CH12.md の節の末尾の段落・完了の判定の前置き、PR 本文の同じ段落を「いまは harness2 の main にある（`1e140a4b3`・`ae1a0b77f`）。参照の 2 件も行き先がある」に直した。design の Context と D3 には 2026-11-09 の追記を足した。`## 依頼（逐語）` の外なので `--verbatim` は rc=0 のまま）
 
 ## R6. 決まった形に当たる行しか数えないので、形の違う行は落ちずに見えなくなる
 - 成果物: `tools/check-adr.sh:52`（一覧の項目）・`:102`（状態の行）
-- 根拠: clone で試した。(a) `202610110001-ui-surface-only.md` の `- 状態: 採用` の次に `- 状態: 検討中` を足すと rc=0（:102 は `採用|置き換え済み（→ …）` に当たる行だけを数えて「1 個」）。
-  Scenario「ADR は決まった項目と見出しをこの順に持つ」は「`- 状態:` の行がちょうど 1 つ」。
-  (b) README の一覧に `- [2026-1-08 x](202611080000-x.md)`（日付の桁が違い、指すファイルも無い）を足すと rc=0（:52 は `^- \[[0-9]{4}-[0-9]{2}-[0-9]{2} ` に当たる行しか拾わない）。
-  Requirement の「項目は `- [<日付> <題>](<ファイル名>)` の形」と Scenario の「一覧にあって実ファイルが無いものが 0 件」のどちらにも反するのに通る
+- 根拠: `ADR_DIR` の写しで試した。
+  (a) `202610110001-ui-surface-only.md` の `- 状態: 採用` の次の行に `- 状態: 検討中` を足すと rc=0。:102 は `採用|置き換え済み（→ …）` に当たる行だけを数えるので「1 個」になる。
+  spec の Scenario「ADR は決まった項目と見出しをこの順に持つ」は「`- 状態:` の行がそれぞれちょうど 1 つ」。
+  (b) README の一覧に `- [2026-1-08 x](202611080000-x.md)`（日付の桁が違い、指すファイルも無い）を足すと rc=0。:52 は `^- \[[0-9]{4}-[0-9]{2}-[0-9]{2} ` に当たる行しか項目として拾わない。
+  spec の Requirement は「一覧の項目は `- [<日付> <題>](<ファイル名>)` の形」、Scenario は「一覧にあって実ファイルが無いものが 0 件」で、どちらにも反するのに通る。
+  指すファイルが実在すると落ちるが、その理由は「1 対 1 でない」で、本当の原因（項目の形）を言わない。
+  （:101 の日付の行も同じ作りだが、`- 日付: 不明` を足すと README の日付との比較が拾って rc=1 になった）
 - kind: technical
-- 提案: 先に `^- 状態:` と一覧の節の `^- ` で数えてから形を確かめ、形の違う行をファイル名と一緒に `error:` で出す。自己検査に (a)(b) を足す
+- 提案: 先に `^- 状態:` と、一覧の節の `^- ` で数えてから、それぞれの形を確かめる（形の違う行は、ファイル名と一緒に `error:` で出す）。自己検査に (a)(b) の壊し方を足す
+- 処置: fixed 1.1 （状態・日付の行は形を問わず `^- 状態:` / `^- 日付:` で数えてから値の形を見る。一覧の節の `- ` の行は全部項目として読み、形の違う行は `README の一覧の項目の形が違う: <行>` で落とす。自己検査に (a)(b) を足した）
 
 ## R7. 日付・状態・出所の 3 行の位置を見ていない
 - 成果物: `tools/check-adr.sh`（`check_shape` :94-115）
-- 根拠: clone で `202610110001-ui-surface-only.md` の `- 出所:` の行を末尾（`## 影響` の後）へ移すと rc=0。:111 の順序の検査は 5 つの見出しだけを見る。
-  Scenario「ADR は決まった項目と見出しをこの順に持つ」は「`- 日付:`・`- 状態:`・`- 出所:` の行が…、見出しが…、この順にある」、Requirement は「README の『形』のとおり」（3 行は題の直後、`## 背景` の前）。
+- 根拠: `ADR_DIR` の写しで、`202610110001-ui-surface-only.md` を 3 通りに変えた。どれも rc=0。
+  `- 出所:` の行をファイルの末尾（`## 影響` の後）へ移す / `- 日付:` の行を末尾へ移す / `- 状態:` と `- 出所:` の行を入れ替える。
+  :111 の順序の検査は 5 つの見出しだけを見る。spec の Scenario「ADR は決まった項目と見出しをこの順に持つ」は「`- 日付:`・`- 状態:`・`- 出所:` の行が…、見出しが…、この順にある」。
+  Requirement は「README の『形』のとおり」で、README の形では 3 行が 1 行目の題の直後、`## 背景` の前にある。
   主張（項目と見出しの並び）と検査（見出しだけの並び）の階層が違う
 - kind: technical
 - 提案: 3 行が `日付 → 状態 → 出所` の順で、どれも `## 背景` より前にあることを確かめる。自己検査に「出所の行を `## 影響` の後へ移す」壊し方を足す
+- 処置: fixed 1.1 （日付 → 状態 → 出所の順で、どれも `## 背景` より前にあることを見る。自己検査に「出所の行を末尾へ移す」を足した）
 
 ## security review（a658d12..dd63369）
 
@@ -184,57 +193,67 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 根拠: `cd tools && ./check-adr.sh --self-test` sets $0 to ./check-adr.sh, which does not exist under ROOT, so every child exits 127. I ran it: rc=1, with 'self-test の基準の木で本番検査が通らない' and every break case reporting the wrong error. Fix: resolve the path once, e.g. SELF="$ROOT/tools/check-adr.sh", and use that (lines 396/433/441/456/465/470).（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1 （`SELF="$ROOT/tools/<台本の名前>"` を一度決め、子は全部それで起こす。`cd tools && ./check-adr.sh --self-test` が rc=0）
 
 ## R9. check_tracked requires exactly 6 tracked files under docs/adr. This contradicts README, which says to keep adding ADRs and to add a new one when a decision is replaced.
 - 成果物: tools/check-adr.sh:151
 - 根拠: Adding a 7th ADR and `git add`-ing it gives count=7, so CI fails with the wrong message 'docs/adr/ がまだ追跡されていない'. The check should be 'the expected files are included', or 'every file in ADR_DIR is tracked'.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1 （R1 と同じ直し。数の一致をやめ、6 つの名前の追跡だけを見る）
 
 ## R10. In --verbatim, if the file content differs but splitlines() gives the same lines, first_difference is None and `None + 1` raises a TypeError.
 - 成果物: tools/check-adr.sh:372
 - 根拠: An ADR with no trailing newline, an extra trailing newline, or CRLF line endings (.gitattributes was also changed) gives actual != wanted but identical line lists. Python crashes with a traceback instead of naming the block and the differing line.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1 （`first_difference` が None のときは「末尾の改行か改行の形が依頼（逐語）と一致しない」を出す。ADR は改行を変換せずに読み、CRLF も落とす）
 
 ## R11. --self-test runs the real --backlog against the developer's memory and harness2, and only accepts rc 0 or 127. Its result depends on the local environment.
 - 成果物: tools/check-adr.sh:470
 - 根拠: Once the ADR is written, the natural next step is deleting the 4 memory files. Then the empty --adr positive control fails and returns rc=1, so `--self-test` fails on that machine with '--backlog 子が予期せず失敗した: 1'. The emitted line 'error: …数えられない' also fails the `無い$` regex, which adds a 'line that must not be published' error. CI happens to pass only because there is no memory there.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 3.1 （R4 と同じ直し。自己検査は本物の `--backlog` を走らせない）
 
 ## R12. run_main calls the same check function again under several Scenario labels (check_index_and_files 4 times, check_guidance and check_tracked twice each). The labels do not correspond to individual checks.
 - 成果物: tools/check-adr.sh:296
 - 根拠: A single title mismatch prints the same error 4 times, under 4 different Scenario headings. That makes it look as if the file-correspondence and order Scenarios failed too, and the reader cannot tell which Scenario actually broke. The fix is to split the functions by Scenario.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1 （一覧とファイル名は `load_index` で 1 回だけ読み、Scenario ごとに `check_correspondence`・`check_list_titles`・`check_list_order`・`check_filenames`・`check_claude`・`check_agents`・`check_tracked`・`check_private_scope` に分けた。どの関数も 1 回だけ呼ぶ）
 
 ## R13. run_main runs tools/check-private.sh itself, but the chain job in CI already runs check-private.sh on the line just before. It runs twice.
 - 成果物: tools/check-adr.sh:321
 - 根拠: The CI chain job runs `./tools/check-private.sh` and then `./tools/check-adr.sh`, so the same full-repo scan runs twice. Any failure is also reported twice. Leaving check-private to CI and dropping the call here is enough.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 2 回走ることは再現した（`.github/workflows/ci.yml:502` の `./tools/check-private.sh` の次の行 :503 が check-adr.sh で、check-adr.sh も呼ぶ）。ただし design.md D9 が「`tools/check-private.sh` は repo の根で走らせる」と check-adr.sh の中で呼ぶことを決めている。Scenario「docs/adr/ を含む追跡ファイルで、網の名前の検査が通る」の印は check-adr.sh にあり、tasks 2.2 の検証（verify-run）は check-adr.sh を単独で走らせるので、呼ぶのをやめるとその印の先が網の名前を何も観測しなくなる。重複の費用は chain job で 1 回分（job 全体で 0.2 分。ci.yml:501 の注記）
 
 ## R14. If tools/check-private.allow does not exist, grep exits 2 and the condition is false, so the check passes silently.
 - 成果物: tools/check-adr.sh:317
 - 根拠: If the allow file is renamed or moved, the check that should reject a docs/adr/ exception never runs and nobody notices. Missing files are not handled as errors.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1 （allow の置き場（`ADR_PRIVATE_ALLOW`、既定 `tools/check-private.allow`）が無ければ `error: … が無い` で落とす。自己検査に「allow を消す」と「allow に docs/adr/ を足す」を足した）
 
 ## R15. The `sed -E 's/…$/&/'` replaces each match with itself (`&`), so it does nothing. It is dead code.
 - 成果物: tools/check-adr.sh:53
 - 根拠: It looks like it filters out list lines that are not in the link format, but it does not. Lines in the wrong format go straight into list_file, and readers misread what the check covers.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1 （何もしない `sed` を消した。形の違う項目は R6 の直しで error になる）
 
 ## R16. find_backlog_script uses adr_backlog.py from the first worktree that has one in `git worktree list` for the harness2 repo. It may run an unmerged branch's version.
 - 成果物: tools/check-adr.sh:203
 - 根拠: If the main checkout of .harness2 does not have the script yet but a working branch's worktree does, that unreviewed version decides the --backlog result, and the result changes depending on which worktrees exist.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 探し方の 3.（`.harness2` の指す repo の worktree）は design.md D4 が決めた順で、Risks（design.md の「harness2 の worktree の探し方は、別の枝の古い `adr_backlog.py` を拾いうる」）に挙げて受けている。しかも 2. が先に当たる: `ls .harness2/scripts/adr_backlog.py` は在り、`.harness2` は harness2 の `main` の checkout（`git -C "$(readlink -f .harness2)" branch --show-current` → `main`、台本は `ae1a0b77f`）なので、3. に落ちるのは main に台本が無い場合だけ。判定は 4 つのメモリ名の有無だけで、版の違いに依らない
 
 ## R17. --verbatim runs `python3 -` without -I, unlike backlog_json_check and the adr_backlog.py call, which use -I.
 - 成果物: tools/check-adr.sh:337
 - 根拠: Because the script has `cd "$ROOT"`, a module such as `re.py` or `pathlib.py` placed in the repo root or on PYTHONPATH gets imported and changes the result of the verbatim check. This is inconsistent with the rest of the same file, which isolates with -I.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1 （`--verbatim` の python を `python3 -I` にした。自己検査の中の python も `-I`）

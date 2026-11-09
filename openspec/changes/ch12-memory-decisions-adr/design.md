@@ -11,6 +11,7 @@
 - `docs/adr/` は無い。ADR の本文 6 つは `docs/changes/CH12.md` の「依頼（逐語）」に `> ` 付きの引用で置いてある（この段で上半分を書き直したので、素の写しは無くなった）
 - 出所に挙げた 4 つのメモリは手元の `~/.claude/projects/-home-yosis-dev-ashiato2/memory/` に実在する。CI の runner には無い
 - harness2 の `scripts/adr_backlog.py` は、この repo の `.harness2`（harness2 の main の checkout）には無い。harness2 の手元の worktree の 1 つ（枝 `docs/adr-backfill`）にだけある。
+  （2026-11-09 追記: その後 harness2 の main に入り（`ae1a0b77f`。ADR は `1e140a4b3`）、`.harness2/scripts/adr_backlog.py` で見つかる。`review/code.md` R5）
   この台本はメモリの置き場を cwd のパスから決め、無ければ rc=0 で終わる（空の合格。`review/deep.md` R1）。`--memory DIR`・`--adr DIR`（重ねてよい）・`--json` を受ける
 - `tools/check-private.sh` は追跡ファイル全部を見る（CI の chain job と pre-commit）。`tools/check-private.allow` で意図した例外を外せる
 - `CLAUDE.md` の「文書とハーネス」の表は `docs/`・`openspec/`・`.harness2`・symlink・`AGENTS.md` の 5 行
@@ -73,7 +74,7 @@ C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった�
 ### D3（仮）. 食い違いは直さずに PR 本文で挙げる（Q1）
 
 ADR の本文と repo の今が食い違う箇所は、`premises.md` の表にある 8 つ（Q1 の context の 3 つと、`review/deep.md` R3 の 5 つ）。
-加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと。これらを `docs/briefs/CH12-pr.md` に一覧で挙げる。ADR には書き足さない。
+加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと（2026-11-09 追記: その後 main に入った（`1e140a4b3`）ので、PR 本文と CH12.md の節には「いまはある」と書く。`review/code.md` R5）。これらを `docs/briefs/CH12-pr.md` に一覧で挙げる。ADR には書き足さない。
 
 **後で見つける置き場**（`review/deep.md` R4・`review/spec.md` R3）: PR 本文は merge の後に流れていくので、同じ一覧を `docs/changes/CH12.md` の
 `## ADR と repo の今の食い違い（直していない）` の節にも置く（「依頼（逐語）」の外。archive の後も repo に残る）。ADR の手入れの change を起こすとき、ここから拾う。
@@ -108,7 +109,7 @@ ADR の本文と repo の今が食い違う箇所は、`premises.md` の表に�
 （`<メモリ名>: 残りに無い` か `<メモリ名>: 残りにある`）と、結果の 1 行だけ。verify-run は出力の末尾 20 行を証跡（commit される）に入れ、この repo は公開なので、
 ハーネスのメモリの名前と説明が外に出る経路になる（`review/deep.md` R5）。4 つの名前は既に `docs/changes/CH12.md` に公開されている。
 出してよい行の形は 4 つだけ: `Scenario: …` は使わない（`--backlog` は正典に Scenario を持たない。D8）ので、`<4 つの名前のどれか>: 残りに(無い|ある)`・`OK …` / `NG …` の結果の 1 行・`error: …`。
-`--self-test` が `--backlog` を子として走らせ、標準出力と標準エラーの全行がこの形のどれかに当たることを見る（メモリか台本が無い環境では子が rc=127 で、形だけを見る）。
+`--self-test` が `--backlog` を子として走らせ、標準出力と標準エラーの全行がこの形のどれかに当たることを見る。子は偽の台本（秘密の印を標準出力と標準エラーに出す）と使い捨てのメモリの置き場で走らせ、手元のメモリと harness2 に依らない（`review/code.md` R4）。
 
 （仮）である理由: 失わない側（出さない）を選んだ。反転条件は、メモリの残りを公開してよいと本人が決めたとき（その場合も一覧を出す理由は無いので、変える見込みは小さい）。
 台帳 `provisional.jsonl` に載せる（`review/deep.md` R5 の `loss: exported`）。
@@ -143,7 +144,7 @@ schema は docs の change に `skip_specs: true` を勧めるが、この repo 
 CH10 の `emulator-startup`・CH09 の `test-timing` と同じく、開発の約束として正典に置ける。
 
 正典に置かないもの（`review/spec.md` R10）: 依頼の逐語との一致（D1）と、`adr_backlog.py` の残りの判定（D4）。どちらも CH12 の受け入れの 1 回の判定で、
-後者は手元にしか無いメモリと、harness2 の main に無い台本に依る。どちらも `docs/changes/CH12.md` の完了の判定と tasks の検証にだけ置く。
+後者は手元にしか無いメモリと、CI の runner に無い台本（harness2 の `adr_backlog.py`）に依る。どちらも `docs/changes/CH12.md` の完了の判定と tasks の検証にだけ置く。
 
 正典に置くもの（索引と実ファイルの 1 対 1・並び・ファイル名の形・見出しの形・`CLAUDE.md` の表・`AGENTS.md` の行・CI の行・出所の名指し・網の名前）は、ADR を足すたびに成り立つべき性質。
 Q3 の本人の答えで台本を CI の chain job に載せるので、archive の後も PR ごとにこれを確かめる（D2（仮））。見出しの形・`AGENTS.md` の行・CI の行も、同じ理由で正典に置く。
@@ -163,7 +164,9 @@ Q3 の本人の答えで台本を CI の chain job に載せるので、archive 
 - `--self-test`: `mktemp -d` の使い捨ての木に `docs/adr/`・`CLAUDE.md`・`AGENTS.md`・`.github/workflows/ci.yml` を写し、`ADR_DIR`・`ADR_CLAUDE_MD`・`ADR_AGENTS_MD`・`ADR_CI_YML` をそこへ向けて壊す。
   壊し方は 9 つ（一覧の 1 項目を消す・一覧の 2 項目を入れ替える・ADR の 1 件の見出しを 1 字変える・ADR の 1 件の出所の行を消す・ADR の名前を大文字にする・`CLAUDE.md` の表の行を消す・
   ADR の 1 件から `## 決定` の見出しを消す・`AGENTS.md` の指示の行を消す・CI の定義の chain job から `check-adr.sh` の行を消す）で、
-  どれでも検査が rc≠0 になることを確かめる（`review/spec.md` R7）。`trap` で木を消す。「出所の行が無い ADR は落ちる」の印はここで出す。
+  どれでも検査が rc≠0 になることを確かめる（`review/spec.md` R7）。
+  `review/code.md` R2・R6・R7 で 12 を足した（一覧の形の違う項目・1 行目の `# ` を消す・`- 日付:` だけ変える・出所の行は残してメモリ名だけ消す・出所の行を末尾へ移す・`- 状態: 検討中` にする・状態の行を 2 つにする・見出し 2 つを入れ替える・一覧と ADR の名前を両方大文字にする・ADR を 1 件追跡から外す・`check-private.allow` に `docs/adr/` を足す・allow を消す）。
+  どれも期待する `error:` の文面まで見る。追跡と allow の検査は `ADR_GIT_ROOT`・`ADR_PRIVATE_ALLOW` で使い捨ての木（`git init` した写し）へ向ける。正の対照として、形の正しい ADR を 1 件足して追跡しても通ることを見る（R1）。`trap` で木を消す。「出所の行が無い ADR は落ちる」の印はここで出す。
   `--backlog` の欠落の 2 つ（`ADR_BACKLOG` を無いパスに・`ADR_MEMORY` を無いフォルダにして、`ADR_BACKLOG` は使い捨ての木に置いた偽の台本に向ける）と、D5 の出力の形もここで見る。
   欠落の 2 つは `error:` の文面で、どちらの枝を通ったかを見る（R6）。CI の runner には `.harness2` もメモリも無いので、そこで走る自己検査は手元のものに依らない（偽の台本と使い捨ての木だけ）
 - `--verbatim`: D1（CI に載せない）

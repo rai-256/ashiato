@@ -38,7 +38,7 @@ A（止める問い）は無い。
 7. ポートの ADR「規則はここだけに置く」に対して、`crates/installer/src/commands.rs:107-117` が開発用の番号の範囲を写しで持っている
 8. ポートの ADR「割り当てられなければ非 0、55432 には落とさない」に対して、`tools/ports.sh` は git が答えないと 55432 に落ちる（`GIT_DIR=/nonexistent` で 55432・rc=0）
 
-加えて、README と 3 つの ADR（ポート・純粋 crate・lint）が参照する harness2 の `docs/adr/` は、まだ harness2 の main に無い（push も PR も無い）。題名での参照なので、リンク切れにはならないが、harness2 の側が入るまで行き先が無い。
+README と 3 つの ADR（ポート・純粋 crate・lint）が参照する harness2 の `docs/adr/` は、上流の時点では harness2 の main に無かったが、いまはある: harness2 の ADR と `scripts/adr_backlog.py` は 2026-11-08 に harness2 の main に入った（`1e140a4b3`・`ae1a0b77f`。2026-11-09 に確かめた。`review/code.md` R5）。参照の 2 件（「取り違えは、被らない割り当てを機械が決めて防ぐ」→ `202610030000-collision-free-allocation.md`、「要件から来ない作業は change として Story と同じグラフに流す」→ `202610170001-change-flow.md`）も行き先がある。
 
 ## capability
 
