@@ -92,6 +92,7 @@
 - kind: technical
 - 提案: 5.2・5.3 を `[x]` にする（同じ題の issue があったので立てなかった、という扱いは tasks の本文が認めている）。わざと開けたのなら、理由を tasks か PR 本文に 1 行書く。どちらにしても final の前に印と実体を揃える
 - 処置: rejected: 5.2・5.3 が `[ ]` なのは正常。検証が `gh issue` を呼ぶので `.harness2/scripts/tasks_phase.py:36` の `NEEDS_PR` が「PR・gate」の工程に分け（`python3 scripts/tasks_phase.py openspec/changes/ch13-workbox-config/tasks.md` → `PR・gate 済 0 / 未 2 未: 5.2 5.3`・`実装 済 12 / 未 0`）、`task_mark.py:10,36` は impl の項目だけを `[x]` にする（`pr` は `[ ]` のまま残すのが正常と明記）。settle は `[x]` を書けない（settle.md「書いてはいけないもの」）。実体は揃っている: 5.2・5.3 の検証は今の木で rc=0（fix report）、evidence.jsonl にも 2 回 PASS。`pr_body.py` が残した `pr` の項目を理由つきで PR 本文に出す
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R2. `docker_images` の `postgres:17-alpine` が compose の版と結ばれておらず、compose を上げても全部の検査が通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/check-workbox-match.py` / `docker-compose.yml`
@@ -99,6 +100,7 @@
 - kind: technical
 - 提案: `check-workbox-match.py`（か tasks に 1 本）で「`docker_images` の各項が `docker-compose.yml` の `image:` に在る」を見る。範囲（Q4）で今は足さないなら、`enable-before.md` に「compose の版を上げたら `docker_images` も直す」を 1 行足す
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R3. `host_only` の網羅に漏れがある: `tools/release/sandbox-probe.sh` は箱の中で「確かめられない」を書いて rc=0 で通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/match-cases.json` / `openspec/changes/ch13-workbox-config/enable-before.md`（「ホストで走らせる台本」）
@@ -108,6 +110,7 @@
 - kind: daily
 - 提案: `host_only` に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す（足すなら 1.2 の期待する並びも直す）。今は足さないなら、`enable-before.md` の「ホストで走らせる台本」に漏れとして 1 行置く（design D5 の「後で名前を足す」運用に乗せる）
 - 処置: fixed D10 仮
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## security review（baf9253..a3597d3）
 
@@ -139,6 +142,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: R1 と同じ。`[ ]` の 5.2・5.3 は `gh issue` を呼ぶので `tasks_phase.py:36` が「PR・gate」の工程に分け、`task_mark.py:10` は impl だけを `[x]` にする（`pr` は `[ ]` のまま残すのが正常）。5.4 は gh を呼ばないので impl で、検証（PR 本文に 2 つの番号）は今の木で rc=0。5.2・5.3 の実体（harness2#165・#275）は先に在り、5.4 が順を飛ばして閉じたのではない
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R5. `host_only` does not list `tools/release/sandbox-probe.sh`. That script calls powershell.exe to start the Windows sandbox, the same kind of host-only script as the three entries just added.
 - 成果物: tools/workbox.json:22
@@ -146,6 +150,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 漏れそのものは本当（R3 と同じ）だが、`tools/workbox.json` に足すのは本人の決定に反する。tasks.md の Global Constraints の 1 つ目「足りないものに気付いたら、ファイルを直さずに PR 本文に挙げ、`enable-before.md` に 1 行足す」と違和感 (5)（tasks 1.2 が `host_only` は依頼の版に 3 本を足しただけであることを固定）。R3 で design D10（仮）として `enable-before.md` の「ホストで走らせる台本」と `docs/briefs/CH13-pr.md` に挙げ、反転条件（本人が足すと言えば D1・ファイル・1.2・match-cases を同じ commit で直す）を書いた
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R6. `ROOT = Path(__file__).resolve().parents[3]` assumes the script sits at `openspec/changes/<change>/`. After archive it moves to `openspec/changes/archive/<date>-ch13-workbox-config/`, where ROOT becomes `openspec/` and the script breaks.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:19
@@ -153,6 +158,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R7. `docker_images: ["postgres:17-alpine"]` is a hard-coded copy of `docker-compose.yml:3`, and no check ties the two together.
 - 成果物: tools/workbox.json:36
@@ -160,6 +166,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: R2 と同じ指摘（`docker_images` と compose の結び付きが無い）。R2 の処置で `check-workbox-match.py`（tasks 4.1）が `docker-compose.yml` の `image:` と突き合わせ、compose を `postgres:18-alpine` にすると rc=3 になる（fix report）。`tools/workbox.json:36` 自体は D1 の正本と等しくなければならず（tasks 1.2）、変える所が無い
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R8. Task 2.4 says downstream must not remove the '2. 上流で見つけたこと' section. Downstream kept the heading but replaced its only item with '今は無い' and moved the reproduction steps to the 'done' section.
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:20
@@ -167,6 +174,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.4
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R9. `request_config` extracts the JSON block with its own line-based parser, separate from the regex in the tasks 1.2 check (`^> ?` strip plus a ```json regex). It also does not check that there is exactly one block.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:33
@@ -174,6 +182,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R10. The comprehension calls `route(cfg, c["cmd"])` twice per case: once in the filter and again to build the tuple.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:56
@@ -181,6 +190,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 
 ## R11. The PR body says nothing needs fixing before enabling ('有効にする前に直すものは残っていない'), but enable-before.md still has three unmeasured items (whether e2e fits in 6g, free memory at 5 runs, whether cargo fits in 4g) and no note about the sandbox-probe gap.
 - 成果物: docs/briefs/CH13-pr.md:17
@@ -188,3 +198,4 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
