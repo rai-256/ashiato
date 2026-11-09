@@ -71,15 +71,15 @@ C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった�
 
 反転条件: ADR の形の検査が正当な ADR を止める（README の形に合う ADR を検査が落とす）なら、検査を README の形に合わせて直す。CI から外すのは、本人が「毎回見なくてよい」と決め直したときだけ。
 
-### D3（仮）. 食い違いは直さずに PR 本文で挙げる（Q1）
+### D3（仮）. 食い違いは直さずに `docs/changes/CH12.md` の節で挙げる（Q1）
 
 ADR の本文と repo の今が食い違う箇所は、`premises.md` の表にある 8 つ（Q1 の context の 3 つと、`review/deep.md` R3 の 5 つ）。
-加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと（2026-11-09 追記: その後 main に入った（`1e140a4b3`）ので、PR 本文と CH12.md の節には「いまはある」と書く。`review/code.md` R5）。これらを `docs/briefs/CH12-pr.md` に一覧で挙げる。ADR には書き足さない。
+加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと（2026-11-09 追記: その後 main に入った（`1e140a4b3`）ので、CH12.md の節には「いまはある」と書く。`review/code.md` R5）。これらを `docs/changes/CH12.md` の `## ADR と repo の今の食い違い（直していない）` の節に一覧で挙げる（置き場はここだけ。理由は下の追記）。ADR には書き足さない。
 
 **2026-11-09 追記（`review/code.md` R26）**: PR 本文（`docs/briefs/CH12-pr.md`）は 2026-11-08 からグラフの `finish` が台本 `scripts/pr_body.py` で組み直し、前の本文から引き継ぐのは `Ruling:` の行だけ（`pr_body.py` の `rulings`・`build`）。手で一覧を足しても次の `finish` で消えるので、一覧の置き場は下の `docs/changes/CH12.md` の節だけにする。この節は PR の差分（`docs/changes/CH12.md`）に入るので、merge の前に人間が PR で読める。Q1 の意図（直さずに挙げ、人間が後で change を起こせる）は変わらない
 
-**後で見つける置き場**（`review/deep.md` R4・`review/spec.md` R3）: PR 本文は merge の後に流れていくので、同じ一覧を `docs/changes/CH12.md` の
-`## ADR と repo の今の食い違い（直していない）` の節にも置く（「依頼（逐語）」の外。archive の後も repo に残る）。ADR の手入れの change を起こすとき、ここから拾う。
+**後で見つける置き場**（`review/deep.md` R4・`review/spec.md` R3）: PR 本文は merge の後に流れていくので、一覧は `docs/changes/CH12.md` の
+`## ADR と repo の今の食い違い（直していない）` の節に置く（「依頼（逐語）」の外。archive の後も repo に残る）。ADR の手入れの change を起こすとき、ここから拾う。
 手入れの change はこの change では起こさない（本人が一覧を見て決める）。
 
 反転条件: Q1 の答えが「(1)(2) の ADR の『影響』の末尾に『その後』の 1 行を足す」なら、その 2 件の ADR だけ末尾に 1 行を足し、D1 の逐語の一致はその 2 件について「逐語の塊が先頭からそのまま入っている」に緩める。

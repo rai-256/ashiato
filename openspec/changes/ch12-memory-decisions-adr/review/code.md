@@ -406,3 +406,4 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 成果物: openspec/changes/ch12-memory-decisions-adr/design.md
 - 根拠: openspec/changes/ch12-memory-decisions-adr/design.md:77（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D3 （`design.md` の D3 の見出しを「`docs/changes/CH12.md` の節で挙げる」に、本文の「`docs/briefs/CH12-pr.md` に一覧で挙げる」を CH12.md の節（置き場はここだけ）に、「後で見つける置き場」の「同じ一覧を…にも置く」を「一覧は…に置く」に直した。2026-11-09 の追記は経緯として残す）
