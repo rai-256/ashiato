@@ -45,6 +45,7 @@ A（止める問い）は無い。
 ## 仮決め（design.md の（仮）。台帳 `provisional.jsonl`）
 
 - D9（仮）: 上流で見つけた `PATH` の件を harness2 の issue にし（同じ題の #165 が既にあった）、宿題の一覧にも置いた。`tools/workbox.json` の `env` では回避しない（Q1 (2) に従う）
+- D10（仮）: 下流のレビューで見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は、`tools/workbox.json` を直さず宿題の一覧（`enable-before.md` の「ホストで走らせる台本」）とこの本文に挙げた。反転条件: 本人が CH13 の中で足すと言えば、D1 の JSON・`tools/workbox.json`・tasks 1.2 の期待する並び・`match-cases.json` を同じ commit で直す。有効にする前に足されていなければ、有効にする操作の前に足す
 - 前の D6（仮）（docker の正規表現の錨）・D7（仮）（harness2 の 3 つの issue）・D8（仮）（当たり方の確かめ）は台帳で resolve した（D6・D7 は前提が消え、D8 は違和感 (2) で本人が決めた）
 
 ## capability
@@ -53,8 +54,8 @@ A（止める問い）は無い。
 
 ## tasks
 
-5 Task・14 項目（5.4 を足した）。置く（1.1・1.2）/ off の間に何も変わらない（2.1〜2.4）/ pgrep と鍵（3.1・3.2）/ `host_only` の当たり方の確かめと分類の一覧（4.1・4.2）/ PR 本文と issue（5.1 PR 本文・5.2 harness2 に 1 つ・5.3 ashiato2 に 1 つ・5.4 PR 本文に issue の番号）。
-docker と作業箱のイメージを要るのは 3.1 だけ。GitHub に出るのは 5.2・5.3（どれも同じ題があれば立てない）。
+5 Task・14 項目（spec-review の R16 で 5.4 を足した）。置く（1.1・1.2）/ off の間に何も変わらない（2.1〜2.4）/ pgrep と鍵（3.1・3.2）/ `host_only` の当たり方の確かめと分類の一覧（4.1・4.2）/ PR 本文と issue（5.1 PR 本文・5.2 harness2 に 1 つ・5.3 ashiato2 に 1 つ・5.4 PR 本文に issue の番号）。
+docker と作業箱のイメージを要るのは 3.1 だけ。GitHub に出たのは 5.2・5.3（5.2 は同じ題の harness2 #165 が既にあったので立てず、5.3 は #275 を立てた）。
 
 ## レビュー
 
