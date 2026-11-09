@@ -325,3 +325,4 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md（「## 仮決め（B）と Ruling」の節）
 - 根拠: docs/briefs/CH13-pr.md（「## 仮決め（B）と Ruling」の節）（re-review 7 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 5.1 —— `docs/briefs/CH13-pr.md` の重複した箇条（`- 全 Task の ledger の `Ruling:`（逐語）:`）を再び 1 行消した（grep -c で 1）。再発の仕組み: harness2 の `scripts/pr_body.py` の `rulings()` が前の本文の節から `"Ruling:" in ln` の行を拾い、見出しの行（`全 Task の ledger の `Ruling:`（逐語）:`）も拾って箇条にする。dict.fromkeys で重複は 1 行に留まり増えないが、finish が本文を組み直すたびに戻る。根の直しは harness2 側（`rulings()` で `ln.startswith("Ruling:")` の行だけ拾う、または見出しの文言から `Ruling:` を外す）で、ashiato2 のこの branch からは直せない（`.harness2` は harness2 の main の checkout を指す）。持ち越し
