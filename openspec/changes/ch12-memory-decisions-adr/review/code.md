@@ -274,3 +274,34 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1 （`--verbatim` の python を `python3 -I` にした。自己検査の中の python も `-I`）
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
+
+## final review（a658d12..2d9391c）
+
+whole-branch の final reviewer（`superpowers:requesting-code-review` の code-reviewer）。HEAD でも origin/main を merge した使い捨ての木でも、引数なし・`--verbatim`・`--backlog`・`--self-test` は rc=0。Task の ⚠️ はすべて HEAD で確かめ済み（どれも merge 前の直しは不要）。判定: With fixes（R18）。
+
+## R18. 自己検査が「最も古い ADR がポートの ADR で状態が `採用`」を暗に仮定しており、README どおりに ADR を足す・置き換えると CI の chain job が赤になる（R1 の直しが不完全）
+- 成果物: `tools/check-adr.sh`
+- 根拠: `tools/check-adr.sh:613` は対象を `find … -name '20*.md' | sort | head -n1`（ファイル名で最も古い ADR）で動的に選ぶが、壊し方 `source-name`（:481。出所に `worktree-port-allocation-followup.md` がある前提）・`untracked`（:500。対象がハードコードした 6 つの名前の 1 つである前提）・`status-value` / `status-extra`（:489・:490。sed が `^- 状態: 採用$` にしか当たらない）は対象がポートの ADR で状態が `採用` のままだと仮定している。R1 の正の対照 `next-adr` は日付が 2099 で一覧の最後に並ぶため、この経路を通らない。
+  使い捨ての worktree で実測: (1) 形の正しい `202609140000-human-verify-scope.md` を足し README に 1 行足して `git add` → 本番は rc=0、`--self-test` は rc=1（`source-name`・`untracked` が「検査が落ちなかった」「期待する error を出さなかった」）。(2) README の「決定が後で変わったら状態を置き換え済みにする」に従いポートの ADR を `- 状態: 置き換え済み（→ 202611090000-port-v2.md）` に変える → 本番は rc=0、`--self-test` は rc=1（`status-value`・`status-extra`）。
+  ci.yml の行は `--self-test && 本番` なので、正しい ADR を含む無関係の PR が赤になる。メモリには 2026-10-03 より前の判断（human-verify-scope 2026-09-14 など）が残っており、ADR にすれば先頭へ並ぶ。Q3 の答え・design D2「ADR を足しても消しても成り立つべき性質」に反する
+- kind: technical
+- 提案: (a) 対象を `202610030000-worktree-port-allocation.md` に名前で固定し、無ければ error にする。(b) `status-value` / `status-extra` の sed を `^- 状態: .*` に当たる形へ緩める（期待する error の文面は変えない）。(c) 正の対照を 2 つ足す —— 既存の ADR を置き換え済みにした木、どの ADR より古いファイル名の ADR を足した木で、どちらも本番が通ること。直した後、上の 2 つの再現で `--self-test` が rc=0 になることを確かめる
+
+## R19. 使い捨ての木の掃除が `trap … RETURN` だけで、中断（SIGINT・kill）では動かない
+- 成果物: `tools/check-adr.sh`
+- 根拠: `tools/check-adr.sh:313`・`:388`・`:599` の掃除は `trap … RETURN` のみ。中断した `--self-test` は mktemp の下に約 27 本の木の写しを残す。`load_index` の mktemp も同じ。tasks.md の Global Constraints「trap で必ず消す」に照らすと中断の経路が抜けている（Task 1 F9・F14 の残り）
+- kind: technical
+- 提案: 入口で一時ディレクトリを 1 つの親の下に集め、`trap … EXIT INT TERM` で消す
+
+## R20. `section_lines` が見出しを正規表現として扱う
+- 成果物: `tools/check-adr.sh`
+- 根拠: `tools/check-adr.sh:39`。Task 2 の指摘 F4 が残っている。今の呼び出し元の 2 つの見出しにメタ文字は無いので実害は無い
+- kind: technical
+- 提案: 見出しを固定文字列で比べる（awk の `$0 == h` など）
+
+## R21. ファイル名の日付と `- 日付:` の一致、`置き換え済み（→ X）` の X の実在を誰も見ていない（spec の隙間）
+- 成果物: `openspec/changes/ch12-memory-decisions-adr/specs/decision-records/spec.md` / `tools/check-adr.sh`
+- 根拠: `docs/adr/README.md` は「時刻は判断が決まった日」と書くが、ファイル名の日付と `- 日付:` の一致を検査が見ない。R18 の再現 (2) では存在しない後継 `202611090000-port-v2.md` を指したまま本番が rc=0 で通った。spec が求めていないので台本の漏れではなく spec の隙間
+- kind: premise
+- loss: 合わない日付・指す先の無い置き換えが CI を通り、ADR の履歴の辿りが切れる
+- 提案: この change では直さず、別の change の候補にする
