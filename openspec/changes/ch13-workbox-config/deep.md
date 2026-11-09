@@ -71,3 +71,13 @@
 - 補足（逐語。下流への申し送り）: 2 点だけ下流への申し送り。(1) PATH の件（design D9・enable-before.md の 2.）は harness2 #164（2026-11-09 merge 済み。dockerd-up が rootlesskit を起こすときに PATH の前へ /usr/local/sbin:/usr/sbin:/sbin を足す）で直り、本体（~/dev/harness2）にも取り込み済み。Task 5.2 の題の issue は記録として rai-256/harness2#165 を立てて閉じてあるので、5.2 は新しく立てずにその番号を書く。enable-before.md の 2. は「#164 で済み」として [x] にしてよい。(2) 「e2e 1 本が 6g に収まるか」は 2026-11-08 に実測済み（release ビルドからの e2e login 7 本、箱の memory.peak 2.63GiB、上限 6g。同じ worktree で 2 本同時もホストの空き最小 19.8GB で通った）。宿題の一覧にはこの結果を書き、済みの扱いにする。
 
 > 記録の注: 合意した仕様（digest b07ef5af…）は変えていない（変えると合意が外れる）。申し送りは下流が扱う。(1) の 5.2 は、いまの手順（同じ題の issue が `--state all` で既にあればその番号を書く）のままで #165 を書く（題の一致を 2026-11-09 に確かめた。CLOSED）。enable-before.md の 2. の [x] と、(2) の実測の結果を宿題の一覧に書くのも下流（Task 2.4 の検証が見る文言は消さない）。
+
+## 下流（settle）で立てた問い
+
+### Q-R20. PR 本文の「全 Task の ledger の `Ruling:`（逐語）:」の重複（review/code.md R20・R21・R22・R23）
+
+- loss: なし（害は PR 本文が読みづらいことだけ）。kind: premise —— 「finish が組む PR 本文は settle の直しを保つ」という前提が崩れている
+- 問い: PR 本文（`docs/briefs/CH13-pr.md`）で見出しの行「全 Task の ledger の `Ruling:`（逐語）:」が直下の箇条として 2 回出ます。CH13 のブランチで消しても、次の finish が必ず戻します。重複を残したまま merge してよいですか。それとも harness2 を先に直しますか。
+- なぜ止めるか: 根は harness2 の `scripts/pr_body.py` の `rulings()`（67〜69 行目）です。前の本文の「## 仮決め（B）と Ruling」の節から `"Ruling:" in ln` の行を拾うため、台本が自分で書いた見出しの行も Ruling として拾い、箇条にします。settle が消す → finish が戻す → re-review が NOT ADDRESSED、を 4 回繰り返しました（e2b3b06・3a87c39・8faa3ab で実測）。この席は harness2 に push も PR もしないので、ブランチの中では直しきれません。
+- 直し方の候補（harness2 側。1 行）: 69 行目の条件を `ln.lstrip("- ").startswith("Ruling:")` にする（`Ruling:` で始まる行だけ拾う）。harness2 の origin/main にこの直しはまだありません（`git log HEAD..origin/main -- scripts/pr_body.py` は空。2026-11-09）
+- 答え: (未回答)

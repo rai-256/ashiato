@@ -1,0 +1,45 @@
+{
+ "title": "CH13 の深掘り（下流・第 1 回）",
+ "subtitle": "PR 本文の重複した 1 行（harness2 の台本の癖）",
+ "note": "settle と finish の間で同じ直しが 4 回往復しました。選んだら一番下の「回答をコピー」を押してください。",
+ "questions": [
+  {
+   "id": "Q-R20",
+   "topic": "PR 本文の重複した見出しの行をどうするか",
+   "kind": "premise",
+   "question": "PR 本文（docs/briefs/CH13-pr.md）で「全 Task の ledger の `Ruling:`（逐語）:」が見出しの行と直下の箇条で 2 回出ます。CH13 のブランチで消しても、次の finish が必ず戻します。重複を残したまま merge してよいですか。",
+   "why": "根が harness2 の台本にあり、この席（push・PR をしない）では直しきれません。消す → finish が戻す → NOT ADDRESSED を 4 回繰り返しました。害は読みづらさだけで、検証には影響しません。",
+   "context": "`.harness2/scripts/pr_body.py` の `rulings()`（67〜69 行目）は、前の本文の「## 仮決め（B）と Ruling」の節から `\"Ruling:\" in ln` の行を拾います。台本が自分で書く見出しの行（175 行目）も `Ruling:` を含むため、Ruling として拾って箇条にします。直しは 69 行目を `ln.lstrip(\"- \").startswith(\"Ruling:\")` にする 1 行です。harness2 の origin/main にこの直しはありません（2026-11-09）。CH13 の merge は作業箱を有効にする手順（HARNESS_WORKBOX=tests）の前提です。",
+   "family": {
+    "name": "finish が組み直す PR 本文が settle の直しを戻す",
+    "siblings": [
+     {
+      "case": "CH13 の PR 本文の見出しの行の重複（R20〜R23）",
+      "decided": "未決 Q-R20"
+     },
+     {
+      "case": "Ruling の行を持つほかの Story / change の PR 本文の同じ重複",
+      "decided": "未決 Q-R20（同じ台本なので、答えに従う）"
+     }
+    ]
+   },
+   "upstream_miss": {
+    "stage": "premises",
+    "why": "PR 本文はハーネスの台本が組むもので、上流の段はこの change の成果物として見ない。台本の癖は finish が 2 回以上走って初めて現れる。",
+    "prevention": "harness2 の評価環境で、finish を 2 回続けて走らせた本文が等しい（冪等）ことを試験にする。"
+   },
+   "options": [
+    {
+     "label": "重複を残して merge する（harness2 は別に直す）",
+     "detail": "R20〜R23 は持ち越しにする。harness2 の rulings() の直しは別の PR で行い、CH13 は止めない。",
+     "recommended": true
+    },
+    {
+     "label": "harness2 を先に直し、その後 finish をやり直す",
+     "detail": "harness2 の rulings() を直す PR を merge してから、CH13 の finish を走らせ直して重複を消す。それまで CH13 の merge（と作業箱の有効化）は待つ。"
+    }
+   ],
+   "allow_free": true
+  }
+ ]
+}
