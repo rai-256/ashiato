@@ -1,3 +1,5 @@
+issue: #275
+
 # 作業箱を有効にする前の宿題（CH13）
 
 `tools/workbox.json` は、依頼の版に第 1 回の深掘りの答え（Q1 (1)）と第 2 回の合意の違和感 (1) の直しを当てて置いた（design D1）:
@@ -24,9 +26,9 @@
 
 ## harness2 の issue
 
-上流で見つけた件（design D9（仮））。番号は下流の Task 5.2 が書く。
+上流で見つけた件（design D9（仮））。同じ題の issue が既にあったので立てず、その番号を書く。
 
-- 作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない —— 上の 2.
+- rai-256/harness2#165 作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない —— 上の 2.
 
 ## harness2 #157 / #161 で済んだもの
 

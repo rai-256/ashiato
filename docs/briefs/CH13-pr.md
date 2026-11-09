@@ -3,6 +3,13 @@
 > 第 1 回の深掘りは推奨の答えで先に書き、2026-11-08 に本人の答え（Q1〜Q4。4 問とも推奨と違う）を `spec --answers Q1,Q2,Q3,Q4` で写した。
 > 同じ日の第 2 回の合意で本人が「違和感がある」と返した（harness2 #161 で作業箱が箱の中の dockerd を持つ形に変わった）。この版はそれに合わせて書き直した（`deep.md` の各行の `→ 対応:`）。
 
+## 下流で確かめたこと
+
+- pgrep の確かめ（Task 3.1）: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` → `pgrep: 1`（10 未満）
+- 宿題の一覧: `openspec/changes/ch13-workbox-config/enable-before.md`
+- harness2 の issue（Task 5.2。同じ題が既にあったので立てず番号を書いた）: rai-256/harness2#165 作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない
+- ashiato2 の issue（Task 5.3）: #275 作業箱を有効にする前の宿題（CH13）
+
 ## 先に: 作業箱を有効にする前の宿題
 
 一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
