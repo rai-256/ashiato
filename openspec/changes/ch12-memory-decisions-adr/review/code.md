@@ -383,6 +383,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 処置: fixed D9 （抜けた 5 つ（`date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all`）と R22 の 2 つを足し、9＋12＋2＋5＋2＝30 で台本の一覧と同じと書いた。正の対照を `next-adr`・`superseded`・`older-adr` の 3 つにし、掃除を `TMP_ROOT` と `trap … EXIT`（INT・TERM は exit で EXIT の trap を通す）に直した。CH12.md の完了の判定の「28 の壊し方」も 30 に直した）
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
 - 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
+- 判定: ADDRESSED（re-review 6 @d10ed4da55def7505f5cd64c126e2e5319bb68f6）
 
 ## settle_review（re-review 4 @9e70f08）: 処置の直しが新しく壊したもの
 
@@ -392,6 +393,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - kind: technical
 - 処置: fixed D3 （Risks の 2 行を今に合わせた。harness2 の ADR への参照の行は「上流の時点では行き先が無かった → 2026-11-08 に harness2 の main に入り（`1e140a4b3`）解けた。いまはあることを `docs/changes/CH12.md` の節の末尾に書いた」にし、「PR 本文に書く」を消した。食い違いの行の「PR 本文に一覧で挙げ」も R26 に合わせて CH12.md の節に直した）
 - 判定: ADDRESSED（re-review 5 @898546c2cfe79ca307e5975f1490e0b6bb3a5f58）
+- 判定: ADDRESSED（re-review 6 @d10ed4da55def7505f5cd64c126e2e5319bb68f6）
 
 ## R26. 組み直した PR 本文は食い違い 8 件の一覧を落としている。design D3 の「PR 本文で挙げる」とは形が合わない。一覧は CH12.md の節にある。
 - 成果物: docs/briefs/CH12-pr.md
@@ -407,3 +409,4 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - 根拠: openspec/changes/ch12-memory-decisions-adr/design.md:77（re-review 5 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed D3 （`design.md` の D3 の見出しを「`docs/changes/CH12.md` の節で挙げる」に、本文の「`docs/briefs/CH12-pr.md` に一覧で挙げる」を CH12.md の節（置き場はここだけ）に、「後で見つける置き場」の「同じ一覧を…にも置く」を「一覧は…に置く」に直した。2026-11-09 の追記は経緯として残す）
+- 判定: ADDRESSED（re-review 6 @d10ed4da55def7505f5cd64c126e2e5319bb68f6）
