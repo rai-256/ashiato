@@ -93,6 +93,7 @@
 - 提案: 5.2・5.3 を `[x]` にする（同じ題の issue があったので立てなかった、という扱いは tasks の本文が認めている）。わざと開けたのなら、理由を tasks か PR 本文に 1 行書く。どちらにしても final の前に印と実体を揃える
 - 処置: rejected: 5.2・5.3 が `[ ]` なのは正常。検証が `gh issue` を呼ぶので `.harness2/scripts/tasks_phase.py:36` の `NEEDS_PR` が「PR・gate」の工程に分け（`python3 scripts/tasks_phase.py openspec/changes/ch13-workbox-config/tasks.md` → `PR・gate 済 0 / 未 2 未: 5.2 5.3`・`実装 済 12 / 未 0`）、`task_mark.py:10,36` は impl の項目だけを `[x]` にする（`pr` は `[ ]` のまま残すのが正常と明記）。settle は `[x]` を書けない（settle.md「書いてはいけないもの」）。実体は揃っている: 5.2・5.3 の検証は今の木で rc=0（fix report）、evidence.jsonl にも 2 回 PASS。`pr_body.py` が残した `pr` の項目を理由つきで PR 本文に出す
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## R2. `docker_images` の `postgres:17-alpine` が compose の版と結ばれておらず、compose を上げても全部の検査が通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/check-workbox-match.py` / `docker-compose.yml`
@@ -111,6 +112,7 @@
 - 提案: `host_only` に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す（足すなら 1.2 の期待する並びも直す）。今は足さないなら、`enable-before.md` の「ホストで走らせる台本」に漏れとして 1 行置く（design D5 の「後で名前を足す」運用に乗せる）
 - 処置: fixed D10 仮
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## security review（baf9253..a3597d3）
 
@@ -175,6 +177,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.4
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## R9. `request_config` extracts the JSON block with its own line-based parser, separate from the regex in the tasks 1.2 check (`^> ?` strip plus a ```json regex). It also does not check that there is exactly one block.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:33
@@ -199,6 +202,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## final review（baf9253..96ce730）
 
@@ -210,6 +214,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: 済んだことを過去の形に書き直し、題の「（上流）」を外す。:15 の案内は `enable-before.md` の今の節の形に合わせる
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## R13. `enable-before.md` の「harness2 の issue」の節に作業の経緯の 1 文が残っている
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:24
@@ -217,6 +222,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: 1 文を消すか事実の形（「#165 は既存の issue」）にし、`enable-before.md` を変えたら `gh issue edit 275 --body-file` で issue の本文も揃える（5.3 の検証が本文の一致を見るなら合わせて確かめる）
 - 処置: fixed 5.3
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 
 ## R14. `enable-before.md` の分類の件数で、総数が増えたのにホストが 35 → 34 に減った理由が書いていない
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:54
@@ -224,3 +230,4 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - kind: technical
 - 提案: 上流の走査と `command-classes.md` を突き合わせ、ホストから外れた 1 本（と理由）を 1 行足す
 - 処置: fixed 4.2
+- 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
