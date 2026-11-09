@@ -41,10 +41,10 @@ harness2 #161（2026-11-08 merge）で作業箱は検証の箱ごとに箱の中
 
 ## Task 3: 箱の中で pgrep が箱の中しか見ないことと、鍵が今の harness2 で読めることを確かめる
 
-- [ ] 3.1 依頼の完了の判定の pgrep の確かめ（Q3・違和感 (4)。design D3）。`HARNESS_WORKBOX` を外したシェルから、置いた `tools/workbox.json` で箱を 1 つ起こし、`pgrep -fc /` の数が 10 未満であること。
+- [x] 3.1 依頼の完了の判定の pgrep の確かめ（Q3・違和感 (4)。design D3）。`HARNESS_WORKBOX` を外したシェルから、置いた `tools/workbox.json` で箱を 1 つ起こし、`pgrep -fc /` の数が 10 未満であること。
   箱が off のときだけ成り立つ（`HARNESS_WORKBOX=tests` の下では検証の側が先に箱に包む）。docker と作業箱のイメージが要る（初回はイメージを作り、`docker_images` の `postgres:17-alpine` をホストで pull・save するので数分かかりうる）。`docker` を呼ばないので箱の中の dockerd は立たない。出力の値を PR 本文に書く（5.1）。
   検証: `bash -c 'n=$(env -u HARNESS_WORKBOX python3 .harness2/scripts/workbox.py run . -- bash -c "pgrep -fc /") && echo "pgrep: $n" && test "$n" -lt 10'` rc=0
-- [ ] 3.2 鍵の確かめ（Q3 の補足・review/deep.md R9。design D3）。harness2 の main の `workbox.load_config` で `tools/workbox.json` を読めて（知らない鍵があれば止まる）、もう効かない鍵（`workbox.RETIRED`。`docker` `prep_files`）を 1 つも持たないこと。
+- [x] 3.2 鍵の確かめ（Q3 の補足・review/deep.md R9。design D3）。harness2 の main の `workbox.load_config` で `tools/workbox.json` を読めて（知らない鍵があれば止まる）、もう効かない鍵（`workbox.RETIRED`。`docker` `prep_files`）を 1 つも持たないこと。
   検証: `python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,".harness2/scripts");import workbox;cfg=workbox.load_config(Path("."),text=open("tools/workbox.json",encoding="utf-8").read());bad=sorted(set(cfg)&set(workbox.RETIRED));assert not bad,"もう効かない鍵: %s" % bad;assert set(cfg)<=workbox.KEYS'` rc=0
 
 ## Task 4: `host_only` が harness2 と同じ判定で当たる・当たらないことを確かめる
