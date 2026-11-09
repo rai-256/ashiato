@@ -278,8 +278,10 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md（re-review 4 の New Breakage。Important）
 - kind: technical
+- 処置: fixed 5.4 —— finish の台本（`scripts/pr_body.py`）は本文を作り直すたびに手書きの節を落とし、「仮決め（B）と Ruling」の節の `Ruling:` の行だけを残す。宿題への案内を settle の `Ruling:` の行として `docs/briefs/CH13-pr.md` に書いた（`rai-256/harness2#165` と `#275 作業箱を有効にする前の宿題（CH13）` を含む）。台本で 2 回作り直しても行が残ることを確かめ、`scripts/verify-run 5.4` PASS（head 2210576）
 
 ## R19. PR 本文から enable-before.md・#275・harness2#165・測っていない 3 項目・sandbox-probe の漏れへの案内が消えた。merge する人間が有効化の前の宿題を知る手がかりが本文に無い。
 - 成果物: docs/briefs/CH13-pr.md
 - 根拠: docs/briefs/CH13-pr.md（re-review 4 の New Breakage。Important）
 - kind: technical
+- 処置: fixed 5.1 —— R18 と同じ `Ruling:` の行に、`enable-before.md`（正本）・ashiato2 #275・rai-256/harness2#165（CLOSED）・測っていない 3 項目・`tools/release/sandbox-probe.sh` の `host_only` の漏れ（D10（仮））・pgrep の確かめ（`pgrep -fc /` → `pgrep: 1`）を書いた。finish が作り直しても残る。`scripts/verify-run 5.1` PASS（head 2210576）
