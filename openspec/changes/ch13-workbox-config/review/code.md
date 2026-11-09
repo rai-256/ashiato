@@ -95,6 +95,7 @@
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 4 @79bcf424d14284cddbcbad7ac2036ceaea5e4c16）
 
 ## R2. `docker_images` の `postgres:17-alpine` が compose の版と結ばれておらず、compose を上げても全部の検査が通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/check-workbox-match.py` / `docker-compose.yml`
@@ -207,6 +208,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 4 @79bcf424d14284cddbcbad7ac2036ceaea5e4c16）
 
 ## final review（baf9253..96ce730）
 
@@ -220,6 +222,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 4 @79bcf424d14284cddbcbad7ac2036ceaea5e4c16）
 
 ## R13. `enable-before.md` の「harness2 の issue」の節に作業の経緯の 1 文が残っている
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:24
@@ -258,6 +261,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: :47 の下に D10（仮）の 1 行（何を決めたか・反転条件）を足す
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 4 @79bcf424d14284cddbcbad7ac2036ceaea5e4c16）
 
 ## R17. 上流のときの未来形の言い回しが残っている（R12 と同じ型）
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:53, docs/briefs/CH13-pr.md:56
@@ -266,3 +270,16 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: 済んだことを過去の形に直す。`enable-before.md` を変えたら `gh issue edit 275 --body-file` で issue #275 の本文も揃え、5.3 の検証で一致を確かめる
 - 処置: fixed 5.3
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 4 @79bcf424d14284cddbcbad7ac2036ceaea5e4c16）
+
+## settle_review（re-review 4 @79bcf42）: 処置の直しが新しく壊したもの
+
+## R18. 組み直した PR 本文に rai-256/harness2#NNN も「#NNN … 作業箱を有効にする前の宿題」も無く（grep -c が両方 0）、tasks 5.4 の検証が今の木で落ちる。5.4 は [x] のまま。
+- 成果物: docs/briefs/CH13-pr.md
+- 根拠: docs/briefs/CH13-pr.md（re-review 4 の New Breakage。Important）
+- kind: technical
+
+## R19. PR 本文から enable-before.md・#275・harness2#165・測っていない 3 項目・sandbox-probe の漏れへの案内が消えた。merge する人間が有効化の前の宿題を知る手がかりが本文に無い。
+- 成果物: docs/briefs/CH13-pr.md
+- 根拠: docs/briefs/CH13-pr.md（re-review 4 の New Breakage。Important）
+- kind: technical
