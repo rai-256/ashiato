@@ -159,6 +159,7 @@ defer: 該当なし（確かめた範囲: R1〜R7 はどれもこの change の 
 - 判定: ADDRESSED（re-review 1 @7a4d8e6dfd806ec9223c49af885d8d2b98c983d0）
 - 判定: ADDRESSED（re-review 2 @37d7af4976af2460d7b9578eed5b3554d60d344b）
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
+- 判定: ADDRESSED（re-review 4 @9e70f08094e02a09942326096a8eeff37f3c1c1b）
 
 ## R6. 決まった形に当たる行しか数えないので、形の違う行は落ちずに見えなくなる
 - 成果物: `tools/check-adr.sh:52`（一覧の項目）・`:102`（状態の行）
@@ -380,3 +381,15 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 （確かさ 4）
 - 処置: fixed D9 （抜けた 5 つ（`date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all`）と R22 の 2 つを足し、9＋12＋2＋5＋2＝30 で台本の一覧と同じと書いた。正の対照を `next-adr`・`superseded`・`older-adr` の 3 つにし、掃除を `TMP_ROOT` と `trap … EXIT`（INT・TERM は exit で EXIT の trap を通す）に直した。CH12.md の完了の判定の「28 の壊し方」も 30 に直した）
 - 判定: ADDRESSED（re-review 3 @c1eef3df96718f2286ecef74c5422f0f65f120e7）
+
+## settle_review（re-review 4 @9e70f08）: 処置の直しが新しく壊したもの
+
+## R25. Risks の「ADR への参照に、行き先がまだ無い。PR 本文に書く」が古いまま残っている。ADR は main にあり、新しい PR 本文もこの件を書いていない。
+- 成果物: openspec/changes/ch12-memory-decisions-adr/design.md
+- 根拠: openspec/changes/ch12-memory-decisions-adr/design.md:183（re-review 4 の New Breakage。Minor）
+- kind: technical
+
+## R26. 組み直した PR 本文は食い違い 8 件の一覧を落としている。design D3 の「PR 本文で挙げる」とは形が合わない。一覧は CH12.md の節にある。
+- 成果物: docs/briefs/CH12-pr.md
+- 根拠: docs/briefs/CH12-pr.md（re-review 4 の New Breakage。Minor）
+- kind: technical
