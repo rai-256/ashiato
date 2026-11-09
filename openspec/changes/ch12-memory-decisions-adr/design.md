@@ -168,7 +168,9 @@ Q3 の本人の答えで台本を CI の chain job に載せるので、archive 
   どれでも検査が rc≠0 になることを確かめる（`review/spec.md` R7）。
   `review/code.md` R2・R6・R7 で 12 を足した（一覧の形の違う項目・1 行目の `# ` を消す・`- 日付:` だけ変える・出所の行は残してメモリ名だけ消す・出所の行を末尾へ移す・`- 状態: 検討中` にする・状態の行を 2 つにする・見出し 2 つを入れ替える・一覧と ADR の名前を両方大文字にする・ADR を 1 件追跡から外す・`check-private.allow` に `docs/adr/` を足す・allow を消す）。
   第 2 回 Q5（R21）で 2 つ足した（ADR と一覧の日付をそろえて変え、ファイル名の日付とだけ食い違わせる・置き換え済みにして無い後継を指す）。
-  どれも期待する `error:` の文面まで見る。追跡と allow の検査は `ADR_GIT_ROOT`・`ADR_PRIVATE_ALLOW` で使い捨ての木（`git init` した写し）へ向ける。正の対照として、形の正しい ADR を 1 件足して追跡しても通ることを見る（R1）。`trap` で木を消す。「出所の行が無い ADR は落ちる」の印はここで出す。
+  レビューの直しで 5 つ足した（`- 日付:` の行を 2 つにする・日付の値の後ろに字を足して `YYYY-MM-DD` の形を崩す・`README.md` を消す・`docs/adr/` ごと消す・`docs/adr/` を丸ごと追跡から外す）。
+  `review/code.md` R22 で 2 つ足した（置き換えの後継を `README.md` にする・`docs/adr/` の外に実在するファイル `../../CLAUDE.md` にする）。合わせて 9＋12＋2＋5＋2＝30 で、台本の壊し方の一覧（`self_test` の `for case_name in …`）と同じ。
+  どれも期待する `error:` の文面まで見る。追跡と allow の検査は `ADR_GIT_ROOT`・`ADR_PRIVATE_ALLOW` で使い捨ての木（`git init` した写し）へ向ける。正の対照は 3 つで、どれでも引数なしの検査が rc=0 になることを見る: 形の正しい ADR を 1 件足して追跡する（`next-adr`。R1）・既存の ADR を置き換え済みにして後継の ADR を足す（`superseded`。R18）・どの ADR より古いファイル名の ADR を一覧の末尾に足す（`older-adr`。R18）。使い捨ての木は、台本の起動時に `mktemp -d` で作る `TMP_ROOT` の下に置き、`trap 'rm -rf "$TMP_ROOT"' EXIT` で台本の終わりにまとめて消す（INT・TERM は exit に変えて EXIT の trap を通す。R19）。「出所の行が無い ADR は落ちる」の印はここで出す。
   `--backlog` の欠落の 2 つ（`ADR_BACKLOG` を無いパスに・`ADR_MEMORY` を無いフォルダにして、`ADR_BACKLOG` は使い捨ての木に置いた偽の台本に向ける）と、D5 の出力の形もここで見る。
   欠落の 2 つは `error:` の文面で、どちらの枝を通ったかを見る（R6）。CI の runner には `.harness2` もメモリも無いので、そこで走る自己検査は手元のものに依らない（偽の台本と使い捨ての木だけ）
 - `--verbatim`: D1（CI に載せない）

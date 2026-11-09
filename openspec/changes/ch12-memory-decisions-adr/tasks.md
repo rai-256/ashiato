@@ -20,11 +20,13 @@
 ## Task 1: ADR の形の検査の台本
 
 - [x] 1.1 `tools/check-adr.sh` を design D9 のとおりに書く（冒頭のコメントに何を確かめるか・なぜ要るか（CH12）・4 つの口（引数なし・`--self-test`・`--verbatim`・`--backlog`）・CI の chain job が引数なしと `--self-test` を走らせること・`--verbatim` は ADR の手入れの後に落ちうること（D1））。
-  引数なしの口は、次の 11 を順に確かめ、それぞれの前に印を出す:
+  引数なしの口は、次の 13 を順に確かめ、それぞれの前に印を出す（Task の当時は 11。第 2 回 Q5（`review/code.md` R21）でファイル名の日付と置き換えの後継の 2 本を足した）:
   `echo "Scenario: README の一覧と docs/adr/ の ADR のファイルが 1 対 1 で対応する"` /
   `echo "Scenario: 一覧の日付と題は ADR の日付と見出しに一致する"` /
   `echo "Scenario: 一覧はファイル名の新しい順に並ぶ"` /
   `echo "Scenario: ADR のファイル名は時刻と英小文字の slug の形を持つ"` /
+  `echo "Scenario: ADR のファイル名の日付は ADR の日付に一致する"` /
+  `echo "Scenario: 置き換え済みの ADR が指す後継は docs/adr/ にある"` /
   `echo "Scenario: ADR は決まった項目と見出しをこの順に持つ"` /
   `echo "Scenario: CH12 で置いた README と 5 件の ADR がある"` /
   `echo "Scenario: CLAUDE.md の文書の表から docs/adr/ に辿れる"` /
@@ -32,7 +34,7 @@
   `echo "Scenario: CI の chain job が ADR の形の検査を走らせる"` /
   `echo "Scenario: 5 件の ADR の出所に、移したメモリのファイル名がある"` /
   `echo "Scenario: docs/adr/ を含む追跡ファイルで、網の名前の検査が通る"`（check-private の前に `git ls-files docs/adr` が 6 ファイルを返すことを見る。D9）。
-  `--self-test` の口は D9 の 9 つの壊し方を使い捨ての木で試し、どれでも引数なしの検査が rc≠0 になることを確かめる。
+  `--self-test` の口は D9 の壊し方（Task の当時は 9 つ。レビューの直しで足し、今は 30）を使い捨ての木で試し、どれでも引数なしの検査が rc≠0 になることを確かめる。
   出所の行を消す場合の前に `echo "Scenario: 出所の行が無い ADR は落ちる"`、`## 決定` の見出しを消す場合の前に `echo "Scenario: 決まった見出しの欠けた ADR は落ちる"` を出し、どちらも出力にそのファイル名が出ることも見る。
   `--verbatim` は D1、`--backlog` は Task 3 で足す（この段では `error: --backlog は未実装` で rc=2 でよい）。
   この段ではまだ `docs/adr/` が無いので、引数なしの口は落ちる（それでよい。Task 2 で通す）。

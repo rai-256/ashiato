@@ -517,6 +517,9 @@ PY
       ;;
     # 後継を指すが、その ADR を足さない（R21）
     successor-missing) sed -i 's/^- 状態: .*/- 状態: 置き換え済み（→ 209912310000-missing-next.md）/' "$adr/$target" ;;
+    # 実在するが ADR でない後継: 一覧そのものと、docs/adr/ の外のファイル（review/code.md R22）
+    successor-readme) sed -i 's/^- 状態: .*/- 状態: 置き換え済み（→ README.md）/' "$adr/$target" ;;
+    successor-outside) sed -i 's|^- 状態: .*|- 状態: 置き換え済み（→ ../../CLAUDE.md）|' "$adr/$target" ;;
     readme-missing) rm "$adr/README.md" ;;
     adr-dir-missing) rm -rf "$adr" ;;
     source) sed -i '0,/^- 出所: / { /^- 出所: /d; }' "$adr/$target" ;;
@@ -636,6 +639,8 @@ expected_error() {
     date-form) echo "$target: 日付の値が YYYY-MM-DD でない" ;;
     filename-date) echo "$target: ファイル名の日付 2026-10-03 と ADR の日付 2026-10-04 が違う" ;;
     successor-missing) echo "$target: 置き換え済みの後継 209912310000-missing-next.md が" ;;
+    successor-readme) echo "$target: 置き換え済みの後継 README.md が" ;;
+    successor-outside) echo "$target: 置き換え済みの後継 ../../CLAUDE.md が" ;;
     readme-missing) echo 'docs/adr/README.md が無い' ;;
     adr-dir-missing) echo 'docs/adr が無い' ;;
     source) echo "$target: 出所の行が 0 個" ;;
@@ -701,7 +706,7 @@ self_test() {
   target=202610030000-worktree-port-allocation.md
   [ -f "$base/docs/adr/$target" ] || { error "self-test の対象 $ADR_DIR/$target が無い"; return 1; }
 
-  for case_name in list-missing list-swapped list-bad-form title h1-missing date date-extra date-form filename-date successor-missing source source-name source-moved \
+  for case_name in list-missing list-swapped list-bad-form title h1-missing date date-extra date-form filename-date successor-missing successor-readme successor-outside source source-name source-moved \
     status-value status-extra heading-swap decision filename upper-name untracked untracked-all claude agents ci allow-adr allow-missing \
     readme-missing adr-dir-missing; do
     case_dir="$tmp/$case_name"

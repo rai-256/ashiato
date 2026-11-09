@@ -340,6 +340,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - kind: technical
 - 提案: 自己検査の一覧（:704）に壊し方を 2 つ足す。後継を `README.md` にするものと、`../README.md`（`docs/adr/` の外に実在するファイル）にするもの。期待する文面は今と同じ `置き換え済みの後継 … が` でよい
 （確かさ 4）
+- 処置: fixed 1.1 （自己検査に壊し方 `successor-readme`（後継を `README.md` に）と `successor-outside`（後継を `docs/adr/` の外に実在する `../../CLAUDE.md` に。使い捨ての木の根に写した CLAUDE.md を指す）を足し、期待する文面 `置き換え済みの後継 … が` まで見る。`check_successors` の `README.md` の条件を外すと `successor-readme` が、`*/*` の条件を外すと `successor-outside` が自己検査を rc=1 で落とすことを確かめた（report）。自分自身を後継に指す置き換えは spec が禁じていないので、この回では足さない）
 
 ## R23. tasks.md の Task 1.1 の本文が直しに追いついていない（数と印の一覧）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/tasks.md`
@@ -347,6 +348,7 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - kind: technical
 - 提案: 数と印の一覧を台本に合わせる（Task の当時の数を残すなら、そう注記する）
 （確かさ 4）
+- 処置: fixed 1.1 （Task 1.1 の数を「13（Task の当時は 11。第 2 回 Q5 で 2 本足した）」に直し、印の一覧に R21 の 2 本を足した。壊し方の数も「Task の当時は 9 つ。今は 30」と書いた。Global Constraints の「引数なし 13 本」と台本の印 13 本に合う）
 
 ## R24. design D9 の自己検査の説明が台本と合わない（壊し方の数・正の対照・掃除の作り）
 - 成果物: `openspec/changes/ch12-memory-decisions-adr/design.md`
@@ -354,3 +356,4 @@ whole-branch の final reviewer（2 回目。`superpowers:requesting-code-review
 - kind: technical
 - 提案: 抜けた 5 つの壊し方、正の対照の 3 つ、`TMP_ROOT` と `trap … EXIT` を D9 に書き足す
 （確かさ 4）
+- 処置: fixed D9 （抜けた 5 つ（`date-extra`・`date-form`・`readme-missing`・`adr-dir-missing`・`untracked-all`）と R22 の 2 つを足し、9＋12＋2＋5＋2＝30 で台本の一覧と同じと書いた。正の対照を `next-adr`・`superseded`・`older-adr` の 3 つにし、掃除を `TMP_ROOT` と `trap … EXIT`（INT・TERM は exit で EXIT の trap を通す）に直した。CH12.md の完了の判定の「28 の壊し方」も 30 に直した）
