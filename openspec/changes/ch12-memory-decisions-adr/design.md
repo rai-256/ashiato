@@ -76,6 +76,8 @@ C2 は「足すのは 6 ファイルと `CLAUDE.md` の 1 行だけ」だった�
 ADR の本文と repo の今が食い違う箇所は、`premises.md` の表にある 8 つ（Q1 の context の 3 つと、`review/deep.md` R3 の 5 つ）。
 加えて、README と 3 つの ADR が参照する harness2 の `docs/adr/` が、まだ harness2 の main に無いこと（2026-11-09 追記: その後 main に入った（`1e140a4b3`）ので、PR 本文と CH12.md の節には「いまはある」と書く。`review/code.md` R5）。これらを `docs/briefs/CH12-pr.md` に一覧で挙げる。ADR には書き足さない。
 
+**2026-11-09 追記（`review/code.md` R26）**: PR 本文（`docs/briefs/CH12-pr.md`）は 2026-11-08 からグラフの `finish` が台本 `scripts/pr_body.py` で組み直し、前の本文から引き継ぐのは `Ruling:` の行だけ（`pr_body.py` の `rulings`・`build`）。手で一覧を足しても次の `finish` で消えるので、一覧の置き場は下の `docs/changes/CH12.md` の節だけにする。この節は PR の差分（`docs/changes/CH12.md`）に入るので、merge の前に人間が PR で読める。Q1 の意図（直さずに挙げ、人間が後で change を起こせる）は変わらない
+
 **後で見つける置き場**（`review/deep.md` R4・`review/spec.md` R3）: PR 本文は merge の後に流れていくので、同じ一覧を `docs/changes/CH12.md` の
 `## ADR と repo の今の食い違い（直していない）` の節にも置く（「依頼（逐語）」の外。archive の後も repo に残る）。ADR の手入れの change を起こすとき、ここから拾う。
 手入れの change はこの change では起こさない（本人が一覧を見て決める）。
@@ -179,8 +181,8 @@ Q3 の本人の答えで台本を CI の chain job に載せるので、archive 
 
 ## Risks / Trade-offs
 
-- [ADR の本文が repo の今と食い違ったまま入る（8 つ）] → 依頼の決定（「書き換えはしない」）。PR 本文に一覧で挙げ、人間が後で change を起こせるようにする（D3）
-- [README と ADR からの harness2 の ADR への参照に、行き先がまだ無い] → 参照は題名で、パスのリンクではないので、リンク切れの検査には掛からない。harness2 の側が入れば解ける。PR 本文に書く
+- [ADR の本文が repo の今と食い違ったまま入る（8 つ）] → 依頼の決定（「書き換えはしない」）。`docs/changes/CH12.md` の節に一覧で挙げ（PR の差分に入る。PR 本文は台本が組むので一覧を持たない）、人間が後で change を起こせるようにする（D3）
+- [README と ADR からの harness2 の ADR への参照に、上流の時点では行き先が無かった] → 2026-11-08 に harness2 の main に入り（`1e140a4b3`）、解けた（`review/code.md` R5・R25）。参照は題名で、パスのリンクではないので、リンク切れの検査には掛からない。いまはあることを `docs/changes/CH12.md` の節の末尾に書いた
 - [`--backlog` は手元でしか走らず、CI では確かめられない] → 完了の判定の 4. は手元の検証（verify-run）の証跡で確かめる。メモリが無い環境では BLOCKED_INFRA で止まり、空の合格にはしない（D4）
 - [harness2 の worktree の探し方は、別の枝の古い `adr_backlog.py` を拾いうる] → 台本の入出力（`--memory`・`--adr`・`--json`）だけに依り、判定は 4 つのメモリ名の有無だけなので、版の違いに強い。`.harness2` に入れば 2. が先に当たる
 - [ADR の形の検査が chain job で毎回走るので、README の形から外れた ADR を足す PR は CI で落ちる] → Q3 の本人の答えの意図そのもの。形を変えたいときは README と検査を同じ change で直す（D2（仮）の反転条件）
