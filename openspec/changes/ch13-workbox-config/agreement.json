@@ -1,16 +1,11 @@
 {
-  "status": "rejected",
-  "digest": "523c100626040eddad8b84ecca0f917d1e133919815104b72a097282c239bf5a",
-  "head": "8b1d1b29b2f6aed60e363c64c1f07362d35c1395",
-  "answers": "deep-answers-2.txt",
-  "picked": "違和感がある",
+  "status": "accepted",
+  "digest": "b07ef5af50a842acd2ae30bc414c3d4895dc79a96a6bd418d100849141ef0045",
+  "head": "1513ccd5500ce533b3a26cb68ca55283c88287bc",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
   "notes": [
-    "補足: 前提が変わった。harness2 #161（2026-11-08 13:55Z merge、issue #157）で、作業箱は検証の箱ごとに箱の中だけの rootless の dockerd を持ち、検証の準備（tools/verify-env.sh）も同じ箱の中で走るようになった。字面の正規表現で docker を渡す形は無くなり、`workbox.needs_docker` は消え、`docker` と `prep_files` の鍵は「もう効かない」と出る（知らない鍵は読み込みで止まる）。仕様を次のとおり新しい形に合わせて直す。",
-    "(1) tools/workbox.json: 依頼の版から `docker` と `prep_files` を消し、`\"docker_images\": [\"postgres:17-alpine\"]` を足す。`host_only` の追加分（tools/release/(build|install-check)\\.sh・tools/android-side-by-side\\.sh・tools/usage-volume\\.sh）は残す。ほかの欄は依頼の版のまま。",
-    "(2) 当たり方の確かめ（Task 4.1・4.2）は `workbox.host_only` だけで分ける（`host` / `box` の 2 つ）。`needs_docker` を呼ばない。分類の一覧も 2 つの節にする。",
-    "(3) enable-before.md から、#161 で消えたもの（1 の docker が渡らない・3 の当たりすぎ・4 の prep_files の不足・6 の後の Story の漏れと古いイメージ）を消し、harness2 #157 / #161 への案内に置き換える。残すのは、測っていないもの（e2e 1 本が 6g に収まるか・all で 5 本のときの空き・agent の箱の cargo が 4g に収まるか。DB の容器も箱のメモリに数えられるようになった）と、2 のホストが要る台本のうち host_only に足した分の確かめ。",
-    "(4) pgrep の確かめ（Task 3.1）は残す。準備が無い `workbox.py run` では dockerd は立たないので、10 未満のままでよい。",
-    "(5) 依頼の版の JSON は差し戻し済みの扱い（Q1 の答え）。変えてよい欄は `docker`（消す）・`prep_files`（消す）・`docker_images`（足す）・`host_only`（後ろに足す）。"
+    "補足: 2 点だけ下流への申し送り。(1) PATH の件（design D9・enable-before.md の 2.）は harness2 #164（2026-11-09 merge 済み。dockerd-up が rootlesskit を起こすときに PATH の前へ /usr/local/sbin:/usr/sbin:/sbin を足す）で直り、本体（~/dev/harness2）にも取り込み済み。Task 5.2 の題の issue は記録として rai-256/harness2#165 を立てて閉じてあるので、5.2 は新しく立てずにその番号を書く。enable-before.md の 2. は「#164 で済み」として [x] にしてよい。(2) 「e2e 1 本が 6g に収まるか」は 2026-11-08 に実測済み（release ビルドからの e2e login 7 本、箱の memory.peak 2.63GiB、上限 6g。同じ worktree で 2 本同時もホストの空き最小 19.8GB で通った）。宿題の一覧にはこの結果を書き、済みの扱いにする。"
   ],
-  "at": "2026-11-08T14:22:56Z"
+  "at": "2026-11-09T00:02:14Z"
 }
