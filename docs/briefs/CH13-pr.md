@@ -13,6 +13,7 @@ design の（仮）:
 - D10（仮）. 下流で見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は、ファイルを直さず宿題の一覧と PR 本文に挙げる（review/code.md R3）
 
 全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger の `Ruling:`（逐語）:
 - Ruling: settle（review/code.md R18・R19）—— 作業箱を有効にする前の宿題は終わっていない。正本は `openspec/changes/ch13-workbox-config/enable-before.md`（同じ本文で ashiato2 の issue #275 作業箱を有効にする前の宿題（CH13）を立てた）。merge の後、`HARNESS_WORKBOX` を有効にする操作の前にこれを読む
 - Ruling: settle（R19）—— 宿題のうち測っていないもの 3 つ: 画面の e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空きメモリ・agent の箱の中の cargo のビルドが 4g に収まるか
 - Ruling: settle（R19。design D10（仮））—— `host_only` の漏れ: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼ぶが `host_only` に無く、箱の中では UNAVAILABLE を書いて rc=0 で通る。有効にする前に `host_only` に `tools/release/sandbox-probe\.sh` を、`match-cases.json` に `want: host` の 1 行を足す
@@ -39,15 +40,15 @@ design の（仮）:
 - 3.2 `python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,".harness2/scripts");import workbox;cfg=workbox.load_config(Path("."),text=open("tools/workbox.json",encoding="utf-8").read());bad=sorted(set(cfg)&set(workbox.RETIRED));assert not bad,"もう効かない鍵: %s" % bad;assert set(cfg)<=workbox.KEYS'` → rc=0（PASS・head 3947c08）
 - 4.1 `bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 35'` → rc=0（PASS・head dbf27ff）
 - 4.2 `bash -c 'f=openspec/changes/ch13-workbox-config/command-classes.md; grep -q "^## ホストで走る（host_only）" "$f" && grep -q "^## 箱で走る" "$f" && ! grep -q "^## 箱で docker を渡" "$f" && test "$(grep -c "^- openspec/" "$f")" -ge 1700'` → rc=0（PASS・head dbf27ff）
-- 5.1 `bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'` → rc=0（PASS・head 2210576）
+- 5.1 `bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'` → rc=0（PASS・head 9861754）
 - 5.2 `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと" || exit 1; done'` → rc=0（PASS・head 2af2cdb）
 - 5.3 `bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'` → rc=0（PASS・head dbf27ff）
-- 5.4 `bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'` → rc=0（PASS・head 2210576）
+- 5.4 `bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'` → rc=0（PASS・head 9861754）
 
 ## レビュー（`review/code.md`）
 
-- 指摘 19 件（fixed 13・rejected 4・（処置なし） 2）
-- 処置の re-review: 4 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 20 件（fixed 16・rejected 4）
+- 処置の re-review: 6 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
