@@ -209,15 +209,18 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 根拠: `docs/briefs/CH13-pr.md:1` の題が「（上流）」のまま、:15「下流が同じ本文で ashiato2 の issue を 1 つ立てる」（#275 は立っている）、:15「harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた」（`enable-before.md` は「済んだもの」を節として持つ）、:20「`command-classes.md`（下流が書き出す）」、:22「上流の試しでは `1`。下流が値を書き足す」（:8 に `pgrep: 1` が既にある）。merge する人間が読む本文。Task 5 の review の F2（`.superpowers/sdd/ch13-task-5/task-5-findings.md`）が手付かず
 - kind: technical
 - 提案: 済んだことを過去の形に書き直し、題の「（上流）」を外す。:15 の案内は `enable-before.md` の今の節の形に合わせる
+- 処置: fixed 5.1
 
 ## R13. `enable-before.md` の「harness2 の issue」の節に作業の経緯の 1 文が残っている
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:24
 - 根拠: `enable-before.md:24`「同じ題の issue が既にあったので立てず、その番号を書く」は宿題の一覧を読む人に要らない作業の経緯で、issue #275 の本文にも同じ文が載っている。Task 5 の review の F3（`.superpowers/sdd/ch13-task-5/task-5-findings.md`）が手付かず
 - kind: technical
 - 提案: 1 文を消すか事実の形（「#165 は既存の issue」）にし、`enable-before.md` を変えたら `gh issue edit 275 --body-file` で issue の本文も揃える（5.3 の検証が本文の一致を見るなら合わせて確かめる）
+- 処置: fixed 5.3
 
 ## R14. `enable-before.md` の分類の件数で、総数が増えたのにホストが 35 → 34 に減った理由が書いていない
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:54
 - 根拠: `enable-before.md:53-54` は上流の走査（1,786 本）でホスト 35、下流の書き出し（1,826 本）でホスト 34。総数が 40 増えてホストが 1 減った理由が無く、上流と下流で取り出し方が違うのか、1 本が外れたのかを読み手が判断できない。Task 4 の review の F3（`.superpowers/sdd/ch13-task-4/task-4-findings.md`）が手付かず
 - kind: technical
 - 提案: 上流の走査と `command-classes.md` を突き合わせ、ホストから外れた 1 本（と理由）を 1 行足す
+- 処置: fixed 4.2

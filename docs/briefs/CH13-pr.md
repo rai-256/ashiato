@@ -1,4 +1,4 @@
-# CH13 — 作業箱（コンテナ隔離）の設定を置く（上流）
+# CH13 — 作業箱（コンテナ隔離）の設定を置く
 
 > 第 1 回の深掘りは推奨の答えで先に書き、2026-11-08 に本人の答え（Q1〜Q4。4 問とも推奨と違う）を `spec --answers Q1,Q2,Q3,Q4` で写した。
 > 同じ日の第 2 回の合意で本人が「違和感がある」と返した（harness2 #161 で作業箱が箱の中の dockerd を持つ形に変わった）。この版はそれに合わせて書き直した（`deep.md` の各行の `→ 対応:`）。
@@ -12,14 +12,14 @@
 
 ## 先に: 作業箱を有効にする前の宿題
 
-一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
+一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（同じ本文で ashiato2 の issue #275 を立てた）。harness2 #157 / #161 / #164 で済んだ項目は、一覧の「harness2 #157 / #161 で済んだもの」の節に分けた。一覧の中身は次のとおり:
 
 - **上流で見つけたこと**: ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が立たない件は、harness2 #165 が CLOSED（#164 で直った）。この 1 件は直すものとしては残っていない。**ただし有効にする前の宿題は残っている**（下の測っていないもの 3 つと、`host_only` の漏れ 1 本）
 - **`host_only` の漏れ（下流のレビューで見つけた。design D10（仮））**: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼ぶが `host_only` に無く、箱の中では UNAVAILABLE を書いて rc=0 で通る。`tools/workbox.json` は D1 のとおりで直さず、一覧に載せた（有効にする前に `host_only` に足す）
 - **測っていない**: e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか
-- **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（下流が書き出す）
+- **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（Task 4.2 で書き出した。ホスト 34・箱 1,792）
 
-依頼の完了の判定の pgrep の確かめは tasks 3.1 に置いた: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` が 10 未満（上流の試しでは `1`。下流が値を書き足す）。
+依頼の完了の判定の pgrep の確かめは tasks 3.1: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` が 10 未満（上流の試しも下流の Task 3.1 も `1`。上の「下流で確かめたこと」）。
 
 ## 何をするか
 
@@ -44,7 +44,7 @@ A（止める問い）は無い。
 
 ## 仮決め（design.md の（仮）。台帳 `provisional.jsonl`）
 
-- D9（仮）: 上流で見つけた `PATH` の件を harness2 の issue に 1 つ立て、宿題の一覧にも置く。`tools/workbox.json` の `env` では回避しない（Q1 (2) に従う）
+- D9（仮）: 上流で見つけた `PATH` の件を harness2 の issue にし（同じ題の #165 が既にあった）、宿題の一覧にも置いた。`tools/workbox.json` の `env` では回避しない（Q1 (2) に従う）
 - 前の D6（仮）（docker の正規表現の錨）・D7（仮）（harness2 の 3 つの issue）・D8（仮）（当たり方の確かめ）は台帳で resolve した（D6・D7 は前提が消え、D8 は違和感 (2) で本人が決めた）
 
 ## capability
