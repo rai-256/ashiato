@@ -27,6 +27,8 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    # osv.dev や GitHub が応答しないとき、runner を握って package を止めない（review/code.md R24・R33）
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 1, persist-credentials: false }
