@@ -14,6 +14,7 @@ Claude Code は `CLAUDE.md` の末尾の import でこのファイルを読み�
 ## 実装と計画の規約（上流の計画 agent・Task agent・reviewer に共通）
 
 上流が `tasks.md` に書く検証・置き場も、下流が実装する形も、これに合わせる。コードの置き場は `CLAUDE.md` の「構成」。
+Story をまたぐ判断（製品の前提・コードの構成・道具の規則）は `docs/adr/` に ADR として書く。いつ書くか・形の正本は `docs/adr/README.md`、1 つの change で閉じる判断はその `design.md` の `D<n>`。
 
 ### テスト
 <!-- harness2:tests -->
