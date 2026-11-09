@@ -1,0 +1,11 @@
+{
+  "status": "accepted",
+  "digest": "b07ef5af50a842acd2ae30bc414c3d4895dc79a96a6bd418d100849141ef0045",
+  "head": "1513ccd5500ce533b3a26cb68ca55283c88287bc",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [
+    "補足: 2 点だけ下流への申し送り。(1) PATH の件（design D9・enable-before.md の 2.）は harness2 #164（2026-11-09 merge 済み。dockerd-up が rootlesskit を起こすときに PATH の前へ /usr/local/sbin:/usr/sbin:/sbin を足す）で直り、本体（~/dev/harness2）にも取り込み済み。Task 5.2 の題の issue は記録として rai-256/harness2#165 を立てて閉じてあるので、5.2 は新しく立てずにその番号を書く。enable-before.md の 2. は「#164 で済み」として [x] にしてよい。(2) 「e2e 1 本が 6g に収まるか」は 2026-11-08 に実測済み（release ビルドからの e2e login 7 本、箱の memory.peak 2.63GiB、上限 6g。同じ worktree で 2 本同時もホストの空き最小 19.8GB で通った）。宿題の一覧にはこの結果を書き、済みの扱いにする。"
+  ],
+  "at": "2026-11-09T00:02:14Z"
+}

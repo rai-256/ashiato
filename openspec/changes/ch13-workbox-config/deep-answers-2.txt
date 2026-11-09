@@ -1,0 +1,8 @@
+=== CH13 の仕様への合意 の回答 ===
+QA [仕様への合意] -> 違和感がある
+  補足: 前提が変わった。harness2 #161（2026-11-08 13:55Z merge、issue #157）で、作業箱は検証の箱ごとに箱の中だけの rootless の dockerd を持ち、検証の準備（tools/verify-env.sh）も同じ箱の中で走るようになった。字面の正規表現で docker を渡す形は無くなり、`workbox.needs_docker` は消え、`docker` と `prep_files` の鍵は「もう効かない」と出る（知らない鍵は読み込みで止まる）。仕様を次のとおり新しい形に合わせて直す。
+        (1) tools/workbox.json: 依頼の版から `docker` と `prep_files` を消し、`"docker_images": ["postgres:17-alpine"]` を足す。`host_only` の追加分（tools/release/(build|install-check)\.sh・tools/android-side-by-side\.sh・tools/usage-volume\.sh）は残す。ほかの欄は依頼の版のまま。
+        (2) 当たり方の確かめ（Task 4.1・4.2）は `workbox.host_only` だけで分ける（`host` / `box` の 2 つ）。`needs_docker` を呼ばない。分類の一覧も 2 つの節にする。
+        (3) enable-before.md から、#161 で消えたもの（1 の docker が渡らない・3 の当たりすぎ・4 の prep_files の不足・6 の後の Story の漏れと古いイメージ）を消し、harness2 #157 / #161 への案内に置き換える。残すのは、測っていないもの（e2e 1 本が 6g に収まるか・all で 5 本のときの空き・agent の箱の cargo が 4g に収まるか。DB の容器も箱のメモリに数えられるようになった）と、2 のホストが要る台本のうち host_only に足した分の確かめ。
+        (4) pgrep の確かめ（Task 3.1）は残す。準備が無い `workbox.py run` では dockerd は立たないので、10 未満のままでよい。
+        (5) 依頼の版の JSON は差し戻し済みの扱い（Q1 の答え）。変えてよい欄は `docker`（消す）・`prep_files`（消す）・`docker_images`（足す）・`host_only`（後ろに足す）。

@@ -1,0 +1,7 @@
+{"id": "D6", "question": "錨の形と、答えが名指ししていない同じ族（npx playwright test・絞り込みなしの -p ashiato-server・docker を直に呼ぶもの）を docker の欄に足すか", "chosen": "呼び出しの位置に錨を置き、同じ族を足す", "keeps": null, "cost": null, "follows": "Q1", "rests_on": [], "source": "deep.md#Q1", "at": "2026-11-08"}
+{"id": "D7", "question": "harness2 の根本の issue を 1 つにまとめるか 3 つに分けるか", "chosen": "直す場所ごとに 3 つ立てる", "keeps": null, "cost": null, "follows": "Q1", "rests_on": [], "source": "deep.md#Q1", "at": "2026-11-08"}
+{"id": "D8", "question": "当たり方の確かめをどこに置き、どう判定するか", "chosen": "change の中の表と台本で、harness2 の host_only・needs_docker をそのまま呼ぶ", "keeps": null, "cost": null, "follows": "Q3", "rests_on": [], "source": "deep.md#Q3", "at": "2026-11-08"}
+{"id": "D6", "resolved": true, "reason": "第 2 回の合意の違和感 (1) で docker の欄を消した（harness2 #161 で効かない）。錨と族の足し算は前提ごと無くなった", "at": "2026-11-08"}
+{"id": "D7", "resolved": true, "reason": "根本の 3 つは harness2 #157（CLOSED）と #161 で直った。CH13 からは立てない（違和感 (3)）", "at": "2026-11-08"}
+{"id": "D8", "resolved": true, "reason": "第 2 回の合意の違和感 (2) で本人が host_only だけで host / box に分けると決めた", "at": "2026-11-08"}
+{"id": "D9", "question": "上流で見つけた PATH の件（ホストの PATH に /usr/sbin が無いと箱の中の dockerd が立たない）をどう残すか", "chosen": "harness2 に issue を 1 つ立て、enable-before.md の宿題にも置く。tools/workbox.json の env では回避しない", "keeps": null, "cost": null, "follows": "Q1", "rests_on": [], "source": "design.md#D9", "at": "2026-11-08"}
