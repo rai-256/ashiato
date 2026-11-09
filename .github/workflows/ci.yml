@@ -54,7 +54,7 @@ jobs:
           else
             echo "deps=false" >> "$GITHUB_OUTPUT"
           fi
-          has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
+          has '^(collector-android/|tools/android|tools/check-gradle-locks\.sh$)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
           # 移行と画面もサーバの zip に入る（build.rs が migrations を埋め込み、画面を同梱する）ので、Windows の通しを走らせる（review R46）
           has '^(crates/|Cargo\.)|^\.github/|^tools/release/|^tools/db-roles\.|^migrations/|^web/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
           # 組み立ての印の作り方（ST49 / design D5・D6）。触ったときだけ本物の組み立てで印を見る（review/code.md R23）
@@ -326,6 +326,7 @@ jobs:
       # 凍結してあり、**新しい違反だけ**で落ちる（設定は config/detekt.yml）。
       - run: ../tools/check-android-backup-rules.sh
       - run: ./gradlew detekt
+      - run: ../tools/check-gradle-locks.sh --self-test
       - run: ../tools/check-gradle-locks.sh
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug

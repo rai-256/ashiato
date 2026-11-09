@@ -2,7 +2,7 @@
 # [[IgnoredVulns]]
 # id = "GHSA-..."
 # ignoreUntil = "YYYY-MM-DD"
-# reason = "CH11: <決まった理由>"
+# reason = "届かない: <短い理由>" または "上げる予定: <見込み>"
 [[IgnoredVulns]]
 id = "GHSA-2363-cqg2-863c"
 ignoreUntil = "2027-02-06"

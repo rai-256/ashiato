@@ -149,6 +149,9 @@ self_test() {
     ! grep -Eq '"node-forge"' "$ROOT/web/package-lock.json" || return 1
   }
   assert_self_test_dependencies_absent || return 1
+  # 表の頭のひな形は、検査が受け付ける理由の形を示す（ひな形どおりに書いた行が落ちないように）
+  grep -Eq '^# reason = "(届かない|上げる予定): ' "$ROOT/osv-scanner.toml" || return 1
+  ! grep -Eq '^# reason = "CH[0-9]+: ' "$ROOT/osv-scanner.toml" || return 1
   expect_rc() {
     local expected="$1"; shift
     "$@" >"$tmp/actual" 2>&1
@@ -190,6 +193,17 @@ self_test() {
   exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "問題ない"'
   expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
   grep -Eq '理由の形が違う.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 同じ ID の行が 2 つあれば、後の正しい行で前の悪い行を隠せない"
+  vulnerable_tree
+  exception_config "ignoreUntil = \"2000-01-01\""$'\n''reason = "届かない: 自己試験"'$'\n''[[IgnoredVulns]]'$'\n''id = "RUSTSEC-2021-0139"'$'\n'"ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  grep -Eq 'ID が重複.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  echo "== Scenario: 引用符の無い日付の期限も、文字列の日付と同じに検査する"
+  vulnerable_tree
+  exception_config "ignoreUntil = 2000-01-01"$'\n''reason = "届かない: 自己試験"'
+  expect_rc 1 "${common[@]}" "$SCRIPT_DIR/check-vulns.sh" || return 1
+  grep -Eq '期限切れ.*RUSTSEC-2021-0139' "$tmp/actual" || return 1
+  ! grep -Eq 'Traceback' "$tmp/actual" || return 1
   echo "== Scenario: 勧告がもう出ない行は残せない"
   safe_tree
   exception_config "ignoreUntil = \"$(date -u -d '+1 day' +%F)\""$'\n''reason = "届かない: 自己試験"'
@@ -333,6 +347,10 @@ PY
     printf '%s\n' "$path" | "$ROOT/tools/release/changes.sh" deps || return 1
   done
   if printf '%s\n' .github/workflows/ci.yml | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
+  local deps_path
+  for deps_path in tools/check-vulns.py tools/check-vulns-issues.py tools/check-vulns.sh tools/check-pg-minor.sh; do
+    printf '%s\n' "$deps_path" | "$ROOT/tools/release/changes.sh" deps || return 1
+  done
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   if printf '%s\n' crates/server/src/lib.rs docs/x.md | "$ROOT/tools/release/changes.sh" deps; then return 1; fi
   if printf '%s\n' docs/x.md | "$ROOT/tools/release/changes.sh" code; then return 1; fi
@@ -344,15 +362,23 @@ PY
 set -u
 printf '%s\n' "$*" >>"$GH_LOG"
 body=""
+limit=30
 for ((i = 1; i <= $#; i++)); do
   if [[ "${!i}" == --body && $((i + 1)) -le $# ]]; then
     j=$((i + 1)); body="${!j}"
+  fi
+  if [[ "${!i}" == --limit && $((i + 1)) -le $# ]]; then
+    j=$((i + 1)); limit="${!j}"
   fi
 done
 case "$1 ${2:-}" in
   "label list") [[ "${GH_LABEL_EXISTS:-}" == 1 ]] && printf '[{"name":"脆弱性"}]\n' || printf '[]\n' ;;
   "label create") printf '[]\n' ;;
-  "issue list") if [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
+  "issue list") if [[ -n "${GH_MANY_ISSUES:-}" ]]; then
+      # gh と同じく、既定では 30 件までしか返さない
+      for ((k = 1; k <= GH_MANY_ISSUES && k <= limit; k++)); do printf '{"number":%d,"title":"脆弱性: npm pkg%d","body":"勧告: GHSA-pkg%d"}\n' "$k" "$k" "$k"; done | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin]))'
+    elif [[ "${GH_TABLE_ISSUE:-}" == 1 ]]; then printf '[{"number":11,"title":"脆弱性: 例外の表","body":"勧告: A-1\\n理由: 期限切れ"}]\n'
+    elif [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6\\n最新: 17.11"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
   "issue view") [[ "${GH_OPEN_ISSUE:-}" == 1 ]] && printf '{"comments":[]}\n' || printf '{"comments":[]}\n' ;;
   "issue create")
     n=$(find "$GH_BODY_DIR" -name 'create-*' | wc -l)
@@ -386,7 +412,7 @@ GH
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 2 ]] || return 1
   grep -Eq '^label create 脆弱性' "$gh_log" || return 1
-  printf '%s' $'依存: ansi_term\n版: 0.12.1\n勧告: RUSTSEC-2021-0139\n重大度: \nURL: https://osv.dev/vulnerability/RUSTSEC-2021-0139' | diff -u - "$gh_body_dir/create-1" || return 1
+  printf '%s' $'依存: ansi_term\n版: 0.12.1\n勧告: RUSTSEC-2021-0139\n重大度: 不明\nURL: https://osv.dev/vulnerability/RUSTSEC-2021-0139' | diff -u - "$gh_body_dir/create-1" || return 1
   printf '%s' $'依存: lodash\n版: 4.17.20\n勧告: GHSA-29mw-wpgm-hmr9\n重大度: 5.3\nURL: https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9\n依存: lodash\n版: 4.17.20\n勧告: GHSA-35jh-r3h4-6jhm\n重大度: 7.2\nURL: https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm\n依存: lodash\n版: 4.17.20\n勧告: GHSA-r5fr-rjxr-66jc\n重大度: 8.1\nURL: https://osv.dev/vulnerability/GHSA-r5fr-rjxr-66jc\n依存: lodash\n版: 4.17.20\n勧告: GHSA-xxjr-mmjv-4gpg\n重大度: 6.9\nURL: https://osv.dev/vulnerability/GHSA-xxjr-mmjv-4gpg' | diff -u - "$gh_body_dir/create-2" || return 1
   echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
   printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/existing.json"
@@ -395,6 +421,11 @@ GH
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/existing-dir"; local duplicate_rc=$?
   [[ "$duplicate_rc" == 0 ]] || return 1
+  ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
+  echo "== Scenario: 開いた issue が 30 件を越えても、31 件目の依存の issue を立て直さない"
+  printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"pkg31","version":"1.0.0","id":"GHSA-pkg31","severity":"HIGH"}]' >"$tmp/pkg31.json"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GH_MANY_ISSUES=31 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pkg31.json" || return 1
   ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
   echo "== Scenario: 勧告が増えたときだけ、開いている issue に追記する"
   cat >"$tmp/finding.json" <<'JSON'
@@ -421,6 +452,13 @@ JSON
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=0 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
   grep -Eq '脆弱性: 例外の表' "$gh_log" && grep -Eq 'A-1' "$gh_log" && grep -Eq '期限切れ' "$gh_log" && grep -Eq 'A-2' "$gh_log" && grep -Eq '理由が無い' "$gh_log" || return 1
+  echo "== Scenario: 例外の表の issue が開いていれば、新しい行の問題だけを追記する"
+  : >"$gh_log"
+  rm -f "$gh_body_dir"/comment-*
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_TABLE_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
+  ! grep -Eq '^issue create ' "$gh_log" || return 1
+  [[ "$(grep -Ec '^issue comment 11 ' "$gh_log")" == 1 ]] || return 1
+  printf '%s' $'勧告: A-2\n理由: 理由が無い' | diff -u - "$gh_body_dir/comment-1" || return 1
   echo "== Scenario: PostgreSQL の遅れは 1 件の issue になり、開いていれば立て直さない"
   mkdir -p "$tmp/pg-findings"
   printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.11' >"$tmp/pg-findings/postgresql-minor.txt"
@@ -430,6 +468,13 @@ JSON
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
   ! grep -Eq '^issue (create|comment) ' "$gh_log" || return 1
+  echo "== Scenario: PostgreSQL の issue が開いたまま新しい minor が出たら、追記する"
+  printf '%s\n' '脆弱性: PostgreSQL 17 の minor の遅れ' '同梱: 17.6' '最新: 17.12' >"$tmp/pg-findings/postgresql-minor.txt"
+  : >"$gh_log"
+  rm -f "$gh_body_dir"/comment-*
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/pg-findings" || return 1
+  ! grep -Eq '^issue create ' "$gh_log" || return 1
+  printf '%s' $'同梱: 17.6\n最新: 17.12' | diff -u - "$gh_body_dir/comment-1" || return 1
   return 0
 }
 

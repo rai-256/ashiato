@@ -26,6 +26,10 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail 'all deps' sed -i 's/for k in code android windows stamp deps/for k in code android windows stamp/' "$tmp/.github/workflows/ci.yml"
   expect_fail 'vulns PR 条件' sed -i "s/if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'/if: needs.changes.outputs.deps == 'true'/" "$tmp/.github/workflows/ci.yml"
   expect_fail 'wiring checks' sed -i '/check-vulns-wiring.sh --self-test/d' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'wiring の本番の実行' sed -i '/run: \.\/tools\/check-vulns-wiring\.sh$/d' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'dependency-review scopes の一部' sed -i 's/fail-on-scopes: runtime, development, unknown/fail-on-scopes: runtime  # development unknown/' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'gradle lock の自己試験' sed -i '/check-gradle-locks.sh --self-test/d' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'gradle lock の判定' sed -i 's@|tools/check-gradle-locks\\.sh\$@@' "$tmp/.github/workflows/ci.yml"
   expect_fail 'release vulns を無効化' sed -i 's@run: tools/check-vulns.sh$@run: tools/check-vulns.sh || true@' "$tmp/.github/workflows/release.yml"
   expect_fail 'dependency-review を無効化' sed -i '/uses: actions\/dependency-review-action/a\        continue-on-error: true' "$tmp/.github/workflows/ci.yml"
   expect_fail 'PR vulns を無効化' sed -i 's@run: tools/check-vulns.sh --base "\$BASE_SHA"$@run: tools/check-vulns.sh --base "\$BASE_SHA" || echo skip@' "$tmp/.github/workflows/ci.yml"
@@ -96,7 +100,8 @@ require("actions/dependency-review-action@" in vulns and
         re.search(r"actions/dependency-review-action@[0-9a-f]{40}", vulns),
         "dependency-review-action が SHA 固定でない")
 require("fail-severity: high" in vulns, "dependency-review の重大度が high でない")
-require(all(x in vulns for x in ("runtime", "development", "unknown")), "dependency-review の範囲が不足")
+require(re.search(r"^\s*fail-on-scopes: runtime, development, unknown\s*$", vulns, re.M),
+        "dependency-review の範囲が不足")
 require("allow-ghsas: ${{ steps.allow.outputs.ghsas }}" in vulns, "dependency-review に許可一覧を渡していない")
 require("comment-summary-in-pr" not in vulns or "comment-summary-in-pr: never" in vulns,
         "dependency-review に PR コメントを書かせる設定がある")
@@ -109,6 +114,9 @@ require("tools/check-pg-minor.sh --self-test" in ci.get("rust", ""), "rust に p
 android = ci.get("android", "")
 require(re.search(r"./gradlew detekt.*\n.*check-gradle-locks.sh", android, re.S),
         "android の detekt 後に Gradle lock 検査がない")
+require(has_exact_run(android, "../tools/check-gradle-locks.sh --self-test") and
+        has_exact_run(android, "../tools/check-gradle-locks.sh"), "android に Gradle lock の検査と自己試験がない")
+require("tools/check-gradle-locks\\.sh" in changes, "android の判定が Gradle lock の検査台本の変更を拾わない")
 
 require("vulns" in release and "needs: plan" in release["vulns"] and
         "contents: read" in release["vulns"] and has_exact_run(release["vulns"], "tools/check-vulns.sh") and

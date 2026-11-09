@@ -44,12 +44,23 @@ def raw_exception_rows(path: Path) -> dict[str, dict[str, str]]:
     for row in config.get("IgnoredVulns", []):
         ident = row.get("id") if isinstance(row, dict) else None
         key = ident if isinstance(ident, str) else ""
+        if key in rows:
+            # 同じ ID の行が 2 つあると、後の行が前の行（期限切れ・理由の無い行）を隠す。行の問題として落とす。
+            rows[key]["duplicate"] = "1"
+            continue
         rows[key] = {
             "id": key,
-            "ignoreUntil": row.get("ignoreUntil", "") if isinstance(row, dict) else "",
-            "reason": row.get("reason", "") if isinstance(row, dict) else "",
+            "ignoreUntil": _text(row.get("ignoreUntil", "")) if isinstance(row, dict) else "",
+            "reason": _text(row.get("reason", "")) if isinstance(row, dict) else "",
         }
     return rows
+
+
+def _text(value: object) -> str:
+    """TOML の値を文字列で持つ。引用符の無い日付（TOML の日付型）も文字列の日付と同じに扱う。"""
+    if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
+        return value.isoformat()
+    return value if isinstance(value, str) else str(value)
 
 
 def exception_row_error(ident: str, row: dict[str, str]) -> str | None:
@@ -57,6 +68,8 @@ def exception_row_error(ident: str, row: dict[str, str]) -> str | None:
     reason = row["reason"]
     if not ident:
         return "勧告の ID が無い"
+    if row.get("duplicate"):
+        return f"ID が重複 ({ident})"
     if not reason:
         return f"理由が無い ({ident})"
     if not until:
@@ -184,16 +197,20 @@ def finding_key(row: dict) -> tuple[str, str, str]:
     return row["ecosystem"], row["name"], row["id"]
 
 
+def _row_state(row: dict[str, str]) -> tuple[str | None, ...]:
+    return row.get("ignoreUntil"), row.get("reason"), row.get("duplicate")
+
+
 def print_exception_changes(base: dict[str, dict[str, str]], head: dict[str, dict[str, str]]) -> None:
     print("== 例外の表で足した・変えた行")
     changed = [head[ident] for ident in sorted(head)
-               if ident not in base or (base[ident].get("ignoreUntil"), base[ident].get("reason")) !=
-               (head[ident].get("ignoreUntil"), head[ident].get("reason"))]
+               if ident not in base or _row_state(base[ident]) != _row_state(head[ident])]
     if not changed:
         print("なし")
     else:
         for row in changed:
-            print(f"{row['id']} ignoreUntil={row['ignoreUntil']} reason={row['reason']}")
+            print(f"{row['id']} ignoreUntil={row['ignoreUntil']} reason={row['reason']}"
+                  + (" （ID が重複）" if row.get("duplicate") else ""))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as out:

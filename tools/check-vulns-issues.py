@@ -21,6 +21,9 @@ lockfiles = _module.lockfiles
 scan_root = _module.scan_root
 
 
+ISSUE_LIMIT = 1000
+
+
 def run(command: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, input=input_text, text=True, capture_output=True)
 
@@ -77,7 +80,7 @@ def issue_body(row: dict) -> str:
     if row["kind"] == "vulnerability":
         return "\n".join([
             f"依存: {row['name']}", f"版: {row['version']}", f"勧告: {row['id']}",
-            f"重大度: {row['severity']}", f"URL: https://osv.dev/vulnerability/{row['id']}",
+            f"重大度: {row.get('severity') or '不明'}", f"URL: https://osv.dev/vulnerability/{row['id']}",
         ])
     if row["kind"] == "exception_table":
         return f"勧告: {row['id']}\n理由: {row['reason'].split(':', 1)[0]}"
@@ -122,7 +125,12 @@ def file_issues(directory: Path) -> int:
             proc = run(["gh", "label", "create", "脆弱性", "--color", "B60205"])
             if proc.returncode != 0:
                 raise RuntimeError(proc.stderr.strip() or "ラベルを作れない")
-        issues = gh_json(["issue", "list", "--state", "open", "--label", "脆弱性", "--json", "number,title,body"])
+        # gh issue list の既定は 30 件。開いた issue は勧告が消えても閉じないので増える一方で、
+        # 31 件目からを読まないと毎晩同じ題の issue を立て直す。
+        issues = gh_json(["issue", "list", "--state", "open", "--label", "脆弱性", "--limit", str(ISSUE_LIMIT),
+                          "--json", "number,title,body"])
+        if len(issues) >= ISSUE_LIMIT:
+            raise RuntimeError(f"開いた 脆弱性 の issue が {ISSUE_LIMIT} 件以上あり、重複を判定できない")
         for title, title_rows in grouped.items():
             row = title_rows[0]
             existing = next((issue for issue in issues if issue.get("title") == title), None)
@@ -135,14 +143,17 @@ def file_issues(directory: Path) -> int:
             comments = gh_json(["issue", "view", str(existing["number"]), "--json", "comments"])
             text = str(existing.get("body", "")) + "\n" + "\n".join(
                 comment.get("body", "") for comment in comments.get("comments", []))
+            # 開いた issue に無いものだけを追記する。勧告は ID、例外の表の行と PostgreSQL の遅れは本文の行で見る
+            # （題が同じまま 2 つ目の期限切れの行・新しい minor が出ても、黙って捨てない）。
             if row["kind"] == "vulnerability":
-                missing = [item["id"] for item in title_rows if item["id"] not in text]
-                if not missing:
-                    continue
-                comment = "\n".join(f"勧告: {ident}" for ident in missing)
-                proc = run(["gh", "issue", "comment", str(existing["number"]), "--body", comment])
-                if proc.returncode != 0:
-                    raise RuntimeError(proc.stderr.strip() or "issue に追記できない")
+                missing = [f"勧告: {item['id']}" for item in title_rows if item["id"] not in text]
+            else:
+                missing = [issue_body(item) for item in title_rows if issue_body(item) not in text]
+            if not missing:
+                continue
+            proc = run(["gh", "issue", "comment", str(existing["number"]), "--body", "\n".join(missing)])
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or "issue に追記できない")
         return 0
     except (RuntimeError, OSError) as exc:
         print(f"error: issue を記録できなかった（{exc}）", file=sys.stderr)

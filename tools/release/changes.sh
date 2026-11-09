@@ -11,7 +11,7 @@ code() {
 }
 
 deps() {
-  if grep -qE '^(Cargo\.lock|web/package-lock\.json|osv-scanner\.toml|tools/check-vulns\.sh|tools/check-pg-minor\.sh)$|^collector-android/.*\.lockfile$'; then
+  if grep -qE '^(Cargo\.lock|web/package-lock\.json|osv-scanner\.toml|tools/check-vulns(-issues)?\.(sh|py)|tools/check-pg-minor\.sh)$|^collector-android/.*\.lockfile$'; then
     exit 0
   fi
   exit 1
