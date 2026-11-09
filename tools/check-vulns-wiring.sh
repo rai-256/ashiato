@@ -33,10 +33,10 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail 'release vulns を無効化' sed -i 's@run: tools/check-vulns.sh$@run: tools/check-vulns.sh || true@' "$tmp/.github/workflows/release.yml"
   expect_fail 'dependency-review を無効化' sed -i '/uses: actions\/dependency-review-action/a\        continue-on-error: true' "$tmp/.github/workflows/ci.yml"
   expect_fail 'PR vulns を無効化' sed -i 's@run: tools/check-vulns.sh --base "\$BASE_SHA"$@run: tools/check-vulns.sh --base "\$BASE_SHA" || echo skip@' "$tmp/.github/workflows/ci.yml"
-  expect_fail 'dependency-review severity' sed -i '/fail-severity: high/d' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'dependency-review severity' sed -i '/fail-on-severity: high/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review scopes' sed -i '/fail-on-scopes:/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review allow list' sed -i '/allow-ghsas:/d' "$tmp/.github/workflows/ci.yml"
-  expect_fail 'dependency-review comments' sed -i '/fail-severity: high/a\          comment-summary-in-pr: always' "$tmp/.github/workflows/ci.yml"
+  expect_fail 'dependency-review comments' sed -i '/fail-on-severity: high/a\          comment-summary-in-pr: always' "$tmp/.github/workflows/ci.yml"
   expect_fail 'issues always' sed -i '/if: always()/d' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail 'CI vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/ci.yml"
   expect_fail 'release vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/release.yml"
@@ -103,7 +103,7 @@ require("tools/check-vulns.sh allow-ghsas" in vulns, "allow-ghsas を生成し�
 require("actions/dependency-review-action@" in vulns and
         re.search(r"actions/dependency-review-action@[0-9a-f]{40}", vulns),
         "dependency-review-action が SHA 固定でない")
-require("fail-severity: high" in vulns, "dependency-review の重大度が high でない")
+require("fail-on-severity: high" in vulns, "dependency-review の重大度が high でない")
 require(re.search(r"^\s*fail-on-scopes: runtime, development, unknown\s*$", vulns, re.M),
         "dependency-review の範囲が不足")
 require("allow-ghsas: ${{ steps.allow.outputs.ghsas }}" in vulns, "dependency-review に許可一覧を渡していない")
