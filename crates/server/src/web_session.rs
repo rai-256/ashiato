@@ -576,8 +576,27 @@ pub async fn collector_setup_post(
             "unsupported media type".into(),
         ));
     }
-    let given = given_password(&body);
-    let check = check_given_password(&app, given).await?;
+    run_to_completion(collector_setup_checked(app, headers, caller, body)).await
+}
+
+/// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。
+/// 取り消された求めの照合も失敗に数えるので、その行も残す（data-sensitivity「1 件ごとに 1 行」）。
+async fn run_to_completion(
+    work: impl std::future::Future<Output = Result<Response, (StatusCode, String)>> + Send + 'static,
+) -> Result<Response, (StatusCode, String)> {
+    tokio::spawn(work)
+        .await
+        .unwrap_or_else(|_| Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())))
+}
+
+/// 資格情報の口の、照合から後（`collector_setup_post` が `run_to_completion` で通す）。
+async fn collector_setup_checked(
+    app: App,
+    headers: HeaderMap,
+    caller: Caller,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let check = check_given_password(&app, &body).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(collector_setup_entry(
@@ -623,7 +642,7 @@ pub async fn collector_setup_post(
 
 /// 合言葉の照合の結果。ログインの口と資格情報を返す口が共に使う。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PasswordCheck {
+pub(crate) enum PasswordCheck {
     /// 失敗が多いので照合せず断る（失敗には数えない）。
     Throttled,
     Match,
@@ -644,25 +663,25 @@ fn given_password(body: &[u8]) -> String {
 /// 入れられた合言葉を、2 つの口で同じ道に通して照合する（CH15 design D1）。
 /// 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
 /// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
-async fn check_given_password(
-    app: &App,
-    given: String,
-) -> Result<PasswordCheck, (StatusCode, String)> {
-    let permit = LOGIN_CHECK
-        .acquire()
-        .await
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "unavailable".to_owned()))?;
+pub(crate) async fn check_given_password(app: &App, body: &[u8]) -> PasswordCheck {
+    // 断られている間は、1 つずつの印を待たず・本文も読まずに断る（review/code.md R4・R5）
     if app.login.limiter.throttled() {
-        return Ok(PasswordCheck::Throttled);
+        return PasswordCheck::Throttled;
     }
+    // 印は static で、誰も閉じない（review/code.md R9）
+    let permit = LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない");
+    // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
+    if app.login.limiter.throttled() {
+        return PasswordCheck::Throttled;
+    }
+    let given = given_password(body);
     // 空は照合せず失敗に数える（照らす形の `accepts` は空を自分では断らず、Argon2id を回してしまう）
     if given.is_empty() {
         app.login.limiter.record_failure();
-        return Ok(PasswordCheck::Mismatch);
+        return PasswordCheck::Mismatch;
     }
     // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
-    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡す。接続が切れてこの future が捨てられても、
-    // 照合が終わって数え上げるまで次の照合は始まらない（review R78）
+    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡し、照合が終わって数え上げるまで次の照合を始めない（review R78）
     let login = app.login.clone();
     let accepted = tokio::task::spawn_blocking(move || {
         let accepted = login.accepts(&given);
@@ -677,11 +696,11 @@ async fn check_given_password(
         app.login.limiter.record_failure();
         false
     });
-    Ok(if accepted {
+    if accepted {
         PasswordCheck::Match
     } else {
         PasswordCheck::Mismatch
-    })
+    }
 }
 
 /// ログイン。**画面の合言葉そのものを資格情報として要求する**（`authorize()` は通さない）。
@@ -707,7 +726,16 @@ pub async fn session_post(
             "unsupported media type".into(),
         ));
     }
-    let check = check_given_password(&app, given_password(&body)).await?;
+    run_to_completion(session_post_checked(app, headers, body)).await
+}
+
+/// ログインの口の、照合から後（`session_post` が `run_to_completion` で通す）。
+async fn session_post_checked(
+    app: App,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let check = check_given_password(&app, &body).await;
     if check == PasswordCheck::Throttled {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access

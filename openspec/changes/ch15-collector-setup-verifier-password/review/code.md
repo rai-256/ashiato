@@ -34,6 +34,7 @@
   正典の data-sensitivity spec.md:203 は「ログイン（成功・失敗・一時的な断り）…を、1 件ごとに読み出しの記録に 1 行残す」と言う。CH15.md の壊してはいけないもの 3 は「この口の行が成功も失敗も 1 行ずつ残り」と言う。記録の書き込みの前に照合の `spawn_blocking` を待つので、照らす形では Argon2id の時間がそのまま窓になる。共通の関数のコメント（:663-665、R78）は「接続が切れてこの future が捨てられても」と、future が捨てられることを前提に、数え上げだけを守っている。落ちた行は後から作り直せない。ただ、直し方は技術の選択で、失う側を選ぶ問いではないので `technical` にした。試験は戻した（`git status --porcelain` の crates 分は前後とも空、`git diff -- crates` は 0 バイト）
 - kind: technical
 - 提案: 照合から記録の書き込みまでを、取り消されない側で行う。例: 2 つの口の「照合 → 行を書く」を `tokio::spawn` した task の中で走らせ、handler はその `JoinHandle` を待つだけにする（spawn した task は、待つ側が捨てられても走り切る）。上の手順（timeout で取り消し → 行の数）を、2 つの口の `ch15_` の試験として残す
+- 処置: fixed D1
 
 ## R2. D1 の要（印を照合の終わりまで持つ・照合を blocking の側で行う）を壊しても、1.1・1.2 の検証は通る
 - 成果物: crates/server/src/web_session.rs（`check_given_password`）/ tasks.md 1.2 の grep の検査 / crates/server/src/web_session_tests.rs
@@ -43,6 +44,7 @@
   - 揺れないこと: spec review R3 の処置で足した grep（`.accepts(` 1 か所・`LOGIN_CHECK` 2 か所）は、どちらの変異も止めない。R3 の処置は「並べて送る試験は時刻に依る揺れを持ち込むので足さない」としたが、実測では揺れなかった。一時的な試験（照らす形で 9 回失敗させ、`tokio::join!` で違う合言葉を 2 本同時に送り、どちらかが 429 であることを見る。`multi_thread`・worker 4）は、今の実装で 3/3 が `a=403 b=429`（rc=0）、変異 A で 3/3 が `a=403 b=403`（rc=101）だった。試験は戻した（`git diff -- crates` は 0 バイト）
 - kind: technical
 - 提案: 上の並べて送る試験を `ch15_` に足す（変異 A を落とす）。変異 D2 は数えでは見えない。`current_thread` の runtime で照合の最中に別の task が進むことを見る試験を足すか、落とせないなら tasks に「blocking の側」は grep でなく目視の検査だと書き分ける
+- 処置: fixed 1.2
 
 ## R3. 資格情報の口から「空の合言葉を失敗に数える」と「失敗の遅れ」を消しても、検証は通る
 - 成果物: crates/server/src/web_session.rs（`check_given_password` :659-662・`collector_setup_post` :601）/ crates/server/src/web_session_tests.rs
@@ -52,6 +54,7 @@
   - 試験の範囲: design D1 は「数えの下では空の合言葉は失敗に数えて、資格情報の口は 403」と言う。CH15.md の壊してはいけないもの 2 は「失敗の遅れと、ログインの口と共有する失敗の数え」を挙げる。`ch15_verifier_collector_setup_wrong_password_is_forbidden` は空の合言葉の 403 と本文だけを見て、数えたかを見ない。`shares_login_failure_limit` の失敗は、どれも空でない合言葉。遅れを見る試験は `web_session_tests.rs:270`（ログインの口）だけ。`grep -rn failure_delay crates/server/src --include=*_tests.rs` で `Duration::ZERO` 以外に当たるのはこの 1 か所で、資格情報の口の遅れはどの試験も見ない。遅れの穴は base からあるが、CH15 が壊してはいけないものに挙げた以上、守る試験が要る
 - kind: technical
 - 提案: `ch15_` に 2 本足す。(1) 照らす形で空の合言葉を 9 回と、ログインの口で 1 回失敗させた後、正しい合言葉が 429 になる（変異 C を落とす）。(2) `failure_delay` を 300ms にした App で資格情報の口に違う合言葉を送り、応答まで 300ms 以上かかる（`web_session_tests.rs:270` と同じ形。変異 B を落とす）
+- 処置: fixed 1.2
 
 ---
 
@@ -130,33 +133,39 @@ PROBE access_rows=9 leak=false
 - 根拠: Under a stream of wrong /session attempts, every collector-setup call queues behind each Argon2id check in turn. Before this change it read limiter.throttled() straight away, without the semaphore. A logged-in user's setup request now takes N times the Argon2 time and can time out instead of getting a fast 429.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D1
 
 ## R5. session_post now parses the JSON body (given_password) before the throttle check; the old code checked throttled() first and parsed only when not throttled.
 - 成果物: crates/server/src/web_session.rs:710
 - 根拠: While throttled, an attacker sends many /session requests with bodies up to the default 2MB limit. Each body is fully parsed into a serde_json::Value and then thrown away with a 429. The old order skipped this work. Moving the parse after the throttle check, or parsing lazily, avoids it.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D1
 
 ## R6. In plain mode (verifier=None), accepts() is just a constant-time compare, but it still always goes through spawn_blocking, so collector-setup now pays a thread hand-off it did not pay before.
 - 成果物: crates/server/src/web_session.rs:670
 - 根拠: Every /collector-setup and /session call in plain mode sends a microsecond compare to the blocking pool. That is extra latency and pool pressure. Branching on login.verifier.is_some() would keep the blocking hop only for Argon2id.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: design D1 と tasks.md の Global Constraints が「`spawn_blocking` の側での `WebLogin::accepts`」を 2 つの口の同じ道として決めている（合言葉そのものの形も同じ道に通す。D1「合言葉そのものの形の振る舞いは変わらない」）。合言葉そのものの形は開発・試験の形で、blocking の pool への受け渡しは 1 回の求めに 1 回だけ。DB への書き込み（記録の行）を毎回待つ口なので、受け渡しの遅れは比べて小さい。形ごとに枝を分けると、照らす形だけを async の worker で回す近道（R2 の変異 D2）と見分けにくい枝が増える
 
 ## R7. The ch15 test module's login_cookie re-implements testdb::web_cookie (and st56_tests::login_cookie) line for line.
 - 成果物: crates/server/src/web_session_tests.rs:467
 - 根拠: There are now three copies of the POST /session plus Set-Cookie parsing. If the login contract changes, all three must be updated. Calling testdb::web_cookie(&app, PASSWORD) does the same job.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.2
 
 ## R8. verifier_app() repeats the App setup from st55_tests::st55_verifier_login_route_accepts_only_matching_password: the same session key, token, failure_delay=ZERO and App::with_login, all copied.
 - 成果物: crates/server/src/web_session_tests.rs:444
 - 根拠: Verifier-mode test apps are built in two places with the same magic strings. A shared helper (for example a testdb::verifier_app(password)) would stop them drifting apart when WebLogin construction changes.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.2
 
 ## R9. check_given_password returns Result only for a semaphore-closed error (SERVICE_UNAVAILABLE) that cannot happen: LOGIN_CHECK is a static that is never closed. Both callers still have to `?` it.
 - 成果物: crates/server/src/web_session.rs:651
 - 根拠: This is a dead error path that looks like a real 503 to readers and callers. Returning PasswordCheck directly, with acquire().await.expect(...) or an unreachable comment, makes the contract simpler.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D1

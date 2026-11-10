@@ -22,6 +22,24 @@
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::str::FromStr;
 
+/// 照らす形（配った形）のログインを持つ App。`password` だけが合う。収集アプリの資格情報は `VERIFIER_APP_TOKEN`。
+/// 照らす形の試験は App をここでだけ組む（review/code.md R8）。
+pub async fn verifier_app(password: &str, failure_delay: std::time::Duration) -> crate::App {
+    let verifier = crate::web_session::password_verifier_for_test(password).unwrap();
+    let mut login =
+        crate::web_session::WebLogin::new_with_verifier("session-key-0123456789abcd", &verifier, 0);
+    login.failure_delay = failure_delay;
+    crate::App::with_login(
+        pool().await,
+        VERIFIER_APP_TOKEN.to_owned(),
+        login,
+        crate::build_channel(),
+    )
+}
+
+/// `verifier_app` の収集アプリの資格情報。
+pub const VERIFIER_APP_TOKEN: &str = "test-token-0123456789abcdef";
+
 /// router 経由の既存試験が、収集アプリの資格情報ではなく画面の読み出し権限を使うための印。
 pub async fn web_cookie(app: &crate::App, password: &str) -> String {
     use axum::body::Body;

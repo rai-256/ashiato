@@ -429,29 +429,44 @@ async fn web_session_authorization_is_decided_once_per_request() {
 // ---- CH15: 照らす形のサーバで、資格情報を返す口が正しい合言葉を受け付ける ----
 
 mod ch15 {
-    use std::time::Duration;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
     use http_body_util::BodyExt as _;
     use tower::ServiceExt as _;
 
-    use crate::{testdb, web_session, App};
+    use crate::access_log::{AccessEntry, AccessFuture, AccessSink};
+    use crate::testdb::{self, VERIFIER_APP_TOKEN as API_TOKEN};
+    use crate::{web_session, App};
 
     const PASSWORD: &str = "install-password-012345";
-    const API_TOKEN: &str = "test-token-0123456789abcdef";
 
     async fn verifier_app() -> App {
-        let verifier = web_session::password_verifier_for_test(PASSWORD).unwrap();
-        let mut login =
-            web_session::WebLogin::new_with_verifier("session-key-0123456789abcd", &verifier, 0);
-        login.failure_delay = Duration::ZERO;
-        App::with_login(
-            testdb::pool().await,
-            API_TOKEN.to_owned(),
-            login,
-            crate::build_channel(),
-        )
+        testdb::verifier_app(PASSWORD, Duration::ZERO).await
+    }
+
+    /// 書く口に届いた行を残すだけの偽物（並走する試験の行と混ざらないように）。
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<AccessEntry>>>);
+
+    impl AccessSink for Recorder {
+        fn record(&self, entry: AccessEntry) -> AccessFuture {
+            self.0.lock().unwrap().push(entry);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    impl Recorder {
+        fn count(&self, route: &str, outcome: &str) -> usize {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.route == route && e.outcome == outcome)
+                .count()
+        }
     }
 
     fn json_post(uri: &str, password: &str) -> Request<Body> {
@@ -465,26 +480,18 @@ mod ch15 {
             .unwrap()
     }
 
-    async fn login_cookie(app: &App) -> String {
-        let res = crate::router(app.clone())
-            .oneshot(json_post("/session", PASSWORD))
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::NO_CONTENT);
-        res.headers()[header::SET_COOKIE]
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_owned()
-    }
-
-    async fn setup(app: &App, cookie: &str, password: &str) -> (StatusCode, String, String) {
+    fn setup_request(cookie: &str, password: &str) -> Request<Body> {
         let mut req = json_post("/collector-setup", password);
         req.headers_mut()
             .insert(header::COOKIE, cookie.parse().unwrap());
-        let res = crate::router(app.clone()).oneshot(req).await.unwrap();
+        req
+    }
+
+    async fn setup(app: &App, cookie: &str, password: &str) -> (StatusCode, String, String) {
+        let res = crate::router(app.clone())
+            .oneshot(setup_request(cookie, password))
+            .await
+            .unwrap();
         let status = res.status();
         let cache = res
             .headers()
@@ -499,7 +506,7 @@ mod ch15 {
     async fn ch15_verifier_collector_setup_returns_token() {
         // Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る
         let app = verifier_app().await;
-        let cookie = login_cookie(&app).await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
         let (status, cache, body) = setup(&app, &cookie, PASSWORD).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(cache, "no-store");
@@ -511,7 +518,7 @@ mod ch15 {
     async fn ch15_verifier_collector_setup_wrong_password_is_forbidden() {
         // Scenario: 合言葉が違えば出さない
         let app = verifier_app().await;
-        let cookie = login_cookie(&app).await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
         for given in ["install-password-012346", ""] {
             let (status, _, body) = setup(&app, &cookie, given).await;
             assert_eq!(status, StatusCode::FORBIDDEN, "given={given:?}");
@@ -528,7 +535,7 @@ mod ch15 {
     async fn ch15_verifier_collector_setup_shares_login_failure_limit() {
         // Scenario: 失敗が回数の制限を超えると、正しい合言葉でも答えない
         let app = verifier_app().await;
-        let cookie = login_cookie(&app).await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
         for _ in 0..9 {
             let (status, _, _) = setup(&app, &cookie, "wrong-password-0123456789").await;
             assert_eq!(status, StatusCode::FORBIDDEN);
@@ -542,5 +549,105 @@ mod ch15 {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         let (status, _, _) = setup(&app, &cookie, "").await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// 空の合言葉も、資格情報の口で失敗に数える（design D1。review/code.md R3）。
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_counts_empty_password_as_failure() {
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let failed = crate::router(app.clone())
+            .oneshot(json_post("/session", "wrong-login-0123456789"))
+            .await
+            .unwrap();
+        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// 資格情報の口の失敗も、ログインの口と同じだけ待たせる（CH15.md 壊してはいけないもの 2。review/code.md R3）。
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_failure_is_delayed() {
+        let delay = Duration::from_millis(300);
+        let app = testdb::verifier_app(PASSWORD, delay).await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        // 空の合言葉は照合（Argon2id）を回さず同じ不一致の枝へ行くので、かかる時間がほぼ遅れだけになる
+        let started = Instant::now();
+        let (status, _, _) = setup(&app, &cookie, "").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(started.elapsed() >= delay, "{:?}", started.elapsed());
+    }
+
+    /// 並んだ 2 つの照合は 1 つずつ通り、後の方は前の失敗の数え上げを見る（印を照合の終わりまで持つ。review/code.md R2）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ch15_verifier_concurrent_checks_see_each_others_failure() {
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "wrong-password-0123456789").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let ((a, _, _), (b, _, _)) = tokio::join!(
+            setup(&app, &cookie, "wrong-password-0123456789"),
+            setup(&app, &cookie, "wrong-password-9876543210"),
+        );
+        let mut got = [a, b];
+        got.sort();
+        assert_eq!(
+            got,
+            [StatusCode::FORBIDDEN, StatusCode::TOO_MANY_REQUESTS],
+            "10 回目の失敗の後に照合を始めた方は 429"
+        );
+    }
+
+    /// 照らす形の照合は blocking の側で行い、async の worker を塞がない（review/code.md R2 の変異 D2）。
+    /// 1 回 poll して Pending なら、照合を待つ間に worker を返している（その場で Argon2id を回すと Ready になる）。
+    #[tokio::test]
+    async fn ch15_verifier_check_runs_off_the_async_worker() {
+        let app = verifier_app().await;
+        let body = serde_json::json!({ "password": "wrong-password-0123456789" }).to_string();
+        let mut check = std::pin::pin!(web_session::check_given_password(&app, body.as_bytes()));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(std::future::Future::poll(check.as_mut(), &mut cx).is_pending());
+        assert_eq!(check.await, web_session::PasswordCheck::Mismatch);
+    }
+
+    /// 取り消された求めの照合も、行を残してから終わる（data-sensitivity「1 件ごとに 1 行」。review/code.md R1）。
+    #[tokio::test]
+    async fn ch15_verifier_cancelled_requests_still_leave_a_row() {
+        let recorder = Recorder::default();
+        let app = verifier_app().await.with_access_sink(recorder.clone());
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        let cases = [
+            (
+                setup_request(&cookie, "wrong-password-0123456789"),
+                "/collector-setup",
+                "forbidden",
+            ),
+            (
+                json_post("/session", "wrong-login-0123456789"),
+                "/session",
+                "login_failed",
+            ),
+        ];
+        // 照合（Argon2id）の途中で取り消す。照合の前の段（ログインの印の確かめ）は照合よりずっと短い
+        let verifier = web_session::password_verifier_for_test(PASSWORD).unwrap();
+        let started = Instant::now();
+        assert!(!web_session::verify_password_verifier(&verifier, "x"));
+        let cancel_after = started.elapsed() / 2;
+        for (req, route, outcome) in cases {
+            let cancelled =
+                tokio::time::timeout(cancel_after, crate::router(app.clone()).oneshot(req)).await;
+            assert!(cancelled.is_err(), "{route}: 照合の途中で取り消せていない");
+            let waited = Instant::now();
+            while recorder.count(route, outcome) == 0 && waited.elapsed() < Duration::from_secs(5) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert_eq!(recorder.count(route, outcome), 1, "{route}");
+        }
     }
 }
