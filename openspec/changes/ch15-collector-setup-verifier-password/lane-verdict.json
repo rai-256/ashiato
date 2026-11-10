@@ -1,0 +1,40 @@
+{
+ "lane": "light",
+ "reason": "bug",
+ "declared": {
+  "reason": "bug",
+  "scenario": "合言葉を入れ直すと、設定の文字列とコピーのボタンが出る",
+  "paths": [
+   "crates/server/src/web_session.rs",
+   "crates/server/src/web_session_tests.rs",
+   "crates/server/src/lib.rs",
+   "docs/changes/CH15.md",
+   "openspec/changes/ch15-collector-setup-verifier-password/**"
+  ],
+  "why": "正典の Scenario（data-sensitivity）が、照らすための値（verifier）で起動したサーバで満たされていない不具合。collector_setup_post の照合を token_matches(&given, &app.login.password) からログインと同じ WebLogin::accepts に替えるだけで、仕様・API の型・移行・送信契約に触れない。試験は verifier で起動したサーバで web_session_tests.rs に置き、直す前に落ちることを記録する。lib.rs は試験で verifier の形の App を組む口が要るときだけ触る"
+ },
+ "at": "2026-11-10T12:28:53+00:00",
+ "config": "tools/lanes.json",
+ "entry": {
+  "ok": true,
+  "why": [],
+  "paths": [
+   "crates/server/src/web_session.rs",
+   "crates/server/src/web_session_tests.rs",
+   "crates/server/src/lib.rs",
+   "docs/changes/CH15.md",
+   "openspec/changes/ch15-collector-setup-verifier-password/**"
+  ],
+  "classes": [
+   "docs",
+   "risky",
+   "server",
+   "tests"
+  ],
+  "code": [
+   "crates/server/src/web_session.rs",
+   "crates/server/src/lib.rs",
+   "openspec/changes/ch15-collector-setup-verifier-password/**"
+  ]
+ }
+}
