@@ -311,7 +311,7 @@ window_run() {
     -Command "$command" ${args[@]+"${args[@]}"} -Out "$(cygpath -w "$WORK/$name.vt")" \
     -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" >"$WORK/$name.ps.out" 2>&1 || rc=$?
   PY -c 'import re,sys; vt=re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"); t=open(sys.argv[1],"rb").read().decode("utf-8",errors="replace"); sys.stdout.write(vt.sub("",t).replace("\r",""))' \
-    "$WORK/$name.vt" >"$WORK/$name.window" || {
+    "$(pypath "$WORK/$name.vt")" >"$WORK/$name.window" || {
     # 窓の台本の出力（hr=・err= など）を手がかりに出す。台本は入力の行を出さないので合言葉は載らない
     cat "$WORK/$name.ps.out" >&2 2>/dev/null || true
     die "窓の文字を読めない: $name（窓の台本 rc=$rc）"
@@ -322,7 +322,7 @@ window_run() {
 # 窓の文字（$1）が、最初の問いより前に合言葉の条件（表示されません まで）を持ち、2 つの問いを持つ。
 # 窓の幅で折り返されても読めるよう、改行を除いた続きで見る
 assert_window_prompt() {
-  PY - "$1" <<'PY' || die '窓に合言葉の問いと条件が読める形で出ていない'
+  PY - "$(pypath "$1")" <<'PY' || die '窓に合言葉の問いと条件が読める形で出ていない'
 import sys
 t = open(sys.argv[1], encoding="utf-8").read().replace("\n", "")
 first = t.find("画面の合言葉: ")
@@ -376,6 +376,9 @@ OUTBOUND_REMOTE_IPV6='::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
 
 win() { printf '%s' "${1//\//\\}"; }
 PY() { if command -v python >/dev/null 2>&1; then python "$@"; else python3 "$@"; fi; }
+# Python に渡すファイルの場所。common_setup が Git Bash の場所の読み替えを止める（MSYS_NO_PATHCONV）ので、
+# Windows の Python に `/tmp/…` をそのまま渡すと開けない（CI run 42834307188）。Git Bash では `C:/…` に直して渡す
+pypath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 setting() { PY -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$SETTINGS" "$1"; }
 owner_setting() { PY -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$OWNER_SETTINGS" "$1"; }
 url_password() { PY -c 'import sys, urllib.parse; print(urllib.parse.unquote(urllib.parse.urlparse(sys.argv[1]).password or ""))' "$1"; }
@@ -1479,7 +1482,7 @@ console_probe() {
     printf '%s\n' "$ps_out" >&2
     die "窓の試験が化けを見分けられない: 台本が rc=$ps_rc で終わった（90=CreatePseudoConsole 失敗・91=CreateProcess 失敗は上の hr=/err=。それ以外は時間切れか台本の書き方）"
   fi
-  PY - "$work/probe.raw.txt" "$work/probe.console.txt" <<'PY'
+  PY - "$(pypath "$work/probe.raw.txt")" "$(pypath "$work/probe.console.txt")" <<'PY'
 import re, sys
 vt = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 def read(p):
