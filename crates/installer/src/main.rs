@@ -1676,10 +1676,18 @@ mod tests {
         bytes.extend([
             0x83, 0x5f, 0x83, 0x45, 0x83, 0x93, 0x83, 0x8d, 0x81, 0x5b, 0x83, 0x68,
         ]);
-        let text = ashiato_setup::console::decode_with_code_page(&bytes, 932);
+        let text = ashiato_setup::console::decode_value_with_code_page(&bytes, 932);
         assert_eq!(
             super::downloads_from_reg_output(Some(&text), name, r"C:\Users\足跡"),
             r"C:\Users\足跡\ダウンロード"
+        );
+        // D:\凜子: cp932 の並びが UTF-8 としても正しい（UTF-8 で読むと D:\꣎q。review/code.md R1）
+        let mut bytes = format!("    {name}    REG_EXPAND_SZ    D:\\").into_bytes();
+        bytes.extend([0xea, 0xa3, 0x8e, 0x71]);
+        let text = ashiato_setup::console::decode_value_with_code_page(&bytes, 932);
+        assert_eq!(
+            super::downloads_from_reg_output(Some(&text), name, r"C:\Users\足跡"),
+            r"D:\凜子"
         );
     }
 

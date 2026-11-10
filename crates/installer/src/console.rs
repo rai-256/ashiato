@@ -21,8 +21,10 @@ pub fn write_to_console(text: &str) -> std::io::Result<()> {
     write_to_stderr(text)
 }
 
-/// 子の命令の出力を文字列にする（D8）。UTF-8 として正しければそのまま、そうでなければ
-/// Windows では窓のコード頁（窓が無ければ OEM）で読む。読めない並びは U+FFFD にして止まらない。
+/// Windows の命令（`whoami`・`reg.exe`・`sc.exe` など）の出力を値として読む（D8）。Windows では
+/// 窓のコード頁（窓が無ければ OEM）が 65001 でなければ先にそのコード頁で読み、読めないときだけ UTF-8 を見る
+/// （cp932 の並びは UTF-8 としても正しいことがある。`pc\凜子` → `pc\꣎q`。review/code.md R1・deep.md Q6）。
+/// 読めない並びは U+FFFD にして止まらない。
 #[must_use]
 #[cfg_attr(not(windows), allow(clippy::disallowed_methods))] // Windows 以外の子は UTF-8 で書く
 pub fn decode_child_output(bytes: &[u8]) -> String {
@@ -36,13 +38,27 @@ pub fn decode_child_output(bytes: &[u8]) -> String {
     }
 }
 
-/// 子の命令の出力の末尾（空行を除いた末尾 5 行を ` / ` で繋ぐ）。読みは `decode_child_output`。
+/// 失敗の理由に添える子の出力を読む。UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む
+/// （Rust の子 `ashiato-server migrate` が窓のコード頁に依らず UTF-8 で書くので、UTF-8 を先に見るのはここだけ。D8）。
+#[cfg_attr(not(windows), allow(clippy::disallowed_methods))] // Windows 以外の子は UTF-8 で書く
+fn decode_tail_output(bytes: &[u8]) -> String {
+    #[cfg(windows)]
+    {
+        windows_console::decode_tail_output(bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+/// 子の命令の出力の末尾（空行を除いた末尾 5 行を ` / ` で繋ぐ）。読みは UTF-8 を先に見る（`decode_tail_output`）。
 #[must_use]
 pub fn output_tail_text(stdout: &[u8], stderr: &[u8]) -> String {
     let text = format!(
         "{}{}",
-        decode_child_output(stdout),
-        decode_child_output(stderr)
+        decode_tail_output(stdout),
+        decode_tail_output(stderr)
     );
     let lines = text
         .lines()
@@ -51,11 +67,19 @@ pub fn output_tail_text(stdout: &[u8], stderr: &[u8]) -> String {
     lines[lines.len().saturating_sub(5)..].join(" / ")
 }
 
-/// コード頁 `code_page` で読む。UTF-8 として正しければそのまま。
+/// コード頁 `code_page` で読む。UTF-8 として正しければそのまま（失敗の理由の末尾の読み）。
 #[cfg(windows)]
 #[must_use]
 pub fn decode_with_code_page(bytes: &[u8], code_page: u32) -> String {
     windows_console::decode_with_code_page(bytes, code_page)
+}
+
+/// 値の口の読み（`decode_child_output`）の中身。`code_page` が 65001 でなければ先にそのコード頁で読み、
+/// 読めないときだけ UTF-8 を見る。
+#[cfg(windows)]
+#[must_use]
+pub fn decode_value_with_code_page(bytes: &[u8], code_page: u32) -> String {
+    windows_console::decode_value_with_code_page(bytes, code_page)
 }
 
 /// `text` を `code_page` のバイト列にする。表せない文字があれば理由を `Err` で返す。
@@ -138,19 +162,37 @@ mod windows_console {
         unsafe { GetACP() }
     }
 
-    pub(super) fn decode_child_output(bytes: &[u8]) -> String {
-        if let Ok(text) = std::str::from_utf8(bytes) {
-            return text.to_owned();
-        }
+    /// 窓の出力のコード頁。窓が無ければ OEM のコード頁。
+    fn console_code_page() -> u32 {
         // SAFETY: 引数なしで、窓の出力のコード頁（窓が無ければ 0）を返すだけ。
         let console = unsafe { GetConsoleOutputCP() };
-        let code_page = if console == 0 {
+        if console == 0 {
             // SAFETY: 引数なしで、OEM のコード頁の番号を返すだけ。
             unsafe { GetOEMCP() }
         } else {
             console
-        };
-        decode_with_code_page(bytes, code_page)
+        }
+    }
+
+    pub(super) fn decode_child_output(bytes: &[u8]) -> String {
+        decode_value_with_code_page(bytes, console_code_page())
+    }
+
+    pub(super) fn decode_tail_output(bytes: &[u8]) -> String {
+        decode_with_code_page(bytes, console_code_page())
+    }
+
+    pub(super) fn decode_value_with_code_page(bytes: &[u8], code_page: u32) -> String {
+        if code_page == CP_UTF8 {
+            return decode_with_code_page(bytes, code_page);
+        }
+        if let Some(wide) = strict_decode(bytes, code_page) {
+            return String::from_utf16_lossy(&wide);
+        }
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            return text.to_owned();
+        }
+        lossy_decode(bytes, code_page)
     }
 
     /// 読めない並びがあれば `None`（旗 `MB_ERR_INVALID_CHARS`）。
@@ -195,6 +237,11 @@ mod windows_console {
         if let Some(wide) = strict_decode(bytes, code_page) {
             return String::from_utf16_lossy(&wide);
         }
+        lossy_decode(bytes, code_page)
+    }
+
+    /// 1 文字ずつ読み、読めない文字だけを U+FFFD にする。
+    fn lossy_decode(bytes: &[u8], code_page: u32) -> String {
         // 1 文字ずつ。先頭バイトが 2 バイト文字の先頭なら 2 バイト、そうでなければ 1 バイト
         let mut out = String::new();
         let mut index = 0;
@@ -341,7 +388,9 @@ mod tests {
 
 #[cfg(all(test, windows))]
 mod windows_tests {
-    use super::{decode_with_code_page, encode_with_code_page, output_tail_text};
+    use super::{
+        decode_value_with_code_page, decode_with_code_page, encode_with_code_page, output_tail_text,
+    };
     use crate::commands;
     use windows_sys::Win32::System::Console::{
         AllocConsole, FreeConsole, GetConsoleOutputCP, SetConsoleOutputCP,
@@ -397,6 +446,7 @@ mod windows_tests {
     }
 
     // Scenario: UTF-8 で書く子の出力は、窓のコード頁が 932 でもそのまま読める
+    // UTF-8 で書く子は Rust の子（`ashiato-server migrate`）で、その出力は失敗の理由の末尾（`output_tail_text`）として読む
     #[test]
     fn ch14_utf8_child_output_is_kept_on_932() {
         let line = "サービス ashiato-db は実行中です";
@@ -413,9 +463,13 @@ mod windows_tests {
             "SERVICE_NAME: ashiato-db\r\n        STATE              : 4  RUNNING\r\n",
         ];
         for sample in samples {
-            for code_page in [932, 437] {
+            for code_page in [932, 437, 65001] {
                 assert_eq!(
                     decode_with_code_page(sample.as_bytes(), code_page),
+                    String::from_utf8_lossy(sample.as_bytes())
+                );
+                assert_eq!(
+                    decode_value_with_code_page(sample.as_bytes(), code_page),
                     String::from_utf8_lossy(sample.as_bytes())
                 );
             }
@@ -427,9 +481,22 @@ mod windows_tests {
     fn ch14_account_read_in_code_page_932() {
         // pc\足跡太郎
         let bytes = hex("70 63 5c 91 ab 90 d5 91 be 98 59");
-        let account = decode_with_code_page(&bytes, 932);
+        let account = decode_value_with_code_page(&bytes, 932);
         assert_eq!(account, "pc\\足跡太郎");
         assert!(commands::repair_ident_contents(&account).contains("足跡太郎"));
+        // pc\凜子: cp932 の並びが UTF-8 としても正しい（UTF-8 で読むと pc\꣎q。review/code.md R1・deep.md Q6）
+        let bytes = hex("70 63 5c ea a3 8e 71");
+        assert!(std::str::from_utf8(&bytes).is_ok());
+        let account = decode_value_with_code_page(&bytes, 932);
+        assert_eq!(account, "pc\\凜子");
+        let line = commands::repair_ident_contents(&account);
+        assert!(line.contains("凜子"), "{line}");
+        assert!(encode_with_code_page(&line, 932).is_ok());
+        // 窓が 65001 なら Windows の命令は UTF-8 で書く
+        assert_eq!(
+            decode_value_with_code_page("pc\\凜子".as_bytes(), 65001),
+            "pc\\凜子"
+        );
     }
 
     // Scenario: 英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く

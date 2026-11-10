@@ -84,7 +84,7 @@
   design D8 の「2 文字以上の文ではほぼ無い」は外れ、D8 自身の反転条件「UTF-8 として正しい cp932 の出力が実際に見つかったら、(1) と (2) の順を子ごとに決める」に当たる。単体の試験の名前（`足跡太郎`・`ダウンロード`）は UTF-8 として正しくならない並びなので、この場合を見ていない
 - kind: premise
 - 提案: D8 の反転条件のとおり、窓のコード頁で書く子（`whoami`・`reg.exe`・`sc.exe`・`tasklist` など。premises.md 15 行目）は窓のコード頁が 65001 でなければ先に窓のコード頁で読み、UTF-8 を先に見るのは Rust の子（`ashiato-server migrate`）だけにする。あるいは利用者名・ダウンロードの場所は子の出力を読まず API（`GetUserNameExW`・`SHGetKnownFolderPath` など）から取る。どちらでも `凜子` の並びを試験に足す
-- 処置: escalated （kind=premise。design D8（仮）の前提「cp932 の並びが偶然 UTF-8 として正しくなることはほぼ無い」が値の口（短い名前）で外れた。読み方の順を子ごとにどう決めるかを deep.md 第 2 回 Q6 で本人に問う。HTML は docs/briefs/CH14-deep-r2.html。答えの後の settle が直す）
+- 処置: escalated —— deep.md 第 2 回 Q6（`docs/briefs/CH14-deep-r2.html`）で答えが出た。本人が推奨（値の口は窓のコード頁を先に読む）を選んだ（2026-11-10、`deep-answers-2.txt`）。答えのとおりに入れた: `console::decode_child_output`（main.rs の値の口 `whoami`・`reg.exe`・`sc.exe`・`tasklist`・`netstat`・`icacls`・PowerShell）は、窓のコード頁が 65001 でなければ先にそのコード頁で読み（`decode_value_with_code_page`）、読めないときだけ UTF-8 を見る。UTF-8 を先に見るのは失敗の理由の末尾 `output_tail_text` だけ（`decode_tail_output`）。`pc\凜子`（`70 63 5c ea a3 8e 71`）を `ch14_account_read_in_code_page_932` に、`D:\凜子` を `ch14_downloads_read_in_code_page_932` に足した（試験の本数は変えない。CI の下限 11 のまま）。design D8 を書き直した。値の口を UTF-8 を先に読む形に戻すと本人の PC でどちらも FAILED（`pc\꣎q`・`D:\꣎q`）
 
 ## R2. 「Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる」の試験は符号化の関数だけを見ており、repair が止まらなくても全部通る
 - 成果物: crates/installer/src/console.rs:418-423（`ch14_unrepresentable_name_is_refused`）/ crates/installer/src/main.rs:1505-1507 / tools/release/install-check.sh（英字でない名前の repair は `é` で、1252 で表せる道だけを通る）
@@ -98,7 +98,7 @@
 - 根拠: ci.yml:429 の末尾の `; cargo test -p ashiato-setup ch14_` を消し（`-- --list` で数えて下限を見るだけの step）、`tools/check-ci-ch14-step.sh` → rc=0。訂正前のコマンド（tasks.md 6.1 の旧）も同じ形で rc=0。どちらも run の文字列に `ashiato-setup ch14_` と `-ge 11` を含む step が `package.sh windows` より前にあるかしか見ず、`-- --list` の部分の字面で満たされる。訂正は検証を弱めてはいないが、検証は 6.1 の守るもの（`ch14_` の試験を下限つきで走らせる）を守っていない。`plan_fix.py check` → rc=1（6.1 を「落ちなかった」と読む）。戻した後 `git diff` は空
 - kind: premise
 - 提案: 台本で、step の run が下限の確かめの後に `cargo test -p ashiato-setup ch14_`（`-- --list` の付かない呼び出し）を持つことまで見る。例: run を `;` で区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があること
-- 処置: escalated （kind=premise。code-verify の手 7 の「落ちなかった」から来た検証コマンドの premise は人間へ返す決まり（settle.md の表）。台本を強めるかを deep.md 第 2 回 Q7 で本人に問う）
+- 処置: escalated —— deep.md 第 2 回 Q7 で答えが出た。本人が推奨（台本を強める。検証コマンドの字面は変えない）を選んだ（2026-11-10、`deep-answers-2.txt`）。答えのとおりに `tools/check-ci-ch14-step.sh` を、step の run を `;`・`&&`・`||`・改行で区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があることまで見るように強めた。tasks.md 6.1 は変えていない。壊して確かめた: ci.yml の末尾の `; cargo test -p ashiato-setup ch14_` を消す → rc=1、それを `-- --list` 付きにする → rc=1、戻す → rc=0（`git diff .github/` は空）
 
 ## R4. CI の下限 11 は、Windows で実際に数えると 12 本で、Task 5.2 の試験が 1 本消えても通る
 - 成果物: .github/workflows/ci.yml:429 / crates/installer/src/console.rs:298-301（`ch14_write_to_console_succeeds_off_windows`）
@@ -163,7 +163,7 @@
 - 根拠: A whoami/reg/sc output line in cp932 that happens to form valid UTF-8 multibyte sequences (e.g. lead E0–EF followed by 80–BF trail bytes) is returned as the wrong characters. That garbles the account name passed to repair_ident_contents or the Downloads path, and the failure only shows up later as an auth or path error.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
-- 処置: escalated （R1 と同じ不具合。値の口の読み方の順を deep.md 第 2 回 Q6 で本人に問う。答えの後の settle が R1 と一緒に直す）
+- 処置: escalated —— R1 と同じ不具合。deep.md 第 2 回 Q6 の答え（値の口は窓のコード頁を先に読む）を R1 と一緒に入れた（console.rs の `decode_value_with_code_page`。UTF-8 として正しい cp932 の並び `凜子` を試験に足した。詳しくは R1 の処置）
 
 ## R9. Child output is decoded with the installer's own console output code page. If the user's window is set to `chcp 65001`, output from children that write in the OEM code page (cp932) is decoded as UTF-8 and every non-ASCII character becomes U+FFFD.
 - 成果物: crates/installer/src/console.rs:194
