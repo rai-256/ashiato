@@ -29,6 +29,7 @@
 | パス | 何か | 書き込み |
 |---|---|---|
 | `docs/` | フローが作る成果物（`docs/changes/CH<NN>.md` は change の依頼と完了の判定。`hx change` が置く） | する |
+| `docs/adr/` | Story をまたぐ判断の記録 | する |
 | `openspec/` | Story ごとの設計と正典（`openspec` CLI が管理） | する |
 | `.harness2` | harness2 を指す唯一のリンク（gitignore。`init.py` / `prepare.sh` が張る） | 作らない |
 | `scripts` `.claude/skills` `.claude/agents` `.agents/skills` `openspec/schemas/story` `.githooks/*` | `.harness2/…` への symlink | harness2 側で直す |

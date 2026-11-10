@@ -14,6 +14,7 @@ Claude Code は `CLAUDE.md` の末尾の import でこのファイルを読み�
 ## 実装と計画の規約（上流の計画 agent・Task agent・reviewer に共通）
 
 上流が `tasks.md` に書く検証・置き場も、下流が実装する形も、これに合わせる。コードの置き場は `CLAUDE.md` の「構成」。
+Story をまたぐ判断（製品の前提・コードの構成・道具の規則）は `docs/adr/` に ADR として書く。いつ書くか・形の正本は `docs/adr/README.md`、1 つの change で閉じる判断はその `design.md` の `D<n>`。
 
 ### テスト
 <!-- harness2:tests -->
@@ -26,6 +27,11 @@ Claude Code は `CLAUDE.md` の末尾の import でこのファイルを読み�
   （`tools/smoke.d/` `tools/check-immutable.d/` `tools/seed.d/` `tools/recording/scenarios.d/`。表は `docs/testing.md` §4）。
   並走する Story が同じ末尾を取り合って衝突する。`feat/st*` が本体の末尾に書き足すか、本体の途中に新しい節の見出しを足すと CI（`tools/check-shared-appends.sh`）が落とす。
   見出しとみなすのは ST 番号を持つ 3 つの型（`# ====…ST<NN>` / `# ---…ST<NN>`・`echo "== ST<NN>:`・`echo "== 41. …（ST<NN>…）"`）だけで、型の外の書き方は落ちない —— 落ちないから足してよいのではない
+
+### 依存の脆弱性
+- 依存を変えたら、携帯は `--write-locks` でロックを更新し、検査が落ちたら互換の範囲で上げる。それでも上げられなければ、理由を `届かない: <短い理由>` または `上げる予定: <見込み>` の形で例外の表に書き、期限は 90 日以内にする。
+- 例外の表に足した行・変えた行は、PR 本文に一覧で書く。一覧は `tools/check-vulns.sh --base <base の commit>` の `== 例外の表で足した・変えた行`（CI では job summary にも出る）。グラフの PR は本文を `scripts/pr_body.py` が組むので、表を変えた Task の ledger に `Ruling:` の行（ID と理由・期限）として置けば本文に写る。
+- 文書には依存の名前を書かず、一覧が必要なときは毎回 `tools/check-vulns.sh` で出し直す。
 
 ### 移行
 <!-- harness2:migrations -->

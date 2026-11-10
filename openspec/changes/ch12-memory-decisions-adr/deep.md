@@ -25,6 +25,20 @@
 - 答え: AGENTS.md にも 1 行の指示を足す
 - 推奨（CLAUDE.md の表の 1 行だけ（依頼どおり））と違う。本人の選択（2026-11-08、第 1 回）
 
+## 第 2 回（2026-11-09 起票）—— 最後のレビューで見つかった、ADR の形の検査が見ていない食い違い
+
+> 問いは `deep-questions-r2.json`、渡す形は `docs/briefs/CH12-deep-r2.html`。出所は review/code.md R21（kind: premise・loss: rewrite-all）。
+> 同じ回の R18〜R20 は直した（R21 の答えを待たない）。
+
+### Q5. 範囲: ファイル名の日付と「日付」の一致、置き換え済みの指す先の実在も CI で見るか（R21）
+
+- 問い: ADR の形の検査（`tools/check-adr.sh`）に、(1) ファイル名の先頭の日付と本文の `- 日付:` の一致、(2) `- 状態: 置き換え済み（→ X）` の X が `docs/adr/` にあること、の 2 つを足すか
+- 推奨: この change で足す（検査 2 つ・spec の Scenario 2 つ・自己検査の壊し方 2 つ）。Q3（形の検査を常設する）と同じ向き
+- loss: rewrite-all —— 足さない間に入った、日付の合わない・指す先の無い ADR は、後で検査を足すときに直すことになる
+- 出所: review/code.md R21（R18 の再現 (2) で、存在しない後継を指したまま本番が rc=0）
+- 答え: この change で足す（検査 2 つ・Scenario 2 つ・自己検査の壊し方 2 つ）
+- 本人の選択（2026-11-09、第 2 回。`deep-answers-2.txt`）。値は推奨の選択肢と同じで、補足は無い。第 2 回の答えは推奨を先に仕様へ書いていないので、`spec --answers Q5` で仕様（`tools/check-adr.sh`・spec decision-records の Scenario 2 つ・自己検査の壊し方 2 つ）へ写す
+
 ## 要件へ戻すもの
 
-なし（change。`satisfies: []`。Q3・Q4 は範囲の決定で、要件に効かない）。答えは `docs/changes/CH12.md` の「価値」「壊してはいけないもの」に写した。
+なし（change。`satisfies: []`。Q3・Q4・Q5 は範囲の決定で、要件に効かない）。答えは `docs/changes/CH12.md` の「価値」「壊してはいけないもの」に写した。

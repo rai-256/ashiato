@@ -1,52 +1,84 @@
-# CH11 — 依存の脆弱性を CI で検査する（上流）
+# CH11 —— 依存の脆弱性を CI で検査する
 
-> 第 1 回の深掘りは**推奨の答えで先に**書いた（2026-10-20 の流れ）。本人の答えはまだ無い。推奨と違う答えが返ったら、`spec --answers` がその問いだけを写す。
-> リポジトリは公開で、公開の場に何を書くか（Q10）は答え待ち。**この PR の文書には、直っていない依存の名前・版・勧告の ID を書いていない**（数と種類だけ）。
+change: `openspec/changes/ch11-dependency-vulnerability-scan/`
 
-## 何をするか
+## deep.md に積んだ未決（A）
 
-依存の脆弱性を見る検査が 1 つも無い（許諾と秘密の検査はある）。osv-scanner 1 本で Rust・web・携帯（gradle）のロックファイルを見て、
-PR（依存に関わるファイルが変わったときだけ・新しく持ち込んだ勧告で落とす）・毎晩（main の全体・落ちたら依存ごとに issue）・印 `v*`（全体の検査が通るまで組まない）で機械が止める。
-逃がすのは理由と期限（90 日以内）つきの例外の表 `osv-scanner.toml` 1 つだけ。携帯に gradle の依存の固定を入れ、同梱の PostgreSQL の minor の遅れも毎晩見る。
+なし
 
-## 深掘り（第 1 回。12 問・推奨で先に書いた）
+## 仮決め（B）と Ruling
 
-A（止める問い。本人は答えを省けない）:
-- Q8 配る経路を止めるか → 推奨: 印 `v*`（正式版とベータ版）の組み立ては止め、開発版の公開は止めない（D16（仮））
-- Q10 公開の場に何を書くか → 推奨: issue と例外の理由に書くのは依存・版・勧告の ID・重大度と、「届かない理由」か「上げる予定」だけ（D5（仮））
+design の（仮）:
+- D2（仮）. 重大度を問わず落とす。知らせ（健全でない・保守されていない）も含める（Q5・C10）
+- D3（仮）. 製品に入らない依存も区別せず落とす（Q4）
+- D4（仮）. 例外の行の期限は「検査した日（UTC）から 90 日以内」で見る（Q7）
+- D5（仮）. 公開の場に書くのは、依存・版・勧告の ID・重大度と、理由の短い文だけ（Q10）
+- D9（仮）. 下流の AI は例外の行を足してよい。足した・変えた行は PR の検査が一覧で出す（Q9）
+- D10（仮）. dependency-review の許可は、例外の表から CI が組む（Q6）
+- D11（仮）. 携帯の依存の固定は、全部の構成とプラグインの classpath を STRICT で（Q12）
+- D14（仮）. PostgreSQL の「最新」は postgresql.org の一覧。EDB にあるか、公開から 30 日で落とす（Q3）
+- D15（仮）. この change では PostgreSQL を上げない（Q2）
+- D16（仮）. 印 `v*` の組み立ては、全体の検査が通るまで始めない。開発版の公開は止めない（Q8）
+- D17（仮）. GitHub の設定は下流の AI が `gh` で有効にし、API で読み返す（Q11）
+- D18（仮）. いまある勧告は、互換の範囲で上げ、残りは例外の表へ（Q1）
+- D20（仮）（C3）. PR の検査の条件は `tools/release/changes.sh deps` が正本。workflow だけの変更では走らせない
 
-B（推奨のままなら仮決め）:
-- Q1 いまある勧告 → 互換の範囲で上げ、残りは例外の表へ（D18（仮））
-- Q2 PostgreSQL 17.6 → この change では上げない。毎晩の検査が issue を立てる（D15（仮））
-- Q3 PostgreSQL の「最新」→ postgresql.org の一覧。EDB に zip があるか、公開から 30 日で落とす（D14（仮））
-- Q4 開発用の依存 → 区別せず落とす（D3（仮））
-- Q5 重大度 → 問わず落とす。RUSTSEC の知らせも（D2（仮））
-- Q6 例外の表 → 1 つ。dependency-review の許可は表から CI が組む（D10（仮））
-- Q7 期限の上限 → 検査した日から 90 日以内（D4（仮））
-- Q9 AI が例外の行を足してよいか → 足してよい。PR の検査と PR 本文に一覧で出す（確認バッチへの表示はハーネス側の変更が要り、この change の外。D9（仮））
-- Q11 GitHub の設定 → 下流の AI が `gh` で有効にし、API で読み返す（D17（仮））
-- Q12 携帯の固定 → 全部の構成とプラグインの classpath を STRICT で（D11（仮））
+全 Task の ledger の `Ruling:`（逐語）:
+- - Ruling: Task 6.1（`tools/check-vulns.sh github-settings`。本物の repo `rai-256/ashiato` の Dependabot alerts と依存グラフを `PUT` で有効にして読み返す）は下流で走らせていない。台本は入っている（`tools/check-vulns.sh:43` `github_settings`）が、本物の repo の設定を変える外向きの操作なので、処置の席（settle）は走らせない（review/code.md R10）。有効にする手と読み返しは「人間の確認待ち」の 1 つ目（tasks.md の「Task 6.1 を下流が済ませられなかったとき」）へ移した。Task 10 の dependency-review の手順は、人間が有効にした後の PR の CI（`vulns` の job が success）で確かめる。2026-11-09 の時点で `gh api repos/rai-256/ashiato --jq .permissions.admin` は true（権限が無いのではなく、走らせていないだけ）。
+- - Ruling: **この PR の `vulns` の job は、依存グラフと Dependabot alerts を有効にするまで赤になる**（2026-11-09 の読むだけの API で `vulnerability-alerts` 404・`dependency-graph/sbom` 404。この PR は lock と例外の表を変えるので `deps=true` で dependency-review が走る。review/code.md R34）。merge の前に、設定画面か管理者の `gh` で有効にし `tools/check-vulns.sh github-settings` が rc=0 になってから、`vulns` の job を走らせ直す。順序は tasks.md の「merge の前の前提」。
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `届かない: 携帯の組み立ての道具専用` の 9 行 —— GHSA-2363-cqg2-863c・GHSA-3677-xxcr-wjqv・GHSA-4265-ccf5-phj5・GHSA-4g9r-vxhx-9pgx・GHSA-ccrj-gw8r-854m・GHSA-cj8j-37rh-8475・GHSA-r937-wjx7-w2jp・GHSA-rcgg-9c38-7xpx・GHSA-wg6q-6289-32hp
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用` の 37 行 —— GHSA-389x-839f-4rhx・GHSA-38f8-5428-x5cv・GHSA-3p8m-j85q-pgmj・GHSA-3qp7-7mw8-wx86・GHSA-45q3-82m4-75jr・GHSA-4g8c-wm8x-jfhw・GHSA-4mp9-239f-g9hg・GHSA-558v-64gr-wgg4・GHSA-563q-j3cm-6jxm・GHSA-57rv-r2g8-2cj3・GHSA-5x3r-wrvg-rp6q・GHSA-6cqp-g7gg-8hr5・GHSA-6jqx-86gh-f27w・GHSA-84h7-rjj3-6jx4・GHSA-8c42-7qj2-3j46・GHSA-93wv-jw9v-4972・GHSA-c2gf-v879-257j・GHSA-c4c3-7fpv-j4q5・GHSA-c653-97m9-rcg9・GHSA-c69g-56f8-xwqj・GHSA-f6hv-jmp6-3vwv・GHSA-fccg-mwvh-qqg4・GHSA-fghv-69vj-qj49・GHSA-gcjf-9mgh-3p7g・GHSA-hvcg-qmg6-jm4c・GHSA-jppx-w49h-x2qq・GHSA-m4cv-j2px-7723・GHSA-mj4r-2hfc-f8p6・GHSA-mvh2-crg5-v77c・GHSA-prj3-ccx8-p6x4・GHSA-pwqr-wmgm-9rr8・GHSA-q4f6-jm68-57ww・GHSA-v8h7-rr48-vmmv・GHSA-w9fj-cfpg-grvv・GHSA-x4gw-5cx5-pgmh・GHSA-xq3w-v528-46rv・GHSA-xxqh-mfjm-7mv9
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `届かない: 携帯の組み立ての道具と単体試験の試験専用` の 5 行 —— GHSA-574f-3g2m-x479・GHSA-9pwp-9qqc-pr26・GHSA-c3fc-8qff-9hwx・GHSA-p93r-85wp-75v3・GHSA-qp49-qgx5-5m26
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `届かない: 画面の開発用依存（試験と組み立て）専用` の 5 行 —— GHSA-5gmw-xhrv-c9v3・GHSA-82fw-gwwq-j7x9・GHSA-85c8-ppgw-ccpr・GHSA-g3hv-75wg-m249・GHSA-qxg6-89mg-rqv8
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `届かない: 携帯の計測テストの実行基盤の試験専用` の 4 行 —— GHSA-5jpm-x58v-624v・GHSA-6mjq-h674-j845・GHSA-735f-pc8j-v9w8・GHSA-xpw8-rcwv-8f8p
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `上げる予定: 推移的依存の修正版待ち` の 2 行 —— GHSA-5mg8-w23w-74h3・GHSA-7g45-4rm6-3mm3
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `上げる予定: 互換範囲外の修正版待ち` の 8 行 —— GHSA-8hxf-qr8p-62x4・GHSA-m665-v7pm-7grj・GHSA-q7v9-x93c-xqv3・GHSA-xxph-c9ww-hj94・RUSTSEC-2026-0367・RUSTSEC-2026-0368・RUSTSEC-2026-0369・RUSTSEC-2026-0429
+- - Ruling: 例外の表で足した行（期限 2027-02-06。R35）: 理由 `上げる予定: 修正版公開後に互換範囲内へ更新` の 1 行 —— RUSTSEC-2023-0071
+- 全 Task の ledger の `Ruling:`（逐語）:
 
-## 仮決め（design.md の（仮））
+## Task
 
-- D2〜D5・D9〜D11・D14〜D18（仮）: 上の Q の推奨。反転条件は design.md の各 D
-- D20（仮）: PR の脆弱性の検査は、ロックファイル・例外の表・検査の台本が変わったときだけ。workflow だけの変更では走らせず、網に依らない配線の検査をコードの検査の job で走らせる（spec-review R11）
+11 Task のうち、埋めた Task は 10 本（Task 1, Task 2, Task 3, Task 4, Task 5, Task 7, Task 8, Task 9, Task 10, Task 11）。
 
-聞かずに決めた既定（`premises.md` の C1〜C10 → design の D1・D6〜D8・D12・D13・D19〜D21）。
+残した項目:
+- Task 6 の 6.1（PR ができてから走る検証（gate が持つ））: 6.1 `tools/check-vulns.sh github-settings` を design D17 のとおりに足す（`echo "== Scenario: 設定を API で読み返す"`。4 つの結果を 1 行ずつ出す。管理者の権限が無い `gh` では rc=2 で「管理者の権限が要る」と出す）。
 
-## capability
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-- 新しい capability `dependency-vulnerability-scan`（開発と配布の道具の約束。CH09 の `test-timing`・CH10 の `emulator-startup` と同じ扱い）。前倒しは無い。MODIFIED は無い（正典の `distribution` は変えない）
+- 1.1 `bash -n tools/check-vulns.sh` → rc=0（PASS・head 021e1ce）
+- 1.2 `tools/check-vulns.sh --self-test` → rc=0（PASS・head 021e1ce）
+- 2.1 `tools/check-vulns.sh --self-test` → rc=0（PASS・head b81ed5b）
+- 3.1 `tools/check-vulns.sh --self-test` → rc=0（PASS・head 88a7303）
+- 3.2 `tools/check-vulns.sh --self-test` → rc=0（PASS・head 88a7303）
+- 4.1 `tools/check-vulns.sh --self-test` → rc=0（PASS・head 756d19b）
+- 5.1 `bash -n tools/check-gradle-locks.sh` → rc=0（PASS・head 22020a7）
+- 5.2 `scripts/quiet-run ch11-gradle-locks -- tools/check-gradle-locks.sh` → rc=0（PASS・head 22020a7）
+- 5.2 `scripts/quiet-run ch11-gradle-locks-self -- tools/check-gradle-locks.sh --self-test` → rc=0（PASS・head 22020a7）
+- 5.2 `scripts/quiet-run ch11-gradle-strict -- ./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest` → rc=0（PASS・head 22020a7）
+- 5.3 `scripts/quiet-run ch11-same-release -- bash -c 'c="$(git log -1 --format=%H --diff-filter=A -- collector-android/app/gradle.lockfile)"; tools/check-gradle-locks.sh --same-release-as "$c~1" "$c"'` → rc=0（PASS・head 22020a7）
+- 5.4 `scripts/quiet-run ch11-licenses-self -- tools/check-licenses.sh --self-test` → rc=0（PASS・head 22020a7）
+- 5.4 `scripts/quiet-run ch11-licenses-android -- tools/check-licenses.sh android` → rc=0（PASS・head 22020a7）
+- 7.1 `tools/check-vulns.sh` → rc=0（PASS・head 889cea2）
+- 7.1 `bash -c 'tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` → rc=0（PASS・head 889cea2）
+- 7.2 `scripts/quiet-run ch11-cargo-test -- bash -c './tools/db.sh up -d --wait db && ./tools/db-roles.sh && ./tools/tmp-leak-check.sh rust'` → rc=0（PASS・head 9511c8a）
+- 7.2 `bash -c 'cd web && npm ci && npm test -- --run'` → rc=0（PASS・head 9511c8a）
+- 7.2 `scripts/quiet-run ch11-android-unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest` → rc=0（PASS・head 9511c8a）
+- 8.1 `tools/check-pg-minor.sh --self-test` → rc=0（PASS・head 8de9e83）
+- 8.1 `bash -c 'tools/check-pg-minor.sh; test $? -eq 1'` → rc=0（PASS・head 8de9e83）
+- 9.1 `tools/check-vulns.sh --self-test` → rc=0（PASS・head 530107f）
+- 9.2 `bash -c 'git diff --quiet origin/main -- .github/workflows/nightly.yml'` → rc=0（PASS・head 530107f）
+- 10.1 `bash -c 'grep -q "changes.sh deps" .github/workflows/ci.yml'` → rc=0（PASS・head cde4ee1）
+- 10.2 `bash -c 'grep -q "tools/check-vulns.sh" .github/workflows/release.yml'` → rc=0（PASS・head cde4ee1）
+- 10.3 `tools/check-vulns-wiring.sh` → rc=0（PASS・head cde4ee1）
+- 10.3 `tools/check-vulns-wiring.sh --self-test` → rc=0（PASS・head cde4ee1）
+- 11.1 `bash -c 'grep -q "check-vulns.sh" AGENTS.md && grep -q "check-vulns.sh" docs/testing.md'` → rc=0（PASS・head 4d07977）
+- 11.2 `python3 scripts/check_scenarios.py . ch11-dependency-vulnerability-scan` → rc=0（PASS・head 4d07977）
 
-## tasks
+## レビュー（`review/code.md`）
 
-11 Task・22 項目。Scenario は 50 本（`tools/check-vulns.sh --self-test` 35・`tools/check-vulns-wiring.sh` 5・`tools/check-pg-minor.sh --self-test` 6・gradle の固定 3・GitHub の設定 1）。
-自己試験は使い捨ての木と偽の `gh` で走り、本物の GitHub に触らない（osv.dev への問い合わせは要る）。
-PR の CI の結果・merge の後の最初の毎晩・（下流が済ませられなければ）GitHub の設定は「人間の確認待ち」（確認バッチ）。
+- 指摘 35 件（fixed 34・rejected 1）
+- 処置の re-review: 3 回。最後の判定が NOT ADDRESSED のもの: なし
 
-## レビュー
+## 未処置の申し送り
 
-- 深掘りの問いの独立検査（`review/deep.md`）: 15 件。A の問いの追加 1（Q8）・Q10 の広げ直し・前提の直し。処置の字面を spec の段で直した（escalated 2・仮 1）
-- spec-review（`review/spec.md`）: 18 件（technical 15・conflict 2・daily 1）。全部 fixed（仮 5: D5・D9・D14・D16・D20）。人間に返す新しい問いは無い。
-  kind を 2 件直した（R2 irreversible → technical: 失うものが無い。R6 premise → conflict: 問いの字面と spec の食い違いで、問いの説明を直した）
-- 走っている change との重なり: st56・ch10 は `ci.yml` の別の行。st53（実装は main）の `tools/check-licenses.sh` の自己試験は、写した木のロックの扱いだけ直す。`spec_overlap.py check` は 0 件
+- 例外の表の全行が 2027-02-06 に同時に期限切れになる。その 2〜3 週間前に見直しの change を立てる（`docs/handoff/CH11.md`。review/code.md で触れていない）
