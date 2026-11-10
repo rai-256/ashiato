@@ -128,3 +128,67 @@
 6 行とも `error` は空で、`sys_name` は名前そのもの（`#` 以降も切れず、`^` `$` `(` `.` は文字のまま）。英字の名前のときは変更前の `/(?i)^…$` の行のまま（console.rs の `ch14_ident_line_is_literal_in_ansi_bytes` が見る）。正規表現（大文字小文字を区別しない）から文字どおり（区別する）に替わったので、合う名前の範囲は広がらず狭まる。
 
 指摘なし
+
+## /code-review（dae5668..2507852）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R5. On a terminal, the prompt and the requirements line are written straight to the window, but the refusal reason still goes through terminal_line(..., true), i.e. stderr; when stderr is redirected, the window never shows why a password was refused.
+- 成果物: crates/installer/src/main.rs:324
+- 根拠: Run `ashiato-setup.exe password 2>err.txt` in a window and type a 10-character password. The refusal '合言葉を受け付けない: 短い（16 文字以上）…' is written to err.txt, and the window just shows '画面の合言葉: ' again with no reason. The 'redirected stdout/stderr' scenario added in this change only checks the prompt, so this is not caught.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. The new non-ASCII branch writes an exact quoted name, which drops the ASCII path's `(@.*)?` realm tolerance for an account with no domain, and its case-insensitive matching depends entirely on PostgreSQL's behaviour.
+- 成果物: crates/installer/src/commands.rs:1099
+- 根拠: account = '足跡' (no backslash) produces `repair "足跡" ashiato`. SSPI with include_realm=1 sends '足跡@PC', so the map does not match and repair fails authentication. The ASCII form `/(?i)^owner(@.*)?$` would have matched. A domain that differs in case or form from whoami's output (e.g. FQDN vs NetBIOS) also has no regex fallback.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. The non-ASCII admin used in the real-machine check is 'ashiato-ci-é', which is single-byte in cp1252, so the check never covers the cp932 case D9 is written for: double-byte names whose second byte is 0x5C. On a Japanese host (ACP 932), 'é' cannot be encoded at all, so the scenario fails.
+- 成果物: tools/release/install-check.sh:305
+- 根拠: On the windows-latest runner (ACP 1252), the regex-breaking 0x5C second byte (e.g. 表/ソ) never appears in the ident file, and the scenario passes even if the cp932 path is broken. On a ja-JP machine, encode_ansi refuses 'é' under 932 ('Windows の文字コード 932 で表せない'), so the scenario dies.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
+- 成果物: crates/installer/src/console.rs:190
+- 根拠: A whoami/reg/sc output line in cp932 that happens to form valid UTF-8 multibyte sequences (e.g. lead E0–EF followed by 80–BF trail bytes) is returned as the wrong characters. That garbles the account name passed to repair_ident_contents or the Downloads path, and the failure only shows up later as an auth or path error.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. Child output is decoded with the installer's own console output code page. If the user's window is set to `chcp 65001`, output from children that write in the OEM code page (cp932) is decoded as UTF-8 and every non-ASCII character becomes U+FFFD.
+- 成果物: crates/installer/src/console.rs:194
+- 根拠: In a window after `chcp 65001`, a child that writes its error in OEM cp932 (e.g. sc.exe) is decoded with code page 65001, so the reason reaches the user as '���…'. This is the same kind of garbled text this change set out to fix.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. The deadline and quiet checks use Environment.TickCount (a signed 32-bit int that wraps after about 24.9 days of uptime), so if it wraps mid-run, the timeout never fires and no input lines are sent.
+- 成果物: tools/release/conpty-run.ps1:174
+- 根拠: On a host with long uptime, TickCount wraps from +2^31 to -2^31 during the run. `TickCount > deadline` stays false forever and `TickCount - last >= 1000` never becomes true, so no password lines are sent and the CI step hangs until the job-level timeout. Environment.TickCount64 or Stopwatch avoids this.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. ch14_output_tail_reads_console_code_page calls AllocConsole and changes the process-wide console output CP during a parallel test run, and it leaves the allocated console in place, so other tests in the same binary that read the console CP can be affected.
+- 成果物: crates/installer/src/console.rs:412
+- 根拠: During cargo test, another test runs decode_child_output or output_tail_text at the same moment and is decoded with 932 instead of the expected CP, so it fails intermittently. On a developer machine, AllocConsole also opens an extra console window.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. main.rs already imports `console`, but ask_hidden and read_web_passwords call it by the full path `ashiato_setup::console::write_to_console`, so the same module is referenced two ways in one file.
+- 成果物: crates/installer/src/main.rs:618
+- 根拠: The `console::` short form at the other call sites (decode_child_output and others) and the full path here are mixed, making the code harder to grep and maintain. `console::write_to_console` is enough.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. The pattern `Command::new(..).output()` → `console::decode_child_output(&output.stdout)` is repeated by hand at about 8 call sites; a single helper that runs a child and returns decoded text would fix the root at one point.
+- 成果物: crates/installer/src/main.rs:581
+- 根拠: Any new child-process call that forgets decode_child_output and goes back to String::from_utf8_lossy reintroduces cp932 garbling. Nothing in the code enforces the decoding, so this recurs.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. The test is named ch14_write_to_console_succeeds_off_windows but has no cfg, so it also runs on Windows; it is counted towards CI's 11-test minimum without testing what its name says.
+- 成果物: crates/installer/src/console.rs:376
+- 根拠: On the Windows runner it writes an empty string to CONOUT$ (or falls back to stderr), which can never fail, yet it is counted towards the 'ch14_ ≥ 11' minimum. If a real test is removed, this vacuous test makes the count gate weaker.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
