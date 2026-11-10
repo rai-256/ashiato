@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <配布 zip> | --self-test | --list | --check-coverage <change>" >&2; exit 2; }
+usage() { echo "使い方: $0 <配布 zip> | --self-test | --list | --probe-console | --check-coverage <change>" >&2; exit 2; }
 
 scenario_names=(
   '配る zip からのインストールで、2 つのサービスが自動で起きる形で入る'
@@ -1328,6 +1328,60 @@ check_zip() {
 # Linux で走る自己試験。本物の Windows は無いので、(1) 確かめの部品が合う出力で通り 1 つずつ外れた出力で
 # 落ちること、(2) --list の全部の Scenario が実地の確かめ（CI が走らせる経路）に 1 回ずつ印を持ち、
 # 自己試験の側には印が無いこと、(3) Windows でないと実地の確かめが走らないこと、を見る。
+# 窓の試験が化けを見分けられるかを先に確かめる（陰性の対照。conpty-run.ps1 -Probe）
+console_probe() {
+  local ps script work
+  if command -v wslpath >/dev/null 2>&1; then
+    ps=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+    [[ -x "$ps" ]] || { echo 'Windows の PowerShell が無い' >&2; exit 2; }
+    script="$(wslpath -w "$root/tools/release/conpty-run.ps1")"
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    ps=powershell.exe
+    script="$(cygpath -w "$root/tools/release/conpty-run.ps1")"
+  else
+    echo 'Windows の PowerShell が無い' >&2; exit 2
+  fi
+  work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-console.XXXXXX")"
+  trap "rm -rf '$work'" EXIT
+  local outw="$work/probe"
+  command -v wslpath >/dev/null 2>&1 && outw="$(wslpath -w "$work")\\probe" || outw="$(cygpath -w "$work")\\probe"
+  "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" -Probe -Out "$outw" -TimeoutSec 90 >/dev/null ||
+    die '窓の試験が化けを見分けられない: 台本が終わらない'
+  PY - "$work/probe.raw.txt" "$work/probe.console.txt" <<'PY'
+import re, sys
+vt = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+def read(p):
+    try:
+        return vt.sub("", open(p, "rb").read().decode("utf-8", errors="replace"))
+    except OSError:
+        sys.exit("窓の試験が化けを見分けられない: 出力のファイルが無い " + p)
+raw, con = read(sys.argv[1]), read(sys.argv[2])
+want = "画面の合言葉"
+if "CONSOLE-OK" not in raw or "CONSOLE-OK" not in con:
+    sys.exit("窓の試験が化けを見分けられない: 子が窓につながっていない")
+if want not in con:
+    sys.exit("窓の試験が化けを見分けられない: .console.txt に画面の合言葉が無い")
+if want in raw:
+    sys.exit("窓の試験が化けを見分けられない: .raw.txt が化けていない")
+m = re.search(r"(\d{3,5})\s*$", next((l for l in raw.splitlines() if re.search(r":\s*\d{3,5}\s*$", l)), ""))
+if not m:
+    sys.exit("窓の試験が化けを見分けられない: chcp の返したコード頁が読めない")
+if m.group(1) == "65001":
+    sys.exit("窓の試験が化けを見分けられない: 窓が UTF-8 のまま")
+mangled = (want + ": ").encode("utf-8").decode("cp" + m.group(1), errors="replace")
+run = ""
+for ch in mangled:
+    run = run + ch if ch != "�" else ""
+    if len(run) >= 3:
+        break
+else:
+    run = ""
+if len(run) < 3 or run[:3] not in raw:
+    sys.exit("窓の試験が化けを見分けられない: .raw.txt に化けた並びが無い")
+print("OK: 窓の試験は化けを見分けられる（コード頁 " + m.group(1) + "）")
+PY
+}
+
 self_test() {
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-install-self-test.XXXXXX")"
@@ -1527,6 +1581,7 @@ EOF
 
 [[ "${1:-}" == --self-test ]] && { self_test; exit 0; }
 [[ "${1:-}" == --list && $# == 1 ]] && { list_scenarios; exit 0; }
+[[ "${1:-}" == --probe-console && $# == 1 ]] && { console_probe; exit 0; }
 [[ "${1:-}" == --check-coverage && $# == 2 ]] && { check_coverage "$2"; exit 0; }
 [[ $# == 1 ]] || usage
 check_zip "$1"

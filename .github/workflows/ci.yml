@@ -488,6 +488,8 @@ jobs:
       # Scenario の印は、ここで走らせる実地の確かめ（配る zip と試験の zip）にだけ置く。自己試験は印を持たず、
       # --list の全部が実地の確かめに 1 つずつ印を持つことを Linux の自己試験（chain の job）が見る（ST55 D24）
       - shell: bash
+        run: tools/release/install-check.sh --probe-console
+      - shell: bash
         run: |
           powershell.exe -NoProfile -NonInteractive -Command 'Set-Culture ja-JP'
           tools/release/install-check.sh --list | sort -u > "$RUNNER_TEMP/install-scenarios.expected"
