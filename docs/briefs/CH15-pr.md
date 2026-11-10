@@ -10,7 +10,8 @@ change: `openspec/changes/ch15-collector-setup-verifier-password/`
 
 design の（仮）: なし
 
-全 Task の ledger に `Ruling:` の行は無い。
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger に `Ruling:` の行は無い。
 
 ## Task
 
@@ -33,8 +34,8 @@ design の（仮）: なし
 
 ## レビュー（`review/code.md`）
 
-- 指摘 12 件（fixed 11・rejected 1）
-- 処置の re-review: 3 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 19 件（fixed 18・rejected 1）
+- 処置の re-review: 5 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
