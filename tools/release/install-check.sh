@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <配布 zip> | --self-test | --list | --check-coverage <change>" >&2; exit 2; }
+usage() { echo "使い方: $0 <配布 zip> | --self-test | --list | --probe-console | --check-coverage <change>" >&2; exit 2; }
 
 scenario_names=(
   '配る zip からのインストールで、2 つのサービスが自動で起きる形で入る'
@@ -54,9 +54,16 @@ scenario_names=(
   '止まった状態でなければ repair は何も変えずに終わる'
   'repair の後に合言葉なしの入口と一時の番号が残らない'
   '別の管理者が repair しても、本人は変わらない'
+  '英字でない名前の管理者でも repair でき、決めた合言葉でログインできる'
   'repair の途中で落ちても、もう一度 repair できる'
   '決めた合言葉で、そのまま画面にログインできる'
   '短い・既定の雛形・一致しない合言葉は受け付けない'
+  '端末でないときも、断りより前に合言葉の条件を 1 回だけ示す'
+  '短い・雛形で断るときは、理由に条件を添える'
+  'コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'
+  '窓で打った合言葉で決め直せる'
+  '窓で打った合言葉は、窓に出ない'
+  '標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'
   'API の合言葉やログインの印の鍵と同じ値は受け付けない'
   '合言葉を決め終えると、既定のブラウザで画面を開く'
   '合言葉の元の値は、どこにも残らない'
@@ -282,6 +289,56 @@ assert_no_secret_in() {
   done
 }
 
+# 合言葉の条件の一覧が、出力に 1 回だけ、最初の断りより前にあり、「表示されません」（端末の言い方）を持たない。
+# 一覧とは 4 つの条件（16 文字以上・change-me で始めない・API の合言葉・ログインの印の鍵）を全部含む行
+assert_requirements_line() {
+  local file="$1" what="$2" text hits first_refusal
+  text="$(tr -d '\r' <"$file")"
+  hits="$(grep -nF -e '16 文字以上' <<<"$text" | grep -F 'change-me で始めない' | grep -F 'API の合言葉' |
+    grep -F 'ログインの印の鍵' || true)"
+  [[ -n "$hits" && "$(wc -l <<<"$hits")" == 1 ]] || die "$what の出力に合言葉の条件の行がちょうど 1 つでない"
+  first_refusal="$(grep -nF '受け付けない:' <<<"$text" | head -n 1 | cut -d: -f1 || true)"
+  [[ -z "$first_refusal" || "${hits%%:*}" -lt "$first_refusal" ]] || die "$what の出力で、合言葉の条件が最初の断りより後にある"
+  ! grep -Fq '表示されません' <<<"$text" || die "$what の出力（端末でない）に「表示されません」がある"
+}
+
+# 疑似コンソールの窓で命令を走らせ、窓の文字（VT を除く）を $WORK/<名前>.window に残す。戻り値は窓の子の終了コード。
+# 窓の台本は上限を超えると子を止めて rc≠0 にする（install_with と同じ上限。password の口は起こし直しで最大 180 秒待つ）
+window_run() {
+  local name="$1" command="$2" input="${3:-}" rc=0 args=()
+  [[ -z "$input" ]] || args=(-InputFile "$(cygpath -w "$input")")
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(cygpath -w "$root/tools/release/conpty-run.ps1")" \
+    -Command "$command" ${args[@]+"${args[@]}"} -Out "$(cygpath -w "$WORK/$name.vt")" \
+    -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" >"$WORK/$name.ps.out" 2>&1 || rc=$?
+  PY -c 'import re,sys; vt=re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"); t=open(sys.argv[1],"rb").read().decode("utf-8",errors="replace"); sys.stdout.write(vt.sub("",t).replace("\r",""))' \
+    "$(pypath "$WORK/$name.vt")" >"$WORK/$name.window" || {
+    # 窓の台本の出力（hr=・err= など）を手がかりに出す。台本は入力の行を出さないので合言葉は載らない
+    cat "$WORK/$name.ps.out" >&2 2>/dev/null || true
+    die "窓の文字を読めない: $name（窓の台本 rc=$rc）"
+  }
+  return "$rc"
+}
+
+# 窓の文字（$1）が、最初の問いより前に合言葉の条件（表示されません まで）を持ち、2 つの問いを持つ。
+# 窓の幅で折り返されても読めるよう、改行を除いた続きで見る
+assert_window_prompt() {
+  PY - "$(pypath "$1")" <<'PY' || die '窓に合言葉の問いと条件が読める形で出ていない'
+import sys
+t = open(sys.argv[1], encoding="utf-8").read().replace("\n", "")
+first = t.find("画面の合言葉: ")
+if first < 0 or "画面の合言葉（もう一度）: " not in t:
+    sys.exit("窓に2つの問いが無い")
+head = t[:first]
+start = head.find("画面の合言葉を決めます")
+if start < 0:
+    sys.exit("最初の問いより前に条件の文が無い")
+cond = head[start:]
+for want in ("16 文字以上", "change-me で始めない", "API の合言葉", "ログインの印の鍵", "表示されません"):
+    if want not in cond:
+        sys.exit("条件の文に無い: " + want)
+PY
+}
+
 # 応答の見出しからログインの印を読む。
 session_cookie_from_headers() {
   sed -n 's/^[Ss]et-[Cc]ookie:[[:space:]]*ashiato_session=\([^;]*\).*/\1/p' <<<"${1//$'\r'/}" | head -n 1
@@ -308,6 +365,7 @@ PW1='install-check-password-0123'
 PW2='install-check-reset-0123456'
 OTHER_USER='ashiato-ci-other'
 ADMIN_B='ashiato-ci-admin'
+ADMIN_NONASCII='ashiato-ci-é'
 WORK=''
 FIREWALL_RULE_COUNT=0
 PORT_LISTENER_PID=''
@@ -318,6 +376,9 @@ OUTBOUND_REMOTE_IPV6='::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
 
 win() { printf '%s' "${1//\//\\}"; }
 PY() { if command -v python >/dev/null 2>&1; then python "$@"; else python3 "$@"; fi; }
+# Python に渡すファイルの場所。common_setup が Git Bash の場所の読み替えを止める（MSYS_NO_PATHCONV）ので、
+# Windows の Python に `/tmp/…` をそのまま渡すと開けない（CI run 42834307188）。Git Bash では `C:/…` に直して渡す
+pypath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 setting() { PY -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$SETTINGS" "$1"; }
 owner_setting() { PY -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$OWNER_SETTINGS" "$1"; }
 url_password() { PY -c 'import sys, urllib.parse; print(urllib.parse.unquote(urllib.parse.urlparse(sys.argv[1]).password or ""))' "$1"; }
@@ -520,12 +581,13 @@ run_as_other() {
     exit \$p.ExitCode" >/dev/null 2>&1
 }
 
-# 別の管理者 B として、上がった札でコマンドの行を走らせ、その終了コードを返す（タスクの最上位の特権）。
-run_as_admin_b() {
-  local cmdline="$1" name='ashiato-install-check-b' script='C:/Users/Public/ashiato-install-check-b.cmd'
+# 管理者 $1（合言葉 $2）として、上がった札でコマンドの行 $3 を走らせ、その終了コードを返す（タスクの最上位の特権）。
+# タスクとその .cmd は呼び出しごとに作って消す 1 つの名前（どの管理者で走らせても同じ。一度に 1 つしか走らせない）
+run_as_admin() {
+  local user="$1" password="$2" cmdline="$3" name='ashiato-install-check-admin' script='C:/Users/Public/ashiato-install-check-admin.cmd'
   # タスクの命令の行は長さに上限があるので、走らせる行は .cmd のファイルに置く
   printf '@echo off\r\n%s\r\n' "$cmdline" >"$script"
-  schtasks.exe /Create /TN "$name" /TR "$(win "$script")" /RU "$ADMIN_B" /RP "$ADMIN_B_PASSWORD" \
+  schtasks.exe /Create /TN "$name" /TR "$(win "$script")" /RU "$user" /RP "$password" \
     /RL HIGHEST /SC ONCE /ST 23:59 /F >/dev/null
   schtasks.exe /Run /TN "$name" >/dev/null
   local deadline=$((SECONDS + 900)) status
@@ -533,7 +595,7 @@ run_as_admin_b() {
   while :; do
     status="$(schtasks.exe /Query /TN "$name" /FO LIST /V | tr -d '\r')"
     grep -Eq 'Status:[[:space:]]+Running' <<<"$status" || break
-    [[ "$SECONDS" -lt "$deadline" ]] || die '管理者 B の実行が終わらない'
+    [[ "$SECONDS" -lt "$deadline" ]] || die "管理者 $user の実行が終わらない"
     sleep 2
   done
   local result
@@ -541,6 +603,9 @@ run_as_admin_b() {
   schtasks.exe /Delete /TN "$name" /F >/dev/null
   [[ "$result" == 0 ]]
 }
+
+# 別の管理者 B として走らせる。
+run_as_admin_b() { run_as_admin "$ADMIN_B" "$ADMIN_B_PASSWORD" "$1"; }
 
 # net.exe は 14 文字を超える合言葉に「続けますか (Y/N)」と聞き返し、入力の無い CI ではそこで作成が
 # 失敗する。合言葉は 14 文字に収める（"Ci-" + 8 + "-a1"）。既にいる利用者は合言葉だけ付け直し、
@@ -557,11 +622,15 @@ make_users() {
   ensure_user "$OTHER_USER" "$OTHER_PASSWORD"
   ensure_user "$ADMIN_B" "$ADMIN_B_PASSWORD"
   windows_net localgroup Administrators "$ADMIN_B" /add >/dev/null 2>&1 || true
+  ADMIN_NONASCII_PASSWORD="Ci-$(PY -c 'import secrets; print(secrets.token_urlsafe(6))')-c3"
+  ensure_user "$ADMIN_NONASCII" "$ADMIN_NONASCII_PASSWORD"
+  windows_net localgroup Administrators "$ADMIN_NONASCII" /add >/dev/null 2>&1 || true
 }
 
 remove_users() {
   windows_net user "$OTHER_USER" /delete >/dev/null 2>&1 || true
   windows_net user "$ADMIN_B" /delete >/dev/null 2>&1 || true
+  windows_net user "$ADMIN_NONASCII" /delete >/dev/null 2>&1 || true
 }
 
 # 前の回のインストールを消し、まっさらな機械にする（状態の置き場も消す）。
@@ -975,6 +1044,15 @@ check_release_zip() {
   grep -Fq '受け付けない: 短い' "$out" && grep -Fq '受け付けない: 雛形' "$out" && grep -Fq '受け付けない: 一致しない' "$out" ||
     die '短い・雛形・一致しない合言葉を理由つきで断らない'
 
+  echo '== Scenario: 端末でないときも、断りより前に合言葉の条件を 1 回だけ示す'
+  # インストールの最後・password の口・repair の口（repair の節で同じ関数を呼ぶ）の 3 つで同じ形
+  assert_requirements_line "$WORK/install.out" 'インストールの最後'
+  assert_requirements_line "$out" 'password の口'
+
+  echo '== Scenario: 短い・雛形で断るときは、理由に条件を添える'
+  grep -Fq '受け付けない: 短い（16 文字以上）' "$out" && grep -Fq '受け付けない: 雛形（change-me で始めない）' "$out" ||
+    die '短い・雛形の断りに条件が添えられていない'
+
   echo '== Scenario: 決め直した合言葉でログインでき、前の合言葉ではできない'
   wait_healthz 150
   [[ -n "$(login "$PW2")" ]] || die '決め直した合言葉でログインできない'
@@ -988,9 +1066,49 @@ check_release_zip() {
     die '決め直しでほかの設定が変わった'
   [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '決め直しで記録が変わった'
 
-  echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'
-  local api session
+  # 窓の節（design D6）。窓の試験が化けを見分けられることを先に確かめる（陰性の対照）。
+  # CI の install-windows は、インストールの前に独立の step（--probe-console。tasks 3.3）でも同じ対照を走らせる。
+  # 正本はこちら（窓の節の結果を読む前に必ず通る。CI の外で台本だけを走らせても落ちない）。CI の step は
+  # インストールに時間をかける前に早く落とすためで、二重に走る分はインストールより短い（review/code.md R25）。
+  # console_probe は trap を張り替えるので、子の shell で走らせる
+  (console_probe) || die '窓の試験が化けを見分けられない'
+  local api session win_in="$WORK/pw2.in" win_in_short="$WORK/pw2-short.in" win_setup win_rc=0
   api="$(setting API_TOKEN)"; session="$(setting WEB_SESSION_KEY)"
+  printf '%s\n%s\n' "$PW2" "$PW2" >"$win_in"
+  # 向け替えの窓では、先に短い合言葉を打って断りの理由も窓に出ることを見る（review/code.md R5）
+  printf '%s\n%s\n%s\n%s\n' short short "$PW2" "$PW2" >"$win_in_short"
+  win_setup="$(cygpath -w "$SETUP")"
+
+  echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'
+  window_run window1 "chcp 932 >nul & chcp & \"$win_setup\" password" "$win_in" || win_rc=$?
+  local codepage
+  codepage="$(sed -n 's/.*:[[:space:]]*\([0-9]\{3,5\}\)[[:space:]]*$/\1/p' "$WORK/window1.window" | head -n 1)"
+  [[ -n "$codepage" && "$codepage" != 65001 ]] || { cat "$WORK/window1.window" >&2; die "窓のコード頁が読めないか UTF-8 のまま（chcp: ${codepage:-読めない}）"; }
+  assert_window_prompt "$WORK/window1.window"
+
+  echo '== Scenario: 窓で打った合言葉で決め直せる'
+  [[ "$win_rc" == 0 ]] || { cat "$WORK/window1.window" "$WORK/window1.ps.out" >&2; die "窓での決め直しが失敗した（rc=$win_rc）"; }
+  wait_healthz 150
+  [[ -n "$(login "$PW2")" ]] || die '窓で決めた合言葉でログインできない'
+
+  echo '== Scenario: 窓で打った合言葉は、窓に出ない'
+  ! grep -Fq -- "$PW2" "$WORK/window1.vt" "$WORK/window1.window" || die '窓の文字に打った合言葉がある'
+  assert_no_secret_in "$(cat "$WORK/window1.window")" '窓の文字' "$api" "$session"
+
+  echo '== Scenario: 標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'
+  win_rc=0
+  window_run window2 "chcp 932 >nul & \"$win_setup\" password >\"$(cygpath -w "$WORK/redirect.out.txt")\" 2>\"$(cygpath -w "$WORK/redirect.err.txt")\"" "$win_in_short" || win_rc=$?
+  [[ "$win_rc" == 0 ]] || { cat "$WORK/window2.window" "$WORK/window2.ps.out" >&2; die "向け替えた窓での決め直しが失敗した（rc=$win_rc）"; }
+  grep -Fq '画面の合言葉: ' "$WORK/window2.window" || die '向け替えると問いが窓に出ない'
+  grep -Fq '16 文字以上' "$WORK/window2.window" || die '向け替えると条件が窓に出ない'
+  # 窓の幅で折り返されても読めるよう、改行を除いた続きで見る
+  tr -d '\n' <"$WORK/window2.window" | grep -Fq '受け付けない: 短い（16 文字以上）' || die '向け替えると断りの理由が窓に出ない'
+  ! grep -Fq '画面の合言葉: ' "$WORK/redirect.out.txt" "$WORK/redirect.err.txt" || die '向け替えた先に問いが書かれた'
+  assert_no_secret_in "$(cat "$WORK/window2.window" "$WORK/redirect.out.txt" "$WORK/redirect.err.txt")" '向け替えの窓と出力' "$api" "$session" "$PW2"
+  wait_healthz 150
+  [[ -n "$(login "$PW2")" ]] || die '向け替えた窓で決めた合言葉でログインできない'
+
+  echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'
   printf '%s\n' "$api" "$api" "$session" "$session" "$PW1" "$PW1" | "$SETUP" password >"$out" 2>&1 ||
     die 'API の合言葉と同じ値を断った後に決め直せない'
   grep -Fq '受け付けない: API の合言葉と同じ' "$out" && grep -Fq '受け付けない: ログインの印の鍵と同じ' "$out" ||
@@ -1070,6 +1188,7 @@ check_release_zip() {
   local old_token
   old_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["API_TOKEN"])' "$(cygpath -m "$WORK/settings.away")")"
   install_with "$PW1" repair >"$out" 2>&1 || { cat "$out" >&2; die 'repair が失敗'; }
+  assert_requirements_line "$out" 'repair の口'
   [[ -f "$SETTINGS" ]] || die 'repair の後に設定が無い'
   wait_healthz 150
   [[ -n "$(login "$PW1")" ]] || die 'repair の後にログインできない'
@@ -1106,6 +1225,19 @@ check_release_zip() {
   [[ "$(setting ASHIATO_OWNER_SID)" == "$owner_sid" ]] || die '別の管理者の repair で本人が変わった'
   assert_acl_only "$(acl_of "$STATE")" 'repair の後の状態の置き場' 'NT SERVICE\ashiato-server' "$me"
   wait_healthz 150
+
+  echo '== Scenario: 英字でない名前の管理者でも repair でき、決めた合言葉でログインできる'
+  with_settings_write mv "$SETTINGS" "$WORK/settings.away3"
+  if ! run_as_admin "$ADMIN_NONASCII" "$ADMIN_NONASCII_PASSWORD" "\"C:\\Users\\Public\\ashiato-install-check-zip\\ashiato-setup.exe\" repair --profile \"$(win "$PROFILE_U")\" --downloads \"$(win "$DOWNLOADS_U")\" < C:\\Users\\Public\\ashiato-install-check.in > C:\\Users\\Public\\ashiato-install-check.out 2>&1"; then
+    cat 'C:/Users/Public/ashiato-install-check.out' >&2
+    if [[ -f "$STATE/settings/repair.pg_ident.conf" ]]; then xxd "$STATE/settings/repair.pg_ident.conf" >&2; fi
+    if [[ -f "$STATE/settings/repair-db.log" ]]; then tail -n 20 "$STATE/settings/repair-db.log" >&2; fi
+    die '英字でない名前の管理者の repair が失敗'
+  fi
+  wait_healthz 150
+  [[ -n "$(login "$PW1")" ]] || die '英字でない名前の管理者の repair の後にログインできない'
+  [[ "$(app_sql "select oid from pg_database where datname = 'ashiato'")" == "$db_oid" ]] || die '英字でない名前の管理者の repair で DB が作り直された'
+  [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '英字でない名前の管理者の repair で記録が変わった'
 
   echo '== Scenario: インストールすると「アプリと機能」に載る'
   local key='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' version
@@ -1183,7 +1315,7 @@ check_release_zip() {
   sleep 5
   clean_machine
   rm -rf 'C:/Users/Public/ashiato-install-check-zip' 'C:/Users/Public/ashiato-install-check.in' \
-    'C:/Users/Public/ashiato-install-check.out' 'C:/Users/Public/ashiato-install-check-b.cmd'
+    'C:/Users/Public/ashiato-install-check.out' 'C:/Users/Public/ashiato-install-check-admin.cmd'
   echo 'OK: 配る zip の実地の確かめ'
 }
 
@@ -1325,6 +1457,66 @@ check_zip() {
 # <<< 実地の確かめ
 # ============================================================================
 
+# 窓の試験が化けを見分けられるかを先に確かめる（陰性の対照。conpty-run.ps1 -Probe）
+console_probe() {
+  local ps script work
+  # Python に日本語を出させる（windows-latest の Git Bash は cp1252 で落ちる）
+  export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+  if command -v wslpath >/dev/null 2>&1; then
+    ps=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+    [[ -x "$ps" ]] || { echo 'Windows の PowerShell が無い' >&2; exit 2; }
+    script="$(wslpath -w "$root/tools/release/conpty-run.ps1")"
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    ps=powershell.exe
+    script="$(cygpath -w "$root/tools/release/conpty-run.ps1")"
+  else
+    echo 'Windows の PowerShell が無い' >&2; exit 2
+  fi
+  work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-console.XXXXXX")"
+  trap "rm -rf '$work'" EXIT
+  local outw="$work/probe"
+  command -v wslpath >/dev/null 2>&1 && outw="$(wslpath -w "$work")\\probe" || outw="$(cygpath -w "$work")\\probe"
+  local ps_out ps_rc=0
+  ps_out="$("$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" -Probe -Out "$outw" -TimeoutSec 90 2>&1)" || ps_rc=$?
+  if [[ $ps_rc != 0 ]]; then
+    printf '%s\n' "$ps_out" >&2
+    die "窓の試験が化けを見分けられない: 台本が rc=$ps_rc で終わった（90=CreatePseudoConsole 失敗・91=CreateProcess 失敗は上の hr=/err=。それ以外は時間切れか台本の書き方）"
+  fi
+  PY - "$(pypath "$work/probe.raw.txt")" "$(pypath "$work/probe.console.txt")" <<'PY'
+import re, sys
+vt = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+def read(p):
+    try:
+        return vt.sub("", open(p, "rb").read().decode("utf-8", errors="replace"))
+    except OSError:
+        sys.exit("窓の試験が化けを見分けられない: 出力のファイルが無い " + p)
+raw, con = read(sys.argv[1]), read(sys.argv[2])
+want = "画面の合言葉"
+if "CONSOLE-OK" not in raw or "CONSOLE-OK" not in con:
+    sys.exit("窓の試験が化けを見分けられない: 子が窓につながっていない")
+if want not in con:
+    sys.exit("窓の試験が化けを見分けられない: .console.txt に画面の合言葉が無い")
+if want in raw:
+    sys.exit("窓の試験が化けを見分けられない: .raw.txt が化けていない")
+m = re.search(r"(\d{3,5})\s*$", next((l for l in raw.splitlines() if re.search(r":\s*\d{3,5}\s*$", l)), ""))
+if not m:
+    sys.exit("窓の試験が化けを見分けられない: chcp の返したコード頁が読めない")
+if m.group(1) == "65001":
+    sys.exit("窓の試験が化けを見分けられない: 窓が UTF-8 のまま")
+mangled = (want + ": ").encode("utf-8").decode("cp" + m.group(1), errors="replace")
+run = ""
+for ch in mangled:
+    run = run + ch if ch != "�" else ""
+    if len(run) >= 3:
+        break
+else:
+    run = ""
+if len(run) < 3 or run[:3] not in raw:
+    sys.exit("窓の試験が化けを見分けられない: .raw.txt に化けた並びが無い")
+print("OK: 窓の試験は化けを見分けられる（コード頁 " + m.group(1) + "）")
+PY
+}
+
 # Linux で走る自己試験。本物の Windows は無いので、(1) 確かめの部品が合う出力で通り 1 つずつ外れた出力で
 # 落ちること、(2) --list の全部の Scenario が実地の確かめ（CI が走らせる経路）に 1 回ずつ印を持ち、
 # 自己試験の側には印が無いこと、(3) Windows でないと実地の確かめが走らないこと、を見る。
@@ -1446,6 +1638,19 @@ EOF
   assert_no_secret_in 'kind=web_session_key reason=too_short' t 'secret-value-0123456789'
   expect_fail assert_no_secret_in 'leaked secret-value-0123456789' t 'secret-value-0123456789'
 
+  # 合言葉の条件の行（管の出力）
+  local req='画面の合言葉を決めます。16 文字以上・change-me で始めない・自動で作った API の合言葉やログインの印の鍵と同じにしない'
+  printf '%s\n' "$req" '受け付けない: 短い（16 文字以上）' >"$work/req.good"
+  assert_requirements_line "$work/req.good" t
+  printf '%s\n' '受け付けない: 短い' "$req" >"$work/req.late"
+  expect_fail assert_requirements_line "$work/req.late" t
+  printf '%s\n' "$req" "$req" >"$work/req.twice"
+  expect_fail assert_requirements_line "$work/req.twice" t
+  printf '%s\n' "$req。入れた文字は表示されません" >"$work/req.tty"
+  expect_fail assert_requirements_line "$work/req.tty" t
+  printf '%s\n' '16 文字以上だけ' >"$work/req.none"
+  expect_fail assert_requirements_line "$work/req.none" t
+
   [[ "$(session_cookie_from_headers $'HTTP/1.1 204 No Content\r\nset-cookie: ashiato_session=abc_DEF-1; HttpOnly; Secure\r\n')" == abc_DEF-1 ]] ||
     die 'ログインの印を見出しから読めない'
   [[ -z "$(session_cookie_from_headers $'HTTP/1.1 401 Unauthorized\r\n')" ]] || die '401 で印を読んだ'
@@ -1527,6 +1732,7 @@ EOF
 
 [[ "${1:-}" == --self-test ]] && { self_test; exit 0; }
 [[ "${1:-}" == --list && $# == 1 ]] && { list_scenarios; exit 0; }
+[[ "${1:-}" == --probe-console && $# == 1 ]] && { console_probe; exit 0; }
 [[ "${1:-}" == --check-coverage && $# == 2 ]] && { check_coverage "$2"; exit 0; }
 [[ $# == 1 ]] || usage
 check_zip "$1"

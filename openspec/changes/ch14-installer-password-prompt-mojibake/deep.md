@@ -28,3 +28,23 @@
 
 - 問い: 合言葉の問いの文を、どの流れに書きますか。
 - 答え: 窓へ直に書く（CONOUT$ に WriteConsoleW）（本人の選択。推奨と同じ）
+
+# 深掘り（第 2 回）
+
+> settle（2026-11-10）: 最後の段の指摘（`review/code.md`）のうち、決めた前提が崩れた 2 件（kind: premise）を本人に問う。問いの一覧は `deep-questions-r2.json`、
+> HTML は `docs/briefs/CH14-deep-r2.html`。ほかの指摘はこの回の settle が直したか、再現して退けた（`review/code.md` の各 R の `処置:`）。
+> 答え（`deep-answers-2.txt`、2026-11-10）: Q6・Q7 とも本人が推奨と同じ選択肢を選んだ（補足なし）。要件に効く決定は無い（change は `satisfies: []`。requirements.md は改訂しない）。
+
+### Q6. 子の命令の出力を、どの順で読むか（利用者名・ダウンロードの場所）
+
+- 出所: `review/code.md` R1（kind: premise。code-verify）・R8（同じ不具合。/code-review）
+- 問い: design D8（仮）は「子の出力が UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む」としました。ところが cp932 の 2 文字の並びの約 2.3% が UTF-8 としても正しく、`whoami` の `pc\凜子` は `pc\꣎q` と読まれ、repair が「932 で表せない」で止まります（本人の PC で再現）。D8 の反転条件（「UTF-8 として正しい cp932 の出力が見つかったら、順を子ごとに決める」）に当たります。値として使う口（利用者名・ダウンロードの場所）を、どう読みますか。
+- 答え: 値の口は窓のコード頁を先に読む（本人の選択。推奨と同じ。補足なし。`deep-answers-2.txt`、2026-11-10）
+- 決まったこと: `whoami` と `reg.exe` など Windows の命令の出力を値として読む口は、窓のコード頁が 65001 でなければ先にそのコード頁で読み、読めないときだけ UTF-8 を見る。UTF-8 を先に見るのは、Rust の子（`ashiato-server migrate`）が混ざる失敗の理由の末尾（`output_tail`）だけ。`pc\凜子` の cp932 の並びを試験に足し、design D8 を書き直す
+
+### Q7. 6.1 の検証の台本が、CI の step を壊しても落ちない
+
+- 出所: `review/code.md` R3（kind: premise。code-verify の手 7「落ちなかった」）
+- 問い: 6.1 の検証 `tools/check-ci-ch14-step.sh`（機械が承認した訂正）は、CI の step が `-- --list` で数えるだけで `ch14_` の試験を 1 本も走らせない形に壊れても rc=0 になります（訂正前のコマンドも同じ）。6.1 の検証をどうしますか。
+- 答え: 台本を強める（検証コマンドの字面は変えない）（本人の選択。推奨と同じ。補足なし。`deep-answers-2.txt`、2026-11-10）
+- 決まったこと: `tools/check-ci-ch14-step.sh` を、`package-windows` の step の run を `;` などで区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があることまで見るように強める。6.1 の検証コマンドの字面は変えない。壊した形（`-- --list` で数えるだけ）で rc≠0 になることを確かめてから入れる

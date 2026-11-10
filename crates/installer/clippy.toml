@@ -1,0 +1,7 @@
+# インストーラだけの clippy の設定（clippy はこの crate の Cargo.toml の置き場から探す）。
+# 子の命令の出力は console::decode_child_output で読む（CH14 D8）。UTF-8 として読み直すと、日本語の
+# Windows の窓（コード頁 932）で書いた出力が化ける。呼び出しの場所ごとに読み方を手で選ばせない（review/code.md R13）
+disallowed-methods = [
+  { path = "std::string::String::from_utf8_lossy", reason = "子の命令の出力は console::decode_child_output で読む（CH14 D8）" },
+  { path = "std::string::String::from_utf8", reason = "子の命令の出力は console::decode_child_output で読む（CH14 D8）" },
+]

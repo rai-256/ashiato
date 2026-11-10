@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod console;
 pub mod db;
 pub mod layout;
 pub mod password;
