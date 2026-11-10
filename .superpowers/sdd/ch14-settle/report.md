@@ -25,3 +25,10 @@
   - `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
 - R3（Q7 の答え: 台本を強める）: `tools/check-ci-ch14-step.sh` が、run を `;`・`&&`・`||`・改行で区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があることまで見る。いま rc=0、末尾の実行を消す → rc=1、実行を `-- --list` 付きにする → rc=1、戻す → rc=0。tasks.md 6.1 の検証コマンドは変えていない
 - `scripts/verify-run` 5.1・5.2・6.1・8.1 → 全部 PASS（evidence.jsonl）
+
+## settle 第 3 回（R15。2026-11-10）
+
+- R15: `crates/installer/src/commands.rs` の `repair_ident_contents` と `crates/installer/src/console.rs` の `repair_ident_bytes_with_code_page` を `pub(crate)` に（理由を doc に書いた）。main.rs から対応表を組める口は `console::repair_ident_bytes` だけになる。試験は変えていない
+  - 壊して確かめた（`cargo build -p ashiato-setup --target x86_64-pc-windows-gnu`）: main.rs の書きを CH14 前の `fs::write(&ident, commands::repair_ident_contents(&account))` に戻す → rc=101 `error[E0603]: function repair_ident_contents is private`。`console::repair_ident_bytes_with_code_page(&account, 65001)` に替える → rc=101 `error[E0603]: function repair_ident_bytes_with_code_page is private`。どちらも戻した（`git diff crates/installer/src/main.rs` は空）
+  - `scripts/verify-run 8.1` → fmt・workspace の clippy・windows-gnu の clippy・`cargo test -p ashiato-setup`・check_scenarios が全部 PASS（1 回目は fmt が FAIL。`cargo fmt --all` で console.rs の長い行を折って走らせ直した）
+  - 本人の PC での windows-gnu の試験は走らせていない（見える範囲を狭めただけで、試験の中身と本数は変えていない）
