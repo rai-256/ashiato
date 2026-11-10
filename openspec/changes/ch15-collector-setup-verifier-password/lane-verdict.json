@@ -71,5 +71,12 @@
    "直した後: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が PASS（2026-11-10T14:06:15+00:00）"
   ],
   "at": "2026-11-10T15:24:56+00:00"
+ },
+ "promoted": {
+  "stage": "diff",
+  "why": [
+   "Scenario「合言葉を入れ直すと、設定の文字列とコピーのボタンが出る」の項目（1.1）に、本番のコードが base のままの木で落ちた証跡が無い（直す前に `scripts/verify-run <項目>` で落ちることを記録する）"
+  ],
+  "at": "2026-11-10T15:24:58+00:00"
  }
 }
