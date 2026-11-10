@@ -1,0 +1,55 @@
+{
+ "lane": "normal",
+ "reason": "none",
+ "declared": {
+  "reason": "none",
+  "paths": [
+   "crates/installer/src/main.rs",
+   "crates/installer/src/password.rs",
+   "crates/installer/Cargo.toml",
+   "Cargo.lock",
+   "crates/installer/tests/**",
+   ".github/workflows/*.yml",
+   "docs/changes/CH14.md",
+   "openspec/changes/ch14-installer-password-prompt-mojibake/**"
+  ],
+  "why": "インストーラ（本番のコード）の表示を直す不具合だが、文字化けを名指しする正典の Scenario が無く（bug に当たらない）、合言葉の長さの要件を最初の問いの前に示すという新しい表示も足す（振る舞いが変わる）。tools/lanes.json が無いので文書だけの same しか通らない。本物の Windows のコンソールで確かめる試験の置き場（CI の Windows の job か手元か）も決めることがある"
+ },
+ "at": "2026-11-09T13:17:29+00:00",
+ "config": null,
+ "entry": {
+  "ok": false,
+  "why": [
+   "申告が「当たらない」（インストーラ（本番のコード）の表示を直す不具合だが、文字化けを名指しする正典の Scenario が無く（bug に当たらない）、合言葉の長さの要件を最初の問いの前に示すという新しい表示も足す（振る舞いが変わる）。tools/lanes.json が無いので文書だけの same しか通らない。本物の Windows のコンソールで確かめる試験の置き場（CI の Windows の job か手元か）も決めることがある）"
+  ],
+  "paths": [
+   "crates/installer/src/main.rs",
+   "crates/installer/src/password.rs",
+   "crates/installer/Cargo.toml",
+   "Cargo.lock",
+   "crates/installer/tests/**",
+   ".github/workflows/*.yml",
+   "docs/changes/CH14.md",
+   "openspec/changes/ch14-installer-password-prompt-mojibake/**"
+  ],
+  "classes": [
+   "docs"
+  ],
+  "code": [
+   "crates/installer/src/main.rs",
+   "crates/installer/src/password.rs",
+   "crates/installer/Cargo.toml",
+   "Cargo.lock",
+   "crates/installer/tests/**",
+   ".github/workflows/*.yml",
+   "openspec/changes/ch14-installer-password-prompt-mojibake/**"
+  ]
+ },
+ "promoted": {
+  "stage": "entry",
+  "why": [
+   "申告が「当たらない」（インストーラ（本番のコード）の表示を直す不具合だが、文字化けを名指しする正典の Scenario が無く（bug に当たらない）、合言葉の長さの要件を最初の問いの前に示すという新しい表示も足す（振る舞いが変わる）。tools/lanes.json が無いので文書だけの same しか通らない。本物の Windows のコンソールで確かめる試験の置き場（CI の Windows の job か手元か）も決めることがある）"
+  ],
+  "at": "2026-11-09T13:17:29+00:00"
+ }
+}

@@ -1,0 +1,4 @@
+spec-digest: 99557685afae5d0f722eafc8a7e57bdcb0bedf17f98d51d4a77b80550693073c
+- Q2: 写った
+答え以外の変更: あり（D8（仮）の子の出力の読み方（UTF-8 として正しければそのまま・そうでなければ窓のコード頁・読めない並びは MB_ERR_INVALID_CHARS と IsDBCSLeadByteEx で 1 文字ずつ U+FFFD にして止まらない）と、D9（仮）の確かめ方と対応表の書き方（package-windows の単体の試験を --lib なしで数える・出力の末尾を組む関数を lib へ移し窓のコード頁を選ぶ試験を console.rs に置く・読めない並びの試験・install-check の英字でない名前（ashiato-ci-é）の管理者の repair と、失敗時に出すもの・cp932 のバイト列の作り方・repair.pg_ident.conf の英字でない名前の行を ANSI のコード頁（GetACP）のバイト列の、引用符でくくった文字どおりの行で書き、表せない名前なら止まる・encode_with_code_page）。これに従う ADDED の Requirement の名前・SHALL・IF の SHALL と Scenario の具体・tasks の Task 5・6・Global Constraints・Task 4.2 の検証の形・premises.md の行・Risks の 1 行・proposal と CH14.md の完了の判定の行。Task 5・6 を差し込んだことによる番号の付け直し（Task 5→7・6→8・7.1→9.1）と、D7（仮）の反転条件・CH14.md の確認バッチの行の 7.1→9.1 の参照の直し）
+答え以外の変更の決定: D7 D8 D9
