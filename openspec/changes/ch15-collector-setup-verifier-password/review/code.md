@@ -120,3 +120,43 @@ PROBE access_rows=9 leak=false
 指摘なし
 
 範囲外（R 番号なし）: `LOGIN_CHECK`（web_session.rs:303）はプロセスで 1 つの印で、ログインの印の要らない `POST /session` に Argon2id を回す求めを並べ続ければ、資格情報の口の照合も待たされる。ST55 からあり、CH15 はこの印を資格情報の口にも通しただけ。
+
+## /code-review（fec8c26..8e451ea）
+
+見た: Claude Code の組み込みの `/code-review`（6 件）。写しは scripts/code_review_record.py
+
+## R4. collector_setup_post now waits for the global LOGIN_CHECK semaphore (an Argon2id check of tens of ms, one at a time) even just to learn it is throttled, so heavy /session traffic delays a logged-in user's setup request even when the reply will only be 429.
+- 成果物: crates/server/src/web_session.rs:579
+- 根拠: Under a stream of wrong /session attempts, every collector-setup call queues behind each Argon2id check in turn. Before this change it read limiter.throttled() straight away, without the semaphore. A logged-in user's setup request now takes N times the Argon2 time and can time out instead of getting a fast 429.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R5. session_post now parses the JSON body (given_password) before the throttle check; the old code checked throttled() first and parsed only when not throttled.
+- 成果物: crates/server/src/web_session.rs:710
+- 根拠: While throttled, an attacker sends many /session requests with bodies up to the default 2MB limit. Each body is fully parsed into a serde_json::Value and then thrown away with a 429. The old order skipped this work. Moving the parse after the throttle check, or parsing lazily, avoids it.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. In plain mode (verifier=None), accepts() is just a constant-time compare, but it still always goes through spawn_blocking, so collector-setup now pays a thread hand-off it did not pay before.
+- 成果物: crates/server/src/web_session.rs:670
+- 根拠: Every /collector-setup and /session call in plain mode sends a microsecond compare to the blocking pool. That is extra latency and pool pressure. Branching on login.verifier.is_some() would keep the blocking hop only for Argon2id.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. The ch15 test module's login_cookie re-implements testdb::web_cookie (and st56_tests::login_cookie) line for line.
+- 成果物: crates/server/src/web_session_tests.rs:467
+- 根拠: There are now three copies of the POST /session plus Set-Cookie parsing. If the login contract changes, all three must be updated. Calling testdb::web_cookie(&app, PASSWORD) does the same job.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. verifier_app() repeats the App setup from st55_tests::st55_verifier_login_route_accepts_only_matching_password: the same session key, token, failure_delay=ZERO and App::with_login, all copied.
+- 成果物: crates/server/src/web_session_tests.rs:444
+- 根拠: Verifier-mode test apps are built in two places with the same magic strings. A shared helper (for example a testdb::verifier_app(password)) would stop them drifting apart when WebLogin construction changes.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. check_given_password returns Result only for a semaphore-closed error (SERVICE_UNAVAILABLE) that cannot happen: LOGIN_CHECK is a static that is never closed. Both callers still have to `?` it.
+- 成果物: crates/server/src/web_session.rs:651
+- 根拠: This is a dead error path that looks like a real 503 to readers and callers. Returning PasswordCheck directly, with acquire().await.expect(...) or an unreachable comment, makes the contract simpler.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
