@@ -88,3 +88,35 @@
 `python3 scripts/plan_fix.py pending openspec/changes/ch15-collector-setup-verifier-password` の結果は `[]`。
 
 作業ツリー: 壊したもの・足したものは全部戻した。`crates/` の `git status --porcelain` と `git diff` は、検証の前後とも空。この席が変えたのは `review/code.md` だけ。
+
+## security review（fec8c26..d4e77c2）
+
+見た経路:
+- 新しく届く経路は 1 つだけ: 照らす形（配った形）のサーバで `POST /collector-setup` が収集アプリの token を返すようになった。base では照らす形の口はどの合言葉も 403 だった（proposal Why）。router への足し・新しい listen・接続先・依存（`Cargo.toml` / `Cargo.lock` / `web/package*.json`）の変更は無い（`git diff --first-parent fec8c26..HEAD --stat` は `web_session.rs`・`web_session_tests.rs` と change の文書だけ）（3）
+- 入口 → `crate::decided`（web_session.rs:533）→ `caller` が無ければ 401（:542-551）→ `Caller::WebSession` でなければ 403（:552-562）→ JSON でなければ 415（:564-577）→ ここで初めて `check_given_password`（:579-580）。CH15 は照合より前の 3 つの関門に触れていない（`git diff` の hunk は :579 から）（4）
+- `check_given_password`（:647-685）→ `LOGIN_CHECK` の印 → `throttled()` → 空なら失敗に数えて不一致 → `spawn_blocking` で `WebLogin::accepts`（:348）→ 照らす形は `verify_password_verifier`（:164。`PasswordHash::new` が読めなければ false）。一致のときだけ :610-620 で token を返す（4）
+- 本文の値（`password`）は `given_password`（:635-643）で `serde_json::Value` に読んで文字列だけを取る。SQL・パス・シェル・HTML には入らず、Argon2id の照合にだけ渡る。文字列でない・欠ける・JSON でないは空 → 403（4）
+- 出力: 読み出しの記録の行は `collector_setup_entry`（:499-512）の固定の項目（caller・via・route・method・outcome・status）だけで、本文を持たない。`check_given_password` は tracing を出さない。`session_post` の tracing は `kind` と固定の文だけで、CH15 で変わらない（4）
+- 失敗の数えは 2 つの口で同じ `app.login.limiter` を共有し、資格情報の口がログインの口より緩い合言葉の当て先にならない（`ch15_verifier_collector_setup_shares_login_failure_limit` が 9+1 回の後の正しい合言葉を 429 と見る。code_verify の表で rc=0）（4）
+- 取り消された求めで記録の行が落ちる窓（監査の跡の欠け）は R1 にもう書いてあるので、ここで重ねない（—）
+
+安全の決め手: **資格情報の口が token を返すのは、`Caller::WebSession`（画面の有効なログインの印）・JSON の本文・`check_given_password` の `Match` をすべて通ったときだけで、CH15 は前の 2 つの関門に触れず、照合を `WebLogin::accepts`（ログインの口と同じ照合と失敗の数え）に替えただけ** —— 確かさ 4。
+一時的な試験 `ch15_secprobe_gates_in_verifier_mode` を `mod ch15` に足し、照らす形の App（`verifier_app()`）で走らせた（`scripts/quiet-run sec -- cargo test -p ashiato-server ch15_secprobe -- --nocapture`、rc=0・1 passed。ログ `.superpowers/sdd/logs/20261110-225056-sec.log`）:
+```
+PROBE no_cookie status=401 Unauthorized leaks=false
+PROBE bearer status=403 Forbidden leaks=false
+PROBE forged_cookie status=401 Unauthorized leaks=false
+PROBE text_plain status=415 Unsupported Media Type leaks=false
+PROBE verifier_as_password status=403 Forbidden
+PROBE body={"password":123} status=403 Forbidden
+PROBE body={} status=403 Forbidden
+PROBE body={"password":null} status=403 Forbidden
+PROBE body=not json status=403 Forbidden
+PROBE access_rows=9 leak=false
+```
+（`leaks` は応答の本文に token が入っていたか。`verifier_as_password` は照らす値そのもの（`$argon2id$…`）を合言葉として送り、照らす値を知る者が通らないことを見た。`access_rows` は `core.access_log` の `/collector-setup` の行で、合言葉・token・`$argon2` のどれも含まない）
+試験は戻した（`git status --porcelain crates/` は空・`git diff -- crates` は 0 バイト）。
+
+指摘なし
+
+範囲外（R 番号なし）: `LOGIN_CHECK`（web_session.rs:303）はプロセスで 1 つの印で、ログインの印の要らない `POST /session` に Argon2id を回す求めを並べ続ければ、資格情報の口の照合も待たされる。ST55 からあり、CH15 はこの印を資格情報の口にも通しただけ。
