@@ -29,7 +29,7 @@
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server st56_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7 && scripts/quiet-run ct -- cargo test -p ashiato-server st56_'` rc=0（`-- --list` で 7 本以上）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st55_ && scripts/quiet-run ct -- cargo test -p ashiato-server web_session'` rc=0 /
   `bash -c '! grep -n "login\.password\b" crates/server/src/web_session.rs'` rc=0 /
-  `bash -c 'test "$(grep -c "\.accepts(" crates/server/src/web_session.rs)" -eq 1 && test "$(grep -c "LOGIN_CHECK" crates/server/src/web_session.rs)" -eq 2'` rc=0（`accepts` を呼ぶのは共通の関数の 1 か所、印は宣言と取る場所の 2 か所。async の側で `accepts` を呼ぶ近道を止める。base でも成り立つので赤から緑の確かめではない）/
+  `bash -c 'code=$(grep -vE "^\s*//" crates/server/src/web_session.rs); test "$(printf "%s\n" "$code" | grep -c "\.accepts(")" -eq 1 && test "$(printf "%s\n" "$code" | grep -c "LOGIN_CHECK")" -eq 2'` rc=0（コメントの行は数えない。`accepts` を呼ぶのは共通の関数の 1 か所、印は宣言と取る場所の 2 か所。async の側で `accepts` を呼ぶ近道を止める。base でも成り立つので赤から緑の確かめではない）/
   `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e -- st56-collector-setup.spec.ts'` rc=0（合言葉そのものの形のサーバで画面の Scenario が通るまま。`docs/testing.md` §4.5）/
   `scripts/quiet-run clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 /
   `./tools/check-openapi.sh` rc=0（API の契約が変わっていない）
