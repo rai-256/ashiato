@@ -1,9 +1,9 @@
 {
- "purpose": "日本語の Windows でインストーラが合言葉を聞くとき、問いの文が化けずに読めるようになる。最初の問いの前に「16 文字以上・change-me で始めない」などの条件が出るので、何文字要るかを知ってから打てる。",
+ "purpose": "日本語の Windows でインストーラが合言葉を聞くとき、問いの文が化けずに読めるようになる。最初の問いの前に「16 文字以上・change-me で始めない」などの条件が出るので、何文字要るかを知ってから打てる。あわせて、インストーラが子の命令（sc.exe・whoami・reg.exe など）の出力を窓のコード頁で読むようになり、失敗の理由が化けずに読め、日本語の利用者名やフォルダ名でも repair とインストールが止まらない。",
  "model": {
   "kind": "diagram",
-  "caption": "合言葉を聞く 1 つの関数と、文字の行き先（この change の後）",
-  "text": "インストールの最後 ─┐\npassword の口 ───────┼─→ 合言葉を聞く関数（1 つ）\nrepair の口 ─────────┘          │\n              ┌──────────────┴──────────────┐\n        標準入力が窓                     標準入力が管（CI）\n  条件の 1 行・問いの文                条件の 1 行 → 標準出力\n   → 窓へ直に UTF-16 で書く            2 行を読む（問いは出さない）\n  打った文字 ← rpassword が読む\n   （窓には出さない）\n              └──────────────┬──────────────┘\n                    検査（16 文字・change-me・API の合言葉・\n                    ログインの印の鍵・2 回の一致）は今のまま"
+  "caption": "合言葉を聞く 1 つの関数と、子の命令の出力を読む 1 つの口（この change の後）",
+  "text": "インストールの最後 ─┐\npassword の口 ───────┼─→ 合言葉を聞く関数（1 つ）\nrepair の口 ─────────┘          │\n              ┌──────────────┴──────────────┐\n        標準入力が窓                     標準入力が管（CI）\n  条件の 1 行・問いの文                条件の 1 行 → 標準出力\n   → 窓へ直に UTF-16 で書く            2 行を読む（問いは出さない）\n  打った文字 ← rpassword が読む\n   （窓には出さない）\n              └──────────────┬──────────────┘\n                    検査（16 文字・change-me・API の合言葉・\n                    ログインの印の鍵・2 回の一致）は今のまま\n\n子の命令（sc.exe・whoami・reg.exe・tasklist など）の出力\n   → 1 つの読み方: UTF-8 として正しければそのまま、そうでなければ窓のコード頁\n   → 失敗の理由の表示・利用者名（repair の DB の対応表）・ダウンロードの場所\n   英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で文字どおりに書く"
  },
  "before_after": [
   {
@@ -25,15 +25,20 @@
    "area": "CI のインストールの試験",
    "before": "合言葉を管で流すだけで、窓の経路を一度も通らない",
    "after": "疑似コンソールで本物の窓を作り、問いが読めること・打った文字が出ないことを毎回確かめる"
+  },
+  {
+   "area": "日本語の Windows で子の命令が失敗したときの理由・日本語の利用者名やダウンロードの場所",
+   "before": "UTF-8 として読むので化ける。日本語の利用者名では repair の DB の対応表が合わず、止まる見込み",
+   "after": "窓のコード頁で読み、同じ文字で示す・使う。英字だけの出力はいまと同じ値"
   }
  ],
  "highlights": [
   "prompt.3",
   "test.2",
   "test.3",
-  "scope.2",
+  "child.3",
   "scope.3",
-  "test.5"
+  "child.7"
  ],
  "features": [
   {
@@ -335,7 +340,7 @@
     {
      "id": "test.4",
      "kind": "normal",
-     "text": "確認バッチで本人が日本語の Windows で password の口を開き、昇格して開き直した窓で問いと条件が読めること・打った文字が出ないこと・15 文字で「短い（16 文字以上）」と断られることを 1 回見る（CI の runner は昇格して開き直す窓を作らない）",
+     "text": "確認バッチで本人が日本語の Windows で password の口を開き、昇格して開き直した窓で問いと条件が読めること・打った文字が出ないこと・15 文字で「短い（16 文字以上）」と断られることを 1 回見る（CI の runner は昇格して開き直す窓を作らない）。子の命令の出力の読みは、確認バッチでは見ない",
      "refs": {
       "decisions": [
        "Q4",
@@ -346,9 +351,170 @@
    ]
   },
   {
+   "id": "child",
+   "title": "子の命令の出力を読む",
+   "summary": "インストーラが走らせる子の命令の出力を、子が書いた文字として読む（本人の答え Q2 で、この change に含めた）",
+   "figure": null,
+   "points": [
+    {
+     "id": "child.1",
+     "kind": "normal",
+     "text": "子の命令の出力は、UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む。日本語の Windows で sc.exe などが失敗したとき、添える理由が化けずに出る",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "窓のコード頁で書いた子の命令の失敗の理由が、化けずに読める",
+       "UTF-8 で書く子の出力は、窓のコード頁が 932 でもそのまま読める"
+      ],
+      "decisions": [
+       "Q2",
+       "D2",
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "child.2",
+     "kind": "normal",
+     "text": "値として使う口（whoami の利用者名・reg.exe のダウンロードの場所）も同じ読み方を通る。日本語の名前も Windows が持つ名前と同じ文字で読み、英字だけの出力はいまと同じ値になる",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "コード頁 932 で書いた日本語の利用者名を、同じ文字として読む",
+       "コード頁 932 で書いた日本語のダウンロードの場所を、同じ文字として読む",
+       "英字だけの子の出力は、いまと同じ値として読む"
+      ],
+      "decisions": [
+       "Q2",
+       "D2",
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "child.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "DB"
+     ],
+     "text": "repair が書く DB の認証の対応表は、英字でない利用者名の行だけ書き方が変わる。Windows の文字コード（ANSI のコード頁。日本語の Windows は 932）のバイト列で、引用符でくくった文字どおりの行にする。英字だけの名前の行はいまの正規表現の行のまま",
+     "examples": [
+      {
+       "wrong": "利用者名 pc\\足跡表ソ の行を、いまと同じく UTF-8 の正規表現の行で書く",
+       "right": "repair \"足跡表ソ@pc\" ashiato を cp932 のバイト列で書く（表・ソの 2 バイト目が \\ なので、正規表現に入れると行が壊れる）"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "child.4",
+     "kind": "exception",
+     "text": "Windows の文字コードで表せない利用者名なら、repair は合わない行を書かずに、表せないことと文字コードの番号を示して止まる。日本語の Windows の日本語の名前は表せるので当たらない（当たるのは、例えば英語の Windows（1252）で日本語の名前の管理者）",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "child.5",
+     "kind": "exception",
+     "text": "UTF-8 としても窓のコード頁としても読めない並びは、置換の文字（�）にして読み、それを理由に止まらない（いまと同じ）",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "どのコード頁でも読めない並びは、置換の文字にして止まらない"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "child.6",
+     "kind": "normal",
+     "tags": [
+      "Windows"
+     ],
+     "text": "Windows の CI（package-windows）が ch14_ の単体の試験（11 本以上）を走らせ、cp932 で書いた失敗の理由・利用者名・ダウンロードの場所をコード頁 932 で読む。install-check は英字でない名前の管理者（ashiato-ci-é）で repair し、決めた合言葉でログインできることを見る",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "英字でない名前の管理者でも repair でき、決めた合言葉でログインできる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "child.7",
+     "kind": "caution",
+     "tags": [
+      "未解決"
+     ],
+     "text": "日本語の Windows で、実物の子の命令が日本語で書いた出力を読むことは、CI も確認バッチも確かめない（英語の runner には日本語の文を出す子が無い）。子が窓のコード頁で書くことは本人の PC で確かめ、その符号化を単体の試験が読む。2 つを合わせて確かめたことにする",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "decisions": [
+       "D8",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "child.8",
+     "kind": "caution",
+     "tags": [
+      "未解決",
+      "DB"
+     ],
+     "text": "PostgreSQL が文字どおりの行で英字でない名前を認証できることは、source を読んで確かめただけで、CI の repair で初めて走る。runner で é を含む名前の利用者を作れるかも確かめていない。外れたら下流が止まり、人間に問い直す（IMP-04）",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "scenarios": [
+       "英字でない名前の管理者でも repair でき、決めた合言葉でログインできる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    }
+   ]
+  },
+  {
    "id": "scope",
    "title": "変えないもの・後に回すもの",
-   "summary": "検査の中身・管での読み方は変えない。子の命令の出力の化けは別の change",
+   "summary": "検査の中身・管での読み方は変えない",
    "figure": null,
    "points": [
     {
@@ -370,20 +536,6 @@
      }
     },
     {
-     "id": "scope.2",
-     "kind": "caution",
-     "tags": [
-      "直感注意"
-     ],
-     "text": "インストーラが子の命令（sc.exe・icacls・whoami・reg.exe・tasklist）の出力を読む口も cp932 で化けうるが、この change では直さない。日本語の利用者名や日本語のダウンロードの場所では、repair やインストールが止まる見込みがある（本人の PC は英字の利用者名で、今は当たらない）",
-     "refs": {
-      "decisions": [
-       "Q2",
-       "D2"
-      ]
-     }
-    },
-    {
      "id": "scope.3",
      "kind": "caution",
      "tags": [
@@ -401,15 +553,6 @@
  ],
  "out_of_scope": [
   {
-   "text": "子の命令の出力（失敗の理由に添える表示・whoami の利用者名・reg.exe のダウンロードの場所）の化けを直すこと。別の change にする",
-   "refs": {
-    "decisions": [
-     "Q2",
-     "D2"
-    ]
-   }
-  },
-  {
    "text": "合言葉の検査の中身を変えること・rpassword を外すこと",
    "refs": {
     "decisions": [
@@ -421,10 +564,12 @@
  ],
  "open": [
   {
-   "text": "design D4 の console.rs の `allow(unsafe_code)` を、CI の tools/check-unsafe-scope.sh（許すのは secret.rs だけ）が落とす。仕様と tasks はこの食い違いを扱っていない（IMP-01）",
+   "text": "design D4 の console.rs の `allow(unsafe_code)` を、CI の tools/check-unsafe-scope.sh（許すのは secret.rs だけ）が落とす。子の命令の出力の読み（D8）と対応表の書き方（D9）も console.rs に unsafe を足す。仕様と tasks はこの食い違いを扱っていない（IMP-01）",
    "refs": {
     "decisions": [
-     "D4"
+     "D4",
+     "D8",
+     "D9"
     ]
    }
   },
@@ -436,15 +581,83 @@
      "D6"
     ]
    }
+  },
+  {
+   "text": "design D9 の変換の旗（WC_NO_BEST_FIT_CHARS）は Windows の文字コードが 65001 のとき使えず、英字でない名前が全部止まるおそれがある。仕様と tasks は 65001 を扱っていない（IMP-04）",
+   "refs": {
+    "decisions": [
+     "D9"
+    ]
+   }
+  },
+  {
+   "text": "「英字でない名前」の境目（. ^ 空白を含む ASCII の名前をどちらに入れるか）を、仕様も design D9 も書いていない（IMP-05）",
+   "refs": {
+    "decisions": [
+     "D9"
+    ]
+   }
   }
  ],
- "since_last": [],
+ "since_last": [
+  {
+   "text": "第 1 回の答えで直したこと: Q2 で本人が「表示も値の口も含める」を選んだ（推奨は「含めない」）。子の命令の出力を読む口を、この change で直す。機能「子の命令の出力を読む」を足し、「変えないもの・後に回すもの」とやらないことから子の命令の出力を外した",
+   "refs": {
+    "decisions": [
+     "Q2",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "答えに伴って仮の決定を 2 つ足した。D8: 子の出力は UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む。D9: 英字でない利用者名の対応表の行は Windows の文字コードのバイト列の文字どおりの行で書き、表せない名前なら止まる。確かめは Windows の CI の単体の試験と install-check の英字でない名前の repair",
+   "refs": {
+    "decisions": [
+     "D8",
+     "D9"
+    ]
+   }
+  },
+  {
+   "text": "D7（確認バッチで本人が見る）は、tasks の番号が 7.1 から 9.1 に変わっただけで中身は同じ。子の命令の出力の読みは確認バッチでは見ない",
+   "refs": {
+    "decisions": [
+     "D7"
+    ]
+   }
+  },
+  {
+   "text": "分析に、子の命令の出力の口（T4・T5）・止める規則 R2 と筋書き S1・判断事項 IMP-04（PostgreSQL の認証と runner の利用者名は CI で初めて分かり、65001 の PC では止まるおそれ）と IMP-05（英字でない名前の境目が仕様に無い）を足した。IMP-01 は、console.rs の unsafe が D8・D9 でも増えることを書き足した。30 秒の概要は合意のときのまま（子の命令の出力は目的と機能に書いた）",
+   "refs": {
+    "decisions": [
+     "D8",
+     "D9"
+    ]
+   }
+  }
+ ],
  "delegated": [
   {
    "text": "窓を開けないときに標準エラーへ書いて続ける倒し方（振る舞いとしては約束しない）と、窓へ書く部品の置き場（console.rs）",
    "refs": {
     "decisions": [
      "D4"
+    ]
+   }
+  },
+  {
+   "text": "読めない並びを 1 文字ずつ読む作り方（MB_ERR_INVALID_CHARS と IsDBCSLeadByteEx）と、読む関数の置き場（console.rs）",
+   "refs": {
+    "decisions": [
+     "D8"
+    ]
+   }
+  },
+  {
+   "text": "試験の置き場（console.rs・main.rs の ch14_）と、install-check の 3 人目の管理者の名前（ashiato-ci-é）",
+   "refs": {
+    "decisions": [
+     "D9"
     ]
    }
   }
@@ -465,6 +678,10 @@
   {
    "term": "管",
    "def": "標準入力・標準出力をほかのプログラムやファイルにつないだ状態。CI はインストーラへ合言葉を管で流す"
+  },
+  {
+   "term": "Windows の文字コード",
+   "def": "Windows が利用者名などをバイト列にするときの表（ANSI のコード頁）。日本語の Windows は 932、英語の Windows は 1252。窓のコード頁とは別に決まる"
   }
  ],
  "uses": [
@@ -501,6 +718,38 @@
      "Q3",
      "Q5",
      "D7"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "日本語の利用者名の PC で repair する",
+   "trigger": "本人（利用者名が日本語の管理者）の PC で設定が退けられて画面が止まり、ashiato-setup.exe repair を開く。",
+   "steps": [
+    {
+     "do": "repair を開き、合言葉を決める",
+     "see": "インストーラが whoami の利用者名を窓のコード頁で読み、DB の認証の対応表に、その名前を Windows の文字コードのバイト列の文字どおりの行で書く"
+    },
+    {
+     "do": "repair が終わるのを待つ",
+     "see": "rc=0 で終わり、決めた合言葉で画面にログインできる"
+    }
+   ],
+   "outcome": "利用者名が日本語でも、repair で DB に入り直して画面を戻せる",
+   "without": "利用者名を UTF-8 として読んで化け、対応表の行が Windows の名前と合わず、repair が DB に入れずに止まる見込みだった",
+   "refs": {
+    "requirements": [
+     "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+    ],
+    "scenarios": [
+     "コード頁 932 で書いた日本語の利用者名を、同じ文字として読む",
+     "英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く",
+     "英字でない名前の管理者でも repair でき、決めた合言葉でログインできる"
+    ],
+    "decisions": [
+     "Q2",
+     "D8",
+     "D9"
     ]
    }
   }
@@ -591,6 +840,107 @@
      "D6"
     ]
    }
+  },
+  {
+   "id": "W2",
+   "title": "同じ子の命令の出力が、読み方で化けたり化けなかったりする",
+   "feature": "child",
+   "scene": "日本語の Windows（窓のコード頁 932）で、インストーラが whoami で利用者名を読み、sc.exe の失敗の理由を添える。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "子の命令の出力の読み方（値は説明用）",
+    "head": [
+     "子の命令が書いたもの",
+     "いま（UTF-8 として読む）",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "sc.exe の失敗の理由（cp932 の日本語）",
+      "置換の文字だらけで読めない",
+      "「指定されたサービスはインストールされたサービスとして存在しません。」"
+     ],
+     [
+      "whoami の利用者名 pc\\足跡太郎（cp932）",
+      "化けた名前で対応表の行を書く",
+      "pc\\足跡太郎 と読み、対応表の行を cp932 の文字どおりの行で書く"
+     ],
+     [
+      "ashiato-server migrate の失敗の行（UTF-8）",
+      "読める",
+      "読める（UTF-8 として正しいのでそのまま）"
+     ],
+     [
+      "英字だけの出力（pc\\owner）",
+      "pc\\owner",
+      "pc\\owner（いまと同じ）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "いま、日本語の Windows で子の日本語の出力を読む",
+     "outcome": "problem",
+     "result": "失敗の理由が読めない。日本語の利用者名では repair が DB に入れない見込み"
+    },
+    {
+     "label": "この change の後、同じ場面",
+     "outcome": "ok",
+     "result": "子が書いた文字のまま読め、repair も通る"
+    },
+    {
+     "label": "英字だけの出力・UTF-8 で書く子",
+     "outcome": "ok",
+     "result": "いまと同じ値"
+    },
+    {
+     "label": "英語の Windows（1252）で日本語の名前の管理者が repair する",
+     "outcome": "neutral",
+     "result": "対応表の行を書かずに、表せないことを理由に示して止まる"
+    }
+   ],
+   "why": "日本語の Windows の子の命令は、窓のコード頁（932）で管へ書く。いまのインストーラはそれを UTF-8 として読むので化ける。この change は、UTF-8 として正しくなければ窓のコード頁で読む。PostgreSQL は Windows の利用者名を Windows の文字コードのバイト列で受け取るので、対応表の行も同じバイト列で書く。",
+   "conditions": {
+    "occurs_when": [
+     "子の命令が窓のコード頁（UTF-8 でない）で日本語を書く"
+    ],
+    "not_when": [
+     "子が UTF-8 で書く（Rust の子・chcp 65001 の窓）",
+     "出力が英字だけ"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。日本語の利用者名の PC での実際の repair は確かめていない（CI は ashiato-ci-é で確かめる）",
+     "refs": {
+      "decisions": [
+       "D9"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-04"
+   ],
+   "refs": {
+    "requirements": [
+     "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+    ],
+    "scenarios": [
+     "窓のコード頁で書いた子の命令の失敗の理由が、化けずに読める",
+     "UTF-8 で書く子の出力は、窓のコード頁が 932 でもそのまま読める",
+     "コード頁 932 で書いた日本語の利用者名を、同じ文字として読む",
+     "英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く",
+     "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+    ],
+    "decisions": [
+     "Q2",
+     "D8",
+     "D9"
+    ]
+   }
   }
  ],
  "impact": {
@@ -637,6 +987,36 @@
     "refs": {
      "decisions": [
       "D6"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "code",
+    "name": "子の命令の出力を読む口（main.rs の from_utf8_lossy の 9 か所）",
+    "change": "全部を 1 つの読み方（UTF-8 か窓のコード頁）に通す。読み方は console.rs に置き、unsafe を使う",
+    "searched": "crates/installer/src/main.rs の from_utf8_lossy を検索し、読んだ値の使い手（output_tail・user_downloads・repair_ident_contents）を開いた",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "decisions": [
+      "D8"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "data",
+    "name": "repair が書く DB の認証の対応表（repair.pg_ident.conf）の利用者名の行",
+    "change": "英字でない名前の行を、Windows の文字コードのバイト列の文字どおりの行で書く。表せなければ書かずに止まる",
+    "searched": "commands.rs の repair_ident_contents と、PostgreSQL 17 の pg_SSPI_recvauth・hba.c（premises.md）を読んだ",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "decisions": [
+      "D9"
      ]
     }
    }
@@ -716,6 +1096,69 @@
      "IMP-02",
      "IMP-03"
     ]
+   },
+   {
+    "id": "D6",
+    "target": "T4",
+    "who": "失敗の理由を添える行（output_tail）と、それを読む CI の記録・本人",
+    "role": "reads",
+    "assumes": "末尾 5 行を ` / ` で繋いだ形",
+    "holds": "yes",
+    "affects": "—",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T4",
+    "who": "CI の unsafe の検査（tools/check-unsafe-scope.sh）",
+    "role": "reads",
+    "assumes": "unsafe_code を許す属性は secret.rs にしか無い",
+    "holds": "no",
+    "affects": "D8・D9 の読み書きも console.rs の unsafe を使うので、D4 と同じく CI が落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T5",
+    "who": "同梱の PostgreSQL の SSPI の認証（repair が DB に入るとき）",
+    "role": "reads",
+    "assumes": "対応表の行のバイト列が、Windows が渡す利用者名（ANSI のコード頁のバイト列）と同じ",
+    "holds": "unknown",
+    "affects": "合わなければ、英字でない名前の管理者の repair が DB に入れない",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E11"
+    ],
+    "verify": "PR の CI の install-windows で、英字でない名前の管理者（ashiato-ci-é）の repair が通るかを見る",
+    "leads_to": [
+     "IMP-04"
+    ]
+   },
+   {
+    "id": "D9",
+    "target": "T5",
+    "who": "repair の対応表の行の単体の試験（lib.rs。alice.b・a^b c の行を正規表現で期待する）と、壊してはいけないもの 7（英字だけの名前の行はいまのまま）",
+    "role": "reads",
+    "assumes": "「英字だけ」の名前は、. ・^・空白を含んでもいまの正規表現の行のまま書く",
+    "holds": "unknown",
+    "affects": "境目を ASCII の英数字だけと読んで実装すると、. や空白を含む英字の名前まで文字どおりの行に変わり、この試験と壊してはいけないもの 7 が落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E13",
+     "E11"
+    ],
+    "leads_to": [
+     "IMP-05"
+    ]
    }
   ],
   "evidence": [
@@ -778,6 +1221,24 @@
     "source": "test",
     "loc": "openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/probe.ps1:30",
     "quote": "CreatePseudoConsole(new COORD{X=120,Y=40}"
+   },
+   {
+    "id": "E11",
+    "source": "code",
+    "loc": "crates/installer/src/commands.rs:1097",
+    "quote": "pub fn repair_ident_contents(account: &str) -> String"
+   },
+   {
+    "id": "E12",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:250",
+    "quote": "Ok(String::from_utf8_lossy(&output.stdout).into_owned())"
+   },
+   {
+    "id": "E13",
+    "source": "test",
+    "loc": "crates/installer/src/lib.rs:1351",
+    "quote": "commands::repair_ident_contents(\"CONTOSO\\\\alice.b\"),"
    }
   ],
   "lost": [
@@ -809,6 +1270,23 @@
      ],
      "decisions": [
       "D3"
+     ]
+    }
+   },
+   {
+    "before": "Windows の文字コードで表せない利用者名でも、repair は対応表の行を書いて進んだ（行が名前と合うかは確かめていない）",
+    "after": "行を書かずに、表せないことと文字コードの番号を示して止まる",
+    "who": "英語などの Windows で、日本語の名前を持つ管理者",
+    "basis": "guess",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+     ],
+     "decisions": [
+      "D9"
      ]
     }
    }
@@ -860,28 +1338,39 @@
    {
     "id": "mixed",
     "applies": true,
-    "can": "コード頁が 932 でも 65001 でも、問いは文字として書くので読める。窓でなく管なら今どおり 2 行を読む",
-    "cannot": "この分析では見つけていない。Windows Terminal など conhost 以外の窓は確かめていない",
+    "can": "コード頁が 932 でも 65001 でも、問いは文字として書くので読める。窓でなく管なら今どおり 2 行を読む。子の命令の出力は、UTF-8 で書く子と、窓のコード頁で書く子なら読める",
+    "cannot": "この分析では見つけていない。Windows Terminal など conhost 以外の窓は確かめていない。窓のコード頁でも UTF-8 でもない文字で書く子（lc_messages の違う psql・pg_ctl など）の出力は、いまと同じく置換の文字になる",
     "basis": "derived",
     "refs": {
      "requirements": [
-      "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる",
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
      ],
      "decisions": [
-      "D4"
+      "D4",
+      "D8"
      ]
     }
    },
    {
     "id": "recovery",
     "applies": true,
-    "can": "repair の口でも同じ問い方・同じ条件で合言葉を決め直せる",
-    "cannot": "日本語の利用者名の PC では、子の命令の出力の化けで repair が止まる見込みがある（この change では直さない）",
+    "can": "repair の口でも同じ問い方・同じ条件で合言葉を決め直せる。日本語の利用者名でも、名前を同じ文字で読んで対応表の行を書く（CI で PostgreSQL まで通すのは ashiato-ci-é の名前だけ。日本語の名前は単体の試験が行のバイト列を比べるだけで、実際に認証できるかは確かめない）",
+    "cannot": "Windows の文字コードで表せない名前の管理者は、repair が理由を示して止まる。Windows の文字コードが 65001 の PC では、英字でない名前で止まるおそれがある（S1）。PostgreSQL が文字どおりの行で英字でない名前を認証するかは CI で初めて分かる（IMP-04）",
     "basis": "derived",
     "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "コード頁 932 で書いた日本語の利用者名を、同じ文字として読む",
+      "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる",
+      "英字でない名前の管理者でも repair でき、決めた合言葉でログインできる"
+     ],
      "decisions": [
       "Q2",
-      "D2"
+      "D2",
+      "D9"
      ]
     }
    }
@@ -904,16 +1393,69 @@
       "API の合言葉やログインの印の鍵と同じ値は受け付けない"
      ]
     }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "Windows の文字コードで表せない利用者名なら、repair は対応表の行を書かずに止まる",
+    "target": "名前と合わない対応表の行を書いて、DB に入れないまま進むこと",
+    "legit": "英語などの Windows で日本語の名前を持つ管理者は repair できない。いまの行（UTF-8）でも名前と合わず DB に入れないなら、止まる場所が早まり理由が出るだけだが、それは PostgreSQL の source を読んだだけで（premises.md、確かさ 2）、いまの行が偶然合う場合を試していない。また Windows の文字コードを UTF-8（65001）にした PC では、いまの UTF-8 の行が合いうるのに、D9 の書き方が英字でない名前を全部「表せない」として止めるおそれがある（IMP-04）",
+    "blocks_legit": "unknown",
+    "basis": "guess",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
    }
   ],
-  "scenarios": [],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R2",
+    "goal": "設定が退けられて止まった画面を、repair で戻したい",
+    "initial": "Windows の文字コードを UTF-8（65001。「ベータ: ワールドワイド言語サポートで Unicode UTF-8 を使用」）にした PC で、管理者の名前に英字でない文字がある",
+    "action": "ashiato-setup.exe repair を走らせる",
+    "trigger": "対応表の行を Windows の文字コード（65001）のバイト列で組む。D9 は WC_NO_BEST_FIT_CHARS を付けて変換するが、この旗は 65001 では使えない",
+    "result": "変換が失敗し、名前を「表せない」として repair が止まるおそれがある（確かめていない）。いまの UTF-8 の行なら合っていたかもしれない",
+    "lost": "この PC の管理者が repair で画面を戻すこと",
+    "decision": "65001 のときの書き方（旗を外す・UTF-8 のまま書く）を仕様の段で決めるか（IMP-04）",
+    "occurs_when": [
+     "Windows の文字コードが 65001",
+     "管理者の名前に英字でない文字がある"
+    ],
+    "not_when": [
+     "日本語の Windows の既定（932）・英語の Windows の既定（1252）",
+     "名前が英字だけ（いまの行のまま）"
+    ],
+    "basis": "guess",
+    "imp": "IMP-04",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
+   }
+  ],
   "findings": [
    {
     "id": "IMP-01",
     "severity": "medium",
     "status": "open",
     "title": "窓へ書く部品の unsafe を、CI の unsafe の検査が落とす",
-    "text": "design D4 は console.rs の先頭に allow(unsafe_code) を置く。CI の tools/check-unsafe-scope.sh は、unsafe_code を許す属性を crates/collector-windows/src/secret.rs の外に置くと落とす（ST56 の決定）。tasks はこの検査に触れていないので、書いたとおりに作ると CI が落ちて merge できない。",
+    "text": "design D4 は console.rs の先頭に allow(unsafe_code) を置く。CI の tools/check-unsafe-scope.sh は、unsafe_code を許す属性を crates/collector-windows/src/secret.rs の外に置くと落とす（ST56 の決定）。tasks はこの検査に触れていないので、書いたとおりに作ると CI が落ちて merge できない。 子の命令の出力の読み（D8）と対応表の書き方（D9）も、同じ console.rs に unsafe を足す。",
     "basis": "derived",
     "derived": "検査は allow(unsafe_code) の並びを secret.rs 以外の .rs から探す（E1）。D4 の cfg_attr(windows, allow(unsafe_code)) はその並びを含むので、CI の lint の job で落ちる（E2）",
     "undefined": "インストーラに unsafe を許すか。今の検査は「許すのは secret.rs だけ」（ST56 の review R32）と決めており、広げるならその決定を覆すことになる。仕様と tasks はこの食い違いを扱っていない",
@@ -943,7 +1485,9 @@
     "refs": {
      "decisions": [
       "D4",
-      "Q5"
+      "Q5",
+      "D8",
+      "D9"
      ]
     }
    },
@@ -1024,6 +1568,93 @@
       "D6"
      ]
     }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "英字でない名前の管理者の repair は、CI で é の名前だけが走り、65001 の PC では止まるおそれがある",
+    "text": "D9 は、英字でない利用者名の対応表の行を Windows の文字コードのバイト列の文字どおりの行で書く。PostgreSQL がその行で名前を認証することは source を読んで確かめただけで、runner で é を含む名前の利用者を作れるかも確かめていない。どちらかが外れると、CI の install-windows が落ち、下流が止まる（D9 の反転条件）。 CI で PostgreSQL まで届くのは ashiato-ci-é（1252 の 1 バイト）だけで、2 バイト目が \\ になる日本語の名前は単体の試験が行のバイト列を比べるだけ。また Windows の文字コードを 65001 にした PC では、D9 の変換の旗（WC_NO_BEST_FIT_CHARS）が使えず、英字でない名前が全部「表せない」として止まるおそれがある（S1）。",
+    "basis": "unconfirmed",
+    "derived": "D9 の反転条件のとおり、利用者を作れなければ別の文字に替え、行が正しいのに認証できなければ A として人間に返す",
+    "undefined": "PostgreSQL が文字どおりの行で認証できなかったときの直し方（DB の認証の対応表の書き方を変えるか、別の change に出すか）",
+    "feasibility": "unverified",
+    "unknowns": [
+     "windows-latest の runner で net user が ashiato-ci-é の利用者を作れるか",
+     "PostgreSQL 17 の SSPI の認証が、ANSI のバイト列の文字どおりの行で英字でない名前を受け付けるか（source を読んだだけ）",
+     "Windows の文字コードが 65001 の PC で、D9 の変換がどう振る舞うか（WC_NO_BEST_FIT_CHARS は CP_UTF8 では ERROR_INVALID_FLAGS になると Win32 の文書にある。走らせていない）",
+     "日本語の名前（2 バイト目が \\ の文字を含む）の文字どおりの行で、PostgreSQL が実際に認証するか（CI でも確認バッチでも走らない）"
+    ],
+    "options": [
+     {
+      "label": "D9 のまま進め、PR の CI で確かめる。失敗したら repair.pg_ident.conf と repair-db.log の末尾で原因を見分ける"
+     },
+     {
+      "label": "英字でない名前の CI の Scenario を外し、単体の試験だけで確かめる（Windows で実際に認証できることは確かめないまま。その間の手当ては無い）"
+     },
+     {
+      "label": "65001 のときは旗を外す（か UTF-8 のまま書く）ことを、仕様の段で D9 に足す"
+     }
+    ],
+    "verify": "PR の CI の install-windows で、英字でない名前の管理者の repair の節が rc=0 になるかを見る",
+    "deps": [
+     "D8"
+    ],
+    "evidence": [
+     "E11"
+    ],
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "英字でない名前の管理者でも repair でき、決めた合言葉でログインできる",
+      "Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "medium",
+    "status": "open",
+    "title": "「英字でない名前」の境目が仕様に無く、英字の名前の行まで変わりうる",
+    "text": "仕様は「英字でない文字を含むときは」文字どおりの行で書き、「英字だけの名前の行はいまと同じ」とするが、どの文字からを英字でないとするかを書いていない。いまのコードは is_alphanumeric() で分け、. ・^・空白を含む ASCII の名前（alice.b・a^b c）を正規表現の行で書き、単体の試験がそれを固定している。境目を「ASCII の英数字だけ」と読めば、これらの名前の行が変わる。",
+    "basis": "derived",
+    "derived": "Requirement の SHALL は境目を定めず、design D9 も「英字だけの名前は今の正規表現の行のまま」としか書かない。lib.rs の試験は記号を含む ASCII の名前を正規表現の行で期待する",
+    "undefined": "記号（. ^ 空白 -）を含む ASCII の名前を「英字だけ」に入れるか",
+    "feasibility": "unverified",
+    "unknowns": [
+     "下流がどちらに読んで実装するか"
+    ],
+    "options": [
+     {
+      "label": "境目を「ASCII だけの名前はいまの行のまま、ASCII でない文字を含めば文字どおりの行」と仕様の段で D9 に書く"
+     },
+     {
+      "label": "いまの is_alphanumeric() の分け方に合わせる"
+     }
+    ],
+    "verify": "下流の実装の後、cargo test -p ashiato-setup で lib.rs の repair_ident_contents の試験が通ることを見る",
+    "deps": [
+     "D9"
+    ],
+    "evidence": [
+     "E13"
+    ],
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "scenarios": [
+      "英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
    }
   ],
   "acceptance": [
@@ -1050,6 +1681,18 @@
       "D7"
      ]
     }
+   },
+   {
+    "text": "Windows の CI の package-windows で ch14_ の単体の試験が 11 本以上通り、install-windows で英字でない名前（ashiato-ci-é）の管理者の repair が通る。インストーラの main.rs に from_utf8_lossy が残らない。日本語の名前で実際に認証できることは、これでは確かめない（IMP-04）",
+    "refs": {
+     "requirements": [
+      "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+     ],
+     "decisions": [
+      "D8",
+      "D9"
+     ]
+    }
    }
   ],
   "scope": {
@@ -1059,6 +1702,14 @@
      "refs": {
       "requirements": [
        "インストールの最後に、端末で画面の合言葉を決め、そのままログインできる"
+      ]
+     }
+    },
+    {
+     "text": "インストーラが子の命令の出力を読む全部の口（失敗の理由の表示・whoami の利用者名・reg.exe のダウンロードの場所）と、repair が書く DB の認証の対応表の利用者名の行",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
       ]
      }
     }
@@ -1079,25 +1730,38 @@
        "D3"
       ]
      }
+    },
+    {
+     "text": "対応表の行を Windows の文字コードの文字どおりの行で書くのは、利用者名が英字でない文字を含むときだけ。英字だけの名前の行はいまと同じ。窓のコード頁で読むのは、出力が UTF-8 として正しくないときだけ",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "decisions": [
+       "D8",
+       "D9"
+      ]
+     }
     }
    ],
    "excludes": [
     {
-     "text": "子の命令の出力の化け（失敗の理由の表示・whoami の利用者名・reg.exe のダウンロードの場所）",
+     "text": "合言葉の検査の中身を変えること・rpassword を外すこと・DB の認証の対応表の書き方を英字の名前で変えること",
      "refs": {
       "decisions": [
-       "Q2",
-       "D2"
+       "D1",
+       "D9"
       ]
      }
     }
    ],
    "residual": [
     {
-     "text": "日本語の利用者名・日本語のダウンロードの場所の PC では、repair やインストールが子の命令の出力の化けで止まる見込みが残る",
+     "text": "日本語の Windows で、実物の子の命令が日本語で書いた出力を読むことは、CI も確認バッチも確かめない（本人の PC の実物と単体の試験を合わせて確かめたことにする）",
      "refs": {
       "decisions": [
-       "D2"
+       "D8",
+       "D9"
       ]
      }
     },
@@ -1108,6 +1772,14 @@
        "D3",
        "D4",
        "D6"
+      ]
+     }
+    },
+    {
+     "text": "PostgreSQL が英字でない名前を文字どおりの行で認証するか・runner で英字でない名前の利用者を作れるか（IMP-04）。Windows の文字コードで表せない名前の管理者は repair できない（R2）。65001 の PC で英字でない名前が止まるおそれ（S1）と、英字でない名前の境目（IMP-05）",
+     "refs": {
+      "decisions": [
+       "D9"
       ]
      }
     }
@@ -1134,6 +1806,18 @@
        "D6"
       ]
      }
+    },
+    {
+     "text": "子の命令の出力を読む 9 か所（main.rs の from_utf8_lossy）と値の使い手（output_tail・user_downloads・repair_ident_contents）、本人の PC で子がどのコード頁で書くか（premises.md）、PostgreSQL 17 の SSPI の認証と対応表の比べ方（source）",
+     "refs": {
+      "requirements": [
+       "インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない"
+      ],
+      "decisions": [
+       "D8",
+       "D9"
+      ]
+     }
     }
    ],
    "not_examined": [
@@ -1146,8 +1830,16 @@
      "why": "本人の PC の conhost と疑似コンソールでしか見ていない"
     },
     {
-     "text": "子の命令の出力の化けが、日本語の利用者名で実際に repair を止めるか",
-     "why": "この change の範囲外（Q2）。本人の PC の利用者名は英字"
+     "text": "日本語の Windows で、実物の子の命令の日本語の出力を読むこと",
+     "why": "英語の runner に日本語の文を出す子が無く、確認バッチは合言葉の問いだけを見る"
+    },
+    {
+     "text": "PostgreSQL が英字でない名前を文字どおりの行で認証するか・runner で é を含む名前の利用者を作れるか",
+     "why": "PR の CI で初めて走る（IMP-04）"
+    },
+    {
+     "text": "psql・pg_ctl が lc_messages の文字で書く出力の読み",
+     "why": "UTF-8 か窓のコード頁なら読めるとした（D8）。それ以外の組み合わせは走らせていない"
     }
    ],
    "excluded": [
