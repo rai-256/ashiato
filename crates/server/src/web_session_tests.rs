@@ -634,15 +634,23 @@ mod ch15 {
                 "login_failed",
             ),
         ];
-        // 照合（Argon2id）の途中で取り消す。照合の前の段（ログインの印の確かめ）は照合よりずっと短い
-        let verifier = web_session::password_verifier_for_test(PASSWORD).unwrap();
-        let started = Instant::now();
-        assert!(!web_session::verify_password_verifier(&verifier, "x"));
-        let cancel_after = started.elapsed() / 2;
+        // 照合の途中で取り消す。試験が 1 つずつの印を握るので、照合は印を待つ所で止まり、取り消すまで終わらない
+        // （review/code.md R10: Argon2id の測定値で時刻を決めると、速いビルドでは照合の前の段で取り消して偽の赤になる）。
+        // 取り消すまでの 1 秒は、照合の前の段（JSON とログインの印の確かめ。debug で約 30ms）が終わるのを待つ余裕
         for (req, route, outcome) in cases {
-            let cancelled =
-                tokio::time::timeout(cancel_after, crate::router(app.clone()).oneshot(req)).await;
+            let held = web_session::hold_login_check_for_test().await;
+            let cancelled = tokio::time::timeout(
+                Duration::from_secs(1),
+                crate::router(app.clone()).oneshot(req),
+            )
+            .await;
             assert!(cancelled.is_err(), "{route}: 照合の途中で取り消せていない");
+            assert_eq!(
+                recorder.count(route, outcome),
+                0,
+                "{route}: 印を握る間は照合が終わらない"
+            );
+            drop(held);
             let waited = Instant::now();
             while recorder.count(route, outcome) == 0 && waited.elapsed() < Duration::from_secs(5) {
                 tokio::time::sleep(Duration::from_millis(10)).await;

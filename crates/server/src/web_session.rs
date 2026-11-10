@@ -302,6 +302,13 @@ pub fn session_max_age_days(var: Option<&str>) -> anyhow::Result<u32> {
 /// ログインの合言葉の照合を 1 つずつ通す（ST55 review R23 の security の指摘）。
 static LOGIN_CHECK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
+/// 試験が照合の 1 つずつの印を握り、照合を「印を待つ所」で止める（review/code.md R10。
+/// 取り消しを照合の途中に、時刻に依らず置くため）。
+#[cfg(test)]
+pub(crate) async fn hold_login_check_for_test() -> tokio::sync::SemaphorePermit<'static> {
+    LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない")
+}
+
 /// ログインの設定と状態。`App` が持つ。
 #[derive(Clone, Debug)]
 pub struct WebLogin {

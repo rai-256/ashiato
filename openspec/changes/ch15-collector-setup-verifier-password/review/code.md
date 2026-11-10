@@ -185,3 +185,4 @@ PROBE access_rows=9 leak=false
 - 成果物: crates/server/src/web_session_tests.rs（ch15_verifier_cancelled_requests_still_leave_a_row）
 - 根拠: crates/server/src/web_session_tests.rs（ch15_verifier_cancelled_requests_still_leave_a_row）（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.2 —— 取り消す時刻を測定値で決めるのをやめた。試験が照合の 1 つずつの印（`LOGIN_CHECK`）を `web_session::hold_login_check_for_test`（`#[cfg(test)]`）で握り、照合を印を待つ所で止めてから 1 秒で取り消す（照合の前の段は約 30ms）。取り消した直後に行が 0 であることも見てから印を放し、5 秒以内に 1 行を見る。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED
