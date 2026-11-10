@@ -16,7 +16,7 @@
 
 ## Task 1: 照らす形のサーバで、資格情報を返す口が正しい合言葉を受け付ける
 
-- [ ] 1.1 Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る を試験で確かめる。直す前に verify-run で落ちることを記録する。
+- [x] 1.1 Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る を試験で確かめる。直す前に verify-run で落ちることを記録する。
   **先に試験だけを書く**（`crates/server/src/web_session_tests.rs`。本番のコードはまだ触らない）:
   `ch15_verifier_collector_setup_returns_token`（`// Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る`。照らす形の App で `POST /session` にログイン → その印を付けて `POST /collector-setup` に正しい合言葉 → 200・`Cache-Control: no-store`・本文が `{"token": <App の収集アプリの資格情報>}`）/
   `ch15_verifier_collector_setup_wrong_password_is_forbidden`（`// Scenario: 合言葉が違えば出さない`。同じ App で 1 文字違いの合言葉と空の合言葉 → どちらも 403・本文 `{"error": "wrong_password"}`・資格情報を含まない・ログインの印は有効なまま）/
@@ -24,7 +24,7 @@
   書いたら、本番のコードが base のままの木で `scripts/verify-run 1.1` を走らせ、**FAIL**（`ch15_verifier_collector_setup_returns_token` が 403 で落ちる）を記録する。その後に design D1 のとおり `crates/server/src/web_session.rs` を直し（2 つの口が共に使う照合の関数を 1 つ置き、`session_post` と `collector_setup_post` がそれを使う）、もう一度 `scripts/verify-run 1.1` で **PASS** を記録する。
   直す前の FAIL のログに `ch15_verifier_collector_setup_returns_token` の失敗（403 と 200 の不一致）が出ていること（組み立ての失敗で落ちたのではないこと）を自分で確かめる（本数の下限は 1.2 が見る。1.1 に数えを前置きすると、試験が無い木の FAIL も「直す前に落ちた」と数えられる）。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` rc=0
-- [ ] 1.2 今の振る舞いが残ることを確かめる（ログインの口・合言葉そのものの形の資格情報の口・照らす形のログイン）。`collector_setup_post` に `app.login.password` を比べる式が残っていないこと、照合が 1 か所（共通の関数）で `LOGIN_CHECK` の印の中にあることも見る。
+- [x] 1.2 今の振る舞いが残ることを確かめる（ログインの口・合言葉そのものの形の資格情報の口・照らす形のログイン）。`collector_setup_post` に `app.login.password` を比べる式が残っていないこと、照合が 1 か所（共通の関数）で `LOGIN_CHECK` の印の中にあることも見る。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server ch15_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0（`ch15_` が 3 本以上）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server st56_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7 && scripts/quiet-run ct -- cargo test -p ashiato-server st56_'` rc=0（`-- --list` で 7 本以上）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st55_ && scripts/quiet-run ct -- cargo test -p ashiato-server web_session'` rc=0 /
