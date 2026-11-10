@@ -32,3 +32,15 @@
   - 壊して確かめた（`cargo build -p ashiato-setup --target x86_64-pc-windows-gnu`）: main.rs の書きを CH14 前の `fs::write(&ident, commands::repair_ident_contents(&account))` に戻す → rc=101 `error[E0603]: function repair_ident_contents is private`。`console::repair_ident_bytes_with_code_page(&account, 65001)` に替える → rc=101 `error[E0603]: function repair_ident_bytes_with_code_page is private`。どちらも戻した（`git diff crates/installer/src/main.rs` は空）
   - `scripts/verify-run 8.1` → fmt・workspace の clippy・windows-gnu の clippy・`cargo test -p ashiato-setup`・check_scenarios が全部 PASS（1 回目は fmt が FAIL。`cargo fmt --all` で console.rs の長い行を折って走らせ直した）
   - 本人の PC での windows-gnu の試験は走らせていない（見える範囲を狭めただけで、試験の中身と本数は変えていない）
+
+## settle 第 4 回（final review の R16〜R21。2026-11-10）
+
+- R16: settle は correction-review.md を書けないので、commit されずに残っていた古い記録（強める前の台本で「落ちなかった」）を `.superpowers/sdd/ch14-settle/correction-review.stale-6.1-20261110T095406.md` へ移した。`plan_fix.py pending` → 6.1（at 2026-11-10T09:54:06+00:00）が返る。gate の前のグラフの `provisional_review` が code-verify の手 7 で記録し直す。`plan_fix.py check` はいま rc=1「別の席の確かめが無い」
+  - 手で同じ壊し方を確かめた: ci.yml の ch14 の step の末尾 `; cargo test -p ashiato-setup ch14_` を消す → `tools/check-ci-ch14-step.sh` rc=1、戻す → rc=0。`git status --porcelain`・`git diff` は壊す前と同じ
+- R17: `run_as_admin` の時間切れを `管理者 $user の実行が終わらない` に、タスク名と .cmd を `ashiato-install-check-admin` に（後片付けの rm も）
+- R18: `window_run` は `.vt` を読めないとき `$WORK/$name.ps.out` を標準エラーへ出し、窓の台本の rc を添えて die する
+- R19: `repair_ident_contents` の doc に英字でない名前の枝（引用した文字どおりの行・cp932 の 0x5C）を書いた。コードは不変
+- R20: ci.yml の「Windows の runner では build.sh が…」を `package.sh windows` の step の直前へ移した
+- R21: tasks.md 5.1 に読み順の注を 1 行（検証コマンドと [x] は不変。declared は 5 本のまま）
+- 走らせたもの: `tools/release/install-check.sh --self-test` rc=0 / `bash -n tools/release/install-check.sh` rc=0 / `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `cargo test -p ashiato-setup` rc=0 / `cargo fmt --all -- --check` rc=0 / `tools/check-ci-ch14-step.sh` rc=0 / ci.yml の YAML 読み込み OK / `review_triage.py --no-verdict` → triage: OK
+- 本人の PC・Windows の CI では走らせていない（install-check の窓・管理者の節は install-windows でだけ走る）

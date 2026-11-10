@@ -311,7 +311,11 @@ window_run() {
     -Command "$command" ${args[@]+"${args[@]}"} -Out "$(cygpath -w "$WORK/$name.vt")" \
     -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" >"$WORK/$name.ps.out" 2>&1 || rc=$?
   PY -c 'import re,sys; vt=re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"); t=open(sys.argv[1],"rb").read().decode("utf-8",errors="replace"); sys.stdout.write(vt.sub("",t).replace("\r",""))' \
-    "$WORK/$name.vt" >"$WORK/$name.window" || die "窓の文字を読めない: $name"
+    "$WORK/$name.vt" >"$WORK/$name.window" || {
+    # 窓の台本の出力（hr=・err= など）を手がかりに出す。台本は入力の行を出さないので合言葉は載らない
+    cat "$WORK/$name.ps.out" >&2 2>/dev/null || true
+    die "窓の文字を読めない: $name（窓の台本 rc=$rc）"
+  }
   return "$rc"
 }
 
@@ -575,8 +579,9 @@ run_as_other() {
 }
 
 # 管理者 $1（合言葉 $2）として、上がった札でコマンドの行 $3 を走らせ、その終了コードを返す（タスクの最上位の特権）。
+# タスクとその .cmd は呼び出しごとに作って消す 1 つの名前（どの管理者で走らせても同じ。一度に 1 つしか走らせない）
 run_as_admin() {
-  local user="$1" password="$2" cmdline="$3" name='ashiato-install-check-b' script='C:/Users/Public/ashiato-install-check-b.cmd'
+  local user="$1" password="$2" cmdline="$3" name='ashiato-install-check-admin' script='C:/Users/Public/ashiato-install-check-admin.cmd'
   # タスクの命令の行は長さに上限があるので、走らせる行は .cmd のファイルに置く
   printf '@echo off\r\n%s\r\n' "$cmdline" >"$script"
   schtasks.exe /Create /TN "$name" /TR "$(win "$script")" /RU "$user" /RP "$password" \
@@ -587,7 +592,7 @@ run_as_admin() {
   while :; do
     status="$(schtasks.exe /Query /TN "$name" /FO LIST /V | tr -d '\r')"
     grep -Eq 'Status:[[:space:]]+Running' <<<"$status" || break
-    [[ "$SECONDS" -lt "$deadline" ]] || die '管理者 B の実行が終わらない'
+    [[ "$SECONDS" -lt "$deadline" ]] || die "管理者 $user の実行が終わらない"
     sleep 2
   done
   local result
@@ -1304,7 +1309,7 @@ check_release_zip() {
   sleep 5
   clean_machine
   rm -rf 'C:/Users/Public/ashiato-install-check-zip' 'C:/Users/Public/ashiato-install-check.in' \
-    'C:/Users/Public/ashiato-install-check.out' 'C:/Users/Public/ashiato-install-check-b.cmd'
+    'C:/Users/Public/ashiato-install-check.out' 'C:/Users/Public/ashiato-install-check-admin.cmd'
   echo 'OK: 配る zip の実地の確かめ'
 }
 

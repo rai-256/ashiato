@@ -243,33 +243,39 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 根拠: HEAD で `python3 scripts/plan_fix.py check openspec/changes/ch14-installer-password-prompt-mojibake` → rc=1・`[FAIL] 6.1 2026-11-10T09:54:06+00:00: 壊しても新しいコマンドが落ちなかった（検証が守っていない）`。この「落ちなかった」は R3 の前の台本に対するもので、Q7 の答えで強めた後は同じ壊し方で rc=1 になる（この席で実測）。`correction-review.md` は `git status` で `??`（untracked）で、きれいな checkout では結果が無くなる。`.harness2/docs/flow-gates.md` の merge gate はこの訂正を通さない
 - kind: technical
 - 提案: 6.1 の訂正の確かめ（手 7）を HEAD の `tools/check-ci-ch14-step.sh` でやり直し、「落ちた」の結果を `correction-review.md` に記録して commit する（`plan_fix.py check` が rc=0 になること）。コードは変えない
+- 処置: fixed 6.1 —— 記録はこの席が書かない（settle は correction-review.md を書けない。書くのは code-verify の手 7）。commit されずに残っていた古い記録（強める前の台本で「落ちなかった」。その結果は R3・deep.md 第 2 回 Q7 として処置済み）を `.superpowers/sdd/ch14-settle/correction-review.stale-6.1-20261110T095406.md` へ移して commit した。これで `plan_fix.py pending` が 6.1（at 2026-11-10T09:54:06+00:00）を返し、gate の前にグラフの `provisional_review` が code-verify の手 7 をいまの台本で起こし直して記録を書き、commit する（plan_fix で <at> を取り直す道は、旧＝いまの台本が PASS するので無い）。この席でも同じ壊し方を手で確かめた: ci.yml の step の末尾 `; cargo test -p ashiato-setup ch14_` を消す → `tools/check-ci-ch14-step.sh` rc=1、戻す → rc=0（`git status --porcelain`・`git diff` は壊す前と同じ）。いまの `plan_fix.py check` の FAIL は「別の席の確かめが無い」で、provisional_review の後に消える
 
 ## R17. 汎用にした `run_as_admin` の時間切れの文言とタスク名が「管理者 B」のまま
 - 成果物: tools/release/install-check.sh:579・590
 - 根拠: `run_as_admin` は `$1` の管理者で走らせる関数になったが、`name='ashiato-install-check-b'`・`script='…-b.cmd'` と `die '管理者 B の実行が終わらない'` が残る（Task 6 の findings F1）。CI で最も落ちそうな新しい経路（`ashiato-ci-é` の repair）が時間切れになると、どの管理者で止まったかを取り違える
 - kind: technical
 - 提案: `die "管理者 $user の実行が終わらない"` にする。タスク名は呼び出しごとに替えるか、名前の意味を doc に書く
+- 処置: fixed 6.2 —— 時間切れを `die "管理者 $user の実行が終わらない"` に、タスクと .cmd の名前を `ashiato-install-check-admin`（どの管理者でも同じ 1 つの名前。呼び出しごとに作って消すことを doc に書いた）にし、後片付けの `rm` の名前も合わせた。`install-check.sh --self-test` rc=0・`bash -n` rc=0
 
 ## R18. 窓の台本が `.vt` を残さず落ちたとき、`window_run` は台本の出力（`.ps.out`）を出さずに止まる
 - 成果物: tools/release/install-check.sh:307-316（`window_run`）
 - 根拠: `conpty-run.ps1` の出力（`hr=`・`err=` など）は `$WORK/<名前>.ps.out` に向けられ、`.vt` が無いと `die "窓の文字を読めない: $name"` だけで終わる。窓の Scenario はまだ windows-latest で 1 度も走っていない（Task 3 / 4 の ⚠️）ので、初めて落ちたときの手がかりが CI のログに残らない
 - kind: technical
 - 提案: die の前に `$WORK/$name.ps.out` を標準エラーへ出す（台本は入力の行を出さないので秘密は載らない。載らないことを既存の秘密の検査に通すとなおよい —— Task 4 の F3）
+- 処置: fixed 3.1 —— `.vt` を読めないとき、die の前に `$WORK/$name.ps.out`（窓の台本の `hr=`・`err=` など）を標準エラーへ出し、die の文に窓の台本の rc を添えた。conpty-run.ps1 は入力の行を標準出力へ出さない（入力は窓へ送るだけ、窓の文字は `-Out` のファイルへ）ので合言葉は載らない。`--self-test` rc=0・`bash -n` rc=0（窓の節は CI の install-windows でだけ走る）
 
 ## R19. `repair_ident_contents` の doc が、英字でない名前の枝（引用した文字どおりの行）を書いていない
 - 成果物: crates/installer/src/commands.rs:1094-1100
 - 根拠: doc は「大文字と小文字は…区別しない正規表現にし、英数字以外の文字は ARE の符号の書き方にして」とだけ言うが、直後の `if !account.is_ascii()` の枝は `repair "<user>@<domain>" ashiato` の引用した行を組む（CH14 D9。Task 5 の findings F1）。doc を読んだ人は英字でない名前も正規表現になると取り違える
 - kind: technical
 - 提案: doc に「英字でない名前は、ANSI のコード頁で符号化する前提で引用した文字どおりの行にする（D9。正規表現にすると cp932 の 2 バイト目の `0x5C` が式を壊す）」の 1 文を足す
+- 処置: fixed 5.1 —— doc に「英字だけの名前は…正規表現」と限り、「英字でない名前は正規表現にせず、引用符でくくった文字どおりの行（`repair "<user>@<domain>" ashiato`）にする。ANSI のコード頁で符号化する前提で、正規表現にすると cp932 の 2 バイト目の `0x5C` が式を壊す（CH14 D9）」を足した。コードは変えていない。windows-gnu の clippy rc=0
 
 ## R20. ci.yml の「Windows の runner では build.sh が…」のコメントが、新しい ch14 の step の上に来ている
 - 成果物: .github/workflows/ci.yml:426
 - 根拠: このコメントは `tools/release/package.sh windows` の step の説明だが、CH14 が step をその間に差し込んだので ch14 の試験の step の上に並ぶ（Task 6 の findings F2）
 - kind: technical
 - 提案: コメントを `package.sh windows` の step の直前へ移す
+- 処置: fixed 6.1 —— コメントを `tools/release/package.sh windows "$RUNNER_TEMP/package-windows"` の step の直前へ移した（ch14 の step の上は CH14 のコメントだけ）。YAML として読める・`tools/check-ci-ch14-step.sh` rc=0
 
 ## R21. tasks.md 5.1 の本文が Q6 より前の読み順（「UTF-8 として正しければそのまま」）のまま
 - 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md:76
 - 根拠: deep.md 第 2 回 Q6 の答えで、値の口（`decode_child_output`）は窓のコード頁を先に読む形に替わり、design D8 も書き直された（R1 の処置）。tasks.md 5.1 は `decode_child_output`・`decode_with_code_page` とも「UTF-8 として正しければそのまま」と書いたままで、実装（console.rs の `decode_value_with_code_page` / `decode_tail_output`）と計画が食い違う。逸脱は正当で記録もあるが、PR を読む人が計画の文を正と取る
 - kind: technical
 - 提案: 5.1 の本文に「（Q6 の答えで、値の口は窓のコード頁を先に読む形に替えた。design D8・review/code.md R1）」の注を足すか、本文を今の読み順に直す（`[x]` と検証コマンドは変えない）
+- 処置: fixed 5.1 —— 5.1 の本文の後に注を 1 行足した（Q6 の答えで値の口 decode_child_output はコード頁を先に読む形に替えた・UTF-8 を先に見るのは失敗の理由の末尾だけ・design D8・R1）。本文の検証コマンドと `[x]` は変えていない（evidence.declared の 5.1 は 5 本のまま）
