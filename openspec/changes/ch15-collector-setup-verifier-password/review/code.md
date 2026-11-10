@@ -37,6 +37,7 @@
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R2. D1 の要（印を照合の終わりまで持つ・照合を blocking の側で行う）を壊しても、1.1・1.2 の検証は通る
 - 成果物: crates/server/src/web_session.rs（`check_given_password`）/ tasks.md 1.2 の grep の検査 / crates/server/src/web_session_tests.rs
@@ -49,6 +50,7 @@
 - 処置: fixed 1.2
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R3. 資格情報の口から「空の合言葉を失敗に数える」と「失敗の遅れ」を消しても、検証は通る
 - 成果物: crates/server/src/web_session.rs（`check_given_password` :659-662・`collector_setup_post` :601）/ crates/server/src/web_session_tests.rs
@@ -63,6 +65,7 @@
 ---
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## 手 1: 該当なし
 確かめた範囲: `ch15_` の 3 本に、実装の出力を写した固定値は無い。比べる値は、試験の中で決めた `API_TOKEN` と `{"error": "wrong_password"}` だけ。照らす値は、試験の中で `password_verifier_for_test`（web_session.rs:184）が毎回作る。その作り方は `Argon2::default()` の `hash_password` で、インストーラ（crates/installer/src/password.rs:56）と同じ。python の argon2 は入っていない（`ModuleNotFoundError`）ので、別の実装での照合はしていない。
@@ -142,6 +145,7 @@ PROBE access_rows=9 leak=false
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R5. session_post now parses the JSON body (given_password) before the throttle check; the old code checked throttled() first and parsed only when not throttled.
 - 成果物: crates/server/src/web_session.rs:710
@@ -151,6 +155,7 @@ PROBE access_rows=9 leak=false
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R6. In plain mode (verifier=None), accepts() is just a constant-time compare, but it still always goes through spawn_blocking, so collector-setup now pays a thread hand-off it did not pay before.
 - 成果物: crates/server/src/web_session.rs:670
@@ -160,6 +165,7 @@ PROBE access_rows=9 leak=false
 - 処置: rejected: design D1 と tasks.md の Global Constraints が「`spawn_blocking` の側での `WebLogin::accepts`」を 2 つの口の同じ道として決めている（合言葉そのものの形も同じ道に通す。D1「合言葉そのものの形の振る舞いは変わらない」）。合言葉そのものの形は開発・試験の形で、blocking の pool への受け渡しは 1 回の求めに 1 回だけ。DB への書き込み（記録の行）を毎回待つ口なので、受け渡しの遅れは比べて小さい。形ごとに枝を分けると、照らす形だけを async の worker で回す近道（R2 の変異 D2）と見分けにくい枝が増える
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R7. The ch15 test module's login_cookie re-implements testdb::web_cookie (and st56_tests::login_cookie) line for line.
 - 成果物: crates/server/src/web_session_tests.rs:467
@@ -169,6 +175,7 @@ PROBE access_rows=9 leak=false
 - 処置: fixed 1.2
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R8. verifier_app() repeats the App setup from st55_tests::st55_verifier_login_route_accepts_only_matching_password: the same session key, token, failure_delay=ZERO and App::with_login, all copied.
 - 成果物: crates/server/src/web_session_tests.rs:444
@@ -178,6 +185,7 @@ PROBE access_rows=9 leak=false
 - 処置: fixed 1.2
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R9. check_given_password returns Result only for a semaphore-closed error (SERVICE_UNAVAILABLE) that cannot happen: LOGIN_CHECK is a static that is never closed. Both callers still have to `?` it.
 - 成果物: crates/server/src/web_session.rs:651
@@ -187,6 +195,7 @@ PROBE access_rows=9 leak=false
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 1 @1fd87dc547653f553602a0748a71fa38adcc0361）
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## settle_review（re-review 1 @1fd87dc）: 処置の直しが新しく壊したもの
 
@@ -196,6 +205,7 @@ PROBE access_rows=9 leak=false
 - kind: technical
 - 処置: fixed 1.2 —— 取り消す時刻を測定値で決めるのをやめた。試験が照合の 1 つずつの印（`LOGIN_CHECK`）を `web_session::hold_login_check_for_test`（`#[cfg(test)]`）で握り、照合を印を待つ所で止めてから 1 秒で取り消す（照合の前の段は約 30ms）。取り消した直後に行が 0 であることも見てから印を放し、5 秒以内に 1 行を見る。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED
 - 判定: ADDRESSED（re-review 2 @89ca79431902d67fd502edf3cfeb5c69121b0769）
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## settle_review（re-review 2 @89ca794）: 処置の直しが新しく壊したもの
 
@@ -204,9 +214,11 @@ PROBE access_rows=9 leak=false
 - 根拠: crates/server/src/web_session_tests.rs:645-660（re-review 2 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 1.2 —— 試験が印を握るのを、取り消すまでの 1 秒から「この app の照合が印を待ち始めた合図」が来るまでの短い間に縮めた。合図は `WebLogin` が持つ `#[cfg(test)]` の `Notify`（app ごと。並走する他の試験の照合とは混ざらない）で、`check_given_password` が印を待つ直前に `notify_waiters` する。合図の後すぐに求めの future を drop して取り消し、行が 0 を見てから印を放す。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
 
 ## R12. 照合の前の段（JSON の解析とログインの印の確かめ）が高負荷で 1 秒を超えると、run_to_completion が走る前に取り消されて行が元から無く、偽の赤になりうる。通常の負荷（debug で約 30ms）では起きない。
 - 成果物: crates/server/src/web_session_tests.rs
 - 根拠: crates/server/src/web_session_tests.rs:645-660（re-review 2 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 1.2 —— 取り消す時刻を時計で決めるのをやめた。取り消すのは、照合が 1 つずつの印を待ち始めた合図（`WebLogin::check_waiting_for_test`）の後で、そこは `run_to_completion` が照合を spawn した後なので、照合の前の段がどれだけ遅くても行は元から無いことにならない。合図は溜まらない形（`notify_waiters`。cookie を取る前のログインの照合の合図を拾わない）で、求めを出す前に待ち受けを作る。求めは `Box::pin` に入れて drop で実際に取り消す。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED
+- 判定: ADDRESSED（re-review 3 @08f7609ac09bb26b9c919090da15c1893fb6b48a）
