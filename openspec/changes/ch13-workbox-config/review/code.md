@@ -104,6 +104,7 @@
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R2. `docker_images` の `postgres:17-alpine` が compose の版と結ばれておらず、compose を上げても全部の検査が通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/check-workbox-match.py` / `docker-compose.yml`
@@ -112,6 +113,7 @@
 - 提案: `check-workbox-match.py`（か tasks に 1 本）で「`docker_images` の各項が `docker-compose.yml` の `image:` に在る」を見る。範囲（Q4）で今は足さないなら、`enable-before.md` に「compose の版を上げたら `docker_images` も直す」を 1 行足す
 - 処置: fixed 4.1
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R3. `host_only` の網羅に漏れがある: `tools/release/sandbox-probe.sh` は箱の中で「確かめられない」を書いて rc=0 で通る
 - 成果物: `tools/workbox.json` / `openspec/changes/ch13-workbox-config/match-cases.json` / `openspec/changes/ch13-workbox-config/enable-before.md`（「ホストで走らせる台本」）
@@ -124,6 +126,7 @@
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## security review（baf9253..a3597d3）
 
@@ -156,6 +159,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: R1 と同じ。`[ ]` の 5.2・5.3 は `gh issue` を呼ぶので `tasks_phase.py:36` が「PR・gate」の工程に分け、`task_mark.py:10` は impl だけを `[x]` にする（`pr` は `[ ]` のまま残すのが正常）。5.4 は gh を呼ばないので impl で、検証（PR 本文に 2 つの番号）は今の木で rc=0。5.2・5.3 の実体（harness2#165・#275）は先に在り、5.4 が順を飛ばして閉じたのではない
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R5. `host_only` does not list `tools/release/sandbox-probe.sh`. That script calls powershell.exe to start the Windows sandbox, the same kind of host-only script as the three entries just added.
 - 成果物: tools/workbox.json:22
@@ -164,6 +168,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 漏れそのものは本当（R3 と同じ）だが、`tools/workbox.json` に足すのは本人の決定に反する。tasks.md の Global Constraints の 1 つ目「足りないものに気付いたら、ファイルを直さずに PR 本文に挙げ、`enable-before.md` に 1 行足す」と違和感 (5)（tasks 1.2 が `host_only` は依頼の版に 3 本を足しただけであることを固定）。R3 で design D10（仮）として `enable-before.md` の「ホストで走らせる台本」と `docs/briefs/CH13-pr.md` に挙げ、反転条件（本人が足すと言えば D1・ファイル・1.2・match-cases を同じ commit で直す）を書いた
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R6. `ROOT = Path(__file__).resolve().parents[3]` assumes the script sits at `openspec/changes/<change>/`. After archive it moves to `openspec/changes/archive/<date>-ch13-workbox-config/`, where ROOT becomes `openspec/` and the script breaks.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:19
@@ -180,6 +185,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: R2 と同じ指摘（`docker_images` と compose の結び付きが無い）。R2 の処置で `check-workbox-match.py`（tasks 4.1）が `docker-compose.yml` の `image:` と突き合わせ、compose を `postgres:18-alpine` にすると rc=3 になる（fix report）。`tools/workbox.json:36` 自体は D1 の正本と等しくなければならず（tasks 1.2）、変える所が無い
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R8. Task 2.4 says downstream must not remove the '2. 上流で見つけたこと' section. Downstream kept the heading but replaced its only item with '今は無い' and moved the reproduction steps to the 'done' section.
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:20
@@ -190,6 +196,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 1 @1dcfb0980909c38eb8911f2d75a06489b28e8981）
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R9. `request_config` extracts the JSON block with its own line-based parser, separate from the regex in the tasks 1.2 check (`^> ?` strip plus a ```json regex). It also does not check that there is exactly one block.
 - 成果物: openspec/changes/ch13-workbox-config/check-workbox-match.py:33
@@ -225,6 +232,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## final review（baf9253..96ce730）
 
@@ -247,6 +255,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R13. `enable-before.md` の「harness2 の issue」の節に作業の経緯の 1 文が残っている
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:24
@@ -256,6 +265,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 処置: fixed 5.3
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R14. `enable-before.md` の分類の件数で、総数が増えたのにホストが 35 → 34 に減った理由が書いていない
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:54
@@ -265,6 +275,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 処置: fixed 4.2
 - 判定: ADDRESSED（re-review 2 @2ac898b7ad11f759b459507b9037143af4910342）
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## final review（baf9253..eaa0042）
 
@@ -279,6 +290,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 3 @b8710cd861e3f3294c640cf302a98bcb1464202e）
 - 判定: ADDRESSED（re-review 5 @5a8f637fb81ae9c17a4a21431646a2c9bc5c024d）
 - 判定: ADDRESSED（re-review 6 @84b7cbac91a0e6b98eea13764642989436d58af8）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R16. PR 本文の「仮決め」の節に D10（仮）が無い
 - 成果物: docs/briefs/CH13-pr.md:45
@@ -296,6 +308,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R17. 上流のときの未来形の言い回しが残っている（R12 と同じ型）
 - 成果物: openspec/changes/ch13-workbox-config/enable-before.md:53, docs/briefs/CH13-pr.md:56
@@ -313,6 +326,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## settle_review（re-review 4 @79bcf42）: 処置の直しが新しく壊したもの
 
@@ -329,6 +343,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## R19. PR 本文から enable-before.md・#275・harness2#165・測っていない 3 項目・sandbox-probe の漏れへの案内が消えた。merge する人間が有効化の前の宿題を知る手がかりが本文に無い。
 - 成果物: docs/briefs/CH13-pr.md
@@ -343,6 +358,7 @@ CH13 の後に入れる予定の `HARNESS_WORKBOX=tests` では agent は箱に�
 - 判定: ADDRESSED（re-review 10 @2a244db9f33793dfecaa03aa3490bf74092f6fed）
 - 判定: ADDRESSED（re-review 11 @8faa3abd921d4ef4b006406f444d46f871f81508）
 - 判定: ADDRESSED（re-review 12 @e2241baaaedd94ea74c6b9f9a05ec6145cac536f）
+- 判定: ADDRESSED（re-review 13 @815dfc4a56cc3f5e139aa0bec46ab9103b92f5d0）
 
 ## settle_review（re-review 5 @5a8f637）: 処置の直しが新しく壊したもの
 
