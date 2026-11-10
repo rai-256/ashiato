@@ -1096,6 +1096,16 @@ pub fn repair_hba_contents() -> &'static str {
 /// 行の区切り（空白）としても読ませない。括弧でくくる形は `^` で `[^]`（壊れた式）になる（review R58）。
 pub fn repair_ident_contents(account: &str) -> String {
     let (domain, user) = account.split_once('\\').unwrap_or(("", account));
+    if !account.is_ascii() {
+        // 英字でない名前は ANSI のコード頁のバイト列で来る。正規表現に入れると cp932 の 2 バイト目
+        // （`\` など）で行が壊れるので、引用符でくくった文字どおりの行にする（D9）
+        let name = if domain.is_empty() {
+            user.to_owned()
+        } else {
+            format!("{user}@{domain}")
+        };
+        return format!("repair \"{name}\" ashiato\n");
+    }
     let literal = |text: &str| {
         text.chars()
             .map(|c| {

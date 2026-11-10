@@ -1,7 +1,7 @@
 #![allow(clippy::print_stdout)] // インストーラは端末に案内と問いを表示する唯一の crate。
 
 use ashiato_setup::commands::{self, SetupCommand};
-use ashiato_setup::{db, layout, secrets, state};
+use ashiato_setup::{console, db, layout, secrets, state};
 use std::fs;
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -55,10 +55,19 @@ fn reg_query_value(output: &str, name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// `reg.exe query` の出力（読み済みの文字列）からダウンロードの場所を組む。読めなければ `<profile>\Downloads`。
+#[cfg_attr(not(windows), allow(dead_code))] // Windows の user_downloads からだけ呼ぶ
+fn downloads_from_reg_output(output: Option<&str>, name: &str, profile: &str) -> String {
+    output
+        .and_then(|text| reg_query_value(text, name))
+        .map(|value| expand_downloads_shell_folder(&value, profile))
+        .unwrap_or_else(|| format!(r#"{}\Downloads"#, profile.trim_end_matches(['/', '\\'])))
+}
+
 #[cfg(windows)]
 fn user_downloads(profile: &str) -> String {
     const DOWNLOADS: &str = "{374DE290-123F-4565-9164-39C4925E467B}";
-    Command::new("reg.exe")
+    let output = Command::new("reg.exe")
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
@@ -68,9 +77,8 @@ fn user_downloads(profile: &str) -> String {
         .output()
         .ok()
         .filter(|result| result.status.success())
-        .and_then(|result| reg_query_value(&String::from_utf8_lossy(&result.stdout), DOWNLOADS))
-        .map(|value| expand_downloads_shell_folder(&value, profile))
-        .unwrap_or_else(|| format!(r#"{}\Downloads"#, profile.trim_end_matches(['/', '\\'])))
+        .map(|result| console::decode_child_output(&result.stdout));
+    downloads_from_reg_output(output.as_deref(), DOWNLOADS, profile)
 }
 
 #[cfg(not(windows))]
@@ -79,16 +87,7 @@ fn user_downloads(profile: &str) -> String {
 }
 
 fn output_tail(output: &std::process::Output) -> String {
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let lines = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>();
-    lines[lines.len().saturating_sub(5)..].join(" / ")
+    console::output_tail_text(&output.stdout, &output.stderr)
 }
 
 /// 命令を起こし、失敗なら理由を返す。命令には秘密を載せないので、記録の行にも秘密は出ない。
@@ -159,7 +158,7 @@ fn grant_db_watch(layout: &layout::Layout, trace: bool) -> Result<(), String> {
             output_tail(&output)
         ));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let text = console::decode_child_output(&output.stdout);
     let current = commands::sddl_from_sdshow(&text)
         .ok_or_else(|| format!("{} の出力に SDDL が無い", show.line()))?;
     match commands::db_watch_sdset_command(layout, current) {
@@ -190,7 +189,7 @@ fn service_state(service: &str) -> Option<u32> {
     if !output.status.success() {
         return None;
     }
-    commands::service_state_code(&String::from_utf8_lossy(&output.stdout))
+    commands::service_state_code(&console::decode_child_output(&output.stdout))
 }
 
 fn service_exists(service: &str) -> bool {
@@ -247,7 +246,7 @@ fn whoami(args: &[&str]) -> Result<String, String> {
     if !output.status.success() {
         return Err("実行した利用者を読めない".into());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(console::decode_child_output(&output.stdout))
 }
 
 /// いま動いている利用者の SID（上がる前なら本人、上がった後なら上がった利用者）。
@@ -367,7 +366,7 @@ fn ensure_ports_available(layout: &layout::Layout) -> Result<(), String> {
                 output.status.code()
             ));
         }
-        text.push_str(&String::from_utf8_lossy(&output.stdout));
+        text.push_str(&console::decode_child_output(&output.stdout));
     }
     for (port, service) in [
         (layout.db_port, layout.db_service),
@@ -389,7 +388,11 @@ fn ensure_ports_available(layout: &layout::Layout) -> Result<(), String> {
             ])
             .output()
             .ok()
-            .map(|result| String::from_utf8_lossy(&result.stdout).trim().to_owned())
+            .map(|result| {
+                console::decode_child_output(&result.stdout)
+                    .trim()
+                    .to_owned()
+            })
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| format!("PID {}", listener.pid));
         return Err(format!(
@@ -417,7 +420,7 @@ fn free_space_gb() -> Option<u64> {
             .ok()
             .filter(|result| result.status.success())
             .and_then(|result| {
-                String::from_utf8_lossy(&result.stdout)
+                console::decode_child_output(&result.stdout)
                     .trim()
                     .parse::<u64>()
                     .ok()
@@ -754,7 +757,7 @@ fn owner_from_state_acl(layout: &layout::Layout) -> Result<String, String> {
     if !acl.status.success() {
         return Err("状態の置き場の ACL を読めない".into());
     }
-    state::owner_sid_from_acl(&String::from_utf8_lossy(&acl.stdout))
+    state::owner_sid_from_acl(&console::decode_child_output(&acl.stdout))
         .map_err(|_| "本人の SID を ACL から 1 つに決められない".to_owned())
 }
 
@@ -1499,7 +1502,10 @@ fn repair(
     )?;
     fs::write(&hba, commands::repair_hba_contents())
         .map_err(|error| format!("一時の接続規則を書けない: {error}"))?;
-    fs::write(&ident, commands::repair_ident_contents(&account))
+    // PostgreSQL は SSPI の利用者名を ANSI のコード頁のバイト列で受け取る（D9）
+    let ident_bytes = console::encode_ansi(&commands::repair_ident_contents(&account))
+        .map_err(|reason| format!("利用者名 {account} を {reason}"))?;
+    fs::write(&ident, ident_bytes)
         .map_err(|error| format!("一時の利用者規則を書けない: {error}"))?;
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
         .map_err(|error| format!("一時の番号を確保できない: {error}"))?;
@@ -1653,6 +1659,23 @@ mod tests {
         expand_downloads_shell_folder, reg_query_value, run_detached, Duration, Instant,
         SetupCommand,
     };
+
+    // Scenario: コード頁 932 で書いた日本語のダウンロードの場所を、同じ文字として読む
+    #[cfg(windows)]
+    #[test]
+    fn ch14_downloads_read_in_code_page_932() {
+        // `python3 -c "print('    {374DE290-123F-4565-9164-39C4925E467B}    REG_EXPAND_SZ    %USERPROFILE%\\ダウンロード'.encode('cp932').hex(' '))"`
+        let name = "{374DE290-123F-4565-9164-39C4925E467B}";
+        let mut bytes = format!("    {name}    REG_EXPAND_SZ    %USERPROFILE%\\").into_bytes();
+        bytes.extend([
+            0x83, 0x5f, 0x83, 0x45, 0x83, 0x93, 0x83, 0x8d, 0x81, 0x5b, 0x83, 0x68,
+        ]);
+        let text = ashiato_setup::console::decode_with_code_page(&bytes, 932);
+        assert_eq!(
+            super::downloads_from_reg_output(Some(&text), name, r"C:\Users\足跡"),
+            r"C:\Users\足跡\ダウンロード"
+        );
+    }
 
     #[test]
     fn st55_run_does_not_wait_for_a_descendant_holding_its_output_handles() {
