@@ -102,3 +102,140 @@ python3 scripts/spec_overlap.py candidates . ch14-…                  → []（
 - design の前提と実物: 該当なし（確かめた範囲: rpassword 7.5.4 `lib.rs:270-292`（`prompt_password` → `OpenOptions::open(CONOUT$)` に `as_bytes()` を `write_all`）・`windows.rs:15-16`（既定の入出力は `CONIN$`／`CONOUT$`）・`:380`（`SetConsoleMode(ENABLE_PROCESSED_INPUT)`）・`read_password()` は既定の設定で `CONIN$` から読む（`lib.rs:265`・`config.rs:125-132`）。rpassword の `windows-sys` は `0.61` で `Win32_Foundation`・`Win32_System_Console`・`Win32_Storage_FileSystem` を既に有効にしている（rpassword の `Cargo.toml`）、`Cargo.lock` は `windows-sys 0.61.2`。`Cargo.toml:27` の `unsafe_code = "deny"` と `crates/collector-windows/src/secret.rs:3` の前例。`crates/installer/Cargo.toml` に `[target.'cfg(windows)'.dependencies]` の節は今無く、Task 2.1 が新しく作る。windows-gnu の clippy は `ci.yml:165` が `-p ashiato-setup` を含む）
 - 観点 6: 該当なし（`spec --draft`。`--answers` でない）
 - 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。参考: ch13 は `tools/workbox.json` の `host_only` に `tools/release/(build|install-check)\.sh` と `powershell\.exe` を持つ（`origin/feat/ch13-workbox-config`）。Task 3.2・4.2 の検証は `install-check.sh` を名指すのでホストで走り、`tasks.md:49` の「作業箱の外で走らせる」と矛盾しない。ch11 は `tools/check-licenses.sh` に 4 行足すが、Task 2.1 は呼ぶだけ
+
+## 第 3 回（spec --answers Q2。HEAD 58c723f64 からの未 commit の差分を読んで。2026-11-10）
+
+対象は Q2 の写しで足した部分（ADDED Requirement と Scenario 5 本・tasks Task 5・6・design D2・D8・D9・Context・Risks・premises.md の 2 行・proposal・`docs/changes/CH14.md` の完了の判定）。既存の R1〜R10 には触れない。観点 6 の結果は `review/answers.md`。
+
+```
+openspec validate ch14-installer-password-prompt-mojibake --strict   → valid（rc=0）
+python3 scripts/check_chain.py .                                     → chain: OK（rc=0）
+python3 scripts/check_scenarios.py . ch14-…                          → FAIL（rc=1）: 担保の無い Scenario 11 件 =
+    MODIFIED で足した 6 本（印は Task 4）＋ ADDED の 5 本（印は Task 5.2 の 4 本・Task 6.2 の 1 本）。上流の段では想定どおり
+python3 scripts/review_triage.py . ch14-…                            → triage: OK（指摘 18 件・仮決め 3 件・要件へ戻すもの 0）
+python3 scripts/spec_overlap.py candidates . ch14-…                  → []（0 件。観点 7 は上の「該当なし」のまま）
+```
+
+## R11. `cargo test --lib ch14_` は main.rs の試験を数えないので、Task 6.1 の「7 本以上」が落ちる
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md・tasks.md（と docs/changes/CH14.md の完了の判定）
+- 根拠: design D9（`design.md:103`）は試験の置き場を「`crates/installer/src/console.rs`・`main.rs` の `#[cfg(all(test, windows))]`」とする。`output_tail`（`main.rs:81`）・`reg_query_value`（`:48`）・`expand_downloads_shell_folder`（`:41`）は `main.rs`（bin の target。`mod tests` は `main.rs:1638`）の private な関数で、Task 5.1（`tasks.md:76`）は「分ける」とだけ書き、lib へ移すとは書いていない。Task 5.2 の `ch14_output_tail_reads_console_code_page`・`ch14_account_and_downloads_read_in_console_code_page` はこれらを呼ぶので、置き場は main.rs になる。一方 Task 6.1（`tasks.md:89`）と完了の判定（`docs/changes/CH14.md` の「`-- --list` で 7 本以上」）は `cargo test -p ashiato-setup --lib ch14_` で数える。`--lib` は bin の試験を含まないので、数は 3（Task 1）＋ console.rs に置いた分にとどまり、CI の step が落ちる。Task 5.2 の Linux の検証 `grep -rq "fn $n" crates/installer/src` は、どちらに置いても通るので気づけない
+- kind: technical
+- 提案: 6.1 と完了の判定の数え方から `--lib` を外す（`cargo test -p ashiato-setup ch14_`。フィルタがあるので、ほかの試験は巻き込まない）か、D9・Task 5.1 に「`output_tail` の組み立てと reg の出力からの場所の組み立てを lib（`console.rs` か `commands.rs`）へ移し、試験も lib に置く」と書く。
+- 処置: fixed 6.1 — 数え方から `--lib` を外し（`cargo test -p ashiato-setup ch14_`。main.rs（bin）の試験も数える）、下限を 8 本にした（5.2 を 5 本にしたため）。D9・docs/changes/CH14.md の完了の判定も同じに直した
+
+## R12. Task 4.2 と 5.2 の検証の `check_scenarios.py … rc=0` は、書いた順に進めると通らない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md
+- 根拠: `check_scenarios.py` は change の spec の全 Scenario の印を見る（今の FAIL 11 件の内訳は上の機械の検査）。Task 4.2 の検証（`tasks.md:72`）と Task 5.2 の検証（`tasks.md:85`）は、どちらも `python3 scripts/check_scenarios.py . ch14-installer-password-prompt-mojibake` rc=0 を求める。ADDED の 5 本の印は Task 5.2（4 本）と Task 6.2（1 本）で初めて置かれるので、4.2 の時点では 5 件、5.2 の時点では 1 件（「英字でない名前の管理者が repair しても、記録を残したままログインできる」）が担保なしで残り、rc=1 になる。HEAD の版では 4.2 が最後に印を置くタスクだったので通っていた
+- kind: technical
+- 提案: `check_scenarios.py` rc=0 を、印を置く最後のタスク（6.2）と 8.1 にだけ残す。4.2・5.2 は「そのタスクが置いた名前が担保なしの一覧に無い」（`check_scenarios.py … | grep -F "<名前>"` が無いこと）に替える。
+- 処置: fixed 4.2 — 4.2・5.2 の検証を「その Task が置いた名前が check_scenarios.py の担保なしの一覧に無い」に替えた。全体の rc=0 は印を置く最後の 6.2 と 8.1 に残した
+
+## R13. 単体の Scenario の WHEN「インストーラの窓のコード頁が 932」は、試験の中で作られない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/specs/distribution/spec.md・tasks.md
+- 根拠: ADDED の Scenario「窓のコード頁で書いた子の命令の失敗の理由が、化けずに読める」「UTF-8 で書く子の出力は、窓のコード頁が 932 でもそのまま読める」「窓のコード頁で書いた日本語の利用者名とダウンロードの場所を、同じ文字として読む」の WHEN は「インストーラの窓のコード頁が 932 である」。Task 5.2（`tasks.md:79-84`）の試験は `decode_with_code_page(bytes, 932)` のようにコード頁を引数で渡し、`decode_child_output` が窓のコード頁（`GetConsoleOutputCP`）を選ぶ部分を通らない。`decode_child_output` が `GetOEMCP` や固定の 932 で読む実装でも、この 3 本は緑になる。窓のコード頁を選ぶ部分を通るのは install-check の repair の Scenario（runner の OEM のコード頁は 932 でない見込み。`premises.md` の表の 7 行目）だけで、そちらは R14 の前提にも乗っている
+- kind: technical
+- 提案: 単体の 3 本の WHEN を「コード頁 932 を指して読む」に直し、窓のコード頁を選ぶことは別の 1 本で確かめる（例: Windows の試験で `SetConsoleOutputCP(932)` にした窓から `decode_child_output` を呼ぶ。窓が無ければ `AllocConsole`）か、repair の Scenario がそれを担うと D9 に明記して、その Scenario の失敗が「読み違え」か「DB の認証」かを見分けられるようにする（R14）。
+- 処置: fixed 5.2 — 失敗の理由の試験を、`SetConsoleOutputCP(932)` にした窓（無ければ `AllocConsole`）から `decode_child_output` を呼ぶ形にし、窓のコード頁を選ぶ部分を通すようにした。ほかの Scenario の WHEN は「コード頁 932 を指して読む」に直した（spec・D9）
+
+## R14. D9 の反転条件の入口が、Task 6.2 の失敗の出力から見分けられない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md・tasks.md・premises.md
+- 根拠: D9 の反転条件（`design.md:107`）は (a)「runner で `chcp 932` が断られたら」と (b)「読みは正しい（…repair の一時のログに書いた利用者名が Windows の名前と同じ）のに PostgreSQL が英字でない名前を認証できないと分かったら」で分かれる。Task 6.2（`tasks.md:91-94`）は `.cmd` の頭で `chcp 932 >nul` とし（断られても何も出ない。D6 は `chcp` の出力を読む）、外れたら「`.out` を出して `die`」だけで、一時の利用者規則（`repair.pg_ident.conf`。`main.rs:1490`）も `repair-db.log` も出さない。どちらに当たったかは CI の出力から決められず、反転の行き先（(a) は文字を替えて続ける・(b) は A として人間へ）が選べない。
+  あわせて、(a) の替え方（`é` などの窓のコード頁で表せる文字）は窓のコード頁の問題だけを避ける。pg_ident の行は `fs::write` で UTF-8 のまま書かれ（`main.rs:1490`）、英字でない文字は `is_alphanumeric` ならそのままの文字で入る（`commands.rs:1097-1110`）。PostgreSQL が SSPI から得た名前をどのコード頁のバイト列で比べるかは、premises の新しい 2 行目（確かさ 1）が「SSPI の名前の文字」と 1 語でまとめているだけで、どちらの反転条件も扱っていない
+- kind: technical
+- 提案: Task 6.2 の `.cmd` を `chcp 932 >nul || exit /b 90` のように断りを別の rc で返す形にし、`die` の前に `repair.pg_ident.conf` と `repair-db.log` の中身（利用者名の行）も出す。premises の行を「runner の `chcp 932`」「`net user` の日本語の名前」「PostgreSQL が SSPI の名前と pg_ident の行をどのバイト列で比べるか」に分け、最後のものは (a) でも避けられないことを D9 の反転条件に書く（知識の上では、Windows の ANSI のコード頁の名前と UTF-8 で書いた行が食い違う見込みがあり、確かめていない）。
+- 処置: fixed D9 仮 — `.cmd` を `chcp 932 >nul || exit /b 90` にし、外れたら `repair.pg_ident.conf` と `repair-db.log` の末尾を出してから止める形にした（tasks 6.2）。premises の行を runner の chcp 932・net user の日本語の名前・PostgreSQL の突き合わせのバイト列の 3 つに分け、(a) の文字の替え方では (b) を避けられないことを D9 の反転条件に書いた
+
+## R15. 足した Scenario のうち 3 本が、THEN に別々の主張を束ねている
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/specs/distribution/spec.md
+- 根拠: 「英字だけの子の出力は、いまと同じ値として読む」は WHEN に 3 つの出力 × 2 つのコード頁、THEN に「値が同じ」と「repair の DB の認証の対応表の行も同じ」。「窓のコード頁で書いた日本語の利用者名とダウンロードの場所を、同じ文字として読む」は THEN に利用者名・ダウンロードの場所・対応表の行の 3 つ。「英字でない名前の管理者が repair しても、記録を残したままログインできる」は THEN に rc=0・記録の件数と DB が変わらない・ログインできるの 3 つ（「DB は変わらず」は Task 6.2 では `pg_database` の oid。Scenario の字面には無い）。どれも試験 1 本に 1 つの印で、片方の主張だけを確かめる試験でも印は立つ
+- kind: technical
+- 提案: 利用者名（と対応表の行）とダウンロードの場所を別の Scenario に分ける。repair の Scenario は THEN を「rc=0 で終わり、決めた合言葉で画面にログインできる」に絞り、記録と DB が変わらないことは今の「別の管理者が repair しても、本人は変わらない」と同じ扱いにするか、「DB は変わらず」を「DB が作り直されない（同じ DB のまま）」と測れる字面にする。
+- 処置: fixed specs/distribution/spec.md — 日本語の利用者名とダウンロードの場所を 2 本の Scenario に分けた。英字だけの Scenario の THEN から対応表の行を外した。repair の Scenario は THEN を rc=0 とログインに絞り、名前を「英字でない名前の管理者でも repair でき、決めた合言葉でログインできる」にした（DB と記録の件数は tasks 6.2 があわせて見る）
+
+## R16. D8 の「読めない並びは置換の文字にして止まらない」は観測できる振る舞いで、design にだけある
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md
+- 根拠: `design.md:93`（D8: 読めない並びは置換の文字にする。いまの `from_utf8_lossy` と同じく止まらない）・`:98`（`psql`・`pg_ctl` が UTF-8 でも窓のコード頁でもない文字で書けば置換の文字が出る。止まらない）。ADDED Requirement の SHALL（spec の「子が書いた文字として読む（…化けさせない）」）は、読めない出力のときにインストーラが止まらず置換の文字で続けることを言っておらず、Scenario も無い。archive で正典から落ちる
+- kind: technical
+- 提案: SHALL に「どのコード頁でも読めない並びは置換の文字にして読み、それで止まらない」を 1 行足すか、約束しない（いまの振る舞いのまま、spec に書かない）と D8 に明記する。
+- 処置: fixed specs/distribution/spec.md — 「UTF-8 としても窓のコード頁としても読めない並びは置換の文字にして読み、それを理由に止まらない（いまと同じ）」を SHALL に足し、D8 から参照した
+
+## R17. Task 5.2 の期待するバイト列の出所（premises.md の実物）に、そのバイト列が無い
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md・design.md
+- 根拠: Task 5.2（`tasks.md:79`）と D9（`design.md:103`）は、期待するバイト列を「`premises.md` の本人の PC の実物の出力から取る」とする。premises.md の新しい 1 行目にあるバイト列は `tasklist` の文の先頭 `8f ee 95 f1 3a 20` だけで、試験が使う「指定されたサービスはインストールされたサービスとして存在しません。」・`pc\足跡太郎`・`%USERPROFILE%\ダウンロード` の値の `reg.exe query` の出力は無い（本人の利用者名は英字。`proposal.md` の Impact）。下流は書いたとおりには取れない
+- kind: technical
+- 提案: 出所を「cp932 で符号化したバイト列（例: `python3 -c "print('…'.encode('cp932').hex(' '))"`。Linux の Python は cp932 の表を持つ）」に直すか、使う 3 つのバイト列を premises.md に実物から足す。
+- 処置: fixed 5.2 — 期待するバイト列の出所を「Linux の Python の `'…'.encode('cp932')` で作る」に直した（D9 も同じ）
+
+## R18. 足した後の数と参照が、proposal・design・tasks の古い字面と合わない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/proposal.md・design.md・tasks.md
+- 根拠: (a) `proposal.md` の Impact の試験の行は「`scenario_names` に 6 つの名前」のまま（Task 6.2 で 7 つ）。走っている change との重なりの行は「この change は `ci.yml` の `install-windows` に step を 1 つ足すだけ」のままで、`package-windows` の step（Task 6.1）が入っていない。(b) design Context（`design.md:17`）の `Get-Acl` の読みは `main.rs:752` と書くが、実物は `:745`。(c) tasks の Global Constraints（`tasks.md:11`）は「足した 6 本は Task 4 が印を置き（ADDED の 5 本は、4 本を Task 5.2 の Rust の試験の `// Scenario:`、1 本を Task 6.2 の install-check が置く）、`scenario_names`（`--list`）に名前を足す」と読め、Rust の試験の 4 本の名前も `scenario_names` に足すように読める。足すと `install-windows` の `comm -23`（`ci.yml` の install-windows の step）が「印が無い」で落ちる
+- kind: technical
+- 提案: (a) proposal の数を 7 にし、重なりの行に `package-windows` の step を足す（ch11・ch12 が `package-windows` に触るかも確かめる）。(b) `:745` に直す。(c) Global Constraints を「`scenario_names` に足すのは install-check が印を出す 7 本だけ（Rust の試験の 4 本は足さない）」と書き分ける。
+- 処置: fixed proposal.md — (a) scenario_names を 7 つ（Rust の試験の 5 本は足さない）にし、重なりの行に package-windows の step を足した（ch11・ch12 は install-windows・package-windows に触らない）。(b) design の `:752` を `:745` に直した。(c) tasks の Global Constraints を、scenario_names に足すのは install-check が印を出すものだけ、Rust の試験の 5 本は足さない、と書き分けた
+
+## R19. 日本語の Windows で実物の子の命令の出力を読むことを、CI も確認バッチも見ない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md・tasks.md・docs/changes/CH14.md
+- 根拠: 足した Risks の行（`design.md` の Risks の 2 つ目）は「日本語で実地に通るのは確認バッチ（tasks 9.1）の窓だけ」と書く。9.1（`tasks.md:110`）の本文は番号が 7.1 から変わっただけで、問いと条件の表示・打った文字が出ないこと・15 文字の断りしか見ない。`docs/changes/CH14.md` の完了の判定の Q2 の 3 行にも確認バッチの行が無い。CI の runner は英語の OS で日本語の文を出す子が無く（同じ Risks の行）、単体の試験は 16 進のバイト列を読むだけ。日本語の Windows で `sc.exe` などの実物の出力を `decode_child_output` が読むことは、どの確かめも通らない
+- kind: technical
+- 提案: 9.1 に 1 項目足す（例: 本人の PC で、`ashiato-server` のサービスが無い状態で失敗の理由に `sc.exe` の出力が添わる口を 1 つ通し、日本語の文が化けずに出ることを見る。通せる口が無ければ、その旨と代わりの確かめ）か、Risks の行を「日本語の Windows で実物の子の出力を読むことは確かめない」と事実どおりに直し、完了の判定にもそう書く。
+- 処置: fixed D9 仮 — Risks の行を「日本語の Windows で実物の子の日本語の出力を読むことは CI も確認バッチも確かめない。子が窓のコード頁で書くことは本人の PC の実物（確かさ 5）、その符号化の読みは単体の試験で確かめ、2 つを合わせて確かめたことにする」と事実どおりに直し、docs/changes/CH14.md の完了の判定にも同じことを書いた
+
+## 第 3 回の観点ごとの該当なし（足した部分について）
+
+- 観点 1: R14・R19 のほかは該当なし（確かめた範囲: deep.md Q2 の「表示も値の口も含める」が ADDED Requirement の SHALL 4 行（表示 = 失敗の末尾、値 = 利用者名・ダウンロードの場所、英字だけは同じ値）と Scenario 5 本・design D2・tasks の Global Constraints に写っている。数値（コード頁 932・437）は Scenario にある。Q2 の古い内容（「直さない」・Non-Goals の行・proposal の「見つけたが直さないもの」・D2（仮）の反転条件）は残っていない。要件へ戻すものは無い）
+- 観点 2: R13・R15 のほかは該当なし（確かめた範囲: ADDED の 5 本の WHEN / THEN と、Requirement の本文にだけある主張（R16 を除く））
+- 観点 3: R16 のほかは該当なし（確かめた範囲: ADDED の Requirement と Scenario に関数名・crate 名・列名は無い（`sc.exe`・`whoami`・`reg.exe`・`repair` は利用者が見る命令と口の名前）。proposal の Modified Capabilities は `distribution` のままで、`specs/distribution/` と一致する）
+- 観点 4: R11・R12・R14・R17 のほかは該当なし（確かめた範囲: Task 5.1〜6.2 の全 `- [ ]` にコマンドと rc の終了条件がある。Task 6.2 が使う `make_users`・`remove_users`・`run_as_admin_b`・`with_settings_write`・`wait_healthz`・`app_sql`（oid と `core.source` の件数。`install-check.sh:1033`・`:1077`）は実在する。依存順は 5.1→5.2→6.1、5.1→6.2 で合う（R12 の検査の順を除く））
+- 観点 5（change）: R19 のほかは該当なし（確かめた範囲: 完了の判定に Q2 の 3 行があり、壊してはいけないもの 7 は Scenario「英字だけの子の出力は、いまと同じ値として読む」が持つ。依頼（逐語）を越える範囲は deep.md Q2 の本人の決定に依る）
+- 観点 6: `review/answers.md` に書いた
+- 観点 7: 上の「該当なし」のまま（spec_overlap.py candidates が 0 件）
+
+## 第 4 回（R11〜R19 の処置を読んで。2026-11-10）
+
+処置はどれも成果物で確かめた。R11（6.1・D9・完了の判定から `--lib` を外し、下限 8）・R12（4.2・5.2 はその Task の名前が担保なしの一覧に無いことを見る。全体の rc は 6.2・8.1）・R14（`.cmd` の rc=90、失敗時に `repair.pg_ident.conf` と `repair-db.log` の末尾を出す。premises を 3 行に分けた。(a) では (b) を避けられないと D9 に書いた）・R15（Scenario を分け、THEN を絞った）・R17（cp932 のバイト列は Python で作る）・R18（proposal の 7 つ・`package-windows` の step・`:745`・Global Constraints の書き分け）・R19（Risks と完了の判定を「確かめない」に直した）は、指摘を満たしている。R13 と R16 は、直したことで次の R20・R21 が出た。
+
+```
+openspec validate ch14-installer-password-prompt-mojibake --strict   → valid（rc=0）
+python3 scripts/check_chain.py .                                     → chain: OK（rc=0）
+python3 scripts/check_scenarios.py . ch14-…                          → FAIL（rc=1）: 担保の無い Scenario 12 件 =
+    MODIFIED で足した 6 本 ＋ ADDED の 6 本（R15 で 1 本増えた）。印は Task 4・5.2・6.2 が置く。想定どおり
+python3 scripts/review_triage.py . ch14-…                            → triage: OK（指摘 27 件・仮決め 5 件・要件へ戻すもの 0）
+python3 scripts/spec_overlap.py candidates . ch14-…                  → []（0 件。観点 7 は「該当なし」のまま）
+```
+
+## R20. 窓のコード頁を選ぶ試験（R13 の処置）は `unsafe` を呼ぶが、置き場の main.rs では `unsafe` を書けない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md・design.md
+- 根拠: Task 5.2 の `ch14_output_tail_reads_console_code_page`（`tasks.md` の 5.2）は、試験の中で `AllocConsole`・`SetConsoleOutputCP(932)`（どちらも `windows-sys` の FFI で `unsafe`）を呼び、`decode_child_output` で読んで「組んだ出力の末尾」を確かめる。出力の末尾を組む関数は Task 5.1 が `main.rs` の `output_tail` から分けるもので、置き場は書かれていない。5.2 は「置き場は、呼ぶ関数のあるモジュール（`console.rs` か `main.rs` の `mod tests`）」とする。main.rs に置くと、作業場の lint は `unsafe_code = "deny"`（`Cargo.toml:27`）で、`allow(unsafe_code)` は `console.rs` の 1 行だけ（Global Constraints・Task 5.1 の検証の `wc -l | grep -qx 1`・`tools/check-unsafe-scope.sh`）なので組めない。console.rs に置くと、lib の試験から bin（main.rs）の関数は呼べない。console.rs に試験だけの安全な包み（`#[cfg(test)]`）を置いても、bin の試験を組むときの lib は `cfg(test)` なしで組まれるので見えない
+- kind: technical
+- 提案: Task 5.1 に「出力の末尾を組む関数（文字列から、空行を除いた末尾 5 行を ` / ` で繋ぐ）は lib（`console.rs`）に置き、main.rs の `output_tail` はそれを呼ぶ」と書き、この試験を console.rs に置くと 5.2 に名指す。または、窓のコード頁を一時的に替える安全な関数を console.rs の公開の関数として置く（`cfg(test)` にしない）と書く。
+- 処置: fixed 5.1 — 出力の末尾を組む中身を lib の `console.rs` の `pub fn output_tail_text(stdout, stderr)` へ移し（main.rs の `output_tail` は呼ぶだけ）、窓のコード頁を切り替える試験を `console.rs` に置くと Task 5.1・5.2 と D9 に名指した
+
+## R21. R16 の処置で足した SHALL（読めない並びは置換の文字にして止まらない）に Scenario が無い
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/specs/distribution/spec.md
+- 根拠: ADDED Requirement の 5 つ目の SHALL「UTF-8 としても窓のコード頁としても読めない並びは置換の文字にして読み、それを理由に止まらない（いまと同じ）」に当たる `#### Scenario:` が無い（Scenario 6 本の WHEN は、どれも読める出力）。validate は Requirement の本文だけが言っていることを落とさないので、実装が読めない並びで止まっても（`MultiByteToWideChar` の失敗を `Err` で返すなど）spec は緑のまま
+- kind: technical
+- 提案: Scenario を 1 本足す（例: WHEN 子の出力がコード頁 932 でも UTF-8 でも読めない並び（後ろが欠けた 2 バイト文字の先頭のバイト `0x82` で終わる、など）で、それを 932 を指して読む / THEN 読んだ文字列に置換の文字（U+FFFD）があり、読みが失敗を返さない）。Task 5.2 に `ch14_` の試験を 1 本足し、6.1 の下限を 9 にする。
+- 処置: fixed specs/distribution/spec.md — Scenario「どのコード頁でも読めない並びは、置換の文字にして止まらない」と試験 `ch14_unreadable_bytes_become_replacement`（tasks 5.2）を足し、6.1 と完了の判定の下限を 9 にした
+
+## R22. Task 4.2・5.2 の新しい検証は、`check_scenarios.py` が走らなくても通る
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md
+- 根拠: R12 の処置で 4.2・5.2 の検証は `o=$(python3 scripts/check_scenarios.py … 2>&1); for n in …; do grep -F "担保の無い Scenario: $n" <<<"$o" && exit 1; done; exit 0` になった。台本が見つからない・例外で止まる・change の名前を誤るなどで `担保の無い Scenario:` の行が 1 行も出なくても rc=0 になる（「無い」ことだけを見ている）
+- kind: technical
+- 提案: 同じ出力に要約の行 `scenarios: ` があることも求める（例: `grep -q "^scenarios: " <<<"$o" || exit 1` を先に置く）。
+- 処置: fixed 4.2 — 4.2・5.2 の検証に、check_scenarios.py の出力に要約の行 `scenarios: ` があることを足した
+
+## 第 5 回（R20〜R22 の処置を読んで。2026-11-10）
+
+R20（出力の末尾を組む `output_tail_text(stdout: &[u8], stderr: &[u8])` を lib の `console.rs` へ移し、窓のコード頁を切り替える試験も `console.rs` に置くと Task 5.1・5.2・D9 に名指した）・R22（4.2・5.2 の検証が、要約の行 `scenarios: ` が無ければ rc=1）は解けている。`check_scenarios.py` は今も要約の行 `scenarios: FAIL (担保なし 13 件 …)` を出すので、R22 の確かめの形は今の台本で通る。R21 は Scenario「どのコード頁でも読めない並びは、置換の文字にして止まらない」と試験 `ch14_unreadable_bytes_become_replacement` が足され、6.1・完了の判定の下限が 9 になった。ただし THEN の期待する置換の文字の出どころが決まっていないので、R23 を立てる。担保の無い Scenario は 13 件（MODIFIED で足した 6 本と ADDED の 7 本）で、想定どおり。
+
+## R23. 読めない cp932 の並びが U+FFFD になることは、`MultiByteToWideChar` の既定の振る舞いではない見込みで、作り方が決まっていない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/specs/distribution/spec.md・design.md・tasks.md
+- 根拠: 新しい Scenario「どのコード頁でも読めない並びは、置換の文字にして止まらない」の THEN と Task 5.2 の `ch14_unreadable_bytes_become_replacement` は、「指定された」の cp932 のバイト列の後ろに `0x82` を足した並びを `decode_with_code_page(…, 932)` で読むと「`U+FFFD` で終わる」ことを求める。D8（`design.md:93`）と Task 5.1 は「`MultiByteToWideChar(code_page, …)`。読めない並びは置換の文字」とだけ書き、フラグ（`MB_ERR_INVALID_CHARS`）も、壊れた並びを U+FFFD に置き換える手順も書いていない。本人の PC の実物（`premises.md` の表の 9 行目。確かさ 5）では、cp932 の窓が壊れた 2 バイトの並び（`画面の合言葉: ` の UTF-8 の末尾の `0x89 0x3A`）を `闡・ ` と出した。つまり cp932 の変換は、壊れた並びを U+FFFD でなく、コード頁の既定の文字 U+30FB『・』にした（`:` が消えている）。Windows の変換が既定のまま U+FFFD を返す根拠は成果物に無い。末尾の欠けた 1 バイト目をどう扱うか（『・』にする・落とす）も確かめていない。既定のフラグで書くと試験が Windows の CI で落ちるか、試験に合わせて THEN を後から緩めることになる。
+  あわせて、Scenario「窓のコード頁で書いた子の命令の失敗の理由が、化けずに読める」の THEN は「置換の文字（U+FFFD）が無い」で化けていないことを測る。cp932 の変換が壊れた並びを『・』にするなら、読み違えても U+FFFD は出ず、この確かめは化けを見分けない（同じ THEN の「その文が同じ文字のまま入る」の側は見分ける）
+- kind: technical
+- 提案: D8 と Task 5.1 に作り方を名指す（例: `MB_ERR_INVALID_CHARS` を付けて呼び、失敗したら `IsDBCSLeadByteEx` で文字の切れ目を数えながら読めない所だけ U+FFFD にする）。Windows の既定の変換に任せるなら、Scenario の THEN を「止まらずに文字列を返し、その前の文字はそのまま残る」と、置換の文字の種類を決めない形に直す。失敗の理由の Scenario の THEN は、「置換の文字が無い」より「同じ文字のまま入る」を主にする（U+FFFD と U+30FB のどちらも見ないなら、その句を外す）。
+- 処置: fixed D8 仮 — 作り方を D8 と Task 5.1 に名指した（`MB_ERR_INVALID_CHARS` で全体を読み、失敗したら `IsDBCSLeadByteEx` で 1 文字ずつ読んで読めない文字だけを U+FFFD にする。旗の無い既定の読みは使わない）。失敗の理由の Scenario は THEN の主が「その文が同じ文字のまま入る」で、読み違えはそこで落ちるので変えない
+
+## 第 6 回（R23 の処置を読んで。2026-11-10）
+
+R23 は解けている。D8 と Task 5.1 は、まず `MB_ERR_INVALID_CHARS` を付けて `MultiByteToWideChar` で全体を読む。失敗したら `IsDBCSLeadByteEx` で 1 文字の長さを決めて 1 文字ずつ同じ旗で読み、読めない文字（末尾で 2 バイト目が欠けたものを含む）だけを U+FFFD にする。旗の無い既定の読みは使わないと、理由（`premises.md` 9 行目の `・`）つきで名指した。名指した API と定数（`MultiByteToWideChar`・`MB_ERR_INVALID_CHARS`・`IsDBCSLeadByteEx`・`GetOEMCP` は `Win32_Globalization`、`GetConsoleOutputCP`・`SetConsoleOutputCP`・`AllocConsole` は `Win32_System_Console`）は、`Cargo.lock` の `windows-sys 0.61.2` の source に実在する。失敗の理由の Scenario は THEN の主が「同じ文字のまま入る」で、別のコード頁で読み違えればそこで落ちるので、提案のうち「主にする」を満たしている。新しい指摘は無い。

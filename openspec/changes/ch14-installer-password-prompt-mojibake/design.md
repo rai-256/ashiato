@@ -1,6 +1,7 @@
 # CH14 design — インストーラの合言葉の問いが文字化けする
 
 > 第 1 回の深掘りの推奨の答え（Q1〜Q5）で先に書いた（2026-10-20 の流れ）。本人の答えが推奨と違えば、その Q の D（仮）を反転条件のとおりに書き直す。
+> 2026-11-10 の本人の答えで、推奨と違った Q2（表示も値の口も含める）を写した: D2 を書き直し、D8（仮）・D9（仮）を足した。ほかの D は変えていない。
 
 ## Context
 
@@ -13,6 +14,8 @@
 - 断りの行は `合言葉を受け付けない: <理由>。入れ直してください`（標準エラー）。理由の語は `PasswordRefusal::reason`（`password.rs:17-25`）。CI は `受け付けない: 短い` などの字面で確かめている（`install-check.sh:975`・`:996`）
 - 作業場の lint は `unsafe_code = "deny"`（`Cargo.toml:27`）。モジュールで許す前例は `crates/collector-windows/src/secret.rs:3`（`#![cfg_attr(windows, allow(unsafe_code))]`）
 - `windows-sys 0.61.2` は rpassword の依存として既に `Cargo.lock` にある
+- 子の命令の出力は、どれも `String::from_utf8_lossy` で読む（`main.rs:71` `reg.exe`・`:84-85` `output_tail`・`:162` `sc.exe sdshow`・`:193` `sc.exe query`・`:250` `whoami`・`:358` `netstat`・`:380` `tasklist`・`:408` PowerShell・`:745` `Get-Acl`）。本人の PC では `sc.exe`・`icacls`・`tasklist`・`reg.exe`・`whoami` が窓のコード頁（932）で管へ書き、`chcp 65001` の窓では UTF-8 か英語の文で書く（`premises.md`）。`whoami` の利用者名は `repair_ident_contents`（`commands.rs:1097`）で DB の認証の対応表の行になり、`reg.exe` のダウンロードの場所は `user_downloads`（`main.rs:59`。`--downloads` が無いときだけ）で設定とインストールに入る
+- install-check は `--downloads` を必ず渡すので、`reg.exe` の読みは CI で一度も走っていない。Windows の job で `cargo test -p ashiato-setup` を走らせる step も無い（`package-windows` は組むだけ）
 
 ## Goals / Non-Goals
 
@@ -20,10 +23,10 @@
 - 日本語の Windows の窓で、合言葉の問いの文と条件の一覧が化けずに読める（install の最後・`password`・`repair` の 3 つの口。1 か所を直せば 3 つに効く）
 - 最初の問いの前に、受け付ける条件を示す。短い・雛形の断りには条件を添える
 - 本物の窓（疑似コンソール）で、問いが化けないこと・打った合言葉が出ないこと・向け替えても問いが窓に出ることを、Windows の CI が毎回確かめる
+- 子の命令の出力を、子が書いた文字として読む。失敗の理由が日本語の Windows でも読め、英字でない利用者名・フォルダ名でも `repair` とインストールが止まらない（Q2）
 
 **Non-Goals:**
 - 合言葉の検査の中身（16 文字・`change-me`・API の合言葉とログインの印の鍵・2 回の一致）を変えること（Q1）
-- 子の命令（`sc.exe`・`icacls`・`whoami`・`reg.exe`・`tasklist`）の出力を cp932 で読み替えること（Q2。別の change。proposal の Impact）
 - 端末でないとき（管）の読み方を変えること。問いの文は今どおり出さない
 - rpassword を外すこと・版を上げること（読みは rpassword のまま）
 
@@ -35,11 +38,9 @@
 
 - 反転条件: 本人が Q1 で「文字化けだけ」を選べば、D3 の条件の一覧と断りの添え書きを外す。spec から条件に関わる SHALL 3 つ（最初の問いの前に 1 回だけ示す・端末のとき表示されないことを添える・断りに条件を添える）と、Scenario「端末でないときも、断りより前に合言葉の条件を 1 回だけ示す」「短い・雛形で断るときは、理由に条件を添える」を落とし、窓の Scenario「コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める」「標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る」の THEN から条件の語と順を外して問いの文だけにする。tasks は 1.1 の `requirements_line` と 4.1 を外し、4.2 から条件の確かめを外す。「検査も見直す」なら正典の検査の文を変える Requirement の改訂が要り、範囲を問い直す
 
-### D2（仮）. 子の命令の出力の化けは、この change で直さない（Q2）
+### D2. 子の命令の出力の化けは、表示も値の口もこの change で直す（Q2。本人の答え）
 
-見つけた 2 種類（失敗の理由に添える表示 `output_tail`（`main.rs:81-90`）・`tasklist`（`:380`）と、値として使う口 `whoami` の利用者名（`:250`）・`reg.exe` のダウンロードの場所（`:71`））は、proposal の Impact に書き、別の change に起こす（人間が `hx change` で登録する）。
-
-- 反転条件: 本人が Q2 で「値の口だけ」「全部」を選べば、該当の読み口を `MultiByteToWideChar(CP_OEMCP)` で読み替える Task と、日本語の名前での試験を足す（`psql`・`pg_ctl` は自分の lc_messages で書くので読み替えの対象かを子ごとに確かめる）
+本人が Q2 で「表示も値の口も含める」を選んだ（2026-11-10。推奨「含めない」と違う）。失敗の理由に添える表示（`output_tail`・`tasklist`）も、値として使う口（`whoami` の利用者名・`reg.exe` のダウンロードの場所）も、子の命令の出力を読む口を全部 1 つの読み方（D8）に通す。値は `netstat`・`sc.exe`・PowerShell の数や SID のように英字だけのものも同じ口を通す（口ごとに読み方を分けると、次に足す子で取りこぼす）。読み方は D8、確かめ方は D9。
 
 ### D3（仮）. 条件の一覧は最初の問いの前に 1 回、断りには短い・雛形の条件を添える（Q3）
 
@@ -84,11 +85,31 @@
 
 CI の runner は既に管理者で、昇格して開き直した窓（本人が化けを見た窓）を開かず、コード頁も 932 とは限らない。確認バッチで本人が、日本語の Windows で `ashiato-setup.exe password` を（管理者でない端末から）開き、昇格して開き直した窓で問いと条件が読めることを 1 回見る。tasks の「人間の確認待ち」に `> 物理: device` で置く。
 
-- 反転条件: Q4 で「Windows の CI だけ」なら、tasks 7.1 と `docs/changes/CH14.md` の完了の判定の確認バッチの行を外す。「確認バッチで本人が見るだけ」なら D6・Task 3・Task 4.2 と窓の Scenario 4 本を外し、7.1 を残す
+- 反転条件: Q4 で「Windows の CI だけ」なら、tasks 9.1（人間の確認待ち）と `docs/changes/CH14.md` の完了の判定の確認バッチの行を外す。「確認バッチで本人が見るだけ」なら D6・Task 3・Task 4.2 と窓の Scenario 4 本を外し、9.1 を残す
+
+### D8（仮）. 子の出力は、UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む（Q2 に伴う）
+
+- `console.rs` に `pub fn decode_child_output(bytes: &[u8]) -> String` を足し、main.rs の子の出力の読み（Context の 9 か所）を全部これに替える。main.rs に `from_utf8_lossy` を残さない
+- 読み方: (1) バイト列が UTF-8 として正しければそのまま（英字だけの出力・`ashiato-server migrate` のような Rust の子・`chcp 65001` の窓で書く子）。(2) そうでなければ `cfg(windows)` で `GetConsoleOutputCP()` のコード頁（0 なら、つまり窓が無ければ `GetOEMCP()`）を `MultiByteToWideChar` で UTF-16 に直して読む。読めない並びは置換の文字（U+FFFD）にする（いまの `from_utf8_lossy` と同じく止まらない。spec の SHALL に写した。review/spec.md R16）。作り方: まず `MB_ERR_INVALID_CHARS` を付けて全体を `MultiByteToWideChar` で読み、失敗したら、先頭から `IsDBCSLeadByteEx(code_page, b)` で 1 文字の長さ（真なら 2 バイト、偽なら 1 バイト）を決めて 1 文字ずつ同じ旗で読み、読めない文字（末尾で 2 バイト目が欠けたものを含む）だけを U+FFFD にする。旗を付けない既定の読みは、読めない並びを U+FFFD でなく別の文字（本人の PC の窓では `・`）にするので使わない（`premises.md` 9 行目の `RAW[…闡・ ]`。review/spec.md R23）。`cfg(not(windows))` は今どおり `from_utf8_lossy`
+- 試験のために、コード頁を引数で受ける `decode_with_code_page(bytes: &[u8], code_page: u32) -> String`（`cfg(windows)`）と、`output_tail` を出力のバイト列とコード頁から組む形に分ける（`output_tail` の中身の「空行を除いた末尾 5 行を ` / ` で繋ぐ」は変えない）
+- 窓のコード頁にした理由: 本人の PC で、`tasklist`・`reg.exe`・`sc.exe` は `chcp 437` の窓では英語の文、`chcp 65001` の窓では英語の文（`whoami` は UTF-8）、既定（932）の窓では cp932 で管へ書いた（`premises.md`）。子は OEM のコード頁でなく、引き継いだ窓のコード頁に従う
+- UTF-8 を先に見る理由: Rust の子（`ashiato-server migrate`）は窓のコード頁に依らず UTF-8 で書く。cp932 の日本語の並びが偶然 UTF-8 として正しくなることは、2 文字以上の文ではほぼ無い（cp932 の 2 バイト目は 0x40〜0xFC で、UTF-8 の続きのバイト 0x80〜0xBF の並びの規則に揃わない）
+- `unsafe` は `console.rs` に置く（D4 と同じモジュール。D4 の「公開する関数は `write_to_console` の 1 つ」は窓へ書く側のことで、読む側の `decode_child_output`・`decode_with_code_page` はこの D8 が足す。`MultiByteToWideChar`・`GetConsoleOutputCP`・`GetOEMCP`）。`windows-sys` の features に `Win32_Globalization` を足す（`Cargo.lock` に新しい crate は増えない）
+- `psql`・`pg_ctl` は自分の lc_messages の文字で書く。UTF-8 なら (1)、窓のコード頁と同じなら (2) で読め、どちらでもなければ置換の文字が出る（いまと同じ。止まらない）
+- 反転条件: 本人の PC か CI で、窓のコード頁で書かない子（OEM・ANSI のコード頁で書く子）が見つかったら、その子だけコード頁を指して読む。UTF-8 として正しい cp932 の出力が実際に見つかったら、(1) と (2) の順を子ごとに決める
+
+### D9（仮）. 読み方は Windows の CI の単体の試験で、英字でない名前は install-check の repair で確かめる（Q2 に伴う）
+
+- コード頁を指した読み（`decode_with_code_page`）は `cfg(windows)` でしか組めない（Rust の側に cp932 の表が無い。`encoding_rs` などの新しい依存は足さない）。ADDED の Scenario のうち repair 以外の 6 本は、`crates/installer/src/console.rs`・`main.rs` の `#[cfg(all(test, windows))]` の `ch14_` の試験にし、期待するバイト列は試験の中に 16 進で持つ（Linux の Python の `'…'.encode('cp932')` で作る。本人の PC の子が cp932 で書くことは `premises.md`）。窓のコード頁を選ぶ部分（`GetConsoleOutputCP`）は、「窓のコード頁で書いた子の命令の失敗の理由が、化けずに読める」の試験が `SetConsoleOutputCP(932)` にした窓（無ければ `AllocConsole`）から `decode_child_output` を通る `console::output_tail_text` を呼んで通す。この試験は `unsafe` が要るので `console.rs` に置き、出力の末尾を組む中身も lib の `console.rs` へ移す（main.rs の `output_tail` は呼ぶだけ。review/spec.md R20）。ほかの 5 本はコード頁を指して読む（review/spec.md R13）。読めない並びの Scenario は、後ろが欠けた cp932 の並びで確かめる（R21）。コード頁 932 と 437 は Windows が必ず持つ（英語の OS でも `MultiByteToWideChar(932, …)` は使える）
+- 走らせる場所: `.github/workflows/ci.yml` の `package-windows`（windows-latest・Rust の toolchain がある）に step を 1 つ足し、`cargo test -p ashiato-setup ch14_` を `-- --list` の下限つきで走らせる（`--lib` を付けない。main.rs の試験は bin の target にある。review/spec.md R11）。`ch14_` に絞るのは、これまで Windows で一度も走っていないインストーラのほかの単体の試験を、この change で巻き込まないため
+- Scenario「英字でない名前の管理者でも repair でき、決めた合言葉でログインできる」は install-check の、今の「別の管理者が repair しても、本人は変わらない」の直後に置く。管理者は `make_users` で作る 3 人目（名前は `足跡ci管理`。`remove_users` で消す）。`run_as_admin_b` と同じ形（`schtasks` で、その利用者の上がった札で `.cmd` を走らせる）で `repair` を起こし、`.cmd` の頭で `chcp 932 >nul || exit /b 90` にしてから走らせる（runner の窓のコード頁は 932 とは限らない。`premises.md`。932 に替えれば、利用者名の日本語を窓のコード頁で表せる。断られたら別の rc で返す）。確かめは、repair の rc=0・`wait_healthz`・`$PW1` でログインできる（あわせて DB の oid と記録の件数が変わらない）。外れたら、残っていれば一時の利用者規則（`repair.pg_ident.conf`）と `repair-db.log` の末尾を出してから止まる（反転条件の (a)・(b) と読み違えを、CI の出力から見分ける。review/spec.md R14）
+- 前提の確かさ: runner で `chcp 932` が通るか、日本語の名前の利用者を `net user` で作れるか、PostgreSQL が SSPI から得た利用者名と、UTF-8 で書いた DB の認証の対応表の行（`main.rs:1490`・`commands.rs:1097-1110`）をどのバイト列で突き合わせるかは、確かめていない（`premises.md` の 3 行。確かさ 1）。知識の上では、Windows の ANSI のコード頁の名前と UTF-8 の行が食い違う見込みがある
+- 反転条件: (a) runner で `chcp 932` が断られたら、名前を runner の窓のコード頁で表せる英字でない文字（`é` など。437・1252 のどちらにもある）にし、`chcp` を外す。(b) 読みは正しい（単体の試験が通り、CI の出力の `repair.pg_ident.conf` の利用者名が Windows の名前と同じ文字）のに PostgreSQL が英字でない名前を認証できないと分かったら、DB の側の直しはこの change の範囲を越えるので、A として人間に返す（DB の認証の対応表の書き方を変えるか、別の change に出すか）。(a) の替え方（`é` などの文字）は窓のコード頁の問題だけを避け、(b) の突き合わせのバイト列の問題は避けない（`é` も ANSI と UTF-8 でバイト列が違う）
 
 ## Risks / Trade-offs
 
 - **ConPTY の出力は VT の並び**で、カーソルの移動で文字列が分かれることがある → 試験は VT の制御の並び（`ESC [ … 文字`・`ESC ] … BEL`）を除いてから探す。短い行（問いの文）だけを探す
 - **runner の既定の窓のコード頁が 65001** なら化けが見えない → `chcp 932` で替え、`chcp` の出力で 65001 でないことを確かめる（D6）
 - **`unsafe` が installer に入る**（D4）→ 1 つのモジュールに閉じ込め、`windows-gnu` 向けの clippy（`ci.yml:165`）が毎回組み立てる
+- **日本語の Windows で、実物の子の命令の日本語の出力を `decode_child_output` が読むことは、CI も確認バッチも確かめない**（英語の runner では日本語の文を出す子が無い。確認バッチの tasks 9.1 は合言葉の問いだけを見る）→ 子が窓のコード頁で書くことは本人の PC の実物で確かめ（`premises.md`。確かさ 5）、その符号化のバイト列を単体の試験が窓のコード頁 932 で読む（D9）。2 つを合わせて確かめたことにする（review/spec.md R19）
 - 窓の試験は `password` の口だけを通る。install の最後と `repair` は同じ関数を通るので、コードの形で同じと言える（関数を 1 つにしておく。`read_web_passwords` を口ごとに分けない）。管の道の条件の行は、install の最後・`password`・`repair` の 3 つの出力で確かめる（CI が既に取っている出力。review/spec.md R5）
