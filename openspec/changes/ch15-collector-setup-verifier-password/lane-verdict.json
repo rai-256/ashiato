@@ -38,12 +38,16 @@
   ]
  },
  "diff": {
-  "ok": true,
-  "why": [],
+  "ok": false,
+  "why": [
+   "Scenario「合言葉を入れ直すと、設定の文字列とコピーのボタンが出る」の項目（1.1）に、本番のコードが base のままの木で落ちた証跡が無い（直す前に `scripts/verify-run <項目>` で落ちることを記録する）"
+  ],
   "reason": "bug",
-  "base": "fec8c26747f248a4678d4152e05c16f3f5037f8c",
-  "head": "b71009e222e000fd26fd9559581d90efe8d6cee8",
+  "base": "eb243793da5f7272f5e01a2abbb2b02a9c2b37ab",
+  "head": "4e9b6d41a36e5c84e97d7eecab20942fec060a84",
   "paths": [
+   "crates/server/src/st55_tests.rs",
+   "crates/server/src/testdb.rs",
    "crates/server/src/web_session.rs",
    "crates/server/src/web_session_tests.rs"
   ],
@@ -64,9 +68,8 @@
    "security_review": "risky に触れる"
   },
   "grounds": [
-   "直す前: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が FAIL（2026-11-10T13:05:32+00:00・本番のコードは base のまま）",
-   "直した後: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が PASS（2026-11-10T13:08:31+00:00）"
+   "直した後: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が PASS（2026-11-10T14:06:15+00:00）"
   ],
-  "at": "2026-11-10T13:28:24+00:00"
+  "at": "2026-11-10T15:24:56+00:00"
  }
 }
