@@ -56,13 +56,13 @@
 
 ## Task 4: install-check に 6 つの Scenario を足す
 
-- [ ] 4.1 管の道の確かめ。次の 2 つの印を、それぞれを確かめる直前に出す:
+- [x] 4.1 管の道の確かめ。次の 2 つの印を、それぞれを確かめる直前に出す:
   `echo '== Scenario: 端末でないときも、断りより前に合言葉の条件を 1 回だけ示す'` —— 3 つの出力で確かめる: インストールの最後（`$WORK/install.out`）・`password` の口（今の「短い・既定の雛形・一致しない合言葉は受け付けない」の `printf … | "$SETUP" password >"$out" 2>&1` の出力）・`repair` の口（`install_with "$PW1" repair >"$out"` の直後に、別のファイルへ写して）。
   どれも、`16 文字以上`・`change-me で始めない`・`API の合言葉`・`ログインの印の鍵` を全部含む行がちょうど 1 つ・`受け付けない:` の行があればその最初の行より前・`表示されません` が無い。確かめは関数 1 つ（`assert_requirements_line <ファイル> <どの口>`）にし、印は password の口の確かめの直前に 1 回だけ出す（install と repair の出力は控えておき、そこでまとめて確かめる。repair の節が後なら repair の確かめは repair の節で関数を呼ぶだけにして、印は 1 回だけ）/
   `echo '== Scenario: 短い・雛形で断るときは、理由に条件を添える'`（password の口の出力に `受け付けない: 短い（16 文字以上）` と `受け付けない: 雛形（change-me で始めない）` がある）。今の確かめ（`受け付けない: 短い` などの grep）は変えない。
   `scenario_names` に 2 つの名前を足す（配列の途中。末尾に足さない）。
   検証: `tools/release/install-check.sh --self-test` rc=0 / `bash -n tools/release/install-check.sh` rc=0
-- [ ] 4.2 `echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'` の前に、窓の節を置く（design D6）。最初に `console_probe`（3.2）を走らせ、次の 4 つを確かめる。それぞれの前に印を出す:
+- [x] 4.2 `echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'` の前に、窓の節を置く（design D6）。最初に `console_probe`（3.2）を走らせ、次の 4 つを確かめる。それぞれの前に印を出す:
   `echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'`（`conpty-run.ps1 -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" -Command 'chcp 932 >nul & chcp & "<SETUP>" password'`、入力は `$PW2` を 2 行。窓の 2 回の起動はどちらも同じ上限を渡す（`password` の口は起こし直しで最大 180 秒待つ。design D6）。`chcp` の出力のコード頁が 65001 でないこと・VT を除いた窓の文字に `画面の合言葉: `・`画面の合言葉（もう一度）: ` があること・`16 文字以上`・`change-me で始めない`・`API の合言葉`・`ログインの印の鍵`・`表示されません` を全部含む行があり、その位置が最初の `画面の合言葉: ` より前であること）/
   `echo '== Scenario: 窓で打った合言葉で決め直せる'`（同じ回の rc=0・`wait_healthz 150` の後に `$PW2` でログインできる）/
   `echo '== Scenario: 窓で打った合言葉は、窓に出ない'`（同じ回の窓の文字に `$PW2` が無い）/
