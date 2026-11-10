@@ -92,6 +92,7 @@
 - kind: technical
 - 提案: 対応表の中身を組む部分（`repair_ident_contents` → 符号化 → 理由の文）を、コード頁を引数で受ける 1 つの関数（例 `repair_ident_bytes(account, code_page) -> Result<Vec<u8>, String>`）にして main.rs はそれを `GetACP()` で呼ぶだけにし、`ch14_unrepresentable_name_is_refused` はその関数が 1252 で `Err`（`利用者名 … を Windows の文字コード 1252 で表せない`）を返すことを見る
 - 処置: fixed 5.2
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R3. 6.1 の訂正後の検証コマンドは、CI の step が試験を 1 本も走らせなくても通る（訂正前のコマンドも同じ）
 - 成果物: tools/check-ci-ch14-step.sh / .github/workflows/ci.yml:428-430 / tasks.md 6.1 / plan-corrections.md / correction-review.md
@@ -106,6 +107,7 @@
 - kind: technical
 - 提案: 下限を 12 にするか、`ch14_write_to_console_succeeds_off_windows` を `#[cfg(not(windows))]` にして名前と組まれる場所を合わせる
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## security review（dae5668..281892e）
 
@@ -143,6 +145,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R6. The new non-ASCII branch writes an exact quoted name, which drops the ASCII path's `(@.*)?` realm tolerance for an account with no domain, and its case-insensitive matching depends entirely on PostgreSQL's behaviour.
 - 成果物: crates/installer/src/commands.rs:1099
@@ -150,6 +153,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 名前に `\` が無い場合は起きない。`account` は `whoami(&[])` の出力（`crates/installer/src/main.rs:1466`）で、`whoami`（引数なし）は常に `<ドメインか computer 名>\<利用者>` を返す（本人の PC で `/mnt/c/Windows/System32/cmd.exe /d /c whoami` → `<computer>\<user>` の形で、利用者の前に `5c` が 1 つある）。ドメインのある英字の行も `/(?i)^owner@pc$` で `(@.*)?` の許しは持たない（`crates/installer/src/commands.rs:1125`）ので、FQDN と NetBIOS の違いへの許しは英字の行にも無く、英字でない枝で狭まったものは無い。大文字と小文字は、文字どおりの行を PostgreSQL が `token_matches_insensitive`（`pg_strcasecmp`。ASCII の範囲で区別しない）で比べ、ドメイン（英字）の大文字と小文字の違いは英字の行と同じく合う（security review の台本の `pg_ident_file_mappings` の 6 行が文字どおりに読まれた）
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R7. The non-ASCII admin used in the real-machine check is 'ashiato-ci-é', which is single-byte in cp1252, so the check never covers the cp932 case D9 is written for: double-byte names whose second byte is 0x5C. On a Japanese host (ACP 932), 'é' cannot be encoded at all, so the scenario fails.
 - 成果物: tools/release/install-check.sh:305
@@ -157,6 +161,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 英字でない名前の管理者に `é` を使い、日本語の名前（cp932 の 2 バイト目が `0x5C`）を単体の試験で確かめるのは design D9 の決定（runner の ANSI のコード頁は 1252 で `chcp` でも `Set-Culture` でも替わらず、日本語の名前は表せない。review/spec.md R25）。0x5C の場合は `ch14_ident_line_is_literal_in_ansi_bytes`（`crates/installer/src/console.rs`。`足跡表ソ` のバイト列に `0x5c` があることを見る）が担保し、この settle で本人の PC（ACP 932）で ok を確かめた。install-check の install の節を走らせるのは CI の `install-windows`（windows-latest。`.github/workflows/ci.yml:459-460`）だけで、日本語の Windows で走らせる道は無い（手元の検証は `--self-test`・`--probe-console` だけで、どちらも利用者を作らない）
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
 - 成果物: crates/installer/src/console.rs:190
@@ -171,6 +176,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 前提が実物と違う。本人の PC（OEMCP・ACP 932）で `/mnt/c/Windows/System32/cmd.exe /d /c "chcp 65001 >nul & sc.exe query ashiato-nosuch-svc" | xxd` → `[SC] EnumQueryServicesStatus:OpenService FAILED 1060:` の後は `The specified service does not exist as an installed service.`（英語の ASCII）。同じ命令を `chcp 932` で走らせると `8e 77 92 e8 82 b3 …`（cp932 の『指定されたサービスは…』）。子は OEM のコード頁でなく引き継いだ窓のコード頁に従って書き、65001 の窓では日本語の cp932 を書かない（`premises.md` の「子の命令…は、引き継いだ窓のコード頁に従って管へ書く」の行と同じ。確かさ 5）。65001 で U+FFFD になる並びは出ない
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R10. The deadline and quiet checks use Environment.TickCount (a signed 32-bit int that wraps after about 24.9 days of uptime), so if it wraps mid-run, the timeout never fires and no input lines are sent.
 - 成果物: tools/release/conpty-run.ps1:174
@@ -178,6 +184,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 3.1
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R11. ch14_output_tail_reads_console_code_page calls AllocConsole and changes the process-wide console output CP during a parallel test run, and it leaves the allocated console in place, so other tests in the same binary that read the console CP can be affected.
 - 成果物: crates/installer/src/console.rs:412
@@ -185,6 +192,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.2
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R12. main.rs already imports `console`, but ask_hidden and read_web_passwords call it by the full path `ashiato_setup::console::write_to_console`, so the same module is referenced two ways in one file.
 - 成果物: crates/installer/src/main.rs:618
@@ -192,6 +200,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R13. The pattern `Command::new(..).output()` → `console::decode_child_output(&output.stdout)` is repeated by hand at about 8 call sites; a single helper that runs a child and returns decoded text would fix the root at one point.
 - 成果物: crates/installer/src/main.rs:581
@@ -199,6 +208,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 
 ## R14. The test is named ch14_write_to_console_succeeds_off_windows but has no cfg, so it also runs on Windows; it is counted towards CI's 11-test minimum without testing what its name says.
 - 成果物: crates/installer/src/console.rs:376
@@ -206,3 +216,11 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
+
+## settle_review（re-review 1 @38bd858）: 処置の直しが新しく壊したもの
+
+## R15. ch14_unrepresentable_name_is_refused は repair_ident_bytes_with_code_page を直に呼ぶ。main.rs が repair_ident_bytes を通らない形に戻っても、試験は通る。
+- 成果物: crates/installer/src/console.rs
+- 根拠: crates/installer/src/console.rs:524（re-review 1 の New Breakage。Minor）
+- kind: technical
