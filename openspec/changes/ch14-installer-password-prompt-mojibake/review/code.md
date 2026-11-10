@@ -336,3 +336,15 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - 提案: 片方にする（3.3 の検証コマンドが step の順を見るので、残すのは独立の step の側。`check_release_zip` の中の呼び出しを消すか、残す理由をコメントに書く）
 - 処置: fixed 4.2 —— 片方にはしない: tasks 4.2（凍結・[x]）が「窓の節の最初に `console_probe` を走らせる」と決めていて、3.3 の独立の step も検証コマンドが見る。`tools/release/install-check.sh` の `(console_probe)` の上に、正本は窓の節の中の呼び出し（CI の外で台本だけを走らせても通る）で、CI の step はインストールの前に早く落とすためであり二重に走る分はインストールより短い、とコメントで書いた
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+
+## 手 7: 機械が承認した検証コマンドの訂正（machine-corrections 2026-11-10）
+
+| 訂正 | 新しいコマンド | 壊さないとき | 壊したもの | rc |
+|---|---|---|---|---|
+| 6.1 @2026-11-10T09:54:06+00:00 | `tools/check-ci-ch14-step.sh` | rc=0 | (a) `ci.yml:428` の末尾の `; cargo test -p ashiato-setup ch14_` を消した（`--list` で数えるだけ） | 1 |
+| | | | (b) その step を最初の `package.sh windows` の後ろへ動かした | 1 |
+| | | | (c) `-ge 11` を `-ge 1` にした | 1 |
+
+戻した後: rc=0。`git status --porcelain`・`git diff` の md5 が壊す前と同じ。
+前の控え（`.superpowers/sdd/ch14-settle/correction-review.stale-6.1-…`）では (a) で「落ちなかった」と書かれていたが、今の台本は
+`runs_tests`（`--list` を含まない片に `cargo test -p ashiato-setup ch14_` があるか）で見ていて、(a) を検出する。指摘なし。
