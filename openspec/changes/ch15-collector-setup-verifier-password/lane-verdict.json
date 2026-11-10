@@ -36,5 +36,37 @@
    "crates/server/src/lib.rs",
    "openspec/changes/ch15-collector-setup-verifier-password/**"
   ]
+ },
+ "diff": {
+  "ok": true,
+  "why": [],
+  "reason": "bug",
+  "base": "fec8c26747f248a4678d4152e05c16f3f5037f8c",
+  "head": "b71009e222e000fd26fd9559581d90efe8d6cee8",
+  "paths": [
+   "crates/server/src/web_session.rs",
+   "crates/server/src/web_session_tests.rs"
+  ],
+  "classes": [
+   "risky",
+   "server",
+   "tests"
+  ],
+  "code": [
+   "crates/server/src/web_session.rs"
+  ],
+  "code_tasks": 1,
+  "seats": {
+   "task_review": "常に",
+   "code_review": "常に",
+   "merge_gate": "常に",
+   "code_verify": "本番のコードに触れる（crates/server/src/web_session.rs）",
+   "security_review": "risky に触れる"
+  },
+  "grounds": [
+   "直す前: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が FAIL（2026-11-10T13:05:32+00:00・本番のコードは base のまま）",
+   "直した後: 1.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server ch15_'` が PASS（2026-11-10T13:08:31+00:00）"
+  ],
+  "at": "2026-11-10T13:28:24+00:00"
  }
 }
