@@ -24,7 +24,7 @@
 
 ## Task 1: 条件の文言と断りの理由を、検査の定数から組む
 
-- [ ] 1.1 `crates/installer/src/password.rs` に `pub fn requirements_line(terminal: bool) -> String` を足す（design D3・D5。文言は D3 のとおり、`MIN_LEN`・`PLACEHOLDER` から `format!` で組む。`terminal` が偽なら「入れた文字は表示されません」を付けない）。
+- [x] 1.1 `crates/installer/src/password.rs` に `pub fn requirements_line(terminal: bool) -> String` を足す（design D3・D5。文言は D3 のとおり、`MIN_LEN`・`PLACEHOLDER` から `format!` で組む。`terminal` が偽なら「入れた文字は表示されません」を付けない）。
   `PasswordRefusal::reason` を `String` を返す形に替え、`TooShort` → `短い（{MIN_LEN} 文字以上）`・`Placeholder` → `雛形（{PLACEHOLDER} で始めない）`、ほかの 3 つは今の語のまま。呼び出し側（`main.rs` の断りの行）を合わせる。
   同じモジュールの `#[cfg(test)]` に次の 3 本を足す: `ch14_requirements_line_names_every_condition`（一覧に `MIN_LEN` の数・`PLACEHOLDER`・`API の合言葉`・`ログインの印の鍵` がある）/
   `ch14_requirements_line_mentions_hidden_only_on_terminal`（`true` のときだけ「表示されません」がある）/ `ch14_refusal_reason_keeps_word_and_adds_condition`（`TooShort` の理由が `短い` で始まり `MIN_LEN` の数を含む・`Placeholder` が `雛形` で始まり `PLACEHOLDER` を含む・ほかの 3 つは今の語と同じ）。
