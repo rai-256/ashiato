@@ -425,3 +425,122 @@ async fn web_session_authorization_is_decided_once_per_request() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+// ---- CH15: 照らす形のサーバで、資格情報を返す口が正しい合言葉を受け付ける ----
+
+mod ch15 {
+    use std::time::Duration;
+
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    use crate::{testdb, web_session, App};
+
+    const PASSWORD: &str = "install-password-012345";
+    const API_TOKEN: &str = "test-token-0123456789abcdef";
+
+    async fn verifier_app() -> App {
+        let verifier = web_session::password_verifier_for_test(PASSWORD).unwrap();
+        let mut login =
+            web_session::WebLogin::new_with_verifier("session-key-0123456789abcd", &verifier, 0);
+        login.failure_delay = Duration::ZERO;
+        App::with_login(
+            testdb::pool().await,
+            API_TOKEN.to_owned(),
+            login,
+            crate::build_channel(),
+        )
+    }
+
+    fn json_post(uri: &str, password: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "password": password }).to_string(),
+            ))
+            .unwrap()
+    }
+
+    async fn login_cookie(app: &App) -> String {
+        let res = crate::router(app.clone())
+            .oneshot(json_post("/session", PASSWORD))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        res.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned()
+    }
+
+    async fn setup(app: &App, cookie: &str, password: &str) -> (StatusCode, String, String) {
+        let mut req = json_post("/collector-setup", password);
+        req.headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+        let res = crate::router(app.clone()).oneshot(req).await.unwrap();
+        let status = res.status();
+        let cache = res
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .map(|v| v.to_str().unwrap().to_owned())
+            .unwrap_or_default();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        (status, cache, String::from_utf8(body.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_returns_token() {
+        // Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る
+        let app = verifier_app().await;
+        let cookie = login_cookie(&app).await;
+        let (status, cache, body) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cache, "no-store");
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value, serde_json::json!({ "token": API_TOKEN }));
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_wrong_password_is_forbidden() {
+        // Scenario: 合言葉が違えば出さない
+        let app = verifier_app().await;
+        let cookie = login_cookie(&app).await;
+        for given in ["install-password-012346", ""] {
+            let (status, _, body) = setup(&app, &cookie, given).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "given={given:?}");
+            let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(value, serde_json::json!({ "error": "wrong_password" }));
+            assert!(!body.contains(API_TOKEN));
+        }
+        // ログインの印は有効なまま（正しい合言葉で答える）
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_shares_login_failure_limit() {
+        // Scenario: 失敗が回数の制限を超えると、正しい合言葉でも答えない
+        let app = verifier_app().await;
+        let cookie = login_cookie(&app).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "wrong-password-0123456789").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let failed = crate::router(app.clone())
+            .oneshot(json_post("/session", "wrong-login-0123456789"))
+            .await
+            .unwrap();
+        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        let (status, _, _) = setup(&app, &cookie, "").await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+}
