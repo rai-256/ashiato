@@ -203,8 +203,10 @@ PROBE access_rows=9 leak=false
 - 成果物: crates/server/src/web_session_tests.rs
 - 根拠: crates/server/src/web_session_tests.rs:645-660（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.2 —— 試験が印を握るのを、取り消すまでの 1 秒から「この app の照合が印を待ち始めた合図」が来るまでの短い間に縮めた。合図は `WebLogin` が持つ `#[cfg(test)]` の `Notify`（app ごと。並走する他の試験の照合とは混ざらない）で、`check_given_password` が印を待つ直前に `notify_waiters` する。合図の後すぐに求めの future を drop して取り消し、行が 0 を見てから印を放す。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED
 
 ## R12. 照合の前の段（JSON の解析とログインの印の確かめ）が高負荷で 1 秒を超えると、run_to_completion が走る前に取り消されて行が元から無く、偽の赤になりうる。通常の負荷（debug で約 30ms）では起きない。
 - 成果物: crates/server/src/web_session_tests.rs
 - 根拠: crates/server/src/web_session_tests.rs:645-660（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.2 —— 取り消す時刻を時計で決めるのをやめた。取り消すのは、照合が 1 つずつの印を待ち始めた合図（`WebLogin::check_waiting_for_test`）の後で、そこは `run_to_completion` が照合を spawn した後なので、照合の前の段がどれだけ遅くても行は元から無いことにならない。合図は溜まらない形（`notify_waiters`。cookie を取る前のログインの照合の合図を拾わない）で、求めを出す前に待ち受けを作る。求めは `Box::pin` に入れて drop で実際に取り消す。release でも PASS、`run_to_completion` の spawn を外す変異で FAILED

@@ -636,15 +636,18 @@ mod ch15 {
         ];
         // 照合の途中で取り消す。試験が 1 つずつの印を握るので、照合は印を待つ所で止まり、取り消すまで終わらない
         // （review/code.md R10: Argon2id の測定値で時刻を決めると、速いビルドでは照合の前の段で取り消して偽の赤になる）。
-        // 取り消すまでの 1 秒は、照合の前の段（JSON とログインの印の確かめ。debug で約 30ms）が終わるのを待つ余裕
+        // 取り消すのは、この app の照合が印を待ち始めた合図の後（R12: 時刻で待つと、照合の前の段が遅いときに偽の赤になる）。
+        // 印を握るのは合図までの短い間だけ（R11: 並走する他の試験の照合を長く待たせない）
         for (req, route, outcome) in cases {
             let held = web_session::hold_login_check_for_test().await;
-            let cancelled = tokio::time::timeout(
-                Duration::from_secs(1),
-                crate::router(app.clone()).oneshot(req),
-            )
-            .await;
-            assert!(cancelled.is_err(), "{route}: 照合の途中で取り消せていない");
+            let waiting = app.login.check_waiting_for_test();
+            // 箱に入れて pin する（drop で求めの future そのものを捨てて取り消す）
+            let mut request = Box::pin(crate::router(app.clone()).oneshot(req));
+            tokio::select! {
+                () = waiting => {}
+                _ = &mut request => panic!("{route}: 印を握る間に求めが終わった"),
+            }
+            drop(request);
             assert_eq!(
                 recorder.count(route, outcome),
                 0,

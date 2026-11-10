@@ -306,6 +306,11 @@ static LOGIN_CHECK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1
 /// 取り消しを照合の途中に、時刻に依らず置くため）。
 #[cfg(test)]
 pub(crate) async fn hold_login_check_for_test() -> tokio::sync::SemaphorePermit<'static> {
+    login_check_permit().await
+}
+
+/// 照合の 1 つずつの印を取る。印は static で、誰も閉じない（review/code.md R9）。
+async fn login_check_permit() -> tokio::sync::SemaphorePermit<'static> {
     LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない")
 }
 
@@ -322,6 +327,9 @@ pub struct WebLogin {
     /// 失敗のたびに待たせる長さ（D17。試験は差し替える）。
     pub(crate) failure_delay: Duration,
     limiter: Arc<LoginLimiter>,
+    /// 照合が 1 つずつの印を待ち始めた合図（試験が照合の途中で取り消すため。review/code.md R11・R12）。
+    #[cfg(test)]
+    check_waiting: Arc<tokio::sync::Notify>,
 }
 
 impl WebLogin {
@@ -335,6 +343,8 @@ impl WebLogin {
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
+            #[cfg(test)]
+            check_waiting: Arc::default(),
         }
     }
 
@@ -349,6 +359,8 @@ impl WebLogin {
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
+            #[cfg(test)]
+            check_waiting: Arc::default(),
         }
     }
 
@@ -357,6 +369,13 @@ impl WebLogin {
             || !password.is_empty() && token_matches(password, &self.password),
             |verifier| verify_password_verifier(verifier, password),
         )
+    }
+
+    /// この login の照合が 1 つずつの印を待ち始めた合図を待つ（並走する他の試験の照合とは混ざらない）。
+    /// 合図は溜まらず、作った後の合図だけを受ける（前のログインの照合の合図を拾わない）ので、求めを出す前に作る。
+    #[cfg(test)]
+    pub(crate) fn check_waiting_for_test(&self) -> tokio::sync::futures::Notified<'_> {
+        self.check_waiting.notified()
     }
 
     #[cfg(test)]
@@ -675,8 +694,9 @@ pub(crate) async fn check_given_password(app: &App, body: &[u8]) -> PasswordChec
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
     }
-    // 印は static で、誰も閉じない（review/code.md R9）
-    let permit = LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない");
+    #[cfg(test)]
+    app.login.check_waiting.notify_waiters();
+    let permit = login_check_permit().await;
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
