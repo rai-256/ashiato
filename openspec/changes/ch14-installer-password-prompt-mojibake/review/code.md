@@ -256,6 +256,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 提案: 6.1 の訂正の確かめ（手 7）を HEAD の `tools/check-ci-ch14-step.sh` でやり直し、「落ちた」の結果を `correction-review.md` に記録して commit する（`plan_fix.py check` が rc=0 になること）。コードは変えない
 - 処置: fixed 6.1 —— 記録はこの席が書かない（settle は correction-review.md を書けない。書くのは code-verify の手 7）。commit されずに残っていた古い記録（強める前の台本で「落ちなかった」。その結果は R3・deep.md 第 2 回 Q7 として処置済み）を `.superpowers/sdd/ch14-settle/correction-review.stale-6.1-20261110T095406.md` へ移して commit した。これで `plan_fix.py pending` が 6.1（at 2026-11-10T09:54:06+00:00）を返し、gate の前にグラフの `provisional_review` が code-verify の手 7 をいまの台本で起こし直して記録を書き、commit する（plan_fix で <at> を取り直す道は、旧＝いまの台本が PASS するので無い）。この席でも同じ壊し方を手で確かめた: ci.yml の step の末尾 `; cargo test -p ashiato-setup ch14_` を消す → `tools/check-ci-ch14-step.sh` rc=1、戻す → rc=0（`git status --porcelain`・`git diff` は壊す前と同じ）。いまの `plan_fix.py check` の FAIL は「別の席の確かめが無い」で、provisional_review の後に消える
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 5 @94b9a013b06562ce83fbd14e17b8e742bbce8041）
 
 ## R17. 汎用にした `run_as_admin` の時間切れの文言とタスク名が「管理者 B」のまま
 - 成果物: tools/release/install-check.sh:579・590
