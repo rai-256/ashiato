@@ -12,3 +12,15 @@
 - 変異 D2（`check_with_permit` の `spawn_blocking` を外し、async の worker で `accepts`）: `cargo test -p ashiato-server --lib ch15_verifier_check_runs_off` が `1 failed`。`web_session.rs` を戻して上の緑
 - `python3 scripts/review_triage.py . ch15-collector-setup-verifier-password --no-verdict`: rc=0
 - `tools/check-log-private.sh`: rc=0
+
+## settle（final review 2 回目: R18・R19）
+
+### R18
+- `crates/server/src/web_session.rs`: `pub(crate) struct LoginCheckPermit(SemaphorePermit<'static>)`（フィールドは private）を足し、`login_check_permit` / `hold_login_check_for_test` の戻り値と `check_with_permit` の引数をこれにした。crate 内で `LoginCheckPermit` を作れるのは `login_check_permit` だけ（試験の `hold_login_check_for_test` もこれを通る）
+- design.md の「最後の段の処置で足したこと」に R18 の 1 行
+### R19
+- 提案どおり受け入れる。design.md に R19 の 1 行（合言葉そのものは残る・長さの上限は無い・上限は別の change）。コードは変えない
+### 走らせたもの
+- `scripts/quiet-run ct -- cargo test -p ashiato-server -- ch15_ st55_ web_session` rc=0（lib 79 passed、`ch15_` 8 本 ok。ログ `.superpowers/sdd/logs/20261111-083033-ct.log`）
+- `cargo clippy -p ashiato-server --all-targets -q` 出力なし
+- tasks.md 1.2 の grep（`.accepts(` 1・`LOGIN_CHECK` 2、コメント行を除く）rc=0

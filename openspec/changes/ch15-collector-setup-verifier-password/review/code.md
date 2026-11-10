@@ -288,9 +288,11 @@ PROBE access_rows=9 leak=false
 - 根拠: 引数は `tokio::sync::SemaphorePermit<'static>` で、`pub(crate)` かつ `#[cfg(test)]` の外にある。「照合は `LOGIN_CHECK` の印の中で行う」（tasks.md の Global Constraints・design.md D1）が、型ではなく呼び手の規律に頼る形になった。crate 内で別の static な semaphore の印を渡して呼べば 1 つずつ通す仕組みを外れ、tasks.md 1.2 の grep（`LOGIN_CHECK` 2 か所）もこの呼び方を止めない。いまの呼び手は `check_given_password` と試験だけで実害は無い（Minor）
 - kind: technical
 - 提案: 印を `struct LoginCheckPermit(SemaphorePermit<'static>)` の newtype で包み、作れるのを `login_check_permit()` と `hold_login_check_for_test()` だけにする。または `check_with_permit` を private にし、試験用に `#[cfg(test)] pub(crate)` の薄い入口を置く
+- 処置: fixed D1 —— 印を `LoginCheckPermit`（中身は private の newtype）で包み、作れるのは `login_check_permit`（`hold_login_check_for_test` もこれを通す）だけにした。`check_with_permit` の引数は `LoginCheckPermit` で、別の semaphore の印は型で渡せない。design.md の「最後の段の処置で足したこと」に R18 を 1 行足した
 
 ## R19. R16 の直しは本文を捨てるが、取り出した巨大な合言葉は印の待ちの間も task に残る
 - 成果物: crates/server/src/web_session.rs（`check_given_password` :703-708）/ openspec/changes/ch15-collector-setup-verifier-password/design.md（「最後の段の処置で足したこと」の R16）
 - 根拠: `drop(body)` の後も `given`（`String`）は印を待つ間ずっと task に残る。`{"password": "<約 2MB>"}` を送れば保たれる量は本文とほぼ変わらず、印を待つ求めの数は失敗の上限（10 回。数え上げの後にしか効かない）では抑えられない。巨大な合言葉に Argon2id を回すこと自体は base からの性質（Minor）
 - kind: technical
 - 提案: この change では受け入れて design.md に 1 行書く（本文は捨てるが合言葉そのものは残る。長さの上限は無い）。合言葉の長さの上限（超えたら空と同じく失敗に数える）は振る舞いを変えるので、別の change（または /requirements）に出す
+- 処置: fixed D1 —— 提案のとおり受け入れ、design.md の「最後の段の処置で足したこと」に R19 を 1 行書いた（本文は捨てるが合言葉そのもの（`String`）は印の待ちの間も残る・長さの上限は無い・上限は振る舞いを変えるので別の change に出す）。コードは変えない

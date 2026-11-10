@@ -305,13 +305,17 @@ static LOGIN_CHECK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1
 /// 試験が照合の 1 つずつの印を握り、照合を「印を待つ所」で止める（review/code.md R10。
 /// 取り消しを照合の途中に、時刻に依らず置くため）。
 #[cfg(test)]
-pub(crate) async fn hold_login_check_for_test() -> tokio::sync::SemaphorePermit<'static> {
+pub(crate) async fn hold_login_check_for_test() -> LoginCheckPermit {
     login_check_permit().await
 }
 
+/// `LOGIN_CHECK` の印。中身は private で、作れるのは `login_check_permit` だけ
+/// （`check_with_permit` が別の semaphore の印を受け取れないように。review/code.md R18）。
+pub(crate) struct LoginCheckPermit(#[allow(dead_code)] tokio::sync::SemaphorePermit<'static>);
+
 /// 照合の 1 つずつの印を取る。印は static で、誰も閉じない（review/code.md R9）。
-async fn login_check_permit() -> tokio::sync::SemaphorePermit<'static> {
-    LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない")
+async fn login_check_permit() -> LoginCheckPermit {
+    LoginCheckPermit(LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない"))
 }
 
 /// ログインの設定と状態。`App` が持つ。
@@ -713,7 +717,7 @@ pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordChec
 pub(crate) async fn check_with_permit(
     app: &App,
     given: String,
-    permit: tokio::sync::SemaphorePermit<'static>,
+    permit: LoginCheckPermit,
 ) -> PasswordCheck {
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
