@@ -5,7 +5,7 @@
 1. 配布 zip を展開し、展開したフォルダの `ashiato-setup.exe` を実行します。
 2. Windows SmartScreen が表示されたら、発行元と入手元を確認して「詳細情報」→「実行」を選びます。
 3. UAC は 1 回だけ確認します。インストール先は `C:\Program Files\ashiato`、状態の置き場は `C:\ProgramData\ashiato` のままにします。
-4. 画面の合言葉を 2 回入力して決めます。忘れた場合は `ashiato-setup.exe password` を実行して設定し直します。
+4. 画面の合言葉を 2 回入力して決めます。合言葉は 16 文字以上で、`change-me` で始めないものにします。入力した文字は画面に表示されません。忘れた場合は `ashiato-setup.exe password` を実行して設定し直します。
 
 インストーラは DB サービス `ashiato-db`（55400）とサーバサービス `ashiato-server`（18700）を登録します。サーバ PC では Tailscale の「無人で動かす」を有効にし、サーバ PC 上で `tailscale serve --bg --https=443 http://127.0.0.1:18700` を実行します。画面は Tailscale のアドレスまたは名前の HTTPS URL から開きます。インストール前に状態の置き場に 40 GB 以上の空きを確保してください。
 
