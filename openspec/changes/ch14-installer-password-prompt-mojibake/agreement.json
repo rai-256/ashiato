@@ -1,0 +1,26 @@
+{
+  "status": "accepted",
+  "digest": "22c7434cbc25bc0726dd79894b24e2ef40a684e49f27050af623e6326fde6098",
+  "head": "54b339836d1f09a7a85274e86a802501b91a5461",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-10T05:21:46Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "窓へ書く部品の unsafe を、CI の unsafe の検査が落とす"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "runner で疑似コンソールが使えなければ、窓の Scenario 4 本の置き場が無くなる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "条件の 1 行が疑似コンソールの幅を超え、窓の試験が「1 行」を探して落ちうる"
+    }
+  ]
+}
