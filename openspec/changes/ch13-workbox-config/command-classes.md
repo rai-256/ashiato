@@ -1,0 +1,1839 @@
+# 検証コマンドの分類（CH13）
+
+既存の `openspec/**/tasks.md`（archive を含む）の検証コマンドを、harness2 と同じ取り出し（`evidence.items` → `declared` → `unwrap_quiet`）と判定（`workbox.host_only`）で分けた一覧。`check-workbox-match.py --list` が書き出す。
+
+- 書き出したときの HEAD: 59da73a92e6503456efa1cf8cabb150ec79f4fc8
+- ホストで走る（host_only）: 35 本
+- 箱で走る: 1791 本
+
+## ホストで走る（host_only）
+
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 1.4: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 5.1: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 5.3: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 7.1: tools/usage-volume.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.2: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 7.2: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 1.3: bash -c 'rsync -a --delete --exclude target --exclude .git ./ /mnt/c/dev/ashiato2-rt/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows clock_time_sync_is_readable -- --test-threads=1"'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 7.1: tools/android-emulator.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.3: bash -c 'rsync -a --delete --exclude target --exclude .git ./ /mnt/c/dev/ashiato2-rt/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows clock_skew_runtime -- --test-threads=1"'
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 10.1: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running -- --test-threads=1"'
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 10.2: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_chrome -- --test-threads=1"'
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 10.2: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_firefox -- --test-threads=1"'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 9.3: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st14/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st14 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows outage -- --test-threads=1"'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 7.1: bash -c 'test "$(grep -c HealthPermission tools/android-emulator.sh)" -ge 3 && test "$(grep -c HealthPermission .github/workflows/ci.yml)" -ge 3'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 6.1: bash -c 'tools/release/build.sh --self-test'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 6.2: tools/release/build.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 9.3: bash -c 'tools/android-side-by-side.sh'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 8.1: bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-ch09/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-ch09 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1" > "$TMPDIR/rt.log" 2>&1; rc=$?; cat "$TMPDIR/rt.log"; [ $rc -eq 0 ] && n=$(grep -oE "test result: ok\. [0-9]+ passed" "$TMPDIR/rt.log" | grep -oE "[0-9]+" | head -1) && [ "${n:-0}" -ge 13 ]'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 10.1: tools/android-emulator.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.0: tools/release/sandbox-probe.sh p19
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.2: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 4.1: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.2: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 6.1: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 6.2: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 7.2: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 8.1: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 9.3: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 10.1: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 10.1: tools/release/install-check.sh --check-coverage openspec/changes/st55-server-installer
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.3: tools/release/install-check.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/android-emulator.sh
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'o="$TMPDIR/b"; tools/release/build.sh server-linux "$o" && t=$(ls "$o"/ashiato-server-*-linux-x86_64.tar.gz) && tar -tzf "$t" | sort | tr "\n" " " | grep -q "LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt ashiato-server"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'o="$TMPDIR/b"; tools/release/build.sh apk "$o" && unzip -l "$o"/ashiato-collector-*.apk | grep -c "assets/licenses/\(LICENSE\|THIRD-PARTY-NOTICES.txt\|SOURCE.txt\)$" | grep -qx 3'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.2: tools/android-emulator.sh
+
+## 箱で走る
+
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 1.1: cargo build
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 3.4: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 4.2: cargo run -p ashiato-server --bin openapi > docs/openapi.json
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 4.2: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 5.4: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 6.2: ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 8.1: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 8.3: cargo clippy -- -D warnings
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 8.3: npm run lint --max-warnings 0
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 9.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 9.4: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.1: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.2: cargo test --workspace
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.3: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.5: ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.8: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.9: ./tools/check-licenses.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.10: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.12: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.13: ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-10-st01-location-ingest/tasks.md 10.15: ./tools/seed.sh normal
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.3: cargo test -p ashiato-server span_rejects_reversed_range
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.4: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.4b: cargo test -p ashiato-server sets_started_on_first_arrival started_on_moves_back
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.4c: cargo test -p ashiato-server never_started_is_not_outage
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.5: cargo test -p ashiato-server user_id_on_all_coverage_tables
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.6: ./tools/seed.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 1.6: cargo test -p ashiato-server expected_gap_seeded
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 2.1: cargo build -p ashiato-server
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 2.1: cargo clippy -p ashiato-server -- -D warnings
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 2.2: cargo test -p ashiato-server day_boundary_jst
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 2.3: cargo test -p ashiato-server day_boundary_ignores_record_tz
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.1: cargo test -p ashiato-server heartbeat_batch
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.2: cargo test -p ashiato-server heartbeat_partial_reject
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.3: cargo test -p ashiato-server heartbeat_400_only_when_none heartbeat_no_echo
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.3b: cargo test -p ashiato-server heartbeat_attempt_counts heartbeat_rejects_bad_counts
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.4: cargo test -p ashiato-server heartbeat_rejects_blockerless
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.5: cargo test -p ashiato-server heartbeat_idempotent
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.6: cargo test -p ashiato-server heartbeat_raw_passthrough
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 3.7: cargo test -p ashiato-server heartbeat_received_at_is_timestamptz
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 4.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 4.2: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 4.3: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.1: cargo test -p ashiato-server coverage_states
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.1b: cargo test -p ashiato-server span_outranks_records
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.2: cargo test -p ashiato-server coverage_state_is_deterministic
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.3: cargo test -p ashiato-server outage_respects_expected_gap sandwiched_gap_is_alive
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.4: cargo test -p ashiato-server outage_reevaluates_on_gap_change
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.5: cargo test -p ashiato-server coverage_before_start coverage_stopped_not_outage
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 5.6: cargo test -p ashiato-server partial_stop_does_not_decide_state
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.1: cargo test -p ashiato-server achievement_endpoint
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.2: cargo test -p ashiato-server achievement_device_subject
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.3: cargo test -p ashiato-server achievement_usage_subject achievement_excludes_uncapturable
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.4: cargo test -p ashiato-server achievement_denominator_full_day_stop_only
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.4b: cargo test -p ashiato-server achievement_numerator_never_exceeds
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.5: cargo test -p ashiato-server achievement_verdict_all_five
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.5b: cargo test -p ashiato-server achievement_threshold_scales
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.6: cargo test -p ashiato-server achievement_excludes_before_start
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.7: cargo test -p ashiato-server achievement_window_per_source
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.8: cargo test -p ashiato-server achievement_partial_window
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 6.9: cargo test -p ashiato-server achievement_provisional_until_all_windows_close
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.1: ./gradlew :app:assembleDebug
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.2: ./gradlew :app:testDebugUnitTest --tests '*Heartbeat*'
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.2b: ./gradlew :app:testDebugUnitTest --tests '*HeartbeatCounters*'
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.3: ./gradlew :app:testDebugUnitTest --tests '*HeartbeatOutbox*'
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.4: ./gradlew :app:testDebugUnitTest --tests '*HeartbeatWithoutRecords*'
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 7.5: ./gradlew :app:assembleDebug
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.0: cd web && npm run test
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.1: cd web && npx tsc -b && npm run lint
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.2: cd web && npx tsc -b && npm run lint && npm run build
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.3: cd web && npm run test -- state-contrast
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.4: cd web && npm run test -- week-select
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.5: cd web && npm run test -- target-size
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.5b: cd web && npm run test -- newest-week-first
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.5c: cd web && npm run test -- initial-viewport expand-to-year
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.6: cd web && npm run test -- achievement-panel
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 8.7: cd web && npm run test -- text-contrast
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 9.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 9.2: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.1: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.2: cargo fmt --all --check
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.2: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.2: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.2: ./tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.2: ./tools/check-licenses.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 10.3: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.2: cd web && npx tsc -b && npm run lint && npm run test && npm run build
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.3: cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.4: ./tools/check-licenses.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.4: ./tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.4: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 11.4: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 12.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 12.2: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 13.2: cd web && npm run test
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 14.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 14.2: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 15.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 15.6: cd web && npm run test
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 15.7: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 15.7: scripts/check_scenarios.py
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 16.2: scripts/review_triage.py . st02-collection-coverage
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 17.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 17.6: cargo clippy
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 17.7: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 17.8: cd web && npm run test
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 18.1: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st02-collection-coverage/tasks.md 18.3: scripts/check_scenarios.py
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 1.1: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 1.1: cargo test --test migrations
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 1.2: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 1.4: cargo test external_id_kind_defaults_to_record
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 2.2: cargo test units_are_optional_in_json
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 2.3: cargo run --bin openapi > /tmp/o.json && diff <(jq -S . /tmp/o.json) <(jq -S . docs/openapi.json)
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 2.4: cargo test empty_external_id_is_rejected
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 3.1: cargo test
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 3.2: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.1: cargo test dedup_by_hash_when_no_external_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.2: cargo test dedup_by_external_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.3: cargo test same_content_different_external_id_makes_two_rows
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.4: cargo test different_user_not_deduped
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.5: cargo test hash_is_pinned
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.6: cargo test id_reused_is_rejected_without_stopping_the_batch
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.7: cargo test one_bad_item_does_not_roll_back_others
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 4.8: cargo test duplicate_returns_stored_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 5.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 5.3: cargo test history_follows_parent_sensitivity_and_deletion
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 5.4: cargo test external_update_keeps_one_row_and_one_version
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 5.5: cargo test version_raw_is_byte_identical
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 6.1: cargo test stale_update_is_ignored
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 6.2: cargo test missing_updated_at_does_not_clear_stored_value
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 6.3: cargo test same_updated_at_still_applies
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 7.1: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 7.4c: cargo test erasure_removes_parent_and_all_versions
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 7.7b: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.1: cargo test deleted_content_does_not_return_via_other_external_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.2: cargo test update_cannot_resurrect_deleted_content
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.3: cargo test deleted_duplicate_is_accepted
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.4: cargo test no_extra_query_without_external_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.5: cargo test record_kind_requires_external_id
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.6: cargo test undeclared_source_defaults_to_record
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.7: cargo test subject_ref_is_not_used_for_dedup
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.8: cargo test subject_scoped_update_adds_a_row
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.9: cargo test derived_rebuild_is_not_folded
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.10: cargo test registry_scenarios
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 8.11: python3 scripts/check_scenarios.py . st03-idempotent-ingest
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 9.1: cargo test folded_view_returns_one_row
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 11.1: ./gradlew test --tests '*SenderTest*'
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.1: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.2: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.2: cargo test
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.4: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.4: python3 scripts/review_triage.py . st03-idempotent-ingest
+- openspec/changes/archive/2026-09-14-st03-idempotent-ingest/tasks.md 12.4: python3 scripts/check_scenarios.py . st03-idempotent-ingest
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 1.1: cargo test c02_window_external_id_kind_is_not_record
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 2.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 3.1: cargo test --package ashiato-collector-windows foreground
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 3.2: cargo test --package ashiato-collector-windows
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 3.3: cargo test url_is_not_normalized
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 3.4: cargo test min_dwell
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 4.1: cargo test idle_transitions
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 4.2: cargo test record_kind_is_distinguishable
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 5.1: cargo test last_seen_marker
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 5.2: cargo test powered_off_span
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 5.3: cargo test powered_off_is_not_stopped
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 6.1: cargo test exclusion_empty_by_default
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 6.2: cargo test exclusion
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 6.3: cargo test payload_shape_is_pinned
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 7.1: cargo test heartbeat_interval_is_expected_gap
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 7.1: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 7.2: cargo test capturable_blockers
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 7.3: cargo test attempts_successes
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8.1: cargo test outbox_survives_outage
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8.2: cargo test outbox_uses_accepted_only
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8.3: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8b.1: cargo test sensitivity_uses_collection_default
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8b.1: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 8b.2: cargo test clock_skew_is_measured
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 9.1: cargo test log_has_no_private_content
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 9.2: cargo test startup_script_is_enough_to_start
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.2: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.4: python3 scripts/review_triage.py . st07-active-window
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.5: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.5: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.5: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.6: cargo test --workspace
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 10.6: cargo clippy --workspace -- -D warnings
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.1: cargo test previous_state_is_closed_on_restart
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.1: cargo test restart_closes_previous_away_and_excluded
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.2: cargo test excluded_count_is_not_inflated_by_flush
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.3: cargo test startup_script_is_enough_to_start
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.4: cargo test http_transport_sends_bearer_and_reads_400_body
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.4: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.5: cargo test locked_hours_are_not_failures
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.6: cargo test min_dwell_is_five_seconds_from_both_sides
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.7: cargo test marker_advances_every_minute_while_running
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.8: cargo test --package ashiato-collector-windows winrules
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.9: cargo test debug_hides_the_token
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.9: cargo test debug_does_not_leak_private_content
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.11: cargo test idle_records_carry_elapsed_for_rethreshold
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.12: cargo test empty_url_is_unavailable
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.13: cargo test broken_counters_are_quarantined
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.13: cargo test broken_marker_is_an_error
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.13: cargo test atomic_write_replaces_and_leaves_no_tmp
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.14: cargo test ticks_keep_heartbeat_and_skew_intervals_for_a_day
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.15: cargo test write_failures_do_not_stop_collection
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.15: cargo test clean_stop_is_carried_to_next_start
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.15: cargo test start_records_powered_off_span
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.16: cargo test clock_jumps_do_not_stop_the_intervals
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.17: cargo test unreadable_outbox_is_an_error_not_empty
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.18: cargo test mismatched_reply_length_removes_nothing
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.19: cargo test idle_then_lock_records_the_lock
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.20: cargo test unreadable_idle
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.21: cargo test url_flapping_is_not_a_change
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.22: cargo test blockers_are_sticky_within_the_interval
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.23: cargo test config_requires_every_var_including_state_dir
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.24: cargo test broken_registration_is_an_error_not_empty
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.24: cargo test rules_hit_by_path_name_and_title
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.25: cargo test process_name_is_none_not_empty
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.25: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.26: cargo test broken_line_is_quarantined_not_dropped
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.27: cargo test atomic_write_replaces_and_leaves_no_tmp
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.28: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.30: cargo test env_adds_to_the_defaults
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.31: cargo test rejected_only_backlog_is_retried
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.31: cargo test batch_is_capped
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.31: cargo test idle_threshold_boundary
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.32: cargo test dwelled_title_survives_app_switch
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.32: cargo test suspend_does_not_count_as_dwell
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 11.33: tools/smoke.sh
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 12.1: cargo test -p ashiato-collector-windows --test runtime_windows helper_window_is_observed
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 12.9: cargo fmt --all --check
+- openspec/changes/archive/2026-09-14-st07-active-window/tasks.md 12.9: cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server stays_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 1.2: bash -o pipefail -c 'cargo test -p ashiato-server stay_ledgers_are_append_only 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 1.3: bash -o pipefail -c 'cargo test -p ashiato-server stay_source_is_registered 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server stay::detect 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server stay::gap 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 2.3: bash -o pipefail -c 'cargo test -p ashiato-server stay::accuracy 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 2.4: bash -o pipefail -c 'cargo test -p ashiato-server stay_raw_is_pinned 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server stay_row_shape 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server stay_identity 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.3: bash -o pipefail -c 'cargo test -p ashiato-server stay_rebuild_is_idempotent 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.4: bash -o pipefail -c 'cargo test -p ashiato-server stay_erased_range 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.5: bash -o pipefail -c 'cargo test -p ashiato-server stay_rebuild_keeps_locations 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.6: bash -o pipefail -c 'cargo test -p ashiato-server stay_rebuild_is_serialized 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 3.7: bash -o pipefail -c 'cargo test -p ashiato-server stay_day_query_uses_index 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 4.1: bash -o pipefail -c 'cargo test -p ashiato-server stay_auto_rebuild 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 4.2: bash -o pipefail -c 'cargo test -p ashiato-server stays_rebuild_api 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 4.3: bash -o pipefail -c 'cargo test -p ashiato-server derived_rebuild_is_not_folded 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 4.4: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 5.1: bash -o pipefail -c 'cargo test -p ashiato-server stays_day_api 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 5.2: bash -o pipefail -c 'cargo test -p ashiato-server stays_day_api_walked_day 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 6.1: cd web && npm run test
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 6.2: cd web && npm run test
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 6.3: cd web && npm run lint && npm run build
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 6.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 7.1: tools/seed.sh normal
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 7.2: tools/smoke.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.1: cargo test --workspace
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.1: cd web && npm run test && npm run lint && npm run build
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.2: python3 scripts/check_scenarios.py . st16-stay-derivation
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-15-st16-stay-derivation/tasks.md 8.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server drop_reports_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 1.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server drop_report_validate 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server drops_api 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 2.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server dropped_ranges_merge 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server coverage 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server day_cell_dropped 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 3.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 4.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/drop-mark.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 4.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/drop-detail.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 4.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/one-scroll.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 4.3: cd web && npx tsc -b && npm run lint && npm run build
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 4.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 5.1: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.SegmentStoreTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.SegmentStoreTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 5.2: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.SegmentMigrationTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.SegmentMigrationTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 5.3: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.UnreadableLineTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.UnreadableLineTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 5.4: cd collector-android && ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 6.1: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.ElapsedClockTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.ElapsedClockTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 6.2: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.RetentionTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.RetentionTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 6.3: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.SenderTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.SenderTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 7.1: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.DropReportTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.DropReportTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 7.2: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.DropReportSendTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.DropReportSendTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 7.3: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.WriteFailedTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.WriteFailedTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 8.1: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.DrainTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.DrainTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 9.1: bash -o pipefail -c 'cd collector-android && ./gradlew :app:testDebugUnitTest --tests "dev.ashiato.collector.RetentionNotifierTest" 2>&1 | tee /tmp/gt.log' && grep -q "BUILD SUCCESSFUL" /tmp/gt.log && ls collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.RetentionNotifierTest.xml
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 10.3: tools/smoke.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 10.4: tools/seed.sh normal
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.1: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.1: cd web && npm run test && npm run lint && npm run build
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.1: cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.2: python3 scripts/check_scenarios.py . st04-offline-retention
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-17-st04-offline-retention/tasks.md 11.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 1.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes::tests::parse 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server attributes::tests::view 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.3: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::kinds 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.4: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::read 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 2.4: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::ingest 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 3.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::store 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 3.3: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::erasure 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/attributes.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/master-view.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/app.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/day-view.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.3: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/master-form.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 4.4: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/master-view-limits.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 5.1: tools/smoke.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 5.2: tools/seed.sh normal
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.1: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.1: cd web && npm run test && npm run lint && npm run build
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.2: python3 scripts/check_scenarios.py . st19-personal-attributes
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 7.3: tools/check-licenses.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::ingest_rejects_out_of_range_tz_offset 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::read_kind_without_a_name 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.1: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::ingest_supersedes_rejects_an_erased_claim 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.2: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::ingest_rejects_control_characters 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.3: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::read_two_supersessions_are_deterministic 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.4: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests::kinds_post 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.4: tools/check-openapi.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.5: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/master-form.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.5: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/master-view.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.6: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.7: bash -o pipefail -c 'cargo test -p ashiato-server attributes::tests 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.7: bash -o pipefail -c 'cargo test -p ashiato-server attributes_tests:: 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.7: tools/check-immutable.sh
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.8: tools/seed.sh normal
+- openspec/changes/archive/2026-09-17-st19-personal-attributes/tasks.md 8.8: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 1.1: ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 1.2: ./gradlew :app:testDebugUnitTest --tests '*TelemetryTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 1.3: ./gradlew :app:testDebugUnitTest --tests '*HeartbeatCountersTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 2.1: ./gradlew :app:testDebugUnitTest --tests '*UsageSourceTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 2.2: ./gradlew :app:testDebugUnitTest --tests '*UsageRetentionTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 3.1: ./gradlew :app:testDebugUnitTest --tests '*AppUsageCollectorTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 3.2: ./gradlew :app:testDebugUnitTest --tests '*UsageWindowTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 3.3: ./gradlew :app:testDebugUnitTest --tests '*UsageWindowClockTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 3.4: ./gradlew :app:testDebugUnitTest --tests '*AppUsagePayloadShapeTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 4.1: ./gradlew :app:testDebugUnitTest --tests '*UsageGapTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 4.2: cargo test -p ashiato-server app_usage_rollup_source
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 4.2: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 4.3: ./gradlew :app:testDebugUnitTest --tests '*RollupImportTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 4.4: ./gradlew :app:testDebugUnitTest --tests '*RollupPayloadShapeTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 5.1: ./gradlew :app:testDebugUnitTest --tests '*SourceIndependenceTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 5.2: ./gradlew :app:testDebugUnitTest --tests '*AndroidCapabilityTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 5.4: ./gradlew :app:testDebugUnitTest --tests '*RetentionNotifierTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 6.1: ./gradlew :app:testDebugUnitTest --tests '*RetentionTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 6.2: ./gradlew :app:testDebugUnitTest --tests '*RetentionTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 7.2: ./gradlew :app:testDebugUnitTest --tests '*IntervalTest*'
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 7.2b: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.1: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.2: ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.2: cargo test --workspace
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.2: cargo clippy --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st06-app-usage/tasks.md 8.3: python3 scripts/review_triage.py . st06-app-usage
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server deletion_ledger_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server stay_erased_view_hides_coordinates 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.2: bash -o pipefail -c 'cargo test -p ashiato-server deletion_ledger_is_append_only 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 1.3: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q deletion_ledger /tmp/ci.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server erase_endpoint 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server erase_cascade 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.3: bash -o pipefail -c 'cargo test -p ashiato-server erase_is_idempotent 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.4: bash -o pipefail -c 'cargo test -p ashiato-server erase_is_atomic 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.6: bash -o pipefail -c 'cargo test -p ashiato-server erase_locks_against_rebuild 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 2.5: bash -o pipefail -c 'cargo test -p ashiato-server erase_writes_ledger 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server erase_rebuilds_day 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server erase_survives_rebuild_failure 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 3.3: bash -o pipefail -c 'cargo test -p ashiato-server late_arrival_is_marked 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 3.4: bash -o pipefail -c 'cargo test -p ashiato-server ingest_response_unchanged_after_erase 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 4.1: bash -o pipefail -c 'cargo test -p ashiato-server restore_endpoint 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 4.2: bash -o pipefail -c 'cargo test -p ashiato-server restore_includes_late_arrivals 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 4.3: bash -o pipefail -c 'cargo test -p ashiato-server restore_is_scoped 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 4.4: bash -o pipefail -c 'cargo test -p ashiato-server restore_unhides_overlapping_stays 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 4.5: bash -o pipefail -c 'cargo test -p ashiato-server restore_writes_ledger 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 5.1: bash -o pipefail -c 'cargo test -p ashiato-server day_view_erased 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 5.2: bash -o pipefail -c 'cargo test -p ashiato-server day_view_erased_not_no_record 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 5.3: bash -o pipefail -c 'cargo test -p ashiato-server stay_day_view 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 5.3: cd web && npm run test -- DayView
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 6.1: bash -o pipefail -c 'cargo test -p ashiato-server stays_detail_counts 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 7.1: bash -o pipefail -c 'cargo test -p ashiato-server coverage_counts_deleted 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 8.1: cd web && npm run test -- stays
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 8.2: cd web && npm run test -- DayView
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 8.3: cd web && npm run test -- erase
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 8.4: cd web && npm run test -- erased-row
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 8.5: cd web && npm run test -- keyboard
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 9.1: cd web && npm run test:e2e -- day-erase
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 9.2: cd web && npm run test:e2e -- day-erase
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.2: python3 scripts/check_scenarios.py . st22-record-deletion
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.2: python3 scripts/review_triage.py . st22-record-deletion
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.2: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: cargo fmt --all --check
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: cargo test --workspace
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: cd web && npm run lint && npm run test && npm run build && npm run test:e2e
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-04-st22-record-deletion/tasks.md 10.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.1: bash -c 'tools/db-roles.sh && tools/db-roles.sh'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.1: bash -c 'test "$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM pg_tables WHERE schemaname = '"'"'core'"'"' AND tableowner <> '"'"'ashiato_owner'"'"'")" = 0'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.2: tools/check-db-secret.sh --only compose,testdb
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.3: bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.3: bash -c 'git diff --exit-code origin/main -- crates/server/src/dedup_tests.rs crates/server/src/registry_tests.rs crates/server/src/drops_tests.rs'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 1.4: tools/check-db-secret.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.1: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server app_role_privileges 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.2: bash -c 'STACK_RESET=1 bash tools/stack.sh up --check-only'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server server_startup_refuses_privileged_role 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.4: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server app_role_cannot_bypass_gate 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.5: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server app_role_ingest_and_read 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 2.6: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && test "$(grep -c "OK app-role" /tmp/ci.log)" -eq 3
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 3.1: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server server_startup_bind_allowed 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 3.2: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server server_startup_bind 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 3.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server server_startup_db_not_loopback 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 3.4: bash -c '! grep -n "LAN / Tailscale の IP" tools/stack.sh tools/verify-prep.sh'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.1: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server access_log_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.2: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server server_startup_web_password 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server web_session_endpoint 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.4: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server web_session_lifetime 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 4.5: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 5.1: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server access_log_middleware 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 5.2: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server access_log_is_append_only 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 5.2: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && test "$(grep -c "OK access_log" /tmp/ci.log)" -eq 3
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 5.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server response_no_store_server 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.1: bash -c '! grep -n "authorization" web/vite.config.ts'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.1: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test login-cookie 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/session.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.2: bash -c 'cd web && npm run lint && npm run build'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test login.spec 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test coverage-year 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test day-stays 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.3: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test stack 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 6.4: bash -o pipefail -c 'set -a; . ./.env; set +a; cd web && npx playwright test offsite 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 7.1: tools/check-apk-cleartext.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 7.3: bash -o pipefail -c 'cargo test -p ashiato-collector-windows base_url_cleartext_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 8.1: tools/check-exposure.sh --self-test
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 8.1: tools/check-private.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 8.2: tools/check-offsite.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 8.2: tools/check-offsite.sh --self-test
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 8.3: tools/check-private.sh --self-test
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 9.1: tools/check-private.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 9.1: bash -c 'for w in 証明書 落とした check-exposure pg_dump db-roles 同居; do grep -q "$w" docs/network.md || { echo "無い: $w"; exit 1; }; done'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 9.2: bash -c '! grep -n "http://<手元の網のホスト名>" docs/screens.md tools/verify-prep.sh'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 9.2: bash -c 'grep -q WEB_PASSWORD tools/verify-prep.sh && grep -q "network.md" tools/verify-prep.sh'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.1: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: bash -c 'set -a; . ./.env; set +a; cargo test --workspace'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: cargo clippy --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: tools/check-db-secret.sh
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.2: bash -c 'set -a; . ./.env; set +a; cd web && npm run lint && npm test && npx playwright test'
+- openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md 10.3: python3 scripts/review_triage.py . st28-private-network-only
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 1.1: bash -c 'grep -q "Location.getTime() の出どころ" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 1.2: bash -c 'grep -q "ACTION_TIME_CHANGED の確かめ" openspec/changes/st05-clock-skew/design.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 1.3: bash -c 'grep -q "w32tm の確かめ" openspec/changes/st05-clock-skew/design.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 2.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server clock_source_migration 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server clock_record_ingest_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([2-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 3.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*LocationFixClockFieldsTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 3.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*FixCollectorTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 3.2: bash -c 'grep -q "received_device_time" docs/collector-contract.md && grep -q "fix_elapsed_ns" docs/collector-contract.md && grep -q "received_elapsed_ms" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 4.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ResponseDateCacheTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 4.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*SenderTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 4.2: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockReferencesTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 4.2: bash -c 'set -e; f="collector-android/app/src/main/kotlin/dev/ashiato/collector"; ls $f/ClockReferences.kt $f/ResponseDateCache.kt >/dev/null; ! grep -nE "java\.net|HttpURLConnection|Transport\b|Sender\b" $f/ClockReferences.kt $f/ResponseDateCache.kt $f/ClockSkew*.kt'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 5.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewMeasurerTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 5.2: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewPayloadShapeTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 5.3: bash -c 'grep -q "c01-clock" docs/collector-contract.md && grep -q "no_response_since_last" docs/collector-contract.md && grep -q "clock_changed_since" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 6.1: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewSchedulerTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 6.2: cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*LocationServiceClockTest*'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 6.2: cd collector-android && ./gradlew :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 7.1: bash -c 'grep -q "Scenario: 収集の起動時にその場で測る" collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/ClockSkewInstrumentedTest.kt'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 8.1: bash -o pipefail -c 'cargo test -p ashiato-collector-windows time_sync_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([5-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 8.2: bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_reference_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([4-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 8.3: bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_worker_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([2-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 8.3: cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.1: bash -o pipefail -c 'cargo test -p ashiato-collector-windows payload_shape_is_pinned 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.1: bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_skew_payload_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([4-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_skew_record_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([8-9]|[1-9][0-9]+) passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_skew_is_measured 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 9.3: bash -c 'grep -q "clock_references" docs/collector-contract.md && grep -q "clock_unavailable" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.1: tools/check-no-time-server.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.1: tools/check-no-time-server.sh --self-test
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.1: bash -c 'grep -q "check-no-time-server.sh" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.3: bash -c 'grep -q "c01-clock" tools/verify-prep.sh && grep -q "retry" tools/verify-prep.sh'
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.4: python3 scripts/check_scenarios.py . st05-clock-skew
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.4: bash -o pipefail -c 'cargo test --workspace 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.4: cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.4: tools/check-private.sh
+- openspec/changes/archive/2026-10-05-st05-clock-skew/tasks.md 10.4: tools/check-panic-log.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 0.1: python3 tools/st12_delta_diff.py
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_migration 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server stays_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 1.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server dedup_tests 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server registry_tests 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server api_tests 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_dedup_distinguishes_archive_results 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.2: bash -o pipefail -c 'cargo test -p ashiato-server heartbeat 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 2.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_config 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_scan 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 3.3: bash -o pipefail -c 'cargo test -p ashiato-server archive_end_to_end_worker_starts 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 4.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 4.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_open 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 4.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_classify 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 4.3: bash -o pipefail -c 'cargo test -p ashiato-server archive_slice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 4.4: bash -o pipefail -c 'cargo test -p ashiato-server archive_slice_large 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_tz 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_parse_timeline 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.3: bash -o pipefail -c 'cargo test -p ashiato-server archive_parse_legacy 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.4: bash -o pipefail -c 'cargo test -p ashiato-server archive_parse_youtube 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.5: bash -o pipefail -c 'cargo test -p ashiato-server archive_parse_myactivity 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.6: bash -o pipefail -c 'cargo test -p ashiato-server archive_parse_chrome 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 5.7: bash -o pipefail -c 'cargo test -p ashiato-server archive_end_to_end 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 6.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_dedup 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 6.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_partial 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_ledger 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_copy 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7.3: bash -o pipefail -c 'cargo test -p ashiato-server archive_move 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7.4: bash -o pipefail -c 'cargo test -p ashiato-server archive_reparse 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7b.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_shape_pending 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7b.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_shape_confirm 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 7b.2: tools/archive-shape.sh | grep -c '京都'
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 8.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_heartbeat 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 8.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_source_outage 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 9.1: bash -o pipefail -c 'cargo test -p ashiato-server archives_status 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 9.1: cargo run -p ashiato-server --bin openapi > docs/openapi.json && tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-server coverage_endpoint_returns_five_sources 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-server coverage_endpoint_returns_five_sources 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-server coverage 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/archive-order.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/archive-heading.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.3: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/latest-archive.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.4: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/one-scroll.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.4: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/archive-one-scroll.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.5: cd web && npx tsc -b && npm run lint && npm run build
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 10.5: tools/check-boundaries.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 11.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_flow_the_log_never_carries_a_search_query 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 11.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 11.4: tools/seed.sh normal
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.1: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.1: cd web && npm run test && npm run lint && npm run build
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.2: python3 scripts/check_scenarios.py . st12-archive-ingestion
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 12.3: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 14.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_window 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 14.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_cascade 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 14.3: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 14.3: python3 scripts/check_scenarios.py . st12-archive-ingestion
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 15.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_myactivity_window 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 15.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_myactivity_cascade 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 15.3: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 15.3: python3 scripts/check_scenarios.py . st12-archive-ingestion
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 16.1: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_youtube_window 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 16.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_erased_youtube_cascade 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 16.2: bash -o pipefail -c 'cargo test -p ashiato-server archive_myactivity_location_rust_and_sql_agree 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 16.3: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+- openspec/changes/archive/2026-10-13-st12-archive-ingestion/tasks.md 16.3: python3 scripts/check_scenarios.py . st12-archive-ingestion
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server place_lock_migration_applies_twice 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.1: bash -o pipefail -c 'cargo test -p ashiato-server place_lock_down_keeps_rows 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.2: bash -o pipefail -c 'cargo test -p ashiato-server place_container_append_only 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.3: bash -o pipefail -c 'cargo test -p ashiato-server place_lock_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 1.4: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q "OK place" /tmp/ci.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 2.1: bash -o pipefail -c 'cargo test -p ashiato-server place_container_endpoint 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 3.1: bash -o pipefail -c 'cargo test -p ashiato-server place_ingest_rejects 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 3.2: bash -o pipefail -c 'cargo test -p ashiato-server place_ingest_stores 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 3.3: bash -o pipefail -c 'cargo test -p ashiato-server place_ingest_first_is_serialized 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 3.4: bash -o pipefail -c 'cargo test -p ashiato-server place_sensitivity 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 3.5: bash -o pipefail -c 'cargo test -p ashiato-server place_ingest_radius_bounds 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 4.1: bash -o pipefail -c 'cargo test -p ashiato-server place_view_unit 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 4.1: bash -o pipefail -c 'cargo test -p ashiato-server place_window_unit 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 4.2: bash -o pipefail -c 'cargo test -p ashiato-server place_view_endpoint 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 4.3: bash -o pipefail -c 'cargo test -p ashiato-server place_view_today_is_tokyo 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 5.1: bash -o pipefail -c 'cargo test -p ashiato-server place_match_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 5.2: bash -o pipefail -c 'cargo test -p ashiato-server place_window_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 5.3: bash -o pipefail -c 'cargo test -p ashiato-server place_view_stays 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 6.1: bash -o pipefail -c 'cargo test -p ashiato-server place_candidates_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 7.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 7.2: bash -o pipefail -c 'tools/smoke.sh | tee /tmp/smoke.log' && grep -q "OK place id unchanged" /tmp/smoke.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 7.3: bash -o pipefail -c 'tools/smoke.sh | tee /tmp/smoke.log' && grep -q "OK seed places" /tmp/smoke.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 8.1: bash -o pipefail -c 'cd web && npx vitest run places-model 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 8.2: bash -o pipefail -c 'cd web && npx vitest run master-view 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 8.2: bash -o pipefail -c 'cd web && npx vitest run places-tabs 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 8.3: bash -o pipefail -c 'cd web && npx vitest run places-view 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 8.3: bash -o pipefail -c 'cd web && npx vitest run places-colors 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 9.1: bash -o pipefail -c 'cd web && npx vitest run places-add 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 9.2: bash -o pipefail -c 'cd web && npx vitest run places-change 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 10.1: bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 10.2: bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 10.3: bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 10.4: bash -o pipefail -c 'cd web && npx playwright test places.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.1: bash -c 'grep -q "st21-place-registry" docs/handoff/ST23.md && grep -q "st21-place-registry" docs/handoff/ST25.md'
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.2: python3 scripts/check_scenarios.py . st21-place-registry
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.2: python3 scripts/review_triage.py . st21-place-registry
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.2: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.2: bash -c 'comm -12 <(grep -h "^#### Scenario:" openspec/specs/personal-entities/spec.md | sort -u) <(grep -h "^#### Scenario:" openspec/changes/st21-place-registry/specs/personal-entities/spec.md | sort -u) | wc -l | grep -qx 10'
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: cargo fmt --all --check
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: cargo test --workspace
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: cd web && npm run lint && npm run test && npm run build && npm run test:e2e
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st21-place-registry/tasks.md 11.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 1.1: bash -c 'python3 scripts/story_deps.py included ST25 ST22 && test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 1.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_allow_registry_covers_archive 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 1.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_allow_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 1.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_fold_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 1.4: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_range_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 2.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_api_records_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 2.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 2.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_api_unchanged_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 3.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_usage_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 3.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_summary_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 3.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_other_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 3.4: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_api_day_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 3.4: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 4.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_gaprow_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_browser_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 5.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_reasons_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 5.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_nostay_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 6.1: tools/st25-seed-check.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-routes.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.1: bash -c '! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates'
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.2: bash -c 'cd web && npx vitest run'
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.2: bash -c '! grep -rn "api/stays?date" web/src/DayView.tsx'
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.3: bash -c 'grep -q "#/coverage" docs/screens.md'
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/stack.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 7.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/coverage-year.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 8.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-summary.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 8.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-gaps.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 8.3: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-contrast.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 9.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-open.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 9.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/st25-fold.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.1: python3 scripts/check_scenarios.py . st25-day-timeline
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.1: python3 scripts/review_triage.py . st25-day-timeline
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: cargo fmt --all --check
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: cargo test --workspace
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: cd web && npm run lint && npm run test && npm run build && npm run test:e2e
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-13-st25-day-timeline/tasks.md 11.3: bash -c 'test -s openspec/changes/st25-day-timeline/review/handoff.md && grep -q "$(git log -1 --format=%h -- docs/handoff)" openspec/changes/st25-day-timeline/review/handoff.md'
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 1.1: cargo build -p ashiato-collector-windows
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 1.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 1.2: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 2.1: cargo test -p ashiato-server browser_history_record_id
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 2.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 2.1: cargo test c02_window_external_id_kind_is_not_record
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 2.2: cargo test -p ashiato-server browser_history_update
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.1: cargo test visit_time_keeps_micros
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.1: cargo test visit_external_id_is_pinned
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.1: cargo test visit_payload_shape_is_pinned
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.1: cargo test window_request_body_is_unchanged
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.1: cargo test payload_shape_is_pinned
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.2: cargo test history_epoch_conversion
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 3.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.1: cargo test history_locate
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.2: cargo test history_profiles_map
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.3: cargo test history_read_chromium
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.3: cargo test history_read_firefox
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.3: cargo test history_copy_is_removed
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 4.4: cargo test history_foreign_visits
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.1: cargo test history_ledger_has_no_url_or_title
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.1: cargo test history_ledger_broken_is_quarantined
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.2: cargo test history_fetch_sends_only_new_or_changed
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.4: cargo test history_schedule
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.5: cargo test history_success_only_after_outbox
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.5: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 5.6: cargo test history_slow_read_does_not_disturb_window
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 6.1: cargo test history_vanished
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 6.2: cargo test history_vanished_skips_unreadable_profile
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 6.2: cargo test history_vanished_is_idempotent_on_retry
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 6.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.1: cargo test rules_hit_url_and_profile
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.1: cargo test url_rule_excludes_whole_foreground
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.1: cargo test broken_registration_is_an_error_not_empty
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.2: cargo test history_exclusion
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.3: cargo test history_exclusion_added_later
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 7.3: cargo test history_exclusion_removed_later
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 8.1: cargo test history_heartbeat
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 8.1: cargo test ticks_keep_heartbeat_and_skew_intervals_for_a_day
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 8.2: cargo test history_heartbeat_probes_when_not_read
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 8.2: cargo test history_heartbeat_on_start
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 9.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 9.1: cargo test history_sensitivity_uses_collection_default
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 9.2: cargo test history_log_has_no_private_content
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 10.3: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.2: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.4: python3 scripts/review_triage.py . st08-browser-history
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.5: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.5: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.5: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.5: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.6: cargo test --workspace
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.6: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-17-st08-browser-history/tasks.md 11.6: cargo fmt --all --check
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 1.1: bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 1.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_reg_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 1.2: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 1.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 1.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_reg_default 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 2.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_grid_nonobs 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 2.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_grid_gap 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 2.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 2.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server coverage::tests:: 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 2.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_grid_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 3.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_rollup_started 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 3.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_rollup_order 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 3.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server coverage::tests:: 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 3.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server api_tests 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 4.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_ach_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server coverage::tests:: 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 4.2: cd web && npx vitest run
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 5.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_judge_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 5.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_inputs_device 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 5.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_inputs_nonobs_registry 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 6.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_judge_archive 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 6.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_inputs_archive 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 6.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_inputs_archive_grid 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 7.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_api_outages_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 7.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 7.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st14_ledger_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 8.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OutageNoticeTest*'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 8.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OutageNotifierTest*'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 8.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OutagePollerTest*'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 8.3: bash -c '! grep -nE "AlarmManager|WorkManager" collector-android/app/src/main/kotlin/dev/ashiato/collector/Outage*.kt'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 8.3: ./collector-android/gradlew -p collector-android detekt :app:assembleDebug
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 9.1: bash -o pipefail -c 'cargo test -p ashiato-collector-windows --lib outage_notice_ 2>&1 | tee /tmp/wu.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/wu.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 9.2: bash -o pipefail -c 'cargo test -p ashiato-collector-windows --lib outage_notice_poll 2>&1 | tee /tmp/wu.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/wu.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 9.2: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.1: bash -c 'set -a; . ./.env; set +a; . tools/ports.sh; rm -f /tmp/st14-stack.log /tmp/cov.json; STACK_RESET=1 setsid tools/stack.sh up >/tmp/st14-stack.log 2>&1 & pid=$!; for i in $(seq 1 300); do grep -q "^画面: http" /tmp/st14-stack.log && break; kill -0 $pid 2>/dev/null || break; sleep 2; done; curl -sf -H "authorization: Bearer ${API_TOKEN}" "http://127.0.0.1:${ASHIATO_HTTP_PORT}/coverage?from=2026-08-01&to=2026-09-30" > /tmp/cov.json; rc=$?; kill -- -$pid 2>/dev/null; wait $pid 2>/dev/null; exit $rc' && jq -e '(map(select(.logical_source=="c01-app-usage-rollup")) | length == 1) and ([.[].days[]? | select((.gaps // []) | length > 0)] | length > 0)' /tmp/cov.json
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.2: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/coverage-gaps.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/coverage-gaps.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/coverage-rollup.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/archive-layout.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.4: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/coverage-scheme.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.4: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/surface.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 10.5: bash -c 'cd web && npm run lint && npx tsc --noEmit && npx vitest run && npm run build'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.2: python3 scripts/check_scenarios.py . st14-outage-alert
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace'
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st14-outage-alert/tasks.md 11.3: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 1.1: bash -c 'python3 scripts/story_deps.py included ST17 ST25 && test -f crates/server/src/deletion.rs && grep -q stay_absorbed migrations/*_stays.sql'
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 1.2: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 1.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_lock_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 1.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 2.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_ingest_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 2.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_ingest_nonce_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 2.3: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_ingest_notcov_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 3.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_reject_shape_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 3.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_reject_target_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 3.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 4.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_read_rules_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_read_api_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 4.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 5.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_remind_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 5.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 6.1: bash -c 'tools/seed.sh normal && tools/seed.sh normal'
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 6.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 7.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/feelings.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 7.1: cd web && npm run lint
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 8.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelView.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 8.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 9.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelViewParts.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 9.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-parts.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 10.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/DayFeeling.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 10.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/day-feeling.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 10.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/day-timeline.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 10.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/day-stays.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 11.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*FeelingReminderPolicyTest*'
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 11.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*FeelingReminderReceiverTest*'
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 11.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-limits.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelViewParts.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.2: python3 scripts/check_scenarios.py . st17-daily-feeling
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.2: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st17-daily-feeling/tasks.md 12.2: bash -c '! cargo test -p ashiato-server st17_ -- --list 2>/dev/null | grep ": test$" | grep -vq "st17_"'
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 1.3: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q export_ledger /tmp/ci.log
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 7.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 8.1: cd web && npm run test -- export
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 8.2: cd web && npm run test -- SettingsView
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 8.3: cd web && npm run test -- settings-contrast
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 9.1: cd web && npm run test:e2e -- offsite
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.1: python3 scripts/check_scenarios.py . st33-data-export
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.1: python3 scripts/review_triage.py . st33-data-export
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: cargo fmt --all --check
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: cargo test --workspace
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: tools/check-offsite.sh
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-17-st33-data-export/tasks.md 10.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 3.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 3.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 6.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.1: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.1: cargo test --workspace
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.2: python3 scripts/check_scenarios.py . st47-youtube-myactivity-split
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: tools/check-boundaries.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-17-st47-youtube-myactivity-split/tasks.md 7.3: tools/check-licenses.sh
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 1.1: tools/check-shared-appends.sh --self-test
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 1.2: tools/check-shared-appends.sh --self-test
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 2.1: bash -c 'tools/check-immutable.sh > /tmp/ch01-imm-before.log 2>&1'
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 2.2: bash -c 'tools/check-immutable.sh > /tmp/ch01-imm-after.log 2>&1'
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 2.4: tools/check-shared-appends.sh "$(git branch --show-current)"
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 3.1: bash -n tools/record-env.sh
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 3.2: ./collector-android/gradlew -p collector-android :app:generateDebugBuildConfig
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch01_authored_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.1: cargo test -p ashiato-server ch01_authored_ -- --list
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch01_authored_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st17_reject_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ingest_rejects_out_of_range_tz_offset 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server place_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 4.2: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 5.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch01_stay_open_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 5.3: tools/check-handoff-reaches-brief.sh ST23 ch01-st17-review-fixes
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelView.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-ch01.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.1: cd web && npm run typecheck && npm run lint
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-parts.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 6.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-limits.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 7.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelView.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 7.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-ch01.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 7.2: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 8.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/FeelView.test.tsx 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 8.1: bash -o pipefail -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npx playwright test e2e/feel-ch01.spec.ts 2>&1 | tee /tmp/et.log' && grep -Eq '[1-9][0-9]* passed' /tmp/et.log
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: python3 scripts/check_scenarios.py . ch01-st17-review-fixes
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: cargo fmt --all --check
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: tools/check-shared-appends.sh "$(git branch --show-current)"
+- openspec/changes/archive/2026-10-24-ch01-st17-review-fixes/tasks.md 9.1: cd web && npm run build
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch02_span_legacy'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch02_span_'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_excluded'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 3.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch02_same_'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 4.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch02_scale_'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_excluded'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_file'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_job'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_ledger'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_tests'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch02_'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.3: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-24-ch02-export-next-record-window/tasks.md 6.3: python3 scripts/check_scenarios.py . ch02-export-next-record-window
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_mig_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 1.1: cargo test -p ashiato-server
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 1.2: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 1.2: tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 2.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaRecordTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 2.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaRecordSizeTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 3.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaScannerTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 3.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaScannerTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_up_ident_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 3.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaVanishTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaPermissionTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaCapabilityTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HeartbeatCountersTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*CollectionSourceTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*SourceIndependenceTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 4.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaNoticeTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OriginalLedgerTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*RetentionTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 5.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OriginalUploaderTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 5.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OriginalUploaderTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 5.3: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_up_dir_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_up_put_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 6.2: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 6.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_up_log_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 6.3: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 7.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_miss_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 7.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_sum_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 7.2: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_cov_net_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.1: cargo test -p ashiato-server heartbeat
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_cov_start_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server started_on'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_cov_state_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 8.3: cargo test -p ashiato-server coverage
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 9.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_exp_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 9.1: cargo test -p ashiato-server export
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 9.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st09_del_'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 10.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 10.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OriginalUploaderTest*'
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 10.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: python3 scripts/check_scenarios.py .
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: tools/check-private.sh
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: ./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-24-st09-media-capture/tasks.md 11.1: cargo test -p ashiato-server
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 1.1: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 1.1: cargo test -p ashiato-server
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 1.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 1.2: bash tools/check-source-intervals.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 2.1: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 3.1: tools/check-scheduled-clock.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 5.1: cd web && npx vitest run
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 5.2: cd web && npm run test:e2e -- coverage-sources
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 7.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 7.1: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 8.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 9.1: cd web && npx vitest run
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 9.1: cd web && npx tsc --noEmit
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 9.2: cd web && npm run test:e2e -- coverage-sources
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 9.2: cd web && npm run test:e2e -- archive-layout coverage-
+- openspec/changes/archive/2026-10-24-st13-scheduled-account-fetch/tasks.md 9.2: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.1: bash -c '! grep -nE "session_replication_role|DISABLE TRIGGER" crates/server/src/testdb.rs'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_testdb_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.2: bash -c 'set -- ch04_testdb_ 3; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server coverage'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ingest'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server deletion'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server stay_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 1.3: bash -c 'set -- stay_tests 65; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_isolated_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.2: bash -c 'set -- ch04_isolated_ 2; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_scratch_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.2: bash -c 'set -- ch04_scratch_ 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_isolated_many_in_parallel'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.3: bash -c 'set -- ch04_isolated_many_in_parallel 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server app_role'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 2.4: bash -c 'set -- app_role 3; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 3.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_sweep_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 3.2: bash -c 'set -- ch04_sweep_ 3; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 4.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_statement_timeout_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 4.2: bash -c 'set -- ch04_statement_timeout_ 3; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.1: bash -c 'set -- export_ 123; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.1: bash -c '! grep -nE "testdb::pool\(\)" crates/server/src/export*_tests.rs'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_export_isolated_does_not_see_other_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.2: bash -c 'set -- ch04_export_isolated_does_not_see_other_tests 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 5.3: bash -c 'grep -B6 "pub fn unique_day" crates/server/src/testdb.rs | grep -q "回の database"'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server clock_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server feelings_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server attributes_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server places_tests'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c 'set -- places_tests 158; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.1: bash -c '[ "$(grep -lE "CREATE DATABASE" crates/server/src/*.rs crates/server/tests/*.rs | grep -v testdb)" = "" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.2: tools/check-test-db-growth.sh --lint
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 6.2: tools/check-test-db-growth.sh --self-test
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 7.1: tools/check-test-db-growth.sh --self-test
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 7.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/check-test-db-growth.sh -p ashiato-server'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 7.3: tools/check-test-db-growth.sh --self-test
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 7.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/check-test-db-growth.sh -p ashiato-server ch04_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.1: python3 scripts/story_deps.py included CH04 CH02
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_overlap_matches_ch02'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.2: bash -c 'set -- ch04_overlap_matches_ch02 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.3: bash -c 'set -- ch04_overlap_reads_erased_spans_linearly 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_overlap_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.4: bash -c 'set -- ch04_overlap_ 2; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.4: bash -c 'set -- export_ 123; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.5: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_file'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 8.5: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_summary'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 9.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 9.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; ASHIATO_EXPORT_VOLUME_ROWS=20000 ASHIATO_EXPORT_VOLUME_ERASED=4 cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 9.2: tools/export-scaling.sh --self-test
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 9.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/export-scaling.sh'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.1: bash -c 'grep -q "check-test-db-growth" docs/testing.md && grep -q "check-test-db-growth" docs/flow-gates.md && grep -q "ASHIATO_TEST_STATEMENT_TIMEOUT" docs/testing.md'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.2: tools/check-tests-kept.sh origin/main crates/server
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.3: bash -c '[ -z "$(git diff origin/main...HEAD -- crates/server/tests/server_startup.rs tools/smoke.sh tools/dev.sh)" ]'
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.4: python3 scripts/check_scenarios.py . ch04-test-db-growth
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.4: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-27-ch04-test-db-growth/tasks.md 10.4: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.1: bash -c '. tools/ports.sh; [[ $(ashiato_db_subnet) == 10.20[01].*.0/24 ]]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.1: bash -c '. tools/ports.sh; [ -z "$(ASHIATO_DB_PORT=1 ashiato_db_subnet)" ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.1: tools/check-private.sh
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.2: tools/check-ports.sh --self-test
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.2: bash -c '[ "$(grep -c "Scenario: " tools/check-ports.sh)" -ge 1 ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.3: bash -c 'grep -qE "^COMPOSE_FILE=docker-compose.yml:docker-compose.subnet.yml(:docker-compose.override.yml)?$" .env && git check-ignore -q docker-compose.subnet.yml'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.3: bash -c '. tools/ports.sh; [ "$(docker network inspect -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" "$(basename "$PWD")_default")" = "$(ashiato_db_subnet)" ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 1.3: tools/check-private.sh
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.1: bash -c 'd=$(mktemp -d); mkdir -p "$d/tools" && cp tools/env-init.sh tools/ports.sh "$d/tools/" && POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c "$d/tools/env-init.sh" && [ ! -e "$d/.env" ] && [ ! -e "$d/docker-compose.subnet.yml" ]; r=$?; rm -rf "$d"; exit $r'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.1: bash -c 'grep -n "env-init.sh" tools/verify-prep.sh | grep -q .'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.2: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.2: bash -c 'POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c ASHIATO_DB_SUBNET=x CI=true tools/check-verify-env-reset.sh --self-test'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.2: bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 7 ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 2.2: tools/check-private.sh
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 3.1: bash -c '[ "$(HARNESS_VERIFY=1 tools/verify-env.sh --plan)" = reset ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 3.1: bash -c 'env -u HARNESS_VERIFY tools/verify-env.sh --plan | grep -q "^keep:"'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 3.2: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 3.2: bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 10 ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 4.1: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh 2>&1 | grep -q "切った接続: "'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 4.2: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh && HARNESS_VERIFY=1 tools/verify-env.sh'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 4.2: bash -c '! grep -vE "^\s*#" tools/verify-env.sh | grep -nE "down -v|up .*-V|force-recreate|rm -[a-z]*v"'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 4.3: bash -c 'for i in 1 2 3; do s=$(date +%s); HARNESS_VERIFY=1 tools/verify-env.sh >/dev/null 2>&1 || exit 1; echo "reset $(( $(date +%s) - s ))s"; done'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 5.1: tools/check-verify-env-reset.sh
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 5.1: bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 23 ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 5.1: bash -c '[ -z "$(docker ps -aq --filter name=ch06-sentinel-)" ] && [ -z "$(docker volume ls -q --filter name=ch06-sentinel-)" ] && [ -z "$(docker network ls -q --filter name=ch06-sentinel-)" ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 6.1: bash -c 'grep -qE "^ +- run: ./tools/check-verify-env-reset.sh --self-test$" .github/workflows/ci.yml && grep -qE "^ +- run: ./tools/check-verify-env-reset.sh$" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 6.1: bash -c '! git diff origin/main...HEAD -- .github/workflows/ci.yml | grep -E "^[-+][^-+]" | grep -v "check-verify-env-reset" | grep -q .'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 6.2: bash -c 'grep -q "check-verify-env-reset" docs/testing.md && grep -q "check-verify-env-reset" docs/flow-gates.md'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.1: bash -c '[ "$(cargo test -p ashiato-server -- --list 2>/dev/null | grep -c ": test$")" -ge 1000 ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.2: bash -c '[ -z "$(git diff origin/main...HEAD -- crates migrations tools/stack.sh tools/smoke.sh tools/check-immutable.sh tools/check-panic-log.sh tools/dev.sh tools/record-env.sh tools/db-roles.sh docker-compose.yml)" ]'
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.3: python3 scripts/check_scenarios.py . ch06-reset-verify-db
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.3: tools/check-private.sh
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.3: tools/check-ports.sh --self-test
+- openspec/changes/archive/2026-10-27-ch06-reset-verify-db/tasks.md 7.3: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 1.1: bash -c 'out=$(HARNESS_VERIFY=1 tools/verify-env.sh 2>/dev/null) && [ "$(grep -cx "HARNESS_RESET: testdb" <<<"$out")" = 1 ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 1.1: bash -c '[ -z "$(env -u HARNESS_VERIFY tools/verify-env.sh 2>&1 | grep "HARNESS_RESET:")" ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 1.1: bash -c '[ "$(HARNESS_VERIFY=1 tools/verify-env.sh --plan)" = reset ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 1.1: bash -c '[ "$(grep -v "^\s*#" tools/verify-env.sh | grep -c "echo \"HARNESS_RESET: testdb\"")" = 1 ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 2.1: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 2.1: bash -c 'POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c ASHIATO_DB_SUBNET=x CI=true tools/check-verify-env-reset.sh --self-test'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 2.1: bash -c 'grep -qF "echo \"Scenario: 判定だけを出すときは、宣言を出さない\"" tools/check-verify-env-reset.sh && grep -qF "echo \"Scenario: git の木でなければ、印つきでも作り直さない判定になる\"" tools/check-verify-env-reset.sh'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 2.2: bash -c 'out=$(tools/check-verify-env-reset.sh --self-test) && ! grep -q "^SKIP" <<<"$out"'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 2.2: bash -c 'grep -qF "echo \"Scenario: ハーネスの点検が、作り直して宣言する準備と認める\"" tools/check-verify-env-reset.sh'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 3.1: tools/check-verify-env-reset.sh
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 3.1: bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 32 ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 3.2: tools/check-verify-env-reset.sh
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 3.2: bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 35 ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 3.2: bash -c 'grep -qF "echo \"Scenario: DB のコンテナが止まっていても、作り直したら宣言を 1 行出す\"" tools/check-verify-env-reset.sh && grep -qF "echo \"Scenario: volume を持たない DB のコンテナでは、作り直しても宣言を出さない\"" tools/check-verify-env-reset.sh && grep -qF "echo \"Scenario: 作り直しの途中で落ちたら、宣言を出さない\"" tools/check-verify-env-reset.sh'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.1: bash -c 'grep -F "check-verify-env-reset.sh" docs/flow-gates.md | grep -qF "HARNESS_RESET"'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.1: bash -c 'head -20 tools/check-verify-env-reset.sh | grep -q "ch07"'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.2: bash -c 'grep -q check_verify_env .harness2/scripts/init.py || exit 1; git -C .harness2 rev-parse HEAD; o=$(python3 .harness2/scripts/init.py --check 2>&1 || true); ! grep -qF "[人間] tools/verify-env.sh" <<<"$o" && [ "$(grep -cF "[ok] tools/verify-env.sh" <<<"$o")" = 1 ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: bash -c '[ -z "$(git diff origin/main...HEAD -- crates migrations tools/stack.sh tools/smoke.sh tools/check-immutable.sh tools/check-panic-log.sh tools/dev.sh tools/record-env.sh tools/db-roles.sh docker-compose.yml)" ]'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: bash -c 'openspec validate ch07-declare-verify-reset --strict'
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: python3 scripts/check_scenarios.py . ch07-declare-verify-reset
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: tools/check-private.sh
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: tools/check-ports.sh --self-test
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-27-ch07-declare-verify-reset/tasks.md 4.3: tools/check-verify-env-reset.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 1.2: bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q satellite /tmp/ci.log
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 5.3: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 6.1: cargo test -p ashiato-server every_route_refuses_satellite
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 8.1: tools/check-satellite-boundary.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 8.1: tools/check-satellite-boundary.sh --self-test
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 9.1: cd web && npm run lint && npm run test -- satellites
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.3: python3 scripts/check_scenarios.py . st29-satellite-credentials
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.3: python3 scripts/review_triage.py . st29-satellite-credentials
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.3: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: cargo fmt --all --check
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: cargo test --workspace
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/check-log-private.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/check-satellite-boundary.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-27-st29-satellite-credentials/tasks.md 10.4: tools/smoke.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 1.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 1.1: bash -c 'set -a; . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_gate_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 1.3: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 1.3: ./tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_ingest_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server dedup_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 2.3: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 3.1: bash -c 'cargo test -p ashiato-server --lib st41_hash'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 3.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_update_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 3.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_dedup_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 3.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server dedup_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_coverage_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_range_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st25_api_unchanged'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 5.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_range_uses_partial_index'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 5.3: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 5.3: cargo run -q -p ashiato-server --bin openapi > docs/openapi.json
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_export_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.1: python3 scripts/review_triage.py . st41-event-end-time
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.1b: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st41_stays_and_collected'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: cargo fmt --all -- --check
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh && ./tools/check-immutable.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: ./tools/smoke.sh
+- openspec/changes/archive/2026-10-27-st41-event-end-time/tasks.md 7.2: python3 scripts/check_scenarios.py . st41-event-end-time
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_ledger_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -- st48_ledger_ 2; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_compare_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -- st48_compare_ 4; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_read_ledger_unreadable_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 1.2: bash -c 'set -- st48_read_ledger_unreadable_ 3; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 2.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 2.1: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_apply_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 2.2: bash -c 'set -- st48_apply_ 8; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.1: bash -c '! grep -nE "for .* in crate::MIGRATIONS" crates/server/src/testdb.rs'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib stay_tests'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib ingest'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_testdb_has_ledger'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.2: bash -c 'set -- st48_testdb_has_ledger 1; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib st48_export_starts_with_ledger'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 3.2: bash -c 'set -- st48_export_starts_with_ledger 1; [ "$(cargo test -p ashiato-server --lib "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 4.1: cargo build -p ashiato-server --bin ashiato-server
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 4.1: bash -c '! grep -nE "MIGRATE_.*(GUARD|FORCE|SKIP)|ALLOW_DB_AHEAD" -r crates/server/src'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st48_migrate_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 4.2: bash -c 'set -- st48_migrate_ 10; [ "$(cargo test -p ashiato-server --test server_startup "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 5.1: cargo build -p ashiato-server --bin ashiato-server
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st48_server_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 5.2: bash -c 'set -- st48_server_ 6; [ "$(cargo test -p ashiato-server --test server_startup "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup server_startup_'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 6.1: tools/check-released-migrations.sh --self-test
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 6.1: tools/check-released-migrations.sh
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 6.2: bash -c 'grep -q "check-released-migrations.sh --self-test" .github/workflows/ci.yml && grep -q "refs/tags/v" .github/workflows/ci.yml && grep -q check-released-migrations docs/testing.md'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 7.1: tools/check-migrations.sh --self-test
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 7.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 7.1: bash -c 'grep -q "check-migrations.sh --self-test" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 8.1: bash -n tools/stack.sh tools/dev.sh tools/verify-prep.sh
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 8.1: bash -c 'grep -q COMPOSE_PROJECT_NAME tools/verify-prep.sh && grep -q "STACK_RESET=1" tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/dev.sh'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 8.2: tools/check-db-version-stop.sh
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 8.2: bash -c 'grep -q check-db-version-stop .github/workflows/ci.yml && grep -q check-db-version-stop docs/testing.md'
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 9.1: python3 scripts/check_scenarios.py . st48-db-version-guard
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 9.1: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 9.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-27-st48-db-version-guard/tasks.md 9.1: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 1.1: bash -c 'cargo tree -p ashiato-server -e dev --depth 1 | grep -q "tempfile v3" && cargo tree -p ashiato-collector-windows -e dev --depth 1 | grep -q "tempfile v3"'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 1.2: bash -c 'grep -q "ASHIATO_TEST_TMPDIR" collector-android/app/build.gradle.kts && grep -q "java.io.tmpdir" collector-android/app/build.gradle.kts'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 1.3: tools/tmp-leak-check.sh --self-test
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 1.4: bash -c 'mkdir -p target/ch03-probe && ASHIATO_TEST_TMPDIR=$PWD/target/ch03-probe ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests "*Ch03TmpdirProbeTest*" && grep -q "skipped=\"0\"" collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.Ch03TmpdirProbeTest.xml'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 1.5: bash -c 'tools/tmp-leak-check.sh rust -p ashiato-collector-windows --lib; rc=$?; [ $rc -eq 0 ] && exit 0; [ $rc -eq 1 ] || exit 1; r=$(ls -dt target/tmp-leak/rust-* | head -1); [ -n "$(ls -A "$r")" ] && [ -z "$(ls -A "$r" | grep -v "^ashiato")" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.1: bash -c 'set -- export_ 99; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server migrate_backup'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.1: bash -c 'set -- migrate_backup 4; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch03_tmp_dir'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.2: bash -c 'set -- ch03_tmp_dir 1; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 2.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh rust -p ashiato-server export_'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server archive_tests'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 3.1: bash -c 'set -- archive_tests 73; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server archive_flow_tests'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 3.2: bash -c 'set -- archive_flow_tests 105; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 3.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh rust -p ashiato-server archive'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 4.1: cargo test -p ashiato-collector-windows --lib ::
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 4.1: bash -c '[ "$(cargo test -p ashiato-collector-windows --lib -- --list 2>/dev/null | grep -c ": test$")" -ge 283 ]'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh rust -p ashiato-collector-windows --lib'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 4.2: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 5.1: bash -c '! grep -rnE "createTempDirectory|createTempFile" collector-android/app/src/test/kotlin/dev/ashiato/collector/TestOutbox.kt collector-android/app/src/test/kotlin/dev/ashiato/collector/AppUsageFixtures.kt'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 5.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests '*Ch03TmpRuleTest*'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 5.2: bash -c 'ls collector-android/app/build/test-results/testDebugUnitTest/ | grep -q Ch03TmpRuleTest'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 6.1: bash -c '! grep -rnE "createTempDirectory|createTempFile|createTempDir\(" collector-android/app/src/test'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 6.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests '*SegmentStoreTest*'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh android'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 7.1: tools/check-tmp-hygiene.sh --self-test
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 7.2: tools/check-tmp-hygiene.sh
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 7.2: tools/check-tmp-hygiene.sh --self-test
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 7.3: tools/check-tmp-hygiene.sh --self-test
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 7.4: bash -c 'grep -q "TemporaryFolder" docs/testing.md && grep -q "tmp-ok" docs/testing.md && grep -q "tmp-leak-check.sh" docs/testing.md && grep -q "check-tmp-hygiene.sh" docs/flow-gates.md'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.1: tools/tmp-leak-check.sh --self-test
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh rust'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/tmp-leak-check.sh android'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.4: python3 scripts/check_scenarios.py . ch03-test-tmp-cleanup
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.4: bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings'
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.4: ./collector-android/gradlew -p collector-android detekt
+- openspec/changes/archive/2026-10-30-ch03-test-tmp-cleanup/tasks.md 8.4: bash -c './tools/check-log-private.sh && ./tools/check-shared-appends.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 1.1: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 1.1: python3 scripts/story_deps.py included CH05 CH04
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 1.1: python3 scripts/story_deps.py included CH05 CH06
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 1.1: bash -c 'f=crates/server/src/testdb.rs; grep -q 4820252 "$f" && grep -q 4820253 "$f" && grep -q ashiato_run_ "$f" && grep -q "pub async fn isolated" "$f"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 1.1: bash -c 'f=tools/verify-env.sh; grep -q -- "--plan" "$f" && grep -q "reset_db" "$f" && grep -q "clear_blocking_network" "$f"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 2.1: bash -n tools/docker-tidy.sh
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 2.1: tools/docker-tidy.sh --self-test
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 2.1: bash -c 'f=tools/docker-tidy.sh; for s in "作業ツリーが消えたコンテナは、動いていても外される" "外したコンテナの名前の無い volume は残る" "作業ツリーが残っていれば、止まっているコンテナも外さない" "main の checkout と確認バッチのコンテナは、path が無くても外さない" "印の無いコンテナと、別の repo の compose のコンテナには触らない" "コンテナの無いネットワークは、作業ツリーが残っていなければ外す" "外すものが無ければ、片付けは何も出さない" "もう無いものを外そうとしたら、外せたものとして扱う" "片付けが docker に問えなければ、片付けは rc≠0 で落ちる" "外す命令が失敗すれば、片付けは rc≠0 で落ちる" "片付けが docker に打つ命令に、volume を消すものは無い"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qF "Scenario: --dry-run は外すものを出すだけで、何も外さない" "$f"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 2.1: bash -c 'grep -qE "^- 片付けたもの: .*[0-9a-z]" openspec/changes/ch05-test-db-bloat/design.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.1: bash -n tools/verify-env.sh
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.1: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.1: tools/check-verify-env-reset.sh --self-test
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/check-verify-env-reset.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/docker-tidy.sh --verify-env-check'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.2: bash -c 'f=tools/docker-tidy.sh; for s in "片付けが落ちても、検証の準備は DB を作り直して続く" "消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qF "Scenario: 印の無い検証の準備と --plan は、片付けを呼ばない" "$f"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.2: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh 2>/dev/null; [ -z "$(tools/docker-tidy.sh --dry-run 2>&1)" ]'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 3.2: bash -c 'grep -qE "^- 片付けの時間: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 4.1: cargo build -p ashiato-server --tests
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 4.1: bash -c 'set -- ch05_ 2; [ "$(cargo test -p ashiato-server --lib "$1" -- --list --include-ignored 2>/dev/null | grep -c ": test$")" -ge "$2" ]'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --lib ch05_next_run'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 4.1: tools/check-test-db-growth.sh --lint
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 5.1: bash -n tools/check-test-db-killed.sh
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 5.1: tools/check-test-db-killed.sh --self-test
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 5.1: bash -c 'f=tools/check-test-db-killed.sh; for s in "殺した回の database が次の回の後に残っていれば、名前を挙げて落ちる" "ashiato database の行数が増えていれば落ちる" "ashiato database の大きさだけが 1 MiB を超えて増えていれば落ちる" "殺した回の database が見えなければ、空振りとして落ちる" "探りの印が来なければ、待ちの上限で時点の名前を挙げて落ちる" "次の回の試験が落ちれば、台本も試験の終了コードで落ちる" "殺した回の分が片付き、ashiato が増えていなければ、台本は通る"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/check-test-db-killed.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 6.1: bash -c 'f=tools/check-test-db-killed.sh; for s in "体積の行を入れる途中で殺した回の database は、次の回の後に残らない" "体積の行を確定した後に殺した回の database は、次の回の後に残らない"; do grep -qF "Scenario: $s" "$f" || exit 1; done'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 6.1: bash -c 'grep -qE "^- 次の回の秒数: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; f=crates/server/src/testdb.rs; trap "git checkout -- $f" EXIT; [ "$(grep -cE "^[[:space:]]*sweep_previous_runs\(.*\)\.await;" "$f")" -ge 1 ] || exit 3; sed -i -E "s|^([[:space:]]*)(sweep_previous_runs\(.*\)\.await;)|\1// ch05-mutation: \2|" "$f"; out=$(tools/check-test-db-killed.sh 2>&1); rc=$?; echo "$out" | tail -20; [ "$rc" = 1 ] && grep -q ashiato_run_ <<<"$out"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 6.2: bash -c 'grep -qE "^- 片付けを外した回: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 7.1: tools/check-test-db-killed.sh --self-test
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 7.1: tools/docker-tidy.sh --self-test
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 7.1: bash -c 'grep -qF "Scenario: CI の rust job は、殺した後の検査を走らせる" tools/check-test-db-killed.sh && grep -qF "Scenario: CI の rust job は、片付けの self-test を走らせる" tools/docker-tidy.sh && grep -q "tools/check-test-db-killed.sh --self-test" .github/workflows/ci.yml && grep -qE "tools/check-test-db-killed.sh *$" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --self-test" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --verify-env-check" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 7.2: bash -c 'grep -q "check-test-db-killed" docs/testing.md && grep -q "docker-tidy" docs/testing.md && grep -q "check-test-db-killed" docs/flow-gates.md && grep -q "docker-tidy" docs/flow-gates.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 7.3: bash -c 'grep -qE "^- CI の行の時間: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.1: python3 scripts/check_scenarios.py . ch05-test-db-bloat
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.1: bash -c 'c=openspec/specs/verify-environment/spec.md; [ -f "$c" ] || c=openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md; [ -f "$c" ] || exit 3; f() { grep -vE "^(導出元:|ただし、作業ツリーが消えた|[[:space:]]*$)"; }; diff <(sed -n "/^### Requirement: 印があれば/,/^#### Scenario: 消えた作業ツリーのコンテナは/p" openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md | sed "\$d" | f) <(sed -n "/^### Requirement: 印があれば/,/^### Requirement: [^印]/p" "$c" | sed "/^### Requirement: [^印]/d" | f)'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.2: bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); files=$(git log --no-merges --name-only --format= HEAD --not origin/main $ex | sort -u | grep .); [ -n "$files" ] || exit 3; bad=$(grep -vE "^(tools/check-test-db-killed\.sh|tools/docker-tidy\.sh|tools/verify-env\.sh|crates/server/src/killed_probe_tests\.rs|crates/server/src/lib\.rs|\.github/workflows/ci\.yml|docs/|openspec/changes/ch05-test-db-bloat/)" <<<"$files"); [ -z "$bad" ] || { echo "触ってはいけない: $bad"; exit 1; }'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.2: bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); ! git log --no-merges -p --format= HEAD --not origin/main $ex -- crates/server/src/lib.rs tools/verify-env.sh | grep -E "^-[^-]"'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.3: bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'
+- openspec/changes/archive/2026-10-30-ch05-test-db-bloat/tasks.md 8.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.1: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st11_'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 1.2: bash -c 'grep -q "c01-health-permission" docs/collector-contract.md && grep -q "auto_requested" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 2.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthManifestTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 2.1: bash -c '! git grep -n "永久に読めない" -- collector-android/'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 2.1: ./collector-android/gradlew -p collector-android :app:detekt
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 3.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthPermissionsTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 3.1: ./collector-android/gradlew -p collector-android :app:assembleDebug
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 4.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthPermissionRecordTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 4.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*ClockSkewPayloadShapeTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 4.1: bash tools/check-log-private.sh
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthPermissionRecordTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 4.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*SourceIndependenceTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthPermissionFlowTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MainActivityTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MediaPermissionTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*UnusedAppRestrictionsTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 5.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*SourceIndependenceTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 6.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*HealthNotificationTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 6.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*LocationServiceTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 6.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*LocationServiceClockTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 7.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*SourceIndependenceTest*'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 7.2: bash -c 'grep -q "Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る" collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/PermissionDeniedInstrumentedTest.kt'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 8.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 8.1: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 8.1: python3 scripts/check_scenarios.py . st11-health-history-permission
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 9.1: bash -c 'grep -q "c01-health-permission" docs/handoff/ST34.md && grep -q "自動削除" docs/handoff/ST34.md'
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 9.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-10-30-st11-health-history-permission/tasks.md 9.2: bash -c 'grep -q "c01-health-permission" docs/handoff/ST38.md'
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 1.1: tools/check-migrations.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 1.1: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 1.1: tools/check-st23-derived-erasure.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 4.1: cargo run -q -p ashiato-server --bin openapi > docs/openapi.json
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 4.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 7.2: tools/st23-compaction-volume.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 9.2: cd web && npm test
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 10.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 10.1: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 10.1: python3 scripts/check_scenarios.py . st23-record-erasure
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 10.1: cargo test -p ashiato-server
+- openspec/changes/archive/2026-10-30-st23-record-erasure/tasks.md 10.1: cargo clippy -p ashiato-server --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 1.1: cargo test -p ashiato-build-stamp st49_stamp_
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 1.3: bash -c 'set -a; . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 1.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server migration_ledger_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.1: bash -c 'set -a; . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_gate_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_cols_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server dedup_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.3: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 2.3: ./tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_ingest_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_dedup_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.2: bash -c 'cargo test -p ashiato-server --lib st49_hash'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server dedup_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.2: bash -c 'cargo test -p ashiato-server --lib hash_is_pinned'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.3: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 3.3: bash -c 'test "$(grep -c client_version docs/collector-contract.md)" -ge 3'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_update_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server dedup_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_stay_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server stay_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_ledger_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server drops_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server media_missing_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server deletion_tests'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server feelings_remind'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 6.2: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 7.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st49_export_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 7.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 8.1: cargo test -p ashiato-collector-windows --lib st49_c02_
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 8.1: cargo test -p ashiato-collector-windows --lib
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 8.1: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 9.1: ./tools/check-build-stamp.sh android
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 9.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St49OutboxTest*'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 9.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St49DropDraftTest*'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 9.3: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 10.1: bash -o pipefail -c 'cd web && npx vitest run src/__tests__/buildStamp.test.ts 2>&1 | tee "$TMPDIR/vt.log"' && grep -Eq 'Tests +[1-9][0-9]* passed' "$TMPDIR/vt.log"
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 10.1: bash -c 'cd web && npx vitest run'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 10.1: bash -c 'cd web && npm run build'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 10.2: bash -c 'cd web && npm run test:e2e -- st49-client-version'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.1: bash -c 'grep -q "st49-record-component-version" docs/handoff/ST23.md && grep -q R5 docs/handoff/ST23.md && grep -q st49 docs/handoff/ST50.md && grep -q st49 docs/handoff/ST29.md && grep -q st49 docs/handoff/ST52.md'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.1: ./tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: cargo fmt --all -- --check
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: cargo clippy --workspace --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: cargo test -p ashiato-build-stamp st49_
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh && ./tools/check-immutable.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: ./tools/smoke.sh
+- openspec/changes/archive/2026-10-30-st49-record-component-version/tasks.md 11.2: python3 scripts/check_scenarios.py . st49-record-component-version
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_hidden_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_hidden_ -- --list 2>/dev/null | grep -c ": test$")" -ge 12'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server stay_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server stay_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_remedy_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_remedy_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 2.1: bash -c 'grep -q "deletion::purge_hidden_overlap_remedy(&pool)" crates/server/src/lib.rs'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_restore_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_restore_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_late_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server deletion_tests'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 3.1: bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_visible_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_visible_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_api_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 4.1: bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server purge_nested_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_nested_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server day_'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 5.1: bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 5.1: bash -c 'cd web && npx vitest run'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e -- ch08-nested.spec.ts'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 6.1: bash -c 'test "$(grep -c "// Scenario:" web/e2e/ch08-nested.spec.ts)" -ge 14'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e -- st23-purge.spec.ts day-erase.spec.ts'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 7.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 7.1: python3 scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 7.1: bash tools/check-shared-appends.sh
+- openspec/changes/archive/2026-10-31-ch08-erasure-nested-and-late-stays/tasks.md 7.2: tools/smoke.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_contract_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server access_log'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 1.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_header_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_unknown_field_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_item_version_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 3.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 3.2: bash -c 'grep -q "^## 送信契約の版の履歴" docs/collector-contract.md && grep -q "contract_unsupported" docs/collector-contract.md && grep -q "unknown_field" docs/collector-contract.md && grep -q "Ashiato-Contract-Version" docs/collector-contract.md'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_record_version_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server hash_is_pinned'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_migration_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_lock_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 4.3: tools/check-immutable.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_released_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_export_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 7.2: tools/check-contract-version.sh --self-test
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 7.2: tools/check-contract-version.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 7.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St50EnvelopeShapeTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 7.2: cargo test -p ashiato-collector-windows --lib st50_envelope_shape
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 8.1: cargo test -p ashiato-collector-windows --lib st50_sender_
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 8.1: cargo test -p ashiato-collector-windows --lib sender::
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 8.1: tools/check-contract-version.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 8.1: cargo test -p ashiato-collector-windows --lib st50_envelope_shape
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 9.1: cargo test -p ashiato-collector-windows --lib st50_notice_
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 9.1: cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 9.2: bash -c 'grep -c "fn st50_contract_toast_coexists_with_outage" crates/collector-windows/tests/runtime_windows.rs | grep -qx 1'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 10.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St50SenderTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 10.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*OriginalUploaderTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 10.1: tools/check-contract-version.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 10.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St50EnvelopeShapeTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 10.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests 'dev.ashiato.collector.SenderTest'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 11.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St50ContractNoticeTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 11.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*RetentionNotifierTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 11.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*MainActivityTest*'
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 11.1: ./collector-android/gradlew -p collector-android detekt
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 12.1: tools/smoke.sh
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 12.2: python3 scripts/check_scenarios.py . st50-contract-version
+- openspec/changes/archive/2026-10-31-st50-contract-version/tasks.md 12.2: python3 scripts/provisional.py check openspec/changes/st50-contract-version
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.1: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_form_ && test "$(cargo test -p ashiato-server st51_form_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_rows_ && test "$(cargo test -p ashiato-server st51_rows_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server app_role_tests && test "$(cargo test -p ashiato-server app_role_tests -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.3: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 1.3: ./tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server migration_ledger_ && test "$(cargo test -p ashiato-server migration_ledger_ -- --list 2>/dev/null | grep -c ": test$")" -ge 20'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 2.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st51_bin_migrate_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo build -p ashiato-server'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st51_bin_startup_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_startup_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st51_bin_startup_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_startup_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 3.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st48_ && test "$(cargo test -p ashiato-server --test server_startup st48_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 4.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 4.1: bash -c 'jq -e ".components.schemas.HeartbeatRequest.properties | has(\"client_version\")" docs/openapi.json'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_hb_ && test "$(cargo test -p ashiato-server st51_hb_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_hb_ && test "$(cargo test -p ashiato-server st51_hb_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_view_ && test "$(cargo test -p ashiato-server st51_view_ -- --list 2>/dev/null | grep -c ": test$")" -ge 13'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_export_ && test "$(cargo test -p ashiato-server st51_export_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_ && test "$(cargo test -p ashiato-server export_ -- --list 2>/dev/null | grep -c ": test$")" -ge 130'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_export_ && test "$(cargo test -p ashiato-server st51_export_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 6.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_file_excludes_ledgers && test "$(cargo test -p ashiato-server export_file_excludes_ledgers -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 7.1: bash -c 'cargo test -p ashiato-collector-windows --lib st51_c02_ && test "$(cargo test -p ashiato-collector-windows --lib st51_c02_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 7.1: bash -c 'cargo test -p ashiato-collector-windows --lib'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 7.2: bash -c 'cargo test -p ashiato-collector-windows --lib st51_c02_ && test "$(cargo test -p ashiato-collector-windows --lib st51_c02_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 8.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St51HeartbeatVersionTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St51HeartbeatVersionTest*.xml | grep -c "<testcase ")" -ge 3'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 8.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*Heartbeat*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*Heartbeat*.xml | grep -c "<testcase ")" -ge 20'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 8.2: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St51HeartbeatVersionTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St51HeartbeatVersionTest*.xml | grep -c "<testcase ")" -ge 3'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 9.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st51_coverage_ && test "$(cargo test -p ashiato-server st51_coverage_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 9.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server outage_ && test "$(cargo test -p ashiato-server outage_ -- --list 2>/dev/null | grep -c ": test$")" -ge 40'
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 10.1: python3 scripts/check_chain.py .
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 10.2: python3 scripts/check_scenarios.py . st51-update-history
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 10.2: ./tools/check-migrations.sh
+- openspec/changes/archive/2026-11-01-st51-update-history/tasks.md 10.2: ./tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 1.1: tools/release/version.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 1.1: bash -c 'test "$(tools/release/version.sh code 0.3.0-beta.2)" = 30002 && test "$(tools/release/version.sh code 1.0.0)" = 1000099'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 1.2: bash -c 'grep -q "release/" CLAUDE.md'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 2.1: bash -c 'cargo test -p ashiato-build-stamp st52_ && test "$(cargo test -p ashiato-build-stamp st52_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st52_bin_ && test "$(cargo test -p ashiato-server --test server_startup st52_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 2.2: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server migration_ledger'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.1: bash -c './collector-android/gradlew -p collector-android :app:verifyVersionCodeTable && test "$(grep -vc "^#" tools/release/version-table.tsv)" -ge 8'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.1: bash -c 'ASHIATO_BUILD_VERSION="$(tools/release/version.sh source)-beta.2" ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.1: tools/release/check-artifacts.sh --self-test-gradle-range
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.2: bash -c 'cd web && npx vitest run src/__tests__/build-stamp.test.ts'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.2: bash -c 'cd web && npm run build'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.3: tools/check-version.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.3: tools/check-version.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.4: bash -c 'tools/check-build-stamp.sh release'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 3.4: bash -c 'tools/check-build-stamp.sh android'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.1: tools/check-released-migrations.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.1: tools/check-released-migrations.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.2: tools/check-contract-version.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.2: tools/check-contract-version.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.3: bash -c 'test "$(grep -c "ST52 で処置した" docs/handoff/ST52.md)" -ge 3'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.4: bash -c 'awk "/^ rust:/{f=1} f&&/^ [a-z-]+:/&&!/^ rust:/{f=0} f" .github/workflows/ci.yml > "$TMPDIR/rust.yml" && grep -q "fetch-depth: 0" "$TMPDIR/rust.yml" && ! grep -q -- "--depth=1" "$TMPDIR/rust.yml"'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 4.4: bash -c 'd="${TMPDIR:?}/sh" && git clone -q --depth=1 "file://$PWD" "$d" && git -C "$d" fetch -q --depth=1 origin "+refs/tags/v*:refs/tags/v*" 2>/dev/null; cp -r tools/. "$d/tools/" && cd "$d" && for t in check-released-migrations check-contract-version; do out="$(tools/$t.sh 2>&1)" && exit 1; grep -q "履歴が浅い" <<<"$out" || exit 1; done'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st52_web_ && test "$(cargo test -p ashiato-server st52_web_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server access_log'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st52_bin_release && test "$(cargo test -p ashiato-server --test server_startup st52_bin_release -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- st52-served-ui.spec.ts'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 5.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && STACK_RESET=1 npm run test:e2e -- login.spec.ts stack.spec.ts'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 6.2: bash -c 'tools/release/check-artifacts.sh --self-test'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 7.1: bash -c 'tools/release/make-key.sh --self-test'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 7.1: bash -c 'grep -q "^| P17 " openspec/changes/st52-release-channels/premises.md'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 7.2: bash -c 'tools/release/sign-apk.sh --self-test'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 8.1: tools/release/version.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.1: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.2: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.2: tools/release/package.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.2: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.2: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.3: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.3: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.3: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.3: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 9.3: bash -c 'for p in "release.yml:version.sh plan" "nightly.yml:version.sh nightly-plan"; do f=".github/workflows/${p%%:*}"; k="${p#*:}"; awk -v k="$k" "/^ [A-Za-z0-9_-]+:\$/{if(index(b,k)&&index(b,\"fetch-depth: 0\"))ok=1;b=\"\"} {b=b \$0 \"\\n\"} END{if(index(b,k)&&index(b,\"fetch-depth: 0\"))ok=1; exit !ok}" "$f" || exit 1; done'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 10.1: tools/release/draft.sh --self-test
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 11.1: bash -c 'for h in "鍵を作る" "USB に 1 部" "ルールセット" "最初の印" "ASHIATO_NIGHTLY_PUBLISH" "ASHIATO_CERT_SHA256" "修正の枝" "本人の環境を移す"; do grep -q "$h" docs/release.md || exit 1; done'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 11.1: bash -c 'grep -q "ASHIATO_NIGHTLY_PUBLISH" docs/handoff/ST53.md && grep -q "R11" docs/handoff/ST54.md && grep -q "D5" docs/handoff/ST58.md'
+- openspec/changes/archive/2026-11-02-st52-release-channels/tasks.md 11.1: python3 scripts/check_scenarios.py . st52-release-channels
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 1.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st44_scope_'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 1.2: bash -c '! grep -rn "Scenario: API の合言葉での読み書きは変わらない" crates web tools'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st44_routes_'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server every_route_refuses_satellite'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 3.1: bash -c '! grep -n "matches!(caller, Caller::ApiToken)" crates/server/src/contract_version.rs'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st44_session_key_'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup server_startup'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st44_api_token_change_keeps_login'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st44_session_key_change_revokes'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st44_secret_tag_not_from_api_token'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server web_session'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.2: tools/check-env-init-session-key.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 4.2: bash -c 'grep -q "^WEB_SESSION_KEY=" .env.example && grep -q WEB_SESSION_KEY tools/ci-db-env.sh && grep -q WEB_SESSION_KEY tools/record-env.sh'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 5.1: tools/web-login.sh --self-test
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 5.2: ./tools/smoke.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 5.2: tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 5.2: bash -n tools/seed.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 5.2: bash -n tools/record-env.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 6.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 6.1: bash -c 'cd web && npm run typecheck'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 6.2: tools/check-api-token-reads.sh --self-test
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 6.2: tools/check-api-token-reads.sh tools/recording web/e2e
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 7.1: tools/check-api-token-reads.sh tools/verify-prep.sh tools/st25-seed-check.sh tools/smoke.sh tools/smoke.d tools/seed.sh tools/seed.d tools/record-env.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 7.1: bash -n tools/verify-prep.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 7.1: bash -n tools/st25-seed-check.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 7.2: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 7.2: bash -c 'grep -q "WEB_SESSION_KEY" docs/network.md && grep -q "ST44" docs/collector-contract.md'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 8.1: python3 scripts/check_scenarios.py . st44-collector-credential-scope
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 8.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server'
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 8.1: ./tools/check-immutable.sh
+- openspec/changes/archive/2026-11-03-st44-collector-credential-scope/tasks.md 8.1: ./tools/check-panic-log.sh
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 1.1: bash -c 'cargo test -p ashiato-build-stamp st54_ && test "$(cargo test -p ashiato-build-stamp st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st54_ && test "$(cargo test -p ashiato-server st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 2.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st50_'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st54_ && test "$(cargo test -p ashiato-server st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 13'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st54_bin_ && test "$(cargo test -p ashiato-server --test server_startup st54_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server migration_ledger'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 3.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st48_'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 3.2: bash -c 'f=docs/handoff/ST58.md; grep -q "^## st54-dev-side-by-side D3" "$f" && grep -q "終了コード 4" "$f" && grep -q "channel_mismatch" "$f" && grep -q "^## st48-db-version-guard R21" "$f"'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st54_lineage && test "$(cargo test -p ashiato-server st54_lineage -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 4.2: tools/check-migrations.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 4.2: tools/check-migrations.sh
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 5.1: tools/check-nightly-migrations.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 5.1: tools/check-nightly-migrations.sh
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 5.2: bash -c 'grep -q "check-nightly-migrations.sh" .github/workflows/ci.yml && grep -q "refs/tags/nightly:refs/tags/nightly" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 5.2: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 6.1: bash -c 'cargo test -p ashiato-collector-windows st54_ && test "$(cargo test -p ashiato-collector-windows st54_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 6.1: bash -c 'cargo test -p ashiato-collector-windows'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 7.1: bash -c 'cargo test -p ashiato-collector-windows st54_channel && test "$(cargo test -p ashiato-collector-windows st54_channel -- --list 2>/dev/null | grep -c ": test$")" -ge 14'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 7.1: bash -c 'cargo test -p ashiato-collector-windows st50_'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 8.1: cargo test -p ashiato-collector-windows --test runtime_windows st54_ -- --test-threads=1
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 9.1: bash -c 'tools/release/check-artifacts.sh --self-test-android'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 9.2: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*ChannelGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*ChannelGateTest*.xml | grep -c "<testcase ")" -ge 10'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 9.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests *St50*
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.1: tools/release/check-artifacts.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.2: tools/release/publish-nightly.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.2: tools/release/sign-apk.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.3: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.3: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.3: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 10.4: tools/release/draft.sh --self-test
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 11.1: bash -c 'for h in "make-key.sh dev" "ASHIATO_CERT_SHA256" "55433" "18788" "LINEAGE" "channel_mismatch" "git fetch --tags --force"; do grep -q -- "$h" docs/release.md || exit 1; done && grep -q "LINEAGE" CLAUDE.md'
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 11.2: python3 scripts/check_scenarios.py . st54-dev-side-by-side
+- openspec/changes/archive/2026-11-06-st54-dev-side-by-side/tasks.md 11.2: bash -c '! grep -rn "携帯の APK を除く 3 つで通る\|ST54 まで携帯の APK を組む手順を持たない\|開発版の置き場に携帯の APK があれば" tools crates collector-android web'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 1.1: tools/load-repeat.sh --self-test
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 1.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; openspec/changes/ch09-load-tolerant-timing-tests/load-proof.sh before && [ "$(grep -cE "^(history|scan): (yes|no)$" openspec/changes/ch09-load-tolerant-timing-tests/load-before.txt)" -eq 2 ] && [ "$(grep -cE "^load-(history|scan): " openspec/changes/ch09-load-tolerant-timing-tests/load-before.txt)" -eq 2 ]'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 2.1: tools/break-check.sh --self-test
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 3.1: cargo test -p ashiato-collector-windows --lib history_large_fetch_keeps_observing_foreground
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 3.2: openspec/changes/ch09-load-tolerant-timing-tests/break-proof.sh history
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 3.3: cargo test -p ashiato-collector-windows --lib clock_worker_slow_read_does_not_hold_the_patrol
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 4.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server archive_scan_interval_change_takes_effect_without_restart'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 4.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; openspec/changes/ch09-load-tolerant-timing-tests/break-proof.sh scan'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 4.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server archive_scan_interval_'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 5.1: cargo test -p ashiato-collector-windows --lib history
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server scheduled'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server outage'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 5.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server ch04_statement_timeout_cancels_a_long_query'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 5.2: cargo test -p ashiato-collector-windows --lib time_sync_timeout_kills_the_child
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 6.1: bash -c 'cd web && npx vitest run src/__tests__/ch09-timeouts.test.ts'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 6.1: bash -c 'cd web && npx vitest run'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 7.1: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests '*UnavailableLogGateTest*'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 8.1: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 9.1: bash -c 'cd web && npm run typecheck && npm run lint'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 9.1: bash -c 'cd web && npm run test:e2e'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 10.1: ./collector-android/gradlew -p collector-android :app:assembleDebugAndroidTest
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 11.1: bash -c 'for f in tools/*.sh tools/smoke.d/*.sh; do bash -n "$f" || exit 1; done'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 11.1: tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 11.1: ./tools/smoke.sh
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 13.1: bash -c 'openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh --self-test && openspec/changes/ch09-load-tolerant-timing-tests/check-product-unchanged.sh'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 13.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; openspec/changes/ch09-load-tolerant-timing-tests/load-proof.sh after'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 13.4: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test --workspace'
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 13.4: python3 scripts/check_scenarios.py . ch09-load-tolerant-timing-tests
+- openspec/changes/archive/2026-11-07-ch09-load-tolerant-timing-tests/tasks.md 13.4: python3 scripts/check_agreed_tests.py . --change ch09-load-tolerant-timing-tests
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 1.1: bash -c 'grep -qE "^sha256=[0-9a-f]{64}$" tools/release/pgsql.lock && grep -q "^version=17\." tools/release/pgsql.lock'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 1.2: tools/release/pgsql.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.1: cargo clippy -p ashiato-server --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_service_ && test "$(cargo test -p ashiato-server st55_service_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup st55_bin_ && test "$(cargo test -p ashiato-server --test server_startup st55_bin_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_stop_ && test "$(cargo test -p ashiato-server st55_stop_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.4: bash -c 'cargo test -p ashiato-server st55_log_ && test "$(cargo test -p ashiato-server st55_log_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 2.4: tools/check-log-private.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: bash -c 'cargo test -p ashiato-setup st55_layout_ && test "$(cargo test -p ashiato-setup st55_layout_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.1: cargo clippy -p ashiato-setup --all-targets -- -D warnings
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.2: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.3: tools/release/check-artifacts.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.3: tools/release/package.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.4: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 3.4: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 4.1: bash -c 'cargo test -p ashiato-setup st55_db_ && test "$(cargo test -p ashiato-setup st55_db_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 4.1: tools/check-pg-major.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 4.1: tools/check-pg-major.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; tools/db-roles.sh'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server app_role_ && test "$(cargo test -p ashiato-server app_role_ -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server --test server_startup server_startup_refuses_privileged_role && test "$(cargo test -p ashiato-server --test server_startup server_startup_refuses_privileged_role -- --list 2>/dev/null | grep -c ": test$")" -ge 1'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.2: bash -c 'cargo test -p ashiato-setup st55_secret_ && test "$(cargo test -p ashiato-setup st55_secret_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 5.2: tools/check-secrets.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 6.1: bash -c 'cargo test -p ashiato-setup st55_rerun_ && test "$(cargo test -p ashiato-setup st55_rerun_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 6.2: bash -c 'cargo test -p ashiato-setup st55_repair_ && test "$(cargo test -p ashiato-setup st55_repair_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 7.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_verifier_ && test "$(cargo test -p ashiato-server st55_verifier_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 7.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server web_session'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 7.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 7.2: bash -c 'cargo test -p ashiato-setup st55_password_ && test "$(cargo test -p ashiato-setup st55_password_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 8.1: bash -c 'cargo test -p ashiato-setup st55_inbox_ && test "$(cargo test -p ashiato-setup st55_inbox_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_place_ && test "$(cargo test -p ashiato-server st55_place_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 8.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server export_tests && cargo test -p ashiato-server media_tests'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 9.1: tools/check-ports.sh --self-test
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 9.1: bash -c 'cargo test -p ashiato-setup st55_port_ && test "$(cargo test -p ashiato-setup st55_port_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 9.2: bash -c 'cargo test -p ashiato-setup st55_notice_ && test "$(cargo test -p ashiato-setup st55_notice_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 9.3: bash -c 'cargo test -p ashiato-setup st55_uninstall_ && test "$(cargo test -p ashiato-setup st55_uninstall_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 10.1: python3 scripts/check_scenarios.py . st55-server-installer
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 11.1: bash -c 'for h in "ashiato-setup.exe" "password" "repair" "uninstall" "takeown" "無人で動かす" "18700"; do grep -q "$h" docs/install.md || exit 1; done && grep -q "ashiato-setup" docs/release.md && grep -q "取り込み待ち" docs/archive-inbox.md && grep -q "crates/installer" CLAUDE.md'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 11.2: bash -c 'grep -q "pgsql" docs/handoff/ST53.md && grep -q "ProgramData" docs/handoff/ST30.md && grep -q "ashiato-db-dev" docs/handoff/ST54.md && grep -q "layout.rs" docs/handoff/ST57.md && grep -q "layout.rs" docs/handoff/ST58.md'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 11.3: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo clippy -p ashiato-setup -p ashiato-server --all-targets --target x86_64-pc-windows-gnu -- -D warnings && cargo test --workspace'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 11.3: bash -c 'tools/check-openapi.sh && tools/check-migrations.sh && tools/check-licenses.sh && tools/check-log-private.sh && tools/check-secrets.sh'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.1: bash -c 'cargo test -p ashiato-setup st55_db_watch_ && test "$(cargo test -p ashiato-setup st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.2: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st55_db_watch_ && test "$(cargo test -p ashiato-server st55_db_watch_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'
+- openspec/changes/archive/2026-11-07-st55-server-installer/tasks.md 13.2: cargo clippy -p ashiato-server -p ashiato-winsvc --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 1.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 1.2: tools/test-android-emulator.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.1: bash -n tools/emulator-start.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.2: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies ASHIATO_TEST_SCRIPT_REV=11c0c043 tools/test-android-emulator.sh 2>&1 | grep -q "見張りで打ち切った: dies"'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 2.3: bash -c 'ASHIATO_TEST_ONLY=dies tools/test-android-emulator.sh'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 3.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 4.1: tools/test-android-emulator.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 4.1: tools/test-usage-volume.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.1: ./openspec/changes/ch10-emulator-start-timeout/check-5.1.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.2: bash -c 'grep -A2 -- "- run: ./tools/docker-tidy.sh --self-test" .github/workflows/ci.yml | grep -q "./tools/test-android-emulator.sh"'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 5.2: tools/check-shared-appends.sh
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh dies
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh timeout
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh same-avd
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.1: openspec/changes/ch10-emulator-start-timeout/real-proof.sh ok
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: bash -c '[ "$(tools/test-android-emulator.sh 2>/dev/null | grep -c "^Scenario: ")" -ge 23 ]'
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: tools/test-android-emulator.sh --self-test
+- openspec/changes/archive/2026-11-09-ch10-emulator-start-timeout/tasks.md 6.2: python3 scripts/check_scenarios.py . ch10-emulator-start-timeout
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'n=$(wc -l < LICENSES/AdditionRef-ashiato-play-services.txt); head -n "$n" LICENSE | cmp - LICENSES/AdditionRef-ashiato-play-services.txt'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'grep -q "AdditionRef-ashiato-play-services" README.md && grep -q "参考訳" README.md && grep -q "追加の許可" CONTRIBUTING.md'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: bash -c 'git diff --quiet origin/main -- docs/CLA.md'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.1: tools/check-cla-section.sh
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.2: tools/check-spdx.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 1.2: tools/check-spdx.sh license
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.1: tools/check-spdx.sh headers
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.1: bash -c 'n=$(git ls-files -s | awk "\$1 != \"120000\" {print \$4}" | grep -v -e "^migrations/" -e "^collector-android/gradlew" -e "^docs/" -e "^openspec/" | while read -r f; do head -n 25 "$f" | grep -q "SPDX-License-Identifier: AGPL-3.0-only *\$" && echo "$f"; done | wc -l); test "$n" -eq 0'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.1: tools/check-openapi.sh
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.1: bash -c 'cd web && npm ci && npm run build'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.1: bash -c 'cargo metadata --format-version 1 --no-deps --offline | python3 -c "import json,sys; s={p[\"license\"] for p in json.load(sys.stdin)[\"packages\"]}; sys.exit(s != {\"AGPL-3.0-only WITH AdditionRef-ashiato-play-services\"})"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.2: tools/check-spdx.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 2.2: tools/check-spdx.sh
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 3.1: tools/check-licenses.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 3.1: bash -c 'cd web && npm ci && ../tools/check-licenses.sh rust node'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 3.1: bash -c 'grep -q "^ALLOW=.*AGPL-3.0-only" tools/check-licenses.sh && exit 1 || exit 0'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 4.1: bash -c 'out="$TMPDIR/poms.tsv"; off="$TMPDIR/poms-offline.tsv"; ./collector-android/gradlew -p collector-android -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$out" && ./collector-android/gradlew -p collector-android --offline -q :app:ashiatoDependencyPoms -Pashiato.pomOut="$off" && cmp "$out" "$off" && grep -q "^com.google.android.gms:play-services-location:" "$out" && test "$(cut -f1 "$out" | sort -u | wc -l)" -ge 50'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 4.2: tools/check-licenses.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 4.2: bash -c 'tools/check-licenses.sh --self-test 2>&1 | grep -c "== Scenario: 許諾の名前を 2 つ持つ部品は、\(片方でも許可の外なら許諾の検査が落ちる\|両方が許可されていれば通る\)" | grep -qx 2'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 4.3: bash -c 'tools/check-licenses.sh android && test "$(tools/check-licenses.sh android 2>&1 | grep -c "^ 通した PROPRIETARY: com.google.android.gms:")" -eq 4'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 4.3: bash -c 'tools/check-licenses.sh --self-test && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM が許諾を持たない部品は、親の POM の許諾で判定する" && tools/check-licenses.sh --self-test 2>&1 | grep -q "== Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 5.1: bash -c 'o="$TMPDIR/n.txt"; tools/release/notices.sh collector-windows "$o" --target x86_64-pc-windows-gnu && grep -q "^== rust-std " "$o" && grep -q "^License: MIT OR Apache-2.0" "$o" && test "$(grep -c "^== " "$o")" -ge 20'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 5.2: bash -c 'o="$TMPDIR/a.txt"; tools/release/notices.sh apk "$o" && grep -q "^== com.google.android.gms:play-services-location " "$o" && grep -q "(gms の中の第三者)" "$o"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 5.3: tools/release/notices.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 5.3: bash -c 'tools/release/notices.sh --self-test 2>&1 | grep -c "== Scenario: \(開発版と main への push の配布物\|PR の組み立ての配布物のソースの場所は\|組み立ての commit が 40 桁\)" | grep -qx 3'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'grep -c "ASHIATO_SOURCE_REF: \${{ github.ref_name }}" .github/workflows/release.yml | grep -qx 4 && ! grep -q ASHIATO_SOURCE_REF .github/workflows/nightly.yml .github/workflows/ci.yml'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c '! grep -rq ASHIATO_SOURCE_COMMIT .github/workflows tools/release && ! grep -q pull_request.head.sha .github/workflows/release.yml .github/workflows/nightly.yml'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 6.1: bash -c 'tools/release/check-guards.sh --self-test 2>&1 | grep -c "== Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される" | grep -qx 1'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 7.1: tools/release/check-artifacts.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 7.1: bash -c 'tools/release/check-artifacts.sh --self-test 2>&1 | grep -c "== Scenario: \(許諾のファイルが欠けた\|配布物の LICENSE が\|PR の組み立てと下書き\|debug の鍵を許す検査でも\|ソースの場所がチャンネル\|Rust の実行ファイルの依存\|携帯の APK の依存\|4 つの配布物は\|配布物の LICENSE は、渡した\)" | grep -qx 9'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 8.1: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 8.2: tools/release/check-guards.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 8.2: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 8.2: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/release.yml
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 9.1: tools/verify-prep-device.sh --self-test
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 9.1: bash -c 'bash -n tools/verify-prep.sh'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 9.1: bash -c 'grep -v install_on_emulators tools/verify-prep.sh | grep -Eq "adb|install" && exit 1 || exit 0'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.1: bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.1: bash -c 'for k in "check-licenses.sh rust node" "check-licenses.sh android" "check-spdx.sh --self-test" "verify-prep-device.sh --self-test" "notices.sh --self-test"; do grep -q "$k" .github/workflows/ci.yml || exit 1; done'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.1: tools/release/check-guards.sh workflows
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.2: bash -c 'for h in "エージェントの資格情報" "agent-credential" "approvals" "必須の承認者" "gh release download" "成果物" "携帯を繋がない" "head の commit を checkout"; do grep -q "$h" docs/release.md || exit 1; done'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.2: bash -c 'a=$(grep -n "エージェントの資格情報" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test "$a" -lt "$b"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.2: bash -c 'a=$(grep -n "check-guards.sh approvals" docs/release.md | head -1 | cut -d: -f1); r=$(grep -n "必須の承認者" docs/release.md | head -1 | cut -d: -f1); b=$(grep -n "ASHIATO_SIGNING_KEYSTORE_B64" docs/release.md | head -1 | cut -d: -f1); test -n "$a" && test -n "$r" && test "$a" -lt "$b" && test "$r" -lt "$b"'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.3: bash -c 'grep -q "check-licenses.sh rust node" docs/testing.md && grep -q "check-licenses.sh rust node" CONTRIBUTING.md && grep -q "ST53" docs/production-prep.md && grep -q "licenses/" CLAUDE.md'
+- openspec/changes/archive/2026-11-09-st53-license-bundle/tasks.md 10.3: python3 scripts/check_scenarios.py . st53-license-bundle
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c 'cd web && npx vitest run src/__tests__/collectorSetup.test.ts'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c 'cargo test -p ashiato-collector-windows st56_setup_string && test "$(cargo test -p ashiato-collector-windows st56_setup_string -- --list 2>/dev/null | grep -c ": test$")" -ge 2'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 1.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupStringTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupStringTest*.xml | grep -c "<testcase ")" -ge 2'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 2.1: bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo test -p ashiato-server st56_ && test "$(cargo test -p ashiato-server st56_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 2.1: ./tools/check-openapi.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npm run test:e2e -- st56-collector-setup.spec.ts'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 3.1: bash -c 'cd web && npx tsc --noEmit && npx vitest run'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56ConfigTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56ConfigTest*.xml | grep -c "<testcase ")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 4.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: tools/check-android-backup-rules.sh --self-test
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 5.1: bash -c 'grep -q "check-android-backup-rules.sh" .github/workflows/ci.yml'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 6.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupActivityTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupActivityTest*.xml | grep -c "<testcase ")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 7.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56DestinationGateTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56DestinationGateTest*.xml | grep -c "<testcase ")" -ge 11'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 8.1: bash -c './collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St56SetupNotifierTest*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St56SetupNotifierTest*.xml | grep -c "<testcase ")" -ge 8'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows st56_config && test "$(cargo test -p ashiato-collector-windows st56_config -- --list 2>/dev/null | grep -c ": test$")" -ge 9'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 9.1: bash -c 'cargo test -p ashiato-collector-windows'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.1: bash -c 'cargo test -p ashiato-collector-windows st56_setupcmd_ && test "$(cargo test -p ashiato-collector-windows st56_setupcmd_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.1: tools/check-licenses.sh
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 10.2: cargo test -p ashiato-collector-windows --test runtime_windows st56_ -- --test-threads=1
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 11.1: bash -c 'cargo test -p ashiato-collector-windows st56_gate && test "$(cargo test -p ashiato-collector-windows st56_gate -- --list 2>/dev/null | grep -c ": test$")" -ge 12'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.1: bash -c 'grep -q "WINDOWS_ENV_ASHIATO_CONFIG_FROM_ENV=1" tools/record-env.sh'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.1: bash -c 'for h in "ashiato-collector-windows.exe setup" "この送り先へ送る" "repair" "--config-from-env" "収集アプリの設定"; do grep -q -- "$h" docs/collector-setup.md || exit 1; done && grep -q "collector-setup.md" docs/release.md'
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.2: python3 scripts/check_scenarios.py . st56-collector-connection-setup
+- openspec/changes/archive/2026-11-09-st56-collector-connection-setup/tasks.md 12.2: tools/check-contract-version.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 1.1: bash -n tools/check-vulns.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 1.2: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 2.1: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 3.1: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 3.2: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 4.1: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.1: bash -n tools/check-gradle-locks.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.2: tools/check-gradle-locks.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.2: tools/check-gradle-locks.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.2: ./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.3: bash -c 'c="$(git log -1 --format=%H --diff-filter=A -- collector-android/app/gradle.lockfile)"; tools/check-gradle-locks.sh --same-release-as "$c~1" "$c"'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.4: tools/check-licenses.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 5.4: tools/check-licenses.sh android
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 6.1: tools/check-vulns.sh github-settings
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 7.1: tools/check-vulns.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 7.1: bash -c 'tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 7.2: bash -c './tools/db.sh up -d --wait db && ./tools/db-roles.sh && ./tools/tmp-leak-check.sh rust'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 7.2: bash -c 'cd web && npm ci && npm test -- --run'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 7.2: ./collector-android/gradlew -p collector-android :app:testDebugUnitTest
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 8.1: tools/check-pg-minor.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 8.1: bash -c 'tools/check-pg-minor.sh; test $? -eq 1'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 9.1: tools/check-vulns.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 9.2: bash -c 'git diff --quiet origin/main -- .github/workflows/nightly.yml'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 10.1: bash -c 'grep -q "changes.sh deps" .github/workflows/ci.yml'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 10.2: bash -c 'grep -q "tools/check-vulns.sh" .github/workflows/release.yml'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 10.3: tools/check-vulns-wiring.sh
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 10.3: tools/check-vulns-wiring.sh --self-test
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 11.1: bash -c 'grep -q "check-vulns.sh" AGENTS.md && grep -q "check-vulns.sh" docs/testing.md'
+- openspec/changes/ch11-dependency-vulnerability-scan/tasks.md 11.2: python3 scripts/check_scenarios.py . ch11-dependency-vulnerability-scan
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 1.1: bash -n tools/check-adr.sh
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 2.1: tools/check-adr.sh --verbatim
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 2.2: tools/check-adr.sh
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 2.2: tools/check-adr.sh --self-test
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 2.2: tools/check-private.sh
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 2.2: bash -c 'for f in CLAUDE.md AGENTS.md .github/workflows/ci.yml; do test "$(git diff --numstat origin/main...HEAD -- "$f" | cut -f1,2)" = "$(printf "1\t0")" || { echo "error: $f の差分が 1 行の追加でない"; exit 1; }; done'
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 3.1: tools/check-adr.sh --backlog
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 3.1: tools/check-adr.sh --self-test
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 4.1: bash -c 'd=$(git diff --name-only origin/main...HEAD) || exit 1; test -n "$d" && test -z "$(printf "%s\n" "$d" | grep -vE "^(docs/adr/|CLAUDE\.md$|AGENTS\.md$|\.github/workflows/ci\.yml$|tools/check-adr\.sh$|openspec/|docs/changes/CH12\.md$|docs/briefs/|\.superpowers/)")"'
+- openspec/changes/ch12-memory-decisions-adr/tasks.md 4.1: python3 scripts/check_scenarios.py . ch12-memory-decisions-adr
+- openspec/changes/ch13-workbox-config/tasks.md 1.1: python3 -c 'import json; json.load(open("tools/workbox.json", encoding="utf-8"))'
+- openspec/changes/ch13-workbox-config/tasks.md 1.2: python3 -c 'import json,re;g=lambda p,h:open(p,encoding="utf-8").read().split(h,1)[1];d=re.split(r"\n### D",g("openspec/changes/ch13-workbox-config/design.md","### D1."),1)[0];b=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",d,re.S);assert len(b)==1,"D1 の JSON の塊が %d 個" % len(b);w=json.loads(b[0]);assert w==json.load(open("tools/workbox.json",encoding="utf-8")),"tools/workbox.json が D1 と違う";t=g("docs/changes/CH13.md","## 依頼（逐語）").split("\n## ",1)[0];t="\n".join(re.sub(r"^> ?","",l) for l in t.splitlines());r=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",t,re.S);assert len(r)==1,"依頼の JSON の塊が %d 個" % len(r);r=json.loads(r[0]);k={"docker","prep_files","docker_images","host_only"};assert {a:v for a,v in w.items() if a not in k}=={a:v for a,v in r.items() if a not in k},"変えてよい 4 つの欄の外が依頼の版と違う";assert "docker" not in w and "prep_files" not in w,"docker か prep_files が残っている";assert w["docker_images"]==["postgres:17-alpine"],"docker_images が違う";assert w["host_only"]==r["host_only"]+["tools/release/(build|install-check)\\.sh","tools/android-side-by-side\\.sh","tools/usage-volume\\.sh","tools/release/sandbox-probe\\.sh"],"host_only が依頼の版の足し算でない"'
+- openspec/changes/ch13-workbox-config/tasks.md 2.1: bash -c '! git grep -n -i workbox -- . ":!tools/workbox.json" ":!openspec/changes" ":!docs/changes/CH13.md" ":!docs/briefs"'
+- openspec/changes/ch13-workbox-config/tasks.md 2.2: bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|openspec/changes/ch13-workbox-config/|docs/changes/CH13\.md|docs/briefs/CH13|$)"'
+- openspec/changes/ch13-workbox-config/tasks.md 2.3: bash -c 'set -e; for s in check-private check-secrets check-spdx check-shared-appends check-tmp-hygiene check-boundaries; do tools/$s.sh; done'
+- openspec/changes/ch13-workbox-config/tasks.md 2.4: bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test -s "$f" && grep -qF "画面の e2e 1 本が検証の箱の 6g に収まるか" "$f" && grep -qF "で 5 本のときの空きメモリ" "$f" && grep -qF "cargo のビルドが 4g に収まるか" "$f" && grep -q "^## harness2 #157 / #161 で済んだもの" "$f" && grep -q "^## harness2 の issue" "$f" && grep -q "^## 2\. 上流で見つけたこと" "$f" && grep -qF "iptables not found" "$f" && grep -q "^## ホストで走らせる台本" "$f" && grep -q "command-classes.md" "$f"'
+- openspec/changes/ch13-workbox-config/tasks.md 3.1: bash -c 'n=$(env -u HARNESS_WORKBOX python3 .harness2/scripts/workbox.py run . -- bash -c "pgrep -fc /") && echo "pgrep: $n" && test "$n" -lt 10'
+- openspec/changes/ch13-workbox-config/tasks.md 3.2: python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,".harness2/scripts");import workbox;cfg=workbox.load_config(Path("."),text=open("tools/workbox.json",encoding="utf-8").read());bad=sorted(set(cfg)&set(workbox.RETIRED));assert not bad,"もう効かない鍵: %s" % bad;assert set(cfg)<=workbox.KEYS'
+- openspec/changes/ch13-workbox-config/tasks.md 4.1: bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 35'
+- openspec/changes/ch13-workbox-config/tasks.md 4.2: bash -c 'f=openspec/changes/ch13-workbox-config/command-classes.md; grep -q "^## ホストで走る（host_only）" "$f" && grep -q "^## 箱で走る" "$f" && ! grep -q "^## 箱で docker を渡" "$f" && test "$(grep -c "^- openspec/" "$f")" -ge 1700'
+- openspec/changes/ch13-workbox-config/tasks.md 5.1: bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'
+- openspec/changes/ch13-workbox-config/tasks.md 5.2: bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと" || exit 1; done'
+- openspec/changes/ch13-workbox-config/tasks.md 5.3: bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'
+- openspec/changes/ch13-workbox-config/tasks.md 5.4: bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'

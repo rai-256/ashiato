@@ -1,0 +1,2 @@
+=== CH13 の深掘り（下流・D10 の否） の回答 ===
+Q-D10 [host_only の漏れ（tools/release/sandbox-probe.sh）をどうするか] -> CH13 で直す

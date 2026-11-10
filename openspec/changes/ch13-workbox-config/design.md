@@ -54,7 +54,7 @@
 | `docker` | 正規表現 3 本 | 無い（消した） | 違和感 (1)。harness2 #161 で効かない |
 | `prep_files` | 6 本 | 無い（消した） | 違和感 (1)。検証の準備は箱の中で走る |
 | `docker_images` | 無い | `postgres:17-alpine` | 違和感 (1) |
-| `host_only` | 4 本 | `tools/release/(build\|install-check)\.sh` `tools/android-side-by-side\.sh` `tools/usage-volume\.sh` を後ろに足した 7 本 | Q1 (1)・review/deep.md R3。違和感 (1) で残す |
+| `host_only` | 4 本 | `tools/release/(build\|install-check)\.sh` `tools/android-side-by-side\.sh` `tools/usage-volume\.sh` `tools/release/sandbox-probe\.sh` を後ろに足した 8 本 | Q1 (1)・review/deep.md R3。違和感 (1) で残す。最後の 1 本は D10（下流の review/code.md R3） |
 
 ```json
 {
@@ -85,7 +85,8 @@
     "connected\\w*AndroidTest",
     "tools/release/(build|install-check)\\.sh",
     "tools/android-side-by-side\\.sh",
-    "tools/usage-volume\\.sh"
+    "tools/usage-volume\\.sh",
+    "tools/release/sandbox-probe\\.sh"
   ],
   "env": {
     "CARGO_BUILD_JOBS": "4"
@@ -166,6 +167,12 @@
   本文は上の再現（コマンドと出力。`dockerd-up` は rc=75）・影響（箱に入る検証の全部が BLOCKED_INFRA）・直す場所の候補（`workbox/dockerd-up` の `PATH="$bin:$PATH" setsid rootlesskit …` で `/usr/sbin:/sbin` を足せば利用者の unit に依らない。harness2 の `systemd/hx-tick@.service` の `PATH` にも `/usr/sbin` が無い）と、この change の PR への案内。立てた番号を `enable-before.md` の `## harness2 の issue` の節に書く
 - 失わない理由: issue は閉じれば戻る。ashiato2 の振る舞いは変わらない（off の間は読まれない）
 - 反転条件: harness2 側で同じ件が先に直った・issue が立っていれば、立てずにその番号を書く。本人が issue でなく宿題の一覧に置くだけでよいと言えば、Task 5.2 を外す
+
+### D10. 下流で見つけた `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は、CH13 の中で `host_only` に足す（deep.md Q-D10）
+
+- 見つけたこと（code-verify・/code-review。review/code.md R3・R5）: `tools/release/sandbox-probe.sh` は中で `powershell.exe` を呼んで Windows サンドボックスを起こす（D1 で `host_only` に足した 3 本と同じ型）が、`host_only` にも `match-cases.json` にも無かった。箱の中では `P16=UNAVAILABLE` `P19=UNAVAILABLE` を書いて rc=0 で通る
+- 決めたこと: D1 の JSON と `tools/workbox.json` の `host_only` の最後に `tools/release/sandbox-probe\.sh` を足し、`match-cases.json` に `want: host` の 1 行を足す。tasks 1.2 の期待する並びも 1 本足す
+- 経緯: 初めは（仮）で「ファイルを直さず宿題の一覧と PR 本文に挙げる」としたが、別の席（provisional-review.md）が Q1 (1) の本人の答え「JSON で直せるものは CH13 の中で直す」と逆向きとして否とした。本人に問い、CH13 で直すと答えた（deep.md Q-D10・`deep-answers-5.txt`。2026-11-10）
 
 ## Risks / Trade-offs
 
