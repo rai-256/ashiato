@@ -124,12 +124,16 @@ pub fn repair_ident_bytes(account: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-/// `repair_ident_bytes` の中身。コード頁を引数で受ける（試験が 1252 などを指す）。
+/// `repair_ident_bytes` の中身。コード頁を引数で受ける（試験が 1252 などを指す）。crate の外には見せず、
+/// main.rs は `repair_ident_bytes`（`GetACP()`）だけを通る（review/code.md R15）。
 ///
 /// # Errors
 /// 利用者名を `code_page` で表せないとき。
 #[cfg(windows)]
-pub fn repair_ident_bytes_with_code_page(account: &str, code_page: u32) -> Result<Vec<u8>, String> {
+pub(crate) fn repair_ident_bytes_with_code_page(
+    account: &str,
+    code_page: u32,
+) -> Result<Vec<u8>, String> {
     encode_with_code_page(&crate::commands::repair_ident_contents(account), code_page)
         .map_err(|reason| format!("利用者名 {account} を {reason}"))
 }

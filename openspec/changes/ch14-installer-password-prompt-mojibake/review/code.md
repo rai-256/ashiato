@@ -224,3 +224,4 @@
 - 成果物: crates/installer/src/console.rs
 - 根拠: crates/installer/src/console.rs:524（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 5.1 —— 試験を足すのでなく、main.rs が `repair_ident_bytes` を通らずに対応表を組めないようにした。`commands::repair_ident_contents` と `console::repair_ident_bytes_with_code_page` を `pub(crate)` にし、bin（main.rs）から見える口を `console::repair_ident_bytes`（`GetACP()`）だけにした。試験はどちらも lib の中なので直に呼べる。壊して確かめた: main.rs を CH14 の前の形 `fs::write(&ident, commands::repair_ident_contents(&account))` に戻す → windows-gnu の build が `error[E0603]: function repair_ident_contents is private`、`console::repair_ident_bytes_with_code_page(&account, 65001)` に替える → `error[E0603]: function repair_ident_bytes_with_code_page is private`。戻した
