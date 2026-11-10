@@ -41,17 +41,17 @@
 
 ## Task 3: 疑似コンソールで子を起こし、窓に出た文字を書き出す台本
 
-- [ ] 3.1 `tools/release/conpty-run.ps1` を design D6 のとおりに書く（source は ASCII だけ。冒頭のコメントに何をするか・なぜ要るか（CH14）・引数）。引数: `-Command <cmd.exe /d /c に渡す文字列>`・`-InputFile <1 行ずつ送る文字列のファイル>`（無くてよい）・`-Out <窓に出た文字を UTF-8 で書くファイル>`・`-TimeoutSec`（既定 120。install-check からは 4.2 のとおり長く渡す）。下敷きは `openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/probe.ps1`（本人の PC で動いた形）。
+- [x] 3.1 `tools/release/conpty-run.ps1` を design D6 のとおりに書く（source は ASCII だけ。冒頭のコメントに何をするか・なぜ要るか（CH14）・引数）。引数: `-Command <cmd.exe /d /c に渡す文字列>`・`-InputFile <1 行ずつ送る文字列のファイル>`（無くてよい）・`-Out <窓に出た文字を UTF-8 で書くファイル>`・`-TimeoutSec`（既定 120。install-check からは 4.2 のとおり長く渡す）。下敷きは `openspec/changes/ch14-installer-password-prompt-mojibake/premise-probe/probe.ps1`（本人の PC で動いた形）。
   `Add-Type` の C# で `CreatePseudoConsole`（120×40）・`CreateProcess`（`EXTENDED_STARTUPINFO_PRESENT` と `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`。**`STARTF_USESTDHANDLES` を立てて 3 つの std handle を空にし**、`bInheritHandles = false`、作業の場所は `C:\`。立てないと子は親の管を継ぐ —— `premises.md` 9 行目）を使い、出力の管を読み続ける。入力は、出力が 1 秒静まってから 1 行ずつ `\r` を付けて送る。子が終わったら子の終了コードで終わり、上限を超えたら子を止めて rc=124。
   `-Probe` を持たせる（陰性の対照。design D6）: `chcp 932` の窓で子を 2 つ順に起こし、出力を `-Out` の隣に `.raw.txt`・`.console.txt` で書く。どちらの子も最初に、`[Console]::IsInputRedirected` と `IsOutputRedirected` が偽なら `CONSOLE-OK` を窓に出す。
   `.raw.txt` の子は『画面の合言葉: 』（文字は `[char]0x753B` などで組む。source を ASCII に保つ）の UTF-8 のバイトを `[Console]::OpenStandardOutput()` に書く（`WriteFile` の経路。`[IO.File]::Open('CONOUT$', …)` は 5.1 では断られる）。`.console.txt` の子は同じ文を `[Console]::Out` に書く。
   検証: `bash -c 'LC_ALL=C grep -qP "[^\x00-\x7F]" tools/release/conpty-run.ps1 && exit 1 || exit 0'` rc=0
-- [ ] 3.2 `tools/release/install-check.sh` に `--probe-console` の口と、関数 `console_probe` を足す（`usage` の行も直す。口の分岐は末尾の分岐の並びの中、`--check-coverage` の前）。台本は `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <台本>` で走らせる。
+- [x] 3.2 `tools/release/install-check.sh` に `--probe-console` の口と、関数 `console_probe` を足す（`usage` の行も直す。口の分岐は末尾の分岐の並びの中、`--check-coverage` の前）。台本は `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <台本>` で走らせる。
   `console_probe` は 3.1 の `-Probe` を走らせ、VT の制御の並び（`ESC [ … 文字`・`ESC ] … BEL`）を除いた後に、次を確かめる（外れたら `die '窓の試験が化けを見分けられない: <どれ>'`）: 両方に `CONSOLE-OK` がある / `.console.txt` に『画面の合言葉』がある / `.raw.txt` に『画面の合言葉』が無い / `.raw.txt` に化けた並びがある
   （期待値は『画面の合言葉』の UTF-8 のバイトを、`.raw.txt` の窓の `chcp` が返したコード頁で読んだ文字列。python の `bytes.decode("cp<番号>", errors="replace")` で作り、置換の文字 `U+FFFD` の無い最初の 3 文字以上の並びを探す）。
   走らせる `powershell.exe` は、Windows の bash（CI）では `powershell.exe`、WSL では `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`（パスは `wslpath -w` で渡す）。どちらも無ければ rc=2 で `Windows の PowerShell が無い` を出す。
   検証: `tools/release/install-check.sh --probe-console` rc=0（WSL から本人の PC の PowerShell で。作業箱の中では rc=2 になる —— 外で走らせる）/ `tools/release/install-check.sh --self-test` rc=0
-- [ ] 3.3 `.github/workflows/ci.yml` の `install-windows` の、インストールの確かめの step（`tools/release/install-check.sh --list | sort -u …` で始まる `run:`）の前に、step を 1 つ足す: `shell: bash`・`run: tools/release/install-check.sh --probe-console`（design D6「runner で先に確かめる」。ほかの job と step は変えない）。
+- [x] 3.3 `.github/workflows/ci.yml` の `install-windows` の、インストールの確かめの step（`tools/release/install-check.sh --list | sort -u …` で始まる `run:`）の前に、step を 1 つ足す: `shell: bash`・`run: tools/release/install-check.sh --probe-console`（design D6「runner で先に確かめる」。ほかの job と step は変えない）。
   検証: `bash -c 'python3 -c "import yaml,sys; j=yaml.safe_load(open(\".github/workflows/ci.yml\",encoding=\"utf-8\"))[\"jobs\"][\"install-windows\"][\"steps\"]; r=[s.get(\"run\",\"\") for s in j]; i=[n for n,x in enumerate(r) if \"--probe-console\" in x]; k=[n for n,x in enumerate(r) if \"install-check.sh --list\" in x]; sys.exit(0 if i and k and i[0]<k[0] else 1)"'` rc=0
 
 ## Task 4: install-check に 6 つの Scenario を足す
