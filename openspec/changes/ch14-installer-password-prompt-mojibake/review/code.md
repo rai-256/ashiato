@@ -95,6 +95,7 @@
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R3. 6.1 の訂正後の検証コマンドは、CI の step が試験を 1 本も走らせなくても通る（訂正前のコマンドも同じ）
 - 成果物: tools/check-ci-ch14-step.sh / .github/workflows/ci.yml:428-430 / tasks.md 6.1 / plan-corrections.md / correction-review.md
@@ -112,6 +113,7 @@
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## security review（dae5668..281892e）
 
@@ -169,6 +171,7 @@
 - 処置: rejected: 英字でない名前の管理者に `é` を使い、日本語の名前（cp932 の 2 バイト目が `0x5C`）を単体の試験で確かめるのは design D9 の決定（runner の ANSI のコード頁は 1252 で `chcp` でも `Set-Culture` でも替わらず、日本語の名前は表せない。review/spec.md R25）。0x5C の場合は `ch14_ident_line_is_literal_in_ansi_bytes`（`crates/installer/src/console.rs`。`足跡表ソ` のバイト列に `0x5c` があることを見る）が担保し、この settle で本人の PC（ACP 932）で ok を確かめた。install-check の install の節を走らせるのは CI の `install-windows`（windows-latest。`.github/workflows/ci.yml:459-460`）だけで、日本語の Windows で走らせる道は無い（手元の検証は `--self-test`・`--probe-console` だけで、どちらも利用者を作らない）
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
 - 成果物: crates/installer/src/console.rs:190
@@ -185,6 +188,7 @@
 - 処置: rejected: 前提が実物と違う。本人の PC（OEMCP・ACP 932）で `/mnt/c/Windows/System32/cmd.exe /d /c "chcp 65001 >nul & sc.exe query ashiato-nosuch-svc" | xxd` → `[SC] EnumQueryServicesStatus:OpenService FAILED 1060:` の後は `The specified service does not exist as an installed service.`（英語の ASCII）。同じ命令を `chcp 932` で走らせると `8e 77 92 e8 82 b3 …`（cp932 の『指定されたサービスは…』）。子は OEM のコード頁でなく引き継いだ窓のコード頁に従って書き、65001 の窓では日本語の cp932 を書かない（`premises.md` の「子の命令…は、引き継いだ窓のコード頁に従って管へ書く」の行と同じ。確かさ 5）。65001 で U+FFFD になる並びは出ない
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R10. The deadline and quiet checks use Environment.TickCount (a signed 32-bit int that wraps after about 24.9 days of uptime), so if it wraps mid-run, the timeout never fires and no input lines are sent.
 - 成果物: tools/release/conpty-run.ps1:174
@@ -202,6 +206,7 @@
 - 処置: fixed 5.2
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R12. main.rs already imports `console`, but ask_hidden and read_web_passwords call it by the full path `ashiato_setup::console::write_to_console`, so the same module is referenced two ways in one file.
 - 成果物: crates/installer/src/main.rs:618
@@ -227,6 +232,7 @@
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## settle_review（re-review 1 @38bd858）: 処置の直しが新しく壊したもの
 
@@ -236,6 +242,7 @@
 - kind: technical
 - 処置: fixed 5.1 —— 試験を足すのでなく、main.rs が `repair_ident_bytes` を通らずに対応表を組めないようにした。`commands::repair_ident_contents` と `console::repair_ident_bytes_with_code_page` を `pub(crate)` にし、bin（main.rs）から見える口を `console::repair_ident_bytes`（`GetACP()`）だけにした。試験はどちらも lib の中なので直に呼べる。壊して確かめた: main.rs を CH14 の前の形 `fs::write(&ident, commands::repair_ident_contents(&account))` に戻す → windows-gnu の build が `error[E0603]: function repair_ident_contents is private`、`console::repair_ident_bytes_with_code_page(&account, 65001)` に替える → `error[E0603]: function repair_ident_bytes_with_code_page is private`。戻した
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## final review（dae5668..ce544aa）
 
@@ -257,6 +264,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 提案: `die "管理者 $user の実行が終わらない"` にする。タスク名は呼び出しごとに替えるか、名前の意味を doc に書く
 - 処置: fixed 6.2 —— 時間切れを `die "管理者 $user の実行が終わらない"` に、タスクと .cmd の名前を `ashiato-install-check-admin`（どの管理者でも同じ 1 つの名前。呼び出しごとに作って消すことを doc に書いた）にし、後片付けの `rm` の名前も合わせた。`install-check.sh --self-test` rc=0・`bash -n` rc=0
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R18. 窓の台本が `.vt` を残さず落ちたとき、`window_run` は台本の出力（`.ps.out`）を出さずに止まる
 - 成果物: tools/release/install-check.sh:307-316（`window_run`）
@@ -265,6 +273,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 提案: die の前に `$WORK/$name.ps.out` を標準エラーへ出す（台本は入力の行を出さないので秘密は載らない。載らないことを既存の秘密の検査に通すとなおよい —— Task 4 の F3）
 - 処置: fixed 3.1 —— `.vt` を読めないとき、die の前に `$WORK/$name.ps.out`（窓の台本の `hr=`・`err=` など）を標準エラーへ出し、die の文に窓の台本の rc を添えた。conpty-run.ps1 は入力の行を標準出力へ出さない（入力は窓へ送るだけ、窓の文字は `-Out` のファイルへ）ので合言葉は載らない。`--self-test` rc=0・`bash -n` rc=0（窓の節は CI の install-windows でだけ走る）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R19. `repair_ident_contents` の doc が、英字でない名前の枝（引用した文字どおりの行）を書いていない
 - 成果物: crates/installer/src/commands.rs:1094-1100
@@ -302,6 +311,7 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - kind: technical
 - 提案: 正規表現に戻すと D9 の 0x5C に戻るのでコードは変えない。design D9 に「残る危険（cp932 の 2 バイト目の大文字小文字の重なり）と受け入れる理由」を 1 行足す
 - 処置: fixed D9 仮（design D9 に「残る危険」の 1 行: SSPI の名前は大文字と小文字を区別せず突き合わされ、文字どおりの行は `pg_strcasecmp` で比べるので cp932 の 2 バイト目 `0x41`〜`0x5A` が重なる（`ア`/`ヂ`・`イ`/`ツ`）。正規表現に戻すと `0x5C` で行が壊れるので受け入れる理由と、悪用に要るもの（重なる名前の利用者を先に持つ＝管理者が要る・repair の間だけの一時の DB）と反転条件を書いた。コードは提案どおり変えない）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R23. 窓のコード頁が 65001 のとき、`lossy_decode` は 1 バイトずつ読み、UTF-8 として正しくない所が 1 つでもあると正しい多バイト文字まで全部 U+FFFD にする
 - 成果物: crates/installer/src/console.rs:250-270（`lossy_decode`）
@@ -309,6 +319,7 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - kind: technical
 - 提案: `decode_with_code_page`（または `lossy_decode`）で 65001 なら `String::from_utf8_lossy` に任せる（その行だけ clippy の `disallowed-methods` を理由つきで allow する）
 - 処置: fixed 5.1 —— `crates/installer/src/console.rs` の `lossy_decode` で、コード頁が 65001 なら `String::from_utf8_lossy` に任せる（その関数だけ `disallowed_methods` を理由つきで allow）。`ch14_unreadable_bytes_become_replacement` に、`指定された` の UTF-8 の後ろに `0x82` を足した並びを 65001 で読むと `指定された\u{FFFD}` になることを、`decode_with_code_page`・`decode_value_with_code_page` の両方で足した。直しを外すと本人の PC の windows-gnu の exe で `left: "����…"` で落ちる）
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R24. `self_test` の説明のコメントが `console_probe` の上に載っている
 - 成果物: tools/release/install-check.sh:1454-1457
@@ -316,6 +327,7 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - kind: technical
 - 提案: コメントを `self_test()` の直前へ移す
 - 処置: fixed 3.2 —— `tools/release/install-check.sh` の自己試験の説明の 3 行を `self_test() {` の直前へ移した。`console_probe` の上には自分の説明の 1 行だけが残る
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
 
 ## R25. install-windows で `console_probe` が 2 回走る
 - 成果物: tools/release/install-check.sh:1067-1068 / .github/workflows/ci.yml（install-windows の `--probe-console` の step）
@@ -323,3 +335,4 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - kind: technical
 - 提案: 片方にする（3.3 の検証コマンドが step の順を見るので、残すのは独立の step の側。`check_release_zip` の中の呼び出しを消すか、残す理由をコメントに書く）
 - 処置: fixed 4.2 —— 片方にはしない: tasks 4.2（凍結・[x]）が「窓の節の最初に `console_probe` を走らせる」と決めていて、3.3 の独立の step も検証コマンドが見る。`tools/release/install-check.sh` の `(console_probe)` の上に、正本は窓の節の中の呼び出し（CI の外で台本だけを走らせても通る）で、CI の step はインストールの前に早く落とすためであり二重に走る分はインストールより短い、とコメントで書いた
+- 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
