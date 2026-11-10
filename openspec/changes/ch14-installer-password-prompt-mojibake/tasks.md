@@ -106,7 +106,7 @@
 
 ## Task 8: 全体の確かめ
 
-- [ ] 8.1 作業場全体の形と、この change の検査を通す。
+- [x] 8.1 作業場全体の形と、この change の検査を通す。
   検証: `cargo fmt --all --check` rc=0 / `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `bash -c 'cargo test -p ashiato-setup'` rc=0 / `openspec validate ch14-installer-password-prompt-mojibake --strict` rc=0 / `python3 scripts/check_scenarios.py . ch14-installer-password-prompt-mojibake` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR の CI が緑になった後）
