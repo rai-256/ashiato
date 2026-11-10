@@ -32,10 +32,10 @@
 
 ## Task 2: 問いの文を窓へ直に書き、rpassword は読みだけにする
 
-- [ ] 2.1 `crates/installer/src/console.rs` を design D4 のとおりに書き（`pub fn write_to_console(text: &str) -> std::io::Result<()>`。`cfg(windows)` は `CONOUT$` を `CreateFileW` で開いて `WriteConsoleW`、失敗したら標準エラーへ書いて続ける。`cfg(not(windows))` は標準エラーへ書いて `flush`）、`lib.rs` に `pub mod console;` を足す。
+- [x] 2.1 `crates/installer/src/console.rs` を design D4 のとおりに書き（`pub fn write_to_console(text: &str) -> std::io::Result<()>`。`cfg(windows)` は `CONOUT$` を `CreateFileW` で開いて `WriteConsoleW`、失敗したら標準エラーへ書いて続ける。`cfg(not(windows))` は標準エラーへ書いて `flush`）、`lib.rs` に `pub mod console;` を足す。
   `crates/installer/Cargo.toml` の `[target.'cfg(windows)'.dependencies]` に `windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }` を足す（`Cargo.lock` に新しい crate の項が増えないこと）。
   検証: `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `cargo clippy -p ashiato-setup --all-targets -- -D warnings` rc=0 / `bash -c '! git diff origin/main -- Cargo.lock | grep -E "^\+name = "'` rc=0 / `tools/check-licenses.sh` rc=0
-- [ ] 2.2 `crates/installer/src/main.rs` の `read_web_passwords` を design D3・D4 のとおりに直す: loop の前に条件の一覧を 1 回（端末なら `console::write_to_console`、端末でなければ `terminal_line(…, false)`）。端末のとき、問いの文を `console::write_to_console("画面の合言葉: ")`・`("画面の合言葉（もう一度）: ")` で書いてから `rpassword::read_password()` で読む。
+- [x] 2.2 `crates/installer/src/main.rs` の `read_web_passwords` を design D3・D4 のとおりに直す: loop の前に条件の一覧を 1 回（端末なら `console::write_to_console`、端末でなければ `terminal_line(…, false)`）。端末のとき、問いの文を `console::write_to_console("画面の合言葉: ")`・`("画面の合言葉（もう一度）: ")` で書いてから `rpassword::read_password()` で読む。
   `rpassword::prompt_password` を呼ばない。端末でないときの 2 行の読みと、断りの行の形は変えない。
   検証: `bash -c '! grep -rn "prompt_password" crates/installer/src'` rc=0 / `bash -c 'grep -c "fn read_web_passwords" crates/installer/src/main.rs | grep -qx 1'` rc=0 / `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `bash -c 'cargo test -p ashiato-setup'` rc=0
 
