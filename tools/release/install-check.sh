@@ -54,6 +54,7 @@ scenario_names=(
   '止まった状態でなければ repair は何も変えずに終わる'
   'repair の後に合言葉なしの入口と一時の番号が残らない'
   '別の管理者が repair しても、本人は変わらない'
+  '英字でない名前の管理者でも repair でき、決めた合言葉でログインできる'
   'repair の途中で落ちても、もう一度 repair できる'
   '決めた合言葉で、そのまま画面にログインできる'
   '短い・既定の雛形・一致しない合言葉は受け付けない'
@@ -360,6 +361,7 @@ PW1='install-check-password-0123'
 PW2='install-check-reset-0123456'
 OTHER_USER='ashiato-ci-other'
 ADMIN_B='ashiato-ci-admin'
+ADMIN_NONASCII='ashiato-ci-é'
 WORK=''
 FIREWALL_RULE_COUNT=0
 PORT_LISTENER_PID=''
@@ -572,12 +574,12 @@ run_as_other() {
     exit \$p.ExitCode" >/dev/null 2>&1
 }
 
-# 別の管理者 B として、上がった札でコマンドの行を走らせ、その終了コードを返す（タスクの最上位の特権）。
-run_as_admin_b() {
-  local cmdline="$1" name='ashiato-install-check-b' script='C:/Users/Public/ashiato-install-check-b.cmd'
+# 管理者 $1（合言葉 $2）として、上がった札でコマンドの行 $3 を走らせ、その終了コードを返す（タスクの最上位の特権）。
+run_as_admin() {
+  local user="$1" password="$2" cmdline="$3" name='ashiato-install-check-b' script='C:/Users/Public/ashiato-install-check-b.cmd'
   # タスクの命令の行は長さに上限があるので、走らせる行は .cmd のファイルに置く
   printf '@echo off\r\n%s\r\n' "$cmdline" >"$script"
-  schtasks.exe /Create /TN "$name" /TR "$(win "$script")" /RU "$ADMIN_B" /RP "$ADMIN_B_PASSWORD" \
+  schtasks.exe /Create /TN "$name" /TR "$(win "$script")" /RU "$user" /RP "$password" \
     /RL HIGHEST /SC ONCE /ST 23:59 /F >/dev/null
   schtasks.exe /Run /TN "$name" >/dev/null
   local deadline=$((SECONDS + 900)) status
@@ -594,6 +596,9 @@ run_as_admin_b() {
   [[ "$result" == 0 ]]
 }
 
+# 別の管理者 B として走らせる。
+run_as_admin_b() { run_as_admin "$ADMIN_B" "$ADMIN_B_PASSWORD" "$1"; }
+
 # net.exe は 14 文字を超える合言葉に「続けますか (Y/N)」と聞き返し、入力の無い CI ではそこで作成が
 # 失敗する。合言葉は 14 文字に収める（"Ci-" + 8 + "-a1"）。既にいる利用者は合言葉だけ付け直し、
 # それも通らなければ作成の出力ごと止まる（捨てると後の「見つからない」しか残らない）
@@ -609,11 +614,15 @@ make_users() {
   ensure_user "$OTHER_USER" "$OTHER_PASSWORD"
   ensure_user "$ADMIN_B" "$ADMIN_B_PASSWORD"
   windows_net localgroup Administrators "$ADMIN_B" /add >/dev/null 2>&1 || true
+  ADMIN_NONASCII_PASSWORD="Ci-$(PY -c 'import secrets; print(secrets.token_urlsafe(6))')-c3"
+  ensure_user "$ADMIN_NONASCII" "$ADMIN_NONASCII_PASSWORD"
+  windows_net localgroup Administrators "$ADMIN_NONASCII" /add >/dev/null 2>&1 || true
 }
 
 remove_users() {
   windows_net user "$OTHER_USER" /delete >/dev/null 2>&1 || true
   windows_net user "$ADMIN_B" /delete >/dev/null 2>&1 || true
+  windows_net user "$ADMIN_NONASCII" /delete >/dev/null 2>&1 || true
 }
 
 # 前の回のインストールを消し、まっさらな機械にする（状態の置き場も消す）。
@@ -1201,6 +1210,19 @@ check_release_zip() {
   [[ "$(setting ASHIATO_OWNER_SID)" == "$owner_sid" ]] || die '別の管理者の repair で本人が変わった'
   assert_acl_only "$(acl_of "$STATE")" 'repair の後の状態の置き場' 'NT SERVICE\ashiato-server' "$me"
   wait_healthz 150
+
+  echo '== Scenario: 英字でない名前の管理者でも repair でき、決めた合言葉でログインできる'
+  with_settings_write mv "$SETTINGS" "$WORK/settings.away3"
+  if ! run_as_admin "$ADMIN_NONASCII" "$ADMIN_NONASCII_PASSWORD" "\"C:\\Users\\Public\\ashiato-install-check-zip\\ashiato-setup.exe\" repair --profile \"$(win "$PROFILE_U")\" --downloads \"$(win "$DOWNLOADS_U")\" < C:\\Users\\Public\\ashiato-install-check.in > C:\\Users\\Public\\ashiato-install-check.out 2>&1"; then
+    cat 'C:/Users/Public/ashiato-install-check.out' >&2
+    if [[ -f "$STATE/settings/repair.pg_ident.conf" ]]; then xxd "$STATE/settings/repair.pg_ident.conf" >&2; fi
+    if [[ -f "$STATE/settings/repair-db.log" ]]; then tail -n 20 "$STATE/settings/repair-db.log" >&2; fi
+    die '英字でない名前の管理者の repair が失敗'
+  fi
+  wait_healthz 150
+  [[ -n "$(login "$PW1")" ]] || die '英字でない名前の管理者の repair の後にログインできない'
+  [[ "$(app_sql "select oid from pg_database where datname = 'ashiato'")" == "$db_oid" ]] || die '英字でない名前の管理者の repair で DB が作り直された'
+  [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '英字でない名前の管理者の repair で記録が変わった'
 
   echo '== Scenario: インストールすると「アプリと機能」に載る'
   local key='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' version

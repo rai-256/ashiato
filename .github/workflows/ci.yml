@@ -465,6 +465,10 @@ jobs:
           key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
           restore-keys: pgsql-
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
+      # 子の命令の出力の読み方（CH14 D8・D9）。--lib を付けない（main.rs の試験は bin の target）。下限は Task 1 の 3 本と Task 5.2 の 8 本
+      - run: |
+          n=$(cargo test -p ashiato-setup ch14_ -- --list | grep -c ": test$"); [ "$n" -ge 11 ] || { echo "ch14_ の試験が $n 本しかない"; exit 1; }; cargo test -p ashiato-setup ch14_
+        shell: bash
       - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
