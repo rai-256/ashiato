@@ -289,3 +289,33 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 提案: 5.1 の本文に「（Q6 の答えで、値の口は窓のコード頁を先に読む形に替えた。design D8・review/code.md R1）」の注を足すか、本文を今の読み順に直す（`[x]` と検証コマンドは変えない）
 - 処置: fixed 5.1 —— 5.1 の本文の後に注を 1 行足した（Q6 の答えで値の口 decode_child_output はコード頁を先に読む形に替えた・UTF-8 を先に見るのは失敗の理由の末尾だけ・design D8・R1）。本文の検証コマンドと `[x]` は変えていない（evidence.declared の 5.1 は 5 本のまま）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+
+## final review 2（dae5668..2379363）
+
+見た: SDD の review package（`.superpowers/sdd/tasks/review-dae5668bd..23793634f.diff`）を `requesting-code-review` の `code-reviewer.md` で。R1〜R21 と Task 1〜6 の findings の Minor・⚠️ を突き合わせた。Critical・Important なし。7883a8b56（R16〜R21 の処置）が新しく壊したものは無い（タスク名 `ashiato-install-check-admin` は作る口と後始末の `rm` で揃う・`.ps.out` に入力の行は載らない・doc / コメント / 5.1 の注は実装と合う）。HEAD で確かめたもの（Linux / WSL）: `cargo test -p ashiato-setup` lib 88・bin 4 passed、clippy（native・windows-gnu）rc=0、`install-check.sh --self-test`・`check-ci-ch14-step.sh`・`check-shared-appends.sh` rc=0、`check_scenarios.py` OK、`--probe-console`（本人の PC）rc=0（38bd858 の Stopwatch の C# が組めて動く）。Windows で走る `ch14_` は 11 本（password 3・console の windows_tests 7・main 1）で CI の下限 `-ge 11` と合う。`plan_fix.py check` の rc=1 は R16 の処置どおり provisional_review 待ち。
+Windows の CI でしか確かめられないもの（窓の Scenario 4 本の引用符・`ashiato-ci-é` を `net user` / `schtasks /RU` で作れるか・その repair）は未確認のまま。merge gate が PR の CI の緑を見るので R にしない。
+R にしない細かい残り（Task の findings のまま。merge を止めない）: Task 2 F2（途中まで書いて失敗すると問いが二重に出る）・Task 1 F1・Task 5 F4 / F5・Task 3 F3 / F4・Task 6 F3。
+
+## R22. 英字でない名前の文字どおりの行は、PostgreSQL の大文字小文字を区別しない比べ方で、別の日本語の名前にも当たりうる
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md（D9）/ crates/installer/src/commands.rs:1104-1112
+- 根拠: SSPI の正規表現でない行は `pg_strcasecmp`（1 バイトずつ `A`〜`Z` を小文字にする）で比べられる。cp932 の 2 バイト目は 0x41〜0x5A を取りうるので、`ア`（83 41）と `ヂ`（83 61）、`イ`（83 43）と `ツ`（83 63）が同じになる。管理者 `pc\アキ` の repair の行は `pc\ヂキ` にも当たる。R6 の処置はドメイン（英字）の大文字小文字だけを論じ、security review の「合う名前の範囲は広がらず狭まる」はこの場合に当たらない。確かさは中（PG17 の `hba.c` の `check_ident_usermap` と `src/port/pgstrcasecmp.c` を読んだ記憶による。走らせてはいない）。悪用には似た名前のローカルの利用者を先に持ち、repair の一時の DB（127.0.0.1 の空き番号・短い間）に繋ぐことが要る
+- kind: technical
+- 提案: 正規表現に戻すと D9 の 0x5C に戻るのでコードは変えない。design D9 に「残る危険（cp932 の 2 バイト目の大文字小文字の重なり）と受け入れる理由」を 1 行足す
+
+## R23. 窓のコード頁が 65001 のとき、`lossy_decode` は 1 バイトずつ読み、UTF-8 として正しくない所が 1 つでもあると正しい多バイト文字まで全部 U+FFFD にする
+- 成果物: crates/installer/src/console.rs:250-270（`lossy_decode`）
+- 根拠: `IsDBCSLeadByteEx(65001, …)` は常に偽なので width は常に 1 になり、多バイトの UTF-8 の文字は 1 バイトでは `strict_decode` を通らない。`String::from_utf8_lossy` より悪い（Task 5 findings F3。HEAD でも残る）。表示の口だけで、起きることは少ない
+- kind: technical
+- 提案: `decode_with_code_page`（または `lossy_decode`）で 65001 なら `String::from_utf8_lossy` に任せる（その行だけ clippy の `disallowed-methods` を理由つきで allow する）
+
+## R24. `self_test` の説明のコメントが `console_probe` の上に載っている
+- 成果物: tools/release/install-check.sh:1454-1457
+- 根拠: 「Linux で走る自己試験。本物の Windows は無いので…」は `self_test` の説明だが、CH14 が `console_probe` をその間に差し込んだので `console_probe` の上に並ぶ（Task 3 findings F5。R20 と同じ種類のずれ）
+- kind: technical
+- 提案: コメントを `self_test()` の直前へ移す
+
+## R25. install-windows で `console_probe` が 2 回走る
+- 成果物: tools/release/install-check.sh:1067-1068 / .github/workflows/ci.yml（install-windows の `--probe-console` の step）
+- 根拠: 独立の step（`install-check.sh --probe-console`。Task 3.3）と、`check_release_zip` の中の `(console_probe)` の両方で走る。害は無いが、どちらが陰性の対照の正本か読む人が迷い、CI の時間が延びる
+- kind: technical
+- 提案: 片方にする（3.3 の検証コマンドが step の順を見るので、残すのは独立の step の側。`check_release_zip` の中の呼び出しを消すか、残す理由をコメントに書く）
