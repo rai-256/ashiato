@@ -1331,6 +1331,8 @@ check_zip() {
 # 窓の試験が化けを見分けられるかを先に確かめる（陰性の対照。conpty-run.ps1 -Probe）
 console_probe() {
   local ps script work
+  # Python に日本語を出させる（windows-latest の Git Bash は cp1252 で落ちる）
+  export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
   if command -v wslpath >/dev/null 2>&1; then
     ps=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
     [[ -x "$ps" ]] || { echo 'Windows の PowerShell が無い' >&2; exit 2; }
@@ -1345,8 +1347,12 @@ console_probe() {
   trap "rm -rf '$work'" EXIT
   local outw="$work/probe"
   command -v wslpath >/dev/null 2>&1 && outw="$(wslpath -w "$work")\\probe" || outw="$(cygpath -w "$work")\\probe"
-  "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" -Probe -Out "$outw" -TimeoutSec 90 >/dev/null ||
-    die '窓の試験が化けを見分けられない: 台本が終わらない'
+  local ps_out ps_rc=0
+  ps_out="$("$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" -Probe -Out "$outw" -TimeoutSec 90 2>&1)" || ps_rc=$?
+  if [[ $ps_rc != 0 ]]; then
+    printf '%s\n' "$ps_out" >&2
+    die "窓の試験が化けを見分けられない: 台本が rc=$ps_rc で終わった（90=CreatePseudoConsole 失敗・91=CreateProcess 失敗は上の hr=/err=。それ以外は時間切れか台本の書き方）"
+  fi
   PY - "$work/probe.raw.txt" "$work/probe.console.txt" <<'PY'
 import re, sys
 vt = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
