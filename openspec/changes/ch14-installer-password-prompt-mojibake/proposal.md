@@ -27,13 +27,13 @@ CI は合言葉を管で流すので、窓の経路を一度も通っておら�
 
 ### Modified Capabilities
 
-- `distribution`: Requirement「インストーラは、子の命令の出力を窓のコード頁で読み、英字でない名前でも止まらない」を足す（Q2）。Requirement「インストールの最後に、端末で画面の合言葉を決め、そのままログインできる」に、条件を最初の問いの前に 1 回だけ示すこと（端末のときは表示されないことも添える）・断りに条件を添えること・問いを窓のコード頁と向け替えに依らず窓へ出すことを足す（3 つの口に効く文で書く）。`password` と `repair` の Requirement は「インストールの最後と同じ検査で」と書いてあり、変えない
+- `distribution`: Requirement「インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない」を足す（Q2）。Requirement「インストールの最後に、端末で画面の合言葉を決め、そのままログインできる」に、条件を最初の問いの前に 1 回だけ示すこと（端末のときは表示されないことも添える）・断りに条件を添えること・問いを窓のコード頁と向け替えに依らず窓へ出すことを足す（3 つの口に効く文で書く）。`password` と `repair` の Requirement は「インストールの最後と同じ検査で」と書いてあり、変えない
 
 ## Impact
 
 - 製品のコード: `crates/installer/src/main.rs`（`read_web_passwords`・子の出力を読む 9 か所・`output_tail`・`user_downloads`・`whoami`）・`crates/installer/src/password.rs`（条件の文言と断りの理由）・新しいファイル `crates/installer/src/console.rs`（窓へ書く・子の出力を窓のコード頁で読む。`unsafe` はここだけ）・`crates/installer/src/lib.rs`（`pub mod console;`）
 - 依存: `crates/installer/Cargo.toml` の `[target.'cfg(windows)'.dependencies]` に `windows-sys = "0.61"`（features に `Win32_Globalization` を含む。rpassword が既に使う版。`Cargo.lock` に新しい crate は増えない）
-- 試験: `tools/release/install-check.sh`（`scenario_names` に 7 つの名前（Rust の試験の 5 本は足さない）・`--probe-console` の口・`password` の節の途中に窓の節。末尾には足さない）・新しいファイル `tools/release/conpty-run.ps1`
+- 試験: `tools/release/install-check.sh`（`scenario_names` に 7 つの名前（Rust の試験の 8 本は足さない）・`--probe-console` の口・`password` の節の途中に窓の節。末尾には足さない）・新しいファイル `tools/release/conpty-run.ps1`
 - CI: `.github/workflows/ci.yml` の `install-windows` に step を 1 つ（`install-check.sh --probe-console`。インストールの確かめの前）。`package-windows` に step を 1 つ（`cargo test -p ashiato-setup ch14_`。D9）。install-check に 3 人目の管理者（英字でない名前）と `repair` の節（今の「別の管理者が repair」の直後）。新しい Scenario は install-check の中から印を出すので、`--list` と出力の突き合わせ（`:452-459`）がそのまま数える
 - 文書: `docs/install.md:8`（合言葉の条件を書き足す。行を直すだけ）
 - API・移行・画面・収集アプリ: 変えない

@@ -239,3 +239,42 @@ R20（出力の末尾を組む `output_tail_text(stdout: &[u8], stderr: &[u8])` 
 ## 第 6 回（R23 の処置を読んで。2026-11-10）
 
 R23 は解けている。D8 と Task 5.1 は、まず `MB_ERR_INVALID_CHARS` を付けて `MultiByteToWideChar` で全体を読む。失敗したら `IsDBCSLeadByteEx` で 1 文字の長さを決めて 1 文字ずつ同じ旗で読み、読めない文字（末尾で 2 バイト目が欠けたものを含む）だけを U+FFFD にする。旗の無い既定の読みは使わないと、理由（`premises.md` 9 行目の `・`）つきで名指した。名指した API と定数（`MultiByteToWideChar`・`MB_ERR_INVALID_CHARS`・`IsDBCSLeadByteEx`・`GetOEMCP` は `Win32_Globalization`、`GetConsoleOutputCP`・`SetConsoleOutputCP`・`AllocConsole` は `Win32_System_Console`）は、`Cargo.lock` の `windows-sys 0.61.2` の source に実在する。失敗の理由の Scenario は THEN の主が「同じ文字のまま入る」で、別のコード頁で読み違えればそこで落ちるので、提案のうち「主にする」を満たしている。新しい指摘は無い。
+
+## 上流の書き手の追記（spec --answers Q2 の後。2026-11-10）
+- PostgreSQL 17.6（同梱の版）の source を読み、SSPI の利用者名が ANSI のバイト列で変換されずに `pg_ident` と突き合わされることを確かめた（`premises.md`。確かさ 2）。R14 の「(a) では避けられない」問題をインストーラの側で直すため、D9（仮）に「`repair.pg_ident.conf` を ANSI のコード頁で書く」を足し、Task 5.1 に名指した。反転条件 (b) は、ANSI で書いても認証できないときに限った
+
+## 第 7 回（D9 の「`repair.pg_ident.conf` を ANSI のコード頁で書く」の追加を読んで。2026-11-10）
+
+追加は D9（仮）の節（前提と、ANSI で書く項・反転条件 (b)）・Task 5.1・premises の 19 行目に書かれている。名指した `WideCharToMultiByte`・`WC_NO_BEST_FIT_CHARS`・`GetACP` は `windows-sys 0.61.2` の `Win32_Globalization` に実在する。直したことで次の 3 件が出た。
+
+## R24. 対応表の行は正規表現で、cp932 の 2 バイト目には `\` などの正規表現の記号が入る
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md・tasks.md
+- 根拠: 対応表の行は `repair_ident_contents`（`commands.rs:1097-1117`）が組む正規表現 `/(?i)^<利用者>@<領域>$` だ。`is_alphanumeric` の文字（日本語の文字を含む）はそのまま入り、それ以外は文字の番号の書き方（`\uXXXX`）になる。D9 と Task 5.1 は、この行を ANSI のコード頁のバイト列で書く。cp932 では 2 バイト目が 0x40〜0xFC で、`表`＝`95 5c`・`ソ`＝`83 5c`・`能`＝`94 5c` のように `\`（0x5C）になる文字がある（`python3 -c "print('表'.encode('cp932').hex(' '))"`）。`[`・`]`・`{`・`}`・`|`・`^` の範囲も 2 バイト目に入る。premises の 19 行目は、PostgreSQL が正規表現の行を `pg_mb2wchar_with_len` で読み、それが ANSI のバイト列を受け付けるかは確かめていないと書く。バイトごとに読むなら、これらの文字は正規表現の記号になり、行が壊れるか別の名前に当たる。`(?i)` も、2 バイト目の英字の範囲（例: `郎`＝`98 59` の `Y`）に大文字と小文字の区別なしで効く。同じ行の `\uXXXX` は Unicode の番号なので、ANSI のバイト列の名前とは突き合わない。CI の名前 `足跡ci管理`（`91 ab 90 d5 63 69 8a c7 97 9d`）にも単体の試験の `足跡太郎` にも 0x5C は無く、どの試験もこれを通らない
+- kind: technical
+- 提案: ANSI で書くときは、英数字の ASCII 以外の文字を、バイトごとに正規表現の書き方（例: `\xHH`。PostgreSQL がバイトごとに読む前提が要る）にするか、英字でない名前のときは正規表現でない行（`(?i)` の無い、そのままの名前）にするかを D9 で決める。2 バイト目が `5c` の文字（`表`・`ソ`）を含む名前の単体の試験を Task 5.2 に足す。`\uXXXX` の書き方を ANSI の行にも使ってよいかは premises の 19 行目の未確認の項に足す。
+- 処置: fixed D9 仮 — 英字でない名前の行を正規表現でなく引用符でくくった文字どおりの行（`token_matches_insensitive` で比べる）にした。cp932 の 2 バイト目は 0x40〜0xFC で引用符・空白・`#` にならないことを D9 に書き、`表`・`ソ` を含む名前の Scenario と試験 `ch14_ident_line_is_literal_in_ansi_bytes` を足した（tasks 5.2）
+
+## R25. runner の ANSI のコード頁は 932 でないので、CI の `足跡ci管理` の repair は ANSI に表せず必ず止まる
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/design.md・tasks.md・premises.md
+- 根拠: D9 と Task 5.1 は「ANSI で表せない文字があれば `Err`。理由を出して止まる」とする。CI の repair の Scenario（D9・Task 6.2）の管理者の名前は `足跡ci管理` で、`.cmd` の `chcp 932` は窓のコード頁を替えるだけで、ANSI のコード頁（`GetACP()`）は替えない。install-windows の `Set-Culture ja-JP`（`ci.yml` の install-windows の step）も、利用者の書式を替えるだけでシステムのロケールは替えない。windows-latest は英語の OS（premises の 13 行目）で、英語の Windows の ANSI のコード頁は 1252 だ。`足` は cp1252 で表せない（Python で `'足'.encode('cp1252')` は `UnicodeEncodeError`）。だから `encode_ansi` は `Err` を返し、repair は rc≠0 で止まり、Scenario「英字でない名前の管理者でも repair でき、決めた合言葉でログインできる」は毎回落ちる。PostgreSQL の `LookupAccountSid`（ANSI の版。premises の 19 行目）も、1252 では日本語の名前を表せない。反転条件 (b) は「ANSI で書いても認証できない」場合なので、この落ち方は当たらない
+- kind: technical
+- 提案: CI の管理者の名前を、runner の ANSI（1252）と窓のコード頁（437 など）の両方で表せる英字でない文字にする（例: `é` を含む名前。1252 は `e9`、437 は `82`）。`chcp 932` を外し、premises の 17・18 行目と反転条件 (a) をそれに合わせる。日本語の名前（ANSI 932）は単体の試験だけが通ることを Risks に書く（R26 の試験）。
+- 処置: fixed D9 仮 — CI の名前を `ashiato-ci-é`（1252 で `e9`・437 で `82`・UTF-8 と違う）にし、`chcp 932` を外した。日本語の名前は単体の試験で確かめる。premises の chcp の行を消し、net user の行を `é` に直した。反転条件 (a) を「作れなければ別の文字」に直した
+
+## R26. 「ANSI で表せない名前なら止まる」は観測できる振る舞いで、spec に無い。Requirement の「英字でない名前でも止まらない」と食い違う
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/specs/distribution/spec.md・design.md
+- 根拠: D9 の ANSI で書く項と Task 5.1 は、ANSI のコード頁で表せない文字を含む利用者名で `repair` が理由を出して止まると決めた。ADDED Requirement の名前は「…英字でない名前でも止まらない」で、SHALL は利用者名を「英字でない文字を含んでも、Windows が持つ名前と同じ文字として読む」と言うだけで、止まる場合を言わない。対応表の行をどのバイト列で書くかも spec に無い。Scenario「コード頁 932 で書いた日本語の利用者名を、同じ文字として読む」の THEN「対応表の行は `足跡太郎` の文字を持つ」は符号化を決めていない。Task 5.2 の試験も `repair_ident_contents` の文字列を見るだけで、ANSI のバイト列（`足跡太郎` なら `91 ab 90 d5 91 be 98 59`）を確かめる試験は無い。CI の repair（R25）を除くと、`encode_ansi` を通る確かめが無い
+- kind: technical
+- 提案: SHALL を「ANSI のコード頁で表せる名前なら止まらない。表せない名前なら、理由を出して止まる」に直し、Scenario を 2 本足す。1 本目は、コード頁 932 を指して `足跡太郎` の対応表の行を書くと、名前の部分が cp932 のバイト列になる。2 本目は、コード頁 1252 を指して表せない名前を渡すと、理由を返して止まり、行を書かない。試験のために `encode_ansi` をコード頁を引数で受ける形に分け（`decode_with_code_page` と同じ形）、Task 5.2 と 6.1 の下限を合わせる。
+- 処置: fixed specs/distribution/spec.md — Requirement の名前を「…Windows の文字コードで表せる名前なら英字でなくても止まらない」にし、対応表の行の書き方と、表せない名前で止まる IF の SHALL、Scenario 2 本を足した。`encode_with_code_page` をコード頁を引数で受ける形に分け、試験 2 本を足し、6.1 の下限を 11 にした
+
+## 第 8 回（R24〜R26 の処置を読んで。2026-11-10）
+
+R24 は解けている。英字でない名前の行は、引用符でくくった文字どおりの行 `repair "<利用者>@<ドメイン>" ashiato` になり、PostgreSQL は `token_matches_insensitive` で比べる（D9。確かさ 2）。cp932 の 2 バイト目は 0x40〜0xFC で、引用符・空白・`#` にならないと書かれた。`表`・`ソ` を含む名前の Scenario と試験 `ch14_ident_line_is_literal_in_ansi_bytes` も足された。R25 も解けている。CI の名前は `ashiato-ci-é` になった（Python で確かめると 1252 は `e9`、437 は `82`、UTF-8 は `c3 a9`）。`chcp 932`・`exit /b 90` と、`足跡ci管理` は成果物に残っていない。premises の 17 行目と反転条件 (a) も合わせてある。R26 も解けている。Requirement の名前が直り、IF の SHALL と Scenario 2 本（文字どおりのバイト列・1252 で表せない名前）が足された。`encode_with_code_page` と試験 `ch14_unrepresentable_name_is_refused` が足され、Task 5.2 の検証の名前の一覧にも入った。下限は 11（Task 1 の 3 本と単体の 8 本）。`openspec validate --strict` は valid。`check_scenarios.py` は担保なし 15 件（MODIFIED で足した 6 本と ADDED の 9 本）で、想定どおり。直しで次の 1 件が出た。
+
+## R27. Scenario の数と、Rust の試験が印を持つ数の字面が、足した後の数と合わない
+- 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md・proposal.md
+- 根拠: tasks の Global Constraints（`tasks.md:11`）は「この change の Scenario は 19 本」と書く。だが同じ文の内訳は、MODIFIED が 5＋6、ADDED が 9 で、spec の `#### Scenario:` は 20 本ある（`grep -c "^#### Scenario" specs/distribution/spec.md` → 20）。proposal の Impact の試験の行（`proposal.md:36`）は「Rust の試験の 5 本は足さない」のままで、tasks の同じ文の「ADDED のほかの 8 本」と合わない
+- kind: technical
+- 提案: tasks を「20 本」に、proposal を「Rust の試験の 8 本は足さない」に直す。
+- 処置: fixed tasks.md — tasks の数を 20 本、proposal の Rust の試験の数を 8 本に直した（数の字面だけ。answers.md の digest は書き手がこの直しの後に取り直した）

@@ -73,12 +73,14 @@ WHILE 標準入力が端末（Windows の窓）につながっている THE SYST
 
 ## ADDED Requirements
 
-### Requirement: インストーラは、子の命令の出力を窓のコード頁で読み、英字でない名前でも止まらない
+### Requirement: インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない
 
 WHEN インストーラが子の命令（`sc.exe`・`icacls`・`whoami`・`reg.exe`・`tasklist`・`netstat`・PowerShell・同梱の `psql`・`ashiato-server migrate` など）の出力を読む THE SYSTEM SHALL 出力を、子が書いた文字として読む（日本語の Windows の窓のコード頁 932 で書かれた出力も、UTF-8 で書く子の出力も、化けさせない）。
 THE SYSTEM SHALL 子の命令が失敗したときに添える出力の末尾を、子が書いた文のまま示す。
 THE SYSTEM SHALL 実行した利用者の名前（`repair` が DB の認証の対応表に使う）と、ダウンロードの場所（指定が無いときにレジストリから読む）を、英字でない文字を含んでも、Windows が持つ名前と同じ文字として読む。
 THE SYSTEM SHALL 英字だけの出力は、いまと同じ値として読む。
+THE SYSTEM SHALL `repair` の DB の認証の対応表の利用者名の行を、英字でない文字を含むときは Windows の文字コード（ANSI のコード頁）のバイト列で、文字どおりに（正規表現でなく）書く。英字だけの名前の行はいまと同じに書く。
+IF 利用者名が Windows の文字コードで表せない THEN THE SYSTEM SHALL 合わない行を書かずに、表せないことを理由に示して `repair` を止める。
 THE SYSTEM SHALL UTF-8 としても窓のコード頁としても読めない並びは置換の文字にして読み、それを理由に止まらない（いまと同じ）。
 
 導出元: CH14（深掘り Q2。design D2・D8・D9）。
@@ -113,6 +115,16 @@ THE SYSTEM SHALL UTF-8 としても窓のコード頁としても読めない並
 
 - **WHEN** `reg.exe query` の出力がコード頁 932 で書いた `%USERPROFILE%\ダウンロード` の値で、それをコード頁 932 で読む
 - **THEN** ダウンロードの場所は本人のプロファイルの下の `ダウンロード` として読まれる
+
+#### Scenario: 英字でない利用者名の対応表の行は、Windows の文字コードのバイト列で、文字どおりに書く
+
+- **WHEN** 利用者名 `pc\足跡表ソ`（`表`・`ソ` は cp932 の 2 バイト目が `\`）の対応表の行を、Windows の文字コード 932 で組む
+- **THEN** 行は `repair "足跡表ソ@pc" ashiato` を cp932 で符号化したバイト列そのもので、正規表現の行（`/(?i)`）ではない
+
+#### Scenario: Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる
+
+- **WHEN** 利用者名 `pc\足跡` の対応表の行を、Windows の文字コード 1252 で組む
+- **THEN** 行は組まれず、表せないことと文字コードの番号 1252 を理由に示して止まる
 
 #### Scenario: 英字でない名前の管理者でも repair でき、決めた合言葉でログインできる
 

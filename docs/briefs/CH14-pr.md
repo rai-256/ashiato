@@ -14,7 +14,7 @@
 
 ## 第 1 回の答えで直したこと（Q2）
 
-- spec: `distribution` に ADDED の Requirement「インストーラは、子の命令の出力を窓のコード頁で読み、英字でない名前でも止まらない」と Scenario 7 本を足した（MODIFIED の Requirement と 11 本は変えていない）
+- spec: `distribution` に ADDED の Requirement「インストーラは、子の命令の出力を窓のコード頁で読み、Windows の文字コードで表せる名前なら英字でなくても止まらない」と Scenario 9 本を足した（MODIFIED の Requirement と 11 本は変えていない）
 - design: D2 を本人の答えに書き直し、D8（仮）（UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む。読めない並びは U+FFFD）と D9（仮）（Windows の CI の `package-windows` で `ch14_` の単体の試験・install-check に英字でない名前の管理者の repair）を足した。D7 の反転条件の tasks の番号の参照を直した
 - tasks: Task 5（子の出力の読み）・Task 6（Windows の CI で確かめる）を足し、文書・全体の確かめを Task 7・8、人間の確認待ちを 9.1 に付け直した
 - premises: 子の命令は引き継いだ窓のコード頁で書く（本人の PC で確かめた。確かさ 5）と、runner の `chcp 932`・日本語の利用者名・PostgreSQL の突き合わせ（確かさ 1。CI が確かめ、外れたら D9 の反転条件）
@@ -34,4 +34,4 @@ D1・D3・D4・D6〜D9 が（仮）。どれも反転条件を design.md に書�
 ## レビュー
 
 - deep-review（問い）: 8 件。fixed 7・rejected 1（R8: 第 1 回は範囲を問う決まりなので Q1 を残した）
-- spec-review（spec --answers Q2 の観点 6 を含む）: R11〜R23 の 13 件を足し、どれも fixed（うち仮 3: D8・D9 に関わる R14・R19・R23）。最初の 10 件（technical 10。R1 は premise で出たが、ConPTY の前提を本人の PC で確かめた後に、レビューの席が technical に判定し直した）。処置は fixed 10（うち仮 3: D6・D7・D1）。内訳は review/spec.md
+- spec-review（spec --answers Q2 の観点 6 を含む）: R11〜R26 の 16 件を足し、どれも fixed（D8・D9（仮）に関わるものを含む）。最初の 10 件（technical 10。R1 は premise で出たが、ConPTY の前提を本人の PC で確かめた後に、レビューの席が technical に判定し直した）。処置は fixed 10（うち仮 3: D6・D7・D1）。内訳は review/spec.md
