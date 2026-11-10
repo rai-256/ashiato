@@ -1061,9 +1061,11 @@ check_release_zip() {
   # 窓の節（design D6）。窓の試験が化けを見分けられることを先に確かめる（陰性の対照）。
   # console_probe は trap を張り替えるので、子の shell で走らせる
   (console_probe) || die '窓の試験が化けを見分けられない'
-  local api session win_in="$WORK/pw2.in" win_setup win_rc=0
+  local api session win_in="$WORK/pw2.in" win_in_short="$WORK/pw2-short.in" win_setup win_rc=0
   api="$(setting API_TOKEN)"; session="$(setting WEB_SESSION_KEY)"
   printf '%s\n%s\n' "$PW2" "$PW2" >"$win_in"
+  # 向け替えの窓では、先に短い合言葉を打って断りの理由も窓に出ることを見る（review/code.md R5）
+  printf '%s\n%s\n%s\n%s\n' short short "$PW2" "$PW2" >"$win_in_short"
   win_setup="$(cygpath -w "$SETUP")"
 
   echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'
@@ -1084,10 +1086,12 @@ check_release_zip() {
 
   echo '== Scenario: 標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'
   win_rc=0
-  window_run window2 "chcp 932 >nul & \"$win_setup\" password >\"$(cygpath -w "$WORK/redirect.out.txt")\" 2>\"$(cygpath -w "$WORK/redirect.err.txt")\"" "$win_in" || win_rc=$?
+  window_run window2 "chcp 932 >nul & \"$win_setup\" password >\"$(cygpath -w "$WORK/redirect.out.txt")\" 2>\"$(cygpath -w "$WORK/redirect.err.txt")\"" "$win_in_short" || win_rc=$?
   [[ "$win_rc" == 0 ]] || { cat "$WORK/window2.window" "$WORK/window2.ps.out" >&2; die "向け替えた窓での決め直しが失敗した（rc=$win_rc）"; }
   grep -Fq '画面の合言葉: ' "$WORK/window2.window" || die '向け替えると問いが窓に出ない'
   grep -Fq '16 文字以上' "$WORK/window2.window" || die '向け替えると条件が窓に出ない'
+  # 窓の幅で折り返されても読めるよう、改行を除いた続きで見る
+  tr -d '\n' <"$WORK/window2.window" | grep -Fq '受け付けない: 短い（16 文字以上）' || die '向け替えると断りの理由が窓に出ない'
   ! grep -Fq '画面の合言葉: ' "$WORK/redirect.out.txt" "$WORK/redirect.err.txt" || die '向け替えた先に問いが書かれた'
   assert_no_secret_in "$(cat "$WORK/window2.window" "$WORK/redirect.out.txt" "$WORK/redirect.err.txt")" '向け替えの窓と出力' "$api" "$session" "$PW2"
   wait_healthz 150

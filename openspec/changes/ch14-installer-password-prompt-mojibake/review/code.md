@@ -84,24 +84,28 @@
   design D8 の「2 文字以上の文ではほぼ無い」は外れ、D8 自身の反転条件「UTF-8 として正しい cp932 の出力が実際に見つかったら、(1) と (2) の順を子ごとに決める」に当たる。単体の試験の名前（`足跡太郎`・`ダウンロード`）は UTF-8 として正しくならない並びなので、この場合を見ていない
 - kind: premise
 - 提案: D8 の反転条件のとおり、窓のコード頁で書く子（`whoami`・`reg.exe`・`sc.exe`・`tasklist` など。premises.md 15 行目）は窓のコード頁が 65001 でなければ先に窓のコード頁で読み、UTF-8 を先に見るのは Rust の子（`ashiato-server migrate`）だけにする。あるいは利用者名・ダウンロードの場所は子の出力を読まず API（`GetUserNameExW`・`SHGetKnownFolderPath` など）から取る。どちらでも `凜子` の並びを試験に足す
+- 処置: escalated （kind=premise。design D8（仮）の前提「cp932 の並びが偶然 UTF-8 として正しくなることはほぼ無い」が値の口（短い名前）で外れた。読み方の順を子ごとにどう決めるかを deep.md 第 2 回 Q6 で本人に問う。HTML は docs/briefs/CH14-deep-r2.html。答えの後の settle が直す）
 
 ## R2. 「Windows の文字コードで表せない利用者名なら、repair は理由を示して止まる」の試験は符号化の関数だけを見ており、repair が止まらなくても全部通る
 - 成果物: crates/installer/src/console.rs:418-423（`ch14_unrepresentable_name_is_refused`）/ crates/installer/src/main.rs:1505-1507 / tools/release/install-check.sh（英字でない名前の repair は `é` で、1252 で表せる道だけを通る）
 - 根拠: main.rs:1505-1506 を `let ident_bytes = console::encode_ansi(&ident_text).unwrap_or_else(|_| ident_text.into_bytes());`（表せなくても止まらず UTF-8 で書く）に壊して、windows-gnu で組んだ `ch14_` を本人の PC で走らせた → lib 11 passed・bin 1 passed（rc=0）。Linux の `cargo test -p ashiato-setup ch14_` も 5 passed。`grep -n 表せない tools/release/install-check.sh` は 0 件。Scenario の THEN（「行は組まれず、…理由に示して止まる」）は repair の振る舞いだが、試験は `encode_with_code_page("足跡", 1252)` が `Err` に `1252` を含むことしか見ていない（主張は repair の階層、試験は関数の階層）。戻した後 `git status --porcelain`・`git diff` は壊す前と同じ
 - kind: technical
 - 提案: 対応表の中身を組む部分（`repair_ident_contents` → 符号化 → 理由の文）を、コード頁を引数で受ける 1 つの関数（例 `repair_ident_bytes(account, code_page) -> Result<Vec<u8>, String>`）にして main.rs はそれを `GetACP()` で呼ぶだけにし、`ch14_unrepresentable_name_is_refused` はその関数が 1252 で `Err`（`利用者名 … を Windows の文字コード 1252 で表せない`）を返すことを見る
+- 処置: fixed 5.2
 
 ## R3. 6.1 の訂正後の検証コマンドは、CI の step が試験を 1 本も走らせなくても通る（訂正前のコマンドも同じ）
 - 成果物: tools/check-ci-ch14-step.sh / .github/workflows/ci.yml:428-430 / tasks.md 6.1 / plan-corrections.md / correction-review.md
 - 根拠: ci.yml:429 の末尾の `; cargo test -p ashiato-setup ch14_` を消し（`-- --list` で数えて下限を見るだけの step）、`tools/check-ci-ch14-step.sh` → rc=0。訂正前のコマンド（tasks.md 6.1 の旧）も同じ形で rc=0。どちらも run の文字列に `ashiato-setup ch14_` と `-ge 11` を含む step が `package.sh windows` より前にあるかしか見ず、`-- --list` の部分の字面で満たされる。訂正は検証を弱めてはいないが、検証は 6.1 の守るもの（`ch14_` の試験を下限つきで走らせる）を守っていない。`plan_fix.py check` → rc=1（6.1 を「落ちなかった」と読む）。戻した後 `git diff` は空
 - kind: premise
 - 提案: 台本で、step の run が下限の確かめの後に `cargo test -p ashiato-setup ch14_`（`-- --list` の付かない呼び出し）を持つことまで見る。例: run を `;` で区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があること
+- 処置: escalated （kind=premise。code-verify の手 7 の「落ちなかった」から来た検証コマンドの premise は人間へ返す決まり（settle.md の表）。台本を強めるかを deep.md 第 2 回 Q7 で本人に問う）
 
 ## R4. CI の下限 11 は、Windows で実際に数えると 12 本で、Task 5.2 の試験が 1 本消えても通る
 - 成果物: .github/workflows/ci.yml:429 / crates/installer/src/console.rs:298-301（`ch14_write_to_console_succeeds_off_windows`）
 - 根拠: windows-gnu で組んだ試験を本人の PC で `ch14_ --list` → lib と bin の合計 `: test$` が 12（lib 11 = Task 1 の 3・Task 5.2 の 7・`ch14_write_to_console_succeeds_off_windows`。bin 1 = `ch14_downloads_read_in_code_page_932`）。`…_off_windows` は名前に反して Windows でも組まれて数えられるので、下限 11（Task 1 の 3 + Task 5.2 の 8）は Task 5.2 の 8 本のうち 1 本が消えても満たされる。Scenario の印が消えれば `check_scenarios.py` が落とすので、効かないのは印を残して試験の本体だけ消えた場合
 - kind: technical
 - 提案: 下限を 12 にするか、`ch14_write_to_console_succeeds_off_windows` を `#[cfg(not(windows))]` にして名前と組まれる場所を合わせる
+- 処置: fixed 6.1
 
 ## security review（dae5668..281892e）
 
@@ -138,57 +142,67 @@
 - 根拠: Run `ashiato-setup.exe password 2>err.txt` in a window and type a 10-character password. The refusal '合言葉を受け付けない: 短い（16 文字以上）…' is written to err.txt, and the window just shows '画面の合言葉: ' again with no reason. The 'redirected stdout/stderr' scenario added in this change only checks the prompt, so this is not caught.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.2
 
 ## R6. The new non-ASCII branch writes an exact quoted name, which drops the ASCII path's `(@.*)?` realm tolerance for an account with no domain, and its case-insensitive matching depends entirely on PostgreSQL's behaviour.
 - 成果物: crates/installer/src/commands.rs:1099
 - 根拠: account = '足跡' (no backslash) produces `repair "足跡" ashiato`. SSPI with include_realm=1 sends '足跡@PC', so the map does not match and repair fails authentication. The ASCII form `/(?i)^owner(@.*)?$` would have matched. A domain that differs in case or form from whoami's output (e.g. FQDN vs NetBIOS) also has no regex fallback.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 名前に `\` が無い場合は起きない。`account` は `whoami(&[])` の出力（`crates/installer/src/main.rs:1466`）で、`whoami`（引数なし）は常に `<ドメインか computer 名>\<利用者>` を返す（本人の PC で `/mnt/c/Windows/System32/cmd.exe /d /c whoami` → `<computer>\<user>` の形で、利用者の前に `5c` が 1 つある）。ドメインのある英字の行も `/(?i)^owner@pc$` で `(@.*)?` の許しは持たない（`crates/installer/src/commands.rs:1125`）ので、FQDN と NetBIOS の違いへの許しは英字の行にも無く、英字でない枝で狭まったものは無い。大文字と小文字は、文字どおりの行を PostgreSQL が `token_matches_insensitive`（`pg_strcasecmp`。ASCII の範囲で区別しない）で比べ、ドメイン（英字）の大文字と小文字の違いは英字の行と同じく合う（security review の台本の `pg_ident_file_mappings` の 6 行が文字どおりに読まれた）
 
 ## R7. The non-ASCII admin used in the real-machine check is 'ashiato-ci-é', which is single-byte in cp1252, so the check never covers the cp932 case D9 is written for: double-byte names whose second byte is 0x5C. On a Japanese host (ACP 932), 'é' cannot be encoded at all, so the scenario fails.
 - 成果物: tools/release/install-check.sh:305
 - 根拠: On the windows-latest runner (ACP 1252), the regex-breaking 0x5C second byte (e.g. 表/ソ) never appears in the ident file, and the scenario passes even if the cp932 path is broken. On a ja-JP machine, encode_ansi refuses 'é' under 932 ('Windows の文字コード 932 で表せない'), so the scenario dies.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 英字でない名前の管理者に `é` を使い、日本語の名前（cp932 の 2 バイト目が `0x5C`）を単体の試験で確かめるのは design D9 の決定（runner の ANSI のコード頁は 1252 で `chcp` でも `Set-Culture` でも替わらず、日本語の名前は表せない。review/spec.md R25）。0x5C の場合は `ch14_ident_line_is_literal_in_ansi_bytes`（`crates/installer/src/console.rs`。`足跡表ソ` のバイト列に `0x5c` があることを見る）が担保し、この settle で本人の PC（ACP 932）で ok を確かめた。install-check の install の節を走らせるのは CI の `install-windows`（windows-latest。`.github/workflows/ci.yml:459-460`）だけで、日本語の Windows で走らせる道は無い（手元の検証は `--self-test`・`--probe-console` だけで、どちらも利用者を作らない）
 
 ## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
 - 成果物: crates/installer/src/console.rs:190
 - 根拠: A whoami/reg/sc output line in cp932 that happens to form valid UTF-8 multibyte sequences (e.g. lead E0–EF followed by 80–BF trail bytes) is returned as the wrong characters. That garbles the account name passed to repair_ident_contents or the Downloads path, and the failure only shows up later as an auth or path error.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: escalated （R1 と同じ不具合。値の口の読み方の順を deep.md 第 2 回 Q6 で本人に問う。答えの後の settle が R1 と一緒に直す）
 
 ## R9. Child output is decoded with the installer's own console output code page. If the user's window is set to `chcp 65001`, output from children that write in the OEM code page (cp932) is decoded as UTF-8 and every non-ASCII character becomes U+FFFD.
 - 成果物: crates/installer/src/console.rs:194
 - 根拠: In a window after `chcp 65001`, a child that writes its error in OEM cp932 (e.g. sc.exe) is decoded with code page 65001, so the reason reaches the user as '���…'. This is the same kind of garbled text this change set out to fix.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 前提が実物と違う。本人の PC（OEMCP・ACP 932）で `/mnt/c/Windows/System32/cmd.exe /d /c "chcp 65001 >nul & sc.exe query ashiato-nosuch-svc" | xxd` → `[SC] EnumQueryServicesStatus:OpenService FAILED 1060:` の後は `The specified service does not exist as an installed service.`（英語の ASCII）。同じ命令を `chcp 932` で走らせると `8e 77 92 e8 82 b3 …`（cp932 の『指定されたサービスは…』）。子は OEM のコード頁でなく引き継いだ窓のコード頁に従って書き、65001 の窓では日本語の cp932 を書かない（`premises.md` の「子の命令…は、引き継いだ窓のコード頁に従って管へ書く」の行と同じ。確かさ 5）。65001 で U+FFFD になる並びは出ない
 
 ## R10. The deadline and quiet checks use Environment.TickCount (a signed 32-bit int that wraps after about 24.9 days of uptime), so if it wraps mid-run, the timeout never fires and no input lines are sent.
 - 成果物: tools/release/conpty-run.ps1:174
 - 根拠: On a host with long uptime, TickCount wraps from +2^31 to -2^31 during the run. `TickCount > deadline` stays false forever and `TickCount - last >= 1000` never becomes true, so no password lines are sent and the CI step hangs until the job-level timeout. Environment.TickCount64 or Stopwatch avoids this.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 3.1
 
 ## R11. ch14_output_tail_reads_console_code_page calls AllocConsole and changes the process-wide console output CP during a parallel test run, and it leaves the allocated console in place, so other tests in the same binary that read the console CP can be affected.
 - 成果物: crates/installer/src/console.rs:412
 - 根拠: During cargo test, another test runs decode_child_output or output_tail_text at the same moment and is decoded with 932 instead of the expected CP, so it fails intermittently. On a developer machine, AllocConsole also opens an extra console window.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 5.2
 
 ## R12. main.rs already imports `console`, but ask_hidden and read_web_passwords call it by the full path `ashiato_setup::console::write_to_console`, so the same module is referenced two ways in one file.
 - 成果物: crates/installer/src/main.rs:618
 - 根拠: The `console::` short form at the other call sites (decode_child_output and others) and the full path here are mixed, making the code harder to grep and maintain. `console::write_to_console` is enough.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.2
 
 ## R13. The pattern `Command::new(..).output()` → `console::decode_child_output(&output.stdout)` is repeated by hand at about 8 call sites; a single helper that runs a child and returns decoded text would fix the root at one point.
 - 成果物: crates/installer/src/main.rs:581
 - 根拠: Any new child-process call that forgets decode_child_output and goes back to String::from_utf8_lossy reintroduces cp932 garbling. Nothing in the code enforces the decoding, so this recurs.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 5.1
 
 ## R14. The test is named ch14_write_to_console_succeeds_off_windows but has no cfg, so it also runs on Windows; it is counted towards CI's 11-test minimum without testing what its name says.
 - 成果物: crates/installer/src/console.rs:376
 - 根拠: On the Windows runner it writes an empty string to CONOUT$ (or falls back to stderr), which can never fail, yet it is counted towards the 'ch14_ ≥ 11' minimum. If a real test is removed, this vacuous test makes the count gate weaker.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 6.1

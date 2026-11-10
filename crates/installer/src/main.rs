@@ -283,7 +283,7 @@ fn relaunch_elevated(script: &str) -> Result<(), String> {
 
 /// 問いの文は窓へ直に書き（文字化けを避ける）、読みだけ rpassword に任せる。
 fn ask_hidden(prompt: &str) -> Result<String, String> {
-    ashiato_setup::console::write_to_console(prompt)
+    console::write_to_console(prompt)
         .map_err(|error| format!("合言葉の問いを書けない: {error}"))?;
     rpassword::read_password().map_err(|error| format!("合言葉を読めない: {error}"))
 }
@@ -293,7 +293,7 @@ fn read_web_passwords(api_token: &str, session_key: &str) -> Result<String, Stri
     let mut lines = std::io::stdin().lock().lines();
     let requirements = ashiato_setup::password::requirements_line(terminal);
     if terminal {
-        ashiato_setup::console::write_to_console(&format!("{requirements}\n"))
+        console::write_to_console(&format!("{requirements}\n"))
             .map_err(|error| format!("合言葉の条件を書けない: {error}"))?;
     } else {
         terminal_line(&requirements, false);
@@ -321,13 +321,19 @@ fn read_web_passwords(api_token: &str, session_key: &str) -> Result<String, Stri
                 return ashiato_setup::password::verifier(&pair.0)
                     .map_err(|error| format!("合言葉の照らすための値を作れない: {error}"))
             }
-            Err(reason) => terminal_line(
-                &format!(
+            Err(reason) => {
+                let line = format!(
                     "合言葉を受け付けない: {}。入れ直してください",
                     reason.reason()
-                ),
-                true,
-            ),
+                );
+                // 端末なら問いと同じく窓へ直に書く（標準エラーを向け替えても理由が窓に出る。review/code.md R5）
+                if terminal {
+                    console::write_to_console(&format!("{line}\n"))
+                        .map_err(|error| format!("合言葉の断りを書けない: {error}"))?;
+                } else {
+                    terminal_line(&line, true);
+                }
+            }
         }
     }
 }
@@ -1457,6 +1463,13 @@ fn repair(
             "repair は要りません。インストールを走らせ直すか password を使ってください。".into(),
         );
     }
+    let account = whoami(&[])?.trim().to_owned();
+    if account.is_empty() {
+        return Err("実行した利用者を読めない".into());
+    }
+    // PostgreSQL は SSPI の利用者名を ANSI のコード頁のバイト列で受け取る（D9）。表せない名前なら、
+    // サービスを止める・一時の書きを足す前に止まる（review/code.md R2）
+    let ident_bytes = console::repair_ident_bytes(&account)?;
     run(
         &commands::stop_service_and_wait_command(layout.server_service),
         trace,
@@ -1468,10 +1481,6 @@ fn repair(
     run_all(&commands::repair_cleanup_commands(layout), trace)?;
     let owner = owner_from_state_acl(layout)?;
     let invoking = current_user_sid()?;
-    let account = whoami(&[])?.trim().to_owned();
-    if account.is_empty() {
-        return Err("実行した利用者を読めない".into());
-    }
     // 今回の管理者に、設定と DB の置き場の一時の書きを足す（前の回の残りは `/reset` で消える。D21・D28）
     let temporary = TemporaryWrite::grant(layout, &invoking, trace)?;
     let database_write = DatabaseWrite::grant(layout, &invoking, &owner, trace)?;
@@ -1502,9 +1511,6 @@ fn repair(
     )?;
     fs::write(&hba, commands::repair_hba_contents())
         .map_err(|error| format!("一時の接続規則を書けない: {error}"))?;
-    // PostgreSQL は SSPI の利用者名を ANSI のコード頁のバイト列で受け取る（D9）
-    let ident_bytes = console::encode_ansi(&commands::repair_ident_contents(&account))
-        .map_err(|reason| format!("利用者名 {account} を {reason}"))?;
     fs::write(&ident, ident_bytes)
         .map_err(|error| format!("一時の利用者規則を書けない: {error}"))?;
     let listener = std::net::TcpListener::bind("127.0.0.1:0")

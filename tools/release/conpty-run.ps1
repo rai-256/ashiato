@@ -65,17 +65,20 @@ public static class Pty {
     si.si.hin = IntPtr.Zero; si.si.hout = IntPtr.Zero; si.si.herr = IntPtr.Zero;
     PI pi; if (!CreateProcessW(null, cmd, IntPtr.Zero, IntPtr.Zero, false, 0x00080000, IntPtr.Zero, "C:\\", ref si, out pi)) { Console.WriteLine("CreateProcess err=" + Marshal.GetLastWin32Error()); return 91; }
     var ms = new MemoryStream(); var fs = new FileStream(outR, FileAccess.Read);
-    long last = Environment.TickCount; bool any = false;
-    var t = new Thread(() => { var b = new byte[4096]; int n; try { while ((n = fs.Read(b, 0, b.Length)) > 0) { lock(ms) { ms.Write(b, 0, n); last = Environment.TickCount; any = true; } } } catch {} }); t.IsBackground = true; t.Start();
+    // Stopwatch, not Environment.TickCount: TickCount is a signed 32-bit value that wraps after
+    // about 24.9 days of uptime, and a wrap mid-run would stop both the timeout and the input lines.
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    long last = clock.ElapsedMilliseconds; bool any = false;
+    var t = new Thread(() => { var b = new byte[4096]; int n; try { while ((n = fs.Read(b, 0, b.Length)) > 0) { lock(ms) { ms.Write(b, 0, n); last = clock.ElapsedMilliseconds; any = true; } } } catch {} }); t.IsBackground = true; t.Start();
     var inS = new FileStream(inW, FileAccess.Write);
-    int next = 0; long deadline = Environment.TickCount + (long)timeoutSec * 1000; int rc;
+    int next = 0; long deadline = clock.ElapsedMilliseconds + (long)timeoutSec * 1000; int rc;
     while (true) {
       if (WaitForSingleObject(pi.hp, 100) == 0) { uint code; GetExitCodeProcess(pi.hp, out code); rc = (int)code; break; }
-      if (Environment.TickCount > deadline) { TerminateProcess(pi.hp, 124); rc = 124; break; }
-      bool quiet; lock(ms) { quiet = any && (Environment.TickCount - last) >= 1000; }
+      if (clock.ElapsedMilliseconds > deadline) { TerminateProcess(pi.hp, 124); rc = 124; break; }
+      bool quiet; lock(ms) { quiet = any && (clock.ElapsedMilliseconds - last) >= 1000; }
       if (quiet && next < lines.Length) {
         var bytes = Encoding.UTF8.GetBytes(lines[next++] + "\r"); inS.Write(bytes, 0, bytes.Length); inS.Flush();
-        lock(ms) { last = Environment.TickCount; }
+        lock(ms) { last = clock.ElapsedMilliseconds; }
       }
     }
     Thread.Sleep(1000); ClosePseudoConsole(hpc); Thread.Sleep(500);

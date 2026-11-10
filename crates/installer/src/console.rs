@@ -24,6 +24,7 @@ pub fn write_to_console(text: &str) -> std::io::Result<()> {
 /// 子の命令の出力を文字列にする（D8）。UTF-8 として正しければそのまま、そうでなければ
 /// Windows では窓のコード頁（窓が無ければ OEM）で読む。読めない並びは U+FFFD にして止まらない。
 #[must_use]
+#[cfg_attr(not(windows), allow(clippy::disallowed_methods))] // Windows 以外の子は UTF-8 で書く
 pub fn decode_child_output(bytes: &[u8]) -> String {
     #[cfg(windows)]
     {
@@ -79,6 +80,34 @@ pub fn encode_ansi(text: &str) -> Result<Vec<u8>, String> {
     {
         Ok(text.as_bytes().to_vec())
     }
+}
+
+/// `repair` の DB の認証の対応表（`repair.pg_ident.conf`）の中身を、Windows の ANSI のコード頁（`GetACP()`）の
+/// バイト列で組む（D9）。Windows 以外は UTF-8。
+///
+/// # Errors
+/// 利用者名を ANSI のコード頁で表せないとき（`利用者名 <名前> を Windows の文字コード <番号> で表せない`）。
+/// 合わない行は書かずに止まる。
+pub fn repair_ident_bytes(account: &str) -> Result<Vec<u8>, String> {
+    #[cfg(windows)]
+    {
+        repair_ident_bytes_with_code_page(account, windows_console::ansi_code_page())
+    }
+    #[cfg(not(windows))]
+    {
+        encode_ansi(&crate::commands::repair_ident_contents(account))
+            .map_err(|reason| format!("利用者名 {account} を {reason}"))
+    }
+}
+
+/// `repair_ident_bytes` の中身。コード頁を引数で受ける（試験が 1252 などを指す）。
+///
+/// # Errors
+/// 利用者名を `code_page` で表せないとき。
+#[cfg(windows)]
+pub fn repair_ident_bytes_with_code_page(account: &str, code_page: u32) -> Result<Vec<u8>, String> {
+    encode_with_code_page(&crate::commands::repair_ident_contents(account), code_page)
+        .map_err(|reason| format!("利用者名 {account} を {reason}"))
 }
 
 fn write_to_stderr(text: &str) -> std::io::Result<()> {
@@ -295,6 +324,8 @@ mod windows_console {
 
 #[cfg(test)]
 mod tests {
+    // Windows では窓へ書く口を通るので名前と合わない。Windows の CI の下限（11 本）にも数えない（review/code.md R4・R14）
+    #[cfg(not(windows))]
     #[test]
     fn ch14_write_to_console_succeeds_off_windows() {
         assert!(super::write_to_console("").is_ok());
@@ -313,7 +344,7 @@ mod windows_tests {
     use super::{decode_with_code_page, encode_with_code_page, output_tail_text};
     use crate::commands;
     use windows_sys::Win32::System::Console::{
-        AllocConsole, GetConsoleOutputCP, SetConsoleOutputCP,
+        AllocConsole, FreeConsole, GetConsoleOutputCP, SetConsoleOutputCP,
     };
 
     // 期待するバイト列は `python3 -c "print('<文>'.encode('cp932').hex(' '))"` で作った。
@@ -331,17 +362,22 @@ mod windows_tests {
     fn ch14_output_tail_reads_console_code_page() {
         // 指定されたサービスはインストールされたサービスとして存在しません。
         let bytes = hex("8e 77 92 e8 82 b3 82 ea 82 bd 83 54 81 5b 83 72 83 58 82 cd 83 43 83 93 83 58 83 67 81 5b 83 8b 82 b3 82 ea 82 bd 83 54 81 5b 83 72 83 58 82 c6 82 b5 82 c4 91 b6 8d dd 82 b5 82 dc 82 b9 82 f1 81 42");
+        // 窓の出力のコード頁はプロセスに 1 つ。ほかに窓のコード頁を読む試験は無い（ch14_ の残りはコード頁を指して読む）。
         // SAFETY: 窓が無ければ作り、窓の出力のコード頁を読み書きするだけ（引数は値）。
-        let before = unsafe {
-            AllocConsole();
+        let (allocated, before) = unsafe {
+            let allocated = AllocConsole() != 0;
             let before = GetConsoleOutputCP();
             SetConsoleOutputCP(932);
-            before
+            (allocated, before)
         };
         let tail = output_tail_text(&bytes, b"");
-        if before != 0 {
-            // SAFETY: 元のコード頁へ戻すだけ。
-            unsafe { SetConsoleOutputCP(before) };
+        // SAFETY: 元のコード頁へ戻し、この試験が作った窓なら閉じるだけ（review/code.md R11）。
+        unsafe {
+            if allocated {
+                FreeConsole();
+            } else if before != 0 {
+                SetConsoleOutputCP(before);
+            }
         }
         assert!(
             tail.contains("指定されたサービスはインストールされたサービスとして存在しません。"),
@@ -369,6 +405,7 @@ mod windows_tests {
 
     // Scenario: 英字だけの子の出力は、いまと同じ値として読む
     #[test]
+    #[allow(clippy::disallowed_methods)] // いまの読み（UTF-8）と比べる
     fn ch14_ascii_child_output_is_unchanged() {
         let samples = [
             "pc\\owner\r\n",
@@ -420,5 +457,12 @@ mod windows_tests {
     fn ch14_unrepresentable_name_is_refused() {
         let error = encode_with_code_page("足跡", 1252).expect_err("表せない");
         assert!(error.contains("1252"), "{error}");
+        // repair が対応表を組む口（main.rs はこれを GetACP() で呼び、Err ならサービスを止める前に止まる）
+        let refused =
+            super::repair_ident_bytes_with_code_page("pc\\足跡", 1252).expect_err("行は組まれない");
+        assert_eq!(
+            refused,
+            "利用者名 pc\\足跡 を Windows の文字コード 1252 で表せない"
+        );
     }
 }
