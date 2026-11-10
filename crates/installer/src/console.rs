@@ -245,7 +245,13 @@ mod windows_console {
     }
 
     /// 1 文字ずつ読み、読めない文字だけを U+FFFD にする。
+    // UTF-8 は `IsDBCSLeadByteEx` が常に偽で 1 バイトずつになり、正しい多バイト文字まで U+FFFD になる。
+    // UTF-8 の読めない所だけを置き換えるのは std の役目なので任せる（review/code.md R23）
+    #[allow(clippy::disallowed_methods)]
     fn lossy_decode(bytes: &[u8], code_page: u32) -> String {
+        if code_page == CP_UTF8 {
+            return String::from_utf8_lossy(bytes).into_owned();
+        }
         // 1 文字ずつ。先頭バイトが 2 バイト文字の先頭なら 2 バイト、そうでなければ 1 バイト
         let mut out = String::new();
         let mut index = 0;
@@ -447,6 +453,13 @@ mod windows_tests {
         let text = decode_with_code_page(&bytes, 932);
         assert!(text.starts_with("指定された"), "{text}");
         assert!(text.ends_with('\u{FFFD}'), "{text}");
+        // 窓が 65001 のとき、正しい多バイト文字は残し、読めない所だけを置き換える（review/code.md R23）
+        let mut utf8 = "指定された".as_bytes().to_vec();
+        utf8.push(0x82);
+        for read in [decode_with_code_page, decode_value_with_code_page] {
+            let text = read(&utf8, 65001);
+            assert_eq!(text, "指定された\u{FFFD}");
+        }
     }
 
     // Scenario: UTF-8 で書く子の出力は、窓のコード頁が 932 でもそのまま読める

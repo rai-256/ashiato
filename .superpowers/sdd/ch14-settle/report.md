@@ -44,3 +44,14 @@
 - R21: tasks.md 5.1 に読み順の注を 1 行（検証コマンドと [x] は不変。declared は 5 本のまま）
 - 走らせたもの: `tools/release/install-check.sh --self-test` rc=0 / `bash -n tools/release/install-check.sh` rc=0 / `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `cargo test -p ashiato-setup` rc=0 / `cargo fmt --all -- --check` rc=0 / `tools/check-ci-ch14-step.sh` rc=0 / ci.yml の YAML 読み込み OK / `review_triage.py --no-verdict` → triage: OK
 - 本人の PC・Windows の CI では走らせていない（install-check の窓・管理者の節は install-windows でだけ走る）
+
+## settle 第 5 回（final review 2 回目の R22〜R25。2026-11-10）
+
+- R22: design D9 に「残る危険」の 1 行（SSPI の名前は大文字と小文字を区別せずに突き合わされ、文字どおりの行は `pg_strcasecmp` で比べるので、cp932 の 2 バイト目 `0x41`〜`0x5A` が重なる。受け入れる理由・悪用に要るもの・反転条件）。コードは変えない。PostgreSQL の source は走らせて確かめていない（記憶による。SSPI は `check_usermap(..., true)` で大文字と小文字を区別しない）
+- R23: `console.rs` の `lossy_decode` は 65001 なら `String::from_utf8_lossy`（関数に理由つきの allow）。`ch14_unreadable_bytes_become_replacement` に 65001 の並び（`指定された` + `0x82`）を 2 つの読みで足した（試験の本数は変えない）
+  - 本人の PC（windows-gnu で組んだ exe を `C:\Users\Public` へ写して走らせた）: lib の `ch14_` 10 passed・bin 1 passed
+  - 壊して確かめた: 65001 の枝を外す → `ch14_unreadable_bytes_become_replacement` FAILED（console.rs:458、`left: "����������������"` / `right: "指定された�"`）。戻した
+- R24: 自己試験の説明の 3 行を `self_test() {` の直前へ移した
+- R25: 片方にはしない（tasks 4.2 が窓の節の最初の `console_probe` を決めていて凍結、3.3 の step も検証コマンドが見る）。`(console_probe)` の上に、正本はこちら・CI の step は早く落とすため、とコメント
+- 走らせたもの: `scripts/verify-run 8.1` → fmt・workspace の clippy・windows-gnu の clippy・`cargo test -p ashiato-setup`・check_scenarios 全部 PASS / `tools/release/install-check.sh --self-test` rc=0 / `bash -n tools/release/install-check.sh` rc=0 / `review_triage.py --no-verdict` → triage: OK
+- Windows の CI の install-windows では走らせていない（R24・R25 はコメントだけ）

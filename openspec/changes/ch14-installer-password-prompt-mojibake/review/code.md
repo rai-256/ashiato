@@ -301,21 +301,25 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - 根拠: SSPI の正規表現でない行は `pg_strcasecmp`（1 バイトずつ `A`〜`Z` を小文字にする）で比べられる。cp932 の 2 バイト目は 0x41〜0x5A を取りうるので、`ア`（83 41）と `ヂ`（83 61）、`イ`（83 43）と `ツ`（83 63）が同じになる。管理者 `pc\アキ` の repair の行は `pc\ヂキ` にも当たる。R6 の処置はドメイン（英字）の大文字小文字だけを論じ、security review の「合う名前の範囲は広がらず狭まる」はこの場合に当たらない。確かさは中（PG17 の `hba.c` の `check_ident_usermap` と `src/port/pgstrcasecmp.c` を読んだ記憶による。走らせてはいない）。悪用には似た名前のローカルの利用者を先に持ち、repair の一時の DB（127.0.0.1 の空き番号・短い間）に繋ぐことが要る
 - kind: technical
 - 提案: 正規表現に戻すと D9 の 0x5C に戻るのでコードは変えない。design D9 に「残る危険（cp932 の 2 バイト目の大文字小文字の重なり）と受け入れる理由」を 1 行足す
+- 処置: fixed D9 仮（design D9 に「残る危険」の 1 行: SSPI の名前は大文字と小文字を区別せず突き合わされ、文字どおりの行は `pg_strcasecmp` で比べるので cp932 の 2 バイト目 `0x41`〜`0x5A` が重なる（`ア`/`ヂ`・`イ`/`ツ`）。正規表現に戻すと `0x5C` で行が壊れるので受け入れる理由と、悪用に要るもの（重なる名前の利用者を先に持つ＝管理者が要る・repair の間だけの一時の DB）と反転条件を書いた。コードは提案どおり変えない）
 
 ## R23. 窓のコード頁が 65001 のとき、`lossy_decode` は 1 バイトずつ読み、UTF-8 として正しくない所が 1 つでもあると正しい多バイト文字まで全部 U+FFFD にする
 - 成果物: crates/installer/src/console.rs:250-270（`lossy_decode`）
 - 根拠: `IsDBCSLeadByteEx(65001, …)` は常に偽なので width は常に 1 になり、多バイトの UTF-8 の文字は 1 バイトでは `strict_decode` を通らない。`String::from_utf8_lossy` より悪い（Task 5 findings F3。HEAD でも残る）。表示の口だけで、起きることは少ない
 - kind: technical
 - 提案: `decode_with_code_page`（または `lossy_decode`）で 65001 なら `String::from_utf8_lossy` に任せる（その行だけ clippy の `disallowed-methods` を理由つきで allow する）
+- 処置: fixed 5.1 —— `crates/installer/src/console.rs` の `lossy_decode` で、コード頁が 65001 なら `String::from_utf8_lossy` に任せる（その関数だけ `disallowed_methods` を理由つきで allow）。`ch14_unreadable_bytes_become_replacement` に、`指定された` の UTF-8 の後ろに `0x82` を足した並びを 65001 で読むと `指定された\u{FFFD}` になることを、`decode_with_code_page`・`decode_value_with_code_page` の両方で足した。直しを外すと本人の PC の windows-gnu の exe で `left: "����…"` で落ちる）
 
 ## R24. `self_test` の説明のコメントが `console_probe` の上に載っている
 - 成果物: tools/release/install-check.sh:1454-1457
 - 根拠: 「Linux で走る自己試験。本物の Windows は無いので…」は `self_test` の説明だが、CH14 が `console_probe` をその間に差し込んだので `console_probe` の上に並ぶ（Task 3 findings F5。R20 と同じ種類のずれ）
 - kind: technical
 - 提案: コメントを `self_test()` の直前へ移す
+- 処置: fixed 3.2 —— `tools/release/install-check.sh` の自己試験の説明の 3 行を `self_test() {` の直前へ移した。`console_probe` の上には自分の説明の 1 行だけが残る
 
 ## R25. install-windows で `console_probe` が 2 回走る
 - 成果物: tools/release/install-check.sh:1067-1068 / .github/workflows/ci.yml（install-windows の `--probe-console` の step）
 - 根拠: 独立の step（`install-check.sh --probe-console`。Task 3.3）と、`check_release_zip` の中の `(console_probe)` の両方で走る。害は無いが、どちらが陰性の対照の正本か読む人が迷い、CI の時間が延びる
 - kind: technical
 - 提案: 片方にする（3.3 の検証コマンドが step の順を見るので、残すのは独立の step の側。`check_release_zip` の中の呼び出しを消すか、残す理由をコメントに書く）
+- 処置: fixed 4.2 —— 片方にはしない: tasks 4.2（凍結・[x]）が「窓の節の最初に `console_probe` を走らせる」と決めていて、3.3 の独立の step も検証コマンドが見る。`tools/release/install-check.sh` の `(console_probe)` の上に、正本は窓の節の中の呼び出し（CI の外で台本だけを走らせても通る）で、CI の step はインストールの前に早く落とすためであり二重に走る分はインストールより短い、とコメントで書いた

@@ -1064,6 +1064,9 @@ check_release_zip() {
   [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '決め直しで記録が変わった'
 
   # 窓の節（design D6）。窓の試験が化けを見分けられることを先に確かめる（陰性の対照）。
+  # CI の install-windows は、インストールの前に独立の step（--probe-console。tasks 3.3）でも同じ対照を走らせる。
+  # 正本はこちら（窓の節の結果を読む前に必ず通る。CI の外で台本だけを走らせても落ちない）。CI の step は
+  # インストールに時間をかける前に早く落とすためで、二重に走る分はインストールより短い（review/code.md R25）。
   # console_probe は trap を張り替えるので、子の shell で走らせる
   (console_probe) || die '窓の試験が化けを見分けられない'
   local api session win_in="$WORK/pw2.in" win_in_short="$WORK/pw2-short.in" win_setup win_rc=0
@@ -1451,9 +1454,6 @@ check_zip() {
 # <<< 実地の確かめ
 # ============================================================================
 
-# Linux で走る自己試験。本物の Windows は無いので、(1) 確かめの部品が合う出力で通り 1 つずつ外れた出力で
-# 落ちること、(2) --list の全部の Scenario が実地の確かめ（CI が走らせる経路）に 1 回ずつ印を持ち、
-# 自己試験の側には印が無いこと、(3) Windows でないと実地の確かめが走らないこと、を見る。
 # 窓の試験が化けを見分けられるかを先に確かめる（陰性の対照。conpty-run.ps1 -Probe）
 console_probe() {
   local ps script work
@@ -1514,6 +1514,9 @@ print("OK: 窓の試験は化けを見分けられる（コード頁 " + m.group
 PY
 }
 
+# Linux で走る自己試験。本物の Windows は無いので、(1) 確かめの部品が合う出力で通り 1 つずつ外れた出力で
+# 落ちること、(2) --list の全部の Scenario が実地の確かめ（CI が走らせる経路）に 1 回ずつ印を持ち、
+# 自己試験の側には印が無いこと、(3) Windows でないと実地の確かめが走らないこと、を見る。
 self_test() {
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-install-self-test.XXXXXX")"
