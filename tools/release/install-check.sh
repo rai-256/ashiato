@@ -57,6 +57,12 @@ scenario_names=(
   'repair の途中で落ちても、もう一度 repair できる'
   '決めた合言葉で、そのまま画面にログインできる'
   '短い・既定の雛形・一致しない合言葉は受け付けない'
+  '端末でないときも、断りより前に合言葉の条件を 1 回だけ示す'
+  '短い・雛形で断るときは、理由に条件を添える'
+  'コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'
+  '窓で打った合言葉で決め直せる'
+  '窓で打った合言葉は、窓に出ない'
+  '標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'
   'API の合言葉やログインの印の鍵と同じ値は受け付けない'
   '合言葉を決め終えると、既定のブラウザで画面を開く'
   '合言葉の元の値は、どこにも残らない'
@@ -280,6 +286,52 @@ assert_no_secret_in() {
     [[ -n "$value" ]] || continue
     ! grep -Fq -- "$value" <<<"$text" || die "$what に秘密がある（$index 番目の値）"
   done
+}
+
+# 合言葉の条件の一覧が、出力に 1 回だけ、最初の断りより前にあり、「表示されません」（端末の言い方）を持たない。
+# 一覧とは 4 つの条件（16 文字以上・change-me で始めない・API の合言葉・ログインの印の鍵）を全部含む行
+assert_requirements_line() {
+  local file="$1" what="$2" text hits first_refusal
+  text="$(tr -d '\r' <"$file")"
+  hits="$(grep -nF -e '16 文字以上' <<<"$text" | grep -F 'change-me で始めない' | grep -F 'API の合言葉' |
+    grep -F 'ログインの印の鍵' || true)"
+  [[ -n "$hits" && "$(wc -l <<<"$hits")" == 1 ]] || die "$what の出力に合言葉の条件の行がちょうど 1 つでない"
+  first_refusal="$(grep -nF '受け付けない:' <<<"$text" | head -n 1 | cut -d: -f1 || true)"
+  [[ -z "$first_refusal" || "${hits%%:*}" -lt "$first_refusal" ]] || die "$what の出力で、合言葉の条件が最初の断りより後にある"
+  ! grep -Fq '表示されません' <<<"$text" || die "$what の出力（端末でない）に「表示されません」がある"
+}
+
+# 疑似コンソールの窓で命令を走らせ、窓の文字（VT を除く）を $WORK/<名前>.window に残す。戻り値は窓の子の終了コード。
+# 窓の台本は上限を超えると子を止めて rc≠0 にする（install_with と同じ上限。password の口は起こし直しで最大 180 秒待つ）
+window_run() {
+  local name="$1" command="$2" input="${3:-}" rc=0 args=()
+  [[ -z "$input" ]] || args=(-InputFile "$(cygpath -w "$input")")
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(cygpath -w "$root/tools/release/conpty-run.ps1")" \
+    -Command "$command" ${args[@]+"${args[@]}"} -Out "$(cygpath -w "$WORK/$name.vt")" \
+    -TimeoutSec "${ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT:-600}" >"$WORK/$name.ps.out" 2>&1 || rc=$?
+  PY -c 'import re,sys; vt=re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"); t=open(sys.argv[1],"rb").read().decode("utf-8",errors="replace"); sys.stdout.write(vt.sub("",t).replace("\r",""))' \
+    "$WORK/$name.vt" >"$WORK/$name.window" || die "窓の文字を読めない: $name"
+  return "$rc"
+}
+
+# 窓の文字（$1）が、最初の問いより前に合言葉の条件（表示されません まで）を持ち、2 つの問いを持つ。
+# 窓の幅で折り返されても読めるよう、改行を除いた続きで見る
+assert_window_prompt() {
+  PY - "$1" <<'PY' || die '窓に合言葉の問いと条件が読める形で出ていない'
+import sys
+t = open(sys.argv[1], encoding="utf-8").read().replace("\n", "")
+first = t.find("画面の合言葉: ")
+if first < 0 or "画面の合言葉（もう一度）: " not in t:
+    sys.exit("窓に2つの問いが無い")
+head = t[:first]
+start = head.find("画面の合言葉を決めます")
+if start < 0:
+    sys.exit("最初の問いより前に条件の文が無い")
+cond = head[start:]
+for want in ("16 文字以上", "change-me で始めない", "API の合言葉", "ログインの印の鍵", "表示されません"):
+    if want not in cond:
+        sys.exit("条件の文に無い: " + want)
+PY
 }
 
 # 応答の見出しからログインの印を読む。
@@ -975,6 +1027,15 @@ check_release_zip() {
   grep -Fq '受け付けない: 短い' "$out" && grep -Fq '受け付けない: 雛形' "$out" && grep -Fq '受け付けない: 一致しない' "$out" ||
     die '短い・雛形・一致しない合言葉を理由つきで断らない'
 
+  echo '== Scenario: 端末でないときも、断りより前に合言葉の条件を 1 回だけ示す'
+  # インストールの最後・password の口・repair の口（repair の節で同じ関数を呼ぶ）の 3 つで同じ形
+  assert_requirements_line "$WORK/install.out" 'インストールの最後'
+  assert_requirements_line "$out" 'password の口'
+
+  echo '== Scenario: 短い・雛形で断るときは、理由に条件を添える'
+  grep -Fq '受け付けない: 短い（16 文字以上）' "$out" && grep -Fq '受け付けない: 雛形（change-me で始めない）' "$out" ||
+    die '短い・雛形の断りに条件が添えられていない'
+
   echo '== Scenario: 決め直した合言葉でログインでき、前の合言葉ではできない'
   wait_healthz 150
   [[ -n "$(login "$PW2")" ]] || die '決め直した合言葉でログインできない'
@@ -988,9 +1049,42 @@ check_release_zip() {
     die '決め直しでほかの設定が変わった'
   [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '決め直しで記録が変わった'
 
-  echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'
-  local api session
+  # 窓の節（design D6）。窓の試験が化けを見分けられることを先に確かめる（陰性の対照）。
+  # console_probe は trap を張り替えるので、子の shell で走らせる
+  (console_probe) || die '窓の試験が化けを見分けられない'
+  local api session win_in="$WORK/pw2.in" win_setup win_rc=0
   api="$(setting API_TOKEN)"; session="$(setting WEB_SESSION_KEY)"
+  printf '%s\n%s\n' "$PW2" "$PW2" >"$win_in"
+  win_setup="$(cygpath -w "$SETUP")"
+
+  echo '== Scenario: コード頁が UTF-8 でない窓でも、合言葉の問いと条件が読める'
+  window_run window1 "chcp 932 >nul & chcp & \"$win_setup\" password" "$win_in" || win_rc=$?
+  local codepage
+  codepage="$(sed -n 's/.*:[[:space:]]*\([0-9]\{3,5\}\)[[:space:]]*$/\1/p' "$WORK/window1.window" | head -n 1)"
+  [[ -n "$codepage" && "$codepage" != 65001 ]] || { cat "$WORK/window1.window" >&2; die "窓のコード頁が読めないか UTF-8 のまま（chcp: ${codepage:-読めない}）"; }
+  assert_window_prompt "$WORK/window1.window"
+
+  echo '== Scenario: 窓で打った合言葉で決め直せる'
+  [[ "$win_rc" == 0 ]] || { cat "$WORK/window1.window" "$WORK/window1.ps.out" >&2; die "窓での決め直しが失敗した（rc=$win_rc）"; }
+  wait_healthz 150
+  [[ -n "$(login "$PW2")" ]] || die '窓で決めた合言葉でログインできない'
+
+  echo '== Scenario: 窓で打った合言葉は、窓に出ない'
+  ! grep -Fq -- "$PW2" "$WORK/window1.vt" "$WORK/window1.window" || die '窓の文字に打った合言葉がある'
+  assert_no_secret_in "$(cat "$WORK/window1.window")" '窓の文字' "$api" "$session"
+
+  echo '== Scenario: 標準出力と標準エラーを向け替えても、合言葉の問いは窓に出る'
+  win_rc=0
+  window_run window2 "chcp 932 >nul & \"$win_setup\" password >\"$(cygpath -w "$WORK/redirect.out.txt")\" 2>\"$(cygpath -w "$WORK/redirect.err.txt")\"" "$win_in" || win_rc=$?
+  [[ "$win_rc" == 0 ]] || { cat "$WORK/window2.window" "$WORK/window2.ps.out" >&2; die "向け替えた窓での決め直しが失敗した（rc=$win_rc）"; }
+  grep -Fq '画面の合言葉: ' "$WORK/window2.window" || die '向け替えると問いが窓に出ない'
+  grep -Fq '16 文字以上' "$WORK/window2.window" || die '向け替えると条件が窓に出ない'
+  ! grep -Fq '画面の合言葉: ' "$WORK/redirect.out.txt" "$WORK/redirect.err.txt" || die '向け替えた先に問いが書かれた'
+  assert_no_secret_in "$(cat "$WORK/window2.window" "$WORK/redirect.out.txt" "$WORK/redirect.err.txt")" '向け替えの窓と出力' "$api" "$session" "$PW2"
+  wait_healthz 150
+  [[ -n "$(login "$PW2")" ]] || die '向け替えた窓で決めた合言葉でログインできない'
+
+  echo '== Scenario: API の合言葉やログインの印の鍵と同じ値は受け付けない'
   printf '%s\n' "$api" "$api" "$session" "$session" "$PW1" "$PW1" | "$SETUP" password >"$out" 2>&1 ||
     die 'API の合言葉と同じ値を断った後に決め直せない'
   grep -Fq '受け付けない: API の合言葉と同じ' "$out" && grep -Fq '受け付けない: ログインの印の鍵と同じ' "$out" ||
@@ -1070,6 +1164,7 @@ check_release_zip() {
   local old_token
   old_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["API_TOKEN"])' "$(cygpath -m "$WORK/settings.away")")"
   install_with "$PW1" repair >"$out" 2>&1 || { cat "$out" >&2; die 'repair が失敗'; }
+  assert_requirements_line "$out" 'repair の口'
   [[ -f "$SETTINGS" ]] || die 'repair の後に設定が無い'
   wait_healthz 150
   [[ -n "$(login "$PW1")" ]] || die 'repair の後にログインできない'
@@ -1505,6 +1600,19 @@ EOF
 
   assert_no_secret_in 'kind=web_session_key reason=too_short' t 'secret-value-0123456789'
   expect_fail assert_no_secret_in 'leaked secret-value-0123456789' t 'secret-value-0123456789'
+
+  # 合言葉の条件の行（管の出力）
+  local req='画面の合言葉を決めます。16 文字以上・change-me で始めない・自動で作った API の合言葉やログインの印の鍵と同じにしない'
+  printf '%s\n' "$req" '受け付けない: 短い（16 文字以上）' >"$work/req.good"
+  assert_requirements_line "$work/req.good" t
+  printf '%s\n' '受け付けない: 短い' "$req" >"$work/req.late"
+  expect_fail assert_requirements_line "$work/req.late" t
+  printf '%s\n' "$req" "$req" >"$work/req.twice"
+  expect_fail assert_requirements_line "$work/req.twice" t
+  printf '%s\n' "$req。入れた文字は表示されません" >"$work/req.tty"
+  expect_fail assert_requirements_line "$work/req.tty" t
+  printf '%s\n' '16 文字以上だけ' >"$work/req.none"
+  expect_fail assert_requirements_line "$work/req.none" t
 
   [[ "$(session_cookie_from_headers $'HTTP/1.1 204 No Content\r\nset-cookie: ashiato_session=abc_DEF-1; HttpOnly; Secure\r\n')" == abc_DEF-1 ]] ||
     die 'ログインの印を見出しから読めない'
