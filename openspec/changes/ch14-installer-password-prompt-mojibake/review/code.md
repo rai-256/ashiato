@@ -102,3 +102,29 @@
 - 根拠: windows-gnu で組んだ試験を本人の PC で `ch14_ --list` → lib と bin の合計 `: test$` が 12（lib 11 = Task 1 の 3・Task 5.2 の 7・`ch14_write_to_console_succeeds_off_windows`。bin 1 = `ch14_downloads_read_in_code_page_932`）。`…_off_windows` は名前に反して Windows でも組まれて数えられるので、下限 11（Task 1 の 3 + Task 5.2 の 8）は Task 5.2 の 8 本のうち 1 本が消えても満たされる。Scenario の印が消えれば `check_scenarios.py` が落とすので、効かないのは印を残して試験の本体だけ消えた場合
 - kind: technical
 - 提案: 下限を 12 にするか、`ch14_write_to_console_succeeds_off_windows` を `#[cfg(not(windows))]` にして名前と組まれる場所を合わせる
+
+## security review（dae5668..281892e）
+
+見た経路:
+- 窓での合言葉の入力: `read_web_passwords` → `ask_hidden`（crates/installer/src/main.rs:285-289）→ 問いの文は `console::write_to_console`（`CONOUT$` へ `WriteConsoleW`。console.rs:14-22, 254-296）、読みは `rpassword::read_password()`。読みは変更前の `prompt_password` と同じ `read_password_with_config`（rpassword-7.5.4 src/lib.rs:259-268, 271-293）で、入力は `CONIN$`（src/windows.rs:15）・既定は `PasswordFeedback::Hide`（src/config.rs:125-128）。書きの口を替えただけで、読みと表示の消し方は変わらない（2）
+- 合言葉が窓・向け替えた先に出ないこと: install-check.sh の「窓で打った合言葉は、窓に出ない」「標準出力と標準エラーを向け替えても…」が VT の流れ・窓の文字・向け替えた 2 つのファイルに `$PW2`・API の合言葉・ログインの印の鍵が無いことを見る（tools/release/install-check.sh の該当 Scenario。CI の Windows で走る。手元では走らせていない）（2）
+- 条件の一覧: `password::requirements_line`（password.rs:30-39）は定数（`MIN_LEN`・`PLACEHOLDER`）だけから組み、合言葉・API の合言葉・鍵の値を含まない。断りの理由 `PasswordRefusal::reason` も同じ（password.rs:16-26）（3）
+- repair の利用者規則: `whoami`（main.rs:240-250。`decode_child_output` で読む）→ `repair_ident_contents`（commands.rs:1097-1108。英字でない名前は `repair "<user>@<domain>" ashiato` の引用した文字どおりの行）→ `console::encode_ansi`（表せなければ `Err` で止まる）→ `fs::write(&ident, …)`（main.rs:1505-1509）→ 一時の PostgreSQL が読む（4）
+- 子の命令の出力の読み（reg / sc / whoami / icacls / netstat / tasklist / wmic）: `decode_child_output` は文字列にするだけで、使い道（`reg_query_value`・`sddl_from_sdshow`・`service_state_code`・`owner_sid_from_acl`）とエラー文への載せ方は変更前と同じ。新しく外へ出す値は無い（3）
+- 待ち受け・接続先: 差分に新しい listen は無い（repair の `127.0.0.1:0` は既存）。外への送信先も足していない（2）
+- 依存: `windows-sys 0.61`（Microsoft の公式 crate。Cargo.lock には既に 0.61.2 があり、installer の依存に足しただけ）、`cfg(windows)` だけで機能は Foundation / Globalization / Storage_FileSystem / System_Console の 4 つ（crates/installer/Cargo.toml:19-20）（2）
+- 試験の台本: 新しい管理者 `ashiato-ci-é` の合言葉は都度 `secrets.token_urlsafe` で作り（install-check.sh:123 付近）、後始末で `net user … /delete` する（install-check.sh:625）（2）
+
+安全の決め手: 英字でない名前の対応表の行は、PostgreSQL が「引用した 1 つの名前」として読み、正規表現（`/` で始まる形）としても注釈（`#`）としても読まない。Windows の利用者名と computer 名は `"` を持てないので、引用は閉じられない —— 確かさ 4（`"` を持てない点は Windows の命名規則に拠り 2）。
+台本: `/tmp/ch14sec`（repo の外の使い捨ての crate）から本物の `ashiato_setup::commands::repair_ident_contents` と `console::encode_ansi` を呼び、`pc\足跡 #太郎`・`pc\足跡(1).$`・`pc\^足跡`・`pc\足跡'x`・`足跡`・`PC-1\Tarō` の行を組んで、使い捨ての `postgres:17-alpine` の `pg_ident.conf` に置き `pg_ident_file_mappings` を読んだ。出力:
+```
+1|repair|足跡 #太郎@pc|ashiato|
+2|repair|足跡(1).$@pc|ashiato|
+3|repair|^足跡@pc|ashiato|
+4|repair|足跡'x@pc|ashiato|
+5|repair|足跡|ashiato|
+6|repair|Tarō@PC-1|ashiato|
+```
+6 行とも `error` は空で、`sys_name` は名前そのもの（`#` 以降も切れず、`^` `$` `(` `.` は文字のまま）。英字の名前のときは変更前の `/(?i)^…$` の行のまま（console.rs の `ch14_ident_line_is_literal_in_ansi_bytes` が見る）。正規表現（大文字小文字を区別しない）から文字どおり（区別する）に替わったので、合う名前の範囲は広がらず狭まる。
+
+指摘なし
