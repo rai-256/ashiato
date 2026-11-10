@@ -94,6 +94,7 @@
 - 処置: fixed 5.2
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R3. 6.1 の訂正後の検証コマンドは、CI の step が試験を 1 本も走らせなくても通る（訂正前のコマンドも同じ）
 - 成果物: tools/check-ci-ch14-step.sh / .github/workflows/ci.yml:428-430 / tasks.md 6.1 / plan-corrections.md / correction-review.md
@@ -110,6 +111,7 @@
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## security review（dae5668..281892e）
 
@@ -157,6 +159,7 @@
 - 処置: rejected: 名前に `\` が無い場合は起きない。`account` は `whoami(&[])` の出力（`crates/installer/src/main.rs:1466`）で、`whoami`（引数なし）は常に `<ドメインか computer 名>\<利用者>` を返す（本人の PC で `/mnt/c/Windows/System32/cmd.exe /d /c whoami` → `<computer>\<user>` の形で、利用者の前に `5c` が 1 つある）。ドメインのある英字の行も `/(?i)^owner@pc$` で `(@.*)?` の許しは持たない（`crates/installer/src/commands.rs:1125`）ので、FQDN と NetBIOS の違いへの許しは英字の行にも無く、英字でない枝で狭まったものは無い。大文字と小文字は、文字どおりの行を PostgreSQL が `token_matches_insensitive`（`pg_strcasecmp`。ASCII の範囲で区別しない）で比べ、ドメイン（英字）の大文字と小文字の違いは英字の行と同じく合う（security review の台本の `pg_ident_file_mappings` の 6 行が文字どおりに読まれた）
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R7. The non-ASCII admin used in the real-machine check is 'ashiato-ci-é', which is single-byte in cp1252, so the check never covers the cp932 case D9 is written for: double-byte names whose second byte is 0x5C. On a Japanese host (ACP 932), 'é' cannot be encoded at all, so the scenario fails.
 - 成果物: tools/release/install-check.sh:305
@@ -165,6 +168,7 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 英字でない名前の管理者に `é` を使い、日本語の名前（cp932 の 2 バイト目が `0x5C`）を単体の試験で確かめるのは design D9 の決定（runner の ANSI のコード頁は 1252 で `chcp` でも `Set-Culture` でも替わらず、日本語の名前は表せない。review/spec.md R25）。0x5C の場合は `ch14_ident_line_is_literal_in_ansi_bytes`（`crates/installer/src/console.rs`。`足跡表ソ` のバイト列に `0x5c` があることを見る）が担保し、この settle で本人の PC（ACP 932）で ok を確かめた。install-check の install の節を走らせるのは CI の `install-windows`（windows-latest。`.github/workflows/ci.yml:459-460`）だけで、日本語の Windows で走らせる道は無い（手元の検証は `--self-test`・`--probe-console` だけで、どちらも利用者を作らない）
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
 - 成果物: crates/installer/src/console.rs:190
@@ -244,6 +248,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: 6.1 の訂正の確かめ（手 7）を HEAD の `tools/check-ci-ch14-step.sh` でやり直し、「落ちた」の結果を `correction-review.md` に記録して commit する（`plan_fix.py check` が rc=0 になること）。コードは変えない
 - 処置: fixed 6.1 —— 記録はこの席が書かない（settle は correction-review.md を書けない。書くのは code-verify の手 7）。commit されずに残っていた古い記録（強める前の台本で「落ちなかった」。その結果は R3・deep.md 第 2 回 Q7 として処置済み）を `.superpowers/sdd/ch14-settle/correction-review.stale-6.1-20261110T095406.md` へ移して commit した。これで `plan_fix.py pending` が 6.1（at 2026-11-10T09:54:06+00:00）を返し、gate の前にグラフの `provisional_review` が code-verify の手 7 をいまの台本で起こし直して記録を書き、commit する（plan_fix で <at> を取り直す道は、旧＝いまの台本が PASS するので無い）。この席でも同じ壊し方を手で確かめた: ci.yml の step の末尾 `; cargo test -p ashiato-setup ch14_` を消す → `tools/check-ci-ch14-step.sh` rc=1、戻す → rc=0（`git status --porcelain`・`git diff` は壊す前と同じ）。いまの `plan_fix.py check` の FAIL は「別の席の確かめが無い」で、provisional_review の後に消える
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R17. 汎用にした `run_as_admin` の時間切れの文言とタスク名が「管理者 B」のまま
 - 成果物: tools/release/install-check.sh:579・590
@@ -251,6 +256,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: `die "管理者 $user の実行が終わらない"` にする。タスク名は呼び出しごとに替えるか、名前の意味を doc に書く
 - 処置: fixed 6.2 —— 時間切れを `die "管理者 $user の実行が終わらない"` に、タスクと .cmd の名前を `ashiato-install-check-admin`（どの管理者でも同じ 1 つの名前。呼び出しごとに作って消すことを doc に書いた）にし、後片付けの `rm` の名前も合わせた。`install-check.sh --self-test` rc=0・`bash -n` rc=0
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R18. 窓の台本が `.vt` を残さず落ちたとき、`window_run` は台本の出力（`.ps.out`）を出さずに止まる
 - 成果物: tools/release/install-check.sh:307-316（`window_run`）
@@ -258,6 +264,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: die の前に `$WORK/$name.ps.out` を標準エラーへ出す（台本は入力の行を出さないので秘密は載らない。載らないことを既存の秘密の検査に通すとなおよい —— Task 4 の F3）
 - 処置: fixed 3.1 —— `.vt` を読めないとき、die の前に `$WORK/$name.ps.out`（窓の台本の `hr=`・`err=` など）を標準エラーへ出し、die の文に窓の台本の rc を添えた。conpty-run.ps1 は入力の行を標準出力へ出さない（入力は窓へ送るだけ、窓の文字は `-Out` のファイルへ）ので合言葉は載らない。`--self-test` rc=0・`bash -n` rc=0（窓の節は CI の install-windows でだけ走る）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R19. `repair_ident_contents` の doc が、英字でない名前の枝（引用した文字どおりの行）を書いていない
 - 成果物: crates/installer/src/commands.rs:1094-1100
@@ -265,6 +272,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: doc に「英字でない名前は、ANSI のコード頁で符号化する前提で引用した文字どおりの行にする（D9。正規表現にすると cp932 の 2 バイト目の `0x5C` が式を壊す）」の 1 文を足す
 - 処置: fixed 5.1 —— doc に「英字だけの名前は…正規表現」と限り、「英字でない名前は正規表現にせず、引用符でくくった文字どおりの行（`repair "<user>@<domain>" ashiato`）にする。ANSI のコード頁で符号化する前提で、正規表現にすると cp932 の 2 バイト目の `0x5C` が式を壊す（CH14 D9）」を足した。コードは変えていない。windows-gnu の clippy rc=0
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R20. ci.yml の「Windows の runner では build.sh が…」のコメントが、新しい ch14 の step の上に来ている
 - 成果物: .github/workflows/ci.yml:426
@@ -272,6 +280,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: コメントを `package.sh windows` の step の直前へ移す
 - 処置: fixed 6.1 —— コメントを `tools/release/package.sh windows "$RUNNER_TEMP/package-windows"` の step の直前へ移した（ch14 の step の上は CH14 のコメントだけ）。YAML として読める・`tools/check-ci-ch14-step.sh` rc=0
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 
 ## R21. tasks.md 5.1 の本文が Q6 より前の読み順（「UTF-8 として正しければそのまま」）のまま
 - 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md:76
@@ -279,3 +288,4 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - kind: technical
 - 提案: 5.1 の本文に「（Q6 の答えで、値の口は窓のコード頁を先に読む形に替えた。design D8・review/code.md R1）」の注を足すか、本文を今の読み順に直す（`[x]` と検証コマンドは変えない）
 - 処置: fixed 5.1 —— 5.1 の本文の後に注を 1 行足した（Q6 の答えで値の口 decode_child_output はコード頁を先に読む形に替えた・UTF-8 を先に見るのは失敗の理由の末尾だけ・design D8・R1）。本文の検証コマンドと `[x]` は変えていない（evidence.declared の 5.1 は 5 本のまま）
+- 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
