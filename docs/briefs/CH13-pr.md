@@ -1,56 +1,54 @@
-# CH13 — 作業箱（コンテナ隔離）の設定を置く（上流）
+# CH13 —— 作業箱（コンテナ隔離）の設定を置く
 
-> 第 1 回の深掘りは推奨の答えで先に書き、2026-11-08 に本人の答え（Q1〜Q4。4 問とも推奨と違う）を `spec --answers Q1,Q2,Q3,Q4` で写した。
-> 同じ日の第 2 回の合意で本人が「違和感がある」と返した（harness2 #161 で作業箱が箱の中の dockerd を持つ形に変わった）。この版はそれに合わせて書き直した（`deep.md` の各行の `→ 対応:`）。
+change: `openspec/changes/ch13-workbox-config/`
 
-## 先に: 作業箱を有効にする前の宿題
+## deep.md に積んだ未決（A）
 
-一覧の正本は `openspec/changes/ch13-workbox-config/enable-before.md`（下流が同じ本文で ashiato2 の issue を 1 つ立てる）。harness2 #157 / #161 で済んだ項目は一覧から消し、案内だけを置いた。一覧に残るのは次だけ:
+なし
 
-- **上流で見つけたこと（有効にする前に直す）**: ホストの `PATH` に `/usr/sbin` が無いと、箱の中の dockerd が `iptables not found` で立たない。グラフを走らせる `hx-dev.service` の `PATH` にも無いので、このまま `tests` にすると、準備（`tools/verify-env.sh`）が毎回 docker を呼ぶので、箱に入る検証は全部（1,786 本のうち 1,751 本）BLOCKED_INFRA になる見込み（下流が harness2 に issue を 1 つ立てる）
-- **測っていない**: e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空き・agent の箱の中の cargo が 4g に収まるか
-- **分類の一覧**: 既存の検証コマンドを harness2 と同じ判定（`host_only`）でホスト / 箱に分けた `command-classes.md`（下流が書き出す）
+## 仮決め（B）と Ruling
 
-依頼の完了の判定の pgrep の確かめは tasks 3.1 に置いた: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` が 10 未満（上流の試しでは `1`。下流が値を書き足す）。
+design の（仮）:
+- D9（仮）. 上流で見つけた `PATH` の件を harness2 の issue に 1 つ立てる（Q1 (2) に従う）
 
-## 何をするか
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger の `Ruling:`（逐語）:
+- Ruling: settle（review/code.md R18・R19）—— 作業箱を有効にする前の宿題は終わっていない。正本は `openspec/changes/ch13-workbox-config/enable-before.md`（同じ本文で ashiato2 の issue #275 作業箱を有効にする前の宿題（CH13）を立てた）。merge の後、`HARNESS_WORKBOX` を有効にする操作の前にこれを読む
+- Ruling: settle（R19）—— 宿題のうち測っていないもの 3 つ: 画面の e2e 1 本が検証の箱の 6g に収まるか（箱の中の DB の容器も数える）・`all` で 5 本のときの空きメモリ・agent の箱の中の cargo のビルドが 4g に収まるか
+- Ruling: 本人の答え（deep.md Q-D10）—— `host_only` の漏れ（`tools/release/sandbox-probe.sh`）は CH13 の中で `host_only` と `match-cases.json` に足した（design D10）
+- Ruling: settle（R18・R19）—— 上流で見つけた `PATH` の件（ホストの `PATH` に `/usr/sbin` が無いと箱の中の dockerd が iptables を見つけられず立たない）は rai-256/harness2#165（CLOSED。#164 で直った）。直すものとしては残っていない
+- Ruling: settle（R19）—— 依頼の完了の判定の pgrep の確かめ（Task 3.1）: `HARNESS_WORKBOX` を外したシェルから `python3 .harness2/scripts/workbox.py run . -- bash -c 'pgrep -fc /'` → `pgrep: 1`（10 未満）
 
-harness2 の作業箱（#152・#161 で 2026-11-08 に main へ merge 済み）を ashiato2 で有効にできるように、`tools/workbox.json` を置く。中身は**依頼の版に 4 つの欄の直しを当てたもの**（正本は design.md の D1 の JSON）:
+## Task
 
-- `docker`・`prep_files`: 消した（#161 で「もう効かない」。検証の箱は箱の中の dockerd を持ち、準備も箱の中で走る）
-- `docker_images`: `["postgres:17-alpine"]` を足した（箱の中で DB を立てるたびに pull しない）
-- `host_only`: `tools/release/(build|install-check).sh`・`tools/android-side-by-side.sh`・`tools/usage-volume.sh` を足した
-- ほかの欄は依頼の版と同じ
+5 Task のうち、埋めた Task は 4 本（Task 1, Task 2, Task 3, Task 4）。
 
-既定（off）の間、harness2 はこのファイルを読まず、ashiato2 の側も何も読まない。置いただけでは振る舞いは変わらない。
+残した項目:
+- Task 5 の 5.2（PR ができてから走る検証（gate が持つ））: 5.2 harness2 に、上流で見つけた `PATH` の件を issue にする（Q1 (2)。design D9（仮））。題は `作業箱: ホストの PATH に /usr/sbin が無いと箱の中の dockerd が iptables を見つけられず立たない`。
+- Task 5 の 5.3（PR ができてから走る検証（gate が持つ））: 5.3 `enable-before.md` を本文にした ashiato2 の issue を 1 つ立てる（Q1 (3)。design D2）。5.2 の番号を一覧に書いた後に立てる。題は `作業箱を有効にする前の宿題（CH13）`。
 
-## 深掘り（第 1 回。本人の答え）と合意
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-- Q1 見つけた不足 → 依頼の「書き換えない」を外す。(1) JSON で直せるものは CH13 で直す（D1）/ (2) 根本は harness2 の issue（#157 / #161 で済んだ。D7）/ (3) 測るものだけを宿題の一覧と issue に（D2）
-- Q2 後の Story に箱の制約を知らせるか → この change では何も置かない（D5）
-- Q3 pgrep の確かめ → tasks に置く（D3・tasks 3.1）。鍵の確かめ（3.2）と、`host_only` の当たり方の確かめ（D8・tasks 4）も tasks に置く
-- Q4 範囲 → 触るのは `tools/workbox.json` と change の中の文書だけ（D4。`skip_specs: true`）
-- 仕様への合意: 第 1 回は合意する。第 2 回は違和感がある（harness2 #161 の形に合わせる。(1)〜(5)）→ この版で直した
+- 1.1 `python3 -c 'import json; json.load(open("tools/workbox.json", encoding="utf-8"))'` → rc=0（PASS・head e587f1a）
+- 1.2 `python3 -c 'import json,re;g=lambda p,h:open(p,encoding="utf-8").read().split(h,1)[1];d=re.split(r"\n### D",g("openspec/changes/ch13-workbox-config/design.md","### D1."),1)[0];b=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",d,re.S);assert len(b)==1,"D1 の JSON の塊が %d 個" % len(b);w=json.loads(b[0]);assert w==json.load(open("tools/workbox.json",encoding="utf-8")),"tools/workbox.json が D1 と違う";t=g("docs/changes/CH13.md","## 依頼（逐語）").split("\n## ",1)[0];t="\n".join(re.sub(r"^> ?","",l) for l in t.splitlines());r=re.findall(r"\x60{3}json\n(.*?)\n\x60{3}",t,re.S);assert len(r)==1,"依頼の JSON の塊が %d 個" % len(r);r=json.loads(r[0]);k={"docker","prep_files","docker_images","host_only"};assert {a:v for a,v in w.items() if a not in k}=={a:v for a,v in r.items() if a not in k},"変えてよい 4 つの欄の外が依頼の版と違う";assert "docker" not in w and "prep_files" not in w,"docker か prep_files が残っている";assert w["docker_images"]==["postgres:17-alpine"],"docker_images が違う";assert w["host_only"]==r["host_only"]+["tools/release/(build|install-check)\\.sh","tools/android-side-by-side\\.sh","tools/usage-volume\\.sh"],"host_only が依頼の版の足し算でない"'` → rc=0（PASS・head e587f1a）
+- 2.1 `bash -c '! git grep -n -i workbox -- . ":!tools/workbox.json" ":!openspec/changes" ":!docs/changes/CH13.md" ":!docs/briefs"'` → rc=0（PASS・head 0fd3c60）
+- 2.2 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|openspec/changes/ch13-workbox-config/|docs/changes/CH13\.md|docs/briefs/CH13|$)"'` → rc=0（PASS・head 0fd3c60）
+- 2.3 `bash -c 'set -e; for s in check-private check-secrets check-spdx check-shared-appends check-tmp-hygiene check-boundaries; do tools/$s.sh; done'` → rc=0（PASS・head 0fd3c60）
+- 2.4 `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test -s "$f" && grep -qF "画面の e2e 1 本が検証の箱の 6g に収まるか" "$f" && grep -qF "で 5 本のときの空きメモリ" "$f" && grep -qF "cargo のビルドが 4g に収まるか" "$f" && grep -q "^## harness2 #157 / #161 で済んだもの" "$f" && grep -q "^## harness2 の issue" "$f" && grep -q "^## 2\. 上流で見つけたこと" "$f" && grep -qF "iptables not found" "$f" && grep -q "^## ホストで走らせる台本" "$f" && grep -q "command-classes.md" "$f"'` → rc=0（PASS・head 2af2cdb）
+- 3.1 `bash -c 'n=$(env -u HARNESS_WORKBOX python3 .harness2/scripts/workbox.py run . -- bash -c "pgrep -fc /") && echo "pgrep: $n" && test "$n" -lt 10'` → rc=0（PASS・head 3947c08）
+- 3.2 `python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,".harness2/scripts");import workbox;cfg=workbox.load_config(Path("."),text=open("tools/workbox.json",encoding="utf-8").read());bad=sorted(set(cfg)&set(workbox.RETIRED));assert not bad,"もう効かない鍵: %s" % bad;assert set(cfg)<=workbox.KEYS'` → rc=0（PASS・head 3947c08）
+- 4.1 `bash -c 'd=openspec/changes/ch13-workbox-config; python3 "$d/check-workbox-match.py" && { python3 "$d/check-workbox-match.py" --request; test $? -eq 3; } && test "$(python3 -c "import json; print(len(json.load(open(\"$d/match-cases.json\"))[\"cases\"]))")" -ge 35'` → rc=0（PASS・head dbf27ff）
+- 4.2 `bash -c 'f=openspec/changes/ch13-workbox-config/command-classes.md; grep -q "^## ホストで走る（host_only）" "$f" && grep -q "^## 箱で走る" "$f" && ! grep -q "^## 箱で docker を渡" "$f" && test "$(grep -c "^- openspec/" "$f")" -ge 1700'` → rc=0（PASS・head dbf27ff）
+- 5.1 `bash -c 'f=docs/briefs/CH13-pr.md; test -s "$f" && grep -q "enable-before.md" "$f" && grep -q "pgrep -fc /" "$f" && grep -qE "pgrep: [0-9]+" "$f"'` → rc=0（PASS・head 9861754）
+- 5.2 `bash -c 'f=openspec/changes/ch13-workbox-config/enable-before.md; test "$(grep -cE "^- rai-256/harness2#[0-9]+ 作業箱: " "$f")" -eq 1 && for n in $(grep -oE "rai-256/harness2#[0-9]+" "$f" | cut -d"#" -f2); do gh issue view "$n" -R rai-256/harness2 --json title --jq .title | grep -qF "作業箱: ホストの PATH に /usr/sbin が無いと" || exit 1; done'` → rc=0（PASS・head 2af2cdb）
+- 5.3 `bash -c 'n=$(gh issue list --state open --search "作業箱を有効にする前の宿題 in:title" --json number --jq length) && test "$n" -ge 1 && grep -qE "^issue: #[0-9]+" openspec/changes/ch13-workbox-config/enable-before.md'` → rc=0（PASS・head dbf27ff）
+- 5.4 `bash -c 'f=docs/briefs/CH13-pr.md; grep -qE "rai-256/harness2#[0-9]+" "$f" && grep -qE "#[0-9]+.*作業箱を有効にする前の宿題" "$f"'` → rc=0（PASS・head 9861754）
 
-A（止める問い）は無い。
+## レビュー（`review/code.md`）
 
-## 仮決め（design.md の（仮）。台帳 `provisional.jsonl`）
+- 指摘 23 件（escalated 4・fixed 15・rejected 4）
+- 処置の re-review: 11 回。最後の判定が NOT ADDRESSED のもの: R20, R21, R22
 
-- D9（仮）: 上流で見つけた `PATH` の件を harness2 の issue に 1 つ立て、宿題の一覧にも置く。`tools/workbox.json` の `env` では回避しない（Q1 (2) に従う）
-- 前の D6（仮）（docker の正規表現の錨）・D7（仮）（harness2 の 3 つの issue）・D8（仮）（当たり方の確かめ）は台帳で resolve した（D6・D7 は前提が消え、D8 は違和感 (2) で本人が決めた）
+## 未処置の申し送り
 
-## capability
-
-- 無い（仕様を持たない change。`skip_specs: true`）。前倒しは無い
-
-## tasks
-
-5 Task・14 項目（5.4 を足した）。置く（1.1・1.2）/ off の間に何も変わらない（2.1〜2.4）/ pgrep と鍵（3.1・3.2）/ `host_only` の当たり方の確かめと分類の一覧（4.1・4.2）/ PR 本文と issue（5.1 PR 本文・5.2 harness2 に 1 つ・5.3 ashiato2 に 1 つ・5.4 PR 本文に issue の番号）。
-docker と作業箱のイメージを要るのは 3.1 だけ。GitHub に出るのは 5.2・5.3（どれも同じ題があれば立てない）。
-
-## レビュー
-
-- 深掘りの問いの独立検査（`review/deep.md`）: 10 件。問いとして本人に渡したもの 4（R1・R6・R7・R8）、宿題・前提・仮決めへ 6
-- spec-review（`review/spec.md`）: 第 1 回の先読みで 5 件（R1〜R5）、`spec --answers` の後で 6 件（R6〜R11）、第 2 回の違和感の後で 6 件（R12〜R17。technical 6）。全部 fixed（R2 の処置を escalated に・R9/R10 を仮でない形に直した・5.2 の検証で題を見る・2.4 で 2 節も見る・PATH の件の影響を「箱に入る検証の全部」に直した・5.4 を足した・字句）
-- 答えの写し（`review/answers.md`）: Q1〜Q4 とも写った
-- 走っている change との重なり: st53・st56・ch10 とも独立（触るファイルが重ならない）。st53 の actionlint と st56 の画面の e2e は、有効にした後は箱の中の dockerd で走る
+なし

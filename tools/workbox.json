@@ -1,0 +1,40 @@
+{
+  "apt": [
+    "postgresql-client",
+    "libnss3",
+    "libatk1.0-0t64",
+    "libatk-bridge2.0-0t64",
+    "libcups2t64",
+    "libdrm2",
+    "libxkbcommon0",
+    "libxcomposite1",
+    "libxdamage1",
+    "libxfixes3",
+    "libxrandr2",
+    "libgbm1",
+    "libasound2t64",
+    "libpango-1.0-0",
+    "libcairo2",
+    "fonts-noto-cjk"
+  ],
+  "memory": "6g",
+  "tmp_size": "4g",
+  "host_only": [
+    "cmd\\.exe",
+    "powershell\\.exe",
+    "tools/android-emulator\\.sh",
+    "connected\\w*AndroidTest",
+    "tools/release/(build|install-check)\\.sh",
+    "tools/android-side-by-side\\.sh",
+    "tools/usage-volume\\.sh",
+    "tools/release/sandbox-probe\\.sh"
+  ],
+  "env": {
+    "CARGO_BUILD_JOBS": "4"
+  },
+  "parallel_verify": 2,
+  "agent_memory": "4g",
+  "docker_images": [
+    "postgres:17-alpine"
+  ]
+}

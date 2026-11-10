@@ -157,6 +157,11 @@
       "why": "エミュレータを自分で起こす"
     },
     {
+      "cmd": "tools/release/sandbox-probe.sh p19",
+      "want": "host",
+      "why": "powershell.exe を中で呼ぶ台本（design D10。archive の st55 3.0 の形）"
+    },
+    {
       "cmd": "tools/android-emulator.sh",
       "want": "host",
       "why": "依頼の版から host_only"
