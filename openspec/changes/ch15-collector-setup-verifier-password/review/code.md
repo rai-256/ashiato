@@ -278,3 +278,19 @@ PROBE access_rows=9 leak=false
 - 提案: 試験の中で先に印が取れることを確かめてから poll する（または `try_acquire` で空きを確かめる）か、Pending の理由が `spawn_blocking` であることを別の形（合図など）で見る
 - 処置: fixed 1.2 —— 照合の本体を `check_with_permit`（印を持った後）に分け、試験は `hold_login_check_for_test` で印を先に取ってから `check_with_permit` を直に poll する。Pending の理由は blocking の側の照合だけになり、並走する試験が印を握っていても変異 D2 を捕まえる。変異 D2（`spawn_blocking` を外して async の worker で `accepts`）で FAILED、戻して PASS
 - 判定: ADDRESSED（re-review 4 @f0a0150aecaa628b299e04fed301b777b130b196）
+
+## final review（eb24379..4e53b88）
+
+見た: whole-branch の差分（`.superpowers/sdd/tasks/review-eb243793d..4e53b88ff.diff`）を `code-reviewer.md` の席で 1 回読んだ。重点は settle の直し（1863b53..f0a0150）。`cargo test -p ashiato-server -- ch15_ st55_ web_session` は rc=0（lib 79 passed、`ch15_` 8 本すべて ok。ログ `.superpowers/sdd/logs/20261111-082818-ct.log`）。R13〜R17 の直しは CH15.md の壊してはいけないもの 1〜6 を崩していない（断られている間は本文を読まない R5・試験の合図は印の待ちの前 R12・取り消しても 1 行・2 つの口で数えを共有・照合は blocking の側）。tasks.md 1.2 の grep の数え（`.accepts(` 1 か所・`LOGIN_CHECK` 2 か所）も保たれている。R1〜R17 と重なる指摘は無い。申し送り（`docs/handoff/CH15.md`）は無い。
+
+## R18. R17 で切り出した `check_with_permit` が、`LOGIN_CHECK` でない印でも受け取れる
+- 成果物: crates/server/src/web_session.rs（`check_with_permit` :713-717）
+- 根拠: 引数は `tokio::sync::SemaphorePermit<'static>` で、`pub(crate)` かつ `#[cfg(test)]` の外にある。「照合は `LOGIN_CHECK` の印の中で行う」（tasks.md の Global Constraints・design.md D1）が、型ではなく呼び手の規律に頼る形になった。crate 内で別の static な semaphore の印を渡して呼べば 1 つずつ通す仕組みを外れ、tasks.md 1.2 の grep（`LOGIN_CHECK` 2 か所）もこの呼び方を止めない。いまの呼び手は `check_given_password` と試験だけで実害は無い（Minor）
+- kind: technical
+- 提案: 印を `struct LoginCheckPermit(SemaphorePermit<'static>)` の newtype で包み、作れるのを `login_check_permit()` と `hold_login_check_for_test()` だけにする。または `check_with_permit` を private にし、試験用に `#[cfg(test)] pub(crate)` の薄い入口を置く
+
+## R19. R16 の直しは本文を捨てるが、取り出した巨大な合言葉は印の待ちの間も task に残る
+- 成果物: crates/server/src/web_session.rs（`check_given_password` :703-708）/ openspec/changes/ch15-collector-setup-verifier-password/design.md（「最後の段の処置で足したこと」の R16）
+- 根拠: `drop(body)` の後も `given`（`String`）は印を待つ間ずっと task に残る。`{"password": "<約 2MB>"}` を送れば保たれる量は本文とほぼ変わらず、印を待つ求めの数は失敗の上限（10 回。数え上げの後にしか効かない）では抑えられない。巨大な合言葉に Argon2id を回すこと自体は base からの性質（Minor）
+- kind: technical
+- 提案: この change では受け入れて design.md に 1 行書く（本文は捨てるが合言葉そのものは残る。長さの上限は無い）。合言葉の長さの上限（超えたら空と同じく失敗に数える）は振る舞いを変えるので、別の change（または /requirements）に出す
