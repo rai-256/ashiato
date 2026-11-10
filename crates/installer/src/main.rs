@@ -282,16 +282,28 @@ fn relaunch_elevated(script: &str) -> Result<(), String> {
     }
 }
 
+/// 問いの文は窓へ直に書き（文字化けを避ける）、読みだけ rpassword に任せる。
+fn ask_hidden(prompt: &str) -> Result<String, String> {
+    ashiato_setup::console::write_to_console(prompt)
+        .map_err(|error| format!("合言葉の問いを書けない: {error}"))?;
+    rpassword::read_password().map_err(|error| format!("合言葉を読めない: {error}"))
+}
+
 fn read_web_passwords(api_token: &str, session_key: &str) -> Result<String, String> {
     let terminal = std::io::stdin().is_terminal();
     let mut lines = std::io::stdin().lock().lines();
+    let requirements = ashiato_setup::password::requirements_line(terminal);
+    if terminal {
+        ashiato_setup::console::write_to_console(&format!("{requirements}\n"))
+            .map_err(|error| format!("合言葉の条件を書けない: {error}"))?;
+    } else {
+        terminal_line(&requirements, false);
+    }
     loop {
         let pair = if terminal {
             (
-                rpassword::prompt_password("画面の合言葉: ")
-                    .map_err(|error| format!("合言葉を読めない: {error}"))?,
-                rpassword::prompt_password("画面の合言葉（もう一度）: ")
-                    .map_err(|error| format!("合言葉を読めない: {error}"))?,
+                ask_hidden("画面の合言葉: ")?,
+                ask_hidden("画面の合言葉（もう一度）: ")?,
             )
         } else {
             (
