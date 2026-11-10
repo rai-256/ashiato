@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "22c7434cbc25bc0726dd79894b24e2ef40a684e49f27050af623e6326fde6098",
+  "digest": "73a53037798286fffac2a7a91a145b23ba16c356e5b679302ffd4e93b278683f",
   "head": "54b339836d1f09a7a85274e86a802501b91a5461",
   "answers": "deep-answers-1.txt",
   "picked": "合意する",
@@ -21,6 +21,18 @@
       "id": "IMP-03",
       "severity": "medium",
       "title": "条件の 1 行が疑似コンソールの幅を超え、窓の試験が「1 行」を探して落ちうる"
+    }
+  ],
+  "carried": [
+    {
+      "from": "22c7434cbc25bc0726dd79894b24e2ef40a684e49f27050af623e6326fde6098",
+      "because": [
+        "D7",
+        "D8",
+        "D9",
+        "Q2"
+      ],
+      "at": "2026-11-10T06:08:49Z"
     }
   ]
 }
