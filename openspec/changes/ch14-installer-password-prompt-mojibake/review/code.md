@@ -96,6 +96,7 @@
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R3. 6.1 の訂正後の検証コマンドは、CI の step が試験を 1 本も走らせなくても通る（訂正前のコマンドも同じ）
 - 成果物: tools/check-ci-ch14-step.sh / .github/workflows/ci.yml:428-430 / tasks.md 6.1 / plan-corrections.md / correction-review.md
@@ -114,6 +115,7 @@
 - 判定: ADDRESSED（re-review 2 @b47dcd1144891d0a34faa0d0d2ffc609d9cd450c）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## security review（dae5668..281892e）
 
@@ -172,6 +174,7 @@
 - 判定: ADDRESSED（re-review 1 @38bd85827ef801aa65f0e9f0677d03245fbf14fa）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R8. decode_child_output treats any byte sequence that happens to be valid UTF-8 as UTF-8, so cp932 output that is also valid UTF-8 is silently misread with no U+FFFD to signal the problem.
 - 成果物: crates/installer/src/console.rs:190
@@ -266,6 +269,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 処置: fixed 6.2 —— 時間切れを `die "管理者 $user の実行が終わらない"` に、タスクと .cmd の名前を `ashiato-install-check-admin`（どの管理者でも同じ 1 つの名前。呼び出しごとに作って消すことを doc に書いた）にし、後片付けの `rm` の名前も合わせた。`install-check.sh --self-test` rc=0・`bash -n` rc=0
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R18. 窓の台本が `.vt` を残さず落ちたとき、`window_run` は台本の出力（`.ps.out`）を出さずに止まる
 - 成果物: tools/release/install-check.sh:307-316（`window_run`）
@@ -275,6 +279,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 処置: fixed 3.1 —— `.vt` を読めないとき、die の前に `$WORK/$name.ps.out`（窓の台本の `hr=`・`err=` など）を標準エラーへ出し、die の文に窓の台本の rc を添えた。conpty-run.ps1 は入力の行を標準出力へ出さない（入力は窓へ送るだけ、窓の文字は `-Out` のファイルへ）ので合言葉は載らない。`--self-test` rc=0・`bash -n` rc=0（窓の節は CI の install-windows でだけ走る）
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R19. `repair_ident_contents` の doc が、英字でない名前の枝（引用した文字どおりの行）を書いていない
 - 成果物: crates/installer/src/commands.rs:1094-1100
@@ -291,6 +296,7 @@ Windows の CI（`package-windows` の `ch14_` の step・`install-windows` の 
 - 提案: コメントを `package.sh windows` の step の直前へ移す
 - 処置: fixed 6.1 —— コメントを `tools/release/package.sh windows "$RUNNER_TEMP/package-windows"` の step の直前へ移した（ch14 の step の上は CH14 のコメントだけ）。YAML として読める・`tools/check-ci-ch14-step.sh` rc=0
 - 判定: ADDRESSED（re-review 3 @7883a8b56223d0d54307e12291921b74080df056）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R21. tasks.md 5.1 の本文が Q6 より前の読み順（「UTF-8 として正しければそのまま」）のまま
 - 成果物: openspec/changes/ch14-installer-password-prompt-mojibake/tasks.md:76
@@ -329,6 +335,7 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - 提案: コメントを `self_test()` の直前へ移す
 - 処置: fixed 3.2 —— `tools/release/install-check.sh` の自己試験の説明の 3 行を `self_test() {` の直前へ移した。`console_probe` の上には自分の説明の 1 行だけが残る
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## R25. install-windows で `console_probe` が 2 回走る
 - 成果物: tools/release/install-check.sh:1067-1068 / .github/workflows/ci.yml（install-windows の `--probe-console` の step）
@@ -337,6 +344,7 @@ R にしない細かい残り（Task の findings のまま。merge を止めな
 - 提案: 片方にする（3.3 の検証コマンドが step の順を見るので、残すのは独立の step の側。`check_release_zip` の中の呼び出しを消すか、残す理由をコメントに書く）
 - 処置: fixed 4.2 —— 片方にはしない: tasks 4.2（凍結・[x]）が「窓の節の最初に `console_probe` を走らせる」と決めていて、3.3 の独立の step も検証コマンドが見る。`tools/release/install-check.sh` の `(console_probe)` の上に、正本は窓の節の中の呼び出し（CI の外で台本だけを走らせても通る）で、CI の step はインストールの前に早く落とすためであり二重に走る分はインストールより短い、とコメントで書いた
 - 判定: ADDRESSED（re-review 4 @90dc8383f5d4929232c4394e601a65bb59973a14）
+- 判定: ADDRESSED（re-review 6 @5071087c2184f264e342c9a98fc9a9f6d4cbcb0f）
 
 ## 手 7: 機械が承認した検証コマンドの訂正（machine-corrections 2026-11-10）
 
