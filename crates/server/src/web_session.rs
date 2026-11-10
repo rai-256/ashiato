@@ -610,9 +610,15 @@ pub async fn collector_setup_post(
 async fn run_to_completion(
     work: impl std::future::Future<Output = Result<Response, (StatusCode, String)>> + Send + 'static,
 ) -> Result<Response, (StatusCode, String)> {
-    tokio::spawn(work)
-        .await
-        .unwrap_or_else(|_| Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())))
+    tokio::spawn(work).await.unwrap_or_else(|_| {
+        // task が panic したら、行が欠けた理由を後で追えるように残す（合言葉・資格情報は載せない。review/code.md R14）
+        tracing::error!(
+            kind = "join",
+            op = "login.check",
+            "照合の task が終わらなかった"
+        );
+        Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+    })
 }
 
 /// 資格情報の口の、照合から後（`collector_setup_post` が `run_to_completion` で通す）。
@@ -622,7 +628,7 @@ async fn collector_setup_checked(
     caller: Caller,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let check = check_given_password(&app, &body).await;
+    let check = check_given_password(&app, body).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(collector_setup_entry(
@@ -689,19 +695,30 @@ fn given_password(body: &[u8]) -> String {
 /// 入れられた合言葉を、2 つの口で同じ道に通して照合する（CH15 design D1）。
 /// 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
 /// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
-pub(crate) async fn check_given_password(app: &App, body: &[u8]) -> PasswordCheck {
+pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordCheck {
     // 断られている間は、1 つずつの印を待たず・本文も読まずに断る（review/code.md R4・R5）
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
     }
+    // 合言葉を取り出したら本文は捨てる。印の待ちと失敗の遅れの間、本文を task に持たない（review/code.md R16）
+    let given = given_password(&body);
+    drop(body);
     #[cfg(test)]
     app.login.check_waiting.notify_waiters();
     let permit = login_check_permit().await;
+    check_with_permit(app, given, permit).await
+}
+
+/// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
+pub(crate) async fn check_with_permit(
+    app: &App,
+    given: String,
+    permit: tokio::sync::SemaphorePermit<'static>,
+) -> PasswordCheck {
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
     }
-    let given = given_password(body);
     // 空は照合せず失敗に数える（照らす形の `accepts` は空を自分では断らず、Argon2id を回してしまう）
     if given.is_empty() {
         app.login.limiter.record_failure();
@@ -762,7 +779,7 @@ async fn session_post_checked(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let check = check_given_password(&app, &body).await;
+    let check = check_given_password(&app, body).await;
     if check == PasswordCheck::Throttled {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access

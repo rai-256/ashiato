@@ -7,10 +7,11 @@
 ## Global Constraints
 
 - **触ってよいのは `lane.json` の予定のパスだけ**: `crates/server/src/web_session.rs`・`crates/server/src/web_session_tests.rs`・`crates/server/src/lib.rs`（試験の口が要るときだけ。今ある `App::with_login`・`web_session::password_verifier_for_test`・`login.failure_delay` で足りるので触らない。**1.1 の FAIL を記録するまで `lib.rs` と `web_session.rs` には触れない** —— 本番のコードに触れた木の FAIL は「直す前に落ちた」の証跡に数えられない）・`docs/changes/CH15.md`・`openspec/changes/ch15-collector-setup-verifier-password/**`。**`st55_tests.rs` / `st56_tests.rs`・`web/`・`docs/openapi.json` には触れない**（触れると通常の路へ昇格する）
+- **通常の路へ昇格した後に触れたパス**（最後の段の処置。review/code.md R8・R13）: 照らす形の試験の App を 2 か所で組まないよう、`crates/server/src/testdb.rs` に `verifier_app`・`VERIFIER_APP_TOKEN` を置き、`crates/server/src/st55_tests.rs` の組み方をそれに寄せた（振る舞いは変えない）。上の「触れない」は軽い路の間の制約で、昇格（`lane-verdict.json` の `promoted`）の後はこの 2 つも差分に入る
 - **正典の Scenario を変えない・`openspec/specs/` に触れない**。この change は spec の delta を持たない（`.openspec.yaml` の `skip_specs: true`）
 - **照合はログインの口と同じ道に通す**（design D1）: `LOGIN_CHECK` の印・`spawn_blocking` の側での `WebLogin::accepts`・同じ側での `record_failure()`。`collector_setup_post` に `token_matches(…, &app.login.password)` を残さない
 - **壊してはいけないもの**（`docs/changes/CH15.md`）: 口の応答の形と状態の番号（正しい合言葉 200 `{"token": …}`・違う / 空の合言葉 403 `{"error": "wrong_password"}`・印が無い 401・収集アプリの資格情報 403・JSON でない本文 415・数えを超えたら 429）・`Cache-Control: no-store`・失敗の遅れと、2 つの口で共有する失敗の数え・読み出しの記録の行と、記録とログに資格情報と入れた合言葉を出さないこと・ログインの口の振る舞い
-- **試験の名前の接頭辞は `ch15_`**、置き場は `crates/server/src/web_session_tests.rs`。照らす形の App は `st55_tests.rs` の `st55_verifier_login_route_accepts_only_matching_password` と同じ組み方（`password_verifier_for_test` → `WebLogin::new_with_verifier` → `failure_delay = Duration::ZERO` → `App::with_login`）。合言葉と鍵は試験の中で作り、その合言葉でログインする（`App::with_web_login`・`App::web_password_for_test()`・`st56_tests.rs` の `login_cookie` の型は照らす形を組まない・空を返すので使わない）
+- **試験の名前の接頭辞は `ch15_`**、置き場は `crates/server/src/web_session_tests.rs`。照らす形の App は `testdb::verifier_app`（`password_verifier_for_test` → `WebLogin::new_with_verifier` → `failure_delay = Duration::ZERO` → `App::with_login`。`st55_tests.rs` の `st55_verifier_login_route_accepts_only_matching_password` もこれを使う。R13）。合言葉と鍵は試験の中で作り、その合言葉でログインする（`App::with_web_login`・`App::web_password_for_test()`・`st56_tests.rs` の `login_cookie` の型は照らす形を組まない・空を返すので使わない）
 - 試験の `// Scenario: <名前>` の印は正典の `#### Scenario:` と一字一句合わせる
 - **長いコマンドは `scripts/quiet-run`**（cargo test）。本物の DB が要る（`.env` を読む。`docs/testing.md`）
 

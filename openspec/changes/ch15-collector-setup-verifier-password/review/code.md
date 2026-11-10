@@ -232,27 +232,32 @@ PROBE access_rows=9 leak=false
 - 根拠: tasks.md:9 は「触ってよいのは lane.json の予定のパスだけ」「`st55_tests.rs` / `st56_tests.rs` … には触れない（触れると通常の路へ昇格する）」、:13 は「照らす形の App は `st55_tests.rs` の … と同じ組み方」と書く。実際の差分は R8 の処置で `crates/server/src/st55_tests.rs`（11 行）と `crates/server/src/testdb.rs`（`verifier_app`・`VERIFIER_APP_TOKEN`、18 行）に触れている。`lane-verdict.json` の `diff.paths` にはこの 2 つが載るが、`promoted.why` は red_green だけを挙げ、パスの逸脱を昇格の理由にしていない。deep.md Q-L2 の「族」が R8 に一言触れるだけで、計画の文書は禁じたまま。後から読む人には、計画が禁じたファイルに触ったように見える（Important）
 - kind: technical
 - 提案: tasks.md の Global Constraints（または design.md の「最後の段の処置で足したこと」）に、昇格の後に触れたパス（`st55_tests.rs`・`testdb.rs`、R8）を書き足し、:13 の組み方の参照を `testdb::verifier_app` に書き換える。ハーネス側（`lanes.py` の diff の判定が宣言の外のパスを `why` に載せない）は harness2 への申し送り
+- 処置: fixed D1 —— tasks.md の Global Constraints に「通常の路へ昇格した後に触れたパス」（`testdb.rs`・`st55_tests.rs`、R8）を 1 項目足し、照らす形の App の組み方の参照を `testdb::verifier_app` に書き換えた。design.md の「最後の段の処置で足したこと」にも 1 行。ハーネス側（`lanes.py` が宣言の外のパスを `promoted.why` に載せない）は harness2 の範囲で、この change では直さない
 
 ## R14. 照合の task が panic したとき、tracing にも読み出しの記録にも何も残らずに 500 になる
 - 成果物: crates/server/src/web_session.rs（`run_to_completion` の `JoinError` の枝 :614-616）
 - 根拠: spawn した task が panic すると handler は 500 を返すが、`tracing::error!` も access_log の行も無い。lib.rs の `internal_at` は内部の失敗を `tracing::error!` で残している。起きる見込みは低いが、「1 件ごとに 1 行」（data-sensitivity spec.md:203）が欠けた理由を後から追えない（Minor）
 - kind: technical
 - 提案: `JoinError` の枝に `tracing::error!(kind = "join", op = "login.check", …)` を 1 行足す（合言葉・資格情報は載せない）
+- 処置: fixed D1 —— `run_to_completion` の `JoinError` の枝で `tracing::error!(kind = "join", op = "login.check", …)` を 1 行残してから 500 にする（合言葉・資格情報は載せない）。design.md に 1 行
 
 ## R15. 取り消された正しい合言葉のログインで、cookie の届かない印の行が `core.web_session` に残る
 - 成果物: crates/server/src/web_session.rs（`session_post_checked`）/ openspec/changes/ch15-collector-setup-verifier-password/design.md
 - 根拠: Q-L2 の `run_to_completion` で、`POST /session` が正しい合言葉のまま取り消されても task が走り切り、`core.web_session` に行を INSERT して `login_ok` の行を書く。cookie は客に届かない。残るのは hash だけで使えないが、期限なし（max_age 0）の既定では消えない。Q-L2 の問いは失敗の側（数えと行）として書かれ、成功の側のこの副作用は design にも deep にも書いていない（Minor）
 - kind: technical
 - 提案: 受け入れるなら design.md の「最後の段の処置で足したこと」に 1 行書く（取り消された成功のログインは使われない印を 1 行残す）
+- 処置: fixed D1 —— 受け入れて design.md の「最後の段の処置で足したこと」に書いた（取り消された成功のログインは、cookie の届かない使われない印の行を `core.web_session` に 1 行残す。残るのは hash だけ。Q-L2 の「走り切る」の成功の側の結果）
 
 ## R16. 取り消された求めの本文が、印の待ちと失敗の遅れの間も task に残る
 - 成果物: crates/server/src/web_session.rs（`collector_setup_checked`・`session_post_checked`）
 - 根拠: 本文の `Bytes`（既定の上限約 2MB）が spawn した task に移り、`LOGIN_CHECK` の待ちと失敗の遅れ（既定 1 秒）の間ずっと保たれる。base では取り消しの時点で捨てられていた。失敗 10 回で断る側に入るので量に上限はある（Minor）
 - kind: technical
 - 提案: 合言葉を取り出した後（`check_given_password` の前後）で本文を `drop` する
+- 処置: fixed D1 —— `check_given_password` が本文を `Bytes` で受け取り、断る数の判定の後に合言葉を取り出したら `drop(body)` する。印の待ちと失敗の遅れの間は本文を持たない（断られている間は本文を読まない R5 は保つ）
 
 ## R17. `ch15_verifier_check_runs_off_the_async_worker` は、並走する試験が LOGIN_CHECK を握っていると変異 D2 を見逃す
 - 成果物: crates/server/src/web_session_tests.rs（`ch15_verifier_check_runs_off_the_async_worker`）
 - 根拠: 試験は 1 回 poll して Pending なら合格とする。印（`LOGIN_CHECK`）はプロセスで 1 つなので、並走する試験（R10〜R12 の取り消しの試験など）が握っていると印の待ちで Pending になり、async の worker の上で Argon2id を回す近道（R2 の変異 D2）でも通る。偽の赤にはならず、変異を捕まえるのが確率的になる（Minor）
 - kind: technical
 - 提案: 試験の中で先に印が取れることを確かめてから poll する（または `try_acquire` で空きを確かめる）か、Pending の理由が `spawn_blocking` であることを別の形（合図など）で見る
+- 処置: fixed 1.2 —— 照合の本体を `check_with_permit`（印を持った後）に分け、試験は `hold_login_check_for_test` で印を先に取ってから `check_with_permit` を直に poll する。Pending の理由は blocking の側の照合だけになり、並走する試験が印を握っていても変異 D2 を捕まえる。変異 D2（`spawn_blocking` を外して async の worker で `accepts`）で FAILED、戻して PASS

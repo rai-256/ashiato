@@ -606,11 +606,16 @@ mod ch15 {
 
     /// 照らす形の照合は blocking の側で行い、async の worker を塞がない（review/code.md R2 の変異 D2）。
     /// 1 回 poll して Pending なら、照合を待つ間に worker を返している（その場で Argon2id を回すと Ready になる）。
+    /// 印は先に取ってから渡す。並走する試験が印を握っていても、Pending の理由は印の待ちでなく blocking の側の照合だけになる（review/code.md R17）。
     #[tokio::test]
     async fn ch15_verifier_check_runs_off_the_async_worker() {
         let app = verifier_app().await;
-        let body = serde_json::json!({ "password": "wrong-password-0123456789" }).to_string();
-        let mut check = std::pin::pin!(web_session::check_given_password(&app, body.as_bytes()));
+        let permit = web_session::hold_login_check_for_test().await;
+        let mut check = std::pin::pin!(web_session::check_with_permit(
+            &app,
+            "wrong-password-0123456789".to_owned(),
+            permit
+        ));
         let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
         assert!(std::future::Future::poll(check.as_mut(), &mut cx).is_pending());
         assert_eq!(check.await, web_session::PasswordCheck::Mismatch);
