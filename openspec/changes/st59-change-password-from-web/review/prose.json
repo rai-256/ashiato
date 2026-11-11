@@ -1,0 +1,23 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 107,
+ "applied": [
+  "walkthroughs[W3].why",
+  "walkthroughs[W3].figure.caption",
+  "walkthroughs[W3].cases[1].result",
+  "points[pw.2].text",
+  "points[tok.3].text",
+  "points[guard.3].text",
+  "points[dev.2].text",
+  "points[log.1].text",
+  "points[log.3].text",
+  "impact.findings[IMP-02].text",
+  "impact.findings[IMP-04].text",
+  "impact.findings[IMP-05].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
