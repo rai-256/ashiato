@@ -1,0 +1,14 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 129,
+ "applied": [
+  "purpose",
+  "points[off.4].text",
+  "impact.rules[R1].legit"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}

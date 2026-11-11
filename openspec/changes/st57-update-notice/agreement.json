@@ -1,0 +1,84 @@
+{
+  "status": "accepted",
+  "digest": "af3289ceab06a620374746a4fe4a3ba96690bc9eac78ed36ba9cfff79e35f559",
+  "head": "5475ba30561be6e4f61d7066ced0ace5cfe4b3ef",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-11T12:20:48Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "PC で切った確認が、settings.json の書き直しで戻りうる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "サーバを前の版へ戻すと、更新係を切る口と消す口が無くなる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "帯が出ている間、稼働状況の高さの予算に帯の分が足される"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "配る zip を入れる録画で、更新係が本物の配布元に問い合わせうる"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "携帯の回線の共有の IP で、問い合わせの上限に当たりうる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "ST55 で入れた PC に新しい版の zip で走らせ直しても、更新係は足されない"
+    }
+  ],
+  "carried": [
+    {
+      "from": "1dcf438cba02b32346a3a570be3195555fc4fdf60a3bdd595fcf97c13ef30980",
+      "because": [
+        "D16",
+        "D24",
+        "D25",
+        "D26",
+        "Q11"
+      ],
+      "at": "2026-11-11T14:59:16Z"
+    },
+    {
+      "from": "b87112d2c400b01eb184e3ccfef393d3169caf98e3219070bcb7f210a70a063b",
+      "because": [
+        "D16",
+        "D24",
+        "D25",
+        "D26",
+        "D27",
+        "D28",
+        "Q11",
+        "Q12",
+        "Q13"
+      ],
+      "at": "2026-11-11T23:14:51Z"
+    },
+    {
+      "from": "be8e8c5a66ca34a09f7e50d6709f49bb974d5ba72b9017c33035a53c6ddd1a67",
+      "because": [
+        "D16",
+        "D24",
+        "D25",
+        "D26",
+        "D27",
+        "D28",
+        "Q11",
+        "Q12",
+        "Q13"
+      ],
+      "at": "2026-11-11T23:41:31Z"
+    }
+  ]
+}
