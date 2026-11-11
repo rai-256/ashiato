@@ -81,5 +81,6 @@
 
 ## 要件へ戻すもの（第 2 回）
 
-- **FR-112**: Q11 で、入れ替えた収集アプリは切り方を示すまで問い合わせない（示せない間は 1 日 1 回の確認が止まる）。FR-112 の「WHILE 有効 … 1 日 1 回」の例外になるので、★ 2026-11-11 補足で書き、ST57.md を作り直す
-- 仕様へ写すもの: design D23 を、仮でない決定（Q11 の答え）として示す口を広げた形に書き直し、通知を出せない場合（携帯の `canPost()` が false・PC のトーストの `Err`）と画面に出した場合の Scenario を足す（次の `spec --answers Q11`）
+- **FR-112**: Q11 で、入れ替えた収集アプリは切り方を示すまで問い合わせない（示せない間は 1 日 1 回の確認が止まる）。FR-112 の「WHILE 有効 … 1 日 1 回」の例外になるので、★ 2026-11-11 補足で書いた。ST57 の完了の判定（stories.json の done）にも足して ST57.md を作り直した
+- 整合の確認: `docs/audit/2026-11-11-st57-fr112-consistency.md`（5 件。C1 は stories、C2・K1・K2 は `docs/handoff/ST57.md`、C3 は次の spec 段）
+- 仕様へ写すもの: design D23 を、仮でない決定（Q11 の答え）として示す口を広げた形に書き直し、通知を出せない場合（携帯の `canPost()` が false・PC のトーストの `Err`）と画面に出した場合の Scenario を足す（次の `spec --answers Q11`）。あわせて整合の確認の C2（入れ替えた部品の 7 日の起点は示した時）・K1（携帯はチャンネル `update` で判断）・K2（PC は `ToastNotifier::Setting()` を確かめてから採る）・C3（proposal・tasks・go.json・Migration Plan の「通知で 1 回示す」）、携帯の「画面」がどれか（`SetupActivity` か `MainActivity`）と PC の出し直しの時を決める
