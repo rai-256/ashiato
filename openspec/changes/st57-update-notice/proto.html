@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ST57 —「更新あり」の置き場（playground）</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;font-family:system-ui,"Noto Sans JP",sans-serif;background:#16181d;color:#e6e6e6;font-size:15px}
+.wrap{display:grid;grid-template-columns:minmax(240px,300px) 1fr;gap:16px;padding:16px}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}}
+fieldset{border:1px solid #333a45;border-radius:8px;margin:0 0 12px;padding:8px 10px}
+legend{color:#9fb0c4;font-size:13px}
+label{display:flex;gap:8px;align-items:center;min-height:28px;cursor:pointer}
+.presets button,.copy{min-height:32px;margin:2px 4px 2px 0;background:#2b3240;color:#e6e6e6;border:1px solid #445;border-radius:6px;padding:4px 10px;cursor:pointer}
+.fixed{font-size:12px;color:#9fb0c4;line-height:1.6}
+.stage{background:#0f1115;border-radius:10px;padding:12px;overflow:auto}
+.frame{background:hsl(140 18% 97%);color:hsl(140 10% 14%);margin:0 auto;border:1px solid #555;border-radius:6px;overflow:hidden;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:16px}
+.page{padding:12px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:12px}
+h1{font-size:22px;margin:0 auto 0 0}
+a{color:hsl(307 42% 34%);min-height:24px;display:inline-flex;align-items:center}
+.band{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font-size:14px;padding:6px 12px;border-bottom:1px solid hsl(140 10% 80%)}
+.band.update{background:hsl(307 42% 94%)}
+.band.stale{background:hsl(40 70% 92%)}
+.grid{height:180px;border-radius:8px;background:repeating-linear-gradient(90deg,hsl(140 30% 80%) 0 10px,hsl(140 18% 92%) 10px 14px)}
+.settings h2{font-size:18px;margin:16px 0 6px}
+.settings dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}
+.settings dt{color:hsl(140 8% 38%)}
+pre{white-space:pre-wrap;background:#0f1115;border:1px solid #333a45;border-radius:8px;padding:10px;user-select:text}
+.cap{font-size:12px;color:#9fb0c4;margin:6px 0}
+</style></head><body>
+<div class="wrap">
+<div>
+  <div class="presets"><span class="cap">プリセット</span><br>
+    <button data-p="rec">推奨（帯）</button><button data-p="settings">設定だけ</button><button data-p="phone">帯・携帯の幅・両方</button><button data-p="off">切ってある</button>
+  </div>
+  <fieldset><legend>置き場（Q7 の軸）</legend>
+    <label><input type="radio" name="place" value="band" checked>どの画面でも上の帯に 1 行</label>
+    <label><input type="radio" name="place" value="settings">設定の画面にだけ</label>
+  </fieldset>
+  <fieldset><legend>状態（見るため。選ぶものではない）</legend>
+    <label><input type="radio" name="st" value="update" checked>更新あり</label>
+    <label><input type="radio" name="st" value="stale">7 日確かめられていない（Q9）</label>
+    <label><input type="radio" name="st" value="both">両方</label>
+    <label><input type="radio" name="st" value="none">新しい版なし</label>
+    <label><input type="radio" name="st" value="off">確認を切ってある</label>
+  </fieldset>
+  <fieldset><legend>幅（見るため）</legend>
+    <label><input type="radio" name="w" value="360" checked>360 px（携帯のブラウザ）</label>
+    <label><input type="radio" name="w" value="1024">1024 px（PC）</label>
+  </fieldset>
+  <p class="fixed">固定（どれを選んでも満たす）: 押せる所は 24 px 以上（NFR-19）・文字と地のコントラスト 3:1 以上（WCAG）・360 px で横に流れない・外部の資源を読まない（帯の中身はサーバが返す）。表の色は ui-direction の明るい既定。</p>
+</div>
+<div>
+  <div class="stage"><div id="frame" class="frame"></div></div>
+  <p class="cap">選んだ形の指示（「指示をコピー」で回答欄へ）</p>
+  <pre id="out"></pre>
+  <button class="copy" id="copy">指示をコピー</button> <span id="cmsg" class="cap"></span>
+</div>
+</div>
+<script>
+const DEFAULTS={place:"band",st:"update",w:"360"};
+const state={...DEFAULTS};
+const PRESETS={rec:{place:"band",st:"update",w:"1024"},settings:{place:"settings",st:"update",w:"1024"},phone:{place:"band",st:"both",w:"360"},off:{place:"band",st:"off",w:"1024"}};
+const T={update:"更新あり 0.5.0（11/10 に見つけた）",stale:"更新を 7 日確かめられていない（最後に確かめた 11/03・配布元に届かない）"};
+function bands(){const b=[];if(state.st==="update"||state.st==="both")b.push(["update",T.update]);if(state.st==="stale"||state.st==="both")b.push(["stale",T.stale]);return b}
+function settingsRows(){const s=state.st;
+  const status={update:"有効。新しい版あり 0.5.0",stale:"有効。7 日確かめられていない",both:"有効。新しい版あり 0.5.0／最後の確認から 7 日",none:"有効。新しい版なし",off:"切ってある（インストーラで切った）"}[s];
+  const last=s==="off"?"—":(s==="stale"||s==="both")?"11/03 09:12（以後: 配布元に届かない）":"11/10 09:12";
+  return `<dl><dt>更新の確認</dt><dd>${status}</dd><dt>入っている版</dt><dd>0.4.0</dd><dt>最後に確かめた</dt><dd>${last}</dd></dl>`}
+function render(){
+  const f=document.getElementById("frame");f.style.width=state.w+"px";
+  const top=state.place==="band"?bands().map(([k,t])=>`<div class="band ${k}" role="status">${t}</div>`).join(""):"";
+  f.innerHTML=`${top}<div class="page"><header><h1>稼働状況</h1><a href="#">1 日を見る</a><a href="#">マスタ管理</a><a href="#">設定</a></header><div class="grid"></div>
+  <div class="settings"><h2>設定（下へスクロールした先の例）</h2>${settingsRows()}</div></div>`;
+  const p=[];
+  if(state.place==="band")p.push("サーバの「更新あり」と「更新を 7 日確かめられていない」は、どの画面でも見出しの上の帯に 1 行で出す（新しい版の番号と見つけた日／最後に確かめた日と理由）。設定の画面には、更新の確認の状態・入っている版・最後に確かめた日時を出す。");
+  else p.push("サーバの「更新あり」と「更新を 7 日確かめられていない」は、普段の画面には出さず、設定の画面にだけ出す（更新の確認の状態・入っている版・新しい版の番号と見つけた日・最後に確かめた日時）。");
+  if(state.place==="band")p.push("確認を切ってあるときと新しい版が無いときは帯を出さない。");
+  document.getElementById("out").textContent=p.join("\n");
+}
+function sync(){for(const k of ["place","st","w"]){const el=document.querySelector(`input[name=${k==="place"?"place":k}][value="${state[k]}"]`);if(el)el.checked=true}}
+document.querySelectorAll("input[type=radio]").forEach(i=>i.addEventListener("change",e=>{state[e.target.name]=e.target.value;render()}));
+document.querySelectorAll("[data-p]").forEach(b=>b.addEventListener("click",()=>{Object.assign(state,PRESETS[b.dataset.p]);sync();render()}));
+document.getElementById("copy").addEventListener("click",()=>{const t=document.getElementById("out").textContent,m=document.getElementById("cmsg");
+  if(!navigator.clipboard){m.textContent="コピーできない。上の欄を長押しで選んでコピー";return}
+  navigator.clipboard.writeText(t).then(()=>{m.textContent="コピーした"}).catch(()=>{m.textContent="コピーできない。上の欄を長押しで選んでコピー"})});
+render();
+</script>
+</body></html>
