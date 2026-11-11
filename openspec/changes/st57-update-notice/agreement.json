@@ -1,0 +1,41 @@
+{
+  "status": "accepted",
+  "digest": "1dcf438cba02b32346a3a570be3195555fc4fdf60a3bdd595fcf97c13ef30980",
+  "head": "5475ba30561be6e4f61d7066ced0ace5cfe4b3ef",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-11T12:20:48Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "PC で切った確認が、settings.json の書き直しで戻りうる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "サーバを前の版へ戻すと、更新係を切る口と消す口が無くなる"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "帯が出ている間、稼働状況の高さの予算に帯の分が足される"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "配る zip を入れる録画で、更新係が本物の配布元に問い合わせうる"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "携帯の回線の共有の IP で、問い合わせの上限に当たりうる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "ST55 で入れた PC に新しい版の zip で走らせ直しても、更新係は足されない"
+    }
+  ]
+}
