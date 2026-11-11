@@ -24,9 +24,11 @@ change: `openspec/changes/st57-update-notice/`（FR-112・FR-113・FR-115・FR-1
 
 ## 仮決め（design の（仮））
 
-D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D24（携帯で「画面に出した」とみなすのは最初の画面の行と設定の画面のスイッチ）・D25（PC の出し直しは定期の時にも試みる）・D26（入れ替えた収集アプリの 7 日の起点は示した時）。どれも反転条件つき。
+D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）。どれも反転条件つき。
 
 D23（確認の無い前の版から入れ替えた収集アプリは、切り方を示すまで問い合わせない）は、はじめ仮で置いたが別の席が「否」とし（通知を出せない端末での向きが無い）、台帳から外して第 2 回の Q11 で本人が決めた。
+
+D24（携帯で「画面に出した」とみなすのは最初の画面の行と設定の画面のスイッチ）・D25（PC の出し直しは定期の時にも試みる）も、はじめ仮で置いたが別の席が「否」とし（行が画面に無いまま・ロック中にトーストが出たまま印が立ちうる）、台帳から外して第 3 回の Q12・Q13 で本人に問うている。
 
 ## capability と requires
 
@@ -44,6 +46,6 @@ D23（確認の無い前の版から入れ替えた収集アプリは、切り�
 
 - `review/deep.md`: 16 件（escalated 12・fixed 4）
 - `review/spec.md`: 19 件 —— fixed 17（technical。R19 は Q11 を写した後の Scenario の足りなさ）・fixed D22 仮 1（conflict。Q5・Q9 の要件の改訂の預け先）・escalated Q11 1（R16。irreversible / exported。入れ替えの族。仮の D23 で閉じたが別の席が否とし、第 2 回の Q11 で本人が決めた）
-- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D24〜D26 の別の席の確かめ待ち（グラフの `provisional_review` が書く）
+- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外した（Q12・Q13）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
