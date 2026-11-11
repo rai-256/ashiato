@@ -19,20 +19,22 @@ change: `openspec/changes/st57-update-notice/`（FR-112・FR-113・FR-115・FR-1
 | Q9 確かめられない日が続いたら | 仮でよい | 7 日確かめられなければ「更新を確かめられていない」（推奨のままなら FR-113 を ★ 改訂） |
 | Q10 携帯はどの網で聞くか | 仮でよい | 網を問わない |
 | Q11 入れ替えた収集アプリが切り方を通知で示せないとき（第 2 回） | 止める（`exported`） | 示す口を広げ、どれでも示せない間は問い合わせない（携帯は通知を出せた時か画面に出た時、PC はトーストの成功。示せない間は止まったまま。FR-112 ★ 2026-11-11） |
+| Q12 入れ替えた携帯で、画面に切り方を出したとみなす時（第 3 回） | 止める（`exported`） | 行を組んで画面に出した時だけ印を立てる（行は一番上、閉じずに出す）—— 本人が選んだ（推奨と同じ） |
+| Q13 入れ替えた PC で、定期の時に切り方のトーストを出し直すか（第 3 回） | 止める（`exported`） | 定期の時は、ロックしておらず直前（5 分以内）に入力があった時だけ出し直す —— 本人が選んだ（推奨と同じ） |
 
 聞かない既定（`defaults.md` C1〜C10 = design D1〜D10）: 更新係は別の crate・別の実行ファイルで DB の部品を持たない・問い合わせは決まった形だけ（`GET`・本文なし・固定の `User-Agent`・自分の版を送らない）・結果は「見つけた最新の版」で持つ・確かめた記録は追記・1 日 1 回は 24 時間で未来の時刻は期限切れ扱い・更新係の置き場は状態の置き場の外・走らせ直しで足し消す口で消す・宛先は組み立ての定数・サーバは印と時刻だけで状態を見分ける・Linux は確かめない。
 
 ## 仮決め（design の（仮））
 
-D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）。どれも反転条件つき。
+D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）・D27（携帯で同じ回に別の画面や窓を前に出したときは、それが退いてから印を立てる）・D28（PC で入力の経過を読めない定期の時はトーストを試みない）。どれも反転条件つき。D27・D28 は Q12・Q13 の答えが言っていない分かれを、印を遅らせる側（外へ出るのが遅れるだけ）で埋めたもの。
 
 D23（確認の無い前の版から入れ替えた収集アプリは、切り方を示すまで問い合わせない）は、はじめ仮で置いたが別の席が「否」とし（通知を出せない端末での向きが無い）、台帳から外して第 2 回の Q11 で本人が決めた。
 
-D24（携帯で「画面に出した」とみなすのは最初の画面の行と設定の画面のスイッチ）・D25（PC の出し直しは定期の時にも試みる）も、はじめ仮で置いたが別の席が「否」とし（行が画面に無いまま・ロック中にトーストが出たまま印が立ちうる）、台帳から外して第 3 回の Q12・Q13 で本人に問うている。
+D24（携帯で「画面に出した」とみなすのは最初の画面の行と設定の画面のスイッチ）・D25（PC の出し直しは定期の時にも試みる）も、はじめ仮で置いたが別の席が「否」とし（行が画面に無いまま・ロック中にトーストが出たまま印が立ちうる）、台帳から外して第 3 回の Q12・Q13 で本人が決めた（携帯は行を一番上に組んで画面に出した時、PC の定期の時はロックしておらず最後の入力から 5 分以内の時だけ）。
 
 ## capability と requires
 
-- `distribution` に ADDED 14 Requirement・MODIFIED 5 Requirement（インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧）。Scenario は 140 本で、ST57 が印を置くのは 100 本（ADDED 95・MODIFIED で足した 5）。INDEX の割り当てどおりで、前倒しは無い
+- `distribution` に ADDED 14 Requirement・MODIFIED 5 Requirement（インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧）。Scenario は 150 本で、ST57 が印を置くのは 110 本（ADDED 105・MODIFIED で足した 5）。INDEX の割り当てどおりで、前倒しは無い
 - requires の ST52・ST55 は archive 済み。走っている change との重なりは無い（`spec_overlap.py candidates` 0 件）
 - **移行は無い**。サーバの依存に HTTP の部品を足さない（`check-offsite.sh` は今のまま）。更新係は新しい実行ファイル `ashiato-updater.exe` とサービス `ashiato-updater`
 - 画面の Scenario は `web/e2e/st57-update-notice.spec.ts`
@@ -45,7 +47,7 @@ D24（携帯で「画面に出した」とみなすのは最初の画面の行�
 ## レビュー
 
 - `review/deep.md`: 16 件（escalated 12・fixed 4）
-- `review/spec.md`: 19 件 —— fixed 17（technical。R19 は Q11 を写した後の Scenario の足りなさ）・fixed D22 仮 1（conflict。Q5・Q9 の要件の改訂の預け先）・escalated Q11 1（R16。irreversible / exported。入れ替えの族。仮の D23 で閉じたが別の席が否とし、第 2 回の Q11 で本人が決めた）
-- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外した（Q12・Q13）
+- `review/spec.md`: 25 件 —— fixed 23（technical。R19 は Q11 を写した後の Scenario の足りなさ、R20〜R25 は Q12・Q13 を写した後の Scenario と D24・D27 の分かれ）・fixed D22 仮 1（conflict。Q5・Q9 の要件の改訂の預け先）・escalated Q11 1（R16。irreversible / exported。入れ替えの族。仮の D23 で閉じたが別の席が否とし、第 2 回の Q11 で本人が決めた）
+- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外し Q12・Q13 で本人が決めた。D27・D28 は別の席の確かめ待ち
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
