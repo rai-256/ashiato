@@ -74,7 +74,7 @@
 インストーラの一時の書き（`TemporaryWrite`）は、中のファイルの持ち主がインストーラだった前提で書かれ、`takeown /A /R` で持ち主を戻す。サーバのアカウントが付け替えで作った `server.json` に届くかは、まだ実物で見ていない（確かさ 2）。
 `tools/release/install-check.sh` に、インストールした形で画面の口から 2 つの値を変え、サービスを起こし直し、インストーラの `password` で決め直す通しを足す（Task 7）。
 外れたときに失うもの: 画面で変えた後に合言葉を忘れると、`password` の口が使えない。残る出口は `repair`（設定のファイルが無いことが条件。`distribution` の「DB はあるのに秘密が無くて止まったら…」）のために管理者として `server.json` を退けることだけで、そのとき共有の値と DB の合言葉も作り直しになる。
-だからこの前提は CI で確かさ 4 に上げてから merge する（Task 7.1 の終わりは CI の `install-windows` の緑）。`crates/installer/src/commands.rs` の一時の書きのコメント（「settings はインストーラだけが書く」）は ST59 の後は外れるので、Task 7.1 で直す（review/spec.md R10）。
+だからこの前提は CI で確かさ 4 に上げてから merge する（merge gate が見る PR の CI の `install-windows` の緑）。`crates/installer/src/commands.rs` の一時の書きのコメント（「settings はインストーラだけが書く」）は ST59 の後は外れるので、Task 7.1 で直す（review/spec.md R10）。
 
 反転条件: 通しで `password` が `server.json` を書けない・読めないなら、インストーラの一時の書きを、持ち主に依らず書ける形（`takeown` の後に書きの ACE を足す）に直す。直せなければ A として人間に返す（忘れたときの戻り道が無くなるので P にしない）。
 

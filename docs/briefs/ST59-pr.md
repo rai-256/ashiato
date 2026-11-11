@@ -26,7 +26,7 @@ change: `openspec/changes/st59-change-password-from-web/`（FR-133）
 
 ## tasks
 
-9 Task・14 項目（人間の確認待ちは無い。画面は e2e、Windows のサービスとインストーラは CI の `install-windows`）。ST59 が印を置く Scenario は 32 本。
+9 Task・14 項目（人間の確認待ちは無い。画面は e2e、Windows のサービスとインストーラは CI の `install-windows`）。ST59 が印を置く Scenario は 33 本。
 
 ## レビュー
 

@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: …`）、bash は `echo "== Scenario: …"`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせる。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change で ST59 が印を置く Scenario は 32 本**（ADDED 29 本・MODIFIED で足した 3 本）。全部このファイルのどこかの Task が名指しする。
+- **この change で ST59 が印を置く Scenario は 33 本**（ADDED 28 本・MODIFIED で足した 5 本）。全部このファイルのどこかの Task が名指しする。
   MODIFIED で本文をそのまま写した Scenario（「画面のログインは期限で切れず…」の 6 本・「誰がいつ読んだかを…」の 10 本）の印は、ST28・ST29・ST44 が持っている。**消さない・名前を変えない**
 - **本人の決定（下流は変えない）**: Q1 ほかの端末のログインは全部切り、変えた画面だけ新しい合言葉でログインしたままにする / Q2 設定の画面に 2 つの節を別々に置く（「画面の合言葉を変える」「収集アプリの値を変える」）/
   Q3 設定のファイルを指して起こしたサーバでだけ変えられ、開発の形では断る。
@@ -46,7 +46,7 @@
 
 - [ ] 2.1 `crates/server/src/service.rs` に、`ASHIATO_SETTINGS_PATH` の `server.json` を読み直し、1 つの鍵（`WEB_PASSWORD_VERIFIER` か `API_TOKEN`）だけを置き換えて、同じフォルダの `server.json.writing` に書いて `sync_all` し、`server.json` へ名前を付け替える関数を足す。
   読めない・JSON でない・書けない・付け替えられないときは型の付いた誤りを返し、`server.json` を変えない。値は誤りにもログにも載せない
-  試験（`crates/server/src/st59_tests.rs`。DB を使わない）: 置き換えた 1 つの鍵のほかは鍵も値も同じ・書いたファイルを `load_settings` で読める・置き場を書けなくする（読みだけのフォルダ）と誤りで `server.json` が前の中身のまま・
+  試験（`crates/server/src/st59_tests.rs`。DB を使わない）: 置き換えた 1 つの鍵のほかは鍵も値も同じ・書いたファイルを `load_settings` で読める・`server.json.writing` の名前でフォルダを先に置いて書けなくすると（読みだけの権限は root で効かないので使わない）誤りで `server.json` が前の中身のまま・
   JSON でない `server.json` には書かない・残った `server.json.writing` があっても上書きして終わる
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-server st59_settings_ && test "$(cargo test -p ashiato-server st59_settings_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0 /
   `cargo clippy -p ashiato-server --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
@@ -73,9 +73,9 @@
   `収集アプリの値を変えると、設定のファイルは収集アプリの値だけが変わる`・`変えた後に起動し直しても、新しい収集アプリの値で動く`（書き直した `server.json` から組み立て直した `App`）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st59_collector_token_ && test "$(cargo test -p ashiato-server st59_collector_token_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'` rc=0
 - [ ] 4.2 2 つの口に共通の Scenario の試験（`crates/server/src/st59_tests.rs`）: `失敗が回数の制限を超えると、正しい合言葉でも変えられない`（ログインの口 1 回・`/collector-setup` 1 回・2 つの変える口 4 回ずつ失敗 → 2 つとも 429・設定のファイルが変わらない）・`本文が JSON でない求めでは、何も変わらない`・
-  `合言葉と収集アプリの値を変える求めの断りは、返した状態のとおりに残る`（401・429・400・409・500 の行の状態と結果の語。書き戻しで落ちた求めは `ok` と打ち消しの 2 行）・`合言葉と収集アプリの値を変える求めの値は、記録にもログにも応答の見出しにも残らない`・
+  `合言葉と収集アプリの値を変える求めの断りは、返した状態のとおりに残る`（401・409・400・429 の行の状態と結果の語）・`書き戻しに落ちた求めは、変えた行と打ち消しの行の 2 行で残る`・`合言葉と収集アプリの値を変える求めの値は、記録にもログにも応答の見出しにも残らない`・
   読み出しの記録に `ok` の行を書けなければ（`with_access_sink` で書けなくする）、2 つとも 500 で設定のファイルも組も変わらない・
-  `設定のファイルに書けなければ、何も変わらない`（置き場を読みだけにする → 2 つとも 500 `not_saved`・前の合言葉と前の値が効く・書きかけが無い）・
+  `設定のファイルに書けなければ、何も変わらない`（`server.json.writing` の名前でフォルダを先に置いて書けなくする → 2 つとも 500 `not_saved`・前の合言葉と前の値が効く・書きかけが無い）・
   開発の形（`ASHIATO_SERVICE_MODE` なし）では 2 つとも 409 `not_changeable` で何も変わらない（e2e の `開発の形のサーバでは、画面から変えられないと出る` の口の側）・
   `合言葉と収集アプリの値を変える求めは、変えたものも断ったものも残る`（2 つの口の名前で `forbidden`・403 の行と `ok`・204 / 200 の行が 1 行ずつ）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st59_both_ && test "$(cargo test -p ashiato-server st59_both_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'` rc=0 / `./tools/check-openapi.sh` rc=0 / `tools/check-log-private.sh` rc=0
@@ -95,7 +95,7 @@
   `今の合言葉を入れ直すと画面の合言葉が変わり、前の合言葉ではログインできない`・`今の合言葉が違えば、画面の合言葉は変わらない`・`合言葉を変えると、ほかのブラウザのログインは切れ、変えた画面はログインしたまま`（2 つの browser context）・
   `今の合言葉を入れ直すと、新しい値の設定の文字列とコピーのボタンが出る`（欄の文字列を `parseSetupString` で読み、送り先が `page.url()` の origin + `/api`・資格情報が設定のファイルの前の `API_TOKEN` と違い、変えた後の設定のファイルの `API_TOKEN` と一致・利用者の欄が無い）・
   `別の画面へ移って戻ると、新しい値の設定の文字列は消える`・`読み込み直すと、新しい値の設定の文字列は消える`・`設定に 2 つの節が並び、落としたときは両方を変えると書いてある`・
-  `設定のファイルに書けないと、画面は合言葉が変わっていないと出す`（台本で作った設定のファイルの置き場を読みだけにしてから押す）。
+  `設定のファイルに書けないと、画面は合言葉が変わっていないと出す`（台本で作った設定のファイルの隣に `server.json.writing` の名前でフォルダを置いてから押す）。
   `開発の形のサーバでは、画面から変えられないと出る` は共有の stack のサーバ（`tools/stack.sh` の開発の形）で、2 つの節を押して文が出ることと、その後も `.env` の合言葉でログインでき `.env` の `API_TOKEN` で記録を送ると取り込まれることを見る
   検証: `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e -- st59-change-secrets.spec.ts'` rc=0 / `bash -c 'cd web && npx tsc --noEmit && npx vitest run && npm run lint'` rc=0
 - [ ] 6.2 既存の e2e が変わらず通る（共有の stack のサーバの合言葉と値を変えていないこと）
@@ -109,7 +109,7 @@
   `== Scenario: 画面で変えた後も、インストーラで決め直せる`（`ashiato-setup.exe password` で決め直し、決め直した合言葉でログインでき、画面で変えた合言葉ではできず、`API_TOKEN` は画面で変えた値のまま）。
   `password` が `server.json` を書けない・読めないなら、D5 の反転条件のとおりインストーラの一時の書きを直す（`crates/installer`。試験は `st59_` の接頭辞）。直せなければ上流へ A として返す。
   `crates/installer/src/commands.rs` の一時の書きのコメント（settings はインストーラだけが書く）を、サーバも `server.json` を書く形に直す。
-  **終わりの条件**: PR の CI の `install-windows` が緑で、そのログに 3 本の `== Scenario:` の行がある（手元の検証だけで [x] を付けない）
+  [x] は手元の検証で付ける。実地は PR の CI の `install-windows`（`--list` とログを突き合わせ、走らなかった Scenario があれば落ちる）が merge gate で見る。CI が赤なら D5 の反転条件に入る
   検証: `tools/release/install-check.sh --self-test` rc=0 / `bash -c 'n=$(tools/release/install-check.sh --list | grep -cE "^(画面で変えた後も、インストーラで決め直せる|変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない|変えた後に起動し直しても、新しい収集アプリの値で動く)$"); test "$n" -eq 3'` rc=0（実地は PR の CI の `install-windows`）
 
 ## Task 8: 手順書と申し送り
