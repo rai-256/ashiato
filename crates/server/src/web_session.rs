@@ -302,6 +302,22 @@ pub fn session_max_age_days(var: Option<&str>) -> anyhow::Result<u32> {
 /// ログインの合言葉の照合を 1 つずつ通す（ST55 review R23 の security の指摘）。
 static LOGIN_CHECK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
+/// 試験が照合の 1 つずつの印を握り、照合を「印を待つ所」で止める（review/code.md R10。
+/// 取り消しを照合の途中に、時刻に依らず置くため）。
+#[cfg(test)]
+pub(crate) async fn hold_login_check_for_test() -> LoginCheckPermit {
+    login_check_permit().await
+}
+
+/// `LOGIN_CHECK` の印。中身は private で、作れるのは `login_check_permit` だけ
+/// （`check_with_permit` が別の semaphore の印を受け取れないように。review/code.md R18）。
+pub(crate) struct LoginCheckPermit(#[allow(dead_code)] tokio::sync::SemaphorePermit<'static>);
+
+/// 照合の 1 つずつの印を取る。印は static で、誰も閉じない（review/code.md R9）。
+async fn login_check_permit() -> LoginCheckPermit {
+    LoginCheckPermit(LOGIN_CHECK.acquire().await.expect("1 つずつの印は閉じない"))
+}
+
 /// ログインの設定と状態。`App` が持つ。
 #[derive(Clone, Debug)]
 pub struct WebLogin {
@@ -315,6 +331,9 @@ pub struct WebLogin {
     /// 失敗のたびに待たせる長さ（D17。試験は差し替える）。
     pub(crate) failure_delay: Duration,
     limiter: Arc<LoginLimiter>,
+    /// 照合が 1 つずつの印を待ち始めた合図（試験が照合の途中で取り消すため。review/code.md R11・R12）。
+    #[cfg(test)]
+    check_waiting: Arc<tokio::sync::Notify>,
 }
 
 impl WebLogin {
@@ -328,6 +347,8 @@ impl WebLogin {
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
+            #[cfg(test)]
+            check_waiting: Arc::default(),
         }
     }
 
@@ -342,6 +363,8 @@ impl WebLogin {
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
+            #[cfg(test)]
+            check_waiting: Arc::default(),
         }
     }
 
@@ -350,6 +373,13 @@ impl WebLogin {
             || !password.is_empty() && token_matches(password, &self.password),
             |verifier| verify_password_verifier(verifier, password),
         )
+    }
+
+    /// この login の照合が 1 つずつの印を待ち始めた合図を待つ（並走する他の試験の照合とは混ざらない）。
+    /// 合図は溜まらず、作った後の合図だけを受ける（前のログインの照合の合図を拾わない）ので、求めを出す前に作る。
+    #[cfg(test)]
+    pub(crate) fn check_waiting_for_test(&self) -> tokio::sync::futures::Notified<'_> {
+        self.check_waiting.notified()
     }
 
     #[cfg(test)]
@@ -576,7 +606,34 @@ pub async fn collector_setup_post(
             "unsupported media type".into(),
         ));
     }
-    if app.login.limiter.throttled() {
+    run_to_completion(collector_setup_checked(app, headers, caller, body)).await
+}
+
+/// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。
+/// 取り消された求めの照合も失敗に数えるので、その行も残す（data-sensitivity「1 件ごとに 1 行」）。
+async fn run_to_completion(
+    work: impl std::future::Future<Output = Result<Response, (StatusCode, String)>> + Send + 'static,
+) -> Result<Response, (StatusCode, String)> {
+    tokio::spawn(work).await.unwrap_or_else(|_| {
+        // task が panic したら、行が欠けた理由を後で追えるように残す（合言葉・資格情報は載せない。review/code.md R14）
+        tracing::error!(
+            kind = "join",
+            op = "login.check",
+            "照合の task が終わらなかった"
+        );
+        Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+    })
+}
+
+/// 資格情報の口の、照合から後（`collector_setup_post` が `run_to_completion` で通す）。
+async fn collector_setup_checked(
+    app: App,
+    headers: HeaderMap,
+    caller: Caller,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let check = check_given_password(&app, body).await;
+    if check == PasswordCheck::Throttled {
         app.access
             .write(collector_setup_entry(
                 &headers,
@@ -587,16 +644,7 @@ pub async fn collector_setup_post(
             .await?;
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
     }
-    let given = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("password")
-                .and_then(|p| p.as_str().map(str::to_owned))
-        })
-        .unwrap_or_default();
-    if given.is_empty() || !token_matches(&given, &app.login.password) {
-        app.login.limiter.record_failure();
+    if check == PasswordCheck::Mismatch {
         app.access
             .write(collector_setup_entry(
                 &headers,
@@ -628,6 +676,81 @@ pub async fn collector_setup_post(
     .into_response())
 }
 
+/// 合言葉の照合の結果。ログインの口と資格情報を返す口が共に使う。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PasswordCheck {
+    /// 失敗が多いので照合せず断る（失敗には数えない）。
+    Throttled,
+    Match,
+    Mismatch,
+}
+
+/// 求めの本文から入れられた合言葉を取る。無い・読めないときは空。
+fn given_password(body: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("password")
+                .and_then(|p| p.as_str().map(str::to_owned))
+        })
+        .unwrap_or_default()
+}
+
+/// 入れられた合言葉を、2 つの口で同じ道に通して照合する（CH15 design D1）。
+/// 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
+/// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
+pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordCheck {
+    // 断られている間は、1 つずつの印を待たず・本文も読まずに断る（review/code.md R4・R5）
+    if app.login.limiter.throttled() {
+        return PasswordCheck::Throttled;
+    }
+    // 合言葉を取り出したら本文は捨てる。印の待ちと失敗の遅れの間、本文を task に持たない（review/code.md R16）
+    let given = given_password(&body);
+    drop(body);
+    #[cfg(test)]
+    app.login.check_waiting.notify_waiters();
+    let permit = login_check_permit().await;
+    check_with_permit(app, given, permit).await
+}
+
+/// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
+pub(crate) async fn check_with_permit(
+    app: &App,
+    given: String,
+    permit: LoginCheckPermit,
+) -> PasswordCheck {
+    // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
+    if app.login.limiter.throttled() {
+        return PasswordCheck::Throttled;
+    }
+    // 空は照合せず失敗に数える（照らす形の `accepts` は空を自分では断らず、Argon2id を回してしまう）
+    if given.is_empty() {
+        app.login.limiter.record_failure();
+        return PasswordCheck::Mismatch;
+    }
+    // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
+    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡し、照合が終わって数え上げるまで次の照合を始めない（review R78）
+    let login = app.login.clone();
+    let accepted = tokio::task::spawn_blocking(move || {
+        let accepted = login.accepts(&given);
+        if !accepted {
+            login.limiter.record_failure();
+        }
+        drop(permit);
+        accepted
+    })
+    .await
+    .unwrap_or_else(|_| {
+        app.login.limiter.record_failure();
+        false
+    });
+    if accepted {
+        PasswordCheck::Match
+    } else {
+        PasswordCheck::Mismatch
+    }
+}
+
 /// ログイン。**画面の合言葉そのものを資格情報として要求する**（`authorize()` は通さない）。
 #[utoipa::path(post, path = "/session", request_body = LoginRequest,
     responses((status = 204), (status = 401), (status = 415), (status = 429)))]
@@ -651,13 +774,17 @@ pub async fn session_post(
             "unsupported media type".into(),
         ));
     }
-    // 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
-    // 数え上げより先に照合が並んで上限をすり抜けないように（review R23）
-    let permit = LOGIN_CHECK
-        .acquire()
-        .await
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "unavailable".to_owned()))?;
-    if app.login.limiter.throttled() {
+    run_to_completion(session_post_checked(app, headers, body)).await
+}
+
+/// ログインの口の、照合から後（`session_post` が `run_to_completion` で通す）。
+async fn session_post_checked(
+    app: App,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let check = check_given_password(&app, body).await;
+    if check == PasswordCheck::Throttled {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access
             .write(session_entry(
@@ -670,31 +797,7 @@ pub async fn session_post(
             .await?;
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
     }
-    let given = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|v| {
-            v.get("password")
-                .and_then(|p| p.as_str().map(str::to_owned))
-        })
-        .unwrap_or_default();
-    // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
-    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡す。接続が切れてこの future が捨てられても、
-    // 照合が終わって数え上げるまで次の照合は始まらない（review R78）
-    let login = app.login.clone();
-    let accepted = tokio::task::spawn_blocking(move || {
-        let accepted = login.accepts(&given);
-        if !accepted {
-            login.limiter.record_failure();
-        }
-        drop(permit);
-        accepted
-    })
-    .await
-    .unwrap_or_else(|_| {
-        app.login.limiter.record_failure();
-        false
-    });
-    if !accepted {
+    if check == PasswordCheck::Mismatch {
         tracing::warn!(kind = "login_failed", "ログインの合言葉が一致しない");
         app.access
             .write(session_entry(
