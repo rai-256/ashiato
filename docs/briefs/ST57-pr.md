@@ -27,7 +27,7 @@ D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 �
 
 ## capability と requires
 
-- `distribution` に ADDED 14 Requirement・MODIFIED 5 Requirement（インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧）。Scenario は 129 本で、ST57 が印を置くのは 89 本（ADDED 84・MODIFIED で足した 5）。INDEX の割り当てどおりで、前倒しは無い
+- `distribution` に ADDED 14 Requirement・MODIFIED 5 Requirement（インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧）。Scenario は 130 本で、ST57 が印を置くのは 90 本（ADDED 85・MODIFIED で足した 5）。INDEX の割り当てどおりで、前倒しは無い
 - requires の ST52・ST55 は archive 済み。走っている change との重なりは無い（`spec_overlap.py candidates` 0 件）
 - **移行は無い**。サーバの依存に HTTP の部品を足さない（`check-offsite.sh` は今のまま）。更新係は新しい実行ファイル `ashiato-updater.exe` とサービス `ashiato-updater`
 - 画面の Scenario は `web/e2e/st57-update-notice.spec.ts`

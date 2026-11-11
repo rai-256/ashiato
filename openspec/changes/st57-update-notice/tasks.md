@@ -14,7 +14,7 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 24 時間たたないうちは確かめない`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせる。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario**: `distribution` の ADDED 84 本と、MODIFIED で足した 5 本（`インストールの最後に更新の確認が有効なことと切り方を示し、その後に更新係が起きる`・`配布元に届かなくてもインストールは終わる`・`更新係の無いインストールを走らせ直すと、更新係が足される`・`切った更新の確認は、走らせ直しでも切ったまま`・`サーバの Windows 版の依存の一覧は、更新係だけが持つ部品を含む`）、計 **89 本に ST57 が印を置く**。全部このファイルのどこかの Task が名指しする。
+- **この change の Scenario**: `distribution` の ADDED 85 本と、MODIFIED で足した 5 本（`インストールの最後に更新の確認が有効なことと切り方を示し、その後に更新係が起きる`・`配布元に届かなくてもインストールは終わる`・`更新係の無いインストールを走らせ直すと、更新係が足される`・`切った更新の確認は、走らせ直しでも切ったまま`・`サーバの Windows 版の依存の一覧は、更新係だけが持つ部品を含む`）、計 **90 本に ST57 が印を置く**。全部このファイルのどこかの Task が名指しする。
   MODIFIED で文を変えた ST55 の Scenario（`配る zip からのインストールで、2 つのサービスが自動で起きる形で入る`・`消すとサービスとプログラムと登録が消える`・`消しても記録の置き場は残り、その場所を示す`・`Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない`・`インストーラとサーバの版番号はそろう`・`配る組み立ては試験の差し込みを持たない`・`Linux の配布物は PostgreSQL を持たない`）は、ST55 の印のある確かめ（`install-check.sh`・`check-artifacts.sh`）を新しい THEN に合わせて直す（Task 6・7）。**印を消さない**
 - **本人の決定（下流は変えない）**: Q1 3 つの部品がそれぞれ直に配布元に聞く / Q2 入っている版のチャンネルで決める / Q3 サーバはインストーラの `update-check off|on` で切る / Q4 収集アプリは端末ごとに切る /
   Q5 携帯は画面に出し、新しい版ごとに 1 回通知する / Q6 PC は新しい版ごとに 1 回通知する / Q7 どの画面でも見出しの上の帯に 1 行・設定の画面に状態 / Q8 帯を押しても何も起きない / Q9 7 日確かめられなければ「更新を確かめられていない」/ Q10 携帯は網を問わない。
@@ -23,7 +23,7 @@
   置き場 `C:\ProgramData\ashiato-updater`（開発版 `-dev`）の `settings\check.json`・`settings\test-hooks.json`（試験の組み立てだけ）・`status.json`・`checks.jsonl`・`logs\`、インストーラの口 `update-check off|on`、サーバの口 `GET /update-status`（開発の形の置き場 `ASHIATO_UPDATER_DIR`）、
   PC の口 `update-check off|on`・札 `update`・`update-stale`・`update-intro`・置き場のファイル `update-check.json`・`update-checks.jsonl`、携帯の `UpdateCheck.kt`・`UpdateChecker.kt`・チャンネル `update`・SharedPreferences `update_check.xml`・`noBackupFilesDir/update_checks.jsonl`・`BuildConfig.UPDATE_CHECK_URL`、
   試験の差し込み `ASHIATO_UPDATER_TEST_URL`・`ASHIATO_UPDATER_TEST_NOW`・`ASHIATO_COLLECTOR_TEST_UPDATE_URL`・`ASHIATO_COLLECTOR_TEST_NOW`・`ASHIATO_SETUP_TEST_UPDATER_URL`、共有の材料 `docs/contracts/update-check-vectors.json`、道具 `tools/check-updater-deps.sh`・`tools/release/update-check-install.sh`
-- **試験・CI・録画は本物の配布元（`api.github.com`）に問い合わせない**（D8・D18（仮））。受け手は loopback の手元の HTTP。試験の値に本物の資格情報を使わない
+- **自動の試験と CI は本物の配布元（`api.github.com`）に問い合わせない**（D8・D18（仮））。受け手は loopback の手元の HTTP。試験の値に本物の資格情報を使わない
 - **サーバの依存に HTTP・TLS の部品を足さない**（`tools/check-offsite.sh` が今のまま通る）。サーバが依るのは `ashiato-update-check` だけ
 - **新しい依存**: `ashiato-update-check` に `semver`（と既にある `serde`・`serde_json`）。`ashiato-updater` と PC の収集アプリに `ureq` の機能 `rustls`・`platform-verifier`（D12（仮））。携帯は新しい依存を足さない（`HttpURLConnection`）。
   `tools/check-licenses.sh`・`tools/check-vulns.sh` に通す（落ちたら `AGENTS.md` の「依存の脆弱性」の手順）
@@ -61,8 +61,8 @@
 ## Task 4: 画面の帯と設定の節・e2e
 
 - [ ] 4.1 `web/src/update.ts`（`GET /api/update-status` の型と文。D20（仮））・`web/src/UpdateBand.tsx`（`Root.tsx` で、ログインした全部の画面の見出しより上に置く。`role="status"`・押しても何もしない・`available` / `stale` / `available_stale` だけ出す）・`SettingsView.tsx` に「更新の確認」の節（状態・入っている版・見つけた最新の版と見つけた日・最後に確かめた日時と理由）。
-  帯の文字と地は `contrast.ts` で 3:1 以上、押せる所は無い（帯は押す口でない）。360 px で横に流さない。e2e の偽の結果は、playwright の起こすサーバに `ASHIATO_UPDATER_DIR` を渡し、試験ごとにそこへ `status.json`・`settings/check.json` を書いて置く（サーバは求めごとに読む）。
-  e2e（`web/e2e/st57-update-notice.spec.ts`、本物のブラウザ）: `// Scenario: 更新ありはどの画面でも見出しの上に出る`（帯の下端の y ≤ 各画面の `<h1>` の上端の y）・`6 日確かめられていないだけなら帯は出ない`・`7 日確かめられなければ帯に出る`・`更新ありと確かめられていないが同時なら 2 行出る`（360 px で `document.documentElement.scrollWidth <= innerWidth`）・`新しい版が無ければ帯は出ない`（`<h1>` の y が帯の無い画面と同じ）・
+  帯の文字と地は `contrast.ts` で 3:1 以上、押せる所は無い（帯は押す口でない）。360 px で横に流さない。e2e の偽の結果は、playwright の起こすサーバに `ASHIATO_UPDATER_DIR` を渡し、試験ごとにそこへ `status.json`・`settings/check.json` を書いて置く（サーバは求めごとに読む）。サーバは全部の spec で共有（`workers: 1`）なので、各試験の後に置き場を空にし、置き場は空で始まる（ほかの spec の画面に帯が漏れない）。読み出しの記録は口の名前 `/update-status` で今の層のとおり残す（D14（仮））。
+  e2e（`web/e2e/st57-update-notice.spec.ts`、本物のブラウザ）: `// Scenario: 更新ありはどの画面でも見出しの上に出る`（帯の下端の y ≤ 各画面の `<h1>` の上端の y）・`6 日確かめられていないだけなら帯は出ない`・`7 日確かめられなければ帯に出る`・`帯の文字と地のコントラストは 3:1 以上`（`getComputedStyle` の色を `contrast.ts` で計る）・`更新ありと確かめられていないが同時なら 2 行出る`（360 px で `document.documentElement.scrollWidth <= innerWidth`）・`新しい版が無ければ帯は出ない`（`<h1>` の y が帯の無い画面と同じ）・
   `確認を切ってあれば帯は出ず、設定に切ってあると出る`・`帯を押しても何も起きない`（押す前後で `page.url()` が同じで、要求の数が増えない）・`設定に更新の確認の状態が出る`・`更新係の無いサーバは設定に動いていないと出し、帯を出さない`・`結果を読めないときは帯を出さず、設定にだけ出す`・`まだ確かめていない更新係は、7 日たつまで帯を出さない`・`新しい版なしは設定にだけ出る`・`帯を出しても外部への要求は 0 件である`（`offsite.spec.ts` と同じ数え方）
   検証: `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e -- st57-update-notice.spec.ts'` rc=0 / `bash -c 'cd web && npx tsc --noEmit && npx vitest run'` rc=0（`one-scroll.test.tsx` を含む既存の試験が通る）
 
@@ -86,7 +86,7 @@
 
 ## Task 7: Windows の CI で更新係を確かめる
 
-- [ ] 7.1 新しい `tools/release/update-check-install.sh`（D18（仮））を CI の `install-windows` に足す（`install-check.sh` の後、同じ runner で）。インストールの前に、更新係の実行ファイルから loopback 以外への外への接続を塞ぐ規則を置き、試験の zip は loopback の受け手を立てて `ASHIATO_SETUP_TEST_UPDATER_URL` を渡す。
+- [ ] 7.1 新しい `tools/release/update-check-install.sh`（D18（仮））を CI の `install-windows` に足す（`install-check.sh` の後、同じ runner で）。**job の最初のインストール（`install-check.sh` の配る zip）より前に**、更新係の実行ファイルから loopback 以外への外への接続を塞ぐ規則を job の段として置き、job の終わりまで外さない。試験の zip は loopback の受け手を立てて `ASHIATO_SETUP_TEST_UPDATER_URL` を渡す。
   置く Scenario（`echo "== Scenario: <名前>（配る zip | 試験の zip）"`）: `更新係はサービス専用のアカウントで自動で起きる`・`更新係のアカウントは状態の置き場を読めない`・`更新係の置き場は、サーバが読めて書けない`・`切ると更新係のサービスが止まり、問い合わせが無くなる`・`入れ直すと更新係が起きて確かめる`・
   `インストールの最後に更新の確認が有効なことと切り方を示し、その後に更新係が起きる`・`配布元に届かなくてもインストールは終わる`・`更新係の無いインストールを走らせ直すと、更新係が足される`（試験の組み立ての差し込みで更新係を消した形）・`切った更新の確認は、走らせ直しでも切ったまま`・`repair は更新係に触れない`。
   `install-check.sh` の ST55 の確かめ `配る zip からのインストールで、2 つのサービスが自動で起きる形で入る`・`消すとサービスとプログラムと登録が消える`・`消しても記録の置き場は残り、その場所を示す` は、MODIFIED の THEN（`ashiato-updater` の登録・削除・更新係の置き場が残る）に合わせて確かめを直す（印の名前は変えない）。`インストールの間、ネットワークに出ない` の外向きの遮断の一覧（`install-check.sh` の `block_outbound_program`）に `ashiato-updater.exe` を足し、MODIFIED の「インストーラの段」の範囲で見る（review/spec.md R9）。

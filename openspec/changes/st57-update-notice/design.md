@@ -127,7 +127,7 @@
 ### D14（仮）. サーバの読みの口 `GET /update-status` の形
 
 - 欄と `state` の 8 つは spec に書いた（review/spec.md R5・R10）。ここに残すのは仮の部分: `reason` の符号（D4 の 6 つと `not_running`）、`pending` から `stale` への 7 日の起点は `check.json` の `since`
-- 画面のログインが要る（API の合言葉の許可の一覧に入れない。ST44 の既定で 403）。成功した読みは読み出しの記録に残さない（記録を読む口でない）。API の合言葉で許可の外の口に届いた 403 は、今の正典（data-sensitivity）どおり残る
+- 画面のログインが要る（API の合言葉の許可の一覧に入れない。ST44 の既定で 403）。読み出しの記録は今の層（`access_log.rs` の `middleware`。`/healthz`・`/session`・`/collector-setup` のほかは全部の口を名前で残す）のとおり、口の名前 `/update-status` で成功も断りも 1 行ずつ残す（層の例外に足さない）
 - 結果のファイルは信用しない入力として読む: 64 KB を超えれば読まない、版は SemVer の形だけ、時刻は RFC 3339 だけ。外れたら `unreadable`（帯を出さず、設定にだけ「結果を読めない」）。壊れたファイルで 7 日を待たずに帯が出ないようにした（review/spec.md R5）
 - 置き場はサービスの形では系統の定数（D6）、開発の形は `ASHIATO_UPDATER_DIR`（D10）
 - 反転条件: ST58 の上流が、押して入れる口のために別の形を要るとき（`GET` の欄を足すのはよい。消すのは ST58 と合わせる）
@@ -149,7 +149,7 @@
 
 ### D18（仮）. Windows の CI は更新係から外への接続を塞いでからインストールする
 
-- `install-windows` の job は、配る zip でも試験の zip でも、インストールの前に `netsh advfirewall firewall add rule … dir=out program=<プログラムの置き場>\ashiato-updater.exe action=block` を置く（本物の配布元に聞かない。共有の runner の IP で上限 60 回に当たらない）
+- `install-windows` の job は、**job の最初のインストール（`install-check.sh` の配る zip）より前に** `netsh advfirewall firewall add rule … dir=out program=<プログラムの置き場>\ashiato-updater.exe action=block` を置き、job の終わりまで外さない（本物の配布元に聞かない。共有の runner の IP で上限 60 回に当たらない）
 - 試験の zip では、FR-116 の Scenario のために `ASHIATO_UPDATER_TEST_URL` を loopback の受け手に向ける（loopback は塞がない形にする: 規則は `remoteip` を loopback 以外に限る）
 - 反転条件: runner で規則を置けない・loopback まで塞がれると分かったとき（その Scenario は `ashiato-updater once` を runner の上で直に走らせる形に替える）
 
@@ -189,6 +189,7 @@
 - [配った版の中の宛先・読み方・証明書の確かめ方は、その版からは直せない] → 壊れたら 7 日で「確かめられていない」が出る（Q9）。リポジトリの名前を変えるときは、配った版が読めなくなることを `docs/release.md` に書く
 - [サーバの更新係が止まっても OS は知らせない] → 48 時間で理由が「更新係が動いていない」、7 日で帯（D15（仮））
 - [配布元が 0 件の間（今）は、どの部品も「更新なし」] → 空の一覧は「確かめた」に数えるので、確かめられていない知らせは出ない
+- [配る zip を入れる録画（ST55 の `tools/recording/scenarios.d/` の台本）では、更新係が本物の配布元に 1 回問い合わせうる] → 問い合わせの中身は版の一覧の取得だけ（FR-116）。録画の台本が外への接続を塞ぐかは、録画を持つ Story が決める（この Story は台本を変えない）
 - [`HttpURLConnection` が見出しを足す] → 計測テストで見る（D13（仮））
 - [更新係の置き場を本人も読める] → 中身は版と時刻だけで、記録を持たない
 
