@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "1dcf438cba02b32346a3a570be3195555fc4fdf60a3bdd595fcf97c13ef30980",
+  "digest": "b87112d2c400b01eb184e3ccfef393d3169caf98e3219070bcb7f210a70a063b",
   "head": "5475ba30561be6e4f61d7066ced0ace5cfe4b3ef",
   "answers": "deep-answers-1.txt",
   "picked": "合意する",
@@ -36,6 +36,19 @@
       "id": "IMP-06",
       "severity": "medium",
       "title": "ST55 で入れた PC に新しい版の zip で走らせ直しても、更新係は足されない"
+    }
+  ],
+  "carried": [
+    {
+      "from": "1dcf438cba02b32346a3a570be3195555fc4fdf60a3bdd595fcf97c13ef30980",
+      "because": [
+        "D16",
+        "D24",
+        "D25",
+        "D26",
+        "Q11"
+      ],
+      "at": "2026-11-11T14:59:16Z"
     }
   ]
 }
