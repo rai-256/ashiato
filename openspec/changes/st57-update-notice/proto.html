@@ -27,6 +27,24 @@ a{color:hsl(307 42% 34%);min-height:24px;display:inline-flex;align-items:center}
 pre{white-space:pre-wrap;background:#0f1115;border:1px solid #333a45;border-radius:8px;padding:10px;user-select:text}
 .cap{font-size:12px;color:#9fb0c4;margin:6px 0}
 </style></head><body>
+<script type="application/json" id="proto-go">
+{"chosen":"どの画面でも見出しの上の帯に 1 行で「更新あり 0.5.0（11/10 に見つけた）」を出し、設定の画面に「更新の確認」の節（状態・入っている版・見つけた最新の版・最後に確かめた日時）を置く。帯を押しても何も起きない。",
+ "requirements":["画面は、サーバの「更新あり」と「確かめられていない」をどの画面でも見出しの上の帯に出し、設定に更新の確認の状態を出す"],
+ "not_screen":[{"name":"携帯の収集アプリは、新しい版を画面に出し、新しい版ごとに 1 回だけ通知する","why":"携帯のアプリの最初の画面の 1 行で、この proto はブラウザの画面。行と通知は Robolectric の試験と計測テストで固定する"}],
+ "states":[
+  {"id":"available","name":"更新あり","hint":"新しい版 0.5.0 を 11/10 に見つけた。サーバは 0.4.0","scenarios":["更新ありはどの画面でも見出しの上に出る","設定に更新の確認の状態が出る"]},
+  {"id":"big","name":"大きめの正しい結果（63 KB）","hint":"余白で大きくした正しい結果のファイル。読めるので更新ありと同じに出る","scenarios":["64 KB より小さい正しい結果のファイルは読む"]},
+  {"id":"stale6","name":"6 日確かめられていない","hint":"届かない日が 6 日。まだ帯は出ない","scenarios":["6 日確かめられていないだけなら帯は出ない"]},
+  {"id":"stale","name":"7 日確かめられていない","hint":"最後に確かめられたのは 11/03。その後は配布元に届かない","scenarios":["7 日確かめられなければ帯に出る"]},
+  {"id":"both","name":"更新あり＋7 日確かめられていない","hint":"帯が 2 行。360 px でも横に流れない","scenarios":["更新ありと確かめられていないが同時なら 2 行出る"]},
+  {"id":"none","name":"新しい版なし","hint":"見つけた最新の版がサーバと同じ 0.4.0","scenarios":["新しい版が無ければ帯は出ない","新しい版なしは設定にだけ出る"]},
+  {"id":"off","name":"確認を切ってある","hint":"インストーラの update-check off。前の結果に 0.5.0 が残っていても帯は出ない","scenarios":["確認を切ってあれば帯は出ず、設定に切ってあると出る"]},
+  {"id":"pending","name":"まだ確かめていない","hint":"確認を入れて 2 日。結果のファイルがまだ無い","scenarios":["まだ確かめていない更新係は、7 日たつまで帯を出さない"]},
+  {"id":"not_running","name":"更新係が無い","hint":"Linux や開発の形のサーバ。更新係の置き場が無い","scenarios":["更新係の無いサーバは設定に動いていないと出し、帯を出さない"]},
+  {"id":"unreadable","name":"結果を読めない","hint":"65 KB のファイルや、版の欄が <script> の結果。中身は出さない","scenarios":["読めない結果のファイルは画面に出さない","結果を読めないときは帯を出さず、設定にだけ出す"]}
+ ],
+ "always":["帯の文字と地のコントラストは 3:1 以上","帯を押しても何も起きない","帯を出しても外部への要求は 0 件である","更新の状態の口はログインが要り、API の合言葉では答えない","更新の状態の口は応答を残させない"]}
+</script>
 <div class="wrap">
 <div>
   <div class="presets"><span class="cap">プリセット</span><br>
@@ -61,11 +79,12 @@ const DEFAULTS={place:"band",st:"update",w:"360"};
 const state={...DEFAULTS};
 const PRESETS={rec:{place:"band",st:"update",w:"1024"},settings:{place:"settings",st:"update",w:"1024"},phone:{place:"band",st:"both",w:"360"},off:{place:"band",st:"off",w:"1024"}};
 const T={update:"更新あり 0.5.0（11/10 に見つけた）",stale:"更新を 7 日確かめられていない（最後に確かめた 11/03・配布元に届かない）"};
-function bands(){const b=[];if(state.st==="update"||state.st==="both")b.push(["update",T.update]);if(state.st==="stale"||state.st==="both")b.push(["stale",T.stale]);return b}
+function bands(){const b=[];if(state.st==="update"||state.st==="big"||state.st==="both")b.push(["update",T.update]);if(state.st==="stale"||state.st==="both")b.push(["stale",T.stale]);return b}
 function settingsRows(){const s=state.st;
-  const status={update:"有効。新しい版あり 0.5.0",stale:"有効。7 日確かめられていない",both:"有効。新しい版あり 0.5.0／最後の確認から 7 日",none:"有効。新しい版なし",off:"切ってある（インストーラで切った）"}[s];
-  const last=s==="off"?"—":(s==="stale"||s==="both")?"11/03 09:12（以後: 配布元に届かない）":"11/10 09:12";
-  return `<dl><dt>更新の確認</dt><dd>${status}</dd><dt>入っている版</dt><dd>0.4.0</dd><dt>最後に確かめた</dt><dd>${last}</dd></dl>`}
+  const status={update:"有効・新しい版あり",big:"有効・新しい版あり",stale:"有効・7 日確かめられていない",stale6:"有効・新しい版なし",both:"有効・新しい版あり／7 日確かめられていない",none:"有効・新しい版なし",off:"切ってある",pending:"まだ確かめていない",not_running:"動いていない",unreadable:"結果を読めない"}[s];
+  const latest={update:"0.5.0（11/10 に見つけた）",big:"0.5.0（11/10 に見つけた）",both:"0.5.0（11/03 に見つけた）",none:"0.4.0",stale6:"0.4.0"}[s]||"—";
+  const last={update:"11/10 09:12",big:"11/10 09:12",none:"11/10 09:12",stale6:"11/10 08:40（配布元に届かない。最後に確かめられた 11/04）",stale:"11/10 08:40（配布元に届かない。最後に確かめられた 11/03）",both:"11/10 08:40（配布元に届かない。最後に確かめられた 11/03）"}[s]||"—";
+  return `<dl><dt>更新の確認</dt><dd>${status}</dd><dt>入っている版</dt><dd>0.4.0</dd><dt>見つけた最新の版</dt><dd>${latest}</dd><dt>最後に確かめた</dt><dd>${last}</dd></dl>`}
 function render(){
   const f=document.getElementById("frame");f.style.width=state.w+"px";
   const top=state.place==="band"?bands().map(([k,t])=>`<div class="band ${k}" role="status">${t}</div>`).join(""):"";
@@ -84,5 +103,21 @@ document.getElementById("copy").addEventListener("click",()=>{const t=document.g
   if(!navigator.clipboard){m.textContent="コピーできない。上の欄を長押しで選んでコピー";return}
   navigator.clipboard.writeText(t).then(()=>{m.textContent="コピーした"}).catch(()=>{m.textContent="コピーできない。上の欄を長押しで選んでコピー"})});
 render();
+
+// ---- GO view（window.PROTO_VIEW==="go" か #view=go）: 本人の選んだ形（帯）を初期表示にし、左に状態の一覧
+const GO=(window.PROTO_VIEW==="go")||/(^|[#&])view=go/.test(location.hash);
+if(GO){
+  const man=JSON.parse(document.getElementById("proto-go").textContent);
+  const map={available:"update"};
+  const side=document.querySelector(".wrap>div");
+  side.innerHTML=`<p class="cap">決まった形: ${man.chosen}</p><fieldset><legend>状態（押すと切り替わる）</legend>${man.states.map(x=>`<label><input type="radio" name="gost" value="${x.id}">${x.name}</label><div class="cap" style="margin:0 0 6px 26px">${x.hint}</div>`).join("")}</fieldset><fieldset><legend>幅</legend><label><input type="radio" name="w" value="360">360 px</label><label><input type="radio" name="w" value="1024">1024 px</label></fieldset><p class="fixed">どの状態でも: 帯の文字と地は 3:1 以上・帯は押しても何も起きない・画面から外への要求は 0 件・状態の口は画面のログインが要る</p>`;
+  document.querySelector("#out").style.display="none";document.querySelector("#copy").style.display="none";
+  document.querySelectorAll(".cap").forEach(c=>{if(c.textContent.startsWith("選んだ形の指示"))c.style.display="none"});
+  function go(id){state.place="band";state.st=map[id]||id;const r=document.querySelector(`input[name=gost][value="${id}"]`);if(r)r.checked=true;render();history.replaceState(null,"",`#view=go&state=${id}`)}
+  side.querySelectorAll("input[name=gost]").forEach(i=>i.addEventListener("change",e=>go(e.target.value)));
+  side.querySelectorAll("input[name=w]").forEach(i=>{i.checked=i.value===state.w;i.addEventListener("change",e=>{state.w=e.target.value;render()})});
+  state.w="1024";side.querySelector('input[name=w][value="1024"]').checked=true;
+  const m=location.hash.match(/state=([\w-]+)/);go(m&&man.states.some(x=>x.id===m[1])?m[1]:"available");
+}
 </script>
 </body></html>
