@@ -168,7 +168,7 @@ jobs:
       # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
       - run: ./tools/check-satellite-boundary.sh --self-test
       - run: ./tools/check-satellite-boundary.sh
-      # unsafe を許すのは PC の DPAPI（secret.rs）だけ。作業場の lint は deny で、allow を止めない（ST56 / R32）
+      # unsafe を許すのは PC の DPAPI（secret.rs）とインストーラの窓の口（console.rs。CH14 D4）だけ。作業場の lint は deny で、allow を止めない（ST56 / R32）
       - run: ./tools/check-unsafe-scope.sh --self-test
       - run: ./tools/check-unsafe-scope.sh
       # 道具が API の合言葉で許可の一覧の外を読まない・env-init が印の鍵を足す（ST44 / R26）
@@ -464,6 +464,10 @@ jobs:
           path: ${{ runner.temp }}/pgsql-cache
           key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
           restore-keys: pgsql-
+      # 子の命令の出力の読み方（CH14 D8・D9）。--lib を付けない（main.rs の試験は bin の target）。下限は Task 1 の 3 本と Task 5.2 の 8 本
+      - run: |
+          n=$(cargo test -p ashiato-setup ch14_ -- --list | grep -c ": test$"); [ "$n" -ge 11 ] || { echo "ch14_ の試験が $n 本しかない"; exit 1; }; cargo test -p ashiato-setup ch14_
+        shell: bash
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
       - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
@@ -487,6 +491,8 @@ jobs:
         with: { pattern: package-windows-*, path: package }
       # Scenario の印は、ここで走らせる実地の確かめ（配る zip と試験の zip）にだけ置く。自己試験は印を持たず、
       # --list の全部が実地の確かめに 1 つずつ印を持つことを Linux の自己試験（chain の job）が見る（ST55 D24）
+      - shell: bash
+        run: tools/release/install-check.sh --probe-console
       - shell: bash
         run: |
           powershell.exe -NoProfile -NonInteractive -Command 'Set-Culture ja-JP'
