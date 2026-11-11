@@ -26,7 +26,7 @@ change: `openspec/changes/st57-update-notice/`（FR-112・FR-113・FR-115・FR-1
 
 ## 仮決め（design の（仮））
 
-D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）・D27（携帯で同じ回に別の画面や窓を前に出したときは、それが退いてから印を立てる）・D28（PC で入力の経過を読めない定期の時はトーストを試みない）。どれも反転条件つき。D27・D28 は Q12・Q13 の答えが言っていない分かれを、印を遅らせる側（外へ出るのが遅れるだけ）で埋めたもの。
+D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）・D29（携帯で別の画面や確認の窓が前に出ている間は印を立てず、退いて行が見える時か窓を閉じた時に立てる。はじめの D27 は別の席が否とし置き換えた）・D28（PC で入力の経過を読めない定期の時はトーストを試みない）。どれも反転条件つき。D27・D28 は Q12・Q13 の答えが言っていない分かれを、印を遅らせる側（外へ出るのが遅れるだけ）で埋めたもの。
 
 D23（確認の無い前の版から入れ替えた収集アプリは、切り方を示すまで問い合わせない）は、はじめ仮で置いたが別の席が「否」とし（通知を出せない端末での向きが無い）、台帳から外して第 2 回の Q11 で本人が決めた。
 
@@ -48,6 +48,6 @@ D24（携帯で「画面に出した」とみなすのは最初の画面の行�
 
 - `review/deep.md`: 16 件（escalated 12・fixed 4）
 - `review/spec.md`: 25 件 —— fixed 23（technical。R19 は Q11 を写した後の Scenario の足りなさ、R20〜R25 は Q12・Q13 を写した後の Scenario と D24・D27 の分かれ）・fixed D22 仮 1（conflict。Q5・Q9 の要件の改訂の預け先）・escalated Q11 1（R16。irreversible / exported。入れ替えの族。仮の D23 で閉じたが別の席が否とし、第 2 回の Q11 で本人が決めた）
-- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外し Q12・Q13 で本人が決めた。D27・D28 は別の席の確かめ待ち
+- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外し Q12・Q13 で本人が決めた。D27 は否で台帳から外し遅らせる側の D29 に置き換えた。D28 は確か、D29 は別の席の確かめ待ち
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
