@@ -425,3 +425,245 @@ async fn web_session_authorization_is_decided_once_per_request() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+// ---- CH15: 照らす形のサーバで、資格情報を返す口が正しい合言葉を受け付ける ----
+
+mod ch15 {
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    use crate::access_log::{AccessEntry, AccessFuture, AccessSink};
+    use crate::testdb::{self, VERIFIER_APP_TOKEN as API_TOKEN};
+    use crate::{web_session, App};
+
+    const PASSWORD: &str = "install-password-012345";
+
+    async fn verifier_app() -> App {
+        testdb::verifier_app(PASSWORD, Duration::ZERO).await
+    }
+
+    /// 書く口に届いた行を残すだけの偽物（並走する試験の行と混ざらないように）。
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<AccessEntry>>>);
+
+    impl AccessSink for Recorder {
+        fn record(&self, entry: AccessEntry) -> AccessFuture {
+            self.0.lock().unwrap().push(entry);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    impl Recorder {
+        fn count(&self, route: &str, outcome: &str) -> usize {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.route == route && e.outcome == outcome)
+                .count()
+        }
+    }
+
+    fn json_post(uri: &str, password: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "password": password }).to_string(),
+            ))
+            .unwrap()
+    }
+
+    fn setup_request(cookie: &str, password: &str) -> Request<Body> {
+        let mut req = json_post("/collector-setup", password);
+        req.headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+        req
+    }
+
+    async fn setup(app: &App, cookie: &str, password: &str) -> (StatusCode, String, String) {
+        let res = crate::router(app.clone())
+            .oneshot(setup_request(cookie, password))
+            .await
+            .unwrap();
+        let status = res.status();
+        let cache = res
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .map(|v| v.to_str().unwrap().to_owned())
+            .unwrap_or_default();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        (status, cache, String::from_utf8(body.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_returns_token() {
+        // Scenario: 合言葉を入れ直すと、設定の文字列とコピーのボタンが出る
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        let (status, cache, body) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cache, "no-store");
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value, serde_json::json!({ "token": API_TOKEN }));
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_wrong_password_is_forbidden() {
+        // Scenario: 合言葉が違えば出さない
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for given in ["install-password-012346", ""] {
+            let (status, _, body) = setup(&app, &cookie, given).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "given={given:?}");
+            let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(value, serde_json::json!({ "error": "wrong_password" }));
+            assert!(!body.contains(API_TOKEN));
+        }
+        // ログインの印は有効なまま（正しい合言葉で答える）
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_shares_login_failure_limit() {
+        // Scenario: 失敗が回数の制限を超えると、正しい合言葉でも答えない
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "wrong-password-0123456789").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let failed = crate::router(app.clone())
+            .oneshot(json_post("/session", "wrong-login-0123456789"))
+            .await
+            .unwrap();
+        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        let (status, _, _) = setup(&app, &cookie, "").await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// 空の合言葉も、資格情報の口で失敗に数える（design D1。review/code.md R3）。
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_counts_empty_password_as_failure() {
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let failed = crate::router(app.clone())
+            .oneshot(json_post("/session", "wrong-login-0123456789"))
+            .await
+            .unwrap();
+        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
+        let (status, _, _) = setup(&app, &cookie, PASSWORD).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// 資格情報の口の失敗も、ログインの口と同じだけ待たせる（CH15.md 壊してはいけないもの 2。review/code.md R3）。
+    #[tokio::test]
+    async fn ch15_verifier_collector_setup_failure_is_delayed() {
+        let delay = Duration::from_millis(300);
+        let app = testdb::verifier_app(PASSWORD, delay).await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        // 空の合言葉は照合（Argon2id）を回さず同じ不一致の枝へ行くので、かかる時間がほぼ遅れだけになる
+        let started = Instant::now();
+        let (status, _, _) = setup(&app, &cookie, "").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(started.elapsed() >= delay, "{:?}", started.elapsed());
+    }
+
+    /// 並んだ 2 つの照合は 1 つずつ通り、後の方は前の失敗の数え上げを見る（印を照合の終わりまで持つ。review/code.md R2）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ch15_verifier_concurrent_checks_see_each_others_failure() {
+        let app = verifier_app().await;
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        for _ in 0..9 {
+            let (status, _, _) = setup(&app, &cookie, "wrong-password-0123456789").await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        let ((a, _, _), (b, _, _)) = tokio::join!(
+            setup(&app, &cookie, "wrong-password-0123456789"),
+            setup(&app, &cookie, "wrong-password-9876543210"),
+        );
+        let mut got = [a, b];
+        got.sort();
+        assert_eq!(
+            got,
+            [StatusCode::FORBIDDEN, StatusCode::TOO_MANY_REQUESTS],
+            "10 回目の失敗の後に照合を始めた方は 429"
+        );
+    }
+
+    /// 照らす形の照合は blocking の側で行い、async の worker を塞がない（review/code.md R2 の変異 D2）。
+    /// 1 回 poll して Pending なら、照合を待つ間に worker を返している（その場で Argon2id を回すと Ready になる）。
+    /// 印は先に取ってから渡す。並走する試験が印を握っていても、Pending の理由は印の待ちでなく blocking の側の照合だけになる（review/code.md R17）。
+    #[tokio::test]
+    async fn ch15_verifier_check_runs_off_the_async_worker() {
+        let app = verifier_app().await;
+        let permit = web_session::hold_login_check_for_test().await;
+        let mut check = std::pin::pin!(web_session::check_with_permit(
+            &app,
+            "wrong-password-0123456789".to_owned(),
+            permit
+        ));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(std::future::Future::poll(check.as_mut(), &mut cx).is_pending());
+        assert_eq!(check.await, web_session::PasswordCheck::Mismatch);
+    }
+
+    /// 取り消された求めの照合も、行を残してから終わる（data-sensitivity「1 件ごとに 1 行」。review/code.md R1）。
+    #[tokio::test]
+    async fn ch15_verifier_cancelled_requests_still_leave_a_row() {
+        let recorder = Recorder::default();
+        let app = verifier_app().await.with_access_sink(recorder.clone());
+        let cookie = testdb::web_cookie(&app, PASSWORD).await;
+        let cases = [
+            (
+                setup_request(&cookie, "wrong-password-0123456789"),
+                "/collector-setup",
+                "forbidden",
+            ),
+            (
+                json_post("/session", "wrong-login-0123456789"),
+                "/session",
+                "login_failed",
+            ),
+        ];
+        // 照合の途中で取り消す。試験が 1 つずつの印を握るので、照合は印を待つ所で止まり、取り消すまで終わらない
+        // （review/code.md R10: Argon2id の測定値で時刻を決めると、速いビルドでは照合の前の段で取り消して偽の赤になる）。
+        // 取り消すのは、この app の照合が印を待ち始めた合図の後（R12: 時刻で待つと、照合の前の段が遅いときに偽の赤になる）。
+        // 印を握るのは合図までの短い間だけ（R11: 並走する他の試験の照合を長く待たせない）
+        for (req, route, outcome) in cases {
+            let held = web_session::hold_login_check_for_test().await;
+            let waiting = app.login.check_waiting_for_test();
+            // 箱に入れて pin する（drop で求めの future そのものを捨てて取り消す）
+            let mut request = Box::pin(crate::router(app.clone()).oneshot(req));
+            tokio::select! {
+                () = waiting => {}
+                _ = &mut request => panic!("{route}: 印を握る間に求めが終わった"),
+            }
+            drop(request);
+            assert_eq!(
+                recorder.count(route, outcome),
+                0,
+                "{route}: 印を握る間は照合が終わらない"
+            );
+            drop(held);
+            let waited = Instant::now();
+            while recorder.count(route, outcome) == 0 && waited.elapsed() < Duration::from_secs(5) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert_eq!(recorder.count(route, outcome), 1, "{route}");
+        }
+    }
+}

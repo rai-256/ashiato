@@ -646,16 +646,7 @@ async fn st55_verifier_login_route_accepts_only_matching_password() {
     use axum::http::{header, Method, Request, StatusCode};
     use tower::ServiceExt as _;
     let password = "install-password-012345";
-    let verifier = web_session::password_verifier_for_test(password).unwrap();
-    let mut login =
-        web_session::WebLogin::new_with_verifier("session-key-0123456789abcd", &verifier, 0);
-    login.failure_delay = Duration::ZERO;
-    let app = super::App::with_login(
-        crate::testdb::pool().await,
-        "test-token-0123456789abcdef".to_owned(),
-        login,
-        super::build_channel(),
-    );
+    let app = crate::testdb::verifier_app(password, Duration::ZERO).await;
     let post = |value: &str| {
         Request::builder()
             .method(Method::POST)

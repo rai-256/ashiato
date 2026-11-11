@@ -1091,11 +1091,26 @@ pub fn repair_hba_contents() -> &'static str {
 }
 
 /// `whoami` の `DOMAIN\user` を、SSPI が渡す名前（`include_realm=1` の `user@DOMAIN`）に合わせた
-/// pg_ident の行にする。大文字と小文字は Windows の名前と同じく区別しない正規表現にし、
+/// pg_ident の行にする。英字だけの名前は、大文字と小文字を Windows の名前と同じく区別しない正規表現にし、
 /// 英数字以外の文字は ARE の符号の書き方（`\uXXXX`・`\UXXXXXXXX`）にして、正規表現の記号としても
 /// 行の区切り（空白）としても読ませない。括弧でくくる形は `^` で `[^]`（壊れた式）になる（review R58）。
-pub fn repair_ident_contents(account: &str) -> String {
+/// 英字でない名前は正規表現にせず、引用符でくくった文字どおりの行（`repair "<user>@<domain>" ashiato`）にする。
+/// ANSI のコード頁で符号化する前提で、正規表現にすると cp932 の 2 バイト目の `0x5C`（`\`）が式を壊す（CH14 D9）。
+///
+/// crate の外（main.rs）には見せない。対応表のバイト列は `console::repair_ident_bytes`（ANSI のコード頁で
+/// 符号化し、表せなければ止まる。CH14 D9）だけが組む。UTF-8 の文字列のまま書く形に戻すと組めない（review/code.md R15）
+pub(crate) fn repair_ident_contents(account: &str) -> String {
     let (domain, user) = account.split_once('\\').unwrap_or(("", account));
+    if !account.is_ascii() {
+        // 英字でない名前は ANSI のコード頁のバイト列で来る。正規表現に入れると cp932 の 2 バイト目
+        // （`\` など）で行が壊れるので、引用符でくくった文字どおりの行にする（D9）
+        let name = if domain.is_empty() {
+            user.to_owned()
+        } else {
+            format!("{user}@{domain}")
+        };
+        return format!("repair \"{name}\" ashiato\n");
+    }
     let literal = |text: &str| {
         text.chars()
             .map(|c| {

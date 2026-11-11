@@ -1,0 +1,91 @@
+{
+  "title": "CH14 の深掘り（第 2 回）",
+  "subtitle": "インストーラの合言葉の問いが文字化けする",
+  "note": [
+    "最後の段のレビューで、決めた前提が崩れた指摘が 2 件ありました（review/code.md R1・R3）。どちらも AI が仮で決めた部分で、前提が事実と違ったので本人に問います。",
+    "ほかの指摘はこの回で直したか、再現して退けました。選んだら一番下の「回答をコピー」を押してください。"
+  ],
+  "questions": [
+    {
+      "id": "Q6",
+      "topic": "子の命令の出力を、どの順で読むか（利用者名・ダウンロードの場所）",
+      "kind": "premise",
+      "question": "利用者名（whoami）とダウンロードの場所（reg.exe）を、子の命令の出力からどう読みますか。",
+      "why": "仮で決めた読み方（design D8）の前提「cp932 の日本語が偶然 UTF-8 として正しくなることはほぼ無い」が、2 文字の名前では外れると分かりました。どの子をどう読むかは、Q2 で本人が決めた「値の口も直す」の中身です。",
+      "context": "いまの読み方: 子の出力が UTF-8 として正しければそのまま、そうでなければ窓のコード頁（日本語の Windows では 932）で読む。\ncode-verify が cp932 の 2 文字の並びを総当たりし、約 2.3%（第 2 水準の漢字が先頭の名前）が UTF-8 としても正しいと数えた。本人の PC で whoami の `pc\\凜子` の cp932 のバイト列を読ませると `pc\\꣎q` になり、repair が「Windows の文字コード 932 で表せない」で止まった。ダウンロードの場所でも同じ読み違いが起き、違う場所が設定に入りうる。\nwhoami・reg.exe・sc.exe・tasklist は、窓のコード頁に従って書く（chcp 932 なら cp932、chcp 65001 なら UTF-8 か英語の文。本人の PC で確かめた）。UTF-8 で書くのは Rust の子（ashiato-server migrate）で、これは失敗の理由の末尾にだけ出る。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "値の口は窓のコード頁を先に読む",
+          "detail": "whoami と reg.exe など Windows の命令の出力は、窓のコード頁が 65001 でなければ先にそのコード頁で読み、読めないときだけ UTF-8 を見る。UTF-8 を先に見るのは、Rust の子が混ざる失敗の理由の末尾だけ（長い文なので取り違えはほぼ起きない）。`凜子` の並びを試験に足し、design D8 を書き直す",
+          "recommended": true
+        },
+        {
+          "label": "利用者名とダウンロードの場所は子の出力を読まず、Windows の API から取る",
+          "detail": "利用者名は GetUserNameExW などで、ダウンロードの場所は SHGetKnownFolderPath などで UTF-16 のまま取る。読み違いは起きないが、windows-sys の機能が増え、昇格の前後でどの利用者の値を取るかを決め直す。whoami・reg.exe の読みの試験の一部は意味が変わる"
+        },
+        {
+          "label": "いまのまま",
+          "detail": "第 2 水準の漢字で始まる 2 文字ほどの名前の一部で repair が止まり、ダウンロードの場所を読み違えうる。別の change で直す"
+        }
+      ],
+      "family": {
+        "name": "子の命令の出力のコード頁の選び方",
+        "siblings": [
+          {"case": "whoami の利用者名（短い日本語の名前が UTF-8 としても正しくなる）", "decided": "未決 Q6"},
+          {"case": "reg.exe のダウンロードの場所（日本語のフォルダ名）", "decided": "未決 Q6"},
+          {"case": "窓のコード頁 932 で書いた子の失敗の理由の末尾（長い文）", "decided": "deep.md Q2・design D8（UTF-8 を先に。長い文では取り違えはほぼ無い）"},
+          {"case": "Rust の子（ashiato-server migrate）の UTF-8 の失敗の行", "decided": "design D8 の (1)"},
+          {"case": "chcp 65001 の窓で sc.exe などが OEM のコード頁で書く", "decided": "起きない。本人の PC で chcp 65001 の sc.exe は英語の文を書いた（review/code.md R9 を再現して退けた）"},
+          {"case": "psql・pg_ctl が自分の lc_messages で書く", "decided": "design D8（UTF-8 か窓のコード頁で読め、どちらでもなければ置換の文字。いまと同じ）"},
+          {"case": "窓のコード頁でも UTF-8 でもない子（OEM・ANSI で書く子）", "decided": "design D8 の反転条件（見つかったらその子だけコード頁を指す）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "D8 の「2 文字以上の文ではほぼ無い」を数えずに書き、長い文で成り立つ見込みを、短い値（2 文字の名前）にも当てた",
+        "prevention": "「偶然の一致はほぼ無い」という前提は、その読みを通る値の最短の長さで総当たりして割合を数える観点（premises の確かめ方に『数えた』を求める）"
+      }
+    },
+    {
+      "id": "Q7",
+      "topic": "6.1 の検証の台本が、CI の step を壊しても落ちない",
+      "kind": "premise",
+      "question": "6.1（CI の package-windows で ch14_ の試験を下限つきで走らせる）の検証をどうしますか。",
+      "why": "機械が承認した検証コマンドの訂正を別の席が壊して確かめ、「落ちなかった」と判定しました（plan_fix.py check が rc=1）。検証が守るべきものを守っていないときは、人間に返す決まりです。",
+      "context": "いまの台本 tools/check-ci-ch14-step.sh は、package-windows の step の run の文字列に `ashiato-setup ch14_` と `-ge 11` があり、それが最初の `package.sh windows` より前にあることだけを見る。`-- --list` で数える部分の字面で満たされるので、末尾の `cargo test -p ashiato-setup ch14_`（実際に走らせる部分）を消しても rc=0 になる。訂正前のコマンドも同じ。CI の step そのものは、いまは正しく走らせる形。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "台本を強める（検証コマンドの字面は変えない）",
+          "detail": "run を `;` などで区切った片のうち `--list` を含まない片に `cargo test -p ashiato-setup ch14_` があることまで見る。壊した形（数えるだけ）で rc≠0 になることを確かめてから入れる",
+          "recommended": true
+        },
+        {
+          "label": "6.1 の検証を CI の実際の結果にする",
+          "detail": "PR の CI の package-windows の出力に `ch14_` の試験の `test result: ok. 11 passed` があることを見る。手元では確かめられず、PR を出すまで 6.1 は閉じない"
+        },
+        {
+          "label": "いまのまま",
+          "detail": "step は今は正しい。後で step が壊れても 6.1 の検証は気付かない"
+        }
+      ],
+      "family": {
+        "name": "検証コマンドが、守るものを字面だけで確かめる",
+        "siblings": [
+          {"case": "6.1 の CI の step（数えるだけで走らせない形を見分けない）", "decided": "未決 Q7"},
+          {"case": "3.3 の install-windows の --probe-console の step の順", "decided": "守るものが順そのもの。字面で足りる（code-verify の表で一致）"},
+          {"case": "5.2 の fn の実在の grep（中身が空でも通る）", "decided": "code-verify の手 2 で、本人の PC でガードを壊すと落ちることを確かめた。CI で走らせるのは 6.1"},
+          {"case": "CI の下限の本数（試験が 1 本消えても通る）", "decided": "review/code.md R4・R14 で直した（Windows で数える本数を 11 に揃えた）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec-review",
+        "why": "tasks の検証コマンドが YAML の字面を見るだけで、守るもの（試験を走らせる）を壊したときに落ちるかを確かめなかった",
+        "prevention": "tasks の検証コマンドごとに、守る振る舞いを 1 か所壊して落ちるかを試す観点（code-verify の手 7 を上流の spec-review でも当てる）"
+      }
+    }
+  ]
+}

@@ -87,16 +87,20 @@ CI の runner は既に管理者で、昇格して開き直した窓（本人が
 
 - 反転条件: Q4 で「Windows の CI だけ」なら、tasks 9.1（人間の確認待ち）と `docs/changes/CH14.md` の完了の判定の確認バッチの行を外す。「確認バッチで本人が見るだけ」なら D6・Task 3・Task 4.2 と窓の Scenario 4 本を外し、9.1 を残す
 
-### D8（仮）. 子の出力は、UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む（Q2 に伴う）
+### D8（仮）. 値の口は窓のコード頁を先に、失敗の理由の末尾は UTF-8 を先に読む（Q2 に伴う。順は Q6 の答え）
 
 - `console.rs` に `pub fn decode_child_output(bytes: &[u8]) -> String` を足し、main.rs の子の出力の読み（Context の 9 か所）を全部これに替える。main.rs に `from_utf8_lossy` を残さない
-- 読み方: (1) バイト列が UTF-8 として正しければそのまま（英字だけの出力・`ashiato-server migrate` のような Rust の子・`chcp 65001` の窓で書く子）。(2) そうでなければ `cfg(windows)` で `GetConsoleOutputCP()` のコード頁（0 なら、つまり窓が無ければ `GetOEMCP()`）を `MultiByteToWideChar` で UTF-16 に直して読む。読めない並びは置換の文字（U+FFFD）にする（いまの `from_utf8_lossy` と同じく止まらない。spec の SHALL に写した。review/spec.md R16）。作り方: まず `MB_ERR_INVALID_CHARS` を付けて全体を `MultiByteToWideChar` で読み、失敗したら、先頭から `IsDBCSLeadByteEx(code_page, b)` で 1 文字の長さ（真なら 2 バイト、偽なら 1 バイト）を決めて 1 文字ずつ同じ旗で読み、読めない文字（末尾で 2 バイト目が欠けたものを含む）だけを U+FFFD にする。旗を付けない既定の読みは、読めない並びを U+FFFD でなく別の文字（本人の PC の窓では `・`）にするので使わない（`premises.md` 9 行目の `RAW[…闡・ ]`。review/spec.md R23）。`cfg(not(windows))` は今どおり `from_utf8_lossy`
-- 試験のために、コード頁を引数で受ける `decode_with_code_page(bytes: &[u8], code_page: u32) -> String`（`cfg(windows)`）と、`output_tail` を出力のバイト列とコード頁から組む形に分ける（`output_tail` の中身の「空行を除いた末尾 5 行を ` / ` で繋ぐ」は変えない）
+- 読み方は 2 つ（2026-11-10 に書き直した。deep.md 第 2 回 Q6・review/code.md R1・R8）。コード頁はどちらも `cfg(windows)` で `GetConsoleOutputCP()`（0 なら、つまり窓が無ければ `GetOEMCP()`）:
+  - **値の口**（`decode_child_output`。`whoami`・`reg.exe`・`sc.exe`・`tasklist`・`netstat`・`icacls`・PowerShell など Windows の命令の出力を値として読む main.rs の口）: コード頁が 65001 なら UTF-8 で読む。そうでなければ (a) 先にそのコード頁で `MB_ERR_INVALID_CHARS` を付けて読み、(b) 読めないときだけ UTF-8 として正しいかを見て、(c) どちらでもなければ下の 1 文字ずつの読みにする
+  - **失敗の理由の末尾**（`output_tail_text`。Rust の子 `ashiato-server migrate` や `psql`・`pg_ctl` が混ざる）: (1) バイト列が UTF-8 として正しければそのまま。(2) そうでなければそのコード頁で読む
+  - コード頁で読むときは `MultiByteToWideChar` で UTF-16 に直す。読めない並びは置換の文字（U+FFFD）にする（いまの `from_utf8_lossy` と同じく止まらない。spec の SHALL に写した。review/spec.md R16）。作り方: まず `MB_ERR_INVALID_CHARS` を付けて全体を `MultiByteToWideChar` で読み、失敗したら、先頭から `IsDBCSLeadByteEx(code_page, b)` で 1 文字の長さ（真なら 2 バイト、偽なら 1 バイト）を決めて 1 文字ずつ同じ旗で読み、読めない文字（末尾で 2 バイト目が欠けたものを含む）だけを U+FFFD にする。旗を付けない既定の読みは、読めない並びを U+FFFD でなく別の文字（本人の PC の窓では `・`）にするので使わない（`premises.md` 9 行目の `RAW[…闡・ ]`。review/spec.md R23）。`cfg(not(windows))` は今どおり `from_utf8_lossy`
+- 試験のために、コード頁を引数で受ける `decode_value_with_code_page`（値の口）・`decode_with_code_page`（末尾。どちらも `(bytes: &[u8], code_page: u32) -> String`、`cfg(windows)`）と、`output_tail` を出力のバイト列とコード頁から組む形に分ける（`output_tail` の中身の「空行を除いた末尾 5 行を ` / ` で繋ぐ」は変えない）
 - 窓のコード頁にした理由: 本人の PC で、`tasklist`・`reg.exe`・`sc.exe` は `chcp 437` の窓では英語の文、`chcp 65001` の窓では英語の文（`whoami` は UTF-8）、既定（932）の窓では cp932 で管へ書いた（`premises.md`）。子は OEM のコード頁でなく、引き継いだ窓のコード頁に従う
-- UTF-8 を先に見る理由: Rust の子（`ashiato-server migrate`）は窓のコード頁に依らず UTF-8 で書く。cp932 の日本語の並びが偶然 UTF-8 として正しくなることは、2 文字以上の文ではほぼ無い（cp932 の 2 バイト目は 0x40〜0xFC で、UTF-8 の続きのバイト 0x80〜0xBF の並びの規則に揃わない）
+- 値の口でコード頁を先に読む理由: cp932 の 2 文字の並びの約 2.3%（973,305 / 42,680,089）が UTF-8 としても正しく、短い名前では取り違えが起きる（`whoami` の `pc\凜子` = `70 63 5c ea a3 8e 71` を UTF-8 で読むと `pc\꣎q` になり、repair が「932 で表せない」で止まる。本人の PC で再現。review/code.md R1）。値の口の子は Windows の命令だけで、窓のコード頁で書く（`chcp 65001` の窓では UTF-8 で書くので、65001 のときは UTF-8 で読む）。`ch14_account_read_in_code_page_932` と `ch14_downloads_read_in_code_page_932` が `凜子` の並びを見る
+- 末尾で UTF-8 を先に見る理由: Rust の子（`ashiato-server migrate`）は窓のコード頁に依らず UTF-8 で書く。末尾は長い文で、cp932 の文の全体が偶然 UTF-8 として正しくなることはほぼ無い（取り違えても表示が化けるだけで、値には使わない）
 - `unsafe` は `console.rs` に置く（D4 と同じモジュール。D4 の「公開する関数は `write_to_console` の 1 つ」は窓へ書く側のことで、読む側の `decode_child_output`・`decode_with_code_page` はこの D8 が足す。`MultiByteToWideChar`・`GetConsoleOutputCP`・`GetOEMCP`）。`windows-sys` の features に `Win32_Globalization` を足す（`Cargo.lock` に新しい crate は増えない）
 - `psql`・`pg_ctl` は自分の lc_messages の文字で書く。UTF-8 なら (1)、窓のコード頁と同じなら (2) で読め、どちらでもなければ置換の文字が出る（いまと同じ。止まらない）
-- 反転条件: 本人の PC か CI で、窓のコード頁で書かない子（OEM・ANSI のコード頁で書く子）が見つかったら、その子だけコード頁を指して読む。UTF-8 として正しい cp932 の出力が実際に見つかったら、(1) と (2) の順を子ごとに決める
+- 反転条件: 本人の PC か CI で、窓のコード頁で書かない子（OEM・ANSI のコード頁で書く子）が見つかったら、その子だけコード頁を指して読む。（値の口と末尾の順は、2026-11-10 に UTF-8 として正しい cp932 の出力（`凜子`）が見つかったので Q6 で決め直した。）値の口に UTF-8 で書く子が入ったら、その子は UTF-8 を先に読む口に分ける
 
 ### D9（仮）. 読み方は Windows の CI の単体の試験で、英字でない名前は install-check の repair で確かめる（Q2 に伴う）
 
@@ -106,6 +110,7 @@ CI の runner は既に管理者で、昇格して開き直した窓（本人が
 - 前提の確かさ: runner で `net user` が `é` を含む名前の利用者を作れるかは確かめていない（`premises.md`。確かさ 1）。PostgreSQL 17 は SSPI の利用者名を ANSI のコード頁のバイト列で受け取り、変換せずに対応表の行と突き合わせる（source を読んだ。確かさ 2）ので、UTF-8 で書く今の行（`main.rs:1490`・`commands.rs:1097-1110`）は英字でない名前で食い違う
 - **そのため、`repair` の DB の認証の対応表（`repair.pg_ident.conf`）は、Windows の ANSI のコード頁（`GetACP()`）のバイト列で書く**（`console.rs` に `cfg(windows)` の `encode_with_code_page(text: &str, code_page: u32) -> Result<Vec<u8>, String>`（`WideCharToMultiByte(code_page, WC_NO_BEST_FIT_CHARS, …)` と、表せない文字があれば `Err`）と、それを `GetACP()` で呼ぶ `encode_ansi`。`cfg(not(windows))` は UTF-8 のまま）。ANSI のコード頁で表せない名前なら、合わない行を書かずに理由（`利用者名 <名前> を Windows の文字コード <番号> で表せない`）を出して止まる（spec の SHALL。review/spec.md R26）
 - **英字でない名前の行は、正規表現でなく引用符でくくった文字どおりの行にする**（`repair "<利用者>@<ドメイン>" ashiato`。ドメインが無ければ `"<利用者>"`）。PostgreSQL は正規表現の行を `pg_mb2wchar_with_len` で文字に直してから比べ、cp932 の 2 バイト目には `\`（`表`＝`95 5c`）・`[` `]` `{` `}` `|` `^` が入りうるので、バイト列を正規表現に入れると行が壊れるか別の名前に当たる（review/spec.md R24）。文字どおりの行は `token_matches_insensitive`（大文字と小文字を区別しないバイトの比べ）で比べる（`hba.c`。確かさ 2）。cp932 の 2 バイト目は 0x40〜0xFC で、引用符（0x22）・空白・`#` にはならない。Windows の利用者名は `"` を持てない。英字だけの名前は今の正規表現の行のまま（バイト列を変えない。`docs/changes/CH14.md` の「壊してはいけないもの」7）
+- 残る危険（cp932 の 2 バイト目の大文字小文字の重なり。review/code.md R22）: PostgreSQL は SSPI の名前を大文字と小文字を区別せずに突き合わせ、文字どおりの行は `pg_strcasecmp`（1 バイトずつ `A`〜`Z` を小文字にする）で比べる。cp932 の 2 バイト目は `0x41`〜`0x5A` を取りうるので、`ア`（`83 41`）と `ヂ`（`83 61`）、`イ`（`83 43`）と `ツ`（`83 63`）が同じになり、管理者 `pc\アキ` の repair の行は同じ computer の `pc\ヂキ` にも当たる。受け入れる理由: 正規表現に戻すと 2 バイト目の `0x5C` で行が壊れ（上）、英字でない名前の repair が止まる。悪用には、重なる名前の利用者を同じ computer に先に持ち（作るには管理者が要る）、repair の間だけ立つ一時の DB（`127.0.0.1` の空き番号）に繋ぐことが要る。反転条件: 英字でない名前の利用者を、管理者でない人が作れる場面が要件に入ったら、行を書く前に同じ computer の利用者の名前と `pg_strcasecmp` で重ならないことを確かめ、重なれば止める
 - 反転条件: (a) runner で `é` の名前の利用者を作れなければ、1252 と 437 の両方で表せる別の英字でない文字（`ü` など）にする。(b) 読みは正しく、対応表を ANSI のコード頁の文字どおりの行で書いても（単体の試験が通り、CI の出力の `repair.pg_ident.conf` の行が Windows の名前の ANSI のバイト列と同じ）PostgreSQL が英字でない名前を認証できないと分かったら、DB の側の直しはこの change の範囲を越えるので、A として人間に返す（DB の認証の対応表の書き方を変えるか、別の change に出すか）
 
 ## Risks / Trade-offs
