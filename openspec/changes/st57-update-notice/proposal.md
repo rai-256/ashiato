@@ -22,6 +22,7 @@
   最初の問い合わせは切る口に触れられるようになった後（サーバはインストールの最後の表示の後、収集アプリは送り先を設定した後。C5）
 - **知らせ方**: 携帯は最初の画面に出し、新しい版ごとに 1 回だけ通知する（Q5 の推奨）。PC は新しい版ごとに 1 回だけ通知する（Q6 の推奨）。
   7 日確かめられなければ「更新を確かめられていない」を同じ所に出す（Q9 の推奨）。携帯は網を問わずに確かめる（Q10 の推奨）
+- **確認の無い前の版から入れ替えた収集アプリ**は、切り方を通知で 1 回示してから確かめる（design D23（仮）。review/spec.md R16）
 - **確かめた記録を追記で残す**（C4）。携帯の確かめた記録はバックアップと端末の移し替えから外す
 - **インストーラ**: 走らせ直しで更新係を足し（切った確認は戻さない）、消す口で更新係のサービスも消す（置き場は残す）。`repair` は更新係に触れない（C7）
 
@@ -38,7 +39,7 @@
 ### Modified Capabilities
 
 - `distribution`: 更新の確認（3 つの部品の問い合わせ・問い合わせの形・版の決め方・時期と時計・更新係の隔離・結果と記録・切る口・画面の帯と設定の節・携帯と PC の知らせ・確かめられていない知らせ・網）を ADDED。
-  インストール・走らせ直し・消す口・Windows の配布物の中身の 4 つの Requirement を MODIFIED（3 つめのサービスと実行ファイル・最初の問い合わせの時期・切った確認を戻さない・消す口で更新係も消す）
+  `repair` の口が更新係に触れないことを ADDED。インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧の 5 つの Requirement を MODIFIED（3 つめのサービスと実行ファイル・最初の問い合わせの時期・切った確認を戻さない・消す口で更新係も消す・サーバの Windows 版の一覧に更新係の部品）
 
 **capability の照合**: INDEX.md は ST57 を `distribution`（「配布と更新（…更新の確認と適用と戻し…）」）だけに割り当てている。更新の確認の振る舞いは収集アプリと画面にもまたがるが、どれも更新の確認の一部として `distribution` に置く（`device-collection`・`desktop-collection`・`browsing-views` には振る舞いを足さない）。前倒しは無い。
 画面の外への要求 0 件（`data-sensitivity` の「画面は外部の資源を読まない」）とサーバの外へ送る部品の検査（同「記録の写しを拠点外に置かない」）は変えず、`distribution` の Scenario で帯を出したときも守られることを見る。
@@ -50,7 +51,7 @@
 - 新しい crate: `crates/update-check`（純粋な選び方・時期の判定・結果の形。HTTP の部品を持たない。サーバ・更新係・PC の収集アプリが使う）・`crates/updater`（`ashiato-updater.exe`。HTTP と TLS の部品を持つ。Windows のサービスの口は `crates/winsvc` を使う）
 - サーバ（`crates/server`）: `GET /update-status`（更新係の置き場を読むだけ）。`docs/openapi.json` を作り直す。サーバの依存に HTTP の部品を足さない
 - インストーラ（`crates/installer`）: `layout.rs` に更新係の列・`update-check off|on` の口・サービスの登録と ACL・走らせ直し・消す口
-- PC の収集アプリ（`crates/collector-windows`）: `ureq` に TLS の機能を足す（design D5（仮）。`tools/check-licenses.sh`・`tools/check-vulns.sh`）・更新の確認と札 `update`・`update-stale` の通知・`update-check` の口・`setup` の問い・試験の組み立ての印 `ashiato_test_build`
+- PC の収集アプリ（`crates/collector-windows`）: `ureq` に TLS の機能を足す（design D12（仮）。`tools/check-licenses.sh`・`tools/check-vulns.sh`）・更新の確認と札 `update`・`update-stale` の通知・`update-check` の口・`setup` の問い・試験の組み立ての印 `ashiato_test_build`
 - 携帯の収集アプリ（`collector-android`）: 組み立ての定数 `UPDATE_CHECK_URL`・更新の確認（`LocationService` の定期の時）・最初の画面の行・チャンネル `update` の通知・設定の画面のスイッチ・バックアップの除外（`res/xml/health_*`・`tools/check-android-backup-rules.sh`）
 - 画面（`web/src`）: `Root.tsx` に帯・`SettingsView.tsx` に「更新の確認」の節・`update.ts`。e2e は `web/e2e/st57-update-notice.spec.ts`
 - 道具と CI: `tools/release/build.sh`・`package.sh`・`check-artifacts.sh`（更新係を zip に入れる・差し込みの名前が無い）・新しい `tools/check-updater-deps.sh`（更新係が DB の部品を持たない・サーバが更新係に依らない）・新しい `tools/release/update-check-install.sh`（Windows の CI の `install-windows` で更新係の Scenario を見る）

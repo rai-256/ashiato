@@ -32,14 +32,14 @@
 - `crates/update-check`（package `ashiato-update-check`）: 一覧の読み方・版の選び方・時期の判定（24 時間・未来の時刻・7 日・48 時間）・結果と記録の形・問い合わせの道と見出しの定数。**HTTP・TLS・DB の部品を持たない**（`serde`・`serde_json`・`semver` だけ）
 - `crates/updater`（package `ashiato-updater`・bin `ashiato-updater`）: `ashiato-update-check` + HTTP（`ureq` + TLS。D12（仮））+ `crates/winsvc`（`cfg(windows)`）+ `ashiato-build-stamp`。サービスの口 `ashiato-updater service` と、試験のための 1 回だけ確かめる口 `ashiato-updater once`
 - サーバは `ashiato-update-check` だけに依る（結果の読み方と版の比べ方）。`ashiato-updater` には依らない。`check-offsite.sh` は今のまま通る
-- 新しい検査 `tools/check-updater-deps.sh`: `cargo tree -p ashiato-updater -e normal` に DB の部品（`sqlx`・`tokio-postgres`・`postgres`・`diesel`・`sea-orm`）が無いこと、`cargo tree -p ashiato-server -e normal` に `ashiato-updater` が無いこと、`cargo tree -p ashiato-update-check -e normal` に `check-offsite.sh` の一覧の部品が無いこと。`--self-test` つき。CI の `lint` の job に足す
+- 新しい検査 `tools/check-updater-deps.sh`: `cargo tree -p ashiato-updater -e normal` に DB の部品（一覧は検査が持つ: `sqlx`・`tokio-postgres`・`postgres`・`diesel`・`sea-orm`）が無いこと、`ashiato-updater` と `ashiato-collector-windows` に同梱の根の一覧の部品（`webpki-roots`・`webpki-root-certs`）が無いこと、`cargo tree -p ashiato-server -e normal` に `ashiato-updater` が無いこと、`cargo tree -p ashiato-update-check -e normal` に `check-offsite.sh` の一覧の部品が無いこと。`--self-test` つき。CI の `lint` の job に足す
 
 ### D2. 問い合わせは決まった形だけ。見出しの集合を名指しする
 
 > 聞かない既定（`defaults.md` C2）。review/deep.md R8
 
 - 道は開発版でない部品が `/repos/rai-256/ashiato/releases?per_page=20`、開発版の部品が `/repos/rai-256/ashiato/releases/tags/nightly`（一覧の中で沈む P7 に依らない）
-- `GET`・本文なし・`User-Agent: ashiato-update-check`・`Accept: application/vnd.github+json`・`Accept-Encoding: gzip`。転送は同じ `api.github.com` の中だけ追う（最大 3 回）。時間切れは接続 10 秒・全体 30 秒
+- `GET`・本文なし・`User-Agent: ashiato-update-check`・`Accept: application/vnd.github+json`・`Accept-Encoding: gzip`（C2 の 4 つ。Android が足す `Connection` を許すのは D13（仮））。転送は同じ `api.github.com` の中だけ追う（最大 3 回）。時間切れは接続 10 秒・全体 30 秒
 - 証明書の根は OS のもの（D12（仮））
 - FR-116 の機械の検査は、各部品の問い合わせを手元の受け手（loopback の HTTP）で受け、方法・道・見出しの名前の集合・固定の値・本文の長さ・自分の版と識別子が無いことを試験で固定する。携帯は本物の Android の上（計測テスト）で見る（Robolectric は JVM の通信の部品で送るので、本物の見出しを見ない）
 
@@ -66,7 +66,7 @@
 
 - 判定は純粋な関数 `due(now, last_checked_at) -> bool`（`last_checked_at` が無い・24 時間以上前・未来なら真）。失敗も `last_checked_at` を進める
 - 機会: 更新係は起動の時と 1 時間ごと。PC は起動の時と、実行時の 1 時間ごとの仕事。携帯は `LocationService` の起動の時と、生存信号の定期の時（D16（仮））
-- 最初の問い合わせ: 更新係はインストーラが最後の表示の後にサービスを開始する（それより前はサービスが止まっている）。携帯と PC は送り先の設定を保存したことが前提（`SetupStore` / `settings.json` に送り先がある。組み立ての時に `-P` で渡した送り先も設定済みに数える）
+- 最初の問い合わせ: 更新係はインストーラが最後の表示の後にサービスを開始する（それより前はサービスが止まっている）。携帯と PC は送り先の設定を保存したことが前提（`SetupStore` / `settings.json` に送り先がある。組み立ての時に `-P` で渡した送り先も設定済みに数える —— spec に書いた）。前の版から入れ替えた部品は D23（仮）
 
 ### D6. 更新係の置き場は状態の置き場の外。切った印はインストーラが書く
 
@@ -83,8 +83,8 @@
 
 - 走らせ直し: 更新係のサービスが無ければ登録し、置き場と ACL を足す。`check.json` が無ければ `enabled: true`・`since` = 今で作る。あれば触らない。`enabled: false` ならサービスの開始の種類を「無効」にしたまま開始しない
 - 消す: `uninstall_commands` に更新係のサービスの停止と `sc.exe delete` を足す。更新係の置き場は残し、出力に場所を示す。ACL の後片付けは状態の置き場と同じ
-- `repair` の命令の一覧は変えない（試験で、`repair` の命令に `ashiato-updater` が出ないことを見る）
-- 正典の 3 つの Requirement（インストール・走らせ直し・消す口）と配布物の中身を MODIFIED にした
+- `repair` の命令の一覧は変えない（spec の ADDED「`repair` の口は、更新係のサービスと置き場に触れない」。試験で、`repair` の命令に `ashiato-updater` が出ないことを見る）
+- 正典の 3 つの Requirement（インストール・走らせ直し・消す口）と配布物の中身、依存の許諾の一覧（サーバの Windows 版に更新係の部品。`tools/release/notices.sh` の `server-windows` が `ashiato-updater` の依存の木も辿る。review/spec.md R11）を MODIFIED にした
 
 ### D8. 宛先は組み立ての時の定数。差し替えは試験の組み立てだけ
 
@@ -110,7 +110,7 @@
 
 ### D11（仮）. 名前
 
-- crate `ashiato-update-check`・`ashiato-updater`、実行ファイル `ashiato-updater.exe`、サービス `ashiato-updater`（`-dev`）、置き場 `C:\ProgramData\ashiato-updater`（`-dev`）、サーバの口 `GET /update-status`、携帯のチャンネル `update`・SharedPreferences `update_check.xml`、PC の札 `update`・`update-stale`、共有の材料 `docs/contracts/update-check-vectors.json`
+- crate `ashiato-update-check`・`ashiato-updater`、実行ファイル `ashiato-updater.exe`、サービス `ashiato-updater`（`-dev`）、置き場 `C:\ProgramData\ashiato-updater`（`-dev`）、サーバの口 `GET /update-status`、携帯のチャンネル `update`・SharedPreferences `update_check.xml`、PC の札 `update`・`update-stale`・`update-intro`、共有の材料 `docs/contracts/update-check-vectors.json`
 - 反転条件: ST58 の上流が、入れる役を同じ実行ファイルに持たせて名前が合わなくなったとき（名前は配った版に焼き込まれるので、配る前に決め直す）
 
 ### D12（仮）. TLS は `rustls` と OS の根の確かめ（`rustls-platform-verifier`）
@@ -126,9 +126,9 @@
 
 ### D14（仮）. サーバの読みの口 `GET /update-status` の形
 
-- 応答: `{"state": "off" | "not_running" | "pending" | "latest" | "available" | "stale" | "available_stale", "installed": "<サーバの版>", "latest": <版 | null>, "found_at": <時刻 | null>, "checked_at": <時刻 | null>, "last_ok_at": <時刻 | null>, "reason": <D4 の理由 | "not_running" | null>}`
-- 画面のログインが要る（API の合言葉の許可の一覧に入れない。ST44 の既定で 403）。読み出しの記録には残さない（記録を読む口でない）。`Cache-Control: no-store`
-- 結果のファイルは信用しない入力として読む: 64 KB を超えれば読まない、版は SemVer の形だけ、時刻は RFC 3339 だけ。外れたら `stale`（理由 `unreadable`）
+- 欄と `state` の 8 つは spec に書いた（review/spec.md R5・R10）。ここに残すのは仮の部分: `reason` の符号（D4 の 6 つと `not_running`）、`pending` から `stale` への 7 日の起点は `check.json` の `since`
+- 画面のログインが要る（API の合言葉の許可の一覧に入れない。ST44 の既定で 403）。成功した読みは読み出しの記録に残さない（記録を読む口でない）。API の合言葉で許可の外の口に届いた 403 は、今の正典（data-sensitivity）どおり残る
+- 結果のファイルは信用しない入力として読む: 64 KB を超えれば読まない、版は SemVer の形だけ、時刻は RFC 3339 だけ。外れたら `unreadable`（帯を出さず、設定にだけ「結果を読めない」）。壊れたファイルで 7 日を待たずに帯が出ないようにした（review/spec.md R5）
 - 置き場はサービスの形では系統の定数（D6）、開発の形は `ASHIATO_UPDATER_DIR`（D10）
 - 反転条件: ST58 の上流が、押して入れる口のために別の形を要るとき（`GET` の欄を足すのはよい。消すのは ST58 と合わせる）
 
@@ -169,6 +169,19 @@
 
 - 開発版の部品は印 `nightly` の配布物の版が自分より SemVer で新しいときだけ「更新あり」。土台の版が上がった開発版は、日付が古くても新しい（main から作るので、土台が上がった版の方が後にできている）
 - 反転条件: 土台の版を下げる運用（緊急の修正の枝から開発版を作る）が始まったとき
+
+### D22（仮）. 携帯の通知（Q5）と「確かめられていない」（Q9）は推奨で仮に足し、決まったら record で FR-113 を ★ で改訂する
+
+- Q5・Q9 の推奨は FR-113（画面と PC の通知に「更新あり」）に無い知らせを足す。draft では `docs/requirements.md` と `docs/stories/ST57.md` に触らない
+- 本人が推奨のまま（か足す側）にしたら、record の段が deep.md に「要件へ戻すもの: FR-113」を置き、FR-113 に ★ を入れ、`make_story.py` で ST57.md を作り直す（`review_triage.py` の検査 4 と `check_chain.py` が戻し漏れを止める）
+- 反転条件: 本人が足さない側を選んだら、spec の「携帯の収集アプリは、新しい版を画面に出し…」の通知の文と「7 日確かめられなければ…」の Requirement を削る（review/spec.md R2）
+
+### D23（仮）. 確認の無い前の版から入れ替えた収集アプリは、切り方を 1 回示してから確かめる
+
+- 送り先を設定済みの人が新しい版に入れ替えると、「送り先を保存した後」の条件は満たされたまま。本人が切る口を見る前に最初の問い合わせが出る（問い合わせの元の IP と時刻が出る。`exported`）。review/spec.md R16
+- 入れ替えの後に初めて起きた時に、「更新の確認: 有効」と切り方を通知で 1 回示し（PC は札 `update-intro`、携帯はチャンネル `update`）、その時には問い合わせず、その後の機会に確かめる。印は置き場（PC は `update-check.json` の `intro_shown`、携帯は `update_check.xml`）に持つ。入れたての部品は送り先の設定の時に示したものとみなす（設定の画面と `setup` の問いで切る口を見ている）
+- 失わない側（示してから確かめる）で、費用は通知 1 回と印 1 つ。範囲（ST57 の更新の確認）を越えず、要件の本文を変えない。`provisional.jsonl` に載せた
+- 反転条件: 本人が「入れ替えの後は示さずにすぐ確かめてよい」と言ったとき（通知を消すだけ）
 
 ## Risks / Trade-offs
 
