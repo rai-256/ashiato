@@ -146,6 +146,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "ashiato-build-stamp",
+ "ashiato-update-check",
  "ashiato-winsvc",
  "axum",
  "base64 0.22.1",
