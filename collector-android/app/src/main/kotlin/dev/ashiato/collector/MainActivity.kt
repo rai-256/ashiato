@@ -131,6 +131,9 @@ open class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // 設定画面から戻った後は、行が再び見えるので入れ替えの印を立ててよい。
+        // start() ごとに戻すと、設定を開いた回の途中で start() が呼ばれた場合にも保護が外れる。
+        exemptSettingsOpened = false
         if (!inFlight) proceed()
     }
 
@@ -402,8 +405,6 @@ open class MainActivity : Activity() {
 
     private fun start() {
         usageAccessOpenedInThisStart = false
-        // 設定を開いた回は、戻った後に行が見えてから印を立てる。
-        exemptSettingsOpened = false
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
             Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
@@ -421,14 +422,15 @@ open class MainActivity : Activity() {
         // ランチャーから開く通常のメイン画面では、設定済みでも変更の入口を残す。
         // 権限・設定の途中経路は従来どおり収集を始めて直ちに閉じる。
         val setupRow = shouldOfferInitialSetup()
-        val updateAvailable = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("latest", null)
+        val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
+        val updateAvailable = updatePreferences.getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
-        val updateStale = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("last_reason", null) != null &&
+        val updateStale = updatePreferences.getString("last_reason", null) != null &&
             UpdateCheck.stale(
                 java.time.Instant.now(),
-                getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("last_ok_at", null)
+                updatePreferences.getString("last_ok_at", null)
                     ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-                    ?: getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("intro_shown_at", null)
+                    ?: updatePreferences.getString("intro_shown_at", null)
                         ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
             )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
