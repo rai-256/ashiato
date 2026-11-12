@@ -129,6 +129,7 @@
 - 処置: fixed 9.1
 - 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: St57UpdateNoticeTest.kt:98-101・183-190・197-204 は isNewer/stale/due を直に呼ぶだけで、元の弱い観測のまま。IMPORTANCE_NONE・ShadowConnectivityManager・getNextStartedActivity などの grep も 0 件。diff はこのファイルに触れていない
 - 判定: NOT ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）: St57UpdateNoticeTest.kt の直った 3 本（IMPORTANCE_NONE のチャンネル・スイッチ・通知 1 件）以外は未処置。:131 isNewer、:251 stale、:255 due を直に呼ぶだけで、ShadowConnectivityManager・getNextStartedActivity・BUTTON_NEGATIVE は 0 件。LocationService の updateChecker.check() 呼び出しと宛先（baseUrl に壊す (d)）、(f)(g) を固定する試験が無い。
+- 判定: ADDRESSED（re-review 3 @589b84e3bb0a57fe180ef8905c3961e32a979013）
 
 ## R4. PC の収集アプリの「新しい版ごとに 1 回」・setup の既定・起動時と 1 時間ごとの呼び出しは、どの試験も固定していない
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs / crates/collector-windows/src/update_check.rs / crates/collector-windows/src/setup.rs / crates/collector-windows/src/runtime.rs
@@ -218,6 +219,7 @@
 - 処置: fixed 8.1
 - 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: PC の st57_pc_update.rs:535-541 は空の置き場で入れ替えの門が止める。携帯の St57UpdateNoticeTest.kt:183-186 は印を立てない。受け手の件数が 0 になることを見る試験は無い
 - 判定: ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）
+- 判定: ADDRESSED（re-review 3 @589b84e3bb0a57fe180ef8905c3961e32a979013）
 
 ## security review（8f10733..ef3a33a）
 
@@ -326,3 +328,15 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
+
+## settle_review（re-review 3 @589b84e）: 処置の直しが新しく壊したもの
+
+## R23. updateStale を組むのに getSharedPreferences(UpdateCheck.PREFS) を 3 回呼んでいる。1 つの変数にまとめられる。振る舞いは壊れない。
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
+- 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt:98-109（re-review 3 の New Breakage。Minor）
+- kind: technical
+
+## R24. start() のたびに exemptSettingsOpened = false にするので、「設定を開く」を押した回の保護は start() が再び呼ばれた回で外れる。戻った後に印が立つ試験はあり、実害は見つからなかった。
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
+- 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt:82-83（re-review 3 の New Breakage。Minor）
+- kind: technical
