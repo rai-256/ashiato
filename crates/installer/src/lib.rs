@@ -216,6 +216,89 @@ mod tests {
     }
 
     #[test]
+    fn st57_updater_registration_uses_service_account_and_auto_start() {
+        let layout = layout::Layout::release();
+        let text = commands::register_updater_command(&layout).line();
+        assert!(text.contains("ashiato-updater"));
+        assert!(text.contains(r"NT SERVICE\ashiato-updater"));
+        assert!(text.contains("start= auto"));
+        assert!(!text.contains("LocalSystem"));
+    }
+
+    #[test]
+    fn st57_updater_acl_has_no_broad_users_and_not_state_acl() {
+        let layout = layout::Layout::release();
+        let text = lines(&commands::updater_acl_commands(&layout, "S-1-5-21-owner"));
+        assert!(text.contains("ashiato-updater"));
+        assert!(!text.contains("Users") && !text.contains("Authenticated Users") && !text.contains("Everyone"));
+        assert!(!lines(&commands::acl_commands(&layout, "S-1-5-21-owner")).contains("ashiato-updater"));
+    }
+
+    #[test]
+    fn st57_update_check_switch_commands_disable_and_enable() {
+        let layout = layout::Layout::release();
+        let off = lines(&commands::update_check_service_commands(&layout, false));
+        assert!(off.contains("start= disabled") && off.contains("stop 'ashiato-updater'"));
+        let on = lines(&commands::update_check_service_commands(&layout, true));
+        assert!(on.contains("start= auto") && on.contains("start ashiato-updater"));
+    }
+
+    // Scenario: 切り替えの口は管理者の確認を 1 回だけ出す
+    #[test]
+    fn st57_update_check_switch_is_one_elevation() {
+        assert_eq!(commands::elevation_count(true), 0);
+        assert_eq!(commands::elevation_count(false), 1);
+    }
+
+    // Scenario: repair は更新係に触れない
+    #[test]
+    fn st57_repair_commands_do_not_mention_updater() {
+        let text = lines(&commands::repair_cleanup_commands(&layout::Layout::release()));
+        assert!(!text.contains("ashiato-updater"));
+    }
+
+    #[test]
+    fn st57_development_uses_development_updater_names() {
+        let layout = layout::Layout::development();
+        assert_eq!(layout.updater_service, "ashiato-updater-dev");
+        assert_eq!(layout.updater_dir, r"C:\ProgramData\ashiato-updater-dev");
+    }
+
+    #[test]
+    fn st57_updater_paths_are_outside_server_state() {
+        let layout = layout::Layout::release();
+        assert!(commands::updater_settings_path(&layout).to_string_lossy().contains("ashiato-updater"));
+        assert!(!commands::updater_settings_path(&layout).to_string_lossy().contains(r"ProgramData\ashiato\settings"));
+    }
+
+    #[test]
+    fn st57_updater_registration_has_recovery_restart() {
+        let text = lines(&commands::configure_updater_commands(&layout::Layout::release()));
+        assert!(text.contains("failure ashiato-updater") && text.contains("failureflag ashiato-updater 1"));
+    }
+
+    #[test]
+    fn st57_uninstall_removes_updater_service_but_not_directory() {
+        let text = lines(&commands::uninstall_commands(&layout::Layout::release(), Path::new(r"C:\tmp\setup.exe")));
+        assert!(text.contains("stop 'ashiato-updater'") && text.contains("delete ashiato-updater"));
+        assert!(!text.contains("ashiato-updater /s /q"));
+    }
+
+    #[test]
+    fn st57_update_check_argument_requires_on_or_off() {
+        assert!(commands::parse_args(&["update-check", "on"]).is_ok());
+        assert!(commands::parse_args(&["update-check", "off"]).is_ok());
+        assert!(commands::parse_args(&["update-check"]).is_err());
+    }
+
+    #[test]
+    fn st57_install_notice_explains_update_check_switch() {
+        let text = commands::install_notice(18700, None);
+        assert!(text.contains("更新の確認: 有効"));
+        assert!(text.contains("ashiato-setup.exe update-check off"));
+    }
+
+    #[test]
     fn st55_layout_beta_uses_fixed_names() {
         assert_eq!(
             layout::for_version("0.4.0-beta.1"),

@@ -126,6 +126,7 @@ pub fn install_notice(server_port: u16, free_gb: Option<u64>) -> String {
             " 状態の置き場の空きは {gb} GB で、見積もりは 40 GB です。"
         ));
     }
+    notice.push_str(" 更新の確認: 有効（切るには ashiato-setup.exe update-check off）");
     notice
 }
 
@@ -227,8 +228,10 @@ pub fn uninstall_commands(layout: &Layout, executable: &Path) -> Vec<SetupComman
     vec![
         stop_service_and_wait_command(layout.server_service),
         stop_service_and_wait_command(layout.db_service),
+        stop_service_and_wait_command(layout.updater_service),
         delete_service_command(layout.server_service),
         delete_service_command(layout.db_service),
+        delete_service_command(layout.updater_service),
         SetupCommand::new(
             "reg.exe",
             [
@@ -409,6 +412,10 @@ pub fn uninstall_elevation_command(executable: &str) -> String {
     elevation_script(executable, &["uninstall", "--elevated"])
 }
 
+pub fn update_check_elevation_command(executable: &str, enabled: bool) -> String {
+    elevation_script(executable, &["update-check", if enabled { "on" } else { "off" }, "--elevated"])
+}
+
 /// 継承を切って ACL を付ける置き場と、そこに書くサービス（D3・D17）。
 /// 根は `ashiato-server`、`db` と `logs\db` は `ashiato-db`（サーバは書けない）。
 pub fn acl_targets(layout: &Layout) -> [(String, &'static str); 3] {
@@ -450,6 +457,57 @@ pub fn fresh_state_setup_commands(layout: &Layout, owner_sid: &str) -> Vec<Setup
     commands.extend(configure_service_commands(layout));
     commands.extend(acl_commands(layout, owner_sid));
     commands
+}
+
+pub fn updater_executable(layout: &Layout) -> PathBuf {
+    PathBuf::from(format!(r"{}\ashiato-updater.exe", layout.program_dir))
+}
+
+pub fn updater_settings_path(layout: &Layout) -> PathBuf {
+    PathBuf::from(format!(r"{}\settings\check.json", layout.updater_dir))
+}
+
+pub fn updater_test_hooks_path(layout: &Layout) -> PathBuf {
+    PathBuf::from(format!(r"{}\settings\test-hooks.json", layout.updater_dir))
+}
+
+pub fn register_updater_command(layout: &Layout) -> SetupCommand {
+    SetupCommand::new("sc.exe", [
+        "create", layout.updater_service, "binPath=",
+        &format!(r#""{}" service"#, updater_executable(layout).display()),
+        "obj=", &format!(r"NT SERVICE\{}", layout.updater_service), "start=", "auto",
+    ])
+}
+
+pub fn updater_acl_commands(layout: &Layout, owner_sid: &str) -> Vec<SetupCommand> {
+    let service = service_principal(layout.updater_service);
+    let server = service_principal(layout.server_service);
+    let owner = format!("*{owner_sid}");
+    let root = layout.updater_dir.to_owned();
+    let settings = updater_settings_path(layout).display().to_string();
+    [root.clone(), format!(r"{}\settings", root), format!(r"{}\logs", root)]
+        .into_iter().map(|path| icacls([path, "/inheritance:r".into(), "/grant:r".into(),
+            format!("{service}:(OI)(CI)M"), format!("{server}:(OI)(CI)RX"), format!("{owner}:(OI)(CI)RX"),
+            "*S-1-5-32-544:(OI)(CI)F".into(), "*S-1-5-18:(OI)(CI)F".into()])).collect::<Vec<_>>()
+        .into_iter().chain(std::iter::once(icacls([settings, "/inheritance:r".into(), "/grant:r".into(),
+            format!("{service}:R"), format!("{server}:R"), format!("{owner}:R"),
+            "*S-1-5-32-544:F".into(), "*S-1-5-18:F".into()]))).collect()
+}
+
+pub fn configure_updater_commands(layout: &Layout) -> Vec<SetupCommand> {
+    vec![
+        SetupCommand::new("sc.exe", ["config", layout.updater_service, "obj=", &format!(r"NT SERVICE\{}", layout.updater_service), "start=", "auto"]),
+        SetupCommand::new("sc.exe", ["failure", layout.updater_service, "reset=", "86400", "actions=", "restart/10000/restart/10000/restart/10000"]),
+        SetupCommand::new("sc.exe", ["failureflag", layout.updater_service, "1"]),
+    ]
+}
+
+pub fn update_check_service_commands(layout: &Layout, enabled: bool) -> Vec<SetupCommand> {
+    let start = if enabled { "auto" } else { "disabled" };
+    let mut result = vec![SetupCommand::new("sc.exe", ["config", layout.updater_service, "start=", start])];
+    if enabled { result.push(start_service_command(layout.updater_service)); }
+    else { result.insert(0, stop_service_and_wait_command(layout.updater_service)); }
+    result
 }
 
 /// 初めて作る状態の置き場の持ち主を `Administrators` にする（先に別の利用者が作っていても持ち主にさせない）。
@@ -926,10 +984,16 @@ pub fn uninstall_registration_commands(layout: &Layout, version: &str) -> Vec<Se
 
 pub fn parse_args(args: &[&str]) -> Result<String, String> {
     let command = args.first().copied().unwrap_or("install");
-    if !matches!(command, "install" | "password" | "repair" | "uninstall") {
+    if !matches!(command, "install" | "password" | "repair" | "uninstall" | "update-check") {
         return Err(format!("不明な引数: {command}"));
     }
     let mut index = usize::from(!args.is_empty());
+    if command == "update-check" {
+        match args.get(index).copied() {
+            Some("off" | "on") => index += 1,
+            _ => return Err("update-check は off または on を指定してください".into()),
+        }
+    }
     while index < args.len() {
         match args[index] {
             "--owner-sid" | "--profile" | "--downloads" => {
