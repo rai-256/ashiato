@@ -25,9 +25,11 @@ enum ReadFileError {
 
 fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, ReadFileError> {
     let file = File::open(path).map_err(|error| {
-        (error.kind() == std::io::ErrorKind::NotFound)
-            .then_some(ReadFileError::Missing)
-            .unwrap_or(ReadFileError::Unreadable)
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ReadFileError::Missing
+        } else {
+            ReadFileError::Unreadable
+        }
     })?;
     if file
         .metadata()
