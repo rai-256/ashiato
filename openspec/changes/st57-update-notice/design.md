@@ -34,6 +34,8 @@
 - サーバは `ashiato-update-check` だけに依る（結果の読み方と版の比べ方）。`ashiato-updater` には依らない。`check-offsite.sh` は今のまま通る
 - 新しい検査 `tools/check-updater-deps.sh`: `cargo tree -p ashiato-updater -e normal` に DB の部品（一覧は検査が持つ: `sqlx`・`tokio-postgres`・`postgres`・`diesel`・`sea-orm`）が無いこと、`ashiato-updater` と `ashiato-collector-windows` に同梱の根の一覧の部品（`webpki-roots`・`webpki-root-certs`）が無いこと、`cargo tree -p ashiato-server -e normal` に `ashiato-updater` が無いこと、`cargo tree -p ashiato-update-check -e normal` に `check-offsite.sh` の一覧の部品が無いこと。`--self-test` つき。CI の `lint` の job に足す
 
+補足: `ashiato-update-check` は RFC 3339 の時刻を型安全に扱うため `chrono`（serde 機能のみ）も使う。HTTP・TLS・DB の部品ではなく、D1 の「純粋な部分」の範囲に含める。
+
 ### D2. 問い合わせは決まった形だけ。見出しの集合を名指しする
 
 > 聞かない既定（`defaults.md` C2）。review/deep.md R8

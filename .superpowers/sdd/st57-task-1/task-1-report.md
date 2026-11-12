@@ -37,3 +37,28 @@
 - `scripts/verify-run 1.1`: 指定された focused test/list 件数の検証 PASS（16/16）。
 - `scripts/verify-run 1.1`: `update-check-vectors.json` の cases/timing 件数検証 PASS。
 - 証跡: `openspec/changes/st57-update-notice/evidence.jsonl`。
+
+## Fix round 1 report
+
+### 対応
+
+- F1: Rust が `include_str!` で共有 vectors の cases と timing を全件検証する Scenario テストを追加。
+- F2: 正式版用・nightly 用の問い合わせ道と、許可する 5 見出しおよび `User-Agent` / `Accept` 定数を D2 に合わせた。
+- F3: 保存済み `Status.latest` を読む `update_available` を追加し、インストール後 Scenario を状態読み取り経由に変更。
+- F4: `parse_status` / `parse_record_line` に 64 KiB、SemVer、serde による RFC 3339 検証を追加し、`stale_notified` に既定値を付与。
+- F5: timing 材料を符号付き経過時間にし、未来の時刻と未記録の `stale` / `updater_not_running` を追加。
+- F6: nightly の選択 Scenario に正式版 `v0.5.0` を同時に含め、正式版を数えないことを Rust と材料で検証。
+- F7: `chrono` は RFC 3339 の型安全な時刻処理に必要な純粋 crate の依存であることを design に明記。
+
+### 検証
+
+- focused: `scripts/quiet-run st57-fix3 -- cargo test -p ashiato-update-check st57_choose_` — 17/17 passing。
+- workspace: `scripts/quiet-run workspace -- cargo test --workspace` — rc=0、失敗なし。
+- Task gate: `scripts/verify-run 1.1` — 指定 focused test/list 件数 PASS（17 tests）、vectors 件数 PASS。
+- 証跡: `openspec/changes/st57-update-notice/evidence.jsonl`。
+
+### 自己レビュー
+
+- 変更範囲は F1〜F7 とその証跡に限定した。
+- 保存状態の Scenario は `parse_status` で読み込んだ `Status.latest` を `update_available` に渡している。
+- workspace 全体テストは今回の修正後に PASS した。

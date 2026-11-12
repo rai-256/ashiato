@@ -6,10 +6,22 @@ use serde::{Deserialize, Serialize};
 
 /// GitHub release に許される入力の最大サイズ。
 pub const MAX_RELEASES_JSON_BYTES: usize = 64 * 1024;
-/// 更新確認の問い合わせ先を組み立てるための道。
-pub const UPDATE_CHECK_PATH: &str = "/releases";
-/// 更新確認を表示する見出し。
-pub const UPDATE_CHECK_HEADING: &str = "更新の確認";
+/// 正式版・ベータ版の更新確認の問い合わせ先。
+pub const RELEASES_PATH: &str = "/repos/rai-256/ashiato/releases?per_page=20";
+/// 開発版の更新確認の問い合わせ先。
+pub const NIGHTLY_RELEASE_PATH: &str = "/repos/rai-256/ashiato/releases/tags/nightly";
+/// 更新確認で許される HTTP 見出しの名前。
+pub const UPDATE_CHECK_HEADERS: [&str; 5] = [
+    "Host",
+    "User-Agent",
+    "Accept",
+    "Accept-Encoding",
+    "Connection",
+];
+/// 更新確認の User-Agent。
+pub const UPDATE_CHECK_USER_AGENT: &str = "ashiato-update-check";
+/// GitHub API の応答形式。
+pub const UPDATE_CHECK_ACCEPT: &str = "application/vnd.github+json";
 /// 状態ファイルの名前。
 pub const STATUS_FILE: &str = "status.json";
 
@@ -66,6 +78,7 @@ pub struct Status {
     pub last_ok_at: Option<DateTime<Utc>>,
     pub last_reason: Option<CheckReason>,
     pub notified_version: Option<String>,
+    #[serde(default)]
     pub stale_notified: bool,
 }
 
@@ -96,6 +109,29 @@ pub fn parse_releases(input: &[u8]) -> Result<Vec<Release>, InputError> {
         return Err(InputError::TooLarge);
     }
     serde_json::from_slice(input).map_err(|error| InputError::InvalidJson(error.to_string()))
+}
+
+/// サイズを制限し、保存した状態を検証しながら読む。
+pub fn parse_status(input: &[u8]) -> Result<Status, InputError> {
+    if input.len() > MAX_RELEASES_JSON_BYTES {
+        return Err(InputError::TooLarge);
+    }
+    let status: Status = serde_json::from_slice(input)
+        .map_err(|error| InputError::InvalidJson(error.to_string()))?;
+    validate_optional_version(status.latest.as_deref())?;
+    validate_optional_version(status.notified_version.as_deref())?;
+    Ok(status)
+}
+
+/// サイズを制限し、記録の版と時刻を検証しながら JSON Lines の一行を読む。
+pub fn parse_record_line(input: &[u8]) -> Result<CheckRecord, InputError> {
+    if input.len() > MAX_RELEASES_JSON_BYTES {
+        return Err(InputError::TooLarge);
+    }
+    let record: CheckRecord = serde_json::from_slice(input)
+        .map_err(|error| InputError::InvalidJson(error.to_string()))?;
+    validate_optional_version(record.latest.as_deref())?;
+    Ok(record)
 }
 
 /// RFC 3339 の時刻を読む。
@@ -140,6 +176,15 @@ pub fn choose(
     })
 }
 
+/// 保存済みの最新版本とインストール済み版本を比べ、更新の有無を決める。
+pub fn update_available(installed: &str, latest: Option<&str>) -> Result<bool, InputError> {
+    let installed = parse_version(installed)?;
+    latest
+        .map(parse_version)
+        .transpose()
+        .map(|latest| latest.is_some_and(|latest| latest > installed))
+}
+
 /// 最後の確認から 24 時間以上経過したかを返す。未記録と未来の時刻は due とする。
 pub fn due(now: DateTime<Utc>, last_checked_at: Option<DateTime<Utc>>) -> bool {
     last_checked_at
@@ -162,6 +207,10 @@ pub fn updater_not_running(now: DateTime<Utc>, checked_at: Option<DateTime<Utc>>
 fn parse_version(value: &str) -> Result<Version, InputError> {
     Version::parse(value.strip_prefix('v').unwrap_or(value))
         .map_err(|error| InputError::InvalidVersion(error.to_string()))
+}
+
+fn validate_optional_version(value: Option<&str>) -> Result<(), InputError> {
+    value.map(parse_version).transpose().map(|_| ())
 }
 
 fn is_dev(version: &Version) -> bool {
@@ -281,10 +330,13 @@ mod tests {
         let found = choose(
             Component::Server,
             "0.4.0-dev.20261102",
-            &[release(
-                "nightly",
-                &["ashiato-server-0.4.0-dev.20261110-windows-x86_64.zip"],
-            )],
+            &[
+                release(
+                    "nightly",
+                    &["ashiato-server-0.4.0-dev.20261110-windows-x86_64.zip"],
+                ),
+                release("v0.5.0", &["ashiato-server-0.5.0-windows-x86_64.zip"]),
+            ],
         )
         .unwrap();
         assert_eq!(found.latest.as_deref(), Some("0.4.0-dev.20261110"));
@@ -390,19 +442,15 @@ mod tests {
         assert_eq!(found.latest, None);
         assert!(!found.update_available);
     }
-    #[test]
     // Scenario: 新しい版を入れた後は、古い結果でも更新ありにならない
+    #[test]
     fn st57_choose_status_is_not_update_after_install() {
-        let found = choose(
-            Component::Server,
-            "0.5.0",
-            &[release(
-                "v0.5.0",
-                &["ashiato-server-0.5.0-windows-x86_64.zip"],
-            )],
+        let status = parse_status(
+            r#"{"latest":"0.5.0","found_at":"2026-11-11T00:00:00Z","checked_at":"2026-11-11T00:00:00Z","last_ok_at":"2026-11-11T00:00:00Z","last_reason":null,"notified_version":null}"#
+                .as_bytes(),
         )
         .unwrap();
-        assert!(!found.update_available);
+        assert!(!update_available("0.5.0", status.latest.as_deref()).unwrap());
     }
     #[test]
     fn st57_choose_all_components_have_asset_rules() {
@@ -453,5 +501,69 @@ mod tests {
         let json = serde_json::to_value(status).unwrap();
         assert!(json.get("latest").is_some());
         assert!(json.get("checked_at").is_some());
+        assert!(parse_status(br#"{"latest":"not-semver","stale_notified":false}"#).is_err());
+        assert!(
+            parse_record_line(br#"{"at":"not-a-time","ok":true,"reason":null,"latest":null}"#)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn st57_choose_all_contract_vectors() {
+        #[derive(Deserialize)]
+        struct VectorFile {
+            cases: Vec<VectorCase>,
+            timing: Vec<TimingVector>,
+        }
+        #[derive(Deserialize)]
+        struct VectorCase {
+            component: Component,
+            installed: String,
+            releases: Vec<Release>,
+            latest: Option<String>,
+            update_available: bool,
+        }
+        #[derive(Deserialize)]
+        struct TimingVector {
+            kind: String,
+            elapsed_hours: Option<i64>,
+            elapsed_days: Option<i64>,
+            expected: bool,
+        }
+
+        let vectors: VectorFile = serde_json::from_str(include_str!(
+            "../../../docs/contracts/update-check-vectors.json"
+        ))
+        .unwrap();
+        for vector in vectors.cases {
+            let found = choose(vector.component, &vector.installed, &vector.releases).unwrap();
+            assert_eq!(found.latest, vector.latest);
+            assert_eq!(found.update_available, vector.update_available);
+        }
+        let now = DateTime::parse_from_rfc3339("2026-11-12T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        for vector in vectors.timing {
+            let result = match vector.kind.as_str() {
+                "due" => due(
+                    now,
+                    vector
+                        .elapsed_hours
+                        .map(|hours| now - Duration::hours(hours)),
+                ),
+                "stale" => stale(
+                    now,
+                    vector.elapsed_days.map(|days| now - Duration::days(days)),
+                ),
+                "updater_not_running" => updater_not_running(
+                    now,
+                    vector
+                        .elapsed_hours
+                        .map(|hours| now - Duration::hours(hours)),
+                ),
+                other => panic!("未知の時期ベクトル: {other}"),
+            };
+            assert_eq!(result, vector.expected, "timing vector: {}", vector.kind);
+        }
     }
 }
