@@ -59,6 +59,27 @@ internal object UpdateCheck {
     fun staleText(last: Instant?, reason: String?): String =
         "更新を 7 日確かめられていません（最後に確かめた ${date(last)}・${reasonText(reason)}）"
 
+    /** JSON Lines の文字列値。制御文字も JSON として読める形にする。 */
+    internal fun json(value: String): String = buildString {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\b' -> append("\\b")
+                '\u000c' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if (character.code < 0x20) {
+                    append("\\u")
+                    append(character.code.toString(16).padStart(4, '0'))
+                } else append(character)
+            }
+        }
+        append('"')
+    }
+
     fun canPost(context: Context, manager: NotificationManager, channel: String): Boolean =
         (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
@@ -214,9 +235,8 @@ internal class UpdateChecker(private val context: Context, private val testDesti
 
     private fun record(now: Instant, ok: Boolean, reason: String?, latest: String?) {
         records.parentFile?.mkdirs()
-        fun json(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
-        val reasonJson = reason?.let(::json) ?: "null"
-        val latestJson = latest?.let(::json) ?: "null"
+        val reasonJson = reason?.let(UpdateCheck::json) ?: "null"
+        val latestJson = latest?.let(UpdateCheck::json) ?: "null"
         records.appendText("{\"at\":\"$now\",\"ok\":$ok,\"reason\":$reasonJson,\"latest\":$latestJson}\n")
         val edit = prefs.edit().putString("checked_at", now.toString()).putString("last_reason", reason)
         if (ok) {

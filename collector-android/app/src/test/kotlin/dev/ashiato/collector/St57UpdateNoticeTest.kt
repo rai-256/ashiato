@@ -75,7 +75,7 @@ class St57UpdateNoticeTest {
     private fun configured() = Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
 
     /** 実際の HttpURLConnection が何件届いたかを読む小さな loopback の受け手。 */
-    private fun releasesServer(expected: Int = 1, body: String = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]", status: Int = 200): Triple<String, MutableList<String>, CountDownLatch> {
+    private fun releasesServer(expected: Int = 1, body: String = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]", status: Int = 200, location: String? = null): Triple<String, MutableList<String>, CountDownLatch> {
         val server = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
         val seen = mutableListOf<String>()
         val done = CountDownLatch(1)
@@ -88,9 +88,8 @@ class St57UpdateNoticeTest {
                             val input = socket.getInputStream().bufferedReader()
                             while (input.readLine()?.isNotEmpty() == true) {}
                             synchronized(seen) { seen += "request" }
-                            socket.getOutputStream().write(
-                                "HTTP/1.1 $status test\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray()
-                            )
+                            val redirect = location?.let { "Location: $it\r\n" } ?: ""
+                            socket.getOutputStream().write("HTTP/1.1 $status test\r\n${redirect}Content-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray())
                         }
                     } catch (_: java.net.SocketTimeoutException) { return@repeat }
                 }
@@ -302,7 +301,31 @@ class St57UpdateNoticeTest {
         assertEquals(2, seen.size)
         val notifications = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications
         assertEquals(1, notifications.count { it.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("7 日確かめられていません") })
-        open().use { it.onActivity { activity -> assertTrue(texts(activity).any { text -> text == UpdateCheck.staleText(null, "unreadable") }) } }
+        open().use { it.onActivity { activity -> assertTrue(texts(activity).any { text -> text == "更新を 7 日確かめられていません（最後に確かめた —・読めない答え）" }) } }
+    }
+    @Test fun `見つけた日は最初に見つけた日のまま表示する`() {
+        // Scenario: 携帯は新しい版を最初の画面に出す
+        configured()
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true)
+            .putString("latest", "0.5.0").putString("found_at", "2026-11-10T12:00:00Z").commit()
+        open().use { it.onActivity { activity -> assertTrue(texts(activity).contains("更新あり 0.5.0（11/10 に見つけた）")) } }
+    }
+    @Test fun `別ホストへの転送は確かめない`() {
+        // Scenario: 携帯の問い合わせは版の一覧の取得だけである
+        configured()
+        val (other, otherSeen, otherDone) = releasesServer()
+        val (url, seen, done) = releasesServer(status = 302, location = other.replace("127.0.0.1", "localhost"))
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertTrue(otherDone.await(2, TimeUnit.SECONDS))
+        assertEquals(1, seen.size)
+        assertTrue(otherSeen.isEmpty())
+        assertEquals("unreadable", app.getSharedPreferences(UpdateCheck.PREFS, 0).getString("last_reason", null))
+    }
+    @Test fun `JSON Lines の制御文字をエスケープする`() {
+        assertEquals("\"tab\\tcontrol\\u0001\"", UpdateCheck.json("tab\tcontrol\u0001"))
     }
     @Test fun `更新の通知は既存のサーバ更新通知と別のチャンネルと ID を使う`() {
         // Scenario: 携帯の更新の通知は既存のサーバの更新の知らせを置き換えず、文が違う

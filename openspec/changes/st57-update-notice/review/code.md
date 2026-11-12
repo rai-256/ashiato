@@ -450,13 +450,16 @@
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
 - 根拠: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt:305（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 9.1
 
 ## R36. R29（別ホストへの転送で確かめられない）と R26（見つけた日の表示）に当たる試験が無い。コードは直っているが、固定していない。
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
 - 根拠: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 9.1
 
 ## R37. 改行以外の制御文字（\t など）をエスケープしない。latest はバージョン文字列由来なので、実害は見つからなかった。
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt (record の json())
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt (record の json())（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 9.1
