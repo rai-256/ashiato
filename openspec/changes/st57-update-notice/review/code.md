@@ -93,6 +93,7 @@
 - 提案: 受け手が受けた要求を全部読み、見出しの名前の集合 ⊆ {Host, User-Agent, Accept, Accept-Encoding, Connection}・方法 `GET`・道・本文 0 バイト・どの値にも自分の版（と PC の端末の識別子・送り先の合言葉）が無いことを、更新係と PC の両方で assert する。印はその試験へ移す
 - 処置: fixed 2.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
+- 判定: ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）
 
 ## R2. 試験の組み立て（debug）の携帯は、宛先を差し替えないと本物の配布元 `https://api.github.com` に問い合わせる
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt / collector-android/app/build.gradle.kts / tools/android-emulator.sh
@@ -127,6 +128,7 @@
 - 提案: Scenario ごとに GIVEN を作り（`IMPORTANCE_NONE` のチャンネル・`ShadowConnectivityManager` で回線だけ・loopback の受け手・`getNextStartedActivity`）、THEN の観測（受け手の件数・サーバの宛先の件数・`ShadowNotificationManager` の通知の数・印）を assert する。印の名前を spec に合わせる（`St57UpdateCheckTest.kt:79`）
 - 処置: fixed 9.1
 - 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: St57UpdateNoticeTest.kt:98-101・183-190・197-204 は isNewer/stale/due を直に呼ぶだけで、元の弱い観測のまま。IMPORTANCE_NONE・ShadowConnectivityManager・getNextStartedActivity などの grep も 0 件。diff はこのファイルに触れていない
+- 判定: NOT ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）: St57UpdateNoticeTest.kt の直った 3 本（IMPORTANCE_NONE のチャンネル・スイッチ・通知 1 件）以外は未処置。:131 isNewer、:251 stale、:255 due を直に呼ぶだけで、ShadowConnectivityManager・getNextStartedActivity・BUTTON_NEGATIVE は 0 件。LocationService の updateChecker.check() 呼び出しと宛先（baseUrl に壊す (d)）、(f)(g) を固定する試験が無い。
 
 ## R4. PC の収集アプリの「新しい版ごとに 1 回」・setup の既定・起動時と 1 時間ごとの呼び出しは、どの試験も固定していない
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs / crates/collector-windows/src/update_check.rs / crates/collector-windows/src/setup.rs / crates/collector-windows/src/runtime.rs
@@ -140,6 +142,7 @@
 - 提案: 偽の出し手で「0.5.0 を 2 回 → 0.5.1」で `update` が 2 回になることを見る。`run_setup_flow` に空の行と `n` を流して `settings.json` を見る。`Runtime` に偽の UpdateChecker（または一時の置き場と受け手）を差し、`tick_at` を 1 時間進めて確かめが 1 回出ることを見る
 - 処置: fixed 8.1
 - 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: st57_pc_update.rs:358-377 の setup 試験は run_setup_flow も標準入力も使わず start を呼ぶだけ。版ごとに 1 回は 2 回続けて 0.5.1 を見ていない。runtime の set_update_checker を通す試験は無い
+- 判定: ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）
 
 ## R5. 9.2 の件数の検査は前の実行の写しを数え続け、St57UpdateQueryTest が 0 件の実行でも rc=0 になる
 - 成果物: tools/android-emulator.sh
@@ -214,6 +217,7 @@
 - 提案: 示した印を立て、送り先を設定し、確かめる時期を過ぎた端末で切り、loopback の受け手への問い合わせが 0 件であることを PC（`start` と `periodic` の両方）と携帯で assert する
 - 処置: fixed 8.1
 - 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: PC の st57_pc_update.rs:535-541 は空の置き場で入れ替えの門が止める。携帯の St57UpdateNoticeTest.kt:183-186 は印を立てない。受け手の件数が 0 になることを見る試験は無い
+- 判定: ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）
 
 ## security review（8f10733..ef3a33a）
 
