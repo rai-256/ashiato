@@ -107,6 +107,7 @@ beforeEach(() => {
       if (url.startsWith("/api/stays")) {
         return Promise.resolve(staysFail ? json(500, {}) : json(200, { date: TARGET, criteria: [], entries }));
       }
+      if (url === "/api/update-status") return Promise.resolve(json(200, { state: "not_running", installed: "0.1.0", latest: null, found_at: null, checked_at: null, last_ok_at: null, reason: "not_running" }));
       if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: reminderAt, recorded: false }));
       if (feelingsFail) return Promise.resolve(json(500, {}));
       const from = /from=([\d-]+)/.exec(url)?.[1] ?? "";

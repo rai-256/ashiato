@@ -1,4 +1,5 @@
 import { msg } from "./messages";
+import { DAY_TZ } from "./tokens";
 
 export const UPDATE_STATES = ["off", "pending", "latest", "available", "stale", "available_stale", "unreadable", "not_running"] as const;
 export type UpdateState = (typeof UPDATE_STATES)[number];
@@ -18,12 +19,16 @@ const m = msg("settings").update;
 function day(value: string | null): string {
   if (value === null) return m.missingDate;
   const date = new Date(value);
-  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: DAY_TZ, month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const month = parts.find((part) => part.type === "month")?.value ?? "--";
+  const day = parts.find((part) => part.type === "day")?.value ?? "--";
+  return `${month}/${day}`;
 }
 export function formatDateTime(value: string | null): string {
   if (value === null) return m.missingDate;
   const date = new Date(value);
-  return `${day(value)} ${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: DAY_TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+  return `${day(value)} ${time}`;
 }
 export function bannerLines(status: UpdateStatus): string[] {
   const lines: string[] = [];

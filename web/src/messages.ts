@@ -96,6 +96,8 @@ const ja = {
       notRunning: "動いていない",
       unreadable: "結果を読めない",
       pending: "まだ確かめていない",
+      failed: "更新の確認を読み込めませんでした",
+      enabledStale: "有効・7 日確かめられていない",
       installed: (version: string): string => `入っている版 ${version}`,
       latest: (version: string, found: string): string => `見つけた最新の版 ${version}（${found} に見つけた）`,
       checked: (at: string): string => `最後に確かめた ${at}`,

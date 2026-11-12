@@ -8,8 +8,6 @@ export function UpdateBand(): React.ReactElement | null {
   const c = SCHEMES[scheme];
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   useEffect(() => {
-    // Root の既存 jsdom テストは画面ごとの API 要求を厳密に数える。本物のブラウザ e2e と実画面では読む。
-    if (navigator.userAgent.includes("jsdom")) return;
     let alive = true;
     fetch("/api/update-status").then(async (response) => {
       if (!response.ok) throw new Error(`status_${response.status}`);

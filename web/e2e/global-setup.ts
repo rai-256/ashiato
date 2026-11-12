@@ -13,7 +13,8 @@ export const STORAGE_STATE = "./e2e/.auth/state.json";
  * 合言葉は `.env` の `WEB_PASSWORD`（`tools/stack.sh` と同じ値）。
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
-  const updaterDir = process.env.ASHIATO_UPDATER_DIR ?? "/tmp/ashiato-st57-updater";
+  const updaterDir = process.env.ASHIATO_UPDATER_DIR;
+  if (!updaterDir) throw new Error("ASHIATO_UPDATER_DIR が無い");
   rmSync(updaterDir, { recursive: true, force: true });
   mkdirSync(`${updaterDir}/settings`, { recursive: true });
   const password = process.env.WEB_PASSWORD;

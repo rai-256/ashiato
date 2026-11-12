@@ -57,7 +57,7 @@ export function SettingsView(): React.ReactElement {
   const [again, setAgain] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  const [update, setUpdate] = useState<Load<UpdateStatus>>({ at: "loading" });
   const pwRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async (): Promise<void> => {
@@ -80,7 +80,10 @@ export function SettingsView(): React.ReactElement {
   }, [loadStatus]);
 
   useEffect(() => {
-    read("/api/update-status", isUpdateStatus).then(setUpdate, () => setUpdate(null));
+    read("/api/update-status", isUpdateStatus).then(
+      (value) => setUpdate({ at: "ok", value }),
+      () => setUpdate({ at: "failed" }),
+    );
   }, []);
 
   const st = status.at === "ok" ? status.value : null;
@@ -169,15 +172,16 @@ export function SettingsView(): React.ReactElement {
 
       <section data-testid="update-section" aria-labelledby="update-title" style={sectionStyle(c, c.surface1)}>
         <h2 id="update-title" style={{ font: font(TYPE.body, 600), margin: "0 0 6px" }}>{m.update.title}</h2>
-        {update === null && <p>{common.loading}</p>}
-        {update !== null && <>
+        {update.at === "loading" && <p>{common.loading}</p>}
+        {update.at === "failed" && <p>{m.update.failed}</p>}
+        {update.at === "ok" && <>
           <p style={{ margin: "0 0 4px" }}>
-            {update.state === "off" ? m.update.disabled : update.state === "not_running" ? m.update.notRunning : update.state === "unreadable" ? m.update.unreadable : update.state === "pending" ? m.update.pending : update.state === "latest" ? m.update.enabledLatest : m.update.enabledAvailable}
+            {update.value.state === "off" ? m.update.disabled : update.value.state === "not_running" ? m.update.notRunning : update.value.state === "unreadable" ? m.update.unreadable : update.value.state === "pending" ? m.update.pending : update.value.state === "latest" ? m.update.enabledLatest : update.value.state === "stale" ? m.update.enabledStale : m.update.enabledAvailable}
           </p>
-          <p style={{ margin: "0 0 4px" }}>{m.update.installed(update.installed)}</p>
-          {update.latest !== null && <p style={{ margin: "0 0 4px" }}>{m.update.latest(update.latest, update.found_at === null ? m.update.missingDate : formatDateTime(update.found_at).split(" ")[0])}</p>}
-          <p style={{ margin: "0 0 4px" }}>{m.update.checked(formatDateTime(update.checked_at))}</p>
-          {update.reason !== null && <p style={{ margin: 0 }}>{m.update.reason(updateReason(update.reason))}</p>}
+          <p style={{ margin: "0 0 4px" }}>{m.update.installed(update.value.installed)}</p>
+          {update.value.latest !== null && <p style={{ margin: "0 0 4px" }}>{m.update.latest(update.value.latest, update.value.found_at === null ? m.update.missingDate : formatDateTime(update.value.found_at).split(" ")[0])}</p>}
+          <p style={{ margin: "0 0 4px" }}>{m.update.checked(formatDateTime(update.value.checked_at))}</p>
+          {update.value.reason !== null && <p style={{ margin: 0 }}>{m.update.reason(updateReason(update.value.reason))}</p>}
         </>}
       </section>
 

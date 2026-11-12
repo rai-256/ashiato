@@ -38,3 +38,26 @@
 
 - verify-run は PASS したが、ハーネスの一時作業ディレクトリに `node-compile-cache` / `playwright-transform-cache` が残った注意が出た。試験が作る updater ディレクトリは各試験後に削除している。
 - 実装前の機能的な RED 出力は依存未導入に遮られたため、TDD の証跡は環境エラーを含む。
+
+## Fix round 1
+
+### 対応内容
+
+- e2e のコントラスト検査を `contrast.ts` の `rgbContrastRatio` で実測し、明暗の両配色で 3:1 以上かつ 2 行を確認。
+- 6/8 日前などの e2e 日付を実行時刻から生成し、版なし・設定表示・見出し位置をサーバの実インストール版に合わせて検証。
+- 外部要求数の Scenario は4画面を実際に開いて計測。
+- 設定画面の失敗状態を読み込み中と分離し、`stale` を新しい版ありと誤表示しないよう修正。
+- 帯の jsdom 判定を削除し、単体テストの fetch モックに `/api/update-status` を追加。
+- 更新日時を `DAY_TZ`（Asia/Tokyo）で表示。
+- updater の置き場は固定 `/tmp` を使わず、`ASHIATO_UPDATER_DIR` または `TMPDIR` 配下の `mktemp` で用意。
+
+### Fix round 検証
+
+- `scripts/verify-run 4.1`: PASS（e2e 14/14、TypeScript + Vitest 55 files / 519 tests）。
+- `scripts/quiet-run web-full -- bash -c 'cd web && npx tsc --noEmit && npx vitest run'`: PASS（519/519）。
+- `git diff --check`: PASS。
+
+### Fix round 自己レビュー
+
+- 機能上の未解決事項はなし。verify-run の途中実行では環境変数引き渡し不足による FAIL が記録されたが、Playwright 設定で一意な一時ディレクトリを生成して再実行し、最終証跡は PASS。
+- ハーネスは `node-compile-cache` 等の一時キャッシュ残留を注意として記録している。更新係の置き場は各テスト後に内容を空にしている。

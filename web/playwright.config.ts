@@ -18,7 +18,10 @@ import { defineConfig, devices } from "@playwright/test";
 declare const process: { env: Record<string, string | undefined> };
 
 const PORT = Number(process.env.WEB_PORT ?? 5180);
-const UPDATER_DIR = process.env.ASHIATO_UPDATER_DIR ?? "/tmp/ashiato-st57-updater";
+const tempRoot = process.env.TMPDIR;
+if (!tempRoot && !process.env.ASHIATO_UPDATER_DIR) throw new Error("TMPDIR または ASHIATO_UPDATER_DIR が無い");
+const UPDATER_DIR = process.env.ASHIATO_UPDATER_DIR ?? execFileSync("mktemp", ["-d", `${tempRoot}/ashiato-st57-updater.XXXXXX`], { encoding: "utf8" }).trim();
+process.env.ASHIATO_UPDATER_DIR = UPDATER_DIR;
 
 // サーバ（tools/stack.sh が立てる）の待ち受け。**tools/ports.sh と同じ規則で組む** —— stack.sh も BIND を
 // `127.0.0.1:<ports.sh の ASHIATO_HTTP_PORT>` に上書きするので、`.env` の BIND や CI の env に頼ると食い違う
