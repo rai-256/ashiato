@@ -183,6 +183,9 @@ check_apk_fields() {
     [[ -z "$value" ]] || die "$(basename "$apk") の $field が空でない"
   done < <(sed -nE 's/^\.field public static final (BASE_URL|API_TOKEN|USER_ID):[^=]+ = "(.*)"$/\1|\2/p' <<<"$text")
   [[ "$found" == 3 ]] || die "$(basename "$apk") の BuildConfig の接続先項目が $found 個しか読めない"
+  local update_url
+  update_url="$(sed -nE 's/^\.field public static final UPDATE_CHECK_URL:[^=]+ = "(.*)"$/\1/p' <<<"$text")"
+  [[ "$update_url" == "https://api.github.com" ]] || die "$(basename "$apk") の更新確認先が配布元でない: $update_url"
 }
 
 check_windows_contents() {
@@ -514,6 +517,9 @@ self_test() {
   echo "== 実物の release 成果物を組み立てる"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$real"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$real"
+  if (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -PupdateCheckUrl=http://127.0.0.1:1 :app:assembleRelease >/dev/null 2>&1); then
+    die 'release の組み立てが -PupdateCheckUrl を受け入れた'
+  fi
   # C-02 の release rlib から印を読み、Windows runner の成果物と同じ形の写しにする。
   local stamp
   (cd "$root" && cargo build --release -p ashiato-collector-windows >/dev/null)

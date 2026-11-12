@@ -905,14 +905,16 @@ open class LocationService : Service() {
         // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
         // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
         // 積むところが投げても糸の外へ抜かず、種別だけ残す（review/code.md R23）
-        runCollection { HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed) }
+        runCollection {
+            HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed)
+            runCatching { updateChecker.check() }.onFailure {
+                Log.w(TAG, Telemetry.line("update_check_failed", source = null, error = it.javaClass.simpleName))
+            }
+        }
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         refreshSetupNotice()
-        runCatching { updateChecker.check() }.onFailure {
-            Log.w(TAG, Telemetry.line("update_check_failed", source = null, error = it.javaClass.simpleName))
-        }
         startBeating()
         startTicking()
         startClockSkew()

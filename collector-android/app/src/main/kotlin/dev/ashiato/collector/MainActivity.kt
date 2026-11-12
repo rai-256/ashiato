@@ -89,6 +89,8 @@ open class MainActivity : Activity() {
     /** この起動の `app_open` の観測を済ませた（D9）。 */
     private var healthOpenObserved = false
     private var setupLaunched = false
+    private var introRowShownInThisActivity = false
+    private var exemptSettingsOpened = false
     private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
@@ -415,7 +417,8 @@ open class MainActivity : Activity() {
         // ランチャーから開く通常のメイン画面では、設定済みでも変更の入口を残す。
         // 権限・設定の途中経路は従来どおり収集を始めて直ちに閉じる。
         val setupRow = shouldOfferInitialSetup()
-        if (restricted || notice != null || setupRow) {
+        val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity)
+        if (restricted || notice != null || setupRow || updateIntroPending) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
@@ -448,6 +451,7 @@ open class MainActivity : Activity() {
             .setNegativeButton(NOT_NOW_LABEL, null)
             .setOnDismissListener {
                 asked.mark()
+                if (Config.isComplete && !exemptSettingsOpened && updateChecker.introPending()) updateChecker.markIntroShown()
                 exemptDialog = null
             }
             .show()
@@ -462,6 +466,7 @@ open class MainActivity : Activity() {
     }
 
     private fun openUnusedAppRestrictionsSettings() {
+        exemptSettingsOpened = true
         val opened = runCatching { startActivity(manageUnusedAppRestrictionsIntent(this)) }.isSuccess
         if (!opened) Log.w(TAG, Telemetry.line("unused_app_restrictions_settings_missing", source = LOGICAL_SOURCE))
     }
@@ -492,11 +497,12 @@ open class MainActivity : Activity() {
         }
         actionBar?.hide()
         val updatePrefs = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
-        if (updateChecker.introPending()) {
+        if (Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity)) {
             column.addView(TextView(this).apply { text = "更新の確認: 有効（切るには設定の画面）" })
+            introRowShownInThisActivity = true
         }
         updatePrefs.getString("latest", null)?.let { latest ->
-            if (UpdateCheck.choose("android", BuildConfig.VERSION_NAME, "[]").available || latest != BuildConfig.VERSION_NAME) {
+            if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
                 column.addView(TextView(this).apply { text = "更新あり $latest（${updatePrefs.getString("found_at", "")?.take(10)?.replace('-', '/')} に見つけた）" })
             }
         }
@@ -539,7 +545,9 @@ open class MainActivity : Activity() {
             )
         }
         setContentView(column)
-        if (updateChecker.introPending()) updateChecker.markIntroShown()
+        if (Config.isComplete && updateChecker.introPending() && exemptDialog?.isShowing != true && !exemptSettingsOpened) {
+            updateChecker.markIntroShown()
+        }
     }
 
     /**

@@ -52,8 +52,12 @@ internal object UpdateCheck {
             "collector-windows" -> "-x86_64.zip"
             else -> ".apk"
         }
+        val releases = runCatching {
+            val root = Json.parseToJsonElement(body)
+            if (root is kotlinx.serialization.json.JsonArray) root else kotlinx.serialization.json.JsonArray(listOf(root))
+        }.getOrDefault(kotlinx.serialization.json.JsonArray(emptyList()))
         val versions = runCatching {
-            Json.parseToJsonElement(body).jsonArray.flatMap { release ->
+            releases.flatMap { release ->
                 val obj = release.jsonObject
                 if (obj["draft"]?.jsonPrimitive?.content == "true") return@flatMap emptyList()
                 val nightly = obj["tag_name"]?.jsonPrimitive?.content == "nightly"
@@ -69,6 +73,12 @@ internal object UpdateCheck {
         }.getOrDefault(emptyList())
         val latest = versions.maxOrNull()?.text
         return Choice(latest, latest?.let { Version.parse(it)!! > own } == true)
+    }
+
+    fun isNewer(installed: String, latest: String): Boolean {
+        val own = Version.parse(installed) ?: return false
+        val candidate = Version.parse(latest) ?: return false
+        return candidate > own
     }
 
     private data class Version(val major: Int, val minor: Int, val patch: Int, val pre: String, val text: String) : Comparable<Version> {
@@ -96,7 +106,7 @@ internal object UpdateCheck {
     }
 }
 
-internal class UpdateChecker(private val context: Context) {
+internal class UpdateChecker(private val context: Context, private val testDestination: String? = null) {
     private val prefs: SharedPreferences = context.getSharedPreferences(UpdateCheck.PREFS, Context.MODE_PRIVATE)
     private val records = File(context.noBackupFilesDir, UpdateCheck.RECORDS_FILE)
 
@@ -108,9 +118,10 @@ internal class UpdateChecker(private val context: Context) {
         }
         val last = prefs.getString("checked_at", null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
         if (!UpdateCheck.due(now, last)) return false
-        val destination = BuildConfig.UPDATE_CHECK_URL.takeIf { it.isNotBlank() }
-            ?: "https://api.github.com".takeIf { Config.hasSavedSetup || Config.hasBuildSetup }
-            ?: ""
+        if (!Config.hasSavedSetup && !Config.hasBuildSetup) return false
+        val destination = testDestination?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.UPDATE_CHECK_URL.takeIf { it.isNotBlank() }
+            ?: "https://api.github.com"
         if (destination.isBlank()) {
             record(now, false, "no_destination", null)
             return true

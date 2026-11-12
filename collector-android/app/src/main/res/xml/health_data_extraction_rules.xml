@@ -6,11 +6,11 @@
     <cloud-backup>
         <exclude domain="sharedpref" path="health_permission.xml" />
         <exclude domain="sharedpref" path="collector_setup.xml" />
-        <exclude domain="file" path="update_checks.jsonl" />
+        <exclude domain="sharedpref" path="update_check.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="health_permission.xml" />
         <exclude domain="sharedpref" path="collector_setup.xml" />
-        <exclude domain="file" path="update_checks.jsonl" />
+        <exclude domain="sharedpref" path="update_check.xml" />
     </device-transfer>
 </data-extraction-rules>

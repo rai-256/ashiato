@@ -36,16 +36,16 @@ check_rules() {
     [ -f "$extraction" ] || { fail "data extraction 規則が無い: $extraction"; return 1; }
     strip_comments "$full" | grep -Fq "<exclude $rule" \
         || { fail "full backup 規則で $prefs.xml を外していない"; return 1; }
-    strip_comments "$full" | grep -Fq '<exclude domain="file" path="update_checks.jsonl"' \
-        || { fail "full backup 規則で update_checks.jsonl を外していない"; return 1; }
+    strip_comments "$full" | grep -Fq '<exclude domain="sharedpref" path="update_check.xml"' \
+        || { fail "full backup 規則で update_check.xml を外していない"; return 1; }
     local section
     for section in cloud-backup device-transfer; do
         strip_comments "$extraction" | awk -v s="$section" '$0 ~ "<" s "[ >]", $0 ~ "</" s ">"' |
             grep -Fq "<exclude $rule" \
             || { fail "$section で $prefs.xml を外していない"; return 1; }
         strip_comments "$extraction" | awk -v s="$section" '$0 ~ "<" s "[ >]", $0 ~ "</" s ">"' |
-            grep -Fq '<exclude domain="file" path="update_checks.jsonl"' \
-            || { fail "$section で update_checks.jsonl を外していない"; return 1; }
+            grep -Fq '<exclude domain="sharedpref" path="update_check.xml"' \
+            || { fail "$section で update_check.xml を外していない"; return 1; }
     done
 }
 
@@ -76,6 +76,9 @@ if [ "${1:-}" = "--self-test" ]; then
     reset
     awk '!removed && /path="collector_setup.xml"/ { removed=1; next } { print }' "$full" > "$full.tmp" && mv "$full.tmp" "$full"
     must_fail "full backup の行を消した"
+    reset
+    sed -i '/path="update_check.xml"/d' "$full"
+    must_fail "更新確認の行を消した"
     for section in cloud-backup device-transfer; do
         reset
         awk -v section="$section" '
@@ -85,6 +88,14 @@ if [ "${1:-}" = "--self-test" ]; then
             { print }
         ' "$extraction" > "$extraction.tmp" && mv "$extraction.tmp" "$extraction"
         must_fail "$section の行を消した"
+        reset
+        awk -v section="$section" '
+            $0 ~ "<" section "[ >]" { inside=1 }
+            inside && !removed && /path="update_check.xml"/ { removed=1; next }
+            inside && $0 ~ "</" section ">" { inside=0 }
+            { print }
+        ' "$extraction" > "$extraction.tmp" && mv "$extraction.tmp" "$extraction"
+        must_fail "$section の更新確認の行を消した"
     done
 
     # 除外の行を注釈にした写し（R27）

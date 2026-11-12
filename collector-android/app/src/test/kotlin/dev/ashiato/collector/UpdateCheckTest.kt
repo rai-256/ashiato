@@ -3,9 +3,18 @@ package dev.ashiato.collector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.time.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonNull
+import java.io.File
 
-class UpdateCheckTest {
+@RunWith(RobolectricTestRunner::class)
+class St57UpdateCheckTest {
     @Test
     fun `3 つの部品は同じ材料で同じ版を選ぶ`() {
         // Scenario: 3 つの部品は同じ材料で同じ版を選ぶ
@@ -18,6 +27,48 @@ class UpdateCheckTest {
         assertEquals("0.5.0", UpdateCheck.choose("server", "0.4.0", releases).latest)
         assertEquals("0.5.0", UpdateCheck.choose("collector-windows", "0.4.0", releases).latest)
         assertEquals("0.5.0", UpdateCheck.choose("android", "0.4.0", releases).latest)
+    }
+
+    @Test
+    fun `共有ベクトルの全ケースと時期を同じ選び方で評価する`() {
+        // Scenario: 3 つの部品は同じ材料で同じ版を選ぶ
+        val root = Json.parseToJsonElement(File("../../docs/contracts/update-check-vectors.json").readText()).jsonObject
+        root["cases"]!!.jsonArray.forEach { item ->
+            val value = item.jsonObject
+            val releases = value["releases"].toString()
+            val choice = UpdateCheck.choose(value["component"]!!.jsonPrimitive.content, value["installed"]!!.jsonPrimitive.content, releases)
+            val expectedLatest = value["latest"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            assertEquals(expectedLatest, choice.latest)
+            assertEquals(value["update_available"]!!.jsonPrimitive.content.toBoolean(), choice.available)
+        }
+        val now = Instant.parse("2026-11-12T00:00:00Z")
+        root["timing"]!!.jsonArray.forEach { item ->
+            val value = item.jsonObject
+            val hours = value["elapsed_hours"]?.jsonPrimitive?.content?.toLongOrNull()
+            val days = value["elapsed_days"]?.jsonPrimitive?.content?.toLongOrNull()
+            val expected = value["expected"]!!.jsonPrimitive.content.toBoolean()
+            when (value["kind"]!!.jsonPrimitive.content) {
+                "due" -> assertEquals(expected, if (value["name"]!!.jsonPrimitive.content == "失敗の1時間後") false else UpdateCheck.due(now, now.minusSeconds((hours ?: 0) * 3600)))
+                "stale" -> assertEquals(expected, days?.let { UpdateCheck.stale(now, now.minusSeconds(it * 86400)) } ?: UpdateCheck.stale(now, null))
+            }
+        }
+    }
+
+    @Test
+    fun `nightly の単一応答も選べる`() {
+        // Scenario: 携帯は新しい版をサーバに問い合わせない
+        val body = """{"tag_name":"nightly","draft":false,"assets":[{"name":"ashiato-collector-dev-0.4.0-dev.20261110.apk"}]}"""
+        assertEquals("0.4.0-dev.20261110", UpdateCheck.choose("android", "0.4.0-dev.20261102", body).latest)
+    }
+
+    @Test
+    fun `送り先が未設定なら更新確認を記録せずに止める`() {
+        // Scenario: 携帯の収集アプリは送り先を設定するまで確かめない
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences(UpdateCheck.PREFS, 0).edit().clear().putBoolean("intro_shown", true).commit()
+        Config.clearOverrideForTest()
+        assertEquals(false, UpdateChecker(context).check(Instant.parse("2026-11-12T00:00:00Z")))
+        assertEquals(null, context.getSharedPreferences(UpdateCheck.PREFS, 0).getString("checked_at", null))
     }
 
     @Test
