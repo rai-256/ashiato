@@ -354,7 +354,9 @@ self_test() {
   ASHIATO_BUILD_VERSION="$v" "$0" apk "$work/out"
   [[ -s "$work/out/ashiato-server-$v-linux-x86_64.tar.gz" ]]
   [[ -s "$work/out/ashiato-collector-$v.apk" ]]
-  tar -tzf "$work/out/ashiato-server-$v-linux-x86_64.tar.gz" | grep -Fxq ashiato-server
+  # `grep -q` closes the pipe early; with `set -o pipefail`, tar then exits 141
+  # even though the archive contains the expected entry.
+  tar -tzf "$work/out/ashiato-server-$v-linux-x86_64.tar.gz" | grep -Fx ashiato-server >/dev/null
   local server_text apk_build_config
   server_text="$(tar -xOzf "$work/out/ashiato-server-$v-linux-x86_64.tar.gz" ashiato-server | strings)"
   grep -Fq "$v+" <<<"$server_text"

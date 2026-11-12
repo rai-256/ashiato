@@ -154,4 +154,13 @@ adb shell pm reset-permissions
    -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest")
 keep_stage
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
+# Task の証跡コマンドは connected 配下だけを読む。段ごとの XML は同名で上書きされるため、
+# ST57 の計測結果だけは connected の専用ディレクトリにも残し、段保存の正本と同じ内容を数えられるようにする。
+mkdir -p "$OUT/androidTest-results/connected/st57-update"
+for result in "$OUT"/androidTest-results-stage*/TEST-*.xml; do
+  if grep -q 'classname="dev.ashiato.collector.St57UpdateQueryTest"' "$result"; then
+    cp "$result" "$OUT/androidTest-results/connected/st57-update/TEST-St57UpdateQueryTest.xml"
+    break
+  fi
+done
 echo "== 結果: collector-android/app/build/reports/androidTests/connected/（段ごとの XML は $OUT/androidTest-results-stage1〜$STAGE）"
