@@ -475,3 +475,47 @@
 - kind: technical
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
+
+## final review（8f10733..f304c3f）
+
+見た: SDD の final reviewer（`requesting-code-review/code-reviewer.md`）の 2 回目。review package `.superpowers/sdd/tasks/review-8f1073321..f304c3f5d.diff`、379effb 以降の処置の差分、R1〜R37 と re-review 6、Task の findings の ⚠️。reviewer は一時 worktree で `./gradlew detekt` と `cargo fmt --all -- --check` を HEAD と base で走らせた（cargo test・clippy・gradle の単体・e2e は走らせていない）。R39 の fmt と R38 の未使用の import、R40 の `reason()` はこの席でも確かめた。申し送り（`docs/handoff/ST57.md`）に開始時以降で増えた項目は無い。
+
+## R38. `./gradlew detekt` が HEAD で落ちる（CI の android job）。うち 6 件は R34 の処置で生まれた未使用の import
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/SetupNotifier.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/ContractNotifier.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
+- 根拠: `.github/workflows/ci.yml:332` の `./gradlew detekt` は HEAD で rc=1（Analysis failed with 579 weighted issues）、base 8f10733 で rc=0。違反は ST57 のファイルだけ（St57UpdateNoticeTest.kt 305・UpdateCheck.kt 156・St57UpdateQueryTest.kt 60・MainActivity.kt 36・UpdateCheckTest.kt 15・SetupNotifier.kt 3・ContractNotifier.kt 3・SetupActivity.kt 1）。`SetupNotifier.kt:4,11,12` と `ContractNotifier.kt:4,8,9` の `android.Manifest`・`PackageManager`・`Build` は本文で使われていない（R34 で `canPost` を共通にした後の残り）。残りは主に MaxLineLength・ArgumentListWrapping・複雑さの規則。tasks.md の検証に detekt が無く、どの席も走らせていなかった。直し方の案: 未使用の import を消し、`./gradlew detekt --auto-correct` で形を整え、残る複雑さは分けるか理由付きで baseline に入れる。10.2 の最終検証に detekt を足す
+- kind: technical
+
+## R39. `cargo fmt --all -- --check` が HEAD で落ちる（CI）
+- 成果物: crates/collector-windows/src/update_check.rs, crates/collector-windows/src/runtime.rs, crates/collector-windows/tests/st57_pc_update.rs
+- 根拠: `.github/workflows/ci.yml:114`。差分は `update_check.rs:270`（R34 F13 の処置の `with_timezone(&chrono::Local)` の行）、`runtime.rs:1574,1581`、`tests/st57_pc_update.rs:54,379,390,426`。Task 10.2 の時点では rc=0 で、後の処置の commit で崩れた。直し方の案: `cargo fmt --all` を走らせ、clippy も走らせ直す。10.2 の最終検証に `cargo fmt --all -- --check` を足す
+- kind: technical
+
+## R40. R28 の処置が足りない: 携帯は多くの接続の失敗を「読めない答え」と記録する
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
+- 根拠: `UpdateCheck.kt:227-232` の `reason()` が `unreachable` にするのは `ConnectException` と `UnknownHostException` だけで、`SSLHandshakeException`（captive portal の Wi-Fi で普通に起きる）・`SocketException`（接続のリセット）・`NoRouteToHostException`・`EOFException` は `null` から `unreadable` に落ちる。更新係（`crates/updater/src/lib.rs:176` の `Err(_) => Unreachable`）と spec.md:406（読めない答え = 200 でも読めない形・転送・ほかの状態の番号）では「配布元に届かない」。R25 で理由を通知と行に出すので、誤った理由が本人に見える。直し方の案: `is java.io.IOException -> "unreachable"` を最後に置き、gzip の読みの失敗と `MalformedURLException` は `CheckFailure("unreadable")` で包む
+- kind: technical
+
+## R41. 「状態の番号で分ける」Scenario の携帯の試験が 429 の 1 本だけ
+- 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
+- 根拠: spec.md:425 の THEN は 403・429・404・500・読めない 200 の 5 つの理由の並び。`St57UpdateNoticeTest.kt` の `配布元の状態番号を理由に記録する` は 429 だけを見るので、403→rate_limited・404→not_found・500→unreadable を入れ替えても緑。直し方の案: 5 つの答えを順に流し、記録の理由の並びを固定の文字列で比べる（R40 の通信の失敗も 1 本足す）
+- kind: technical
+
+## R42. PC の「確かめられていない」通知の文を試験が観測していない
+- 成果物: crates/collector-windows/tests/st57_pc_update.rs
+- 根拠: `FakeToaster`（`tests/st57_pc_update.rs:22-24`）は XML を捨てて札だけを残す。`st57_pc_seven_days_is_stale` の受け手は `not-json` を返すので理由も「配布元に届かない」にならない。Scenario「7 日確かめられなければ PC が 1 回知らせる」の THEN（最後に確かめた日と「配布元に届かない」）と、R34 F13 の日付の形（Local・`%-m/%-d`、`crates/collector-windows/src/update_check.rs:270` 付近）はどちらも固定されていない。R35・R36 で携帯にしたことが PC に及んでいない。直し方の案: `FakeToaster` が本文も残し、届かない受け手で全文を固定の文字列と比べる
+- kind: technical
+
+## R43. 細かい残り（D30 の本文・通知の見分けの試験・壊れた JSON の既定・no_destination の文・開発版の判定・試験の弱さ・台本の待ち・文書の文言）
+- 成果物: openspec/changes/st57-update-notice/design.md, collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt, crates/collector-windows/src/update_check.rs, tools/release/update-check-install.sh, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt, docs/collector-setup.md
+- 根拠:
+  - M1: design.md D30 は「既存のサーバ更新通知（チャンネル `contract`）の ID は 12 へ移し」「導入案内（6）」と書くが、実際に移ったのは系統不一致の通知（`ChannelMismatchNotifier`）で、`CONTRACT_NOTIFICATION_ID = 5` は変わらない。6 は `SETUP_NOTIFICATION_ID`、更新の導入案内は 10（`AVAILABLE_NOTIFICATION_ID`）
+  - M2: Scenario「携帯の更新の通知は既存のサーバの更新の知らせを置き換えず…」の試験（`St57UpdateNoticeTest.kt:328-334`）は通知を出さず定数を比べるだけで、ID の集合に `ContractNotifier.CONTRACT_NOTIFICATION_ID`（5）が無く、比べる文は実装の文でなく試験のリテラル
+  - M3: R32 の処置（`update_check.rs:101` の `unwrap_or_default()`）は `Default` が `intro_shown: true`・`last_ok_at: None`・`intro_shown_at: None` なので、次に失敗した回にすぐ stale を出す。NotFound の枝（`intro_shown: false`）と揃っておらず、処置を固定する試験も無い
+  - M4: `no_destination` の文が 3 通り（web `messages.ts:115`「配布元が設定されていない」、PC `update_check.rs:312`「配布元が見つからない」で 404 と同じ文、Android「宛先なし」）。spec.md:406 は「宛先なし」
+  - M5: 開発版の判定 `contains("-dev.")` が `crates/installer/src/layout.rs:47`・`crates/updater/src/main.rs:6`・`crates/server/src/service.rs:330` に残る（R33 は置き場の文字列だけ 1 か所にした）
+  - M6: `別ホストへの転送は確かめない` の試験は転送元と転送先の port が違うので、host の比較を消しても port の比較で落ちて緑のまま。比較の順か試験の意図を注記する
+  - M7: `見つけた日は…` の試験（`2026-11-10T12:00:00Z` → `11/10`）は `ZoneId.systemDefault()` が UTC+12 以上で落ちる。時刻をずらすか TZ を固定する
+  - M8: `tools/release/update-check-install.sh:59-65` の `wait_updater_request` はファイルが空でなくなるのを待つだけで件数の増加を待たない。:212 ではインストール時の 1 件で即座に返り、`before + 1` の比較がサービスの最初の `once` と競争になる。R30 の前は宛先を消していたので、この経路は本物の Windows で一度も走っていない
+  - M9: 携帯で確認を切っても、出ている stale の通知は消えない（`setEnabled(false)` が `cancel` しない。行は R27 で消える）
+  - M10: `docs/collector-setup.md:62` は「更新の確認スイッチ」、実際の表示（`SetupActivity.kt:42`）は「収集アプリの設定\n新しい版を確かめる」
+- kind: technical
