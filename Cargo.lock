@@ -181,6 +181,7 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "ashiato-build-stamp",
+ "ashiato-update-check",
  "base64 0.22.1",
  "chrono",
  "rand",

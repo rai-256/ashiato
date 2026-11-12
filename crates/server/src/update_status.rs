@@ -118,7 +118,7 @@ fn updater_dir() -> Option<PathBuf> {
         .filter(|dir| dir.is_dir())
 }
 
-#[utoipa::path(get, path = "/update-status", responses((status = 200, description = "更新確認の状態", body = UpdateStatus)))]
+#[utoipa::path(get, path = "/update-status", operation_id = "getUpdateStatus", responses((status = 200, description = "更新確認の状態", body = UpdateStatus)))]
 pub async fn get(State(app): State<crate::App>) -> Json<UpdateStatus> {
     let installed = env!("ASHIATO_VERSION");
     Json(updater_dir().map_or_else(

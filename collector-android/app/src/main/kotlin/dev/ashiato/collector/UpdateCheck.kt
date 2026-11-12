@@ -17,8 +17,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 internal object UpdateCheck {
@@ -29,6 +32,8 @@ internal object UpdateCheck {
     const val NIGHTLY_PATH = "/repos/rai-256/ashiato/releases/tags/nightly"
     const val USER_AGENT = "ashiato-update-check"
     const val ACCEPT = "application/vnd.github+json"
+    const val AVAILABLE_NOTIFICATION_ID = 10
+    const val STALE_NOTIFICATION_ID = 11
 
     data class Choice(val latest: String?, val available: Boolean)
 
@@ -37,6 +42,28 @@ internal object UpdateCheck {
 
     fun stale(now: Instant, last: Instant?): Boolean =
         last == null || last.isAfter(now) || !now.isBefore(last.plus(7, ChronoUnit.DAYS))
+
+    fun date(instant: Instant?): String = instant?.atZone(ZoneId.systemDefault())
+        ?.format(DateTimeFormatter.ofPattern("M/d")) ?: "—"
+
+    fun reasonText(reason: String?): String = when (reason) {
+        "unreachable" -> "配布元に届かない"
+        "timeout" -> "時間切れ"
+        "rate_limited" -> "問い合わせの上限"
+        "not_found" -> "配布元が見つからない"
+        "unreadable" -> "読めない答え"
+        "no_destination" -> "宛先なし"
+        else -> "読めない答え"
+    }
+
+    fun staleText(last: Instant?, reason: String?): String =
+        "更新を 7 日確かめられていません（最後に確かめた ${date(last)}・${reasonText(reason)}）"
+
+    fun canPost(context: Context, manager: NotificationManager, channel: String): Boolean =
+        (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            manager.areNotificationsEnabled() &&
+            manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
 
     fun choose(component: String, installed: String, body: String): Choice {
         val own = Version.parse(installed) ?: return Choice(null, false)
@@ -109,7 +136,7 @@ internal class UpdateChecker(private val context: Context, private val testDesti
     fun check(now: Instant = Instant.now()): Boolean {
         if (!prefs.getBoolean("enabled", true)) return false
         if (!prefs.getBoolean("intro_shown", false)) {
-            if (post("更新の確認: 有効（切るには設定の画面）")) markIntroShown(now)
+            if (post(UpdateCheck.AVAILABLE_NOTIFICATION_ID, "更新の確認: 有効（切るには設定の画面）")) markIntroShown(now)
             return false
         }
         val last = prefs.getString("checked_at", null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
@@ -121,32 +148,22 @@ internal class UpdateChecker(private val context: Context, private val testDesti
             record(now, false, "no_destination", null)
             return true
         }
-        val result = runCatching {
-            val url = URL(destination + if (BuildConfig.VERSION_NAME.contains("-dev.")) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"; connectTimeout = 10_000; readTimeout = 30_000
-                setRequestProperty("User-Agent", UpdateCheck.USER_AGENT)
-                setRequestProperty("Accept", UpdateCheck.ACCEPT)
-                setRequestProperty("Accept-Encoding", "gzip")
-                doOutput = false
-            }
-            val stream = if (connection.contentEncoding.equals("gzip", true)) java.util.zip.GZIPInputStream(connection.inputStream) else connection.inputStream
-            stream.use { it.readBytes().toString(Charsets.UTF_8) }
-        }
+        val result = request(destination)
         val choice = result.getOrNull()?.let { body -> runCatching { UpdateCheck.choose("android", BuildConfig.VERSION_NAME, body) }.getOrNull() }
-        record(now, choice != null, if (choice == null) "unreachable" else null, choice?.latest)
+        val reason = if (choice == null) result.exceptionOrNull().reason() ?: "unreadable" else null
+        record(now, choice != null, reason, choice?.latest)
         if (choice != null) {
             val oldLatest = prefs.getString("latest", null)
             val edit = prefs.edit().putString("latest", choice.latest)
             if (oldLatest != choice.latest) edit.putString("found_at", now.toString())
             edit.apply()
-            if (choice.available && prefs.getString("notified_version", null) != choice.latest && post("新しい版 ${choice.latest} が出ています")) {
+            if (choice.available && prefs.getString("notified_version", null) != choice.latest && post(UpdateCheck.AVAILABLE_NOTIFICATION_ID, "新しい版 ${choice.latest} が出ています")) {
                 prefs.edit().putString("notified_version", choice.latest).apply()
             }
         } else if (!prefs.getBoolean("stale_notified", false)) {
             val lastOk = prefs.getString("last_ok_at", null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
             val since = lastOk ?: prefs.getString("intro_shown_at", null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            if (UpdateCheck.stale(now, since) && post("更新を 7 日確かめられていません")) {
+            if (UpdateCheck.stale(now, since) && post(UpdateCheck.STALE_NOTIFICATION_ID, UpdateCheck.staleText(lastOk, reason))) {
                 prefs.edit().putBoolean("stale_notified", true).apply()
             }
         }
@@ -161,24 +178,60 @@ internal class UpdateChecker(private val context: Context, private val testDesti
         prefs.edit().putBoolean("intro_shown", true).putString("intro_shown_at", now.toString()).apply()
     }
 
+    private fun request(destination: String): Result<String> = runCatching {
+        var url = URL(destination + if (BuildConfig.VERSION_NAME.contains("-dev.")) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH)
+        repeat(4) { redirect ->
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"; connectTimeout = 10_000; readTimeout = 30_000; instanceFollowRedirects = false
+                setRequestProperty("User-Agent", UpdateCheck.USER_AGENT); setRequestProperty("Accept", UpdateCheck.ACCEPT); setRequestProperty("Accept-Encoding", "gzip"); doOutput = false
+            }
+            when (val code = connection.responseCode) {
+                in 200..299 -> {
+                    val stream = if (connection.contentEncoding.equals("gzip", true)) java.util.zip.GZIPInputStream(connection.inputStream) else connection.inputStream
+                    return@runCatching stream.use { it.readBytes().toString(Charsets.UTF_8) }
+                }
+                301, 302, 303, 307, 308 -> {
+                    val next = connection.getHeaderField("Location")?.let { URL(url, it) } ?: throw CheckFailure("unreadable")
+                    if (redirect == 3 || next.protocol != url.protocol || next.host != url.host || next.port != url.port) throw CheckFailure("unreadable")
+                    url = next
+                }
+                403, 429 -> throw CheckFailure("rate_limited")
+                404 -> throw CheckFailure("not_found")
+                else -> throw CheckFailure("unreadable")
+            }
+        }
+        throw CheckFailure("unreadable")
+    }
+
+    private fun Throwable?.reason(): String? = when (this) {
+        is CheckFailure -> reason
+        is SocketTimeoutException -> "timeout"
+        is java.net.ConnectException, is java.net.UnknownHostException -> "unreachable"
+        else -> null
+    }
+
+    private class CheckFailure(val reason: String) : Exception()
+
     private fun record(now: Instant, ok: Boolean, reason: String?, latest: String?) {
         records.parentFile?.mkdirs()
-        val reasonJson = reason?.let { "\"$it\"" } ?: "null"
-        val latestJson = latest?.let { "\"$it\"" } ?: "null"
+        fun json(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
+        val reasonJson = reason?.let(::json) ?: "null"
+        val latestJson = latest?.let(::json) ?: "null"
         records.appendText("{\"at\":\"$now\",\"ok\":$ok,\"reason\":$reasonJson,\"latest\":$latestJson}\n")
         val edit = prefs.edit().putString("checked_at", now.toString()).putString("last_reason", reason)
-        if (ok) edit.putString("last_ok_at", now.toString()).putBoolean("stale_notified", false)
+        if (ok) {
+            edit.putString("last_ok_at", now.toString()).putBoolean("stale_notified", false)
+            context.getSystemService(NotificationManager::class.java).cancel(UpdateCheck.STALE_NOTIFICATION_ID)
+        }
         edit.apply()
     }
 
-    private fun post(text: String): Boolean {
+    private fun post(id: Int, text: String): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
-        if (!canPost(manager)) return false
-        manager.notify(text.hashCode(), NotificationCompat.Builder(context, UpdateCheck.CHANNEL).setContentTitle("あしあと。").setContentText(text).setSmallIcon(android.R.drawable.ic_popup_sync).setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build())
+        if (!UpdateCheck.canPost(context, manager, UpdateCheck.CHANNEL)) return false
+        manager.notify(id, NotificationCompat.Builder(context, UpdateCheck.CHANNEL).setContentTitle("あしあと。").setContentText(text).setSmallIcon(android.R.drawable.ic_popup_sync).setContentIntent(PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build())
         return true
     }
 
-    private fun canPost(manager: NotificationManager): Boolean =
-        (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && manager.areNotificationsEnabled() && manager.getNotificationChannel(UpdateCheck.CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
 }

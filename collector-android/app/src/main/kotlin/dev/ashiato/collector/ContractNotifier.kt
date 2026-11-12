@@ -101,7 +101,7 @@ class ChannelMismatchNotifier(
         store.channelNotifiedAtMs = now()
     }
 
-    companion object { const val CHANNEL_NOTIFICATION_ID = 6 }
+    companion object { const val CHANNEL_NOTIFICATION_ID = 12 }
 }
 
 /**
@@ -165,12 +165,7 @@ class ContractNotifier(
         return true
     }
 
-    private fun canPost(): Boolean {
-        val permitted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        val channelOn = manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
-        return permitted && manager.areNotificationsEnabled() && channelOn
-    }
+    private fun canPost(): Boolean = UpdateCheck.canPost(context, manager, CHANNEL)
 
     companion object {
         const val CHANNEL = "contract"

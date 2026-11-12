@@ -25,6 +25,28 @@ pub const UPDATE_CHECK_ACCEPT: &str = "application/vnd.github+json";
 /// 状態ファイルの名前。
 pub const STATUS_FILE: &str = "status.json";
 
+/// Windows 配布版が共有する更新係のサービス名と状態の置き場。
+/// インストーラ・更新係・サーバが同じ値を使う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpdaterLayout {
+    pub service: &'static str,
+    pub directory: &'static str,
+}
+
+pub const fn updater_layout(development: bool) -> UpdaterLayout {
+    if development {
+        UpdaterLayout {
+            service: "ashiato-updater-dev",
+            directory: r"C:\ProgramData\ashiato-updater-dev",
+        }
+    } else {
+        UpdaterLayout {
+            service: "ashiato-updater",
+            directory: r"C:\ProgramData\ashiato-updater",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Component {

@@ -97,7 +97,15 @@ assert_trace_start_after_notice() {
 write_test_clock() {
   local value="$1"
   [[ "$archive" == *package-windows-test* ]] || return 0
-  printf '{"now":"%s"}\n' "$value" >"$UPDATER_DIR/settings/test-hooks.json"
+  local hooks="$UPDATER_DIR/settings/test-hooks.json"
+  python - "$hooks" "$value" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try: value = json.loads(path.read_text())
+except (FileNotFoundError, json.JSONDecodeError): value = {}
+value['now'] = sys.argv[2]
+path.write_text(json.dumps(value, separators=(',', ':')) + '\n')
+PY
 }
 
 reset_machine() {

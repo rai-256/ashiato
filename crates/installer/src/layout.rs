@@ -13,13 +13,14 @@ pub struct Layout {
 
 impl Layout {
     pub const fn release() -> Self {
+        let updater = ashiato_update_check::updater_layout(false);
         Self {
             db_service: "ashiato-db",
             server_service: "ashiato-server",
-            updater_service: "ashiato-updater",
+            updater_service: updater.service,
             program_dir: r"C:\Program Files\ashiato",
             state_dir: r"C:\ProgramData\ashiato",
-            updater_dir: r"C:\ProgramData\ashiato-updater",
+            updater_dir: updater.directory,
             db_dir: r"C:\ProgramData\ashiato\db\17",
             db_port: 55400,
             server_port: 18700,
@@ -27,13 +28,14 @@ impl Layout {
     }
 
     pub const fn development() -> Self {
+        let updater = ashiato_update_check::updater_layout(true);
         Self {
             db_service: "ashiato-db-dev",
             server_service: "ashiato-server-dev",
-            updater_service: "ashiato-updater-dev",
+            updater_service: updater.service,
             program_dir: r"C:\Program Files\ashiato-dev",
             state_dir: r"C:\ProgramData\ashiato-dev",
-            updater_dir: r"C:\ProgramData\ashiato-updater-dev",
+            updater_dir: updater.directory,
             db_dir: r"C:\ProgramData\ashiato-dev\db\17",
             db_port: 55401,
             server_port: 18701,

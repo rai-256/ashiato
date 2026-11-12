@@ -97,7 +97,7 @@ impl UpdateChecker {
     pub fn state(&self) -> anyhow::Result<UpdateState> {
         let path = self.dir.join(STATUS_FILE);
         match fs::read(path) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(UpdateState {
                 intro_shown: false,
                 ..UpdateState::default()
@@ -268,9 +268,10 @@ impl UpdateChecker {
             && stale(now, since)
             && !state.stale_notified
         {
-            let last = state
-                .last_ok_at
-                .map_or_else(|| "—".to_owned(), |v| v.format("%m/%d").to_string());
+            let last = state.last_ok_at.map_or_else(
+                || "—".to_owned(),
+                |v| v.with_timezone(&chrono::Local).format("%-m/%-d").to_string(),
+            );
             if self.show(
                 "更新を 7 日確かめられていません",
                 &format!("最後に確かめた {last}・{}", reason_text(reason)),

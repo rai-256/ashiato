@@ -75,7 +75,7 @@ class St57UpdateNoticeTest {
     private fun configured() = Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
 
     /** 実際の HttpURLConnection が何件届いたかを読む小さな loopback の受け手。 */
-    private fun releasesServer(expected: Int = 1, body: String = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]"): Triple<String, MutableList<String>, CountDownLatch> {
+    private fun releasesServer(expected: Int = 1, body: String = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]", status: Int = 200): Triple<String, MutableList<String>, CountDownLatch> {
         val server = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
         val seen = mutableListOf<String>()
         val done = CountDownLatch(1)
@@ -89,7 +89,7 @@ class St57UpdateNoticeTest {
                             while (input.readLine()?.isNotEmpty() == true) {}
                             synchronized(seen) { seen += "request" }
                             socket.getOutputStream().write(
-                                "HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray()
+                                "HTTP/1.1 $status test\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray()
                             )
                         }
                     } catch (_: java.net.SocketTimeoutException) { return@repeat }
@@ -302,7 +302,14 @@ class St57UpdateNoticeTest {
         assertEquals(2, seen.size)
         val notifications = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications
         assertEquals(1, notifications.count { it.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("7 日確かめられていません") })
-        open().use { it.onActivity { activity -> assertTrue(texts(activity).any { text -> text.contains("7 日確かめられていません") }) } }
+        open().use { it.onActivity { activity -> assertTrue(texts(activity).any { text -> text == UpdateCheck.staleText(null, "unreadable") }) } }
+    }
+    @Test fun `更新の通知は既存のサーバ更新通知と別のチャンネルと ID を使う`() {
+        // Scenario: 携帯の更新の通知は既存のサーバの更新の知らせを置き換えず、文が違う
+        assertEquals("update", UpdateCheck.CHANNEL)
+        assertEquals("contract", ContractNotifier.CHANNEL)
+        assertFalse("新しい版 0.5.0 が出ています" == CONTRACT_UPDATE_HEADLINE)
+        assertEquals(4, setOf(UpdateCheck.AVAILABLE_NOTIFICATION_ID, UpdateCheck.STALE_NOTIFICATION_ID, LocationService.SETUP_NOTIFICATION_ID, ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID).size)
     }
     @Test fun `携帯回線でも配布元へ問い合わせる`() {
         // Scenario: 携帯は携帯の回線でも確かめる
@@ -318,6 +325,14 @@ class St57UpdateNoticeTest {
         assertTrue(checker.check(now))
         assertTrue(done.await(2, TimeUnit.SECONDS))
         assertEquals(1, seen.size)
+    }
+
+    @Test fun `配布元の状態番号を理由に記録する`() {
+        // Scenario: 確かめられない理由を状態の番号で分ける
+        configured(); val (url, _, done) = releasesServer(body = "{}", status = 429)
+        val checker = UpdateChecker(app, url); checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now)); assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals("rate_limited", app.getSharedPreferences(UpdateCheck.PREFS, 0).getString("last_reason", null))
     }
 
     @Test fun `LocationService の起動と生存信号は更新確認を呼ぶ`() {

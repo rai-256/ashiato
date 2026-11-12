@@ -425,7 +425,7 @@ open class MainActivity : Activity() {
         val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
         val updateAvailable = updatePreferences.getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
-        val updateStale = updatePreferences.getString("last_reason", null) != null &&
+        val updateStale = updatePreferences.getBoolean("enabled", true) && updatePreferences.getString("last_reason", null) != null &&
             UpdateCheck.stale(
                 java.time.Instant.now(),
                 updatePreferences.getString("last_ok_at", null)
@@ -524,14 +524,15 @@ open class MainActivity : Activity() {
         }
         updatePrefs.getString("latest", null)?.let { latest ->
             if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
-                column.addView(TextView(this).apply { text = "更新あり $latest（${updatePrefs.getString("found_at", "")?.take(10)?.replace('-', '/')} に見つけた）" })
+                val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+                column.addView(TextView(this).apply { text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）" })
             }
         }
-        if (updatePrefs.getString("last_reason", null) != null) {
-            val last = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-                ?: updatePrefs.getString("intro_shown_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-            if (UpdateCheck.stale(java.time.Instant.now(), last)) {
-                column.addView(TextView(this).apply { text = "更新を 7 日確かめられていません" })
+        if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {
+            val lastOk = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            val since = lastOk ?: updatePrefs.getString("intro_shown_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            if (UpdateCheck.stale(java.time.Instant.now(), since)) {
+                column.addView(TextView(this).apply { text = UpdateCheck.staleText(lastOk, updatePrefs.getString("last_reason", null)) })
             }
         }
         if (notice != null) column.addView(TextView(this).apply { text = notice.line })

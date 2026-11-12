@@ -103,13 +103,7 @@ class SetupNotifier(
         return true
     }
 
-    private fun canPost(): Boolean =
-        (
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            ) &&
-            manager.areNotificationsEnabled() &&
-            manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+    private fun canPost(): Boolean = UpdateCheck.canPost(context, manager, CHANNEL)
 
     companion object {
         const val CHANNEL = LocationService.SETUP_CHANNEL

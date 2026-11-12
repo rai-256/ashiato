@@ -325,17 +325,10 @@ pub const DB_RETRY: Duration = Duration::from_secs(1);
 /// サーバのログを残す日数（spec の 30 日。これより古い日付のファイルを消す）。
 pub const SERVER_LOG_KEEP_DAYS: u64 = 30;
 
-/// 更新係の置き場。サーバのサービスは環境変数ではなく、この系統の定数を使う。
-pub const UPDATER_RELEASE_DIR: &str = r"C:\ProgramData\ashiato-updater";
-pub const UPDATER_DEVELOPMENT_DIR: &str = r"C:\ProgramData\ashiato-updater-dev";
-
 pub fn installed_updater_directory() -> std::path::PathBuf {
-    let directory = if env!("ASHIATO_VERSION").contains("-dev.") {
-        UPDATER_DEVELOPMENT_DIR
-    } else {
-        UPDATER_RELEASE_DIR
-    };
-    std::path::PathBuf::from(directory)
+    std::path::PathBuf::from(
+        ashiato_update_check::updater_layout(env!("ASHIATO_VERSION").contains("-dev.")).directory,
+    )
 }
 
 /// DB を 1 秒ごとに試し、指定時間を超えたら値を返す。

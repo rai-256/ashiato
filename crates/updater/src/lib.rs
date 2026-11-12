@@ -307,22 +307,14 @@ fn log_service_error(dir: &Path, error: &Error) -> Result<(), Error> {
 
 /// 配布版の種類に対応する更新係のサービス名を返す。
 pub fn service_name(development: bool) -> &'static str {
-    if development {
-        "ashiato-updater-dev"
-    } else {
-        "ashiato-updater"
-    }
+    ashiato_update_check::updater_layout(development).service
 }
 
 /// 配布版の種類に対応する更新係の置き場を返す。
 pub fn default_dir(development: bool) -> PathBuf {
     #[cfg(windows)]
     {
-        PathBuf::from(if development {
-            r"C:\ProgramData\ashiato-updater-dev"
-        } else {
-            r"C:\ProgramData\ashiato-updater"
-        })
+        PathBuf::from(ashiato_update_check::updater_layout(development).directory)
     }
     #[cfg(not(windows))]
     {

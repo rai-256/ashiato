@@ -354,31 +354,37 @@
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
 - 根拠: `UpdateCheck.kt:149`（`post("更新を 7 日確かめられていません")`）と `MainActivity.kt:534`（行の本文だけ）。spec.md:679 と design D20 は「更新を 7 日確かめられていません（最後に確かめた <M>/<D>・<理由>）」と定め、確かめられたことが無ければ「—」とする。PC（`crates/collector-windows/src/update_check.rs:272-277`）は日と理由を付ける。`St57UpdateNoticeTest.kt:304-305` は `contains("7 日確かめられていません")` だけを見るので緑。直し方の案: 文を組む関数を 1 つにして通知と行で共有し、試験で全文を比べる
 - kind: technical
+- 処置: fixed 9.1
 
 ## R26. 携帯の「更新あり」の日付が UTC の `YYYY/MM/DD` になる
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
 - 根拠: `MainActivity.kt:527`（`found_at.take(10).replace('-', '/')`）。ISO の UTC 時刻の先頭 10 文字なので「更新あり 0.5.0（2026/11/10 に見つけた）」になり、端末の日付と 1 日ずれることもある。spec.md:641 の Scenario と D20 は「11/10 に見つけた」。`St57UpdateNoticeTest.kt:127` は `startsWith("更新あり 0.5.0")` だけを見る
 - kind: technical
+- 処置: fixed 9.1
 
 ## R27. 携帯で確認を切っても「確かめられていない」の行が出続ける
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
 - 根拠: `MainActivity.kt:428-432`。`updateStale` の条件は `last_reason != null && stale(...)` だけで、確認が有効かを見ていない。失敗した後にスイッチを切ると `check()` は早く返って記録を更新しないので、行が残り続ける。7 日の Requirement（spec.md:679「WHILE その部品の更新の確認が有効である」）に反する。切ったときの Scenario（spec.md:713）の試験は PC にしか無い
 - kind: technical
+- 処置: fixed 9.1
 
 ## R28. 携帯は失敗を全部 `unreachable` として記録する
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
 - 根拠: `UpdateCheck.kt:137`（`if (choice == null) "unreachable"`）。`responseCode` を読まないので、403・429・404・5xx・読めない本文・時間切れのどれも `unreachable` になる。spec.md:406 は各部品に 6 つの理由を求める。R25 で理由を画面と通知に出すと、誤った理由を見せる。直し方の案: `responseCode` で分け、`SocketTimeoutException` を timeout、`choose` の例外を unreadable にする
 - kind: technical
+- 処置: fixed 9.1
 
 ## R29. 携帯は別のホストへの転送を黙って追う
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
 - 根拠: `UpdateCheck.kt:126-132`。`HttpURLConnection` の `instanceFollowRedirects` を既定（true）のままにしているので、同じ scheme なら `api.github.com` 以外のホストへの 3xx も追う。spec.md:406 は別の宛先への転送を「読めない答え」（確かめられない）として扱うと定める。R20 は PC だけの指摘で、携帯のこの点は前の席に無い。直し方の案: `instanceFollowRedirects = false` にし、更新係（`crates/updater/src/lib.rs` の `request()`）と同じく、手で 3 回まで scheme と authority を比べて追う
 - kind: technical
+- 処置: fixed 9.1
 
 ## R30. 試験の zip で Windows の実地の台本を走らせると、試験の時計を書くときに更新係の宛先を消す
 - 成果物: tools/release/update-check-install.sh
 - 根拠: `tools/release/update-check-install.sh:97-101`（`write_test_clock` が `settings/test-hooks.json` を `{"now":…}` だけで上書きする）と `crates/installer/src/main.rs:1361-1365`（インストーラは同じファイルに `{"url":…}` を書く）。更新係はサービスなので環境変数を受け継がず、宛先はこのファイルからしか取れない。上書きした後は `NoDestination` になって受け手への問い合わせが増えず、`before + 1` の比較（:205 付近）で die する見込み。「切ると問い合わせが無くなる」の確かめは、宛先が無いので空振りでも通る。証拠は `--self-test` だけで、本物の Windows では走っていない。直し方の案: 既存の JSON を読み、`now` を足して書く
 - kind: technical
+- 処置: fixed 7.1
 
 ## R31. 申し送りの C4・C5・C6・K1 が拾われていない（帯のコントラスト・通知の見分け・未来形・携帯の通知 ID）
 - 成果物: openspec/changes/st57-update-notice/specs/distribution/spec.md
@@ -388,16 +394,19 @@
   - C6: spec.md:638・686、proposal.md:29、design D22 に「推奨のままなら FR-113 を ★ で改訂する」の未来形が残る。Q9 の Requirement（spec.md:686）の導出元に FR-113 が無い
   - K1: `SETUP_NOTIFICATION_ID = 6`（`LocationService.kt:1474`）と `CHANNEL_NOTIFICATION_ID = 6`（`ContractNotifier.kt:104`）が重なったまま。新しい `UpdateCheck.kt:178` は `notify(text.hashCode(), …)` で ID を文の hash にしているので、既存の ID とぶつかりうる。ID を覚えていないので取り消せず、確かめられた後も「7 日確かめられていません」が残り、0.5.1 を見つけても 0.5.0 の通知が残る（PC は札で置き換えている）
 - kind: conflict
+- 処置: fixed D30 仮
 
 ## R32. PC の収集アプリは、壊れた `update-check.json` で確認が以後ずっと止まる（R16 の処置が PC に届いていない）
 - 成果物: crates/collector-windows/src/update_check.rs
 - 根拠: `crates/collector-windows/src/update_check.rs:96-104`（`state()` は読めない JSON で `Err` を返し、`start` と `periodic` が毎回失敗する）。更新係は R16 で `unwrap_or_default()` に直した
 - kind: technical
+- 処置: fixed 8.1
 
 ## R33. 更新係の置き場とサービス名の正本が 3 か所にある
 - 成果物: crates/updater/src/lib.rs
 - 根拠: 申し送り「ST55 D14 — 更新係が読む配置の正本」（`docs/handoff/ST57.md`）。`crates/installer/src/layout.rs:19-36`、`crates/updater/src/lib.rs:309-334`、`crates/server/src/service.rs:329-330`（`UPDATER_RELEASE_DIR` / `UPDATER_DEVELOPMENT_DIR`）が同じ文字列を別々に持ち、開発版の判定もそれぞれにある。直し方の案: 依存の向き（更新係とサーバはインストーラに依らない）を保ったまま、共有の crate（例: `update-check` か小さな layout の crate）に 1 か所で置く
 - kind: technical
+- 処置: fixed 2.1
 
 ## R34. Task の Minor の残り（PC の日付・operation_id・携帯の JSON Lines）
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
@@ -407,3 +416,4 @@
   - Task 3 F9: `crates/server/src/update_status.rs:121` の `#[utoipa::path]` に `operation_id` が無い
   - design.md:186 の「チャンネルを引数に取る 1 か所の関数」に反し、`UpdateCheck.canPost` は `SetupNotifier` の判断と共有せず別に書いている
 - kind: technical
+- 処置: fixed 9.1
