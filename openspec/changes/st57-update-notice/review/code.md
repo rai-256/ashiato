@@ -214,3 +214,67 @@
   コードの経路は 1 歩ずつ辿った（3）。`ProgramData` に一般の利用者が子のフォルダを作れることと、持ち主が DACL を書き換えられることは Windows の既定の知識（1。既存のコメント `main.rs:1129` が同じ前提に立つ）。Windows の上では走らせていない
 - kind: technical
 - 提案: 更新係の置き場にも `/setowner *S-1-5-32-544 /T /C` を ACL の前にかけ（初回・走らせ直しの両方）、走らせ直しでも 3 つのフォルダに `ensure_real_directory` を通す。`take_ownership_command` の試験に更新係の置き場を足す
+
+## /code-review（8f10733..6276a48）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R13. The updater's build.rs switches `ashiato_test_build` on `ASHIATO_RELEASE` but never emits `cargo:rerun-if-env-changed=ASHIATO_RELEASE`. The server, installer and collector-windows build.rs all emit it. `emit_rerun` already emits rerun-if-changed lines, which turn off Cargo's default rerun, so changing only ASHIATO_RELEASE does not rerun the script.
+- 成果物: crates/updater/build.rs:5
+- 根拠: A test build of ashiato-updater is made first (no ASHIATO_RELEASE), then `tools/release/build.sh` builds it with ASHIATO_RELEASE=1 in the same target dir and the sources are unchanged. build.rs does not rerun, so the shipped updater is still a test build. `now_and_url` then returns url=None and every check is NoDestination. The ASHIATO_UPDATER_TEST_URL and ASHIATO_UPDATER_TEST_NOW env overrides also stay in the shipped binary.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. `choose()` swallows JSON parse and shape errors (runCatching → empty list). `check()` then treats any non-null Choice as a successful check, so an unreadable body counts as ok.
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt:56
+- 根拠: A captive portal, proxy, or cross-protocol redirect that HttpURLConnection does not follow returns 200 with an HTML or non-array body. `choose` returns Choice(null,false), `record(ok=true)` sets last_ok_at and clears stale_notified, and `putString("latest", null)` erases an update found earlier. The 7-day stale warning never fires and the 'update available' row disappears.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R15. `once_at` overwrites `status.found_at = Some(at)` on every successful check, even when `latest` has not changed. The PC collector only updates it when the version changes (`if state.latest != latest`).
+- 成果物: crates/updater/src/lib.rs:270
+- 根拠: Version 0.5.0 is found on 11/01 and checked daily. found_at moves forward each day, so the web band and settings show '更新あり 0.5.0（11/12 に見つけた）' instead of 11/01. found_at is also set when latest is None.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R16. A status.json that fails to parse makes `once_at` return Err before anything is written. The updater never repairs or replaces the file, so it stops checking for good.
+- 成果物: crates/updater/src/lib.rs:228
+- 根拠: The service is killed during the non-atomic `fs::write` in `save_status` (or the disk is full) and status.json is truncated. Every hourly `once()` then returns Error::Invalid and only logs it. The server keeps showing 'unreadable' and no update or stale notice ever appears until someone deletes the file by hand.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R17. `save_status` uses plain `fs::write`, which truncates and then writes, while the server reads status.json at any time. The collector uses `fsutil::atomic_write` for the same kind of file.
+- 成果物: crates/updater/src/lib.rs:129
+- 根拠: GET /update-status runs while the updater is in the middle of writing. `parse_status` sees an empty or partial file and the settings page and band report 'unreadable' for that request. A crash at that point leaves the file corrupt, which leads to the permanent failure in the previous finding.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R18. In `check()`, a toast failure from `self.show(...)?` returns early after the JSONL record was appended but before `self.save(&state)`, so checked_at, latest and last_ok_at are lost.
+- 成果物: crates/collector-windows/src/update_check.rs:262
+- 根拠: WinRT toast fails (notifications service off or an AUMID problem) while an update is available. Each hourly `periodic` sees checked_at unchanged, so `due` is true and it calls GitHub again, appends another record, and fails again. It sends 24 requests a day instead of 1 and the state file never records the result.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R19. `update_check_service_commands(enabled=true)` always appends a bare `sc start`, which fails with 1056 when the service is already running. main.rs already has an `ensure_running` helper for this case.
+- 成果物: crates/installer/src/commands.rs:603
+- 根拠: A user who already has the update check on runs `ashiato-setup.exe update-check on`. `sc config` succeeds, `sc start ashiato-updater` exits non-zero (1056, already running), and `update_check` reports failure for a correct state.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R20. Redirect validation compares only `host()` and not the scheme. The server updater checks both scheme and authority.
+- 成果物: crates/collector-windows/src/update_check.rs:382
+- 根拠: The release query gets a 3xx with `Location: http://api.github.com/...`. The host matches, so the collector follows it over plaintext HTTP, and a network attacker can feed a fake release list. That list causes false update toasts pointing users to a version chosen by the attacker.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R21. `reasons` has no `no_destination` entry, although the server's `reason_name` can return it.
+- 成果物: web/src/messages.ts:109
+- 根拠: The server reports reason `no_destination`. The settings page shows '理由 —', and the band's stale line shows '更新係が動いていない', which wrongly says the updater is not running.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R22. `write_update_check` and `rewrite_update_check` are near-identical copies (create the parent dir, build {enabled, since}, write). `chrono_like_now`/`civil_from_days` hand-roll RFC 3339 formatting that chrono already provides elsewhere in the workspace.
+- 成果物: crates/installer/src/main.rs:210
+- 根拠: Two writers and a custom calendar routine must be kept in sync. A fix to one, such as an atomic write or a change to the `since` format, will be missed in the other. The settings write is also not atomic, unlike the existing `write_settings` helper a few lines above.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
