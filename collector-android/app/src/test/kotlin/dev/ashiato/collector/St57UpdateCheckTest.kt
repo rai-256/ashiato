@@ -2,6 +2,7 @@ package dev.ashiato.collector
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -15,6 +16,12 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class St57UpdateCheckTest {
+    @After fun cleanup() {
+        Config.clearOverrideForTest()
+        androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences(UpdateCheck.PREFS, 0).edit().clear().commit()
+    }
+
     @Test
     fun `3 つの部品は同じ材料で同じ版を選ぶ`() {
         // Scenario: 3 つの部品は同じ材料で同じ版を選ぶ
@@ -48,10 +55,23 @@ class St57UpdateCheckTest {
             val days = value["elapsed_days"]?.jsonPrimitive?.content?.toLongOrNull()
             val expected = value["expected"]!!.jsonPrimitive.content.toBoolean()
             when (value["kind"]!!.jsonPrimitive.content) {
-                "due" -> assertEquals(expected, if (value["name"]!!.jsonPrimitive.content == "失敗の1時間後") false else UpdateCheck.due(now, now.minusSeconds((hours ?: 0) * 3600)))
+                "due" -> assertEquals(expected, UpdateCheck.due(now, now.minusSeconds((hours ?: 0) * 3600)))
                 "stale" -> assertEquals(expected, days?.let { UpdateCheck.stale(now, now.minusSeconds(it * 86400)) } ?: UpdateCheck.stale(now, null))
             }
         }
+    }
+
+    @Test
+    fun `確認記録は noBackupFilesDir に置く`() {
+        // Scenario: 携帯の確かめた記録はバックアップから外れる
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences(UpdateCheck.PREFS, 0).edit().clear().putBoolean("intro_shown", true).commit()
+        Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
+        UpdateChecker(context, "http://127.0.0.1:1").check(Instant.parse("2026-11-12T00:00:00Z"))
+        val expected = File(context.noBackupFilesDir, UpdateCheck.RECORDS_FILE)
+        assertTrue(expected.isFile)
+        assertEquals(context.noBackupFilesDir, expected.parentFile)
+        Config.clearOverrideForTest()
     }
 
     @Test

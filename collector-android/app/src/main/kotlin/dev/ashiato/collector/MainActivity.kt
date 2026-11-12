@@ -91,6 +91,7 @@ open class MainActivity : Activity() {
     private var setupLaunched = false
     private var introRowShownInThisActivity = false
     private var exemptSettingsOpened = false
+    private var usageAccessOpenedInThisStart = false
     private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
@@ -400,6 +401,7 @@ open class MainActivity : Activity() {
     }
 
     private fun start() {
+        usageAccessOpenedInThisStart = false
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
             Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
@@ -417,11 +419,18 @@ open class MainActivity : Activity() {
         // ランチャーから開く通常のメイン画面では、設定済みでも変更の入口を残す。
         // 権限・設定の途中経路は従来どおり収集を始めて直ちに閉じる。
         val setupRow = shouldOfferInitialSetup()
-        val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity)
+        val updateAvailable = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("latest", null)
+            ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
+        val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
         if (restricted || notice != null || setupRow || updateIntroPending) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
+            if (Config.isComplete && introRowShownInThisActivity && exemptDialog?.isShowing != true &&
+                !exemptSettingsOpened && !usageAccessOpenedInThisStart
+            ) {
+                updateChecker.markIntroShown()
+            }
         } else {
             finish()
         }
@@ -545,9 +554,6 @@ open class MainActivity : Activity() {
             )
         }
         setContentView(column)
-        if (Config.isComplete && updateChecker.introPending() && exemptDialog?.isShowing != true && !exemptSettingsOpened) {
-            updateChecker.markIntroShown()
-        }
     }
 
     /**
@@ -564,6 +570,7 @@ open class MainActivity : Activity() {
         // **先に印を書く。** 開けなかった端末（設定画面を持たない）で毎回試し続けないため
         marks.edit().putBoolean(SENT_TO_USAGE_ACCESS, true).apply()
         val sent = runCatching { startActivity(usageAccessSettingsIntent()) }.isSuccess
+        usageAccessOpenedInThisStart = sent
         if (!sent) Log.w(TAG, Telemetry.line("usage_access_settings_missing", source = APP_USAGE_LOGICAL_SOURCE))
     }
 
