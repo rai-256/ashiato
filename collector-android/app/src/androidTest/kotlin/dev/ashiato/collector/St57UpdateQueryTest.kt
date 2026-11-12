@@ -1,9 +1,11 @@
 package dev.ashiato.collector
 
 import android.content.Context
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,7 +41,14 @@ class St57UpdateQueryTest {
         val lines = query("[{\"tag_name\":\"v99.0.0\",\"draft\":false,\"assets\":[]}]".toByteArray())
         assertTrue(lines.any { it.startsWith("GET /repos/rai-256/ashiato/releases?per_page=20") })
         assertTrue(lines.any { it.startsWith("User-Agent: ashiato-update-check") }); assertTrue(lines.any { it.startsWith("Accept: application/vnd.github+json") })
-        assertTrue(lines.any { it.startsWith("Accept-Encoding: gzip") }); assertTrue(lines.none { it.startsWith("Authorization:") || it.startsWith("Cookie:") })
+        assertTrue(lines.any { it.startsWith("Accept-Encoding: gzip") })
+        val names = lines.drop(1).map { it.substringBefore(':').lowercase() }.toSet()
+        assertTrue(names.all { it in setOf("host", "user-agent", "accept", "accept-encoding", "connection") })
+        val values = lines.drop(1).joinToString("\n")
+        assertFalse(values.contains(Build.MODEL, ignoreCase = true))
+        assertFalse(values.contains(Build.VERSION.RELEASE, ignoreCase = true))
+        assertFalse(values.contains(BuildConfig.VERSION_NAME, ignoreCase = true))
+        assertFalse(lines.any { it.startsWith("Authorization:") || it.startsWith("Cookie:") })
     }
     @Test fun accepts_gzip_response() {
         // Scenario: 携帯は圧縮した応答を受ける
