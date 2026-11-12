@@ -192,3 +192,25 @@
   spec の `PC で update-check off にすると問い合わせが無くなる`・`携帯でスイッチを切ると問い合わせが無くなる` の THEN（受け手への問い合わせが 0 件）は、示した後の端末では誰も見ていない。ここが壊れると、本人が切った後も配布元へ問い合わせが出る（元の IP と時刻が外に出る）
 - kind: technical
 - 提案: 示した印を立て、送り先を設定し、確かめる時期を過ぎた端末で切り、loopback の受け手への問い合わせが 0 件であることを PC（`start` と `periodic` の両方）と携帯で assert する
+
+## security review（8f10733..ef3a33a）
+
+見た経路:
+- 画面 `GET /update-status`（と `/api/update-status`）→ `api_router` の `route_layer(access_log::middleware)` → 無資格 401・API の合言葉 403（`collector_allows` に無い）・ログインで `update_status::get`（4。下の台本）
+- 更新係が書く `status.json`・`settings\check.json` → サーバの `read_bounded`（64 KB）→ `parse_status`（SemVer・RFC 3339）→ 外れたら `unreadable`。画面へは版と時刻だけ、React で文字として出す（`dangerouslySetInnerHTML` は 0 件）（3）
+- 更新係・PC の収集アプリ・携帯の問い合わせ → 見出しは定数 3 つ、本文なし、自分の版・端末の識別子・送り先の URL は載せない（`crates/updater/src/lib.rs:158-163`・`update_check.rs:353-358`・`UpdateCheck.kt:127-132`）。証明書は OS の根で確かめる（`ureq` の `platform-verifier`。検証を切る設定は無い）（2）
+- 試験の差し込み（`ASHIATO_UPDATER_TEST_*`・`settings\test-hooks.json`・`ASHIATO_COLLECTOR_TEST_UPDATE_URL`・`ASHIATO_SETUP_TEST_UPDATER_URL`）→ どれも `cfg(ashiato_test_build)` の内側、配る組み立て（`ASHIATO_RELEASE=1`）では宛先は定数（`lib.rs:84-112`・`update_check.rs:316-326`・`main.rs:17-28`）（3）
+- 携帯の `update_check.xml` → cloud-backup・device-transfer・full-backup の 3 つで除外、記録は `noBackupFilesDir`（2）
+- インストーラ → `C:\ProgramData\ashiato-updater` を作り ACL を付ける（初回 `main.rs:1100-1149`・走らせ直し `:1275-1294`）→ R12
+- 依存: 足した crate は `rustls-platform-verifier` とその OS 別の部品・`semver`。`webpki-root-certs` は lock に入ったが windows-msvc / linux-gnu の木には無い（`cargo tree --target … -i webpki-root-certs` は空、`tools/check-updater-deps.sh` は緑）（4）
+
+安全の決め手: `/update-status` は `access_log::middleware` の `route_layer` の内側にあり、通り抜けの 3 つ（`/healthz`・`/session`・`/collector-setup`）にも `collector_allows` にも入っていない —— 確かさ 4。`scripts/quiet-run st57sec -- cargo test -p ashiato-server --lib st57_update_status` → `st57_update_status_requires_login_and_rejects_api_token ... ok`（資格なし 401・`Bearer` の合言葉 403）・`st57_update_status_is_not_cached ... ok`、`2 passed; 0 failed`。
+
+## R12. 更新係の置き場は持ち主を Administrators に取り直さないので、先に置き場を作った一般の利用者が「確かめた結果」と「切った印」を書き換えられる
+- 成果物: crates/installer/src/main.rs / crates/installer/src/commands.rs
+- 根拠: 状態の置き場は「先に誰かが作っていた置き場でも、持ち主を Administrators にしてから ACL を付ける（持ち主は ACL を書き換えられるので、ほかの利用者を持ち主のままにしない）」（`main.rs:1129-1131`）を守るが、`take_ownership_command` は `layout.state_dir` だけを見る（`commands.rs:612-614`）。
+  更新係の置き場は初回も走らせ直しも `fs::create_dir_all`（既にあれば何もしない）→ `updater_acl_commands`（`/inheritance:r /grant:r` だけ。`/setowner` は無い。`commands.rs:526-551`）で、持ち主は作った人のまま残る。走らせ直し（ST57 より前の版からの入れ替え。`main.rs:1275-1294`）は `ensure_real_directory` も通らない。
+  そのため、インストールより前に `C:\ProgramData\ashiato-updater` を作れた一般の利用者（本人の権限で動く悪意のあるプログラムを含む）は、持ち主の暗黙の DACL の書き換えで自分に書きを足し、`status.json`（偽の「新しい版 X が出ています」）や `settings` の差し替え（`enabled: false` で更新の確認を黙って止める）ができる。D6「`settings\check.json` は管理者と SYSTEM だけが書く」が成り立たない。
+  コードの経路は 1 歩ずつ辿った（3）。`ProgramData` に一般の利用者が子のフォルダを作れることと、持ち主が DACL を書き換えられることは Windows の既定の知識（1。既存のコメント `main.rs:1129` が同じ前提に立つ）。Windows の上では走らせていない
+- kind: technical
+- 提案: 更新係の置き場にも `/setowner *S-1-5-32-544 /T /C` を ACL の前にかけ（初回・走らせ直しの両方）、走らせ直しでも 3 つのフォルダに `ensure_real_directory` を通す。`take_ownership_command` の試験に更新係の置き場を足す
