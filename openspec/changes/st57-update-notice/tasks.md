@@ -86,7 +86,7 @@
 
 ## Task 7: Windows の CI で更新係を確かめる
 
-- [ ] 7.1 新しい `tools/release/update-check-install.sh`（D18（仮））を CI の `install-windows` に足す（`install-check.sh` の後、同じ runner で）。**job の最初のインストール（`install-check.sh` の配る zip）より前に**、更新係の実行ファイルから loopback 以外への外への接続を塞ぐ規則を job の段として置き、job の終わりまで外さない。試験の zip は loopback の受け手を立てて `ASHIATO_SETUP_TEST_UPDATER_URL` を渡す。
+- [x] 7.1 新しい `tools/release/update-check-install.sh`（D18（仮））を CI の `install-windows` に足す（`install-check.sh` の後、同じ runner で）。**job の最初のインストール（`install-check.sh` の配る zip）より前に**、更新係の実行ファイルから loopback 以外への外への接続を塞ぐ規則を job の段として置き、job の終わりまで外さない。試験の zip は loopback の受け手を立てて `ASHIATO_SETUP_TEST_UPDATER_URL` を渡す。
   置く Scenario（`echo "== Scenario: <名前>（配る zip | 試験の zip）"`）: `更新係はサービス専用のアカウントで自動で起きる`・`更新係のアカウントは状態の置き場を読めない`・`更新係の置き場は、サーバが読めて書けない`・`切ると更新係のサービスが止まり、問い合わせが無くなる`・`入れ直すと更新係が起きて確かめる`・
   `インストールの最後に更新の確認が有効なことと切り方を示し、その後に更新係が起きる`・`配布元に届かなくてもインストールは終わる`・`更新係の無いインストールを走らせ直すと、更新係が足される`（試験の組み立ての差し込みで更新係を消した形）・`切った更新の確認は、走らせ直しでも切ったまま`・`repair は更新係に触れない`。
   `install-check.sh` の ST55 の確かめ `配る zip からのインストールで、2 つのサービスが自動で起きる形で入る`・`消すとサービスとプログラムと登録が消える`・`消しても記録の置き場は残り、その場所を示す` は、MODIFIED の THEN（`ashiato-updater` の登録・削除・更新係の置き場が残る）に合わせて確かめを直す（印の名前は変えない）。`インストールの間、ネットワークに出ない` の外向きの遮断の一覧（`install-check.sh` の `block_outbound_program`）に `ashiato-updater.exe` を足し、MODIFIED の「インストーラの段」の範囲で見る（review/spec.md R9）。
