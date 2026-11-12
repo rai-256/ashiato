@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use ashiato_collector_windows::update_check::{
-    due, stale, toast_xml, Toaster, UpdateChecker, UpdateState,
+    due, toast_xml, Toaster, UpdateChecker, UpdateState,
 };
 use chrono::{TimeZone, Utc};
 use std::io::{Read, Write};
@@ -76,24 +76,39 @@ fn releases(version: &str) -> String {
     )
 }
 fn configure(dir: &std::path::Path, url: &str) {
+    configure_settings(dir, url, true, None);
+}
+fn configure_settings(
+    dir: &std::path::Path,
+    url: &str,
+    update_check_enabled: bool,
+    mobile_update_check_enabled: Option<bool>,
+) {
+    let mobile = mobile_update_check_enabled
+        .map(|value| format!(r#","mobile_update_check_enabled":{value}"#))
+        .unwrap_or_default();
     std::fs::write(
         dir.join("settings.json"),
-        format!(r#"{{"base_url":"{url}","update_check_enabled":true}}"#),
+        format!(r#"{{"base_url":"{url}","update_check_enabled":{update_check_enabled}{mobile}}}"#),
     )
     .unwrap();
 }
-fn env<T>(url: Option<&str>, f: impl FnOnce() -> T) -> T {
+fn env_at<T>(url: Option<&str>, now: &str, f: impl FnOnce() -> T) -> T {
     let _guard = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
     if let Some(url) = url {
         std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", url);
     }
-    std::env::set_var("ASHIATO_COLLECTOR_TEST_NOW", "2026-01-02T00:00:00Z");
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_NOW", now);
     let result = f();
     std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
     std::env::remove_var("ASHIATO_COLLECTOR_TEST_NOW");
     result
+}
+fn env<T>(url: Option<&str>, f: impl FnOnce() -> T) -> T {
+    env_at(url, "2026-01-02T00:00:00Z", f)
 }
 #[test]
 fn st57_pc_due_is_true_without_a_previous_check() {
@@ -274,22 +289,39 @@ fn st57_pc_unavailable_idle_is_not_eligible() {
 #[test]
 fn st57_pc_intro_time_is_not_stale() {
     // Scenario: 入れ替えた収集アプリは、示すまでの間を 7 日に数えない
-    assert!(!stale(
-        Utc.timestamp_opt(7 * 86_400, 0).unwrap(),
-        Some(Utc.timestamp_opt(7 * 86_400, 0).unwrap())
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let (url, _, thread) = server("not-json");
+    configure(dir.path(), &url);
+    let toaster = Arc::new(FakeToaster::default());
+    let state = UpdateState {
+        checked_at: Some(Utc.with_ymd_and_hms(2025, 12, 31, 0, 0, 0).unwrap()),
+        intro_shown_at: Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+        ..UpdateState::default()
+    };
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    env_at(Some(&url), "2026-01-07T00:00:00Z", || {
+        UpdateChecker::new(dir.path())
+            .with_toaster(toaster.clone())
+            .start(Utc::now())
+            .unwrap();
+    });
+    thread.join().unwrap();
+    assert!(!toaster
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"update-stale".into()));
 }
 #[test]
 fn st57_pc_server_switch_does_not_disable_client() {
     // Scenario: サーバの確認を切っても、収集アプリは確かめる
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("settings.json"),
-        r#"{"update_check_enabled":true,"mobile_update_check_enabled":false}"#,
-    )
-    .unwrap();
     let (url, seen, thread) = server(&releases("0.5.0"));
-    configure(dir.path(), &url);
+    configure_settings(dir.path(), &url, true, Some(false));
     env(Some(&url), || {
         let c = UpdateChecker::new(dir.path());
         c.set_enabled(true).unwrap();
@@ -311,10 +343,18 @@ fn st57_pc_setup_default_is_on() {
     // Scenario: PC の setup は確かめるかを聞き、既定は確かめる
     let dir = tempfile::tempdir().unwrap();
     let (url, seen, thread) = server(&releases("0.5.0"));
-    configure(dir.path(), &url);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        format!(r#"{{"base_url":"{url}"}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&UpdateState::default()).unwrap(),
+    )
+    .unwrap();
     env(Some(&url), || {
         let c = UpdateChecker::new(dir.path());
-        c.set_enabled(true).unwrap();
         assert!(c.start(Utc::now()).unwrap().is_some());
     });
     thread.join().unwrap();
@@ -324,16 +364,15 @@ fn st57_pc_setup_default_is_on() {
 fn st57_pc_mobile_setting_is_independent() {
     // Scenario: 携帯で切っても PC は確かめる
     let dir = tempfile::tempdir().unwrap();
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure_settings(dir.path(), &url, true, Some(false));
     std::fs::write(
-        dir.path().join("settings.json"),
-        r#"{"update_check_enabled":true,"mobile_update_check_enabled":false}"#,
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&UpdateState::default()).unwrap(),
     )
     .unwrap();
-    let (url, seen, thread) = server(&releases("0.5.0"));
-    configure(dir.path(), &url);
     env(Some(&url), || {
         let c = UpdateChecker::new(dir.path());
-        c.set_enabled(true).unwrap();
         assert!(c.start(Utc::now()).unwrap().is_some());
     });
     thread.join().unwrap();
@@ -364,18 +403,59 @@ fn st57_pc_update_message_is_distinct() {
 #[test]
 fn st57_pc_six_days_is_not_stale() {
     // Scenario: 6 日確かめられていないだけなら知らせない
-    assert!(!stale(
-        Utc.timestamp_opt(6 * 86_400, 0).unwrap(),
-        Some(Utc.timestamp_opt(0, 0).unwrap())
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let (url, _, thread) = server("not-json");
+    configure(dir.path(), &url);
+    let toaster = Arc::new(FakeToaster::default());
+    let state = UpdateState {
+        checked_at: Some(Utc.with_ymd_and_hms(2025, 12, 31, 0, 0, 0).unwrap()),
+        last_ok_at: Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+        ..UpdateState::default()
+    };
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    env_at(Some(&url), "2026-01-07T00:00:00Z", || {
+        UpdateChecker::new(dir.path())
+            .with_toaster(toaster.clone())
+            .start(Utc::now())
+            .unwrap();
+    });
+    thread.join().unwrap();
+    assert!(!toaster
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"update-stale".into()));
 }
 #[test]
 fn st57_pc_seven_days_is_stale() {
     // Scenario: 7 日確かめられなければ PC が 1 回知らせる
-    assert!(stale(
-        Utc.timestamp_opt(7 * 86_400, 0).unwrap(),
-        Some(Utc.timestamp_opt(0, 0).unwrap())
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let (url, _, thread) = server("not-json");
+    configure(dir.path(), &url);
+    let toaster = Arc::new(FakeToaster::default());
+    let state = UpdateState {
+        checked_at: Some(Utc.with_ymd_and_hms(2025, 12, 31, 0, 0, 0).unwrap()),
+        last_ok_at: Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+        ..UpdateState::default()
+    };
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    env_at(Some(&url), "2026-01-08T00:00:00Z", || {
+        UpdateChecker::new(dir.path())
+            .with_toaster(toaster.clone())
+            .start(Utc::now())
+            .unwrap();
+    });
+    thread.join().unwrap();
+    let calls = toaster.calls.lock().unwrap();
+    assert_eq!(calls.iter().filter(|tag| *tag == "update-stale").count(), 1);
 }
 
 #[test]
@@ -447,8 +527,30 @@ fn st57_pc_disabled_does_not_stale() {
 #[test]
 fn st57_pc_future_check_is_stale() {
     // Scenario: 最後に確かめられた時刻が未来なら、7 日が過ぎたとみなす
-    assert!(stale(
-        Utc.timestamp_opt(0, 0).unwrap(),
-        Some(Utc.timestamp_opt(86_400, 0).unwrap())
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let (url, _, thread) = server("not-json");
+    configure(dir.path(), &url);
+    let toaster = Arc::new(FakeToaster::default());
+    let state = UpdateState {
+        checked_at: Some(Utc.with_ymd_and_hms(2025, 12, 31, 0, 0, 0).unwrap()),
+        last_ok_at: Some(Utc.with_ymd_and_hms(2026, 1, 2, 0, 0, 0).unwrap()),
+        ..UpdateState::default()
+    };
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    env_at(Some(&url), "2026-01-01T00:00:00Z", || {
+        UpdateChecker::new(dir.path())
+            .with_toaster(toaster.clone())
+            .start(Utc::now())
+            .unwrap();
+    });
+    thread.join().unwrap();
+    assert!(toaster
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"update-stale".into()));
 }
