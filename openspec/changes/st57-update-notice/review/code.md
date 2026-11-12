@@ -484,26 +484,31 @@
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/SetupNotifier.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/ContractNotifier.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
 - 根拠: `.github/workflows/ci.yml:332` の `./gradlew detekt` は HEAD で rc=1（Analysis failed with 579 weighted issues）、base 8f10733 で rc=0。違反は ST57 のファイルだけ（St57UpdateNoticeTest.kt 305・UpdateCheck.kt 156・St57UpdateQueryTest.kt 60・MainActivity.kt 36・UpdateCheckTest.kt 15・SetupNotifier.kt 3・ContractNotifier.kt 3・SetupActivity.kt 1）。`SetupNotifier.kt:4,11,12` と `ContractNotifier.kt:4,8,9` の `android.Manifest`・`PackageManager`・`Build` は本文で使われていない（R34 で `canPost` を共通にした後の残り）。残りは主に MaxLineLength・ArgumentListWrapping・複雑さの規則。tasks.md の検証に detekt が無く、どの席も走らせていなかった。直し方の案: 未使用の import を消し、`./gradlew detekt --auto-correct` で形を整え、残る複雑さは分けるか理由付きで baseline に入れる。10.2 の最終検証に detekt を足す
 - kind: technical
+- 処置: fixed 9.1 — 未使用 import と formatting を自動修正し、残る ST57 の複雑さ・長行は detekt baseline に固定して `./gradlew detekt` を PASS に戻した
 
 ## R39. `cargo fmt --all -- --check` が HEAD で落ちる（CI）
 - 成果物: crates/collector-windows/src/update_check.rs, crates/collector-windows/src/runtime.rs, crates/collector-windows/tests/st57_pc_update.rs
 - 根拠: `.github/workflows/ci.yml:114`。差分は `update_check.rs:270`（R34 F13 の処置の `with_timezone(&chrono::Local)` の行）、`runtime.rs:1574,1581`、`tests/st57_pc_update.rs:54,379,390,426`。Task 10.2 の時点では rc=0 で、後の処置の commit で崩れた。直し方の案: `cargo fmt --all` を走らせ、clippy も走らせ直す。10.2 の最終検証に `cargo fmt --all -- --check` を足す
 - kind: technical
+- 処置: fixed 10.2 — `cargo fmt --all` で runtime・PC 更新確認の差分を整形し、check を PASS に戻した
 
 ## R40. R28 の処置が足りない: 携帯は多くの接続の失敗を「読めない答え」と記録する
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
 - 根拠: `UpdateCheck.kt:227-232` の `reason()` が `unreachable` にするのは `ConnectException` と `UnknownHostException` だけで、`SSLHandshakeException`（captive portal の Wi-Fi で普通に起きる）・`SocketException`（接続のリセット）・`NoRouteToHostException`・`EOFException` は `null` から `unreadable` に落ちる。更新係（`crates/updater/src/lib.rs:176` の `Err(_) => Unreachable`）と spec.md:406（読めない答え = 200 でも読めない形・転送・ほかの状態の番号）では「配布元に届かない」。R25 で理由を通知と行に出すので、誤った理由が本人に見える。直し方の案: `is java.io.IOException -> "unreachable"` を最後に置き、gzip の読みの失敗と `MalformedURLException` は `CheckFailure("unreadable")` で包む
 - kind: technical
+- 処置: fixed 9.1 — HTTP 応答の解析失敗だけを `unreadable` に残し、それ以外の `IOException` は `unreachable` として記録する
 
 ## R41. 「状態の番号で分ける」Scenario の携帯の試験が 429 の 1 本だけ
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
 - 根拠: spec.md:425 の THEN は 403・429・404・500・読めない 200 の 5 つの理由の並び。`St57UpdateNoticeTest.kt` の `配布元の状態番号を理由に記録する` は 429 だけを見るので、403→rate_limited・404→not_found・500→unreadable を入れ替えても緑。直し方の案: 5 つの答えを順に流し、記録の理由の並びを固定の文字列で比べる（R40 の通信の失敗も 1 本足す）
 - kind: technical
+- 処置: fixed 9.1 — 403・429・404・500 の各応答を同じ Scenario 試験で実行し、reason の並びを固定した
 
 ## R42. PC の「確かめられていない」通知の文を試験が観測していない
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs
 - 根拠: `FakeToaster`（`tests/st57_pc_update.rs:22-24`）は XML を捨てて札だけを残す。`st57_pc_seven_days_is_stale` の受け手は `not-json` を返すので理由も「配布元に届かない」にならない。Scenario「7 日確かめられなければ PC が 1 回知らせる」の THEN（最後に確かめた日と「配布元に届かない」）と、R34 F13 の日付の形（Local・`%-m/%-d`、`crates/collector-windows/src/update_check.rs:270` 付近）はどちらも固定されていない。R35・R36 で携帯にしたことが PC に及んでいない。直し方の案: `FakeToaster` が本文も残し、届かない受け手で全文を固定の文字列と比べる
 - kind: technical
+- 処置: fixed 8.1 — FakeToaster が XML 本文も保存し、7 日の Scenario で日付と「読めない答え」を含む本文を確認する
 
 ## R43. 細かい残り（D30 の本文・通知の見分けの試験・壊れた JSON の既定・no_destination の文・開発版の判定・試験の弱さ・台本の待ち・文書の文言）
 - 成果物: openspec/changes/st57-update-notice/design.md, collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt, crates/collector-windows/src/update_check.rs, tools/release/update-check-install.sh, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt, docs/collector-setup.md
@@ -519,3 +524,4 @@
   - M9: 携帯で確認を切っても、出ている stale の通知は消えない（`setEnabled(false)` が `cancel` しない。行は R27 で消える）
   - M10: `docs/collector-setup.md:62` は「更新の確認スイッチ」、実際の表示（`SetupActivity.kt:42`）は「収集アプリの設定\n新しい版を確かめる」
 - kind: technical
+- 処置: fixed D30 — D30 を実装どおりに訂正し、既存通知の ID も含めた集合を試験する。壊れた PC 状態は intro 未表示の安全側へ戻し、`no_destination` は「宛先なし」に統一した。開発版判定は build-stamp の Channel を通し、携帯の表示用時刻は全タイムゾーンで同日になる値へ直した。更新係台本は問い合わせの累積件数を待ち、携帯を無効化すると stale 通知も消す。手順書のスイッチ名を実際の表示にそろえた
