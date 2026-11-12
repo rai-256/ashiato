@@ -208,15 +208,20 @@ check_windows_contents() {
     grep -Eq '^== Microsoft Visual C\+\+ Runtime$' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に VC の実行時の DLL の見出しが無い'
     grep -Eq '^== rustls ' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に更新係の rustls の見出しが無い'
   fi
-  text="$(/usr/bin/unzip -p "$archive" ashiato-server.exe ashiato-setup.exe ashiato-updater.exe 2>/dev/null | strings || true)"
-  local updater_text
-  updater_text="$(/usr/bin/unzip -p "$archive" ashiato-updater.exe 2>/dev/null | strings || true)"
-  grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$text" && die 'Windows のインストーラに試験差し込みがある'
-  grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$text" && die 'Windows のサーバに試験差し込みがある'
-  grep -Fq 'ASHIATO_UPDATER_TEST_' <<<"$text" && die 'Windows の更新係に試験差し込みがある'
+  local server_text setup_text updater_text entry
+  server_text=""; setup_text=""; updater_text=""
+  while IFS= read -r entry; do
+    case "$entry" in
+      ashiato-server.exe|*/ashiato-server.exe) server_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+      ashiato-setup.exe|*/ashiato-setup.exe) setup_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+      ashiato-updater.exe|*/ashiato-updater.exe) updater_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+    esac
+  done <<<"$entries"
+  grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$setup_text" && die 'Windows のインストーラに試験差し込みがある'
+  grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$server_text" && die 'Windows のサーバに試験差し込みがある'
+  grep -Fq 'ASHIATO_UPDATER_TEST_' <<<"$updater_text" && die 'Windows の更新係に試験差し込みがある'
   grep -Fq 'settings/test-hooks.json' <<<"$updater_text" && die 'Windows の更新係に試験用設定ファイルの差し込みがある'
-  grep -Fq 'https://api.github.com' <<<"$updater_text" || die 'Windows の更新係に GitHub API の宛先が無い'
-  grep -Fq '/repos/rai-256/ashiato/releases' <<<"$updater_text" || die 'Windows の更新係に GitHub releases の宛先が無い'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases' <<<"$updater_text" || die 'Windows の更新係に GitHub releases の宛先が無い'
   # Rust の 2 つは VC の実行時を静的に持つ（.cargo/config.toml の crt-static）。DLL は pgsql\bin にだけあり、
   # 根の 2 つが VCRUNTIME140.dll を読むと、まっさらな Windows ではインストーラが起きない（D33（仮）・review N1）
   local exe
@@ -373,7 +378,7 @@ self_test() {
     cp "$stamp_file" "$stage/ashiato-server.exe"
     cp "$stamp_file" "$stage/ashiato-setup.exe"
     cp "$stamp_file" "$stage/ashiato-updater.exe"
-    printf 'https://api.github.com\n/repos/rai-256/ashiato/releases\n' >> "$stage/ashiato-updater.exe"
+    printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >> "$stage/ashiato-updater.exe"
     cp "$stamp_file" "$stage/pgsql/bin/postgres.exe"
     : >"$stage/pgsql/bin/vcruntime140.dll"; : >"$stage/pgsql/bin/msvcp140.dll"
     cp "$root/tools/db-roles.sql" "$stage/db-roles.sql"
@@ -512,31 +517,35 @@ self_test() {
   (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   printf 'ASHIATO_SETUP_TEST_BAD\n' >> "$bad_windows/ashiato-setup.exe"
   printf 'ASHIATO_SERVICE_TEST_BAD\n' >> "$bad_windows/ashiato-server.exe"
+  grep -Fq 'ASHIATO_SETUP_TEST_BAD' "$bad_windows/ashiato-setup.exe" || die 'self-test の偽インストーラに試験差し込みが無い'
   (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
-  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then return 1; fi
-  grep -Fq '試験差し込み' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '試験差し込みのある Windows zip を通した'; fi
   rm -f "$out/bad-windows.zip"
   # 更新係の試験差し込み・試験用設定ファイル・宛先の欠落も配る形では落ちる
   rm -rf "$bad_windows"; mkdir -p "$bad_windows"
   (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   printf 'ASHIATO_UPDATER_TEST_BAD\nsettings/test-hooks.json\n' >> "$bad_windows/ashiato-updater.exe"
   (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
-  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then return 1; fi
-  grep -Fq '試験差し込み' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '更新係の試験差し込みを通した'; fi
   rm -f "$out/bad-windows.zip"
   rm -rf "$bad_windows"; mkdir -p "$bad_windows"
   (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   cp "$work/stamp" "$bad_windows/ashiato-updater.exe"
   (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
-  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then return 1; fi
-  grep -Fq 'GitHub API の宛先が無い' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '宛先の無い更新係を通した'; fi
   rm -f "$out/bad-windows.zip"
   rm -rf "$bad_windows"; mkdir -p "$bad_windows"
   (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
-  printf 'settings/test-hooks.json\n' >> "$bad_windows/ashiato-updater.exe"
+  sed -i 's#https://api.github.com/repos/rai-256/ashiato/releases##g' "$bad_windows/ashiato-updater.exe"
+  printf 'https://api.github.com\n' >> "$bad_windows/ashiato-updater.exe"
   (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
-  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then return 1; fi
-  grep -Fq '試験用設定ファイル' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die 'GitHub API だけの更新係を通した'; fi
+  rm -f "$out/bad-windows.zip"
+  rm -rf "$bad_windows"; mkdir -p "$bad_windows"
+  (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  printf 'settings/test-hooks.json\nhttps://api.github.com/repos/rai-256/ashiato/releases\n' >> "$bad_windows/ashiato-updater.exe"
+  (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '試験用設定ファイルのある更新係を通した'; fi
   rm -f "$out/bad-windows.zip"
   # 根の実行ファイルが VC の実行時の DLL を読めば落ちる（review N1）
   rm -rf "$bad_windows"; mkdir -p "$bad_windows"
@@ -552,11 +561,11 @@ self_test() {
   (cd "$unnoticed" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   printf '%s\n' 'no heading' >"$unnoticed/THIRD-PARTY-NOTICES.txt"
   (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
-  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then return 1; fi
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   grep -Fq 'PostgreSQL の許諾の見出し' <<<"$output" || return 1
   rm -f "$unnoticed/THIRD-PARTY-NOTICES.txt" "$out/unnoticed-windows.zip"
   (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
-  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then return 1; fi
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   grep -Fq 'THIRD-PARTY-NOTICES.txt が無い' <<<"$output" || return 1
   rm -f "$out/unnoticed-windows.zip"
   # 更新係だけが持つ rustls の節が無い依存一覧は落ちる
@@ -564,8 +573,7 @@ self_test() {
   (cd "$unnoticed" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   sed -i '/^== rustls /d' "$unnoticed/THIRD-PARTY-NOTICES.txt"
   (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
-  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then return 1; fi
-  grep -Fq 'rustls の見出しが無い' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   rm -f "$out/unnoticed-windows.zip"
   # VC の実行時の DLL が無い zip は落ちる（review R28）
   local nocrt="$work/nocrt-windows"
