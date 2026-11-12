@@ -549,3 +549,11 @@
 - kind: technical
 - 処置: fixed D30 — D30 を実装どおりに訂正し、既存通知の ID も含めた集合を試験する。壊れた PC 状態は intro 未表示の安全側へ戻し、`no_destination` は「宛先なし」に統一した。開発版判定は build-stamp の Channel を通し、携帯の表示用時刻は全タイムゾーンで同日になる値へ直した。更新係台本は問い合わせの累積件数を待ち、携帯を無効化すると stale 通知も消す。手順書のスイッチ名を実際の表示にそろえた
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
+- 判定: ADDRESSED（re-review 8 @19c1f6650644aaa721988bb6b23158896d53fd44）
+
+## settle_review（re-review 8 @19c1f66）: 処置の直しが新しく壊したもの
+
+## R44. fix report が見出しだけで、再実行した試験の名前と出力が書かれていない（報告の欠落。実装の誤りではない）。
+- 成果物: .superpowers/sdd/st57-settle/report.md
+- 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 8 の New Breakage。Minor）
+- kind: technical
