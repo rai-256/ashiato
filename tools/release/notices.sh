@@ -198,13 +198,16 @@ rust_notice() {
 apk_notice() {
   [[ $# -ge 1 ]] || usage
   local out="$1"; shift; local list tmp generated_list=""
-  tmp="$(mktemp "${TMPDIR:-/tmp}/notices-apk.XXXXXX")"; trap 'rm -f "${tmp:-}" "${generated_list:-}"' EXIT
+  tmp="$(mktemp "${TMPDIR:-/tmp}/notices-apk.XXXXXX")"
+  APK_NOTICE_TMP="$tmp"; APK_NOTICE_GENERATED_LIST=""
+  trap 'rm -f "${APK_NOTICE_TMP:-}" "${APK_NOTICE_GENERATED_LIST:-}"' EXIT
   list="${ASHIATO_LICENSES_POM_LIST:-}"
   if [[ -z "$list" ]]; then
     if [[ $# -gt 0 && -f "$1" ]]; then list="$1"; shift
     else
       list="$(mktemp "${TMPDIR:-/tmp}/notices-apk-poms.XXXXXX")"
       generated_list="$list"
+      APK_NOTICE_GENERATED_LIST="$list"
       "$root/collector-android/gradlew" -p "$root/collector-android" -q :app:ashiatoDependencyPoms "-Pashiato.pomOut=$list" >/dev/null
     fi
   fi
@@ -324,7 +327,7 @@ for coordinate, licenses in by_coordinate.items():
 with open(out_path,'w',encoding='utf-8',newline='\n') as out:
     out.write('\n'.join(blocks)+'\n')
 PY
-  mv "$tmp" "$out"; rm -f "$tmp" "$generated_list"; trap - EXIT
+  mv "$tmp" "$out"; rm -f "$tmp" "$generated_list"; APK_NOTICE_TMP=; APK_NOTICE_GENERATED_LIST=; trap - EXIT
 }
 
 self_test() {
