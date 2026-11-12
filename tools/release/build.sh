@@ -56,8 +56,8 @@ make_license_bundle() {
   copy_canonical_license "$root" "$license_bundle/licenses/LICENSE"
   local -a notice_args=()
   [[ -z "$target" || "$target" == native ]] || notice_args+=(--target "$target")
-  case "$kind" in
-    server|collector-windows)
+    case "$kind" in
+    server|server-windows|collector-windows)
       "$root/tools/release/notices.sh" "$kind" "$license_bundle/licenses/THIRD-PARTY-NOTICES.txt" "${notice_args[@]}"
       ;;
     apk)
@@ -91,7 +91,9 @@ build_server() {
   [[ "$target" == native ]] && target_dir_name=""
   local src="$target_dir/${target_dir_name}release/$binary"
   [[ -f "$src" ]] || die "サーバの実行ファイルが無い: $src"
-  make_license_bundle server "$target"
+  local notice_kind=server
+  [[ "$target" == *windows* || "$binary" == *.exe ]] && notice_kind=server-windows
+  make_license_bundle "$notice_kind" "$target"
   if [[ "$target" == *windows* || "$binary" == *.exe ]]; then
     # インストーラも、同梱するサーバと同じ組み立て（配る / 試験）にする。呼び手の環境の ASHIATO_RELEASE を
     # 読むと、配るサーバと試験の差し込みを持つインストーラが混ざる（review R55）
@@ -101,6 +103,8 @@ build_server() {
     rm -rf "$stage"; mkdir -p "$stage/pgsql"
     cp "$src" "$stage/ashiato-server.exe"
     cp "$installer_src" "$stage/ashiato-setup.exe"
+    build_updater "$target" "$server_release"
+    cp "$updater_src" "$stage/ashiato-updater.exe"
     # 中身を写す（`cp -a <dir> <既にある dir>` は中に <dir> ごと写し、pgsql/.pgsql-slim/bin になる。review R49）
     cp -a "$pgsql_dir/." "$stage/pgsql/"
     [[ -f "$stage/pgsql/bin/postgres.exe" ]] || die "Windows の zip の形が違う: pgsql/bin/postgres.exe が無い"
@@ -115,6 +119,17 @@ build_server() {
   fi
   cleanup_license_bundle
   cleanup_build_tmp
+}
+
+updater_src=""
+build_updater() {
+  local target="$1" release="$2" binary="ashiato-updater.exe" args=()
+  [[ -n "$target" && "$target" != native ]] && args=(--target "$target")
+  (cd "$root" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE="$release" cargo build --release -p ashiato-updater --bin ashiato-updater "${args[@]}")
+  local target_dir="${CARGO_TARGET_DIR:-$root/target}" name="${target:+$target/}release/$binary"
+  [[ "$target" == native ]] && name="release/$binary"
+  updater_src="$target_dir/$name"
+  [[ -f "$updater_src" ]] || die "更新係が無い: $updater_src"
 }
 
 # サーバの Windows の zip に同梱する部品の許諾（ST55 D13。check-artifacts.sh が PostgreSQL の見出しを見る）。

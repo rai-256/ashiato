@@ -190,6 +190,7 @@ check_windows_contents() {
   entries="$(/usr/bin/unzip -l "$archive" | awk 'NR > 3 { sub(/^ +[0-9]+ +[0-9-]+ +[0-9:]+ +/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print }' | sed '$d')" || die "Windows の zip が読めない: $(basename "$archive")"
   grep -Fxq 'ashiato-server.exe' <<<"$entries" || die "Windows の zip にサーバが無い"
   grep -Fxq 'ashiato-setup.exe' <<<"$entries" || die "Windows の zip にインストーラが無い"
+  grep -Fxq 'ashiato-updater.exe' <<<"$entries" || die "Windows の zip に更新係が無い"
   grep -Fxq 'db-roles.sql' <<<"$entries" || die "Windows の zip に db-roles.sql が無い"
   grep -Eq '^pgsql/bin/postgres\.exe$' <<<"$entries" || die "Windows の zip に PostgreSQL が無い"
   # 同梱の PostgreSQL（EDB の MSVC の組み立て）が要る VC の実行時の DLL。まっさらな Windows には無い（D33（仮）・review R28）
@@ -205,14 +206,16 @@ check_windows_contents() {
     notices="$(/usr/bin/unzip -p "$archive" THIRD-PARTY-NOTICES.txt)"
     grep -Eq '^== PostgreSQL$' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に PostgreSQL の許諾の見出しが無い'
     grep -Eq '^== Microsoft Visual C\+\+ Runtime$' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に VC の実行時の DLL の見出しが無い'
+    grep -Eq '^== rustls ' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に更新係の rustls の見出しが無い'
   fi
-  text="$(/usr/bin/unzip -p "$archive" ashiato-server.exe ashiato-setup.exe 2>/dev/null | strings || true)"
+  text="$(/usr/bin/unzip -p "$archive" ashiato-server.exe ashiato-setup.exe ashiato-updater.exe 2>/dev/null | strings || true)"
   grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$text" && die 'Windows のインストーラに試験差し込みがある'
   grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$text" && die 'Windows のサーバに試験差し込みがある'
+  grep -Fq 'ASHIATO_UPDATER_TEST_' <<<"$text" && die 'Windows の更新係に試験差し込みがある'
   # Rust の 2 つは VC の実行時を静的に持つ（.cargo/config.toml の crt-static）。DLL は pgsql\bin にだけあり、
   # 根の 2 つが VCRUNTIME140.dll を読むと、まっさらな Windows ではインストーラが起きない（D33（仮）・review N1）
   local exe
-  for exe in ashiato-server.exe ashiato-setup.exe; do
+  for exe in ashiato-server.exe ashiato-setup.exe ashiato-updater.exe; do
     /usr/bin/unzip -p "$archive" "$exe" 2>/dev/null | strings | grep -Eiq '(vcruntime|msvcp)1[0-9]{2}[_0-9]*\.dll' &&
       die "Windows の zip の $exe が VC の実行時の DLL を読む（crt-static で組んでいない）"
   done
@@ -270,7 +273,10 @@ check_artifacts() {
   server_stamp="$(artifact_stamp "$windows_archive" "$expected_version")"
   installer_stamp="$(/usr/bin/unzip -p "$windows_archive" ashiato-setup.exe 2>/dev/null | strings | grep -Eo "${expected_version//./\\.}\\+[0-9a-f]{40}" | sort -u)"
   [[ "$server_stamp" == "$installer_stamp" ]] || die 'Windows のサーバとインストーラの版印が違う'
-  windows_text="$(/usr/bin/unzip -p "$windows_archive" ashiato-server.exe ashiato-setup.exe 2>/dev/null | strings || true)"
+  local updater_stamp
+  updater_stamp="$(/usr/bin/unzip -p "$windows_archive" ashiato-updater.exe 2>/dev/null | strings | grep -Eo "${expected_version//./\\.}\\+[0-9a-f]{40}" | sort -u)"
+  [[ "$server_stamp" == "$updater_stamp" ]] || die 'Windows のサーバと更新係の版印が違う'
+  windows_text="$(/usr/bin/unzip -p "$windows_archive" ashiato-server.exe ashiato-setup.exe ashiato-updater.exe 2>/dev/null | strings || true)"
   grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$windows_text" && die '配るインストーラに試験差し込みがある'
   grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$windows_text" && die '配るサーバに試験差し込みがある'
   local linux_archive="$dir/ashiato-server-${expected_version}-linux-x86_64.tar.gz"
@@ -278,7 +284,7 @@ check_artifacts() {
     local linux_entries
     linux_entries="$(tar -tzf "$linux_archive")"
     echo '== Scenario: Linux の配布物は PostgreSQL を持たない'
-    grep -Eq '(^|/)pgsql(/|$)|(^|/)ashiato-setup' <<<"$linux_entries" && die 'Linux の配布物に PostgreSQL またはインストーラがある' || true
+    grep -Eq '(^|/)pgsql(/|$)|(^|/)ashiato-setup|(^|/)ashiato-updater' <<<"$linux_entries" && die 'Linux の配布物に PostgreSQL、インストーラ、または更新係がある' || true
   fi
   if [[ "$channel" == nightly ]]; then
     apk="$dir/ashiato-collector-dev-${expected_version}.apk"
@@ -353,7 +359,7 @@ self_test() {
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
   # 偽の配布物の依存の一覧。rust-std のほかに、自分の本文を持つ Rust と Node の部品を 1 つずつ持つ
-  fake_notices() { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n\n== react 18.0.0\nLicense: MIT\nMIT License of react\n'; }
+  fake_notices() { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n\n== react 18.0.0\nLicense: MIT\nMIT License of react\n\n== rustls 1.0.0\nLicense: MIT\nMIT License of rustls\n'; }
   # ST55 の Windows のサーバの zip の形（インストーラ・PostgreSQL・db-roles.sql）に、ST53 の許諾の 3 点を足した偽物。
   # LICENSE と SOURCE.txt は $work の今の中身を写す
   win_fixture() {
@@ -361,6 +367,7 @@ self_test() {
     rm -rf "$stage"; mkdir -p "$stage/pgsql/bin"
     cp "$stamp_file" "$stage/ashiato-server.exe"
     cp "$stamp_file" "$stage/ashiato-setup.exe"
+    cp "$stamp_file" "$stage/ashiato-updater.exe"
     cp "$stamp_file" "$stage/pgsql/bin/postgres.exe"
     : >"$stage/pgsql/bin/vcruntime140.dll"; : >"$stage/pgsql/bin/msvcp140.dll"
     cp "$root/tools/db-roles.sql" "$stage/db-roles.sql"
@@ -376,6 +383,7 @@ self_test() {
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   win_fixture "$work/windows" "$work/missing-stamp" "$out/ashiato-server-$v-windows-x86_64.zip"
+  /usr/bin/unzip -l "$out/ashiato-server-$v-windows-x86_64.zip" | grep -Eq '[[:space:]]ashiato-updater\.exe$' || die '偽の Windows zip に更新係が無い'
   mkdir -p "$work/assets/licenses"
   cp "$work/LICENSE" "$work/assets/licenses/LICENSE"
   cp "$work/SOURCE.txt" "$work/assets/licenses/SOURCE.txt"

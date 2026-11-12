@@ -41,6 +41,7 @@ printf '%s\n' "$*" >> "${PACKAGE_CALLS:?}"
 [[ "${PACKAGE_FAIL_KIND:-}" != "$1" ]] || { echo "fake build failure: $1" >&2; exit 23; }
 mkdir -p "$2"
 touch "$2/$1.ok"
+[[ "$1" != server-windows ]] || touch "$2/ashiato-updater.exe"
 EOF
   chmod +x "$fake"
   echo "== Scenario: 配る形を壊した PR は、その PR の CI で落ちる"
@@ -60,6 +61,7 @@ EOF
   PACKAGE_CALLS="$calls" ASHIATO_BUILD_VERSION=wrong ASHIATO_PACKAGE_BUILD="$fake" "$0" windows "$work/windows" ||
     die 'Windows の配る経路が ASHIATO_BUILD_VERSION を持ち込んだ'
   grep -q '^server-windows ' "$calls" && grep -q '^collector-windows ' "$calls" || die 'Windows の build が走っていない'
+  [[ -f "$work/windows/ashiato-updater.exe" ]] || die 'Windows の配布物に更新係が無い'
   echo "OK: package の build 失敗を伝播した"
 }
 
