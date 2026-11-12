@@ -123,10 +123,10 @@
 
 ## Task 10: 手順書と申し送り
 
-- [ ] 10.1 `docs/install.md` に「更新の確認」の節（有効なこと・`ashiato-setup.exe update-check off|on`・更新係の置き場と確かめた記録の場所・配布元へ送るもの（版の一覧の取得だけ・元の IP と時刻は見える）・手で消すとき `sc.exe delete ashiato-updater`）。`docs/collector-setup.md` に携帯のスイッチと PC の `update-check off|on`。
+- [x] 10.1 `docs/install.md` に「更新の確認」の節（有効なこと・`ashiato-setup.exe update-check off|on`・更新係の置き場と確かめた記録の場所・配布元へ送るもの（版の一覧の取得だけ・元の IP と時刻は見える）・手で消すとき `sc.exe delete ashiato-updater`）。`docs/collector-setup.md` に携帯のスイッチと PC の `update-check off|on`。
   `docs/release.md` に「リポジトリの名前を変えると、配った版の更新の確認は 7 日後に『確かめられていない』を出す」を足す。申し送り: `docs/handoff/ST58.md`（`GET /update-status` の形・帯を押す口はまだ無い・切った確認を更新で戻さない・前の版へ戻したときの更新係のサービスの扱いは未確かめ）・`docs/handoff/ST60.md`（Linux の更新係の起こし方。C10）
   検証: `bash -c 'for h in "update-check off" "ashiato-updater" "版の一覧"; do grep -q -- "$h" docs/install.md || exit 1; done && grep -q "update-check" docs/collector-setup.md && grep -q "update-status" docs/handoff/ST58.md && grep -q "更新係" docs/handoff/ST60.md'` rc=0
-- [ ] 10.2 全体: Scenario の印の突き合わせと、作業場の検査
+- [x] 10.2 全体: Scenario の印の突き合わせと、作業場の検査
   検証: `python3 scripts/check_scenarios.py . st57-update-notice` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` rc=0 /
   `bash -c 'tools/check-offsite.sh && tools/check-updater-deps.sh && tools/check-contract-version.sh && tools/check-licenses.sh && tools/check-openapi.sh'` rc=0
 
