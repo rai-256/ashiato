@@ -31,3 +31,9 @@
 - Task 1 の HTTP・TLS・DB を crate に追加していない。
 - Scenario コメントは Task 1 が担保する選択・結果の Scenario 名に一致させた。
 - workspace 全体テストの失敗は今回の変更箇所ではなく、DB 環境依存の既存 server 試験によるもの。
+
+## Task gate 証跡追補
+
+- `scripts/verify-run 1.1`: 指定された focused test/list 件数の検証 PASS（16/16）。
+- `scripts/verify-run 1.1`: `update-check-vectors.json` の cases/timing 件数検証 PASS。
+- 証跡: `openspec/changes/st57-update-notice/evidence.jsonl`。
