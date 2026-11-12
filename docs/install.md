@@ -26,7 +26,7 @@ ashiato-setup.exe update-check on
 sc.exe delete ashiato-updater
 ```
 
-サービスを手で消した後に更新の確認を戻すときは、同じ版のインストーラで `ashiato-setup.exe update-check on` を実行します。
+サービスを手で消した後は、`update-check on` だけではサービスを再登録できません。更新係を戻すには、同じ版のインストーラを走らせ直して不足している更新係を足してから、`ashiato-setup.exe update-check on` を実行します。`repair` は DB や秘密の復旧用で、更新係の再登録には使いません。
 
 ## 消す
 
