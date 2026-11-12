@@ -102,16 +102,30 @@ fn st57_unreadable_result_is_not_exposed() {
         json!({"enabled":true,"since":NOW}).to_string(),
     )
     .unwrap();
-    std::fs::write(
-        dir.path().join("status.json"),
-        json!({"latest":"<script>"}).to_string(),
-    )
-    .unwrap();
+    let invalid_latest = json!({
+        "latest":"<script>",
+        "found_at":NOW,
+        "checked_at":NOW,
+        "last_ok_at":NOW,
+        "notified_version":null,
+        "stale_notified":false,
+    });
+    std::fs::write(dir.path().join("status.json"), invalid_latest.to_string()).unwrap();
     assert_eq!(
         read_status(dir.path(), INSTALLED, now()).state,
         "unreadable"
     );
-    std::fs::write(dir.path().join("status.json"), vec![b' '; 65 * 1024]).unwrap();
+    let valid = json!({
+        "latest":"0.5.0",
+        "found_at":NOW,
+        "checked_at":NOW,
+        "last_ok_at":NOW,
+        "notified_version":null,
+        "stale_notified":false,
+    })
+    .to_string();
+    let padded = format!("{}{}", valid, " ".repeat(65 * 1024 - valid.len()));
+    std::fs::write(dir.path().join("status.json"), padded).unwrap();
     assert_eq!(
         read_status(dir.path(), INSTALLED, now()).state,
         "unreadable"
@@ -128,12 +142,47 @@ fn st57_small_valid_result_is_read() {
         json!({"enabled":true,"since":NOW}).to_string(),
     )
     .unwrap();
+    let valid = json!({
+        "latest":"0.5.0",
+        "found_at":NOW,
+        "checked_at":NOW,
+        "last_ok_at":NOW,
+        "notified_version":null,
+        "stale_notified":false,
+    })
+    .to_string();
+    let padded = format!("{}{}", valid, " ".repeat(63 * 1024 - valid.len()));
+    std::fs::write(dir.path().join("status.json"), padded).unwrap();
+    let result = read_status(dir.path(), INSTALLED, now());
+    assert_eq!(result.state, "available");
+    assert_eq!(result.latest.as_deref(), Some("0.5.0"));
+}
+
+#[test]
+fn st57_missing_result_is_pending_then_stale_from_check_since() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("settings")).unwrap();
     std::fs::write(
-        dir.path().join("status.json"),
-        json!({"latest":"0.5.0","found_at":NOW,"checked_at":NOW,"last_ok_at":NOW}).to_string(),
+        dir.path().join("settings/check.json"),
+        json!({"enabled":true,"since":NOW}).to_string(),
     )
     .unwrap();
-    assert_eq!(read_status(dir.path(), INSTALLED, now()).state, "available");
+    assert_eq!(read_status(dir.path(), INSTALLED, now()).state, "pending");
+    assert_eq!(
+        read_status(dir.path(), INSTALLED, now() + Duration::days(7)).state,
+        "stale"
+    );
+}
+
+#[test]
+fn st57_broken_settings_are_unreadable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("settings")).unwrap();
+    std::fs::write(dir.path().join("settings/check.json"), b"not json").unwrap();
+    assert_eq!(
+        read_status(dir.path(), INSTALLED, now()).state,
+        "unreadable"
+    );
 }
 
 #[test]
