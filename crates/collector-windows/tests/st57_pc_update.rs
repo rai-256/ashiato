@@ -76,20 +76,16 @@ fn releases(version: &str) -> String {
     )
 }
 fn configure(dir: &std::path::Path, url: &str) {
-    configure_settings(dir, url, true, None);
-}
-fn configure_settings(
-    dir: &std::path::Path,
-    url: &str,
-    update_check_enabled: bool,
-    mobile_update_check_enabled: Option<bool>,
-) {
-    let mobile = mobile_update_check_enabled
-        .map(|value| format!(r#","mobile_update_check_enabled":{value}"#))
-        .unwrap_or_default();
     std::fs::write(
         dir.join("settings.json"),
-        format!(r#"{{"base_url":"{url}","update_check_enabled":{update_check_enabled}{mobile}}}"#),
+        format!(r#"{{"base_url":"{url}"}}"#),
+    )
+    .unwrap();
+}
+fn configure_with_mobile_setting(dir: &std::path::Path, url: &str, enabled: bool) {
+    std::fs::write(
+        dir.join("settings.json"),
+        format!(r#"{{"base_url":"{url}","mobile_update_check_enabled":{enabled}}}"#),
     )
     .unwrap();
 }
@@ -304,10 +300,12 @@ fn st57_pc_intro_time_is_not_stale() {
     )
     .unwrap();
     env_at(Some(&url), "2026-01-07T00:00:00Z", || {
-        UpdateChecker::new(dir.path())
+        let record = UpdateChecker::new(dir.path())
             .with_toaster(toaster.clone())
             .start(Utc::now())
+            .unwrap()
             .unwrap();
+        assert!(!record.ok);
     });
     thread.join().unwrap();
     assert!(!toaster
@@ -321,10 +319,14 @@ fn st57_pc_server_switch_does_not_disable_client() {
     // Scenario: サーバの確認を切っても、収集アプリは確かめる
     let dir = tempfile::tempdir().unwrap();
     let (url, seen, thread) = server(&releases("0.5.0"));
-    configure_settings(dir.path(), &url, true, Some(false));
+    configure_with_mobile_setting(dir.path(), &url, false);
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&UpdateState::default()).unwrap(),
+    )
+    .unwrap();
     env(Some(&url), || {
         let c = UpdateChecker::new(dir.path());
-        c.set_enabled(true).unwrap();
         assert!(c.start(Utc::now()).unwrap().is_some());
     });
     thread.join().unwrap();
@@ -365,7 +367,7 @@ fn st57_pc_mobile_setting_is_independent() {
     // Scenario: 携帯で切っても PC は確かめる
     let dir = tempfile::tempdir().unwrap();
     let (url, seen, thread) = server(&releases("0.5.0"));
-    configure_settings(dir.path(), &url, true, Some(false));
+    configure_with_mobile_setting(dir.path(), &url, false);
     std::fs::write(
         dir.path().join("update-check.json"),
         serde_json::to_vec(&UpdateState::default()).unwrap(),
@@ -447,11 +449,11 @@ fn st57_pc_seven_days_is_stale() {
         serde_json::to_vec(&state).unwrap(),
     )
     .unwrap();
+    let checker = UpdateChecker::new(dir.path()).with_toaster(toaster.clone());
     env_at(Some(&url), "2026-01-08T00:00:00Z", || {
-        UpdateChecker::new(dir.path())
-            .with_toaster(toaster.clone())
-            .start(Utc::now())
-            .unwrap();
+        let record = checker.start(Utc::now()).unwrap().unwrap();
+        assert!(!record.ok);
+        assert!(checker.start(Utc::now()).unwrap().is_none());
     });
     thread.join().unwrap();
     let calls = toaster.calls.lock().unwrap();

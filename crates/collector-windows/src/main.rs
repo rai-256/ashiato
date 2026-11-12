@@ -20,7 +20,11 @@ fn main() -> anyhow::Result<()> {
     }
     if let Some(command) = args.iter().position(|a| a == "update-check") {
         let value = args.get(command + 1).map(String::as_str);
-        let enabled = match value { Some("on") => true, Some("off") => false, _ => anyhow::bail!("update-check は off または on を指定してください") };
+        let enabled = match value {
+            Some("on") => true,
+            Some("off") => false,
+            _ => anyhow::bail!("update-check は off または on を指定してください"),
+        };
         c02::update_check::UpdateChecker::new(&cfg.state_dir).set_enabled(enabled)?;
         return Ok(());
     }
@@ -221,7 +225,9 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
                 toaster.clone(),
                 &cfg.state_dir,
             ));
-            rt.set_update_checker(c02::update_check::UpdateChecker::new(&cfg.state_dir).with_toaster(toaster.clone()));
+            rt.set_update_checker(
+                c02::update_check::UpdateChecker::new(&cfg.state_dir).with_toaster(toaster.clone()),
+            );
             rt.set_outage_poller(c02::outage_notice::OutagePoller::new(
                 outage_query.clone(),
                 toaster,

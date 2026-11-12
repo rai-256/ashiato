@@ -46,10 +46,10 @@ pub mod setup;
 pub mod setup_string;
 pub mod telemetry;
 pub mod time_sync;
-pub mod update_check;
 #[cfg(windows)]
 pub mod toast;
 pub mod toast_names;
+pub mod update_check;
 pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**

@@ -212,7 +212,8 @@ impl Config {
                 &SettingsFile {
                     base_url: read_settings_or_default(&release_dir)?.base_url,
                     device_id: Some(root_id.to_string()),
-                    update_check_enabled: read_settings_or_default(&release_dir)?.update_check_enabled,
+                    update_check_enabled: read_settings_or_default(&release_dir)?
+                        .update_check_enabled,
                     legacy_api_token: None,
                 },
             )?;
@@ -325,7 +326,8 @@ impl Config {
             &SettingsFile {
                 base_url: Some(setup.url.clone()),
                 device_id: Some(self.device_id.clone()),
-                update_check_enabled: read_settings_or_default(&self.state_dir)?.update_check_enabled,
+                update_check_enabled: read_settings_or_default(&self.state_dir)?
+                    .update_check_enabled,
                 legacy_api_token: None,
             },
         )?;
