@@ -60,7 +60,7 @@
 
 ## Task 4: 画面の帯と設定の節・e2e
 
-- [ ] 4.1 `web/src/update.ts`（`GET /api/update-status` の型と文。D20（仮））・`web/src/UpdateBand.tsx`（`Root.tsx` で、ログインした全部の画面の見出しより上に置く。`role="status"`・押しても何もしない・`available` / `stale` / `available_stale` だけ出す）・`SettingsView.tsx` に「更新の確認」の節（状態・入っている版・見つけた最新の版と見つけた日・最後に確かめた日時と理由）。
+- [x] 4.1 `web/src/update.ts`（`GET /api/update-status` の型と文。D20（仮））・`web/src/UpdateBand.tsx`（`Root.tsx` で、ログインした全部の画面の見出しより上に置く。`role="status"`・押しても何もしない・`available` / `stale` / `available_stale` だけ出す）・`SettingsView.tsx` に「更新の確認」の節（状態・入っている版・見つけた最新の版と見つけた日・最後に確かめた日時と理由）。
   帯の文字と地は `contrast.ts` で 3:1 以上、押せる所は無い（帯は押す口でない）。360 px で横に流さない。e2e の偽の結果は、playwright の起こすサーバに `ASHIATO_UPDATER_DIR` を渡し、試験ごとにそこへ `status.json`・`settings/check.json` を書いて置く（サーバは求めごとに読む）。サーバは全部の spec で共有（`workers: 1`）なので、各試験の後に置き場を空にし、置き場は空で始まる（ほかの spec の画面に帯が漏れない）。読み出しの記録は口の名前 `/update-status` で今の層のとおり残す（D14（仮））。
   e2e（`web/e2e/st57-update-notice.spec.ts`、本物のブラウザ）: `// Scenario: 更新ありはどの画面でも見出しの上に出る`（帯の下端の y ≤ 各画面の `<h1>` の上端の y）・`6 日確かめられていないだけなら帯は出ない`・`7 日確かめられなければ帯に出る`・`帯の文字と地のコントラストは 3:1 以上`（`getComputedStyle` の色を `contrast.ts` で計る）・`更新ありと確かめられていないが同時なら 2 行出る`（360 px で `document.documentElement.scrollWidth <= innerWidth`）・`新しい版が無ければ帯は出ない`（`<h1>` の y が帯の無い画面と同じ）・
   `確認を切ってあれば帯は出ず、設定に切ってあると出る`・`帯を押しても何も起きない`（押す前後で `page.url()` が同じで、要求の数が増えない）・`設定に更新の確認の状態が出る`・`更新係の無いサーバは設定に動いていないと出し、帯を出さない`・`結果を読めないときは帯を出さず、設定にだけ出す`・`まだ確かめていない更新係は、7 日たつまで帯を出さない`・`新しい版なしは設定にだけ出る`・`帯を出しても外部への要求は 0 件である`（`offsite.spec.ts` と同じ数え方）
