@@ -54,7 +54,7 @@
 
 ## Task 3: サーバの読みの口 `GET /update-status`
 
-- [ ] 3.1 `crates/server` に `GET /update-status`（D6・D9・D10・D14（仮）・D15（仮））を足す: サービスの形は系統の定数の置き場、開発の形は `ASHIATO_UPDATER_DIR`（無ければ置き場なし）から `settings\check.json` と `status.json` を読み、`ashiato-update-check` で状態を決めて返す。画面のログインが要り、API の合言葉の許可の一覧に入れない。`Cache-Control: no-store`。サーバの依存に HTTP の部品を足さない。`docs/openapi.json` を作り直す。
+- [x] 3.1 `crates/server` に `GET /update-status`（D6・D9・D10・D14（仮）・D15（仮））を足す: サービスの形は系統の定数の置き場、開発の形は `ASHIATO_UPDATER_DIR`（無ければ置き場なし）から `settings\check.json` と `status.json` を読み、`ashiato-update-check` で状態を決めて返す。画面のログインが要り、API の合言葉の許可の一覧に入れない。`Cache-Control: no-store`。サーバの依存に HTTP の部品を足さない。`docs/openapi.json` を作り直す。
   試験（`crates/server/src/st57_tests.rs`。一時の置き場に結果のファイルを置く）: `// Scenario: 更新の状態の口はログインが要り、API の合言葉では答えない`・`// Scenario: 読めない結果のファイルは画面に出さない`（65 KB のファイルと、版が `<script>` のファイル）・`// Scenario: 64 KB より小さい正しい結果のファイルは読む`・`// Scenario: 更新係の時刻が古ければ、理由は更新係が動いていない`・`// Scenario: 更新係の時刻が 48 時間たたなければ、理由は最後の回のまま`（時計を差し込む）・`// Scenario: 更新の状態の口は応答を残させない`と、`state` の 8 つ（`off`・`not_running`・`pending`（`status.json` が無く確認から 2 日）・`latest`・`available`・`stale`（`status.json` が無く確認から 8 日も）・`available_stale`・`unreadable`）を 1 本ずつ
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st57_ && test "$(cargo test -p ashiato-server st57_ -- --list 2>/dev/null | grep -c ": test$")" -ge 14'` rc=0 / `./tools/check-openapi.sh` rc=0 / `tools/check-offsite.sh` rc=0
 
