@@ -19,6 +19,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowAlertDialog
+import org.robolectric.shadows.ShadowNetworkInfo
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.time.Instant
@@ -34,6 +35,11 @@ private class St57MainActivity : MainActivity() {
     override fun healthPendingSlot() = HealthPendingSlot()
     fun resumeForTest() = onResume()
     companion object { var state = UnusedAppRestrictionsState.EXEMPT }
+}
+
+private class St57UpdateLocationService : TestableLocationService() {
+    internal override fun newUpdateChecker(): UpdateChecker = UpdateChecker(this, destination)
+    companion object { lateinit var destination: String }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -69,7 +75,7 @@ class St57UpdateNoticeTest {
     private fun configured() = Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
 
     /** 実際の HttpURLConnection が何件届いたかを読む小さな loopback の受け手。 */
-    private fun releasesServer(expected: Int = 1): Triple<String, MutableList<String>, CountDownLatch> {
+    private fun releasesServer(expected: Int = 1, body: String = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]"): Triple<String, MutableList<String>, CountDownLatch> {
         val server = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
         val seen = mutableListOf<String>()
         val done = CountDownLatch(1)
@@ -82,7 +88,6 @@ class St57UpdateNoticeTest {
                             val input = socket.getInputStream().bufferedReader()
                             while (input.readLine()?.isNotEmpty() == true) {}
                             synchronized(seen) { seen += "request" }
-                            val body = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]"
                             socket.getOutputStream().write(
                                 "HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray()
                             )
@@ -126,9 +131,18 @@ class St57UpdateNoticeTest {
         app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true).commit()
         assertFalse(UpdateChecker(app).check(now)); assertNull(app.getSharedPreferences(UpdateCheck.PREFS, 0).getString("checked_at", null))
     }
-    @Test fun `古い版の通知判定は実際の比較結果を使う`() {
+    @Test fun `更新確認は収集サーバでなく配布元だけへ送る`() {
         // Scenario: 携帯の収集アプリは新しい版をサーバに問い合わせない
-        assertFalse(UpdateCheck.isNewer("0.5.0", "0.4.0"))
+        val (server, releaseSeen, releaseDone) = releasesServer()
+        val (base, baseSeen, baseDone) = releasesServer()
+        Config.overrideForTest(base, "token", Config.DEFAULT_USER_ID)
+        val checker = UpdateChecker(app, server)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now))
+        assertTrue(releaseDone.await(2, TimeUnit.SECONDS))
+        assertTrue(baseDone.await(2, TimeUnit.SECONDS))
+        assertEquals(1, releaseSeen.size)
+        assertTrue(baseSeen.isEmpty())
     }
     @Test fun `入れ替え直後は画面で切り方を示す`() {
         // Scenario: 確認の無い前の版から入れ替えた携帯は、切り方を示してから確かめる
@@ -174,9 +188,15 @@ class St57UpdateNoticeTest {
         assertTrue(seen.isEmpty())
         assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
     }
-    @Test fun `切り方を示した後は次の確認時刻を待つ`() {
+    @Test fun `切り方を示した後の次の機会に問い合わせる`() {
         // Scenario: 入れ替えた携帯は、画面に切り方を出した後の機会に確かめる
-        assertTrue(UpdateCheck.due(now, now.minusSeconds(25 * 3600)))
+        configured()
+        val (url, seen, done) = releasesServer()
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(1, seen.size)
     }
     @Test fun `権限要求中は印を立てない`() {
         // Scenario: 入れ替えた携帯は、権限を求めている途中は画面に出したとみなさない
@@ -185,16 +205,31 @@ class St57UpdateNoticeTest {
     }
     @Test fun `通知から開いても入れ替えの行を閉じない`() {
         // Scenario: 入れ替えた携帯は、ランチャー以外から開かれて他の行が無くても入れ替えの行を閉じずに出す
-        configured(); open("dev.ashiato.UPDATE").use { it.onActivity { activity -> assertFalse(activity.isFinishing) } }
+        configured(); open("dev.ashiato.UPDATE").use { it.onActivity { activity ->
+            assertFalse(activity.isFinishing)
+            assertTrue(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+        } }
     }
     @Test fun `確認窓が出ている間は印を立てない`() {
         // Scenario: 入れ替えた携帯は、同じ回に確認の窓を重ねたときは窓が閉じた時に画面に出したとみなす
-        configured(); St57MainActivity.state = UnusedAppRestrictionsState.NOT_EXEMPT; open().use { assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false)) }
+        configured(); St57MainActivity.state = UnusedAppRestrictionsState.NOT_EXEMPT; open().use {
+            assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+            ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertTrue(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+        }
     }
     @Test fun `設定を開く窓を閉じた回は戻るまで印を立てない`() {
         // Scenario: 入れ替えた携帯は、確認の窓を「設定を開く」で閉じた回は画面に出したとみなさない
         configured(); St57MainActivity.state = UnusedAppRestrictionsState.NOT_EXEMPT
-        open().use { scenario -> ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick(); assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false)); scenario.onActivity { it.resumeForTest() } }
+        open().use { scenario ->
+            ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertNotNull(shadowOf(app).getNextStartedActivity())
+            assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+            scenario.onActivity { it.resumeForTest() }
+            assertTrue(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+        }
     }
     @Test fun `残った確認窓の間も組み直しで印を立てない`() {
         // Scenario: 入れ替えた携帯は、前の回の確認の窓が出たまま画面を組み直しても画面に出したとみなさない
@@ -210,7 +245,15 @@ class St57UpdateNoticeTest {
     }
     @Test fun `別画面を前に出している間は印を立てない`() {
         // Scenario: 入れ替えた携帯は、同じ回に別の画面を前に出したときは画面に出したとみなさない
-        configured(); open().use { it.onActivity { activity -> assertFalse(activity.isFinishing) } }
+        configured()
+        shadowOf(app.getSystemService(android.app.AppOpsManager::class.java)).setMode(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), app.packageName,
+            android.app.AppOpsManager.MODE_IGNORED,
+        )
+        open().use {
+            assertEquals(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS, shadowOf(app).getNextStartedActivity()?.action)
+            assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
+        }
     }
     @Test fun `切り方を出す画面では未確認行を出さない`() {
         // Scenario: 入れ替えた携帯は、切り方を画面に出した時に確かめられていないを並べない
@@ -246,12 +289,48 @@ class St57UpdateNoticeTest {
         val notification = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications.single()
         assertEquals(MainActivity::class.java.name, shadowOf(notification.contentIntent).savedIntent.component?.className)
     }
-    @Test fun `7 日経過時は stale になる`() {
+    @Test fun `7 日確かめられないと画面と通知は一度だけ出る`() {
         // Scenario: 携帯は 7 日確かめられなければ画面に出し、1 回通知する
-        assertTrue(UpdateCheck.stale(now, now.minusSeconds(8 * 86400)))
+        configured()
+        val checkNow = Instant.now()
+        val (url, seen, done) = releasesServer(2, "{")
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(checkNow.minusSeconds(8 * 86400))
+        assertTrue(checker.check(checkNow))
+        assertTrue(checker.check(checkNow.plusSeconds(25 * 3600)))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(2, seen.size)
+        val notifications = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications
+        assertEquals(1, notifications.count { it.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("7 日確かめられていません") })
+        open().use { it.onActivity { activity -> assertTrue(texts(activity).any { text -> text.contains("7 日確かめられていません") }) } }
     }
-    @Test fun `携帯回線でも時期判定は変わらない`() {
+    @Test fun `携帯回線でも配布元へ問い合わせる`() {
         // Scenario: 携帯は携帯の回線でも確かめる
-        assertTrue(UpdateCheck.due(now, null))
+        configured()
+        val connectivity = app.getSystemService(android.net.ConnectivityManager::class.java)
+        shadowOf(connectivity).setActiveNetworkInfo(ShadowNetworkInfo.newInstance(
+            android.net.NetworkInfo.DetailedState.CONNECTED, android.net.ConnectivityManager.TYPE_MOBILE, 0, true,
+            android.net.NetworkInfo.State.CONNECTED,
+        ))
+        val (url, seen, done) = releasesServer()
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(1, seen.size)
+    }
+
+    @Test fun `LocationService の起動と生存信号は更新確認を呼ぶ`() {
+        // Scenario: 携帯の収集アプリは新しい版をサーバに問い合わせない
+        configured()
+        val (url, seen, done) = releasesServer(2)
+        St57UpdateLocationService.destination = url
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true).putString("intro_shown_at", now.minusSeconds(25 * 3600).toString()).commit()
+        val controller = Robolectric.buildService(St57UpdateLocationService::class.java, Intent()).create().startCommand(0, 1)
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putString("checked_at", Instant.now().minusSeconds(25 * 3600).toString()).commit()
+        controller.get().beatScheduler.fire()
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(2, seen.size)
+        controller.destroy()
     }
 }

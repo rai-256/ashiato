@@ -402,6 +402,8 @@ open class MainActivity : Activity() {
 
     private fun start() {
         usageAccessOpenedInThisStart = false
+        // 設定を開いた回は、戻った後に行が見えてから印を立てる。
+        exemptSettingsOpened = false
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
             Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
@@ -421,8 +423,16 @@ open class MainActivity : Activity() {
         val setupRow = shouldOfferInitialSetup()
         val updateAvailable = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
+        val updateStale = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("last_reason", null) != null &&
+            UpdateCheck.stale(
+                java.time.Instant.now(),
+                getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("last_ok_at", null)
+                    ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+                    ?: getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getString("intro_shown_at", null)
+                        ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
+            )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
-        if (restricted || notice != null || setupRow || updateIntroPending) {
+        if (restricted || notice != null || setupRow || updateIntroPending || updateStale) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()

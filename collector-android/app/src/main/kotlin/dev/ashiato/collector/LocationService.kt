@@ -92,7 +92,7 @@ open class LocationService : Service() {
         DestinationGate(getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE))
     }
     private val channelNotifier by lazy { ChannelMismatchNotifier(this, contractStore) }
-    private val updateChecker by lazy { UpdateChecker(this) }
+    private val updateChecker by lazy { newUpdateChecker() }
 
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
@@ -218,6 +218,9 @@ open class LocationService : Service() {
 
     /** 取得時点のアプリの表示名。同上（端末に触らずに記録の組み立てを試験するため）。 */
     protected open fun newAppLabels(): AppLabels = PackageManagerAppLabels(this)
+
+    /** 更新確認の送り先だけは、Robolectric の loopback 受け手へ差し替える。 */
+    internal open fun newUpdateChecker(): UpdateChecker = UpdateChecker(this)
 
     /**
      * 取得の刻み。**ソースごとに 1 本**（tasks 5.1）—— 1 本にまとめると、
