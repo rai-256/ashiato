@@ -357,7 +357,7 @@ impl<'a> Runtime<'a> {
             destination_toaster: None,
             channel_notice: None,
             update_checker: None,
-            update_periodic_at: None,
+            update_periodic_at: Some(now),
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -465,7 +465,18 @@ impl<'a> Runtime<'a> {
         self.save_engine_state();
         self.touch(wall, mono);
         if let Some(checker) = &self.update_checker {
-            let _ = checker.start(wall);
+            let checker = checker.clone();
+            let log = self.log;
+            std::thread::spawn(move || {
+                if let Err(error) = checker.start(wall) {
+                    log(telemetry::line(
+                        "update_check_failed",
+                        Some(1),
+                        None,
+                        Some(telemetry::error_kind(&error)),
+                    ));
+                }
+            });
         }
     }
 
@@ -497,11 +508,28 @@ impl<'a> Runtime<'a> {
         // 2. 観測 → 記録
         self.retry_unsaved();
         let obs = source.observe(wall);
-        if self.update_periodic_at.is_none_or(|at| mono - at >= Duration::hours(1)) {
+        if self
+            .update_periodic_at
+            .is_none_or(|at| mono - at >= Duration::hours(1))
+        {
             self.update_periodic_at = Some(mono);
             if let Some(checker) = &self.update_checker {
-                let idle = match obs.idle { IdleRead::Elapsed(value) => Some(value.num_seconds()), IdleRead::Unavailable => None };
-                let _ = checker.periodic(wall, obs.locked, idle);
+                let idle = match obs.idle {
+                    IdleRead::Elapsed(value) => Some(value.num_seconds()),
+                    IdleRead::Unavailable => None,
+                };
+                let checker = checker.clone();
+                let log = self.log;
+                std::thread::spawn(move || {
+                    if let Err(error) = checker.periodic(wall, obs.locked, idle) {
+                        log(telemetry::line(
+                            "update_check_failed",
+                            Some(1),
+                            None,
+                            Some(telemetry::error_kind(&error)),
+                        ));
+                    }
+                });
             }
         }
         let cap = capability_of(&obs);

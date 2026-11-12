@@ -12,6 +12,7 @@ const STAMP_SOURCES: &[&str] = &[
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(ashiato_test_build)");
+    println!("cargo:rerun-if-env-changed=ASHIATO_RELEASE");
     if env::var("ASHIATO_RELEASE").as_deref() != Ok("1") {
         println!("cargo:rustc-cfg=ashiato_test_build");
     }

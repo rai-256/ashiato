@@ -221,7 +221,7 @@ check_windows_contents() {
   grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$server_text" && die 'Windows のサーバに試験差し込みがある'
   grep -Fq 'ASHIATO_UPDATER_TEST_' <<<"$updater_text" && die 'Windows の更新係に試験差し込みがある'
   grep -Fq 'settings/test-hooks.json' <<<"$updater_text" && die 'Windows の更新係に試験用設定ファイルの差し込みがある'
-  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases' <<<"$updater_text" || die 'Windows の更新係に GitHub releases の宛先が無い'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20' <<<"$updater_text" || die 'Windows の更新係に GitHub releases の宛先が無い'
   # Rust の 2 つは VC の実行時を静的に持つ（.cargo/config.toml の crt-static）。DLL は pgsql\bin にだけあり、
   # 根の 2 つが VCRUNTIME140.dll を読むと、まっさらな Windows ではインストーラが起きない（D33（仮）・review N1）
   local exe
@@ -238,7 +238,7 @@ check_collector_windows_contents() {
   grep -Eq '(^|/)ashiato-collector-windows(\.exe)?$' <<<"$entries" || die 'PC の収集アプリの zip に実行ファイルが無い'
   text="$(/usr/bin/unzip -p "$archive" ashiato-collector-windows.exe 2>/dev/null | strings || true)"
   grep -Fq 'ASHIATO_COLLECTOR_TEST_UPDATE_URL' <<<"$text" && die '配る PC の収集アプリに試験差し込みがある'
-  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases' <<<"$text" || die '配る PC の収集アプリに GitHub releases の宛先が無い'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20' <<<"$text" || die '配る PC の収集アプリに GitHub releases の宛先が無い'
 }
 
 check_artifacts() {
@@ -391,7 +391,7 @@ self_test() {
     cp "$stamp_file" "$stage/ashiato-server.exe"
     cp "$stamp_file" "$stage/ashiato-setup.exe"
     cp "$stamp_file" "$stage/ashiato-updater.exe"
-    printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >> "$stage/ashiato-updater.exe"
+    printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >> "$stage/ashiato-updater.exe"
     cp "$stamp_file" "$stage/pgsql/bin/postgres.exe"
     : >"$stage/pgsql/bin/vcruntime140.dll"; : >"$stage/pgsql/bin/msvcp140.dll"
     cp "$root/tools/db-roles.sql" "$stage/db-roles.sql"
@@ -521,7 +521,7 @@ self_test() {
   printf '%s' "$stamp" > "$work/stamp"
   printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
-  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/windows-real" "$work/stamp" "$real/ashiato-server-$v-windows-x86_64.zip"
   (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   cp "$real"/* "$out/"
@@ -715,7 +715,7 @@ self_test() {
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$release_out"
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$release_out"
   printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
-  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/release-windows" "$work/stamp" "$release_out/ashiato-server-$v-windows-x86_64.zip"
   (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   # --allow-debug-key 無しの経路も、署名の指紋の一致・不一致を検査する（final review R7）。
@@ -739,7 +739,7 @@ self_test() {
   printf '%s+0000000000000000000000000000000000000000' "$nightly_version" > "$work/stamp"
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
-  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   tar -czf "$nightly/ashiato-server-$nightly_version-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   win_fixture "$work/nightly-windows" "$work/stamp" "$nightly/ashiato-server-$nightly_version-windows-x86_64.zip"
   (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
