@@ -68,7 +68,7 @@
 
 ## Task 5: インストーラ（置き場の列・登録・ACL・最後の表示・切り替えの口・走らせ直し・消す）
 
-- [ ] 5.1 `crates/installer`（D6・D7・D8・D11（仮））: `layout.rs` に更新係の列（D6）。インストールで `ashiato-updater.exe` をプログラムの置き場に置き、更新係の置き場を作り、ACL（D6）を付け、`settings\check.json` が無ければ `enabled: true`・`since` で書き、サービス `ashiato-updater` を `NT SERVICE\ashiato-updater`・開始の種類「自動」・回復の起こし直しで登録する（共有のアカウントへ倒さない）。
+- [x] 5.1 `crates/installer`（D6・D7・D8・D11（仮））: `layout.rs` に更新係の列（D6）。インストールで `ashiato-updater.exe` をプログラムの置き場に置き、更新係の置き場を作り、ACL（D6）を付け、`settings\check.json` が無ければ `enabled: true`・`since` で書き、サービス `ashiato-updater` を `NT SERVICE\ashiato-updater`・開始の種類「自動」・回復の起こし直しで登録する（共有のアカウントへ倒さない）。
   最後の段で「更新の確認: 有効（切るには `ashiato-setup.exe update-check off`）」を示し、その後に `enabled: true` のときだけ更新係のサービスを開始する（開始に失敗してもインストールは失敗にしない）。試験の組み立てで `ASHIATO_SETUP_TEST_UPDATER_URL` があれば `settings\test-hooks.json` を書く。
   `update-check off|on`（管理者の確認 1 回。off は印を書いてサービスを止め「無効」、on は印と `since` を書いて「自動」にして開始）。走らせ直しは更新係が無ければ足し、`check.json` があれば触らず、`enabled: false` なら開始しない。`uninstall_commands` に更新係の停止と削除を足し、出力に更新係の置き場を示す。`repair` の命令の一覧は変えない。
   試験（Linux の `cargo test -p ashiato-setup`、名前は `st57_`）: 組む命令の順（表示の後に開始）・登録の命令が `NT SERVICE\ashiato-updater` を名指しし共有のアカウントを名指ししない・ACL の命令に `Users`・`Authenticated Users`・`Everyone` が無く、状態の置き場の ACL の命令に `ashiato-updater` が無い・`// Scenario: 切り替えの口は管理者の確認を 1 回だけ出す`・
