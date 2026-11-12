@@ -336,9 +336,11 @@
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt:98-109（re-review 3 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 4 @ae80523fdea6fb18e5ff5684ffe73e3f9441f501）
 
 ## R24. start() のたびに exemptSettingsOpened = false にするので、「設定を開く」を押した回の保護は start() が再び呼ばれた回で外れる。戻った後に印が立つ試験はあり、実害は見つからなかった。
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt:82-83（re-review 3 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 4 @ae80523fdea6fb18e5ff5684ffe73e3f9441f501）
