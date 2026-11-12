@@ -77,7 +77,7 @@
 
 ## Task 6: 配布物に更新係を入れる
 
-- [ ] 6.1 `tools/release/build.sh server-windows` と `package.sh windows`（配る zip と `--test-build` の試験の zip）が `ashiato-updater.exe` を同じ版番号で組んで zip の根に入れる。Linux の配布物は変えない。`release.yml` の Windows の組み立ても同じ道を通る。
+- [x] 6.1 `tools/release/build.sh server-windows` と `package.sh windows`（配る zip と `--test-build` の試験の zip）が `ashiato-updater.exe` を同じ版番号で組んで zip の根に入れる。Linux の配布物は変えない。`release.yml` の Windows の組み立ても同じ道を通る。
   `check-artifacts.sh` に、Windows の zip に `ashiato-updater.exe` がある・その組み立ての印の版番号がサーバと同じ・配る `ashiato-updater.exe` に `ASHIATO_UPDATER_TEST_`・`test-hooks.json` の文字列が無く `https://api.github.com/repos/rai-256/ashiato/releases` がある・Linux の配布物に `ashiato-updater` が無い、を足す（PC の収集アプリの同じ検査は、宛先を入れる Task 8.1 の 8.2 で足す。review/spec.md R18）。
   `tools/release/notices.sh` の `server-windows` が `ashiato-updater` の依存の木も辿り、`check-artifacts.sh` が Windows 版の `THIRD-PARTY-NOTICES.txt` に更新係だけが持つ TLS の部品（`rustls`）の項があることを見る（`echo "== Scenario: サーバの Windows 版の依存の一覧は、更新係だけが持つ部品を含む"`。review/spec.md R11）。
   ST55 の印のある `check-artifacts.sh` の確かめ（`Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない`・`インストーラとサーバの版番号はそろう`・`配る組み立ては試験の差し込みを持たない`・`Linux の配布物は PostgreSQL を持たない`）を MODIFIED の THEN に合わせる。
