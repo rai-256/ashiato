@@ -117,7 +117,11 @@ pub fn fixed_ports_are_outside_development_ranges() -> bool {
     })
 }
 
-pub fn install_notice(
+pub fn install_notice(server_port: u16, free_gb: Option<u64>) -> String {
+    install_notice_with_update_check(server_port, free_gb, true)
+}
+
+pub fn install_notice_with_update_check(
     server_port: u16,
     free_gb: Option<u64>,
     update_check_enabled: bool,

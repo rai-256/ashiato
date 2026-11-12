@@ -331,10 +331,13 @@ mod tests {
 
     #[test]
     fn st57_install_notice_explains_update_check_switch() {
-        let text = commands::install_notice(18700, None, true);
+        let text = commands::install_notice_with_update_check(18700, None, true);
         assert!(text.contains("更新の確認: 有効"));
         assert!(text.contains("ashiato-setup.exe update-check off"));
-        assert!(commands::install_notice(18700, None, false).contains("更新の確認: 無効"));
+        assert!(
+            commands::install_notice_with_update_check(18700, None, false)
+                .contains("更新の確認: 無効")
+        );
     }
 
     #[test]
@@ -856,7 +859,7 @@ mod tests {
     // Scenario: 最後に Tailscale の転送先を示し、Tailscale の設定は変えない
     #[test]
     fn st55_notice_mentions_forwarding_without_an_invocation() {
-        let notice = commands::install_notice(18700, Some(40), true);
+        let notice = commands::install_notice_with_update_check(18700, Some(40), true);
         assert!(notice.contains("無人で動かす"));
         assert!(notice.contains("tailscale serve"));
         assert!(notice.contains("127.0.0.1:18700"));
@@ -866,13 +869,13 @@ mod tests {
     // Scenario: 空きが見積もりより少なければ知らせ、インストールは続ける
     #[test]
     fn st55_notice_warns_only_below_forty_gb() {
-        assert!(commands::install_notice(18700, Some(39), true).contains("39 GB"));
-        assert!(!commands::install_notice(18700, Some(40), true).contains("見積もりは 40 GB"));
+        assert!(commands::install_notice(18700, Some(39)).contains("39 GB"));
+        assert!(!commands::install_notice(18700, Some(40)).contains("見積もりは 40 GB"));
     }
 
     #[test]
     fn st55_notice_keeps_installation_advisory_only() {
-        let notice = commands::install_notice(18700, Some(10), true);
+        let notice = commands::install_notice_with_update_check(18700, Some(10), true);
         assert!(notice.contains("10 GB"));
         assert!(notice.contains("見積もりは 40 GB"));
     }

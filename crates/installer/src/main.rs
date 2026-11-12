@@ -1389,7 +1389,11 @@ fn install(
     }
     let updater_enabled = setup_updater && update_check_enabled(layout)?;
     terminal_line(
-        &commands::install_notice(layout.server_port, free_space_gb(), updater_enabled),
+        &commands::install_notice_with_update_check(
+            layout.server_port,
+            free_space_gb(),
+            updater_enabled,
+        ),
         false,
     );
     // 更新係の開始失敗は、本体のインストール成功を取り消さない。
