@@ -53,10 +53,15 @@ class St57UpdateCheckTest {
             val value = item.jsonObject
             val hours = value["elapsed_hours"]?.jsonPrimitive?.content?.toLongOrNull()
             val days = value["elapsed_days"]?.jsonPrimitive?.content?.toLongOrNull()
+            val seconds = value["elapsed_seconds"]?.jsonPrimitive?.content?.toLongOrNull()
             val expected = value["expected"]!!.jsonPrimitive.content.toBoolean()
             when (value["kind"]!!.jsonPrimitive.content) {
                 "due" -> assertEquals(expected, UpdateCheck.due(now, now.minusSeconds((hours ?: 0) * 3600)))
-                "stale" -> assertEquals(expected, days?.let { UpdateCheck.stale(now, now.minusSeconds(it * 86400)) } ?: UpdateCheck.stale(now, null))
+                "stale", "stale_seconds" -> assertEquals(expected, when {
+                    seconds != null -> UpdateCheck.stale(now, now.minusSeconds(seconds))
+                    days != null -> UpdateCheck.stale(now, now.minusSeconds(days * 86400))
+                    else -> UpdateCheck.stale(now, null)
+                })
             }
         }
     }

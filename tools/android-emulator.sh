@@ -155,7 +155,9 @@ adb shell pm reset-permissions
 keep_stage
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
 # Task の証跡コマンドは connected 配下だけを読む。段ごとの XML は同名で上書きされるため、
-# ST57 の計測結果だけは connected の専用ディレクトリにも残し、段保存の正本と同じ内容を数えられるようにする。
+# ST57 の計測結果だけは connected の専用ディレクトリにも残す。前回の
+# 写しを数えないよう、今回の段から採れなければ専用ディレクトリを残さない。
+rm -rf "$OUT/androidTest-results/connected/st57-update"
 mkdir -p "$OUT/androidTest-results/connected/st57-update"
 for result in "$OUT"/androidTest-results-stage*/TEST-*.xml; do
   if grep -q 'classname="dev.ashiato.collector.St57UpdateQueryTest"' "$result"; then

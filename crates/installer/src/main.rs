@@ -207,15 +207,19 @@ fn ensure_running(service: &str, trace: bool) -> Result<(), String> {
     run(&commands::start_service_command(service), trace)
 }
 
-fn write_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
+fn persist_update_check(
+    layout: &layout::Layout,
+    enabled: bool,
+    preserve_enabled: bool,
+) -> Result<(), String> {
     let path = commands::updater_settings_path(layout);
-    if path.exists() && enabled {
+    if preserve_enabled && path.exists() && enabled {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let since = format!("{}Z", chrono_like_now());
+    let since = chrono::Utc::now().to_rfc3339();
     let value = serde_json::json!({"enabled": enabled, "since": since});
     fs::write(
         path,
@@ -224,17 +228,11 @@ fn write_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), Stri
     .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
 }
 
+fn write_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
+    persist_update_check(layout, enabled, true)
+}
 fn rewrite_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
-    let path = commands::updater_settings_path(layout);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let value = serde_json::json!({"enabled": enabled, "since": format!("{}Z", chrono_like_now())});
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
+    persist_update_check(layout, enabled, false)
 }
 
 fn update_check_enabled(layout: &layout::Layout) -> Result<bool, String> {
@@ -251,43 +249,17 @@ fn update_check_enabled(layout: &layout::Layout) -> Result<bool, String> {
         })
 }
 
-fn chrono_like_now() -> String {
-    // RFC 3339 の秒精度。Windows API や外部コマンドに依らず、設定ファイルの初期値だけを作る。
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let days = seconds / 86_400;
-    let day_seconds = seconds % 86_400;
-    let (year, month, day) = civil_from_days(days as i64);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
-        day_seconds / 3600,
-        (day_seconds % 3600) / 60,
-        day_seconds % 60
-    )
-}
-
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    (y + i64::from(m <= 2), m, d)
-}
-
 fn update_check(layout: &layout::Layout, enabled: bool, trace: bool) -> Result<(), String> {
     rewrite_update_check(layout, enabled)?;
     run_all(
         &commands::update_check_service_commands(layout, enabled),
         trace,
-    )
+    )?;
+    if enabled {
+        ensure_running(layout.updater_service, trace)
+    } else {
+        Ok(())
+    }
 }
 
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
@@ -1129,6 +1101,7 @@ fn install(
         // 先に誰かが作っていた置き場でも、持ち主を Administrators にしてから ACL を付ける
         // （持ち主は ACL を書き換えられるので、ほかの利用者を持ち主のままにしない）
         run(&commands::take_ownership_command(layout), trace)?;
+        run(&commands::take_updater_ownership_command(layout), trace)?;
         // 未登録のサービス SID は `icacls` が名前解決できない。初回は先にサービスを登録してから
         // SID の ACE を付ける。片方だけ残った異常な状態では、登録済みのものを作り直さない。
         if test_hook!("REGISTER_FAIL").as_deref() == Some("1") {

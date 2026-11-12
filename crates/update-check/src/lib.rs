@@ -481,6 +481,8 @@ mod tests {
         assert!(due(now, Some(now - Duration::hours(25))));
         assert!(due(now, Some(now + Duration::days(3))));
         assert!(!stale(now, Some(now - Duration::days(6))));
+        assert!(stale(now, Some(now - Duration::days(7))));
+        assert!(!stale(now, Some(now - Duration::seconds(7 * 24 * 60 * 60 - 1))));
         assert!(stale(now, Some(now - Duration::days(8))));
         assert!(stale(now, Some(now + Duration::days(365 * 3))));
         assert!(!updater_not_running(now, Some(now - Duration::hours(47))));
@@ -528,6 +530,7 @@ mod tests {
             kind: String,
             elapsed_hours: Option<i64>,
             elapsed_days: Option<i64>,
+            elapsed_seconds: Option<i64>,
             expected: bool,
         }
 
@@ -551,9 +554,10 @@ mod tests {
                         .elapsed_hours
                         .map(|hours| now - Duration::hours(hours)),
                 ),
-                "stale" => stale(
+                "stale" | "stale_seconds" => stale(
                     now,
-                    vector.elapsed_days.map(|days| now - Duration::days(days)),
+                    vector.elapsed_seconds.map(|seconds| now - Duration::seconds(seconds))
+                        .or_else(|| vector.elapsed_days.map(|days| now - Duration::days(days))),
                 ),
                 "updater_not_running" => updater_not_running(
                     now,

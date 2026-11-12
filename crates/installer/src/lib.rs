@@ -249,7 +249,7 @@ mod tests {
         let off = lines(&commands::update_check_service_commands(&layout, false));
         assert!(off.contains("start= disabled") && off.contains("stop 'ashiato-updater'"));
         let on = lines(&commands::update_check_service_commands(&layout, true));
-        assert!(on.contains("start= auto") && on.contains("start ashiato-updater"));
+        assert!(on.contains("start= auto") && !on.contains("start ashiato-updater"));
     }
 
     // Scenario: 切り替えの口は管理者の確認を 1 回だけ出す
@@ -469,6 +469,15 @@ mod tests {
         assert_eq!(
             command.line(),
             r"icacls C:\ProgramData\ashiato /setowner *S-1-5-32-544 /T /C /L"
+        );
+    }
+
+    #[test]
+    fn st57_updater_state_is_owned_by_administrators() {
+        let command = commands::take_updater_ownership_command(&layout::Layout::release());
+        assert_eq!(
+            command.line(),
+            r"icacls C:\ProgramData\ashiato-updater /setowner *S-1-5-32-544 /T /C /L"
         );
     }
 

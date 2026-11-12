@@ -182,6 +182,7 @@ dependencies = [
  "argon2",
  "ashiato-build-stamp",
  "base64 0.22.1",
+ "chrono",
  "rand",
  "rpassword",
  "serde_json",

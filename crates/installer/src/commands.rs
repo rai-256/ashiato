@@ -599,9 +599,7 @@ pub fn update_check_service_commands(layout: &Layout, enabled: bool) -> Vec<Setu
         "sc.exe",
         ["config", layout.updater_service, "start=", start],
     )];
-    if enabled {
-        result.push(start_service_command(layout.updater_service));
-    } else {
+    if !enabled {
         result.insert(0, stop_service_and_wait_command(layout.updater_service));
     }
     result
@@ -611,6 +609,11 @@ pub fn update_check_service_commands(layout: &Layout, enabled: bool) -> Vec<Setu
 /// `/L` でリンクの行き先ではなくリンク自体を扱う。
 pub fn take_ownership_command(layout: &Layout) -> SetupCommand {
     icacls([layout.state_dir, "/setowner", "*S-1-5-32-544", "/T", "/C"])
+}
+
+/// 更新係の状態もサービス設定と同じく管理者が所有する。
+pub fn take_updater_ownership_command(layout: &Layout) -> SetupCommand {
+    icacls([layout.updater_dir, "/setowner", "*S-1-5-32-544", "/T", "/C"])
 }
 
 /// インストーラ（上がった利用者）が書く段の間だけ書きを足す置き場（D21）。どちらもインストーラだけが

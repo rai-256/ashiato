@@ -37,6 +37,8 @@
     {"name":"失敗の1時間後","kind":"due","elapsed_hours":1,"expected":false},
     {"name":"3年先の最後の時刻","kind":"due","elapsed_hours":-26280,"expected":true},
     {"name":"6日","kind":"stale","elapsed_days":6,"expected":false},
+    {"name":"7日ちょうど","kind":"stale","elapsed_days":7,"expected":true},
+    {"name":"7日の1秒前","kind":"stale_seconds":604799,"expected":false},
     {"name":"8日","kind":"stale","elapsed_days":8,"expected":true},
     {"name":"1年先","kind":"stale","elapsed_days":-365,"expected":true},
     {"name":"47時間","kind":"updater_not_running","elapsed_hours":47,"expected":false},

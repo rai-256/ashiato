@@ -52,12 +52,9 @@ internal object UpdateCheck {
             "collector-windows" -> "-x86_64.zip"
             else -> ".apk"
         }
-        val releases = runCatching {
-            val root = Json.parseToJsonElement(body)
-            if (root is kotlinx.serialization.json.JsonArray) root else kotlinx.serialization.json.JsonArray(listOf(root))
-        }.getOrDefault(kotlinx.serialization.json.JsonArray(emptyList()))
-        val versions = runCatching {
-            releases.flatMap { release ->
+        val root = Json.parseToJsonElement(body)
+        val releases = if (root is kotlinx.serialization.json.JsonArray) root else kotlinx.serialization.json.JsonArray(listOf(root))
+        val versions = releases.flatMap { release ->
                 val obj = release.jsonObject
                 if (obj["draft"]?.jsonPrimitive?.content == "true") return@flatMap emptyList()
                 val nightly = obj["tag_name"]?.jsonPrimitive?.content == "nightly"
@@ -70,7 +67,6 @@ internal object UpdateCheck {
                     if ((dev && !parsed.pre.startsWith("dev.")) || (!dev && beta && !(parsed.pre.startsWith("beta.") || parsed.pre.isEmpty())) || (!dev && !beta && parsed.pre.isNotEmpty())) null else parsed
                 }
             }
-        }.getOrDefault(emptyList())
         val latest = versions.maxOrNull()?.text
         return Choice(latest, latest?.let { Version.parse(it)!! > own } == true)
     }
@@ -121,8 +117,7 @@ internal class UpdateChecker(private val context: Context, private val testDesti
         if (!Config.hasSavedSetup && !Config.hasBuildSetup) return false
         val destination = testDestination?.takeIf { it.isNotBlank() }
             ?: BuildConfig.UPDATE_CHECK_URL.takeIf { it.isNotBlank() }
-            ?: "https://api.github.com"
-        if (destination.isBlank()) {
+        if (destination == null) {
             record(now, false, "no_destination", null)
             return true
         }
@@ -138,7 +133,7 @@ internal class UpdateChecker(private val context: Context, private val testDesti
             val stream = if (connection.contentEncoding.equals("gzip", true)) java.util.zip.GZIPInputStream(connection.inputStream) else connection.inputStream
             stream.use { it.readBytes().toString(Charsets.UTF_8) }
         }
-        val choice = result.getOrNull()?.let { UpdateCheck.choose("android", BuildConfig.VERSION_NAME, it) }
+        val choice = result.getOrNull()?.let { body -> runCatching { UpdateCheck.choose("android", BuildConfig.VERSION_NAME, body) }.getOrNull() }
         record(now, choice != null, if (choice == null) "unreachable" else null, choice?.latest)
         if (choice != null) {
             val oldLatest = prefs.getString("latest", null)

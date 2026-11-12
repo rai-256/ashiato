@@ -249,6 +249,10 @@ impl UpdateChecker {
             state.last_ok_at = Some(now);
             state.stale_notified = false;
         }
+        // Persist the completed check before attempting a best-effort toast.  A
+        // disabled notification service must not turn one daily query into an
+        // hourly retry loop.
+        self.save(&state)?;
         if let Some(version) = latest.as_deref().filter(|v| {
             ashiato_update_check::update_available(installed_version(), Some(v)).unwrap_or(false)
         }) {
@@ -339,10 +343,9 @@ fn request(base: &str) -> Result<Vec<u8>, CheckReason> {
     } else {
         format!("{base}{path}")
     };
-    let initial_host = url
+    let initial_uri = url
         .parse::<ureq::http::Uri>()
-        .ok()
-        .and_then(|u| u.host().map(str::to_owned));
+        .map_err(|_| CheckReason::Unreadable)?;
     let agent = ureq::Agent::config_builder()
         .timeout_connect(Some(StdDuration::from_secs(10)))
         .timeout_global(Some(StdDuration::from_secs(30)))
@@ -375,7 +378,9 @@ fn request(base: &str) -> Result<Vec<u8>, CheckReason> {
         let next = location
             .parse::<ureq::http::Uri>()
             .map_err(|_| CheckReason::Unreadable)?;
-        if next.host() != initial_host.as_deref() {
+        if next.scheme_str() != initial_uri.scheme_str()
+            || next.authority() != initial_uri.authority()
+        {
             return Err(CheckReason::Unreachable);
         }
         current = location.to_owned();

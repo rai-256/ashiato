@@ -291,7 +291,9 @@ fn st57_timeout_reason_is_recorded() {
         let (mut stream, _) = listener.accept().unwrap();
         let mut bytes = [0_u8; 256];
         let _ = stream.read(&mut bytes);
-        thread::sleep(std::time::Duration::from_secs(31));
+        // Keep the peer open well beyond the client's global timeout.  Closing
+        // just after 30 seconds races the timeout path and can look unreachable.
+        thread::sleep(std::time::Duration::from_secs(45));
     });
     std::env::set_var("ASHIATO_UPDATER_TEST_URL", url);
     std::env::set_var("ASHIATO_UPDATER_TEST_NOW", "2026-11-12T00:00:00Z");

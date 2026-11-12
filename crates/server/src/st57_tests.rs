@@ -169,6 +169,10 @@ fn st57_missing_result_is_pending_then_stale_from_check_since() {
     .unwrap();
     assert_eq!(read_status(dir.path(), INSTALLED, now()).state, "pending");
     assert_eq!(
+        read_status(dir.path(), INSTALLED, now() - Duration::days(8)).state,
+        "stale"
+    );
+    assert_eq!(
         read_status(dir.path(), INSTALLED, now() + Duration::days(7)).state,
         "stale"
     );

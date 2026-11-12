@@ -112,6 +112,7 @@ const ja = {
         rate_limited: "問い合わせの上限",
         not_found: "配布元が見つからない",
         unreadable: "読めない答え",
+        no_destination: "配布元が設定されていない",
         not_running: "更新係が動いていない",
       } as Record<string, string>,
     },

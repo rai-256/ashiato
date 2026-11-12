@@ -18,6 +18,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 pub const GITHUB_API: &str = "https://api.github.com";
+pub const RELEASES_URL: &str = "https://api.github.com/repos/rai-256/ashiato/releases?per_page=20";
 const CHECK_FILE: &str = "checks.jsonl";
 const SETTINGS_FILE: &str = "settings/check.json";
 const TEST_HOOKS_FILE: &str = "settings/test-hooks.json";
@@ -128,10 +129,11 @@ fn append_record(dir: &Path, record: &CheckRecord) -> Result<(), Error> {
 }
 
 fn save_status(dir: &Path, status: &Status) -> Result<(), Error> {
-    fs::write(
-        dir.join(ashiato_update_check::STATUS_FILE),
-        serde_json::to_vec_pretty(status)?,
-    )?;
+    fs::create_dir_all(dir)?;
+    let path = dir.join(ashiato_update_check::STATUS_FILE);
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, serde_json::to_vec_pretty(status)?)?;
+    fs::rename(temporary, path)?;
     Ok(())
 }
 
@@ -144,7 +146,11 @@ fn request(base: &str, component: Component, installed: &str) -> Result<Vec<u8>,
         }
         _ => ashiato_update_check::RELEASES_PATH,
     };
-    let initial_url = format!("{base}{path}");
+    let initial_url = if base == GITHUB_API && path == ashiato_update_check::RELEASES_PATH {
+        RELEASES_URL.to_owned()
+    } else {
+        format!("{base}{path}")
+    };
     let initial_uri: ureq::http::Uri = initial_url.parse().map_err(|_| CheckReason::Unreadable)?;
     let agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(10)))
@@ -212,8 +218,8 @@ pub fn once_at(dir: &Path) -> Result<Option<CheckRecord>, Error> {
     }
     let status_path = dir.join(ashiato_update_check::STATUS_FILE);
     let status = if status_path.is_file() {
-        ashiato_update_check::parse_status(&fs::read(&status_path)?)
-            .map_err(|e| Error::Invalid(e.to_string()))?
+        // A partially written status must not permanently stop the hourly service.
+        ashiato_update_check::parse_status(&fs::read(&status_path)?).unwrap_or_default()
     } else {
         Status::default()
     };
@@ -249,9 +255,11 @@ pub fn once_at(dir: &Path) -> Result<Option<CheckRecord>, Error> {
     status.checked_at = Some(at);
     status.last_reason = reason;
     if ok {
+        if status.latest != latest && latest.is_some() {
+            status.found_at = Some(at);
+        }
         status.latest = latest;
         status.last_ok_at = Some(at);
-        status.found_at = Some(at);
     }
     save_status(dir, &status)?;
     Ok(Some(record))

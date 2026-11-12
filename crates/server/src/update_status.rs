@@ -173,9 +173,7 @@ pub(crate) fn classify(
     }
     let Some(status) = status else {
         let since = settings.since;
-        let state = if since
-            .is_some_and(|since| now.signed_duration_since(since) >= chrono::Duration::days(7))
-        {
+        let state = if stale(now, since) {
             "stale"
         } else {
             "pending"
