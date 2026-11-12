@@ -42,3 +42,25 @@
 
 - ローカル環境には Windows サービス、ACL、実配布 zip が無いため、Windows の実地検査そのものは実行していない。これは仕様どおり `install-windows` CI で実行する。
 - CI の遮断規則は削除 step を持たず、job の終了まで維持する。
+
+## Fix round 1（review 1）
+
+### 変更
+
+- F1〜F3: ACL の主体名の固定文字列を正し、pretty JSON の空白を許す無効判定にし、問い合わせ待ちの deadline を正しい算術展開にした。
+- F4: 2 本目の zip の前に、サービス停止待ち・プロセス停止・登録削除・プログラム/状態の置き場の削除を行う `reset_machine` を使うようにした。
+- F5〜F6: self-test にサービス種別/アカウント、ACL の継承・書き・読み、無効設定、trace の順序の異常系を追加した。実地検査には時計の差し込み、無効化後 2 回の確かめ、再有効化後の問い合わせ件数、DB/設定の指紋、repair の前提・命令・無効状態・記録指紋を追加した。
+- F7: `install-check.sh` の削除後案内で `ashiato-updater` の置き場も確認するようにした。
+
+### Fix verification
+
+- RED: 追加後の初回 `tools/release/update-check-install.sh --self-test` は、self-test の偽 Windows 環境に `cygpath` が無く rc=127 になった。self-test の環境構築不足を修正するための失敗として確認した。
+- GREEN: `tools/release/update-check-install.sh --self-test` → `OK: update-check-install の self-test`、rc=0。
+- `tools/release/install-check.sh --self-test` → `OK: installer の確かめの部品と Scenario の印の置き場を確認した`、rc=0。
+- `bash -n tools/release/update-check-install.sh tools/release/install-check.sh` → rc=0。
+- `scripts/verify-run 7.1` → 3 件すべて PASS、rc=0（更新係 self-test、install-check self-test、actionlint）。
+
+### Fix round self-review
+
+- Windows のサービス/ACL/配布 zip をこの Linux 環境では実行できないため、実地の結果は確認していない。実地検査は `install-windows` job に残している。
+- F8〜F10 と final review 対象の確認事項は、今回の open findings の範囲外なので変更していない。

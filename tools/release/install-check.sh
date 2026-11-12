@@ -1279,7 +1279,7 @@ check_release_zip() {
   [[ -f "$STATE/db/17/PG_VERSION" && -f "$SETTINGS" ]] || die '状態の置き場が消えた'
   [[ -f 'C:/ProgramData/ashiato-updater/checks.jsonl' ]] || die '更新係の記録が消えた'
   [[ -f "$INBOX_U/install-check-keep.txt" ]] || die '取り込み待ちの中身が消えた'
-  grep -Fq 'ProgramData' "$out" && grep -Fq 'docs/install.md' "$out" || die '残した置き場と手順の案内が無い'
+  grep -Fq 'ashiato-updater' "$out" && grep -Fq 'ProgramData' "$out" && grep -Fq 'docs/install.md' "$out" || die '残した置き場と手順の案内が無い'
 
   echo '== Scenario: 消すとダウンロードと取り込み待ちに足した権限が外れる'
   # サービスを消した後は、残った ACE が名前でなく SID で表示される。名前と SID の両方で見る（review R31）
