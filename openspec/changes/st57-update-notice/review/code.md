@@ -107,6 +107,7 @@
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R3. 携帯の St57 の試験の多くは、印の Scenario の主張を観測していない（7 つの振る舞いを壊しても 29 本が全部緑）
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt / collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateCheckTest.kt
@@ -133,6 +134,7 @@
 - 判定: NOT ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）: St57UpdateNoticeTest.kt の直った 3 本（IMPORTANCE_NONE のチャンネル・スイッチ・通知 1 件）以外は未処置。:131 isNewer、:251 stale、:255 due を直に呼ぶだけで、ShadowConnectivityManager・getNextStartedActivity・BUTTON_NEGATIVE は 0 件。LocationService の updateChecker.check() 呼び出しと宛先（baseUrl に壊す (d)）、(f)(g) を固定する試験が無い。
 - 判定: ADDRESSED（re-review 3 @589b84e3bb0a57fe180ef8905c3961e32a979013）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R4. PC の収集アプリの「新しい版ごとに 1 回」・setup の既定・起動時と 1 時間ごとの呼び出しは、どの試験も固定していない
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs / crates/collector-windows/src/update_check.rs / crates/collector-windows/src/setup.rs / crates/collector-windows/src/runtime.rs
@@ -170,6 +172,7 @@
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R7. Task 10.2 の `cargo test --workspace` は 3 回のうち 2 回 rc=101。1 回目は更新係の時間切れの試験の理由が `Unreachable` だった
 - 成果物: crates/updater/tests/st57_once.rs
@@ -228,6 +231,7 @@
 - 判定: ADDRESSED（re-review 2 @b998446f7a036724e0b53db8ea19d5ec388fb66c）
 - 判定: ADDRESSED（re-review 3 @589b84e3bb0a57fe180ef8905c3961e32a979013）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## security review（8f10733..ef3a33a）
 
@@ -273,6 +277,7 @@
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R15. `once_at` overwrites `status.found_at = Some(at)` on every successful check, even when `latest` has not changed. The PC collector only updates it when the version changes (`if state.latest != latest`).
 - 成果物: crates/updater/src/lib.rs:270
@@ -372,6 +377,7 @@
 - kind: technical
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R26. 携帯の「更新あり」の日付が UTC の `YYYY/MM/DD` になる
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
@@ -393,6 +399,7 @@
 - kind: technical
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R29. 携帯は別のホストへの転送を黙って追う
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
@@ -400,6 +407,7 @@
 - kind: technical
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R30. 試験の zip で Windows の実地の台本を走らせると、試験の時計を書くときに更新係の宛先を消す
 - 成果物: tools/release/update-check-install.sh
@@ -443,6 +451,7 @@
 - kind: technical
 - 処置: fixed 9.1
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## settle_review（re-review 5 @c82b3eb）: 処置の直しが新しく壊したもの
 
@@ -451,15 +460,18 @@
 - 根拠: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt:305（re-review 5 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R36. R29（別ホストへの転送で確かめられない）と R26（見つけた日の表示）に当たる試験が無い。コードは直っているが、固定していない。
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
 - 根拠: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt（re-review 5 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
 
 ## R37. 改行以外の制御文字（\t など）をエスケープしない。latest はバージョン文字列由来なので、実害は見つからなかった。
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt (record の json())
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt (record の json())（re-review 5 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 6 @b42d98b49e7be0bb189627b42c31e2e87f6fffef）
