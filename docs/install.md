@@ -9,6 +9,25 @@
 
 インストーラは DB サービス `ashiato-db`（55400）とサーバサービス `ashiato-server`（18700）を登録します。サーバ PC では Tailscale の「無人で動かす」を有効にし、サーバ PC 上で `tailscale serve --bg --https=443 http://127.0.0.1:18700` を実行します。画面は Tailscale のアドレスまたは名前の HTTPS URL から開きます。インストール前に状態の置き場に 40 GB 以上の空きを確保してください。
 
+## 更新の確認
+
+更新の確認は有効な状態でインストールされます。更新係は `ashiato-updater` サービスとして動き、配布元から版の一覧だけを取得して、利用できる新しい版を確認します。配布元へ送るものは版の一覧の取得だけです。接続元の IP アドレスと時刻は配布元側の記録に見えるため、運用上必要なときは更新係の確かめた記録と合わせて確認します。
+
+更新の確認を切る、または戻すときは、管理者の端末で次を実行します。
+
+```bat
+ashiato-setup.exe update-check off
+ashiato-setup.exe update-check on
+```
+
+更新係の設定と確かめた記録は `C:\ProgramData\ashiato-updater` に置かれます。確かめた記録を確認するときは、この置き場の `status.json` と `checks.jsonl`、および `logs\` を対象にします。更新係を手で消す必要がある場合は、先に `ashiato-setup.exe update-check off` を実行してから、管理者の端末で次を実行します。
+
+```bat
+sc.exe delete ashiato-updater
+```
+
+サービスを手で消した後に更新の確認を戻すときは、同じ版のインストーラで `ashiato-setup.exe update-check on` を実行します。
+
 ## 消す
 
 通常の削除は管理者の端末で `ashiato-setup.exe uninstall` を実行します。記録を消す前に `C:\ProgramData\ashiato\backups` の退避を確認してください。記録を手で消す場合は、管理者として所有権を取り、対象を限定して次を実行します。
