@@ -18,6 +18,7 @@ import { defineConfig, devices } from "@playwright/test";
 declare const process: { env: Record<string, string | undefined> };
 
 const PORT = Number(process.env.WEB_PORT ?? 5180);
+const UPDATER_DIR = process.env.ASHIATO_UPDATER_DIR ?? "/tmp/ashiato-st57-updater";
 
 // サーバ（tools/stack.sh が立てる）の待ち受け。**tools/ports.sh と同じ規則で組む** —— stack.sh も BIND を
 // `127.0.0.1:<ports.sh の ASHIATO_HTTP_PORT>` に上書きするので、`.env` の BIND や CI の env に頼ると食い違う
@@ -53,7 +54,7 @@ export default defineConfig({
     // 立てる —— 立っているものを使うと、DB を作り直さずに溜まった状態で測ってしまう
     reuseExistingServer: !process.env.CI && !process.env.HARNESS_VERIFY,
     // 書き出しの進み具合の Scenario が見えるよう、表ごとに 400 ms 待たせる（e2e だけ。確認バッチの run.sh には渡さない。ST33 R19）
-    env: { ASHIATO_EXPORT_SELFTEST_DELAY_MS: "400" },
+    env: { ASHIATO_EXPORT_SELFTEST_DELAY_MS: "400", ASHIATO_UPDATER_DIR: UPDATER_DIR },
     timeout: 10 * 60 * 1000, // 初回は cargo build --release が入る
     stdout: "pipe",
     stderr: "pipe",
