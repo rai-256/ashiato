@@ -92,6 +92,7 @@ open class LocationService : Service() {
         DestinationGate(getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE))
     }
     private val channelNotifier by lazy { ChannelMismatchNotifier(this, contractStore) }
+    private val updateChecker by lazy { UpdateChecker(this) }
 
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
@@ -909,6 +910,9 @@ open class LocationService : Service() {
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         refreshSetupNotice()
+        runCatching { updateChecker.check() }.onFailure {
+            Log.w(TAG, Telemetry.line("update_check_failed", source = null, error = it.javaClass.simpleName))
+        }
         startBeating()
         startTicking()
         startClockSkew()
@@ -1159,6 +1163,7 @@ open class LocationService : Service() {
             running.beater = newHeartbeatScheduler(running.cadence.logicalSource).also { scheduler ->
                 scheduler.every(running.cadence.heartbeatIntervalMs) {
                     emitter.emit()
+                    if (isLocation) runCatching { updateChecker.check() }
                     if (isLocation) {
                         outagePoller.poll()
                         // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。

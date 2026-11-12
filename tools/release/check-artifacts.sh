@@ -364,6 +364,7 @@ self_test_cleanup() {
 }
 
 self_test() {
+  echo "== Scenario: 携帯の配る APK の宛先は配布元である"
   local work; work="$(mktemp -d "${TMPDIR:-/tmp}/artifact-self-test.XXXXXX")"
   SELF_TEST_WORK="$work"
   trap self_test_cleanup EXIT

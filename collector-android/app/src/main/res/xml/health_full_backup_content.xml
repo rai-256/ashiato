@@ -4,4 +4,5 @@
 <full-backup-content>
     <exclude domain="sharedpref" path="health_permission.xml" />
     <exclude domain="sharedpref" path="collector_setup.xml" />
+    <exclude domain="file" path="update_checks.jsonl" />
 </full-backup-content>

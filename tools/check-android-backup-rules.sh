@@ -36,11 +36,16 @@ check_rules() {
     [ -f "$extraction" ] || { fail "data extraction 規則が無い: $extraction"; return 1; }
     strip_comments "$full" | grep -Fq "<exclude $rule" \
         || { fail "full backup 規則で $prefs.xml を外していない"; return 1; }
+    strip_comments "$full" | grep -Fq '<exclude domain="file" path="update_checks.jsonl"' \
+        || { fail "full backup 規則で update_checks.jsonl を外していない"; return 1; }
     local section
     for section in cloud-backup device-transfer; do
         strip_comments "$extraction" | awk -v s="$section" '$0 ~ "<" s "[ >]", $0 ~ "</" s ">"' |
             grep -Fq "<exclude $rule" \
             || { fail "$section で $prefs.xml を外していない"; return 1; }
+        strip_comments "$extraction" | awk -v s="$section" '$0 ~ "<" s "[ >]", $0 ~ "</" s ">"' |
+            grep -Fq '<exclude domain="file" path="update_checks.jsonl"' \
+            || { fail "$section で update_checks.jsonl を外していない"; return 1; }
     done
 }
 
@@ -63,6 +68,7 @@ if [ "${1:-}" = "--self-test" ]; then
     extraction="$work/$APP_REL/res/xml/health_data_extraction_rules.xml"
 
     echo "== Scenario: 両方のバックアップの規則が設定のファイルを外している"
+    echo "== Scenario: 携帯の確かめた記録はバックアップから外れる"
     reset
     check_rules "$work"
 

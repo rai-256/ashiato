@@ -89,6 +89,7 @@ open class MainActivity : Activity() {
     /** この起動の `app_open` の観測を済ませた（D9）。 */
     private var healthOpenObserved = false
     private var setupLaunched = false
+    private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
         val marks = healthMarks()
@@ -490,6 +491,22 @@ open class MainActivity : Activity() {
             }
         }
         actionBar?.hide()
+        val updatePrefs = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
+        if (updateChecker.introPending()) {
+            column.addView(TextView(this).apply { text = "更新の確認: 有効（切るには設定の画面）" })
+        }
+        updatePrefs.getString("latest", null)?.let { latest ->
+            if (UpdateCheck.choose("android", BuildConfig.VERSION_NAME, "[]").available || latest != BuildConfig.VERSION_NAME) {
+                column.addView(TextView(this).apply { text = "更新あり $latest（${updatePrefs.getString("found_at", "")?.take(10)?.replace('-', '/')} に見つけた）" })
+            }
+        }
+        if (updatePrefs.getString("last_reason", null) != null) {
+            val last = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+                ?: updatePrefs.getString("intro_shown_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            if (UpdateCheck.stale(java.time.Instant.now(), last)) {
+                column.addView(TextView(this).apply { text = "更新を 7 日確かめられていません" })
+            }
+        }
         if (notice != null) column.addView(TextView(this).apply { text = notice.line })
         if (setupRow) {
             if (setupNeeded) column.addView(TextView(this).apply { text = SETUP_LINE })
@@ -522,6 +539,7 @@ open class MainActivity : Activity() {
             )
         }
         setContentView(column)
+        if (updateChecker.introPending()) updateChecker.markIntroShown()
     }
 
     /**
