@@ -119,6 +119,8 @@ pub struct Runtime<'a> {
     destination_toaster: Option<Arc<dyn destination_gate::DestinationToaster>>,
     /// 系統の違いの通知係（D12（仮））。契約の版の通知とは別の札を使う。
     channel_notice: Option<ChannelNotice>,
+    update_checker: Option<crate::update_check::UpdateChecker>,
+    update_periodic_at: Option<DateTime<Utc>>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -354,6 +356,8 @@ impl<'a> Runtime<'a> {
             contract_notice: None,
             destination_toaster: None,
             channel_notice: None,
+            update_checker: None,
+            update_periodic_at: None,
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -408,6 +412,10 @@ impl<'a> Runtime<'a> {
         self.channel_notice = Some(notice);
     }
 
+    pub fn set_update_checker(&mut self, checker: crate::update_check::UpdateChecker) {
+        self.update_checker = Some(checker);
+    }
+
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
     #[must_use]
     pub fn with_history(mut self, reader: std::sync::Arc<dyn HistoryReader>) -> Self {
@@ -456,6 +464,9 @@ impl<'a> Runtime<'a> {
         }
         self.save_engine_state();
         self.touch(wall, mono);
+        if let Some(checker) = &self.update_checker {
+            let _ = checker.start(wall);
+        }
     }
 
     /// 1 回の見回り（壁時計と単調時計は今の値）。
@@ -486,6 +497,13 @@ impl<'a> Runtime<'a> {
         // 2. 観測 → 記録
         self.retry_unsaved();
         let obs = source.observe(wall);
+        if self.update_periodic_at.is_none_or(|at| mono - at >= Duration::hours(1)) {
+            self.update_periodic_at = Some(mono);
+            if let Some(checker) = &self.update_checker {
+                let idle = match obs.idle { IdleRead::Elapsed(value) => Some(value.num_seconds()), IdleRead::Unavailable => None };
+                let _ = checker.periodic(wall, obs.locked, idle);
+            }
+        }
         let cap = capability_of(&obs);
         self.interval_blockers.extend(cap.blockers.iter().cloned());
         self.interval_blockers

@@ -232,6 +232,15 @@ check_windows_contents() {
   return 0
 }
 
+check_collector_windows_contents() {
+  local archive="$1" entries text
+  entries="$(/usr/bin/unzip -l "$archive" | awk 'NR > 3 { sub(/^ +[0-9]+ +[0-9-]+ +[0-9:]+ +/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print }' | sed '$d')" || die "PC の収集アプリの zip が読めない"
+  grep -Eq '(^|/)ashiato-collector-windows(\.exe)?$' <<<"$entries" || die 'PC の収集アプリの zip に実行ファイルが無い'
+  text="$(/usr/bin/unzip -p "$archive" ashiato-collector-windows.exe 2>/dev/null | strings || true)"
+  grep -Fq 'ASHIATO_COLLECTOR_TEST_UPDATE_URL' <<<"$text" && die '配る PC の収集アプリに試験差し込みがある'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases' <<<"$text" || die '配る PC の収集アプリに GitHub releases の宛先が無い'
+}
+
 check_artifacts() {
   local dir="$1" channel=release allow_debug=0 expected_version="" expected_license="" expected cert apk name
   shift
@@ -276,6 +285,10 @@ check_artifacts() {
     if [[ "$name" == ashiato-server-*-windows-x86_64.zip ]]; then
       echo '== Scenario: Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない'
       check_windows_contents "$dir/$name"
+    fi
+    if [[ "$name" == ashiato-collector-windows-*-x86_64.zip ]]; then
+      echo '== Scenario: 配る組み立ては宛先を変える口を持たない'
+      check_collector_windows_contents "$dir/$name"
     fi
   done
   local windows_archive="$dir/ashiato-server-${expected_version}-windows-x86_64.zip"
@@ -508,8 +521,9 @@ self_test() {
   printf '%s' "$stamp" > "$work/stamp"
   printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/windows-real" "$work/stamp" "$real/ashiato-server-$v-windows-x86_64.zip"
-  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   cp "$real"/* "$out/"
   echo "== Scenario: 配る組み立ては試験の差し込みを持たない"
   local bad_windows="$work/bad-windows"
@@ -701,8 +715,9 @@ self_test() {
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$release_out"
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$release_out"
   printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/release-windows" "$work/stamp" "$release_out/ashiato-server-$v-windows-x86_64.zip"
-  (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   # --allow-debug-key 無しの経路も、署名の指紋の一致・不一致を検査する（final review R7）。
   local signer cert
   signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
@@ -724,9 +739,10 @@ self_test() {
   printf '%s+0000000000000000000000000000000000000000' "$nightly_version" > "$work/stamp"
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases\n' >"$work/ashiato-collector-windows.exe"
   tar -czf "$nightly/ashiato-server-$nightly_version-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   win_fixture "$work/nightly-windows" "$work/stamp" "$nightly/ashiato-server-$nightly_version-windows-x86_64.zip"
-  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   local dev_key="$work/nightly-dev.jks" dev_password=self-test-password dev_b64 dev_cert
   printf '%s\n' "$dev_password" | "$root/tools/release/make-key.sh" dev "$dev_key" >/dev/null
   dev_b64="$(base64 -w0 "$dev_key")"

@@ -201,6 +201,7 @@ impl Config {
             let settings = SettingsFile {
                 base_url: settings.base_url.clone(),
                 device_id: Some(device_id.clone()),
+                update_check_enabled: settings.update_check_enabled,
                 legacy_api_token: None,
             };
             write_settings_if_needed(&release_dir, &settings)?;
@@ -211,6 +212,7 @@ impl Config {
                 &SettingsFile {
                     base_url: read_settings_or_default(&release_dir)?.base_url,
                     device_id: Some(root_id.to_string()),
+                    update_check_enabled: read_settings_or_default(&release_dir)?.update_check_enabled,
                     legacy_api_token: None,
                 },
             )?;
@@ -323,6 +325,7 @@ impl Config {
             &SettingsFile {
                 base_url: Some(setup.url.clone()),
                 device_id: Some(self.device_id.clone()),
+                update_check_enabled: read_settings_or_default(&self.state_dir)?.update_check_enabled,
                 legacy_api_token: None,
             },
         )?;
@@ -417,6 +420,8 @@ struct SettingsFile {
     base_url: Option<String>,
     #[serde(default)]
     device_id: Option<String>,
+    #[serde(default)]
+    update_check_enabled: Option<bool>,
     /// ST56 より前の settings.json の読み取りだけを互換のため許す。
     #[serde(default, rename = "api_token", skip_serializing)]
     legacy_api_token: Option<String>,

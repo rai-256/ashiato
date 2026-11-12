@@ -46,6 +46,7 @@ pub mod setup;
 pub mod setup_string;
 pub mod telemetry;
 pub mod time_sync;
+pub mod update_check;
 #[cfg(windows)]
 pub mod toast;
 pub mod toast_names;

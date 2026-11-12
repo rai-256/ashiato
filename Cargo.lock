@@ -120,6 +120,7 @@ dependencies = [
  "active-win-pos-rs",
  "anyhow",
  "ashiato-build-stamp",
+ "ashiato-update-check",
  "chrono",
  "ctrlc",
  "iana-time-zone",
