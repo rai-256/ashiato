@@ -258,7 +258,7 @@ impl UpdateChecker {
                 state.notified_version = Some(version.to_owned());
             }
         }
-        let since = state.last_ok_at;
+        let since = state.last_ok_at.or(state.intro_shown_at);
         if !ok
             && reason != Some(CheckReason::NoDestination)
             && stale(now, since)

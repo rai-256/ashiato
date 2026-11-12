@@ -97,7 +97,10 @@ fn env<T>(url: Option<&str>, f: impl FnOnce() -> T) -> T {
 }
 #[test]
 fn st57_pc_due_is_true_without_a_previous_check() {
-    assert!(due(Utc.timestamp_opt(0, 0).unwrap(), None));
+    let checked = Utc.timestamp_opt(0, 0).unwrap();
+    assert!(due(checked + chrono::Duration::hours(24), Some(checked)));
+    assert!(!due(checked + chrono::Duration::hours(23), Some(checked)));
+    assert!(due(checked, None));
 }
 
 #[test]
@@ -119,6 +122,8 @@ fn st57_pc_update_state_is_written_only_locally() {
 fn st57_pc_no_test_destination_does_not_check() {
     // Scenario: 試験の組み立ては差し替えの宛先が無ければ確かめない
     let dir = tempfile::tempdir().unwrap();
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
     env(None, || {
         let c = UpdateChecker::new(dir.path());
         c.set_enabled(true).unwrap();
@@ -129,12 +134,15 @@ fn st57_pc_no_test_destination_does_not_check() {
             .unwrap()
             .contains("no_destination")
     );
+    thread.join().unwrap();
+    assert!(seen.lock().unwrap().is_empty());
 }
 #[test]
 fn st57_pc_unconfigured_state_waits_for_destination() {
     // Scenario: PC の収集アプリは送り先を設定するまで確かめない
     let dir = tempfile::tempdir().unwrap();
-    env(Some("http://127.0.0.1:9"), || {
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    env(Some(&url), || {
         let c = UpdateChecker::new(dir.path());
         c.set_enabled(true).unwrap();
         assert!(c.start(Utc::now()).unwrap().is_some());
@@ -144,6 +152,8 @@ fn st57_pc_unconfigured_state_waits_for_destination() {
             .unwrap()
             .contains("no_destination")
     );
+    thread.join().unwrap();
+    assert!(seen.lock().unwrap().is_empty());
 }
 #[test]
 fn st57_pc_server_setting_is_not_used() {
@@ -278,7 +288,15 @@ fn st57_pc_server_switch_does_not_disable_client() {
         r#"{"update_check_enabled":true,"mobile_update_check_enabled":false}"#,
     )
     .unwrap();
-    assert!(UpdateChecker::new(dir.path()).enabled().unwrap());
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
+    env(Some(&url), || {
+        let c = UpdateChecker::new(dir.path());
+        c.set_enabled(true).unwrap();
+        assert!(c.start(Utc::now()).unwrap().is_some());
+    });
+    thread.join().unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
 }
 #[test]
 fn st57_pc_off_setting_is_persisted() {
@@ -292,7 +310,15 @@ fn st57_pc_off_setting_is_persisted() {
 fn st57_pc_setup_default_is_on() {
     // Scenario: PC の setup は確かめるかを聞き、既定は確かめる
     let dir = tempfile::tempdir().unwrap();
-    assert!(UpdateChecker::new(dir.path()).enabled().unwrap());
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
+    env(Some(&url), || {
+        let c = UpdateChecker::new(dir.path());
+        c.set_enabled(true).unwrap();
+        assert!(c.start(Utc::now()).unwrap().is_some());
+    });
+    thread.join().unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
 }
 #[test]
 fn st57_pc_mobile_setting_is_independent() {
@@ -303,7 +329,15 @@ fn st57_pc_mobile_setting_is_independent() {
         r#"{"update_check_enabled":true,"mobile_update_check_enabled":false}"#,
     )
     .unwrap();
-    assert!(UpdateChecker::new(dir.path()).enabled().unwrap());
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
+    env(Some(&url), || {
+        let c = UpdateChecker::new(dir.path());
+        c.set_enabled(true).unwrap();
+        assert!(c.start(Utc::now()).unwrap().is_some());
+    });
+    thread.join().unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
 }
 #[test]
 fn st57_pc_update_message_has_distinct_tag() {
@@ -323,7 +357,9 @@ fn st57_pc_update_message_has_distinct_tag() {
 #[test]
 fn st57_pc_update_message_is_distinct() {
     // Scenario: PC の更新の通知はほかの知らせと文が違う
-    assert!(toast_xml("新しい版", "0.5.0").contains("新しい版"));
+    let xml = toast_xml("新しい版", "0.5.0");
+    assert!(xml.contains("<text>新しい版</text>"));
+    assert!(!xml.contains("更新を 7 日確かめられていません"));
 }
 #[test]
 fn st57_pc_six_days_is_not_stale() {
@@ -340,6 +376,38 @@ fn st57_pc_seven_days_is_stale() {
         Utc.timestamp_opt(7 * 86_400, 0).unwrap(),
         Some(Utc.timestamp_opt(0, 0).unwrap())
     ));
+}
+
+#[test]
+fn st57_pc_failed_first_check_uses_intro_time_for_staleness() {
+    let dir = tempfile::tempdir().unwrap();
+    let (url, _, thread) = server("not-json");
+    configure(dir.path(), &url);
+    let toaster = Arc::new(FakeToaster::default());
+    let state = UpdateState {
+        intro_shown_at: Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+        ..UpdateState::default()
+    };
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+
+    env(Some(&url), || {
+        let record = UpdateChecker::new(dir.path())
+            .with_toaster(toaster.clone())
+            .start(Utc::now())
+            .unwrap()
+            .unwrap();
+        assert!(!record.ok);
+        assert!(!toaster
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"update-stale".into()));
+    });
+    thread.join().unwrap();
 }
 #[test]
 fn st57_pc_success_resets_stale_cycle() {
