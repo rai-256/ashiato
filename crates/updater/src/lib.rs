@@ -7,7 +7,6 @@ use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::Path;
-#[cfg(windows)]
 use std::path::PathBuf;
 #[cfg(windows)]
 use std::sync::{
@@ -15,6 +14,8 @@ use std::sync::{
     OnceLock,
 };
 use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
 
 pub const GITHUB_API: &str = "https://api.github.com";
 const CHECK_FILE: &str = "checks.jsonl";
@@ -143,36 +144,63 @@ fn request(base: &str, component: Component, installed: &str) -> Result<Vec<u8>,
         }
         _ => ashiato_update_check::RELEASES_PATH,
     };
-    let url = format!("{base}{path}");
+    let initial_url = format!("{base}{path}");
+    let initial_uri: ureq::http::Uri = initial_url.parse().map_err(|_| CheckReason::Unreadable)?;
     let agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(10)))
         .timeout_global(Some(Duration::from_secs(30)))
         .max_redirects(0)
         .build()
         .new_agent();
-    let response = agent
-        .get(url)
-        .header("User-Agent", ashiato_update_check::UPDATE_CHECK_USER_AGENT)
-        .header("Accept", ashiato_update_check::UPDATE_CHECK_ACCEPT)
-        .header("Accept-Encoding", "gzip")
-        .call();
-    let response = match response {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(403 | 429)) => return Err(CheckReason::RateLimited),
-        Err(ureq::Error::StatusCode(404)) => return Err(CheckReason::NotFound),
-        Err(ureq::Error::StatusCode(_)) => return Err(CheckReason::Unreadable),
-        Err(e) if e.to_string().to_ascii_lowercase().contains("timeout") => {
-            return Err(CheckReason::Timeout)
+    let mut url = initial_url;
+    let response = 'redirects: {
+        for _ in 0..=3 {
+            let response = agent
+                .get(&url)
+                .header("User-Agent", ashiato_update_check::UPDATE_CHECK_USER_AGENT)
+                .header("Accept", ashiato_update_check::UPDATE_CHECK_ACCEPT)
+                .header("Accept-Encoding", "gzip")
+                .call();
+            let response = match response {
+                Ok(r) => r,
+                Err(ureq::Error::StatusCode(403 | 429)) => return Err(CheckReason::RateLimited),
+                Err(ureq::Error::StatusCode(404)) => return Err(CheckReason::NotFound),
+                Err(ureq::Error::StatusCode(_)) => return Err(CheckReason::Unreadable),
+                Err(error) if is_timeout(&error) => return Err(CheckReason::Timeout),
+                Err(_) => return Err(CheckReason::Unreachable),
+            };
+            if !(300..400).contains(&response.status().as_u16()) {
+                break 'redirects response;
+            }
+            let Some(location) = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+            else {
+                return Err(CheckReason::Unreadable);
+            };
+            let next: ureq::http::Uri = location.parse().map_err(|_| CheckReason::Unreadable)?;
+            if next.scheme_str() != initial_uri.scheme_str()
+                || next.authority() != initial_uri.authority()
+            {
+                return Err(CheckReason::Unreadable);
+            }
+            url = location.to_owned();
         }
-        Err(_) => return Err(CheckReason::Unreachable),
+        return Err(CheckReason::Unreadable);
     };
-    response.into_body().read_to_vec().map_err(|e| {
-        if e.to_string().to_ascii_lowercase().contains("timeout") {
+    response.into_body().read_to_vec().map_err(|error| {
+        if is_timeout(&error) {
             CheckReason::Timeout
         } else {
             CheckReason::Unreadable
         }
     })
+}
+
+fn is_timeout(error: &ureq::Error) -> bool {
+    matches!(error, ureq::Error::Timeout(_))
+        || matches!(error, ureq::Error::Io(error) if error.kind() == std::io::ErrorKind::TimedOut)
 }
 
 /// 設定が有効で期限なら、一回だけ問い合わせて状態と JSON Lines を更新する。
@@ -245,17 +273,62 @@ fn run_service() -> u32 {
     let Some(dir) = SERVICE_DIR.get() else {
         return 1;
     };
+    let mut next_check = Instant::now();
     while !SERVICE_STOP.load(Ordering::Relaxed) {
-        let _ = once(dir);
-        std::thread::sleep(Duration::from_secs(3600));
+        if Instant::now() >= next_check {
+            if let Err(error) = once(dir) {
+                let _ = log_service_error(dir, &error);
+            }
+            next_check = Instant::now() + Duration::from_secs(3600);
+        }
+        std::thread::sleep(Duration::from_secs(1));
     }
     0
 }
 
 #[cfg(windows)]
-pub fn service(dir: PathBuf) -> Result<(), String> {
+fn log_service_error(dir: &Path, error: &Error) -> Result<(), Error> {
+    fs::create_dir_all(dir.join("logs"))?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("logs/updater.log"))?;
+    writeln!(file, "{} {error}", Utc::now().to_rfc3339())?;
+    Ok(())
+}
+
+/// 配布版の種類に対応する更新係のサービス名を返す。
+pub fn service_name(development: bool) -> &'static str {
+    if development {
+        "ashiato-updater-dev"
+    } else {
+        "ashiato-updater"
+    }
+}
+
+/// 配布版の種類に対応する更新係の置き場を返す。
+pub fn default_dir(development: bool) -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(if development {
+            r"C:\ProgramData\ashiato-updater-dev"
+        } else {
+            r"C:\ProgramData\ashiato-updater"
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = development;
+        std::env::current_dir()
+            .expect("作業場を読めない")
+            .join(".ashiato-updater")
+    }
+}
+
+#[cfg(windows)]
+pub fn service(dir: PathBuf, development: bool) -> Result<(), String> {
     let _ = SERVICE_DIR.set(dir);
-    ashiato_winsvc::dispatch_named("ashiato-updater", run_service, || {
+    ashiato_winsvc::dispatch_named(service_name(development), run_service, || {
         SERVICE_STOP.store(true, Ordering::Relaxed)
     })
     .map_err(|e| e.to_string())

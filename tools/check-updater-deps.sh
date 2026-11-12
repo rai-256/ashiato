@@ -18,6 +18,12 @@ if [[ "${1:-}" == --self-test ]]; then
   fake=$'ashiato-updater v0.1.0\nsqlx v0.8.0'
   [[ -n "$(printf '%s\n' "$fake" | scan_exact "${db[@]}")" ]] || { echo 'error: DB 部品の偽入力を拾えない' >&2; exit 1; }
   if [[ -z "$(printf '%s\n' 'ashiato-updater v0.1.0' | scan_exact "${db[@]}")" ]]; then :; else echo 'error: DB 検査が偽陽性' >&2; exit 1; fi
+  server_fake=$'ashiato-server v0.1.0\nashiato-updater v0.1.0'
+  [[ -n "$(printf '%s\n' "$server_fake" | scan_exact ashiato-updater)" ]] || { echo 'error: サーバ依存の偽入力を拾えない' >&2; exit 1; }
+  shared_fake=$'ashiato-update-check v0.1.0\nreqwest v0.12.0'
+  [[ -n "$(printf '%s\n' "$shared_fake" | scan_exact "${offsite[@]}")" ]] || { echo 'error: 共有 crate の外部接続部品を拾えない' >&2; exit 1; }
+  roots_fake=$'ashiato-updater v0.1.0\nashiato-collector-windows v0.1.0\nwebpki-roots v0.26.0'
+  [[ -n "$(printf '%s\n' "$roots_fake" | scan_exact "${roots[@]}")" ]] || { echo 'error: 根の一覧の偽入力を拾えない' >&2; exit 1; }
   echo "== Scenario: 更新係は DB に繋ぐ部品を持たない"
   echo "== Scenario: サーバは更新係の部品に依らない"
   echo "== Scenario: 更新係と PC の収集アプリは根の一覧を同梱しない"
