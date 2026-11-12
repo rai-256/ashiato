@@ -1,53 +1,90 @@
-# ST57 上流 — 新しい版が出たら知らせる
+# ST57 —— 新しい版が出たら知らせる
 
-change: `openspec/changes/st57-update-notice/`（FR-112・FR-113・FR-115・FR-116）
+change: `openspec/changes/st57-update-notice/`
 
-> 深掘り第 1 回は**推奨の答えで先に**仕様を書いた版（2026-10-20 の流れ）。本人の答えが推奨と違えば `spec --answers` が写し直す。
+## deep.md に積んだ未決（A）
 
-## 深掘りで本人が決めること（第 1 回。答え待ち・推奨）
+なし
 
-| Q | 段 | 推奨 |
-|---|---|---|
-| Q1 収集アプリはどこに聞くか | **A（exported）** | 要件どおり、サーバの更新係・携帯・PC がそれぞれ配布元に直に聞く（問い合わせの元の IP と時刻は配布元に残る） |
-| Q2 どの版を「新しい版」とみなすか | 仮でよい | 入っている版のチャンネルで決める（正式版は正式版、ベータ版はベータ版と正式版、開発版は印 `nightly`） |
-| Q3 サーバの確認を切る口 | 仮でよい | インストーラの `update-check off` / `on` |
-| Q4 収集アプリの確認を切る口 | 仮でよい | 端末ごと（携帯は設定の画面のスイッチ、PC は `update-check off` / `on` と `setup` の問い） |
-| Q5 携帯での知らせ方 | 仮でよい | 画面に出し、新しい版ごとに 1 回通知（推奨のままなら record で FR-113 を ★ 改訂） |
-| Q6 PC の通知の回数 | 仮でよい | 新しい版ごとに 1 回 |
-| Q7 画面のどこに出すか | 画面（proto） | どの画面でも見出しの上の帯に 1 行・設定の画面に「更新の確認」の節 |
-| Q8 「更新あり」を押したら | 仮でよい | 何も起きない（入れる口は ST58） |
-| Q9 確かめられない日が続いたら | 仮でよい | 7 日確かめられなければ「更新を確かめられていない」（推奨のままなら FR-113 を ★ 改訂） |
-| Q10 携帯はどの網で聞くか | 仮でよい | 網を問わない |
-| Q11 入れ替えた収集アプリが切り方を通知で示せないとき（第 2 回） | 止める（`exported`） | 示す口を広げ、どれでも示せない間は問い合わせない（携帯は通知を出せた時か画面に出た時、PC はトーストの成功。示せない間は止まったまま。FR-112 ★ 2026-11-11） |
-| Q12 入れ替えた携帯で、画面に切り方を出したとみなす時（第 3 回） | 止める（`exported`） | 行を組んで画面に出した時だけ印を立てる（行は一番上、閉じずに出す）—— 本人が選んだ（推奨と同じ） |
-| Q13 入れ替えた PC で、定期の時に切り方のトーストを出し直すか（第 3 回） | 止める（`exported`） | 定期の時は、ロックしておらず直前（5 分以内）に入力があった時だけ出し直す —— 本人が選んだ（推奨と同じ） |
+## 仮決め（B）と Ruling
 
-聞かない既定（`defaults.md` C1〜C10 = design D1〜D10）: 更新係は別の crate・別の実行ファイルで DB の部品を持たない・問い合わせは決まった形だけ（`GET`・本文なし・固定の `User-Agent`・自分の版を送らない）・結果は「見つけた最新の版」で持つ・確かめた記録は追記・1 日 1 回は 24 時間で未来の時刻は期限切れ扱い・更新係の置き場は状態の置き場の外・走らせ直しで足し消す口で消す・宛先は組み立ての定数・サーバは印と時刻だけで状態を見分ける・Linux は確かめない。
+design の（仮）:
+- D11（仮）. 名前
+- D12（仮）. TLS は `rustls` と OS の根の確かめ（`rustls-platform-verifier`）
+- D13（仮）. 見出しの集合は 5 つの名前の内側
+- D14（仮）. サーバの読みの口 `GET /update-status` の形
+- D15（仮）. サーバは更新係の時刻が 48 時間より古ければ「更新係が動いていない」とする
+- D16（仮）. 携帯の機会は `LocationService` の起動と生存信号の定期の時
+- D17（仮）. PC は `setup` の最後に聞き、`update-check off|on` の口でいつでも切り替える
+- D18（仮）. Windows の CI は更新係から外への接続を塞いでからインストールする
+- D19（仮）. 確かめた記録は 1 MB で古い半分を退ける
+- D20（仮）. 文
+- D21（仮）. 開発版も SemVer で比べる
+- D26（仮）. 入れ替えた収集アプリの 7 日の起点は、切り方を示した時
+- D29（仮）. 携帯で、別の画面や確認の窓が前に出ている間は印を立てず、それが退いて行が見える状態で組み直した時か窓を閉じた時に立てる
+- D28（仮）. PC で、最後の入力からの経過を読めない定期の時は、切り方のトーストを試みない
+- D30（仮）. 更新の知らせは既存の通知を置き換えず、NFR-18 の本文コントラストにそろえる
 
-## 仮決め（design の（仮））
+全 Task の ledger に `Ruling:` の行は無い。
 
-D11（名前）・D12（TLS は `rustls` + OS の根）・D13（見出しは 5 つの名前の内側）・D14（`GET /update-status` の符号と読み方）・D15（48 時間で「更新係が動いていない」）・D16（携帯の機会は収集のサービスの起動と生存信号）・D17（PC は `setup` の問いと `update-check` の口）・D18（Windows の CI は更新係の外向きを塞ぐ）・D19（記録は 1 MB で古い半分を退ける）・D20（文）・D21（開発版も SemVer で比べる）・**D22**（Q5・Q9 の知らせは仮に足し、決まったら record で FR-113 を ★ 改訂）・D26（入れ替えた収集アプリの 7 日の起点は示した時）・D29（携帯で別の画面や確認の窓が前に出ている間は印を立てず、退いて行が見える時か窓を閉じた時に立てる。はじめの D27 は別の席が否とし置き換えた）・D28（PC で入力の経過を読めない定期の時はトーストを試みない）。どれも反転条件つき。D27・D28 は Q12・Q13 の答えが言っていない分かれを、印を遅らせる側（外へ出るのが遅れるだけ）で埋めたもの。
+## Task
 
-D23（確認の無い前の版から入れ替えた収集アプリは、切り方を示すまで問い合わせない）は、はじめ仮で置いたが別の席が「否」とし（通知を出せない端末での向きが無い）、台帳から外して第 2 回の Q11 で本人が決めた。
+10 Task のうち、埋めた Task は 10 本。
 
-D24（携帯で「画面に出した」とみなすのは最初の画面の行と設定の画面のスイッチ）・D25（PC の出し直しは定期の時にも試みる）も、はじめ仮で置いたが別の席が「否」とし（行が画面に無いまま・ロック中にトーストが出たまま印が立ちうる）、台帳から外して第 3 回の Q12・Q13 で本人が決めた（携帯は行を一番上に組んで画面に出した時、PC の定期の時はロックしておらず最後の入力から 5 分以内の時だけ）。
+残した項目:
+- 11.1（人間の確認待ち（確認バッチが持つ））: 11.1 **本物の配布元で 1 回確かめる**: 配布元に最初のリリース（ベータ版か開発版）が出た後、本人の PC のサーバ（走らせ直しで更新係が足された形）・携帯・PC の収集アプリで「更新あり」か「新しい版なし」が出ることを見る。**暗号化した接続が OS の根で通ること（`NT SERVICE\ashiato-updater` を含む）を最初に見るのはここ**（試験と CI は loopback の平文の受け手で、本物の TLS を通らない。D12（仮）の反転条件。review/spec.md R12）。いまは配布元のリリースが 0 件（P1）なので、出るまで待つ
+- 11.2（人間の確認待ち（確認バッチが持つ））: 11.2 **本人の PC の走らせ直し**: ST55 で入れた本人の PC で新しい版の zip のインストーラを走らせ直し、更新係が足され、DB と設定はそのままで、最後に「更新の確認: 有効」と切り方が出ることを見る
 
-## capability と requires
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-- `distribution` に ADDED 14 Requirement・MODIFIED 5 Requirement（インストール・走らせ直し・消す口・Windows の配布物の中身・依存の許諾の一覧）。Scenario は 150 本で、ST57 が印を置くのは 110 本（ADDED 105・MODIFIED で足した 5）。INDEX の割り当てどおりで、前倒しは無い
-- requires の ST52・ST55 は archive 済み。走っている change との重なりは無い（`spec_overlap.py candidates` 0 件）
-- **移行は無い**。サーバの依存に HTTP の部品を足さない（`check-offsite.sh` は今のまま）。更新係は新しい実行ファイル `ashiato-updater.exe` とサービス `ashiato-updater`
-- 画面の Scenario は `web/e2e/st57-update-notice.spec.ts`
-- 申し送り（下流で書く）: `docs/handoff/ST58.md`（`GET /update-status` の形・押す口・切った確認を更新で戻さない・前の版へ戻したときの更新係）・`docs/handoff/ST60.md`（Linux の更新係）
+- 1.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-update-check st57_choose_ && test "$(cargo test -p ashiato-update-check st57_choose_ -- --list 2>/dev/null | grep -c ": test$")" -ge 14'` → rc=0（PASS・head de47650）
+- 1.1 `bash -c 'test "$(python3 -c "import json;d=json.load(open(\"docs/contracts/update-check-vectors.json\"));print(min(len(d[\"cases\"])//3,len(d[\"timing\"])))")" -ge 10'` → rc=0（PASS・head de47650）
+- 2.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-updater st57_ && test "$(cargo test -p ashiato-updater st57_ -- --list 2>/dev/null | grep -c ": test$")" -ge 12'` → rc=0（PASS・head 3bf2abe）
+- 2.1 `cargo clippy -p ashiato-updater -p ashiato-winsvc --all-targets --target x86_64-pc-windows-gnu -- -D warnings` → rc=0（PASS・head 3bf2abe）
+- 2.2 `tools/check-updater-deps.sh` → rc=0（PASS・head 3bf2abe）
+- 2.2 `tools/check-updater-deps.sh --self-test` → rc=0（PASS・head 3bf2abe）
+- 2.2 `tools/check-offsite.sh` → rc=0（PASS・head 3bf2abe）
+- 2.2 `bash -c 'grep -q "check-updater-deps.sh" .github/workflows/ci.yml'` → rc=0（PASS・head 3bf2abe）
+- 3.1 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st57_ && test "$(cargo test -p ashiato-server st57_ -- --list 2>/dev/null | grep -c ": test$")" -ge 14'` → rc=0（PASS・head 1c2fe19）
+- 3.1 `./tools/check-openapi.sh` → rc=0（PASS・head 1c2fe19）
+- 3.1 `tools/check-offsite.sh` → rc=0（PASS・head 1c2fe19）
+- 4.1 `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e -- st57-update-notice.spec.ts'` → rc=0（PASS・head 49092ee）
+- 4.1 `bash -c 'cd web && npx tsc --noEmit && npx vitest run'` → rc=0（PASS・head 49092ee）
+- 5.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st57_ && test "$(cargo test -p ashiato-setup st57_ -- --list 2>/dev/null | grep -c ": test$")" -ge 10'` → rc=0（PASS・head 3848a75）
+- 5.1 `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` → rc=0（PASS・head 3848a75）
+- 6.1 `tools/release/check-artifacts.sh --self-test` → rc=0（PASS・head 95e898f）
+- 6.1 `tools/release/package.sh --self-test` → rc=0（PASS・head 95e898f）
+- 6.1 `tools/release/notices.sh --self-test` → rc=0（PASS・head 95e898f）
+- 6.1 `tools/check-licenses.sh` → rc=0（PASS・head 95e898f）
+- 6.1 `bash -c 'tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` → rc=0（PASS・head 95e898f）
+- 7.1 `tools/release/update-check-install.sh --self-test` → rc=0（PASS・head 913f0e5）
+- 7.1 `tools/release/install-check.sh --self-test` → rc=0（PASS・head 913f0e5）
+- 7.1 `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` → rc=0（PASS・head 913f0e5）
+- 8.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st57_pc_ && test "$(cargo test -p ashiato-collector-windows st57_pc_ -- --list 2>/dev/null | grep -c ": test$")" -ge 23'` → rc=0（PASS・head 5475521）
+- 8.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` → rc=0（PASS・head 5475521）
+- 8.1 `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` → rc=0（PASS・head 5475521）
+- 8.1 `tools/check-no-time-server.sh` → rc=0（PASS・head 5475521）
+- 8.1 `tools/check-licenses.sh` → rc=0（PASS・head 5475521）
+- 8.1 `tools/check-updater-deps.sh` → rc=0（PASS・head 5475521）
+- 8.2 `tools/release/check-artifacts.sh --self-test` → rc=0（PASS・head c9fde1a）
+- 9.1 `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St57*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St57*.xml | grep -c "<testcase ")" -ge 23'` → rc=0（PASS・head 92fee9e）
+- 9.1 `tools/check-android-backup-rules.sh` → rc=0（PASS・head 92fee9e）
+- 9.1 `tools/check-android-backup-rules.sh --self-test` → rc=0（PASS・head 92fee9e）
+- 9.1 `tools/check-no-time-server.sh` → rc=0（PASS・head 92fee9e）
+- 9.2 `scripts/quiet-run emu -- tools/android-emulator.sh` → rc=0（PASS・head 9f16c9f）
+- 9.2 `bash -c 'test "$(cat collector-android/app/build/outputs/androidTest-results/connected/*/TEST-*.xml collector-android/app/build/outputs/androidTest-results/connected/TEST-*.xml 2>/dev/null | grep -c "<testcase [^>]*St57UpdateQueryTest")" -ge 2'` → rc=0（PASS・head 9f16c9f）
+- 9.3 `tools/release/check-artifacts.sh --self-test` → rc=0（PASS・head 9f16c9f）
+- 9.3 `bash -c 'tools/release/build.sh --self-test'` → rc=0（PASS・head 9f16c9f）
+- 10.1 `bash -c 'for h in "update-check off" "ashiato-updater" "版の一覧"; do grep -q -- "$h" docs/install.md || exit 1; done && grep -q "update-check" docs/collector-setup.md && grep -q "update-status" docs/handoff/ST58.md && grep -q "更新係" docs/handoff/ST60.md'` → rc=0（PASS・head 7f3776b）
+- 10.2 `python3 scripts/check_scenarios.py . st57-update-notice` → rc=0（PASS・head 0446620）
+- 10.2 `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` → rc=0（PASS・head 0446620）
+- 10.2 `bash -c 'tools/check-offsite.sh && tools/check-updater-deps.sh && tools/check-contract-version.sh && tools/check-licenses.sh && tools/check-openapi.sh'` → rc=0（PASS・head 0446620）
 
-## tasks
+## レビュー（`review/code.md`）
 
-10 Task・15 項目（Global Constraints つき）+ 人間の確認待ち 2 件（物理: realdata。本物の配布元での確かめと TLS・本人の PC の走らせ直し）。
+- 指摘 43 件（fixed 43）
+- 処置の re-review: 7 回。最後の判定が NOT ADDRESSED のもの: なし
 
-## レビュー
+## 未処置の申し送り
 
-- `review/deep.md`: 16 件（escalated 12・fixed 4）
-- `review/spec.md`: 25 件 —— fixed 23（technical。R19 は Q11 を写した後の Scenario の足りなさ、R20〜R25 は Q12・Q13 を写した後の Scenario と D24・D27 の分かれ）・fixed D22 仮 1（conflict。Q5・Q9 の要件の改訂の預け先）・escalated Q11 1（R16。irreversible / exported。入れ替えの族。仮の D23 で閉じたが別の席が否とし、第 2 回の Q11 で本人が決めた）
-- `review_triage.py` OK・`spec_overlap.py check` OK・`openspec validate --strict` OK・`evidence.py lint` OK・`check_chain.py` OK。`provisional.py check` は D26 が確か、D24・D25 は否で台帳から外し Q12・Q13 で本人が決めた。D27 は否で台帳から外し遅らせる側の D29 に置き換えた。D28 は確か、D29 は別の席の確かめ待ち
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+なし
