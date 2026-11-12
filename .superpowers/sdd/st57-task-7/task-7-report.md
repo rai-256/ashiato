@@ -24,6 +24,14 @@
 - `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` → rc=0（ローカルに `actionlint` が無く、fallback 経路で完了）
 - `git diff --check` → rc=0
 
+## Task gate 追加検証
+
+- `scripts/verify-run 7.1` → 3 件すべて PASS、rc=0。
+  - `tools/release/update-check-install.sh --self-test`
+  - `tools/release/install-check.sh --self-test`
+  - 指定の `actionlint` コマンド
+- 証跡は `openspec/changes/st57-update-notice/evidence.jsonl` に記録された。
+
 ## 変更ファイル
 
 - `.github/workflows/ci.yml`
