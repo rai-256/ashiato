@@ -95,7 +95,7 @@
 
 ## Task 8: PC の収集アプリの更新の確認
 
-- [ ] 8.1 `crates/collector-windows`（D2・D4・D5・D8・D12（仮）・D17（仮）・D20（仮）・D23・D25・D26（仮）・D28（仮））: `ureq` に機能 `rustls`・`platform-verifier` を足し、`build.rs` で `cfg(ashiato_test_build)` を立てる（その時だけ `ASHIATO_COLLECTOR_TEST_UPDATE_URL`・`ASHIATO_COLLECTOR_TEST_NOW` を読む）。宛先は配布元の定数。
+- [x] 8.1 `crates/collector-windows`（D2・D4・D5・D8・D12（仮）・D17（仮）・D20（仮）・D23・D25・D26（仮）・D28（仮））: `ureq` に機能 `rustls`・`platform-verifier` を足し、`build.rs` で `cfg(ashiato_test_build)` を立てる（その時だけ `ASHIATO_COLLECTOR_TEST_UPDATE_URL`・`ASHIATO_COLLECTOR_TEST_NOW` を読む）。宛先は配布元の定数。
   起動の時と実行時の 1 時間ごとの仕事で、送り先が設定済みで確認が有効なら `due` を見て確かめ、置き場の `update-check.json` と `update-checks.jsonl` に書く。新しい版ごとに 1 回札 `update`、7 日確かめられなければ続く間に 1 回札 `update-stale`（D20（仮）の文）。サーバには問い合わせない。
   `update-check off|on` の口と、`setup` の保存の後の「新しい版を確かめますか [Y/n]」（空の行は確かめる。値は `settings.json`）。`tools/check-no-time-server.sh` が今のまま通る（子プロセスを足さない）。
   試験（`#[cfg(test)]` と `tests/`、名前は `st57_pc_`。loopback の受け手と差し替えた時計）: `// Scenario: PC の収集アプリの問い合わせは版の一覧の取得だけである`・`試験の組み立ては差し替えの宛先が無ければ確かめない`・`PC の収集アプリは送り先を設定するまで確かめない`・`PC の収集アプリは新しい版をサーバに問い合わせない`（サーバの宛先の受け手が 0 件）・`確認の無い前の版から入れ替えた収集アプリは、切り方を示してから確かめる`（D23。札 `update-intro`）・`入れ替えた PC の収集アプリは、トーストを出せない間は問い合わせない`（偽の通知の出し手が `Err` を返す。起動し直すと試み直す）・`入れ替えた PC の収集アプリは、トーストを出せた後の機会に確かめる`・`入れ替えた PC の収集アプリは、起動し直さなくても定期の時に切り方のトーストを試み直す`（D25。その回の観測を差し替え、ロックしておらず経過 60 秒）・`入れ替えた PC の収集アプリは、画面のロック中の定期の時には切り方のトーストを試みない`（D25。観測は `locked` が真で経過 60 秒。偽の出し手が呼ばれた回数 0）・`入れ替えた PC の収集アプリは、最後の入力から 5 分を過ぎた定期の時には切り方のトーストを試みない`（D25。301 秒で 0 回・300 秒で 1 回）・`入れ替えた PC の収集アプリは、入力の経過を読めない定期の時には切り方のトーストを試みない`（D28（仮）。`IdleRead::Unavailable`）・`入れ替えた収集アプリは、示すまでの間を 7 日に数えない`（D26（仮））・
@@ -103,7 +103,7 @@
   `6 日確かめられていないだけなら知らせない`・`7 日確かめられなければ PC が 1 回知らせる`・`確かめられたら、次に続いたときにまた知らせる`・`確認を切った部品は確かめられていないと知らせない`・`最後に確かめられた時刻が未来なら、7 日が過ぎたとみなす`
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st57_pc_ && test "$(cargo test -p ashiato-collector-windows st57_pc_ -- --list 2>/dev/null | grep -c ": test$")" -ge 23'` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` rc=0（既存の試験が通る） /
   `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `tools/check-no-time-server.sh` rc=0 / `tools/check-licenses.sh` rc=0 / `tools/check-updater-deps.sh` rc=0
-- [ ] 8.2 配る PC の収集アプリの宛先: `check-artifacts.sh` が、配る `ashiato-collector-windows.exe` に `ASHIATO_COLLECTOR_TEST_UPDATE_URL` が無く `https://api.github.com/repos/rai-256/ashiato/releases` があることを見る。6.1 の `--self-test` の `echo "== Scenario: 配る組み立ては宛先を変える口を持たない"` を、更新係と PC の両方を見る形にしてここで置く（宛先を入れた後の Task なので、本物の配布物でも落ちない。review/spec.md R18）
+- [x] 8.2 配る PC の収集アプリの宛先: `check-artifacts.sh` が、配る `ashiato-collector-windows.exe` に `ASHIATO_COLLECTOR_TEST_UPDATE_URL` が無く `https://api.github.com/repos/rai-256/ashiato/releases` があることを見る。6.1 の `--self-test` の `echo "== Scenario: 配る組み立ては宛先を変える口を持たない"` を、更新係と PC の両方を見る形にしてここで置く（宛先を入れた後の Task なので、本物の配布物でも落ちない。review/spec.md R18）
   検証: `tools/release/check-artifacts.sh --self-test` rc=0
 
 ## Task 9: 携帯の収集アプリの更新の確認
