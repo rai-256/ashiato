@@ -92,6 +92,7 @@
 - kind: technical
 - 提案: 受け手が受けた要求を全部読み、見出しの名前の集合 ⊆ {Host, User-Agent, Accept, Accept-Encoding, Connection}・方法 `GET`・道・本文 0 バイト・どの値にも自分の版（と PC の端末の識別子・送り先の合言葉）が無いことを、更新係と PC の両方で assert する。印はその試験へ移す
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R2. 試験の組み立て（debug）の携帯は、宛先を差し替えないと本物の配布元 `https://api.github.com` に問い合わせる
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt / collector-android/app/build.gradle.kts / tools/android-emulator.sh
@@ -102,6 +103,7 @@
 - kind: technical
 - 提案: debug で宛先が空なら `no_destination` を記録して問い合わせない（PC の `update_url` の `cfg(ashiato_test_build)` と同じ形）。release の `BuildConfig` だけが配布元の定数を持つ。その振る舞いを Robolectric で固定する
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R3. 携帯の St57 の試験の多くは、印の Scenario の主張を観測していない（7 つの振る舞いを壊しても 29 本が全部緑）
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt / collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateCheckTest.kt
@@ -124,6 +126,7 @@
 - kind: technical
 - 提案: Scenario ごとに GIVEN を作り（`IMPORTANCE_NONE` のチャンネル・`ShadowConnectivityManager` で回線だけ・loopback の受け手・`getNextStartedActivity`）、THEN の観測（受け手の件数・サーバの宛先の件数・`ShadowNotificationManager` の通知の数・印）を assert する。印の名前を spec に合わせる（`St57UpdateCheckTest.kt:79`）
 - 処置: fixed 9.1
+- 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: St57UpdateNoticeTest.kt:98-101・183-190・197-204 は isNewer/stale/due を直に呼ぶだけで、元の弱い観測のまま。IMPORTANCE_NONE・ShadowConnectivityManager・getNextStartedActivity などの grep も 0 件。diff はこのファイルに触れていない
 
 ## R4. PC の収集アプリの「新しい版ごとに 1 回」・setup の既定・起動時と 1 時間ごとの呼び出しは、どの試験も固定していない
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs / crates/collector-windows/src/update_check.rs / crates/collector-windows/src/setup.rs / crates/collector-windows/src/runtime.rs
@@ -136,6 +139,7 @@
 - kind: technical
 - 提案: 偽の出し手で「0.5.0 を 2 回 → 0.5.1」で `update` が 2 回になることを見る。`run_setup_flow` に空の行と `n` を流して `settings.json` を見る。`Runtime` に偽の UpdateChecker（または一時の置き場と受け手）を差し、`tick_at` を 1 時間進めて確かめが 1 回出ることを見る
 - 処置: fixed 8.1
+- 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: st57_pc_update.rs:358-377 の setup 試験は run_setup_flow も標準入力も使わず start を呼ぶだけ。版ごとに 1 回は 2 回続けて 0.5.1 を見ていない。runtime の set_update_checker を通す試験は無い
 
 ## R5. 9.2 の件数の検査は前の実行の写しを数え続け、St57UpdateQueryTest が 0 件の実行でも rc=0 になる
 - 成果物: tools/android-emulator.sh
@@ -146,6 +150,7 @@
 - kind: technical
 - 提案: 写しを作る前に `connected/st57-update/` を消し、今回の実行の XML（`connected/debug/` か今回の段）だけから数える。または写しを止めて、件数の検査を最新の段の XML に向ける
 - 処置: fixed 9.2
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R6. 携帯の 7 日とサーバの「まだ確かめていない」の 7 日は、値を変えても試験が通る
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt / crates/server/src/update_status.rs / collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateCheckTest.kt / crates/server/src/st57_tests.rs
@@ -155,6 +160,7 @@
 - kind: technical
 - 提案: 材料の `timing` に「7 日ちょうど（真）」と「7 日 − 1 秒（偽）」を足す（Rust と Kotlin の両方が通す）。サーバの `since` の 7 日も、7 日ちょうどと 7 日 − 1 秒で見る
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R7. Task 10.2 の `cargo test --workspace` は 3 回のうち 2 回 rc=101。1 回目は更新係の時間切れの試験の理由が `Unreachable` だった
 - 成果物: crates/updater/tests/st57_once.rs
@@ -165,6 +171,7 @@
 - kind: technical
 - 提案: 受け手は閉じずに、試験が終わるまで（30 秒より十分長く）接続を握ったままにし、時間切れの理由が `Timeout` 以外になる余地をなくす（推定の原因に対する直し。直した後に全体の試験を何回か走らせて確かめる）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R8. 配る形の更新係の実行ファイルには、`check-artifacts.sh` が探す宛先の文字列がひと続きで入らない
 - 成果物: tools/release/check-artifacts.sh / crates/updater/src/lib.rs
@@ -174,6 +181,7 @@
 - kind: technical
 - 提案: 更新係も PC の収集アプリ（`update_check.rs:13` の `RELEASES_URL`）と同じく、全体の URL を 1 つの定数で持つ。self-test の偽の実行ファイルは、本物の組み立てと同じ形（2 つの断片）からも作り、それが落ちることを見る
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R9. `[x]` の Task の本文にあって、実体の無いもの
 - 成果物: openspec/changes/st57-update-notice/premises.md / collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/St57UpdateQueryTest.kt
@@ -184,6 +192,7 @@
 - kind: technical
 - 提案: P10 を、9.2 の計測テストで受けた見出しから書き直す（機種名は伏せる）。St57UpdateQueryTest に見出しの名前の集合と値の assert を足す。9.1・8.1 の残りは R3・R4 の直しで埋める
 - 処置: fixed 9.2
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R10. 時計が進んだ状態で入れてから戻すと、更新係が一度も結果を書かない間、サーバは「確かめられていない」を出さない
 - 成果物: crates/server/src/update_status.rs
@@ -194,6 +203,7 @@
 - kind: technical
 - 提案: `since` が未来のときも、共有の `stale` と同じく「過ぎた」とみなす（`stale(now, settings.since)` を使う）。その場合の試験を足す
 - 処置: fixed 3.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R11. PC と携帯の「切ってあれば問い合わせない」を消しても、試験は全部緑（入れ替えの門が代わりに止めている）
 - 成果物: crates/collector-windows/tests/st57_pc_update.rs / collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt / crates/collector-windows/src/update_check.rs / collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
@@ -203,6 +213,7 @@
 - kind: technical
 - 提案: 示した印を立て、送り先を設定し、確かめる時期を過ぎた端末で切り、loopback の受け手への問い合わせが 0 件であることを PC（`start` と `periodic` の両方）と携帯で assert する
 - 処置: fixed 8.1
+- 判定: NOT ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）: PC の st57_pc_update.rs:535-541 は空の置き場で入れ替えの門が止める。携帯の St57UpdateNoticeTest.kt:183-186 は印を立てない。受け手の件数が 0 になることを見る試験は無い
 
 ## security review（8f10733..ef3a33a）
 
@@ -226,6 +237,7 @@
 - kind: technical
 - 提案: 更新係の置き場にも `/setowner *S-1-5-32-544 /T /C` を ACL の前にかけ（初回・走らせ直しの両方）、走らせ直しでも 3 つのフォルダに `ensure_real_directory` を通す。`take_ownership_command` の試験に更新係の置き場を足す
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## /code-review（8f10733..6276a48）
 
@@ -237,6 +249,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R14. `choose()` swallows JSON parse and shape errors (runCatching → empty list). `check()` then treats any non-null Choice as a successful check, so an unreadable body counts as ok.
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt:56
@@ -244,6 +257,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R15. `once_at` overwrites `status.found_at = Some(at)` on every successful check, even when `latest` has not changed. The PC collector only updates it when the version changes (`if state.latest != latest`).
 - 成果物: crates/updater/src/lib.rs:270
@@ -251,6 +265,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R16. A status.json that fails to parse makes `once_at` return Err before anything is written. The updater never repairs or replaces the file, so it stops checking for good.
 - 成果物: crates/updater/src/lib.rs:228
@@ -258,6 +273,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R17. `save_status` uses plain `fs::write`, which truncates and then writes, while the server reads status.json at any time. The collector uses `fsutil::atomic_write` for the same kind of file.
 - 成果物: crates/updater/src/lib.rs:129
@@ -265,6 +281,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R18. In `check()`, a toast failure from `self.show(...)?` returns early after the JSONL record was appended but before `self.save(&state)`, so checked_at, latest and last_ok_at are lost.
 - 成果物: crates/collector-windows/src/update_check.rs:262
@@ -272,6 +289,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 8.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R19. `update_check_service_commands(enabled=true)` always appends a bare `sc start`, which fails with 1056 when the service is already running. main.rs already has an `ensure_running` helper for this case.
 - 成果物: crates/installer/src/commands.rs:603
@@ -279,6 +297,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R20. Redirect validation compares only `host()` and not the scheme. The server updater checks both scheme and authority.
 - 成果物: crates/collector-windows/src/update_check.rs:382
@@ -286,6 +305,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 8.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R21. `reasons` has no `no_destination` entry, although the server's `reason_name` can return it.
 - 成果物: web/src/messages.ts:109
@@ -293,6 +313,7 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 
 ## R22. `write_update_check` and `rewrite_update_check` are near-identical copies (create the parent dir, build {enabled, since}, write). `chrono_like_now`/`civil_from_days` hand-roll RFC 3339 formatting that chrono already provides elsewhere in the workspace.
 - 成果物: crates/installer/src/main.rs:210
@@ -300,3 +321,4 @@
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
