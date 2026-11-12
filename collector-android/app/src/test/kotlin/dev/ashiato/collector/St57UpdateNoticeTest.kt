@@ -19,7 +19,11 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowAlertDialog
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 private class St57MainActivity : MainActivity() {
     override fun shouldOfferInitialSetup() = false
@@ -63,6 +67,33 @@ class St57UpdateNoticeTest {
     }
 
     private fun configured() = Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
+
+    /** 実際の HttpURLConnection が何件届いたかを読む小さな loopback の受け手。 */
+    private fun releasesServer(expected: Int = 1): Triple<String, MutableList<String>, CountDownLatch> {
+        val server = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
+        val seen = mutableListOf<String>()
+        val done = CountDownLatch(1)
+        Thread {
+            server.use { listener ->
+                listener.soTimeout = 500
+                repeat(expected) {
+                    try {
+                        listener.accept().use { socket ->
+                            val input = socket.getInputStream().bufferedReader()
+                            while (input.readLine()?.isNotEmpty() == true) {}
+                            synchronized(seen) { seen += "request" }
+                            val body = "[{\"tag_name\":\"v0.5.0\",\"draft\":false,\"assets\":[{\"name\":\"ashiato-collector-0.5.0.apk\"}]}]"
+                            socket.getOutputStream().write(
+                                "HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray()
+                            )
+                        }
+                    } catch (_: java.net.SocketTimeoutException) { return@repeat }
+                }
+            }
+            done.countDown()
+        }.start()
+        return Triple("http://127.0.0.1:${server.localPort}", seen, done)
+    }
 
     private fun texts(activity: android.app.Activity): List<String> {
         val result = mutableListOf<String>()
@@ -132,11 +163,16 @@ class St57UpdateNoticeTest {
             assertTrue((switch.parent as android.view.ViewGroup).indexOfChild(switch) < (input.parent as android.view.ViewGroup).indexOfChild(input))
         }; scenario.close()
     }
-    @Test fun `update チャンネルの名前を使う`() {
+    @Test fun `update チャンネルを切ると示したと数えず問い合わせない`() {
         // Scenario: 入れ替えた携帯は、チャンネル update だけを切ってあっても示したとみなさない
-        configured(); UpdateChecker(app).check(now)
-        val channel = app.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel(UpdateCheck.CHANNEL)
-        assertNotNull(channel); assertEquals("update", channel!!.id)
+        configured()
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        manager.createNotificationChannel(android.app.NotificationChannel(UpdateCheck.CHANNEL, "更新", android.app.NotificationManager.IMPORTANCE_NONE))
+        val (url, seen, done) = releasesServer()
+        assertFalse(UpdateChecker(app, url).check(now))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertTrue(seen.isEmpty())
+        assertFalse(app.getSharedPreferences(UpdateCheck.PREFS, 0).getBoolean("intro_shown", false))
     }
     @Test fun `切り方を示した後は次の確認時刻を待つ`() {
         // Scenario: 入れ替えた携帯は、画面に切り方を出した後の機会に確かめる
@@ -180,13 +216,29 @@ class St57UpdateNoticeTest {
         // Scenario: 入れ替えた携帯は、切り方を画面に出した時に確かめられていないを並べない
         configured(); open().use { it.onActivity { activity -> assertFalse(texts(activity).any { text -> text.contains("7 日確かめられていません") }) } }
     }
-    @Test fun `スイッチを切ると確認しない`() {
+    @Test fun `スイッチを切ると示した後でも問い合わせない`() {
         // Scenario: 携帯でスイッチを切ると問い合わせが無くなる
-        UpdateChecker(app).setEnabled(false); assertFalse(UpdateChecker(app).check(now))
+        configured()
+        val (url, seen, done) = releasesServer()
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        checker.setEnabled(false)
+        assertFalse(checker.check(now))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertTrue(seen.isEmpty())
     }
-    @Test fun `新しい版ごとに比較が一度だけ成立する`() {
+    @Test fun `新しい版ごとに通知は一度だけ出る`() {
         // Scenario: 携帯は新しい版ごとに 1 回だけ通知する
-        assertTrue(UpdateCheck.isNewer("0.4.0", "0.4.1")); assertFalse(UpdateCheck.isNewer("0.4.1", "0.4.1"))
+        configured()
+        val (url, seen, done) = releasesServer(2)
+        val checker = UpdateChecker(app, url)
+        checker.markIntroShown(now.minusSeconds(25 * 3600))
+        assertTrue(checker.check(now))
+        assertTrue(checker.check(now.plusSeconds(25 * 3600)))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(2, seen.size)
+        val notifications = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications
+        assertEquals(1, notifications.count { it.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("新しい版") })
     }
     @Test fun `通知の遷移先は MainActivity である`() {
         // Scenario: 携帯の更新の通知を押すと最初の画面が開く

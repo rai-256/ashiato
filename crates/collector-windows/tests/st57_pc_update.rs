@@ -3,6 +3,10 @@
 use ashiato_collector_windows::update_check::{
     due, toast_xml, Toaster, UpdateChecker, UpdateState,
 };
+use ashiato_collector_windows::{
+    config::Config,
+    setup::{run_setup_flow, SetupOutcome},
+};
 use chrono::{TimeZone, Utc};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -25,7 +29,10 @@ impl Toaster for FakeToaster {
     }
 }
 
-fn server(body: &str) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+fn server_n(
+    body: &str,
+    expected: usize,
+) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -33,20 +40,21 @@ fn server(body: &str) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHand
     let output = Arc::clone(&seen);
     let body = body.to_owned();
     let thread = std::thread::spawn(move || {
-        let mut accepted = None;
-        for _ in 0..100 {
-            match listener.accept() {
-                Ok(value) => {
-                    accepted = Some(value);
-                    break;
+        for _ in 0..expected {
+            let mut accepted = None;
+            for _ in 0..100 {
+                match listener.accept() {
+                    Ok(value) => {
+                        accepted = Some(value);
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10))
+                    }
+                    Err(_) => break,
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(std::time::Duration::from_millis(10))
-                }
-                Err(_) => break,
             }
-        }
-        if let Some((mut stream, _)) = accepted {
+            let Some((mut stream, _)) = accepted else { break };
             let mut request = Vec::new();
             let mut byte = [0; 1];
             while stream.read_exact(&mut byte).is_ok() {
@@ -69,6 +77,9 @@ fn server(body: &str) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHand
         }
     });
     (url, seen, thread)
+}
+fn server(body: &str) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+    server_n(body, 1)
 }
 fn releases(version: &str) -> String {
     format!(
@@ -347,34 +358,41 @@ fn st57_pc_server_switch_does_not_disable_client() {
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 #[test]
-fn st57_pc_off_setting_is_persisted() {
+fn st57_pc_off_setting_stops_start_and_periodic_after_intro() {
     // Scenario: PC で update-check off にすると問い合わせが無くなる
     let dir = tempfile::tempdir().unwrap();
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
     let c = UpdateChecker::new(dir.path());
+    c.set_enabled(true).unwrap();
+    // 入れ替えの門ではなく enabled の門を通る状態を先に作る。
+    c.state().unwrap();
     c.set_enabled(false).unwrap();
     assert!(!c.enabled().unwrap());
+    assert!(c.start(Utc::now()).unwrap().is_none());
+    assert!(c.periodic(Utc::now(), false, Some(0)).unwrap().is_none());
+    thread.join().unwrap();
+    assert!(seen.lock().unwrap().is_empty());
 }
 #[test]
 fn st57_pc_setup_default_is_on() {
     // Scenario: PC の setup は確かめるかを聞き、既定は確かめる
     let dir = tempfile::tempdir().unwrap();
-    let (url, seen, thread) = server(&releases("0.5.0"));
-    std::fs::write(
-        dir.path().join("settings.json"),
-        format!(r#"{{"base_url":"{url}"}}"#),
-    )
-    .unwrap();
-    std::fs::write(
-        dir.path().join("update-check.json"),
-        serde_json::to_vec(&UpdateState::default()).unwrap(),
-    )
-    .unwrap();
-    env(Some(&url), || {
-        let c = UpdateChecker::new(dir.path());
-        assert!(c.start(Utc::now()).unwrap().is_some());
-    });
-    thread.join().unwrap();
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    let cfg = Config {
+        base_url: "http://127.0.0.1:1".into(), api_token: "token".into(),
+        user_id: uuid::Uuid::nil(), device_id: "pc-test".into(), state_dir: dir.path().to_owned(),
+        settings_mtime: None, credential_mtime: None, config_from_env: false,
+        exclusions_path: dir.path().join("exclusions.json"), launch_state_dir: dir.path().to_owned(),
+        launch_device_id: "pc-test".into(),
+    };
+    let mut input = std::io::Cursor::new(b"\n\n".to_vec());
+    let mut output = Vec::new();
+    let connect = |_: &str, _: &str| -> Box<dyn ashiato_collector_windows::sender::Transport> {
+        unreachable!("既存の送り先なので接続しない")
+    };
+    assert_eq!(run_setup_flow(&cfg, &mut input, &mut output, &connect).unwrap(), SetupOutcome::Saved);
+    assert!(String::from_utf8(output).unwrap().contains("新しい版を確かめますか [Y/n]"));
+    assert!(UpdateChecker::new(dir.path()).enabled().unwrap());
 }
 #[test]
 fn st57_pc_mobile_setting_is_independent() {
@@ -395,17 +413,22 @@ fn st57_pc_mobile_setting_is_independent() {
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 #[test]
-fn st57_pc_update_message_has_distinct_tag() {
+fn st57_pc_update_message_is_once_per_version() {
     // Scenario: PC は新しい版ごとに 1 回だけ通知する
     let dir = tempfile::tempdir().unwrap();
-    let (url, _, thread) = server(&releases("0.5.0"));
+    let (url, _, thread) = server_n(&releases("0.5.0"), 2);
     configure(dir.path(), &url);
     let t = Arc::new(FakeToaster::default());
     let c = UpdateChecker::new(dir.path()).with_toaster(t.clone());
     env(Some(&url), || {
         c.set_enabled(true).unwrap();
         c.start(Utc::now()).unwrap();
-        assert!(t.calls.lock().unwrap().contains(&"update".into()));
+        // 24 時間を過ぎた同じ版の 2 回目は、問い合わせても通知しない。
+        c.start(Utc::now() + chrono::Duration::hours(25)).unwrap();
+        assert_eq!(
+            t.calls.lock().unwrap().iter().filter(|tag| *tag == "update").count(),
+            1
+        );
     });
     thread.join().unwrap();
 }
@@ -535,10 +558,16 @@ fn st57_pc_success_resets_stale_cycle() {
 fn st57_pc_disabled_does_not_stale() {
     // Scenario: 確認を切った部品は確かめられていないと知らせない
     let dir = tempfile::tempdir().unwrap();
+    let (url, seen, thread) = server(&releases("0.5.0"));
+    configure(dir.path(), &url);
     let c = UpdateChecker::new(dir.path());
+    c.set_enabled(true).unwrap();
     c.set_enabled(false).unwrap();
     assert!(c.start(Utc::now()).unwrap().is_none());
+    assert!(c.periodic(Utc::now(), false, Some(0)).unwrap().is_none());
     assert!(!dir.path().join("update-checks.jsonl").exists());
+    thread.join().unwrap();
+    assert!(seen.lock().unwrap().is_empty());
 }
 #[test]
 fn st57_pc_future_check_is_stale() {

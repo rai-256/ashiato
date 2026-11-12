@@ -1554,6 +1554,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn st57_runtime_runs_update_check_at_start_and_hourly_tick() {
+        // Scenario: PC の収集アプリは起動の時と実行時の 1 時間ごとの仕事で更新を確かめる
+        let (cfg, _tmp) = cfg();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let checker = crate::update_check::UpdateChecker::new(&cfg.state_dir);
+        // 新規導入直後の「示す」門ではなく Runtime が起こす check を観測する。
+        checker.set_enabled(true).unwrap();
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        rt.set_update_checker(checker);
+        let mut source = FakeSource::new("editor");
+        rt.start_at(&source, t(0), t(0));
+        let records = cfg.state_dir.join("update-checks.jsonl");
+        for _ in 0..100 {
+            if records.exists() { break; }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(records.exists(), "起動時の更新確認が走らない");
+        // runtime の 1 時間の契機と、更新係自身の 24 時間の間引きを別々に満たす。
+        rt.tick_at(&mut source, t(86_400), t(3600));
+        for _ in 0..100 {
+            if std::fs::read_to_string(&records).unwrap_or_default().lines().count() >= 2 { break; }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(records).unwrap().lines().count(), 2);
+    }
+
     // Scenario: 設定が無くても起動して前景の窓を積む
     // Scenario: 設定の無い起動は窓で貼らせ、待つ間も収集する
     #[test]
