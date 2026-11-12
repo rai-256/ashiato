@@ -212,37 +212,61 @@ fn write_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), Stri
     if path.exists() && enabled {
         return Ok(());
     }
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let since = format!("{}Z", chrono_like_now());
     let value = serde_json::json!({"enabled": enabled, "since": since});
-    fs::write(path, serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
 }
 
 fn rewrite_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
     let path = commands::updater_settings_path(layout);
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let value = serde_json::json!({"enabled": enabled, "since": format!("{}Z", chrono_like_now())});
-    fs::write(path, serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
 }
 
-fn update_check_enabled(layout: &layout::Layout) -> bool {
+fn update_check_enabled(layout: &layout::Layout) -> Result<bool, String> {
     fs::read_to_string(commands::updater_settings_path(layout))
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|value| value["enabled"].as_bool())
-        .unwrap_or(true)
+        .map_err(|error| format!("更新の確認の設定を読めない: {error}"))
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(&text)
+                .map_err(|error| format!("更新の確認の設定を読めない: {error}"))
+        })
+        .and_then(|value| {
+            value["enabled"]
+                .as_bool()
+                .ok_or_else(|| "更新の確認の設定に enabled が無い".to_owned())
+        })
 }
 
 fn chrono_like_now() -> String {
     // RFC 3339 の秒精度。Windows API や外部コマンドに依らず、設定ファイルの初期値だけを作る。
     use std::time::{SystemTime, UNIX_EPOCH};
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let days = seconds / 86_400;
     let day_seconds = seconds % 86_400;
     let (year, month, day) = civil_from_days(days as i64);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}", day_seconds / 3600, (day_seconds % 3600) / 60, day_seconds % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
+        day_seconds / 3600,
+        (day_seconds % 3600) / 60,
+        day_seconds % 60
+    )
 }
 
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
@@ -260,7 +284,10 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 fn update_check(layout: &layout::Layout, enabled: bool, trace: bool) -> Result<(), String> {
     rewrite_update_check(layout, enabled)?;
-    run_all(&commands::update_check_service_commands(layout, enabled), trace)
+    run_all(
+        &commands::update_check_service_commands(layout, enabled),
+        trace,
+    )
 }
 
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
@@ -850,11 +877,17 @@ fn copy_program_files(layout: &layout::Layout, trace: bool) -> Result<(), String
             },
         )?;
     }
-    program_file_plan(&source.join("ashiato-updater.exe"), &target.join("ashiato-updater.exe"), &mut missing)
-        .map_err(|error| match error {
-            CopyPlanError::Io(error) => format!("プログラムの置き場の更新係を読めない: {error}"),
-            CopyPlanError::Differs(path) => commands::program_version_mismatch_message(&path.display().to_string()),
-        })?;
+    program_file_plan(
+        &source.join("ashiato-updater.exe"),
+        &target.join("ashiato-updater.exe"),
+        &mut missing,
+    )
+    .map_err(|error| match error {
+        CopyPlanError::Io(error) => format!("プログラムの置き場の更新係を読めない: {error}"),
+        CopyPlanError::Differs(path) => {
+            commands::program_version_mismatch_message(&path.display().to_string())
+        }
+    })?;
     for (from, to) in &missing {
         copy_atomically(from, to).map_err(|error| {
             format!("プログラムの置き場へ {} を写せない: {error}", to.display())
@@ -1110,8 +1143,11 @@ fn install(
             grant_db_watch(layout, trace)?;
             if setup_updater {
                 run(&commands::register_updater_command(layout), trace)?;
-                run_all(&commands::configure_updater_commands(layout), trace)?;
-                run_all(&commands::updater_acl_commands(layout, &identity.owner), trace)?;
+                run_all(&commands::configure_updater_commands(layout, true), trace)?;
+                run_all(
+                    &commands::updater_acl_commands(layout, &identity.owner),
+                    trace,
+                )?;
             }
         } else {
             if !db_service_exists {
@@ -1237,14 +1273,25 @@ fn install(
         }
         configure_services(layout, trace)?;
         if setup_updater {
+            let updater_enabled =
+                read_settings_unprivileged(&commands::updater_settings_path(layout))
+                    .and_then(|value| value["enabled"].as_bool())
+                    .unwrap_or(true);
             if !service_exists(layout.updater_service) {
                 run(&commands::register_updater_command(layout), trace)?;
             }
-            run_all(&commands::configure_updater_commands(layout), trace)?;
-            if !Path::new(layout.updater_dir).exists() {
-                fs::create_dir_all(Path::new(layout.updater_dir).join("settings")).map_err(|e| e.to_string())?;
-            }
-            run_all(&commands::updater_acl_commands(layout, &identity.owner), trace)?;
+            run_all(
+                &commands::configure_updater_commands(layout, updater_enabled),
+                trace,
+            )?;
+            fs::create_dir_all(Path::new(layout.updater_dir).join("settings"))
+                .map_err(|e| format!("更新係の設定の置き場を作れない: {e}"))?;
+            fs::create_dir_all(Path::new(layout.updater_dir).join("logs"))
+                .map_err(|e| format!("更新係のログの置き場を作れない: {e}"))?;
+            run_all(
+                &commands::updater_acl_commands(layout, &identity.owner),
+                trace,
+            )?;
         }
     }
 
@@ -1328,19 +1375,26 @@ fn install(
 
     // (13) 案内
     open_browser(layout, trace);
-    terminal_line(
-        &commands::install_notice(layout.server_port, free_space_gb()),
-        false,
-    );
     if setup_updater {
-        let _ = write_update_check(layout, true);
+        write_update_check(layout, true)?;
         if let Some(url) = test_hook!("UPDATER_URL") {
             let hooks = commands::updater_test_hooks_path(layout);
-            let _ = fs::write(hooks, serde_json::json!({"url": url}).to_string());
+            fs::write(hooks, serde_json::json!({"url": url}).to_string())
+                .map_err(|error| format!("更新係の試験の差し込みを書けない: {error}"))?;
         }
+        run(
+            &commands::updater_settings_acl_command(layout, &identity.owner),
+            trace,
+        )?;
     }
+    let updater_enabled = setup_updater && update_check_enabled(layout)?;
+    terminal_line(
+        &commands::install_notice(layout.server_port, free_space_gb(), updater_enabled),
+        false,
+    );
     // 更新係の開始失敗は、本体のインストール成功を取り消さない。
-    if setup_updater && update_check_enabled(layout) {
+    if commands::install_completion_steps(setup_updater, updater_enabled).contains(&"start-updater")
+    {
         let _ = ensure_running(layout.updater_service, trace);
     }
     Ok(())
@@ -1754,7 +1808,11 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
         ),
         "password" => password(&selected, trace),
         "uninstall" => uninstall(&selected, trace),
-        "update-check" => update_check(&selected, refs.get(1).is_some_and(|arg| *arg == "on"), trace),
+        "update-check" => update_check(
+            &selected,
+            refs.get(1).is_some_and(|arg| *arg == "on"),
+            trace,
+        ),
         _ => Err(format!("{command} の口はありません")),
     }
 }

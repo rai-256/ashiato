@@ -230,8 +230,17 @@ mod tests {
         let layout = layout::Layout::release();
         let text = lines(&commands::updater_acl_commands(&layout, "S-1-5-21-owner"));
         assert!(text.contains("ashiato-updater"));
-        assert!(!text.contains("Users") && !text.contains("Authenticated Users") && !text.contains("Everyone"));
-        assert!(!lines(&commands::acl_commands(&layout, "S-1-5-21-owner")).contains("ashiato-updater"));
+        let settings = commands::updater_settings_acl_command(&layout, "S-1-5-21-owner").line();
+        assert!(settings.contains(":R"));
+        assert!(!settings.contains(":M"));
+        assert!(
+            !text.contains("Users")
+                && !text.contains("Authenticated Users")
+                && !text.contains("Everyone")
+        );
+        assert!(
+            !lines(&commands::acl_commands(&layout, "S-1-5-21-owner")).contains("ashiato-updater")
+        );
     }
 
     #[test]
@@ -248,12 +257,17 @@ mod tests {
     fn st57_update_check_switch_is_one_elevation() {
         assert_eq!(commands::elevation_count(true), 0);
         assert_eq!(commands::elevation_count(false), 1);
+        let command = commands::update_check_elevation_command(r"C:\setup.exe", false);
+        assert_eq!(command.matches("-Verb RunAs").count(), 1);
+        assert!(command.contains("update-check") && command.contains("off"));
     }
 
     // Scenario: repair は更新係に触れない
     #[test]
     fn st57_repair_commands_do_not_mention_updater() {
-        let text = lines(&commands::repair_cleanup_commands(&layout::Layout::release()));
+        let text = lines(&commands::repair_cleanup_commands(
+            &layout::Layout::release(),
+        ));
         assert!(!text.contains("ashiato-updater"));
     }
 
@@ -267,19 +281,43 @@ mod tests {
     #[test]
     fn st57_updater_paths_are_outside_server_state() {
         let layout = layout::Layout::release();
-        assert!(commands::updater_settings_path(&layout).to_string_lossy().contains("ashiato-updater"));
-        assert!(!commands::updater_settings_path(&layout).to_string_lossy().contains(r"ProgramData\ashiato\settings"));
+        assert!(commands::updater_settings_path(&layout)
+            .to_string_lossy()
+            .contains("ashiato-updater"));
+        assert!(!commands::updater_settings_path(&layout)
+            .to_string_lossy()
+            .contains(r"ProgramData\ashiato\settings"));
     }
 
     #[test]
     fn st57_updater_registration_has_recovery_restart() {
-        let text = lines(&commands::configure_updater_commands(&layout::Layout::release()));
-        assert!(text.contains("failure ashiato-updater") && text.contains("failureflag ashiato-updater 1"));
+        let text = lines(&commands::configure_updater_commands(
+            &layout::Layout::release(),
+            true,
+        ));
+        assert!(
+            text.contains("failure ashiato-updater")
+                && text.contains("failureflag ashiato-updater 1")
+        );
+    }
+
+    #[test]
+    fn st57_rerun_disabled_updater_keeps_disabled_start_type() {
+        let text = lines(&commands::configure_updater_commands(
+            &layout::Layout::release(),
+            false,
+        ));
+        assert!(text.contains("start= disabled"));
+        assert!(!text.contains("start= auto"));
+        assert!(!text.contains("start ashiato-updater"));
     }
 
     #[test]
     fn st57_uninstall_removes_updater_service_but_not_directory() {
-        let text = lines(&commands::uninstall_commands(&layout::Layout::release(), Path::new(r"C:\tmp\setup.exe")));
+        let text = lines(&commands::uninstall_commands(
+            &layout::Layout::release(),
+            Path::new(r"C:\tmp\setup.exe"),
+        ));
         assert!(text.contains("stop 'ashiato-updater'") && text.contains("delete ashiato-updater"));
         assert!(!text.contains("ashiato-updater /s /q"));
     }
@@ -293,9 +331,19 @@ mod tests {
 
     #[test]
     fn st57_install_notice_explains_update_check_switch() {
-        let text = commands::install_notice(18700, None);
+        let text = commands::install_notice(18700, None, true);
         assert!(text.contains("更新の確認: 有効"));
         assert!(text.contains("ashiato-setup.exe update-check off"));
+        assert!(commands::install_notice(18700, None, false).contains("更新の確認: 無効"));
+    }
+
+    #[test]
+    fn st57_install_completion_starts_only_after_notice() {
+        assert_eq!(
+            commands::install_completion_steps(true, true),
+            ["notice", "start-updater"]
+        );
+        assert_eq!(commands::install_completion_steps(true, false), ["notice"]);
     }
 
     #[test]
@@ -808,7 +856,7 @@ mod tests {
     // Scenario: 最後に Tailscale の転送先を示し、Tailscale の設定は変えない
     #[test]
     fn st55_notice_mentions_forwarding_without_an_invocation() {
-        let notice = commands::install_notice(18700, Some(40));
+        let notice = commands::install_notice(18700, Some(40), true);
         assert!(notice.contains("無人で動かす"));
         assert!(notice.contains("tailscale serve"));
         assert!(notice.contains("127.0.0.1:18700"));
@@ -818,13 +866,13 @@ mod tests {
     // Scenario: 空きが見積もりより少なければ知らせ、インストールは続ける
     #[test]
     fn st55_notice_warns_only_below_forty_gb() {
-        assert!(commands::install_notice(18700, Some(39)).contains("39 GB"));
-        assert!(!commands::install_notice(18700, Some(40)).contains("見積もりは 40 GB"));
+        assert!(commands::install_notice(18700, Some(39), true).contains("39 GB"));
+        assert!(!commands::install_notice(18700, Some(40), true).contains("見積もりは 40 GB"));
     }
 
     #[test]
     fn st55_notice_keeps_installation_advisory_only() {
-        let notice = commands::install_notice(18700, Some(10));
+        let notice = commands::install_notice(18700, Some(10), true);
         assert!(notice.contains("10 GB"));
         assert!(notice.contains("見積もりは 40 GB"));
     }
