@@ -126,7 +126,21 @@ fn st57_pc_update_state_is_written_only_locally() {
         assert!(c.start(Utc::now()).unwrap().is_some());
     });
     thread.join().unwrap();
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    let requests = seen.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let request = requests.first().unwrap().to_ascii_lowercase();
+    assert!(request.starts_with("get /repos/rai-256/ashiato/releases?per_page=20 http/1.1\r\n"));
+    for line in request.lines().skip(1).filter(|line| !line.is_empty()) {
+        let name = line.split_once(':').unwrap().0;
+        assert!(
+            matches!(
+                name,
+                "host" | "user-agent" | "accept" | "accept-encoding" | "connection"
+            ),
+            "unexpected header: {line}"
+        );
+    }
+    assert!(!request.contains(env!("CARGO_PKG_VERSION")));
     assert!(dir.path().join("update-checks.jsonl").exists());
 }
 #[test]

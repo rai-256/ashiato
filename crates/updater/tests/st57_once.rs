@@ -105,6 +105,17 @@ fn st57_nightly_uses_only_tag_path() {
     assert!(request.contains("user-agent: ashiato-update-check\r\n"));
     assert!(request.contains("accept: application/vnd.github+json\r\n"));
     assert!(request.contains("accept-encoding: gzip\r\n"));
+    for line in request.lines().skip(1).filter(|line| !line.is_empty()) {
+        let name = line.split_once(':').unwrap().0;
+        assert!(
+            matches!(
+                name,
+                "host" | "user-agent" | "accept" | "accept-encoding" | "connection"
+            ),
+            "unexpected header: {line}"
+        );
+    }
+    assert!(!request.contains("0.4.0-dev.20261102"));
     assert!(request.ends_with("\r\n\r\n"));
 }
 

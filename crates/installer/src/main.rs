@@ -1261,6 +1261,16 @@ fn install(
                 .map_err(|e| format!("更新係の設定の置き場を作れない: {e}"))?;
             fs::create_dir_all(Path::new(layout.updater_dir).join("logs"))
                 .map_err(|e| format!("更新係のログの置き場を作れない: {e}"))?;
+            for directory in [
+                PathBuf::from(layout.updater_dir),
+                PathBuf::from(layout.updater_dir).join("settings"),
+                PathBuf::from(layout.updater_dir).join("logs"),
+            ] {
+                ensure_real_directory(&directory)?;
+            }
+            // A pre-existing updater directory can have been created by an
+            // unprivileged user.  Reset its owner before replacing its ACL.
+            run(&commands::take_updater_ownership_command(layout), trace)?;
             run_all(
                 &commands::updater_acl_commands(layout, &identity.owner),
                 trace,
