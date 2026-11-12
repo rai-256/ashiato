@@ -97,7 +97,14 @@ impl UpdateChecker {
     pub fn state(&self) -> anyhow::Result<UpdateState> {
         let path = self.dir.join(STATUS_FILE);
         match fs::read(path) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
+            Ok(bytes) => Ok(
+                serde_json::from_slice(&bytes).unwrap_or_else(|_| UpdateState {
+                    // 壊れた状態は入れ替え直後と同じ安全側へ戻し、案内を出すまで
+                    // 問い合わせも stale 通知も始めない。
+                    intro_shown: false,
+                    ..UpdateState::default()
+                }),
+            ),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(UpdateState {
                 intro_shown: false,
                 ..UpdateState::default()
@@ -270,7 +277,11 @@ impl UpdateChecker {
         {
             let last = state.last_ok_at.map_or_else(
                 || "—".to_owned(),
-                |v| v.with_timezone(&chrono::Local).format("%-m/%-d").to_string(),
+                |v| {
+                    v.with_timezone(&chrono::Local)
+                        .format("%-m/%-d")
+                        .to_string()
+                },
             );
             if self.show(
                 "更新を 7 日確かめられていません",
@@ -309,7 +320,8 @@ fn reason_text(reason: Option<CheckReason>) -> &'static str {
         Some(CheckReason::RateLimited) => "問い合わせの上限",
         Some(CheckReason::NotFound) => "配布元が見つからない",
         Some(CheckReason::Unreadable) => "読めない答え",
-        Some(CheckReason::NoDestination) | None => "配布元が見つからない",
+        Some(CheckReason::NoDestination) => "宛先なし",
+        None => "読めない答え",
     }
 }
 

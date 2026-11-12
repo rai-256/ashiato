@@ -3,7 +3,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
     let development = option_env!("ASHIATO_VERSION")
-        .map(|version| version.contains("-dev."))
+        .map(|version| ashiato_build_stamp::channel(version) == ashiato_build_stamp::Channel::Dev)
         .unwrap_or(false);
     let dir = std::env::var_os("ASHIATO_UPDATER_DIR")
         .map(std::path::PathBuf::from)

@@ -18,10 +18,12 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 struct FakeToaster {
     fail: bool,
     calls: Mutex<Vec<String>>,
+    texts: Mutex<Vec<String>>,
 }
 impl Toaster for FakeToaster {
-    fn show_update(&self, _xml: &str, tag: &str) -> anyhow::Result<()> {
+    fn show_update(&self, xml: &str, tag: &str) -> anyhow::Result<()> {
         self.calls.lock().unwrap().push(tag.into());
+        self.texts.lock().unwrap().push(xml.into());
         if self.fail {
             anyhow::bail!("toast unavailable");
         }
@@ -54,7 +56,9 @@ fn server_n(
                     Err(_) => break,
                 }
             }
-            let Some((mut stream, _)) = accepted else { break };
+            let Some((mut stream, _)) = accepted else {
+                break;
+            };
             let mut request = Vec::new();
             let mut byte = [0; 1];
             while stream.read_exact(&mut byte).is_ok() {
@@ -379,10 +383,16 @@ fn st57_pc_setup_default_is_on() {
     // Scenario: PC の setup は確かめるかを聞き、既定は確かめる
     let dir = tempfile::tempdir().unwrap();
     let cfg = Config {
-        base_url: "http://127.0.0.1:1".into(), api_token: "token".into(),
-        user_id: uuid::Uuid::nil(), device_id: "pc-test".into(), state_dir: dir.path().to_owned(),
-        settings_mtime: None, credential_mtime: None, config_from_env: false,
-        exclusions_path: dir.path().join("exclusions.json"), launch_state_dir: dir.path().to_owned(),
+        base_url: "http://127.0.0.1:1".into(),
+        api_token: "token".into(),
+        user_id: uuid::Uuid::nil(),
+        device_id: "pc-test".into(),
+        state_dir: dir.path().to_owned(),
+        settings_mtime: None,
+        credential_mtime: None,
+        config_from_env: false,
+        exclusions_path: dir.path().join("exclusions.json"),
+        launch_state_dir: dir.path().to_owned(),
         launch_device_id: "pc-test".into(),
     };
     let mut input = std::io::Cursor::new(b"\n\n".to_vec());
@@ -390,8 +400,13 @@ fn st57_pc_setup_default_is_on() {
     let connect = |_: &str, _: &str| -> Box<dyn ashiato_collector_windows::sender::Transport> {
         unreachable!("既存の送り先なので接続しない")
     };
-    assert_eq!(run_setup_flow(&cfg, &mut input, &mut output, &connect).unwrap(), SetupOutcome::Saved);
-    assert!(String::from_utf8(output).unwrap().contains("新しい版を確かめますか [Y/n]"));
+    assert_eq!(
+        run_setup_flow(&cfg, &mut input, &mut output, &connect).unwrap(),
+        SetupOutcome::Saved
+    );
+    assert!(String::from_utf8(output)
+        .unwrap()
+        .contains("新しい版を確かめますか [Y/n]"));
     assert!(UpdateChecker::new(dir.path()).enabled().unwrap());
 }
 #[test]
@@ -426,7 +441,12 @@ fn st57_pc_update_message_is_once_per_version() {
         // 24 時間を過ぎた同じ版の 2 回目は、問い合わせても通知しない。
         c.start(Utc::now() + chrono::Duration::hours(25)).unwrap();
         assert_eq!(
-            t.calls.lock().unwrap().iter().filter(|tag| *tag == "update").count(),
+            t.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|tag| *tag == "update")
+                .count(),
             1
         );
     });
@@ -495,6 +515,10 @@ fn st57_pc_seven_days_is_stale() {
     thread.join().unwrap();
     let calls = toaster.calls.lock().unwrap();
     assert_eq!(calls.iter().filter(|tag| *tag == "update-stale").count(), 1);
+    let texts = toaster.texts.lock().unwrap();
+    assert!(texts
+        .iter()
+        .any(|xml| xml.contains("最後に確かめた 1/1・読めない答え")));
 }
 
 #[test]

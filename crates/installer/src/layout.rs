@@ -44,7 +44,7 @@ impl Layout {
 }
 
 pub fn for_version(version: &str) -> Layout {
-    if version.contains("-dev.") {
+    if ashiato_build_stamp::channel(version) == ashiato_build_stamp::Channel::Dev {
         Layout::development()
     } else {
         Layout::release()

@@ -57,8 +57,10 @@ assert_service() {
     die "$service が専用アカウントで動かない"
 }
 wait_updater_request() {
-  local count_file="$1" deadline=$((SECONDS + 60))
-  while [[ ! -s "$count_file" ]]; do
+  local count_file="$1" expected="$2" deadline=$((SECONDS + 60)) count
+  while :; do
+    count="$(<"$count_file" 2>/dev/null || printf 0)"
+    [[ "$count" -ge "$expected" ]] && return 0
     [[ $SECONDS -lt $deadline ]] || die '更新係の問い合わせが無い'
     sleep 1
   done
@@ -209,7 +211,7 @@ check_zip() {
   wait_state ashiato-updater 4
   if [[ "$archive" == *package-windows-test* ]]; then
     write_test_clock '2027-01-03T00:00:00Z'
-    wait_updater_request "$WORK/requests"
+    wait_updater_request "$WORK/requests" "$((before + 1))"
     [[ "$(<"$WORK/requests")" == "$((before + 1))" ]] || die '有効化後の問い合わせが 1 件でない'
   fi
 

@@ -1574,14 +1574,23 @@ mod tests {
         rt.start_at(&source, t(0), t(0));
         let records = cfg.state_dir.join("update-checks.jsonl");
         for _ in 0..100 {
-            if records.exists() { break; }
+            if records.exists() {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(records.exists(), "起動時の更新確認が走らない");
         // runtime の 1 時間の契機と、更新係自身の 24 時間の間引きを別々に満たす。
         rt.tick_at(&mut source, t(86_400), t(3600));
         for _ in 0..100 {
-            if std::fs::read_to_string(&records).unwrap_or_default().lines().count() >= 2 { break; }
+            if std::fs::read_to_string(&records)
+                .unwrap_or_default()
+                .lines()
+                .count()
+                >= 2
+            {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert_eq!(std::fs::read_to_string(records).unwrap().lines().count(), 2);

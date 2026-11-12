@@ -191,7 +191,10 @@ internal class UpdateChecker(private val context: Context, private val testDesti
         return true
     }
 
-    fun setEnabled(enabled: Boolean) { prefs.edit().putBoolean("enabled", enabled).apply() }
+    fun setEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("enabled", enabled).apply()
+        if (!enabled) context.getSystemService(NotificationManager::class.java).cancel(UpdateCheck.STALE_NOTIFICATION_ID)
+    }
 
     fun introPending(): Boolean = !prefs.getBoolean("intro_shown", false)
 
@@ -227,7 +230,9 @@ internal class UpdateChecker(private val context: Context, private val testDesti
     private fun Throwable?.reason(): String? = when (this) {
         is CheckFailure -> reason
         is SocketTimeoutException -> "timeout"
-        is java.net.ConnectException, is java.net.UnknownHostException -> "unreachable"
+        // HTTP の答えを読めた失敗は request() が CheckFailure にする。ここへ来る
+        // IOException は、配布元へ届かなかった接続・TLS・ストリームの失敗として残す。
+        is java.io.IOException -> "unreachable"
         else -> null
     }
 

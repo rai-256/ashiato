@@ -327,7 +327,11 @@ pub const SERVER_LOG_KEEP_DAYS: u64 = 30;
 
 pub fn installed_updater_directory() -> std::path::PathBuf {
     std::path::PathBuf::from(
-        ashiato_update_check::updater_layout(env!("ASHIATO_VERSION").contains("-dev.")).directory,
+        ashiato_update_check::updater_layout(
+            ashiato_build_stamp::channel(env!("ASHIATO_VERSION"))
+                == ashiato_build_stamp::Channel::Dev,
+        )
+        .directory,
     )
 }
 

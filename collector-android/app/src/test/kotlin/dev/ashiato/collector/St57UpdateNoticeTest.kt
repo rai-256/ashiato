@@ -307,7 +307,7 @@ class St57UpdateNoticeTest {
         // Scenario: 携帯は新しい版を最初の画面に出す
         configured()
         app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true)
-            .putString("latest", "0.5.0").putString("found_at", "2026-11-10T12:00:00Z").commit()
+            .putString("latest", "0.5.0").putString("found_at", "2026-11-10T00:00:00Z").commit()
         open().use { it.onActivity { activity -> assertTrue(texts(activity).contains("更新あり 0.5.0（11/10 に見つけた）")) } }
     }
     @Test fun `別ホストへの転送は確かめない`() {
@@ -332,7 +332,7 @@ class St57UpdateNoticeTest {
         assertEquals("update", UpdateCheck.CHANNEL)
         assertEquals("contract", ContractNotifier.CHANNEL)
         assertFalse("新しい版 0.5.0 が出ています" == CONTRACT_UPDATE_HEADLINE)
-        assertEquals(4, setOf(UpdateCheck.AVAILABLE_NOTIFICATION_ID, UpdateCheck.STALE_NOTIFICATION_ID, LocationService.SETUP_NOTIFICATION_ID, ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID).size)
+        assertEquals(5, setOf(ContractNotifier.CONTRACT_NOTIFICATION_ID, UpdateCheck.AVAILABLE_NOTIFICATION_ID, UpdateCheck.STALE_NOTIFICATION_ID, LocationService.SETUP_NOTIFICATION_ID, ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID).size)
     }
     @Test fun `携帯回線でも配布元へ問い合わせる`() {
         // Scenario: 携帯は携帯の回線でも確かめる
@@ -352,10 +352,13 @@ class St57UpdateNoticeTest {
 
     @Test fun `配布元の状態番号を理由に記録する`() {
         // Scenario: 確かめられない理由を状態の番号で分ける
-        configured(); val (url, _, done) = releasesServer(body = "{}", status = 429)
-        val checker = UpdateChecker(app, url); checker.markIntroShown(now.minusSeconds(25 * 3600))
-        assertTrue(checker.check(now)); assertTrue(done.await(2, TimeUnit.SECONDS))
-        assertEquals("rate_limited", app.getSharedPreferences(UpdateCheck.PREFS, 0).getString("last_reason", null))
+        mapOf(403 to "rate_limited", 429 to "rate_limited", 404 to "not_found", 500 to "unreadable").forEach { (status, reason) ->
+            app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().clear().commit()
+            configured(); val (url, _, done) = releasesServer(body = "{}", status = status)
+            val checker = UpdateChecker(app, url); checker.markIntroShown(now.minusSeconds(25 * 3600))
+            assertTrue(checker.check(now)); assertTrue(done.await(2, TimeUnit.SECONDS))
+            assertEquals(reason, app.getSharedPreferences(UpdateCheck.PREFS, 0).getString("last_reason", null))
+        }
     }
 
     @Test fun `LocationService の起動と生存信号は更新確認を呼ぶ`() {

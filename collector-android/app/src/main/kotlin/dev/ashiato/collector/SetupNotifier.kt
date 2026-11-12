@@ -76,7 +76,7 @@ class SetupNotifier(
     }
 
     private fun post(id: Int, text: String): Boolean {
-        if (!canPost()) {
+        if (!canPostOnSetupChannel()) {
             log(Telemetry.line("setup_notice_skipped", source = null))
             return false
         }
@@ -103,7 +103,8 @@ class SetupNotifier(
         return true
     }
 
-    private fun canPost(): Boolean = UpdateCheck.canPost(context, manager, CHANNEL)
+    /** 更新通知と同じ権限・チャンネル確認を、setup チャンネルに対して行う。 */
+    private fun canPostOnSetupChannel(): Boolean = UpdateCheck.canPost(context, manager, CHANNEL)
 
     companion object {
         const val CHANNEL = LocationService.SETUP_CHANNEL
