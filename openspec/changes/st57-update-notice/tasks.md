@@ -34,7 +34,7 @@
 
 ## Task 1: 選び方・時期・結果の形の共有の crate と材料
 
-- [ ] 1.1 `crates/update-check`（D1・D3・D4・D5・D15（仮）・D21（仮））を作業場の member に足す: 一覧（GitHub のリリースの JSON。`tag_name`・`draft`・`assets[].name`）を読み、部品（`server` / `collector-windows` / `android`）と自分の版から「見つけた最新の版」と更新あり／なしを返す関数・
+- [x] 1.1 `crates/update-check`（D1・D3・D4・D5・D15（仮）・D21（仮））を作業場の member に足す: 一覧（GitHub のリリースの JSON。`tag_name`・`draft`・`assets[].name`）を読み、部品（`server` / `collector-windows` / `android`）と自分の版から「見つけた最新の版」と更新あり／なしを返す関数・
   `due(now, last_checked_at)`・`stale(now, last_ok_at_or_since)`（7 日。未来の時刻は過ぎたとみなす）・`updater_not_running(now, checked_at)`（48 時間）・問い合わせの道と見出しの定数・記録の 1 行と結果（`status.json`）の形と、信用しない入力としての読み方（64 KB・SemVer・RFC 3339）。HTTP・TLS・DB の部品を持たない。
   `docs/contracts/update-check-vectors.json` を作る。`cases`（選び方）は spec の「新しい版かどうかは…」の Scenario の全部の場合と、3 つの部品の配布物の名前・開発版の入れ替えの途中・`[]`・数えるリリースが無い一覧を含む（30 件以上）。`timing`（時期）は 23 時間・25 時間・失敗の 1 時間後・3 年先の最後の時刻（`due`）と 6 日・8 日・1 年先（`stale`）と 47 時間・49 時間（`updater_not_running`）を含む（10 件以上。review/spec.md R7）。Rust と Kotlin（Task 9.1）が両方の全件を通す。
   試験（`#[cfg(test)]`、名前は `st57_choose_`）: 材料の全件と `// Scenario: 正式版の部品は、より新しい正式版だけを更新ありにする`・`ベータ版の部品は、より新しいベータ版と正式版を更新ありにする`・`正式版を入れた後は、ベータ版を知らせない`・`ベータ版の部品は、土台の版の上がったベータ版も更新ありにする`・`開発版の部品は、印 nightly の配布物の版だけを見る`・`開発版は土台の版が上がった版を新しいとみなす`・
