@@ -431,6 +431,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
 - 判定: ADDRESSED（re-review 14 @e340a72b45392ac3b0288d8831f32b056f06244a）
+- 判定: ADDRESSED（re-review 16 @79d357a1cef3b4c32b6122b63010565ec9ee7fcd）
 
 ## R31. 申し送りの C4・C5・C6・K1 が拾われていない（帯のコントラスト・通知の見分け・未来形・携帯の通知 ID）
 - 成果物: openspec/changes/st57-update-notice/specs/distribution/spec.md
@@ -556,6 +557,7 @@
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
 - 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
 - 判定: ADDRESSED（re-review 14 @e340a72b45392ac3b0288d8831f32b056f06244a）
+- 判定: ADDRESSED（re-review 16 @79d357a1cef3b4c32b6122b63010565ec9ee7fcd）
 
 ## settle_review（re-review 8 @19c1f66）: 処置の直しが新しく壊したもの
 
