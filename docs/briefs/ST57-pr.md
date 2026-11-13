@@ -69,10 +69,10 @@ design の（仮）:
 - 8.1 `tools/check-licenses.sh` → rc=0（PASS・head 5475521）
 - 8.1 `tools/check-updater-deps.sh` → rc=0（PASS・head 5475521）
 - 8.2 `tools/release/check-artifacts.sh --self-test` → rc=0（PASS・head c9fde1a）
-- 9.1 `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St57*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St57*.xml | grep -c "<testcase ")" -ge 23'` → rc=0（PASS・head 92fee9e）
-- 9.1 `tools/check-android-backup-rules.sh` → rc=0（PASS・head 92fee9e）
-- 9.1 `tools/check-android-backup-rules.sh --self-test` → rc=0（PASS・head 92fee9e）
-- 9.1 `tools/check-no-time-server.sh` → rc=0（PASS・head 92fee9e）
+- 9.1 `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests "*St57*" && test "$(cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St57*.xml | grep -c "<testcase ")" -ge 23'` → rc=0（PASS・head 86d8e07）
+- 9.1 `tools/check-android-backup-rules.sh` → rc=0（PASS・head 86d8e07）
+- 9.1 `tools/check-android-backup-rules.sh --self-test` → rc=0（PASS・head 86d8e07）
+- 9.1 `tools/check-no-time-server.sh` → rc=0（PASS・head 86d8e07）
 - 9.2 `scripts/quiet-run emu -- tools/android-emulator.sh` → rc=0（PASS・head 9f16c9f）
 - 9.2 `bash -c 'test "$(cat collector-android/app/build/outputs/androidTest-results/connected/*/TEST-*.xml collector-android/app/build/outputs/androidTest-results/connected/TEST-*.xml 2>/dev/null | grep -c "<testcase [^>]*St57UpdateQueryTest")" -ge 2'` → rc=0（PASS・head 9f16c9f）
 - 9.3 `tools/release/check-artifacts.sh --self-test` → rc=0（PASS・head 9f16c9f）
@@ -84,8 +84,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 46 件（fixed 46）
-- 処置の re-review: 15 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 47 件（fixed 47）
+- 処置の re-review: 18 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
