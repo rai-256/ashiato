@@ -1,4 +1,6 @@
 fn main() {
+    // 版印を実行ファイルに残す。使わない env! は最適化で消え、check-artifacts.sh が版印を見つけられない
+    std::hint::black_box(env!("ASHIATO_BUILD_STAMP"));
     tracing_subscriber::fmt::init();
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();

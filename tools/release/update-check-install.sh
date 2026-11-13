@@ -43,7 +43,9 @@ block_outbound() {
 win() { printf '%s' "${1//\//\\}"; }
 state_code() { windows_sc query "$1" | awk -F ':' 'toupper($1) ~ /STATE/ { split($2,a," "); print a[1]; exit }'; }
 wait_state() {
-  local service="$1" expected="$2" limit="${3:-90}" deadline=$((SECONDS + limit))
+  # limit は別の local で先に決める。同じ local の中で参照すると、展開が代入より先に起きて set -u で落ちる
+  local service="$1" expected="$2" limit="${3:-90}"
+  local deadline=$((SECONDS + limit))
   while [[ "$(state_code "$service")" != "$expected" ]]; do
     [[ $SECONDS -lt $deadline ]] || die "$service が状態 $expected にならない"
     sleep 1
