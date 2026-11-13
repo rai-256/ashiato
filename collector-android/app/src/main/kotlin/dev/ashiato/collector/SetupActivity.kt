@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Switch
 import java.util.concurrent.Executors
 
 /** 収集アプリが生成した設定文字列を貼り、保存時に送り先だけを確認する画面。 */
@@ -18,6 +19,7 @@ open class SetupActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var status: TextView
     private lateinit var result: TextView
+    private lateinit var updateSwitch: Switch
 
     /** 保留の節（件数・期間・「この送り先へ送る」）。保存と保留の変化で組み直す（review/code.md R5） */
     private val holdViews = ArrayList<View>()
@@ -36,7 +38,12 @@ open class SetupActivity : Activity() {
             val pad = (16 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
         }
-        column.addView(TextView(this).apply { text = "収集アプリの設定" })
+        updateSwitch = Switch(this).apply {
+            text = "収集アプリの設定\n新しい版を確かめる"
+            isChecked = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE).getBoolean("enabled", true)
+            setOnCheckedChangeListener { _, enabled -> UpdateChecker(this@SetupActivity).setEnabled(enabled) }
+        }
+        column.addView(updateSwitch)
         input = EditText(this).apply {
             hint = "設定文字列を貼り付けてください"
             minLines = 3
@@ -65,6 +72,7 @@ open class SetupActivity : Activity() {
         column.addView(result)
         render()
         setContentView(column)
+        UpdateChecker(this).markIntroShown()
     }
 
     override fun onResume() {

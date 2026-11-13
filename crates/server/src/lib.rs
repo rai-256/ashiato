@@ -260,6 +260,8 @@ mod st54_tests;
 mod st55_tests;
 #[cfg(test)]
 mod st56_tests;
+#[cfg(test)]
+mod st57_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -277,6 +279,7 @@ pub mod update_history;
 /// 更新の履歴の置き場・形・門・付与（ST51 / design D4 / D10）。
 #[cfg(test)]
 mod update_history_tests;
+pub mod update_status;
 /// 版の変わり目の受け口（ST51 / design D6 / D13）。
 #[cfg(test)]
 mod version_change_tests;
@@ -4421,6 +4424,7 @@ fn api_router(app: App) -> Router {
                 .get(web_session::session_get),
         )
         .route("/collector-setup", post(web_session::collector_setup_post))
+        .route("/update-status", get(update_status::get))
         // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
         .route_layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -4797,7 +4801,8 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         satellite_admin::credentials_delete,
         places_post,
         places_get,
-        place_candidates_get
+        place_candidates_get,
+        update_status::get
     ),
     components(schemas(
         IngestResult,
@@ -4927,6 +4932,7 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         places::CandidateStays,
         places::PlaceOut,
         places::PlaceStays,
+        update_status::UpdateStatus,
         places::NameRecordOut,
         places::PreviousNameOut,
         places::CoordOut,

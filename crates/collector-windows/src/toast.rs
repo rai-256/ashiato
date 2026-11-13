@@ -30,6 +30,9 @@ pub const UNREACHABLE_TAG: &str = "unreachable";
 pub const DESTINATION_TAG: &str = "destination";
 /// 系統の違いの通知（契約の版の通知とは別）。
 pub const CHANNEL_TAG: &str = "channel";
+pub const UPDATE_TAG: &str = "update";
+pub const UPDATE_INTRO_TAG: &str = "update-intro";
+pub const UPDATE_STALE_TAG: &str = "update-stale";
 
 /// 通知の設定の窓口。
 pub struct WindowsToaster {
@@ -218,6 +221,12 @@ impl ContractToaster for WindowsToaster {
 
     fn dismiss_contract(&self) -> anyhow::Result<()> {
         self.dismiss_tagged(CONTRACT_TAG)
+    }
+}
+
+impl crate::update_check::Toaster for WindowsToaster {
+    fn show_update(&self, xml: &str, tag: &str) -> anyhow::Result<()> {
+        self.show_tagged(xml, true, tag)
     }
 }
 

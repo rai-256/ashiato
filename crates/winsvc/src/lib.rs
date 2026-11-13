@@ -15,13 +15,15 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 windows_service::define_windows_service!(ffi_service_main, service_main);
 static RUN: OnceLock<fn() -> u32> = OnceLock::new();
 static STOP: OnceLock<fn()> = OnceLock::new();
+static SERVICE_NAME: OnceLock<&'static str> = OnceLock::new();
 
 fn service_main(_arguments: Vec<OsString>) {
     let status_for_handler: Arc<OnceLock<service_control_handler::ServiceStatusHandle>> =
         Arc::new(OnceLock::new());
     let status_for_callback = Arc::clone(&status_for_handler);
-    let Ok(status_handle) =
-        service_control_handler::register("ashiato-server", move |control| match control {
+    let Ok(status_handle) = service_control_handler::register(
+        SERVICE_NAME.get().copied().unwrap_or("ashiato-server"),
+        move |control| match control {
             // OS の終わり・再起動（Windows Update など）でも止める処理を通す。PRESHUTDOWN を受けると、
             // SCM は OS を止める前に知らせて待つ（書き出しを止めて書きかけを片付ける時間を取る。review R53）
             ServiceControl::Stop | ServiceControl::Preshutdown | ServiceControl::Shutdown => {
@@ -44,8 +46,8 @@ fn service_main(_arguments: Vec<OsString>) {
             // 問い合わせには誤りでなく「受けた」を返す（いまの状態は SCM が持っている）
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
             _ => ServiceControlHandlerResult::NotImplemented,
-        })
-    else {
+        },
+    ) else {
         return;
     };
     let _ = status_for_handler.set(status_handle);
@@ -86,9 +88,19 @@ pub fn accepted_controls() -> ServiceControlAccept {
 
 /// Windows のサービス制御マネージャから入口を起こす。
 pub fn dispatch(run: fn() -> u32, stop: fn()) -> windows_service::Result<()> {
+    dispatch_named("ashiato-server", run, stop)
+}
+
+/// 指定した Windows サービス名で入口を起こす。
+pub fn dispatch_named(
+    name: &'static str,
+    run: fn() -> u32,
+    stop: fn(),
+) -> windows_service::Result<()> {
+    let _ = SERVICE_NAME.set(name);
     let _ = RUN.set(run);
     let _ = STOP.set(stop);
-    service_dispatcher::start("ashiato-server", ffi_service_main)
+    service_dispatcher::start(name, ffi_service_main)
 }
 
 /// DB のサービスの状態を読み、停止なら開始できるハンドルを返す（D35）。
