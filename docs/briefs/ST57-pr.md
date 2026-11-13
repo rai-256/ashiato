@@ -59,9 +59,9 @@ design の（仮）:
 - 6.1 `tools/release/notices.sh --self-test` → rc=0（PASS・head 95e898f）
 - 6.1 `tools/check-licenses.sh` → rc=0（PASS・head 95e898f）
 - 6.1 `bash -c 'tools/check-vulns.sh --base "$(git merge-base HEAD origin/main)"'` → rc=0（PASS・head 95e898f）
-- 7.1 `tools/release/update-check-install.sh --self-test` → rc=0（PASS・head 913f0e5）
-- 7.1 `tools/release/install-check.sh --self-test` → rc=0（PASS・head 913f0e5）
-- 7.1 `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` → rc=0（PASS・head 913f0e5）
+- 7.1 `tools/release/update-check-install.sh --self-test` → rc=0（PASS・head 5294ae5）
+- 7.1 `tools/release/install-check.sh --self-test` → rc=0（PASS・head 5294ae5）
+- 7.1 `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` → rc=0（PASS・head 5294ae5）
 - 8.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st57_pc_ && test "$(cargo test -p ashiato-collector-windows st57_pc_ -- --list 2>/dev/null | grep -c ": test$")" -ge 23'` → rc=0（PASS・head 5475521）
 - 8.1 `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows'` → rc=0（PASS・head 5475521）
 - 8.1 `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` → rc=0（PASS・head 5475521）
@@ -84,8 +84,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 45 件（fixed 45）
-- 処置の re-review: 13 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 46 件（fixed 46）
+- 処置の re-review: 15 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
