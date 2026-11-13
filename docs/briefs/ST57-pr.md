@@ -84,8 +84,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 44 件（fixed 44）
-- 処置の re-review: 11 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 45 件（fixed 45）
+- 処置の re-review: 13 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
