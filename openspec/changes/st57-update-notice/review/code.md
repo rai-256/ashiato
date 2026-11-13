@@ -560,3 +560,4 @@
 - kind: technical
 - 処置: fixed 10.2
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
+- 判定: NOT ADDRESSED（re-review 10 @813718596e2474cf7c83a3b886a72b8359dd7f36）: .superpowers/sdd/st57-settle/report.md:1 は見出しのみのまま。試験名も出力も無い。修正範囲の diff に report.md が含まれない。
