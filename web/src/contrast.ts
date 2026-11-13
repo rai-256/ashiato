@@ -45,3 +45,15 @@ export function contrastRatio(a: number, b: number): number {
 export function toneContrast(a: readonly [number, number, number], b: readonly [number, number, number]): number {
   return contrastRatio(relativeLuminance(...a), relativeLuminance(...b));
 }
+
+/** CSS の rgb 色を検査するための対比比。画面が実際に描いた色をそのまま測る。 */
+export function rgbContrastRatio(a: readonly [number, number, number], b: readonly [number, number, number]): number {
+  const luminance = ([r, g, b]: readonly [number, number, number]): number => {
+    const linear = (channel: number): number => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+  };
+  return contrastRatio(luminance(a), luminance(b));
+}

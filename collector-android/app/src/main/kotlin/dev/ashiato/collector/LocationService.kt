@@ -92,6 +92,7 @@ open class LocationService : Service() {
         DestinationGate(getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE))
     }
     private val channelNotifier by lazy { ChannelMismatchNotifier(this, contractStore) }
+    private val updateChecker by lazy { newUpdateChecker() }
 
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
@@ -217,6 +218,9 @@ open class LocationService : Service() {
 
     /** 取得時点のアプリの表示名。同上（端末に触らずに記録の組み立てを試験するため）。 */
     protected open fun newAppLabels(): AppLabels = PackageManagerAppLabels(this)
+
+    /** 更新確認の送り先だけは、Robolectric の loopback 受け手へ差し替える。 */
+    internal open fun newUpdateChecker(): UpdateChecker = UpdateChecker(this)
 
     /**
      * 取得の刻み。**ソースごとに 1 本**（tasks 5.1）—— 1 本にまとめると、
@@ -904,7 +908,12 @@ open class LocationService : Service() {
         // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
         // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
         // 積むところが投げても糸の外へ抜かず、種別だけ残す（review/code.md R23）
-        runCollection { HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed) }
+        runCollection {
+            HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed)
+            runCatching { updateChecker.check() }.onFailure {
+                Log.w(TAG, Telemetry.line("update_check_failed", source = null, error = it.javaClass.simpleName))
+            }
+        }
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
         for (running in sources) runCollection { collect(running) }
         startFlushing()
@@ -1159,6 +1168,7 @@ open class LocationService : Service() {
             running.beater = newHeartbeatScheduler(running.cadence.logicalSource).also { scheduler ->
                 scheduler.every(running.cadence.heartbeatIntervalMs) {
                     emitter.emit()
+                    if (isLocation) runCatching { updateChecker.check() }
                     if (isLocation) {
                         outagePoller.poll()
                         // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。
@@ -1462,7 +1472,9 @@ open class LocationService : Service() {
         const val CHANNEL = "location"
         const val SETUP_CHANNEL = "setup"
         const val SETUP_NOTIFICATION_ID = 6
-        const val DESTINATION_NOTIFICATION_ID = 9
+
+        // Keep this distinct from the ST57 update-notice IDs (9 through 11).
+        const val DESTINATION_NOTIFICATION_ID = 13
         const val SETUP_NOTICE_INTERVAL_MS = 24L * 60L * 60L * 1000L
         const val NOTIFICATION_ID = 1
 

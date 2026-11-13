@@ -18,6 +18,7 @@ import { CollectorSetupPanel } from "./CollectorSetupPanel";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
 import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
+import { formatDateTime, isUpdateStatus, updateReason, type UpdateStatus } from "./update";
 
 const m = msg("settings");
 const common = msg("common");
@@ -56,6 +57,7 @@ export function SettingsView(): React.ReactElement {
   const [again, setAgain] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [update, setUpdate] = useState<Load<UpdateStatus>>({ at: "loading" });
   const pwRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async (): Promise<void> => {
@@ -76,6 +78,13 @@ export function SettingsView(): React.ReactElement {
       () => setSummary({ at: "failed" }),
     );
   }, [loadStatus]);
+
+  useEffect(() => {
+    read("/api/update-status", isUpdateStatus).then(
+      (value) => setUpdate({ at: "ok", value }),
+      () => setUpdate({ at: "failed" }),
+    );
+  }, []);
 
   const st = status.at === "ok" ? status.value : null;
   // 無い（`undefined`）と `null` は同じ「無い」
@@ -160,6 +169,21 @@ export function SettingsView(): React.ReactElement {
 
       <CollectorSetupPanel colors={c} />
       <SatellitesPanel colors={c} />
+
+      <section data-testid="update-section" aria-labelledby="update-title" style={sectionStyle(c, c.surface1)}>
+        <h2 id="update-title" style={{ font: font(TYPE.body, 600), margin: "0 0 6px" }}>{m.update.title}</h2>
+        {update.at === "loading" && <p>{common.loading}</p>}
+        {update.at === "failed" && <p>{m.update.failed}</p>}
+        {update.at === "ok" && <>
+          <p style={{ margin: "0 0 4px" }}>
+            {update.value.state === "off" ? m.update.disabled : update.value.state === "not_running" ? m.update.notRunning : update.value.state === "unreadable" ? m.update.unreadable : update.value.state === "pending" ? m.update.pending : update.value.state === "latest" ? m.update.enabledLatest : update.value.state === "stale" ? m.update.enabledStale : m.update.enabledAvailable}
+          </p>
+          <p style={{ margin: "0 0 4px" }}>{m.update.installed(update.value.installed)}</p>
+          {update.value.latest !== null && <p style={{ margin: "0 0 4px" }}>{m.update.latest(update.value.latest, update.value.found_at === null ? m.update.missingDate : formatDateTime(update.value.found_at).split(" ")[0])}</p>}
+          <p style={{ margin: "0 0 4px" }}>{m.update.checked(formatDateTime(update.value.checked_at))}</p>
+          {update.value.reason !== null && <p style={{ margin: 0 }}>{m.update.reason(updateReason(update.value.reason))}</p>}
+        </>}
+      </section>
 
       <section data-testid="export-section" aria-labelledby="export-title" style={sectionStyle(c, c.surface1)}>
         <h2 id="export-title" style={{ font: font(TYPE.body, 600), margin: "0 0 6px" }}>

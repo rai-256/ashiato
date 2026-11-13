@@ -104,16 +104,22 @@ MIT License of anyhow
 == react 18.0.0
 License: MIT
 MIT License of react
+
+== rustls 0.23.0
+License: Apache-2.0
+Apache License of rustls
 NOTICES
   printf 'Commit: %s\n' 0000000000000000000000000000000000000000 >"$work/SOURCE.txt"
   local files=(stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
   tar -czf "$work/server-linux.tar.gz" -C "$work" "${files[@]}"
-  (cd "$work" && zip -q collector-windows.zip "${files[@]}")
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
+  (cd "$work" && zip -q collector-windows.zip "${files[@]}" ashiato-collector-windows.exe)
   # サーバの Windows の zip は ST55 の形（インストーラ・同梱の PostgreSQL・db-roles.sql）に許諾の 3 点を足す
   local win="$work/server-windows"
   mkdir -p "$win/pgsql/bin"
   cp "$work/stamp" "$win/ashiato-server.exe"
   cp "$work/stamp" "$win/ashiato-setup.exe"
+  printf '%s\nhttps://api.github.com/repos/rai-256/ashiato/releases?per_page=20' "$(<"$work/stamp")" >"$win/ashiato-updater.exe"
   : >"$win/db-roles.sql"
   : >"$win/pgsql/bin/postgres.exe"
   : >"$win/pgsql/bin/vcruntime140.dll"
@@ -204,6 +210,10 @@ MIT License of anyhow
 License: MIT
 MIT License of react
 
+== rustls 0.23.0
+License: Apache-2.0
+Apache License of rustls
+
 == com.google.android.gms:play-services-location 1.0.0
 License: Apache-2.0
 Apache License of play-services-location
@@ -212,6 +222,7 @@ NOTICES
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$out" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt
   printf '%s\n' "$stamp" >"$out/server-fixture/ashiato-server.exe"
   printf '%s\n' "$stamp" >"$out/server-fixture/ashiato-setup.exe"
+  printf '%s\nhttps://api.github.com/repos/rai-256/ashiato/releases?per_page=20' "$stamp" >"$out/server-fixture/ashiato-updater.exe"
   : >"$out/server-fixture/db-roles.sql"
   : >"$out/server-fixture/pgsql/bin/postgres.exe"
   : >"$out/server-fixture/pgsql/bin/vcruntime140.dll"
@@ -219,7 +230,8 @@ NOTICES
   cp "$out/LICENSE" "$out/SOURCE.txt" "$out/server-fixture/"
   { cat "$out/THIRD-PARTY-NOTICES.txt"; printf '\n%s\n' '== PostgreSQL' '== Microsoft Visual C++ Runtime'; } >"$out/server-fixture/THIRD-PARTY-NOTICES.txt"
   (cd "$out/server-fixture" && zip -qr "../ashiato-server-$v-windows-x86_64.zip" .)
-  (cd "$out" && zip -q "ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt)
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$out/ashiato-collector-windows.exe"
+  (cd "$out" && zip -q "ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE THIRD-PARTY-NOTICES.txt SOURCE.txt ashiato-collector-windows.exe)
   if [[ "${DRAFT_SELF_TEST_MISSING_APK:-0}" != 1 ]]; then
     cp "$out/stamp" "$out/classes.dex"
     mkdir -p "$out/assets/licenses"
@@ -230,7 +242,7 @@ NOTICES
     cp "$out/SOURCE.txt" "$out/assets/licenses/SOURCE.txt"
     (cd "$out" && zip -q "ashiato-collector-$v.apk" classes.dex assets/licenses/LICENSE assets/licenses/THIRD-PARTY-NOTICES.txt assets/licenses/SOURCE.txt)
   fi
-  rm -rf "$out/server-fixture" "$out/stamp" "$out/classes.dex" "$out/LICENSE" "$out/THIRD-PARTY-NOTICES.txt" "$out/SOURCE.txt" "$out/assets"
+  rm -rf "$out/server-fixture" "$out/stamp" "$out/classes.dex" "$out/LICENSE" "$out/THIRD-PARTY-NOTICES.txt" "$out/SOURCE.txt" "$out/assets" "$out/ashiato-collector-windows.exe"
   # 検査していないファイルが置き場にあっても、下書きには載らないこと（R22）
   printf 'x\n' >"$out/extra.txt"
   exit 0
@@ -255,6 +267,7 @@ cat <<'FIELDS'
 .field public static final BASE_URL:Ljava/lang/String; = ""
 .field public static final API_TOKEN:Ljava/lang/String; = ""
 .field public static final USER_ID:Ljava/lang/String; = ""
+.field public static final UPDATE_CHECK_URL:Ljava/lang/String; = "https://api.github.com"
 FIELDS
 EOF
   chmod +x "$fake_bin/apkanalyzer"

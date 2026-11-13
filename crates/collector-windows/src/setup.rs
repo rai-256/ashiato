@@ -105,6 +105,15 @@ pub fn run_setup_flow(
     } else if !url.is_empty() {
         approve_destination(cfg, &url)?;
     }
+    writeln!(output, "新しい版を確かめますか [Y/n]")?;
+    output.flush()?;
+    let mut update_answer = String::new();
+    let enabled = if input.read_line(&mut update_answer)? == 0 {
+        true
+    } else {
+        !update_answer.trim().eq_ignore_ascii_case("n")
+    };
+    crate::update_check::UpdateChecker::new(&cfg.state_dir).set_enabled(enabled)?;
     output.flush()?;
     Ok(SetupOutcome::Saved)
 }

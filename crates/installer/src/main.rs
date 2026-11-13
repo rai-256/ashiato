@@ -207,6 +207,61 @@ fn ensure_running(service: &str, trace: bool) -> Result<(), String> {
     run(&commands::start_service_command(service), trace)
 }
 
+fn persist_update_check(
+    layout: &layout::Layout,
+    enabled: bool,
+    preserve_enabled: bool,
+) -> Result<(), String> {
+    let path = commands::updater_settings_path(layout);
+    if preserve_enabled && path.exists() && enabled {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let since = chrono::Utc::now().to_rfc3339();
+    let value = serde_json::json!({"enabled": enabled, "since": since});
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("更新の確認の設定を書けない: {e}"))
+}
+
+fn write_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
+    persist_update_check(layout, enabled, true)
+}
+fn rewrite_update_check(layout: &layout::Layout, enabled: bool) -> Result<(), String> {
+    persist_update_check(layout, enabled, false)
+}
+
+fn update_check_enabled(layout: &layout::Layout) -> Result<bool, String> {
+    fs::read_to_string(commands::updater_settings_path(layout))
+        .map_err(|error| format!("更新の確認の設定を読めない: {error}"))
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(&text)
+                .map_err(|error| format!("更新の確認の設定を読めない: {error}"))
+        })
+        .and_then(|value| {
+            value["enabled"]
+                .as_bool()
+                .ok_or_else(|| "更新の確認の設定に enabled が無い".to_owned())
+        })
+}
+
+fn update_check(layout: &layout::Layout, enabled: bool, trace: bool) -> Result<(), String> {
+    rewrite_update_check(layout, enabled)?;
+    run_all(
+        &commands::update_check_service_commands(layout, enabled),
+        trace,
+    )?;
+    if enabled {
+        ensure_running(layout.updater_service, trace)
+    } else {
+        Ok(())
+    }
+}
+
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -794,6 +849,17 @@ fn copy_program_files(layout: &layout::Layout, trace: bool) -> Result<(), String
             },
         )?;
     }
+    program_file_plan(
+        &source.join("ashiato-updater.exe"),
+        &target.join("ashiato-updater.exe"),
+        &mut missing,
+    )
+    .map_err(|error| match error {
+        CopyPlanError::Io(error) => format!("プログラムの置き場の更新係を読めない: {error}"),
+        CopyPlanError::Differs(path) => {
+            commands::program_version_mismatch_message(&path.display().to_string())
+        }
+    })?;
     for (from, to) in &missing {
         copy_atomically(from, to).map_err(|error| {
             format!("プログラムの置き場へ {} を写せない: {error}", to.display())
@@ -967,6 +1033,7 @@ fn install(
     profile: &str,
     downloads: &str,
     trace: bool,
+    setup_updater: bool,
 ) -> Result<(), String> {
     ensure_ports_available(layout)?;
     let state_root = PathBuf::from(layout.state_dir);
@@ -1010,6 +1077,8 @@ fn install(
             state_root.join("backups").join("pre-migrate"),
             state_root.join("logs").join("db"),
             state_root.join("logs").join("server"),
+            PathBuf::from(layout.updater_dir).join("settings"),
+            PathBuf::from(layout.updater_dir).join("logs"),
         ] {
             fs::create_dir_all(&directory)
                 .map_err(|error| format!("状態の置き場を作れない: {error}"))?;
@@ -1023,12 +1092,16 @@ fn install(
             state_root.join("logs"),
             state_root.join("logs").join("db"),
             state_root.join("logs").join("server"),
+            PathBuf::from(layout.updater_dir),
+            PathBuf::from(layout.updater_dir).join("settings"),
+            PathBuf::from(layout.updater_dir).join("logs"),
         ] {
             ensure_real_directory(&directory)?;
         }
         // 先に誰かが作っていた置き場でも、持ち主を Administrators にしてから ACL を付ける
         // （持ち主は ACL を書き換えられるので、ほかの利用者を持ち主のままにしない）
         run(&commands::take_ownership_command(layout), trace)?;
+        run(&commands::take_updater_ownership_command(layout), trace)?;
         // 未登録のサービス SID は `icacls` が名前解決できない。初回は先にサービスを登録してから
         // SID の ACE を付ける。片方だけ残った異常な状態では、登録済みのものを作り直さない。
         if test_hook!("REGISTER_FAIL").as_deref() == Some("1") {
@@ -1041,6 +1114,14 @@ fn install(
                 trace,
             )?;
             grant_db_watch(layout, trace)?;
+            if setup_updater {
+                run(&commands::register_updater_command(layout), trace)?;
+                run_all(&commands::configure_updater_commands(layout, true), trace)?;
+                run_all(
+                    &commands::updater_acl_commands(layout, &identity.owner),
+                    trace,
+                )?;
+            }
         } else {
             if !db_service_exists {
                 run(&commands::register_database_command(layout), trace)?;
@@ -1164,6 +1245,37 @@ fn install(
             run(&commands::create_server_command(layout), trace)?;
         }
         configure_services(layout, trace)?;
+        if setup_updater {
+            let updater_enabled =
+                read_settings_unprivileged(&commands::updater_settings_path(layout))
+                    .and_then(|value| value["enabled"].as_bool())
+                    .unwrap_or(true);
+            if !service_exists(layout.updater_service) {
+                run(&commands::register_updater_command(layout), trace)?;
+            }
+            run_all(
+                &commands::configure_updater_commands(layout, updater_enabled),
+                trace,
+            )?;
+            fs::create_dir_all(Path::new(layout.updater_dir).join("settings"))
+                .map_err(|e| format!("更新係の設定の置き場を作れない: {e}"))?;
+            fs::create_dir_all(Path::new(layout.updater_dir).join("logs"))
+                .map_err(|e| format!("更新係のログの置き場を作れない: {e}"))?;
+            for directory in [
+                PathBuf::from(layout.updater_dir),
+                PathBuf::from(layout.updater_dir).join("settings"),
+                PathBuf::from(layout.updater_dir).join("logs"),
+            ] {
+                ensure_real_directory(&directory)?;
+            }
+            // A pre-existing updater directory can have been created by an
+            // unprivileged user.  Reset its owner before replacing its ACL.
+            run(&commands::take_updater_ownership_command(layout), trace)?;
+            run_all(
+                &commands::updater_acl_commands(layout, &identity.owner),
+                trace,
+            )?;
+        }
     }
 
     // (6) DB の開始。待ち受けが開いても回復の途中は接続を断るので、pg_isready が受け付けるまで待つ
@@ -1246,10 +1358,32 @@ fn install(
 
     // (13) 案内
     open_browser(layout, trace);
+    if setup_updater {
+        write_update_check(layout, true)?;
+        if let Some(url) = test_hook!("UPDATER_URL") {
+            let hooks = commands::updater_test_hooks_path(layout);
+            fs::write(hooks, serde_json::json!({"url": url}).to_string())
+                .map_err(|error| format!("更新係の試験の差し込みを書けない: {error}"))?;
+        }
+        run(
+            &commands::updater_settings_acl_command(layout, &identity.owner),
+            trace,
+        )?;
+    }
+    let updater_enabled = setup_updater && update_check_enabled(layout)?;
     terminal_line(
-        &commands::install_notice(layout.server_port, free_space_gb()),
+        &commands::install_notice_with_update_check(
+            layout.server_port,
+            free_space_gb(),
+            updater_enabled,
+        ),
         false,
     );
+    // 更新係の開始失敗は、本体のインストール成功を取り消さない。
+    if commands::install_completion_steps(setup_updater, updater_enabled).contains(&"start-updater")
+    {
+        let _ = ensure_running(layout.updater_service, trace);
+    }
     Ok(())
 }
 
@@ -1347,8 +1481,8 @@ fn uninstall(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     }
     terminal_line(
         &format!(
-            "状態の置き場は {} に残しました。記録を手で消す手順: docs/install.md",
-            layout.state_dir
+            "状態の置き場は {} に残しました。更新係の置き場は {} に残しました。記録を手で消す手順: docs/install.md",
+            layout.state_dir, layout.updater_dir
         ),
         false,
     );
@@ -1569,6 +1703,7 @@ fn repair(
         profile,
         downloads,
         trace,
+        false,
     )?;
     terminal_line(state::repair_completion_message(), false);
     Ok(())
@@ -1636,6 +1771,10 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
             "install" => commands::elevation_command(&executable, &invoking, &profile, &downloads),
             "password" => commands::password_elevation_command(&executable),
             "repair" => commands::repair_elevation_command(&executable, &profile, &downloads),
+            "update-check" => commands::update_check_elevation_command(
+                &executable,
+                refs.get(1).is_some_and(|arg| *arg == "on"),
+            ),
             _ => commands::uninstall_elevation_command(&executable),
         };
         return relaunch_elevated(&script);
@@ -1652,9 +1791,15 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
             &profile,
             &downloads,
             trace,
+            true,
         ),
         "password" => password(&selected, trace),
         "uninstall" => uninstall(&selected, trace),
+        "update-check" => update_check(
+            &selected,
+            refs.get(1).is_some_and(|arg| *arg == "on"),
+            trace,
+        ),
         _ => Err(format!("{command} の口はありません")),
     }
 }

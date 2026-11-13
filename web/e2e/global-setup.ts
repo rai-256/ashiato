@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { request, type FullConfig } from "@playwright/test";
+import { mkdirSync, rmSync } from "node:fs";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -12,6 +13,10 @@ export const STORAGE_STATE = "./e2e/.auth/state.json";
  * 合言葉は `.env` の `WEB_PASSWORD`（`tools/stack.sh` と同じ値）。
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
+  const updaterDir = process.env.ASHIATO_UPDATER_DIR;
+  if (!updaterDir) throw new Error("ASHIATO_UPDATER_DIR が無い");
+  rmSync(updaterDir, { recursive: true, force: true });
+  mkdirSync(`${updaterDir}/settings`, { recursive: true });
   const password = process.env.WEB_PASSWORD;
   if (!password) throw new Error("WEB_PASSWORD が無い（set -a; . ./.env; set +a の後で走らせる）");
   const baseURL = config.projects[0]?.use.baseURL;
