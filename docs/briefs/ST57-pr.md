@@ -25,7 +25,8 @@ design の（仮）:
 - D28（仮）. PC で、最後の入力からの経過を読めない定期の時は、切り方のトーストを試みない
 - D30（仮）. 更新の知らせは既存の通知を置き換えず、NFR-18 の本文コントラストにそろえる
 
-全 Task の ledger に `Ruling:` の行は無い。
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger に `Ruling:` の行は無い。
 
 ## Task
 
@@ -82,8 +83,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 43 件（fixed 43）
-- 処置の re-review: 7 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 44 件（fixed 44）
+- 処置の re-review: 9 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
