@@ -15,3 +15,9 @@
   - 出力: `OK: update-check-install の self-test`（rc=0、ログ: `.superpowers/sdd/logs/20261113-160556-evidence-7.1-0-f93d10-vkq1bu3lo.log`）
 - 併走した Task 7.1 の検査: `tools/release/install-check.sh --self-test`、CI workflow の actionlint
   - 出力: いずれも rc=0（対応する PASS 記録を `evidence.jsonl` に追記）
+
+## 2026-11-13 — R31 の処置形式を修正
+
+- R31: conflict の仮決めとして記録済みの D30 の見出しを `D30（仮）` に修正し、PR 本文用の仮決め一覧の対象として明示した。R31 の成果物・根拠・既存の処置および判定には変更していない。
+- 検査: `python3 scripts/review_triage.py . st57-update-notice --no-verdict`
+  - 出力: `指摘 87 件 / 仮決め 5 件 / 要件へ戻すもの 2 件`、`triage: OK`（rc=0）
