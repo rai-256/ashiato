@@ -112,6 +112,14 @@ path.write_text(json.dumps(value, separators=(',', ':')) + '\n')
 PY
 }
 
+# repair が受け付ける「DB はあるがサーバの秘密が無い」状態を作る。更新係の設定は
+# repair の対象外なので、この fixture で退けない。
+prepare_repair_fixture() {
+  local server_settings="$1" backup="$2"
+  [[ -f "$server_settings" ]] || die 'repair 用のサーバ設定が無い'
+  mv "$server_settings" "$backup"
+}
+
 reset_machine() {
   local service until
   for service in ashiato-updater ashiato-server ashiato-db; do
@@ -251,11 +259,9 @@ check_zip() {
 
   echo '== Scenario: repair は更新係に触れない'
   local updater_sum="$(sha256sum "$UPDATER_DIR/checks.jsonl" | cut -d' ' -f1)" repair_out="$WORK/repair.out"
-  cp "$UPDATER_DIR/settings/check.json" "$WORK/check.json.away"
-  rm "$UPDATER_DIR/settings/check.json"
+  prepare_repair_fixture 'C:/ProgramData/ashiato/settings/server.json' "$WORK/server.json.away"
   ASHIATO_SETUP_TEST_TRACE=1 "$PROGRAM/ashiato-setup.exe" repair >"$repair_out" 2>&1 || die 'repair が失敗'
   ! grep -Fq 'ashiato-updater' "$repair_out" || die 'repair の命令に更新係が出た'
-  mv "$WORK/check.json.away" "$UPDATER_DIR/settings/check.json"
   assert_disabled_setting "$UPDATER_DIR/settings/check.json"
   assert_disabled_service ashiato-updater
   [[ "$(sha256sum "$UPDATER_DIR/checks.jsonl" | cut -d' ' -f1)" == "$updater_sum" ]] || die 'repair が更新係の記録を変えた'
@@ -335,6 +341,13 @@ EOF
   assert_trace_start_after_notice "$work/trace.good"
   printf 'result=ok sc.exe start ashiato-updater\n更新の確認: 有効\n' >"$work/trace.bad"
   expect_fail assert_trace_start_after_notice "$work/trace.bad"
+  mkdir -p "$work/repair-fixture/settings"
+  printf 'server secret\n' >"$work/repair-fixture/settings/server.json"
+  printf 'owner secret\n' >"$work/repair-fixture/settings/owner.json"
+  printf '{"enabled":false}\n' >"$work/repair-fixture/check.json"
+  prepare_repair_fixture "$work/repair-fixture/settings/server.json" "$work/server.json.away"
+  [[ ! -e "$work/repair-fixture/settings/server.json" && -f "$work/server.json.away" ]] || die 'repair のためにサーバ設定を退けられない'
+  [[ -f "$work/repair-fixture/settings/owner.json" && -f "$work/repair-fixture/check.json" ]] || die 'repair fixture が所有者または更新係の設定に触れた'
   body="$(awk '/^check_zip\(\)/,/^self_test\(\)/' "$0")"
   while IFS= read -r name; do count="$(grep -Fxc -- "  echo '== Scenario: $name'" <<<"$body" || true)"; [[ $count == 1 ]] || die "Scenario の印が不正: $name"; done < <(list_scenarios)
   ! awk '/^self_test\(\)/{on=1} on' "$0" | grep -v 'grep -Eq' | grep -Eq '^[[:space:]]*echo .== Scenario:' || die 'self-test に Scenario の印がある'
