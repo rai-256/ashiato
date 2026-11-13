@@ -200,6 +200,7 @@
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 1 @b3e0dd71e50befa89c12e36be771cf20cc3cbc81）
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
+- 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
 
 ## R9. `[x]` の Task の本文にあって、実体の無いもの
 - 成果物: openspec/changes/st57-update-notice/premises.md / collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/St57UpdateQueryTest.kt
@@ -428,6 +429,7 @@
 - 処置: fixed 7.1
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
+- 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
 
 ## R31. 申し送りの C4・C5・C6・K1 が拾われていない（帯のコントラスト・通知の見分け・未来形・携帯の通知 ID）
 - 成果物: openspec/changes/st57-update-notice/specs/distribution/spec.md
@@ -551,6 +553,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 8 @19c1f6650644aaa721988bb6b23158896d53fd44）
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
+- 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
 
 ## settle_review（re-review 8 @19c1f66）: 処置の直しが新しく壊したもの
 
@@ -562,3 +565,11 @@
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
 - 判定: NOT ADDRESSED（re-review 10 @813718596e2474cf7c83a3b886a72b8359dd7f36）: .superpowers/sdd/st57-settle/report.md:1 は見出しのみのまま。試験名も出力も無い。修正範囲の diff に report.md が含まれない。
 - 判定: ADDRESSED（re-review 11 @fc24247c32012c2abeabb9cd9e749c722aa0c72a）
+- 判定: NOT ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）: .superpowers/sdd/st57-settle/report.md が 1 行（見出し）だけ。試験名・出力・rc が無い。02f263217 の cleanup でまた消えた
+
+## settle_review（re-review 12 @93b3e7b）: 処置の直しが新しく壊したもの
+
+## R45. fix report が見出しだけで、再実行した試験の名前・出力・rc が無い（R44 の欠落が続いている）
+- 成果物: .superpowers/sdd/st57-settle/report.md
+- 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 12 の New Breakage。Minor）
+- kind: technical
