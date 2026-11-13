@@ -61,7 +61,8 @@ assert_service() {
 wait_updater_request() {
   local count_file="$1" expected="$2" deadline=$((SECONDS + 60)) count
   while :; do
-    count="$(<"$count_file" 2>/dev/null || printf 0)"
+    # $(<file) は単独で書いたときだけ読む。2>/dev/null や || を付けると常に空になる
+    count="$(cat "$count_file" 2>/dev/null || true)"; count="${count:-0}"
     [[ "$count" -ge "$expected" ]] && return 0
     [[ $SECONDS -lt $deadline ]] || die '更新係の問い合わせが無い'
     sleep 1
@@ -363,6 +364,8 @@ EOF
   prepare_repair_fixture "$work/repair-fixture/settings/server.json" "$work/server.json.away"
   [[ ! -e "$work/repair-fixture/settings/server.json" && -f "$work/server.json.away" ]] || die 'repair のためにサーバ設定を退けられない'
   [[ -f "$work/repair-fixture/settings/owner.json" && -f "$work/repair-fixture/check.json" ]] || die 'repair fixture が所有者または更新係の設定に触れた'
+  printf 2 >"$work/requests"
+  ( SECONDS=0; wait_updater_request "$work/requests" 2; (( SECONDS < 5 )) ) || die "問い合わせの回数を読めない"
   password_lines="$(repair_password 'package-windows-release/ashiato-server-test.zip')"
   [[ "$(wc -l <<<"$password_lines")" == 2 ]] || die 'repair に渡す合言葉と確認入力が揃わない'
   [[ "$(sed -n '1p' <<<"$password_lines")" == "$(sed -n '2p' <<<"$password_lines")" ]] || die 'repair の合言葉と確認入力が一致しない'
