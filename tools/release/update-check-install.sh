@@ -182,9 +182,9 @@ install_zip() {
 repair_password() {
   local archive="$1"
   if [[ "$archive" == *package-windows-test* ]]; then
-    printf '%s\n' 'update-check-test-password-0123'
+    printf '%s\n%s\n' 'update-check-test-password-0123' 'update-check-test-password-0123'
   else
-    printf '%s\n' 'update-check-release-password-0123'
+    printf '%s\n%s\n' 'update-check-release-password-0123' 'update-check-release-password-0123'
   fi
 }
 
@@ -283,7 +283,7 @@ check_zip() {
 }
 
 self_test() {
-  local work fake log body name count fake_output acl_good bad_acl
+  local work fake log body name count fake_output acl_good bad_acl password_lines
   expect_fail() { if ( "$@" ) >/dev/null 2>&1; then die "失敗すべき判定が通った: $*"; fi; }
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-self-test.XXXXXX")"
   trap 'rm -rf "${work:-}"' EXIT
@@ -362,6 +362,9 @@ EOF
   prepare_repair_fixture "$work/repair-fixture/settings/server.json" "$work/server.json.away"
   [[ ! -e "$work/repair-fixture/settings/server.json" && -f "$work/server.json.away" ]] || die 'repair のためにサーバ設定を退けられない'
   [[ -f "$work/repair-fixture/settings/owner.json" && -f "$work/repair-fixture/check.json" ]] || die 'repair fixture が所有者または更新係の設定に触れた'
+  password_lines="$(repair_password 'package-windows-release/ashiato-server-test.zip')"
+  [[ "$(wc -l <<<"$password_lines")" == 2 ]] || die 'repair に渡す合言葉と確認入力が揃わない'
+  [[ "$(sed -n '1p' <<<"$password_lines")" == "$(sed -n '2p' <<<"$password_lines")" ]] || die 'repair の合言葉と確認入力が一致しない'
   body="$(awk '/^check_zip\(\)/,/^self_test\(\)/' "$0")"
   grep -Fq 'repair_password' <<<"$body" || die 'repair に合言葉を渡す経路が無い'
   while IFS= read -r name; do count="$(grep -Fxc -- "  echo '== Scenario: $name'" <<<"$body" || true)"; [[ $count == 1 ]] || die "Scenario の印が不正: $name"; done < <(list_scenarios)
