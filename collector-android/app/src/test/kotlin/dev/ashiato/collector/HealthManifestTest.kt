@@ -74,7 +74,8 @@ class HealthManifestTest {
             assertFalse(xml, xml.contains("collector.xml"))
         }
         // 2 つの規則は、クラウドと端末の移行の両方で外す
-        assertEquals(4, count(rules[0], "<exclude"))
+        assertTrue(rules.all { it.contains("domain=\"sharedpref\" path=\"update_check.xml\"") })
+        assertEquals(6, count(rules[0], "<exclude"))
         val manifest = File("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("""android:dataExtractionRules="@xml/health_data_extraction_rules""""))
         assertTrue(manifest.contains("""android:fullBackupContent="@xml/health_full_backup_content""""))

@@ -183,6 +183,9 @@ check_apk_fields() {
     [[ -z "$value" ]] || die "$(basename "$apk") の $field が空でない"
   done < <(sed -nE 's/^\.field public static final (BASE_URL|API_TOKEN|USER_ID):[^=]+ = "(.*)"$/\1|\2/p' <<<"$text")
   [[ "$found" == 3 ]] || die "$(basename "$apk") の BuildConfig の接続先項目が $found 個しか読めない"
+  local update_url
+  update_url="$(sed -nE 's/^\.field public static final UPDATE_CHECK_URL:[^=]+ = "(.*)"$/\1/p' <<<"$text")"
+  [[ "$update_url" == "https://api.github.com" ]] || die "$(basename "$apk") の更新確認先が配布元でない: $update_url"
 }
 
 check_windows_contents() {
@@ -190,6 +193,7 @@ check_windows_contents() {
   entries="$(/usr/bin/unzip -l "$archive" | awk 'NR > 3 { sub(/^ +[0-9]+ +[0-9-]+ +[0-9:]+ +/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print }' | sed '$d')" || die "Windows の zip が読めない: $(basename "$archive")"
   grep -Fxq 'ashiato-server.exe' <<<"$entries" || die "Windows の zip にサーバが無い"
   grep -Fxq 'ashiato-setup.exe' <<<"$entries" || die "Windows の zip にインストーラが無い"
+  grep -Fxq 'ashiato-updater.exe' <<<"$entries" || die "Windows の zip に更新係が無い"
   grep -Fxq 'db-roles.sql' <<<"$entries" || die "Windows の zip に db-roles.sql が無い"
   grep -Eq '^pgsql/bin/postgres\.exe$' <<<"$entries" || die "Windows の zip に PostgreSQL が無い"
   # 同梱の PostgreSQL（EDB の MSVC の組み立て）が要る VC の実行時の DLL。まっさらな Windows には無い（D33（仮）・review R28）
@@ -205,17 +209,39 @@ check_windows_contents() {
     notices="$(/usr/bin/unzip -p "$archive" THIRD-PARTY-NOTICES.txt)"
     grep -Eq '^== PostgreSQL$' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に PostgreSQL の許諾の見出しが無い'
     grep -Eq '^== Microsoft Visual C\+\+ Runtime$' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に VC の実行時の DLL の見出しが無い'
+    grep -Eq '^== rustls ' <<<"$notices" || die 'THIRD-PARTY-NOTICES.txt に更新係の rustls の見出しが無い'
   fi
-  text="$(/usr/bin/unzip -p "$archive" ashiato-server.exe ashiato-setup.exe 2>/dev/null | strings || true)"
-  grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$text" && die 'Windows のインストーラに試験差し込みがある'
-  grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$text" && die 'Windows のサーバに試験差し込みがある'
+  local server_text setup_text updater_text entry
+  server_text=""; setup_text=""; updater_text=""
+  while IFS= read -r entry; do
+    case "$entry" in
+      ashiato-server.exe|*/ashiato-server.exe) server_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+      ashiato-setup.exe|*/ashiato-setup.exe) setup_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+      ashiato-updater.exe|*/ashiato-updater.exe) updater_text+="$(/usr/bin/unzip -p "$archive" "$entry" 2>/dev/null | strings || true)"$'\n' ;;
+    esac
+  done <<<"$entries"
+  grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$setup_text" && die 'Windows のインストーラに試験差し込みがある'
+  grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$server_text" && die 'Windows のサーバに試験差し込みがある'
+  grep -Fq 'ASHIATO_UPDATER_TEST_' <<<"$updater_text" && die 'Windows の更新係に試験差し込みがある'
+  grep -Fq 'settings/test-hooks.json' <<<"$updater_text" && die 'Windows の更新係に試験用設定ファイルの差し込みがある'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20' <<<"$updater_text" || die 'Windows の更新係に GitHub releases の宛先が無い'
   # Rust の 2 つは VC の実行時を静的に持つ（.cargo/config.toml の crt-static）。DLL は pgsql\bin にだけあり、
   # 根の 2 つが VCRUNTIME140.dll を読むと、まっさらな Windows ではインストーラが起きない（D33（仮）・review N1）
   local exe
-  for exe in ashiato-server.exe ashiato-setup.exe; do
+  for exe in ashiato-server.exe ashiato-setup.exe ashiato-updater.exe; do
     /usr/bin/unzip -p "$archive" "$exe" 2>/dev/null | strings | grep -Eiq '(vcruntime|msvcp)1[0-9]{2}[_0-9]*\.dll' &&
       die "Windows の zip の $exe が VC の実行時の DLL を読む（crt-static で組んでいない）"
   done
+  return 0
+}
+
+check_collector_windows_contents() {
+  local archive="$1" entries text
+  entries="$(/usr/bin/unzip -l "$archive" | awk 'NR > 3 { sub(/^ +[0-9]+ +[0-9-]+ +[0-9:]+ +/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print }' | sed '$d')" || die "PC の収集アプリの zip が読めない"
+  grep -Eq '(^|/)ashiato-collector-windows(\.exe)?$' <<<"$entries" || die 'PC の収集アプリの zip に実行ファイルが無い'
+  text="$(/usr/bin/unzip -p "$archive" ashiato-collector-windows.exe 2>/dev/null | strings || true)"
+  grep -Fq 'ASHIATO_COLLECTOR_TEST_UPDATE_URL' <<<"$text" && die '配る PC の収集アプリに試験差し込みがある'
+  grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20' <<<"$text" || die '配る PC の収集アプリに GitHub releases の宛先が無い'
   return 0
 }
 
@@ -264,13 +290,20 @@ check_artifacts() {
       echo '== Scenario: Windows の配布物にインストーラと PostgreSQL が入り、管理画面は入らない'
       check_windows_contents "$dir/$name"
     fi
+    if [[ "$name" == ashiato-collector-windows-*-x86_64.zip ]]; then
+      echo '== Scenario: 配る組み立ては宛先を変える口を持たない'
+      check_collector_windows_contents "$dir/$name"
+    fi
   done
   local windows_archive="$dir/ashiato-server-${expected_version}-windows-x86_64.zip"
   local server_stamp installer_stamp windows_text
   server_stamp="$(artifact_stamp "$windows_archive" "$expected_version")"
   installer_stamp="$(/usr/bin/unzip -p "$windows_archive" ashiato-setup.exe 2>/dev/null | strings | grep -Eo "${expected_version//./\\.}\\+[0-9a-f]{40}" | sort -u)"
   [[ "$server_stamp" == "$installer_stamp" ]] || die 'Windows のサーバとインストーラの版印が違う'
-  windows_text="$(/usr/bin/unzip -p "$windows_archive" ashiato-server.exe ashiato-setup.exe 2>/dev/null | strings || true)"
+  local updater_stamp
+  updater_stamp="$(/usr/bin/unzip -p "$windows_archive" ashiato-updater.exe 2>/dev/null | strings | grep -Eo "${expected_version//./\\.}\\+[0-9a-f]{40}" | sort -u)"
+  [[ "$server_stamp" == "$updater_stamp" ]] || die 'Windows のサーバと更新係の版印が違う'
+  windows_text="$(/usr/bin/unzip -p "$windows_archive" ashiato-server.exe ashiato-setup.exe ashiato-updater.exe 2>/dev/null | strings || true)"
   grep -Fq 'ASHIATO_SETUP_TEST_' <<<"$windows_text" && die '配るインストーラに試験差し込みがある'
   grep -Fq 'ASHIATO_SERVICE_TEST_' <<<"$windows_text" && die '配るサーバに試験差し込みがある'
   local linux_archive="$dir/ashiato-server-${expected_version}-linux-x86_64.tar.gz"
@@ -278,7 +311,7 @@ check_artifacts() {
     local linux_entries
     linux_entries="$(tar -tzf "$linux_archive")"
     echo '== Scenario: Linux の配布物は PostgreSQL を持たない'
-    grep -Eq '(^|/)pgsql(/|$)|(^|/)ashiato-setup' <<<"$linux_entries" && die 'Linux の配布物に PostgreSQL またはインストーラがある' || true
+    grep -Eq '(^|/)pgsql(/|$)|(^|/)ashiato-setup|(^|/)ashiato-updater' <<<"$linux_entries" && die 'Linux の配布物に PostgreSQL、インストーラ、または更新係がある' || true
   fi
   if [[ "$channel" == nightly ]]; then
     apk="$dir/ashiato-collector-dev-${expected_version}.apk"
@@ -335,6 +368,7 @@ self_test_cleanup() {
 }
 
 self_test() {
+  echo "== Scenario: 携帯の配る APK の宛先は配布元である"
   local work; work="$(mktemp -d "${TMPDIR:-/tmp}/artifact-self-test.XXXXXX")"
   SELF_TEST_WORK="$work"
   trap self_test_cleanup EXIT
@@ -353,7 +387,7 @@ self_test() {
   # 版番号は生きた出所の版から組む（出所の版を上げても壊れない。final review R10）
   local v; v="$("$root/tools/release/version.sh" source)"
   # 偽の配布物の依存の一覧。rust-std のほかに、自分の本文を持つ Rust と Node の部品を 1 つずつ持つ
-  fake_notices() { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n\n== react 18.0.0\nLicense: MIT\nMIT License of react\n'; }
+  fake_notices() { printf '== rust-std 1\nLicense: MIT OR Apache-2.0\n\n== anyhow 1.0.0\nLicense: MIT\nMIT License of anyhow\n\n== react 18.0.0\nLicense: MIT\nMIT License of react\n\n== rustls 1.0.0\nLicense: MIT\nMIT License of rustls\n'; }
   # ST55 の Windows のサーバの zip の形（インストーラ・PostgreSQL・db-roles.sql）に、ST53 の許諾の 3 点を足した偽物。
   # LICENSE と SOURCE.txt は $work の今の中身を写す
   win_fixture() {
@@ -361,6 +395,8 @@ self_test() {
     rm -rf "$stage"; mkdir -p "$stage/pgsql/bin"
     cp "$stamp_file" "$stage/ashiato-server.exe"
     cp "$stamp_file" "$stage/ashiato-setup.exe"
+    cp "$stamp_file" "$stage/ashiato-updater.exe"
+    printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >> "$stage/ashiato-updater.exe"
     cp "$stamp_file" "$stage/pgsql/bin/postgres.exe"
     : >"$stage/pgsql/bin/vcruntime140.dll"; : >"$stage/pgsql/bin/msvcp140.dll"
     cp "$root/tools/db-roles.sql" "$stage/db-roles.sql"
@@ -376,6 +412,7 @@ self_test() {
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   tar -czf "$out/ashiato-server-$v-linux-x86_64.tar.gz" -C "$work" missing-stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   win_fixture "$work/windows" "$work/missing-stamp" "$out/ashiato-server-$v-windows-x86_64.zip"
+  /usr/bin/unzip -l "$out/ashiato-server-$v-windows-x86_64.zip" | grep -Eq '[[:space:]]ashiato-updater\.exe$' || die '偽の Windows zip に更新係が無い'
   mkdir -p "$work/assets/licenses"
   cp "$work/LICENSE" "$work/assets/licenses/LICENSE"
   cp "$work/SOURCE.txt" "$work/assets/licenses/SOURCE.txt"
@@ -481,6 +518,9 @@ self_test() {
   echo "== 実物の release 成果物を組み立てる"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$real"
   ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$real"
+  if (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$v" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -PupdateCheckUrl=http://127.0.0.1:1 :app:assembleRelease >/dev/null 2>&1); then
+    die 'release の組み立てが -PupdateCheckUrl を受け入れた'
+  fi
   # C-02 の release rlib から印を読み、Windows runner の成果物と同じ形の写しにする。
   local stamp
   (cd "$root" && cargo build --release -p ashiato-collector-windows >/dev/null)
@@ -489,8 +529,9 @@ self_test() {
   printf '%s' "$stamp" > "$work/stamp"
   printf 'Commit: %s\n' "${stamp#*+}" >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/windows-real" "$work/stamp" "$real/ashiato-server-$v-windows-x86_64.zip"
-  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$real/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   cp "$real"/* "$out/"
   echo "== Scenario: 配る組み立ては試験の差し込みを持たない"
   local bad_windows="$work/bad-windows"
@@ -498,9 +539,35 @@ self_test() {
   (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   printf 'ASHIATO_SETUP_TEST_BAD\n' >> "$bad_windows/ashiato-setup.exe"
   printf 'ASHIATO_SERVICE_TEST_BAD\n' >> "$bad_windows/ashiato-server.exe"
+  grep -Fq 'ASHIATO_SETUP_TEST_BAD' "$bad_windows/ashiato-setup.exe" || die 'self-test の偽インストーラに試験差し込みが無い'
   (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
-  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then return 1; fi
-  grep -Fq '試験差し込み' <<<"$output" || return 1
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '試験差し込みのある Windows zip を通した'; fi
+  rm -f "$out/bad-windows.zip"
+  # 更新係の試験差し込み・試験用設定ファイル・宛先の欠落も配る形では落ちる
+  rm -rf "$bad_windows"; mkdir -p "$bad_windows"
+  (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  printf 'ASHIATO_UPDATER_TEST_BAD\nsettings/test-hooks.json\n' >> "$bad_windows/ashiato-updater.exe"
+  (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '更新係の試験差し込みを通した'; fi
+  rm -f "$out/bad-windows.zip"
+  rm -rf "$bad_windows"; mkdir -p "$bad_windows"
+  (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  cp "$work/stamp" "$bad_windows/ashiato-updater.exe"
+  (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '宛先の無い更新係を通した'; fi
+  rm -f "$out/bad-windows.zip"
+  rm -rf "$bad_windows"; mkdir -p "$bad_windows"
+  (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  sed -i 's#https://api.github.com/repos/rai-256/ashiato/releases##g' "$bad_windows/ashiato-updater.exe"
+  printf 'https://api.github.com\n' >> "$bad_windows/ashiato-updater.exe"
+  (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die 'GitHub API だけの更新係を通した'; fi
+  rm -f "$out/bad-windows.zip"
+  rm -rf "$bad_windows"; mkdir -p "$bad_windows"
+  (cd "$bad_windows" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  printf 'settings/test-hooks.json\nhttps://api.github.com/repos/rai-256/ashiato/releases\n' >> "$bad_windows/ashiato-updater.exe"
+  (cd "$bad_windows" && zip -q -r "$out/bad-windows.zip" .)
+  if output=$(check_windows_contents "$out/bad-windows.zip" 2>&1); then die '試験用設定ファイルのある更新係を通した'; fi
   rm -f "$out/bad-windows.zip"
   # 根の実行ファイルが VC の実行時の DLL を読めば落ちる（review N1）
   rm -rf "$bad_windows"; mkdir -p "$bad_windows"
@@ -516,12 +583,19 @@ self_test() {
   (cd "$unnoticed" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
   printf '%s\n' 'no heading' >"$unnoticed/THIRD-PARTY-NOTICES.txt"
   (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
-  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then return 1; fi
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   grep -Fq 'PostgreSQL の許諾の見出し' <<<"$output" || return 1
   rm -f "$unnoticed/THIRD-PARTY-NOTICES.txt" "$out/unnoticed-windows.zip"
   (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
-  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then return 1; fi
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   grep -Fq 'THIRD-PARTY-NOTICES.txt が無い' <<<"$output" || return 1
+  rm -f "$out/unnoticed-windows.zip"
+  # 更新係だけが持つ rustls の節が無い依存一覧は落ちる
+  rm -rf "$unnoticed"; mkdir -p "$unnoticed"
+  (cd "$unnoticed" && unzip -q "$out/ashiato-server-$v-windows-x86_64.zip")
+  sed -i '/^== rustls /d' "$unnoticed/THIRD-PARTY-NOTICES.txt"
+  (cd "$unnoticed" && zip -q -r "$out/unnoticed-windows.zip" .)
+  if output=$(check_windows_contents "$out/unnoticed-windows.zip" 2>&1); then die 'rustls の無い依存一覧を通した'; fi
   rm -f "$out/unnoticed-windows.zip"
   # VC の実行時の DLL が無い zip は落ちる（review R28）
   local nocrt="$work/nocrt-windows"
@@ -649,8 +723,9 @@ self_test() {
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" server-linux "$release_out"
   ASHIATO_SOURCE_REF="v$v" ASHIATO_BUILD_VERSION="$v" "$root/tools/release/build.sh" apk "$release_out"
   printf 'Ref: v%s\n' "$v" >"$work/SOURCE.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   win_fixture "$work/release-windows" "$work/stamp" "$release_out/ashiato-server-$v-windows-x86_64.zip"
-  (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$release_out/ashiato-collector-windows-$v-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   # --allow-debug-key 無しの経路も、署名の指紋の一致・不一致を検査する（final review R7）。
   local signer cert
   signer="$(android_tool apksigner)" || die 'apksigner が見つからない'
@@ -672,9 +747,10 @@ self_test() {
   printf '%s+0000000000000000000000000000000000000000' "$nightly_version" > "$work/stamp"
   printf 'Commit: 0000000000000000000000000000000000000000\n' >"$work/SOURCE.txt"
   fake_notices >"$work/THIRD-PARTY-NOTICES.txt"
+  printf 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20\n' >"$work/ashiato-collector-windows.exe"
   tar -czf "$nightly/ashiato-server-$nightly_version-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
   win_fixture "$work/nightly-windows" "$work/stamp" "$nightly/ashiato-server-$nightly_version-windows-x86_64.zip"
-  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  (cd "$work" && zip -q "$nightly/ashiato-collector-windows-$nightly_version-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
   local dev_key="$work/nightly-dev.jks" dev_password=self-test-password dev_b64 dev_cert
   printf '%s\n' "$dev_password" | "$root/tools/release/make-key.sh" dev "$dev_key" >/dev/null
   dev_b64="$(base64 -w0 "$dev_key")"

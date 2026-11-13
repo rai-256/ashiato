@@ -6,7 +6,7 @@ export PYTHONUTF8=1
 root="${ASHIATO_NOTICES_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 texts="$root/tools/licenses/texts"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <server|collector-windows|apk|source|commit> ... | --self-test" >&2; exit 2; }
+usage() { echo "使い方: $0 <server|server-windows|collector-windows|apk|source|commit> ... | --self-test" >&2; exit 2; }
 
 valid_commit() { [[ "$1" =~ ^[0-9a-fA-F]{40}$ ]]; }
 
@@ -174,15 +174,21 @@ emit_node() {
 
 rust_notice() {
   local kind="$1" out="$2" target="${3:-}" crate
-  [[ "$kind" == server ]] && crate=ashiato-server || crate=ashiato-collector-windows
+  [[ "$kind" == server || "$kind" == server-windows ]] && crate=ashiato-server || crate=ashiato-collector-windows
   local tmp rows nodes raw; tmp="$(mktemp "${TMPDIR:-/tmp}/notices.XXXXXX")"; rows="$(mktemp "${TMPDIR:-/tmp}/notices-rows.XXXXXX")"; nodes="$(mktemp "${TMPDIR:-/tmp}/notices-nodes.XXXXXX")"; raw="$(mktemp "${TMPDIR:-/tmp}/notices-raw.XXXXXX")"
   NOTICE_TMP="$tmp"; NOTICE_ROWS="$rows"; NOTICE_NODES="$nodes"; NOTICE_RAW="$raw"
   trap 'rm -f "${NOTICE_TMP:-}" "${NOTICE_ROWS:-}" "${NOTICE_NODES:-}" "${NOTICE_RAW:-}"' EXIT
-  rust_rows "$crate" "$target" | awk -F $'\t' -v c="$crate" '$1 != c' | sort -t $'\t' -k1,1 -k2,2 > "$rows"
-  [[ "$kind" != server ]] || node_rows | sort -t $'\t' -k1,1 > "$nodes"
+  {
+    rust_rows "$crate" "$target"
+    if [[ "$kind" == server-windows ]]; then rust_rows ashiato-updater "$target"; fi
+  } | awk -F $'\t' -v c="$crate" '$1 != c && $1 != "ashiato-updater"' | sort -t $'\t' -k1,1 -k2,2 -u > "$rows"
+  if [[ "$kind" == server-windows ]]; then
+    grep -Fq $'rustls\t' "$rows" || die '更新係の依存の一覧に rustls が無い'
+  fi
+  [[ "$kind" != server && "$kind" != server-windows ]] || node_rows | sort -t $'\t' -k1,1 > "$nodes"
   { while IFS=$'\t' read -r n v l a m; do emit_rust "$n" "$v" "$l" "$a" "$m"; done < "$rows"
     std_entry
-    if [[ "$kind" == server ]]; then while IFS=$'\t' read -r n v l a d; do emit_node "$n" "$v" "$l" "$a" "$d"; done < "$nodes"; fi
+    if [[ "$kind" == server || "$kind" == server-windows ]]; then while IFS=$'\t' read -r n v l a d; do emit_node "$n" "$v" "$l" "$a" "$d"; done < "$nodes"; fi
   } > "$raw"
   python3 -c 'import re,sys; sys.stdout.reconfigure(newline="\n"); s=open(sys.argv[1],encoding="utf-8").read(); print("\n".join(sorted(re.split(r"(?=^== )", s, flags=re.M), key=lambda x: x.splitlines()[0] if x.strip() else "")).strip())' "$raw" > "$tmp"
   mv "$tmp" "$out"
@@ -192,13 +198,16 @@ rust_notice() {
 apk_notice() {
   [[ $# -ge 1 ]] || usage
   local out="$1"; shift; local list tmp generated_list=""
-  tmp="$(mktemp "${TMPDIR:-/tmp}/notices-apk.XXXXXX")"; trap 'rm -f "${tmp:-}" "${generated_list:-}"' EXIT
+  tmp="$(mktemp "${TMPDIR:-/tmp}/notices-apk.XXXXXX")"
+  APK_NOTICE_TMP="$tmp"; APK_NOTICE_GENERATED_LIST=""
+  trap 'rm -f "${APK_NOTICE_TMP:-}" "${APK_NOTICE_GENERATED_LIST:-}"' EXIT
   list="${ASHIATO_LICENSES_POM_LIST:-}"
   if [[ -z "$list" ]]; then
     if [[ $# -gt 0 && -f "$1" ]]; then list="$1"; shift
     else
       list="$(mktemp "${TMPDIR:-/tmp}/notices-apk-poms.XXXXXX")"
       generated_list="$list"
+      APK_NOTICE_GENERATED_LIST="$list"
       "$root/collector-android/gradlew" -p "$root/collector-android" -q :app:ashiatoDependencyPoms "-Pashiato.pomOut=$list" >/dev/null
     fi
   fi
@@ -318,7 +327,7 @@ for coordinate, licenses in by_coordinate.items():
 with open(out_path,'w',encoding='utf-8',newline='\n') as out:
     out.write('\n'.join(blocks)+'\n')
 PY
-  mv "$tmp" "$out"; rm -f "$tmp" "$generated_list"; trap - EXIT
+  mv "$tmp" "$out"; rm -f "$tmp" "$generated_list"; APK_NOTICE_TMP=; APK_NOTICE_GENERATED_LIST=; trap - EXIT
 }
 
 self_test() {
@@ -332,6 +341,12 @@ self_test() {
   echo '== Scenario: サーバの依存の一覧は、画面に入る Node の部品を含み、開発だけの部品を含まない'
   "$0" server "$work/server" >/dev/null
   grep -q '^== react ' "$work/server" || die 'react が無い'; ! grep -q '^== vitest ' "$work/server" || die 'vitest が入った'
+  echo '== Scenario: サーバの Windows 版の依存の一覧は、更新係だけが持つ部品を含む'
+  local rustls_dir="$work/rustls"; mkdir -p "$rustls_dir"; cp "$root/tools/licenses/texts/Apache-2.0.txt" "$rustls_dir/LICENSE"
+  printf 'rustls\t1.0\tApache-2.0\t-\t%s/Cargo.toml\n' "$rustls_dir" > "$work/rustls-list"
+  ASHIATO_NOTICES_RUST_LIST="$work/rustls-list" "$0" server-windows "$work/server-windows" >/dev/null
+  grep -q '^== rustls 1.0$' "$work/server-windows" || die 'rustls が無い'
+  if ASHIATO_NOTICES_RUST_LIST="$work/list" "$0" server-windows "$work/missing-rustls" >/dev/null 2>&1; then die 'rustls の無い一覧を受け入れた'; fi
   echo '== Scenario: 自分の部品（workspace の crate）は第三者の一覧に入らない'
   "$0" collector-windows "$work/own" >/dev/null || die '自分の部品で一覧の組み立てが落ちた'
   ! grep -q '^== ashiato-' "$work/own" || die '自分の部品が第三者の一覧に入った'
@@ -437,7 +452,7 @@ case "${1:-}" in
   --self-test) self_test;;
   commit) commit_value;;
   source) shift; source_notice "$@";;
-  server|collector-windows) kind="$1"; out="${2:-}"; [[ -n "$out" ]] || usage; shift 2; target=""; if [[ "${1:-}" == --target ]]; then target="${2:-}"; [[ -n "$target" ]] || usage; shift 2; fi; [[ $# == 0 ]] || usage; rust_notice "$kind" "$out" "$target";;
+  server|server-windows|collector-windows) kind="$1"; out="${2:-}"; [[ -n "$out" ]] || usage; shift 2; target=""; if [[ "${1:-}" == --target ]]; then target="${2:-}"; [[ -n "$target" ]] || usage; shift 2; fi; [[ $# == 0 ]] || usage; rust_notice "$kind" "$out" "$target";;
   apk) shift; apk_notice "$@";;
   *) usage;;
 esac

@@ -151,6 +151,8 @@ jobs:
       # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中
       - run: ./tools/check-offsite.sh --self-test
       - run: ./tools/check-offsite.sh
+      - run: ./tools/check-updater-deps.sh --self-test
+      - run: ./tools/check-updater-deps.sh
       - run: ./tools/check-exposure.sh --self-test
       - run: ./tools/check-private.sh --self-test
       # 時刻サーバへの経路が端末にも PC にも無いこと（ST05 / FR-7）
@@ -489,6 +491,10 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { pattern: package-windows-*, path: package }
+      # ST57 D18: 最初のインストールより前に、更新係だけ外向きを遮断する。loopback は残し、
+      # この規則は job の終わりまで外さない（共有 runner の配布元へ問い合わせない）。
+      - shell: bash
+        run: tools/release/update-check-install.sh --block-outbound
       # Scenario の印は、ここで走らせる実地の確かめ（配る zip と試験の zip）にだけ置く。自己試験は印を持たず、
       # --list の全部が実地の確かめに 1 つずつ印を持つことを Linux の自己試験（chain の job）が見る（ST55 D24）
       - shell: bash
@@ -504,6 +510,17 @@ jobs:
           comm -23 "$RUNNER_TEMP/install-scenarios.expected" "$RUNNER_TEMP/install-scenarios.actual" |
             tee "$RUNNER_TEMP/install-scenarios.missing"
           test ! -s "$RUNNER_TEMP/install-scenarios.missing"
+      # ST57: 更新係の登録・ACL・切り替え・再実行・repair を、install-check と同じ runner で見る。
+      - shell: bash
+        run: |
+          tools/release/update-check-install.sh package/package-windows-release/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-release.log"
+          tools/release/update-check-install.sh package/package-windows-test/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-test.log"
+          tools/release/update-check-install.sh --list | sort -u > "$RUNNER_TEMP/update-scenarios.expected"
+          cat "$RUNNER_TEMP/update-release.log" "$RUNNER_TEMP/update-test.log" | tr -d '\r' |
+            sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/update-scenarios.actual"
+          comm -23 "$RUNNER_TEMP/update-scenarios.expected" "$RUNNER_TEMP/update-scenarios.actual" |
+            tee "$RUNNER_TEMP/update-scenarios.missing"
+          test ! -s "$RUNNER_TEMP/update-scenarios.missing"
       # spec の Scenario と印の突き合わせ（scripts/check_scenarios.py）。scripts/ は .harness2/scripts への symlink で、
       # .harness2 は runner に無い（Windows の checkout では symlink も張れない）。chain の job と同じく token があるときだけ
       # harness2 を取り、その中の台本を直に走らせる。無ければ warning で素通りする（ローカルの merge_gate が同じ検査を走らせる）
@@ -590,6 +607,7 @@ jobs:
       - run: ./tools/release/package.sh --self-test
       # ST55: install-windows の確かめの部品と、--list の全部が実地の確かめに印を持つこと（D24。Windows の実地は install-windows）
       - run: ./tools/release/install-check.sh --self-test
+      - run: ./tools/release/update-check-install.sh --self-test
       - run: ./tools/release/draft.sh --self-test
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test

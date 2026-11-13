@@ -34,6 +34,8 @@
 - サーバは `ashiato-update-check` だけに依る（結果の読み方と版の比べ方）。`ashiato-updater` には依らない。`check-offsite.sh` は今のまま通る
 - 新しい検査 `tools/check-updater-deps.sh`: `cargo tree -p ashiato-updater -e normal` に DB の部品（一覧は検査が持つ: `sqlx`・`tokio-postgres`・`postgres`・`diesel`・`sea-orm`）が無いこと、`ashiato-updater` と `ashiato-collector-windows` に同梱の根の一覧の部品（`webpki-roots`・`webpki-root-certs`）が無いこと、`cargo tree -p ashiato-server -e normal` に `ashiato-updater` が無いこと、`cargo tree -p ashiato-update-check -e normal` に `check-offsite.sh` の一覧の部品が無いこと。`--self-test` つき。CI の `lint` の job に足す
 
+補足: `ashiato-update-check` は RFC 3339 の時刻を型安全に扱うため `chrono`（serde 機能のみ）も使う。HTTP・TLS・DB の部品ではなく、D1 の「純粋な部分」の範囲に含める。
+
 ### D2. 問い合わせは決まった形だけ。見出しの集合を名指しする
 
 > 聞かない既定（`defaults.md` C2）。review/deep.md R8
@@ -170,11 +172,9 @@
 - 開発版の部品は印 `nightly` の配布物の版が自分より SemVer で新しいときだけ「更新あり」。土台の版が上がった開発版は、日付が古くても新しい（main から作るので、土台が上がった版の方が後にできている）
 - 反転条件: 土台の版を下げる運用（緊急の修正の枝から開発版を作る）が始まったとき
 
-### D22（仮）. 携帯の通知（Q5）と「確かめられていない」（Q9）は推奨で仮に足し、決まったら record で FR-113 を ★ で改訂する
+### D22. 携帯の通知（Q5）と「確かめられていない」（Q9）は FR-113 ★ 2026-11-11 に記録した
 
-- Q5・Q9 の推奨は FR-113（画面と PC の通知に「更新あり」）に無い知らせを足す。draft では `docs/requirements.md` と `docs/stories/ST57.md` に触らない
-- 本人が推奨のまま（か足す側）にしたら、record の段が deep.md に「要件へ戻すもの: FR-113」を置き、FR-113 に ★ を入れ、`make_story.py` で ST57.md を作り直す（`review_triage.py` の検査 4 と `check_chain.py` が戻し漏れを止める）
-- 反転条件: 本人が足さない側を選んだら、spec の「携帯の収集アプリは、新しい版を画面に出し…」の通知の文と「7 日確かめられなければ…」の Requirement を削る（review/spec.md R2）
+- Q5・Q9 の内容は FR-113（画面と PC の通知に「更新あり」）へ追加済みである。`docs/requirements.md` と `docs/stories/ST57.md` は record の生成物で、ここからは書き換えない。
 
 ### D23. 確認の無い前の版から入れ替えた収集アプリは、切り方を示すまで問い合わせない（深掘り Q11）
 
@@ -234,6 +234,14 @@
 - 読めない時は「入力があった」と読まず、その定期の時には試みない（印も問い合わせも出ない）。起動の時は今のまま試みる
 - 失わない側: 試みないだけで、外へ何も出ない。止まっている時が延びるのは、読めない回が続く PC だけ
 - 反転条件: 本物の Windows で経過を読めない状態が長く続き、確認がずっと止まると分かれば、ロックしていなければ試みる側へ変える（上流へ返す。見ないまま出うる側なので A）
+
+### D30（仮）. 更新の知らせは既存の通知を置き換えず、NFR-18 の本文コントラストにそろえる
+
+- 帯の文字と地のコントラストは 4.5:1 以上にし、携帯の更新通知はチャンネル `update` と専用の通知 ID を使う。Q14 の答えどおり、切り方を示す通知は ID 9、更新ありは ID 10、確かめられていないは ID 11 とし、切り方を示した通知を更新ありで上書きしない。既存のサーバ更新通知（チャンネル `contract`）は ID 5 のまま、系統不一致通知（`ChannelMismatchNotifier`）を ID 12 へ移し、導入案内（6）とも重ならないようにする。
+- FR-113 ★ 2026-11-11 を導出元として Q5・Q9 の完了形へ直し、仕様・proposal・design の未来形を残さない。
+- Q14 の答え: 切り方の通知を更新ありと並べて残す。通知が 2 件並ぶ間はあるが、後から切り方を読める。
+- 失わない側: 既存の通知と切り方を示した通知を消さず、本文に必要な 4.5:1 の読みやすさを守る。費用は、通知が 2 件並ぶ間と、既に表示中の旧 ID 6 の系統不一致通知が更新後に一度だけ残り得ること。
+
 ## Risks / Trade-offs
 
 - [携帯と PC の問い合わせの元の IP と時刻が毎日配布元に残る] → Q1 で本人が選ぶ（A）。中身は版の一覧の取得だけで、記録は出ない（FR-116 の試験）

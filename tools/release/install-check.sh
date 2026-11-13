@@ -636,7 +636,7 @@ remove_users() {
 # 前の回のインストールを消し、まっさらな機械にする（状態の置き場も消す）。
 clean_machine() {
   local service
-  for service in ashiato-server ashiato-db; do
+  for service in ashiato-server ashiato-db ashiato-updater; do
     if sc.exe query "$service" >/dev/null 2>&1; then
       sc.exe stop "$service" >/dev/null 2>&1 || true
       local until=$((SECONDS + 120))
@@ -647,6 +647,7 @@ clean_machine() {
   taskkill.exe /F /IM postgres.exe >/dev/null 2>&1 || true
   reg.exe delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' /f >/dev/null 2>&1 || true
   rm -rf "$PROGRAM"
+  rm -rf 'C:/ProgramData/ashiato-updater'
   if [[ -e "$STATE" ]]; then
     icacls.exe "$(win "$STATE")" /setowner '*S-1-5-32-544' /T /C /L >/dev/null 2>&1 || true
     icacls.exe "$(win "$STATE")" /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /L >/dev/null 2>&1 || true
@@ -754,7 +755,7 @@ check_release_zip() {
   local program remote_ip rule=0
   # 一時フォルダは runner で 8.3 の短い名前（C:\Users\RUNNER~1\…）になり、netsh が
   # 「The application name could not be resolved.」で断る。setup は長い名前で渡す
-  for program in "$(cygpath -wl "$SETUP")" "$(win "$PROGRAM")\\ashiato-server.exe" "$(win "$PROGRAM")\\ashiato-setup.exe" \
+  for program in "$(cygpath -wl "$SETUP")" "$(win "$PROGRAM")\\ashiato-server.exe" "$(win "$PROGRAM")\\ashiato-setup.exe" "$(win "$PROGRAM")\\ashiato-updater.exe" \
       "$(win "$PROGRAM")\\pgsql\\bin\\postgres.exe" "$(win "$PROGRAM")\\pgsql\\bin\\psql.exe" \
       "$(win "$PROGRAM")\\pgsql\\bin\\pg_dump.exe" "$(win "$PROGRAM")\\pgsql\\bin\\initdb.exe" "$(win "$PROGRAM")\\pgsql\\bin\\pg_ctl.exe"; do
     while IFS= read -r remote_ip; do
@@ -780,6 +781,8 @@ check_release_zip() {
     sc.exe qc "$service" | tr -d '\r' | grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' || die "$service が自動で起きる形でない"
     [[ "$(state_code "$service")" == 4 ]] || die "$service が動いていない"
   done
+  assert_service_config "$(sc.exe qc ashiato-updater | tr -d '\r')" ashiato-updater
+  [[ "$(state_code ashiato-updater)" == 4 ]] || die 'ashiato-updater が動いていない'
   wait_healthz 30
 
   echo '== Scenario: インストールは Docker も WSL も使わない'
@@ -1269,12 +1272,14 @@ check_release_zip() {
   while [[ -e "$PROGRAM" ]]; do [[ "$SECONDS" -lt "$deadline" ]] || die 'プログラムの置き場が消えない'; sleep 2; done
   ! sc.exe query ashiato-db >/dev/null 2>&1 || die 'DB のサービスが残った'
   ! sc.exe query ashiato-server >/dev/null 2>&1 || die 'サーバのサービスが残った'
+  ! sc.exe query ashiato-updater >/dev/null 2>&1 || die '更新係のサービスが残った'
   ! reg.exe query "$key" >/dev/null 2>&1 || die '「アプリと機能」の登録が残った'
 
   echo '== Scenario: 消しても記録の置き場は残り、その場所を示す'
   [[ -f "$STATE/db/17/PG_VERSION" && -f "$SETTINGS" ]] || die '状態の置き場が消えた'
+  [[ -f 'C:/ProgramData/ashiato-updater/checks.jsonl' ]] || die '更新係の記録が消えた'
   [[ -f "$INBOX_U/install-check-keep.txt" ]] || die '取り込み待ちの中身が消えた'
-  grep -Fq 'ProgramData' "$out" && grep -Fq 'docs/install.md' "$out" || die '残した置き場と手順の案内が無い'
+  grep -Fq 'ashiato-updater' "$out" && grep -Fq 'ProgramData' "$out" && grep -Fq 'docs/install.md' "$out" || die '残した置き場と手順の案内が無い'
 
   echo '== Scenario: 消すとダウンロードと取り込み待ちに足した権限が外れる'
   # サービスを消した後は、残った ACE が名前でなく SID で表示される。名前と SID の両方で見る（review R31）

@@ -2157,6 +2157,29 @@
           }
         }
       }
+    },
+    "/update-status": {
+      "get": {
+        "tags": [
+          "update_status"
+        ],
+        "operationId": "getUpdateStatus",
+        "responses": {
+          "200": {
+            "description": "更新確認の状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API の合言葉では通らない"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6116,6 +6139,54 @@
             "description": "いちばん新しい記録の時刻。"
           },
           "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "installed"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "found_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "installed": {
+            "type": "string"
+          },
+          "last_ok_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
             "type": "string"
           }
         }

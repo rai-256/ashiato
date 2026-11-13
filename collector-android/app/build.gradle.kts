@@ -199,6 +199,7 @@ android {
         buildConfigField("String", "WEB_URL",
             "\"${project.findProperty("ashiato.webUrl") ?: ""}\"")
         buildConfigField("String", "CHANNEL", "\"$appChannel\"")
+        buildConfigField("String", "UPDATE_CHECK_URL", "\"https://api.github.com\"")
         // 計測テスト（src/androidTest）。エミュレータでも実機でも同じものが走る（2026-09-14）
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -242,12 +243,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "UPDATE_CHECK_URL", "\"${project.findProperty("updateCheckUrl") ?: ""}\"")
+        }
         getByName("release") {
+            buildConfigField("String", "UPDATE_CHECK_URL", "\"https://api.github.com\"")
             signingConfig = if (System.getenv("ASHIATO_APK_UNSIGNED") == "1") {
                 null
             } else {
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+    gradle.taskGraph.whenReady {
+        if (project.findProperty("updateCheckUrl") != null && allTasks.any { it.name.contains("Release", ignoreCase = true) }) {
+            throw GradleException("-PupdateCheckUrl は debug の組み立てでだけ指定できます")
         }
     }
     project.findProperty("ashiato.licenseAssets")?.toString()?.takeIf { it.isNotBlank() }?.let { licenseAssets ->

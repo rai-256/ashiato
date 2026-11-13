@@ -325,6 +325,16 @@ pub const DB_RETRY: Duration = Duration::from_secs(1);
 /// サーバのログを残す日数（spec の 30 日。これより古い日付のファイルを消す）。
 pub const SERVER_LOG_KEEP_DAYS: u64 = 30;
 
+pub fn installed_updater_directory() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        ashiato_update_check::updater_layout(
+            ashiato_build_stamp::channel(env!("ASHIATO_VERSION"))
+                == ashiato_build_stamp::Channel::Dev,
+        )
+        .directory,
+    )
+}
+
 /// DB を 1 秒ごとに試し、指定時間を超えたら値を返す。
 /// 待っても直らない失敗（`DbWaitError::is_permanent`）はすぐ `Rejected` を返す。
 pub async fn wait_for_db<F, Fut, E>(timeout: Duration, mut connect: F) -> WaitOutcome
