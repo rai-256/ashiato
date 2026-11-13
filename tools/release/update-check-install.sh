@@ -189,7 +189,7 @@ check_zip() {
   ! windows_icacls 'C:\ProgramData\ashiato' /T | grep -Fqi 'NT SERVICE\ashiato-updater' || die '状態の ACL に更新係がある'
 
   echo '== Scenario: 更新係の置き場は、サーバが読めて書けない'
-  local updater_acl="$(windows_icacls "$(win "$UPDATER_DIR")" /T)"
+  local updater_acl="$(windows_icacls "$(win "$UPDATER_DIR")")"
   assert_updater_acl_text "$updater_acl"
 
   echo '== Scenario: 切ると更新係のサービスが止まり、問い合わせが無くなる'

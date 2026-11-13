@@ -18,8 +18,8 @@ import { defineConfig, devices } from "@playwright/test";
 declare const process: { env: Record<string, string | undefined> };
 
 const PORT = Number(process.env.WEB_PORT ?? 5180);
-const tempRoot = process.env.TMPDIR;
-if (!tempRoot && !process.env.ASHIATO_UPDATER_DIR) throw new Error("TMPDIR または ASHIATO_UPDATER_DIR が無い");
+const tempRoot = process.env.TMPDIR ?? process.env.RUNNER_TEMP;
+if (!tempRoot && !process.env.ASHIATO_UPDATER_DIR) throw new Error("TMPDIR、RUNNER_TEMP、または ASHIATO_UPDATER_DIR が無い");
 const UPDATER_DIR = process.env.ASHIATO_UPDATER_DIR ?? execFileSync("mktemp", ["-d", `${tempRoot}/ashiato-st57-updater.XXXXXX`], { encoding: "utf8" }).trim();
 process.env.ASHIATO_UPDATER_DIR = UPDATER_DIR;
 

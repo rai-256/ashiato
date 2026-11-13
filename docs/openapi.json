@@ -2163,7 +2163,7 @@
         "tags": [
           "update_status"
         ],
-        "operationId": "get",
+        "operationId": "getUpdateStatus",
         "responses": {
           "200": {
             "description": "更新確認の状態",

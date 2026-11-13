@@ -242,6 +242,7 @@ check_collector_windows_contents() {
   text="$(/usr/bin/unzip -p "$archive" ashiato-collector-windows.exe 2>/dev/null | strings || true)"
   grep -Fq 'ASHIATO_COLLECTOR_TEST_UPDATE_URL' <<<"$text" && die '配る PC の収集アプリに試験差し込みがある'
   grep -Fq 'https://api.github.com/repos/rai-256/ashiato/releases?per_page=20' <<<"$text" || die '配る PC の収集アプリに GitHub releases の宛先が無い'
+  return 0
 }
 
 check_artifacts() {
