@@ -430,6 +430,7 @@
 - 判定: ADDRESSED（re-review 5 @c82b3eb14946a25e5b56f2606acfd57308a423f5）
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
+- 判定: ADDRESSED（re-review 14 @e340a72b45392ac3b0288d8831f32b056f06244a）
 
 ## R31. 申し送りの C4・C5・C6・K1 が拾われていない（帯のコントラスト・通知の見分け・未来形・携帯の通知 ID）
 - 成果物: openspec/changes/st57-update-notice/specs/distribution/spec.md
@@ -554,6 +555,7 @@
 - 判定: ADDRESSED（re-review 8 @19c1f6650644aaa721988bb6b23158896d53fd44）
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
 - 判定: ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）
+- 判定: ADDRESSED（re-review 14 @e340a72b45392ac3b0288d8831f32b056f06244a）
 
 ## settle_review（re-review 8 @19c1f66）: 処置の直しが新しく壊したもの
 
@@ -576,3 +578,10 @@
 - kind: technical
 - 処置: fixed 10.2 — cleanup で消えた fix report を復元し、PC 更新確認 25 件と更新係インストール台本の self-test を現在の HEAD で再実行した検査名・出力・rc とともに記録した
 - 判定: ADDRESSED（re-review 13 @8f798828c38ab218cba4b6aa4bbc9fda2afdd7a2）
+
+## settle_review（re-review 14 @e340a72）: 処置の直しが新しく壊したもの
+
+## R46. e340a72 の変更（prepare_repair_fixture と self-test の追加）を覆った実行の記録が report.md にも evidence.jsonl にも無い。self-test の PASS は 3d85618 の head のもの。実害は無い。
+- 成果物: .superpowers/sdd/st57-settle/report.md
+- 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 14 の New Breakage。Minor）
+- kind: technical
