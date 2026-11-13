@@ -585,3 +585,4 @@
 - 成果物: .superpowers/sdd/st57-settle/report.md
 - 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 14 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 7.1
