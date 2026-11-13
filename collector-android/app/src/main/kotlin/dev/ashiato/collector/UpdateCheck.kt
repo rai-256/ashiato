@@ -32,6 +32,7 @@ internal object UpdateCheck {
     const val NIGHTLY_PATH = "/repos/rai-256/ashiato/releases/tags/nightly"
     const val USER_AGENT = "ashiato-update-check"
     const val ACCEPT = "application/vnd.github+json"
+    // IDs 9 through 11 are reserved for update notices; destination setup uses 13.
     const val INTRO_NOTIFICATION_ID = 9
     const val AVAILABLE_NOTIFICATION_ID = 10
     const val STALE_NOTIFICATION_ID = 11
