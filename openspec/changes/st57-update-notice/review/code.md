@@ -112,6 +112,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R3. 携帯の St57 の試験の多くは、印の Scenario の主張を観測していない（7 つの振る舞いを壊しても 29 本が全部緑）
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt / collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateCheckTest.kt
@@ -184,6 +185,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R7. Task 10.2 の `cargo test --workspace` は 3 回のうち 2 回 rc=101。1 回目は更新係の時間切れの試験の理由が `Unreachable` だった
 - 成果物: crates/updater/tests/st57_once.rs
@@ -247,6 +249,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## security review（8f10733..ef3a33a）
 
@@ -296,6 +299,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R15. `once_at` overwrites `status.found_at = Some(at)` on every successful check, even when `latest` has not changed. The PC collector only updates it when the version changes (`if state.latest != latest`).
 - 成果物: crates/updater/src/lib.rs:270
@@ -401,6 +405,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R26. 携帯の「更新あり」の日付が UTC の `YYYY/MM/DD` になる
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
@@ -426,6 +431,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R29. 携帯は別のホストへの転送を黙って追う
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
@@ -437,6 +443,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R30. 試験の zip で Windows の実地の台本を走らせると、試験の時計を書くときに更新係の宛先を消す
 - 成果物: tools/release/update-check-install.sh
@@ -491,6 +498,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## settle_review（re-review 5 @c82b3eb）: 処置の直しが新しく壊したもの
 
@@ -523,6 +531,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## final review（8f10733..f304c3f）
 
@@ -536,6 +545,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R39. `cargo fmt --all -- --check` が HEAD で落ちる（CI）
 - 成果物: crates/collector-windows/src/update_check.rs, crates/collector-windows/src/runtime.rs, crates/collector-windows/tests/st57_pc_update.rs
@@ -552,6 +562,7 @@
 - 判定: ADDRESSED（re-review 7 @7c7cfb2395c052b68e65cbece62f7442d8a6dd62）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## R41. 「状態の番号で分ける」Scenario の携帯の試験が 429 の 1 本だけ
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St57UpdateNoticeTest.kt
@@ -592,6 +603,7 @@
 - 判定: ADDRESSED（re-review 16 @79d357a1cef3b4c32b6122b63010565ec9ee7fcd）
 - 判定: ADDRESSED（re-review 17 @d6a1344fbff7cda5462d3a1704f2572cb7139e01）
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
 
 ## settle_review（re-review 8 @19c1f66）: 処置の直しが新しく壊したもの
 
@@ -640,3 +652,4 @@
 - kind: technical
 - 処置: fixed D30 — 本人が決めた更新通知の ID 9〜11 は保ち、既存の送り先確認通知を未使用の ID 13 へ移した。ID 集合の Scenario 試験には送り先確認通知も含め、重複を検出する。
 - 判定: ADDRESSED（re-review 18 @0772db389f70b8b8749c7ff0f7cd573eaae3e23e）
+- 判定: ADDRESSED（re-review 19 @41ecfa2d81c1486d1988b7e8b17d41a76ea48ebe）
