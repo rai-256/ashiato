@@ -144,7 +144,8 @@ reset_machine() {
 
 start_receiver() {
   local count_file="$1" port=18701
-  python - "$port" "$count_file" <<'PY' &
+  # MSYS_NO_PATHCONV=1 の下では /tmp/... が変換されず、Windows の python は C:\tmp\... を探す。Windows の形で渡す
+  python - "$port" "$(cygpath -w "$count_file")" <<'PY' &
 import http.server, pathlib, sys
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
