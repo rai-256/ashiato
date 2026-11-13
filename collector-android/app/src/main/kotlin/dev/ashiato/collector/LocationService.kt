@@ -1472,7 +1472,8 @@ open class LocationService : Service() {
         const val CHANNEL = "location"
         const val SETUP_CHANNEL = "setup"
         const val SETUP_NOTIFICATION_ID = 6
-        const val DESTINATION_NOTIFICATION_ID = 9
+        // Keep this distinct from the ST57 update-notice IDs (9 through 11).
+        const val DESTINATION_NOTIFICATION_ID = 13
         const val SETUP_NOTICE_INTERVAL_MS = 24L * 60L * 60L * 1000L
         const val NOTIFICATION_ID = 1
 

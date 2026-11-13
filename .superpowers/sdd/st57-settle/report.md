@@ -21,3 +21,9 @@
 - R31: conflict の仮決めとして記録済みの D30 の見出しを `D30（仮）` に修正し、PR 本文用の仮決め一覧の対象として明示した。R31 の成果物・根拠・既存の処置および判定には変更していない。
 - 検査: `python3 scripts/review_triage.py . st57-update-notice --no-verdict`
   - 出力: `指摘 87 件 / 仮決め 5 件 / 要件へ戻すもの 2 件`、`triage: OK`（rc=0）
+
+## 2026-11-13 — R47 の処置
+
+- R47: 更新通知の ID 9〜11 を維持し、送り先確認通知を ID 13 に移した。更新・既存通知・送り先確認の全 ID を同じ Scenario の集合に含めた。
+- 検査: `scripts/quiet-run st57-r47 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests 'dev.ashiato.collector.St57UpdateNoticeTest'`
+  - 出力: `BUILD SUCCESSFUL in 37s`、`32 actionable tasks: 1 executed, 31 up-to-date`（rc=0、ログ: `.superpowers/sdd/logs/20261113-212900-st57-r47.log`）

@@ -348,13 +348,14 @@ class St57UpdateNoticeTest {
         assertEquals("contract", ContractNotifier.CHANNEL)
         assertFalse("新しい版 0.5.0 が出ています" == CONTRACT_UPDATE_HEADLINE)
         assertEquals(
-            6,
+            7,
             setOf(
                 ContractNotifier.CONTRACT_NOTIFICATION_ID,
                 UpdateCheck.INTRO_NOTIFICATION_ID,
                 UpdateCheck.AVAILABLE_NOTIFICATION_ID,
                 UpdateCheck.STALE_NOTIFICATION_ID,
                 LocationService.SETUP_NOTIFICATION_ID,
+                LocationService.DESTINATION_NOTIFICATION_ID,
                 ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID,
             ).size,
         )

@@ -619,3 +619,4 @@
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt:35（re-review 17 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D30 — 本人が決めた更新通知の ID 9〜11 は保ち、既存の送り先確認通知を未使用の ID 13 へ移した。ID 集合の Scenario 試験には送り先確認通知も含め、重複を検出する。
