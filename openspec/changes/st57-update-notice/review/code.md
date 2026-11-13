@@ -561,3 +561,4 @@
 - 処置: fixed 10.2 — cleanup で消えた report を復元し、PC 更新確認 25 件と更新係インストール台本の self-test を現在の HEAD で再実行した検査名・出力・rc とともに記録した
 - 判定: ADDRESSED（re-review 9 @0ce266ca90492fb57bba5f84a1246bcaeb836585）
 - 判定: NOT ADDRESSED（re-review 10 @813718596e2474cf7c83a3b886a72b8359dd7f36）: .superpowers/sdd/st57-settle/report.md:1 は見出しのみのまま。試験名も出力も無い。修正範囲の diff に report.md が含まれない。
+- 判定: ADDRESSED（re-review 11 @fc24247c32012c2abeabb9cd9e749c722aa0c72a）
