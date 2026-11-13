@@ -197,6 +197,21 @@ class St57UpdateNoticeTest {
         assertTrue(done.await(2, TimeUnit.SECONDS))
         assertEquals(1, seen.size)
     }
+
+    @Test fun `切り方の通知を更新ありで置き換えない`() {
+        // Scenario: 切り方の通知を出した後に更新ありの通知が出ても、切り方の通知は残る
+        configured()
+        val (url, seen, done) = releasesServer()
+        val checker = UpdateChecker(app, url)
+        assertFalse(checker.check(now))
+        assertTrue(checker.check(now.plusSeconds(1)))
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertEquals(1, seen.size)
+        val texts = shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).allNotifications
+            .map { it.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString() }
+        assertTrue(texts.contains("更新の確認: 有効（切るには設定の画面）"))
+        assertTrue(texts.contains("新しい版 0.5.0 が出ています"))
+    }
     @Test fun `権限要求中は印を立てない`() {
         // Scenario: 入れ替えた携帯は、権限を求めている途中は画面に出したとみなさない
         configured(); shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -332,7 +347,17 @@ class St57UpdateNoticeTest {
         assertEquals("update", UpdateCheck.CHANNEL)
         assertEquals("contract", ContractNotifier.CHANNEL)
         assertFalse("新しい版 0.5.0 が出ています" == CONTRACT_UPDATE_HEADLINE)
-        assertEquals(5, setOf(ContractNotifier.CONTRACT_NOTIFICATION_ID, UpdateCheck.AVAILABLE_NOTIFICATION_ID, UpdateCheck.STALE_NOTIFICATION_ID, LocationService.SETUP_NOTIFICATION_ID, ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID).size)
+        assertEquals(
+            6,
+            setOf(
+                ContractNotifier.CONTRACT_NOTIFICATION_ID,
+                UpdateCheck.INTRO_NOTIFICATION_ID,
+                UpdateCheck.AVAILABLE_NOTIFICATION_ID,
+                UpdateCheck.STALE_NOTIFICATION_ID,
+                LocationService.SETUP_NOTIFICATION_ID,
+                ChannelMismatchNotifier.CHANNEL_NOTIFICATION_ID,
+            ).size,
+        )
     }
     @Test fun `携帯回線でも配布元へ問い合わせる`() {
         // Scenario: 携帯は携帯の回線でも確かめる

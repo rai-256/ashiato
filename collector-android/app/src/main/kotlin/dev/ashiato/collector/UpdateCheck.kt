@@ -32,6 +32,7 @@ internal object UpdateCheck {
     const val NIGHTLY_PATH = "/repos/rai-256/ashiato/releases/tags/nightly"
     const val USER_AGENT = "ashiato-update-check"
     const val ACCEPT = "application/vnd.github+json"
+    const val INTRO_NOTIFICATION_ID = 9
     const val AVAILABLE_NOTIFICATION_ID = 10
     const val STALE_NOTIFICATION_ID = 11
 
@@ -157,7 +158,7 @@ internal class UpdateChecker(private val context: Context, private val testDesti
     fun check(now: Instant = Instant.now()): Boolean {
         if (!prefs.getBoolean("enabled", true)) return false
         if (!prefs.getBoolean("intro_shown", false)) {
-            if (post(UpdateCheck.AVAILABLE_NOTIFICATION_ID, "更新の確認: 有効（切るには設定の画面）")) markIntroShown(now)
+            if (post(UpdateCheck.INTRO_NOTIFICATION_ID, "更新の確認: 有効（切るには設定の画面）")) markIntroShown(now)
             return false
         }
         val last = prefs.getString("checked_at", null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
