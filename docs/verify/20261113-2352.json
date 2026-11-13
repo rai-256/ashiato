@@ -1,0 +1,262 @@
+{
+  "title": "確認バッチ 20261113-2352",
+  "subtitle": "ST57 新しい版が出たら知らせる",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261113-2352/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。読む・作り直すのは画面の合言葉でログインして（`tools/web-login.sh`）。API の合言葉は送るだけ。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `cookie=\"$(tools/web-login.sh http://127.0.0.1:18787)\"; curl -sS -H \"$cookie\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261113-2352 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261113-2352/app-debug.apk` を作った。エミュレータが無いので入れていない（手で入れる: `adb -s エミュレータ install -r dist/verify-20261113-2352/app-debug.apk`）。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261113-2352`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261113-2352 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261113-2352/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画: 撮っていない —— このバッチの Story（ST57）に録画のシナリオが無い"
+  ],
+  "questions": [
+    {
+      "id": "ST57-T11.1",
+      "topic": "ST57 11.1",
+      "kind": "check",
+      "question": "本物の配布元で 1 回確かめる: 配布元に最初のリリース（ベータ版か開発版）が出た後、本人の PC のサーバ（走らせ直しで更新係が足された形）・携帯・PC の収集アプリで「更新あり」か「新しい版なし」が出ることを見る。暗号化した接続が OS の根で通ること（`NT SERVICE\\ashiato-updater` を含む）を最初に見るのはここ（試験と CI は loopback の平文の受け手で、本物の TLS を通らない。D12（仮）の反転条件。review/spec.md R12）。いまは配布元のリリースが 0 件（P1）なので、出るまで待つ",
+      "why": "ST57 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n物理: realdata —— 本物の配布元のリリースは手元の受け手では作れない（試験・CI は本物の配布元に聞かない。D8）",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST57-T11.2",
+      "topic": "ST57 11.2",
+      "kind": "check",
+      "question": "本人の PC の走らせ直し: ST55 で入れた本人の PC で新しい版の zip のインストーラを走らせ直し、更新係が足され、DB と設定はそのままで、最後に「更新の確認: 有効」と切り方が出ることを見る",
+      "why": "ST57 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n物理: realdata —— 本人の PC の前のインストールの状態は CI で再現しきれない",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST57-PD26",
+      "topic": "ST57 仮D26",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D26: 入れ替えた収集アプリの 7 日の起点はいつか →「切り方を示した時。示すまでは「確かめられていない」を出さない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 表示の規則なので、起点を変えても記録から計算し直せる（失わない側の費用: 示した時刻を置き場に 1 つ持つ）\n乗っている決定: Q11\n出所: design.md#D26",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-PD28",
+      "topic": "ST57 仮D28",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D28: 入れ替えた PC で、最後の入力からの経過を読めない定期の時に、切り方のトーストを試みるか →「試みない（印も問い合わせも出ない）。起動の時は今のまま」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 試みないだけで外へ何も出ないので、見ないまま問い合わせが出ることは増えない（失わない側の費用: 読めない回が続く PC は確認が止まる時が延びる）\n乗っている決定: Q13, D25\n出所: design.md#D28",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-PD29",
+      "topic": "ST57 仮D29",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D29: 入れ替えた携帯で、別の画面（使用状況のアクセスの設定）や確認の窓（未使用のアプリの制限）が前に出ている間に画面を組み直したとき、いつ印を立てるか →「前に出ている間（前の回から残る窓も含む）は立てず、設定から戻って窓の無い画面を組み直した時か、窓が設定を開かずに閉じた時に立てる」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 印を遅らせるだけで問い合わせは早まらないので、行を見ないまま元の IP と時刻が出ることは増えない（失わない側の費用: 分かれの条件（窓が出ているか））\n乗っている決定: Q12, D24\n出所: design.md#D29",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AD16",
+      "topic": "ST57 答えで直した D16",
+      "kind": "check",
+      "question": "ST57 の設計の決定 D16「携帯の機会は `LocationService` の起動と生存信号の定期の時」を、深掘りの答えに合わせて直した（足した）。直した後の振る舞いでよいか",
+      "why": "深掘りの答えに合わせて AI が設計を直した・足した。直した仕様は GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/design.md の D16・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AD24",
+      "topic": "ST57 答えで直した D24",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D24「入れ替えた携帯で「画面に出した」とみなすのはどの画面か」を直した。直した後の振る舞いでよいか",
+      "why": "仮で選んだ決定を、深掘りの答えに合わせて AI が直した。直した仕様は GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/provisional.jsonl の D24・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AD25",
+      "topic": "ST57 答えで直した D25",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D25「PC で切り方のトーストを出せないとき、いつ出し直すか」を直した。直した後の振る舞いでよいか",
+      "why": "仮で選んだ決定を、深掘りの答えに合わせて AI が直した。直した仕様は GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/provisional.jsonl の D25・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AD27",
+      "topic": "ST57 答えで直した D27",
+      "kind": "check",
+      "question": "ST57 の仮の決定 D27「入れ替えた携帯で、最初の画面を組んだ同じ回に別の画面（使用状況のアクセスの設定）や窓（未使用のアプリの制限の確認）を前に出したとき、いつ印を立てるか」を直した。直した後の振る舞いでよいか",
+      "why": "仮で選んだ決定を、深掘りの答えに合わせて AI が直した。直した仕様は GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/provisional.jsonl の D27・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AQ11",
+      "topic": "ST57 答えで直した Q11",
+      "kind": "check",
+      "question": "ST57 の Q11「入れ替えた収集アプリが切り方を通知で示せないときに、問い合わせるか」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/deep.md の Q11・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AQ12",
+      "topic": "ST57 答えで直した Q12",
+      "kind": "check",
+      "question": "ST57 の Q12「入れ替えた携帯で、画面に切り方を出したとみなす時」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/deep.md の Q12・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-AQ13",
+      "topic": "ST57 答えで直した Q13",
+      "kind": "check",
+      "question": "ST57 の Q13「入れ替えた PC で、定期の時に切り方のトーストを出し直すか」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n出所: st57-update-notice/deep.md の Q13・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST57-F",
+      "topic": "ST57 違和感",
+      "kind": "check",
+      "question": "ST57「新しい版が出たら知らせる」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n合意したときから変わった仕様: design.md / go.json / proposal.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（8 件。例: web.6: refs の Scenario「帯の文字と地のコントラストは 3:1 以上」が change の spec に無い（名前は一字一句））\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261113-2352/ST57-spec.html"
+    }
+  ]
+}
