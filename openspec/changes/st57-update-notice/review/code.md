@@ -573,3 +573,4 @@
 - 成果物: .superpowers/sdd/st57-settle/report.md
 - 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 12 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 10.2 — cleanup で消えた fix report を復元し、PC 更新確認 25 件と更新係インストール台本の self-test を現在の HEAD で再実行した検査名・出力・rc とともに記録した
