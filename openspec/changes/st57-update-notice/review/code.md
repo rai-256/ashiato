@@ -566,6 +566,7 @@
 - 判定: NOT ADDRESSED（re-review 10 @813718596e2474cf7c83a3b886a72b8359dd7f36）: .superpowers/sdd/st57-settle/report.md:1 は見出しのみのまま。試験名も出力も無い。修正範囲の diff に report.md が含まれない。
 - 判定: ADDRESSED（re-review 11 @fc24247c32012c2abeabb9cd9e749c722aa0c72a）
 - 判定: NOT ADDRESSED（re-review 12 @93b3e7b584cc97f466cff08c627cc12f9395781f）: .superpowers/sdd/st57-settle/report.md が 1 行（見出し）だけ。試験名・出力・rc が無い。02f263217 の cleanup でまた消えた
+- 判定: ADDRESSED（re-review 13 @8f798828c38ab218cba4b6aa4bbc9fda2afdd7a2）
 
 ## settle_review（re-review 12 @93b3e7b）: 処置の直しが新しく壊したもの
 
@@ -574,3 +575,4 @@
 - 根拠: .superpowers/sdd/st57-settle/report.md:1（re-review 12 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 10.2 — cleanup で消えた fix report を復元し、PC 更新確認 25 件と更新係インストール台本の self-test を現在の HEAD で再実行した検査名・出力・rc とともに記録した
+- 判定: ADDRESSED（re-review 13 @8f798828c38ab218cba4b6aa4bbc9fda2afdd7a2）
