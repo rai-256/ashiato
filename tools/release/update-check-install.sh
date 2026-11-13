@@ -177,6 +177,17 @@ install_zip() {
   fi
 }
 
+# repair は server.json を作り直すので、画面の合言葉をもう一度受け取る。最初の install と同じ
+# 試験用の値を渡し、CI の標準入力が閉じていても対話待ちで失敗しないようにする。
+repair_password() {
+  local archive="$1"
+  if [[ "$archive" == *package-windows-test* ]]; then
+    printf '%s\n' 'update-check-test-password-0123'
+  else
+    printf '%s\n' 'update-check-release-password-0123'
+  fi
+}
+
 check_zip() {
   local archive="$1" out
   [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]] || die '実地の確かめは Windows（Git Bash）でだけ走る'
@@ -260,7 +271,10 @@ check_zip() {
   echo '== Scenario: repair は更新係に触れない'
   local updater_sum="$(sha256sum "$UPDATER_DIR/checks.jsonl" | cut -d' ' -f1)" repair_out="$WORK/repair.out"
   prepare_repair_fixture 'C:/ProgramData/ashiato/settings/server.json' "$WORK/server.json.away"
-  ASHIATO_SETUP_TEST_TRACE=1 "$PROGRAM/ashiato-setup.exe" repair >"$repair_out" 2>&1 || die 'repair が失敗'
+  repair_password "$archive" | ASHIATO_SETUP_TEST_TRACE=1 "$PROGRAM/ashiato-setup.exe" repair >"$repair_out" 2>&1 || {
+    cat "$repair_out" >&2
+    die 'repair が失敗'
+  }
   ! grep -Fq 'ashiato-updater' "$repair_out" || die 'repair の命令に更新係が出た'
   assert_disabled_setting "$UPDATER_DIR/settings/check.json"
   assert_disabled_service ashiato-updater
@@ -349,6 +363,7 @@ EOF
   [[ ! -e "$work/repair-fixture/settings/server.json" && -f "$work/server.json.away" ]] || die 'repair のためにサーバ設定を退けられない'
   [[ -f "$work/repair-fixture/settings/owner.json" && -f "$work/repair-fixture/check.json" ]] || die 'repair fixture が所有者または更新係の設定に触れた'
   body="$(awk '/^check_zip\(\)/,/^self_test\(\)/' "$0")"
+  grep -Fq 'repair_password' <<<"$body" || die 'repair に合言葉を渡す経路が無い'
   while IFS= read -r name; do count="$(grep -Fxc -- "  echo '== Scenario: $name'" <<<"$body" || true)"; [[ $count == 1 ]] || die "Scenario の印が不正: $name"; done < <(list_scenarios)
   ! awk '/^self_test\(\)/{on=1} on' "$0" | grep -v 'grep -Eq' | grep -Eq '^[[:space:]]*echo .== Scenario:' || die 'self-test に Scenario の印がある'
   rm -rf "$work"; trap - EXIT
