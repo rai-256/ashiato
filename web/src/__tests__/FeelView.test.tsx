@@ -74,6 +74,7 @@ beforeEach(() => {
           return r;
         });
       }
+      if (url === "/api/update-status") return Promise.resolve(json(200, { state: "not_running", installed: "0.1.0", latest: null, found_at: null, checked_at: null, last_ok_at: null, reason: "not_running" }));
       if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: stayEntries }));
       if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: "21:00", recorded: false }));
       gets.push(url);

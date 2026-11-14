@@ -11,6 +11,7 @@ import { msg } from "./messages";
 import { useScheme } from "./scheme";
 import { linkStyle, pageStyle } from "./surface";
 import { SCHEMES } from "./tokens";
+import { UpdateBand } from "./UpdateBand";
 
 const m = msg("root");
 
@@ -30,34 +31,26 @@ export function Root(): React.ReactElement {
     return () => window.removeEventListener("hashchange", on);
   }, []);
   // **S-6 マスタ管理**（ST19 / design D9、ST21 / design D12）
-  if (/^#\/master\/?$/.test(hash)) return <MasterView tab="attributes" />;
-  if (/^#\/master\/places\/?$/.test(hash)) return <MasterView tab="places" />;
+  if (/^#\/master\/?$/.test(hash)) return <><UpdateBand /><MasterView tab="attributes" /></>;
+  if (/^#\/master\/places\/?$/.test(hash)) return <><UpdateBand /><MasterView tab="places" /></>;
   // **S-3 主観入力**（ST17 / design D12）。日付を省けば暦の今日、暦に無い日付は書く操作を出さない
   const feel = feelDateFromHash(hash);
   if (feel !== undefined) {
-    if ("invalid" in feel) return <FeelInvalid raw={feel.invalid} />;
-    return <FeelView key={feel.date ?? "today"} date={feel.date} />;
+    if ("invalid" in feel) return <><UpdateBand /><FeelInvalid raw={feel.invalid} /></>;
+    return <><UpdateBand /><FeelView key={feel.date ?? "today"} date={feel.date} /></>;
   }
   // **S-7 設定**（ST33 / design D13）。入口は S-1 の見出しの行。入口を決め直すのは ST25
-  if (/^#\/settings\/?$/.test(hash)) return <SettingsView />;
+  if (/^#\/settings\/?$/.test(hash)) return <><UpdateBand /><SettingsView /></>;
   // **S-1 稼働状況**（ST25 / design D12）。ルートではなく専用のアドレス
-  if (/^#\/coverage\/?$/.test(hash)) return <App />;
+  if (/^#\/coverage\/?$/.test(hash)) return <><UpdateBand /><App /></>;
   // 空・`#/`・解釈できないアドレスは今日の 1 日の画面
   const day = dayFromHash(hash) ?? null;
   // **暦に無い日付は、そう出す**（R47）。そのまま一覧を開くと見出しが「13 月 45 日」になり、前後の日へ移るボタンが黙って効かない
   if (day !== null && !isRealDate(day)) {
-    return (
-      <main
-        data-testid="day-invalid"
-        data-scheme={scheme}
-        style={pageStyle(c)}
-      >
-        <p role="alert">{m.invalidDate(day)}</p>
-        <a href="#/day/" style={linkStyle(c)}>
-          {m.toToday}
-        </a>
-      </main>
-    );
+    return <><UpdateBand /><main data-testid="day-invalid" data-scheme={scheme} style={pageStyle(c)}>
+      <p role="alert">{m.invalidDate(day)}</p>
+      <a href="#/day/" style={linkStyle(c)}>{m.toToday}</a>
+    </main></>;
   }
-  return <DayView date={day ?? todayInTz(new Date())} />;
+  return <><UpdateBand /><DayView date={day ?? todayInTz(new Date())} /></>;
 }

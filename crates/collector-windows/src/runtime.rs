@@ -119,6 +119,8 @@ pub struct Runtime<'a> {
     destination_toaster: Option<Arc<dyn destination_gate::DestinationToaster>>,
     /// 系統の違いの通知係（D12（仮））。契約の版の通知とは別の札を使う。
     channel_notice: Option<ChannelNotice>,
+    update_checker: Option<crate::update_check::UpdateChecker>,
+    update_periodic_at: Option<DateTime<Utc>>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -354,6 +356,8 @@ impl<'a> Runtime<'a> {
             contract_notice: None,
             destination_toaster: None,
             channel_notice: None,
+            update_checker: None,
+            update_periodic_at: Some(now),
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -408,6 +412,10 @@ impl<'a> Runtime<'a> {
         self.channel_notice = Some(notice);
     }
 
+    pub fn set_update_checker(&mut self, checker: crate::update_check::UpdateChecker) {
+        self.update_checker = Some(checker);
+    }
+
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
     #[must_use]
     pub fn with_history(mut self, reader: std::sync::Arc<dyn HistoryReader>) -> Self {
@@ -456,6 +464,20 @@ impl<'a> Runtime<'a> {
         }
         self.save_engine_state();
         self.touch(wall, mono);
+        if let Some(checker) = &self.update_checker {
+            let checker = checker.clone();
+            let log = self.log;
+            std::thread::spawn(move || {
+                if let Err(error) = checker.start(wall) {
+                    log(telemetry::line(
+                        "update_check_failed",
+                        Some(1),
+                        None,
+                        Some(telemetry::error_kind(&error)),
+                    ));
+                }
+            });
+        }
     }
 
     /// 1 回の見回り（壁時計と単調時計は今の値）。
@@ -486,6 +508,30 @@ impl<'a> Runtime<'a> {
         // 2. 観測 → 記録
         self.retry_unsaved();
         let obs = source.observe(wall);
+        if self
+            .update_periodic_at
+            .is_none_or(|at| mono - at >= Duration::hours(1))
+        {
+            self.update_periodic_at = Some(mono);
+            if let Some(checker) = &self.update_checker {
+                let idle = match obs.idle {
+                    IdleRead::Elapsed(value) => Some(value.num_seconds()),
+                    IdleRead::Unavailable => None,
+                };
+                let checker = checker.clone();
+                let log = self.log;
+                std::thread::spawn(move || {
+                    if let Err(error) = checker.periodic(wall, obs.locked, idle) {
+                        log(telemetry::line(
+                            "update_check_failed",
+                            Some(1),
+                            None,
+                            Some(telemetry::error_kind(&error)),
+                        ));
+                    }
+                });
+            }
+        }
         let cap = capability_of(&obs);
         self.interval_blockers.extend(cap.blockers.iter().cloned());
         self.interval_blockers
@@ -1506,6 +1552,48 @@ mod tests {
         for sec in (from..=to).step_by(step) {
             rt.tick_at(src, t(sec), t(sec));
         }
+    }
+
+    #[test]
+    fn st57_runtime_runs_update_check_at_start_and_hourly_tick() {
+        // Scenario: PC の収集アプリは起動の時と実行時の 1 時間ごとの仕事で更新を確かめる
+        let (cfg, _tmp) = cfg();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let checker = crate::update_check::UpdateChecker::new(&cfg.state_dir);
+        // 新規導入直後の「示す」門ではなく Runtime が起こす check を観測する。
+        checker.set_enabled(true).unwrap();
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        rt.set_update_checker(checker);
+        let mut source = FakeSource::new("editor");
+        rt.start_at(&source, t(0), t(0));
+        let records = cfg.state_dir.join("update-checks.jsonl");
+        for _ in 0..100 {
+            if records.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(records.exists(), "起動時の更新確認が走らない");
+        // runtime の 1 時間の契機と、更新係自身の 24 時間の間引きを別々に満たす。
+        rt.tick_at(&mut source, t(86_400), t(3600));
+        for _ in 0..100 {
+            if std::fs::read_to_string(&records)
+                .unwrap_or_default()
+                .lines()
+                .count()
+                >= 2
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(records).unwrap().lines().count(), 2);
     }
 
     // Scenario: 設定が無くても起動して前景の窓を積む

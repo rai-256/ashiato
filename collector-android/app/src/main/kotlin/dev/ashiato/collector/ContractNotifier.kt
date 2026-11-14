@@ -101,7 +101,7 @@ class ChannelMismatchNotifier(
         store.channelNotifiedAtMs = now()
     }
 
-    companion object { const val CHANNEL_NOTIFICATION_ID = 6 }
+    companion object { const val CHANNEL_NOTIFICATION_ID = 12 }
 }
 
 /**
@@ -145,7 +145,7 @@ class ContractNotifier(
     }
 
     private fun post(notice: ContractNotice): Boolean {
-        if (!canPost()) {
+        if (!canPostOnContractChannel()) {
             if (!skipping) log(Telemetry.line("contract_notice_skipped", source = null))
             skipping = true
             return false
@@ -165,12 +165,8 @@ class ContractNotifier(
         return true
     }
 
-    private fun canPost(): Boolean {
-        val permitted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        val channelOn = manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
-        return permitted && manager.areNotificationsEnabled() && channelOn
-    }
+    /** 更新通知と同じ権限・チャンネル確認を、contract チャンネルに対して行う。 */
+    private fun canPostOnContractChannel(): Boolean = UpdateCheck.canPost(context, manager, CHANNEL)
 
     companion object {
         const val CHANNEL = "contract"

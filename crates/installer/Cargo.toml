@@ -9,12 +9,14 @@ workspace = true
 
 [dependencies]
 ashiato-build-stamp = { path = "../build-stamp" }
+ashiato-update-check = { path = "../update-check" }
 rand = "0.8"
 base64 = "0.22"
 argon2 = "0.5"
 rpassword = "7"
 sha1 = "0.10"
 serde_json.workspace = true
+chrono.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Console"] }

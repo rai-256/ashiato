@@ -89,6 +89,10 @@ open class MainActivity : Activity() {
     /** この起動の `app_open` の観測を済ませた（D9）。 */
     private var healthOpenObserved = false
     private var setupLaunched = false
+    private var introRowShownInThisActivity = false
+    private var exemptSettingsOpened = false
+    private var usageAccessOpenedInThisStart = false
+    private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
         val marks = healthMarks()
@@ -127,6 +131,9 @@ open class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // 設定画面から戻った後は、行が再び見えるので入れ替えの印を立ててよい。
+        // start() ごとに戻すと、設定を開いた回の途中で start() が呼ばれた場合にも保護が外れる。
+        exemptSettingsOpened = false
         if (!inFlight) proceed()
     }
 
@@ -397,6 +404,7 @@ open class MainActivity : Activity() {
     }
 
     private fun start() {
+        usageAccessOpenedInThisStart = false
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
             Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
@@ -414,10 +422,27 @@ open class MainActivity : Activity() {
         // ランチャーから開く通常のメイン画面では、設定済みでも変更の入口を残す。
         // 権限・設定の途中経路は従来どおり収集を始めて直ちに閉じる。
         val setupRow = shouldOfferInitialSetup()
-        if (restricted || notice != null || setupRow) {
+        val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
+        val updateAvailable = updatePreferences.getString("latest", null)
+            ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
+        val updateStale = updatePreferences.getBoolean("enabled", true) && updatePreferences.getString("last_reason", null) != null &&
+            UpdateCheck.stale(
+                java.time.Instant.now(),
+                updatePreferences.getString("last_ok_at", null)
+                    ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+                    ?: updatePreferences.getString("intro_shown_at", null)
+                        ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
+            )
+        val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
+        if (restricted || notice != null || setupRow || updateIntroPending || updateStale) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
+            if (Config.isComplete && introRowShownInThisActivity && exemptDialog?.isShowing != true &&
+                !exemptSettingsOpened && !usageAccessOpenedInThisStart
+            ) {
+                updateChecker.markIntroShown()
+            }
         } else {
             finish()
         }
@@ -447,6 +472,7 @@ open class MainActivity : Activity() {
             .setNegativeButton(NOT_NOW_LABEL, null)
             .setOnDismissListener {
                 asked.mark()
+                if (Config.isComplete && !exemptSettingsOpened && updateChecker.introPending()) updateChecker.markIntroShown()
                 exemptDialog = null
             }
             .show()
@@ -461,6 +487,7 @@ open class MainActivity : Activity() {
     }
 
     private fun openUnusedAppRestrictionsSettings() {
+        exemptSettingsOpened = true
         val opened = runCatching { startActivity(manageUnusedAppRestrictionsIntent(this)) }.isSuccess
         if (!opened) Log.w(TAG, Telemetry.line("unused_app_restrictions_settings_missing", source = LOGICAL_SOURCE))
     }
@@ -490,6 +517,24 @@ open class MainActivity : Activity() {
             }
         }
         actionBar?.hide()
+        val updatePrefs = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
+        if (Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity)) {
+            column.addView(TextView(this).apply { text = "更新の確認: 有効（切るには設定の画面）" })
+            introRowShownInThisActivity = true
+        }
+        updatePrefs.getString("latest", null)?.let { latest ->
+            if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
+                val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+                column.addView(TextView(this).apply { text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）" })
+            }
+        }
+        if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {
+            val lastOk = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            val since = lastOk ?: updatePrefs.getString("intro_shown_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            if (UpdateCheck.stale(java.time.Instant.now(), since)) {
+                column.addView(TextView(this).apply { text = UpdateCheck.staleText(lastOk, updatePrefs.getString("last_reason", null)) })
+            }
+        }
         if (notice != null) column.addView(TextView(this).apply { text = notice.line })
         if (setupRow) {
             if (setupNeeded) column.addView(TextView(this).apply { text = SETUP_LINE })
@@ -538,6 +583,7 @@ open class MainActivity : Activity() {
         // **先に印を書く。** 開けなかった端末（設定画面を持たない）で毎回試し続けないため
         marks.edit().putBoolean(SENT_TO_USAGE_ACCESS, true).apply()
         val sent = runCatching { startActivity(usageAccessSettingsIntent()) }.isSuccess
+        usageAccessOpenedInThisStart = sent
         if (!sent) Log.w(TAG, Telemetry.line("usage_access_settings_missing", source = APP_USAGE_LOGICAL_SOURCE))
     }
 

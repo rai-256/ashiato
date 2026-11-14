@@ -18,7 +18,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # 取り込み口へ送るだけ。**TLS の機能を入れない**（design D16）——
 # S-01 / C-02 はどちらもオンプレ（要件 §5 技術的制約 ★2026-09-12）で、
 # 依存を増やすほど許諾の検査（tools/check-licenses.sh）の面が広がる。
-ureq = { version = "3", default-features = false }
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "_ring", "platform-verifier", "gzip"] }
 # 記録に載せる IANA のタイムゾーン識別子（FR-20）。chrono は名前を持たない。
 iana-time-zone = "0.1"
 # 履歴 DB の写しを Linux の単体テストでも本物の SQLite で読む（ST08 design D2）。
@@ -26,6 +26,7 @@ iana-time-zone = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2.workspace = true
 ashiato-build-stamp = { path = "../build-stamp" }
+ashiato-update-check = { path = "../update-check" }
 
 # 組み立ての印（ST49 / design D5）。build.rs だけで使う
 [build-dependencies]
