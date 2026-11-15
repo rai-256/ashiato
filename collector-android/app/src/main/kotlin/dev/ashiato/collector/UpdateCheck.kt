@@ -258,7 +258,8 @@ internal class UpdateChecker(private val context: Context, private val testDesti
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
         if (!UpdateCheck.canPost(context, manager, UpdateCheck.CHANNEL)) return false
-        manager.notify(id, NotificationCompat.Builder(context, UpdateCheck.CHANNEL).setContentTitle("あしあと。").setContentText(text).setSmallIcon(android.R.drawable.ic_popup_sync).setContentIntent(PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build())
+        val intent = Intent(context, MainActivity::class.java).apply { putExtra(UpdateInstall.EXTRA_START, true) }
+        manager.notify(id, NotificationCompat.Builder(context, UpdateCheck.CHANNEL).setContentTitle("あしあと。").setContentText(text).setSmallIcon(android.R.drawable.ic_popup_sync).setContentIntent(PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build())
         return true
     }
 

@@ -92,6 +92,7 @@ open class MainActivity : Activity() {
     private var introRowShownInThisActivity = false
     private var exemptSettingsOpened = false
     private var usageAccessOpenedInThisStart = false
+    private var updateStarted = false
     private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
@@ -117,6 +118,7 @@ open class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        UpdateInstall.clean(this)
         Config.initialize(this)
         if (shouldOfferInitialSetup() && !Config.isComplete &&
             !getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE).getBoolean(SETUP_SKIPPED, false)
@@ -411,7 +413,7 @@ open class MainActivity : Activity() {
         }
         // **先に収集を始める**（本人の決定 Q3「拒んでも位置の収集は始める」）——
         // 設定画面から戻ってこない本人の端末でも、収集はもう動いている
-        startForegroundService(Intent(this, LocationService::class.java))
+        startForegroundService(Intent(this, LocationService::class.java).putExtra(EXTRA_STARTED_FROM_FOREGROUND, true))
         sendToUsageAccessOnce()
         val state = unusedAppRestrictionsReader().read(this)
         val restricted = state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN
@@ -425,6 +427,10 @@ open class MainActivity : Activity() {
         val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
         val updateAvailable = updatePreferences.getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
+        if (!updateStarted && intent?.getBooleanExtra(UpdateInstall.EXTRA_START, false) == true) {
+            updateStarted = true
+            UpdateInstall.start(this)
+        }
         val updateStale = updatePreferences.getBoolean("enabled", true) && updatePreferences.getString("last_reason", null) != null &&
             UpdateCheck.stale(
                 java.time.Instant.now(),
@@ -525,7 +531,10 @@ open class MainActivity : Activity() {
         updatePrefs.getString("latest", null)?.let { latest ->
             if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
                 val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-                column.addView(TextView(this).apply { text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）" })
+                column.addView(Button(this).apply {
+                    text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）"
+                    setOnClickListener { UpdateInstall.start(this@MainActivity) }
+                })
             }
         }
         if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {
@@ -588,6 +597,7 @@ open class MainActivity : Activity() {
     }
 
     internal companion object {
+        const val EXTRA_STARTED_FROM_FOREGROUND = "dev.ashiato.collector.STARTED_FROM_FOREGROUND"
         private const val TAG = "ashiato"
         private const val REQUEST = 1
         const val HEALTH_REQUEST = 2

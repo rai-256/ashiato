@@ -72,6 +72,8 @@ open class LocationService : Service() {
     private val originalThread: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
     private lateinit var ageClock: AgeClock
     private lateinit var ledger: DropLedger
+    private var replacedStart = false
+    private var foregroundPromoted = false
 
     /**
      * 置き場に書けなかった記録の数え。**ソースごとに別ファイル**（tasks 5.1 / 独立レビュー R10）——
@@ -392,15 +394,34 @@ open class LocationService : Service() {
      * Android は長期間使っていないアプリの権限を自動で剥がす。
      * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
      */
-    protected open fun readCapability(source: CollectionSource): Capability = source.capability(this)
+    protected open fun readCapability(source: CollectionSource): Capability = if (
+        replacedStart && source.logicalSource == SourceCadence.LOCATION.logicalSource &&
+        foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+    ) Capability(capturable = false, blockers = listOf(Capability.PERMISSION)) else source.capability(this)
 
     override fun onCreate() {
         super.onCreate()
         Config.initialize(this)
+        val marker = File(noBackupFilesDir, "update/replaced-start")
+        replacedStart = marker.isFile
+        if (replacedStart) marker.delete()
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
         val type = foregroundServiceType()
         startForeground(NOTIFICATION_ID, notification(ongoingText()), type)
+        if (replacedStart && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        ) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
+            if (UpdateCheck.canPost(this, manager, UpdateCheck.CHANNEL)) {
+                manager.notify(UPDATE_WAITING_NOTIFICATION_ID, Notification.Builder(this, UpdateCheck.CHANNEL)
+                    .setContentTitle("あしあと。").setContentText("更新の後、位置の収集が止まっています。開いてください")
+                    .setSmallIcon(android.R.drawable.ic_menu_mylocation).setAutoCancel(true).build())
+            }
+        }
         // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
         // `startForeground` が投げて `onCreate` ごと落ちるので、**この 1 行が出たこと自体が
         // 「前景サービスが立った」の証拠**になる（計測テストがこれを見る）
@@ -875,7 +896,9 @@ open class LocationService : Service() {
      * 打ち切られた場合の備えは [onTimeout]（畳んで落ちない）。
      */
     private fun foregroundServiceType(): Int =
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        if (foregroundPromoted || (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            (!replacedStart || checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
+        )) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         } else {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
@@ -897,6 +920,14 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, false) == true && replacedStart &&
+            foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        ) {
+            foregroundPromoted = true
+            startForeground(NOTIFICATION_ID, notification(ongoingText()), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            getSystemService(NotificationManager::class.java).cancel(UPDATE_WAITING_NOTIFICATION_ID)
+        }
         if (intent?.action == ACTION_SETUP_CHANGED) {
             flusher?.cancel()
             flusher = null
@@ -1472,6 +1503,7 @@ open class LocationService : Service() {
         const val CHANNEL = "location"
         const val SETUP_CHANNEL = "setup"
         const val SETUP_NOTIFICATION_ID = 6
+        const val UPDATE_WAITING_NOTIFICATION_ID = 12
 
         // Keep this distinct from the ST57 update-notice IDs (9 through 11).
         const val DESTINATION_NOTIFICATION_ID = 13
