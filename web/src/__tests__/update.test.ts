@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bannerLines, isUpdateStatus, type UpdateStatus } from "../update";
+import { bannerLines, isUpdateStatus, lastUpdateLine, type UpdateStatus } from "../update";
 
 const status = (overrides: Partial<UpdateStatus>): UpdateStatus => ({
   state: "available",
@@ -98,5 +98,22 @@ describe("更新状態", () => {
       at: "2026-11-11T09:12:00Z", result: "not_applied", to_version: "0.5.0", from_version: "0.4.0",
       reason: { kind: "connect_failed", failed_version: null, sqlstate: "99999" },
     } }))[0]).toContain("99999（DB の誤り）");
+  });
+
+  it("理由が無い戻しは更新係が動いていないとは表示しない", () => {
+    expect(lastUpdateLine({
+      at: "2026-11-11T09:12:00Z",
+      result: "rolled_back",
+      to_version: "0.5.0",
+      from_version: "0.4.0",
+      reason: null,
+    })).toBe("更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました");
+    expect(lastUpdateLine({
+      at: "2026-11-11T09:12:00Z",
+      result: "not_applied",
+      to_version: "0.5.0",
+      from_version: "0.4.0",
+      reason: null,
+    })).toBe("更新 0.5.0 は入りませんでした。0.4.0 のまま動いています");
   });
 });
