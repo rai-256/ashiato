@@ -73,9 +73,7 @@ impl RecoveryPlan {
 
 pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) -> RecoveryPlan {
     let restore_db = match stage {
-        UpdateStage::Starting => {
-            backup == BackupState::Completed && !matches!(exit_code, 2..=4)
-        }
+        UpdateStage::Starting => backup == BackupState::Completed && !matches!(exit_code, 2..=4),
         UpdateStage::Migrating => {
             backup == BackupState::Completed && !matches!(exit_code, 0 | 2..=4)
         }

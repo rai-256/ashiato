@@ -191,13 +191,19 @@ mod tests {
         assert_eq!(value["result"], "rolled_back");
         assert_eq!(value["from_version"], "0.4.0");
         assert_eq!(value["to_version"], "0.5.0");
-        assert!(value["written_at"].is_null());
+        assert!(!value
+            .as_object()
+            .expect("履歴の JSON オブジェクト")
+            .contains_key("written_at"));
         assert!(!line.contains("移行"));
     }
 
     #[test]
     fn st58_plan_rollback_cli_accepts_only_the_bare_command() {
-        assert_eq!(commands::parse_args(&["rollback"]).expect("rollback の引数"), "rollback");
+        assert_eq!(
+            commands::parse_args(&["rollback"]).expect("rollback の引数"),
+            "rollback"
+        );
         assert!(commands::parse_args(&["rollback", "--elevated"]).is_ok());
     }
 
@@ -223,6 +229,20 @@ mod tests {
         );
         assert!(restore.args.contains(&"-p".into()) && restore.args.contains(&"55401".into()));
         assert!(!restore.line().contains("ashiato ") && !psql.line().contains("ashiato "));
+    }
+
+    #[test]
+    fn st58_plan_rollback_history_command_is_traced_as_failed_program() {
+        let command = commands::rollback_history_command(
+            Path::new(r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"),
+            Path::new(r"C:\\ProgramData\\ashiato\\update\\history-pending.jsonl"),
+        );
+        assert_eq!(
+            command.program,
+            r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"
+        );
+        assert!(command.line().contains("record-rollback"));
+        assert!(command.line().contains("history-pending.jsonl"));
     }
 
     #[test]

@@ -1118,10 +1118,7 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
     Ok(command.to_owned())
 }
 
-pub fn update_history_record_rollback_command(
-    program: &Path,
-    pending_out: &Path,
-) -> SetupCommand {
+pub fn update_history_record_rollback_command(program: &Path, pending_out: &Path) -> SetupCommand {
     SetupCommand::new(
         program.display().to_string(),
         [
@@ -1131,6 +1128,10 @@ pub fn update_history_record_rollback_command(
             &pending_out.display().to_string(),
         ],
     )
+}
+
+pub fn rollback_history_command(program: &Path, pending_out: &Path) -> SetupCommand {
+    update_history_record_rollback_command(program, pending_out)
 }
 
 pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCommand {
