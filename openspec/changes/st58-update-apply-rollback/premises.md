@@ -4,7 +4,7 @@
 2026-11-15 に確かめた。
 
 **失われるもの（`loss`）のある問いは Q1（PC の入れ方: `uncaptured`）・Q5（途中で止まる: `discarded`）・Q6（「戻した」の形: `rewrite-all`）・Q7（退避の保持: `discarded`）。**
-Q1 の推奨の手順が依る P4 は確かさ 1。外れても止まる時間（数秒）は変わらず、手順が「名前を変えて退ける」から「止めてから置き換える」に変わるだけ（下流の Windows の実行時の試験で 4 に上げる）。
+Q1 の推奨の手順は、spec の段で動いている実行ファイルの名前を変えない形（design D12（仮）。版ごとの置き場から起こす）にしたので P4 に依らない（review/spec.md R12）。P4 は D12（仮）の反転条件の先として残す。
 Q5〜Q7 は repo の実物（確かさ 3）に載る。携帯の更新の後の再開（仮の決定。defaults.md P1）が依る P6・P7 は確かさ 2 で、エミュレータで 4 に上げることを tasks に置く。
 
 | # | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
@@ -37,3 +37,5 @@ Q5〜Q7 は repo の実物（確かさ 3）に載る。携帯の更新の後の�
 | P21 | PC と携帯の収集アプリの更新の確認の状態は、見つけた最新の版の番号だけを持ち、配布物の場所と指紋を持たない | 押したときに版の一覧を取り直す要があるか（D11（仮）） | `crates/collector-windows/src/update_check.rs:22-35`（`UpdateState` は `latest` など版と時刻だけ）・`collector-android/.../UpdateCheck.kt:176-184`（`choose` の結果の版だけを prefs に置く） | 持たない | 実物（repo） | 3 |
 | P22 | PC の収集アプリの通知は、押されたときに受け手を動かせる（今は `setup` の窓を `current_exe()` で開く形がある）。受け手は収集アプリが動いている間だけ働く | 更新の通知を押して窓を開けるか（D12（仮）） | `crates/collector-windows/src/toast.rs:63-85`（`Activated` に受け手を付け、`spawn_setup_window`） | 開ける | 実物（repo） | 3 |
 | P23 | PC の収集アプリは、同時に 2 つ動くのを止める仕組みを持たない | 入れ替えの間に前の版と新しい版が同時に収集しないこと（D12（仮））を、入れ替える側が守る要がある | `grep -n 'CreateMutex\|single' crates/collector-windows/src/*.rs` が 0 件 | 持たない | 実物（repo） | 2 |
+| P24 | Windows で `DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP` で起こした子は、起こした窓（コンソール）を閉じても止まらない | PC の入れ替えた新しい版が、窓を閉じた後も動き続けるか（D12（仮）。review/spec.md R9） | 公式文書 https://learn.microsoft.com/windows/win32/procthread/process-creation-flags ・ Rust の `std::os::windows::process::CommandExt::creation_flags` | 止まらない（文書の上） | 公式文書 | 2。Task 8.2 の Windows の実行時の試験で 4 に上げる |
+| P25 | 同じ大きい版の中では、新しい小さい版の `pg_dump --format=custom` を前の小さい版の `pg_restore` が読め、データの置き場は小さい版を上げ下げしても起きる | 小さい版の違う同梱の PostgreSQL での戻し（D5。review/spec.md R15） | 公式文書 https://www.postgresql.org/docs/17/upgrading.html （小さい版の間はデータの形が変わらない）・ https://www.postgresql.org/docs/17/app-pgrestore.html | 読める・起きる（文書の上） | 公式文書 | 2 |

@@ -36,26 +36,27 @@
 5. 新しい版の配布物で置き換え、DB のサービスを起こす。段 `replaced`
 6. 新しい版の `migrate` を、`MIGRATE_BACKUP_DIR = <状態の置き場>\backups\pre-migrate\<run_id>\`（空の置き場）で走らせる。段 `migrating` → 終わったら終了コードを印に書く
 7. 新しい版のサーバを起こし、180 秒以内に待ち受けが開くのを待つ（D16（仮））。段 `starting`
-8. 開いたら: 開始の種類を「自動」・「アプリと機能」の版・更新係を（切ってなければ）起こす・退避の保持（D23（仮））・更新の記録に `applied`・控えの写し（D18（仮））・印を消す
+8. 開いたら: まず段 `listening` を印に書く（これ以後は DB もプログラムも戻さない —— 走らせ直しも `rollback` の口も 8 の残りを進める。review/spec.md R1）。開始の種類を「自動」・「アプリと機能」の版・更新係を（切ってなければ）起こす・退避の保持（D23（仮））・更新の記録に `applied`・控えの写し（D18（仮））・印を消す
 
 前の版を退けるのは 1 世代だけ。設定・秘密・更新係の置き場には触れない（D6）。新しい版が要る鍵は「足りない鍵を足す」だけを許す。
 
 **なぜ「先に新しい版の migrate を zip から走らせ、通ってから置き場を替える」でないか**: zip の中の実行ファイルは本人の置いた場所（ダウンロード）から動き、退避の置き場・`pg_dump`・ログの場所の指定がインストールの形と食い違う（ST55 の申し送り K1）。置き場を替えてから走らせ、戻しは置き場ごと戻す方が、戻した後の状態が「更新の前」と同じになる。
 
-### D2. 戻す退避は「この回の置き場にある退避」だけ（defaults.md C2）
+### D2. 戻す退避は「この回の置き場にある、取り終えた退避」だけ（defaults.md C2）
 
-`migrate` に回ごとの空の置き場を渡し、終わった後にその置き場に `pre-migrate-*.dump` が 1 つあれば「この回の退避がある」とみなす。戻すのは、終了コード 1 でこの回の退避がある回と、移行は通ったが新しい版が待ち受けを開かない回（D16（仮））だけ。
-終了コード 2・3・4・それ以外・終了コード 1 でこの回の退避が無い回は、DB を戻さずにプログラムの置き場だけを前の版に戻す。いちばん新しいファイルを選ぶ形は採らない（時計が戻ったときと 2 回目の試みで、前の退避を戻しうる。review/deep.md R1）。
+`migrate` に回ごとの空の置き場を渡す。`migrate` は退避を `pre-migrate-<時刻>.dump.part` に書き、`pg_dump` が通って中身があるときだけ `.dump` へ名前を変える（`migrate_backup.rs` は今 `pg_dump` の前に空のファイルを作る —— 書きかけと取り終えたものを名前で分ける。review/spec.md R5）。終わった後にその置き場に `.dump` が 1 つあれば「この回の退避がある」とみなす。
+戻すのは、終了コードが 0・2・3・4 以外（1 と、落ちた・止められた）でこの回の退避がある回と、移行は通ったが新しい版が待ち受けを開かない回（D16（仮））。終了コード 2・3・4 は退避より前に止まる（申し送り st48 R21・st54 D3・`lib.rs:402-403`）。
+終了コード 2・3・4 と、この回の退避が無い回は、DB を戻さずにプログラムの置き場だけを前の版に戻す（review/spec.md R4）。いちばん新しいファイルを選ぶ形は採らない（時計が戻ったときと 2 回目の試みで、前の退避を戻しうる。review/deep.md R1）。
 
 ### D3. 戻しは、別の名前の DB に入れてから入れ替える（defaults.md C3）
 
-前の版のプログラムを置き場に戻し、DB のサービスを起こしてから、表の所有者 `ashiato_owner`（合言葉は `owner.json`）で:
+順（review/spec.md R6）: 新しい版のプログラムを `<プログラムの置き場>\failed\` へ退け、`previous\` を置き場へ戻し、DB のサービスを起こしてから、表の所有者（D25（仮））で:
 
 1. `ashiato_restore` を（あれば消してから）作り、前の版の同梱の `pg_restore --exit-on-error --no-password --dbname=ashiato_restore <この回の退避>` で入れる
 2. 入り終えたら、DB `postgres` に繋いで `ALTER DATABASE ashiato RENAME TO ashiato_failed_<UTC 時刻>` → `ALTER DATABASE ashiato_restore RENAME TO ashiato`
-3. 段 `restored` を印に書く
+3. 段 `restored` を印に書き、`failed\` の新しい版の `ashiato-server update-history record-rollback` で更新の履歴の 2 行を書く（終了コード 5 なら控えへ。D18（仮）・D26（仮））。`failed\` は次に更新が通ったときに消す
 
-`ashiato_owner` は `CREATEDB` を持ち、DB の持ち主なので、DB の管理者なしで行える（P20。確かさ 3。下流の Windows の CI の通しで 4 に上げる）。サーバは止めてあるので、入れ替えるときに繋いでいる者はいない。途中で止まっても、元の名前の DB（落ちた状態）は 2 の前まで壊れない。
+どの役割で行うかは D25（仮）。サーバは止めてあるので、入れ替えるときに繋いでいる者はいない。途中で止まっても、元の名前の DB（落ちた状態）は 2 の前まで壊れない。
 落ちた DB は `ashiato_failed_<時刻>` で残し、次に更新が通ったときに消す（D23（仮））。
 
 ### D4. 更新係は、プログラムの入れ替えの間だけ止める（defaults.md C4 を直した）
@@ -66,7 +67,8 @@ PC と携帯の切った確認も、置き場（PC は `LOCALAPPDATA` の `updat
 
 ### D5. 同梱の PostgreSQL の大きい版が違う更新は止める（defaults.md C5）
 
-インストーラは組み立てのときに `tools/release/pgsql.lock` の大きい版を持つ。入っている DB の置き場の `PG_VERSION` と違えば、印を書く前に止まる（何も替えない）。小さい版の違いは、プログラムの置き場（`pgsql\`）と一緒に入れ替え、戻すときは一緒に戻す（D1 で DB のサービスを止めてから移す）。
+インストーラは組み立てのときに `tools/release/pgsql.lock` の大きい版を持つ。入っている DB の置き場の `PG_VERSION` と違えば、印を書く前に止まる（サービス・プログラム・DB は替えない）。更新の記録には `not_applied`・`pg_major_mismatch` の 1 行を足し、帯と設定にも出す（review/spec.md R29）。
+同じ大きい版の中では、新しい小さい版の `pg_dump` の custom 形式を前の小さい版の `pg_restore` が読み、データの置き場は小さい版を下げても起きる前提に立つ（P25。確かさ 2。CI の 2 つの zip は同じ `pgsql.lock` なので見ない —— Risks）。小さい版の違いは、プログラムの置き場（`pgsql\`）と一緒に入れ替え、戻すときは一緒に戻す（D1 で DB のサービスを止めてから移す）。
 
 ### D6. 戻すもの・戻さないもの（defaults.md C6）
 
@@ -74,7 +76,7 @@ PC と携帯の切った確認も、置き場（PC は `LOCALAPPDATA` の `updat
 
 ### D7. PC の収集アプリの古い版への入れ直し（defaults.md C7）
 
-更新の窓は、見つけた最新の版が入っている版より新しいときだけ入れ替える。本人が手で古い版に置き換えることは止めない。未送信は行ごとに焼いた送信契約の版で送るので、古い版でも消えず、古い形でも送らない（`contract.rs:401-403`・`outbox.rs:134`）。
+更新の窓は、見つけた最新の版が入っている版より新しいときだけ入れ替える。ただし D12（仮）の自動の戻しは「新しい版の後に前の版を動かす」場面で、ST52 D5・R14 の逆行に当たる（C7 の「現れない」を直す。review/spec.md R10）。新しい版は動き出したと書く前に手元の置き場の形を変えないので、前の版は未送信と設定を読める。新しい版が積んだ行は送信契約の版を焼いてあり、前の版は知らない版の行を送らずに残す（Scenario「PC は前の版に戻しても、新しい版が積んだ未送信を消さない」）。本人が手で古い版に置き換えることは止めない。未送信は行ごとに焼いた送信契約の版で送るので、古い版でも消えず、古い形でも送らない（`contract.rs:401-403`・`outbox.rs:134`）。
 
 ### D8. Linux のサーバの更新は扱わない（defaults.md C8）
 
@@ -101,10 +103,11 @@ Linux のサーバは帯を出さないので（ST57 D10）、FR-114 の「押�
 ### D12（仮）. PC の入れ替えは、版ごとの置き場に置いて起こし、動き出してから自動起動を向ける
 
 - 通知（札 `update`）を押すと、動いている収集アプリが `current_exe() update` で窓を開く（`setup` の窓と同じ形。P22）。`update` の口は本人が直に使える（通知は版ごとに 1 回なので、見逃した後も入れられる）
-- 窓は `y` を受けたら、配布物を `<実行ファイルの置き場>\versions\<版>\` に落として照らし（zip を開いて実行ファイルを取り出す）、動いている収集アプリに置き場の印（`update-handoff.json`）で止まるよう頼み、止まった（印の応え）のを待ってから新しい版を起こす。同時に 2 つが収集しない（P23）
+- 窓は `y` を受けたら、配布物を `<状態の置き場>\versions\<版>\`（`LOCALAPPDATA` の収集アプリの置き場。系統ごとに別。起点を固定し、2 回目の更新でも入れ子にならない。review/spec.md R11）に落として照らし（zip を開いて実行ファイルを取り出す）、動いている収集アプリに置き場の印（`update-handoff.json`）で止まるよう頼み、止まった（印の応え）のを待ってから新しい版を起こす。同時に 2 つが収集しない（P23）
 - 新しい版は、送る仕組みと見回りを始めた後に `update-alive.json`（版と時刻）を書く。窓は 60 秒（D17（仮））待ち、書かれたら自動起動の台本を新しい版の場所に書き換え、前の版より古い版の置き場を消す（前の版は 1 つ残す）
+- 新しい版は、窓の子でも窓を閉じて止まらないように、`CommandExt::creation_flags` の `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` で起こす（P24。`unsafe` は要らない。review/spec.md R9）。入れ替えの途中で窓が閉じられたら、新しい版は `update-alive.json` を書いたうえで動き続け、自動起動の台本は前の版のまま（次に窓か `update` の口を開いたときに台本を向け直す）
 - 書かれなければ、新しい版のプロセスを止め（窓が起こした子なので `Child::kill`）、前の版を起こし直し、台本はそのまま、「新しい版 <版> が動き出さなかったので、<前の版> に戻しました」を通知する
-- 動いている実行ファイルの名前を変えない（P4 に依らない）。元の場所の前の版の実行ファイルは残る
+- 動いている実行ファイルの名前を変えない（P4 に依らない）。前の版の実行ファイルは元の場所に残る。前の版より古い `versions\<版>\` は消し、残るのは今の版と前の版の 2 つ
 - 時刻サーバの検査は、`Command::new(update_executable(&staged)?)`（版ごとの置き場の中の、決まった名前の実行ファイルだけを返す関数）の 1 つの形を許す（`tools/check-no-time-server.sh` の許可と自己検査の植え付け）
 - 反転条件: Windows の実行時の試験で、版ごとの置き場からの起動が自動起動・通知の差出人・除外の登録のどれかを壊すと分かったら、元の場所での置き換え（P4 を確かさ 4 に上げてから）に替える
 
@@ -115,17 +118,17 @@ Linux のサーバは帯を出さないので（ST57 D10）、FR-114 の「押�
 
 ### D14（仮）. 名前
 
-- サーバ: 印と記録の置き場 `<状態の置き場>\update\`（`state.json`・`outcomes.jsonl`・`history-pending.jsonl`）。回の id `run_id` = `<UTC の YYYYMMDDTHHMMSSZ>-<16 進 8 桁の乱数>`。退避 `backups\pre-migrate\<run_id>\pre-migrate-<時刻>.dump`。前の版の退け先 `<プログラムの置き場>\previous\`。DB `ashiato_restore`・`ashiato_failed_<UTC>`。インストーラの口 `rollback`。
+- サーバ: 印の段 `started`・`stopped`・`moved`・`replaced`・`migrating`・`starting`・`listening`・`restored`。新しい版の退け先（戻しの間）`<プログラムの置き場>\failed\`。印と記録の置き場 `<状態の置き場>\update\`（`state.json`・`outcomes.jsonl`・`history-pending.jsonl`）。回の id `run_id` = `<UTC の YYYYMMDDTHHMMSSZ>-<16 進 8 桁の乱数>`。退避 `backups\pre-migrate\<run_id>\pre-migrate-<時刻>.dump`。前の版の退け先 `<プログラムの置き場>\previous\`。DB `ashiato_restore`・`ashiato_failed_<UTC>`。インストーラの口 `rollback`。
   サーバの口 `ashiato-server update-history record-rollback`（戻した 2 行を書く。書けなければ終了コード 5 で、インストーラが控えに書く）・`ashiato-server update-history replay`（控えを写す）
 - 更新の記録の 1 行: `{"at", "result": "applied"|"rolled_back"|"not_applied", "to_version", "from_version", "reason": {"kind", "failed_version", "sqlstate"}}`
 - `GET /update-status` の `last_update`: 同じ形（`result`・`at`・`to_version`・`from_version`・`reason`）
 - PC: 口 `update`・置き場 `<実行ファイルの置き場>\versions\<版>\`・置き場のファイル `update-handoff.json`・`update-alive.json`・札 `update-rollback`（戻した通知）
 - 携帯: `UpdateInstall.kt`・`PackageReplacedReceiver.kt`・通知 ID 12（「開いてください」。ID 9〜11 は ST57・13 は送り先）・`noBackupFilesDir/update/`
-- 試験の差し込み（試験の組み立てだけ）: `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`restoring`）・`ASHIATO_SETUP_TEST_PG_MAJOR`・`ASHIATO_SERVER_TEST_MIGRATE_FAIL`（`sqlstate:<符号>`・`before-backup`）・`ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN`・`ASHIATO_SERVER_TEST_NO_LISTEN`・`ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE`
+- 試験の差し込み（試験の組み立てだけ）: `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`after-listen`・`restoring`）・`ASHIATO_SERVER_TEST_MIGRATE_FAIL` の `during-backup`（退避を書く途中で止まる）・`ASHIATO_SETUP_TEST_PG_MAJOR`・`ASHIATO_SERVER_TEST_MIGRATE_FAIL`（`sqlstate:<符号>`・`before-backup`）・`ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN`・`ASHIATO_SERVER_TEST_NO_LISTEN`・`ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE`
 
 ### D15（仮）. 理由の短い説明
 
-SQLSTATE は級（先頭 2 文字）で短い説明にする: `23` 制約に反した・`42` 定義が当たらない・`53` 資源が足りない（空き・記憶）・`57` 止められた・`08` 繋がらない・ほかは「DB の誤り」。種別は `db_ahead`「DB に新しい版の知らない版がある」・`ledger_unreadable`「版の記録を読めない」・`channel_mismatch`「DB の系統が違う」・`db_not_loopback`「DB の接続先が手元でない」・`backup_failed`「移行の前の退避に失敗した」・`connect_failed`「DB に繋げない」・`server_not_listening`「新しい版のサーバが起きない」・`aborted`「移行が途中で終わった」。
+表は spec（「更新が入らなかったことを…」の Requirement）に置いた（review/spec.md R16）。ここは文の選び方と反転条件。SQLSTATE は級（先頭 2 文字）で短い説明にする: `23` 制約に反した・`42` 定義が当たらない・`53` 資源が足りない（空き・記憶）・`57` 止められた・`08` 繋がらない・ほかは「DB の誤り」。種別は `db_ahead`「DB に新しい版の知らない版がある」・`ledger_unreadable`「版の記録を読めない」・`channel_mismatch`「DB の系統が違う」・`db_not_loopback`「DB の接続先が手元でない」・`backup_failed`「移行の前の退避に失敗した」・`connect_failed`「DB に繋げない」・`server_not_listening`「新しい版のサーバが起きない」・`aborted`「移行が途中で終わった」・`pg_major_mismatch`「同梱の PostgreSQL の大きい版が違う」。
 - 反転条件: 本人が文に違和感を返したら直す（値の一覧は変えない）
 
 ### D16（仮）. 新しい版の待ち受けを待つのは 180 秒
@@ -151,7 +154,7 @@ Q1 の推奨の「1 分以内」。
 
 ### D20（仮）. 途中で止まった更新は、まず前の版へ戻し終えてからやり直す
 
-印が残っていれば、どちらの版のインストーラ（ST58 以後）も、段に依らずまず前の版へ戻し終える（段が `migrating` 以後で、この回の退避があれば DB も D3 で戻す。`restored` 以後なら DB は戻してある）。その後、自分の版が前の版と違えば D1 を初めから（新しい `run_id` で）やり直す。
+印が残っていれば、どちらの版のインストーラ（ST58 以後）も、段が `listening` なら D1 の 8 の残りを進めて終え（DB もプログラムも戻さない）、それより前の段ならまず前の版へ戻し終える（段が `migrating` 以後で、この回の退避があれば DB も D3 で戻す。`restored` 以後なら DB は戻してある）。その後、自分の版が前の版と違えば D1 を初めから（新しい `run_id` で）やり直す。
 「続きから前へ進める」形は採らない —— 途中の版で止まった DB の上で移行を続けると、どの退避を戻せばよいかが 2 つの回にまたがる。
 開始の種類「無効」は、新しい版の待ち受けを確かめた後か、前の版で起こし直すときにだけ「自動」へ戻す。戻しそのものが落ちたら「無効」のまま、退避の場所と `rollback` の口を示して止まる。
 - 反転条件: 本人が「前の版のインストーラで走らせ直したら新しい版へ進めてほしい」と返したら、D20 を直す（戻し終える部分は変えない）
@@ -176,13 +179,26 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 `tools/release/update-apply-install.sh` は、同じ commit から版番号だけを替えた 2 つの試験の組み立ての zip（`0.4.0-test` 相当と `0.5.0-test` 相当。`ASHIATO_VERSION` を替えて 2 回組む）を使い、古い方を入れてから新しい方で更新・戻し・途中で止まる・やり直しを見る。
 - 反転条件: CI の時間が 2 つ組むことで job の上限に近づくと分かったら、2 つ目の組み立てを版の印だけを替える形に替える
 
+### D25（仮）. 戻しは表の所有者 `ashiato_owner` で行う（D3 から分けた。review/spec.md R14）
+
+`ashiato_owner` は `CREATEDB` を持ち、DB の持ち主なので、DB の管理者なしで行える（P20。確かさ 3）。DB の管理者の合言葉はインストールの後に捨ててあり（`run_psql`）、戻しのために控え直さない。
+- 失わない側: 所有者で行う（管理者の資格を新しく控えない）。所有者で足りなければ戻しが落ち、D20（仮）の「戻しが落ちたら止まる」で DB は元の名前のまま残る（記録は失わない）
+- 反転条件: Windows の CI の通し（Task 6）で、所有者の `pg_restore` が通らないと分かったら、戻しの間だけ `repair` と同じ一時の接続規則で管理者として入る形に替え、spec の「戻しを、DB の管理者でない表の所有者の役割で行う」と Scenario「戻しは DB の管理者の役割を使わない」を直す（上流へ返す）
+
+### D26（仮）. 新しい版が待ち受けを開かずに戻した回の更新の履歴は「当てた結果」と「戻した」（review/spec.md R3）
+
+この回は移行が通っているので「落ちた試みの結果」（`failed`）は事実に合わない。退避を取った後に書いた `applied` の行は戻すと消えるので、同じ中身（当てた版の名前）の `applied` の行を時刻を戻した時にして書き直し、続けて `rolled_back` を書く。退避に失敗した回（`backup_failed`）は退避が無いので戻さず、行も書き直さない（2 行の候補から外した）。
+- 失わない側: 当てた版の名前を残す（後から「当てたが起きなかった」と読める）。`rolled_back` だけにすると、何を当てたかが書き出しから消える
+- 反転条件: 書き出しを読む側が「`applied` の後の `rolled_back`」を当てた版が残っていると読み違えると分かったら、説明書の文を直す（行は直せない）
+
 ## Risks / Trade-offs
 
 - [ST58 より前の版へ戻した回は、帯に「戻した」が出ない] → 前の版の画面とサーバは `last_update` を知らない。窓には出る。更新の記録は DB の外にあるので、次に ST58 以後の版が入ると帯に出る（最後の行が「戻した」のままなら）。ST58 を初めて入れる回の失敗だけに起きる
 - [ST58 より前のインストーラで走らせ直しても、印を読まない] → 前の版のインストーラは印を知らず、別の版のファイルで止まる（P10）ので、何も替えない。開始の種類「無効」のサーバは起きないまま。窓とインストールの文書（`docs/install.md`）に「`rollback` の口は新しい版の `ashiato-setup.exe` で走らせる」と書く
 - [新しい版が待ち受けを開いた後に落ち続ける] → 戻さない（Q5 の推奨）。サービスの回復が起こし直すが、直した版が出るまでサーバは止まり、記録は収集アプリの手元に溜まる（上限 90 日・2 GB）。窓にログの場所を出す
 - [戻しの `pg_restore` は DB 全体を入れ直すので、大きい DB では時間がかかる] → その間サーバは止まっていて、記録は手元に溜まる。失うものは無い。窓に進みを出す
-- [P20 は確かさ 3] → 非管理者の `pg_restore` が、所有者の持つものだけで足りるかは、Windows の CI の通し（Task 7）で確かめる。足りなければ、戻しの間だけ repair と同じ一時の接続規則で管理者として入る形に替える（D3 の反転条件）
+- [P20 は確かさ 3] → 非管理者の `pg_restore` が、所有者の持つものだけで足りるかは、Windows の CI の通し（Task 6）で確かめる（D25（仮）の反転条件）
+- [P25 は確かさ 2。小さい版の違う PostgreSQL の戻しは CI で見ない] → CI の 2 つの zip は同じ `pgsql.lock` を使う。`pgsql.lock` の小さい版を上げる PR では、その PR の CI で前の zip（前の小さい版）から更新と戻しを通すことを `docs/release.md` に書く
 - [PC の収集アプリが落とす宛先が 2 つ増える] → 押したときだけ。どの版を落としたかが配布元に見える（ブラウザで落としても同じ）
 - [退避を 1 つしか残さない] → 2 つ前より古い更新の前の写しは無くなる（Q7 の不可逆）。毎日のバックアップ（30 日）は残る
 
@@ -194,4 +210,4 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 
 ## Open Questions
 
-（無し。仮の決定は D10〜D24（仮）で、反転条件を書いた）
+（無し。仮の決定は D10〜D26（仮）で、反転条件を書いた）
