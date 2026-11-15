@@ -481,12 +481,32 @@ jobs:
       - run: ASHIATO_BUILD_VERSION=0.5.0 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-new" --test-build
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      - run: ASHIATO_BUILD_VERSION=0.4.0-dev.20261115 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-dev-old" --test-build
+        shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      - run: ASHIATO_BUILD_VERSION=0.5.0-dev.20261116 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-dev-new" --test-build
+        shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      - run: ASHIATO_BUILD_VERSION=0.4.1 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-compat-old" --test-build
+        shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      - run: ASHIATO_BUILD_VERSION=0.6.0 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-compat-new" --test-build
+        shell: bash
+        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-test-old, path: "${{ runner.temp }}/package-windows-test-old" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-test-new, path: "${{ runner.temp }}/package-windows-test-new" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-dev-old, path: "${{ runner.temp }}/package-windows-test-dev-old" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-dev-new, path: "${{ runner.temp }}/package-windows-test-dev-new" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-compat-old, path: "${{ runner.temp }}/package-windows-test-compat-old" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-compat-new, path: "${{ runner.temp }}/package-windows-test-compat-new" }
 
   install-windows:
     needs: [changes, package-windows]
@@ -529,7 +549,11 @@ jobs:
           test ! -s "$RUNNER_TEMP/update-scenarios.missing"
       - shell: bash
         run: |
-          tools/release/update-apply-install.sh package/package-windows-test-old/ashiato-server-*.zip package/package-windows-test-new/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-apply-install.log"
+          tools/release/update-apply-install.sh \
+            package/package-windows-test-old/ashiato-server-*.zip package/package-windows-test-new/ashiato-server-*.zip \
+            package/package-windows-test-dev-old/ashiato-server-*.zip package/package-windows-test-dev-new/ashiato-server-*.zip \
+            package/package-windows-test-compat-old/ashiato-server-*.zip package/package-windows-test-compat-new/ashiato-server-*.zip |
+            tee "$RUNNER_TEMP/update-apply-install.log"
           tools/release/update-apply-install.sh --list | sort -u > "$RUNNER_TEMP/update-apply-scenarios.expected"
           tr -d '\r' < "$RUNNER_TEMP/update-apply-install.log" | sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/update-apply-scenarios.actual"
           comm -23 "$RUNNER_TEMP/update-apply-scenarios.expected" "$RUNNER_TEMP/update-apply-scenarios.actual" | tee "$RUNNER_TEMP/update-apply-scenarios.missing"

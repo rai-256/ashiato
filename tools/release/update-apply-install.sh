@@ -4,7 +4,7 @@ shopt -s extglob
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
-usage() { echo "使い方: $0 <古い版の zip> <新しい版の zip> | --self-test | --list" >&2; exit 2; }
+usage() { echo "使い方: $0 <正式旧> <正式新> [<開発旧> <開発新> [<互換旧> <互換新>]] | --self-test | --list" >&2; exit 2; }
 
 scenario_names=(
   '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる'
@@ -95,46 +95,163 @@ install_zip() {
     env "$@" "$destination/ashiato-setup.exe" install >"$output" 2>&1
 }
 
+scenario_hook() {
+  case "$1" in
+    '更新の移行の間、サーバは待ち受けない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
+    '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
+    '書きかけの退避は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=during-backup' ;;
+    '待ち受けを開いた後に止まった更新は、走らせ直しても DB を戻さない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=after-listen' ;;
+    '新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_NO_LISTEN=1' ;;
+    '待ち受けを開いた後に新しい版が落ちても、DB は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN=1' ;;
+    '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=restoring' ;;
+    '大きい版の違う PostgreSQL を持つ配布物では、何も替えずに止まる') printf '%s\n' 'ASHIATO_SETUP_TEST_PG_MAJOR=999' ;;
+    '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=after-migrate' ;;
+    *) : ;;
+  esac
+}
+
+assert_scenario_result() {
+  local name="$1" output="$2" trace="$3" rc="$4" old_version="$5" new_version="$6"
+  case "$name" in
+    '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる')
+      (( rc == 0 )) || die '通常更新が失敗した'
+      grep -Eq "healthz=200|/healthz.*200" "$trace" || die '更新後の healthz 200 が無い'
+      grep -Fq "version=$new_version" "$trace" || die '更新後の版が新しい版でない'
+      ! grep -Eq 'update/state\.json|stage=(started|migrating|listening)' "$trace" || die '更新の印が残っている'
+      ;;
+    '更新の移行の間、サーバは待ち受けない')
+      (( rc != 0 )) || die '移行中停止が成功扱いになった'
+      grep -Fq 'migrating' "$trace" || die '移行段で停止した記録が無い'
+      grep -Eq 'STATE[[:space:]]*:[[:space:]]*1|START_TYPE[[:space:]]*:[[:space:]]*4' "$trace" || die '移行中のサービス停止/無効を確認できない'
+      ! grep -Eq 'healthz=200|/healthz.*200' "$trace" || die '移行中に healthz が答えた'
+      ;;
+    '更新しても、秘密と設定と画面の合言葉は変わらない')
+      (( rc == 0 )) || die '秘密保持の更新が失敗した'
+      grep -Fq 'settings-before=' "$trace" && grep -Fq 'settings-after=' "$trace" || die '設定の指紋の比較が無い'
+      grep -Fq 'login=ok' "$trace" || die '更新前の合言葉でのログイン確認が無い'
+      ;;
+    '同じ版で走らせ直すと、更新の手順に入らない')
+      (( rc == 0 )) || die '同じ版の再実行が失敗した'
+      ! grep -Eq 'migrate|service_stop.*ashiato-server|previous' "$trace" || die '同じ版なのに更新手順へ入った'
+      ;;
+    'サーバのアカウントは、更新の途中の印を書けない')
+      assert_update_acl "$(windows_icacls 'C:\\ProgramData\\ashiato\\update')"
+      ;;
+    '開発版のインストーラは、正式版のインストールを更新しない'|'正式版のインストーラは、開発版のインストールを更新しない')
+      (( rc == 0 )) || die '別チャンネルのインストーラが失敗した'
+      grep -Fq 'channel-isolated=ok' "$trace" || die '正式版/開発版の置き場分離を確認できない'
+      ;;
+    '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる'|'新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる')
+      (( rc != 0 )) || die '戻しを伴う失敗が成功扱いになった'
+      grep -Fq "version=$old_version" "$trace" || die '戻し後の版が旧版でない'
+      grep -Fq 'rollback=ok' "$trace" || die '戻しの完了を確認できない'
+      grep -Eq 'ashiato_failed_|failed_db=1' "$trace" || die '失敗した DB の確認が無い'
+      ;;
+    '戻した後、更新の間に溜まった未送信が入る') grep -Fq 'queued-record=accepted' "$trace" || die '戻し後の未送信記録を確認できない' ;;
+    '戻した後の「アプリと機能」の版とプログラムの置き場は前の版') grep -Fq "program-version=$old_version" "$trace" || die '戻し後のプログラム版を確認できない' ;;
+    '戻しは DB の管理者の役割を使わない') ! grep -Fq 'role=ashiato ' "$trace" || die '戻しで DB 管理者の役割を使った' ;;
+    '戻した後、切っていない更新係は動いている') grep -Fq 'updater=running auto' "$trace" || die '戻し後の更新係を確認できない' ;;
+    '書きかけの退避は戻さない') (( rc != 0 )) && ! grep -Eq 'rollback=ok|failed_db=1' "$trace" || die '書きかけ退避を戻した' ;;
+    '戻した回は退避を消さない')
+      (( rc != 0 )) || die '戻した回が成功扱いになった'
+      grep -Fq 'rollback=ok' "$trace" || die '戻しの完了を確認できない'
+      grep -Fq 'backup-retained=1' "$trace" || die '戻した回の退避を残した確認が無い'
+      ;;
+    '更新が通ると、移行の前の退避は直前の 1 つだけになる')
+      (( rc == 0 )) || die '更新が成功しなかった'
+      grep -Fq 'backups-retained=1' "$trace" || die '直前の退避 1 つの確認が無い'
+      ;;
+    '更新が通ると、前の回に残した落ちた DB を消す')
+      (( rc == 0 )) || die '更新が成功しなかった'
+      grep -Fq 'failed-db-cleaned=1' "$trace" || die '前回の落ちた DB の掃除を確認できない'
+      ;;
+    '更新の途中で止まると、サービスは自分で起きない')
+      (( rc != 0 )) || die '途中停止が成功扱いになった'
+      grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4|server-disabled=1' "$trace" || die '途中停止後の自動起動無効を確認できない'
+      ;;
+    '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる'|'移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる')
+      (( rc != 0 )) || die '移行後停止の初回が成功扱いになった'
+      grep -Fq 'after-migrate' "$trace" || die '移行後停止の差し込みを確認できない'
+      ;;
+    '待ち受けを開いた後に新しい版が落ちても、DB は戻さない')
+      (( rc != 0 )) || die '待ち受け後終了が成功扱いになった'
+      grep -Fq 'rollback=skipped-after-listen' "$trace" || die '待ち受け後の戻し省略を確認できない'
+      ;;
+    '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す')
+      (( rc != 0 )) || die '戻し失敗が成功扱いになった'
+      grep -Eq 'rollback=(failed|retry)|rollback-dir=.*rollback' "$trace" || die '戻しのやり直し情報が無い'
+      ;;
+    '戻しをやり直す口で、前の版で起きる')
+      (( rc == 0 )) || die '戻しのやり直しが失敗した'
+      grep -Fq "version=$old_version" "$trace" || die 'やり直し後の版が旧版でない'
+      ;;
+    '印が無ければ、戻しの口は何も替えない')
+      (( rc != 0 )) || die '印無しの戻しが成功扱いになった'
+      grep -Fq 'rollback=no-stage' "$trace" || die '印無しの戻し確認が無い'
+      ;;
+    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$trace" || die '戻しの理由の表示が無い' ;;
+    '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" || die '入らなかった理由の表示が無い' ;;
+    '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される') grep -Eq 'rolled_back.*to_version|applied_versions|rollback-history' "$trace" || die '戻した履歴の版を確認できない' ;;
+    'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる'|'系統が違う DB には、戻さずに前の版のまま起きる')
+      (( rc != 0 )) || die '未知の DB 版を成功扱いにした'
+      ! grep -Eq 'rollback=ok|ashiato_failed_' "$trace" || die '未知の DB 版を戻した'
+      grep -Fq "version=$old_version" "$trace" || die '未知の DB 版で旧版を起こした確認が無い'
+      ;;
+    '退避の前に落ちた回は、前の回の退避を戻さない') (( rc != 0 )) && ! grep -Fq 'rollback=ok' "$trace" || die '退避前の失敗で戻しを実行した' ;;
+    '更新が通ると、更新の記録に通った行が足される') (( rc == 0 )) && grep -Eq 'applied|history.*ok' "$trace" || die '更新の記録の applied 行が無い' ;;
+    '大きい版の違う PostgreSQL を持つ配布物では、何も替えずに止まる') (( rc != 0 )) && grep -Eq 'PG_MAJOR|PostgreSQL|not_applied' "$trace" || die 'PostgreSQL 大版違いの停止を確認できない' ;;
+    'サーバの切った更新の確認は、更新でも戻しでも切ったまま') grep -Eq 'update-check=disabled|check.*disabled' "$trace" || die '更新確認の無効状態を確認できない' ;;
+    *) die "Scenario の判定が未定義: $name" ;;
+  esac
+}
+
 run_scenario() {
-  local name="$1" hook="$2" old_zip="$3" new_zip="$4" root_work="$5" work output rc
-  echo "== Scenario: $name"
+  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   output="$work/install.out"
   install_zip "$old_zip" "$work/old" "$output" || die "前の版の初回インストールに失敗: $name"
+  trace="$work/trace"
+  hook=(); while IFS= read -r pair; do [[ -z "$pair" ]] || hook+=("$pair"); done < <(scenario_hook "$name")
   set +e
-  if [[ -n "$hook" ]]; then
-    install_zip "$new_zip" "$work/new" "$output" ASHIATO_SETUP_TEST_TRACE=1 $hook
-  else
-    install_zip "$new_zip" "$work/new" "$output" ASHIATO_SETUP_TEST_TRACE=1
-  fi
+  install_zip "$new_zip" "$work/new" "$trace" ASHIATO_SETUP_TEST_TRACE=1 "${hook[@]}"
   rc=$?
   set -e
-  if [[ -n "$hook" ]]; then
-    (( rc != 0 )) || die "差し込み付きの失敗を期待する Scenario が成功した: $name"
-  else
-    (( rc == 0 )) || { cat "$output" >&2; die "通常の Scenario が失敗した: $name"; }
-  fi
-  [[ -s "$output" ]] || die "インストーラの出力が無い: $name"
-  grep -Eq 'ashiato-(server|setup)|migrat|backup|rollback' "$output" || die "Scenario の判定材料が出力に無い: $name"
+  # 判定用の値は installer の exit code や固定文ではなく、更新後の Windows の実状態から採る。
+  {
+    local health version state
+    health="$(curl.exe --silent --show-error --max-time 5 -o NUL -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)"
+    printf 'healthz=%s\n' "$health"
+    version="$(MSYS2_ARG_CONV_EXCL='*' 'C:/Program Files/ashiato/ashiato-server.exe' --version 2>/dev/null || true)"
+    printf 'installed-version=%s\n' "$version"
+    state="$(windows_sc query ashiato-server || true)"
+    printf '%s\n' "$state"
+    windows_sc qc ashiato-server || true
+    windows_icacls 'C:\\ProgramData\\ashiato\\update' || true
+    [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] && echo 'update-stage=absent'
+    [[ -d 'C:/Program Files/ashiato/previous' ]] && echo 'previous=present'
+  } >>"$trace"
+  cat "$trace" >"$output"
+  assert_scenario_result "$name" "$output" "$trace" "$rc" "$old_version" "$new_version"
+  echo "== Scenario: $name"
 }
 
 run_windows_check() {
-  local old_zip="$1" new_zip="$2" work old new output
+  local old_zip="$1" new_zip="$2" dev_old_zip="${3:-$1}" dev_new_zip="${4:-$2}"
+  local compat_old_zip="${5:-$1}" compat_new_zip="${6:-$2}" work old new output
   [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]] || die '実地の確かめは Windows（Git Bash）でだけ走る'
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-apply.XXXXXX")"
   trap "rm -rf '$work'" EXIT
-  run_scenario "${scenario_names[0]}" '' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[1]}" 'ASHIATO_SETUP_TEST_STOP_AT=migrating' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[6]}" 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=1' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[11]}" 'ASHIATO_SETUP_TEST_STOP_AT=after-migrate' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[13]}" 'ASHIATO_SETUP_TEST_STOP_AT=after-listen' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[18]}" 'ASHIATO_SERVER_TEST_NO_LISTEN=1' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[19]}" 'ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN=1' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[23]}" 'ASHIATO_SETUP_TEST_STOP_AT=restoring' "$old_zip" "$new_zip" "$work"
-  run_scenario "${scenario_names[32]}" 'ASHIATO_SETUP_TEST_PG_MAJOR=999' "$old_zip" "$new_zip" "$work"
   local i
-  for i in 2 3 4 5 7 8 9 10 12 14 15 16 17 20 21 22 24 25 26 27 28 29 30 31 33; do
-    run_scenario "${scenario_names[$i]}" '' "$old_zip" "$new_zip" "$work"
+  for i in "${!scenario_names[@]}"; do
+    local name="${scenario_names[$i]}" scenario_old="$old_zip" scenario_new="$new_zip" old_version=0.4.0 new_version=0.5.0
+    if [[ "$name" == '開発版のインストーラは、正式版のインストールを更新しない' ]]; then
+      scenario_new="$dev_new_zip"; new_version=0.5.0-dev.20261116
+    elif [[ "$name" == '正式版のインストーラは、開発版のインストールを更新しない' ]]; then
+      scenario_old="$dev_old_zip"; old_version=0.4.0-dev.20261115
+    elif [[ "$name" == *'知らない版'* || "$name" == *'系統が違う DB'* ]]; then
+      scenario_old="$compat_old_zip"; scenario_new="$compat_new_zip"; old_version=0.4.1; new_version=0.6.0
+    fi
+    run_scenario "$name" "$scenario_old" "$scenario_new" "$work" "$old_version" "$new_version"
   done
   local qc acl
   qc="$(windows_sc ashiato-server qc)"
@@ -198,5 +315,5 @@ EOF
 
 [[ "${1:-}" == --list && $# == 1 ]] && { list_scenarios; exit 0; }
 [[ "${1:-}" == --self-test && $# == 1 ]] && { self_test; exit 0; }
-[[ $# == 2 ]] || usage
-run_windows_check "$1" "$2"
+[[ $# == 2 || $# == 4 || $# == 6 ]] || usage
+run_windows_check "$@"
