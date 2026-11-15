@@ -88,25 +88,34 @@ windows_sc() { MSYS2_ARG_CONV_EXCL='*' sc.exe "$@" 2>/dev/null | tr -d '\r'; }
 windows_icacls() { MSYS2_ARG_CONV_EXCL='*' icacls.exe "$@" 2>/dev/null | tr -d '\r'; }
 
 install_zip() {
-  local archive="$1" destination="$2" output="$3"; shift 3
+  local archive="$1" destination="$2" output="$3" action="${4:-install}"; shift 4
   unzip -q "$archive" -d "$destination"
   [[ -x "$destination/ashiato-setup.exe" || -f "$destination/ashiato-setup.exe" ]] || die 'zip にインストーラが無い'
   printf '%s\n%s\n' 'st58-test-password-012345' 'st58-test-password-012345' |
-    env "$@" "$destination/ashiato-setup.exe" install >"$output" 2>&1
+    env "$@" "$destination/ashiato-setup.exe" "$action" >"$output" 2>&1
 }
 
 scenario_hook() {
   case "$1" in
-    '更新の移行の間、サーバは待ち受けない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
+    '更新の移行の間、サーバは待ち受けない'|'更新の途中で止まると、サービスは自分で起きない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
     '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '書きかけの退避は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=during-backup' ;;
+    '退避の前に落ちた回は、前の回の退避を戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=before-backup' ;;
     '待ち受けを開いた後に止まった更新は、走らせ直しても DB を戻さない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=after-listen' ;;
     '新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_NO_LISTEN=1' ;;
     '待ち受けを開いた後に新しい版が落ちても、DB は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN=1' ;;
     '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=restoring' ;;
+    '戻しをやり直す口で、前の版で起きる') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=restoring' ;;
     '大きい版の違う PostgreSQL を持つ配布物では、何も替えずに止まる') printf '%s\n' 'ASHIATO_SETUP_TEST_PG_MAJOR=999' ;;
     '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=after-migrate' ;;
     *) : ;;
+  esac
+}
+
+scenario_action() {
+  case "$1" in
+    '印が無ければ、戻しの口は何も替えない') printf '%s\n' rollback ;;
+    *) printf '%s\n' install ;;
   esac
 }
 
@@ -189,8 +198,8 @@ assert_scenario_result() {
       (( rc != 0 )) || die '印無しの戻しが成功扱いになった'
       grep -Fq 'rollback=no-stage' "$trace" || die '印無しの戻し確認が無い'
       ;;
-    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$trace" || die '戻しの理由の表示が無い' ;;
-    '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" || die '入らなかった理由の表示が無い' ;;
+    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$trace" && grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$output" || die '戻しの理由の表示が無い' ;;
+    '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" && grep -Eq 'not_applied|aborted|migrat.*stop' "$output" || die '入らなかった理由の表示が無い' ;;
     '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される') grep -Eq 'rolled_back.*to_version|applied_versions|rollback-history' "$trace" || die '戻した履歴の版を確認できない' ;;
     'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる'|'系統が違う DB には、戻さずに前の版のまま起きる')
       (( rc != 0 )) || die '未知の DB 版を成功扱いにした'
@@ -206,14 +215,30 @@ assert_scenario_result() {
 }
 
 run_scenario() {
-  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook
+  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   output="$work/install.out"
-  install_zip "$old_zip" "$work/old" "$output" || die "前の版の初回インストールに失敗: $name"
+  install_zip "$old_zip" "$work/old" "$output" install || die "前の版の初回インストールに失敗: $name"
   trace="$work/trace"
   hook=(); while IFS= read -r pair; do [[ -z "$pair" ]] || hook+=("$pair"); done < <(scenario_hook "$name")
+  action="$(scenario_action "$name")"
+  # 途中停止・戻し停止は、同じ PC の残った state を使って再実行する。
+  if [[ "$name" == '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる' ||
+        "$name" == '移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる' ]]; then
+    local retry_hook='ASHIATO_SETUP_TEST_STOP_AT=after-migrate'
+    set +e
+    install_zip "$new_zip" "$work/new" "$output" install ASHIATO_SETUP_TEST_TRACE=1 "$retry_hook"
+    set -e
+    hook=()
+  elif [[ "$name" == '戻しをやり直す口で、前の版で起きる' ]]; then
+    set +e
+    install_zip "$new_zip" "$work/new" "$output" install ASHIATO_SETUP_TEST_TRACE=1 ASHIATO_SETUP_TEST_STOP_AT=restoring
+    set -e
+    action=rollback
+    hook=()
+  fi
   set +e
-  install_zip "$new_zip" "$work/new" "$trace" ASHIATO_SETUP_TEST_TRACE=1 "${hook[@]}"
+  install_zip "$new_zip" "$work/new" "$output" "$action" ASHIATO_SETUP_TEST_TRACE=1 "${hook[@]}"
   rc=$?
   set -e
   # 判定用の値は installer の exit code や固定文ではなく、更新後の Windows の実状態から採る。
@@ -221,7 +246,10 @@ run_scenario() {
     local health version state
     health="$(curl.exe --silent --show-error --max-time 5 -o NUL -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)"
     printf 'healthz=%s\n' "$health"
-    version="$(MSYS2_ARG_CONV_EXCL='*' 'C:/Program Files/ashiato/ashiato-server.exe' --version 2>/dev/null || true)"
+    local raw_version version
+    raw_version="$(MSYS2_ARG_CONV_EXCL='*' 'C:/Program Files/ashiato/ashiato-server.exe' --version 2>/dev/null || true)"
+    version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' <<<"$raw_version" | head -n 1 || true)"
+    [[ -n "$version" ]] || die 'ashiato-server --version の形式が不正'
     printf 'installed-version=%s\n' "$version"
     state="$(windows_sc query ashiato-server || true)"
     printf '%s\n' "$state"
@@ -230,7 +258,6 @@ run_scenario() {
     [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] && echo 'update-stage=absent'
     [[ -d 'C:/Program Files/ashiato/previous' ]] && echo 'previous=present'
   } >>"$trace"
-  cat "$trace" >"$output"
   assert_scenario_result "$name" "$output" "$trace" "$rc" "$old_version" "$new_version"
   echo "== Scenario: $name"
 }
@@ -244,7 +271,9 @@ run_windows_check() {
   local i
   for i in "${!scenario_names[@]}"; do
     local name="${scenario_names[$i]}" scenario_old="$old_zip" scenario_new="$new_zip" old_version=0.4.0 new_version=0.5.0
-    if [[ "$name" == '開発版のインストーラは、正式版のインストールを更新しない' ]]; then
+    if [[ "$name" == '同じ版で走らせ直すと、更新の手順に入らない' ]]; then
+      scenario_new="$old_zip"; new_version="$old_version"
+    elif [[ "$name" == '開発版のインストーラは、正式版のインストールを更新しない' ]]; then
       scenario_new="$dev_new_zip"; new_version=0.5.0-dev.20261116
     elif [[ "$name" == '正式版のインストーラは、開発版のインストールを更新しない' ]]; then
       scenario_old="$dev_old_zip"; old_version=0.4.0-dev.20261115
