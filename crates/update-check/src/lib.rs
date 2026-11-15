@@ -18,6 +18,9 @@ pub const UPDATE_CHECK_HEADERS: [&str; 5] = [
     "Accept-Encoding",
     "Connection",
 ];
+/// 配布物取得要求に許される HTTP 見出しの名前。
+/// 更新確認要求と同じ見出しだけを使い、端末固有の情報を送らない。
+pub const ASSET_DOWNLOAD_HEADERS: [&str; 5] = UPDATE_CHECK_HEADERS;
 /// GitHub release API が返す配布物 URL の許された接頭辞。
 pub const RELEASE_DOWNLOAD_URL_PREFIX: &str =
     "https://github.com/rai-256/ashiato/releases/download/";
@@ -612,6 +615,62 @@ mod tests {
             assert!(found.is_none());
         }
         assert!(!is_allowed_redirect_destination("https://evil.example/"));
+    }
+
+    #[test]
+    fn st58_asset_checks_all_contract_vectors() {
+        #[derive(Deserialize)]
+        struct VectorFile {
+            cases: Vec<VectorCase>,
+        }
+        #[derive(Deserialize)]
+        struct VectorCase {
+            name: String,
+            component: Option<Component>,
+            tag_name: Option<String>,
+            asset: Option<Asset>,
+            selected: Option<bool>,
+            redirect: Option<String>,
+            allowed_redirect: Option<bool>,
+        }
+
+        let vectors: VectorFile = serde_json::from_str(include_str!(
+            "../../../docs/contracts/update-apply-vectors.json"
+        ))
+        .unwrap();
+        assert!(vectors.cases.len() >= 15);
+
+        for vector in vectors.cases {
+            if let (Some(component), Some(tag_name), Some(asset), Some(expected)) = (
+                vector.component,
+                vector.tag_name,
+                vector.asset,
+                vector.selected,
+            ) {
+                let release = Release {
+                    tag_name,
+                    draft: false,
+                    assets: vec![asset],
+                };
+                assert_eq!(
+                    select_asset(component, &release).is_some(),
+                    expected,
+                    "asset vector: {}",
+                    vector.name
+                );
+            } else if let (Some(redirect), Some(expected)) =
+                (vector.redirect, vector.allowed_redirect)
+            {
+                assert_eq!(
+                    is_allowed_redirect_destination(&redirect),
+                    expected,
+                    "redirect vector: {}",
+                    vector.name
+                );
+            } else {
+                panic!("不完全な配布物ベクトル: {}", vector.name);
+            }
+        }
     }
 
     #[test]
