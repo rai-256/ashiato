@@ -1086,7 +1086,7 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
     let command = args.first().copied().unwrap_or("install");
     if !matches!(
         command,
-        "install" | "password" | "repair" | "uninstall" | "update-check"
+        "install" | "password" | "repair" | "uninstall" | "update-check" | "rollback"
     ) {
         return Err(format!("不明な引数: {command}"));
     }
@@ -1096,6 +1096,12 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
             Some("off" | "on") => index += 1,
             _ => return Err("update-check は off または on を指定してください".into()),
         }
+    }
+    if command == "rollback" {
+        if args.len() > 2 || args.get(1).is_some_and(|arg| *arg != "--elevated") {
+            return Err("rollback は引数を受け取りません".into());
+        }
+        return Ok(command.to_owned());
     }
     while index < args.len() {
         match args[index] {
@@ -1110,6 +1116,45 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
         }
     }
     Ok(command.to_owned())
+}
+
+pub fn update_history_record_rollback_command(
+    program: &Path,
+    pending_out: &Path,
+) -> SetupCommand {
+    SetupCommand::new(
+        program.display().to_string(),
+        [
+            "update-history",
+            "record-rollback",
+            "--pending-out",
+            &pending_out.display().to_string(),
+        ],
+    )
+}
+
+pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCommand {
+    SetupCommand::new(
+        program.display().to_string(),
+        [
+            "update-history",
+            "replay",
+            "--pending",
+            &pending.display().to_string(),
+        ],
+    )
+}
+
+pub fn update_directory_acl_command(layout: &Layout) -> SetupCommand {
+    icacls([
+        format!(r"{}\update", layout.state_dir),
+        "/inheritance:r".into(),
+        "/grant:r".into(),
+        "*S-1-5-32-544:(OI)(CI)M".into(),
+        "*S-1-5-18:(OI)(CI)M".into(),
+        format!("{}:(OI)(CI)RX", service_principal(layout.server_service)),
+        format!("{}:(OI)(CI)RX", service_principal(layout.updater_service)),
+    ])
 }
 
 /// 引数の値を読む（`parse_args` で形を確かめた後に使う）。

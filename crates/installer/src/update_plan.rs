@@ -2,6 +2,7 @@ use crate::commands::SetupCommand;
 use crate::layout::{for_version, Layout};
 use serde_json::json;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionAction {
@@ -73,10 +74,10 @@ impl RecoveryPlan {
 pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) -> RecoveryPlan {
     let restore_db = match stage {
         UpdateStage::Starting => {
-            backup == BackupState::Completed && !matches!(exit_code, 2 | 3 | 4)
+            backup == BackupState::Completed && !matches!(exit_code, 2..=4)
         }
         UpdateStage::Migrating => {
-            backup == BackupState::Completed && !matches!(exit_code, 0 | 2 | 3 | 4)
+            backup == BackupState::Completed && !matches!(exit_code, 0 | 2..=4)
         }
         _ => false,
     };
@@ -299,6 +300,27 @@ pub fn history_line(
 ) -> String {
     let reason = reason.map(|reason| json!({"kind": reason.kind, "failed_version": reason.failed_version, "sqlstate": reason.sqlstate}));
     json!({"at": at, "result": result, "to_version": to_version, "from_version": from_version, "reason": reason}).to_string() + "\n"
+}
+
+/// 更新履歴を書けなかったときに残す控えの 1 行を作る。標準出力へ JSON を流さず、
+/// CLI のログと混ざらない形でファイルへ渡すための共通入口である（D18・R35）。
+pub fn pending_history_line(
+    result: &str,
+    to_version: &str,
+    from_version: &str,
+    reason: Option<Reason>,
+) -> String {
+    history_line("", result, to_version, from_version, reason)
+}
+
+/// `record-rollback` の終了コード 5 は、履歴を控えへ移しただけで更新処理を続けられる。
+pub const HISTORY_PENDING_WRITTEN: i32 = 5;
+
+pub fn update_run_id(now: SystemTime, pid: u32) -> String {
+    let nanos = now
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    format!("{nanos}-{pid}")
 }
 
 pub fn pg_restore_command(program: &Path, dump: &Path, port: u16) -> SetupCommand {

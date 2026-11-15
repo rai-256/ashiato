@@ -2,11 +2,12 @@
 
 use ashiato_setup::commands::{self, SetupCommand};
 use ashiato_setup::{console, db, layout, secrets, state};
+use ashiato_setup::update_plan::{self, VersionAction};
 use std::fs;
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 // 配る zip を作る前に、サーバと同じ組み立ての印を成果物から照合する。
 // `main` の `black_box` で参照し、Windows/MSVC のリンク最適化後にも exe に残す。
@@ -991,11 +992,22 @@ fn run_migrate(
     generated: &secrets::InstallSecrets,
     trace: bool,
 ) -> Result<(), String> {
+    run_migrate_with_backup(layout, generated, trace, None)
+}
+
+fn run_migrate_with_backup(
+    layout: &layout::Layout,
+    generated: &secrets::InstallSecrets,
+    trace: bool,
+    backup_dir: Option<&Path>,
+) -> Result<(), String> {
     let settings = generated.settings_json(layout, "", "", "");
     let command = commands::migrate_command(
         &commands::server_executable(layout),
         &generated.owner_url(layout),
-        Path::new(settings["MIGRATE_BACKUP_DIR"].as_str().unwrap_or_default()),
+        backup_dir.unwrap_or_else(|| {
+            Path::new(settings["MIGRATE_BACKUP_DIR"].as_str().unwrap_or_default())
+        }),
         Path::new(settings["PG_DUMP"].as_str().unwrap_or_default()),
     );
     let output = Command::new(&command.program)
@@ -1026,6 +1038,131 @@ fn run_migrate(
     Ok(())
 }
 
+fn update_stage_path(layout: &layout::Layout) -> PathBuf {
+    PathBuf::from(layout.state_dir).join("update").join("state.json")
+}
+
+fn write_update_stage(
+    layout: &layout::Layout,
+    run_id: &str,
+    from_version: &str,
+    to_version: &str,
+    stage: &str,
+    backup_dir: &Path,
+) -> Result<(), String> {
+    let path = update_stage_path(layout);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("更新の印を作れない: {error}"))?;
+    }
+    let value = serde_json::json!({
+        "run_id": run_id,
+        "from_version": from_version,
+        "to_version": to_version,
+        "backup_dir": backup_dir,
+        "stage": stage,
+    });
+    fs::write(path, serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("更新の印を書けない: {error}"))
+}
+
+fn installed_version(layout: &layout::Layout) -> Result<String, String> {
+    let output = Command::new(commands::server_executable(layout))
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("入っている版を読めない: {error}"))?;
+    if !output.status.success() {
+        return Err("入っている版を読めない".into());
+    }
+    console::decode_child_output(&output.stdout)
+        .split_whitespace()
+        .find(|word| word.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "入っている版を読めない".into())
+}
+
+fn update_install(
+    layout: &layout::Layout,
+    installed: &str,
+    identity: &Identity,
+    trace: bool,
+) -> Result<(), String> {
+    let run_id = update_plan::update_run_id(SystemTime::now(), std::process::id());
+    let update_root = PathBuf::from(layout.state_dir).join("update");
+    let backup = PathBuf::from(layout.state_dir)
+        .join("backups")
+        .join("pre-migrate")
+        .join(&run_id);
+    fs::create_dir_all(&backup).map_err(|error| format!("移行の退避を作れない: {error}"))?;
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "started", &backup)?;
+    run(&update_plan::service_stop_command(layout.server_service), trace)?;
+    run(&update_plan::service_update_command(layout.server_service, "disabled"), trace)?;
+    run(&update_plan::service_stop_command(layout.updater_service), trace)?;
+    run(&update_plan::service_update_command(layout.updater_service, "disabled"), trace)?;
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "stopped", &backup)?;
+    run(&update_plan::service_stop_command(layout.db_service), trace)?;
+    let program = PathBuf::from(layout.program_dir);
+    let previous = program.join("previous");
+    if previous.exists() { fs::remove_dir_all(&previous).map_err(|error| format!("前の版を消せない: {error}"))?; }
+    fs::create_dir_all(&program).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(&program).map_err(|error| error.to_string())?.flatten() {
+        if entry.file_name() != "previous" { fs::rename(entry.path(), previous.join(entry.file_name())).map_err(|error| format!("前の版を退けられない: {error}"))?; }
+    }
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "moved", &backup)?;
+    copy_program_files(layout, trace)?;
+    run(&update_plan::service_start_command(layout.db_service), trace)?;
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "replaced", &backup)?;
+    let settings = read_settings(&commands::settings_path(layout))?;
+    let owner = read_settings(&commands::owner_settings_path(layout))?;
+    let generated = secrets::InstallSecrets::from_settings(&settings, &owner, secrets::new_admin_password())?;
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "migrating", &backup)?;
+    run_migrate_with_backup(layout, &generated, trace, Some(&backup))?;
+    if test_hook!("STOP_AT").as_deref() == Some("migrating") { return Err("更新を移行の段で停止しました".into()); }
+    run(&update_plan::service_start_command(layout.server_service), trace)?;
+    if !wait_for_port(layout.server_port, Duration::from_secs(180)) { return Err("新しい版のサーバが起きない".into()); }
+    write_update_stage(layout, &run_id, installed, env!("ASHIATO_VERSION"), "listening", &backup)?;
+    run_all(&commands::uninstall_registration_commands(layout, env!("ASHIATO_VERSION")), trace)?;
+    let pending = update_root.join("history-pending.jsonl");
+    let record = commands::update_history_replay_command(&commands::server_executable(layout), &pending);
+    let _ = run(&record, trace);
+    fs::remove_file(update_stage_path(layout)).map_err(|error| format!("更新の印を消せない: {error}"))?;
+    write_update_check(layout, true)?;
+    let _ = identity;
+    Ok(())
+}
+
+fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
+    let state_path = update_stage_path(layout);
+    if !state_path.exists() { return Err("戻すものはありません".into()); }
+    run(&update_plan::service_stop_command(layout.server_service), trace)?;
+    run(&update_plan::service_stop_command(layout.db_service), trace)?;
+    let state: serde_json::Value = serde_json::from_slice(&fs::read(&state_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let program = PathBuf::from(layout.program_dir);
+    let failed = program.join("failed");
+    let previous = program.join("previous");
+    if failed.exists() { fs::remove_dir_all(&failed).map_err(|e| e.to_string())?; }
+    fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
+    for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
+        if entry.file_name() != "previous" && entry.file_name() != "failed" { fs::rename(entry.path(), failed.join(entry.file_name())).map_err(|e| e.to_string())?; }
+    }
+    for entry in fs::read_dir(&previous).map_err(|e| e.to_string())?.flatten() {
+        fs::rename(entry.path(), program.join(entry.file_name())).map_err(|e| e.to_string())?;
+    }
+    let pending = PathBuf::from(layout.state_dir).join("update").join("history-pending.jsonl");
+    let command = commands::update_history_record_rollback_command(&commands::server_executable(layout), &pending);
+    match Command::new(&command.program).args(&command.args).output() {
+        Ok(output) if output.status.code() == Some(update_plan::HISTORY_PENDING_WRITTEN) => terminal_line("更新の履歴を控えに書きました", false),
+        Ok(output) if output.status.success() => {}
+        Ok(_) => return Err("更新の履歴を書けない".into()),
+        Err(error) => return Err(format!("戻しの記録を起こせない: {error}")),
+    }
+    run(&update_plan::service_start_command(layout.db_service), trace)?;
+    run(&update_plan::service_start_command(layout.server_service), trace)?;
+    let _ = trace;
+    let _ = state;
+    fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"))
+}
+
 /// インストールの段（D10・D29（仮））。各段は「既にあるか」を見て、あれば触らない。
 fn install(
     layout: &layout::Layout,
@@ -1046,6 +1183,17 @@ fn install(
     let server_service_exists = service_exists(layout.server_service);
     // 設定は `server.json` と表の所有者の `owner.json` の 2 つが揃って「ある」（片方だけなら秘密が欠けている。D4）
     let settings_exists = present(&settings_path) && present(&owner_settings_path);
+    let fresh = !settings_exists;
+    if !fresh {
+        let installed = installed_version(layout)?;
+        match update_plan::version_action(&installed, env!("ASHIATO_VERSION")) {
+            VersionAction::Update => return update_install(layout, &installed, identity, trace),
+            VersionAction::LeaveAlone => {
+                return Err(commands::program_version_mismatch_message(&installed));
+            }
+            VersionAction::Rerun => {}
+        }
+    }
     // DB があるのに設定が無ければ、何も書かずに止まる（(2) より前に判定する。D10）
     let verifier_present = settings_exists
         && read_settings_unprivileged(&settings_path).is_some_and(|settings| {
@@ -1069,12 +1217,12 @@ fn install(
 
     // (1) 置き場と ACL。初めて作るときだけ、中の置き場を作ってから継承を切り、2 つの主体だけにする
     // （存在しない置き場に icacls をかけない・サービスが書いたファイルができた後は ACL を変えない。review R4）
-    let fresh = !settings_exists;
     if fresh {
         for directory in [
             settings_dir.clone(),
             state_root.join("db"),
             state_root.join("backups").join("pre-migrate"),
+            state_root.join("update"),
             state_root.join("logs").join("db"),
             state_root.join("logs").join("server"),
             PathBuf::from(layout.updater_dir).join("settings"),
@@ -1089,6 +1237,7 @@ fn install(
             state_root.join("db"),
             state_root.join("backups"),
             state_root.join("backups").join("pre-migrate"),
+            state_root.join("update"),
             state_root.join("logs"),
             state_root.join("logs").join("db"),
             state_root.join("logs").join("server"),
@@ -1101,6 +1250,7 @@ fn install(
         // 先に誰かが作っていた置き場でも、持ち主を Administrators にしてから ACL を付ける
         // （持ち主は ACL を書き換えられるので、ほかの利用者を持ち主のままにしない）
         run(&commands::take_ownership_command(layout), trace)?;
+        run(&commands::update_directory_acl_command(layout), trace)?;
         run(&commands::take_updater_ownership_command(layout), trace)?;
         // 未登録のサービス SID は `icacls` が名前解決できない。初回は先にサービスを登録してから
         // SID の ACE を付ける。片方だけ残った異常な状態では、登録済みのものを作り直さない。
@@ -1775,12 +1925,14 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
                 &executable,
                 refs.get(1).is_some_and(|arg| *arg == "on"),
             ),
+            "rollback" => commands::elevation_script(&executable, &["rollback", "--elevated"]),
             _ => commands::uninstall_elevation_command(&executable),
         };
         return relaunch_elevated(&script);
     }
     match command {
         "repair" => repair(&selected, &profile, &downloads, trace),
+        "rollback" => rollback(&selected, trace),
         "install" => install(
             &selected,
             &Identity {
