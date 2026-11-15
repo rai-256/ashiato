@@ -47,7 +47,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 2: サーバの `last_update` と、移行と起動の試験の差し込み
 
-- [ ] 2.1 `GET /update-status` に欄 `last_update` を足す（D14（仮）・D19（仮））: 状態の置き場の `update\outcomes.jsonl`（サービスの形は系統の定数の置き場、開発の形は `ASHIATO_STATE_DIR` か無し）の最後の 1 行を、1 MB を超えれば読まず、版・時刻・`result`・理由の種別・SQLSTATE（5 文字）の形を確かめてから返す（どれかが外れれば `null`）。`docs/openapi.json` を作り直す。
+- [x] 2.1 `GET /update-status` に欄 `last_update` を足す（D14（仮）・D19（仮））: 状態の置き場の `update\outcomes.jsonl`（サービスの形は系統の定数の置き場、開発の形は `ASHIATO_STATE_DIR` か無し）の最後の 1 行を、1 MB を超えれば読まず、版・時刻・`result`・理由の種別・SQLSTATE（5 文字）の形を確かめてから返す（どれかが外れれば `null`）。`docs/openapi.json` を作り直す。
   `migrate` の退避を `pre-migrate-<時刻>.dump.part` に書き、`pg_dump` が通って中身があるときだけ `.dump` へ名前を変える（D2。試験 `st58_status_backup_` で、`pg_dump` が落ちた・止められた回に `.dump` が残らないことを見る）。
   `migrate` とサーバに、試験の組み立てでだけ読む差し込みを足す: `ASHIATO_SERVER_TEST_MIGRATE_FAIL`（`sqlstate:<符号>` で版を当てる取引をその SQLSTATE で落とす・`before-backup` で退避の前に終了コード 1・`during-backup` で退避を書く途中で止まる）・`ASHIATO_SERVER_TEST_NO_LISTEN`（待ち受けの前に終わる）・`ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN`（待ち受けの 5 秒後に終わる）。
   試験（`crates/server/src/st58_tests.rs`）: `// Scenario: 読めない更新の記録は画面に出さない`（版が `<script>`・最後の行が壊れている）・`// Scenario: 1 MB を超える更新の記録は画面に出さない`・`// Scenario: 戻した後も、新しい版を更新ありに出す`（更新係の結果 `0.5.0`・サーバの版 `0.4.0`・最後の行 `rolled_back` で `state` が `available`）と、`last_update` の 3 つの結果（`applied`・`rolled_back`・`not_applied`）を 1 本ずつ。
