@@ -10,8 +10,8 @@ pub enum VersionAction {
     LeaveAlone,
 }
 
-pub fn version_action(installed: &str, candidate: &str, other_channel: bool) -> VersionAction {
-    if other_channel {
+pub fn version_action(installed: &str, candidate: &str) -> VersionAction {
+    if ashiato_build_stamp::channel(installed) != ashiato_build_stamp::channel(candidate) {
         VersionAction::LeaveAlone
     } else if installed == candidate {
         VersionAction::Rerun
@@ -41,37 +41,61 @@ pub enum RecoveryStep {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackupState {
+    Completed,
+    PartialOnly,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveryPlan {
     restore_db: bool,
+    steps: Vec<RecoveryStep>,
 }
 
 impl RecoveryPlan {
-    pub const fn restore_database(self) -> bool {
+    pub const fn restore_database(&self) -> bool {
         self.restore_db
     }
-}
 
-pub fn recovery_plan(stage: UpdateStage, exit_code: i32, completed_backup: bool) -> RecoveryPlan {
-    let failed_before_listening = !matches!(stage, UpdateStage::Listening | UpdateStage::Restored);
-    let code_allows_restore = !matches!(exit_code, 0 | 2 | 3 | 4);
-    RecoveryPlan {
-        restore_db: failed_before_listening && completed_backup && code_allows_restore,
+    pub fn steps(&self) -> &[RecoveryStep] {
+        &self.steps
     }
 }
 
-pub fn recovery_steps(stage: UpdateStage, completed_backup: bool) -> Vec<RecoveryStep> {
-    if stage == UpdateStage::Listening {
-        return vec![RecoveryStep::Finish];
-    }
-    if stage == UpdateStage::Restored {
-        return vec![RecoveryStep::StartPrevious];
-    }
-    let mut steps = Vec::new();
-    if completed_backup && matches!(stage, UpdateStage::Migrating | UpdateStage::Starting) {
-        steps.push(RecoveryStep::RestoreDatabase);
-    }
-    steps.extend([RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]);
-    steps
+pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) -> RecoveryPlan {
+    let restore_db = match stage {
+        UpdateStage::Starting => {
+            backup == BackupState::Completed && !matches!(exit_code, 2 | 3 | 4)
+        }
+        UpdateStage::Migrating => {
+            backup == BackupState::Completed && !matches!(exit_code, 0 | 2 | 3 | 4)
+        }
+        _ => false,
+    };
+    let steps = if stage == UpdateStage::Listening {
+        vec![RecoveryStep::Finish]
+    } else if stage == UpdateStage::Restored {
+        vec![RecoveryStep::StartPrevious]
+    } else {
+        let mut steps = Vec::new();
+        if restore_db {
+            steps.push(RecoveryStep::RestoreDatabase);
+        }
+        if matches!(
+            stage,
+            UpdateStage::Moved
+                | UpdateStage::Replaced
+                | UpdateStage::Migrating
+                | UpdateStage::Starting
+        ) {
+            steps.extend([RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]);
+        } else if matches!(stage, UpdateStage::Started | UpdateStage::Stopped) {
+            steps.extend([RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]);
+        }
+        steps
+    };
+    RecoveryPlan { restore_db, steps }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,20 +133,51 @@ impl BackupEntry {
 pub struct BackupRetention {
     pub keep: Vec<String>,
     pub remove: Vec<String>,
+    pub drop_databases: Vec<String>,
+}
+
+pub fn classify_backup_state(current_run: &str, entries: &[BackupEntry]) -> BackupState {
+    if entries.iter().any(|entry| {
+        entry.run_id.as_deref() == Some(current_run)
+            && entry.completed
+            && entry.name.ends_with(".dump")
+    }) {
+        BackupState::Completed
+    } else if entries.iter().any(|entry| {
+        entry.run_id.as_deref() == Some(current_run)
+            && !entry.completed
+            && entry.name.ends_with(".dump.part")
+    }) {
+        BackupState::PartialOnly
+    } else {
+        BackupState::None
+    }
 }
 
 pub fn retain_backups(current_run: &str, entries: &[BackupEntry]) -> BackupRetention {
     let mut keep = Vec::new();
     let mut remove = Vec::new();
+    let mut drop_databases = Vec::new();
     for entry in entries {
+        if entry.name.starts_with("ashiato_failed_") {
+            drop_databases.push(entry.name.clone());
+            continue;
+        }
         let is_current_complete = entry.run_id.as_deref() == Some(current_run) && entry.completed;
         if is_current_complete {
-            keep.push(entry.name.clone());
+            keep.push(format!("{current_run}/{}", entry.name));
         } else {
-            remove.push(entry.name.clone());
+            remove.push(entry.run_id.as_ref().map_or_else(
+                || entry.name.clone(),
+                |run_id| format!("{run_id}/{}", entry.name),
+            ));
         }
     }
-    BackupRetention { keep, remove }
+    BackupRetention {
+        keep,
+        remove,
+        drop_databases,
+    }
 }
 
 pub fn pg_major_matches(pg_version: &str, expected: u32) -> bool {
@@ -238,7 +293,7 @@ pub fn history_line(
     json!({"at": at, "result": result, "to_version": to_version, "from_version": from_version, "reason": reason}).to_string() + "\n"
 }
 
-pub fn pg_restore_command(program: &Path, dump: &Path) -> SetupCommand {
+pub fn pg_restore_command(program: &Path, dump: &Path, port: u16) -> SetupCommand {
     SetupCommand::new(
         program.display().to_string(),
         [
@@ -247,6 +302,10 @@ pub fn pg_restore_command(program: &Path, dump: &Path) -> SetupCommand {
             "--dbname=ashiato_restore",
             "-U",
             "ashiato_owner",
+            "-h",
+            "127.0.0.1",
+            "-p",
+            &port.to_string(),
             &dump.display().to_string(),
         ],
     )

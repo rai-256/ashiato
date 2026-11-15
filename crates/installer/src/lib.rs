@@ -18,16 +18,10 @@ mod tests {
 
     #[test]
     fn st58_plan_version_decision_distinguishes_rerun_update_and_other_channel() {
+        assert_eq!(version_action("0.4.0", "0.4.0"), VersionAction::Rerun);
+        assert_eq!(version_action("0.4.0", "0.5.0"), VersionAction::Update);
         assert_eq!(
-            version_action("0.4.0", "0.4.0", false),
-            VersionAction::Rerun
-        );
-        assert_eq!(
-            version_action("0.4.0", "0.5.0", false),
-            VersionAction::Update
-        );
-        assert_eq!(
-            version_action("0.4.0", "0.5.0", true),
+            version_action("0.4.0", "0.5.0-dev.20261116"),
             VersionAction::LeaveAlone
         );
     }
@@ -35,31 +29,34 @@ mod tests {
     #[test]
     fn st58_plan_recovery_matrix() {
         for (code, backup, should_restore) in [
-            (0, true, false),
-            (0, false, false),
-            (1, true, true),
-            (1, false, false),
-            (2, true, false),
-            (2, false, false),
-            (3, true, false),
-            (3, false, false),
-            (4, true, false),
-            (4, false, false),
-            (137, true, true),
-            (137, false, false),
-            (5, true, true),
-            (5, false, false),
-            (5, true, true),
-            (5, false, false),
-            (1, true, true),
-            (137, true, true),
-        ] as [(i32, bool, bool); 18]
-        {
-            let plan = recovery_plan(UpdateStage::Migrating, code, backup);
+            (0, BackupState::Completed, false),
+            (0, BackupState::PartialOnly, false),
+            (0, BackupState::None, false),
+            (1, BackupState::Completed, true),
+            (1, BackupState::PartialOnly, false),
+            (1, BackupState::None, false),
+            (2, BackupState::Completed, false),
+            (2, BackupState::PartialOnly, false),
+            (2, BackupState::None, false),
+            (3, BackupState::Completed, false),
+            (3, BackupState::PartialOnly, false),
+            (3, BackupState::None, false),
+            (4, BackupState::Completed, false),
+            (4, BackupState::PartialOnly, false),
+            (4, BackupState::None, false),
+            (137, BackupState::Completed, true),
+            (137, BackupState::PartialOnly, false),
+            (137, BackupState::None, false),
+        ] {
+            let plan = recovery_plan(
+                UpdateStage::Migrating,
+                code,
+                backup,
+            );
             assert_eq!(
                 plan.restore_database(),
                 should_restore,
-                "code={code:?} backup={backup}"
+                "code={code:?} backup={backup:?}"
             );
         }
     }
@@ -67,30 +64,30 @@ mod tests {
     #[test]
     fn st58_plan_listening_never_restores() {
         for stage in [UpdateStage::Listening, UpdateStage::Restored] {
-            assert!(!recovery_plan(stage, 1, true).restore_database());
+            assert!(!recovery_plan(stage, 1, BackupState::Completed).restore_database());
         }
     }
 
     #[test]
     fn st58_plan_stage_recovery_steps_finish_in_order() {
         assert_eq!(
-            recovery_steps(UpdateStage::Started, true),
+            recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Stopped, true),
+            recovery_plan(UpdateStage::Stopped, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Moved, true),
+            recovery_plan(UpdateStage::Moved, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Replaced, true),
+            recovery_plan(UpdateStage::Replaced, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Migrating, true),
+            recovery_plan(UpdateStage::Migrating, 1, BackupState::Completed).steps(),
             vec![
                 RecoveryStep::RestoreDatabase,
                 RecoveryStep::RestoreProgram,
@@ -98,7 +95,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Starting, true),
+            recovery_plan(UpdateStage::Starting, 0, BackupState::Completed).steps(),
             vec![
                 RecoveryStep::RestoreDatabase,
                 RecoveryStep::RestoreProgram,
@@ -106,11 +103,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Restored, true),
+            recovery_plan(UpdateStage::Restored, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::StartPrevious]
         );
         assert_eq!(
-            recovery_steps(UpdateStage::Listening, true),
+            recovery_plan(UpdateStage::Listening, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::Finish]
         );
     }
@@ -126,15 +123,50 @@ mod tests {
                 BackupEntry::completed("run-2", "pre-migrate-c.dump"),
             ],
         );
-        assert_eq!(selected.keep, vec!["pre-migrate-c.dump"]);
+        assert_eq!(selected.keep, vec!["run-2/pre-migrate-c.dump"]);
         assert_eq!(
             selected.remove,
             vec![
-                "pre-migrate-a.dump",
+                "run-1/pre-migrate-a.dump",
                 "pre-migrate-old.dump",
-                "pre-migrate-b.dump.part"
+                "run-2/pre-migrate-b.dump.part",
             ]
         );
+    }
+
+    #[test]
+    fn st58_plan_classifies_completed_partial_and_empty_current_run() {
+        let entries = [
+            BackupEntry::completed("run-1", "pre-migrate-a.dump"),
+            BackupEntry::partial("run-1", "pre-migrate-b.dump.part"),
+        ];
+        assert_eq!(
+            classify_backup_state("run-1", &entries),
+            BackupState::Completed
+        );
+        assert_eq!(classify_backup_state("run-2", &entries), BackupState::None);
+        assert_eq!(
+            classify_backup_state(
+                "run-1",
+                &[BackupEntry::partial("run-1", "pre-migrate-b.dump.part")]
+            ),
+            BackupState::PartialOnly
+        );
+    }
+
+    #[test]
+    fn st58_plan_retention_includes_failed_databases_and_run_paths() {
+        let selected = retain_backups(
+            "run-2",
+            &[
+                BackupEntry::completed("run-1", "pre-migrate-a.dump"),
+                BackupEntry::direct("pre-migrate-old.dump"),
+                BackupEntry::completed("run-2", "pre-migrate-c.dump"),
+                BackupEntry::direct("ashiato_failed_20261116"),
+            ],
+        );
+        assert_eq!(selected.keep, vec!["run-2/pre-migrate-c.dump"]);
+        assert_eq!(selected.drop_databases, vec!["ashiato_failed_20261116"]);
     }
 
     #[test]
@@ -161,12 +193,14 @@ mod tests {
         let restore = pg_restore_command(
             Path::new(r"C:\pgsql\bin\pg_restore.exe"),
             Path::new(r"C:\backup.dump"),
+            55401,
         );
         let psql = rollback_psql_command(Path::new(r"C:\pgsql\bin\psql.exe"), "127.0.0.1", 55400);
         assert!(
             restore.args.contains(&"ashiato_owner".into())
                 && psql.args.contains(&"ashiato_owner".into())
         );
+        assert!(restore.args.contains(&"-p".into()) && restore.args.contains(&"55401".into()));
         assert!(!restore.line().contains("ashiato ") && !psql.line().contains("ashiato "));
     }
 
@@ -184,53 +218,65 @@ mod tests {
 
     #[test]
     fn st58_plan_exit_zero_never_restores() {
-        assert!(!recovery_plan(UpdateStage::Migrating, 0, true).restore_database());
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 0, BackupState::Completed).restore_database()
+        );
     }
     #[test]
     fn st58_plan_exit_two_never_restores() {
-        assert!(!recovery_plan(UpdateStage::Migrating, 2, true).restore_database());
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 2, BackupState::Completed).restore_database()
+        );
     }
     #[test]
     fn st58_plan_exit_three_never_restores() {
-        assert!(!recovery_plan(UpdateStage::Migrating, 3, true).restore_database());
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 3, BackupState::Completed).restore_database()
+        );
     }
     #[test]
     fn st58_plan_exit_four_never_restores() {
-        assert!(!recovery_plan(UpdateStage::Migrating, 4, true).restore_database());
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 4, BackupState::Completed).restore_database()
+        );
     }
     #[test]
     fn st58_plan_exit_137_restores_completed_backup() {
-        assert!(recovery_plan(UpdateStage::Migrating, 137, true).restore_database());
+        assert!(
+            recovery_plan(UpdateStage::Migrating, 137, BackupState::Completed).restore_database()
+        );
     }
     #[test]
     fn st58_plan_partial_backup_is_never_used() {
-        assert!(!recovery_plan(UpdateStage::Migrating, 1, false).restore_database());
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 1, BackupState::PartialOnly).restore_database()
+        );
     }
     #[test]
     fn st58_plan_started_has_no_database_restore() {
         assert_eq!(
-            recovery_steps(UpdateStage::Started, true),
+            recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
     }
     #[test]
     fn st58_plan_replaced_has_no_database_restore() {
         assert_eq!(
-            recovery_steps(UpdateStage::Replaced, true),
+            recovery_plan(UpdateStage::Replaced, 1, BackupState::Completed).steps(),
             vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
         );
     }
     #[test]
     fn st58_plan_starting_restores_database() {
         assert_eq!(
-            recovery_steps(UpdateStage::Starting, true)[0],
+            recovery_plan(UpdateStage::Starting, 0, BackupState::Completed).steps()[0],
             RecoveryStep::RestoreDatabase
         );
     }
     #[test]
     fn st58_plan_restore_stage_only_starts_previous() {
         assert_eq!(
-            recovery_steps(UpdateStage::Restored, false),
+            recovery_plan(UpdateStage::Restored, 1, BackupState::None).steps(),
             vec![RecoveryStep::StartPrevious]
         );
     }
