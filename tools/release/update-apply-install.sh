@@ -99,6 +99,7 @@ scenario_hook() {
   case "$1" in
     '更新の移行の間、サーバは待ち受けない'|'更新の途中で止まると、サービスは自分で起きない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
     '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
+    '戻した回は退避を消さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '書きかけの退避は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=during-backup' ;;
     '退避の前に落ちた回は、前の回の退避を戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=before-backup' ;;
     '待ち受けを開いた後に止まった更新は、走らせ直しても DB を戻さない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=after-listen' ;;
@@ -339,6 +340,10 @@ EOF
   PATH="$fake_path:$PATH" psql -c count | grep -q 'count=7' || die '偽の psql 経路を通っていない'
   grep -q '^sc ' "$calls" && grep -q '^icacls ' "$calls" && grep -q '^setup ' "$calls" && grep -q '^server ' "$calls" && grep -q '^psql ' "$calls" || die '偽のコマンドの記録が不足'
   expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
+  [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
+    die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
+  [[ "$(scenario_action '印が無ければ、戻しの口は何も替えない')" == rollback ]] ||
+    die '印無しの戻し Scenario が rollback 操作を使っていない'
   echo 'OK: update-apply-install の自己試験'
 }
 
