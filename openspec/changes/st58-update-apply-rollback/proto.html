@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ST58 — 帯の「更新あり」から手順へ・戻した更新の知らせ（GO 用 proto）</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;font-family:system-ui,"Noto Sans JP",sans-serif;background:#16181d;color:#e6e6e6;font-size:15px}
+.wrap{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:16px;padding:16px}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}}
+fieldset{border:1px solid #333a45;border-radius:8px;margin:0 0 12px;padding:8px 10px}
+legend{color:#9fb0c4;font-size:13px}
+label{display:flex;gap:8px;align-items:center;min-height:28px;cursor:pointer}
+.fixed,.cap{font-size:12px;color:#9fb0c4;line-height:1.6}
+.cap{margin:6px 0}
+.stage{background:#0f1115;border-radius:10px;padding:12px;overflow:auto}
+.frame{background:hsl(140 18% 97%);color:hsl(140 10% 14%);margin:0 auto;border:1px solid #555;border-radius:6px;overflow:hidden;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:16px}
+.page{padding:12px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:12px}
+h1{font-size:22px;margin:0 auto 0 0}
+a{color:hsl(307 42% 34%);min-height:24px;display:inline-flex;align-items:center}
+.band{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font-size:14px;padding:6px 12px;min-height:24px;border-bottom:1px solid hsl(140 10% 80%);overflow-wrap:anywhere}
+.band.update{background:hsl(307 42% 94%)}
+.band.update button{all:unset;cursor:pointer;text-decoration:underline;min-height:24px;display:inline-flex;align-items:center}
+.band.stale{background:hsl(40 70% 92%)}
+.band.rolled{background:hsl(0 60% 94%)}
+.steps{margin:0 0 12px;padding:10px 12px;border:1px solid hsl(307 30% 75%);border-radius:8px;background:#fff}
+.steps h2{font-size:17px;margin:0 0 6px}
+.steps ol{margin:6px 0 6px 1.2em;padding:0;font-size:14px;line-height:1.7}
+.steps button{min-height:24px}
+.grid{height:160px;border-radius:8px;background:repeating-linear-gradient(90deg,hsl(140 30% 80%) 0 10px,hsl(140 18% 92%) 10px 14px)}
+.settings h2{font-size:18px;margin:16px 0 6px}
+.settings dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}
+.settings dt{color:hsl(140 8% 38%)}
+.settings dd{margin:0;overflow-wrap:anywhere}
+#log{font-size:12px;color:#9fb0c4;margin-top:8px;min-height:1.6em}
+</style></head><body>
+<script type="application/json" id="proto-go">
+{"chosen":"どの画面でも見出しの上の帯に「更新あり 0.5.0（11/10 に見つけた）」を出し、押すと画面の中に「サーバの更新の手順」（版・3 段・移行が落ちたら自動で前の版に戻ること・その版のリリースのページへのリンク）が開く。移行が落ちて戻した回・入らなかった回は、次に更新が通るまで同じ帯と設定の「更新の確認」に 1 行で出す。手順を開くのは「更新あり」の行だけで、ほかの行は押しても何も起きない。",
+ "requirements":["画面は、サーバの「更新あり」と「確かめられていない」をどの画面でも見出しの上の帯に出し、設定に更新の確認の状態を出す"],
+ "not_screen":[{"name":"携帯の収集アプリは、「更新あり」を押すと新しい版を落として照らし、Android のインストール画面を開く","why":"携帯のアプリの最初の画面の行と Android のインストール画面で、この proto はブラウザの画面（設定ほか）。行の文言と画面の開き方は Robolectric の試験と計測テストで固定する"}],
+ "states":[
+  {"id":"available","name":"更新あり","hint":"新しい版 0.5.0 を 11/10 に見つけた。サーバは 0.4.0。帯を押すと手順が開く","scenarios":["更新ありはどの画面でも見出しの上に出る","設定に更新の確認の状態が出る"]},
+  {"id":"steps","name":"帯を押して手順を開いた","hint":"画面の中に手順が開く。リンクは v0.5.0 のリリースのページ。押すまで外へ要求は出ない","scenarios":["帯を押すと、サーバの更新の手順が開く"]},
+  {"id":"nightly","name":"開発版の手順","hint":"開発版のサーバ。手順のリンクは印 nightly のページ","scenarios":["開発版の手順のリンクは印 nightly のページを指す"]},
+  {"id":"rolled_back","name":"移行が落ちて戻した","hint":"0.5.0 の移行が制約に反して落ち、0.4.0 に戻した。帯と設定に同じ行","scenarios":["戻した更新は、帯と設定に出る"]},
+  {"id":"not_applied","name":"更新が入らなかった","hint":"DB に 0.5.0 の知らない版があり、入らなかった。0.4.0 のまま","scenarios":["入らなかった更新は、帯と設定に出る"]},
+  {"id":"applied_after","name":"戻した後に更新が通った","hint":"「戻した」の後に「通った」の行。戻した知らせは帯から消える","scenarios":["次に更新が通ると、戻した知らせは帯から消える"]},
+  {"id":"three","name":"戻した＋更新あり＋7 日確かめられていない","hint":"帯が 3 行。360 px でも横に流れない","scenarios":["戻した知らせと更新ありと確かめられていないが同時なら 3 行出る"]},
+  {"id":"record_bad","name":"更新の記録を読めない","hint":"最後の行の版が <script>、または記録が 1 MB を超える。記録の中身は出さない","scenarios":["読めない更新の記録は画面に出さない","1 MB を超える更新の記録は画面に出さない"]},
+  {"id":"big","name":"大きめの正しい結果（63 KB）","hint":"余白で大きくした正しい結果のファイル。読めるので更新ありと同じに出る","scenarios":["64 KB より小さい正しい結果のファイルは読む"]},
+  {"id":"stale6","name":"6 日確かめられていない","hint":"届かない日が 6 日。まだ帯は出ない","scenarios":["6 日確かめられていないだけなら帯は出ない"]},
+  {"id":"stale","name":"7 日確かめられていない","hint":"最後に確かめられたのは 11/03。この行を押しても何も起きない","scenarios":["7 日確かめられなければ帯に出る","帯を押しても何も起きない"]},
+  {"id":"both","name":"更新あり＋7 日確かめられていない","hint":"帯が 2 行。360 px でも横に流れない","scenarios":["更新ありと確かめられていないが同時なら 2 行出る"]},
+  {"id":"none","name":"新しい版なし","hint":"見つけた最新の版がサーバと同じ 0.4.0","scenarios":["新しい版が無ければ帯は出ない","新しい版なしは設定にだけ出る"]},
+  {"id":"off","name":"確認を切ってある","hint":"前の結果に 0.5.0 が残っていても帯は出ない","scenarios":["確認を切ってあれば帯は出ず、設定に切ってあると出る"]},
+  {"id":"pending","name":"まだ確かめていない","hint":"確認を入れて 2 日。結果のファイルがまだ無い","scenarios":["まだ確かめていない更新係は、7 日たつまで帯を出さない"]},
+  {"id":"not_running","name":"更新係が無い","hint":"Linux や開発の形のサーバ。更新係の置き場が無い","scenarios":["更新係の無いサーバは設定に動いていないと出し、帯を出さない"]},
+  {"id":"unreadable","name":"結果を読めない","hint":"65 KB のファイルや、版の欄が <script> の結果。中身は出さない","scenarios":["読めない結果のファイルは画面に出さない","結果を読めないときは帯を出さず、設定にだけ出す"]}
+ ],
+ "always":["帯の文字と地のコントラストは 4.5:1 以上","戻した・入らなかったの行を押しても何も起きない","帯を出しても外部への要求は 0 件である","更新の状態の口はログインが要り、API の合言葉では答えない","更新の状態の口は応答を残させない"]}
+</script>
+<div class="wrap">
+<div id="side"></div>
+<div>
+  <div class="stage"><div id="frame" class="frame"></div></div>
+  <div id="log" aria-live="polite"></div>
+</div>
+</div>
+<script>
+// この proto は GO view だけを持つ（ST58 は深掘りの答えで画面の帯を持つようになり、相談の view は無い）。
+// 既定（PROTO_VIEW なし）でも、window.PROTO_VIEW==="go" か #view=go でも、同じ GO view を出す。
+const GO=(window.PROTO_VIEW==="go")||/(^|[#&])view=go/.test(location.hash);
+const man=JSON.parse(document.getElementById("proto-go").textContent);
+const S={st:"available",w:"1024",open:false,nightly:false};
+const T={
+  update:v=>`更新あり ${v}（11/10 に見つけた）`,
+  stale:"更新を 7 日確かめられていない（最後に確かめた 11/03・配布元に届かない）",
+  rolled:"更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（202611200900_add_place_note・制約に反した）",
+  notapp:"更新 0.5.0 は入りませんでした（DB に新しい版の知らない版がある）。0.4.0 のまま動いています"
+};
+// 状態ごとの「サーバが返すもの」を画面の行に写す
+function view(){const s=S.st,v=s==="nightly"?"nightly-20261110":"0.5.0";
+  const b=[];
+  if(["available","steps","nightly","big","both","three","record_bad"].includes(s))b.push(["update",T.update(v)]);
+  if(["stale","both","three"].includes(s))b.push(["stale",T.stale]);
+  if(["rolled_back","three"].includes(s))b.push(["rolled",T.rolled]);
+  if(s==="not_applied")b.push(["rolled",T.notapp]);
+  const status={available:"有効・新しい版あり",steps:"有効・新しい版あり",nightly:"有効・新しい版あり",big:"有効・新しい版あり",record_bad:"有効・新しい版あり",
+    rolled_back:"有効・新しい版なし",not_applied:"有効・新しい版なし",applied_after:"有効・新しい版なし",three:"有効・新しい版あり／7 日確かめられていない",
+    stale6:"有効・新しい版なし",stale:"有効・7 日確かめられていない",both:"有効・新しい版あり／7 日確かめられていない",none:"有効・新しい版なし",
+    off:"切ってある",pending:"まだ確かめていない",not_running:"動いていない",unreadable:"結果を読めない"}[s];
+  const installed={applied_after:"0.5.0",nightly:"nightly-20261101"}[s]||"0.4.0";
+  const latest=["available","steps","big","record_bad"].includes(s)?"0.5.0（11/10 に見つけた）":s==="nightly"?"nightly-20261110（11/10 に見つけた）":
+    ["both","three"].includes(s)?"0.5.0（11/03 に見つけた）":["none","stale6","rolled_back","not_applied"].includes(s)?"0.4.0":s==="applied_after"?"0.5.0":"—";
+  const last=["stale","both","three"].includes(s)?"11/10 08:40（配布元に届かない。最後に確かめられた 11/03）":s==="stale6"?"11/10 08:40（配布元に届かない。最後に確かめられた 11/04）":
+    ["off","pending","not_running","unreadable"].includes(s)?"—":"11/10 09:12";
+  const upd=s==="rolled_back"||s==="three"?T.rolled:s==="not_applied"?T.notapp:null;
+  return {bands:b,status,installed,latest,last,upd,tag:s==="nightly"?"nightly":"v0.5.0",ver:v};
+}
+function render(){
+  const f=document.getElementById("frame");f.style.width=S.w+"px";const d=view();
+  const bands=d.bands.map(([k,t])=>k==="update"
+    ?`<div class="band update" role="status"><button type="button" data-act="open">${t}</button></div>`
+    :`<div class="band ${k}" role="status" data-act="none">${t}</div>`).join("");
+  const steps=S.open?`<section class="steps" aria-label="サーバの更新の手順"><h2>サーバの更新の手順（${d.ver}）</h2>
+    <p style="margin:0;font-size:14px">サーバの PC で次の 3 段を行います。</p>
+    <ol><li><a href="https://github.com/rai-256/ashiato/releases/tag/${d.tag}" target="_blank" rel="noopener noreferrer" data-act="link">配布元のリリースのページ</a>から、新しい版のサーバの Windows の zip を落とす</li>
+    <li>zip を開いて <code>ashiato-setup.exe</code> を走らせる</li><li>管理者の確認を 1 回許す</li></ol>
+    <p style="margin:0;font-size:14px">移行が落ちたら自動で前の版に戻ります。</p>
+    <button type="button" data-act="close">閉じる</button></section>`:"";
+  f.innerHTML=`${bands}<div class="page"><header><h1>稼働状況</h1><a href="#" data-act="none">1 日を見る</a><a href="#" data-act="none">マスタ管理</a><a href="#" data-act="none">設定</a></header>${steps}<div class="grid"></div>
+  <div class="settings"><h2>設定 —「更新の確認」（下へスクロールした先の例）</h2><dl><dt>更新の確認</dt><dd>${d.status}</dd><dt>入っている版</dt><dd>${d.installed}</dd><dt>見つけた最新の版</dt><dd>${d.latest}</dd><dt>最後に確かめた</dt><dd>${d.last}</dd>${d.upd?`<dt>前の更新</dt><dd>${d.upd}</dd>`:""}</dl></div></div>`;
+  f.querySelectorAll("[data-act]").forEach(el=>el.addEventListener("click",e=>{const a=el.dataset.act;
+    if(a==="open"){S.open=true;render();say("手順を開いた（URL は変わらず、外への要求は 0 件）")}
+    else if(a==="close"){S.open=false;render()}
+    else if(a==="link"){e.preventDefault();say("リンクの宛先: "+el.href+"（本人が押したときだけ開く。proto では開かない）")}
+    else{e.preventDefault();say("押しても何も起きない（URL も要求も変わらない）")}}));
+}
+function say(t){document.getElementById("log").textContent=t}
+function go(id){S.st=id;S.open=(id==="steps"||id==="nightly");if(id==="three"||id==="both")S.w="360";
+  const r=document.querySelector(`input[name=gost][value="${id}"]`);if(r)r.checked=true;
+  document.querySelectorAll("input[name=w]").forEach(i=>i.checked=i.value===S.w);
+  say("");render();history.replaceState(null,"",`#view=go&state=${id}`)}
+const side=document.getElementById("side");
+side.innerHTML=`<p class="cap">決まった形: ${man.chosen}</p>
+<fieldset><legend>状態（押すと切り替わる）</legend>${man.states.map(x=>`<label><input type="radio" name="gost" value="${x.id}">${x.name}</label><div class="cap" style="margin:0 0 6px 26px">${x.hint.replace(/</g,"&lt;")}</div>`).join("")}</fieldset>
+<fieldset><legend>幅</legend><label><input type="radio" name="w" value="360">360 px（携帯のブラウザ）</label><label><input type="radio" name="w" value="1024">1024 px（PC）</label></fieldset>
+<p class="fixed">どの状態でも: 帯の文字と地は 4.5:1 以上・押せる所は 24 px 以上・360 px で横に流れない・手順を開くのは「更新あり」の行だけ（ほかの行は押しても何も起きない）・画面から外への要求は 0 件（帯の中身はサーバが返す）・状態の口は画面のログインが要り、応答を残させない${GO?"":"（この proto は GO view だけを持つ）"}</p>`;
+side.querySelectorAll("input[name=gost]").forEach(i=>i.addEventListener("change",e=>go(e.target.value)));
+side.querySelectorAll("input[name=w]").forEach(i=>i.addEventListener("change",e=>{S.w=e.target.value;render()}));
+function fromHash(){const m=location.hash.match(/state=([\w-]+)/);return m&&man.states.some(x=>x.id===m[1])?m[1]:"available"}
+window.addEventListener("hashchange",()=>{const id=fromHash();if(id!==S.st)go(id)});
+go(fromHash());
+</script>
+</body></html>

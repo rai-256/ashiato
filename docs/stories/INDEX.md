@@ -103,7 +103,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST55, ST56, ST59 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51, ST55 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51, ST55, ST58 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST44, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58, ST60 |
 
@@ -540,3 +540,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - **ST56 の requires に ST54 を足した**（layer 5 → 6。ST59 も 6 → 7）。設定した時点の確かめが見せる「送り先が開発版（正式版）のサーバです」は ST54 の `GET /contract` の系統の見出し（ST54 design D7）を読み、
 >   配る PC の収集アプリの既定の置き場と端末の識別子（ST56 の Q8）には ST54 の「開発版は置き場の下の `dev`・識別子の末尾に `-dev`」（ST54 design D2）が当たる（spec_overlap の観点 7）。ST54 は下流を走っている。archive は待たない
 > - capability は割り当てのまま（`device-collection`・`desktop-collection`・`data-sensitivity` に ADDED。`distribution` は手順書だけで delta を持たない）。後続の振る舞いの前倒しではない
+
+> **訂正（2026-11-15、ST58 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `data-durability` に ST58 を足した。更新の履歴の移行の結果に `rolled_back` を足す（distribution）ので、ST51 が置いた書き出しの説明書（値の意味）の 1 文だけを MODIFIED で直す。後続の振る舞いの前倒しではない
