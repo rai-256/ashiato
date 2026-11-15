@@ -37,10 +37,45 @@ fn st58_pc_update_layout_uses_a_flat_versions_directory() {
 
 #[test]
 fn st58_pc_update_accepts_only_a_newer_version() {
-    // Scenario: PC は入っている版より新しくない版を入れない
     assert!(is_newer_version("0.5.0", "0.4.0"));
     assert!(!is_newer_version("0.4.0", "0.5.0"));
     assert!(!is_newer_version("0.5.0", "0.5.0"));
+}
+
+#[test]
+fn st58_pc_update_reports_latest_without_downloading() {
+    // Scenario: PC は入っている版より新しくない版を入れない
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        format!(r#"{{"latest":"{}"}}"#, env!("ASHIATO_VERSION")),
+    )
+    .unwrap();
+
+    let mut input = &b"\n"[..];
+    let mut output = Vec::new();
+    ashiato_collector_windows::update_apply::run_update(
+        &config(dir.path()),
+        ashiato_build_stamp::Channel::Official,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+
+    assert!(String::from_utf8(output)
+        .unwrap()
+        .contains("入っている版が最新です"));
+    assert!(!dir.path().join("versions").exists());
+    assert!(matches!(
+        listener.accept(),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+    ));
 }
 
 #[test]
