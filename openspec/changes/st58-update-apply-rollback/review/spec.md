@@ -40,7 +40,7 @@
 - kind: irreversible
 - loss: rewrite-all
 - 提案: 待ち受けを開かずに戻した回の 2 行を決め、spec に書く。たとえば「落ちた試みの結果」は `applied`（当てた版を持つ）にし、「戻した」は `rolled_back` にする。または「落ちた試みの結果」を書かず、`rolled_back` の 1 行だけにする。そのうえで Scenario「待ち受けを開かずに戻すと、更新の履歴に <決めた行> が足される」を足す。`backup_failed` を 2 行の候補から外すかどうかも決める
-- 処置: fixed D26 仮
+- 処置: escalated —— deep.md Q9（第 2 回）。D26 を仮で進めたが、別の席が「失わない」を否とした（provisional-review.md D26）ので台帳から外して本人に返した
 
 ## R4. 終了コードが 0〜4 以外（落ちた・止められた）で、この回の退避がある回に DB を戻さないと、どちらの版も起きない
 - 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md・design.md
