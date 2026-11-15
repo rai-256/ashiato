@@ -1,0 +1,46 @@
+{
+  "status": "accepted",
+  "digest": "8dcb23201786456b72c67579a7c504743d2f937932505c1a73f671e591f1c64e",
+  "head": "f068e8931ad86958f48398ed7d82f774846a943f",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-15T10:33:05Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "戻すたびに DB 1 つ分の場所を使い、空きが足りないとサーバが止まったままになる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "消した記録が、落ちた DB と残した退避に次の更新まで残る"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "ST58 より前のサーバは --version に答えず、最初の更新で入っている版を読めない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "待ち受けを開いた後に落ち続ける新しい版から前の版へ移る手順を、仕様は定めていない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "PC で入れ替えた後、置いた場所から開くと前の版が新しい版と同時に動きうる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "ST58 より前の版へ戻した回は、画面の帯に「戻しました」が出ない"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "medium",
+      "title": "戻した後の次の更新で、更新の履歴の「前の版」が落ちた新しい版になる"
+    }
+  ]
+}
