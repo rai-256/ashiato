@@ -250,7 +250,7 @@ async fn st57_update_status_is_not_cached() {
             .as_object()
             .unwrap()
             .len(),
-        7
+        8
     );
 }
 

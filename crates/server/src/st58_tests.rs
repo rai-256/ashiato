@@ -4,6 +4,8 @@
 
 use crate::testdb;
 use crate::update_history::{record_rollback, record_startup, replay_pending, RollbackKind};
+use crate::update_status::read_status;
+use serde_json::json;
 use tempfile::TempDir;
 
 async fn rows(pool: &sqlx::PgPool) -> Vec<(String, Option<String>, String, String, Vec<String>)> {
@@ -214,4 +216,125 @@ async fn st58_history_pending_contains_only_rollback_for_startup() {
     assert!(lines[0].contains("rolled_back"));
     let pending: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(pending["outcome"], "rolled_back");
+}
+
+fn status_dir() -> TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("settings")).unwrap();
+    std::fs::write(
+        dir.path().join("settings/check.json"),
+        json!({"enabled": true, "since": "2026-11-12T00:00:00Z"}).to_string(),
+    )
+    .unwrap();
+    dir
+}
+
+fn outcome(result: &str, reason: serde_json::Value) -> serde_json::Value {
+    json!({
+        "at": "2026-11-12T01:02:03Z",
+        "result": result,
+        "to_version": "0.5.0",
+        "from_version": "0.4.0",
+        "reason": reason,
+    })
+}
+
+// Scenario: 読めない更新の記録は画面に出さない
+#[test]
+fn st58_status_ignores_invalid_outcome_line() {
+    let dir = status_dir();
+    std::fs::create_dir_all(dir.path().join("update")).unwrap();
+    std::fs::write(
+        dir.path().join("update/outcomes.jsonl"),
+        format!(
+            "{}\n{{\"to_version\":\"<script>\"}}\n",
+            outcome("applied", serde_json::Value::Null)
+        ),
+    )
+    .unwrap();
+    assert!(
+        read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap())
+            .last_update
+            .is_none()
+    );
+}
+
+// Scenario: 1 MB を超える更新の記録は画面に出さない
+#[test]
+fn st58_status_ignores_outcomes_over_one_megabyte() {
+    let dir = status_dir();
+    std::fs::create_dir_all(dir.path().join("update")).unwrap();
+    std::fs::write(
+        dir.path().join("update/outcomes.jsonl"),
+        vec![b'x'; 1024 * 1024 + 1],
+    )
+    .unwrap();
+    assert!(
+        read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap())
+            .last_update
+            .is_none()
+    );
+}
+
+// Scenario: 戻した後も、新しい版を更新ありに出す
+#[test]
+fn st58_status_keeps_available_state_after_rollback() {
+    let dir = status_dir();
+    std::fs::create_dir_all(dir.path().join("update")).unwrap();
+    std::fs::write(
+        dir.path().join("status.json"),
+        json!({"latest":"0.5.0","found_at":"2026-11-12T00:00:00Z","checked_at":"2026-11-12T00:00:00Z","last_ok_at":"2026-11-12T00:00:00Z","notified_version":null,"stale_notified":false}).to_string(),
+    ).unwrap();
+    std::fs::write(
+        dir.path().join("update/outcomes.jsonl"),
+        format!(
+            "{}\n",
+            outcome(
+                "rolled_back",
+                json!({"kind":"server_not_listening","failed_version":null,"sqlstate":null})
+            )
+        ),
+    )
+    .unwrap();
+    let result = read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap());
+    assert_eq!(result.state, "available");
+    assert_eq!(result.last_update.unwrap().result, "rolled_back");
+}
+
+fn st58_status_reads_result(result: &str, reason: serde_json::Value) {
+    let dir = status_dir();
+    std::fs::create_dir_all(dir.path().join("update")).unwrap();
+    std::fs::write(
+        dir.path().join("update/outcomes.jsonl"),
+        format!("{}\n", outcome(result, reason)),
+    )
+    .unwrap();
+    assert_eq!(
+        read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap())
+            .last_update
+            .unwrap()
+            .result,
+        result
+    );
+}
+
+#[test]
+fn st58_status_reads_applied() {
+    st58_status_reads_result("applied", serde_json::Value::Null);
+}
+
+#[test]
+fn st58_status_reads_rolled_back() {
+    st58_status_reads_result(
+        "rolled_back",
+        json!({"kind":"backup_failed","failed_version":null,"sqlstate":null}),
+    );
+}
+
+#[test]
+fn st58_status_reads_not_applied() {
+    st58_status_reads_result(
+        "not_applied",
+        json!({"kind":"db_ahead","failed_version":null,"sqlstate":null}),
+    );
 }

@@ -414,6 +414,10 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
     let me = build_channel();
     let backup = || {
+        #[cfg(ashiato_test_build)]
+        if std::env::var("ASHIATO_SERVER_TEST_MIGRATE_FAIL").as_deref() == Ok("before-backup") {
+            std::process::exit(1);
+        }
         match migrate_backup::backup_before_migrate(
             &url,
             &migrate_backup::BackupConfig::from_env(me),
@@ -4788,9 +4792,20 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         app = app.route("/selftest/panic", get(selftest_panic));
     }
 
+    #[cfg(ashiato_test_build)]
+    if std::env::var("ASHIATO_SERVER_TEST_NO_LISTEN").as_deref() == Ok("1") {
+        std::process::exit(1);
+    }
     // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
+    #[cfg(ashiato_test_build)]
+    if std::env::var("ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN").as_deref() == Ok("1") {
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            std::process::exit(1);
+        });
+    }
     if service_mode {
         axum::serve(listener, app)
             .with_graceful_shutdown(crate::service::wait_for_stop())

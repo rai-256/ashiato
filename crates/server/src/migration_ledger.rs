@@ -726,6 +726,23 @@ async fn apply_one(
     before_ledger: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tx = conn.begin().await?;
+    #[cfg(ashiato_test_build)]
+    if let Some(code) = std::env::var("ASHIATO_SERVER_TEST_MIGRATE_FAIL")
+        .ok()
+        .and_then(|value| value.strip_prefix("sqlstate:").map(str::to_owned))
+        .filter(|code| {
+            code.len() == 5
+                && code
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        })
+    {
+        let sql = format!(
+            "DO $$ BEGIN RAISE EXCEPTION USING ERRCODE = '{}'; END $$;",
+            code
+        );
+        sqlx::raw_sql(&sql).execute(&mut *tx).await?;
+    }
     sqlx::raw_sql(sql).execute(&mut *tx).await?;
     sqlx::query(
         "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit, before_ledger)

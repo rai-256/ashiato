@@ -15,6 +15,7 @@ use std::{
 
 const SETTINGS_FILE: &str = "settings/check.json";
 const MAX_STATUS_JSON_BYTES: usize = 64 * 1024;
+const MAX_OUTCOMES_JSONL_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReadFileError {
@@ -55,7 +56,7 @@ pub(crate) struct CheckSettings {
     pub since: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateStatus {
     pub state: String,
     pub installed: String,
@@ -64,6 +65,23 @@ pub struct UpdateStatus {
     pub checked_at: Option<DateTime<Utc>>,
     pub last_ok_at: Option<DateTime<Utc>>,
     pub reason: Option<String>,
+    pub last_update: Option<LastUpdate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct LastUpdate {
+    pub at: DateTime<Utc>,
+    pub result: String,
+    pub to_version: String,
+    pub from_version: Option<String>,
+    pub reason: Option<UpdateReason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateReason {
+    pub kind: String,
+    pub failed_version: Option<String>,
+    pub sqlstate: Option<String>,
 }
 
 impl UpdateStatus {
@@ -76,6 +94,7 @@ impl UpdateStatus {
             checked_at: None,
             last_ok_at: None,
             reason: Some("not_running".into()),
+            last_update: None,
         }
     }
 }
@@ -128,7 +147,7 @@ pub async fn get(State(app): State<crate::App>) -> Json<UpdateStatus> {
 }
 
 pub(crate) fn read_status(dir: &Path, installed: &str, now: DateTime<Utc>) -> UpdateStatus {
-    match read_check_settings(dir) {
+    let mut result = match read_check_settings(dir) {
         Ok(settings) => match read_bounded(
             &dir.join(ashiato_update_check::STATUS_FILE),
             MAX_STATUS_JSON_BYTES,
@@ -149,7 +168,9 @@ pub(crate) fn read_status(dir: &Path, installed: &str, now: DateTime<Utc>) -> Up
             installed,
             now,
         ),
-    }
+    };
+    result.last_update = read_last_update(dir);
+    result
 }
 
 pub(crate) fn classify(
@@ -223,7 +244,57 @@ fn base(
         checked_at,
         last_ok_at,
         reason,
+        last_update: None,
     }
+}
+
+fn read_last_update(dir: &Path) -> Option<LastUpdate> {
+    let bytes = read_bounded(&dir.join("update/outcomes.jsonl"), MAX_OUTCOMES_JSONL_BYTES).ok()?;
+    let line = bytes
+        .split(|b| *b == b'\n')
+        .rev()
+        .find(|line| !line.is_empty())?;
+    let row: LastUpdate = serde_json::from_slice(line).ok()?;
+    let valid_version =
+        |v: &str| !v.is_empty() && !v.chars().any(|c| c == '<' || c == '>' || c.is_control());
+    if !matches!(
+        row.result.as_str(),
+        "applied" | "rolled_back" | "not_applied"
+    ) || !valid_version(&row.to_version)
+        || row
+            .from_version
+            .as_deref()
+            .is_some_and(|v| !valid_version(v))
+    {
+        return None;
+    }
+    match (&row.result[..], &row.reason) {
+        ("applied", None) => Some(row),
+        ("applied", Some(_)) => None,
+        (_, Some(reason)) if valid_reason(reason, &valid_version) => Some(row),
+        _ => None,
+    }
+}
+
+fn valid_reason(reason: &UpdateReason, valid_version: &impl Fn(&str) -> bool) -> bool {
+    const KINDS: &[&str] = &[
+        "db_ahead",
+        "ledger_unreadable",
+        "channel_mismatch",
+        "db_not_loopback",
+        "backup_failed",
+        "connect_failed",
+        "server_not_listening",
+        "aborted",
+        "pg_major_mismatch",
+    ];
+    KINDS.contains(&reason.kind.as_str())
+        && reason.failed_version.as_deref().is_none_or(valid_version)
+        && reason.sqlstate.as_deref().is_none_or(|s| {
+            s.len() == 5
+                && s.bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        })
 }
 
 fn reason_name(reason: CheckReason) -> String {
