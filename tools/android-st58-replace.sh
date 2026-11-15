@@ -4,13 +4,22 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ANDROID_HOME/emulator:$PATH"
 if [[ "${1:-}" == "--self-test" ]]; then
-  test_output=$'OK (1 test) restartsWithoutOpening\nOK (1 test) specialUseWaitsForBackgroundLocation\nOK (1 test) noLocationStillCollectsOtherSources\nOK (1 test) noNotificationPermissionStillRestarts\nOK (1 test) openingPromotesLocation\nOK (1 test) noDestinationDoesNotStart\nOK (1 test) disabledUpdateStaysDisabled'
+  test_output=$(cat <<'EOF'
+OK (1 test) restartsWithoutOpening
+OK (1 test) specialUseWaitsForBackgroundLocation
+OK (1 test) noLocationStillCollectsOtherSources
+OK (1 test) noNotificationPermissionStillRestarts
+OK (1 test) openingPromotesLocation
+OK (1 test) noDestinationDoesNotStart
+OK (1 test) disabledUpdateStaysDisabled
+EOF
+)
   required=(restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled)
   check_output() { for name in "${required[@]}"; do grep -qx "OK (1 test) $name" <<<"$1" || return 1; done; }
   check_output "$test_output"
   missing_output="$(printf '%s\n' "$test_output" | sed "/OK (1 test) ${required[0]}/d")"
   if check_output "$missing_output"; then echo 'self-test: 欠落検知に失敗' >&2; exit 1; fi
-  ! check_output "$missing_output"
+  if check_output "$missing_output"; then exit 1; fi
   grep -q 'class St58PackageReplacedInstrumentedTest' "$root/collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/St58PackageReplacedInstrumentedTest.kt"
   echo 'OK'
   exit 0
@@ -97,7 +106,7 @@ for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocati
   grep -q 'OK (1 test)' <<<"$output" || { printf '試験が失敗: %s\n%s\n' "$name" "$output" >&2; exit 1; }
   sleep 2
   after="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
-  [[ -z "$before" || -z "$after" || "$before" == "$after" ]] || { echo "プロセスが入れ替わった: $name" >&2; exit 1; }
+  [[ -n "$before" && -n "$after" && "$before" == "$after" ]] || { echo "プロセスが入れ替わった、または消えた: $name ($before -> $after)" >&2; exit 1; }
   case "$name" in
     specialUseWaitsForBackgroundLocation|noLocationStillCollectsOtherSources)
       adb -s "$serial" logcat -d -v brief | grep -q 'foreground_special_use' || { echo "specialUse のログが無い: $name" >&2; exit 1; } ;;

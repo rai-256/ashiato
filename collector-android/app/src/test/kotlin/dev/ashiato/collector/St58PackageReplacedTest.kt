@@ -63,6 +63,10 @@ class St58PackageReplacedTest {
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION, foregroundServiceTypeFor(false, false, true, false))
     }
 
+    @Test fun `印なしで位置権限が無ければ specialUse`() { // Scenario: 位置の権限が無い携帯は、更新の後に位置以外の収集を再開し、通知を出さない
+        assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE, foregroundServiceTypeFor(false, false, false, false))
+    }
+
     @Test fun `画面からの昇格は位置権限があれば location`() { // Scenario: 更新の後に位置を除いた種別で動いていても、開くと位置の収集を再開する
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION, foregroundServiceTypeFor(true, true, true, false))
     }
@@ -76,5 +80,10 @@ class St58PackageReplacedTest {
     @Test fun `裏の位置権限が許されると位置を取得できる`() { // Scenario: 更新の後に位置を除いた種別で動いていても、開くと位置の収集を再開する
         val actual = Capability.of(true, true, true)
         assertTrue(replacementLocationCapability(true, true, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION, true, true, actual).capturable)
+    }
+
+    @Test fun `specialUse で位置以外のソースは取得できる`() {
+        val actual = Capability.of(true, true, true)
+        assertTrue(replacementLocationCapability(true, false, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE, true, false, actual).capturable)
     }
 }

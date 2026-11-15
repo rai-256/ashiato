@@ -40,6 +40,23 @@
 
 9.2 の実機通しはエミュレータ基盤障害で未完了。台本の旧 APK 保存・権限設定・同一 pid 検証・self-test 欠落検知は実装済みだが、実エミュレータ PASS は主張しない。
 
+## 修正ラウンド 4
+
+- `St58PackageReplacedTest` に印なし・位置権限なしの種別、specialUse 中の位置以外の Capability を追加し、D10 の 5 系統と位置以外の継続を実動作の判定で固定した。
+- 計測試験の specialUse 段で受け手が置く印と位置 Capability の不足を確認し、通知権限段で受け手起動後の通知チャンネルを確認するようにした。
+- 入れ替え台本の self-test 欠落判定を明示的な条件にし、PID の空値を成功扱いしないようにした。
+- `premises.md` の P6・P7 の確かさ表記に対応する前置きを更新した。P26 は既存の確かさ 4 を維持した。
+
+### 修正ラウンド 4 の検証
+
+- RED: 前回レビューで、計測試験の specialUse・通知段が定数／恒真条件だけで、台本の PID 検査が空値を通す状態だった。
+- GREEN: `tools/android-st58-replace.sh --self-test` — PASS。
+- `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — PASS（32 本）。
+- `scripts/verify-run 9.1` — PASS（単体 32 本、backup rules PASS）。
+- `scripts/quiet-run android-test-build -- ./collector-android/gradlew -p collector-android :app:assembleDebugAndroidTest` — PASS。
+- `bash -n tools/android-st58-replace.sh` / `git diff --check` — PASS。
+- `scripts/verify-run 9.2` — sandbox 内は `/dev/kvm` により BLOCKED_INFRA。sandbox 外で `scripts/quiet-run emu -- tools/android-st58-replace.sh` を再実行したが、specialUse 段で `foreground_special_use` ログが無く rc=1。FAIL を PASS に置き換えていない。
+
 ## 修正ラウンド 2
 
 - `UpdateInstall` の一覧取得と APK ダウンロードに `User-Agent` / `Accept` を付ける共通処理を追加し、更新開始 Intent と未知アプリ許可 Intent を実生成する試験にした。

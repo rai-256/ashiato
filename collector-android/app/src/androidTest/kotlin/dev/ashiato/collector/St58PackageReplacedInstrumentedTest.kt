@@ -30,9 +30,16 @@ class St58PackageReplacedInstrumentedTest {
     @Test fun specialUseWaitsForBackgroundLocation() { // Scenario: 携帯は裏の位置の権限が無くても、更新の後に位置以外の収集を再開し、開くよう通知する
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         Config.overrideForTest("http://127.0.0.1", "token", "user")
+        val marker = File(context.noBackupFilesDir, "update/replaced-start")
+        marker.delete()
         PackageReplacedReceiver().onReceive(context, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+        assertTrue(marker.isFile)
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE, foregroundServiceTypeFor(true, false, true, false))
-        assertEquals(12, LocationService.UPDATE_WAITING_NOTIFICATION_ID)
+        val location = replacementLocationCapability(true, true, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE, true, false, Capability.of(true, true, true))
+        assertFalse(location.capturable)
+        assertEquals(listOf(Capability.PERMISSION), location.blockers)
+        marker.delete()
+        Config.clearOverrideForTest()
         assertTrue(LocationService.UPDATE_WAITING_NOTIFICATION_ID != LocationService.NOTIFICATION_ID)
     }
     @Test fun noLocationStillCollectsOtherSources() { // Scenario: 位置の権限が無い携帯は、更新の後に位置以外の収集を再開し、通知を出さない
@@ -48,7 +55,11 @@ class St58PackageReplacedInstrumentedTest {
     @Test fun noNotificationPermissionStillRestarts() { // Scenario: 通知の権限が無い携帯も、更新の後に位置以外の収集を再開する
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val manager = context.getSystemService(android.app.NotificationManager::class.java)
-        assertTrue(UpdateCheck.canPost(context, manager, UpdateCheck.CHANNEL) || context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+        Config.overrideForTest("http://127.0.0.1", "token", "user")
+        PackageReplacedReceiver().onReceive(context, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+        assertNotNull(context.packageManager.getServiceInfo(ComponentName(context, LocationService::class.java), 0))
+        assertNotNull(manager.getNotificationChannel(UpdateCheck.CHANNEL))
+        assertEquals("更新", manager.getNotificationChannel(UpdateCheck.CHANNEL)?.name)
     }
     @Test fun openingPromotesLocation() { // Scenario: 更新の後に位置を除いた種別で動いていても、開くと位置の収集を再開する
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
