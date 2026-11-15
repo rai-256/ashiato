@@ -48,11 +48,7 @@ mod tests {
             (137, BackupState::PartialOnly, false),
             (137, BackupState::None, false),
         ] {
-            let plan = recovery_plan(
-                UpdateStage::Migrating,
-                code,
-                backup,
-            );
+            let plan = recovery_plan(UpdateStage::Migrating, code, backup);
             assert_eq!(
                 plan.restore_database(),
                 should_restore,
@@ -72,11 +68,11 @@ mod tests {
     fn st58_plan_stage_recovery_steps_finish_in_order() {
         assert_eq!(
             recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
-            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+            vec![RecoveryStep::StartPrevious]
         );
         assert_eq!(
             recovery_plan(UpdateStage::Stopped, 1, BackupState::Completed).steps(),
-            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+            vec![RecoveryStep::StartPrevious]
         );
         assert_eq!(
             recovery_plan(UpdateStage::Moved, 1, BackupState::Completed).steps(),
@@ -259,7 +255,7 @@ mod tests {
     fn st58_plan_started_has_no_database_restore() {
         assert_eq!(
             recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
-            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+            vec![RecoveryStep::StartPrevious]
         );
     }
     #[test]

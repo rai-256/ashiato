@@ -47,6 +47,13 @@ pub enum BackupState {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackupEntryKind {
+    CompletedDump,
+    PartialDump,
+    FailedDatabase,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveryPlan {
     restore_db: bool,
@@ -91,7 +98,7 @@ pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) ->
         ) {
             steps.extend([RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]);
         } else if matches!(stage, UpdateStage::Started | UpdateStage::Stopped) {
-            steps.extend([RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]);
+            steps.push(RecoveryStep::StartPrevious);
         }
         steps
     };
@@ -102,7 +109,7 @@ pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) ->
 pub struct BackupEntry {
     pub run_id: Option<String>,
     pub name: String,
-    pub completed: bool,
+    pub kind: BackupEntryKind,
 }
 
 impl BackupEntry {
@@ -110,21 +117,25 @@ impl BackupEntry {
         Self {
             run_id: Some(run_id.into()),
             name: name.into(),
-            completed: true,
+            kind: BackupEntryKind::CompletedDump,
         }
     }
     pub fn partial(run_id: &str, name: &str) -> Self {
         Self {
             run_id: Some(run_id.into()),
             name: name.into(),
-            completed: false,
+            kind: BackupEntryKind::PartialDump,
         }
     }
     pub fn direct(name: &str) -> Self {
         Self {
             run_id: None,
             name: name.into(),
-            completed: true,
+            kind: if name.starts_with("ashiato_failed_") {
+                BackupEntryKind::FailedDatabase
+            } else {
+                BackupEntryKind::CompletedDump
+            },
         }
     }
 }
@@ -138,15 +149,11 @@ pub struct BackupRetention {
 
 pub fn classify_backup_state(current_run: &str, entries: &[BackupEntry]) -> BackupState {
     if entries.iter().any(|entry| {
-        entry.run_id.as_deref() == Some(current_run)
-            && entry.completed
-            && entry.name.ends_with(".dump")
+        entry.run_id.as_deref() == Some(current_run) && entry.kind == BackupEntryKind::CompletedDump
     }) {
         BackupState::Completed
     } else if entries.iter().any(|entry| {
-        entry.run_id.as_deref() == Some(current_run)
-            && !entry.completed
-            && entry.name.ends_with(".dump.part")
+        entry.run_id.as_deref() == Some(current_run) && entry.kind == BackupEntryKind::PartialDump
     }) {
         BackupState::PartialOnly
     } else {
@@ -159,11 +166,12 @@ pub fn retain_backups(current_run: &str, entries: &[BackupEntry]) -> BackupReten
     let mut remove = Vec::new();
     let mut drop_databases = Vec::new();
     for entry in entries {
-        if entry.name.starts_with("ashiato_failed_") {
+        if entry.kind == BackupEntryKind::FailedDatabase {
             drop_databases.push(entry.name.clone());
             continue;
         }
-        let is_current_complete = entry.run_id.as_deref() == Some(current_run) && entry.completed;
+        let is_current_complete = entry.run_id.as_deref() == Some(current_run)
+            && entry.kind == BackupEntryKind::CompletedDump;
         if is_current_complete {
             keep.push(format!("{current_run}/{}", entry.name));
         } else {
