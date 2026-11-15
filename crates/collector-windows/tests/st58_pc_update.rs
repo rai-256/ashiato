@@ -3,6 +3,12 @@
 use ashiato_collector_windows::update_apply::{
     is_newer_version, take_handoff, write_alive, UpdateLayout,
 };
+use sha2::Digest as _;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::Mutex;
+
+static UPDATE_ENV: Mutex<()> = Mutex::new(());
 
 fn config(dir: &std::path::Path) -> ashiato_collector_windows::config::Config {
     ashiato_collector_windows::config::Config {
@@ -39,6 +45,7 @@ fn st58_pc_update_accepts_only_a_newer_version() {
 #[test]
 fn st58_pc_update_y_other_than_y_does_not_replace() {
     // Scenario: PC は y 以外の答えでは何も替えない
+    let _guard = UPDATE_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("update-check.json"),
@@ -196,4 +203,98 @@ fn st58_pc_update_handoff_is_consumed_once() {
     .unwrap();
     assert!(take_handoff(dir.path()).unwrap());
     assert!(!take_handoff(dir.path()).unwrap());
+}
+
+#[test]
+fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
+    // Scenario: PC は y で新しい版に入れ替え、前の版の実行ファイルを残す
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let archive = {
+        let mut bytes = Vec::new();
+        let cursor = std::io::Cursor::new(&mut bytes);
+        let mut zip = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        zip.start_file("ashiato-collector-windows.exe", options)
+            .unwrap();
+        zip.write_all(
+            b"#!/bin/sh\nprintf '{\"version\":\"0.5.0\",\"at\":\"%s\"}' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > \"$ASHIATO_STATE_DIR/update-alive.json\"\n",
+        )
+        .unwrap();
+        zip.finish().unwrap();
+        bytes
+    };
+    let digest = format!("sha256:{:x}", sha2::Sha256::digest(&archive));
+    let releases = format!(
+        r#"[{{"tag_name":"v0.5.0","draft":false,"assets":[{{"name":"ashiato-collector-windows-0.5.0-x86_64.zip","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/v0.5.0/asset.zip","digest":"{digest}"}}]}}]"#
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for body in [releases.into_bytes(), archive] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        format!(r#"{{"base_url":"{base}"}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        r#"{"latest":"0.5.0"}"#,
+    )
+    .unwrap();
+
+    let handoff_dir = dir.path().to_owned();
+    let handoff = std::thread::spawn(move || {
+        for _ in 0..200 {
+            if take_handoff(&handoff_dir).unwrap() {
+                ashiato_collector_windows::update_apply::acknowledge_handoff(&handoff_dir).unwrap();
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("handoff was not received");
+    });
+    let mut input = &b"y\n\n"[..];
+    let mut output = Vec::new();
+    ashiato_collector_windows::update_apply::run_update(
+        &config(dir.path()),
+        ashiato_build_stamp::Channel::Official,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+    handoff.join().unwrap();
+    server.join().unwrap();
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+    assert!(String::from_utf8(output)
+        .unwrap()
+        .contains("0.5.0 に入れ替えました"));
+    assert!(dir
+        .path()
+        .join("versions/0.5.0/ashiato-collector-windows.exe")
+        .is_file());
+}
+
+#[test]
+fn st58_pc_update_no_alive_hook_suppresses_the_alive_file() {
+    // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE", "1");
+    write_alive(dir.path(), "0.5.0").unwrap();
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE");
+    assert!(!dir.path().join("update-alive.json").exists());
 }

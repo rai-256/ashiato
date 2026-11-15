@@ -51,6 +51,8 @@ fn desktop() -> std::sync::MutexGuard<'static, ()> {
 fn st58_update_notice_opens_the_update_window() {
     // Scenario: PC は新しい版の通知を押すと、入れ替えの窓を開く
     assert_eq!(ashiato_collector_windows::toast::UPDATE_TAG, "update");
+    let xml = ashiato_collector_windows::update_check::toast_xml("更新", "入れ替えますか");
+    assert!(xml.contains("入れ替えますか"));
 }
 
 #[test]
@@ -63,6 +65,14 @@ fn st58_update_staged_directory_keeps_the_previous_executable_path() {
         ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path()).version_dir("0.5.0");
     std::fs::create_dir_all(&staged).unwrap();
     std::fs::write(staged.join("ashiato-collector-windows.exe"), b"new").unwrap();
+    assert_eq!(
+        ashiato_collector_windows::update_apply::update_executable(
+            &staged,
+            ashiato_build_stamp::Channel::Official
+        )
+        .unwrap(),
+        staged.join("ashiato-collector-windows.exe")
+    );
     assert_eq!(std::fs::read(&old).unwrap(), b"old");
 }
 
@@ -80,7 +90,13 @@ fn st58_update_autostart_can_point_at_the_staged_executable() {
 fn st58_update_missing_alive_means_rollback_is_needed() {
     // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
     let dir = tempfile::tempdir().unwrap();
-    assert!(!dir.path().join("update-alive.json").exists());
+    let layout = ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path());
+    assert!(!ashiato_collector_windows::update_apply::wait_for_alive(
+        &layout,
+        "0.5.0",
+        Duration::ZERO
+    )
+    .unwrap());
 }
 
 #[test]
@@ -93,6 +109,8 @@ fn st58_update_handoff_prevents_two_collectors_from_writing_at_once() {
     )
     .unwrap();
     assert!(ashiato_collector_windows::update_apply::take_handoff(dir.path()).unwrap());
+    ashiato_collector_windows::update_apply::acknowledge_handoff(dir.path()).unwrap();
+    assert!(dir.path().join("update-handoff.ack.json").exists());
 }
 
 #[test]
@@ -100,7 +118,8 @@ fn st58_update_alive_survives_closing_the_update_window() {
     // Scenario: PC は窓を閉じた後も、入れ替えた新しい版が動き続ける
     let dir = tempfile::tempdir().unwrap();
     ashiato_collector_windows::update_apply::write_alive(dir.path(), "0.5.0").unwrap();
-    assert!(dir.path().join("update-alive.json").exists());
+    let alive = std::fs::read_to_string(dir.path().join("update-alive.json")).unwrap();
+    assert!(alive.contains("0.5.0"));
 }
 
 const MIN_DWELL: chrono::Duration = chrono::Duration::seconds(1);

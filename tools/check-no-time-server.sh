@@ -41,7 +41,7 @@ scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。
         }
         /^#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
         /^[[:space:]]*(\/\/|\*|\/\*|#)/ { next }
-        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/ && $0 !~ /Command::new\(std::env::current_exe\(\)\?\)/ && $0 !~ /Command::new\(update_executable\(&staged\)\?\)/) {
+        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/ && $0 !~ /Command::new\(std::env::current_exe\(\)\?\)/ && $0 !~ /Command::new\(update_executable\(&staged(, channel)?\)\?\)/) {
           printf "%s:%d: %s\n", file, FNR, $0
         }
       ' "$f" || { echo "読めない: $f" >&2; return 2; }

@@ -263,13 +263,20 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
     }
 
     let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let mut handed_off = false;
     {
         let stop = std::sync::Arc::clone(&stop);
         let _ = ctrlc::set_handler(move || stop.store(true, Ordering::Relaxed));
     }
 
     rt.start(&source);
-    c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION"))?;
+    if let Err(error) = c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION")) {
+        rt.stop();
+        return Err(error);
+    }
+    if let Err(error) = rewrite_autostart(channel) {
+        tracing::warn!(error = %c02::telemetry::error_kind(&error), "更新後の自動起動の台本を書き換えられない");
+    }
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
         match cfg.reload_from_disk() {
@@ -287,14 +294,26 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
             tracing::warn!(error = %c02::telemetry::error_kind(&error), "設定状態の再読み込みに失敗");
         }
         rt.tick(&mut source);
-        if c02::update_apply::take_handoff(&cfg.state_dir)? {
+        let handoff = match c02::update_apply::take_handoff(&cfg.state_dir) {
+            Ok(value) => value,
+            Err(error) => {
+                rt.stop();
+                return Err(error);
+            }
+        };
+        if handoff {
             rt.stop();
+            c02::update_apply::acknowledge_handoff(&cfg.state_dir)?;
+            handed_off = true;
             break;
         }
         wait_for_change(&source, &stop);
     }
     // **手元の数えを吐き出し、自分で止まった印を残してから終わる**（R13 / D23）
-    rt.stop();
+    if !handed_off {
+        // handoff で既に停止処理を済ませた場合は二重に flush しない。
+        rt.stop();
+    }
     tracing::info!("{}", c02::telemetry::line("stopped", None, None, None));
     Ok(())
 }

@@ -411,7 +411,7 @@ pub fn fetch_releases(dir: &Path) -> Result<Vec<ashiato_update_check::Release>, 
 }
 
 /// 検証済みの GitHub 配布物を、許された転送先だけ追って読む。
-pub fn download_asset(_dir: &Path, url: &str) -> Result<Vec<u8>, CheckReason> {
+pub fn download_asset(url: &str) -> Result<Vec<u8>, CheckReason> {
     if !url.starts_with(ashiato_update_check::RELEASE_DOWNLOAD_URL_PREFIX) {
         return Err(CheckReason::Unreachable);
     }

@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 const HANDOFF: &str = "update-handoff.json";
 const HANDOFF_ACK: &str = "update-handoff.ack.json";
 const ALIVE: &str = "update-alive.json";
-const EXECUTABLE_NAME: &str = "ashiato-collector-windows.exe";
+const OFFICIAL_EXECUTABLE_NAME: &str = "ashiato-collector-windows.exe";
+const DEV_EXECUTABLE_NAME: &str = "ashiato-collector-dev.exe";
 const WAIT_FOR_ALIVE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
@@ -85,13 +86,38 @@ pub fn take_handoff(state_dir: &Path) -> Result<bool> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
     };
-    let handoff: Handoff = serde_json::from_slice(&bytes).context("更新の停止印が読めない")?;
-    crate::fsutil::atomic_write(&layout.ack_path(), &serde_json::to_vec(&handoff)?)?;
+    let _: Handoff = serde_json::from_slice(&bytes).context("更新の停止印が読めない")?;
     std::fs::remove_file(layout.handoff_path()).context("更新の停止印を消せない")?;
+    // ack は収集側が rt.stop()（flush・停止印の保存）を完了した後に書く。
+    // ここで先に書くと、更新窓が新しい版を起こして旧版と同時に記録できる。
     Ok(true)
 }
 
+/// 収集側の停止処理が終わったことを更新窓へ知らせる。
+pub fn acknowledge_handoff(state_dir: &Path) -> Result<()> {
+    let layout = UpdateLayout::new(state_dir);
+    crate::fsutil::atomic_write(&layout.ack_path(), br#"{}"#)?;
+    Ok(())
+}
+
 pub fn run_update<R: BufRead, W: Write>(
+    cfg: &crate::config::Config,
+    channel: Channel,
+    input: &mut R,
+    output: &mut W,
+) -> Result<()> {
+    let result = run_update_inner(cfg, channel, input, output);
+    match &result {
+        Ok(()) => writeln!(output, "Enter で閉じます")?,
+        Err(error) => writeln!(output, "更新に失敗しました: {error}\nEnter で閉じます")?,
+    }
+    output.flush()?;
+    let mut ignored = String::new();
+    let _ = input.read_line(&mut ignored);
+    result
+}
+
+fn run_update_inner<R: BufRead, W: Write>(
     cfg: &crate::config::Config,
     channel: Channel,
     input: &mut R,
@@ -119,6 +145,9 @@ pub fn run_update<R: BufRead, W: Write>(
         return Ok(());
     }
 
+    writeln!(output, "配布物を落としています")?;
+    output.flush()?;
+
     let releases = crate::update_check::fetch_releases(&cfg.state_dir)
         .map_err(|e| anyhow::anyhow!("版の一覧を取り直せない: {e:?}"))?;
     let release = releases
@@ -128,7 +157,6 @@ pub fn run_update<R: BufRead, W: Write>(
     let asset =
         select_asset(Component::CollectorWindows, release).context("指紋のある PC 配布物が無い")?;
     let bytes = crate::update_check::download_asset(
-        &cfg.state_dir,
         asset.browser_download_url.as_deref().unwrap_or_default(),
     )
     .map_err(|e| anyhow::anyhow!("配布物を落とせない: {e:?}"))?;
@@ -138,7 +166,7 @@ pub fn run_update<R: BufRead, W: Write>(
     )?;
     let staged = layout.version_dir(latest);
     extract_zip(&bytes, &staged)?;
-    let executable = update_executable(&staged)?;
+    let executable = update_executable(&staged, channel)?;
     let _ = std::fs::remove_file(layout.ack_path());
     let _ = std::fs::remove_file(layout.alive_path());
     crate::fsutil::atomic_write(
@@ -148,7 +176,10 @@ pub fn run_update<R: BufRead, W: Write>(
         })?,
     )?;
     wait_for_ack(&layout, WAIT_FOR_ALIVE)?;
-    let mut child = spawn_staged_collector(&staged, cfg)?;
+    writeln!(output, "配布物を照らしています")?;
+    writeln!(output, "新しい版の起動を待っています")?;
+    output.flush()?;
+    let mut child = spawn_staged_collector(&staged, cfg, channel)?;
     if wait_for_alive(&layout, latest, WAIT_FOR_ALIVE)? {
         crate::autostart::rewrite_existing_for_setup(&executable, channel)?;
         remove_old_versions(&layout, latest, installed)?;
@@ -207,13 +238,24 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
             }
             let mut file = std::fs::File::create(&path)?;
             std::io::copy(&mut entry, &mut file)?;
+            #[cfg(unix)]
+            if let Some(mode) = entry.unix_mode() {
+                std::fs::set_permissions(
+                    &path,
+                    std::os::unix::fs::PermissionsExt::from_mode(mode),
+                )?;
+            }
         }
     }
     Ok(())
 }
 
-fn update_executable(staged: &Path) -> Result<PathBuf> {
-    let path = staged.join(EXECUTABLE_NAME);
+pub fn update_executable(staged: &Path, channel: Channel) -> Result<PathBuf> {
+    let name = match channel {
+        Channel::Official => OFFICIAL_EXECUTABLE_NAME,
+        Channel::Dev => DEV_EXECUTABLE_NAME,
+    };
+    let path = staged.join(name);
     anyhow::ensure!(path.is_file(), "版ごとの置き場に実行ファイルが無い");
     Ok(path)
 }
@@ -226,10 +268,11 @@ fn wait_for_ack(layout: &UpdateLayout, timeout: Duration) -> Result<()> {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+    let _ = std::fs::remove_file(layout.handoff_path());
     anyhow::bail!("前の版が停止しない")
 }
 
-fn wait_for_alive(layout: &UpdateLayout, version: &str, timeout: Duration) -> Result<bool> {
+pub fn wait_for_alive(layout: &UpdateLayout, version: &str, timeout: Duration) -> Result<bool> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if let Ok(bytes) = std::fs::read(layout.alive_path()) {
@@ -251,15 +294,19 @@ fn wait_for_alive(layout: &UpdateLayout, version: &str, timeout: Duration) -> Re
 }
 
 #[allow(clippy::needless_borrow)]
-fn spawn_staged_collector(staged: &Path, cfg: &crate::config::Config) -> Result<Child> {
-    let mut command = Command::new(update_executable(&staged)?);
+fn spawn_staged_collector(
+    staged: &Path,
+    cfg: &crate::config::Config,
+    channel: Channel,
+) -> Result<Child> {
+    let mut command = Command::new(update_executable(&staged, channel)?);
     command
         .env("ASHIATO_STATE_DIR", &cfg.launch_state_dir)
         .env("ASHIATO_DEVICE_ID", &cfg.launch_device_id);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0000_0010 | 0x0000_0200);
+        command.creation_flags(0x0000_0008 | 0x0000_0200);
     }
     command.spawn().context("収集アプリを起こせない")
 }
@@ -272,7 +319,7 @@ fn spawn_previous_collector(cfg: &crate::config::Config) -> Result<Child> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0000_0010 | 0x0000_0200);
+        command.creation_flags(0x0000_0008 | 0x0000_0200);
     }
     command.spawn().context("前の版を起こせない")
 }
@@ -292,6 +339,7 @@ fn remove_old_versions(layout: &UpdateLayout, current: &str, previous: &str) -> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     #[test]
     fn st58_update_digest_rejects_missing_or_wrong_fingerprint() {
@@ -301,5 +349,29 @@ mod tests {
             "sha256:0000000000000000000000000000000000000000000000000000000000000000"
         )
         .is_err());
+    }
+
+    #[test]
+    fn st58_update_timeout_removes_stale_handoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = UpdateLayout::new(dir.path());
+        std::fs::write(layout.handoff_path(), br#"{"version":"0.5.0"}"#).unwrap();
+        assert!(wait_for_ack(&layout, Duration::ZERO).is_err());
+        assert!(!layout.handoff_path().exists());
+    }
+
+    #[test]
+    fn st58_update_uses_channel_specific_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(OFFICIAL_EXECUTABLE_NAME), b"official").unwrap();
+        std::fs::write(dir.path().join(DEV_EXECUTABLE_NAME), b"dev").unwrap();
+        assert_eq!(
+            update_executable(dir.path(), Channel::Official).unwrap(),
+            dir.path().join(OFFICIAL_EXECUTABLE_NAME)
+        );
+        assert_eq!(
+            update_executable(dir.path(), Channel::Dev).unwrap(),
+            dir.path().join(DEV_EXECUTABLE_NAME)
+        );
     }
 }
