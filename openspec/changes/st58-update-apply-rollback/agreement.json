@@ -1,11 +1,11 @@
 {
   "status": "accepted",
-  "digest": "8dcb23201786456b72c67579a7c504743d2f937932505c1a73f671e591f1c64e",
-  "head": "f068e8931ad86958f48398ed7d82f774846a943f",
-  "answers": "deep-answers-1.txt",
+  "digest": "b18adf6bc603d531dc481929f8eb5468c92aa7f0242f06dbf0e7fdee340170fe",
+  "head": "1db7c621a32b686629efc081325b7dd531543482",
+  "answers": "deep-answers-4.txt",
   "picked": "合意する",
   "notes": [],
-  "at": "2026-11-15T10:33:05Z",
+  "at": "2026-11-15T13:11:55Z",
   "minor_accepted": [
     {
       "id": "IMP-01",
@@ -41,6 +41,11 @@
       "id": "IMP-07",
       "severity": "medium",
       "title": "戻した後の次の更新で、更新の履歴の「前の版」が落ちた新しい版になる"
+    },
+    {
+      "id": "IMP-08",
+      "severity": "medium",
+      "title": "更新の後に受け手から起こした携帯のサービスを OS が立て直すと、裏の位置の権限が無い端末で位置以外も止まりうる"
     }
   ]
 }
