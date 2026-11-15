@@ -180,25 +180,6 @@ mod tests {
     }
 
     #[test]
-    fn st58_plan_pending_rollback_line_is_json_and_has_no_log_text() {
-        let line = pending_history_line(
-            "rolled_back",
-            "0.5.0",
-            "0.4.0",
-            Some(Reason::kind(ReasonKind::Aborted, "0.5.0", None)),
-        );
-        let value: serde_json::Value = serde_json::from_str(&line).expect("JSON の 1 行");
-        assert_eq!(value["result"], "rolled_back");
-        assert_eq!(value["from_version"], "0.4.0");
-        assert_eq!(value["to_version"], "0.5.0");
-        assert!(!value
-            .as_object()
-            .expect("履歴の JSON オブジェクト")
-            .contains_key("written_at"));
-        assert!(!line.contains("移行"));
-    }
-
-    #[test]
     fn st58_plan_rollback_cli_accepts_only_the_bare_command() {
         assert_eq!(
             commands::parse_args(&["rollback"]).expect("rollback の引数"),

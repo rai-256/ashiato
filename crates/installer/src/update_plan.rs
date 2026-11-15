@@ -300,17 +300,6 @@ pub fn history_line(
     json!({"at": at, "result": result, "to_version": to_version, "from_version": from_version, "reason": reason}).to_string() + "\n"
 }
 
-/// 更新履歴を書けなかったときに残す控えの 1 行を作る。標準出力へ JSON を流さず、
-/// CLI のログと混ざらない形でファイルへ渡すための共通入口である（D18・R35）。
-pub fn pending_history_line(
-    result: &str,
-    to_version: &str,
-    from_version: &str,
-    reason: Option<Reason>,
-) -> String {
-    history_line("", result, to_version, from_version, reason)
-}
-
 /// `record-rollback` の終了コード 5 は、履歴を控えへ移しただけで更新処理を続けられる。
 pub const HISTORY_PENDING_WRITTEN: i32 = 5;
 

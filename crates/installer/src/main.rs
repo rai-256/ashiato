@@ -1017,6 +1017,7 @@ fn run_migrate_with_backup(
         .output()
         .map_err(|error| format!("ashiato-server migrate を起こせない: {error}"))?;
     if !output.status.success() {
+        write_migrate_exit_code(layout, output.status.code());
         // migrate が端末に出すのは種別・版の名前・SQLSTATE の 1 行だけ（秘密を持たない）
         return Err(format!("移行に失敗した: {}", output_tail(&output)));
     }
@@ -1070,6 +1071,16 @@ fn write_update_stage(
     .map_err(|error| format!("更新の印を書けない: {error}"))
 }
 
+fn write_migrate_exit_code(layout: &layout::Layout, code: Option<i32>) {
+    let path = update_stage_path(layout);
+    let Ok(bytes) = fs::read(&path) else { return };
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return;
+    };
+    value["migrate_exit_code"] = code.map_or(serde_json::Value::Null, serde_json::Value::from);
+    let _ = fs::write(path, serde_json::to_vec_pretty(&value).unwrap_or_default());
+}
+
 fn installed_version(layout: &layout::Layout) -> Result<String, String> {
     let output = Command::new(commands::server_executable(layout))
         .arg("--version")
@@ -1096,25 +1107,42 @@ fn update_install(
     if let Err(error) = result {
         if update_stage_path(layout).exists() {
             match rollback(layout, trace) {
-                Ok(()) => append_outcome(
-                    layout,
-                    if error.contains("PostgreSQL") {
-                        "not_applied"
-                    } else {
-                        "rolled_back"
-                    },
-                    installed,
-                    Some(&error),
-                ),
+                Ok(()) => {
+                    let (result, reason) = update_failure_reason(&error, installed);
+                    append_outcome(
+                        layout,
+                        result,
+                        env!("ASHIATO_VERSION"),
+                        installed,
+                        Some(reason),
+                    )
+                }
                 Err(rollback_error) => {
                     return Err(format!("{error}; 戻しにも失敗した: {rollback_error}"))
                 }
             }
-            terminal_line(&error, true);
+            let (_, reason) = update_failure_reason(&error, installed);
+            terminal_line(reason.description(), true);
         }
         return Err(error);
     }
     Ok(())
+}
+
+fn update_failure_reason(error: &str, failed_version: &str) -> (&'static str, update_plan::Reason) {
+    let (kind, result) = if error.contains("PostgreSQL") {
+        (update_plan::ReasonKind::PgMajorMismatch, "not_applied")
+    } else if error.contains("サーバが起きない") {
+        (update_plan::ReasonKind::ServerNotListening, "rolled_back")
+    } else if error.contains("退避") {
+        (update_plan::ReasonKind::BackupFailed, "not_applied")
+    } else {
+        (update_plan::ReasonKind::Aborted, "rolled_back")
+    };
+    (
+        result,
+        update_plan::Reason::kind(kind, failed_version, None),
+    )
 }
 
 fn update_install_attempt(
@@ -1269,7 +1297,12 @@ fn update_install_attempt(
         [("DATABASE_OWNER_URL", generated.owner_url(layout))],
     )?;
     retain_update_artifacts(layout, &run_id, trace)?;
-    append_outcome(layout, "applied", installed, None);
+    cleanup_failed_databases(layout, &generated.owner_password, trace)?;
+    let failed = PathBuf::from(layout.program_dir).join("failed");
+    if failed.exists() {
+        fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;
+    }
+    append_outcome(layout, "applied", env!("ASHIATO_VERSION"), installed, None);
     run_all(
         &[update_plan::service_update_command(
             layout.server_service,
@@ -1297,6 +1330,9 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     if stage == "listening" {
         return finish_update(layout, trace);
     }
+    if stage == "restored" {
+        return finish_restored(layout, &state, trace);
+    }
     if matches!(stage, "started" | "stopped") {
         run(
             &update_plan::service_update_command(layout.server_service, "auto"),
@@ -1319,6 +1355,18 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
             .as_str()
             .ok_or("更新の印に退避の場所が無い")?,
     );
+    let backup_state = classify_update_backup(&backup_dir);
+    let stage_kind = match stage {
+        "started" => update_plan::UpdateStage::Started,
+        "stopped" => update_plan::UpdateStage::Stopped,
+        "moved" => update_plan::UpdateStage::Moved,
+        "replaced" => update_plan::UpdateStage::Replaced,
+        "migrating" => update_plan::UpdateStage::Migrating,
+        "starting" => update_plan::UpdateStage::Starting,
+        _ => return Err(format!("未知の更新段です: {stage}")),
+    };
+    let exit_code = state["migrate_exit_code"].as_i64().unwrap_or(1) as i32;
+    let recovery = update_plan::recovery_plan(stage_kind, exit_code, backup_state);
     let program = PathBuf::from(layout.program_dir);
     let previous = program.join("previous");
     if !previous.is_dir() {
@@ -1357,7 +1405,9 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &update_plan::service_start_command(layout.db_service),
         trace,
     )?;
-    restore_database(layout, &backup_dir, trace)?;
+    if recovery.restore_database() {
+        restore_database(layout, &backup_dir, trace)?;
+    }
     write_update_stage(
         layout,
         state["run_id"].as_str().unwrap_or_default(),
@@ -1378,6 +1428,31 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     if record_rollback(&command, &generated.owner_url(layout), trace)? {
         terminal_line("更新の履歴を控えに書きました", false);
     }
+    start_previous_services(layout, trace)?;
+    fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"))
+}
+
+fn classify_update_backup(path: &Path) -> update_plan::BackupState {
+    let Ok(entries) = fs::read_dir(path) else {
+        return update_plan::BackupState::None;
+    };
+    let mut partial = false;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".dump") {
+            return update_plan::BackupState::Completed;
+        }
+        partial |= name.ends_with(".dump.part");
+    }
+    if partial {
+        update_plan::BackupState::PartialOnly
+    } else {
+        update_plan::BackupState::None
+    }
+}
+
+fn start_previous_services(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     run(
         &update_plan::service_update_command(layout.server_service, "auto"),
         trace,
@@ -1386,12 +1461,42 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &update_plan::service_start_command(layout.server_service),
         trace,
     )?;
-    let updater_enabled = update_check_enabled(layout).unwrap_or(true);
-    if updater_enabled {
+    if update_check_enabled(layout).unwrap_or(true) {
         update_check(layout, true, trace)?;
     }
-    append_outcome(layout, "rolled_back", previous_version, None);
-    fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"))
+    Ok(())
+}
+
+fn finish_restored(
+    layout: &layout::Layout,
+    state: &serde_json::Value,
+    trace: bool,
+) -> Result<(), String> {
+    let failed = PathBuf::from(layout.program_dir).join("failed");
+    let pending = PathBuf::from(layout.state_dir)
+        .join("update")
+        .join("history-pending.jsonl");
+    let failed_server = failed.join("ashiato-server.exe");
+    let command = commands::rollback_history_command(&failed_server, &pending);
+    let settings = read_settings(&commands::settings_path(layout))?;
+    let owner = read_settings(&commands::owner_settings_path(layout))?;
+    let generated =
+        secrets::InstallSecrets::from_settings(&settings, &owner, secrets::new_admin_password())?;
+    if record_rollback(&command, &generated.owner_url(layout), trace)? {
+        terminal_line("更新の履歴を控えに書きました", false);
+    }
+    start_previous_services(layout, trace)?;
+    append_outcome(
+        layout,
+        "rolled_back",
+        state["to_version"].as_str().unwrap_or_default(),
+        state["from_version"].as_str().unwrap_or_default(),
+        None,
+    );
+    if failed.exists() {
+        fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;
+    }
+    fs::remove_file(update_stage_path(layout)).map_err(|e| format!("更新の印を消せない: {e}"))
 }
 
 fn run_with_env<const N: usize>(
@@ -1429,6 +1534,12 @@ fn record_rollback(command: &SetupCommand, owner_url: &str, trace: bool) -> Resu
         .output()
         .map_err(|error| format!("{} を起こせない: {error}", command.program))?;
     if output.status.code() == Some(update_plan::HISTORY_PENDING_WRITTEN) {
+        if trace {
+            terminal_line(
+                &format!("role=ashiato_owner result=pending {}", command.line()),
+                false,
+            );
+        }
         return Ok(true);
     }
     if !output.status.success() {
@@ -1440,7 +1551,10 @@ fn record_rollback(command: &SetupCommand, owner_url: &str, trace: bool) -> Resu
         ));
     }
     if trace {
-        terminal_line(&format!("result=ok {}", command.line()), false);
+        terminal_line(
+            &format!("role=ashiato_owner result=ok {}", command.line()),
+            false,
+        );
     }
     Ok(false)
 }
@@ -1527,12 +1641,20 @@ fn run_sql(command: &SetupCommand, password: &str, sql: &str, trace: bool) -> Re
         ));
     }
     if trace {
-        terminal_line(&format!("result=ok {} <stdin>", command.line()), false);
+        terminal_line(
+            &format!("role=ashiato_owner result=ok {} <stdin>", command.line()),
+            false,
+        );
     }
     Ok(())
 }
 
 fn finish_update(layout: &layout::Layout, trace: bool) -> Result<(), String> {
+    let state: serde_json::Value = serde_json::from_slice(
+        &fs::read(update_stage_path(layout)).map_err(|e| format!("更新の印を読めない: {e}"))?,
+    )
+    .map_err(|e| format!("更新の印を読めない: {e}"))?;
+    let run_id = state["run_id"].as_str().unwrap_or_default();
     let pending = PathBuf::from(layout.state_dir)
         .join("update")
         .join("history-pending.jsonl");
@@ -1547,7 +1669,8 @@ fn finish_update(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         trace,
         [("DATABASE_OWNER_URL", generated.owner_url(layout))],
     )?;
-    retain_update_artifacts(layout, "", trace)?;
+    retain_update_artifacts(layout, run_id, trace)?;
+    cleanup_failed_databases(layout, &generated.owner_password, trace)?;
     run(
         &update_plan::service_update_command(layout.server_service, "auto"),
         trace,
@@ -1555,6 +1678,13 @@ fn finish_update(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     if update_check_enabled(layout).unwrap_or(true) {
         update_check(layout, true, trace)?;
     }
+    append_outcome(
+        layout,
+        "applied",
+        state["to_version"].as_str().unwrap_or_default(),
+        state["from_version"].as_str().unwrap_or_default(),
+        None,
+    );
     let failed = PathBuf::from(layout.program_dir).join("failed");
     if failed.exists() {
         fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;
@@ -1583,11 +1713,73 @@ fn retain_update_artifacts(
     Ok(())
 }
 
-fn append_outcome(layout: &layout::Layout, result: &str, version: &str, error: Option<&str>) {
+fn cleanup_failed_databases(
+    layout: &layout::Layout,
+    password: &str,
+    trace: bool,
+) -> Result<(), String> {
+    let query = update_plan::rollback_psql_command(
+        &commands::bundled_tool(layout, "psql.exe"),
+        "127.0.0.1",
+        layout.db_port,
+    );
+    let mut command = query;
+    command.args.extend([
+        "-At".into(),
+        "-c".into(),
+        "SELECT datname FROM pg_database WHERE datname LIKE 'ashiato_failed_%'".into(),
+    ]);
+    let output = Command::new(&command.program)
+        .args(&command.args)
+        .env("PGPASSWORD", password)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("落ちた DB の一覧を読めない: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "落ちた DB の一覧を読めない: {}",
+            output_tail(&output)
+        ));
+    }
+    for name in console::decode_child_output(&output.stdout)
+        .lines()
+        .filter(|name| name.starts_with("ashiato_failed_") && name.len() > "ashiato_failed_".len())
+    {
+        run_sql(
+            &update_plan::rollback_psql_command(
+                &commands::bundled_tool(layout, "psql.exe"),
+                "127.0.0.1",
+                layout.db_port,
+            ),
+            password,
+            &format!("DROP DATABASE IF EXISTS \"{name}\";"),
+            trace,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_outcome(
+    layout: &layout::Layout,
+    result: &str,
+    to_version: &str,
+    from_version: &str,
+    reason: Option<update_plan::Reason>,
+) {
     let path = PathBuf::from(layout.state_dir)
         .join("update")
         .join("outcomes.jsonl");
-    let value = serde_json::json!({"result": result, "version": version, "reason": error.map(|_| "update_failed")});
+    let value = serde_json::json!({
+        "at": chrono::Utc::now().to_rfc3339(),
+        "result": result,
+        "to_version": to_version,
+        "from_version": from_version,
+        "reason": reason.map(|reason| serde_json::json!({
+            "kind": reason.kind,
+            "failed_version": reason.failed_version,
+            "sqlstate": reason.sqlstate,
+        })),
+    });
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{}", value);
     }
