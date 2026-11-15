@@ -298,3 +298,113 @@ fn st58_pc_update_no_alive_hook_suppresses_the_alive_file() {
     std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE");
     assert!(!dir.path().join("update-alive.json").exists());
 }
+
+#[test]
+fn st58_pc_update_replaces_twice_and_keeps_only_the_two_latest_versions() {
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let make_archive = |version: &str| {
+        let mut bytes = Vec::new();
+        let cursor = std::io::Cursor::new(&mut bytes);
+        let mut zip = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        zip.start_file("ashiato-collector-windows.exe", options)
+            .unwrap();
+        write!(
+            zip,
+            "#!/bin/sh\nprintf '{{\"version\":\"{version}\",\"at\":\"%s\"}}' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > \"$ASHIATO_STATE_DIR/update-alive.json\"\n"
+        )
+        .unwrap();
+        zip.finish().unwrap();
+        bytes
+    };
+    let archive_05 = make_archive("0.5.0");
+    let archive_06 = make_archive("0.6.0");
+    let digest_05 = format!("sha256:{:x}", sha2::Sha256::digest(&archive_05));
+    let digest_06 = format!("sha256:{:x}", sha2::Sha256::digest(&archive_06));
+    let releases = |version: &str, digest: &str| {
+        format!(
+            r#"[{{"tag_name":"v{version}","draft":false,"assets":[{{"name":"ashiato-collector-windows-{version}-x86_64.zip","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/v{version}/asset.zip","digest":"{digest}"}}]}}]"#
+        )
+        .into_bytes()
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for body in [
+            releases("0.5.0", &digest_05),
+            archive_05,
+            releases("0.6.0", &digest_06),
+            archive_06,
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _read = stream.read(&mut request).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        format!(r#"{{"base_url":"{base}"}}"#),
+    )
+    .unwrap();
+
+    for (version, answer) in [("0.5.0", &b"y\n\n"[..]), ("0.6.0", &b"y\n\n"[..])] {
+        std::fs::write(
+            dir.path().join("update-check.json"),
+            format!(r#"{{"latest":"{version}"}}"#),
+        )
+        .unwrap();
+        let handoff_dir = dir.path().to_owned();
+        let handoff = std::thread::spawn(move || {
+            for _ in 0..200 {
+                if take_handoff(&handoff_dir).unwrap() {
+                    ashiato_collector_windows::update_apply::acknowledge_handoff(&handoff_dir)
+                        .unwrap();
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            panic!("handoff was not received");
+        });
+        let mut input = answer;
+        let mut output = Vec::new();
+        ashiato_collector_windows::update_apply::run_update(
+            &config(dir.path()),
+            ashiato_build_stamp::Channel::Official,
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+        handoff.join().unwrap();
+        assert!(String::from_utf8(output)
+            .unwrap()
+            .contains(&format!("{version} に入れ替えました")));
+    }
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+    server.join().unwrap();
+
+    let versions: Vec<_> = std::fs::read_dir(dir.path().join("versions"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(versions.len(), 2);
+    assert!(versions
+        .iter()
+        .all(|v| ["0.5.0", "0.6.0"].contains(&v.as_str())));
+    assert!(dir
+        .path()
+        .join("versions/0.5.0/ashiato-collector-windows.exe")
+        .is_file());
+    assert!(dir
+        .path()
+        .join("versions/0.6.0/ashiato-collector-windows.exe")
+        .is_file());
+}

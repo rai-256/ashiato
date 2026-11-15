@@ -182,7 +182,7 @@ fn run_update_inner<R: BufRead, W: Write>(
     let mut child = spawn_staged_collector(&staged, cfg, channel)?;
     if wait_for_alive(&layout, latest, WAIT_FOR_ALIVE)? {
         crate::autostart::rewrite_existing_for_setup(&executable, channel)?;
-        remove_old_versions(&layout, latest, installed)?;
+        remove_old_versions(&layout, latest)?;
         writeln!(output, "{latest} に入れ替えました")?;
     } else {
         let _ = child.kill();
@@ -324,13 +324,28 @@ fn spawn_previous_collector(cfg: &crate::config::Config) -> Result<Child> {
     command.spawn().context("前の版を起こせない")
 }
 
-fn remove_old_versions(layout: &UpdateLayout, current: &str, previous: &str) -> Result<()> {
+fn remove_old_versions(layout: &UpdateLayout, current: &str) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(layout.versions_dir()) else {
+        return Ok(());
+    };
+    let mut previous = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name != current
+            && entry.path().is_dir()
+            && previous
+                .as_deref()
+                .is_none_or(|known| is_newer_version(&name, known))
+        {
+            previous = Some(name);
+        }
+    }
     let Ok(entries) = std::fs::read_dir(layout.versions_dir()) else {
         return Ok(());
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name != current && name != previous {
+        if name != current && previous.as_deref() != Some(name.as_str()) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }

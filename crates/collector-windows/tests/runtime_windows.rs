@@ -53,6 +53,8 @@ fn st58_update_notice_opens_the_update_window() {
     assert_eq!(ashiato_collector_windows::toast::UPDATE_TAG, "update");
     let xml = ashiato_collector_windows::update_check::toast_xml("更新", "入れ替えますか");
     assert!(xml.contains("入れ替えますか"));
+    assert!(xml.contains("更新"));
+    assert!(!xml.contains("update-rollback"));
 }
 
 #[test]
@@ -79,11 +81,20 @@ fn st58_update_staged_directory_keeps_the_previous_executable_path() {
 #[test]
 fn st58_update_autostart_can_point_at_the_staged_executable() {
     // Scenario: PC は新しい版が動き出してから、自動起動の台本を新しい版に向ける
-    let script = autostart::startup_script(
+    let previous = autostart::startup_script(
+        std::path::Path::new(r"C:\state\ashiato-collector-windows.exe"),
+        &[
+            ("ASHIATO_STATE_DIR", r"C:\state".into()),
+            ("ASHIATO_DEVICE_ID", "pc-runtime".into()),
+        ],
+    );
+    let script = autostart::rewrite_for_setup(
+        &previous,
         std::path::Path::new(r"C:\state\versions\0.5.0\ashiato-collector-windows.exe"),
-        &[],
     );
     assert!(script.contains(r"versions\0.5.0\ashiato-collector-windows.exe"));
+    assert!(script.contains(r#"set "ASHIATO_STATE_DIR=C:\state""#));
+    assert!(script.contains(r#"set "ASHIATO_DEVICE_ID=pc-runtime""#));
 }
 
 #[test]
@@ -91,6 +102,11 @@ fn st58_update_missing_alive_means_rollback_is_needed() {
     // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
     let dir = tempfile::tempdir().unwrap();
     let layout = ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path());
+    std::fs::write(
+        dir.path().join("update-alive.json"),
+        r#"{"version":"0.4.0","at":"2026-11-16T00:00:00Z"}"#,
+    )
+    .unwrap();
     assert!(!ashiato_collector_windows::update_apply::wait_for_alive(
         &layout,
         "0.5.0",
@@ -109,6 +125,7 @@ fn st58_update_handoff_prevents_two_collectors_from_writing_at_once() {
     )
     .unwrap();
     assert!(ashiato_collector_windows::update_apply::take_handoff(dir.path()).unwrap());
+    assert!(!dir.path().join("update-handoff.json").exists());
     ashiato_collector_windows::update_apply::acknowledge_handoff(dir.path()).unwrap();
     assert!(dir.path().join("update-handoff.ack.json").exists());
 }
@@ -119,7 +136,9 @@ fn st58_update_alive_survives_closing_the_update_window() {
     let dir = tempfile::tempdir().unwrap();
     ashiato_collector_windows::update_apply::write_alive(dir.path(), "0.5.0").unwrap();
     let alive = std::fs::read_to_string(dir.path().join("update-alive.json")).unwrap();
-    assert!(alive.contains("0.5.0"));
+    let parsed: serde_json::Value = serde_json::from_str(&alive).unwrap();
+    assert_eq!(parsed["version"], "0.5.0");
+    assert!(parsed["at"].as_str().is_some_and(|at| at.ends_with('Z')));
 }
 
 const MIN_DWELL: chrono::Duration = chrono::Duration::seconds(1);
