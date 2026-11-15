@@ -76,7 +76,16 @@ for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocati
       adb -s "$serial" shell input keyevent 4 >/dev/null 2>&1 || true
       adb -s "$serial" emu geo fix 139.6917 35.6895 >/dev/null 2>&1 || true ;;
   esac
+  if [[ -z "$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)" ]]; then
+    adb -s "$serial" shell monkey -p dev.ashiato.collector 1 >/dev/null
+    for _ in $(seq 1 20); do
+      [[ -n "$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)" ]] && break
+      sleep 1
+    done
+  fi
+  adb -s "$serial" shell am stopservice -n dev.ashiato.collector/.LocationService >/dev/null 2>&1 || true
   before="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
+  [[ -n "$before" ]] || { echo "対象プロセスが起きない: $name" >&2; exit 1; }
   set +e
   output="$(adb -s "$serial" shell am instrument --no-restart -w -e class "dev.ashiato.collector.St58PackageReplacedInstrumentedTest#$name" dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tr -d '\r')"
   instrument_rc=$?
@@ -86,6 +95,7 @@ for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocati
     exit 1
   fi
   grep -q 'OK (1 test)' <<<"$output" || { printf '試験が失敗: %s\n%s\n' "$name" "$output" >&2; exit 1; }
+  sleep 2
   after="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
   [[ -z "$before" || -z "$after" || "$before" == "$after" ]] || { echo "プロセスが入れ替わった: $name" >&2; exit 1; }
   case "$name" in

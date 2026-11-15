@@ -19,6 +19,19 @@
 - `scripts/verify-run 9.2` — エミュレータの `am instrument` が system_server の `ProcessRecord` null で落ちたため、実エミュレータ段は FAIL。self-test は PASS。証跡の FAIL を置き換えていない。
 - `git diff --check` — PASS。
 
+## 修正ラウンド 3
+
+- `St58UpdateInstallTest` に PackageInstaller の取り消し結果・成功結果を受け手へ渡し、APK が消え、確認画面を開かないことを実際に確認する試験を追加した。
+- 計測試験の specialUse / 位置昇格系で `PackageReplacedReceiver` を実行し、単なる定数照合だけにならないようにした。
+- 入れ替え台本で権限切替後の対象プロセスを確認・必要時に起こし直し、サービス停止、非同期ログ待ち、PID の存在確認を追加した。self-test の欠落検知は維持した。
+
+### 修正ラウンド 3 の検証
+
+- `scripts/verify-run 9.1` — PASS（ST58 32 本、backup rules PASS）。
+- `tools/android-st58-replace.sh --self-test` — PASS。
+- `scripts/verify-run 9.2` — FAIL（rc=1）。先頭段は PASS したが、specialUse 段で対象サービスの `foreground_special_use` ログが出ず台本が停止した。エミュレータの既存プロセス／サービス状態により `onCreate` の種別ログを新たに観測できなかったためで、PASS へ置き換えていない。
+- `git diff --check` — PASS。
+
 ## 変更ファイル
 
 `UpdateInstall.kt`、`LocationService.kt`、`AndroidManifest.xml`、`St58UpdateInstallTest.kt`、`St58PackageReplacedTest.kt`、`St58PackageReplacedInstrumentedTest.kt`、`tools/android-st58-replace.sh`、`premises.md`、`evidence.jsonl`。

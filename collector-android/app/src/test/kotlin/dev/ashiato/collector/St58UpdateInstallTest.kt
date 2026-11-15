@@ -141,4 +141,26 @@ class St58UpdateInstallTest {
         UpdateInstallResultReceiver().onReceive(app, result)
         assertEquals(confirmation.action, shadowOf(app).nextStartedActivity.action)
     }
+
+    @Test fun `取り消しの結果は APK を消して確認画面を開かない`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val file = File(UpdateInstall.updateDirectory(app).apply { mkdirs() }, "cancelled.apk").apply { writeText("apk") }
+        UpdateInstallResultReceiver().onReceive(
+            app,
+            Intent(UpdateInstall.ACTION_RESULT).putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE_ABORTED),
+        )
+        assertFalse(file.exists())
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test fun `成功の結果は APK を消して確認画面を開かない`() { // Scenario: 携帯は入れ終えた後に APK を置き場に残さない
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val file = File(UpdateInstall.updateDirectory(app).apply { mkdirs() }, "installed.apk").apply { writeText("apk") }
+        UpdateInstallResultReceiver().onReceive(
+            app,
+            Intent(UpdateInstall.ACTION_RESULT).putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_SUCCESS),
+        )
+        assertFalse(file.exists())
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
 }
