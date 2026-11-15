@@ -1,12 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
+import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
+import android.content.pm.PackageInstaller
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.RobolectricTestRunner
+import org.junit.runner.RunWith
+import java.io.File
+
+@RunWith(RobolectricTestRunner::class)
 
 class St58UpdateInstallTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
+
     @Test
     fun `指紋の合う配布物だけを選ぶ`() {
         // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
@@ -34,22 +50,36 @@ class St58UpdateInstallTest {
     }
 
     @Test fun `通知の開始印を持つ`() { // Scenario: 携帯の更新の通知を押すと、落とし始める
-        assertEquals("dev.ashiato.collector.UPDATE_START", UpdateInstall.EXTRA_START)
+        val intent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).putExtra(UpdateInstall.EXTRA_START, true)
+        assertTrue(intent.getBooleanExtra(UpdateInstall.EXTRA_START, false))
     }
     @Test fun `入っている版より古い版は選ばない`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
         assertNull(UpdateInstall.chooseAsset("0.5.0", "[]"))
     }
+    @Test fun `APK の SHA256 を実体で照合する`() { // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
+        val file = temporaryFolder.newFile("update.apk").apply { writeText("apk bytes") }
+        val digest = "${java.security.MessageDigest.getInstance("SHA-256").digest("apk bytes".toByteArray()).joinToString("") { "%02x".format(it) }}"
+        assertTrue(UpdateInstall.verifyDigest(file, digest))
+        assertFalse(UpdateInstall.verifyDigest(file, digest.replaceFirst('a', 'b')))
+    }
     @Test fun `許可が必要な導線を持つ`() { // Scenario: 携帯は提供元不明のアプリが許されていなければ、許可の画面を開く
-        assertEquals("update", UpdateInstall.UPDATE_DIR)
+        val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+        assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, intent.action)
     }
     @Test fun `取り消し結果の受け手を持つ`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
         assertEquals("dev.ashiato.collector.UPDATE_RESULT", UpdateInstall.ACTION_RESULT)
     }
     @Test fun `成功結果の後に置き場を掃除できる`() { // Scenario: 携帯は入れ終えた後に APK を置き場に残さない
-        assertEquals("update", UpdateInstall.UPDATE_DIR)
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val dir = UpdateInstall.updateDirectory(app).apply { mkdirs() }
+        val file = File(dir, "result.apk").apply { writeText("apk") }
+        UpdateInstall.clean(app)
+        assertFalse(file.exists())
     }
     @Test fun `押す前は選択を実行しない`() { // Scenario: 押す前は配布物を落とさない
-        assertTrue(UpdateInstall.isAllowedDownloadUrl("https://github.com/rai-256/ashiato/releases/download/v/a.apk"))
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        UpdateInstall.clean(app)
+        assertFalse(UpdateInstall.updateDirectory(app).listFiles()?.any() == true)
     }
     @Test fun `リリース資産の GitHub URL を受け入れる`() { // Scenario: 配布物は決まった 2 つの宛先からだけ落とす
         assertTrue(UpdateInstall.isAllowedDownloadUrl("https://github.com/rai-256/ashiato/releases/download/v/a.apk"))
@@ -93,5 +123,14 @@ class St58UpdateInstallTest {
         val d = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         val a = UpdateInstall.chooseAsset("0.4.0", "[{\"tag_name\":\"v0.4.1\",\"assets\":[{\"name\":\"ashiato-collector-0.4.1.apk\",\"browser_download_url\":\"https://github.com/rai-256/ashiato/releases/download/v/a.apk\",\"digest\":\"sha256:$d\"}]}]")
         assertEquals(d, a?.sha256)
+    }
+
+    @Test fun `保留のインストール結果は確認画面を起こす`() { // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val confirmation = Intent("android.intent.action.CONFIRM_INSTALL")
+        val result = Intent(UpdateInstall.ACTION_RESULT).putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_PENDING_USER_ACTION)
+            .putExtra(Intent.EXTRA_INTENT, confirmation)
+        UpdateInstallResultReceiver().onReceive(app, result)
+        assertEquals(confirmation.action, shadowOf(app).nextStartedActivity.action)
     }
 }

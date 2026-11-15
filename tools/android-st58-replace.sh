@@ -4,10 +4,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ANDROID_HOME/emulator:$PATH"
 if [[ "${1:-}" == "--self-test" ]]; then
+  test_output=$'OK (1 test) restartsWithoutOpening\nOK (1 test) specialUseWaitsForBackgroundLocation\nOK (1 test) noLocationStillCollectsOtherSources\nOK (1 test) noNotificationPermissionStillRestarts\nOK (1 test) openingPromotesLocation\nOK (1 test) noDestinationDoesNotStart\nOK (1 test) disabledUpdateStaysDisabled'
+  required=(restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled)
+  check_output() { for name in "${required[@]}"; do grep -qx "OK (1 test) $name" <<<"$1" || return 1; done; }
+  check_output "$test_output"
+  missing_output="$(grep -v "OK (1 test) ${required[0]}" <<<"$test_output")"
+  if check_output "$missing_output"; then exit 1; fi
   grep -q 'class St58PackageReplacedInstrumentedTest' "$root/collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/St58PackageReplacedInstrumentedTest.kt"
-  for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled; do
-    echo "OK (1 test) $name"
-  done
+  echo 'OK'
   exit 0
 fi
 
@@ -32,16 +36,28 @@ if ! adb -s "$serial" get-state >/dev/null 2>&1; then
 fi
 adb -s "$serial" wait-for-device >/dev/null
 version="$($root/tools/release/version.sh source)"
+artifact_dir="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-st58-replace.XXXXXX")"
+cleanup_artifacts() { rm -f "$artifact_dir"/*; rmdir "$artifact_dir"; }
+trap cleanup_artifacts EXIT
 adb -s "$serial" uninstall dev.ashiato.collector >/dev/null 2>&1 || true
-for apk_version in "${version}-beta.1" "$version"; do
-  (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$apk_version" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
-  if [[ "$apk_version" == "$version" ]]; then adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" >/dev/null; fi
-done
-adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" >/dev/null
+old_apk="$artifact_dir/app-old.apk"
+new_apk="$artifact_dir/app-new.apk"
+(cd "$root/collector-android" && ASHIATO_BUILD_VERSION="${version}-beta.1" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
+cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$old_apk"
+(cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
+cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$new_apk"
+adb -s "$serial" install "$old_apk" >/dev/null
+adb -s "$serial" shell pm grant dev.ashiato.collector android.permission.ACCESS_FINE_LOCATION || true
+adb -s "$serial" shell pm grant dev.ashiato.collector android.permission.ACCESS_BACKGROUND_LOCATION || true
+adb -s "$serial" shell pm grant dev.ashiato.collector android.permission.POST_NOTIFICATIONS || true
+adb -s "$serial" install -r "$new_apk" >/dev/null
 (cd "$root/collector-android" && ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q :app:assembleDebugAndroidTest)
 adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk" >/dev/null
 for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled; do
+  before="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
   output="$(adb -s "$serial" shell am instrument --no-restart -w -e class "dev.ashiato.collector.St58PackageReplacedInstrumentedTest#$name" dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tr -d '\r')"
   grep -q 'OK (1 test)' <<<"$output" || { printf '%s\n' "$output" >&2; exit 1; }
+  after="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
+  [[ -z "$before" || -z "$after" || "$before" == "$after" ]] || { echo "プロセスが入れ替わった: $name" >&2; exit 1; }
   echo "OK (1 test) $name"
 done

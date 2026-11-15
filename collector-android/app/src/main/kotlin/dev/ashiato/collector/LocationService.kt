@@ -30,6 +30,24 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
+internal fun foregroundServiceTypeFor(replacedStart: Boolean, promoted: Boolean, fine: Boolean, background: Boolean): Int =
+    if (promoted || (fine && (!replacedStart || background))) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+    } else {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+    }
+
+internal fun replacementLocationCapability(
+    replacedStart: Boolean,
+    isLocation: Boolean,
+    type: Int,
+    fine: Boolean,
+    background: Boolean,
+    actual: Capability,
+): Capability = if (replacedStart && isLocation && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE && fine && !background) {
+    Capability(capturable = false, blockers = listOf(Capability.PERMISSION))
+} else actual
+
 /**
  * `source_unavailable` の重複抑止。
  *
@@ -394,12 +412,14 @@ open class LocationService : Service() {
      * Android は長期間使っていないアプリの権限を自動で剥がす。
      * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
      */
-    protected open fun readCapability(source: CollectionSource): Capability = if (
-        replacedStart && source.logicalSource == SourceCadence.LOCATION.logicalSource &&
-        foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
-        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
-    ) Capability(capturable = false, blockers = listOf(Capability.PERMISSION)) else source.capability(this)
+    protected open fun readCapability(source: CollectionSource): Capability = replacementLocationCapability(
+        replacedStart,
+        source.logicalSource == SourceCadence.LOCATION.logicalSource,
+        foregroundServiceType(),
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        source.capability(this),
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -419,7 +439,9 @@ open class LocationService : Service() {
             if (UpdateCheck.canPost(this, manager, UpdateCheck.CHANNEL)) {
                 manager.notify(UPDATE_WAITING_NOTIFICATION_ID, Notification.Builder(this, UpdateCheck.CHANNEL)
                     .setContentTitle("あしあと。").setContentText("更新の後、位置の収集が止まっています。開いてください")
-                    .setSmallIcon(android.R.drawable.ic_menu_mylocation).setAutoCancel(true).build())
+                    .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                    .setContentIntent(updateWaitingPendingIntent())
+                    .setAutoCancel(true).build())
             }
         }
         // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
@@ -895,14 +917,12 @@ open class LocationService : Service() {
      * 半分しか守れない。`specialUse` にその上限は無い。
      * 打ち切られた場合の備えは [onTimeout]（畳んで落ちない）。
      */
-    private fun foregroundServiceType(): Int =
-        if (foregroundPromoted || (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-            (!replacedStart || checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
-        )) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        }
+    private fun foregroundServiceType(): Int = foregroundServiceTypeFor(
+        replacedStart,
+        foregroundPromoted,
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED,
+    )
 
     /** ログに出す種別の名前。**値そのものは出さない**（数でも私的でもないが、読めない）。 */
     private fun foregroundServiceTypeKind(type: Int): String = when (type) {
@@ -1494,6 +1514,13 @@ open class LocationService : Service() {
         this,
         0,
         usageAccessSettingsIntent(),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    private fun updateWaitingPendingIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        UPDATE_WAITING_NOTIFICATION_ID,
+        Intent(this, MainActivity::class.java).putExtra(UpdateInstall.EXTRA_START, true),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 

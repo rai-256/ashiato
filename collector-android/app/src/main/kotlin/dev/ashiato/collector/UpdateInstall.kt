@@ -59,6 +59,8 @@ internal object UpdateInstall {
         updateDirectory(context).listFiles()?.forEach { if (it.isFile) it.delete() }
     }
 
+    internal fun verifyDigest(file: File, expected: String): Boolean = sha256(file) == expected.lowercase()
+
     fun start(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -69,6 +71,7 @@ internal object UpdateInstall {
                 val path = if (BuildConfig.VERSION_NAME.contains("-dev.")) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH
                 val connection = (URL(BuildConfig.UPDATE_CHECK_URL + path).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10_000; readTimeout = 30_000
+                    setRequestProperty("User-Agent", UpdateCheck.USER_AGENT)
                 }
                 val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
                 val asset = chooseAsset(BuildConfig.VERSION_NAME, body) ?: return@execute
@@ -85,7 +88,7 @@ internal object UpdateInstall {
             try {
                 file.parentFile?.mkdirs()
                 download(asset.url, file)
-                if (sha256(file) != asset.sha256) {
+                if (!verifyDigest(file, asset.sha256)) {
                     file.delete()
                     return@execute
                 }
@@ -94,7 +97,7 @@ internal object UpdateInstall {
                 installer.openSession(sessionId).use { session ->
                     file.inputStream().use { input -> session.openWrite("base.apk", 0, file.length()).use { output -> input.copyTo(output); session.fsync(output) } }
                     val intent = Intent(context, UpdateInstallResultReceiver::class.java).setAction(ACTION_RESULT)
-                    val pending = PendingIntent.getBroadcast(context, sessionId, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    val pending = PendingIntent.getBroadcast(context, sessionId, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
                     session.commit(pending.intentSender)
                 }
             } catch (_: Exception) {
@@ -130,5 +133,11 @@ internal object UpdateInstall {
 internal class UpdateInstallResultReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         UpdateInstall.clean(context)
+        if (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE) == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.let {
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(it)
+            }
+        }
     }
 }
