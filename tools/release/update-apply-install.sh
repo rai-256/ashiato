@@ -118,6 +118,31 @@ scenario_hook() {
   esac
 }
 
+# 前の版を入れた後・新しい版を走らせる前に、表の所有者の接続で DB の版の記録を細工する（F13）。
+# 知らない版: この組み立ての知らない移行の行を足す。系統違い: 最初の行の版を開発版の系統にする（系統は最初の行の版で決まる）。
+scenario_db_prep() {
+  case "$1" in
+    'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる')
+      printf '%s\n' "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit) VALUES ('999912312359_st58_from_the_future', 'abc', '9.9.9', 'st58')" ;;
+    '系統が違う DB には、戻さずに前の版のまま起きる')
+      printf '%s\n' "UPDATE migration_ledger.applied SET build_version = build_version || '-dev.20261115' WHERE build_version NOT LIKE '%-dev.%'" ;;
+    *) : ;;
+  esac
+}
+
+json_value() {
+  local file="$1" key="$2" python_bin
+  if command -v python >/dev/null 2>&1; then python_bin=python; else python_bin=python3; fi
+  "$python_bin" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$file" "$key"
+}
+
+owner_sql() {
+  local url
+  url="$(json_value 'C:/ProgramData/ashiato/settings/owner.json' DATABASE_OWNER_URL | tr -d '\r')"
+  [[ "$url" == postgres://* ]] || die '所有者の設定に表の所有者の接続が無い'
+  PGPASSFILE=NUL MSYS2_ARG_CONV_EXCL='*' 'C:/Program Files/ashiato/pgsql/bin/psql.exe' -X -A -t -q -w -v ON_ERROR_STOP=1 -d "$url" -c "$1" | tr -d '\r'
+}
+
 scenario_action() {
   case "$1" in
     '印が無ければ、戻しの口は何も替えない') printf '%s\n' rollback ;;
@@ -213,6 +238,7 @@ assert_scenario_result() {
     '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" && grep -Eq 'not_applied|aborted|migrat.*stop' "$output" || die '入らなかった理由の表示が無い' ;;
     '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される') grep -Eq 'rolled_back.*to_version|applied_versions|rollback-history' "$trace" || die '戻した履歴の版を確認できない' ;;
     'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる'|'系統が違う DB には、戻さずに前の版のまま起きる')
+      grep -Fq 'db-prep=ok' "$trace" || die 'DB の版の記録の下準備をしていない'
       (( rc != 0 )) || die '未知の DB 版を成功扱いにした'
       ! grep -Eq 'rollback=ok|ashiato_failed_' "$trace" || die '未知の DB 版を戻した'
       grep -Fq "version=$old_version" "$trace" || die '未知の DB 版で旧版を起こした確認が無い'
@@ -235,6 +261,12 @@ run_scenario() {
   final_zip="$new_zip"
   final_destination="$work/new"
   hook=(); while IFS= read -r pair; do [[ -z "$pair" ]] || hook+=("$pair"); done < <(scenario_hook "$name")
+  local prep_sql
+  prep_sql="$(scenario_db_prep "$name")"
+  if [[ -n "$prep_sql" ]]; then
+    owner_sql "$prep_sql" || die "DB の版の記録の下準備に失敗: $name"
+    echo 'db-prep=ok' >>"$trace"
+  fi
   action="$(scenario_action "$name")"
   # 途中停止・戻し停止は、同じ PC の残った state を使って再実行する。
   if [[ "$name" == '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる' ||
@@ -369,6 +401,16 @@ EOF
   grep -Fq '更新が完了しました' "$evidence_trace" || die 'installer の出力が判定用 trace に統合されていない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
+  local prep_name
+  for prep_name in 'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる' '系統が違う DB には、戻さずに前の版のまま起きる'; do
+    [[ -n "$(scenario_db_prep "$prep_name")" ]] || die "DB の細工が要る Scenario に下準備が無い: $prep_name"
+  done
+  grep -Fq 'migration_ledger.applied' <<<"$(scenario_db_prep 'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる')" ||
+    die '知らない版の下準備が版の記録を触っていない'
+  grep -Fq -- "-dev." <<<"$(scenario_db_prep '系統が違う DB には、戻さずに前の版のまま起きる')" ||
+    die '系統違いの下準備が開発版の系統にしていない'
+  [[ -z "$(scenario_db_prep '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる')" ]] ||
+    die '通常更新の Scenario が DB を細工している'
   [[ "$(scenario_action '印が無ければ、戻しの口は何も替えない')" == rollback ]] ||
     die '印無しの戻し Scenario が rollback 操作を使っていない'
   echo 'OK: update-apply-install の自己試験'
