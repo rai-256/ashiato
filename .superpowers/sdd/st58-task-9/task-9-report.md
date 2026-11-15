@@ -32,6 +32,27 @@
 - `scripts/verify-run 9.2` — FAIL（rc=1）。先頭段は PASS したが、specialUse 段で対象サービスの `foreground_special_use` ログが出ず台本が停止した。エミュレータの既存プロセス／サービス状態により `onCreate` の種別ログを新たに観測できなかったためで、PASS へ置き換えていない。
 - `git diff --check` — PASS。
 
+## 修正ラウンド 5
+
+### 対応
+
+- F3: `St58PackageReplacedInstrumentedTest` の 7 段を、受け手実行後の印の消費、`LocationService` の実ログ、通知 ID 12、サービス生存、specialUse から location への昇格を確認する実動作試験にした。段間に残る待機通知は各段の開始時に消す。
+- F15: `tools/android-st58-replace.sh` は `ashiato` タグの `kind=foreground_special_use` / `kind=foreground_location` を待って検査するようにした。昇格時にも production log を残す。
+- F6/F14: 9.2 が FAIL の間は P6・P7・P26 を確かさ 2 とし、実エミュレータ 7 段が PASS した後に、根拠と確かさ 4 へ更新した。
+
+### 検証
+
+- `scripts/quiet-run st58-unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — PASS（32 本）。
+- `scripts/quiet-run st58-android-test-build-2 -- ./collector-android/gradlew -p collector-android :app:assembleDebugAndroidTest` — PASS。
+- `tools/android-st58-replace.sh --self-test` — PASS。
+- `scripts/verify-run 9.1` — PASS（ST58 32 本、backup rules PASS）。
+- `scripts/verify-run 9.2`（KVM を許可した sandbox 外） — PASS（7 段すべて `OK (1 test)`、self-test PASS）。
+- `git diff --check` — PASS。
+
+### 残る注意
+
+- `verify-run 9.2` はエミュレータ基盤が作る一時項目 `android-yosis`、`hostapd_*.conf`、`netsim.ini` を 3 件残したと報告した。台本自身の APK 一時置き場は cleanup されており、これはエミュレータ基盤側の残留として記録する。
+
 ## 変更ファイル
 
 `UpdateInstall.kt`、`LocationService.kt`、`AndroidManifest.xml`、`St58UpdateInstallTest.kt`、`St58PackageReplacedTest.kt`、`St58PackageReplacedInstrumentedTest.kt`、`tools/android-st58-replace.sh`、`premises.md`、`evidence.jsonl`。
