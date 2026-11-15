@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
         match command.as_deref() {
             None => ashiato_server::run().await,
             Some("migrate") => ashiato_server::run_migrate().await,
+            Some("update-history") => ashiato_server::run_update_history(args).await,
             Some(other) => anyhow::bail!("知らない引数: {other}（使えるのは migrate だけ）"),
         }
     })

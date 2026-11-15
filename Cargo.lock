@@ -163,6 +163,7 @@ dependencies = [
  "strum",
  "subtle",
  "tempfile",
+ "thiserror",
  "tokio",
  "tower",
  "tower-http",
