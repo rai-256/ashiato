@@ -91,3 +91,8 @@
 
 - D10（仮・起こさずに通知だけ）→ Q8: 裏の位置の権限が無ければ位置を除いた種別（`specialUse`）で起こし、位置以外を取り続ける
 - D26（仮・戻した DB に当てた結果の行を書き直す）→ Q9: 書き直さず、`rolled_back` の行の `applied_versions` に当てた版の名前を入れる（`MIGRATIONS` と戻した DB の版の記録の差から取る）。IMP-07 の食い違いはこの形で起きなくなる
+
+## spec の段へ渡すもの（第 2 回の整合の確認。`docs/audit/2026-11-15-st58-fr121-q9-consistency.md`）
+
+- C4: 正典 `openspec/specs/distribution/spec.md:319` の「試みの後に結果の行が無ければ戻した回と読める」は、Q9 で待ち受けを開かずに戻した回が `rolled_back` の 1 行だけになると、その行が「その migrate の結果」に読まれる。この Requirement を MODIFIED にし、「`rolled_back` は戻した行で、直前に `failed` が無ければ移行は通っていた」と読めるように書く。書き出しの説明書にも同じ読み方を書く
+- K1: tasks 1.1 は既存の `st51_form_rejects_unknown_via`（`crates/server/src/update_history_tests.rs:89-93`）がそのまま通ると書くが、その試験は `("S-01","migrate","rolled_back")` が断られることを確かめているので、CHECK に `rolled_back` を足すと落ちる。1.1 に「その組を、まだ決めていない別の値に替える（印は消さない）」を足す
