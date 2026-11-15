@@ -18,7 +18,7 @@ package() {
       ;;
     windows)
       if [[ "${ASHIATO_PACKAGE_TEST_BUILD:-}" == 1 ]]; then
-        env -u ASHIATO_BUILD_VERSION "$build" server-windows "$out"
+        ASHIATO_BUILD_VERSION="${ASHIATO_BUILD_VERSION:-0.5.0-test}" "$build" server-windows "$out"
       else
         ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" server-windows "$out"
         ASHIATO_RELEASE=1 env -u ASHIATO_BUILD_VERSION "$build" collector-windows "$out"
