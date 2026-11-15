@@ -54,7 +54,7 @@
 
 1. `ashiato_restore` を（あれば消してから）、インストールの `CREATE DATABASE ashiato`（`commands::create_database_sql`。持ち主のほかの DB の水準の設定は持たない）と同じ形で作り、前の版の同梱の `pg_restore --exit-on-error --no-password --dbname=ashiato_restore <この回の退避>` で入れる
 2. 入り終えたら、DB `postgres` に繋いで `ALTER DATABASE ashiato RENAME TO ashiato_failed_<UTC 時刻>` → `ALTER DATABASE ashiato_restore RENAME TO ashiato`
-3. 段 `restored` を印に書き、`failed\` の新しい版の `ashiato-server update-history record-rollback` で更新の履歴の 2 行を書く（終了コード 5 なら控えへ。D18（仮）・D26（deep.md Q9 で本人に返した））。`failed\` は次に更新が通ったときに消す
+3. 段 `restored` を印に書き、`failed\` の新しい版の `ashiato-server update-history record-rollback` で更新の履歴に足す（移行が落ちた回は 2 行、待ち受けを開かずに戻した回は「戻した」の 1 行。書けなければ `record-rollback` が控えのファイルに書いて終了コード 5。D18（仮）・D26）。`failed\` は次に更新が通ったときに消す
 
 どの役割で行うかは D25（仮）。サーバは止めてあるので、入れ替えるときに繋いでいる者はいない。途中で止まっても、元の名前の DB（落ちた状態）は 2 の前まで壊れない。
 落ちた DB は `ashiato_failed_<時刻>` で残し、次に更新が通ったときに消す（D23（仮））。
@@ -86,14 +86,30 @@ Linux のサーバは帯を出さないので（ST57 D10）、FR-114 の「押�
 
 携帯と PC が落とした配布物は、版の一覧の答え（`api.github.com` から TLS で読んだもの）の `digest`（`sha256:<64 桁>`）と照らし、違えば・無ければ入れない（P2）。サーバの配布物は本人がブラウザで落とすので、インストーラは照らさない（配布元のページが指紋を示す）。
 
-### D10. 携帯は更新の後に、受け手から収集のサービスを起こす（defaults.md P1）
+### D10. 携帯は更新の後に、受け手から収集のサービスを起こし、裏の位置の権限が無ければ位置を除いた種別で起こす（deep.md Q8）
 
-> **本人に返した（deep.md Q8・第 2 回。答えが出るまで下の形で作らない）。** 別の席が「失わない」を否とした（provisional-review.md D10）—— 裏の位置の権限が無い端末で起こさないと、開くまでアプリ利用と生存信号も取れない。仮を外した。
+> **本人の答え（deep.md Q8・第 2 回。推奨と同じ側）**: 位置を除いた種別で起こして、位置以外を取り続ける（位置は開くまで止まる）。
+> 仮の形（起こさずに「開いてください」の通知だけ）は、別の席が「失わない」を否とした（provisional-review.md D10）。
 
-`ACTION_MY_PACKAGE_REPLACED` の受け手を足し、送り先が設定してあれば `LocationService` を前景のサービスとして起こす（裏から始めてよい例外。P7）。裏の位置の権限が無い端末では、起こさずに「更新の後に収集が止まっています。開いてください」の通知を 1 回出す（通知の権限が無ければ出せず、今と同じく開くまで止まる）。
-- 失わない側: 再開する（受け手 1 つで安い）。起こさない側は、開くまで記録も生存信号も無い
-- 反転条件: エミュレータで、targetSdk 36 の受け手から位置の型の前景のサービスを起こせないと分かったら（P6・P7 が確かさ 4 で外れたら）、通知だけにする
-- 確かめ: Task 9 の計測テスト（`adb install -r` の後に `LocationService` が動いている）
+`ACTION_MY_PACKAGE_REPLACED` の受け手 `PackageReplacedReceiver` を足し、送り先が設定してあれば `LocationService` を前景のサービスとして起こす（裏から始めてよい例外。P7）。送り先が無ければ起こさない。
+種別を選ぶ `foregroundServiceType()`（`LocationService.kt:877`。今は `ACCESS_FINE_LOCATION` だけを見る）は引数の無い `onCreate()`（:397。Intent を受け取らない）で呼ばれるので、「裏から起こした」は Intent では渡さない。受け手は起こす前に 1 回きりの印のファイル（`noBackupFilesDir/update/replaced-start`）を置き、`onCreate` はそれを読んで消し、「受け手から起こした」をサービスの中に持つ（プロセスが落ちれば消える）。印があれば **位置の権限と裏の位置の権限が両方あるときだけ `location`、そうでなければ `specialUse`**、印が無ければ今のまま（位置の権限があれば `location`）。
+画面（`MainActivity.kt:414`）が起こす Intent には「前景から起こした」の印を付け、`onStartCommand`（:899）でその印があり、受け手から起こしたサービスで、今の種別が `specialUse` で位置の権限があるときだけ、`startForeground` を `location` で呼び直して上げる（`startForeground` を `onStartCommand` へ動かさない —— :401 の「前景に上がってから置き場を開く」の期限を守る）:
+
+| 起こし方 | 位置の権限 | 裏の位置の権限 | `onCreate` の種別 | 画面から開いた後 | 位置のソース | 通知 ID 12 |
+|---|---|---|---|---|---|---|
+| 画面から・立て直し（`START_STICKY`。Intent が `null`）（今のまま） | あり | 問わない | `location` | `location` | 取る | — |
+| 画面から・立て直し（今のまま） | なし | — | `specialUse` | `specialUse` | 欠け（ST06 Q7） | — |
+| 受け手から（印のファイルあり） | あり | あり | `location` | `location` | 取る | 出さない |
+| 受け手から（印のファイルあり） | あり | なし | `specialUse` | `location` に上げる | 開くまで欠け（満たされていないもの「権限」） | 1 回出し、上げたら消す |
+| 受け手から（印のファイルあり） | なし | — | `specialUse` | `specialUse` | 欠け（今と同じ） | 出さない（開いても変わらない） |
+
+位置のソースの取得できる状態（`AndroidCapability.kt:27-46`。今は `ACCESS_FINE_LOCATION` だけを見る）に、「受け手から起こした」を入力として足す: 受け手から `specialUse` で起こしたサービスで、位置の権限があり裏の位置の権限が無い間は「取得できない（満たされていないもの: 権限）」と生存信号に載せ（spec の本文と同じ条件。`specialUse` の間に本人が端末の設定から裏の位置の権限も許したら、次の取得契機から今どおり位置を取りにいく）、`collect()` を呼ばない（深掘り（ST06）Q5 の「壊れているのに動いていた」に見せない）。
+通知の文は「更新の後、位置の収集が止まっています。開いてください」。通知の権限が無ければ出ない（位置は開くまで止まるが、位置以外は取り続ける）。位置の種別に上がったら通知 ID 12 を消す。
+画面からと立て直しは今の振る舞いを変えない（欠けの扱い・上げ直し・通知はどれも受け手から起こしたサービスだけに効く。画面から位置の権限なしで `specialUse` で立った後に位置の権限を許した端末は、今どおり立て直すまで `specialUse` のまま。review/spec.md R43。印のファイルは受け手だけが置き、`onCreate` が読んだら消すので、後の立て直しに残らない）。受け手から起こした後、開く前に OS が立て直したときは今の立て直しと同じ形になる（この Story では変えない）。
+前提 P26: 動いているサービスの種別は `startForeground` の呼び直しで変えられ、前景の画面から起こした `onStartCommand` の中なら位置の型で呼んでよい（確かさ 2）。外れたら、上げるときにサービスを止めて画面から起こし直す（`stopSelf` → `startForegroundService`）形に替える（位置以外のソースは数秒止まる）。
+- 本人の答え: 位置以外（アプリ利用・生存信号）を更新の直後から取り続ける。取らなかった期間の記録は後から作れない（loss: uncaptured）
+- 確かめ: Task 9 の計測テスト（`adb install -r` の後に、裏の位置の権限のある端末は `location`、無い端末は `specialUse` で `LocationService` が動き、生存信号が積まれる。開いた後に同じプロセスのまま `location` に上がる）と Robolectric の種別の表の試験
+- 前提が外れたとき: エミュレータで、targetSdk 36 の受け手から `specialUse` の前景のサービスを起こせないと分かったら（P7 が確かさ 4 で外れたら）、通知だけの形（本人が退けた側）には戻さず、上流へ返して本人に聞き直す
 
 ### D11（仮）. 押したときに版の一覧を取り直し、決まった 2 つの宛先から落とす
 
@@ -121,11 +137,11 @@ Linux のサーバは帯を出さないので（ST57 D10）、FR-114 の「押�
 ### D14（仮）. 名前
 
 - サーバ: 印の段 `started`・`stopped`・`moved`・`replaced`・`migrating`・`starting`・`listening`・`restored`。新しい版の退け先（戻しの間）`<プログラムの置き場>\failed\`。印と記録の置き場 `<状態の置き場>\update\`（`state.json`・`outcomes.jsonl`・`history-pending.jsonl`）。回の id `run_id` = `<UTC の YYYYMMDDTHHMMSSZ>-<16 進 8 桁の乱数>`。退避 `backups\pre-migrate\<run_id>\pre-migrate-<時刻>.dump`。前の版の退け先 `<プログラムの置き場>\previous\`。DB `ashiato_restore`・`ashiato_failed_<UTC>`。インストーラの口 `rollback`。
-  サーバの口 `ashiato-server update-history record-rollback`（戻した 2 行を書く。書けなければ終了コード 5 で、インストーラが控えに書く）・`ashiato-server update-history replay`（控えを写す）
+  サーバの口 `ashiato-server update-history record-rollback`（戻した行を書く。移行が落ちた回は 2 行、待ち受けを開かずに戻した回は 1 行。書けなければ `--pending-out <控えのファイル>` に書いて終了コード 5）・`ashiato-server update-history replay`（控えを写す）
 - 更新の記録の 1 行: `{"at", "result": "applied"|"rolled_back"|"not_applied", "to_version", "from_version", "reason": {"kind", "failed_version", "sqlstate"}}`
 - `GET /update-status` の `last_update`: 同じ形（`result`・`at`・`to_version`・`from_version`・`reason`）
 - PC: 口 `update`・置き場 `<状態の置き場>\versions\<版>\`・置き場のファイル `update-handoff.json`・`update-alive.json`・札 `update-rollback`（戻した通知）
-- 携帯: `UpdateInstall.kt`・`PackageReplacedReceiver.kt`・通知 ID 12（「開いてください」。ID 9〜11 は ST57・13 は送り先）・`noBackupFilesDir/update/`
+- 携帯: `UpdateInstall.kt`・`PackageReplacedReceiver.kt`・通知 ID 12（「更新の後、位置の収集が止まっています。開いてください」。ID 9〜11 は ST57・13 は送り先）・`noBackupFilesDir/update/`
 - 試験の差し込み（試験の組み立てだけ）: `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`after-listen`・`restoring`）・`ASHIATO_SERVER_TEST_MIGRATE_FAIL` の `during-backup`（退避を書く途中で止まる）・`ASHIATO_SETUP_TEST_PG_MAJOR`・`ASHIATO_SERVER_TEST_MIGRATE_FAIL`（`sqlstate:<符号>`・`before-backup`）・`ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN`・`ASHIATO_SERVER_TEST_NO_LISTEN`・`ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE`
 
 ### D15（仮）. 理由の短い説明
@@ -145,7 +161,7 @@ Q1 の推奨の「1 分以内」。
 
 ### D18（仮）. 「戻した」の行の向きと、控えの写し
 
-「戻した」の行の前の版は落ちた新しい版、今の版は戻した先の版（版の変化の向きを、更新の行と同じ「前 → 今」で読めるようにする）。「落ちた試みの結果」の行の前の版と今の版は、戻した DB の最後の試みの行と同じにする。2 行は同じ取引で書く。
+「戻した」の行の前の版は落ちた新しい版、今の版は戻した先の版（版の変化の向きを、更新の行と同じ「前 → 今」で読めるようにする）。「落ちた試みの結果」の行の前の版と今の版は、戻した DB の最後の試みの行と同じにする。足す行（移行が落ちた回は 2 行、待ち受けを開かずに戻した回は「戻した」の 1 行。D26）は同じ取引で書く。書けない（終了コード 5）ときは、インストーラが渡した控えのファイル（`--pending-out <状態の置き場>\update\history-pending.jsonl`）に、書けなかった行を 1 行 1 件の JSON で `record-rollback` が足す（行の中身を `record-rollback` の 1 か所で作る。サーバの口のログは標準出力に出るので、標準出力では渡さない。review/spec.md R35）。インストーラは終了コード 5 を「控えに書いた」と読む。
 控え（`history-pending.jsonl`）は 1 行 1 件で、`written_at`（写した時刻。写すまで無い）を持つ。写すのは `update-history replay`（インストーラが、更新が通った後に表の所有者で走らせる）で、`written_at` の無い行だけを書いた順に足し、足した後に控えの行に `written_at` を足す（写した印。控えは管理者だけが書けるので、インストーラが書き直す）。
 - 反転条件: 書き出しを読む側（衛星）が `rolled_back` の行の向きを逆に読むと分かったら、書き出しの説明書の文を直す（行は直せない）
 
@@ -187,13 +203,19 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 - 失わない側: 所有者で行う（管理者の資格を新しく控えない）。所有者で足りなければ戻しが落ち、D20（仮）の「戻しが落ちたら止まる」で DB は元の名前のまま残る（記録は失わない）
 - 反転条件: Windows の CI の通し（Task 6）で、所有者の `pg_restore` が通らないと分かったら、戻しの間だけ `repair` と同じ一時の接続規則で管理者として入る形に替え、spec の「戻しを、DB の管理者でない表の所有者の役割で行う」と Scenario「戻しは DB の管理者の役割を使わない」を直す（上流へ返す）
 
-### D26. 新しい版が待ち受けを開かずに戻した回の更新の履歴は「当てた結果」と「戻した」（review/spec.md R3）
+### D26. 新しい版が待ち受けを開かずに戻した回の更新の履歴は「戻した」の 1 行で、当てた版の名前を持つ（deep.md Q9）
 
-> **本人に返した（deep.md Q9・第 2 回。答えが出るまで下の形で作らない）。** 別の席が「失わない」を否とした（provisional-review.md D26）—— 書き直した `applied` / `nothing_to_apply` の行を ST51 の `previous_version` が「前の版」と読み、以後の行の `from_version` が誤る。仮を外した。
+> **本人の答え（deep.md Q9・第 2 回。推奨と同じ側）**: 結果の行は書き直さず、「戻した」の 1 行に当てた版の名前を持たせる。
+> 仮の形（`applied` / `nothing_to_apply` の行を書き直してから `rolled_back`）は、別の席が否とした（provisional-review.md D26）—— ST51 の `previous_version`（`update_history.rs:128-136`）がその行の今の版（動いていない新しい版）を「前の版」と読み、以後の試み・起動の行の `from_version` が誤ったまま書き出しに出る。
 
-この回は移行が通っているので「落ちた試みの結果」（`failed`）は事実に合わない。退避を取った後に書いた結果の行は戻すと消えるので、同じ中身の行（当てた版があれば `applied` と当てた版の名前、当てる版が無い更新 —— 多くの版はこれ —— なら `nothing_to_apply`）を時刻を戻した時にして書き直し、続けて `rolled_back` を書く。`migrate` は当てる版が無い回も退避を取る（`migration_ledger.rs:647`）ので、この回の退避はあり、D23（仮）の「この回の 1 つを残す」も成り立つ。退避に失敗した回（`backup_failed`）は退避が無いので戻さず、行も書き直さない（2 行の候補から外した）。
-- 失わない側: 当てた版の名前を残す（後から「当てたが起きなかった」と読める）。`rolled_back` だけにすると、何を当てたかが書き出しから消える
-- 反転条件: 書き出しを読む側が「`applied` の後の `rolled_back`」を当てた版が残っていると読み違えると分かったら、説明書の文を直す（行は直せない）
+この回は移行が通っているので「落ちた試みの結果」（`failed`）は事実に合わない。退避を取った後に書いた結果の行は戻すと消えるが、書き直さない。`rolled_back` の 1 行だけを足し、その行の `applied_versions` にこの回に当てた版の名前を入れる（当てる版が無い更新 —— 多くの版はこれ —— なら空）。
+当てた版の名前は `record-rollback`（`failed\` の新しい版のプログラム）が、自分の並び（`MIGRATIONS`）にあって戻した DB の版の記録に無い版を、並びの順に並べて作る（インストーラから名前を渡さない。新しい版の並びは新しい版のプログラムだけが知る）。
+`previous_version` は `rolled_back` を数えないので、戻した後も前の版は戻した先の版のまま。前の版のサーバが起きても起動の行は足されず、次の更新の試みの行の前の版は戻した先の版になる。
+`migrate` は当てる版が無い回も退避を取る（`migration_ledger.rs:647`）ので、この回の退避はあり、D23（仮）の「この回の 1 つを残す」も成り立つ。退避に失敗した回（`backup_failed`）は退避が無いので戻さず、行も足さない。
+前の版の表が `rolled_back` を受け付けない（終了コード 5）ときも、`record-rollback` が書けなかった行（当てた版の名前を含む）を控えのファイルに書く（D18（仮））。控えから写す回も同じ 1 行で、`applied` / `nothing_to_apply` を写さない。
+書き出しの説明書には「`rolled_back` の直前に `failed` が無ければ、移行は通ったが待ち受けを開かずに戻した回」と書き、ST51 の「試みの後に結果の行が無ければ戻した回」の読み方から `rolled_back` を外す（distribution の「S-01 の版が変わると、更新の履歴に 1 行残る」を MODIFIED。audit 2026-11-15 C4）。
+- 本人の答え: この形の行も書き出しに出て直せない（loss: exported）。ただし前の版は正しく読め、何を当てて戻したかも `rolled_back` の行から読める
+- 確かめ: Task 1 の試験（当てた版あり・なしの 2 本と、戻した後の起動と次の試みの前の版）と、Windows の通し（Task 6）
 
 ## Risks / Trade-offs
 
@@ -214,4 +236,4 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 
 ## Open Questions
 
-（無し。仮の決定は D11〜D25（仮）で、反転条件を書いた。D10・D26 は別の席が否とし、deep.md Q8・Q9 で本人に返した）
+（無し。仮の決定は D11〜D25（仮）で、反転条件を書いた。D10・D26 は別の席が否とし、deep.md Q8・Q9 の本人の答えで決めた）

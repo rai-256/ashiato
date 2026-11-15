@@ -95,4 +95,6 @@
 ## spec の段へ渡すもの（第 2 回の整合の確認。`docs/audit/2026-11-15-st58-fr121-q9-consistency.md`）
 
 - C4: 正典 `openspec/specs/distribution/spec.md:319` の「試みの後に結果の行が無ければ戻した回と読める」は、Q9 で待ち受けを開かずに戻した回が `rolled_back` の 1 行だけになると、その行が「その migrate の結果」に読まれる。この Requirement を MODIFIED にし、「`rolled_back` は戻した行で、直前に `failed` が無ければ移行は通っていた」と読めるように書く。書き出しの説明書にも同じ読み方を書く
+  → 対応: spec --answers（Q8,Q9）で、distribution の「S-01 の版が変わると、更新の履歴に 1 行残る」を MODIFIED にした（正典の塊を写し、読み方の 1 文に `rolled_back` を結果の行に数えないことと、直前の `failed` の有無で 2 つの回を分けて読むことを足した。Scenario は変えない）。data-durability の説明書の文と Scenario「説明書が更新の履歴と版の変化と生存信号の版を説明する」の AND に「`failed` が無ければ」を足した
 - K1: tasks 1.1 は既存の `st51_form_rejects_unknown_via`（`crates/server/src/update_history_tests.rs:89-93`）がそのまま通ると書くが、その試験は `("S-01","migrate","rolled_back")` が断られることを確かめているので、CHECK に `rolled_back` を足すと落ちる。1.1 に「その組を、まだ決めていない別の値に替える（印は消さない）」を足す
+  → 対応: spec --answers（Q8,Q9）で、tasks 1.1 に「`st51_form_rejects_unknown_via` の `rolled_back` の組を、まだ決めていない別の値（`reverted` など）に替える。印は消さない」を足した。Q9 の答えではなく Q6 の CHECK の追加から来る食い違い

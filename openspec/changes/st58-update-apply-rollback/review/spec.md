@@ -293,3 +293,174 @@
 
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。`openspec/changes/` で archive でないのは st58-update-apply-rollback だけ。
 - 処置: fixed D15 仮 —— 種別 `pg_major_mismatch` を表に足し、更新の記録に `not_applied` を 1 行。spec の大きい版の Requirement と Scenario・D5
+
+---
+
+# spec --answers Q8,Q9 の検査（第 2 回の答えの写し。2026-11-15）
+
+## 機械の検査（docs/st58-upstream の 4f51b242f ＋ 作業ツリーの未 commit の差分の上）
+
+- `openspec validate st58-update-apply-rollback --strict` → `Change 'st58-update-apply-rollback' is valid`
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（観点 8 も通る）
+- `python3 scripts/check_scenarios.py . st58-update-apply-rollback` → `scenarios: FAIL (担保なし 82 件 / 名無しの確認待ち 0 件)`。82 件の名前を 1 つずつ tasks.md と突き合わせ、欠け 0（下流の前なので担保が無いのは予定どおり）。
+  distribution の ADDED は 72 本（HEAD の 66 ＋ Q8 の 3 ＋ Q9 の 3）、MODIFIED は 64 本（HEAD の 42 ＋ 正典から写した「S-01 の版が変わると…」の 22。22 本は既に印があり、担保なしに出ない）。tasks の「ADDED 72・計 82」と合う
+- `python3 scripts/review_triage.py . st58-update-apply-rollback` → `triage: OK`（指摘 44・仮決め 3・要件へ戻すもの 5）
+- `python3 scripts/spec_overlap.py candidates . st58-update-apply-rollback` → `[]`
+- MODIFIED「S-01 の版が変わると、更新の履歴に 1 行残る」と正典 `openspec/specs/distribution/spec.md` の塊の diff: 1 文の書き換え（結果の行の括弧に「でも `rolled_back` でもない」）・1 文の追加（`rolled_back` を結果の行に数えず、直前の `failed` の有無で 2 つの回を分けて読む）・★ 1 行。ほかは末尾の空行だけ。Scenario 22 本は字面が同じ。
+  `base/distribution.md` の同じ塊は正典と同じ（末尾の空行だけ違う）。proposal・tasks の「読み方の 1 文だけ」は、実際には 1 文の書き換えと 1 文の追加
+- `previous_version`（`crates/server/src/update_history.rs:128-136`）は `outcome IN ('applied','nothing_to_apply')` だけを読み、`startup_tx`（:256-300）と `write_in_tx`（:172-191）がそれを前の版にする。Scenario「待ち受けを開かずに戻した後も、前の版は戻した先の版のまま」の THEN（起動の行が足されない・次の試みの前の版が `0.4.0`）は、今のコードのまま成り立つ
+- 終了コード 5 は `crates/server/src`・`crates/installer/src` のほかの所で使っていない。FR-121 の ★（`docs/requirements.md:1068`）と ST58.md の完了の判定（:57）は Q9 の答えと合う
+
+## R30. D10 の「`onCreate` の前に読めるよう Intent で渡す」は、実物の `LocationService` では成り立たない
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md（D10）・tasks.md（9.1）
+- 根拠: 種別を選んで `startForeground` を呼ぶのは引数の無い `onCreate()`（`collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt:397-403`）。Android は `onCreate` に起こした Intent を渡さず、Intent が届くのは `onStartCommand`（:899）だけ。
+  `startForeground` を `onStartCommand` へ動かすと、:401 の「前景に上がってから置き場を開く」（review R29。前景に上がる期限 10 秒）に当たる。
+  また `START_STICKY`（:928）の立て直しは Intent が `null` で来る。印が「付いていれば裏から」なので、裏の位置の権限が無い端末の立て直しは「画面から」と同じ扱いになり、位置の種別で裏から `startForeground` を呼ぶ。D10 の表は Intent が `null` の行を持たない
+- kind: technical
+- 提案: `onCreate` では Intent に頼らず、「位置の権限と裏の位置の権限が両方あれば `location`、そうでなければ `specialUse`」で選ぶ。画面（`MainActivity.kt:414`）が起こす Intent に「前景から起こした」の印を付け、`onStartCommand` でその印があるときだけ `location` へ上げる（印の向きを逆にする）。
+  D10 の表に「立て直し（Intent が `null`）」の行を足し、9.1 の「`foregroundServiceType()` に『裏から起こした』の入力を足す」を直す
+- 処置: fixed D10 —— Intent でなく 1 回きりの印のファイル（`noBackupFilesDir/update/replaced-start`）を受け手が置き、`onCreate` が読んで消す形にした。画面からの Intent に「前景から起こした」の印を付け、`onStartCommand` で上げる。立て直し（Intent が `null`）は今のまま（表に行を足した）。tasks 9.1 も直した
+
+## R31. 「位置のソースを取得条件の欠けたソースとして扱う」を見る Scenario が無い。「位置の記録は積まれない」は、位置を取っていても真になる
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md
+- 根拠: spec.md:54 の本文は「位置のソースを取得条件の欠けたソースとして扱って位置を取らず」と言う。正典 device-collection（`openspec/specs/device-collection/spec.md:234`）は、生存信号にソースごとの「取得できる状態か」を載せる。
+  今の判定 `androidCapability`（`AndroidCapability.kt:27-46`）は `ACCESS_FINE_LOCATION` だけを見るので、手を入れなければ、この状態の生存信号は位置を「取れる」と言ったまま 0 件になる（深掘り（ST06）Q5 が塞いだ「壊れているのに動いていた」の形）。
+  Scenario spec.md:67 の THEN「位置の記録は積まれない」は、30 秒の待ち（位置の間隔は 60 秒）で、エミュレータに位置を流し込まなければ、位置を取っていても真になる。本文だけが言い、Scenario が言っていない
+- kind: technical
+- 提案: Scenario を 1 本足す:「裏の位置の権限が無く位置を除いた種別で動く間、生存信号は位置のソースを取れない状態（満たされていないもの: 権限）と載せる」。THEN は生存信号の欄で見る。spec.md:67 の「位置の記録は積まれない」は、エミュレータに位置を流し込んだ上で見るか、外す。
+  どの理由（権限・センサ・接続）で載せるかを D10 の表と spec の本文に書く
+- 処置: fixed specs/distribution/spec.md —— 本文に「生存信号に位置のソースを取得できない状態・満たされていないもの「権限」」を足し、Scenario「携帯は裏の位置の権限が無くても…」の THEN を生存信号の欄で見る形に替えた（「位置の記録は積まれない」を外した）。D10 に `AndroidCapability` へ種別を入力として足すことを書き、9.1 に Robolectric の試験を足した
+
+## R32. Task 9.2 の段の確かめは `am instrument` で始めるので、受け手が起こしたサービスを確かめの前に止めうる。「開くと位置の種別に上がる」は、上げ直しを通らずに緑になりうる
+- 成果物: openspec/changes/st58-update-apply-rollback/tasks.md（9.2）
+- 根拠: 9.2 は `adb install -r` の後に `adb shell am instrument -w -e class …#<段>` で確かめる。Android の ActivityManager は計測を始めるとき、`--no-restart`（API 31 以降）が無ければ対象のパッケージを止めてから起こし直す（AOSP `ActivityManagerService.startInstrumentation` の `forceStopPackageLocked`）。前例の `tools/android-emulator.sh:113-119`（St56）は、入れ替えた後のプロセスが生きていることを見ない段なので、この問題に当たらない。
+  止められると、「開かずに 30 秒待つ」の段はサービスが動いていないので落ちる。Scenario spec.md:86（開くと上がる）は、新しく起きたプロセスが最初から `location` で立って緑になり、`onStartCommand` での上げ直しを通らない。
+  加えて、`MainActivity` は求めた権限をメモリにだけ持つ（`MainActivity.kt:71`）。開くたびに、裏の位置の権限を求める画面（`niceToHave()` :172-180）が `start()`（:414）より先に出る。WHEN「本人がアプリを開く」の段は、この画面を越える手を書いていない。位置を流し込む手（`adb emu geo fix` など）も書いていない
+- kind: technical
+- 提案: 9.2 の段の確かめは `am instrument --no-restart` にする（その API 段のエミュレータで走らせる）。あるいは、計測を使わずに台本が `adb shell dumpsys activity services dev.ashiato.collector` とログの種別の行で見る。
+  上げ直しの段は「同じプロセスの id のまま、種別の行が `specialUse` → `location` と続く」を THEN にする。権限を求める画面の答え方と、位置を流し込む手を 9.2 に書く
+- 処置: fixed 9.2 —— `am instrument --no-restart`・確かめの前後でプロセスの id が同じことを見る・画面を `am start` で開き裏の位置の権限の画面を UiAutomator で断る・`adb emu geo fix` で位置を流し込む、を書いた。Scenario「…開くと位置の収集を再開する」の THEN を「同じプロセスのまま」に
+
+## R33. 「動いているサービスの種別を `startForeground` の呼び直しで変えられる」が premises に無い
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md（D10）・premises.md
+- 根拠: D10 は「Android は動いているサービスの種別を `startForeground` の呼び直しで変えられる。前景の画面から呼ぶので位置の型で始めてよい」と書き、Scenario spec.md:86 はこれに依る。`grep -n "呼び直" premises.md` は 0 件。
+  P7 は「受け手から始めてよい」だけを持ち、9.2 は P6・P7 だけを 4 に上げる
+- kind: premise
+- 提案: premises に P を 1 つ足す（公式文書 `Service#startForeground(int, Notification, int)` と、前景から呼んだときの while-in-use の扱い。確かさ 2）。9.2 の段「開くと位置の収集を再開する」の結果で 4 に上げると書く。外れたときの先（サービスを止めて起こし直す）を D10 に書く
+- 処置: rejected: 人間に返す前提ではない —— Q8 の答え（位置以外を取り続ける・位置は開くまで止まる）はこの前提に依らず、外れても開いたときの上げ方（サービスを止めて画面から起こし直す。design D10）が変わるだけで、失うもの（loss）が無い（openspec/changes/st58-update-apply-rollback/design.md:109）。前提は openspec/changes/st58-update-apply-rollback/premises.md:42 の P26（確かさ 2）に書き足し、9.2 の計測テストで 4 に上げる
+
+## R34. 通知 ID 12「位置の収集が止まっています」を消す時が決まっていない
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md・design.md（D10）
+- 根拠: spec.md:54 は「1 回出す」だけを言う。`grep -n "消す\|cancel" design.md` で、通知 ID 12 を消す記述は無い。開いて位置の種別に上がった後も、「止まっています」が通知の欄に残りうる
+- kind: technical
+- 提案: 「位置の種別に上がったら通知 ID 12 を消す」を spec の本文に足し、Scenario spec.md:86 の THEN に「通知 ID 12 は出ていない」を足すか、別の Scenario にする
+- 処置: fixed specs/distribution/spec.md —— 上げたら通知を消すことを本文と Scenario の THEN に足した。D10 の表と 9.1 にも
+
+## R35. 控えの 1 行を標準出力で渡す経路は、サーバの CLI の既定のログの出口（標準出力）と混ざる。終了コード 5 の経路をインストーラ側で通す確かめが無い
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md（D18（仮）・D26）・tasks.md（1.1・5.1・6.1）
+- 根拠: D18（仮）は今回「書けなかった行を標準出力に 1 行 1 件の JSON で出し、インストーラはその行をそのまま控えに書く」を足した。サーバの CLI の口は `tracing_subscriber::fmt().with_env_filter("info").init()` で、書き先を指定していない（`crates/server/src/lib.rs:400`。`run_migrate`）。この形では、ログは標準出力に出る。
+  `record-rollback` が同じ形で始まると、`warn_unwritten`（`update_history.rs:86-98`。表が無い・CHECK が断るときに出す）の行が JSON の行に混ざり、そのまま控えに入る。混ざった行は `replay` が読めない。
+  5.1 の「終了コード 5 なら控えに書く」には試験が無い。6.1 の通しは 2 つの zip がどちらも `rolled_back` を知るので、終了コード 5 を通らない。1.1 の試験はサーバの側だけ
+- kind: technical
+- 提案: 控えの行は、インストーラが渡すファイルの場所（例: `--pending-out <path>`）に `record-rollback` が書く形にするか、`record-rollback` のログを標準エラーへ向けることを D18（仮）に書く。
+  5.1 に、偽の `ashiato-server`（終了コード 5 と 1 行を出す）で控えの中身が JSON の行だけになることを見る `st58_plan_` の試験を足す
+- 処置: fixed D18 仮 —— D26・tasks 1.1・5.1 もあわせて、標準出力でなく `--pending-out <控えのファイル>` に `record-rollback` が書く形にし、5.1 に偽の `ashiato-server` で控えが JSON の行だけになることを見る試験を足した
+
+## R36. design D14 の名前の一覧が「戻した 2 行を書く」のまま
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md
+- 根拠: design.md:137 は「`ashiato-server update-history record-rollback`（戻した 2 行を書く。…）」。D3 の 3.（:57）・D18（仮）（:161）・D26 は「移行が落ちた回は 2 行、待ち受けを開かずに戻した回は『戻した』の 1 行」に直した
+- kind: technical
+- 提案: :137 を「戻した行を書く（移行が落ちた回は 2 行、待ち受けを開かずに戻した回は 1 行）」に直す
+- 処置: fixed design.md D14
+
+## R37. spec の本文に実装の名前 `MIGRATIONS` が入った
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md
+- 根拠: spec.md:477「新しい版の並び（`MIGRATIONS`）にあって、戻した DB の版の記録に無い版を、並びの順に」。`MIGRATIONS` は `crates/server/build.rs` が組む Rust の定数。正典の同じ並びは `migrations/ORDER` の順と書く（spec.md:916 の `applied` の説明）
+- kind: technical
+- 提案: 「新しい版が知っている版の並び（`migrations/ORDER` の順）にあって…」に直す。`MIGRATIONS` は design D26 と tasks 1.1 にだけ置く
+- 処置: fixed specs/distribution/spec.md —— `migrations/ORDER` の順と書いた
+
+## R38. MODIFIED した読み方は、控えから写した `failed` を、その後に通った回の 2 つ目の結果と読ませる
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md
+- 根拠: spec.md:924 は結果の行を「`via` が `migrate` で `attempted` でも `rolled_back` でもない行」と定め、次の試みの行より前にあれば、その試みの結果と読ませる。
+  移行が落ちて戻した先が `rolled_back` を受け付けない回は、`failed`・`rolled_back` の 2 行が、次に通った更新の `attempted`・`applied` の後に写る（spec.md:480・data-durability の説明書）。そのため、写した `failed` は、通った試みの後の 2 つ目の結果の行に読める。
+  今回足した 1 文（spec.md:925）は `rolled_back` だけを外し、`failed` の扱いを持たない。説明書は時刻（`at`）で見分けると書くが、Requirement の読み方は `seq` だけで定める
+- kind: technical
+- 提案: spec.md:924 の読み方に「控えから写した行（時刻 `at` が直前の試みの行より前の行）は、どの試みの結果にも数えない」を足すか、説明書の文と同じ見分け方を Requirement に書く
+- 処置: fixed specs/distribution/spec.md —— MODIFIED の読み方に「試みの結果の行は今の版が同じで、時刻が試みの行以後のもの。控えから写した `failed` と `rolled_back` は 2 行で 1 つの戻した回」を足した
+
+## 観点ごとの該当なし（今回の差分）
+
+- 観点 1: Q8 の族（裏の位置あり → spec.md の 1 本目の THEN を「位置の種別」に・裏の位置なし → :67・位置の権限なし → :74・通知の権限なし → :80・開いて上げ直す → :86）と Q9 の族（1 行・当てた版あり → :503・当てる版なし・前の版のまま・控えに 1 行）は、どれも Scenario がある。
+  当初案（通知だけ・`applied` の書き直し）の文は spec・design・tasks・proposal に残っていない（`grep -n "当てた結果と戻したの\|起こさずに"` で、design の「仮の形」の説明だけ）。数値（30 秒・1 回）は Scenario にある。FR-121 の ★ はある。食い違いは R30〜R35 の噛み合いだけ
+- 観点 4: 1.1 の `--list` の下限 8 は、1.1 が名指す 8 本と合う。9.2 の「7 つの段」は 9.2 が名指す 7 本と合う。K1（`st51_form_rejects_unknown_via`）は `update_history_tests.rs:87-93` のとおり `("S-01","migrate","rolled_back")` を断る組を持つ
+- 観点 5: ST58.md の完了の判定（:57）は Q9 と合う。Q8 は要件の本文に効かない（deep.md）
+- 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## 直しの確かめ（R30〜R38 の処置の後。2026-11-15）
+
+- R30: D10（design.md:89-112）は印のファイル（`noBackupFilesDir/update/replaced-start`）を `onCreate` が読む形になり、`onCreate` に Intent が要らない。表に立て直し（Intent が `null`）の行がある。解けた。
+  受け手から起こした後、開く前に OS が立て直したときは今の立て直しと同じ形になる（位置の型で裏から立つ）。これは design.md:108 が「この Story では変えない」と書く既存の形なので、指摘にしない
+- R31: spec.md:54 の本文と Scenario「携帯は裏の位置の権限が無くても…」の THEN は、生存信号の「取得できない・権限」で見る形になった。解けた（ただし R39）
+- R32: 9.2 に `--no-restart`（エミュレータは API 35。`tools/android-emulator.sh:21`）・`pidof` の前後の一致・`am start` と UiAutomator・`adb emu geo fix` が入った。解けた（ただし R42）
+- R33: rejected。P26 は premises.md:42 にあり、9.2 が 4 に上げる（ただし R40）
+- R34・R36・R37: 解けた（spec.md:56・design.md:140・spec の本文に `MIGRATIONS` が無い）
+- R35: D18（仮）（design.md:164）・D26・tasks 1.1・5.1（:75・:78）が `--pending-out` で揃い、標準出力で行を渡す文は残っていない。5.1 に、偽の `ashiato-server` で控えが JSON の行だけになることを見る試験がある。解けた
+- R38: spec.md:926 に読み方が足された（ただし R41）
+
+## R39. 「`specialUse` の間は位置の権限があっても取れない」は、design と tasks が spec より広い。設定から後で許した端末の位置を止める
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md（D10）・tasks.md（9.1）
+- 根拠: spec.md:54 が欠けと定めるのは「位置の権限は許されているが裏の位置の権限が許されておらず、位置を除いた種別で動いている」間だけ。
+  design.md:106 と tasks.md:115 は「種別が `specialUse` の間は、位置の権限があっても『取得できない（権限）』」と書き、裏の位置の権限を条件に持たない。
+  そのため、画面から位置の権限なしで `specialUse` で立ったサービス（D10 の表の 2 行目）の端末で、本人がアプリを開かずに端末の設定から位置と裏の位置の権限を両方許すと、今は次の取得契機から位置を取りにいく（`LocationService.kt` の `startTicking` の「取得条件を見ずに張る —— 後から許可した端末が次の契機で戻る」）。D10 の形では、開くまで位置が止まる。
+  spec にこの振る舞いの変更は無く、Scenario も無い
+- kind: technical
+- 提案: design.md:106 と 9.1 の条件を spec に合わせて「種別が `specialUse` で、裏の位置の権限が無い間」にする。Robolectric の表の試験に「`specialUse`・位置と裏の位置の権限あり → 取得できる」の 1 本を足す
+- 処置: fixed D10 —— 欠けにする条件を spec と同じ「位置の権限があり裏の位置の権限が無い間」にした。9.1 の文と Robolectric の試験（裏の位置の権限も許された後は取れる）を足し、下限を 22 にした
+
+## R40. P26 が外れたときの代わりの形（止めて起こし直す）は、spec の「サービスを止めずに」と両立しない
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md・design.md（D10）
+- 根拠: spec.md:56 は「サービスを止めずに位置の種別に上げ直し」と言う。design.md:109 は P26 が外れたら「`stopSelf` → `startForegroundService`」に替えると書く。R33 の処置は「外れても上げ方が変わるだけで失うものが無い」として rejected にしたが、替えると spec.md:56 の本文が偽になり、spec を直す（上流へ返す）ことになる
+- kind: technical
+- 提案: spec.md:56 から「サービスを止めずに」を外し、観測できる形（Scenario の「同じプロセスのまま」・通知を消す・位置の記録が積まれる）だけを残す。あるいは、D10 の外れたときの先に「spec.md:56 を直す（上流へ返す）」と書く
+- 処置: fixed specs/distribution/spec.md —— 本文から「止めずに」を外した。Scenario の THEN（同じプロセスのまま・通知を消す・位置の記録）はそのまま
+
+## R41. 試みの結果の行を時刻で絞る読み方は、正典の「時刻で決めない（S-01 の時計は戻りうる）」と食い違う
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md
+- 根拠: R38 の処置で、spec.md:926 に「時刻がその試みの行の時刻以後のものに限る」が入った。同じ表の Requirement の spec.md:882 は「『書いた順』を `seq` で決め、時刻で決めない（S-01 の時計は戻りうる）」。
+  試みと結果の間に時計が戻ると、本物の結果の行が「結果を書く前に終わった回」（spec.md:925）と読まれる。
+  版の条件（今の版が同じ）だけでは、戻した後に同じ版で走らせ直して通った回が残る。この回は、写した `failed` が今の版も同じになり、時刻の条件に頼る
+- kind: technical
+- 提案: 時刻でなく `seq` で絞る。「試みの行の結果の行は、その試みの行の後で最初に現れる、`via` が `migrate` で `attempted` でも `rolled_back` でもない行 1 つだけ。2 つ目以降（控えから写した `failed`）は、すぐ後の `rolled_back` と 2 行で 1 つの戻した回と読む」。data-durability の説明書の文も同じ見分け方にそろえる
+- 処置: fixed specs/distribution/spec.md —— 時刻の条件を外し、`seq` で「試みの後の最初の結果の行 1 つ」に限り、すぐ後に `rolled_back` がある 2 つ目以降の `failed` は戻した回の 2 行と読む形にした
+
+## R42. Task 9.2 の手順の文は、先頭の命令に `--no-restart` が無いまま
+- 成果物: openspec/changes/st58-update-apply-rollback/tasks.md（9.2）
+- 根拠: tasks.md:120 の手順の文は `adb shell am instrument -w -e class …#<段>` で確かめると書く。同じ項目の後ろの括弧では「段の確かめは `am instrument --no-restart` で始め」と書く。先頭の命令をそのまま写すと、R32 の止まりが戻る
+- kind: technical
+- 提案: 先頭の命令を `adb shell am instrument --no-restart -w -e class …#<段>` に直す
+- 処置: fixed 9.2 —— 先頭の命令を `am instrument --no-restart -w …` にした
+
+## 直しの確かめ（R39〜R42 の処置の後。2026-11-15）
+
+- R39: design.md:106 と tasks.md:115 の欠けの条件が、spec.md:54 と同じ「`specialUse` で、位置の権限があり裏の位置の権限が無い間」になった。9.1 の Robolectric に「裏の位置の権限も許された後は取得できる」が入り、下限は 22。解けた
+- R40: spec.md:56 から「止めずに」が外れた。Scenario の THEN は観測できる形（同じプロセスのまま・通知を消す・位置の記録）のまま。P26 が外れたときの形（`stopSelf` → `startForegroundService`）でも、プロセスは残るので THEN は変わらない。解けた
+- R41: spec.md:926 は時刻を使わず、`seq` で「試みの後の最初の結果の行 1 つ」に限る形になった。
+  移行が落ちた回の `failed`（戻した直後に書く。最初の結果の行）と、控えから写した `failed`（通った回の結果の後。2 つ目以降）の両方を、spec.md:927 の `rolled_back` の読み方と矛盾なく読める。解けた
+- R42: 9.2 の `am instrument` は 2 か所とも `--no-restart` になった。解けた
+
+## R43. 欠けの条件と開いたときの上げ直しは、更新の後に限らず画面から立った `specialUse` にも効く。design は「画面からは今の振る舞いを変えない」と書く
+- 成果物: openspec/changes/st58-update-apply-rollback/design.md（D10）・specs/distribution/spec.md
+- 根拠: spec.md:54 の IF（「位置の権限は許されているが裏の位置の権限が許されておらず、位置を除いた種別で動いている」）と design.md:106 の欠けの条件は、起こし方を問わない。design.md:96 の上げ直し（「前景から起こした」の印があり、`specialUse` で位置の権限がある）も同じ。
+  そのため、画面から位置の権限なしで `specialUse` で立った端末（D10 の表の 2 行目）が後で位置の権限だけを許すと、ST58 の後は、生存信号が位置を「取得できない・権限」と載せる。今は `androidCapability`（`AndroidCapability.kt:44-46`）が FINE だけを見て「取得できる」と載せる。また、開くと `location` に上がる。今は立て直すまで `specialUse` のまま。
+  どちらも Q5 の形を直す向きの変更で、失うものは無い。ただ design.md:108 は「画面からと立て直しは今の振る舞いを変えない」と書き、D10 の表の 2 行目も「画面から開いた後 `specialUse`」だけを持つ。Scenario はどれも更新の後（`adb install -r`）の GIVEN だけ
+- kind: technical
+- 提案: design.md:108 を「種別の選び方（`onCreate`）は画面からと立て直しで今のまま。欠けの条件と開いたときの上げ直しは、起こし方を問わず効く」に直す。D10 の表に「画面から（位置の権限なしで立った後に、位置の権限だけを許した）」の行を足す。
+  変えたくなければ、spec.md:54 と design.md:96・:106 の条件に「受け手から起こした（印のファイルを読んだ）間」を足す
+- 処置: fixed D10 —— 欠けの扱い・開いたときの上げ直し・通知を「受け手から起こしたサービス」だけに限り（spec の本文 2 文・design・tasks 9.1）、画面からと立て直しは今の振る舞いのままにした
+
+## 直しの確かめ（R43 の処置の後。2026-11-15）
+
+- R43: spec.md:54・:56 は「更新の後に位置を除いた種別で起こしたサービス」に限った。:55 の通知の文は、もとから更新の後に限っている。
+  design D10 の上げ直し・欠けの条件・「画面からと立て直しは今の振る舞いを変えない」の文と、tasks 9.1 も「受け手から起こしたサービス」に限った。D10 の表の 2 行目（画面から・`specialUse`・欠け）は今のまま。
+  受け手から起こしたことは、印のファイルを `onCreate` が読んで消した後も、そのサービスが動いている間だけ持つ。後の立て直しには残らない（design D10）。spec の本文・design・tasks の 3 つで条件が揃う。解けた。新しい食い違いは無い
