@@ -129,7 +129,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 11: 全体
 
-- [ ] 11.1 Scenario の印の突き合わせと、作業場の検査
+- [x] 11.1 Scenario の印の突き合わせと、作業場の検査
   検証: `python3 scripts/check_scenarios.py . st58-update-apply-rollback` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` rc=0 /
   `bash -c 'tools/check-offsite.sh && tools/check-updater-deps.sh && tools/check-contract-version.sh && tools/check-licenses.sh && tools/check-openapi.sh && tools/check-no-time-server.sh'` rc=0
 
