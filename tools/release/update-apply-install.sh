@@ -84,6 +84,11 @@ assert_output_contains() {
   grep -Fq -- "$phrase" <<<"$output" || die "出力に必要な文が無い: $phrase"
 }
 
+append_install_output() {
+  local output="$1" trace="$2"
+  cat "$output" >>"$trace"
+}
+
 windows_sc() { MSYS2_ARG_CONV_EXCL='*' sc.exe "$@" 2>/dev/null | tr -d '\r'; }
 windows_icacls() { MSYS2_ARG_CONV_EXCL='*' icacls.exe "$@" 2>/dev/null | tr -d '\r'; }
 
@@ -180,8 +185,13 @@ assert_scenario_result() {
       grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4|server-disabled=1' "$trace" || die '途中停止後の自動起動無効を確認できない'
       ;;
     '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる'|'移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる')
-      (( rc != 0 )) || die '移行後停止の初回が成功扱いになった'
+      (( rc == 0 )) || die '移行後停止の再実行が成功しなかった'
       grep -Fq 'after-migrate' "$trace" || die '移行後停止の差し込みを確認できない'
+      if [[ "$name" == '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる' ]]; then
+        grep -Fq "version=$new_version" "$trace" || die '再実行後の版が新しい版でない'
+      else
+        grep -Fq "version=$old_version" "$trace" || die '前の版での再実行後の版が旧版でない'
+      fi
       ;;
     '待ち受けを開いた後に新しい版が落ちても、DB は戻さない')
       (( rc != 0 )) || die '待ち受け後終了が成功扱いになった'
@@ -216,20 +226,29 @@ assert_scenario_result() {
 }
 
 run_scenario() {
-  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action
+  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action final_zip final_destination retry_output retry_rc
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   output="$work/install.out"
   install_zip "$old_zip" "$work/old" "$output" install || die "前の版の初回インストールに失敗: $name"
   trace="$work/trace"
+  retry_output=''
+  final_zip="$new_zip"
+  final_destination="$work/new"
   hook=(); while IFS= read -r pair; do [[ -z "$pair" ]] || hook+=("$pair"); done < <(scenario_hook "$name")
   action="$(scenario_action "$name")"
   # 途中停止・戻し停止は、同じ PC の残った state を使って再実行する。
   if [[ "$name" == '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる' ||
         "$name" == '移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる' ]]; then
     local retry_hook='ASHIATO_SETUP_TEST_STOP_AT=after-migrate'
+    retry_output="$work/retry.out"
     set +e
-    install_zip "$new_zip" "$work/new" "$output" install ASHIATO_SETUP_TEST_TRACE=1 "$retry_hook"
+    install_zip "$new_zip" "$work/new" "$retry_output" install ASHIATO_SETUP_TEST_TRACE=1 "$retry_hook"
+    retry_rc=$?
     set -e
+    (( retry_rc != 0 )) || die "移行後停止の初回実行が成功した: $name"
+    [[ "$name" == '移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる' ]] && final_zip="$old_zip"
+    final_destination="$work/retry"
+    mkdir -p "$final_destination"
     hook=()
   elif [[ "$name" == '戻しをやり直す口で、前の版で起きる' ]]; then
     set +e
@@ -239,7 +258,7 @@ run_scenario() {
     hook=()
   fi
   set +e
-  install_zip "$new_zip" "$work/new" "$output" "$action" ASHIATO_SETUP_TEST_TRACE=1 "${hook[@]}"
+  install_zip "$final_zip" "$final_destination" "$output" "$action" ASHIATO_SETUP_TEST_TRACE=1 "${hook[@]}"
   rc=$?
   set -e
   # 判定用の値は installer の exit code や固定文ではなく、更新後の Windows の実状態から採る。
@@ -259,6 +278,8 @@ run_scenario() {
     [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] && echo 'update-stage=absent'
     [[ -d 'C:/Program Files/ashiato/previous' ]] && echo 'previous=present'
   } >>"$trace"
+  [[ -z "$retry_output" ]] || append_install_output "$retry_output" "$trace"
+  append_install_output "$output" "$trace"
   assert_scenario_result "$name" "$output" "$trace" "$rc" "$old_version" "$new_version"
   echo "== Scenario: $name"
 }
@@ -291,7 +312,7 @@ run_windows_check() {
 }
 
 self_test() {
-  local work fake_path output calls
+  local work fake_path output calls evidence_trace evidence_output
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-apply-self.XXXXXX")"
   trap "rm -rf '$work'" EXIT
   fake_path="$work/bin"; mkdir -p "$fake_path"
@@ -340,6 +361,12 @@ EOF
   PATH="$fake_path:$PATH" psql -c count | grep -q 'count=7' || die '偽の psql 経路を通っていない'
   grep -q '^sc ' "$calls" && grep -q '^icacls ' "$calls" && grep -q '^setup ' "$calls" && grep -q '^server ' "$calls" && grep -q '^psql ' "$calls" || die '偽のコマンドの記録が不足'
   expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
+  evidence_trace="$work/evidence-trace"
+  evidence_output="$work/install.out"
+  printf '%s\n' "$output" >"$evidence_output"
+  printf '%s\n' 'rollback=ok' >"$evidence_trace"
+  append_install_output "$evidence_output" "$evidence_trace"
+  grep -Fq '更新が完了しました' "$evidence_trace" || die 'installer の出力が判定用 trace に統合されていない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
   [[ "$(scenario_action '印が無ければ、戻しの口は何も替えない')" == rollback ]] ||
