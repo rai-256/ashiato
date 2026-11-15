@@ -56,7 +56,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 3: 画面の帯（手順を開く・戻した・入らなかった）
 
-- [ ] 3.1 `web/src/update.ts`・`UpdateBand.tsx`・`SettingsView.tsx`（Q3・Q4 の推奨・D15（仮））: 「更新あり」の行を押すと、画面の中に「サーバの更新の手順」を開く（版・3 段・「移行が落ちたら自動で前の版に戻ります」・リンク `https://github.com/rai-256/ashiato/releases/tag/v<版>`、開発版は `…/tag/nightly`）。「確かめられていない」「戻した」「入らなかった」の行は押しても何もしない。
+- [x] 3.1 `web/src/update.ts`・`UpdateBand.tsx`・`SettingsView.tsx`（Q3・Q4 の推奨・D15（仮））: 「更新あり」の行を押すと、画面の中に「サーバの更新の手順」を開く（版・3 段・「移行が落ちたら自動で前の版に戻ります」・リンク `https://github.com/rai-256/ashiato/releases/tag/v<版>`、開発版は `…/tag/nightly`）。「確かめられていない」「戻した」「入らなかった」の行は押しても何もしない。
   `last_update` の最後の行が `rolled_back` / `not_applied` なら、帯に「更新 <新> は移行が落ちたので、<前> に戻しました（<落ちた版>・<理由>）」/「更新 <新> は入りませんでした（<理由>）。<前> のまま動いています」を出し、設定の「更新の確認」にも同じ行を出す。理由の文は D15（仮）の表（`update.ts` に置き、vitest で全部の種別と SQLSTATE の級を引く）。
   e2e（`web/e2e/st58-update-apply.spec.ts`。`/update-status` の応答を差し替える）: `// Scenario: 帯を押すと、サーバの更新の手順が開く`（外への要求 0 件を数える）・`// Scenario: 開発版の手順のリンクは印 nightly のページを指す`・`// Scenario: 戻した更新は、帯と設定に出る`・`// Scenario: 入らなかった更新は、帯と設定に出る`・`// Scenario: 次に更新が通ると、戻した知らせは帯から消える`・`// Scenario: 戻した知らせと更新ありと確かめられていないが同時なら 3 行出る`（360 px・文書の幅が窓の幅を超えない）・`// Scenario: 戻した・入らなかったの行を押しても何も起きない`。
   既にある `web/e2e/st57-update-notice.spec.ts` の `帯を押しても何も起きない` を新しい GIVEN（「確かめられていない」の帯だけ）に合わせて直す
