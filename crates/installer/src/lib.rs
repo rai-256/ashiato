@@ -117,6 +117,7 @@ mod tests {
         let selected = retain_backups(
             "run-2",
             &[
+                BackupEntry::completed("run-0", "pre-migrate-before.dump"),
                 BackupEntry::completed("run-1", "pre-migrate-a.dump"),
                 BackupEntry::direct("pre-migrate-old.dump"),
                 BackupEntry::partial("run-2", "pre-migrate-b.dump.part"),
@@ -127,6 +128,7 @@ mod tests {
         assert_eq!(
             selected.remove,
             vec![
+                "run-0/pre-migrate-before.dump",
                 "run-1/pre-migrate-a.dump",
                 "pre-migrate-old.dump",
                 "run-2/pre-migrate-b.dump.part",
@@ -159,6 +161,7 @@ mod tests {
         let selected = retain_backups(
             "run-2",
             &[
+                BackupEntry::completed("run-0", "pre-migrate-before.dump"),
                 BackupEntry::completed("run-1", "pre-migrate-a.dump"),
                 BackupEntry::direct("pre-migrate-old.dump"),
                 BackupEntry::completed("run-2", "pre-migrate-c.dump"),
