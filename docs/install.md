@@ -28,6 +28,34 @@ sc.exe delete ashiato-updater
 
 サービスを手で消した後は、`update-check on` だけではサービスを再登録できません。更新係を戻すには、同じ版のインストーラを走らせ直して不足している更新係を足してから、`ashiato-setup.exe update-check on` を実行します。`repair` は DB や秘密の復旧用で、更新係の再登録には使いません。
 
+## サーバの更新
+
+サーバを更新するときは、新しい版の配布 zip を展開し、その zip に同梱された
+`ashiato-setup.exe` を管理者として実行します。更新の間は `ashiato-server` を停止するため、
+画面と収集アプリからサーバへ接続できません。更新が終わると新しい版でサービスを起こします。
+
+移行に失敗した場合は、インストーラがその回の開始前に作った
+`C:\ProgramData\ashiato\update\backups\pre-migrate\<run_id>\` から DB と設定を戻し、
+前の版でサービスを起こします。結果は `C:\ProgramData\ashiato\update\outcomes.jsonl` に
+`rolled_back` として残ります。戻したことはインストーラの窓と画面の帯に表示され、次の更新が
+通るまで帯に残ります。
+
+更新の途中で電源断などにより止まった場合は、まず新しい版の `ashiato-setup.exe` をもう一度
+実行してください。必要なら管理者の端末で次を実行して、前の版に戻してからやり直せます。
+
+```bat
+ashiato-setup.exe rollback
+```
+
+退避は直前の 1 回分だけ残ります。戻した後に更新をやり直すときも、更新の開始時に作られた
+退避を使います。インストーラに同梱された PostgreSQL の大きい版（major version）が、既に
+入っている版と違う配布物では更新を止めます。DB の変換を伴うため、同じ大きい版の配布物を
+使ってください。
+
+更新の結果を記録する印と `rolled_back` の行は ST58 より前の版にはありません。ST58 より前の
+版のインストーラはこの印を読まないため、古い版の `ashiato-setup.exe` で新しい版の更新や
+戻しを行わないでください。
+
 ## 消す
 
 通常の削除は管理者の端末で `ashiato-setup.exe uninstall` を実行します。記録を消す前に `C:\ProgramData\ashiato\backups` の退避を確認してください。記録を手で消す場合は、管理者として所有権を取り、対象を限定して次を実行します。
