@@ -92,7 +92,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 7: 配布物の選び方と指紋（共有の crate と材料）
 
-- [ ] 7.1 `crates/update-check`（`ashiato-update-check`）に、版の一覧から自分の部品の配布物の場所と指紋を選ぶ純粋な関数を足す（D9・D11（仮））: 選んだ版の `assets[]` から部品の配布物の名前（携帯は APK・PC は PC の zip）を選び、`browser_download_url` が `https://github.com/rai-256/ashiato/releases/download/` で始まること、`digest` が `sha256:<64 桁の 16 進>` であることを確かめる。転送先が許す宛先（`https://release-assets.githubusercontent.com/`）かを返す関数と、落とす要求の見出しの集合（確かめと同じ 5 つの名前）。
+- [x] 7.1 `crates/update-check`（`ashiato-update-check`）に、版の一覧から自分の部品の配布物の場所と指紋を選ぶ純粋な関数を足す（D9・D11（仮））: 選んだ版の `assets[]` から部品の配布物の名前（携帯は APK・PC は PC の zip）を選び、`browser_download_url` が `https://github.com/rai-256/ashiato/releases/download/` で始まること、`digest` が `sha256:<64 桁の 16 進>` であることを確かめる。転送先が許す宛先（`https://release-assets.githubusercontent.com/`）かを返す関数と、落とす要求の見出しの集合（確かめと同じ 5 つの名前）。
   `docs/contracts/update-apply-vectors.json` を作る（`digest` の無い・形の違う・道の違う・宛先の違う・部品の無い・開発版の印 `nightly` の配布物を含めて 15 件以上）。Rust と Kotlin（Task 9.1）が全件を通す。
   試験（`#[cfg(test)]`、名前は `st58_asset_`）: 材料の全件・`// Scenario: 指紋の無い配布物は入れない`（選ぶ関数の側）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-update-check st58_asset_ && test "$(cargo test -p ashiato-update-check st58_asset_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 / `bash -c 'test "$(python3 -c "import json;print(len(json.load(open(\"docs/contracts/update-apply-vectors.json\"))[\"cases\"]))")" -ge 15'` rc=0
