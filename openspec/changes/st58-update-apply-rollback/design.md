@@ -52,7 +52,7 @@
 
 順（review/spec.md R6）: 新しい版のプログラムを `<プログラムの置き場>\failed\` へ退け、`previous\` を置き場へ戻し、DB のサービスを起こしてから、表の所有者（D25（仮））で:
 
-1. `ashiato_restore` を（あれば消してから）作り、前の版の同梱の `pg_restore --exit-on-error --no-password --dbname=ashiato_restore <この回の退避>` で入れる
+1. `ashiato_restore` を（あれば消してから）、インストールの `CREATE DATABASE ashiato`（`commands::create_database_sql`。持ち主のほかの DB の水準の設定は持たない）と同じ形で作り、前の版の同梱の `pg_restore --exit-on-error --no-password --dbname=ashiato_restore <この回の退避>` で入れる
 2. 入り終えたら、DB `postgres` に繋いで `ALTER DATABASE ashiato RENAME TO ashiato_failed_<UTC 時刻>` → `ALTER DATABASE ashiato_restore RENAME TO ashiato`
 3. 段 `restored` を印に書き、`failed\` の新しい版の `ashiato-server update-history record-rollback` で更新の履歴の 2 行を書く（終了コード 5 なら控えへ。D18（仮）・D26（仮））。`failed\` は次に更新が通ったときに消す
 
@@ -122,7 +122,7 @@ Linux のサーバは帯を出さないので（ST57 D10）、FR-114 の「押�
   サーバの口 `ashiato-server update-history record-rollback`（戻した 2 行を書く。書けなければ終了コード 5 で、インストーラが控えに書く）・`ashiato-server update-history replay`（控えを写す）
 - 更新の記録の 1 行: `{"at", "result": "applied"|"rolled_back"|"not_applied", "to_version", "from_version", "reason": {"kind", "failed_version", "sqlstate"}}`
 - `GET /update-status` の `last_update`: 同じ形（`result`・`at`・`to_version`・`from_version`・`reason`）
-- PC: 口 `update`・置き場 `<実行ファイルの置き場>\versions\<版>\`・置き場のファイル `update-handoff.json`・`update-alive.json`・札 `update-rollback`（戻した通知）
+- PC: 口 `update`・置き場 `<状態の置き場>\versions\<版>\`・置き場のファイル `update-handoff.json`・`update-alive.json`・札 `update-rollback`（戻した通知）
 - 携帯: `UpdateInstall.kt`・`PackageReplacedReceiver.kt`・通知 ID 12（「開いてください」。ID 9〜11 は ST57・13 は送り先）・`noBackupFilesDir/update/`
 - 試験の差し込み（試験の組み立てだけ）: `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`after-listen`・`restoring`）・`ASHIATO_SERVER_TEST_MIGRATE_FAIL` の `during-backup`（退避を書く途中で止まる）・`ASHIATO_SETUP_TEST_PG_MAJOR`・`ASHIATO_SERVER_TEST_MIGRATE_FAIL`（`sqlstate:<符号>`・`before-backup`）・`ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN`・`ASHIATO_SERVER_TEST_NO_LISTEN`・`ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE`
 
@@ -187,7 +187,7 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 
 ### D26（仮）. 新しい版が待ち受けを開かずに戻した回の更新の履歴は「当てた結果」と「戻した」（review/spec.md R3）
 
-この回は移行が通っているので「落ちた試みの結果」（`failed`）は事実に合わない。退避を取った後に書いた `applied` の行は戻すと消えるので、同じ中身（当てた版の名前）の `applied` の行を時刻を戻した時にして書き直し、続けて `rolled_back` を書く。退避に失敗した回（`backup_failed`）は退避が無いので戻さず、行も書き直さない（2 行の候補から外した）。
+この回は移行が通っているので「落ちた試みの結果」（`failed`）は事実に合わない。退避を取った後に書いた結果の行は戻すと消えるので、同じ中身の行（当てた版があれば `applied` と当てた版の名前、当てる版が無い更新 —— 多くの版はこれ —— なら `nothing_to_apply`）を時刻を戻した時にして書き直し、続けて `rolled_back` を書く。`migrate` は当てる版が無い回も退避を取る（`migration_ledger.rs:647`）ので、この回の退避はあり、D23（仮）の「この回の 1 つを残す」も成り立つ。退避に失敗した回（`backup_failed`）は退避が無いので戻さず、行も書き直さない（2 行の候補から外した）。
 - 失わない側: 当てた版の名前を残す（後から「当てたが起きなかった」と読める）。`rolled_back` だけにすると、何を当てたかが書き出しから消える
 - 反転条件: 書き出しを読む側が「`applied` の後の `rolled_back`」を当てた版が残っていると読み違えると分かったら、説明書の文を直す（行は直せない）
 

@@ -29,7 +29,7 @@
   本人は、書いてある仕様と違う手順に答えることになる。D20 は（仮）なので、推奨のまま答えても合意は D20 に及ばない
 - kind: conflict
 - 提案: 本人が答える前に、Q5 の推奨の detail と deep.md の推奨の文を「印を見て、まず前の版へ戻し終えてから、走らせた版で初めからやり直す」に直す。proposal.md:22 も合わせる。D20 の「戻し終える」部分は Q5 の答えに含まれるので、（仮）を外して Q5 に依る形（`follows: Q5`）にする
-- 処置: escalated —— Q5 の推奨の detail と proposal.md を「まず前の版へ戻し終えてから、走らせた版で初めからやり直す」に直した（本人が答える前）
+- 処置: escalated —— Q5 の推奨の label・detail と deep.md の推奨と proposal.md を「まず前の版へ戻し終えてから、走らせた版で初めからやり直す」に直した（本人が答える前）
 
 ## R3. 待ち受けを開かずに戻した回（`server_not_listening`）に、更新の履歴へ書く 2 行が決まっていない
 - 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md
