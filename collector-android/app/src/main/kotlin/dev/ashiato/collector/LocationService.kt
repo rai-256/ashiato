@@ -1520,7 +1520,7 @@ open class LocationService : Service() {
     private fun updateWaitingPendingIntent(): PendingIntent = PendingIntent.getActivity(
         this,
         UPDATE_WAITING_NOTIFICATION_ID,
-        Intent(this, MainActivity::class.java).putExtra(UpdateInstall.EXTRA_START, true),
+        UpdateInstall.updateStartIntent(this),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 

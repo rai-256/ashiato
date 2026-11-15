@@ -55,6 +55,17 @@ internal object UpdateInstall {
 
     fun updateDirectory(context: Context): File = File(context.noBackupFilesDir, UPDATE_DIR)
 
+    internal fun updateStartIntent(context: Context): Intent =
+        Intent(context, MainActivity::class.java).putExtra(EXTRA_START, true)
+
+    internal fun unknownSourcesIntent(context: Context): Intent =
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+
+    internal fun downloadHeaders(): Map<String, String> = mapOf(
+        "User-Agent" to UpdateCheck.USER_AGENT,
+        "Accept" to UpdateCheck.ACCEPT,
+    )
+
     fun clean(context: Context) {
         updateDirectory(context).listFiles()?.forEach { if (it.isFile) it.delete() }
     }
@@ -63,7 +74,7 @@ internal object UpdateInstall {
 
     fun start(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(unknownSourcesIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
         Executors.newSingleThreadExecutor().execute {
@@ -71,7 +82,7 @@ internal object UpdateInstall {
                 val path = if (BuildConfig.VERSION_NAME.contains("-dev.")) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH
                 val connection = (URL(BuildConfig.UPDATE_CHECK_URL + path).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10_000; readTimeout = 30_000
-                    setRequestProperty("User-Agent", UpdateCheck.USER_AGENT)
+                    downloadHeaders().forEach { (name, value) -> setRequestProperty(name, value) }
                 }
                 val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
                 val asset = chooseAsset(BuildConfig.VERSION_NAME, body) ?: return@execute
@@ -112,6 +123,7 @@ internal object UpdateInstall {
             require(isAllowedDownloadUrl(url.toString()))
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false; connectTimeout = 10_000; readTimeout = 30_000
+                downloadHeaders().forEach { (name, value) -> setRequestProperty(name, value) }
             }
             when (connection.responseCode) {
                 in 200..299 -> connection.inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }.also { return }

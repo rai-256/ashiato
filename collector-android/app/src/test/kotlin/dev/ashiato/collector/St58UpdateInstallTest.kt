@@ -50,7 +50,8 @@ class St58UpdateInstallTest {
     }
 
     @Test fun `通知の開始印を持つ`() { // Scenario: 携帯の更新の通知を押すと、落とし始める
-        val intent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).putExtra(UpdateInstall.EXTRA_START, true)
+        val intent = UpdateInstall.updateStartIntent(ApplicationProvider.getApplicationContext())
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
         assertTrue(intent.getBooleanExtra(UpdateInstall.EXTRA_START, false))
     }
     @Test fun `入っている版より古い版は選ばない`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
@@ -63,8 +64,9 @@ class St58UpdateInstallTest {
         assertFalse(UpdateInstall.verifyDigest(file, digest.replaceFirst('a', 'b')))
     }
     @Test fun `許可が必要な導線を持つ`() { // Scenario: 携帯は提供元不明のアプリが許されていなければ、許可の画面を開く
-        val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+        val intent = UpdateInstall.unknownSourcesIntent(ApplicationProvider.getApplicationContext())
         assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, intent.action)
+        assertEquals("package:${ApplicationProvider.getApplicationContext<Application>().packageName}", intent.dataString)
     }
     @Test fun `取り消し結果の受け手を持つ`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
         assertEquals("dev.ashiato.collector.UPDATE_RESULT", UpdateInstall.ACTION_RESULT)
@@ -118,6 +120,12 @@ class St58UpdateInstallTest {
     }
     @Test fun `空の材料は選ばない`() { // Scenario: 押したときの取り直しは、確かめの数えを動かさない
         assertNull(UpdateInstall.chooseAsset("0.4.0", "[]"))
+    }
+
+    @Test fun `一覧と配布物の要求は既定の User-Agent と Accept を使う`() { // Scenario: 落とす要求は自分の版も端末の情報も持たない
+        assertEquals(UpdateCheck.USER_AGENT, UpdateInstall.downloadHeaders()["User-Agent"])
+        assertEquals(UpdateCheck.ACCEPT, UpdateInstall.downloadHeaders()["Accept"])
+        assertFalse(UpdateInstall.downloadHeaders().values.any { it.contains(BuildConfig.VERSION_NAME) })
     }
     @Test fun `指紋の値を資産に保持する`() { // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
         val d = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
