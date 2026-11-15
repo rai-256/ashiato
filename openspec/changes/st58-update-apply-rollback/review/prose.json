@@ -1,0 +1,14 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 146,
+ "applied": [
+  "walkthroughs[W2].why",
+  "points[fetch.1].text",
+  "impact.scenarios[S3].lost"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
