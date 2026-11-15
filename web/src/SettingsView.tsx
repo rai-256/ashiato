@@ -18,7 +18,7 @@ import { CollectorSetupPanel } from "./CollectorSetupPanel";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
 import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
-import { formatDateTime, isUpdateStatus, updateReason, type UpdateStatus } from "./update";
+import { formatDateTime, isUpdateStatus, lastUpdateLine, updateReason, type UpdateStatus } from "./update";
 
 const m = msg("settings");
 const common = msg("common");
@@ -182,6 +182,7 @@ export function SettingsView(): React.ReactElement {
           {update.value.latest !== null && <p style={{ margin: "0 0 4px" }}>{m.update.latest(update.value.latest, update.value.found_at === null ? m.update.missingDate : formatDateTime(update.value.found_at).split(" ")[0])}</p>}
           <p style={{ margin: "0 0 4px" }}>{m.update.checked(formatDateTime(update.value.checked_at))}</p>
           {update.value.reason !== null && <p style={{ margin: 0 }}>{m.update.reason(updateReason(update.value.reason))}</p>}
+          {lastUpdateLine(update.value.last_update ?? null) !== null && <p data-testid="last-update" style={{ margin: "4px 0 0" }}>{lastUpdateLine(update.value.last_update ?? null)}</p>}
         </>}
       </section>
 

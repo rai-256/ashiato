@@ -106,6 +106,14 @@ const ja = {
       available: (version: string, found: string): string => `更新あり ${version}（${found} に見つけた）`,
       stale: (last: string, reason: string): string => `更新を 7 日確かめられていない（最後に確かめた ${last}・${reason}）`,
       unknownReason: "更新係が動いていない",
+      procedureTitle: "サーバの更新の手順",
+      procedureSteps: [
+        "配布元のリリースのページから新しい版のサーバの Windows の zip を落とす",
+        "zip を開いて ashiato-setup.exe を走らせる",
+        "管理者の確認を 1 回許す",
+      ],
+      rollbackNote: "移行が落ちたら自動で前の版に戻ります",
+      releaseLink: (version: string): string => `版 ${version} のリリースのページ`,
       reasons: {
         unreachable: "配布元に届かない",
         timeout: "時間切れ",
