@@ -18,6 +18,11 @@ pub const UPDATE_CHECK_HEADERS: [&str; 5] = [
     "Accept-Encoding",
     "Connection",
 ];
+/// GitHub release API が返す配布物 URL の許された接頭辞。
+pub const RELEASE_DOWNLOAD_URL_PREFIX: &str =
+    "https://github.com/rai-256/ashiato/releases/download/";
+/// GitHub の署名付き配布物転送先として許された宛先。
+pub const RELEASE_ASSET_HOST: &str = "https://release-assets.githubusercontent.com/";
 /// 更新確認の User-Agent。
 pub const UPDATE_CHECK_USER_AGENT: &str = "ashiato-update-check";
 /// GitHub API の応答形式。
@@ -58,6 +63,10 @@ pub enum Component {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Asset {
     pub name: String,
+    #[serde(default)]
+    pub browser_download_url: Option<String>,
+    #[serde(default)]
+    pub digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +80,38 @@ pub struct Release {
 pub struct CheckResult {
     pub latest: Option<String>,
     pub update_available: bool,
+}
+
+/// URL と SHA-256 digest が検証済みの配布物を選ぶ。
+pub fn select_asset(component: Component, release: &Release) -> Option<Asset> {
+    if release.draft {
+        return None;
+    }
+    let dev = release.tag_name == "nightly";
+    release
+        .assets
+        .iter()
+        .find(|asset| {
+            asset_version(component, &asset.name, dev).is_some()
+                && asset
+                    .browser_download_url
+                    .as_deref()
+                    .is_some_and(|url| url.starts_with(RELEASE_DOWNLOAD_URL_PREFIX))
+                && asset.digest.as_deref().is_some_and(is_sha256_digest)
+        })
+        .cloned()
+}
+
+/// 配布物の 302 転送先が許された GitHub の宛先かを返す。
+pub fn is_allowed_redirect_destination(url: &str) -> bool {
+    url.starts_with(RELEASE_ASSET_HOST)
+}
+
+fn is_sha256_digest(value: &str) -> bool {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,6 +321,8 @@ mod tests {
                 .iter()
                 .map(|name| Asset {
                     name: (*name).to_owned(),
+                    browser_download_url: None,
+                    digest: None,
                 })
                 .collect(),
         }
@@ -407,7 +450,9 @@ mod tests {
                 tag_name: "v0.5.0".into(),
                 draft: true,
                 assets: vec![Asset {
-                    name: "ashiato-server-0.5.0-windows-x86_64.zip".into()
+                    name: "ashiato-server-0.5.0-windows-x86_64.zip".into(),
+                    browser_download_url: None,
+                    digest: None,
                 }]
             }]
         )
@@ -492,6 +537,81 @@ mod tests {
                 Some("0.4.0")
             );
         }
+    }
+
+    // Scenario: 指紋の無い配布物は入れない
+    #[test]
+    fn st58_asset_rejects_missing_fingerprint() {
+        let found = select_asset(
+            Component::Android,
+            &Release {
+                tag_name: "v0.4.1".into(),
+                draft: false,
+                assets: vec![Asset {
+                    name: "ashiato-collector-0.4.1.apk".into(),
+                    browser_download_url: Some(
+                        "https://github.com/rai-256/ashiato/releases/download/v0.4.1/ashiato-collector-0.4.1.apk".into(),
+                    ),
+                    digest: None,
+                }],
+            },
+        );
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn st58_asset_selects_verified_component_asset() {
+        let found = select_asset(
+            Component::Android,
+            &Release {
+                tag_name: "v0.4.1".into(),
+                draft: false,
+                assets: vec![Asset {
+                    name: "ashiato-collector-0.4.1.apk".into(),
+                    browser_download_url: Some(
+                        "https://github.com/rai-256/ashiato/releases/download/v0.4.1/ashiato-collector-0.4.1.apk".into(),
+                    ),
+                    digest: Some(
+                        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+                    ),
+                }],
+            },
+        )
+        .unwrap();
+        assert_eq!(found.name, "ashiato-collector-0.4.1.apk");
+        assert!(is_allowed_redirect_destination(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1"
+        ));
+    }
+
+    #[test]
+    fn st58_asset_rejects_untrusted_url_and_digest() {
+        let asset = |url: &str, digest: &str| Asset {
+            name: "ashiato-collector-0.4.1.apk".into(),
+            browser_download_url: Some(url.into()),
+            digest: Some(digest.into()),
+        };
+        for candidate in [
+            asset(
+                "https://example.com/a.apk",
+                "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            ),
+            asset(
+                "https://github.com/rai-256/ashiato/releases/download/v0.4.1/a.apk",
+                "md5:0123456789abcdef0123456789abcdef",
+            ),
+        ] {
+            let found = select_asset(
+                Component::Android,
+                &Release {
+                    tag_name: "v0.4.1".into(),
+                    draft: false,
+                    assets: vec![candidate],
+                },
+            );
+            assert!(found.is_none());
+        }
+        assert!(!is_allowed_redirect_destination("https://evil.example/"));
     }
 
     #[test]
