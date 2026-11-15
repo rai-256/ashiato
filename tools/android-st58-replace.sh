@@ -92,7 +92,6 @@ for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocati
       sleep 1
     done
   fi
-  adb -s "$serial" shell am stopservice -n dev.ashiato.collector/.LocationService >/dev/null 2>&1 || true
   before="$(adb -s "$serial" shell pidof dev.ashiato.collector 2>/dev/null | tr -d '\r' || true)"
   [[ -n "$before" ]] || { echo "対象プロセスが起きない: $name" >&2; exit 1; }
   set +e
