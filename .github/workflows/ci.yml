@@ -475,10 +475,10 @@ jobs:
       - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      - run: ASHIATO_BUILD_VERSION=0.1.0-dev.20261115 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-old" --test-build
+      - run: ASHIATO_BUILD_VERSION=0.4.0 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-old" --test-build
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      - run: ASHIATO_BUILD_VERSION=0.1.0-dev.20261116 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-new" --test-build
+      - run: ASHIATO_BUILD_VERSION=0.5.0 tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-new" --test-build
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

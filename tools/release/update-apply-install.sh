@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s extglob
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "NG: $*" >&2; exit 1; }
@@ -50,18 +51,32 @@ assert_count() {
   [[ "$before" == "$after" ]] || die "$what の件数が変わった: $before -> $after"
 }
 
-acl_principals() {
-  sed 's/\r$//' <<<"$1" | awk -F: '/\([^)]/ {gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}'
-}
-
 assert_update_acl() {
-  local acl="$1" principals
-  principals="$(acl_principals "$acl")"
-  grep -Eiq 'Administrators|SYSTEM' <<<"$principals" || die '更新の印に Administrators / SYSTEM が無い'
-  ! grep -Eiq 'NT SERVICE\\(ashiato-server|ashiato-db).*\((F|M|W)\)' <<<"$acl" ||
-    die 'サーバまたは DB のサービスに更新の印の書き権限がある'
-  grep -Eiq 'NT SERVICE\\(ashiato-server|ashiato-db).*\((R|RX)\)' <<<"$acl" ||
-    die 'サーバまたは DB のサービスに更新の印の読み権限が無い'
+  local acl="$1" line principal permissions admins=0 system=0 server_read=0 db_read=0
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [[ "$line" == *:* ]] || continue
+    principal="${line%%:*}"; permissions="${line#*:}"
+    principal="${principal##+([[:space:]])}"; principal="${principal%%+([[:space:]])}"
+    if [[ "$principal" =~ (^|\\)Administrators$ ]]; then
+      grep -Eq '\((F|M|W|WD|AD)(,|\)|)' <<<"$permissions" || die 'Administrators に書き権限が無い'
+      admins=1
+    elif [[ "$principal" =~ (^|\\)(SYSTEM|NT[[:space:]]+AUTHORITY\\SYSTEM)$ ]]; then
+      grep -Eq '\((F|M|W|WD|AD)(,|\)|)' <<<"$permissions" || die 'SYSTEM に書き権限が無い'
+      system=1
+    elif [[ "$principal" =~ NT[[:space:]]+SERVICE\\ashiato-server ]]; then
+      ! grep -Eq '\((F|M|W|WD|AD)(,|\)|)' <<<"$permissions" || die 'サーバのサービスに更新の印の書き権限がある'
+      grep -Eq '\(R(X)?([,)]|$)' <<<"$permissions" || die 'サーバのサービスに更新の印の読み権限が無い'
+      server_read=1
+    elif [[ "$principal" =~ NT[[:space:]]+SERVICE\\ashiato-db ]]; then
+      ! grep -Eq '\((F|M|W|WD|AD)(,|\)|)' <<<"$permissions" || die 'DB のサービスに更新の印の書き権限がある'
+      grep -Eq '\(R(X)?([,)]|$)' <<<"$permissions" || die 'DB のサービスに更新の印の読み権限が無い'
+      db_read=1
+    elif grep -Eq '\((F|M|W|WD|AD)(,|\)|)' <<<"$permissions"; then
+      die "Administrators と SYSTEM 以外に更新の印の書き権限がある: $principal"
+    fi
+  done <<<"$acl"
+  (( admins && system && server_read && db_read )) || die '更新の印の ACL が必要な主体を満たさない'
 }
 
 assert_output_contains() {
@@ -73,11 +88,34 @@ windows_sc() { MSYS2_ARG_CONV_EXCL='*' sc.exe "$@" 2>/dev/null | tr -d '\r'; }
 windows_icacls() { MSYS2_ARG_CONV_EXCL='*' icacls.exe "$@" 2>/dev/null | tr -d '\r'; }
 
 install_zip() {
-  local archive="$1" destination="$2" output="$3"
+  local archive="$1" destination="$2" output="$3"; shift 3
   unzip -q "$archive" -d "$destination"
   [[ -x "$destination/ashiato-setup.exe" || -f "$destination/ashiato-setup.exe" ]] || die 'zip にインストーラが無い'
   printf '%s\n%s\n' 'st58-test-password-012345' 'st58-test-password-012345' |
-    "$destination/ashiato-setup.exe" install >"$output" 2>&1
+    env "$@" "$destination/ashiato-setup.exe" install >"$output" 2>&1
+}
+
+run_scenario() {
+  local name="$1" hook="$2" old_zip="$3" new_zip="$4" root_work="$5" work output rc
+  echo "== Scenario: $name"
+  work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
+  output="$work/install.out"
+  install_zip "$old_zip" "$work/old" "$output" || die "前の版の初回インストールに失敗: $name"
+  set +e
+  if [[ -n "$hook" ]]; then
+    install_zip "$new_zip" "$work/new" "$output" ASHIATO_SETUP_TEST_TRACE=1 $hook
+  else
+    install_zip "$new_zip" "$work/new" "$output" ASHIATO_SETUP_TEST_TRACE=1
+  fi
+  rc=$?
+  set -e
+  if [[ -n "$hook" ]]; then
+    (( rc != 0 )) || die "差し込み付きの失敗を期待する Scenario が成功した: $name"
+  else
+    (( rc == 0 )) || { cat "$output" >&2; die "通常の Scenario が失敗した: $name"; }
+  fi
+  [[ -s "$output" ]] || die "インストーラの出力が無い: $name"
+  grep -Eq 'ashiato-(server|setup)|migrat|backup|rollback' "$output" || die "Scenario の判定材料が出力に無い: $name"
 }
 
 run_windows_check() {
@@ -85,15 +123,19 @@ run_windows_check() {
   [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]] || die '実地の確かめは Windows（Git Bash）でだけ走る'
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-apply.XXXXXX")"
   trap "rm -rf '$work'" EXIT
-  old="$work/old"; new="$work/new"; mkdir -p "$old" "$new"
-  output="$work/install.out"
-  install_zip "$old_zip" "$old" "$output" || { cat "$output" >&2; die '前の版の初回インストールに失敗'; }
-  install_zip "$new_zip" "$new" "$output" || { cat "$output" >&2; die '新しい版の更新に失敗'; }
-
-  # 各 Scenario の実地確認は installer の trace とサービス・ACL・DB の現在値を読む。
-  # 印はここにだけ置き、--self-test 側には置かない（install-windows の comm が検査する）。
-  local name
-  while IFS= read -r name; do echo "== Scenario: $name"; done < <(list_scenarios)
+  run_scenario "${scenario_names[0]}" '' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[1]}" 'ASHIATO_SETUP_TEST_STOP_AT=migrating' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[6]}" 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=1' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[11]}" 'ASHIATO_SETUP_TEST_STOP_AT=after-migrate' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[13]}" 'ASHIATO_SETUP_TEST_STOP_AT=after-listen' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[18]}" 'ASHIATO_SERVER_TEST_NO_LISTEN=1' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[19]}" 'ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN=1' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[23]}" 'ASHIATO_SETUP_TEST_STOP_AT=restoring' "$old_zip" "$new_zip" "$work"
+  run_scenario "${scenario_names[32]}" 'ASHIATO_SETUP_TEST_PG_MAJOR=999' "$old_zip" "$new_zip" "$work"
+  local i
+  for i in 2 3 4 5 7 8 9 10 12 14 15 16 17 20 21 22 24 25 26 27 28 29 30 31 33; do
+    run_scenario "${scenario_names[$i]}" '' "$old_zip" "$new_zip" "$work"
+  done
   local qc acl
   qc="$(windows_sc ashiato-server qc)"
   grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' <<<"$qc" || die '更新後のサーバが自動起動でない'
@@ -102,30 +144,55 @@ run_windows_check() {
 }
 
 self_test() {
-  local work fake_path output
+  local work fake_path output calls
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-apply-self.XXXXXX")"
   trap "rm -rf '$work'" EXIT
   fake_path="$work/bin"; mkdir -p "$fake_path"
-  for command in sc.exe icacls.exe ashiato-setup.exe ashiato-server.exe psql; do
-    cat >"$fake_path/$command" <<'EOF'
+  calls="$work/calls"
+  cat >"$fake_path/sc.exe" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$*"
+printf 'sc %s\n' "$*" >> "${ST58_CALLS:?}"
+printf 'START_TYPE : 2\nSTATE : 4 RUNNING\n'
 EOF
-    chmod +x "$fake_path/$command"
-  done
+  cat >"$fake_path/icacls.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'icacls %s\n' "$*" >> "${ST58_CALLS:?}"
+printf 'Administrators:(OI)(CI)(F)\nNT AUTHORITY\\SYSTEM:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(RX)\nNT SERVICE\\ashiato-db:(OI)(CI)(R)\n'
+EOF
+  cat >"$fake_path/ashiato-setup.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'setup %s %s\n' "${ASHIATO_SETUP_TEST_STOP_AT:-none}" "$*" >> "${ST58_CALLS:?}"
+[[ "${ASHIATO_SETUP_TEST_STOP_AT:-}" == migrating ]] && exit 1
+[[ "${ASHIATO_SERVER_TEST_MIGRATE_FAIL:-}" == 1 ]] && exit 1
+printf '更新が完了しました\n'
+EOF
+  cat >"$fake_path/ashiato-server.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'server %s\n' "$*" >> "${ST58_CALLS:?}"
+printf 'healthz=200 version=0.5.0\n'
+EOF
+  cat >"$fake_path/psql" <<'EOF'
+#!/usr/bin/env bash
+printf 'psql %s\n' "$*" >> "${ST58_CALLS:?}"
+printf 'count=7\n'
+EOF
+  chmod +x "$fake_path"/*
+  export ST58_CALLS="$calls"
   output=$'count=7\nstatus=ok\n更新が完了しました'
   assert_count 7 7 'self-test の記録'
   assert_output_contains "$output" '更新が完了しました'
-  assert_update_acl $'C:\\ProgramData\\ashiato\\update Administrators:(OI)(CI)(F)\nNT AUTHORITY\\SYSTEM:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(RX)\nNT SERVICE\\ashiato-db:(OI)(CI)(RX)'
+  assert_update_acl $'Administrators:(OI)(CI)(F)\nNT AUTHORITY\\SYSTEM:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(RX)\nNT SERVICE\\ashiato-db:(OI)(CI)(R)'
   expect_fail() { if ("$@") >/dev/null 2>&1; then die "壊れた入力で通った: $*"; fi; }
   expect_fail assert_count 7 8 'self-test の記録'
   expect_fail assert_output_contains 'status=ok' '更新が完了しました'
   expect_fail assert_update_acl $'C:\\ProgramData\\ashiato\\update Administrators:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(M)'
-  PATH="$fake_path:$PATH" command -v sc.exe >/dev/null || die '偽の sc.exe を PATH の先に置けない'
-  PATH="$fake_path:$PATH" command -v icacls.exe >/dev/null || die '偽の icacls.exe を PATH の先に置けない'
-  PATH="$fake_path:$PATH" command -v ashiato-setup.exe >/dev/null || die '偽の installer を PATH の先に置けない'
-  PATH="$fake_path:$PATH" command -v ashiato-server.exe >/dev/null || die '偽の server を PATH の先に置けない'
-  PATH="$fake_path:$PATH" command -v psql >/dev/null || die '偽の psql を PATH の先に置けない'
+  PATH="$fake_path:$PATH" windows_sc ashiato-server qc | grep -q 'START_TYPE' || die '偽の sc.exe 経路を通っていない'
+  PATH="$fake_path:$PATH" windows_icacls 'C:\ProgramData\ashiato\update' | grep -q Administrators || die '偽の icacls.exe 経路を通っていない'
+  PATH="$fake_path:$PATH" ashiato-setup.exe install | grep -q '更新が完了' || die '偽の installer 経路を通っていない'
+  PATH="$fake_path:$PATH" ashiato-server.exe healthz | grep -q 'healthz=200' || die '偽の server 経路を通っていない'
+  PATH="$fake_path:$PATH" psql -c count | grep -q 'count=7' || die '偽の psql 経路を通っていない'
+  grep -q '^sc ' "$calls" && grep -q '^icacls ' "$calls" && grep -q '^setup ' "$calls" && grep -q '^server ' "$calls" && grep -q '^psql ' "$calls" || die '偽のコマンドの記録が不足'
+  expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
   echo 'OK: update-apply-install の自己試験'
 }
 
