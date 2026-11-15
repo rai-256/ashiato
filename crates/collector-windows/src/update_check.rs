@@ -401,6 +401,81 @@ fn request(base: &str) -> Result<Vec<u8>, CheckReason> {
     Err(CheckReason::Unreadable)
 }
 
+/// 更新を入れる操作が取り直す版の一覧を読む。
+pub fn fetch_releases(dir: &Path) -> Result<Vec<ashiato_update_check::Release>, CheckReason> {
+    let Some(base) = update_url(dir) else {
+        return Err(CheckReason::NoDestination);
+    };
+    let body = request(&base)?;
+    ashiato_update_check::parse_releases(&body).map_err(|_| CheckReason::Unreadable)
+}
+
+/// 検証済みの GitHub 配布物を、許された転送先だけ追って読む。
+pub fn download_asset(_dir: &Path, url: &str) -> Result<Vec<u8>, CheckReason> {
+    if !url.starts_with(ashiato_update_check::RELEASE_DOWNLOAD_URL_PREFIX) {
+        return Err(CheckReason::Unreachable);
+    }
+    let mut current = url.to_owned();
+    #[cfg(ashiato_test_build)]
+    if let Ok(base) = std::env::var("ASHIATO_COLLECTOR_TEST_UPDATE_URL") {
+        if let Ok(parsed) = url.parse::<ureq::http::Uri>() {
+            current = format!(
+                "{}{}",
+                base.trim_end_matches('/'),
+                parsed.path_and_query().map_or("/asset", |v| v.as_str())
+            );
+        }
+    }
+    let agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(StdDuration::from_secs(10)))
+        .timeout_global(Some(StdDuration::from_secs(60)))
+        .max_redirects(0)
+        .build()
+        .new_agent();
+    let initial = current
+        .parse::<ureq::http::Uri>()
+        .map_err(|_| CheckReason::Unreadable)?;
+    for attempt in 0..=3 {
+        let response = agent
+            .get(&current)
+            .header("User-Agent", ashiato_update_check::UPDATE_CHECK_USER_AGENT)
+            .header("Accept", ashiato_update_check::UPDATE_CHECK_ACCEPT)
+            .header("Accept-Encoding", "gzip")
+            .call()
+            .map_err(map_request_error)?;
+        if !(300..400).contains(&response.status().as_u16()) {
+            return response
+                .into_body()
+                .read_to_vec()
+                .map_err(|_| CheckReason::Unreadable);
+        }
+        if attempt == 3 {
+            return Err(CheckReason::Unreadable);
+        }
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .ok_or(CheckReason::Unreadable)?;
+        let next = location
+            .parse::<ureq::http::Uri>()
+            .map_err(|_| CheckReason::Unreadable)?;
+        let allowed = next.scheme_str() == Some("https")
+            && next
+                .authority()
+                .is_some_and(|a| a.as_str() == "release-assets.githubusercontent.com");
+        #[cfg(ashiato_test_build)]
+        let allowed = allowed
+            || (next.scheme_str() == initial.scheme_str()
+                && next.authority() == initial.authority());
+        if !allowed {
+            return Err(CheckReason::Unreachable);
+        }
+        current = location.to_owned();
+    }
+    Err(CheckReason::Unreadable)
+}
+
 fn map_request_error(e: ureq::Error) -> CheckReason {
     match e {
         ureq::Error::StatusCode(403 | 429) => CheckReason::RateLimited,

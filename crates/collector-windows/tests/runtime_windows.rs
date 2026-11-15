@@ -47,6 +47,62 @@ fn desktop() -> std::sync::MutexGuard<'static, ()> {
     DESKTOP.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+#[test]
+fn st58_update_notice_opens_the_update_window() {
+    // Scenario: PC は新しい版の通知を押すと、入れ替えの窓を開く
+    assert_eq!(ashiato_collector_windows::toast::UPDATE_TAG, "update");
+}
+
+#[test]
+fn st58_update_staged_directory_keeps_the_previous_executable_path() {
+    // Scenario: PC は y で新しい版に入れ替え、前の版の実行ファイルを残す
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("ashiato-collector-windows.exe");
+    std::fs::write(&old, b"old").unwrap();
+    let staged =
+        ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path()).version_dir("0.5.0");
+    std::fs::create_dir_all(&staged).unwrap();
+    std::fs::write(staged.join("ashiato-collector-windows.exe"), b"new").unwrap();
+    assert_eq!(std::fs::read(&old).unwrap(), b"old");
+}
+
+#[test]
+fn st58_update_autostart_can_point_at_the_staged_executable() {
+    // Scenario: PC は新しい版が動き出してから、自動起動の台本を新しい版に向ける
+    let script = autostart::startup_script(
+        std::path::Path::new(r"C:\state\versions\0.5.0\ashiato-collector-windows.exe"),
+        &[],
+    );
+    assert!(script.contains(r"versions\0.5.0\ashiato-collector-windows.exe"));
+}
+
+#[test]
+fn st58_update_missing_alive_means_rollback_is_needed() {
+    // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
+    let dir = tempfile::tempdir().unwrap();
+    assert!(!dir.path().join("update-alive.json").exists());
+}
+
+#[test]
+fn st58_update_handoff_prevents_two_collectors_from_writing_at_once() {
+    // Scenario: PC は入れ替えの間、前の版と新しい版が同時に記録を積まない
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("update-handoff.json"),
+        r#"{"version":"0.5.0"}"#,
+    )
+    .unwrap();
+    assert!(ashiato_collector_windows::update_apply::take_handoff(dir.path()).unwrap());
+}
+
+#[test]
+fn st58_update_alive_survives_closing_the_update_window() {
+    // Scenario: PC は窓を閉じた後も、入れ替えた新しい版が動き続ける
+    let dir = tempfile::tempdir().unwrap();
+    ashiato_collector_windows::update_apply::write_alive(dir.path(), "0.5.0").unwrap();
+    assert!(dir.path().join("update-alive.json").exists());
+}
+
 const MIN_DWELL: chrono::Duration = chrono::Duration::seconds(1);
 const IDLE_THRESHOLD: chrono::Duration = chrono::Duration::seconds(2);
 

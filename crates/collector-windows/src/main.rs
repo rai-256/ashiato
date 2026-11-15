@@ -18,6 +18,14 @@ fn main() -> anyhow::Result<()> {
     if args.iter().any(|a| a == c02::SETUP_ARGUMENT) {
         return run_setup(&cfg, channel);
     }
+    if args.iter().any(|a| a == "update") {
+        return c02::update_apply::run_update(
+            &cfg,
+            channel,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+        );
+    }
     if let Some(command) = args.iter().position(|a| a == "update-check") {
         let value = args.get(command + 1).map(String::as_str);
         let enabled = match value {
@@ -261,6 +269,7 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
     }
 
     rt.start(&source);
+    c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION"))?;
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
         match cfg.reload_from_disk() {
@@ -278,6 +287,10 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
             tracing::warn!(error = %c02::telemetry::error_kind(&error), "設定状態の再読み込みに失敗");
         }
         rt.tick(&mut source);
+        if c02::update_apply::take_handoff(&cfg.state_dir)? {
+            rt.stop();
+            break;
+        }
         wait_for_change(&source, &stop);
     }
     // **手元の数えを吐き出し、自分で止まった印を残してから終わる**（R13 / D23）
