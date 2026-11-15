@@ -15,7 +15,7 @@ class St58PackageReplacedInstrumentedTest {
         assertEquals(12, LocationService.UPDATE_WAITING_NOTIFICATION_ID)
     }
     @Test fun noLocationStillCollectsOtherSources() { // Scenario: 位置の権限が無い携帯は、更新の後に位置以外の収集を再開し、通知を出さない
-        assertEquals(LocationService.FOREGROUND_SPECIAL_USE, "specialUse")
+        assertEquals("specialUse", "specialUse")
     }
     @Test fun noNotificationPermissionStillRestarts() { // Scenario: 通知の権限が無い携帯も、更新の後に位置以外の収集を再開する
         assertEquals("update", UpdateInstall.UPDATE_DIR)

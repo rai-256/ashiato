@@ -2,6 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="$ANDROID_HOME/emulator:$PATH"
 if [[ "${1:-}" == "--self-test" ]]; then
   grep -q 'class St58PackageReplacedInstrumentedTest' "$root/collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/St58PackageReplacedInstrumentedTest.kt"
   for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled; do
@@ -31,11 +32,14 @@ if ! adb -s "$serial" get-state >/dev/null 2>&1; then
 fi
 adb -s "$serial" wait-for-device >/dev/null
 version="$($root/tools/release/version.sh source)"
-for apk_version in "$version" "${version%.*}.$(( ${version##*.} + 1 ))"; do
+adb -s "$serial" uninstall dev.ashiato.collector >/dev/null 2>&1 || true
+for apk_version in "${version}-beta.1" "$version"; do
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$apk_version" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
   if [[ "$apk_version" == "$version" ]]; then adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" >/dev/null; fi
 done
 adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" >/dev/null
+(cd "$root/collector-android" && ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q :app:assembleDebugAndroidTest)
+adb -s "$serial" install -r "$root/collector-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk" >/dev/null
 for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocationStillCollectsOtherSources noNotificationPermissionStillRestarts openingPromotesLocation noDestinationDoesNotStart disabledUpdateStaysDisabled; do
   output="$(adb -s "$serial" shell am instrument --no-restart -w -e class "dev.ashiato.collector.St58PackageReplacedInstrumentedTest#$name" dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tr -d '\r')"
   grep -q 'OK (1 test)' <<<"$output" || { printf '%s\n' "$output" >&2; exit 1; }
