@@ -71,7 +71,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 5: インストーラの更新の手順・戻し・`rollback` の口
 
-- [ ] 5.1 `crates/installer/src/main.rs` に更新の手順を足す（D1〜D6・D16（仮）・D20（仮）・D23（仮））: 入っている版を読み、違えば（系統が同じなら）D1 の 8 段で更新する。`program_version_mismatch_message` で止まる形を更新の手順に置き換える（同じ版の走らせ直しは今のまま）。
+- [x] 5.1 `crates/installer/src/main.rs` に更新の手順を足す（D1〜D6・D16（仮）・D20（仮）・D23（仮））: 入っている版を読み、違えば（系統が同じなら）D1 の 8 段で更新する。`program_version_mismatch_message` で止まる形を更新の手順に置き換える（同じ版の走らせ直しは今のまま）。
   印と記録の置き場 `update\` を作り、ACL を Administrators と SYSTEM の書き・2 つのサービスのアカウントの読みにする（初回のインストールでも作る）。退避は回ごとの置き場を `MIGRATE_BACKUP_DIR` で渡す。戻しは D3（新しい版を `failed\` へ退け、`previous\` を戻し、`ashiato_restore` → 名前の入れ替え。役割は D25（仮））。戻した後は `failed\` の新しい版の `ashiato-server update-history record-rollback --pending-out <状態の置き場>\update\history-pending.jsonl` を走らせ、終了コード 5 は「控えに書いた」と読む（D18（仮））。戻した後、切ってなければ前の版の更新係を起こす。
   更新が通った後は、`update-history replay`・保持・`ashiato_failed_*` を消す・更新の記録に `applied`。入らなかった回は窓に D15（仮）の文を出して rc≠0、更新の記録に `rolled_back` / `not_applied`（大きい版の違いも `not_applied`・`pg_major_mismatch`）。印に段 `listening` を書いてから (7) の残りを進め、段 `listening` の印の走らせ直しと `rollback` は戻さずに残りを進める。口 `rollback`（印が無ければ「戻すものはありません」）。試験の組み立ての差し込み `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`after-listen`・`restoring`）・`ASHIATO_SETUP_TEST_PG_MAJOR`。
   起こした命令の記録（ST55 の試験の組み立ての記録）に、戻しの命令の役割が出るようにする
