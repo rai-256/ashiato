@@ -108,9 +108,17 @@ for name in restartsWithoutOpening specialUseWaitsForBackgroundLocation noLocati
   [[ -n "$before" && -n "$after" && "$before" == "$after" ]] || { echo "プロセスが入れ替わった、または消えた: $name ($before -> $after)" >&2; exit 1; }
   case "$name" in
     specialUseWaitsForBackgroundLocation|noLocationStillCollectsOtherSources)
-      adb -s "$serial" logcat -d -v brief | grep -q 'foreground_special_use' || { echo "specialUse のログが無い: $name" >&2; exit 1; } ;;
+      for _ in $(seq 1 30); do
+        if adb -s "$serial" logcat -d -s ashiato:I -t 400 | grep -q 'kind=foreground_special_use'; then break; fi
+        sleep 1
+      done
+      adb -s "$serial" logcat -d -s ashiato:I -t 400 | grep -q 'kind=foreground_special_use' || { echo "specialUse のログが無い: $name" >&2; exit 1; } ;;
     openingPromotesLocation)
-      adb -s "$serial" logcat -d -v brief | grep -q 'foreground_location' || { echo 'location への昇格ログが無い' >&2; exit 1; }
+      for _ in $(seq 1 30); do
+        if adb -s "$serial" logcat -d -s ashiato:I -t 400 | grep -q 'kind=foreground_location'; then break; fi
+        sleep 1
+      done
+      adb -s "$serial" logcat -d -s ashiato:I -t 400 | grep -q 'kind=foreground_location' || { echo 'location への昇格ログが無い' >&2; exit 1; }
       ! adb -s "$serial" shell dumpsys notification | grep -q 'id=12' || { echo '通知 ID 12 が残っている' >&2; exit 1; } ;;
   esac
   echo "OK (1 test) $name"

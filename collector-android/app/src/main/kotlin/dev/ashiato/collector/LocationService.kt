@@ -946,6 +946,7 @@ open class LocationService : Service() {
         ) {
             foregroundPromoted = true
             startForeground(NOTIFICATION_ID, notification(ongoingText()), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            Log.i(TAG, Telemetry.line(FOREGROUND_LOCATION, source = null))
             getSystemService(NotificationManager::class.java).cancel(UPDATE_WAITING_NOTIFICATION_ID)
         }
         if (intent?.action == ACTION_SETUP_CHANGED) {
