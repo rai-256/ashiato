@@ -1,0 +1,1 @@
+{"id": "D10", "question": "携帯の収集アプリは、更新で入れ替わった後、開かなくても収集を再開するか", "chosen": "ACTION_MY_PACKAGE_REPLACED の受け手で、送り先があれば LocationService を起こす。裏の位置の権限が無ければ「開いてください」の通知を 1 回出す", "keeps": "再開する側は、更新の後の記録と生存信号を取り続ける。起こせない端末も通知で今より悪くならない", "cost": "受け手 1 つと通知 1 つ", "follows": null, "rests_on": ["Q2"], "source": "defaults.md#P1", "at": "2026-11-15"}

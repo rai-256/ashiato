@@ -28,3 +28,12 @@ Q5〜Q7 は repo の実物（確かさ 3）に載る。携帯の更新の後の�
 | P17 | 更新の履歴の表は `via` に `migrate`・`startup`、`outcome` に `attempted`・`applied`・`nothing_to_apply`・`failed`・`backup_failed` だけを受け付ける（CHECK）。追記のみの門を持つ | Q6（「戻した」を足すには CHECK を作り替える。ST58 の移行を持たない前の版の DB には書けない） | `migrations/202610300900_update_history.sql:10`・`:13`・門の関数 | 受け付けない | 実物（repo） | 3 |
 | P18 | 移行は、退避の前に止まる回でも終了コード 1 を返しうる（錠が取れない・DB に繋げない・退避の失敗）。退避のファイルの名前は呼び手に返さず、壁時計の UTC の秒で付く | 戻す退避の特定（いちばん新しいファイルを選ぶと、前の回の退避を戻しうる） | `crates/server/src/migration_ledger.rs:528-547`・`:110-116`・`crates/server/src/lib.rs:321-326`・`:400-411`・`migrate_backup.rs:113`。review/deep.md R1 | 返さない | 実物（repo） | 3 |
 | P19 | サーバと DB のサービスは開始の種類「自動」で、異常に終われば 10 秒後に起こし直す（3 回） | Q5（更新や戻しの途中で止まると、PC の起動のときにサーバが半分の DB で起きうる） | `crates/installer/src/commands.rs:958-976`・正典 distribution「サーバのインストールは…自動で起きるサービスにする」 | 起こし直す | 実物（repo） | 3 |
+
+### spec の段で足した前提（2026-11-15）
+
+| # | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
+|---|---|---|---|---|---|---|
+| P20 | 表の所有者 `ashiato_owner` は `CREATEDB` を持ち、記録の DB `ashiato` の持ち主である。移行は拡張（`CREATE EXTENSION`）を使わない。DB は initdb の既定（`-A scram-sha-256`）で、手元からはどの役割もどの DB にも合言葉で入れる | 戻し（D3）を DB の管理者なしで行えるか（別の名前の DB を作って `pg_restore` し、名前を入れ替える）。DB の管理者の合言葉はインストールの後に捨ててある（`run_psql`） | `tools/db-roles.sql:6`（`ALTER ROLE ashiato_owner LOGIN CREATEDB …`）・`:11`（`ALTER DATABASE … OWNER TO ashiato_owner`）・`grep -il 'create extension' migrations/*.sql` が 0 件・`crates/installer/src/db.rs:12-25`（initdb の引数）・`crates/installer/src/main.rs:943-946`（管理者の合言葉を捨てる） | 行える（文書と台本の上） | 実物（repo） | 3 |
+| P21 | PC と携帯の収集アプリの更新の確認の状態は、見つけた最新の版の番号だけを持ち、配布物の場所と指紋を持たない | 押したときに版の一覧を取り直す要があるか（D11（仮）） | `crates/collector-windows/src/update_check.rs:22-35`（`UpdateState` は `latest` など版と時刻だけ）・`collector-android/.../UpdateCheck.kt:176-184`（`choose` の結果の版だけを prefs に置く） | 持たない | 実物（repo） | 3 |
+| P22 | PC の収集アプリの通知は、押されたときに受け手を動かせる（今は `setup` の窓を `current_exe()` で開く形がある）。受け手は収集アプリが動いている間だけ働く | 更新の通知を押して窓を開けるか（D12（仮）） | `crates/collector-windows/src/toast.rs:63-85`（`Activated` に受け手を付け、`spawn_setup_window`） | 開ける | 実物（repo） | 3 |
+| P23 | PC の収集アプリは、同時に 2 つ動くのを止める仕組みを持たない | 入れ替えの間に前の版と新しい版が同時に収集しないこと（D12（仮））を、入れ替える側が守る要がある | `grep -n 'CreateMutex\|single' crates/collector-windows/src/*.rs` が 0 件 | 持たない | 実物（repo） | 2 |
