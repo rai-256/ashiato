@@ -2,6 +2,7 @@
 //! ST58 の更新履歴（Task 1）。
 #![allow(clippy::unwrap_used)]
 
+use crate::migrate_backup::{backup_before_migrate, BackupConfig};
 use crate::testdb;
 use crate::update_history::{record_rollback, record_startup, replay_pending, RollbackKind};
 use crate::update_status::read_status;
@@ -247,7 +248,7 @@ fn st58_status_ignores_invalid_outcome_line() {
     std::fs::write(
         dir.path().join("update/outcomes.jsonl"),
         format!(
-            "{}\n{{\"to_version\":\"<script>\"}}\n",
+            "{}\n{{\"at\":\"2026-11-12T01:02:03Z\",\"result\":\"applied\",\"to_version\":\"<script>\",\"from_version\":\"0.4.0\",\"reason\":null}}\n",
             outcome("applied", serde_json::Value::Null)
         ),
     )
@@ -264,11 +265,11 @@ fn st58_status_ignores_invalid_outcome_line() {
 fn st58_status_ignores_outcomes_over_one_megabyte() {
     let dir = status_dir();
     std::fs::create_dir_all(dir.path().join("update")).unwrap();
-    std::fs::write(
-        dir.path().join("update/outcomes.jsonl"),
-        vec![b'x'; 1024 * 1024 + 1],
-    )
-    .unwrap();
+    let valid = format!("{}\n", outcome("applied", serde_json::Value::Null));
+    let mut contents = vec![b'x'; 1024 * 1024 + 1];
+    let start = contents.len() - valid.len();
+    contents[start..].copy_from_slice(valid.as_bytes());
+    std::fs::write(dir.path().join("update/outcomes.jsonl"), contents).unwrap();
     assert!(
         read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap())
             .last_update
@@ -337,4 +338,44 @@ fn st58_status_reads_not_applied() {
         "not_applied",
         json!({"kind":"db_ahead","failed_version":null,"sqlstate":null}),
     );
+}
+
+#[cfg(unix)]
+fn st58_fake_pg_dump(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("pg_dump");
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[cfg(unix)]
+fn st58_backup_config(dir: &std::path::Path, pg_dump: std::path::PathBuf) -> BackupConfig {
+    BackupConfig {
+        enabled: true,
+        dir: dir.join("backup"),
+        pg_dump,
+    }
+}
+
+// Scenario: 退避に失敗したら移行を当てない
+#[cfg(unix)]
+#[test]
+fn st58_status_backup_pg_dump_failure_leaves_no_dump() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = st58_backup_config(tmp.path(), st58_fake_pg_dump(tmp.path(), "exit 1"));
+    assert!(backup_before_migrate("postgres://owner:pw@127.0.0.1/db", &cfg, "failed").is_err());
+    assert!(!cfg.dir.join("pre-migrate-failed.dump").exists());
+    assert!(!cfg.dir.join("pre-migrate-failed.dump.part").exists());
+}
+
+// Scenario: 退避に失敗したら移行を当てない
+#[cfg(unix)]
+#[test]
+fn st58_status_backup_pg_dump_interrupted_leaves_no_dump() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = st58_backup_config(tmp.path(), st58_fake_pg_dump(tmp.path(), "kill -TERM $$"));
+    assert!(backup_before_migrate("postgres://owner:pw@127.0.0.1/db", &cfg, "stopped").is_err());
+    assert!(!cfg.dir.join("pre-migrate-stopped.dump").exists());
+    assert!(!cfg.dir.join("pre-migrate-stopped.dump.part").exists());
 }

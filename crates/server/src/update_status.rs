@@ -137,13 +137,29 @@ fn updater_dir() -> Option<PathBuf> {
         .filter(|dir| dir.is_dir())
 }
 
+fn state_dir() -> Option<PathBuf> {
+    if std::env::var_os("ASHIATO_SERVICE_MODE").is_some() {
+        return std::env::var_os("ASHIATO_SETTINGS_PATH").and_then(|path| {
+            PathBuf::from(path)
+                .parent()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf)
+        });
+    }
+    std::env::var_os("ASHIATO_STATE_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| !dir.as_os_str().is_empty())
+}
+
 #[utoipa::path(get, path = "/update-status", operation_id = "getUpdateStatus", responses((status = 200, description = "更新確認の状態", body = UpdateStatus)))]
 pub async fn get(State(app): State<crate::App>) -> Json<UpdateStatus> {
     let installed = env!("ASHIATO_VERSION");
-    Json(updater_dir().map_or_else(
+    let mut status = updater_dir().map_or_else(
         || UpdateStatus::empty(installed),
         |dir| read_status(&dir, installed, app.now()),
-    ))
+    );
+    status.last_update = state_dir().and_then(|dir| read_last_update(&dir));
+    Json(status)
 }
 
 pub(crate) fn read_status(dir: &Path, installed: &str, now: DateTime<Utc>) -> UpdateStatus {
