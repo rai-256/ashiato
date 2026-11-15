@@ -37,6 +37,7 @@ fn st58_pc_update_layout_uses_a_flat_versions_directory() {
 
 #[test]
 fn st58_pc_update_accepts_only_a_newer_version() {
+    // Scenario: PC は入っている版より新しくない版を入れない
     assert!(is_newer_version("0.5.0", "0.4.0"));
     assert!(!is_newer_version("0.4.0", "0.5.0"));
     assert!(!is_newer_version("0.5.0", "0.5.0"));

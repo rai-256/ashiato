@@ -2613,7 +2613,7 @@ mod tests {
                 "update-history",
                 "record-rollback",
                 "--pending-out",
-                pending.to_str().unwrap(),
+                pending.to_str().expect("控えのパス"),
             ],
         );
         assert!(super::record_rollback(

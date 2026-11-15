@@ -188,10 +188,8 @@ pub async fn record_rollback(
                 .map_err(database_error)?;
         versions
             .iter()
-            .filter_map(|(name, _)| {
-                (!current.iter().any(|x| x == name) && known.contains(name))
-                    .then(|| (*name).to_string())
-            })
+            .filter(|(name, _)| !current.iter().any(|x| x == name) && known.contains(name))
+            .map(|(name, _)| (*name).to_string())
             .collect()
     } else {
         Vec::new()
