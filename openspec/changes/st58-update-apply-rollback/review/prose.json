@@ -2,11 +2,11 @@
  "tool": "yomiyasu",
  "version": "2.4.0",
  "source": "prose.final.md",
- "fields": 146,
+ "fields": 153,
  "applied": [
-  "walkthroughs[W2].why",
-  "points[fetch.1].text",
-  "impact.scenarios[S3].lost"
+  "impact.overview",
+  "impact.rules[R9].legit",
+  "impact.findings[IMP-07].text"
  ],
  "kept": [],
  "missing": [],
