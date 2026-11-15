@@ -123,7 +123,7 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 10: 文書
 
-- [ ] 10.1 `docs/install.md` に「サーバの更新」の節（新しい版の zip のインストーラを走らせる・更新の間はサーバが止まる・移行が落ちたら自動で前の版に戻る・入らなかったときの窓の文と画面の帯・途中で止まったら新しい版の `ashiato-setup.exe` で走らせ直すか `ashiato-setup.exe rollback`・退避は直前の 1 つ・同梱の PostgreSQL の大きい版が違う配布物では止まる・ST58 より前の版のインストーラは印を読まない）。
+- [x] 10.1 `docs/install.md` に「サーバの更新」の節（新しい版の zip のインストーラを走らせる・更新の間はサーバが止まる・移行が落ちたら自動で前の版に戻る・入らなかったときの窓の文と画面の帯・途中で止まったら新しい版の `ashiato-setup.exe` で走らせ直すか `ashiato-setup.exe rollback`・退避は直前の 1 つ・同梱の PostgreSQL の大きい版が違う配布物では止まる・ST58 より前の版のインストーラは印を読まない）。
   `docs/collector-setup.md` に PC の `update` の口と窓・携帯の「提供元不明のアプリ」の許可と更新の後の再開。`docs/release.md` に「`tools/release/pgsql.lock` の小さい版を上げる PR では、前の小さい版の zip から更新と戻しを通す」（design Risks・P25）。申し送り `docs/handoff/ST60.md` の ST58 D8 の節がある
   検証: `bash -c 'for h in "rollback" "前の版に戻" "update\\\\outcomes.jsonl" "大きい版"; do grep -q -- "$h" docs/install.md || exit 1; done && grep -q "提供元不明のアプリ" docs/collector-setup.md && grep -q "pgsql.lock" docs/release.md && grep -q "ST58 D8" docs/handoff/ST60.md'` rc=0
 
