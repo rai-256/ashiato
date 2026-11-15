@@ -266,10 +266,11 @@ fn st58_status_ignores_outcomes_over_one_megabyte() {
     let dir = status_dir();
     std::fs::create_dir_all(dir.path().join("update")).unwrap();
     let valid = format!("{}\n", outcome("applied", serde_json::Value::Null));
+    let path = dir.path().join("update/outcomes.jsonl");
     let mut contents = vec![b'x'; 1024 * 1024 + 1];
-    let start = contents.len() - valid.len();
-    contents[start..].copy_from_slice(valid.as_bytes());
-    std::fs::write(dir.path().join("update/outcomes.jsonl"), contents).unwrap();
+    contents.extend_from_slice(format!("\n{valid}").as_bytes());
+    std::fs::write(&path, &contents).unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() > 1024 * 1024);
     assert!(
         read_status(dir.path(), "0.4.0", "2026-11-12T02:00:00Z".parse().unwrap())
             .last_update
