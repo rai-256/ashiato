@@ -1141,6 +1141,35 @@ fn update_install(
 }
 
 fn update_failure_reason(error: &str, failed_version: &str) -> (&'static str, update_plan::Reason) {
+    // `migrate` emits a deliberately small machine-readable line.  Prefer it
+    // to matching translated diagnostics: the latter must never decide what
+    // is persisted in outcomes.jsonl or presented by the UI.
+    if let Some(line) = error.lines().find(|line| line.contains("error: kind=")) {
+        let field = |name: &str| {
+            line.split_whitespace()
+                .find_map(|part| part.strip_prefix(&format!("{name}=")))
+        };
+        let kind = field("kind").unwrap_or_default();
+        let failure = match kind {
+            "db_ahead" => Some(("not_applied", update_plan::ReasonKind::DbAhead)),
+            "ledger_unreadable" => Some(("not_applied", update_plan::ReasonKind::LedgerUnreadable)),
+            "channel_mismatch" => Some(("not_applied", update_plan::ReasonKind::ChannelMismatch)),
+            "migrate_failed" | "migrate_grants_failed" | "migrate_db_failed" => {
+                Some(("rolled_back", update_plan::ReasonKind::Aborted))
+            }
+            _ => None,
+        };
+        if let Some((result, reason_kind)) = failure {
+            return (
+                result,
+                update_plan::Reason::kind(
+                    reason_kind,
+                    field("version").unwrap_or(failed_version),
+                    field("sqlstate"),
+                ),
+            );
+        }
+    }
     let (kind, result) = if error.contains("PostgreSQL") {
         (update_plan::ReasonKind::PgMajorMismatch, "not_applied")
     } else if error.contains("サーバが起きない") {
@@ -2644,17 +2673,15 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let temp = TempDir::new().expect("一時の試験置き場");
         let server = temp.path().join("ashiato-server");
-        std::fs::write(&server, "#!/bin/sh\necho server-log\nprintf '{\"result\":\"rolled_back\"}\\n' > \"$4\"\nexit 5\n").expect("偽サーバ");
+        std::fs::write(&server, "#!/bin/sh\necho server-log\nprintf '{\"result\":\"rolled_back\"}\\n' > \"${10}\"\nexit 5\n").expect("偽サーバ");
         std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).expect("実行権");
         let pending = temp.path().join("history-pending.jsonl");
-        let command = SetupCommand::new(
-            server.display().to_string(),
-            [
-                "update-history",
-                "record-rollback",
-                "--pending-out",
-                pending.to_str().expect("控えのパス"),
-            ],
+        let command = crate::commands::rollback_history_command(
+            &server,
+            &pending,
+            "0.5.0",
+            "0.4.0",
+            "startup-failed",
         );
         assert!(super::record_rollback(
             &command,
@@ -2668,6 +2695,21 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(lines.trim()).expect("JSON 行")["result"],
             "rolled_back"
         );
+    }
+
+    #[test]
+    fn st58_update_failure_reason_reads_migrate_machine_line() {
+        let (_, reason) = super::update_failure_reason(
+            "移行に失敗した: error: kind=migrate_failed version=202611152200_x sqlstate=23505",
+            "0.4.0",
+        );
+        assert_eq!(reason.kind, "aborted");
+        assert_eq!(reason.failed_version, "202611152200_x");
+        assert_eq!(reason.sqlstate.as_deref(), Some("23505"));
+        let (result, reason) =
+            super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0");
+        assert_eq!(result, "not_applied");
+        assert_eq!(reason.kind, "db_ahead");
     }
 
     // Scenario: コード頁 932 で書いた日本語のダウンロードの場所を、同じ文字として読む

@@ -45,6 +45,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
   - 素通りした理由: インストーラ側の試験 `st58_record_rollback_reads_pending_exit_five_without_stdout_json`（`main.rs:2603-2630`）の偽サーバは引数を見ずに `$4` へ書いて `exit 5` する。インストーラの組む形を本物の口に一度も当てていない。サーバ側の試験（`st58_tests.rs`）は `record_rollback` / `replay_pending` の関数を直接呼び、CLI の口を通らない。Windows の通し（R2）はまだ一度も走っていない。
 - kind: technical
 - 提案: 引数の形をどちらかに揃える（インストーラが `--new-version` `--previous-version` `--kind`（落ちた版・SQLSTATE も）を渡す / `replay` の形を合わせる）。インストーラの `SetupCommand` を**本物の `ashiato-server` の CLI の解析に通す**試験を 1 本足す（Linux で走る。DB に繋ぐ前の引数の検査で rc を見れば足りる）。
+- 処置: fixed R1 — `record-rollback` に版・種別・控えを渡し、`replay` は positional path に統一した。`st58_record_rollback_reads_pending_exit_five_without_stdout_json` は実際の command builder を使い、終了コード 5 と控えを書いた経路を固定する。
 
 ## R2. Windows の通し `update-apply-install.sh` の判定は、誰も出さない文字列を待っている。Windows の CI で走らせても緑にならず、3 本目の Scenario で止まる
 - 成果物: tools/release/update-apply-install.sh / crates/installer/src/commands.rs
@@ -81,6 +82,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
   - spec: `specs/distribution/spec.md:428`（「移行が落ちたなら落ちた版の名前と SQLSTATE」）・`:459`（窓と更新の記録に「落ちた版の名前・`23505`・「制約に反した」」）・`:466`（DB に知らない版がある回は「入りませんでした」で、記録の最後の行は `not_applied`・種別 `db_ahead`）・`:775`・`:781`（帯）。画面の e2e は `/api/update-status` を `page.route` で差し替え、`failed_version: "V1"`・`sqlstate: "23505"`・`not_applied`/`db_ahead` を与えている（`st58-update-apply.spec.ts:5,14,17`）。**インストーラが実際に作る行はこの形にならない**。e2e は画面の文の組み立てだけを見ていて、Scenario の「戻した更新の理由が出る」は端から端まで担保されていない。
 - kind: technical
 - 提案: 理由は誤りの文の部分一致ではなく、`migrate` の終了コード（2・3・4 は `not_applied` と種別）と、`migrate` が出す 1 行（落ちた版の名前・SQLSTATE。spec D-01 の「種別・落ちた版の名前・SQLSTATE だけ」）から決める。インストーラの `append_outcome` が作る行を、サーバの `read_status` に通す試験を 1 本置く（R5 と合わせて）。
+- 処置: fixed R4 — `update_failure_reason` は `migrate` の `error: kind=… version=… sqlstate=…` を優先して読み、`db_ahead` / `ledger_unreadable` / `channel_mismatch` を `not_applied` に、移行失敗を落ちた移行名と SQLSTATE を持つ `rolled_back` にする。`st58_update_failure_reason_reads_migrate_machine_line` で双方を固定した。
 
 ## R5. 段 `restored` から戻し終えた回は、理由の無い `rolled_back` の行を書く。サーバはその行を捨てるので、画面の帯に「戻しました」が出ない
 - 成果物: crates/installer/src/main.rs / crates/server/src/update_status.rs
@@ -90,6 +92,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
   - 帰結: 印が段 `restored` で残った回（戻しの途中で止まり、`rollback` の口か走らせ直しで `finish_restored` に入って戻し終えた回）は、Q4（「帯は次に更新が通るまで出す」）の知らせが画面に出ない。前の最後の行が `applied` なら、帯には何も出ない。いまは R1 で `finish_restored` が `append_outcome` に届かないので表に出ていないが、R1 を直すと出てくる。
 - kind: technical
 - 提案: `finish_restored` は印に残した理由（種別・落ちた版・SQLSTATE）を写して書く。印に理由を残していなければ、印を書く段で残す。
+- 処置: fixed R5 — `finish_restored` は理由無しの行を書かず、`aborted` の理由を持つ `rolled_back` を書く。`st58_status_reads_rolled_back` が有効な理由を持つ行を `last_update` として返すことを確認する。
 
 ## R6. PC の入れ替えの試験の多くは、自分で書いたファイルを読み直すか、主張と逆を見ている。指紋の照合を消しても、印のある試験は 1 本も落ちない。60 秒はどの試験からも参照されていない
 - 成果物: crates/collector-windows/tests/st58_pc_update.rs / crates/collector-windows/tests/runtime_windows.rs / crates/collector-windows/src/update_apply.rs
