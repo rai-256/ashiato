@@ -551,6 +551,22 @@ impl Drop for TemporaryWrite<'_> {
     }
 }
 
+/// 書く段の間だけ一時の書きを足して `body` を走らせ、終わったら外す（落ちたときは `Drop` が外す）。
+/// 更新・戻し・やり直しは、移行の前の退避（`backups\pre-migrate`）を書き・読み・消す。状態の置き場は
+/// サービスの書きと本人の読みだけなので、いつものインストールと同じ一時の書き（D21）が要る
+/// （無いと上がった利用者の子の `ashiato-server migrate` が退避のファイルを作れず、更新が必ず落ちた）。
+fn with_temporary_write<T>(
+    layout: &layout::Layout,
+    invoking: &str,
+    trace: bool,
+    body: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let temporary = TemporaryWrite::grant(layout, invoking, trace)?;
+    let value = body()?;
+    temporary.finish(trace)?;
+    Ok(value)
+}
+
 /// DB の置き場に足した一時の書きを、途中で落ちても外す（DB のサービスを起こす前に外す）。
 struct DatabaseWrite<'a> {
     layout: &'a layout::Layout,
@@ -1245,6 +1261,18 @@ fn update_install(
         );
         return Err("同梱の PostgreSQL の大きい版が違うため、更新を止めました".into());
     }
+    with_temporary_write(layout, &identity.invoking, trace, || {
+        update_install_with_rollback(layout, installed, identity, trace)
+    })
+}
+
+/// 更新を試し、落ちたら印の段に応じて戻す（一時の書きは呼び手が持つ）。
+fn update_install_with_rollback(
+    layout: &layout::Layout,
+    installed: &str,
+    identity: &Identity,
+    trace: bool,
+) -> Result<(), String> {
     let result = update_install_attempt(layout, installed, identity, trace);
     if let Err(error) = result {
         if update_stage_path(layout).exists() {
@@ -2279,11 +2307,13 @@ fn install(
             &fs::read(update_stage_path(layout)).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        if stage["stage"].as_str() == Some("listening") {
-            finish_update(layout, trace)?;
-        } else {
-            rollback(layout, trace)?;
-        }
+        with_temporary_write(layout, &identity.invoking, trace, || {
+            if stage["stage"].as_str() == Some("listening") {
+                finish_update(layout, trace)
+            } else {
+                rollback(layout, trace)
+            }
+        })?;
     }
     let settings_dir = state_root.join("settings");
     let settings_path = commands::settings_path(layout);
@@ -3049,7 +3079,11 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
     }
     match command {
         "repair" => repair(&selected, &profile, &downloads, trace),
-        "rollback" => rollback(&selected, trace),
+        // 印が無ければ何も替えない（ACL にも触らない）。あれば退避を読み・消すので一時の書きを足す
+        "rollback" if !update_stage_path(&selected).exists() => rollback(&selected, trace),
+        "rollback" => {
+            with_temporary_write(&selected, &invoking, trace, || rollback(&selected, trace))
+        }
         "install" => install(
             &selected,
             &Identity {

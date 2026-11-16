@@ -145,6 +145,12 @@ die_install() {
     else
       echo "== インストーラの出力が無い（$output）"
     fi
+    # 退避の置き場の ACL（書けずに落ちたときに、誰が何を持っていたかを次の CI で見る）
+    local backups='C:/ProgramData/ashiato/backups/pre-migrate'
+    if [[ -d "$backups" ]]; then
+      echo "== 退避の置き場の ACL（$backups）:"
+      MSYS2_ARG_CONV_EXCL='*' icacls.exe 'C:\ProgramData\ashiato\backups\pre-migrate' /T 2>&1 | tr -d '\r' | head -n 40 || true
+    fi
   } >&2
   die "$what"
 }
