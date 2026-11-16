@@ -1017,8 +1017,8 @@ fn run_migrate_with_backup(
         .output()
         .map_err(|error| format!("ashiato-server migrate を起こせない: {error}"))?;
     if !output.status.success() {
-        write_migrate_exit_code(layout, output.status.code());
-        write_migrate_failure(layout, &output_tail(&output));
+        write_migrate_exit_code(layout, output.status.code())?;
+        write_migrate_failure(layout, &output_tail(&output))?;
         // migrate が端末に出すのは種別・版の名前・SQLSTATE の 1 行だけ（秘密を持たない）
         return Err(format!("移行に失敗した: {}", output_tail(&output)));
     }
@@ -1040,23 +1040,41 @@ fn run_migrate_with_backup(
     Ok(())
 }
 
-fn write_migrate_failure(layout: &layout::Layout, output: &str) {
+fn write_migrate_failure(layout: &layout::Layout, output: &str) -> Result<(), String> {
     let path = update_stage_path(layout);
-    let Ok(bytes) = fs::read(&path) else { return };
-    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return };
-    let Some(line) = output.lines().find(|line| line.contains("error: kind=")) else { return };
+    let bytes = fs::read(&path).map_err(|error| format!("更新の印を読めない: {error}"))?;
+    let mut value = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .map_err(|error| format!("更新の印を読めない: {error}"))?;
+    let Some(line) = output.lines().find(|line| line.contains("error: kind=")) else {
+        return Ok(());
+    };
     for field in ["kind", "version", "sqlstate"] {
-        if let Some(part) = line.split_whitespace().find_map(|part| part.strip_prefix(&format!("{field}="))) {
+        if let Some(part) = line
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix(&format!("{field}=")))
+        {
             value[format!("migrate_{field}")] = serde_json::Value::String(part.to_owned());
         }
     }
-    let _ = fs::write(path, serde_json::to_vec_pretty(&value).unwrap_or_default());
+    write_update_stage_value(&path, &value)
 }
 
 fn update_stage_path(layout: &layout::Layout) -> PathBuf {
     PathBuf::from(layout.state_dir)
         .join("update")
         .join("state.json")
+}
+
+/// 更新の印は、読まれる本体を直接上書きせず、同じフォルダの書きかけから置き換える。
+/// 途中で止まっても次の起動が前の完全な JSON を読めるようにする。
+fn write_update_stage_value(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    let temporary = path.with_extension("json.writing");
+    fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("更新の印を書けない: {error}"))?;
+    fs::rename(&temporary, path).map_err(|error| format!("更新の印を置けない: {error}"))
 }
 
 fn write_update_stage(
@@ -1080,28 +1098,30 @@ fn write_update_stage(
     });
     // A resumed rollback must retain the machine-readable migration failure
     // details; otherwise it would incorrectly become a startup failure.
-    if let Ok(previous) = fs::read(&path).and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)) {
-        for key in ["migrate_exit_code", "migrate_kind", "migrate_version", "migrate_sqlstate"] {
+    if let Ok(previous) = fs::read(&path).and_then(|bytes| {
+        serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)
+    }) {
+        for key in [
+            "migrate_exit_code",
+            "migrate_kind",
+            "migrate_version",
+            "migrate_sqlstate",
+        ] {
             if !previous[key].is_null() {
                 value[key] = previous[key].clone();
             }
         }
     }
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| format!("更新の印を書けない: {error}"))
+    write_update_stage_value(&path, &value)
 }
 
-fn write_migrate_exit_code(layout: &layout::Layout, code: Option<i32>) {
+fn write_migrate_exit_code(layout: &layout::Layout, code: Option<i32>) -> Result<(), String> {
     let path = update_stage_path(layout);
-    let Ok(bytes) = fs::read(&path) else { return };
-    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return;
-    };
+    let bytes = fs::read(&path).map_err(|error| format!("更新の印を読めない: {error}"))?;
+    let mut value = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .map_err(|error| format!("更新の印を読めない: {error}"))?;
     value["migrate_exit_code"] = code.map_or(serde_json::Value::Null, serde_json::Value::from);
-    let _ = fs::write(path, serde_json::to_vec_pretty(&value).unwrap_or_default());
+    write_update_stage_value(&path, &value)
 }
 
 fn installed_version(layout: &layout::Layout) -> Result<String, String> {
@@ -1155,8 +1175,24 @@ fn update_install(
                     return Err(format!("{error}; 戻しにも失敗した: {rollback_error}"))
                 }
             }
-            let (_, reason) = update_failure_reason(&error, installed);
-            terminal_line(reason.description(), true);
+            let (result, reason) = update_failure_reason(&error, installed);
+            let notice = if result == "rolled_back" {
+                format!(
+                    "更新 {} は移行が落ちたので、{} に戻しました（{}・{}）",
+                    env!("ASHIATO_VERSION"),
+                    installed,
+                    reason.failed_version,
+                    reason.description(),
+                )
+            } else {
+                format!(
+                    "更新 {} は入りませんでした（{}）。{} のまま動いています",
+                    env!("ASHIATO_VERSION"),
+                    reason.description(),
+                    installed,
+                )
+            };
+            terminal_line(&notice, true);
         }
         return Err(error);
     }
@@ -1492,7 +1528,11 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &pending,
         state["to_version"].as_str().unwrap_or_default(),
         previous_version,
-        if state["migrate_exit_code"].as_i64() == Some(1) { "migration-failed" } else { "startup-failed" },
+        if state["migrate_exit_code"].as_i64() == Some(1) {
+            "migration-failed"
+        } else {
+            "startup-failed"
+        },
         state["migrate_version"].as_str(),
         state["migrate_sqlstate"].as_str(),
     );
@@ -1614,6 +1654,7 @@ fn run_with_env<const N: usize>(
 }
 
 fn record_rollback(command: &SetupCommand, owner_url: &str, trace: bool) -> Result<bool, String> {
+    let role = postgres_url_role(owner_url).ok_or("表の所有者の接続に利用者名が無い")?;
     let output = Command::new(&command.program)
         .args(&command.args)
         .env("DATABASE_OWNER_URL", owner_url)
@@ -1623,7 +1664,7 @@ fn record_rollback(command: &SetupCommand, owner_url: &str, trace: bool) -> Resu
     if output.status.code() == Some(update_plan::HISTORY_PENDING_WRITTEN) {
         if trace {
             terminal_line(
-                &format!("role=ashiato_owner result=pending {}", command.line()),
+                &format!("role={role} result=pending {}", command.line()),
                 false,
             );
         }
@@ -1638,12 +1679,20 @@ fn record_rollback(command: &SetupCommand, owner_url: &str, trace: bool) -> Resu
         ));
     }
     if trace {
-        terminal_line(
-            &format!("role=ashiato_owner result=ok {}", command.line()),
-            false,
-        );
+        terminal_line(&format!("role={role} result=ok {}", command.line()), false);
     }
     Ok(false)
+}
+
+/// `record-rollback` に渡した接続先そのものから利用者名を取り、trace で確認できるようにする。
+/// 接続後に別の管理者で `current_user` を読むのではない。
+fn postgres_url_role(url: &str) -> Option<&str> {
+    url.strip_prefix("postgres://")?
+        .split_once('@')?
+        .0
+        .split(':')
+        .next()
+        .filter(|role| !role.is_empty())
 }
 
 fn pg_major(layout: &layout::Layout) -> Result<String, String> {
@@ -2679,8 +2728,8 @@ fn run_command(command: &str, refs: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        expand_downloads_shell_folder, reg_query_value, run_detached, Duration, Instant,
-        SetupCommand,
+        expand_downloads_shell_folder, postgres_url_role, reg_query_value, run_detached, Duration,
+        Instant, SetupCommand,
     };
     #[cfg(unix)]
     use tempfile::TempDir;
@@ -2730,6 +2779,34 @@ mod tests {
             super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0");
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "db_ahead");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn st58_migrate_failure_stage_write_is_atomic() {
+        // Scenario: 更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる
+        let directory = tempfile::tempdir().expect("一時の更新印");
+        let path = directory.path().join("state.json");
+        let value = serde_json::json!({"stage": "migrating"});
+        super::write_update_stage_value(&path, &value).expect("原子的に更新印を書く");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).expect("更新印"))
+                .expect("完全な JSON")["stage"],
+            "migrating"
+        );
+        assert!(!directory.path().join("state.json.writing").exists());
+    }
+
+    #[test]
+    fn st58_rollback_trace_role_comes_from_the_connection_used() {
+        assert_eq!(
+            postgres_url_role("postgres://ashiato_owner:secret@127.0.0.1/ashiato"),
+            Some("ashiato_owner")
+        );
+        assert_eq!(
+            postgres_url_role("postgres://ashiato:secret@127.0.0.1/ashiato"),
+            Some("ashiato")
+        );
     }
 
     // Scenario: コード頁 932 で書いた日本語のダウンロードの場所を、同じ文字として読む

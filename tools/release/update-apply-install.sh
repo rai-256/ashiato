@@ -150,6 +150,7 @@ scenario_hook() {
   case "$1" in
     '更新の移行の間、サーバは待ち受けない'|'更新の途中で止まると、サービスは自分で起きない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
     '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
+    '戻しは DB の管理者の役割を使わない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '戻した回は退避を消さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '書きかけの退避は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=during-backup' ;;
     '退避の前に落ちた回は、前の回の退避を戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=before-backup' ;;
@@ -236,7 +237,9 @@ assert_scenario_result() {
       ;;
     '戻した後、更新の間に溜まった未送信が入る') grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '戻し後の履歴を読めない' ;;
     '戻した後の「アプリと機能」の版とプログラムの置き場は前の版') grep -Fq "installed-version=$old_version" "$trace" || die '戻し後のプログラム版を確認できない' ;;
-    '戻しは DB の管理者の役割を使わない') grep -Eq '^rollback-db-role=ashiato_owner$' "$trace" || die '戻しで表の所有者を使っていない' ;;
+    '戻しは DB の管理者の役割を使わない')
+      grep -Eq '^role=ashiato_owner result=(ok|pending) .*update-history record-rollback' "$trace" || die '戻しの record-rollback が表の所有者の接続を使っていない'
+      ;;
     '戻した後、切っていない更新係は動いている') grep -A1 '^updater-service:$' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*4' || die '戻し後の更新係を確認できない' ;;
     '書きかけの退避は戻さない') (( rc != 0 )) && grep -Eq '^failed-databases=0$' "$trace" || die '書きかけ退避を戻した' ;;
     '戻した回は退避を消さない')
@@ -281,8 +284,8 @@ assert_scenario_result() {
       (( rc != 0 )) || die '印無しの戻しが成功扱いになった'
       grep -Fq '戻すものはありません' "$output" || die '印無しの戻し確認が無い'
       ;;
-    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$trace" && grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$output" || die '戻しの理由の表示が無い' ;;
-    '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" && grep -Eq 'not_applied|aborted|migrat.*stop' "$output" || die '入らなかった理由の表示が無い' ;;
+    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Fq '戻しました' "$output" || die '戻しの理由の表示が無い' ;;
+    '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Fq '入りませんでした' "$output" || die '入らなかった理由の表示が無い' ;;
     '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される')
       grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '戻した履歴を読めない'
       ;;
@@ -295,7 +298,7 @@ assert_scenario_result() {
     '退避の前に落ちた回は、前の回の退避を戻さない') (( rc != 0 )) && grep -Fq 'failed-databases=0' "$trace" || die '退避前の失敗で戻しを実行した' ;;
     '更新が通ると、更新の記録に通った行が足される') (( rc == 0 )) && grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '更新の記録を読めない' ;;
     '大きい版の違う PostgreSQL を持つ配布物では、何も替えずに止まる') (( rc != 0 )) && grep -Eq 'PG_MAJOR|PostgreSQL|not_applied' "$trace" || die 'PostgreSQL 大版違いの停止を確認できない' ;;
-    'サーバの切った更新の確認は、更新でも戻しでも切ったまま') ! grep -Eq 'update-check.*(on|enabled)' "$trace" || die '更新確認の無効状態を確認できない' ;;
+    'サーバの切った更新の確認は、更新でも戻しでも切ったまま') grep -Fq 'update-check-enabled=false' "$trace" || die '更新確認の無効状態を確認できない' ;;
     *) die "Scenario の判定が未定義: $name" ;;
   esac
 }
@@ -318,6 +321,9 @@ run_scenario() {
   if [[ -n "$prep_sql" ]]; then
     owner_sql "$prep_sql" || die "DB の版の記録の下準備に失敗: $name"
     echo 'db-prep=ok' >>"$trace"
+  fi
+  if [[ "$name" == 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' ]]; then
+    "$work/old/ashiato-setup.exe" update-check off >"$work/update-check-off.out" 2>&1 || die '更新確認を切れない'
   fi
   action="$(scenario_action "$name")"
   # 途中停止・戻し停止は、同じ PC の残った state を使って再実行する。
@@ -347,7 +353,7 @@ run_scenario() {
   set -e
   # 判定用の値は installer の exit code や固定文ではなく、更新後の Windows の実状態から採る。
   {
-    local health version state updater_state settings_after backups_after history_after failed_databases rollback_role
+    local health version state updater_state settings_after backups_after history_after failed_databases update_check_enabled
     health="$(curl.exe --silent --show-error --max-time 5 -o NUL -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)"
     printf 'healthz=%s\n' "$health"
     local raw_version version
@@ -361,8 +367,8 @@ run_scenario() {
     printf 'history-before=%s\nhistory-after=%s\n' "$history_before" "$history_after"
     failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" 2>/dev/null || printf unavailable)"
     printf 'failed-databases=%s\n' "$failed_databases"
-    rollback_role="$(owner_sql 'SELECT current_user' 2>/dev/null || printf unavailable)"
-    printf 'rollback-db-role=%s\n' "$rollback_role"
+    update_check_enabled="$(json_value 'C:/ProgramData/ashiato-updater/settings/check.json' enabled 2>/dev/null || printf unavailable)"
+    printf 'update-check-enabled=%s\n' "${update_check_enabled,,}"
     state="$(windows_sc query ashiato-server || true)"
     printf '%s\n' "$state"
     windows_sc qc ashiato-server || true
@@ -441,7 +447,7 @@ printf 'count=7\n'
 EOF
   chmod +x "$fake_path"/*
   export ST58_CALLS="$calls"
-  output=$'count=7\nstatus=ok\n更新が完了しました'
+  output=$'count=7\nstatus=ok\n更新が完了しました\n更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（202611152200_x・制約に反した）\n更新 0.5.0 は入りませんでした（移行が途中で終わった）。0.4.0 のまま動いています'
   assert_count 7 7 'self-test の記録'
   assert_output_contains "$output" '更新が完了しました'
   assert_update_acl $'Administrators:(OI)(CI)(F)\nNT AUTHORITY\\SYSTEM:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(RX)\nNT SERVICE\\ashiato-db:(OI)(CI)(R)'
@@ -472,7 +478,8 @@ backups-before=1
 backups-after=1
 history-before=1
 history-after=2
-rollback-db-role=ashiato_owner
+role=ashiato_owner result=ok ashiato-server.exe update-history record-rollback
+update-check-enabled=false
 updater-service:
 STATE : 4 RUNNING
 EOF
@@ -481,6 +488,10 @@ EOF
   assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
   sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
   expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
+  assert_scenario_result '戻しは DB の管理者の役割を使わない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻し役割の判定が通らない'
+  assert_scenario_result '移行が落ちて戻すと、窓に戻したことと版と理由が出る' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻しの窓表示の判定が通らない'
+  assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '入らなかった窓表示の判定が通らない'
+  assert_scenario_result 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '更新確認の判定が通らない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
   local prep_name

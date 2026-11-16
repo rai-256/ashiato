@@ -75,7 +75,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
   - `grep -c assert_scenario_result tools/release/update-apply-install.sh` → **2**（定義と `run_scenario` の中の呼び出しだけ）。self-test（`:380-451`）は `assert_count`・`assert_output_contains`・`assert_update_acl` とフックの表しか試さない。実行して `OK: update-apply-install の自己試験` rc=0。34 本の判定はどれも、わざと壊した入力に当てられていない。
 - kind: technical
 - 提案: 「しない」の判定は、「した」ときに必ず出る観測（`ashiato_failed_*` の DB が増えた・退避の dump の更新時刻が変わった）を台本が自分で取り、その不在を見る。役割は接続の URL の利用者名か `pg_stat_activity` から取る。self-test に、各 Scenario の「通る trace」と「壊した trace」を 1 組ずつ置いて `assert_scenario_result` に通す。
-- 処置: fixed D24 仮 — `assert_scenario_result` は Scenario ごとに rc と Windows の実状態を組み合わせて判定し、self-test には ACL・件数・出力・下準備・操作選択の壊れた入力を追加した。
+- 処置: fixed D24 仮 — `assert_scenario_result` は Scenario ごとに rc と Windows の実状態を組み合わせて判定し、self-test には ACL・件数・出力・下準備・操作選択の壊れた入力を追加した。戻しの役割は rollback 後に別接続で `current_user` を読むのでなく、`record-rollback` に実際に渡す `DATABASE_OWNER_URL` の利用者名を trace し、戻しを起こす Scenario で確かめる。
 - 判定: NOT ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）: update-apply-install.sh:228,280 は今も rc≠0 && ! grep rollback=ok の形で、rollback=ok は誰も出さないので何も観測しなくても通る。self-test(:354-405) は assert_scenario_result を呼ばない
 - 判定: NOT ADDRESSED（re-review 2 @484ab8741a17d2d5c8eba03554c93f88483ef183）: update-apply-install.sh の「戻しは DB の管理者の役割を使わない」が rollback-db-role=ashiato_owner を待つが、値は台本自身の owner_sql 'SELECT current_user'（:185-190）で、戻しの観測ではなく自己参照。常に通る。
 
@@ -311,7 +311,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:187（re-review 1 の New Breakage。Important）
 - kind: technical
-- 処置: fixed D24 仮 — `update-apply-install.sh` は設定指紋、退避数、更新履歴数、失敗 DB 数、サービスと更新係の状態、表所有者を Windows の実状態から trace に採り、Scenario ごとの判定もその値だけを見る。自己試験は `assert_scenario_result` の通る観測と壊れた観測を直接通す。
+- 処置: fixed D24 仮 — `update-apply-install.sh` は設定指紋、退避数、更新履歴数、失敗 DB 数、サービスと更新係の状態、更新確認の設定ファイルを Windows の実状態から trace に採り、Scenario ごとの判定もその値だけを見る。窓の 2 本は installer が実際に出す日本語の「戻しました」/「入りませんでした」を見る。自己試験は `assert_scenario_result` の通る観測と壊れた観測を直接通す。
 - 判定: NOT ADDRESSED（re-review 2 @484ab8741a17d2d5c8eba03554c93f88483ef183）: update-apply-install.sh に出さない文字列の判定が残る。update-check の否定 grep は何も出なくても通る。「窓に出る」2 本は rolled_back|not_applied|aborted を trace と output に求めるが、installer の出力は日本語の description()（update_plan.rs:240-252）。役割の判定は自己参照。
 
 ## R24. 戻しの履歴の種別が常に startup-failed で、移行失敗の戻しも同じ種別で記録される。画面の理由は outcomes 側で別に持つので影響は小さい。
@@ -327,13 +327,16 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh (rollback-db-role の採取と判定)
 - 根拠: tools/release/update-apply-install.sh (rollback-db-role の採取と判定)（re-review 2 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D25 仮 — `record_rollback` は起動した `record-rollback` に渡す `DATABASE_OWNER_URL` から利用者名を取り trace し、台本は移行失敗で戻しを実行した Scenario のその trace が `ashiato_owner` であることを確認する。rollback 後に別接続で `current_user` を読む自己参照を除いた。
 
 ## R26. state.json を直接上書きし、fs::write の失敗を無視する。原子的でなく、書きかけで落ちると更新の印が壊れ、再開時に読めなくなる。
 - 成果物: crates/installer/src/main.rs write_migrate_failure
 - 根拠: crates/installer/src/main.rs write_migrate_failure（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D20 仮 — `write_migrate_exit_code` と `write_migrate_failure` は同じフォルダの `.writing` へ完全な JSON を書いてから rename し、読取・JSON 化・書込み・rename の失敗を呼出元へ返す。`st58_migrate_failure_stage_write_is_atomic` が完成した JSON と書きかけの不在を確認する。
 
 ## R27. 共有ベクターを通す新しい Kotlin 試験と開発版の接頭辞の変更は、Gradle が完了せず実行結果が無い。compile だけが通っている。
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt
 - 根拠: collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 9.1 — `:app:testDebugUnitTest --tests '*St58*'` を完走し、結果 XML の `St58` ケースが 22 本以上であることを確認した。共有ベクターを全件通す `St58UpdateInstallTest` を含めて実行されている。

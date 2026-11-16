@@ -64,3 +64,18 @@
 - `scripts/quiet-run installer-lib-st58 -- cargo test -p ashiato-setup --lib st58_` — rc=0、28 passed。
 - `scripts/quiet-run android-compile -- ./collector-android/gradlew -p collector-android :app:compileDebugUnitTestKotlin` — rc=0。
 - `scripts/quiet-run android-st58 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — 前回は共有ベクター検査で開発版 APK の接頭辞不一致を検出。接頭辞を修正後、Gradle 実行が 30 秒でハーネスから切れ、完了結果は未取得。
+
+## 追加の settle（R3 / R23 / R25 / R26 / R27）
+
+- R3/R25: rollback 後に別接続で `current_user` を読む判定を廃止した。`record-rollback` に実際に渡す `DATABASE_OWNER_URL` の利用者名を trace し、移行失敗を起こして戻す Scenario が `ashiato_owner` を確認する。
+- R23: 更新確認は trace の出ない語を grep せず、`check.json` の `enabled` を読み取る。窓の 2 Scenario は installer の日本語出力「戻しました」「入りませんでした」を確認する。自己試験はそれぞれの判定関数を通す。
+- R26: 移行失敗の詳細と終了コードを state.json に反映する経路を、`.writing` へ完全な JSON を書いて rename する原子的更新へ統一し、失敗は呼出元に返すようにした。
+- R27: 共有ベクターを通す Android Robolectric 試験を含め、St58 の unit test を完走した。
+
+## 検証（R3 / R23 / R25 / R26 / R27）
+
+- `scripts/quiet-run update-apply-self-test -- tools/release/update-apply-install.sh --self-test` — rc=0。
+- `scripts/quiet-run installer-st58 -- cargo test -p ashiato-setup st58_` — rc=0、4 passed。
+- `scripts/quiet-run android-st58 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — rc=0、BUILD SUCCESSFUL（55s）。
+- `cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St58*.xml | grep -c '<testcase '` — 22 以上、rc=0。
+- `rustfmt --check crates/installer/src/main.rs` / `git diff --check` / `python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — すべて rc=0。
