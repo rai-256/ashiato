@@ -480,6 +480,9 @@ EOF
     assert_scenario_result "$window_scenario" "$window_output" "$work/empty-trace" 1 0.4.0 0.5.0 ||
       die "窓の Scenario が失敗時の表示を確かめていない: $window_scenario"
   done
+  local wrong_window_output="$work/wrong-window-install.out"
+  printf '%s\n' '更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（中断）' >"$wrong_window_output"
+  expect_fail assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$wrong_window_output" "$work/empty-trace" 1 0.4.0 0.5.0
   expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
   evidence_trace="$work/evidence-trace"
   evidence_output="$work/install.out"
