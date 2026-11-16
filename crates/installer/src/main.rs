@@ -1018,6 +1018,7 @@ fn run_migrate_with_backup(
         .map_err(|error| format!("ashiato-server migrate を起こせない: {error}"))?;
     if !output.status.success() {
         write_migrate_exit_code(layout, output.status.code());
+        write_migrate_failure(layout, &output_tail(&output));
         // migrate が端末に出すのは種別・版の名前・SQLSTATE の 1 行だけ（秘密を持たない）
         return Err(format!("移行に失敗した: {}", output_tail(&output)));
     }
@@ -1039,6 +1040,19 @@ fn run_migrate_with_backup(
     Ok(())
 }
 
+fn write_migrate_failure(layout: &layout::Layout, output: &str) {
+    let path = update_stage_path(layout);
+    let Ok(bytes) = fs::read(&path) else { return };
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return };
+    let Some(line) = output.lines().find(|line| line.contains("error: kind=")) else { return };
+    for field in ["kind", "version", "sqlstate"] {
+        if let Some(part) = line.split_whitespace().find_map(|part| part.strip_prefix(&format!("{field}="))) {
+            value[format!("migrate_{field}")] = serde_json::Value::String(part.to_owned());
+        }
+    }
+    let _ = fs::write(path, serde_json::to_vec_pretty(&value).unwrap_or_default());
+}
+
 fn update_stage_path(layout: &layout::Layout) -> PathBuf {
     PathBuf::from(layout.state_dir)
         .join("update")
@@ -1057,13 +1071,22 @@ fn write_update_stage(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("更新の印を作れない: {error}"))?;
     }
-    let value = serde_json::json!({
+    let mut value = serde_json::json!({
         "run_id": run_id,
         "from_version": from_version,
         "to_version": to_version,
         "backup_dir": backup_dir,
         "stage": stage,
     });
+    // A resumed rollback must retain the machine-readable migration failure
+    // details; otherwise it would incorrectly become a startup failure.
+    if let Ok(previous) = fs::read(&path).and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)) {
+        for key in ["migrate_exit_code", "migrate_kind", "migrate_version", "migrate_sqlstate"] {
+            if !previous[key].is_null() {
+                value[key] = previous[key].clone();
+            }
+        }
+    }
     fs::write(
         path,
         serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?,
@@ -1469,9 +1492,9 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &pending,
         state["to_version"].as_str().unwrap_or_default(),
         previous_version,
-        // Migration details are recorded by the migration command itself.
-        // This rollback row describes the completed restoration.
-        "startup-failed",
+        if state["migrate_exit_code"].as_i64() == Some(1) { "migration-failed" } else { "startup-failed" },
+        state["migrate_version"].as_str(),
+        state["migrate_sqlstate"].as_str(),
     );
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
@@ -1535,6 +1558,8 @@ fn finish_restored(
         state["to_version"].as_str().unwrap_or_default(),
         state["from_version"].as_str().unwrap_or_default(),
         "startup-failed",
+        None,
+        None,
     );
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
@@ -2675,6 +2700,8 @@ mod tests {
             "0.5.0",
             "0.4.0",
             "startup-failed",
+            None,
+            None,
         );
         assert!(super::record_rollback(
             &command,

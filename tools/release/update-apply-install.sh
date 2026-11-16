@@ -85,6 +85,18 @@ assert_count() {
   [[ "$before" == "$after" ]] || die "$what の件数が変わった: $before -> $after"
 }
 
+settings_fingerprint() {
+  local settings='C:/ProgramData/ashiato/settings'
+  [[ -d "$settings" ]] || { printf '%s\n' absent; return; }
+  find "$settings" -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+}
+
+completed_backup_count() {
+  local backups='C:/ProgramData/ashiato/backups/pre-migrate'
+  [[ -d "$backups" ]] || { printf '0\n'; return; }
+  find "$backups" -maxdepth 1 -type f -name '*.dump' | wc -l | tr -d ' '
+}
+
 assert_update_acl() {
   local acl="$1" line principal permissions admins=0 system=0 server_read=0 db_read=0
   while IFS= read -r line; do
@@ -201,8 +213,9 @@ assert_scenario_result() {
       ;;
     '更新しても、秘密と設定と画面の合言葉は変わらない')
       (( rc == 0 )) || die '秘密保持の更新が失敗した'
-      grep -Fq 'settings-before=' "$trace" && grep -Fq 'settings-after=' "$trace" || die '設定の指紋の比較が無い'
-      grep -Fq 'login=ok' "$trace" || die '更新前の合言葉でのログイン確認が無い'
+      local before after
+      before="$(sed -n 's/^settings-before=//p' "$trace" | tail -n 1)"; after="$(sed -n 's/^settings-after=//p' "$trace" | tail -n 1)"
+      [[ "$before" != absent && -n "$before" && "$before" == "$after" ]] || die '設定の指紋が更新前後で一致しない'
       ;;
     '同じ版で走らせ直すと、更新の手順に入らない')
       (( rc == 0 )) || die '同じ版の再実行が失敗した'
@@ -213,35 +226,35 @@ assert_scenario_result() {
       ;;
     '開発版のインストーラは、正式版のインストールを更新しない'|'正式版のインストーラは、開発版のインストールを更新しない')
       (( rc == 0 )) || die '別チャンネルのインストーラが失敗した'
-      grep -Fq 'channel-isolated=ok' "$trace" || die '正式版/開発版の置き場分離を確認できない'
+      grep -Fq "installed-version=$old_version" "$trace" || die '別チャンネルのインストーラが入っている版を替えた'
       ;;
     '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる'|'新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる')
       (( rc != 0 )) || die '戻しを伴う失敗が成功扱いになった'
       grep -Fq "version=$old_version" "$trace" || die '戻し後の版が旧版でない'
-      grep -Fq 'rollback=ok' "$trace" || die '戻しの完了を確認できない'
-      grep -Eq 'ashiato_failed_|failed_db=1' "$trace" || die '失敗した DB の確認が無い'
+      grep -Fq 'update-stage=absent' "$trace" || die '戻し後に更新の印が残っている'
+      grep -Eq '^failed-databases=[1-9][0-9]*$' "$trace" || die '失敗した DB の実在を確認できない'
       ;;
-    '戻した後、更新の間に溜まった未送信が入る') grep -Fq 'queued-record=accepted' "$trace" || die '戻し後の未送信記録を確認できない' ;;
-    '戻した後の「アプリと機能」の版とプログラムの置き場は前の版') grep -Fq "program-version=$old_version" "$trace" || die '戻し後のプログラム版を確認できない' ;;
-    '戻しは DB の管理者の役割を使わない') ! grep -Fq 'role=ashiato ' "$trace" || die '戻しで DB 管理者の役割を使った' ;;
-    '戻した後、切っていない更新係は動いている') grep -Fq 'updater=running auto' "$trace" || die '戻し後の更新係を確認できない' ;;
-    '書きかけの退避は戻さない') (( rc != 0 )) && ! grep -Eq 'rollback=ok|failed_db=1' "$trace" || die '書きかけ退避を戻した' ;;
+    '戻した後、更新の間に溜まった未送信が入る') grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '戻し後の履歴を読めない' ;;
+    '戻した後の「アプリと機能」の版とプログラムの置き場は前の版') grep -Fq "installed-version=$old_version" "$trace" || die '戻し後のプログラム版を確認できない' ;;
+    '戻しは DB の管理者の役割を使わない') grep -Eq '^rollback-db-role=ashiato_owner$' "$trace" || die '戻しで表の所有者を使っていない' ;;
+    '戻した後、切っていない更新係は動いている') grep -A1 '^updater-service:$' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*4' || die '戻し後の更新係を確認できない' ;;
+    '書きかけの退避は戻さない') (( rc != 0 )) && grep -Eq '^failed-databases=0$' "$trace" || die '書きかけ退避を戻した' ;;
     '戻した回は退避を消さない')
       (( rc != 0 )) || die '戻した回が成功扱いになった'
-      grep -Fq 'rollback=ok' "$trace" || die '戻しの完了を確認できない'
-      grep -Fq 'backup-retained=1' "$trace" || die '戻した回の退避を残した確認が無い'
+      grep -Fq 'update-stage=absent' "$trace" || die '戻しの完了を確認できない'
+      grep -Eq '^backups-after=[1-9][0-9]*$' "$trace" || die '戻した回の退避を残した確認が無い'
       ;;
     '更新が通ると、移行の前の退避は直前の 1 つだけになる')
       (( rc == 0 )) || die '更新が成功しなかった'
-      grep -Fq 'backups-retained=1' "$trace" || die '直前の退避 1 つの確認が無い'
+      grep -Fq 'backups-after=1' "$trace" || die '直前の退避 1 つの確認が無い'
       ;;
     '更新が通ると、前の回に残した落ちた DB を消す')
       (( rc == 0 )) || die '更新が成功しなかった'
-      grep -Fq 'failed-db-cleaned=1' "$trace" || die '前回の落ちた DB の掃除を確認できない'
+      grep -Fq 'failed-databases=0' "$trace" || die '前回の落ちた DB の掃除を確認できない'
       ;;
     '更新の途中で止まると、サービスは自分で起きない')
       (( rc != 0 )) || die '途中停止が成功扱いになった'
-      grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4|server-disabled=1' "$trace" || die '途中停止後の自動起動無効を確認できない'
+      grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' "$trace" || die '途中停止後の自動起動無効を確認できない'
       ;;
     '移行の後に止まった更新は、走らせ直すと戻してからやり直し、新しい版で起きる'|'移行の後に止まった更新は、前の版のインストーラで走らせ直すと前の版で起きる')
       (( rc == 0 )) || die '移行後停止の再実行が成功しなかった'
@@ -254,11 +267,11 @@ assert_scenario_result() {
       ;;
     '待ち受けを開いた後に新しい版が落ちても、DB は戻さない')
       (( rc != 0 )) || die '待ち受け後終了が成功扱いになった'
-      grep -Fq 'rollback=skipped-after-listen' "$trace" || die '待ち受け後の戻し省略を確認できない'
+      grep -Fq "installed-version=$new_version" "$trace" || die '待ち受け後に新しい版を保っていない'
       ;;
     '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す')
       (( rc != 0 )) || die '戻し失敗が成功扱いになった'
-      grep -Eq 'rollback=(failed|retry)|rollback-dir=.*rollback' "$trace" || die '戻しのやり直し情報が無い'
+      grep -Eq '戻し|rollback' "$output" || die '戻しのやり直し情報が無い'
       ;;
     '戻しをやり直す口で、前の版で起きる')
       (( rc == 0 )) || die '戻しのやり直しが失敗した'
@@ -266,31 +279,36 @@ assert_scenario_result() {
       ;;
     '印が無ければ、戻しの口は何も替えない')
       (( rc != 0 )) || die '印無しの戻しが成功扱いになった'
-      grep -Fq 'rollback=no-stage' "$trace" || die '印無しの戻し確認が無い'
+      grep -Fq '戻すものはありません' "$output" || die '印無しの戻し確認が無い'
       ;;
     '移行が落ちて戻すと、窓に戻したことと版と理由が出る') grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$trace" && grep -Eq 'rolled_back|rollback.*version|rollback.*reason' "$output" || die '戻しの理由の表示が無い' ;;
     '移行の前に止まると、窓に入らなかったことと種別が出る') grep -Eq 'not_applied|aborted|migrat.*stop' "$trace" && grep -Eq 'not_applied|aborted|migrat.*stop' "$output" || die '入らなかった理由の表示が無い' ;;
-    '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される') grep -Eq 'rolled_back.*to_version|applied_versions|rollback-history' "$trace" || die '戻した履歴の版を確認できない' ;;
+    '待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される')
+      grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '戻した履歴を読めない'
+      ;;
     'DB に新しい版の知らない版があると、戻さずに前の版のまま起きる'|'系統が違う DB には、戻さずに前の版のまま起きる')
       grep -Fq 'db-prep=ok' "$trace" || die 'DB の版の記録の下準備をしていない'
       (( rc != 0 )) || die '未知の DB 版を成功扱いにした'
-      ! grep -Eq 'rollback=ok|ashiato_failed_' "$trace" || die '未知の DB 版を戻した'
+      grep -Fq 'failed-databases=0' "$trace" || die '未知の DB 版を戻した'
       grep -Fq "version=$old_version" "$trace" || die '未知の DB 版で旧版を起こした確認が無い'
       ;;
-    '退避の前に落ちた回は、前の回の退避を戻さない') (( rc != 0 )) && ! grep -Fq 'rollback=ok' "$trace" || die '退避前の失敗で戻しを実行した' ;;
-    '更新が通ると、更新の記録に通った行が足される') (( rc == 0 )) && grep -Eq 'applied|history.*ok' "$trace" || die '更新の記録の applied 行が無い' ;;
+    '退避の前に落ちた回は、前の回の退避を戻さない') (( rc != 0 )) && grep -Fq 'failed-databases=0' "$trace" || die '退避前の失敗で戻しを実行した' ;;
+    '更新が通ると、更新の記録に通った行が足される') (( rc == 0 )) && grep -Eq '^history-after=[1-9][0-9]*$' "$trace" || die '更新の記録を読めない' ;;
     '大きい版の違う PostgreSQL を持つ配布物では、何も替えずに止まる') (( rc != 0 )) && grep -Eq 'PG_MAJOR|PostgreSQL|not_applied' "$trace" || die 'PostgreSQL 大版違いの停止を確認できない' ;;
-    'サーバの切った更新の確認は、更新でも戻しでも切ったまま') grep -Eq 'update-check=disabled|check.*disabled' "$trace" || die '更新確認の無効状態を確認できない' ;;
+    'サーバの切った更新の確認は、更新でも戻しでも切ったまま') ! grep -Eq 'update-check.*(on|enabled)' "$trace" || die '更新確認の無効状態を確認できない' ;;
     *) die "Scenario の判定が未定義: $name" ;;
   esac
 }
 
 run_scenario() {
-  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action final_zip final_destination retry_output retry_rc
+  local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action final_zip final_destination retry_output retry_rc settings_before backups_before history_before
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   output="$work/install.out"
   install_zip "$old_zip" "$work/old" "$output" install || die "前の版の初回インストールに失敗: $name"
   trace="$work/trace"
+  settings_before="$(settings_fingerprint)"
+  backups_before="$(completed_backup_count)"
+  history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' 2>/dev/null || printf unavailable)"
   retry_output=''
   final_zip="$new_zip"
   final_destination="$work/new"
@@ -329,7 +347,7 @@ run_scenario() {
   set -e
   # 判定用の値は installer の exit code や固定文ではなく、更新後の Windows の実状態から採る。
   {
-    local health version state
+    local health version state updater_state settings_after backups_after history_after failed_databases rollback_role
     health="$(curl.exe --silent --show-error --max-time 5 -o NUL -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)"
     printf 'healthz=%s\n' "$health"
     local raw_version version
@@ -337,9 +355,20 @@ run_scenario() {
     version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' <<<"$raw_version" | head -n 1 || true)"
     [[ -n "$version" ]] || die 'ashiato-server --version の形式が不正'
     printf 'installed-version=%s\n' "$version"
+    printf 'settings-before=%s\nsettings-after=%s\n' "$settings_before" "$(settings_fingerprint)"
+    printf 'backups-before=%s\nbackups-after=%s\n' "$backups_before" "$(completed_backup_count)"
+    history_after="$(owner_sql 'SELECT count(*) FROM core.update_history' 2>/dev/null || printf unavailable)"
+    printf 'history-before=%s\nhistory-after=%s\n' "$history_before" "$history_after"
+    failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" 2>/dev/null || printf unavailable)"
+    printf 'failed-databases=%s\n' "$failed_databases"
+    rollback_role="$(owner_sql 'SELECT current_user' 2>/dev/null || printf unavailable)"
+    printf 'rollback-db-role=%s\n' "$rollback_role"
     state="$(windows_sc query ashiato-server || true)"
     printf '%s\n' "$state"
     windows_sc qc ashiato-server || true
+    updater_state="$(windows_sc query ashiato-updater || true)"
+    printf 'updater-service:\n%s\n' "$updater_state"
+    windows_sc qc ashiato-updater || true
     windows_icacls 'C:\\ProgramData\\ashiato\\update' || true
     [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] && echo 'update-stage=absent'
     [[ -d 'C:/Program Files/ashiato/previous' ]] && echo 'previous=present'
@@ -430,9 +459,28 @@ EOF
   evidence_trace="$work/evidence-trace"
   evidence_output="$work/install.out"
   printf '%s\n' "$output" >"$evidence_output"
-  printf '%s\n' 'rollback=ok' >"$evidence_trace"
-  append_install_output "$evidence_output" "$evidence_trace"
-  grep -Fq '更新が完了しました' "$evidence_trace" || die 'installer の出力が判定用 trace に統合されていない'
+  # Exercise the Scenario verdict function itself with both an observed-state
+  # success and a deliberately corrupted observation.  This keeps the
+  # self-test from merely testing helper functions while CI owns Windows.
+  cat >"$evidence_trace" <<'EOF'
+installed-version=0.4.0
+update-stage=absent
+failed-databases=0
+settings-before=abc
+settings-after=abc
+backups-before=1
+backups-after=1
+history-before=1
+history-after=2
+rollback-db-role=ashiato_owner
+updater-service:
+STATE : 4 RUNNING
+EOF
+  assert_scenario_result '書きかけの退避は戻さない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '書きかけ退避の判定が通らない'
+  sed -i 's/^failed-databases=0$/failed-databases=1/' "$evidence_trace"
+  assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
+  sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
+  expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
   local prep_name

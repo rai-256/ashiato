@@ -220,6 +220,8 @@ mod tests {
             "0.5.0",
             "0.4.0",
             "startup-failed",
+            None,
+            None,
         );
         assert_eq!(
             command.program,
@@ -227,6 +229,22 @@ mod tests {
         );
         assert!(command.line().contains("record-rollback"));
         assert!(command.line().contains("history-pending.jsonl"));
+    }
+
+    #[test]
+    fn st58_plan_migration_rollback_history_keeps_failure_kind() {
+        let command = commands::rollback_history_command(
+            Path::new(r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"),
+            Path::new(r"C:\\ProgramData\\ashiato\\update\\history-pending.jsonl"),
+            "0.5.0",
+            "0.4.0",
+            "migration-failed",
+            Some("202611152200_x"),
+            Some("23505"),
+        );
+        assert!(command.args.windows(2).any(|args| args == ["--kind", "migration-failed"]));
+        assert!(command.args.windows(2).any(|args| args == ["--failed-version", "202611152200_x"]));
+        assert!(command.args.windows(2).any(|args| args == ["--sqlstate", "23505"]));
     }
 
     #[test]

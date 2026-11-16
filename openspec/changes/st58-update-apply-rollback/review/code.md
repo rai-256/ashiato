@@ -298,8 +298,10 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:187（re-review 1 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D24 仮 — `update-apply-install.sh` は設定指紋、退避数、更新履歴数、失敗 DB 数、サービスと更新係の状態、表所有者を Windows の実状態から trace に採り、Scenario ごとの判定もその値だけを見る。自己試験は `assert_scenario_result` の通る観測と壊れた観測を直接通す。
 
 ## R24. 戻しの履歴の種別が常に startup-failed で、移行失敗の戻しも同じ種別で記録される。画面の理由は outcomes 側で別に持つので影響は小さい。
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1470（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D18 仮 — `migrate` の機械可読な kind/version/sqlstate を更新印へ残し、終了コード 1 の戻しでは `migration-failed` として `record-rollback` に渡す。再開した戻しも印に残した値を使う。

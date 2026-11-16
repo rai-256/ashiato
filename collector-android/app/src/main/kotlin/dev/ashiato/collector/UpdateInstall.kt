@@ -48,7 +48,8 @@ internal object UpdateInstall {
             val url = obj["browser_download_url"]?.jsonPrimitive?.content ?: return@mapNotNull null
             val digest = obj["digest"]?.jsonPrimitive?.content ?: return@mapNotNull null
             val sha = digest.removePrefix("sha256:")
-            if (name != "$APK_PREFIX$latest$APK_SUFFIX" || !isAllowedDownloadUrl(url) ||
+            val prefix = if (installed.contains("-dev.")) "ashiato-collector-dev-" else APK_PREFIX
+            if (name != "$prefix$latest$APK_SUFFIX" || !isAllowedDownloadUrl(url) ||
                 !Regex("[0-9a-fA-F]{64}").matches(sha) || !digest.startsWith("sha256:")) null
             else Asset(latest, url, sha.lowercase(), name)
         }.firstOrNull()

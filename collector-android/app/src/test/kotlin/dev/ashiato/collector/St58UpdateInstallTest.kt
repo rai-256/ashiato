@@ -16,6 +16,10 @@ import org.junit.rules.TemporaryFolder
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.junit.runner.RunWith
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -31,6 +35,33 @@ class St58UpdateInstallTest {
         val asset = UpdateInstall.chooseAsset("0.4.0", body)
         assertEquals("0.4.1", asset?.version)
         assertEquals("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", asset?.sha256)
+    }
+
+    @Test
+    fun `共有の更新ベクターを Android の選択規則で全件通す`() {
+        // Scenario: 指紋の無い配布物は入れない
+        // `docs/contracts/update-apply-vectors.json` is shared with Rust: do
+        // not duplicate its malformed-input matrix in the Android tests.
+        val vectors = javaClass.classLoader
+            ?.getResourceAsStream("update-apply-vectors.json")
+            ?.bufferedReader()
+            ?.use { it.readText() }
+        assertTrue("共有ベクターが無い", vectors != null)
+        val cases = Json.parseToJsonElement(vectors!!).jsonObject["cases"]!!.jsonArray
+        cases.forEach { element ->
+            val case = element.jsonObject
+            case["redirect"]?.jsonPrimitive?.content?.let { redirect ->
+                assertEquals(case["allowed_redirect"]!!.jsonPrimitive.content.toBoolean(), UpdateInstall.isAllowedDownloadUrl(redirect))
+                return@forEach
+            }
+            if (case["component"]!!.jsonPrimitive.content != "android") return@forEach
+            val tag = case["tag_name"]!!.jsonPrimitive.content
+            val asset = case["asset"]!!.jsonObject
+            val release = """[{"tag_name":"$tag","draft":false,"assets":[${asset}]}]"""
+            val installed = if (tag == "nightly") "0.4.0-dev.20261109" else "0.4.0"
+            val selected = UpdateInstall.chooseAsset(installed, release) != null
+            assertEquals("共有ベクター: ${case["name"]!!.jsonPrimitive.content}", case["selected"]!!.jsonPrimitive.content.toBoolean(), selected)
+        }
     }
 
     @Test

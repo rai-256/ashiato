@@ -1148,14 +1148,25 @@ pub fn rollback_history_command(
     new_version: &str,
     previous_version: &str,
     kind: &str,
+    failed_version: Option<&str>,
+    sqlstate: Option<&str>,
 ) -> SetupCommand {
-    update_history_record_rollback_command(
+    let mut command = update_history_record_rollback_command(
         program,
         pending_out,
         new_version,
         previous_version,
         kind,
-    )
+    );
+    if kind == "migration-failed" {
+        command.args.extend([
+            "--failed-version".to_owned(),
+            failed_version.unwrap_or(new_version).to_owned(),
+            "--sqlstate".to_owned(),
+            sqlstate.unwrap_or_default().to_owned(),
+        ]);
+    }
+    command
 }
 
 pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCommand {

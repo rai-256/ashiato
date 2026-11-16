@@ -50,3 +50,17 @@
 
 - `scripts/quiet-run st58-settle-followup -- cargo test -p ashiato-collector-windows st58_` — rc=0、19 passed。
 - `scripts/quiet-run st58-settle-plan -- cargo test -p ashiato-setup st58_` — rc=0、2 passed。
+
+## 追加の settle（R2 / R3 / R7 / R23 / R24）
+
+- R2/R3/R23: Windows 台本は自己申告の文字列を廃止し、設定指紋・退避と履歴の件数・失敗 DB 数・サービス状態・実行した DB 所有者を実状態から採取して判定する。自己試験は Scenario 判定関数の成功観測と壊れた観測を直接通す。
+- R7: Android の unit test は `docs/contracts/update-apply-vectors.json` を Gradle test resource として取り込み、Android 向けの全ベクターとリダイレクト規則を検査する。開発版 APK の `ashiato-collector-dev-` 接頭辞も実装側で選べるようにした。
+- R24: 移行失敗の kind/version/sqlstate を更新印に保存し、戻し履歴を `migration-failed` として再開時にも同じ値で記録する。
+
+## 検証（追加の settle）
+
+- `tools/release/update-apply-install.sh --self-test` — rc=0。
+- `scripts/quiet-run installer-st58 -- cargo test -p ashiato-setup st58_` — rc=0、2 passed。
+- `scripts/quiet-run installer-lib-st58 -- cargo test -p ashiato-setup --lib st58_` — rc=0、28 passed。
+- `scripts/quiet-run android-compile -- ./collector-android/gradlew -p collector-android :app:compileDebugUnitTestKotlin` — rc=0。
+- `scripts/quiet-run android-st58 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — 前回は共有ベクター検査で開発版 APK の接頭辞不一致を検出。接頭辞を修正後、Gradle 実行が 30 秒でハーネスから切れ、完了結果は未取得。
