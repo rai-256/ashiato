@@ -302,6 +302,19 @@ fn st56_dpapi_setup_has_no_plaintext_and_can_send() {
             request.push_str(&line);
         }
         assert!(request.contains("authorization: Bearer token-for-test-0123456789"));
+        // 本文を読み切ってから返す。読まずに閉じると Windows は RST を送り、送り手が
+        // 「確立された接続が中止された」（os error 10053）で落ちることがある（CI 43842116656）
+        let length = request
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .expect("content-length");
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).expect("request body");
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
             .expect("reply");
