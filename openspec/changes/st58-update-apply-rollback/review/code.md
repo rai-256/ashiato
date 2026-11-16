@@ -1003,8 +1003,10 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1124（re-review 11 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D20 — 段を書き直すときに引き継ぐ印を `CARRIED_UPDATE_STAGE_KEYS` にまとめ、`program_moved` を加えた（`carry_update_stage_fields`）。試験 `st58_rewriting_stage_keeps_program_moved_mark`（定数から外すと落ちることを確かめた）。
 
 ## R66. fix report にテスト名も実行結果も無い。実装者の「テストを実行した」という主張を裏付けられない。
 - 成果物: .superpowers/sdd/st58-settle/report.md
 - 根拠: .superpowers/sdd/st58-settle/report.md（re-review 11 の New Breakage。Minor）
 - kind: technical
+- 処置: rejected: `.superpowers/sdd/st58-settle/report.md` は自己 ignore の作業場で git の管理外（49c1dc303 で追跡から外した）。前の回の報告は片付けで消えたもので、成果物の欠陥ではなく commit で直せない。証跡はこの回の report に置き直した —— `cargo test -p ashiato-setup st58_` の全件の名前と結果（R64 の `st58_restore_program_files_partial_move_keeps_unmoved_previous`・`st58_restore_program_files_moved_after_full_move_sets_new_aside` を含め lib 29 件・bin 18 件すべて ok）。

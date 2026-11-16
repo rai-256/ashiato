@@ -1123,27 +1123,35 @@ fn write_update_stage(
         "backup_dir": backup_dir,
         "stage": stage,
     });
-    // A resumed rollback must retain the machine-readable migration failure
-    // details; otherwise it would incorrectly become a startup failure.
     if let Ok(previous) = fs::read(&path).and_then(|bytes| {
         serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)
     }) {
-        for key in [
-            "migrate_exit_code",
-            "migrate_kind",
-            "migrate_version",
-            "migrate_sqlstate",
-            "restore_database",
-            "history_recorded",
-            "outcome_result",
-            "outcome_reason",
-        ] {
-            if !previous[key].is_null() {
-                value[key] = previous[key].clone();
-            }
-        }
+        carry_update_stage_fields(&previous, &mut value);
     }
     write_update_stage_value(&path, &value)
+}
+
+/// 段を書き直しても失ってはいけない印。段の名前と一緒に書き直す 5 つ（run_id など）の外にある。
+/// - 移行の失敗の詳細: 再開した戻しが起動の失敗と取り違えないため
+/// - `program_moved`: 段 `moved` の戻しが、program に残るものを前の版か新しい版か区別するため（R64・R65）
+const CARRIED_UPDATE_STAGE_KEYS: [&str; 9] = [
+    "migrate_exit_code",
+    "migrate_kind",
+    "migrate_version",
+    "migrate_sqlstate",
+    "restore_database",
+    "history_recorded",
+    "outcome_result",
+    "outcome_reason",
+    "program_moved",
+];
+
+fn carry_update_stage_fields(previous: &serde_json::Value, value: &mut serde_json::Value) {
+    for key in CARRIED_UPDATE_STAGE_KEYS {
+        if !previous[key].is_null() {
+            value[key] = previous[key].clone();
+        }
+    }
 }
 
 fn write_migrate_exit_code(layout: &layout::Layout, code: Option<i32>) -> Result<(), String> {
@@ -3406,6 +3414,22 @@ mod tests {
             .args
             .windows(2)
             .any(|args| args == ["--sqlstate", "23505"]));
+    }
+
+    #[test]
+    fn st58_rewriting_stage_keeps_program_moved_mark() {
+        // Scenario: 更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる
+        // 段 moved で移し終えた印は、段を書き直しても残る（消えると戻しが新しい版を前の版とみなす）
+        let previous = serde_json::json!({"stage": "moved", "program_moved": true, "migrate_sqlstate": "23505"});
+        let mut value = serde_json::json!({"stage": "moved"});
+        super::carry_update_stage_fields(&previous, &mut value);
+        assert_eq!(value["program_moved"], true);
+        assert_eq!(value["migrate_sqlstate"], "23505");
+        assert_eq!(value["stage"], "moved");
+
+        let mut fresh = serde_json::json!({"stage": "moved"});
+        super::carry_update_stage_fields(&serde_json::json!({"stage": "moved"}), &mut fresh);
+        assert!(fresh["program_moved"].is_null());
     }
 
     #[cfg(unix)]
