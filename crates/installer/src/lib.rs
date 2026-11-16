@@ -357,6 +357,26 @@ mod tests {
         );
     }
     #[test]
+    fn st58_plan_start_disabled_service_sets_demand_before_start() {
+        // 移行の後、「無効」のサーバを「自動」にせずに起こす（1058 で落ちない）
+        let commands = start_disabled_service_commands("ashiato-server");
+        let args: Vec<Vec<String>> = commands
+            .iter()
+            .map(|c| {
+                std::iter::once(c.program.clone())
+                    .chain(c.args.clone())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                vec!["sc.exe", "config", "ashiato-server", "start=", "demand"],
+                vec!["sc.exe", "start", "ashiato-server"],
+            ]
+        );
+    }
+    #[test]
     fn st58_plan_history_success_has_null_reason() {
         assert!(history_line("at", "applied", "new", "old", None).contains("\"reason\":null"));
     }

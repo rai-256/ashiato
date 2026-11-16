@@ -1589,8 +1589,8 @@ fn update_install_attempt(
         "starting",
         &backup,
     )?;
-    run(
-        &update_plan::service_start_command(layout.server_service),
+    run_all(
+        &update_plan::start_disabled_service_commands(layout.server_service),
         trace,
     )?;
     if !wait_for_port(layout.server_port, Duration::from_secs(180)) {

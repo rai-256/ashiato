@@ -382,3 +382,13 @@ pub fn service_stop_command(service: &str) -> SetupCommand {
 pub fn service_start_command(service: &str) -> SetupCommand {
     SetupCommand::new("sc.exe", ["start", service])
 }
+
+/// 開始の種類「無効」にしたサービスを、今回だけ起こす。「無効」のままの `sc.exe start` は
+/// 1058 で断られるので、先に「手動」にする（再起動では起きない。「自動」へ戻すのは
+/// 新しい版の待ち受けを確かめた後。design D1 の 7・D20（仮））。
+pub fn start_disabled_service_commands(service: &str) -> Vec<SetupCommand> {
+    vec![
+        service_update_command(service, "demand"),
+        service_start_command(service),
+    ]
+}
