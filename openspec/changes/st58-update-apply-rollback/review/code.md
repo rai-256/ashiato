@@ -1204,3 +1204,4 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: .superpowers/sdd/st58-settle/report.md:1（re-review 15 の New Breakage。Minor）
 - kind: technical
 - 処置: rejected: `.superpowers/sdd/st58-settle/report.md` は `.superpowers/sdd/.gitignore`（`*`）で git の管理外の作業場（R66 と同じ）。前の回の本文は片付けで消えたもので、成果物の欠陥ではなく commit で直せない。証跡はこの回の report に置き直した —— `update-apply-install.sh --self-test` は rc=0、a8a2fd578 の判定を古い形に戻した一時コピーでは rc=1（`NG: 同じ版なのに更新手順へ入った`）。`cargo test -p ashiato-setup st58_` は lib 30 件（3abbdf673 の `st58_plan_start_disabled_service_sets_demand_before_start` を含む）・bin 18 件すべて ok。
+- 判定: ADDRESSED（re-review 16 @d2db46663880c5b3941823bff2d34a83a606ccb8）
