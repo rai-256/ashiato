@@ -9,7 +9,7 @@ die() {
   local file
   echo "NG: $*" >&2
   if [[ -n "$current_scenario_work" ]]; then
-    for file in install.out retry.out trace; do
+    for file in install.out prior.out retry.out trace; do
       [[ -s "$current_scenario_work/$file" ]] || continue
       echo "== $file の末尾（$current_scenario_work）:" >&2
       tail -n 40 "$current_scenario_work/$file" | tr -d '\r' >&2
@@ -176,6 +176,47 @@ append_install_output() {
 
 windows_sc() { MSYS2_ARG_CONV_EXCL='*' sc.exe "$@" 2>/dev/null | tr -d '\r'; }
 windows_icacls() { MSYS2_ARG_CONV_EXCL='*' icacls.exe "$@" 2>/dev/null | tr -d '\r'; }
+service_state_code() { windows_sc query "$1" | awk -F ':' 'toupper($1) ~ /STATE/ { split($2,a," "); print a[1]; exit }'; }
+
+# 各 Scenario の「前の版の初回インストール」の前に、PC を何も入っていない形へ戻す。
+# 同じ job の前の段（install-check・update-check-install）と前の Scenario が新しい版（0.5.0）を残すと、
+# 前の版（0.4.0）の初回インストールが「0.5.0 から 0.4.0 への更新」になって落ちる（2026-11-16 の CI。
+# 「更新 0.4.0 は移行が落ちたので、0.5.0 に戻しました」）。正式版と開発版の両方を消す。
+reset_wait_seconds=120
+reset_machine() {
+  local service until
+  for service in ashiato-updater ashiato-server ashiato-db ashiato-updater-dev ashiato-server-dev ashiato-db-dev; do
+    if windows_sc query "$service" >/dev/null 2>&1; then
+      windows_sc stop "$service" >/dev/null 2>&1 || true
+      until=$((SECONDS + reset_wait_seconds))
+      while [[ "$(service_state_code "$service")" != 1 && "$SECONDS" -lt "$until" ]]; do sleep 1; done
+      windows_sc delete "$service" >/dev/null 2>&1 || true
+    fi
+  done
+  MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM ashiato-updater.exe >/dev/null 2>&1 || true
+  MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM ashiato-server.exe >/dev/null 2>&1 || true
+  MSYS2_ARG_CONV_EXCL='*' taskkill.exe /F /IM postgres.exe >/dev/null 2>&1 || true
+  MSYS2_ARG_CONV_EXCL='*' reg.exe delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' /f >/dev/null 2>&1 || true
+  rm -rf 'C:/Program Files/ashiato' 'C:/Program Files/ashiato-dev' 'C:/ProgramData/ashiato-updater' 'C:/ProgramData/ashiato-updater-dev'
+  local state
+  for state in 'C:/ProgramData/ashiato' 'C:/ProgramData/ashiato-dev'; do
+    [[ -e "$state" ]] || continue
+    windows_icacls "${state//\//\\}" /setowner '*S-1-5-32-544' /T /C /L >/dev/null 2>&1 || true
+    windows_icacls "${state//\//\\}" /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /L >/dev/null 2>&1 || true
+    rm -rf "$state"
+  done
+  [[ ! -e 'C:/Program Files/ashiato/ashiato-server.exe' && ! -e 'C:/ProgramData/ashiato/settings' ]] ||
+    die '前の版の初回インストールの前に、前の段の入れたものを消せない'
+}
+
+# 「前の回」の残りを前提にする Scenario は、Scenario の中で 1 回、移行が落ちて戻す更新を先に通す
+# （PC を毎回空にするので、前の Scenario の残りに頼らない）。
+scenario_prior_failed_update() {
+  case "$1" in
+    '更新が通ると、前の回に残した落ちた DB を消す'|'更新が通ると、移行の前の退避は直前の 1 つだけになる') return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 install_zip() {
   local archive="$1" destination="$2" output="$3" action="${4:-install}"; shift 4
@@ -347,10 +388,14 @@ assert_scenario_result() {
       ;;
     '更新が通ると、移行の前の退避は直前の 1 つだけになる')
       (( rc == 0 )) || die '更新が成功しなかった'
+      grep -Fq 'prior-failed-update=ok' "$trace" || die '前の回の退避を残す落ちた更新を先に通していない'
+      grep -Eq '^backups-before=[1-9][0-9]*$' "$trace" || die '更新の前に前の回の退避が無い（「1 つだけになる」を確かめられない）'
       grep -Fq 'backups-after=1' "$trace" || die '直前の退避 1 つの確認が無い'
       ;;
     '更新が通ると、前の回に残した落ちた DB を消す')
       (( rc == 0 )) || die '更新が成功しなかった'
+      grep -Fq 'prior-failed-update=ok' "$trace" || die '前の回の落ちた DB を残す更新を先に通していない'
+      grep -Eq '^failed-databases-before=[1-9][0-9]*$' "$trace" || die '更新の前に前の回の落ちた DB が無い（掃除を確かめられない）'
       grep -Fq 'failed-databases=0' "$trace" || die '前回の落ちた DB の掃除を確認できない'
       ;;
     '更新の途中で止まると、サービスは自分で起きない')
@@ -450,10 +495,19 @@ run_scenario() {
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   current_scenario_work="$work"
   output="$work/install.out"
+  reset_machine
   clear_service_env
   rc=0; install_zip "$old_zip" "$work/old" "$output" install || rc=$?
   (( rc == 0 )) || die_install "$rc" "$output" "前の版の初回インストールに失敗: $name"
   trace="$work/trace"
+  if scenario_prior_failed_update "$name"; then
+    local prior_output="$work/prior.out" prior_rc=0
+    mkdir -p "$work/prior"
+    install_zip "$new_zip" "$work/prior" "$prior_output" install ASHIATO_SETUP_TEST_TRACE=1 ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001 || prior_rc=$?
+    (( prior_rc != 0 )) || die_install "$prior_rc" "$prior_output" "前の回の落ちる更新が成功した: $name"
+    [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] || die_install "$prior_rc" "$prior_output" "前の回の落ちる更新が戻しきれていない: $name"
+    echo 'prior-failed-update=ok' >>"$trace"
+  fi
   settings_before="$(settings_fingerprint)"
   backups_before="$(completed_backup_count)"
   history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' 2>/dev/null || printf unavailable)"
@@ -747,6 +801,40 @@ EOF
     die '通常更新の Scenario が DB を細工している'
   [[ "$(scenario_action '印が無ければ、戻しの口は何も替えない')" == rollback ]] ||
     die '印無しの戻し Scenario が rollback 操作を使っていない'
+  # 前の版の初回インストールの前に、正式版と開発版のサービスを止めて消し、登録を消す（前の段の残りの上に入れない）
+  cat >"$fake_path/taskkill.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'taskkill %s\n' "$*" >> "${ST58_CALLS:?}"
+EOF
+  cat >"$fake_path/reg.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'reg %s\n' "$*" >> "${ST58_CALLS:?}"
+EOF
+  chmod +x "$fake_path/taskkill.exe" "$fake_path/reg.exe"
+  : >"$calls"
+  ( cd "$work" && PATH="$fake_path:$PATH" reset_wait_seconds=0 reset_machine ) || die 'PC を空に戻す手順が落ちた'
+  local reset_service
+  for reset_service in ashiato-updater ashiato-server ashiato-db ashiato-updater-dev ashiato-server-dev ashiato-db-dev; do
+    grep -Fxq "sc delete $reset_service" "$calls" || die "PC を空に戻す手順がサービスを消さない: $reset_service"
+  done
+  grep -Fq 'reg delete HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' "$calls" ||
+    die 'PC を空に戻す手順が「アプリと機能」の登録を消さない'
+  grep -Fq 'reset_machine' <<<"$(declare -f run_scenario)" || die '各 Scenario が前の版を入れる前に PC を空に戻していない'
+  # 「前の回」の残りを前提にする Scenario は、Scenario の中で先に落ちる更新を通し、その残りがあることを判定で見る
+  local prior_name prior_trace="$work/prior-trace"
+  for prior_name in '更新が通ると、前の回に残した落ちた DB を消す' '更新が通ると、移行の前の退避は直前の 1 つだけになる'; do
+    scenario_prior_failed_update "$prior_name" || die "前の回の残りが要る Scenario で先に落ちる更新を通さない: $prior_name"
+    printf '%s\n' 'prior-failed-update=ok' 'failed-databases-before=1' 'failed-databases=0' 'backups-before=1' 'backups-after=1' >"$prior_trace"
+    assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+    sed -i '/^prior-failed-update=ok$/d' "$prior_trace"
+    expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  done
+  printf '%s\n' 'prior-failed-update=ok' 'failed-databases-before=0' 'failed-databases=0' >"$prior_trace"
+  expect_fail assert_scenario_result '更新が通ると、前の回に残した落ちた DB を消す' "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  printf '%s\n' 'prior-failed-update=ok' 'backups-before=0' 'backups-after=1' >"$prior_trace"
+  expect_fail assert_scenario_result '更新が通ると、移行の前の退避は直前の 1 つだけになる' "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  ! scenario_prior_failed_update '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる' ||
+    die '通常更新の Scenario に先の落ちる更新を通している'
   echo 'OK: update-apply-install の自己試験'
 }
 
