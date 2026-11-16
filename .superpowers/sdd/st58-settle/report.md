@@ -96,3 +96,15 @@
 - `scripts/quiet-run st58-settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、5 passed。
 - `scripts/quiet-run st58-settle-script -- bash -n tools/release/update-apply-install.sh` — rc=0。
 - `git diff --check` / `python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — rc=0。
+
+## 追加の settle（R23 / R28 / R30）
+
+- `STOP_AT=migrating` の停止位置を migrate の後から前へ移し、実際に「移行の前に止まる」状態を作るようにした。
+- 本物の `update_failure_reason` はこの停止を `not_applied` として分類する。これにより窓の文は「入りませんでした」となり、自己試験の偽インストーラの分岐と一致する。
+- `st58_update_failure_reason_marks_stop_before_migration_not_applied` で本物の分類契約を固定した。
+
+## 検証（R23 / R28 / R30）
+
+- `scripts/quiet-run st58-settle-r23-r28-r30 -- cargo test -p ashiato-setup st58_` — rc=0、6 passed。
+- `tools/release/update-apply-install.sh --self-test` — rc=0。
+- `bash -n tools/release/update-apply-install.sh` / `git diff --check` — rc=0。

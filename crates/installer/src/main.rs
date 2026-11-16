@@ -1229,7 +1229,9 @@ fn update_failure_reason(error: &str, failed_version: &str) -> (&'static str, up
             );
         }
     }
-    let (kind, result) = if error.contains("PostgreSQL") {
+    let (kind, result) = if error.contains("移行の段で停止しました") {
+        (update_plan::ReasonKind::Aborted, "not_applied")
+    } else if error.contains("PostgreSQL") {
         (update_plan::ReasonKind::PgMajorMismatch, "not_applied")
     } else if error.contains("サーバが起きない") {
         (update_plan::ReasonKind::ServerNotListening, "rolled_back")
@@ -1351,10 +1353,10 @@ fn update_install_attempt(
         "migrating",
         &backup,
     )?;
-    run_migrate_with_backup(layout, &generated, trace, Some(&backup))?;
     if test_hook!("STOP_AT").as_deref() == Some("migrating") {
         return Err("更新を移行の段で停止しました".into());
     }
+    run_migrate_with_backup(layout, &generated, trace, Some(&backup))?;
     if test_hook!("STOP_AT").as_deref() == Some("after-migrate") {
         return Err("更新を移行後の段で停止しました".into());
     }
@@ -2788,6 +2790,14 @@ mod tests {
             super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0");
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "db_ahead");
+    }
+
+    #[test]
+    fn st58_update_failure_reason_marks_stop_before_migration_not_applied() {
+        let (result, reason) =
+            super::update_failure_reason("更新を移行の段で停止しました", "0.4.0");
+        assert_eq!(result, "not_applied");
+        assert_eq!(reason.kind, "aborted");
     }
 
     #[test]

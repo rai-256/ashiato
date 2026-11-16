@@ -334,7 +334,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:187（re-review 1 の New Breakage。Important）
 - kind: technical
-- 処置: fixed D24 仮 — `update-apply-install.sh` は設定指紋、退避数、更新履歴数、失敗 DB 数、サービスと更新係の状態、更新確認の設定ファイルを Windows の実状態から trace に採り、Scenario ごとの判定もその値だけを見る。窓の 2 本は installer が実際に出す日本語の「戻しました」/「入りませんでした」を見る。自己試験は `assert_scenario_result` の通る観測と壊れた観測を直接通す。
+- 処置: fixed D15 仮 / D24 仮 — `STOP_AT=migrating` は実際の migrate の前に止め、`update_failure_reason` でも `not_applied` として「入りませんでした」を選ぶ。`st58_update_failure_reason_marks_stop_before_migration_not_applied` が本物の分類を固定し、Windows 台本の自己試験は同じ hook の出力を Scenario 判定へ渡す。
 - 判定: NOT ADDRESSED（re-review 2 @484ab8741a17d2d5c8eba03554c93f88483ef183）: update-apply-install.sh に出さない文字列の判定が残る。update-check の否定 grep は何も出なくても通る。「窓に出る」2 本は rolled_back|not_applied|aborted を trace と output に求めるが、installer の出力は日本語の description()（update_plan.rs:240-252）。役割の判定は自己参照。
 - 判定: NOT ADDRESSED（re-review 3 @2cd0fd784d126152788e5b37dd89b0d7063666bd）: update-apply-install.sh:287-288 は installer の「戻しました」「入りませんでした」を要求する。しかし scenario_hook（:162-176）に両 Scenario の項が無く、scenario_action も既定の install のまま。移行の失敗も入らない状態も起こさないので更新は成功し、この 2 文字列は出ない。実機では必ず die する。自己試験は手書きの evidence_output に両方の文を入れているだけ。
 - 判定: NOT ADDRESSED（re-review 4 @4ac9d0dd65f329a3d6dc5353980e413863437fa6）: update-apply-install.sh:475 の STOP_AT=migrating は main.rs:1355 の Err「更新を移行の段で停止しました」を起こす。update_failure_reason(main.rs:1202-1230) は rolled_back に分類し、出る文は main.rs:1181 の「戻しました」。判定 :290 は「入りませんでした」を求めるので、本物の Windows では die する。台本の偽インストーラ(:439-442)が本物と違う文を決め打ちするので、自己試験は通る
@@ -379,7 +379,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:162-176,287-288（re-review 3 の New Breakage。Important）
 - kind: technical
-- 処置: fixed D24 仮 — 2 つの窓 Scenario にそれぞれ `ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001` と `ASHIATO_SETUP_TEST_STOP_AT=migrating` を渡す hook を加えた。自己試験は各 hook で偽インストーラを失敗させ、実際に出た出力を Scenario の判定へ渡す。
+- 処置: fixed D15 仮 / D24 仮 — 2 つの窓 Scenario は移行失敗と移行前停止をそれぞれ hook で起こす。停止 hook は migrate より前に評価し、`update_failure_reason` の `not_applied` 分岐と `st58_update_failure_reason_marks_stop_before_migration_not_applied` により「入りませんでした」と対応づけた。自己試験は各 hook の実出力を Scenario 判定へ渡す。
 - 判定: NOT ADDRESSED（re-review 4 @4ac9d0dd65f329a3d6dc5353980e413863437fa6）: update-apply-install.sh:475 の hook が not_applied を起こさず rolled_back になるので「入りませんでした」が出ない。:474 の MIGRATE_FAIL は有効。自己試験(:536-546)は偽インストーラ(:439-442)の決め打ちで通る
 
 ## R29. finish_restored が履歴の種別を 'startup-failed' に固定し、印の migrate_exit_code・migrate_version・migrate_sqlstate を使わない。再開した戻しは migration-failed にならない。処置の「再開した戻しも印に残した値を使う」と食い違う。
@@ -395,3 +395,4 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:439（re-review 4 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D15 仮 / D24 仮 — 本物は `migrating` 段を書いた直後、migrate を始める前に停止し、`update_failure_reason` が `not_applied` を返すようにした。偽インストーラの「入りませんでした」はこの本物の分岐に一致し、Rust の分類試験が両者の契約を固定する。
