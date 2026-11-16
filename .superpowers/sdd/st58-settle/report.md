@@ -84,3 +84,15 @@
 
 - `St58UpdateInstallTest` に、開発版が正式版の接頭辞を選ばず `ashiato-collector-dev-` の APK を選ぶ試験を追加した。
 - `scripts/quiet-run android-r27 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — rc=0、BUILD SUCCESSFUL（82s）。
+
+## 追加の settle（R23 / R24 / R28 / R29）
+
+- R23/R28: 窓に「戻しました」「入りませんでした」を求める 2 Scenario に、移行失敗と移行中断を実際に起こす hook を追加した。自己試験は手書きの evidence 出力を使わず、各 hook を通した偽インストーラの失敗出力を Scenario 判定に渡す。
+- R24/R29: `finish_restored` と通常の `rollback` を同じ state ベースの履歴コマンド組み立てに揃えた。再開した移行失敗でも `migration-failed`、落ちた版、SQLSTATE を維持する。
+
+## 検証（R23 / R24 / R28 / R29）
+
+- `scripts/quiet-run st58-settle-selftest -- tools/release/update-apply-install.sh --self-test` — rc=0。
+- `scripts/quiet-run st58-settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、5 passed。
+- `scripts/quiet-run st58-settle-script -- bash -n tools/release/update-apply-install.sh` — rc=0。
+- `git diff --check` / `python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — rc=0。

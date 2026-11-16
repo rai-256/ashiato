@@ -150,6 +150,8 @@ scenario_hook() {
   case "$1" in
     '更新の移行の間、サーバは待ち受けない'|'更新の途中で止まると、サービスは自分で起きない') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
     '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
+    '移行が落ちて戻すと、窓に戻したことと版と理由が出る') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
+    '移行の前に止まると、窓に入らなかったことと種別が出る') printf '%s\n' 'ASHIATO_SETUP_TEST_STOP_AT=migrating' ;;
     '戻しは DB の管理者の役割を使わない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '戻した回は退避を消さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ;;
     '書きかけの退避は戻さない') printf '%s\n' 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=during-backup' ;;
@@ -431,8 +433,14 @@ EOF
   cat >"$fake_path/ashiato-setup.exe" <<'EOF'
 #!/usr/bin/env bash
 printf 'setup %s %s\n' "${ASHIATO_SETUP_TEST_STOP_AT:-none}" "$*" >> "${ST58_CALLS:?}"
-[[ "${ASHIATO_SETUP_TEST_STOP_AT:-}" == migrating ]] && exit 1
-[[ "${ASHIATO_SERVER_TEST_MIGRATE_FAIL:-}" == 1 ]] && exit 1
+if [[ -n "${ASHIATO_SERVER_TEST_MIGRATE_FAIL:-}" ]]; then
+  printf '更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（202611152200_x・制約に反した）\n'
+  exit 1
+fi
+if [[ "${ASHIATO_SETUP_TEST_STOP_AT:-}" == migrating ]]; then
+  printf '更新 0.5.0 は入りませんでした（移行が途中で終わった）。0.4.0 のまま動いています\n'
+  exit 1
+fi
 printf '更新が完了しました\n'
 EOF
   cat >"$fake_path/ashiato-server.exe" <<'EOF'
@@ -447,7 +455,7 @@ printf 'count=7\n'
 EOF
   chmod +x "$fake_path"/*
   export ST58_CALLS="$calls"
-  output=$'count=7\nstatus=ok\n更新が完了しました\n更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（202611152200_x・制約に反した）\n更新 0.5.0 は入りませんでした（移行が途中で終わった）。0.4.0 のまま動いています'
+  output=$'count=7\nstatus=ok\n更新が完了しました'
   assert_count 7 7 'self-test の記録'
   assert_output_contains "$output" '更新が完了しました'
   assert_update_acl $'Administrators:(OI)(CI)(F)\nNT AUTHORITY\\SYSTEM:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(RX)\nNT SERVICE\\ashiato-db:(OI)(CI)(R)'
@@ -461,6 +469,17 @@ EOF
   PATH="$fake_path:$PATH" ashiato-server.exe healthz | grep -q 'healthz=200' || die '偽の server 経路を通っていない'
   PATH="$fake_path:$PATH" psql -c count | grep -q 'count=7' || die '偽の psql 経路を通っていない'
   grep -q '^sc ' "$calls" && grep -q '^icacls ' "$calls" && grep -q '^setup ' "$calls" && grep -q '^server ' "$calls" && grep -q '^psql ' "$calls" || die '偽のコマンドの記録が不足'
+  local window_scenario window_hook window_output
+  for window_scenario in '移行が落ちて戻すと、窓に戻したことと版と理由が出る' '移行の前に止まると、窓に入らなかったことと種別が出る'; do
+    window_hook="$(scenario_hook "$window_scenario")"
+    [[ -n "$window_hook" ]] || die "窓の Scenario に失敗を起こす差し込みが無い: $window_scenario"
+    set +e
+    window_output="$work/window-install.out"
+    env "$window_hook" "$fake_path/ashiato-setup.exe" install >"$window_output"
+    set -e
+    assert_scenario_result "$window_scenario" "$window_output" "$work/empty-trace" 1 0.4.0 0.5.0 ||
+      die "窓の Scenario が失敗時の表示を確かめていない: $window_scenario"
+  done
   expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
   evidence_trace="$work/evidence-trace"
   evidence_output="$work/install.out"
@@ -489,8 +508,6 @@ EOF
   sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
   expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
   assert_scenario_result '戻しは DB の管理者の役割を使わない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻し役割の判定が通らない'
-  assert_scenario_result '移行が落ちて戻すと、窓に戻したことと版と理由が出る' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻しの窓表示の判定が通らない'
-  assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '入らなかった窓表示の判定が通らない'
   assert_scenario_result 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '更新確認の判定が通らない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'

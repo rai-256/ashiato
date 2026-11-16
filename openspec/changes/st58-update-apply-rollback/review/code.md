@@ -364,8 +364,10 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:162-176,287-288（re-review 3 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D24 仮 — 2 つの窓 Scenario にそれぞれ `ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001` と `ASHIATO_SETUP_TEST_STOP_AT=migrating` を渡す hook を加えた。自己試験は各 hook で偽インストーラを失敗させ、実際に出た出力を Scenario の判定へ渡す。
 
 ## R29. finish_restored が履歴の種別を 'startup-failed' に固定し、印の migrate_exit_code・migrate_version・migrate_sqlstate を使わない。再開した戻しは migration-failed にならない。処置の「再開した戻しも印に残した値を使う」と食い違う。
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1595-1603（re-review 3 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D18 仮 — `finish_restored` と `rollback` を同じ state からの command builder に統一し、終了コード 1 では migration-failed と保存済みの failed-version・SQLSTATE を渡す。`st58_resumed_rollback_keeps_migration_failure_details` が引数を固定する。

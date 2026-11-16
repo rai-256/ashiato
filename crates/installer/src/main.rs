@@ -1523,19 +1523,8 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         .join("update")
         .join("history-pending.jsonl");
     let failed_server = failed.join("ashiato-server.exe");
-    let command = commands::rollback_history_command(
-        &failed_server,
-        &pending,
-        state["to_version"].as_str().unwrap_or_default(),
-        previous_version,
-        if state["migrate_exit_code"].as_i64() == Some(1) {
-            "migration-failed"
-        } else {
-            "startup-failed"
-        },
-        state["migrate_version"].as_str(),
-        state["migrate_sqlstate"].as_str(),
-    );
+    let command =
+        rollback_history_command_from_state(&failed_server, &pending, &state, previous_version);
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
     let generated =
@@ -1592,14 +1581,11 @@ fn finish_restored(
         .join("update")
         .join("history-pending.jsonl");
     let failed_server = failed.join("ashiato-server.exe");
-    let command = commands::rollback_history_command(
+    let command = rollback_history_command_from_state(
         &failed_server,
         &pending,
-        state["to_version"].as_str().unwrap_or_default(),
+        state,
         state["from_version"].as_str().unwrap_or_default(),
-        "startup-failed",
-        None,
-        None,
     );
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
@@ -1624,6 +1610,29 @@ fn finish_restored(
         fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;
     }
     fs::remove_file(update_stage_path(layout)).map_err(|e| format!("更新の印を消せない: {e}"))
+}
+
+/// Reusing a persisted update stage must preserve a migration failure's
+/// machine-readable details instead of reclassifying it as a startup failure.
+fn rollback_history_command_from_state(
+    failed_server: &Path,
+    pending: &Path,
+    state: &serde_json::Value,
+    previous_version: &str,
+) -> SetupCommand {
+    commands::rollback_history_command(
+        failed_server,
+        pending,
+        state["to_version"].as_str().unwrap_or_default(),
+        previous_version,
+        if state["migrate_exit_code"].as_i64() == Some(1) {
+            "migration-failed"
+        } else {
+            "startup-failed"
+        },
+        state["migrate_version"].as_str(),
+        state["migrate_sqlstate"].as_str(),
+    )
 }
 
 fn run_with_env<const N: usize>(
@@ -2779,6 +2788,36 @@ mod tests {
             super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0");
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "db_ahead");
+    }
+
+    #[test]
+    fn st58_resumed_rollback_keeps_migration_failure_details() {
+        // Scenario: 待ち受けを開かずに戻すと、更新の履歴に当てた版の名前を持つ戻したの 1 行が足される
+        let state = serde_json::json!({
+            "from_version": "0.4.0",
+            "to_version": "0.5.0",
+            "migrate_exit_code": 1,
+            "migrate_version": "202611152200_x",
+            "migrate_sqlstate": "23505",
+        });
+        let command = super::rollback_history_command_from_state(
+            std::path::Path::new("failed/ashiato-server.exe"),
+            std::path::Path::new("history-pending.jsonl"),
+            &state,
+            "0.4.0",
+        );
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--kind", "migration-failed"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--failed-version", "202611152200_x"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--sqlstate", "23505"]));
     }
 
     #[cfg(unix)]
