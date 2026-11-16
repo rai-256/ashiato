@@ -659,6 +659,19 @@ async fn apply_locked(
             })?;
         run.applied.push((*name).to_string());
     }
+    // 試験の組み立てだけ: 版の番号だけを替えた 2 つの組み立ては同じ移行を持つので、当てる版が無い。
+    // 差し込み `sqlstate:<5 字>` は、そのときも最後の版で落ちたことにする（Windows の通し。review/code.md R58）
+    #[cfg(ashiato_test_build)]
+    if run.applied.is_empty() {
+        if let Some((name, _)) = versions.last() {
+            test_migrate_fail(conn)
+                .await
+                .map_err(|source| MigrateError::Version {
+                    name: (*name).to_string(),
+                    source,
+                })?;
+        }
+    }
     if !grants.is_empty() {
         sqlx::raw_sql(grants)
             .execute(&mut *conn)
@@ -719,14 +732,9 @@ async fn warn_changed_fingerprints(
     Ok(())
 }
 
-async fn apply_one(
-    conn: &mut PgConnection,
-    name: &str,
-    sql: &str,
-    before_ledger: bool,
-) -> Result<(), sqlx::Error> {
-    let mut tx = conn.begin().await?;
-    #[cfg(ashiato_test_build)]
+/// 試験の組み立ての差し込み `ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:<5 字>`: その SQLSTATE で落ちる。
+#[cfg(ashiato_test_build)]
+async fn test_migrate_fail(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
     if let Some(code) = std::env::var("ASHIATO_SERVER_TEST_MIGRATE_FAIL")
         .ok()
         .and_then(|value| value.strip_prefix("sqlstate:").map(str::to_owned))
@@ -741,8 +749,20 @@ async fn apply_one(
             "DO $$ BEGIN RAISE EXCEPTION USING ERRCODE = '{}'; END $$;",
             code
         );
-        sqlx::raw_sql(&sql).execute(&mut *tx).await?;
+        sqlx::raw_sql(&sql).execute(&mut *conn).await?;
     }
+    Ok(())
+}
+
+async fn apply_one(
+    conn: &mut PgConnection,
+    name: &str,
+    sql: &str,
+    before_ledger: bool,
+) -> Result<(), sqlx::Error> {
+    let mut tx = conn.begin().await?;
+    #[cfg(ashiato_test_build)]
+    test_migrate_fail(&mut tx).await?;
     sqlx::raw_sql(sql).execute(&mut *tx).await?;
     sqlx::query(
         "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit, before_ledger)

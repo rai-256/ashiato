@@ -65,9 +65,23 @@ internal object UpdateInstall {
     internal fun unknownSourcesLine(): String = "許可した後に、もう一度押してください"
     internal fun installFailureLine(reason: String): String = "入れられませんでした（$reason）"
 
-    internal fun failureLine(context: Context): String? =
+    internal fun failurePreferences(context: Context): android.content.SharedPreferences =
         context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
-            .getString(FAILURE_LINE, null)
+
+    internal fun failureLine(context: Context): String? =
+        failurePreferences(context).getString(FAILURE_LINE, null)
+
+    /**
+     * 画面に出す失敗の行。行は「更新あり」の行に付くので、新しい版が無くなった（入れ終えた）・
+     * 更新の確認を切った後は出さずに消す（閉じられない画面に古い行を残さない。review/code.md R50・R63）。
+     */
+    internal fun visibleFailureLine(context: Context, updateOffered: Boolean): String? {
+        if (!updateOffered) {
+            if (failureLine(context) != null) clearFailure(context)
+            return null
+        }
+        return failureLine(context)
+    }
 
     internal fun recordFailure(context: Context, line: String) {
         context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)

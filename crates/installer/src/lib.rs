@@ -262,12 +262,13 @@ mod tests {
 
     #[test]
     fn st58_plan_development_layout_is_not_release_layout() {
+        // 本番の経路（`Layout::for_version`）が版から置き場を選ぶ
         assert_eq!(
-            update_layout(false).program_dir,
+            layout::for_version("0.1.0").program_dir,
             layout::Layout::release().program_dir
         );
         assert_ne!(
-            update_layout(true).program_dir,
+            layout::for_version("0.1.0-dev.20261116").program_dir,
             layout::Layout::release().program_dir
         );
     }

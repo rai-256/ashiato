@@ -1,5 +1,4 @@
 use crate::commands::SetupCommand;
-use crate::layout::{for_version, Layout};
 use serde_json::json;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,7 +45,9 @@ pub fn update_stage(name: &str) -> Option<UpdateStage> {
         "stopped" => UpdateStage::Stopped,
         "moved" => UpdateStage::Moved,
         "replaced" => UpdateStage::Replaced,
-        "program_swapped" | "program_restoring" | "program_restored" => UpdateStage::Swapped,
+        "program_swapped" | "program_restoring" | "program_returning" | "program_restored" => {
+            UpdateStage::Swapped
+        }
         "migrating" => UpdateStage::Migrating,
         "starting" => UpdateStage::Starting,
         "listening" => UpdateStage::Listening,
@@ -380,12 +381,4 @@ pub fn service_stop_command(service: &str) -> SetupCommand {
 
 pub fn service_start_command(service: &str) -> SetupCommand {
     SetupCommand::new("sc.exe", ["start", service])
-}
-
-pub fn update_layout(development: bool) -> Layout {
-    for_version(if development {
-        "0.1.0-dev.20261116"
-    } else {
-        "0.1.0"
-    })
 }

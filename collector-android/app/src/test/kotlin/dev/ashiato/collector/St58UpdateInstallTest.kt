@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 package dev.ashiato.collector
 
+import android.Manifest
 import android.app.Application
+import android.os.Looper
+import android.widget.TextView
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -10,11 +13,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.android.controller.ActivityController
 import org.junit.runner.RunWith
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -22,10 +29,59 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-@RunWith(RobolectricTestRunner::class)
+private class St58MainActivity : MainActivity() {
+    override fun shouldOfferInitialSetup() = false
+    override fun unusedAppRestrictionsReader() = UnusedAppRestrictionsReader { UnusedAppRestrictionsState.EXEMPT }
+    override fun healthPermissions(): HealthPermissions = noHealthConnect()
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
+}
 
+@RunWith(RobolectricTestRunner::class)
 class St58UpdateInstallTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
+    private val app = ApplicationProvider.getApplicationContext<Application>()
+
+    @Before fun reset() {
+        clearPrefs()
+        shadowOf(app).grantPermissions(
+            Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION,
+        )
+        shadowOf(app.getSystemService(android.app.AppOpsManager::class.java)).setMode(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), app.packageName,
+            android.app.AppOpsManager.MODE_ALLOWED,
+        )
+    }
+
+    @After fun cleanup() = clearPrefs()
+
+    private fun clearPrefs() {
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().clear().commit()
+        app.getSharedPreferences(MainActivity.PREFS, 0).edit().clear().commit()
+        app.getSharedPreferences(Config.SETUP_PREFS, 0).edit().clear().commit()
+        UpdateInstall.failurePreferences(app).edit().clear().commit()
+        Config.clearOverrideForTest()
+    }
+
+    private fun configured() = Config.overrideForTest("http://127.0.0.1", "token", Config.DEFAULT_USER_ID)
+
+    private fun open(): ActivityController<St58MainActivity> =
+        Robolectric.buildActivity(St58MainActivity::class.java, Intent(app, St58MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+            .create().start().resume()
+
+    private fun texts(activity: android.app.Activity): List<String> {
+        val result = mutableListOf<String>()
+        fun visit(view: android.view.View) {
+            if (view is TextView) result += view.text.toString()
+            if (view is android.view.ViewGroup) for (i in 0 until view.childCount) visit(view.getChildAt(i))
+        }
+        visit(activity.window.decorView)
+        return result
+    }
 
     @Test
     fun `指紋の合う配布物だけを選ぶ`() {
@@ -99,7 +155,7 @@ class St58UpdateInstallTest {
         assertEquals(MainActivity::class.java.name, intent.component?.className)
         assertTrue(intent.getBooleanExtra(UpdateInstall.EXTRA_START, false))
     }
-    @Test fun `入っている版より古い版は選ばない`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
+    @Test fun `入っている版より古い版は選ばない`() {
         assertNull(UpdateInstall.chooseAsset("0.5.0", "[]"))
     }
     @Test fun `APK の SHA256 を実体で照合する`() { // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
@@ -114,11 +170,59 @@ class St58UpdateInstallTest {
         assertEquals("package:${ApplicationProvider.getApplicationContext<Application>().packageName}", intent.dataString)
         assertEquals("許可した後に、もう一度押してください", UpdateInstall.unknownSourcesLine())
     }
-    @Test fun `指紋が違えば画面に失敗の文を出す`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
-        assertEquals("入れられませんでした（指紋が一致しません）", UpdateInstall.installFailureLine("指紋が一致しません"))
+    @Test fun `指紋が違えば、開いている画面の行にその場で失敗の文が出る`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
+        configured()
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true).putString("latest", "99.0.0").commit()
+        val controller = open()
+        try {
+            val line = UpdateInstall.installFailureLine("指紋が一致しません")
+            assertFalse(texts(controller.get()).contains(line))
+            // executor のスレッドが書いたのと同じ口で書く。開き直さずに行が出る
+            Thread { UpdateInstall.recordFailure(app, line) }.apply { start(); join() }
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(texts(controller.get()).contains(line))
+            assertTrue(texts(controller.get()).any { it.startsWith("更新あり 99.0.0") })
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
-    @Test fun `許可を与えて戻ると許可待ちの文だけを消す`() { // Scenario: 携帯は提供元不明のアプリを許可した後、古い許可待ちの文を残さない
-        val app = ApplicationProvider.getApplicationContext<Application>()
+    @Test fun `許可されていなければ、開いている画面の行に許可待ちの文が出る`() { // Scenario: 携帯は提供元不明のアプリが許されていなければ、許可の画面を開く
+        configured()
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true).putString("latest", "99.0.0").commit()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(false)
+        val controller = open()
+        try {
+            UpdateInstall.start(controller.get())
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(texts(controller.get()).contains(UpdateInstall.unknownSourcesLine()))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+    @Test fun `新しい版が無くなった・更新の確認を切った後は失敗の行を出さずに消す`() {
+        // review/code.md R50・R63: 失敗の行は「更新あり」の行に付く。閉じられない画面に古い行を残さない
+        configured()
+        UpdateInstall.recordFailure(app, UpdateInstall.installFailureLine("指紋が一致しません"))
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putBoolean("intro_shown", true).putString("latest", BuildConfig.VERSION_NAME).commit()
+        val controller = open()
+        try {
+            assertFalse(texts(controller.get()).any { it.startsWith("入れられませんでした") })
+            assertNull(UpdateInstall.failureLine(app))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+        UpdateInstall.recordFailure(app, UpdateInstall.installFailureLine("指紋が一致しません"))
+        app.getSharedPreferences(UpdateCheck.PREFS, 0).edit().putString("latest", "99.0.0").putBoolean("enabled", false).commit()
+        val disabled = open()
+        try {
+            assertFalse(texts(disabled.get()).any { it.startsWith("入れられませんでした") })
+            assertNull(UpdateInstall.failureLine(app))
+        } finally {
+            disabled.pause().stop().destroy()
+        }
+    }
+    @Test fun `許可を与えて戻ると許可待ちの文だけを消す`() {
+        // review/code.md R50: 許可を与えて戻った回は「許可した後に…」だけを消し、取得・照合の失敗は残す
         UpdateInstall.recordFailure(app, UpdateInstall.unknownSourcesLine())
         UpdateInstall.clearResolvedUnknownSourcesFailure(app, permitted = true)
         assertNull(UpdateInstall.failureLine(app))
@@ -130,14 +234,12 @@ class St58UpdateInstallTest {
         assertEquals("dev.ashiato.collector.UPDATE_RESULT", UpdateInstall.ACTION_RESULT)
     }
     @Test fun `成功結果の後に置き場を掃除できる`() { // Scenario: 携帯は入れ終えた後に APK を置き場に残さない
-        val app = ApplicationProvider.getApplicationContext<Application>()
         val dir = UpdateInstall.updateDirectory(app).apply { mkdirs() }
         val file = File(dir, "result.apk").apply { writeText("apk") }
         UpdateInstall.clean(app)
         assertFalse(file.exists())
     }
     @Test fun `押す前は選択を実行しない`() { // Scenario: 押す前は配布物を落とさない
-        val app = ApplicationProvider.getApplicationContext<Application>()
         UpdateInstall.clean(app)
         assertFalse(UpdateInstall.updateDirectory(app).listFiles()?.any() == true)
     }
@@ -192,7 +294,6 @@ class St58UpdateInstallTest {
     }
 
     @Test fun `保留のインストール結果は確認画面を起こす`() { // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
-        val app = ApplicationProvider.getApplicationContext<Application>()
         val confirmation = Intent("android.intent.action.CONFIRM_INSTALL")
         val result = Intent(UpdateInstall.ACTION_RESULT).putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_PENDING_USER_ACTION)
             .putExtra(Intent.EXTRA_INTENT, confirmation)
@@ -201,7 +302,6 @@ class St58UpdateInstallTest {
     }
 
     @Test fun `取り消しの結果は APK を消して確認画面を開かない`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
-        val app = ApplicationProvider.getApplicationContext<Application>()
         val file = File(UpdateInstall.updateDirectory(app).apply { mkdirs() }, "cancelled.apk").apply { writeText("apk") }
         UpdateInstallResultReceiver().onReceive(
             app,
@@ -212,7 +312,6 @@ class St58UpdateInstallTest {
     }
 
     @Test fun `成功の結果は APK を消して確認画面を開かない`() { // Scenario: 携帯は入れ終えた後に APK を置き場に残さない
-        val app = ApplicationProvider.getApplicationContext<Application>()
         val file = File(UpdateInstall.updateDirectory(app).apply { mkdirs() }, "installed.apk").apply { writeText("apk") }
         UpdateInstallResultReceiver().onReceive(
             app,

@@ -155,3 +155,45 @@
 
 - `scripts/quiet-run st58-settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、8 passed。
 - `scripts/quiet-run st58-settle-web -- npm --prefix web test -- --run src/__tests__/update.test.ts` — rc=0、6 passed。
+
+# settle 2026-11-16 — R52〜R63（処置の形の直しと R54・R56・R58・R60・R62・R63）
+
+## 処置の形（R52・R53・R55・R57・R59・R61）
+- 指す先を D<n> / <x.y> に直した（R52→D4・R53→D20 仮・R55→D15 仮・R57→D20 仮・R59→D1・R61→D27 仮）。R61 は design.md に `D27（仮）` と反転条件を足した。
+- R53: 戻しのプログラムの入れ替えを `restore_program_files` に切り出し、`program_restoring` → `program_returning` → `program_restored` の 3 段にした（前の回の形は `program_restoring` の再開で新しい版の残りを退けずに飛ばしていた）。
+- R59: `--version` を断る古いサーバは「アプリと機能」の `DisplayVersion` を先に読む（読めなければ 0.0.0）。
+- R61: 落ちた時点の分類を印（`outcome_result` / `outcome_reason`）に書き、再開の `finish_restored` もそれで更新の記録を書く。
+
+## R54
+- 戻しは最初の段で「DB を戻すか」を印（`restore_database`）に残す。`record-rollback` は DB を戻した回だけ、`history_recorded` で 2 回目を飛ばす。実行ファイルは `failed\` に在れば使い、無ければ program のもの。
+- 落ちた版・SQLSTATE が印に無ければ空で渡し、サーバは NULL（`RollbackKind::MigrationFailed` を `Option` に）。
+- `backup_failed` は `migrate` 自身が書く（`migration_ledger.rs` の `record_result`）ので、DB を戻さない戻しは書き足さない。
+
+## R56
+- 改名 2 つを `BEGIN; …; COMMIT;` で 1 つの取引に（`database_swap_sql`）。PostgreSQL 16（docker）で実測: 2 つ目が落ちると `ashiato` が残り、`ashiato_failed_2` は作られない（psql rc=3）。
+
+## R58（Windows の通し）
+- インストーラに試験の組み立てだけの差し込み `ASHIATO_SETUP_TEST_CRASH_AT`（戻さずに終わる）と `ASHIATO_SETUP_TEST_PAUSE_AT`（`update\paused` を置いて `update\resume` を待つ）を足した。
+- サーバの `NO_LISTEN` / `EXIT_AFTER_LISTEN` は `1` か自分の版番号で効く。台本はサービスの `Environment` に新しい版の版番号を置く。
+- `MIGRATE_FAIL=sqlstate:` は当てる版が無い回も最後の版で落ちる（同じ commit の 2 つの zip は同じ移行）。
+- 台本: 差し込みの表・判定を Scenario の文に合わせて組み直した（待つ間の観測・戻さない止まり方の走らせ直し・戻しの失敗を移行の失敗と組に・db_ahead の窓・開発版の置き場の版・落ちた DB は差で数える・DB の細工を戻す・判定が無かった「待ち受けを開いた後に止まった更新」）。窓の文に「この回の退避」と `ashiato-setup.exe rollback` を足した。
+- **Windows で走らせていない**（このセッションでは push できない）。PR の CI の `install-windows` が確かめる。
+
+## R60
+- 携帯: `MainActivity` が失敗の行の置き場の変化を聞いて描き直す。試験 2 本は開いた画面の行を見る。描き直しの登録を外すと 2 本とも落ちることを確かめた（`St58UpdateInstallTest` 33 本中 2 本 FAILED → 戻すと 33 本 OK）。
+- PC: 戻しを通る試験 `st58_pc_update_rollback_keeps_outbox_rows_of_both_versions`（試験の組み立てだけの `ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS` / `ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE`）と、落とす要求を loopback で見る `st58_pc_update_download_request_carries_no_version_or_device`。
+
+## R62
+- `rollback` は `RecoveryPlan::steps()` で入口を選ぶ。`classify_backup_state`・`retain_backups`・`history_line`・`pg_major_matches` を本番の経路から使う。D5 の大きい版の比べは、`build.rs` が `pgsql.lock` から組み込んだ大きい版と DB の `PG_VERSION` を、印を書く前に比べる（これまでは試験の差し込みでしか比べていなかった）。`update_layout` は消した。
+
+## R63
+- `installed_version` は `decode_tail_output`。`started`/`stopped` からの戻しも更新の記録を書く。携帯の失敗の行は「更新あり」かつ確認が有効な間だけ出し、それ以外は消す。`replay_pending` は同じ行があれば写さない（試験を足した）。ACL の書き権限の正規表現を広げ、古い正規表現では自己試験が落ちることを確かめた。
+- ついでに: `st58_tests.rs` の `migrate_backup` の import が Windows では使われず、Windows の clippy が落ちていたので `#[cfg(unix)]` を付けた。
+
+## 検証
+- `scripts/quiet-run st58-settle-setup-all -- cargo test -p ashiato-setup` — rc=0（lib 130・bin 19）。
+- `scripts/quiet-run st58-settle-server -- cargo test -p ashiato-server st58_` — rc=0（18 本）。
+- `scripts/quiet-run st58-settle-pc -- cargo test -p ashiato-collector-windows st58_pc_` — rc=0（16 本）。
+- `scripts/quiet-run st58-settle-android -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*' --tests '*St57UpdateNoticeTest*' --tests '*MainActivityTest*'` — BUILD SUCCESSFUL（33・30・13 本、失敗 0）。
+- `cargo clippy -p ashiato-setup -p ashiato-server -p ashiato-collector-windows --all-targets -- -D warnings` と `--target x86_64-pc-windows-gnu` — rc=0。`cargo fmt --check` — rc=0。
+- `tools/release/update-apply-install.sh --self-test` — rc=0。`HX_CHANGE=st58-update-apply-rollback python3 scripts/check_scenarios.py .` — OK。`openspec validate st58-update-apply-rollback --strict` — valid。`python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — OK。

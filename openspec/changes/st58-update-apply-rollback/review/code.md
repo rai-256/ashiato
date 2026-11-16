@@ -736,7 +736,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - ST57 の申し送り「前の版へ戻したときに更新係のサービスをどう扱うか…戻しの手順と合わせて検証すること」の Scenario（戻した後、切っていない更新係は動いている）は Windows の通しが走っていないので捕まえていない。
 - 提案: 「有効なら `sc config start= auto` → 起きていなければ起こす」を 1 つの関数にし、`finish_update` も同じ関数に揃える。戻し・再開の経路のサービスの起動はすべて `ensure_running`（1056 を許す）にする。`record_rollback` は書いたことを印に残してから先へ進む
 - kind: technical
-- 処置: fixed R52 — 有効な更新係を起こす前に start type を `auto` に戻し、既に起動済みのサービスも許す `ensure_running` に統一した。
+- 処置: fixed D4 — 有効な更新係は start type を `auto` に戻してから `ensure_running`（起きていれば成功）で起こす（戻し・再開・`finish_update` とも同じ `start_enabled_update_check`）。`finish_restored` は `rolled_back` を書いたことを印（`history_recorded`）に残してから前の版を起こすので、起こし直しで落ちた回の再開でも履歴を 2 行にしない。
 
 ## R53. 戻しは `program\` の中身を全部「落ちた版」とみなして `failed\` へ移す。移動の途中・戻しの途中で落ちた回の再開では、前の版のファイルが `failed\` に入り、消される（R32 の直しで悪化）
 - 成果物: crates/installer/src/main.rs
@@ -745,7 +745,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - 段 `moved` の更新の移動ループが途中で Err になる（ファイルの錠など）と、すぐ戻しが走り、まだ移していない前の版のファイルが `failed\` へ入る。さらに Err になれば次の再開で消される。最悪は `pgsql\` などが欠け、DB を起こせず毎回同じ戻しに入る。
 - 提案: 移動ループの完了を別の段にする。戻しの開始（例: `program_restoring`）を印に書き、再開時は 1 本目のループを飛ばして previous の残りだけを戻す。`failed\` を消さない
 - kind: technical
-- 処置: fixed R53 — `program_restoring` を永続化し、再開時は新しい版の退避を繰り返さず、前版の残りだけを戻す。既存の `failed` は消さない。
+- 処置: fixed D20 仮 — 戻しのプログラムの入れ替えを `restore_program_files` に切り出し、`program_restoring`（新しい版を `failed\` へ。やり直せる）→ `program_returning`（`previous\` の残りを戻すだけ）→ `program_restored` の 3 段の印にした。どの段で落ちても前の版を `failed\` へ動かさず、既にある `failed\` も消さない（試験 4 本: 通し・各段からの再開・`program_restored` で飛ばす）。
 
 ## R54. `record_rollback` は今も DB を戻したかどうかを見ずに毎回呼ばれ、`backup_failed` を書かず、落ちた版と SQLSTATE を埋める。呼ぶ実行ファイルも `failed\` 側にある（R35 の直しが不完全）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
@@ -756,26 +756,28 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - 申し送り「st51-update-history R1 — 戻した後に、落ちた試みの結果と戻したことを更新の履歴に書き直す」・「st48-db-version-guard R21 — 終了コード 3 は「移行の失敗」ではない（この回の退避は無い）」と食い違う。
 - 提案: R35 の提案どおり、DB を戻した回と「移行が通り、待ち受けを開かなかった回」だけで呼ぶ。退避の失敗は `backup_failed`、無い値は `None` のまま渡す。実行ファイルは存在を確かめたうえで選ぶ
 - kind: technical
+- 処置: fixed D20 仮 — 戻しは最初に入った段で「DB を戻すか」を印（`restore_database`）に残し、`rollback` も再開の `finish_restored` も、DB を戻した回（移行の失敗・移行が通り待ち受けを開かなかった回）だけ `record-rollback` を呼ぶ（終了コード 3/4・移行の前の段では呼ばない）。落ちた版と SQLSTATE は印に無ければ空で渡し、サーバは NULL にする（新しい版の名前で埋めない。`RollbackKind::MigrationFailed` を `Option` に）。実行ファイルは `failed\ashiato-server.exe` が在るときだけそれ、無ければ program のものを使う。`backup_failed` の行は退避に失敗した `migrate` 自身が書く（`migration_ledger.rs` の `record_result`）ので、DB を戻さない戻しは書き足さない。
 
 ## R55. 移行の失敗の種別を今も出力の最後の 5 行から読む。印に書いた `migrate_kind` は分類に使われていない（R41 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
 - 根拠: `migrate_kind` を読むのは印の引き継ぎ（`crates/installer/src/main.rs:1127`）だけ。`update_failure_reason(&error, …)`（`:1196`・`:1209`）が見る `error` は `output_tail`（最後の 5 行）から作られる。db_ahead は知らない版 n 行を含む n+3 行を出す（`crates/server/src/migration_ledger.rs:73-85`）ので、知らない版が 3 つ以上で kind 行が落ち、「戻しました」に誤って分類される
 - 提案: 分類を印の `migrate_kind`、または終了コードから行う
 - kind: technical
-- 処置: fixed R55 — rollback が印を消す前に `migrate_kind`・版・SQLSTATE を読み、出力末尾ではなく機械可読な印を outcomes の分類へ渡す。
+- 処置: fixed D15 仮 — 移行の失敗の分類は、`update_failure_reason` が印の `migrate_kind`・`migrate_version`・`migrate_sqlstate` を先に読み、出力の末尾は印が無い回だけに使う（前の回の直し。試験 `st58_update_failure_reason_reads_migrate_machine_line`）。
 
 ## R56. 戻しの DB の入れ替えの 2 つの `ALTER DATABASE … RENAME` は今も別々の文で autocommit される（R42 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
 - 根拠: `crates/installer/src/main.rs:1817`。R42 の処置の文（交換後の状態を印に残す）はプログラムの置き場の話で、DB の入れ替えに触れていない。2 つ目だけが落ちると `ashiato` が無くなり、再開は 1 つ目の RENAME で永久に落ちる
 - 提案: 2 つを `BEGIN; …; COMMIT;` で包む（RENAME DATABASE は取引の中で動くか確かめる）。または、再開時に `ashiato` が無く `ashiato_restore` があれば 2 つ目からやり直す
 - kind: technical
+- 処置: fixed D3 — 2 つの `ALTER DATABASE … RENAME` を `BEGIN; …; COMMIT;` で 1 つの取引にした（`ON_ERROR_STOP=1` で 2 つ目が落ちれば 1 つ目も戻る。PostgreSQL 16 で実測: 2 つ目が落ちた回は `ashiato` が残り、退けた名前の DB は作られない）。
 
 ## R57. 段 `started` / `stopped` からの戻しは、起きている DB に素の `sc start` をかけて 1056 で落ち、印が残って次の install も同じ所で落ちる（R44 の直しで新しく）
 - 成果物: crates/installer/src/main.rs
 - 根拠: `crates/installer/src/main.rs:1488`。`started` では DB はまだ起きている。`stopped` でも、DB を止める処理が落ちた回なら起きている
 - 提案: `ensure_running` を使う
 - kind: technical
-- 処置: fixed R57 — 初期段と前版サービスの再開を、既に起動済みを成功扱いにする `ensure_running` に揃えた。
+- 処置: fixed D20 仮 — 段 `started` / `stopped` からの戻しと、戻した後の DB の起動を `ensure_running`（起きていれば成功）に揃えた。
 
 ## R58. Windows の通し `update-apply-install.sh` は R36 の (a)〜(c) を今も持ち、(d) サーバの差し込みの環境変数がサービスに届かない。tasks 6.1・8.2 の終了条件（CI の緑）に届かない（R36 の直しが不完全）
 - 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
@@ -788,13 +790,14 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - 1 本目の die で残りの Scenario が走らず、CI の Scenario の突き合わせも欠ける。
 - 提案: R36 の提案どおり Scenario・差し込み・インストーラの実際の動き・判定の 4 列の表で見直し、サーバへの差し込みはサービスの環境（または印のファイル）経由にする。そのうえで Windows CI を実際に走らせる
 - kind: technical
+- 処置: fixed D24 仮 — 差し込みを Scenario の GIVEN に合わせて組み直した: (a) 移行の段で待つ `ASHIATO_SETUP_TEST_PAUSE_AT=migrating` で待つ間の待ち受けと開始の種類を外から見る・途中で止まる形は戻しを通らない `ASHIATO_SETUP_TEST_CRASH_AT`（移行の後・待ち受けの後の走らせ直しも）、(b) 戻しの段で落ちる 2 本は移行の失敗と組にし、窓の文に退避の場所と `ashiato-setup.exe rollback` を足した、(c) 入らなかった窓は DB に知らない版を足して db_ahead を起こし、更新の記録の最後の行も見る、(d) サーバの差し込みはサービスの環境（`Environment`）に置き、値を新しい版の版番号にしてその版だけが従う。同じ移行を持つ 2 つの zip でも `MIGRATE_FAIL=sqlstate:` が落ちるよう、当てる版が無い回も最後の版で落とす。DB の細工は Scenario の後に戻し、落ちた DB は走らせる前との差で数える。判定の無かった Scenario（待ち受けの後に止まった更新）を足した。Windows の通しは PR の CI で走る（このセッションでは走らせられない）。
 
 ## R59. 互換の版 `0.0.0` は正式版の系統なので開発版を更新できず、値が outcomes・窓の文・更新の履歴・画面の帯に漏れる（R33・R51 の直しの副作用）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/update_plan.rs
 - 根拠: `ashiato_build_stamp::channel("0.0.0")` は Official。ST57 の開発版が入った PC で ST58 の開発版のインストーラを走らせると、`version_action` が `LeaveAlone` を返し（`crates/installer/src/update_plan.rs:14-22`）、「別の系統」で止まる。正式版でも `0.0.0` が `from_version`、窓の文「0.0.0 に戻しました」、`--previous-version` に出る
 - 提案: R33 の提案どおり「アプリと機能」の DisplayVersion を先に読む。または自分と同じ系統の基準版を使う
 - kind: technical
-- 処置: fixed R59 — `0.0.0` は旧版の `--version` 非対応を表す互換値として候補版の系統判定より先に更新へ進める。
+- 処置: fixed D1 — 古いサーバが `--version` を断った回は、まず「アプリと機能」の `DisplayVersion`（ST55 から登録）を読み、読めない回だけ互換の値 `0.0.0` を使う（窓・記録・履歴に本当の前の版が出る）。`0.0.0` のときは系統を問わず更新へ進む（前の回の直し）。
 
 ## R60. R37・R38 の直しの印が観測しない試験に付いている。携帯の失敗の行はその場で出ず、PC の「戻しても未送信を消さない」は戻しを通らない
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt, crates/collector-windows/tests/st58_pc_update.rs
@@ -804,19 +807,21 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - PC: tasks 8.1 が求める印「落とす要求は自分の版も端末の情報も持たない」は、`ASSET_DOWNLOAD_HEADERS == UPDATE_CHECK_HEADERS` を確かめる試験ごと消えた。
 - 提案: 携帯は SharedPreferences の変化で行を描き直し、試験は画面の行を観測する。PC は戻しを通る通しで未送信を数える。消えた印の試験を戻す
 - kind: technical
+- 処置: fixed 9.1 / 8.2 — 携帯: 画面が失敗の行の置き場の変化を聞き、executor のスレッドが書いたらその場で描き直す（試験は開いた画面の行を見る 2 本。描き直しを外すと 2 本とも落ちることを確かめた）。無関係の試験の印と spec に無い印を外した。PC: 戻しを通る試験（生存信号を書かずに未送信を 1 件積む新しい版 → 前の版を起こし直し、前の版の 2 件と新しい版の 1 件が残る）に「前の版に戻しても…」の印を移し、落とす要求の見出し・版番号・端末の識別子を loopback の受け手で見る試験を戻した。
 
 ## R61. 待ち受けを開かなかった回の文は、インストーラの窓だけ直り、画面・spec・再開の経路は「移行が落ちた」のまま（R46 の直しが不完全）
 - 成果物: web/src/update.ts, openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md, crates/installer/src/main.rs
 - 根拠: `web/src/update.ts:82,86` は `server_not_listening` でも「移行が落ちたので…戻しました」を出す。spec に待ち受けの文が無い（「待ち受けを開かなかった」は 0 件）。`finish_restored` の再開は理由を常に `Aborted` にする（`crates/installer/src/main.rs:1653-1661`）
 - 提案: spec に待ち受けの回の文を足し、画面と再開の経路の理由を印から読む
 - kind: daily
-- 処置: fixed R61 — `server_not_listening` の戻しを画面で待ち受け失敗として分け、distribution spec の帯の文も同じ分岐を正本にした。
+- 処置: fixed D27 仮 — インストーラは落ちた時点の分類（結果と理由）を印に書いてから戻し、再開で終えた戻し（`finish_restored`）も更新の記録をその分類で書く（`Aborted` に決め直さない。試験 `st58_resumed_rollback_outcome_keeps_recorded_reason`）。画面と spec は前の回に分けた。
 
 ## R62. 計画の純粋な関数（`retain_backups`・`classify_backup_state`・`history_line`・`RecoveryPlan::steps`・`update_layout`・`pg_major_matches`）を `main.rs` が 1 回も呼ばず、試験は使われないコードを固定している（R22 の直しが不完全）
 - 成果物: crates/installer/src/lib.rs, crates/installer/src/update_plan.rs, crates/installer/src/main.rs
 - 根拠: `crates/installer/src/main.rs` を grep して 0 件。`installer/src/lib.rs` の `st58_plan_` の試験群の多くは使われないコードを見ており、本番の `retain_update_artifacts`・`classify_update_backup` 等は試験されていない
 - 提案: 本番の経路をこれらの純粋な関数に寄せるか、使われない関数と試験を消して本番の関数を試験する
 - kind: technical
+- 処置: fixed 4.1 — 本番の経路を計画の純粋な関数に寄せた: `rollback` は `RecoveryPlan::steps()` で入口（終える・前の版を起こす・プログラムを戻す）を選び、`classify_update_backup` は `classify_backup_state`、`retain_update_artifacts` は `retain_backups`、`append_outcome` は `history_line`、D5 の比べは `pg_major_matches` を使う（入っている DB の `PG_VERSION` と組み立ての `pgsql.lock` の大きい版を、印を書く前に比べる。これまでは試験の差し込みでしか比べていなかった）。試験だけの `update_layout` は消し、試験は本番の `layout::for_version` を見る。
 
 ## R63. 細かい残り（Minor）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/lib.rs, collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
@@ -828,3 +833,4 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - Task 1 F13（確認した）: `replay_pending` は commit の後に rename するので、その間に落ちると二重に入る。
   - Task 6 F12（確認した）: ACL の正規表現が `(DE)` `(GW)` `(WDAC)` `(WO)` などを拾わない。
 - kind: technical
+- 処置: fixed 5.1 — 古いサーバの版の読みを `decode_tail_output`（UTF-8 を先に見る）にした。`restored` 以外の段から戻した回も更新の記録を書く（`started`/`stopped` も `finish_restored` も）。`program_restored` で飛ばす試験と、試みの行が無い回の戻しの試験（サーバ）を足した。携帯の失敗の行は「更新あり」の行が出ていて更新の確認が有効な間だけ出し、それ以外は消す（閉じられない画面に残さない）。`replay_pending` は写す前に同じ時刻・結果・版の行があれば写さない（commit の後・控えの書き直しの前に落ちても 2 行にしない。試験を足した）。ACL の書き権限の正規表現を括弧の中のどの位置の `DE`・`WDAC`・`WO`・`GW` なども拾う形にし、自己試験で落ちることを見る。

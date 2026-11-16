@@ -66,9 +66,10 @@ impl Outcome<'_> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RollbackKind<'a> {
+    /// 落ちた版と SQLSTATE。分からなければ `None`（列は NULL。新しい版の名前で埋めない）。
     MigrationFailed {
-        failed_version: &'a str,
-        sqlstate: &'a str,
+        failed_version: Option<&'a str>,
+        sqlstate: Option<&'a str>,
     },
     StartupFailed,
 }
@@ -198,7 +199,7 @@ pub async fn record_rollback(
         RollbackKind::MigrationFailed {
             failed_version,
             sqlstate,
-        } => (Some(failed_version), Some(sqlstate)),
+        } => (failed_version, sqlstate),
         RollbackKind::StartupFailed => (None, None),
     };
     let rollback = rollback_row(
@@ -229,8 +230,8 @@ pub async fn record_rollback(
             to_version,
             outcome: "failed".into(),
             applied_versions: Vec::new(),
-            failed_version: Some(failed_version.into()),
-            sqlstate: Some(sqlstate.into()),
+            failed_version: failed_version.map(str::to_owned),
+            sqlstate: sqlstate.map(str::to_owned),
             written_at: None,
         })
     } else {
@@ -287,9 +288,24 @@ pub async fn replay_pending(conn: &mut PgConnection, path: &Path) -> Result<(), 
         .await
         .map_err(database_error)?;
     for row in rows.iter_mut().filter(|r| r.written_at.is_none()) {
-        insert_pending_row(&mut tx, row)
-            .await
-            .map_err(database_error)?;
+        // 写した後・控えを書き直す前に落ちた回は、控えに written_at が無いまま残る。
+        // 同じ時刻・結果・版の行が既にあれば写し済みとみなし、2 行にしない（review/code.md R63）
+        let already: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM core.update_history
+              WHERE at = $1::timestamptz AND component = $2 AND outcome = $3 AND to_version = $4)",
+        )
+        .bind(&row.at)
+        .bind(&row.component)
+        .bind(&row.outcome)
+        .bind(&row.to_version)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        if !already {
+            insert_pending_row(&mut tx, row)
+                .await
+                .map_err(database_error)?;
+        }
         row.written_at = Some(now_string(&mut tx).await.map_err(database_error)?);
     }
     tx.commit().await.map_err(database_error)?;

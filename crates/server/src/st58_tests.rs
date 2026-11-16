@@ -2,6 +2,7 @@
 //! ST58 の更新履歴（Task 1）。
 #![allow(clippy::unwrap_used)]
 
+#[cfg(unix)]
 use crate::migrate_backup::{backup_before_migrate, BackupConfig};
 use crate::testdb;
 use crate::update_history::{record_rollback, record_startup, replay_pending, RollbackKind};
@@ -48,8 +49,8 @@ async fn st58_history_failed_pair_is_ordered() {
         "new",
         "wrong",
         RollbackKind::MigrationFailed {
-            failed_version: "bad",
-            sqlstate: "23505",
+            failed_version: Some("bad"),
+            sqlstate: Some("23505"),
         },
         &[],
         None,
@@ -99,6 +100,64 @@ async fn st58_history_pending_replays_once() {
     assert_eq!(rows(&pool).await[0].4, vec!["new-migration"]);
 }
 
+// 写した後・控えを書き直す前に落ちても、次の写しで 2 行にしない（review/code.md R63・Task 1 F13）
+#[tokio::test]
+async fn st58_history_replay_after_crash_before_rename_does_not_duplicate() {
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    set_outcome_constraint(&pool, false).await;
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("history-pending.jsonl");
+    let mut conn = pool.acquire().await.unwrap();
+    let _ = record_rollback(
+        &mut conn,
+        "new",
+        "old",
+        RollbackKind::StartupFailed,
+        &[("new-migration", "sha")],
+        Some(&path),
+    )
+    .await;
+    set_outcome_constraint(&pool, true).await;
+    let unwritten = std::fs::read_to_string(&path).unwrap();
+    replay_pending(&mut conn, &path).await.unwrap();
+    assert_eq!(rows(&pool).await.len(), 1);
+    // commit は済んだが控えの書き直しが残らなかった回を、書き直す前の控えで作る
+    std::fs::write(&path, unwritten).unwrap();
+    replay_pending(&mut conn, &path).await.unwrap();
+    assert_eq!(rows(&pool).await.len(), 1);
+}
+
+// 試みの行が無い回の「移行が落ちた」戻しは、戻したの 1 行だけで、分からない値は NULL（review/code.md R54・R63）
+#[tokio::test]
+async fn st58_history_migration_rollback_without_attempt_writes_only_rollback() {
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    let mut conn = pool.acquire().await.unwrap();
+    record_rollback(
+        &mut conn,
+        "new",
+        "old",
+        RollbackKind::MigrationFailed {
+            failed_version: None,
+            sqlstate: None,
+        },
+        &[],
+        None,
+    )
+    .await
+    .unwrap();
+    let got = rows(&pool).await;
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, "rolled_back");
+    let (failed_version, sqlstate): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT failed_version, sqlstate FROM core.update_history")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((failed_version, sqlstate), (None, None));
+}
+
 // Scenario: 戻しても、試みの行は書き直さない
 #[tokio::test]
 async fn st58_history_rollback_preserves_attempt() {
@@ -111,8 +170,8 @@ async fn st58_history_rollback_preserves_attempt() {
         "new",
         "old",
         RollbackKind::MigrationFailed {
-            failed_version: "bad",
-            sqlstate: "23505",
+            failed_version: Some("bad"),
+            sqlstate: Some("23505"),
         },
         &[],
         None,

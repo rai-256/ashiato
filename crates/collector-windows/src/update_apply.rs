@@ -186,7 +186,7 @@ fn run_update_inner<R: BufRead, W: Write>(
     writeln!(output, "新しい版の起動を待っています")?;
     output.flush()?;
     let mut child = spawn_staged_collector(&staged, cfg, channel)?;
-    if wait_for_alive(&layout, latest, WAIT_FOR_ALIVE)? {
+    if wait_for_alive(&layout, latest, alive_timeout())? {
         crate::autostart::rewrite_existing_for_setup(&executable, channel)?;
         remove_old_versions(&layout, latest)?;
         writeln!(output, "{latest} に入れ替えました")?;
@@ -330,8 +330,31 @@ fn spawn_staged_collector(
     command.spawn().context("収集アプリを起こせない")
 }
 
+/// 新しい版の生存信号を待つ長さ（D17（仮）の 60 秒）。試験の組み立てだけ
+/// `ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS` で縮められる（戻しの経路を試験で通す。review/code.md R60）。
+fn alive_timeout() -> Duration {
+    #[cfg(ashiato_test_build)]
+    if let Some(ms) = std::env::var("ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    WAIT_FOR_ALIVE
+}
+
+/// 戻すときに起こし直す前の版。本番は自分自身（窓を開いた前の版の実行ファイル）。試験の組み立てだけ
+/// `ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE` で替えられる（試験の実行ファイルを起こし直さないため）。
+fn previous_executable() -> Result<PathBuf> {
+    #[cfg(ashiato_test_build)]
+    if let Some(path) = std::env::var_os("ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE") {
+        return Ok(PathBuf::from(path));
+    }
+    Ok(std::env::current_exe()?)
+}
+
 fn spawn_previous_collector(cfg: &crate::config::Config) -> Result<Child> {
-    let mut command = Command::new(std::env::current_exe()?);
+    let mut command = Command::new(previous_executable()?);
     command
         .env("ASHIATO_STATE_DIR", &cfg.launch_state_dir)
         .env("ASHIATO_DEVICE_ID", &cfg.launch_device_id);

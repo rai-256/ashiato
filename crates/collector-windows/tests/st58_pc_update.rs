@@ -257,7 +257,6 @@ fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
     // Scenario: PC は y で新しい版に入れ替え、前の版の実行ファイルを残す
     // Scenario: 押したときの取り直しは、確かめの数えを動かさない
     // Scenario: PC は入れ替えの前に積んだ未送信を、入れ替えた後に送る
-    // Scenario: PC は前の版に戻しても、新しい版が積んだ未送信を消さない
     let _guard = UPDATE_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let archive = {
@@ -458,4 +457,162 @@ fn st58_pc_update_replaces_twice_and_keeps_only_the_two_latest_versions() {
         .path()
         .join("versions/0.6.0/ashiato-collector-windows.exe")
         .is_file());
+}
+
+// 新しい版が生存信号を書かずに未送信を 1 件積んで止まると、前の版へ戻す。戻しは未送信を消さない（R60）
+#[cfg(unix)]
+#[test]
+fn st58_pc_update_rollback_keeps_outbox_rows_of_both_versions() {
+    // Scenario: PC は前の版に戻しても、新しい版が積んだ未送信を消さない
+    // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let future_row = r#"{"contract_version":2,"id":"from-new-version"}"#;
+    let archive = {
+        let mut bytes = Vec::new();
+        let cursor = std::io::Cursor::new(&mut bytes);
+        let mut zip = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        zip.start_file("ashiato-collector-windows.exe", options)
+            .unwrap();
+        // 新しい版: 送信契約の版を 1 つ上げた行を積み、生存信号を書かずに止まる
+        write!(
+            zip,
+            "#!/bin/sh\nprintf '%s\\n' '{future_row}' >> \"$ASHIATO_STATE_DIR/outbox.jsonl\"\n"
+        )
+        .unwrap();
+        zip.finish().unwrap();
+        bytes
+    };
+    let digest = format!("sha256:{:x}", sha2::Sha256::digest(&archive));
+    let releases = format!(
+        r#"[{{"tag_name":"v0.5.0","draft":false,"assets":[{{"name":"ashiato-collector-windows-0.5.0-x86_64.zip","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/v0.5.0/asset.zip","digest":"{digest}"}}]}}]"#
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for body in [releases.into_bytes(), archive] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    // 前の版の代わり: 起こし直されたことを印に残す
+    let previous = dir.path().join("previous-collector.sh");
+    std::fs::write(
+        &previous,
+        "#!/bin/sh\ntouch \"$ASHIATO_STATE_DIR/previous-started\"\n",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&previous, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS", "1500");
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE", &previous);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        format!(r#"{{"base_url":"{base}"}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        r#"{"latest":"0.5.0"}"#,
+    )
+    .unwrap();
+    let old_rows =
+        "{\"contract_version\":1,\"id\":\"old-1\"}\n{\"contract_version\":1,\"id\":\"old-2\"}\n";
+    std::fs::write(dir.path().join("outbox.jsonl"), old_rows).unwrap();
+
+    let mut input = &b"y\n\n"[..];
+    let mut output = Vec::new();
+    let result = ashiato_collector_windows::update_apply::run_update(
+        &config(dir.path()),
+        ashiato_build_stamp::Channel::Official,
+        &mut input,
+        &mut output,
+    );
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS");
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE");
+    server.join().unwrap();
+    result.unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(
+        output.contains("新しい版 0.5.0 が動き出さなかったので"),
+        "{output}"
+    );
+    for _ in 0..200 {
+        if dir.path().join("previous-started").exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        dir.path().join("previous-started").exists(),
+        "前の版を起こし直していない"
+    );
+    // 前の版が積んだ 2 件も、新しい版が積んだ 1 件も残る
+    let outbox = std::fs::read_to_string(dir.path().join("outbox.jsonl")).unwrap();
+    assert!(outbox.starts_with(old_rows), "{outbox}");
+    assert!(outbox.lines().any(|line| line == future_row), "{outbox}");
+    assert_eq!(outbox.lines().count(), 3);
+}
+
+// 落とす要求は、版の確かめと同じ 5 つの見出しだけを持ち、版番号も端末の情報も載せない（R60: 消えた印の試験を戻す）
+#[test]
+fn st58_pc_update_download_request_carries_no_version_or_device() {
+    // Scenario: 落とす要求は自分の版も端末の情報も持たない
+    let _guard = UPDATE_ENV.lock().unwrap();
+    assert_eq!(
+        ashiato_update_check::ASSET_DOWNLOAD_HEADERS,
+        ashiato_update_check::UPDATE_CHECK_HEADERS
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut buffer).unwrap();
+            if n == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..n]);
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    let body = ashiato_collector_windows::update_check::download_asset(
+        "https://github.com/rai-256/ashiato/releases/download/v0.5.0/asset.zip",
+    );
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+    assert_eq!(body.unwrap(), b"ok");
+    let request = server.join().unwrap();
+    let mut lines = request.split("\r\n").filter(|line| !line.is_empty());
+    let request_line = lines.next().unwrap();
+    assert!(request_line.starts_with("GET /rai-256/ashiato/releases/download/v0.5.0/asset.zip "));
+    for line in lines {
+        let name = line.split(':').next().unwrap().trim();
+        assert!(
+            ashiato_update_check::ASSET_DOWNLOAD_HEADERS
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(name)),
+            "許されない見出し: {line}"
+        );
+    }
+    assert!(!request.contains(env!("ASHIATO_VERSION")), "{request}");
+    assert!(!request.contains("pc-test"), "{request}");
 }

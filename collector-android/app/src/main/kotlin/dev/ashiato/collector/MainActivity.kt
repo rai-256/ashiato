@@ -131,8 +131,23 @@ open class MainActivity : Activity() {
     /** 初回の自動導線はランチャーからの起動だけ。設定画面から戻る経路は onActivityResult が扱う。 */
     protected open fun shouldOfferInitialSetup(): Boolean = intent?.action == Intent.ACTION_MAIN
 
+    /**
+     * 失敗の行は executor のスレッドが書く（落とせなかった・指紋が合わなかった）。書かれたら、
+     * いま出している行をその場で描き直す（次に開くまで待たせない。review/code.md R60）。
+     */
+    private var redrawStatus: (() -> Unit)? = null
+    private val failureListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        runOnUiThread { if (!isFinishing) redrawStatus?.invoke() }
+    }
+
+    override fun onPause() {
+        UpdateInstall.failurePreferences(this).unregisterOnSharedPreferenceChangeListener(failureListener)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        UpdateInstall.failurePreferences(this).registerOnSharedPreferenceChangeListener(failureListener)
         // 設定画面から戻った後は、行が再び見えるので入れ替えの印を立ててよい。
         // start() ごとに戻すと、設定を開いた回の途中で start() が呼ばれた場合にも保護が外れる。
         exemptSettingsOpened = false
@@ -444,9 +459,12 @@ open class MainActivity : Activity() {
                         ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
             )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
-        if (restricted || notice != null || setupRow || updateIntroPending || updateStale || UpdateInstall.failureLine(this) != null) {
+        val failureLine = UpdateInstall.visibleFailureLine(this, updateAvailable && updatePreferences.getBoolean("enabled", true))
+        if (restricted || notice != null || setupRow || updateIntroPending || updateStale || failureLine != null) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
-            showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
+            val shownState = state.takeIf { restricted }
+            redrawStatus = { showStatus(shownState, notice, setupNeeded, setupRow) }
+            showStatus(shownState, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
             if (Config.isComplete && introRowShownInThisActivity && exemptDialog?.isShowing != true &&
                 !exemptSettingsOpened && !usageAccessOpenedInThisStart
@@ -454,6 +472,7 @@ open class MainActivity : Activity() {
                 updateChecker.markIntroShown()
             }
         } else {
+            redrawStatus = null
             finish()
         }
     }
@@ -532,6 +551,8 @@ open class MainActivity : Activity() {
             column.addView(TextView(this).apply { text = "更新の確認: 有効（切るには設定の画面）" })
             introRowShownInThisActivity = true
         }
+        val updateOffered = updatePrefs.getString("latest", null)
+            ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
         updatePrefs.getString("latest", null)?.let { latest ->
             if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
                 val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
@@ -541,7 +562,7 @@ open class MainActivity : Activity() {
                 })
             }
         }
-        UpdateInstall.failureLine(this)?.let { line ->
+        UpdateInstall.visibleFailureLine(this, updateOffered && updatePrefs.getBoolean("enabled", true))?.let { line ->
             column.addView(TextView(this).apply { text = line })
         }
         if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {

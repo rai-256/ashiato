@@ -457,6 +457,13 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 試験の組み立ての起動の差し込みが自分に当たるか。値は `1`（どの版にも）か版番号（その版だけ）。
+/// サービスの環境は前の版と新しい版で共通なので、版で絞らないと戻した前の版まで落ちる（review/code.md R58）。
+#[cfg(ashiato_test_build)]
+fn test_hook_applies(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| value == "1" || value == env!("ASHIATO_VERSION"))
+}
+
 /// `ashiato-server update-history` の所有者向け口。標準出力には履歴を出さない。
 pub async fn run_update_history(mut args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     let sub = args.next().context("update-history の操作が必要です")?;
@@ -488,9 +495,10 @@ pub async fn run_update_history(mut args: impl Iterator<Item = String>) -> anyho
                 None
             };
             let kind = match kind.as_str() {
+                // 空の値は「分からない」（インストーラが印に持っていない）。列は NULL にする
                 "migration-failed" => update_history::RollbackKind::MigrationFailed {
-                    failed_version: failed_version.as_deref().unwrap_or_default(),
-                    sqlstate: sqlstate.as_deref().unwrap_or_default(),
+                    failed_version: failed_version.as_deref().filter(|v| !v.is_empty()),
+                    sqlstate: sqlstate.as_deref().filter(|v| !v.is_empty()),
                 },
                 "startup-failed" => update_history::RollbackKind::StartupFailed,
                 _ => anyhow::bail!("未知の rollback 種別"),
@@ -4798,14 +4806,14 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
     }
 
     #[cfg(ashiato_test_build)]
-    if std::env::var("ASHIATO_SERVER_TEST_NO_LISTEN").as_deref() == Ok("1") {
+    if test_hook_applies("ASHIATO_SERVER_TEST_NO_LISTEN") {
         std::process::exit(1);
     }
     // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
     #[cfg(ashiato_test_build)]
-    if std::env::var("ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN").as_deref() == Ok("1") {
+    if test_hook_applies("ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN") {
         tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             std::process::exit(1);

@@ -1159,9 +1159,10 @@ pub fn rollback_history_command(
         kind,
     );
     if kind == "migration-failed" {
+        // 分からない値は空で渡し、サーバが列を NULL にする（新しい版の名前で埋めない。review/code.md R54）
         command.args.extend([
             "--failed-version".to_owned(),
-            failed_version.unwrap_or(new_version).to_owned(),
+            failed_version.unwrap_or_default().to_owned(),
             "--sqlstate".to_owned(),
             sqlstate.unwrap_or_default().to_owned(),
         ]);
