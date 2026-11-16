@@ -46,6 +46,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: 引数の形をどちらかに揃える（インストーラが `--new-version` `--previous-version` `--kind`（落ちた版・SQLSTATE も）を渡す / `replay` の形を合わせる）。インストーラの `SetupCommand` を**本物の `ashiato-server` の CLI の解析に通す**試験を 1 本足す（Linux で走る。DB に繋ぐ前の引数の検査で rc を見れば足りる）。
 - 処置: fixed D18 仮 — `record-rollback` に版・種別・控えを渡し、`replay` は positional path に統一した。`st58_record_rollback_reads_pending_exit_five_without_stdout_json` は実際の command builder を使い、終了コード 5 と控えを書いた経路を固定する。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R2. Windows の通し `update-apply-install.sh` の判定は、誰も出さない文字列を待っている。Windows の CI で走らせても緑にならず、3 本目の Scenario で止まる
 - 成果物: tools/release/update-apply-install.sh / crates/installer/src/commands.rs
@@ -62,6 +63,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: 判定が要る事実（戻したか・退避の数・落ちた DB の有無・更新係の状態・合言葉でのログイン）は、台本が Windows の実際の状態（`sc query ashiato-updater`・`dir backups\pre-migrate`・`psql -l`・`/api/login`）から自分で取って trace に書く。インストーラの自己申告の文字列に頼らない。そのうえで PR の CI で `install-windows` を一度通す。
 - 処置: fixed D24 仮 — 通しはインストーラの自己申告ではなく、更新後の `healthz`、実行中のサーバの版、`sc query/qc`、更新印、`previous`、ACL を trace に採る形へ置き換えた。CI の実行結果は publish 後の終了条件として残す。
+- 判定: NOT ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）: update-apply-install.sh:187-286 は今も rollback=ok・failed_db=1・queued-record=accepted など、誰も出さない文字列を grep する。trace は :334-345 のとおり healthz・版・sc・icacls・update-stage・previous だけ。判定側が実状態へ置き換わっていない
 
 ## R3. 同じ台本の「しない」の判定 3 本は、何も観測しなくても通る。self-test は Scenario の判定を 1 度も呼ばない
 - 成果物: tools/release/update-apply-install.sh / crates/installer/src/main.rs
@@ -72,6 +74,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: 「しない」の判定は、「した」ときに必ず出る観測（`ashiato_failed_*` の DB が増えた・退避の dump の更新時刻が変わった）を台本が自分で取り、その不在を見る。役割は接続の URL の利用者名か `pg_stat_activity` から取る。self-test に、各 Scenario の「通る trace」と「壊した trace」を 1 組ずつ置いて `assert_scenario_result` に通す。
 - 処置: fixed D24 仮 — `assert_scenario_result` は Scenario ごとに rc と Windows の実状態を組み合わせて判定し、self-test には ACL・件数・出力・下準備・操作選択の壊れた入力を追加した。
+- 判定: NOT ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）: update-apply-install.sh:228,280 は今も rc≠0 && ! grep rollback=ok の形で、rollback=ok は誰も出さないので何も観測しなくても通る。self-test(:354-405) は assert_scenario_result を呼ばない
 
 ## R4. 移行が落ちて戻した回の理由が、spec と画面の試験の想定と違う。落ちた版の欄に前のアプリの版が入り、SQLSTATE は出ず、`db_ahead` と系統違いも「戻した・移行が途中で終わった」になる
 - 成果物: crates/installer/src/main.rs / web/e2e/st58-update-apply.spec.ts / specs/distribution/spec.md
@@ -85,6 +88,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: 理由は誤りの文の部分一致ではなく、`migrate` の終了コード（2・3・4 は `not_applied` と種別）と、`migrate` が出す 1 行（落ちた版の名前・SQLSTATE。spec D-01 の「種別・落ちた版の名前・SQLSTATE だけ」）から決める。インストーラの `append_outcome` が作る行を、サーバの `read_status` に通す試験を 1 本置く（R5 と合わせて）。
 - 処置: fixed D15 仮 — `update_failure_reason` は `migrate` の `error: kind=… version=… sqlstate=…` を優先して読み、`db_ahead` / `ledger_unreadable` / `channel_mismatch` を `not_applied` に、移行失敗を落ちた移行名と SQLSTATE を持つ `rolled_back` にする。`st58_update_failure_reason_reads_migrate_machine_line` で双方を固定した。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R5. 段 `restored` から戻し終えた回は、理由の無い `rolled_back` の行を書く。サーバはその行を捨てるので、画面の帯に「戻しました」が出ない
 - 成果物: crates/installer/src/main.rs / crates/server/src/update_status.rs
@@ -95,6 +99,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: `finish_restored` は印に残した理由（種別・落ちた版・SQLSTATE）を写して書く。印に理由を残していなければ、印を書く段で残す。
 - 処置: fixed D15 仮 — `finish_restored` は理由無しの行を書かず、`aborted` の理由を持つ `rolled_back` を書く。`st58_status_reads_rolled_back` が有効な理由を持つ行を `last_update` として返すことを確認する。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R6. PC の入れ替えの試験の多くは、自分で書いたファイルを読み直すか、主張と逆を見ている。指紋の照合を消しても、印のある試験は 1 本も落ちない。60 秒はどの試験からも参照されていない
 - 成果物: crates/collector-windows/tests/st58_pc_update.rs / crates/collector-windows/tests/runtime_windows.rs / crates/collector-windows/src/update_apply.rs
@@ -106,6 +111,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: loopback の受け手の試験（`st58_pc_update_runs_against_loopback_with_a_real_staged_program` の形）を、指紋の合わない配布物・`y` 以外・新しい版が alive を書かない、の 3 つに広げ、`versions\` と自動起動の台本が変わらないこと、前の版の子が起きたことを観測する。60 秒は `wait_for_alive` に時計を差し込み、59 秒は待ち、61 秒は戻すことを見る。
 - 処置: fixed D12 仮 — PC の更新経路は指紋照合・生存印・段階置き場を実装し、`st58_pc_update_*` と Windows 実行時の試験で確認する。60 秒の実時間境界は Windows CI の終了条件として D17 の反転条件に残す。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R7. 携帯の更新の試験は、共有の材料を読まず、いくつかの印は関係の無い試験に付いている。spec の「入れられませんでした」「許可した後に、もう一度押してください」の文は、アプリにも PC にも無い
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt / collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt / crates/collector-windows/src/update_apply.rs
@@ -122,6 +128,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: Kotlin の試験で `docs/contracts/update-apply-vectors.json` を読んで全件を通す。手元の受け手（`MockWebServer` か loopback）で `start()` を走らせ、指紋の合わない APK でセッションが作られないこと（Robolectric の `ShadowPackageInstaller`）と、行の文を見る。行と窓の「入れられませんでした（<理由>）」を作る。
 - 処置: fixed D21 仮 — Kotlin 側は APK の名前・宛先・SHA-256 を選択前に検査し、指紋不一致時は APK を削除して PackageInstaller の session を作らない。許可が無いときは OS の提供元不明アプリ設定へ遷移する。
+- 判定: NOT ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）: grep update-apply-vectors collector-android は 0 件で、Kotlin は共有の材料を読まない。tasks 9.1 の材料の全件を満たさない。UpdateInstall.kt:36-58,127 の APK 検査と session 非作成は入ったが指摘の本体は残る
 
 ## R8. 決めた値と分岐のうち 3 つは、書き換えても試験が落ちない（1 MB・終了コード 5・待ち受けの後は戻さない）
 - 成果物: crates/server/src/update_status.rs / crates/server/src/lib.rs / crates/installer/src/main.rs
@@ -133,6 +140,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: 1 MB ちょうど以下の行を読む試験を 1 本足す。終了コード 5 は R1 の CLI の試験で一緒に固定する。`rollback()` の段の振り分けは `recovery_plan` に寄せるか、段 `listening` の印で `rollback()` を呼んで DB を戻す命令が出ないことを見る試験を置く。
 - 処置: fixed D19 仮 — 1 MB の上限は `update_status` の入力制限、終了コード 5 は R1 の command builder 経路、待受後の戻さない分岐は `rollback` の `listening` 分岐で固定した。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R9. 配る組み立ての検査は、サーバの新しい試験の差し込み（`ASHIATO_SERVER_TEST_*`）を見ていない
 - 成果物: tools/release/check-artifacts.sh
@@ -142,6 +150,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: サーバの照合に `ASHIATO_SERVER_TEST_` を足し、self-test に植え付けを 1 つ足す。
 - 処置: fixed D24 仮 — `check-artifacts.sh` の test-only 差し込み検査へ `ASHIATO_SERVER_TEST_` を加えた。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R10. 前提 P20 は「Windows CI の実物で確認」を根拠に確かさ 4 になっているが、その通しは一度も走っておらず、走っても緑にならない形になっている
 - 成果物: openspec/changes/st58-update-apply-rollback/premises.md / openspec/changes/st58-update-apply-rollback/tasks.md
@@ -154,6 +163,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 処置: fixed premises.md — P20 の確かさを 3 に戻し、Windows CI の実行を終了条件として残した。
 
 ---
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## 手ごとの記録
 
@@ -196,6 +206,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 処置: fixed D22 仮 — 通知が発行する一回限りの乱数を private SharedPreferences と照合し、消費できた intent だけが更新取得を始める。
 
 範囲外: 移行の前の退避（`backups\pre-migrate\*.dump`。ST54 から）も、本人が後で消した記録を持ち続ける。ST58 は通った更新で古い退避を消す（`retain_update_artifacts`）ので短くなる側だが、戻した回の退避は次に通るまで残る —— R11 と同じ扱いを決めるときに併せて見る。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## /code-review（23b9b22..df86a05）
 
@@ -207,6 +218,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D18 仮 — command builder をサーバ CLI の必須引数と同じ順序・名前に揃えた。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R14. `update-history replay` reads the next argument as the path, but the installer sends `replay --pending <path>`, which trips '引数が多すぎます'. A missing pending file also fails with PendingIo instead of counting as nothing to replay.
 - 成果物: crates/server/src/lib.rs:515
@@ -214,6 +226,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D18 仮 — `replay` は positional pending path を渡し、控えが無ければ no-op にする。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R15. `installed_version` runs `ashiato-server --version`, but the server's `main` has no `--version` arm (`Some(other) => bail!("知らない引数")`). It always fails, and `install()` now calls it for every existing installation.
 - 成果物: crates/installer/src/main.rs:1084
@@ -221,6 +234,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — サーバの `--version` を実装し、既存インストールの版読み取りを可能にした。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R16. Update and rollback stop services with a bare `sc.exe stop` (`update_plan::service_stop_command`). That command exits non-zero on an already-stopped service (1062) and does not wait for the stop to finish. The existing `commands::stop_service_and_wait_command` handles both cases.
 - 成果物: crates/installer/src/main.rs:1376
@@ -228,6 +242,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — 更新・戻しの停止を既存の停止待機コマンドに揃え、DB の再開後は接続可能になるまで待つ。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R17. If a step fails after the `listening` stage, `update_install` calls `rollback`, which runs `finish_update` and appends `applied`. Then `update_install` also appends `rolled_back`/aborted, prints a failure reason, and returns Err.
 - 成果物: crates/installer/src/main.rs:1111
@@ -235,6 +250,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D6 — `listening` 後の失敗は `finish_update` を終えて成功として返し、`rolled_back` を追記しない。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R18. The program files are moved into previous\ while the recorded stage is still `stopped`, and `rollback` for `stopped` only restarts the server. A move that fails partway is never undone.
 - 成果物: crates/installer/src/main.rs:1195
@@ -242,6 +258,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — 最初のファイル移動の前に `moved` 段を永続化し、中断時は前の版を復元する経路へ入れる。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R19. `clean()` deletes every file in `noBackupFilesDir/update`, which includes the `update/replaced-start` marker written by `PackageReplacedReceiver`. `UpdateInstallResultReceiver` (on any status) and `MainActivity.onCreate` both call `clean()`.
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt:69
@@ -249,6 +266,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D10 — `clean()` は `replaced-start` を削除せず、サービス開始側が消費するまで残す。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R20. `finish_restored` appends a `rolled_back` outcome with `reason: None`, but `update_status::read_last_update` rejects any non-applied row without a reason. Separately, `read_status` reads outcomes from the updater dir, which `get` then overwrites.
 - 成果物: crates/installer/src/main.rs:1470
@@ -256,6 +274,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D15 仮 — `finish_restored` は理由を持つ `rolled_back` を書き、状態の読む側が帯へ出せる形に揃えた。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R21. The PC update always waits for a handoff ack from a running collector and fails after 60s if no collector is running. Also, `run()` now rewrites autostart to `current_exe` on every start (main.rs:277), which duplicates the rewrite done after alive.
 - 成果物: crates/collector-windows/src/update_apply.rs:178
@@ -263,6 +282,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D12 仮 — 更新後にだけ staged executable へ自動起動を書き換える経路を維持し、更新の手順・生存確認を `update_apply` に集約した。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 
 ## R22. `retain_backups`, `classify_backup_state`, `pg_major_matches`, `history_line`, `update_layout`, `RecoveryPlan::steps`, and `service_start_command` are only called from tests. main.rs reimplements the same logic in `classify_update_backup`, `retain_update_artifacts`, `pg_major`, `append_outcome`, and `commands::start_service_command`, with different rules.
 - 成果物: crates/installer/src/update_plan.rs:152
@@ -270,3 +290,16 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — 更新と戻しの実行経路で `update_plan` の段・復旧判断と commands のサービス操作を使うように揃えた。
+- 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
+
+## settle_review（re-review 1 @ee08c24）: 処置の直しが新しく壊したもの
+
+## R23. Windows の通しの判定が、誰も出さない文字列を待つ形のまま残っている。P20 を確かさ 3 に戻したが、終了条件にした Windows CI の通しは緑にならないか、緑でも何も保証しない。
+- 成果物: tools/release/update-apply-install.sh
+- 根拠: tools/release/update-apply-install.sh:187（re-review 1 の New Breakage。Important）
+- kind: technical
+
+## R24. 戻しの履歴の種別が常に startup-failed で、移行失敗の戻しも同じ種別で記録される。画面の理由は outcomes 側で別に持つので影響は小さい。
+- 成果物: crates/installer/src/main.rs
+- 根拠: crates/installer/src/main.rs:1470（re-review 1 の New Breakage。Minor）
+- kind: technical
