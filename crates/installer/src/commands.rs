@@ -1118,31 +1118,50 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
     Ok(command.to_owned())
 }
 
-pub fn update_history_record_rollback_command(program: &Path, pending_out: &Path) -> SetupCommand {
+pub fn update_history_record_rollback_command(
+    program: &Path,
+    pending_out: &Path,
+    new_version: &str,
+    previous_version: &str,
+    kind: &str,
+) -> SetupCommand {
     SetupCommand::new(
         program.display().to_string(),
         [
             "update-history",
             "record-rollback",
+            "--new-version",
+            new_version,
+            "--previous-version",
+            previous_version,
+            "--kind",
+            kind,
             "--pending-out",
             &pending_out.display().to_string(),
         ],
     )
 }
 
-pub fn rollback_history_command(program: &Path, pending_out: &Path) -> SetupCommand {
-    update_history_record_rollback_command(program, pending_out)
+pub fn rollback_history_command(
+    program: &Path,
+    pending_out: &Path,
+    new_version: &str,
+    previous_version: &str,
+    kind: &str,
+) -> SetupCommand {
+    update_history_record_rollback_command(
+        program,
+        pending_out,
+        new_version,
+        previous_version,
+        kind,
+    )
 }
 
 pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCommand {
     SetupCommand::new(
         program.display().to_string(),
-        [
-            "update-history",
-            "replay",
-            "--pending",
-            &pending.display().to_string(),
-        ],
+        ["update-history", "replay", &pending.display().to_string()],
     )
 }
 

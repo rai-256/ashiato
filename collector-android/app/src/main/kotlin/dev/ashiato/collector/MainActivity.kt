@@ -427,7 +427,7 @@ open class MainActivity : Activity() {
         val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
         val updateAvailable = updatePreferences.getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
-        if (!updateStarted && intent?.getBooleanExtra(UpdateInstall.EXTRA_START, false) == true) {
+        if (!updateStarted && UpdateInstall.consumeUpdateStart(this, intent)) {
             updateStarted = true
             UpdateInstall.start(this)
         }

@@ -17,6 +17,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.Executors
 
 internal object UpdateInstall {
@@ -25,6 +26,9 @@ internal object UpdateInstall {
     private const val APK_PREFIX = "ashiato-collector-"
     private const val APK_SUFFIX = ".apk"
     const val EXTRA_START = "dev.ashiato.collector.UPDATE_START"
+    private const val EXTRA_START_TOKEN = "dev.ashiato.collector.UPDATE_START_TOKEN"
+    private const val START_PREFS = "update-start"
+    private const val START_TOKEN = "token"
     const val ACTION_RESULT = "dev.ashiato.collector.UPDATE_RESULT"
     const val UPDATE_DIR = "update"
 
@@ -55,8 +59,24 @@ internal object UpdateInstall {
 
     fun updateDirectory(context: Context): File = File(context.noBackupFilesDir, UPDATE_DIR)
 
-    internal fun updateStartIntent(context: Context): Intent =
-        Intent(context, MainActivity::class.java).putExtra(EXTRA_START, true)
+    internal fun updateStartIntent(context: Context): Intent {
+        val token = UUID.randomUUID().toString()
+        context.getSharedPreferences(START_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(START_TOKEN, token).apply()
+        return Intent(context, MainActivity::class.java)
+            .putExtra(EXTRA_START, true)
+            .putExtra(EXTRA_START_TOKEN, token)
+    }
+
+    /** Accept the one-time token only when it was minted for our notification. */
+    internal fun consumeUpdateStart(context: Context, intent: Intent?): Boolean {
+        if (intent?.getBooleanExtra(EXTRA_START, false) != true) return false
+        val token = intent.getStringExtra(EXTRA_START_TOKEN) ?: return false
+        val prefs = context.getSharedPreferences(START_PREFS, Context.MODE_PRIVATE)
+        if (token != prefs.getString(START_TOKEN, null)) return false
+        prefs.edit().remove(START_TOKEN).apply()
+        return true
+    }
 
     internal fun unknownSourcesIntent(context: Context): Intent =
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
@@ -67,7 +87,12 @@ internal object UpdateInstall {
     )
 
     fun clean(context: Context) {
-        updateDirectory(context).listFiles()?.forEach { if (it.isFile) it.delete() }
+        // PackageReplacedReceiver writes this marker before either the result
+        // receiver or the activity can clean downloads.  It is consumed by the
+        // service startup path, not by the installer cleanup path.
+        updateDirectory(context).listFiles()?.forEach {
+            if (it.isFile && it.name != "replaced-start") it.delete()
+        }
     }
 
     internal fun verifyDigest(file: File, expected: String): Boolean = sha256(file) == expected.lowercase()

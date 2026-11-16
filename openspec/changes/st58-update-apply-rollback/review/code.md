@@ -176,6 +176,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 根拠: `main.rs:1612-1616` は戻すとき、元の DB を消さずに `ALTER DATABASE ashiato RENAME TO ashiato_failed_<時刻>` で残す。消すのは `cleanup_failed_databases`（`main.rs:1716-1760`）だけで、呼ぶのは更新が通った 2 か所（`update_install_attempt` の `main.rs:1300` と `finish_update` の `main.rs:1681`）だけ。戻した後に前の版のサーバが繋ぐ先は `postgres://…/ashiato` に決まっている（`secrets.rs:14`）。削除（`deletion.rs:636` `purge_scope`）も書き出しの「後に消した記録の件数」もこの DB にしか届かない。つまり、更新が通らないままのあいだ（本人が更新の確認を切った・次の版も落ちる・更新しない）は、本人が消した滞在・位置・本文が `ashiato_failed_*` に期限なく残る。`docs/install.md` にも画面にもこの DB の説明は無く（`grep -rn 'ashiato_failed' docs web/src` は 0 件）、本人は消す手段も残っていることも知らない。PC の外へは出ないが、「消した」の約束が DB の写しの中で破れる（確かさ 3。Windows の本物での再現はしていない）
 - kind: premise
 - 提案: 落ちた DB は戻し終えて前の版のサーバが待ち受けを開いた時点で消す（調べたいなら、すでにある移行の前の退避で足りる）。残すなら、`docs/install.md` と帯の「戻しました」に「落ちた DB を `ashiato_failed_…` として残している・消す手順」を書き、削除の spec に「戻しで残した DB には削除が届かない」ことを足して本人に問う
+- 処置: escalated
 
 ## R12. 端末のほかのアプリが、最初の画面に `UPDATE_START` を付けて開くだけで、更新の取得と Android のインストール画面（または「提供元不明のアプリ」の設定）を本人の操作なしに出せる
 - 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt`

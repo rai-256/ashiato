@@ -100,3 +100,14 @@
   → 対応: spec --answers（Q8,Q9）で、distribution の「S-01 の版が変わると、更新の履歴に 1 行残る」を MODIFIED にした（正典の塊を写し、読み方の 1 文に `rolled_back` を結果の行に数えないことと、直前の `failed` の有無で 2 つの回を分けて読むことを足した。Scenario は変えない）。data-durability の説明書の文と Scenario「説明書が更新の履歴と版の変化と生存信号の版を説明する」の AND に「`failed` が無ければ」を足した
 - K1: tasks 1.1 は既存の `st51_form_rejects_unknown_via`（`crates/server/src/update_history_tests.rs:89-93`）がそのまま通ると書くが、その試験は `("S-01","migrate","rolled_back")` が断られることを確かめているので、CHECK に `rolled_back` を足すと落ちる。1.1 に「その組を、まだ決めていない別の値に替える（印は消さない）」を足す
   → 対応: spec --answers（Q8,Q9）で、tasks 1.1 に「`st51_form_rejects_unknown_via` の `rolled_back` の組を、まだ決めていない別の値（`reverted` など）に替える。印は消さない」を足した。Q9 の答えではなく Q6 の CHECK の追加から来る食い違い
+
+## 深掘り（第 3 回）
+
+### Q10. 戻した回の失敗した DB をいつ消すか
+
+- 問い: 更新が失敗して前の版へ戻したときに残る `ashiato_failed_<時刻>`（失敗した更新時点の DB の写し）は、次の更新が通るまで残しますか。それとも、前の版が起動した時点で消しますか。
+- 答え: (未回答)
+- loss: discarded / uncaptured
+- 出所: review/code.md R11
+- 背景: 今の形では、この DB は本人が通常の DB から記録を消しても更新が通るまで残り、本人には存在も削除方法も見えない。一方、戻した直後に消せば、失敗原因を調べるための DB の写しは失われる。
+- 族「削除した記録を別の DB の写しが保持する」: 通った更新の前の退避 → Q7（通った直後に古いものを消す）／戻した回の `ashiato_failed_*` → 未決 Q10／ST54 からの移行前退避 → この Story の範囲外（同じ保持期間をあわせて決める必要がある）

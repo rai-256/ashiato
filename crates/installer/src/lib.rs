@@ -217,6 +217,9 @@ mod tests {
         let command = commands::rollback_history_command(
             Path::new(r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"),
             Path::new(r"C:\\ProgramData\\ashiato\\update\\history-pending.jsonl"),
+            "0.5.0",
+            "0.4.0",
+            "startup-failed",
         );
         assert_eq!(
             command.program,

@@ -1106,8 +1106,19 @@ fn update_install(
     let result = update_install_attempt(layout, installed, identity, trace);
     if let Err(error) = result {
         if update_stage_path(layout).exists() {
+            let listening = fs::read(update_stage_path(layout))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|state| state["stage"].as_str().map(str::to_owned))
+                .as_deref()
+                == Some("listening");
             match rollback(layout, trace) {
                 Ok(()) => {
+                    // Once the replacement server is listening the rollback
+                    // contract is to finish, never to claim a rollback.
+                    if listening {
+                        return Ok(());
+                    }
                     let (result, reason) = update_failure_reason(&error, installed);
                     append_outcome(
                         layout,
@@ -1169,7 +1180,7 @@ fn update_install_attempt(
         &backup,
     )?;
     run(
-        &update_plan::service_stop_command(layout.server_service),
+        &commands::stop_service_and_wait_command(layout.server_service),
         trace,
     )?;
     run(
@@ -1177,7 +1188,7 @@ fn update_install_attempt(
         trace,
     )?;
     run(
-        &update_plan::service_stop_command(layout.updater_service),
+        &commands::stop_service_and_wait_command(layout.updater_service),
         trace,
     )?;
     run(
@@ -1192,13 +1203,26 @@ fn update_install_attempt(
         "stopped",
         &backup,
     )?;
-    run(&update_plan::service_stop_command(layout.db_service), trace)?;
+    run(
+        &commands::stop_service_and_wait_command(layout.db_service),
+        trace,
+    )?;
     let program = PathBuf::from(layout.program_dir);
     let previous = program.join("previous");
     if previous.exists() {
         fs::remove_dir_all(&previous).map_err(|error| format!("前の版を消せない: {error}"))?;
     }
     fs::create_dir_all(&program).map_err(|error| error.to_string())?;
+    // Moving is not atomic.  Persist the recovery stage before the first
+    // rename so an interrupted or partial move is restored, not restarted.
+    write_update_stage(
+        layout,
+        &run_id,
+        installed,
+        env!("ASHIATO_VERSION"),
+        "moved",
+        &backup,
+    )?;
     for entry in fs::read_dir(&program)
         .map_err(|error| error.to_string())?
         .flatten()
@@ -1208,14 +1232,6 @@ fn update_install_attempt(
                 .map_err(|error| format!("前の版を退けられない: {error}"))?;
         }
     }
-    write_update_stage(
-        layout,
-        &run_id,
-        installed,
-        env!("ASHIATO_VERSION"),
-        "moved",
-        &backup,
-    )?;
     copy_program_files(layout, trace)?;
     run(
         &update_plan::service_start_command(layout.db_service),
@@ -1373,7 +1389,7 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         return Err("前の版の置き場が無いため戻せない".into());
     }
     run(
-        &update_plan::service_stop_command(layout.server_service),
+        &commands::stop_service_and_wait_command(layout.server_service),
         trace,
     )?;
     run(
@@ -1381,10 +1397,13 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         trace,
     )?;
     run(
-        &update_plan::service_stop_command(layout.updater_service),
+        &commands::stop_service_and_wait_command(layout.updater_service),
         trace,
     )?;
-    run(&update_plan::service_stop_command(layout.db_service), trace)?;
+    run(
+        &commands::stop_service_and_wait_command(layout.db_service),
+        trace,
+    )?;
     let failed = program.join("failed");
     if failed.exists() {
         return Err("前回の failed\\ が残っているため戻せない".into());
@@ -1405,6 +1424,9 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &update_plan::service_start_command(layout.db_service),
         trace,
     )?;
+    if !wait_for_database(layout, layout.db_port, Duration::from_secs(120)) {
+        return Err("PostgreSQL が起動しない".into());
+    }
     if recovery.restore_database() {
         restore_database(layout, &backup_dir, trace)?;
     }
@@ -1420,7 +1442,15 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         .join("update")
         .join("history-pending.jsonl");
     let failed_server = failed.join("ashiato-server.exe");
-    let command = commands::rollback_history_command(&failed_server, &pending);
+    let command = commands::rollback_history_command(
+        &failed_server,
+        &pending,
+        state["to_version"].as_str().unwrap_or_default(),
+        previous_version,
+        // Migration details are recorded by the migration command itself.
+        // This rollback row describes the completed restoration.
+        "startup-failed",
+    );
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
     let generated =
@@ -1477,7 +1507,13 @@ fn finish_restored(
         .join("update")
         .join("history-pending.jsonl");
     let failed_server = failed.join("ashiato-server.exe");
-    let command = commands::rollback_history_command(&failed_server, &pending);
+    let command = commands::rollback_history_command(
+        &failed_server,
+        &pending,
+        state["to_version"].as_str().unwrap_or_default(),
+        state["from_version"].as_str().unwrap_or_default(),
+        "startup-failed",
+    );
     let settings = read_settings(&commands::settings_path(layout))?;
     let owner = read_settings(&commands::owner_settings_path(layout))?;
     let generated =
@@ -1491,7 +1527,11 @@ fn finish_restored(
         "rolled_back",
         state["to_version"].as_str().unwrap_or_default(),
         state["from_version"].as_str().unwrap_or_default(),
-        None,
+        Some(update_plan::Reason::kind(
+            update_plan::ReasonKind::Aborted,
+            state["to_version"].as_str().unwrap_or_default(),
+            None,
+        )),
     );
     if failed.exists() {
         fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;

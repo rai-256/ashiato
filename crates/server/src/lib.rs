@@ -517,6 +517,11 @@ pub async fn run_update_history(mut args: impl Iterator<Item = String>) -> anyho
                 .next()
                 .ok_or_else(|| anyhow::anyhow!("控えのファイルが必要です"))?;
             anyhow::ensure!(args.next().is_none(), "引数が多すぎます");
+            // A rollback may have had no history to defer.  Replaying that
+            // absent file is deliberately a no-op so completion is restartable.
+            if !std::path::Path::new(&path).exists() {
+                return Ok(());
+            }
             update_history::replay_pending(&mut conn, std::path::Path::new(&path)).await?;
             Ok(())
         }
