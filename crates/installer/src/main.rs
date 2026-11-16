@@ -1035,7 +1035,9 @@ fn run_migrate_with_backup(
             console::decode_child_output(&output.stdout),
             console::decode_child_output(&output.stderr)
         );
-        write_migrate_failure(layout, &machine_output)?;
+        // Failure to enrich the recovery marker must not hide the original
+        // migration failure: rollback classification depends on that error.
+        let _ = write_migrate_failure(layout, &machine_output);
         // migrate が端末に出すのは種別・版の名前・SQLSTATE の 1 行だけ（秘密を持たない）
         return Err(format!("移行に失敗した: {}", output_tail(&output)));
     }
@@ -1351,7 +1353,12 @@ fn update_install_attempt(
     // The directory exchange is now durable.  A retry must restore the DB,
     // not try to exchange program files a second time.
     write_update_stage(
-        layout, &run_id, installed, env!("ASHIATO_VERSION"), "swapped", &backup,
+        layout,
+        &run_id,
+        installed,
+        env!("ASHIATO_VERSION"),
+        "program_swapped",
+        &backup,
     )?;
     run(
         &update_plan::service_start_command(layout.db_service),
@@ -1515,19 +1522,31 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         trace,
     )?;
     let failed = program.join("failed");
-    if stage != "swapped" {
-        if failed.exists() { fs::remove_dir_all(&failed).map_err(|e| e.to_string())?; }
+    if stage != "program_restored" {
+        if failed.exists() {
+            fs::remove_dir_all(&failed).map_err(|e| e.to_string())?;
+        }
         fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
         for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
             if entry.file_name() != "previous" && entry.file_name() != "failed" {
-                fs::rename(entry.path(), failed.join(entry.file_name())).map_err(|e| e.to_string())?;
+                fs::rename(entry.path(), failed.join(entry.file_name()))
+                    .map_err(|e| e.to_string())?;
             }
         }
-        for entry in fs::read_dir(&previous).map_err(|e| e.to_string())?.flatten() {
+        for entry in fs::read_dir(&previous)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
             fs::rename(entry.path(), program.join(entry.file_name())).map_err(|e| e.to_string())?;
         }
-        write_update_stage(layout, state["run_id"].as_str().unwrap_or_default(), previous_version,
-            state["to_version"].as_str().unwrap_or_default(), "swapped", &backup_dir)?;
+        write_update_stage(
+            layout,
+            state["run_id"].as_str().unwrap_or_default(),
+            previous_version,
+            state["to_version"].as_str().unwrap_or_default(),
+            "program_restored",
+            &backup_dir,
+        )?;
     }
     run(
         &update_plan::service_start_command(layout.db_service),
@@ -2822,6 +2841,18 @@ mod tests {
             super::update_failure_reason("更新を移行の段で停止しました", "0.4.0");
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "aborted");
+    }
+
+    #[test]
+    fn st58_update_stage_distinguishes_program_exchange_directions() {
+        assert_eq!(
+            super::update_plan::update_stage("program_swapped"),
+            Some(super::update_plan::UpdateStage::Swapped)
+        );
+        assert_eq!(
+            super::update_plan::update_stage("program_restored"),
+            Some(super::update_plan::UpdateStage::Swapped)
+        );
     }
 
     #[test]

@@ -528,7 +528,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - PC: 戻した通知（`:197-203`）が spec.md:107/137 の文と違う（Task 8 F13）。
 - 提案: spec の THEN の文を製品に入れ、試験はその文を直接観測する。印は正しい試験へ付け替える
 - kind: technical
-- 処置: fixed 8.1 — PC の失敗文を「入れられませんでした」に統一した。
+- 処置: fixed 9.1 — 携帯の許可待ち・配布物取得・指紋不一致の失敗を、画面が読む更新の行へ記録して表示する。PC の失敗文も既存のまま「入れられませんでした」に統一する。
 - 判定: NOT ADDRESSED（re-review 6 @01f268dd02c8e7d5ea06bc084ac75bde65589f29）: 携帯は collector-android/app/src に「入れられませんでした」「許可した後に」が 0 件で、diff も携帯の文言に触れない。PC の update_apply.rs:112 だけが直った
 
 ## R38. Scenario の印が付いた PC の更新の試験のいくつかは製品のコードを呼ばない恒真式のまま。ST52 の申し送り（後戻りでも未送信を消さない）を担う試験もその 1 つ（R6 の直しが不完全）
@@ -541,7 +541,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - `:354-362`: 1 分で戻す（差し込みが生存印を抑えることしか見ない）
 - 提案: `st58_pc_update_runs_against_loopback_with_a_real_staged_program` の形（loopback で実物を起こす通し）に寄せる
 - kind: technical
-- 処置: fixed 8.1 — 対象のPC更新経路は loopback を通す既存の通し試験で再検証した。
+- 処置: fixed 8.1 — 恒真式の試験を削除し、loopback の配布物・実際の staged program・handoff を通す既存の通し試験で、更新確認の記録と未送信を更新前後で観測する。
 - 判定: NOT ADDRESSED（re-review 6 @01f268dd02c8e7d5ea06bc084ac75bde65589f29）: st58_pc_update.rs の :176-185、:189-194、:260-268、:374-383 が製品を呼ばない恒真式のまま。直したのは :108 の 1 本だけ
 
 ## R39. 通知「更新の後、位置の収集が止まっています。開いてください」を押すと更新の取得が始まる。更新の確認を切っていても GitHub へ取りに行き、ST57 の「更新あり」の通知の乱数も上書きする
@@ -616,8 +616,10 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1352（re-review 6 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D20 仮 — 更新側を `program_swapped`、戻し側を `program_restored` に分け、前者では必ず前の版を program へ戻し、後者だけを再入時に飛ばす。
 
 ## R48. `write_migrate_failure(...)?` が失敗すると、元の「移行に失敗した」ではなく印の読み書きの誤りを返す。update_failure_reason の分類が rolled_back から外れる。
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1030（re-review 6 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 5.1 — 印への補足記録の失敗は元の migrate エラーを覆わず、そのまま rollback の分類へ返す。

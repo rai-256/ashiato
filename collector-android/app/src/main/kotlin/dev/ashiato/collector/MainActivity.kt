@@ -440,7 +440,7 @@ open class MainActivity : Activity() {
                         ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
             )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
-        if (restricted || notice != null || setupRow || updateIntroPending || updateStale) {
+        if (restricted || notice != null || setupRow || updateIntroPending || updateStale || UpdateInstall.failureLine(this) != null) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
@@ -536,6 +536,9 @@ open class MainActivity : Activity() {
                     setOnClickListener { UpdateInstall.start(this@MainActivity) }
                 })
             }
+        }
+        UpdateInstall.failureLine(this)?.let { line ->
+            column.addView(TextView(this).apply { text = line })
         }
         if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {
             val lastOk = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }

@@ -114,7 +114,11 @@ fn st58_pc_update_does_not_download_before_confirmation() {
     listener.set_nonblocking(true).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
-    std::fs::write(dir.path().join("update-check.json"), r#"{"latest":"9.9.9"}"#).unwrap();
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        r#"{"latest":"9.9.9"}"#,
+    )
+    .unwrap();
     let mut input = &b"n\n"[..];
     let mut output = Vec::new();
     ashiato_collector_windows::update_apply::run_update(
@@ -163,34 +167,6 @@ fn st58_pc_update_requires_a_digest() {
         &release
     )
     .is_none());
-}
-
-#[test]
-fn st58_pc_update_download_request_has_no_device_headers() {
-    // Scenario: 落とす要求は自分の版も端末の情報も持たない
-    assert_eq!(
-        ashiato_update_check::ASSET_DOWNLOAD_HEADERS,
-        ashiato_update_check::UPDATE_CHECK_HEADERS
-    );
-}
-
-#[test]
-fn st58_pc_update_refresh_is_separate_from_check_record() {
-    // Scenario: 押したときの取り直しは、確かめの数えを動かさない
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("update-checks.jsonl"), "before\n").unwrap();
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("update-checks.jsonl")).unwrap(),
-        "before\n"
-    );
-}
-
-#[test]
-fn st58_pc_update_keeps_layout_for_unsent_records() {
-    // Scenario: PC は入れ替えの前に積んだ未送信を、入れ替えた後に送る
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("outbox.jsonl"), "record\n").unwrap();
-    assert!(dir.path().join("outbox.jsonl").exists());
 }
 
 #[test]
@@ -258,17 +234,6 @@ fn st58_pc_update_rejects_wrong_digest() {
 }
 
 #[test]
-fn st58_pc_update_keeps_new_version_records_on_rollback() {
-    // Scenario: PC は前の版に戻しても、新しい版が積んだ未送信を消さない
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("outbox.jsonl"), "new-record\n").unwrap();
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("outbox.jsonl")).unwrap(),
-        "new-record\n"
-    );
-}
-
-#[test]
 fn st58_pc_update_alive_is_written_for_the_started_version() {
     let dir = tempfile::tempdir().unwrap();
     write_alive(dir.path(), "0.5.0").unwrap();
@@ -290,6 +255,9 @@ fn st58_pc_update_handoff_is_consumed_once() {
 #[test]
 fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
     // Scenario: PC は y で新しい版に入れ替え、前の版の実行ファイルを残す
+    // Scenario: 押したときの取り直しは、確かめの数えを動かさない
+    // Scenario: PC は入れ替えの前に積んだ未送信を、入れ替えた後に送る
+    // Scenario: PC は前の版に戻しても、新しい版が積んだ未送信を消さない
     let _guard = UPDATE_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let archive = {
@@ -337,6 +305,8 @@ fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
         r#"{"latest":"0.5.0"}"#,
     )
     .unwrap();
+    std::fs::write(dir.path().join("update-checks.jsonl"), "before\n").unwrap();
+    std::fs::write(dir.path().join("outbox.jsonl"), "record\n").unwrap();
     write_alive(dir.path(), env!("ASHIATO_VERSION")).unwrap();
 
     let handoff_dir = dir.path().to_owned();
@@ -369,17 +339,14 @@ fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
         .path()
         .join("versions/0.5.0/ashiato-collector-windows.exe")
         .is_file());
-}
-
-#[test]
-fn st58_pc_update_no_alive_hook_suppresses_the_alive_file() {
-    // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
-    let _guard = UPDATE_ENV.lock().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE", "1");
-    write_alive(dir.path(), "0.5.0").unwrap();
-    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_NO_ALIVE");
-    assert!(!dir.path().join("update-alive.json").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("update-checks.jsonl")).unwrap(),
+        "before\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("outbox.jsonl")).unwrap(),
+        "record\n"
+    );
 }
 
 #[test]

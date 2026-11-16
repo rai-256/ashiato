@@ -117,3 +117,17 @@
 - R39: Android の収集再開待ち通知は、更新取得を開始せず通常の画面を開くようにした。
 - R41, R46: migrate の機械可読な失敗種別は全出力から読むようにし、待受失敗の通知を移行失敗から分離した。
 - 検証: `scripts/quiet-run st58-settle-rust-all -- bash -c 'cargo test -p ashiato-setup st58_ && cargo test -p ashiato-server st58_history_ && cargo test -p ashiato-collector-windows st58_pc_'` — rc=0（setup 6件、collector 19件）。
+
+## 追加の settle（R37 / R38 / R47 / R48）
+
+- R37: Android は提供元不明の許可待ちと APK の取得・照合失敗を永続化し、メイン画面の更新行で「許可した後に、もう一度押してください」または「入れられませんでした（理由）」として表示する。
+- R38: 製品を呼ばない恒真式を削除し、loopback・実際の staged program・handoff を通す PC 更新試験で、更新確認の記録と未送信が変わらないことを観測する。
+- R47: 更新で program を入れ替えた段と、rollback で前の program を戻した段を `program_swapped` / `program_restored` に分離し、更新直後の中断でも rollback がファイルを戻すようにした。
+- R48: 更新印への migrate 詳細の補足に失敗しても、元の migrate エラーを返して `rolled_back` の分類を維持する。
+
+## 検証（R37 / R38 / R47 / R48）
+
+- `scripts/quiet-run settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、7 passed。
+- `scripts/quiet-run settle-pc -- cargo test -p ashiato-collector-windows st58_pc_` — rc=0、14 passed。
+- `scripts/quiet-run settle-android-2 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — rc=0、BUILD SUCCESSFUL（50s）。
+- `git diff --check` — rc=0。

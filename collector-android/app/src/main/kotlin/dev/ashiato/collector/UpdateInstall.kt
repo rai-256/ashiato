@@ -31,6 +31,8 @@ internal object UpdateInstall {
     private const val START_TOKEN = "token"
     const val ACTION_RESULT = "dev.ashiato.collector.UPDATE_RESULT"
     const val UPDATE_DIR = "update"
+    private const val FAILURE_PREFS = "update-install"
+    private const val FAILURE_LINE = "failure-line"
 
     data class Asset(val version: String, val url: String, val sha256: String, val name: String)
 
@@ -59,6 +61,23 @@ internal object UpdateInstall {
         value.startsWith(GITHUB_PREFIX) || runCatching { URL(value).host == ASSET_HOST && URL(value).protocol == "https" }.getOrDefault(false)
 
     fun updateDirectory(context: Context): File = File(context.noBackupFilesDir, UPDATE_DIR)
+
+    internal fun unknownSourcesLine(): String = "許可した後に、もう一度押してください"
+    internal fun installFailureLine(reason: String): String = "入れられませんでした（$reason）"
+
+    internal fun failureLine(context: Context): String? =
+        context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
+            .getString(FAILURE_LINE, null)
+
+    private fun recordFailure(context: Context, line: String) {
+        context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(FAILURE_LINE, line).apply()
+    }
+
+    private fun clearFailure(context: Context) {
+        context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
+            .edit().remove(FAILURE_LINE).apply()
+    }
 
     internal fun updateStartIntent(context: Context): Intent {
         val token = UUID.randomUUID().toString()
@@ -100,6 +119,7 @@ internal object UpdateInstall {
 
     fun start(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            recordFailure(context, unknownSourcesLine())
             context.startActivity(unknownSourcesIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
@@ -111,10 +131,14 @@ internal object UpdateInstall {
                     downloadHeaders().forEach { (name, value) -> setRequestProperty(name, value) }
                 }
                 val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
-                val asset = chooseAsset(BuildConfig.VERSION_NAME, body) ?: return@execute
+                val asset = chooseAsset(BuildConfig.VERSION_NAME, body) ?: run {
+                    recordFailure(context, installFailureLine("配布物を確認できません"))
+                    return@execute
+                }
                 install(context, asset, body)
             } catch (_: Exception) {
                 clean(context)
+                recordFailure(context, installFailureLine("配布物を落とせません"))
             }
         }
     }
@@ -127,6 +151,7 @@ internal object UpdateInstall {
                 download(asset.url, file)
                 if (!verifyDigest(file, asset.sha256)) {
                     file.delete()
+                    recordFailure(context, installFailureLine("指紋が一致しません"))
                     return@execute
                 }
                 val installer = context.packageManager.packageInstaller
@@ -137,8 +162,10 @@ internal object UpdateInstall {
                     val pending = PendingIntent.getBroadcast(context, sessionId, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
                     session.commit(pending.intentSender)
                 }
+                clearFailure(context)
             } catch (_: Exception) {
                 file.delete()
+                recordFailure(context, installFailureLine("配布物を入れられません"))
             }
         }
     }

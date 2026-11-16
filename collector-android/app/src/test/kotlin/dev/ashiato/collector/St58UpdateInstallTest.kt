@@ -112,6 +112,10 @@ class St58UpdateInstallTest {
         val intent = UpdateInstall.unknownSourcesIntent(ApplicationProvider.getApplicationContext())
         assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, intent.action)
         assertEquals("package:${ApplicationProvider.getApplicationContext<Application>().packageName}", intent.dataString)
+        assertEquals("許可した後に、もう一度押してください", UpdateInstall.unknownSourcesLine())
+    }
+    @Test fun `指紋が違えば画面に失敗の文を出す`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
+        assertEquals("入れられませんでした（指紋が一致しません）", UpdateInstall.installFailureLine("指紋が一致しません"))
     }
     @Test fun `取り消し結果の受け手を持つ`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
         assertEquals("dev.ashiato.collector.UPDATE_RESULT", UpdateInstall.ACTION_RESULT)

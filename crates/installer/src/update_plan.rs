@@ -41,7 +41,7 @@ pub fn update_stage(name: &str) -> Option<UpdateStage> {
         "stopped" => UpdateStage::Stopped,
         "moved" => UpdateStage::Moved,
         "replaced" => UpdateStage::Replaced,
-        "swapped" => UpdateStage::Swapped,
+        "program_swapped" | "program_restored" => UpdateStage::Swapped,
         "migrating" => UpdateStage::Migrating,
         "starting" => UpdateStage::Starting,
         "listening" => UpdateStage::Listening,
