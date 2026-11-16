@@ -58,36 +58,23 @@ export function bannerItems(status: UpdateStatus): BannerItem[] {
 }
 export function updateReason(reason: string | null): string { return m.reasons[reason ?? ""] ?? m.missingDate; }
 
-const UPDATE_FAILURE_REASONS: Record<string, string> = {
-  db_ahead: "DB に新しい版の知らない版がある",
-  ledger_unreadable: "版の記録を読めない",
-  channel_mismatch: "DB の系統が違う",
-  db_not_loopback: "DB の接続先が手元でない",
-  backup_failed: "移行の前の退避に失敗した",
-  connect_failed: "DB に繋げない",
-  server_not_listening: "新しい版のサーバが起きない",
-  aborted: "移行が途中で終わった",
-  pg_major_mismatch: "同梱の PostgreSQL の大きい版が違う",
-};
-const SQLSTATE_REASONS: Record<string, string> = { "23": "制約に反した", "42": "定義が当たらない", "53": "資源が足りない（空き・記憶）", "57": "止められた", "08": "繋がらない" };
 export function updateFailureReason(reason: UpdateReason | null): string {
   if (reason === null) return m.unknownReason;
-  const kind = UPDATE_FAILURE_REASONS[reason.kind] ?? "DB の誤り";
+  const kind = m.failureReasons[reason.kind] ?? m.dbError;
   if (reason.sqlstate === null) return kind;
-  return `${reason.sqlstate}（${SQLSTATE_REASONS[reason.sqlstate.slice(0, 2)] ?? "DB の誤り"}）`;
+  return m.sqlstate(reason.sqlstate, m.sqlstateClasses[reason.sqlstate.slice(0, 2)] ?? m.dbError);
 }
 export function lastUpdateLine(last: LastUpdate | null): string | null {
   if (last === null || last.result === "applied") return null;
+  const from = last.from_version ?? m.previousVersion;
   if (last.reason === null) {
-    if (last.result === "rolled_back") return `更新 ${last.to_version} は移行が落ちたので、${last.from_version ?? "前の版"} に戻しました`;
-    return `更新 ${last.to_version} は入りませんでした。${last.from_version ?? "前の版"} のまま動いています`;
+    if (last.result === "rolled_back") return m.rolledBack(last.to_version, from);
+    return m.notApplied(last.to_version, from);
   }
   const reason = updateFailureReason(last.reason);
   if (last.result === "rolled_back") {
-    if (last.reason.kind === "server_not_listening") {
-      return `更新 ${last.to_version} は待ち受けを開かなかったので、${last.from_version ?? "前の版"} に戻しました（${reason}）`;
-    }
-    return `更新 ${last.to_version} は移行が落ちたので、${last.from_version ?? "前の版"} に戻しました（${last.reason.failed_version ?? "不明"}・${reason}）`;
+    if (last.reason.kind === "server_not_listening") return m.rolledBackNotListening(last.to_version, from, reason);
+    return m.rolledBackMigration(last.to_version, from, last.reason.failed_version ?? m.unknownVersion, reason);
   }
-  return `更新 ${last.to_version} は入りませんでした（${reason}）。${last.from_version ?? "前の版"} のまま動いています`;
+  return m.notAppliedReason(last.to_version, from, reason);
 }
