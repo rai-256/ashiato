@@ -339,7 +339,7 @@ assert_scenario_result() {
       observed="$(paused_observation "$trace")"
       grep -Fq 'pause-stage=migrating' "$trace" || die $'移行の段で待っている間に見ていない\n'"$observed"
       ! grep -Eq '^pause-healthz=200$' "$trace" || die $'移行の段で待っている間に healthz が答えた\n'"$observed"
-      grep -A3 '^pause-server-state:$' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*1[[:space:]]' || die $'移行の段で待っている間にサーバが実行中でないと確認できない\n'"$observed"
+      sed -n '/^pause-server-state:$/,/^pause-server-config:$/p' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*1[[:space:]]' || die $'移行の段で待っている間にサーバが実行中でないと確認できない\n'"$observed"
       grep -A8 '^pause-server-config:$' "$trace" | grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' || die $'移行の段で待っている間に開始の種類が無効でない\n'"$observed"
       ;;
     '更新しても、秘密と設定と画面の合言葉は変わらない')
@@ -762,12 +762,12 @@ EOF
   grep -Fq 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=' <<<"$(scenario_hook '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す')" ||
     die '戻しが落ちる Scenario が移行を落としていない（戻しに届かない）'
   local paused_trace="$work/paused-trace"
-  printf '%s\n' 'pause-stage=migrating' 'pause-healthz=000' 'pause-server-state:' 'STATE              : 1  STOPPED' 'pause-server-config:' 'START_TYPE         : 4   DISABLED' >"$paused_trace"
+  printf '%s\n' 'pause-stage=migrating' 'pause-healthz=000' 'pause-server-state:' '' 'SERVICE_NAME: ashiato-server ' '        TYPE               : 10  WIN32_OWN_PROCESS  ' $'        STATE              : 1  STOPPED \r' 'pause-server-config:' 'START_TYPE         : 4   DISABLED' >"$paused_trace"
   assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
   sed -i 's/^pause-healthz=000$/pause-healthz=200/' "$paused_trace"
   expect_fail assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
   # 待っている間の状態の判定が落ちたときは、観測（sc query の出力）が CI のログに出る（NG の 1 行だけで終わらない）
-  sed -i -e 's/^pause-healthz=200$/pause-healthz=000/' -e 's/^STATE .*$/STATE              : 4  RUNNING/' "$paused_trace"
+  sed -i -e 's/^pause-healthz=200$/pause-healthz=000/' -e 's/^.*STATE .*$/STATE              : 4  RUNNING/' "$paused_trace"
   local paused_log
   paused_log="$( (current_scenario_work=''; assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0) 2>&1 || true)"
   grep -Fq 'NG: 移行の段で待っている間にサーバが実行中でないと確認できない' <<<"$paused_log" || die '待っている間の状態の失敗に NG の行が出ない'
