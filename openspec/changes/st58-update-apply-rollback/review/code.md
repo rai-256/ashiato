@@ -184,3 +184,67 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 提案: 通知からの起動は `PendingIntent` にだけ載る印（たとえば非公開の action を持つ別の Activity か、`UpdateInstall.updateStartIntent` に乱数の 1 回きりの印を付けて `SharedPreferences` と照らす）で受け、ランチャーの intent の追加の値では始めない
 
 範囲外: 移行の前の退避（`backups\pre-migrate\*.dump`。ST54 から）も、本人が後で消した記録を持ち続ける。ST58 は通った更新で古い退避を消す（`retain_update_artifacts`）ので短くなる側だが、戻した回の退避は次に通るまで残る —— R11 と同じ扱いを決めるときに併せて見る。
+
+## /code-review（23b9b22..df86a05）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R13. `update-history record-rollback` expects `--new-version --previous-version --kind ... --pending-out`, but the installer (`commands::update_history_record_rollback_command`) passes only `--pending-out <path>`. The command always fails with exit 1.
+- 成果物: crates/server/src/lib.rs:476
+- 根拠: Any rollback whose stage is moved/replaced/migrating/starting gets through restoring the program and DB, then `record_rollback` returns Err ('--new-version が必要です'). `rollback()` returns before `start_previous_services`, so the server service is left disabled and stopped with stage=restored. Every later `rollback` or `install` goes to `finish_restored`, which fails the same way, so the machine never recovers on its own.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. `update-history replay` reads the next argument as the path, but the installer sends `replay --pending <path>`, which trips '引数が多すぎます'. A missing pending file also fails with PendingIo instead of counting as nothing to replay.
+- 成果物: crates/server/src/lib.rs:515
+- 根拠: A normal successful update reaches `listening`, then `update_history_replay_command` fails ('--pending' is taken as the path and `<path>` is an extra argument). `update_install` calls `rollback`, which sees stage=listening and calls `finish_update`, which runs replay again and fails again. The update is reported as failed: the state file stays at listening, the server start type stays disabled, and backups and failed\ are never cleaned up.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R15. `installed_version` runs `ashiato-server --version`, but the server's `main` has no `--version` arm (`Some(other) => bail!("知らない引数")`). It always fails, and `install()` now calls it for every existing installation.
+- 成果物: crates/installer/src/main.rs:1084
+- 根拠: On a PC that already has server.json and owner.json, running ashiato-setup.exe (same version rerun, update, or reinstall/repair through install) stops at '入っている版を読めない'. Rerun and update both become impossible. Before this change, install continued in this case.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R16. Update and rollback stop services with a bare `sc.exe stop` (`update_plan::service_stop_command`). That command exits non-zero on an already-stopped service (1062) and does not wait for the stop to finish. The existing `commands::stop_service_and_wait_command` handles both cases.
+- 成果物: crates/installer/src/main.rs:1376
+- 根拠: Rollback after a migrate failure: the server was already stopped and disabled during the update, so `sc stop ashiato-server` returns 1062 and `rollback` fails ('戻しにも失敗した'). With update checking off, the updater is already stopped, so `sc stop updater` fails during the update itself. `sc stop db` while the server is still STOP_PENDING fails with 1051. Separately, `restore_database` runs psql right after `sc start db` without `wait_for_database`, so the connection can be refused.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R17. If a step fails after the `listening` stage, `update_install` calls `rollback`, which runs `finish_update` and appends `applied`. Then `update_install` also appends `rolled_back`/aborted, prints a failure reason, and returns Err.
+- 成果物: crates/installer/src/main.rs:1111
+- 根拠: Suppose `uninstall_registration_commands`, `update_check`, or the `after-listen` test hook fails. The new version stays in place and finish_update writes 'applied', then 'rolled_back' is written after it. The settings screen and status band then report that the update was rolled back while the new version is actually running, and the installer exits with an error.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R18. The program files are moved into previous\ while the recorded stage is still `stopped`, and `rollback` for `stopped` only restarts the server. A move that fails partway is never undone.
+- 成果物: crates/installer/src/main.rs:1195
+- 根拠: One `fs::rename` into previous\ fails, for example because a file is locked by AV or the DB is still stopping. Stage stays 'stopped', and `rollback` just runs `sc start ashiato-server`. Some exes are already in previous\, so the service cannot start, and the next update deletes previous\ (`remove_dir_all`), destroying the only copy of the moved files.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R19. `clean()` deletes every file in `noBackupFilesDir/update`, which includes the `update/replaced-start` marker written by `PackageReplacedReceiver`. `UpdateInstallResultReceiver` (on any status) and `MainActivity.onCreate` both call `clean()`.
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt:69
+- 根拠: After a self-update, the session's STATUS_SUCCESS broadcast or the user opening the app runs `clean()` after the marker is written but before `LocationService.onCreate` reads it. `replacedStart` becomes false, so `foregroundServiceType` picks LOCATION when fine location is granted without background, and `startForeground` from the background throws SecurityException. The service crashes after the update, which is the case the marker was added to prevent.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R20. `finish_restored` appends a `rolled_back` outcome with `reason: None`, but `update_status::read_last_update` rejects any non-applied row without a reason. Separately, `read_status` reads outcomes from the updater dir, which `get` then overwrites.
+- 成果物: crates/installer/src/main.rs:1470
+- 根拠: A rollback is interrupted and later finished by re-running setup or `rollback`. The last line of outcomes.jsonl is rolled_back with reason=null, so `/update-status` returns `last_update: null` and the UI never says the update was rolled back. `read_status` also parses `<updater_dir>/update/outcomes.jsonl`, the wrong location, on every request.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R21. The PC update always waits for a handoff ack from a running collector and fails after 60s if no collector is running. Also, `run()` now rewrites autostart to `current_exe` on every start (main.rs:277), which duplicates the rewrite done after alive.
+- 成果物: crates/collector-windows/src/update_apply.rs:178
+- 根拠: The user closed the collector, or it crashed, and then clicks the update toast or runs `update`. Nobody consumes update-handoff.json, so the update fails with '前の版が停止しない' after downloading. Separately, starting any other copy of the collector (a dev build, or an exe in Downloads) silently moves the user's autostart entry to that path.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R22. `retain_backups`, `classify_backup_state`, `pg_major_matches`, `history_line`, `update_layout`, `RecoveryPlan::steps`, and `service_start_command` are only called from tests. main.rs reimplements the same logic in `classify_update_backup`, `retain_update_artifacts`, `pg_major`, `append_outcome`, and `commands::start_service_command`, with different rules.
+- 成果物: crates/installer/src/update_plan.rs:152
+- 根拠: The st58_plan_* unit tests cover pure functions that the real update and rollback path never calls. For example, `retain_update_artifacts` deletes every other run without the partial/completed distinction, and `classify_update_backup` ignores run ids. Regressions in the code that actually runs go unnoticed, and the two copies keep drifting apart.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
