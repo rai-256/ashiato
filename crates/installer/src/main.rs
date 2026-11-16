@@ -1430,7 +1430,10 @@ fn update_install_attempt(
         .join(&run_id);
     fs::create_dir_all(&backup).map_err(|error| format!("移行の退避を作れない: {error}"))?;
     fs::create_dir_all(&update_root).map_err(|error| format!("更新の置き場を作れない: {error}"))?;
-    run(&commands::update_directory_acl_command(layout), trace)?;
+    run(
+        &commands::update_directory_acl_command(layout, service_exists(layout.updater_service)),
+        trace,
+    )?;
     write_update_stage(
         layout,
         &run_id,
@@ -2350,7 +2353,6 @@ fn install(
         // 先に誰かが作っていた置き場でも、持ち主を Administrators にしてから ACL を付ける
         // （持ち主は ACL を書き換えられるので、ほかの利用者を持ち主のままにしない）
         run(&commands::take_ownership_command(layout), trace)?;
-        run(&commands::update_directory_acl_command(layout), trace)?;
         run(&commands::take_updater_ownership_command(layout), trace)?;
         // 未登録のサービス SID は `icacls` が名前解決できない。初回は先にサービスを登録してから
         // SID の ACE を付ける。片方だけ残った異常な状態では、登録済みのものを作り直さない。
@@ -2382,6 +2384,11 @@ fn install(
             configure_services(layout, trace)?;
             run_all(&commands::acl_commands(layout, &identity.owner), trace)?;
         }
+        // サービスを登録した後に付ける（未登録のサービス SID は icacls が名前解決できない）
+        run(
+            &commands::update_directory_acl_command(layout, service_exists(layout.updater_service)),
+            trace,
+        )?;
     }
     // その後で、書く段の間の一時の書きを足す（ACL を絞った後に足すので消えない。D21）
     let temporary = TemporaryWrite::grant(layout, &identity.invoking, trace)?;

@@ -1177,16 +1177,24 @@ pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCom
     )
 }
 
-pub fn update_directory_acl_command(layout: &Layout) -> SetupCommand {
-    icacls([
+/// 更新の置き場の ACL。サービス SID は登録済みのサービスでないと `icacls` が名前解決できない
+/// （1332）ので、サーバのサービスを登録した後に呼び、更新係は登録済みのときだけ ACE を付ける。
+pub fn update_directory_acl_command(layout: &Layout, updater_registered: bool) -> SetupCommand {
+    let mut args = vec![
         format!(r"{}\update", layout.state_dir),
         "/inheritance:r".into(),
         "/grant:r".into(),
         "*S-1-5-32-544:(OI)(CI)M".into(),
         "*S-1-5-18:(OI)(CI)M".into(),
         format!("{}:(OI)(CI)RX", service_principal(layout.server_service)),
-        format!("{}:(OI)(CI)RX", service_principal(layout.updater_service)),
-    ])
+    ];
+    if updater_registered {
+        args.push(format!(
+            "{}:(OI)(CI)RX",
+            service_principal(layout.updater_service)
+        ));
+    }
+    icacls(args)
 }
 
 /// 引数の値を読む（`parse_args` で形を確かめた後に使う）。

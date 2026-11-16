@@ -591,6 +591,19 @@ mod tests {
     }
 
     #[test]
+    fn st58_update_directory_acl_names_updater_only_when_registered() {
+        // 未登録のサービス SID は icacls が名前解決できず 1332 で落ちる（初回のインストール）
+        let layout = layout::Layout::release();
+        let server = commands::service_sid(layout.server_service);
+        let updater = commands::service_sid(layout.updater_service);
+        let without = commands::update_directory_acl_command(&layout, false).line();
+        assert!(without.contains(&server));
+        assert!(!without.contains(&updater));
+        let with = commands::update_directory_acl_command(&layout, true).line();
+        assert!(with.contains(&server) && with.contains(&updater));
+    }
+
+    #[test]
     fn st57_update_check_switch_commands_disable_and_enable() {
         let layout = layout::Layout::release();
         let off = lines(&commands::update_check_service_commands(&layout, false));
