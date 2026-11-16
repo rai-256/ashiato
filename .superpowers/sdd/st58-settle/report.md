@@ -197,3 +197,18 @@
 - `scripts/quiet-run st58-settle-android -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*' --tests '*St57UpdateNoticeTest*' --tests '*MainActivityTest*'` — BUILD SUCCESSFUL（33・30・13 本、失敗 0）。
 - `cargo clippy -p ashiato-setup -p ashiato-server -p ashiato-collector-windows --all-targets -- -D warnings` と `--target x86_64-pc-windows-gnu` — rc=0。`cargo fmt --check` — rc=0。
 - `tools/release/update-apply-install.sh --self-test` — rc=0。`HX_CHANGE=st58-update-apply-rollback python3 scripts/check_scenarios.py .` — OK。`openspec validate st58-update-apply-rollback --strict` — valid。`python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — OK。
+
+## settle（re-review 9 の後）: R18・R64
+
+- 再現: `restore_program_files(program, "moved", …)` は段が `program_returning` 以外なら program の全ファイルを `failed\` へ移す。更新側は `moved` を書いてから 1 つずつ `previous\` へ移すので、移す途中で落ちると program に前の版の未移動の分が残り、それが `failed\` へ行き `finish_restored` が消す（コードを読んで確認。新しい試験 `st58_restore_program_files_partial_move_keeps_unmoved_previous` は旧コードでは `failed\` ができて落ちる形）。
+- 変更（`crates/installer/src/main.rs`）:
+  - `update_install`: 前の版を移し終えた直後（`copy_program_files` の前）に印へ `program_moved: true` を足す。
+  - `rollback`: 印の `program_moved` を `move_finished` として `restore_program_files` へ渡す。
+  - `restore_program_files(program, stage, move_finished, mark)`: 段 `moved` で `move_finished` が偽なら、退ける段を飛ばし `program_returning` を印に書いて `previous\` の分を戻す（program に新しい版は無い）。真なら従来どおり新しい版を `failed\` へ退けてから戻す。
+  - 試験 2 本を足した（移す途中 / 移し終えて新しい版を置く途中）。既存の 4 本は `move_finished=true` を渡す。
+- design.md D20（仮）の戻しの段の説明に `moved` の区別を 1 文足した。
+- 走らせたもの:
+  - `cargo test -p ashiato-setup st58_restore_program_files` → 6 passed
+  - `cargo test -p ashiato-setup` → 130 + 21 passed, 0 failed
+  - `cargo clippy -p ashiato-setup --all-targets -- -D warnings` → rc=0
+  - `python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` → triage: OK

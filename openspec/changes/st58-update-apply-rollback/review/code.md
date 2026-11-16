@@ -340,7 +340,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 根拠: One `fs::rename` into previous\ fails, for example because a file is locked by AV or the DB is still stopping. Stage stays 'stopped', and `rollback` just runs `sc start ashiato-server`. Some exes are already in previous\, so the service cannot start, and the next update deletes previous\ (`remove_dir_all`), destroying the only copy of the moved files.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
-- 処置: fixed D1 — 最初のファイル移動の前に `moved` 段を永続化し、中断時は前の版を復元する経路へ入れる。
+- 処置: fixed D20 — 最初のファイル移動の前に `moved` 段を永続化し、中断時は前の版を復元する経路へ入れる。移し終えたら印に `program_moved` を足し、段 `moved` で `program_moved` が無い戻しは program に残った前の版を `failed\` へ動かさず `program_returning` から戻す（`restore_program_files` の `move_finished`。試験 `st58_restore_program_files_partial_move_keeps_unmoved_previous`）。
 - 判定: ADDRESSED（re-review 1 @ee08c24725a4714e03d08852fc171de75f71185d）
 - 判定: ADDRESSED（re-review 2 @484ab8741a17d2d5c8eba03554c93f88483ef183）
 - 判定: ADDRESSED（re-review 3 @2cd0fd784d126152788e5b37dd89b0d7063666bd）
@@ -901,3 +901,4 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:restore_program_files（diff 2429-2434）（re-review 9 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D20 — 移し終えたかを印の `program_moved` で区別する。無ければ（移す途中で止まった）program に残るのは前の版だけなので退ける段を飛ばし `program_returning` から戻す。あれば（新しい版を置く途中）従来どおり新しい版を `failed\` へ退ける。試験 `st58_restore_program_files_partial_move_keeps_unmoved_previous`・`st58_restore_program_files_moved_after_full_move_sets_new_aside`。

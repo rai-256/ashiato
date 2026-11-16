@@ -1493,6 +1493,10 @@ fn update_install_attempt(
                 .map_err(|error| format!("前の版を退けられない: {error}"))?;
         }
     }
+    // The old version is now entirely in previous\.  Until this field is
+    // written, a rollback from `moved` must treat files left in program\ as
+    // the old version (not move them to failed\, which is deleted).
+    set_update_stage_fields(layout, &[("program_moved", true.into())])?;
     copy_program_files(layout, trace)?;
     // The directory exchange is now durable.  A retry must restore the DB,
     // not try to exchange program files a second time.
@@ -1694,7 +1698,8 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     )?;
     let run_id = state["run_id"].as_str().unwrap_or_default();
     let to_version = state["to_version"].as_str().unwrap_or_default();
-    restore_program_files(&program, &stage, |next| {
+    let move_finished = state["program_moved"].as_bool() == Some(true);
+    restore_program_files(&program, &stage, move_finished, |next| {
         write_update_stage(
             layout,
             run_id,
@@ -1728,10 +1733,16 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
 /// - `program_returning`: `previous\` の前の版を program へ戻す。program に新しい版は残って
 ///   いないので、再開は `previous\` の残りを移すだけ。前の版を `failed\` へ動かさない。
 ///
+/// 段 `moved` で前の版を `previous\` へ移し終えていない回（`move_finished` が偽。更新の印の
+/// `program_moved` が無い）は、program に残るのは前の版の未移動のファイルだけ（新しい版を
+/// 置く前に止まった）。それを `failed\` へ動かすと `finish_restored` が消すので、退ける段を
+/// 飛ばして `program_returning` から戻す（R18・R64）。
+///
 /// 既にある `failed\` は消さない。`program_restored` なら何もしない。
 fn restore_program_files(
     program: &Path,
     stage: &str,
+    move_finished: bool,
     mut mark: impl FnMut(&str) -> Result<(), String>,
 ) -> Result<(), String> {
     if stage == "program_restored" {
@@ -1739,7 +1750,11 @@ fn restore_program_files(
     }
     let previous = program.join("previous");
     let failed = program.join("failed");
-    if stage != "program_returning" {
+    let returning = stage == "program_returning" || (stage == "moved" && !move_finished);
+    if returning && stage != "program_returning" {
+        mark("program_returning")?;
+    }
+    if !returning {
         if stage != "program_restoring" {
             mark("program_restoring")?;
         }
@@ -3171,7 +3186,7 @@ mod tests {
             ],
         );
         let mut marks = Vec::new();
-        super::restore_program_files(program, "program_swapped", |stage| {
+        super::restore_program_files(program, "program_swapped", true, |stage| {
             marks.push(stage.to_owned());
             Ok(())
         })
@@ -3202,7 +3217,7 @@ mod tests {
             ],
         );
         let mut marks = Vec::new();
-        super::restore_program_files(program, "program_returning", |stage| {
+        super::restore_program_files(program, "program_returning", true, |stage| {
             marks.push(stage.to_owned());
             Ok(())
         })
@@ -3227,10 +3242,68 @@ mod tests {
                 ("previous/ashiato-server.exe", "old"),
             ],
         );
-        super::restore_program_files(program, "program_restoring", |_| Ok(())).expect("再開");
+        super::restore_program_files(program, "program_restoring", true, |_| Ok(())).expect("再開");
         assert_eq!(st58_read(program.join("ashiato-server.exe")), "old");
         assert!(!program.join("only-new.dll").exists());
         assert_eq!(st58_read(program.join("failed/only-new.dll")), "new");
+        assert_eq!(st58_read(program.join("failed/ashiato-server.exe")), "new");
+    }
+
+    // 前の版を previous へ移す途中で止まった（段 moved・program_moved 無し）回の戻しは、
+    // program に残った前の版を failed へ動かさず、previous の分を戻して揃える（R18・R64）
+    #[cfg(unix)]
+    #[test]
+    fn st58_restore_program_files_partial_move_keeps_unmoved_previous() {
+        let temp = TempDir::new().expect("一時の置き場");
+        let program = temp.path();
+        st58_program_tree(
+            program,
+            &[
+                ("ashiato-server.exe", "old"),
+                ("pgsql/bin/psql.exe", "old"),
+                ("previous/ashiato-updater.exe", "old"),
+            ],
+        );
+        let mut marks = Vec::new();
+        super::restore_program_files(program, "moved", false, |stage| {
+            marks.push(stage.to_owned());
+            Ok(())
+        })
+        .expect("戻す");
+        assert_eq!(marks, ["program_returning", "program_restored"]);
+        assert_eq!(st58_read(program.join("ashiato-server.exe")), "old");
+        assert_eq!(st58_read(program.join("pgsql/bin/psql.exe")), "old");
+        assert_eq!(st58_read(program.join("ashiato-updater.exe")), "old");
+        assert!(!program.join("failed").exists());
+    }
+
+    // 移し終えて新しい版を置く途中で止まった（段 moved・program_moved あり）回は、
+    // program の新しい版を failed へ退けてから前の版を戻す（R64）
+    #[cfg(unix)]
+    #[test]
+    fn st58_restore_program_files_moved_after_full_move_sets_new_aside() {
+        let temp = TempDir::new().expect("一時の置き場");
+        let program = temp.path();
+        st58_program_tree(
+            program,
+            &[
+                ("ashiato-server.exe", "new"),
+                ("previous/ashiato-server.exe", "old"),
+                ("previous/ashiato-updater.exe", "old"),
+            ],
+        );
+        let mut marks = Vec::new();
+        super::restore_program_files(program, "moved", true, |stage| {
+            marks.push(stage.to_owned());
+            Ok(())
+        })
+        .expect("戻す");
+        assert_eq!(
+            marks,
+            ["program_restoring", "program_returning", "program_restored"]
+        );
+        assert_eq!(st58_read(program.join("ashiato-server.exe")), "old");
+        assert_eq!(st58_read(program.join("ashiato-updater.exe")), "old");
         assert_eq!(st58_read(program.join("failed/ashiato-server.exe")), "new");
     }
 
@@ -3248,7 +3321,7 @@ mod tests {
             ],
         );
         let mut marks = Vec::new();
-        super::restore_program_files(program, "program_restored", |stage| {
+        super::restore_program_files(program, "program_restored", true, |stage| {
             marks.push(stage.to_owned());
             Ok(())
         })
