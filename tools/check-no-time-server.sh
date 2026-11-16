@@ -6,7 +6,7 @@
 #
 # 見るのは 5 種類: 時刻のプロトコルの送信（部品の名前も）/ 時刻サーバの宛先 / 同期を起こす・設定する・
 # 外へ問い合わせる `w32tm` の指示 / **PC の子プロセスは `w32tm` と `wevtutil` の照会、または自分自身の起動だけ**（`Command::new` の相手は
-# `Command::new(w32tm_program())` / `Command::new(wevtutil_program())` / `Command::new(std::env::current_exe()?)` / `Command::new(update_executable(&staged)?)` の 4 つの形だけを許す。exe 名を引数に取る口を許すと
+# `Command::new(w32tm_program())` / `Command::new(wevtutil_program())` / `Command::new(std::env::current_exe()?)` / `Command::new(update_executable(&staged)?)` / `Command::new(previous_executable()?)`（戻しで前の版＝自分自身を起こし直す。試験の組み立てだけ差し替えられる）の 5 つの形だけを許す。exe 名を引数に取る口を許すと
 # System32 のどの exe でも通る —— review の I-3。自分自身の起動は ST56 の setup 窓だけ。引数の固定は `time_sync_*arguments_are_pinned_to_the_query` の試験が持つ。
 # `sc start w32time` のような同期させる操作もここで止まる）/ 端末の子プロセス。
 # **依存（`Cargo.toml` / `build.gradle.kts`）も同じ一覧で見る**（NTP の部品を足しただけで通っていた。review R20）。
@@ -41,7 +41,7 @@ scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。
         }
         /^#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
         /^[[:space:]]*(\/\/|\*|\/\*|#)/ { next }
-        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/ && $0 !~ /Command::new\(std::env::current_exe\(\)\?\)/ && $0 !~ /Command::new\(update_executable\(&staged(, channel)?\)\?\)/) {
+        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/ && $0 !~ /Command::new\(std::env::current_exe\(\)\?\)/ && $0 !~ /Command::new\(update_executable\(&staged(, channel)?\)\?\)/ && $0 !~ /Command::new\(previous_executable\(\)\?\)/) {
           printf "%s:%d: %s\n", file, FNR, $0
         }
       ' "$f" || { echo "読めない: $f" >&2; return 2; }
@@ -107,6 +107,9 @@ if [ "${1:-}" = "--self-test" ]; then
   printf 'fn s(staged: &std::path::Path) { let c = Command::new(update_executable(&staged)?); }\n' > "$tmp/allowed/a.rs"
   out="$(scan "$tmp/allowed")" || fail "版ごとの実行ファイルで検査が落ちた"
   [ -z "$out" ] || fail "版ごとの実行ファイルを止めた: $out"
+  printf 'fn s() { let c = Command::new(previous_executable()?); }\n' > "$tmp/allowed/a.rs"
+  out="$(scan "$tmp/allowed")" || fail "戻しで前の版を起こす子プロセスで検査が落ちた"
+  [ -z "$out" ] || fail "戻しで前の版を起こす子プロセスを止めた: $out"
   printf 'fn s(name: &str) { let c = Command::new(name); }\n' > "$tmp/allowed/a.rs"
   out="$(scan "$tmp/allowed")" || fail "名前を引数に取る植え付けで検査が落ちた"
   [ -n "$out" ] || fail "名前を引数に取る子プロセスを許した"
