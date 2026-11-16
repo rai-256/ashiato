@@ -122,9 +122,6 @@ echo "$verify_out"
 grep -q '^OK (1 test)' <<<"$verify_out" \
   || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
 keep_stage
-# ST58: 入れ替えの後の受け手の試験は、段ごとに権限を pm grant / revoke で整えて am instrument --no-restart で見る
-# （1 段目の gradle の実行では、前のクラスが許した裏の位置の権限が残り、前提が崩れる）。結果は台本が `OK (1 test)` で照らす
-./tools/android-st58-replace.sh
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
@@ -156,6 +153,11 @@ adb shell pm reset-permissions
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest")
 keep_stage
+# ST58: 入れ替えの後の受け手の試験は、段ごとに権限を pm grant / revoke で整えて am instrument --no-restart で見る
+# （1 段目の gradle の実行では、前のクラスが許した裏の位置の権限が残り、前提が崩れる）。結果は台本が `OK (1 test)` で照らす。
+# 台本はアプリを入れ直して設定と状態を残すので、既存の段の前提を崩さないよう全段の後に置く
+./tools/android-st58-replace.sh
+adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
 # Task の証跡コマンドは connected 配下だけを読む。段ごとの XML は同名で上書きされるため、
 # ST57 の計測結果だけは connected の専用ディレクトリにも残す。前回の
