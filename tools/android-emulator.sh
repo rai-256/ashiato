@@ -102,7 +102,7 @@ rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数え�
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
-   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest")
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest,dev.ashiato.collector.St58PackageReplacedInstrumentedTest")
 keep_stage
 # St56BackupTest は instrumentation が対象プロセス内で動くため、データ消去と restore は
 # テストプロセスの外で行う。Gradle の connected task は invocation 後に APK を外すので、
@@ -122,6 +122,9 @@ echo "$verify_out"
 grep -q '^OK (1 test)' <<<"$verify_out" \
   || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
 keep_stage
+# ST58: 入れ替えの後の受け手の試験は、段ごとに権限を pm grant / revoke で整えて am instrument --no-restart で見る
+# （1 段目の gradle の実行では、前のクラスが許した裏の位置の権限が残り、前提が崩れる）。結果は台本が `OK (1 test)` で照らす
+./tools/android-st58-replace.sh
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \

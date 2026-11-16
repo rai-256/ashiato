@@ -195,7 +195,7 @@ D1 の 8 で、`backups\pre-migrate\` の下の、この回の置き場以外の
 
 ### D24（仮）. Windows の CI の通しは、版の違う 2 つの zip で見る
 
-`tools/release/update-apply-install.sh` は、同じ commit から版番号だけを替えた 2 つの試験の組み立ての zip（`0.4.0-test` 相当と `0.5.0-test` 相当。`ASHIATO_VERSION` を替えて 2 回組む）を使い、古い方を入れてから新しい方で更新・戻し・途中で止まる・やり直しを見る。
+`tools/release/update-apply-install.sh` は、同じ commit から版番号だけを替えた 2 つの試験の組み立ての zip（`0.4.0-test` 相当と `0.5.0-test` 相当。`ASHIATO_BUILD_VERSION` を替えて 2 回組む。版番号の出所の一致の検査は配る組み立てを守るので緩めず、CI の runner の木の `Cargo.toml` の出所の版を組むたびに替えて、終わったら戻す）を使い、古い方を入れてから新しい方で更新・戻し・途中で止まる・やり直しを見る。
 差し込みは Scenario の GIVEN の形に合わせる（review/code.md R36・R58）: インストーラの `STOP_AT` は誤りを返して自動の戻しを通るので、「途中で止まった印が残る」形は `ASHIATO_SETUP_TEST_CRASH_AT`（戻さずにその場で終わる）、「移行の段で待つ間を外から見る」形は `ASHIATO_SETUP_TEST_PAUSE_AT`（`update\paused` を置き `update\resume` を待つ）で作る。サーバの起動の差し込み（`NO_LISTEN` / `EXIT_AFTER_LISTEN`）は SCM が起こすサービスに届くようサービスの環境（`Environment`）に置き、値を版番号にしてその版のサーバだけが従う（戻した前の版は従わない）。2 つの zip は同じ移行を持ち当てる版が無いので、`MIGRATE_FAIL=sqlstate:…` はそのときも最後の版で落ちたことにする。DB の版の記録の細工は Scenario の後に戻す（DB は Scenario をまたいで同じ）。PC の収集アプリの戻しの試験は `ASHIATO_COLLECTOR_TEST_UPDATE_ALIVE_WAIT_MS`・`ASHIATO_COLLECTOR_TEST_PREVIOUS_EXE`（どれも試験の組み立てだけ）。
 - 反転条件: CI の時間が 2 つ組むことで job の上限に近づくと分かったら、2 つ目の組み立てを版の印だけを替える形に替える
 
