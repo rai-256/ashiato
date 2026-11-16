@@ -65,6 +65,20 @@ class St58UpdateInstallTest {
     }
 
     @Test
+    fun `開発版は開発版の APK 接頭辞だけを選ぶ`() {
+        // Scenario: 携帯の更新ありの行を押すと、指紋の合う APK でインストール画面が開く
+        val digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        val body = """[{"tag_name":"nightly","draft":false,"assets":[
+            {"name":"ashiato-collector-dev-0.4.1-dev.20261110.apk","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/nightly/a.apk","digest":"sha256:$digest"},
+            {"name":"ashiato-collector-0.4.1-dev.20261110.apk","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/nightly/b.apk","digest":"sha256:$digest"}
+        ]}]"""
+        assertEquals(
+            "ashiato-collector-dev-0.4.1-dev.20261110.apk",
+            UpdateInstall.chooseAsset("0.4.0-dev.20261109", body)?.name,
+        )
+    }
+
+    @Test
     fun `指紋が無い配布物は選ばない`() {
         // Scenario: 指紋の無い配布物は入れない
         val body = """[{"tag_name":"v0.4.1","draft":false,"assets":[

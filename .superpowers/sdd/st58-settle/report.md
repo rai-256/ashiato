@@ -79,3 +79,8 @@
 - `scripts/quiet-run android-st58 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — rc=0、BUILD SUCCESSFUL（55s）。
 - `cat collector-android/app/build/test-results/testDebugUnitTest/TEST-*St58*.xml | grep -c '<testcase '` — 22 以上、rc=0。
 - `rustfmt --check crates/installer/src/main.rs` / `git diff --check` / `python3 scripts/review_triage.py . st58-update-apply-rollback --no-verdict` — すべて rc=0。
+
+## R27 の成果物コミット
+
+- `St58UpdateInstallTest` に、開発版が正式版の接頭辞を選ばず `ashiato-collector-dev-` の APK を選ぶ試験を追加した。
+- `scripts/quiet-run android-r27 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — rc=0、BUILD SUCCESSFUL（82s）。
