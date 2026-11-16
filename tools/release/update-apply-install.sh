@@ -3,7 +3,20 @@ set -euo pipefail
 shopt -s extglob
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-die() { echo "NG: $*" >&2; exit 1; }
+# 走っている Scenario の置き場（落ちたときに出力と観測の末尾を出す。$work は終わりに消える）
+current_scenario_work=''
+die() {
+  local file
+  echo "NG: $*" >&2
+  if [[ -n "$current_scenario_work" ]]; then
+    for file in install.out retry.out trace; do
+      [[ -s "$current_scenario_work/$file" ]] || continue
+      echo "== $file の末尾（$current_scenario_work）:" >&2
+      tail -n 40 "$current_scenario_work/$file" | tr -d '\r' >&2
+    done
+  fi
+  exit 1
+}
 usage() { echo "使い方: $0 <正式旧> <正式新> [<開発旧> <開発新> [<互換旧> <互換新>]] | --self-test | --list" >&2; exit 2; }
 
 # Scenario: 新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる
@@ -94,7 +107,8 @@ settings_fingerprint() {
 completed_backup_count() {
   local backups='C:/ProgramData/ashiato/backups/pre-migrate'
   [[ -d "$backups" ]] || { printf '0\n'; return; }
-  find "$backups" -maxdepth 1 -type f -name '*.dump' | wc -l | tr -d ' '
+  # 更新は回ごとの置き場（pre-migrate\<回>\）に書く。根に直に置かれたものも数える
+  find "$backups" -maxdepth 2 -type f -name '*.dump' | wc -l | tr -d ' '
 }
 
 # 書き込みに当たる権利（icacls の単純な権利と細かい権利）。括弧の中のどの位置にあっても拾う
@@ -434,6 +448,7 @@ observe_paused_update() {
 run_scenario() {
   local name="$1" old_zip="$2" new_zip="$3" root_work="$4" old_version="$5" new_version="$6" work output trace rc hook action final_zip final_destination retry_output retry_rc settings_before backups_before history_before failed_before service_env
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
+  current_scenario_work="$work"
   output="$work/install.out"
   clear_service_env
   rc=0; install_zip "$old_zip" "$work/old" "$output" install || rc=$?
