@@ -350,7 +350,8 @@ assert_scenario_result() {
       ;;
     '同じ版で走らせ直すと、更新の手順に入らない')
       (( rc == 0 )) || die '同じ版の再実行が失敗した'
-      ! grep -Eq 'migrate|service_stop.*ashiato-server|previous' "$trace" || die '同じ版なのに更新手順へ入った'
+      # 移行は「ashiato-server.exe migrate」の行で見る。素の migrate は、同じ版でも毎回直す退避の置き場（backups\pre-migrate）の権限の行に当たる
+      ! grep -Eq 'ashiato-server\.exe"? migrate( |$)|service_stop.*ashiato-server|previous' "$trace" || die '同じ版なのに更新手順へ入った'
       ;;
     'サーバのアカウントは、更新の途中の印を書けない')
       assert_update_acl "$(windows_icacls 'C:\\ProgramData\\ashiato\\update')"
@@ -761,6 +762,12 @@ EOF
     die '途中で止まる Scenario が戻しを通る差し込みを使っている'
   grep -Fq 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=' <<<"$(scenario_hook '戻しが落ちると、サーバを止めたまま、退避の場所とやり直しの口を示す')" ||
     die '戻しが落ちる Scenario が移行を落としていない（戻しに届かない）'
+  # 同じ版の再実行でも退避の置き場（pre-migrate）の権限は直す。その行を移行と取り違えない（CI run 43970737732）
+  local same_trace="$work/same-trace"
+  printf '%s\n' 'result=ok takeown /F C:\ProgramData\ashiato\backups\pre-migrate /A /R /D Y' 'result=ok icacls C:\ProgramData\ashiato\backups\pre-migrate /reset /L' >"$same_trace"
+  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  printf '%s\n' 'result=ok C:\Program Files\ashiato\ashiato-server.exe migrate (env DATABASE_OWNER_URL,MIGRATE_BACKUP_DIR,PG_DUMP)' >>"$same_trace"
+  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
   local paused_trace="$work/paused-trace"
   printf '%s\n' 'pause-stage=migrating' 'pause-healthz=000' 'pause-server-state:' '' 'SERVICE_NAME: ashiato-server ' '        TYPE               : 10  WIN32_OWN_PROCESS  ' $'        STATE              : 1  STOPPED \r' 'pause-server-config:' 'START_TYPE         : 4   DISABLED' >"$paused_trace"
   assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
