@@ -414,3 +414,149 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - kind: technical
 - 処置: fixed D15 仮 / D24 仮 — 本物は `migrating` 段を書いた直後、migrate を始める前に停止し、`update_failure_reason` が `not_applied` を返すようにした。偽インストーラの「入りませんでした」はこの本物の分岐に一致し、Rust の分類試験が両者の契約を固定する。
 - 判定: ADDRESSED（re-review 5 @d88c9c9ba238cfa51d45c92e2f36a26a8fd2a974）
+
+## final review（23b9b22..28f8571）
+
+final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が `review-23b9b2280..28f8571cf.diff`（889 KB）を何回かに分けて読んだ。実行はせず、静的な読みだけで判断した。C1（R31）・C2（R32）・I1（R33）・`backup_failed` を書かないこと（R35）は、この段でコードを読み直して確かめた。読みが浅いのは次の範囲: `web/e2e`・`SettingsView`/`UpdateBand`・`crates/update-check`・`st58_tests.rs`・`ci.yml`・Android の試験・`installer/src/lib.rs` の試験群。
+
+申し送り（`docs/handoff/ST58.md`）との照合:
+- ST55 D14 — 更新が読む配置の正本: 扱っている。`layout::for_version`（`crates/installer/src/main.rs:2671`）を使い、移行の前に古いサーバを止める（`:1271-1278`）
+- st48-db-version-guard R21 — 終了コード 3 は「移行の失敗」ではない（この回の退避は無い）: DB は戻さない（`update_plan.rs:91-93`）。ただし更新の履歴には「戻した」を書く（R35）
+- st51-update-history R1 — 戻した後に、落ちた試みの結果と戻したことを更新の履歴に書き直す: 一部だけ。`backup_failed` を書かず、DB を戻していない回にも書き直す（R35）
+- st51-update-history R10 — C-01 は更新の後に自分で起き直さない: 扱っている（`PackageReplacedReceiver.kt`）。ただし通知の押した先が誤っている（R39）
+- ST52 D5（仮）・R14 — PC の後戻り: 設計（D7・`update_apply.rs:140`）はある。未送信を消さないことの試験が恒真式になっている（R38）
+- st54-dev-side-by-side D3 — 終了コード 4 も「移行の失敗」ではない（この回の退避は無い）: DB は戻さない（`update_plan.rs:93`）。履歴は R35 と同じ問題がある
+- ST57 — 更新の確認を引き継ぐ事項: 概ね扱っている（帯・切った確認を戻さない・更新係の止めと起こし）。設定を読めないときの倒れ方は R43
+
+## R31. 更新は `previous\` を作らずにそこへ移すので、どのサーバの更新も段 `moved` で落ちる。戻しも「前の版の置き場が無い」で止まり、サーバと更新係は「無効」、DB は止まったまま残る
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - `crates/installer/src/main.rs:1302-1305` は `previous` を消した後、`fs::create_dir_all(&program)` で置き場の根だけを作る。
+  - `:1316-1322` は `fs::rename(entry, previous.join(name))` で移すが、移し先の親が無いので Windows では最初の rename が ERROR_PATH_NOT_FOUND で落ちる。
+  - 続く `rollback` は `!previous.is_dir()`（`:1471`）で Err を返す。
+  - 走らせ直しても `install()`（`:1946-1956`）が同じ `rollback` に入り、また同じ Err で止まる。
+  - この行は b038b87e6 から変わっていない。Windows の通しは一度も走っていない（R10）。
+- 提案: 移す前に `fs::create_dir_all(&previous)` を置く。移す・戻すを純粋な関数に出し、Linux の一時置き場で「前の版の置き場が無い」場合を試験で固定する
+- kind: technical
+
+## R32. 戻しはプログラムの置き場を入れ替えてから段 `restored` を書く。その間に落ちると `failed\` だけが残り、やり直しの `rollback` は必ず「前回の failed\ が残っている」で止まる
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - `crates/installer/src/main.rs:1493-1505` で `failed\` を作って置き場を入れ替え、段 `restored` を書くのは `:1516` になっている。
+  - その間で落ちうるのは、DB の起動待ちの時間切れ（`:1510`）と `restore_database`（`:1513`。差し込み `STOP_AT=restoring` もここ）。
+  - やり直しは `failed.exists()`（`:1489`）で Err になるので、D20 と Scenario「戻しをやり直す口で、前の版で起きる」が成り立たない。
+  - 本人が `failed\` を手で消した場合はさらに悪い。前の版の中身が `failed\` へ退き、空の `previous\` から戻すので、置き場が空になる。
+- 提案: 入れ替えが済んだことを段（例: `swapped`）として印に持ち、やり直しでは入れ替えを飛ばして DB の復元から再開する
+- kind: technical
+
+## R33. ST57 までの版が入った PC からは ST58 へ更新できない。`installed_version` が古いサーバの `--version` を呼ぶが、古いサーバはその引数を知らずに終了コード 1 で終わる（R15 の直しが不完全）
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - `crates/installer/src/main.rs:1127-1141` は、入っているサーバの `--version` が通らなければ「入っている版を読めない」を返し、`:1966` の `install()` はそこで止まる。
+  - base のサーバは `git show 23b9b2280:crates/server/src/main.rs:38` のとおり `Some(other) => bail!("知らない引数…")` で終わる。
+  - R15 の処置は新しいサーバに `--version` を足しただけなので、tasks 12.2「ST57 までの版を入れた本人の PC で…更新が通り」は落ちる。
+  - CI の 2 つの zip はどちらもこの枝から組むので、この経路を見ていない。
+- 提案: 「アプリと機能」の DisplayVersion（`uninstall_registration_commands` が書く値）を先に読む。または `--version` が「知らない引数」で失敗したら前の版とみなす。どちらにしても `--version` を持たない偽のサーバで試験する
+- kind: technical
+
+## R34. 前回の戻しで残った `failed\` が次の更新で `previous\failed\` に入る。その更新も落ちると、戻しの rename がぶつかって置き場が半分入れ替わったまま止まる
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - 更新の移す繰り返し（`crates/installer/src/main.rs:1320`）は `previous` だけを除き、`failed` は除かない。
+  - 2 回目に落ちると、戻しは新しい `failed\` を作った後に `previous\failed` を `program\failed` へ rename しようとし、移し先が既にあるので失敗する（`:1496-1505`）。
+  - D4 は同じ版を入れ直せるとしているので、落ちた更新の入れ直しは想定どおりの操作になる。
+- 提案: 更新の初めに前回の `failed\` を消す（D23 の「次に通ったときに消す」を前に寄せる）か、移す対象から外す
+- kind: technical
+
+## R35. `record-rollback` は DB を戻したかどうかに関わらず「失敗」と「戻した」の 2 行を書く。`backup_failed` は一度も書かず、落ちた版にはアプリの版を、SQLSTATE には空文字を入れる
+- 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
+- 根拠:
+  - `crates/installer/src/main.rs:1525-1536` と `:1619-1638` は、`recovery.restore_database()` を見ずに `commands::update_history_record_rollback_command`（`commands.rs:1161-1167`）を呼ぶ。
+  - 終了コード 3・4: DB を戻さないのに、`startup-failed` の `rolled_back` を書く。`db_ahead` では当たっていない版が `applied_versions` に入る。outcomes の `not_applied` とも食い違う。
+  - 終了コード 1 で退避に失敗した回・退避の前に落ちた回: migrate 自身の結果の行が DB に残っているのに、`failed` 行を重ねて書く。`failed_version` は `unwrap_or(new_version)`、`sqlstate` は `""` になる。
+  - `crates/server/src/update_history.rs:235` は `outcome: "failed"` に固定していて、`backup_failed` を書く経路が無い。
+  - 申し送り st51 R1 は「戻した後に」「`failed` / `backup_failed`」を書き直すと決めている。
+- 提案: DB を戻した回（と、移行が通った後に待ち受けを開かなかった回）だけで呼ぶ。退避の失敗は `backup_failed` にし、無い値は `None` のまま渡す
+- kind: technical
+
+## R36. Windows の通し `update-apply-install.sh` は、R23・R28・R30 と同じ種類の食い違いを今も 4 つ持つ。R30 は狭い意味では直ったが、6.1・8.2 の終了条件（CI の緑）には届かない
+- 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
+- 根拠:
+  - (a) `STOP_AT=migrating` の 2 本（`tools/release/update-apply-install.sh:151`）が必ず die する。`update_install` は Err を受けると自動で戻し（`crates/installer/src/main.rs:1149-1170`）、`start_previous_services` が前の版を自動で起こすので、healthz=200・START_TYPE=2 になる。判定（`:217-221`・`:265-267`）は逆を求めている。
+  - (b) 戻しの 2 本（`:161-162`）は `STOP_AT=restoring` だけで移行の失敗を起こさない。`restore_database` に届かず更新が通るので、`:276-283` で die する。
+  - (c) 「移行の前に止まると…」は spec（`spec.md:462-466`。DB に知らない版・`db_ahead`・記録の最後が `not_applied`）と別のものを見ている。見ているのは差し込みの「入りませんでした」の一語だけ（`:154`・`:290`）。d401c3b41 が `update_failure_reason`（`main.rs:1232`）に足した分岐は試験の文字列にしか当たらず、本番では使われない。
+  - (d) 印が残った状態から `install()` の再開の経路（`main.rs:1946-1956`）を通る Scenario が無い。
+- 提案: Scenario・差し込み・インストーラの実際の動き・判定の 4 列の表で一度に見直す。(c) は既にある `scenario_db_prep` の db_ahead の下準備を使って `outcomes.jsonl` の最後の行を判定し、`:1232` の分岐は消す。そのうえで Windows CI を実際に走らせる（R10・P20）
+- kind: technical
+
+## R37. spec が SHALL で求める携帯と PC の文が製品に無い（R7 の直しが不完全）
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, crates/collector-windows/src/update_apply.rs, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt
+- 根拠:
+  - 携帯: spec.md:8,10,31,37 の「入れられませんでした（<理由>）」「許可した後に、もう一度押してください」は `collector-android/app/src/main` に 0 件。
+  - 携帯: `UpdateInstall.start` / `install`（`UpdateInstall.kt:105-123, 128-149`）は失敗を黙って捨てる。
+  - 携帯: 印「携帯は指紋の合わない APK でインストール画面を開かない」は無関係の試験（`St58UpdateInstallTest.kt:102`）に付いている。
+  - PC: 窓は「更新に失敗しました: …」（`crates/collector-windows/src/update_apply.rs:115`）を出すが、spec.md:176 は「入れられませんでした」を求める。
+  - PC: 戻した通知（`:197-203`）が spec.md:107/137 の文と違う（Task 8 F13）。
+- 提案: spec の THEN の文を製品に入れ、試験はその文を直接観測する。印は正しい試験へ付け替える
+- kind: technical
+
+## R38. Scenario の印が付いた PC の更新の試験のいくつかは製品のコードを呼ばない恒真式のまま。ST52 の申し送り（後戻りでも未送信を消さない）を担う試験もその 1 つ（R6 の直しが不完全）
+- 成果物: crates/collector-windows/tests/st58_pc_update.rs
+- 根拠: 製品のコードを呼ばない試験は次の 5 つ。
+  - `crates/collector-windows/tests/st58_pc_update.rs:109-113`: 押す前は落とさない（空の一時置き場を見るだけ）
+  - `:157-165`: 取り直しは数えを動かさない
+  - `:168-173`: 未送信を送る
+  - `:240-249`: 戻しても未送信を消さない
+  - `:354-362`: 1 分で戻す（差し込みが生存印を抑えることしか見ない）
+- 提案: `st58_pc_update_runs_against_loopback_with_a_real_staged_program` の形（loopback で実物を起こす通し）に寄せる
+- kind: technical
+
+## R39. 通知「更新の後、位置の収集が止まっています。開いてください」を押すと更新の取得が始まる。更新の確認を切っていても GitHub へ取りに行き、ST57 の「更新あり」の通知の乱数も上書きする
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt
+- 根拠:
+  - `LocationService.updateWaitingPendingIntent` は `UpdateInstall.updateStartIntent` を使う。そのため MainActivity が乱数を使って `UpdateInstall.start` を呼び、版の一覧を取りに行く。権限が外れていれば「提供元不明のアプリ」の設定画面を出す。
+  - 乱数は 1 つの枠を上書きするので、ST57 の「更新あり」の通知を押しても何も起きなくなる。
+  - D10 が求めているのは「開いて収集を起こす」ことで、更新の取得ではない。
+- 提案: ふつうに MainActivity を開く intent にする
+- kind: technical
+
+## R40. 段 `restored` のやり直しで、試みの行が無いと `record-rollback` は控えにも書かずに Err を返す。`finish_restored` が毎回同じ Err になり、前の版のサーバを起こせない堂々巡りになる（Task 1 F14 の残り）
+- 成果物: crates/server/src/update_history.rs, crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:1593-1599` → `crates/server/src/update_history.rs:233-237`。ST51 の表を初めて当てた回のように試みの行が無い回は申し送り st51 R1 が既に挙げており、起こりうる
+- 提案: 試みの行が無いときは書き直しを飛ばして警告にし、サーバは起こす
+- kind: technical
+
+## R41. 移行の失敗の種別（`error: kind=`）を出力の最後の 5 行から読むので、`db_ahead` で知らない版が 4 つ以上あると種別が消え、「戻しました」に誤って分類される
+- 成果物: crates/installer/src/console.rs, crates/installer/src/main.rs
+- 根拠: `crates/installer/src/console.rs:67` の `output_tail_text` が持つのは最後の 5 行だけで、`db_ahead` は知らない版 1 つにつき 1 行を出す（`migration_ledger.rs:73`）。分類は `crates/installer/src/main.rs:1202-1243`。DB を戻すかどうかは終了コードで決めるので安全だが、窓と記録の文が誤る
+- 提案: stderr の全部から kind を読むか、終了コードで分類する
+- kind: technical
+
+## R42. 戻しの DB の入れ替えは 2 つの `ALTER DATABASE … RENAME` を別々の文で走らせる。2 つ目だけが落ちると `ashiato` という名前の DB が無くなる
+- 成果物: crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:1761-1763`。やり直しは `DROP DATABASE IF EXISTS ashiato_restore` から入るので、2 つ目が落ちた状態からは回復の道が無い
+- 提案: 1 つの取引で包む（PostgreSQL で RENAME DATABASE を取引の中で使えるかは要確認）。または、やり直しで `ashiato` が無く `ashiato_restore` があれば 2 つ目からやり直す
+- kind: technical
+
+## R43. 戻しと更新が更新係を起こすかどうかを `update_check_enabled(..).unwrap_or(true)` で決める。設定を読めないと「入」に倒れ、`update_check(true)` は `check.json` の `since` を毎回書き直す（D4 は「書き換えない」）
+- 成果物: crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:211-263, 1415, 1451, 1570`
+- 提案: 設定を書かず、サービスを起こすだけの関数を分ける。読めないときは起こさない側に倒す
+- kind: technical
+
+## R44. 段 `started` / `stopped` からの戻しは DB のサービスを起こさない。DB を止めた後・`moved` を書く前に落ちた回は、DB が止まったまま残る
+- 成果物: crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:1442-1455`
+- kind: technical
+
+## R45. PC の収集アプリは起動のたびに自動起動の台本を `current_exe` に書き直す。D12 の「窓を閉じたら台本は前の版のまま」と食い違い、R21 の処置の文とも合っていない
+- 成果物: crates/collector-windows/src/main.rs, openspec/changes/st58-update-apply-rollback/design.md
+- 根拠: `crates/collector-windows/src/main.rs:277`（Task 8 F6 で意図して入れたもの）。D12（仮）
+- 提案: 実装と D12・R21 の処置の文のどちらに合わせるかを決め、もう一方を直す
+- kind: conflict
+
+## R46. 新しい版が待ち受けを開かずに戻した回も、文が「移行が落ちたので、…に戻しました」になる
+- 成果物: openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md, web/src/update.ts, crates/installer/src/main.rs
+- 根拠: `openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md:696`・`web/src/update.ts:84`・`crates/installer/src/main.rs:1180`。D26 で決めた種別 `server_not_listening` 用の文が spec に無い（実装ではなく計画側の抜け）
+- 提案: spec に待ち受けを開かなかった回の文を足し、画面とインストーラの文を分ける
+- kind: daily
