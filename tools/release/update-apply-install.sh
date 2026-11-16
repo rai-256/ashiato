@@ -333,11 +333,14 @@ assert_scenario_result() {
       ! grep -Eq 'update/state\.json|stage=(started|migrating|listening)' "$trace" || die '更新の印が残っている'
       ;;
     '更新の移行の間、サーバは待ち受けない')
-      # 見るのは移行の段で待っている間の状態（pause- の行）。待ちが解けた後は更新が通る
-      grep -Fq 'pause-stage=migrating' "$trace" || die '移行の段で待っている間に見ていない'
-      ! grep -Eq '^pause-healthz=200$' "$trace" || die '移行の段で待っている間に healthz が答えた'
-      grep -A3 '^pause-server-state:$' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*1[[:space:]]' || die '移行の段で待っている間にサーバが実行中でないと確認できない'
-      grep -A8 '^pause-server-config:$' "$trace" | grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' || die '移行の段で待っている間に開始の種類が無効でない'
+      # 見るのは移行の段で待っている間の状態（pause- の行）。待ちが解けた後は更新が通る。
+      # pause- の行は trace の先の方にあり、die の末尾 40 行には入らない。落ちたら観測そのものを添える
+      local observed
+      observed="$(paused_observation "$trace")"
+      grep -Fq 'pause-stage=migrating' "$trace" || die $'移行の段で待っている間に見ていない\n'"$observed"
+      ! grep -Eq '^pause-healthz=200$' "$trace" || die $'移行の段で待っている間に healthz が答えた\n'"$observed"
+      grep -A3 '^pause-server-state:$' "$trace" | grep -Eq 'STATE[[:space:]]*:[[:space:]]*1[[:space:]]' || die $'移行の段で待っている間にサーバが実行中でないと確認できない\n'"$observed"
+      grep -A8 '^pause-server-config:$' "$trace" | grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' || die $'移行の段で待っている間に開始の種類が無効でない\n'"$observed"
       ;;
     '更新しても、秘密と設定と画面の合言葉は変わらない')
       (( rc == 0 )) || die '秘密保持の更新が失敗した'
@@ -471,6 +474,20 @@ server_version_at() {
   local raw
   raw="$(MSYS2_ARG_CONV_EXCL='*' "$1" --version 2>/dev/null || true)"
   grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' <<<"$raw" | head -n 1 || true
+}
+
+# 移行の段で待っている間に取った観測（pause-stage= から pause-server-config: の後の sc qc の出力まで）。
+# 観測が無ければ、無いことを 1 行で示す。
+paused_observation() {
+  local block
+  block="$(sed -n '/^pause-stage=/,/^pause-server-config:$/p' "$1" | tr -d '\r')"
+  if [[ -z "$block" ]]; then
+    echo '== 移行の段で待っている間の観測: trace に pause- の行が無い'
+    return 0
+  fi
+  echo '== 移行の段で待っている間の観測:'
+  printf '%s\n' "$block"
+  grep -A12 '^pause-server-config:$' "$1" | tail -n +2 | tr -d '\r'
 }
 
 # 移行の段で待っているインストーラの外から、待ち受けとサービスの状態を見る（PAUSE_AT）。
@@ -749,6 +766,13 @@ EOF
   assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
   sed -i 's/^pause-healthz=000$/pause-healthz=200/' "$paused_trace"
   expect_fail assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
+  # 待っている間の状態の判定が落ちたときは、観測（sc query の出力）が CI のログに出る（NG の 1 行だけで終わらない）
+  sed -i -e 's/^pause-healthz=200$/pause-healthz=000/' -e 's/^STATE .*$/STATE              : 4  RUNNING/' "$paused_trace"
+  local paused_log
+  paused_log="$( (current_scenario_work=''; assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0) 2>&1 || true)"
+  grep -Fq 'NG: 移行の段で待っている間にサーバが実行中でないと確認できない' <<<"$paused_log" || die '待っている間の状態の失敗に NG の行が出ない'
+  grep -Fxq 'STATE              : 4  RUNNING' <<<"$paused_log" || die '待っている間の状態の失敗に観測が出ない'
+  grep -Fxq 'START_TYPE         : 4   DISABLED' <<<"$paused_log" || die '待っている間の状態の失敗に開始の種類の観測が出ない'
   expect_fail assert_update_acl $'Administrators:(F)\nNT AUTHORITY\\SYSTEM:(F)\nNT SERVICE\\ashiato-server:(WD)\nNT SERVICE\\ashiato-db:(R)'
   local right
   for right in DE WDAC WO GW '(RX,DE)'; do
