@@ -116,4 +116,14 @@ describe("更新状態", () => {
       reason: null,
     })).toBe("更新 0.5.0 は入りませんでした。0.4.0 のまま動いています");
   });
+
+  it("待ち受けを開かなかった戻しを移行失敗とは表示しない", () => {
+    expect(lastUpdateLine({
+      at: "2026-11-11T09:12:00Z",
+      result: "rolled_back",
+      to_version: "0.5.0",
+      from_version: "0.4.0",
+      reason: { kind: "server_not_listening", failed_version: null, sqlstate: null },
+    })).toBe("更新 0.5.0 は待ち受けを開かなかったので、0.4.0 に戻しました（新しい版のサーバが起きない）");
+  });
 });

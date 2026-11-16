@@ -12,6 +12,11 @@ pub enum VersionAction {
 }
 
 pub fn version_action(installed: &str, candidate: &str) -> VersionAction {
+    // ST57 以前の server は版を報告できず、呼出側は互換値 0.0.0 を渡す。
+    // これは配布チャネルを表す実在の版ではないので、候補の系統を拒まない。
+    if installed == "0.0.0" {
+        return VersionAction::Update;
+    }
     if ashiato_build_stamp::channel(installed) != ashiato_build_stamp::channel(candidate) {
         VersionAction::LeaveAlone
     } else if installed == candidate {
@@ -41,7 +46,7 @@ pub fn update_stage(name: &str) -> Option<UpdateStage> {
         "stopped" => UpdateStage::Stopped,
         "moved" => UpdateStage::Moved,
         "replaced" => UpdateStage::Replaced,
-        "program_swapped" | "program_restored" => UpdateStage::Swapped,
+        "program_swapped" | "program_restoring" | "program_restored" => UpdateStage::Swapped,
         "migrating" => UpdateStage::Migrating,
         "starting" => UpdateStage::Starting,
         "listening" => UpdateStage::Listening,

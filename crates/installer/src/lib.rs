@@ -24,6 +24,10 @@ mod tests {
             version_action("0.4.0", "0.5.0-dev.20261116"),
             VersionAction::LeaveAlone
         );
+        assert_eq!(
+            version_action("0.0.0", "0.5.0-dev.20261116"),
+            VersionAction::Update
+        );
     }
 
     #[test]
@@ -242,9 +246,18 @@ mod tests {
             Some("202611152200_x"),
             Some("23505"),
         );
-        assert!(command.args.windows(2).any(|args| args == ["--kind", "migration-failed"]));
-        assert!(command.args.windows(2).any(|args| args == ["--failed-version", "202611152200_x"]));
-        assert!(command.args.windows(2).any(|args| args == ["--sqlstate", "23505"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--kind", "migration-failed"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--failed-version", "202611152200_x"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--sqlstate", "23505"]));
     }
 
     #[test]

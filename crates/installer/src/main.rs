@@ -266,6 +266,12 @@ fn update_check(layout: &layout::Layout, enabled: bool, trace: bool) -> Result<(
 /// 更新中は既存の設定を変更せず、既に有効と確認できた場合だけ更新係を起こす。
 fn start_enabled_update_check(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     if update_check_enabled(layout).unwrap_or(false) {
+        // 更新開始時に disabled にしたサービスは、戻した版で再び動かす前に
+        // start type も戻さなければ `sc start` が 1058 で失敗する。
+        run(
+            &update_plan::service_update_command(layout.updater_service, "auto"),
+            trace,
+        )?;
         ensure_running(layout.updater_service, trace)?;
     }
     Ok(())
@@ -1180,6 +1186,9 @@ fn update_install(
     let result = update_install_attempt(layout, installed, identity, trace);
     if let Err(error) = result {
         if update_stage_path(layout).exists() {
+            let migrate_state = fs::read(update_stage_path(layout))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
             let listening = fs::read(update_stage_path(layout))
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -1193,7 +1202,8 @@ fn update_install(
                     if listening {
                         return Ok(());
                     }
-                    let (result, reason) = update_failure_reason(&error, installed);
+                    let (result, reason) =
+                        update_failure_reason(&error, installed, migrate_state.as_ref());
                     append_outcome(
                         layout,
                         result,
@@ -1206,11 +1216,15 @@ fn update_install(
                     return Err(format!("{error}; 戻しにも失敗した: {rollback_error}"))
                 }
             }
-            let (result, reason) = update_failure_reason(&error, installed);
-            let notice = if result == "rolled_back" && reason.kind == update_plan::ReasonKind::ServerNotListening.as_str() {
+            let (result, reason) = update_failure_reason(&error, installed, migrate_state.as_ref());
+            let notice = if result == "rolled_back"
+                && reason.kind == update_plan::ReasonKind::ServerNotListening.as_str()
+            {
                 format!(
                     "更新 {} は待ち受けを開かなかったので、{} に戻しました（{}）",
-                    env!("ASHIATO_VERSION"), installed, reason.description(),
+                    env!("ASHIATO_VERSION"),
+                    installed,
+                    reason.description(),
                 )
             } else if result == "rolled_back" {
                 format!(
@@ -1235,11 +1249,27 @@ fn update_install(
     Ok(())
 }
 
-fn update_failure_reason(error: &str, failed_version: &str) -> (&'static str, update_plan::Reason) {
+fn update_failure_reason(
+    error: &str,
+    failed_version: &str,
+    migrate_state: Option<&serde_json::Value>,
+) -> (&'static str, update_plan::Reason) {
     // `migrate` emits a deliberately small machine-readable line.  Prefer it
     // to matching translated diagnostics: the latter must never decide what
     // is persisted in outcomes.jsonl or presented by the UI.
-    if let Some(line) = error.lines().find(|line| line.contains("error: kind=")) {
+    let state_line = migrate_state.and_then(|state| {
+        state["migrate_kind"].as_str().map(|kind| {
+            format!(
+                "error: kind={kind} version={} sqlstate={}",
+                state["migrate_version"].as_str().unwrap_or(failed_version),
+                state["migrate_sqlstate"].as_str().unwrap_or_default(),
+            )
+        })
+    });
+    if let Some(line) = state_line
+        .as_deref()
+        .or_else(|| error.lines().find(|line| line.contains("error: kind=")))
+    {
         let field = |name: &str| {
             line.split_whitespace()
                 .find_map(|part| part.strip_prefix(&format!("{name}=")))
@@ -1485,15 +1515,12 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         return finish_restored(layout, &state, trace);
     }
     if matches!(stage, "started" | "stopped") {
-        run(&update_plan::service_start_command(layout.db_service), trace)?;
+        ensure_running(layout.db_service, trace)?;
         run(
             &update_plan::service_update_command(layout.server_service, "auto"),
             trace,
         )?;
-        run(
-            &update_plan::service_start_command(layout.server_service),
-            trace,
-        )?;
+        ensure_running(layout.server_service, trace)?;
         start_enabled_update_check(layout, trace)?;
         return fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"));
     }
@@ -1533,14 +1560,26 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     )?;
     let failed = program.join("failed");
     if stage != "program_restored" {
-        if failed.exists() {
-            fs::remove_dir_all(&failed).map_err(|e| e.to_string())?;
+        // `program_restoring` は program -> failed の移動と previous ->
+        // program の移動をまたぐ印。途中で落ちた再開で、既に戻した前版を
+        // 再び failed 側へ動かしたり、前回の failed を消したりしない。
+        if stage != "program_restoring" {
+            write_update_stage(
+                layout,
+                state["run_id"].as_str().unwrap_or_default(),
+                previous_version,
+                state["to_version"].as_str().unwrap_or_default(),
+                "program_restoring",
+                &backup_dir,
+            )?;
+            fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
         }
-        fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
-        for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
-            if entry.file_name() != "previous" && entry.file_name() != "failed" {
-                fs::rename(entry.path(), failed.join(entry.file_name()))
-                    .map_err(|e| e.to_string())?;
+        if stage != "program_restoring" {
+            for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
+                if entry.file_name() != "previous" && entry.file_name() != "failed" {
+                    fs::rename(entry.path(), failed.join(entry.file_name()))
+                        .map_err(|e| e.to_string())?;
+                }
             }
         }
         for entry in fs::read_dir(&previous)
@@ -1579,15 +1618,31 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
     let pending = PathBuf::from(layout.state_dir)
         .join("update")
         .join("history-pending.jsonl");
-    let failed_server = failed.join("ashiato-server.exe");
-    let command =
-        rollback_history_command_from_state(&failed_server, &pending, &state, previous_version);
-    let settings = read_settings(&commands::settings_path(layout))?;
-    let owner = read_settings(&commands::owner_settings_path(layout))?;
-    let generated =
-        secrets::InstallSecrets::from_settings(&settings, &owner, secrets::new_admin_password())?;
-    if record_rollback(&command, &generated.owner_url(layout), trace)? {
-        terminal_line("更新の履歴を控えに書きました", false);
+    // 移行前・退避失敗・DB を戻さない拒否の回は、当てていない版を
+    // rolled_back として履歴に残してはいけない。
+    if recovery.restore_database() {
+        let failed_server = failed.join("ashiato-server.exe");
+        let history_server = if failed_server.exists() {
+            failed_server
+        } else {
+            commands::server_executable(layout)
+        };
+        let command = rollback_history_command_from_state(
+            &history_server,
+            &pending,
+            &state,
+            previous_version,
+        );
+        let settings = read_settings(&commands::settings_path(layout))?;
+        let owner = read_settings(&commands::owner_settings_path(layout))?;
+        let generated = secrets::InstallSecrets::from_settings(
+            &settings,
+            &owner,
+            secrets::new_admin_password(),
+        )?;
+        if record_rollback(&command, &generated.owner_url(layout), trace)? {
+            terminal_line("更新の履歴を控えに書きました", false);
+        }
     }
     start_previous_services(layout, trace)?;
     fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"))
@@ -1618,10 +1673,7 @@ fn start_previous_services(layout: &layout::Layout, trace: bool) -> Result<(), S
         &update_plan::service_update_command(layout.server_service, "auto"),
         trace,
     )?;
-    run(
-        &update_plan::service_start_command(layout.server_service),
-        trace,
-    )?;
+    ensure_running(layout.server_service, trace)?;
     start_enabled_update_check(layout, trace)?;
     Ok(())
 }
@@ -1875,9 +1927,7 @@ fn finish_update(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         &update_plan::service_update_command(layout.server_service, "auto"),
         trace,
     )?;
-    if update_check_enabled(layout).unwrap_or(true) {
-        update_check(layout, true, trace)?;
-    }
+    start_enabled_update_check(layout, trace)?;
     append_outcome(
         layout,
         "applied",
@@ -2835,20 +2885,33 @@ mod tests {
         let (_, reason) = super::update_failure_reason(
             "移行に失敗した: error: kind=migrate_failed version=202611152200_x sqlstate=23505",
             "0.4.0",
+            None,
         );
         assert_eq!(reason.kind, "aborted");
         assert_eq!(reason.failed_version, "202611152200_x");
         assert_eq!(reason.sqlstate.as_deref(), Some("23505"));
         let (result, reason) =
-            super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0");
+            super::update_failure_reason("移行に失敗した: error: kind=db_ahead", "0.4.0", None);
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "db_ahead");
+        let state = serde_json::json!({
+            "migrate_kind": "db_ahead",
+            "migrate_version": "V3",
+        });
+        let (result, reason) = super::update_failure_reason(
+            "移行に失敗した: 最後の五行には種別が無い",
+            "0.4.0",
+            Some(&state),
+        );
+        assert_eq!(result, "not_applied");
+        assert_eq!(reason.kind, "db_ahead");
+        assert_eq!(reason.failed_version, "V3");
     }
 
     #[test]
     fn st58_update_failure_reason_marks_stop_before_migration_not_applied() {
         let (result, reason) =
-            super::update_failure_reason("更新を移行の段で停止しました", "0.4.0");
+            super::update_failure_reason("更新を移行の段で停止しました", "0.4.0", None);
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "aborted");
     }

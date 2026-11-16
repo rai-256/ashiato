@@ -83,6 +83,11 @@ export function lastUpdateLine(last: LastUpdate | null): string | null {
     return `更新 ${last.to_version} は入りませんでした。${last.from_version ?? "前の版"} のまま動いています`;
   }
   const reason = updateFailureReason(last.reason);
-  if (last.result === "rolled_back") return `更新 ${last.to_version} は移行が落ちたので、${last.from_version ?? "前の版"} に戻しました（${last.reason?.failed_version ?? "不明"}・${reason}）`;
+  if (last.result === "rolled_back") {
+    if (last.reason.kind === "server_not_listening") {
+      return `更新 ${last.to_version} は待ち受けを開かなかったので、${last.from_version ?? "前の版"} に戻しました（${reason}）`;
+    }
+    return `更新 ${last.to_version} は移行が落ちたので、${last.from_version ?? "前の版"} に戻しました（${last.reason.failed_version ?? "不明"}・${reason}）`;
+  }
   return `更新 ${last.to_version} は入りませんでした（${reason}）。${last.from_version ?? "前の版"} のまま動いています`;
 }

@@ -142,3 +142,16 @@
 
 - `scripts/quiet-run st58-settle-r49-r51 -- cargo test -p ashiato-setup st58_` — rc=0、8 passed。
 - `scripts/quiet-run st58-settle-r50 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — rc=0、BUILD SUCCESSFUL。
+
+## 追加の settle（R52 / R53 / R55 / R57 / R59 / R61）
+
+- R52/R57: 更新係と前版サービスの再起動を、start type を戻してから既に起動済みを許す経路へ統一した。
+- R53: `program_restoring` を状態印に加え、途中停止したプログラム復元を再開しても、戻した前版や既存の `failed` を動かさないようにした。
+- R55: 更新失敗の分類は更新印の `migrate_kind`・版・SQLSTATE を優先して読むようにした。
+- R59: 旧版の `--version` 非対応を表す `0.0.0` を系統の実在版として扱わず、開発版の更新も進めるようにした。
+- R61: 待ち受け失敗の戻しを画面と distribution spec で移行失敗から分離した。
+
+## 検証（R52 / R53 / R55 / R57 / R59 / R61）
+
+- `scripts/quiet-run st58-settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、8 passed。
+- `scripts/quiet-run st58-settle-web -- npm --prefix web test -- --run src/__tests__/update.test.ts` — rc=0、6 passed。

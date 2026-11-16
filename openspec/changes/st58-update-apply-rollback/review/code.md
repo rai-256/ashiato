@@ -736,6 +736,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - ST57 の申し送り「前の版へ戻したときに更新係のサービスをどう扱うか…戻しの手順と合わせて検証すること」の Scenario（戻した後、切っていない更新係は動いている）は Windows の通しが走っていないので捕まえていない。
 - 提案: 「有効なら `sc config start= auto` → 起きていなければ起こす」を 1 つの関数にし、`finish_update` も同じ関数に揃える。戻し・再開の経路のサービスの起動はすべて `ensure_running`（1056 を許す）にする。`record_rollback` は書いたことを印に残してから先へ進む
 - kind: technical
+- 処置: fixed R52 — 有効な更新係を起こす前に start type を `auto` に戻し、既に起動済みのサービスも許す `ensure_running` に統一した。
 
 ## R53. 戻しは `program\` の中身を全部「落ちた版」とみなして `failed\` へ移す。移動の途中・戻しの途中で落ちた回の再開では、前の版のファイルが `failed\` に入り、消される（R32 の直しで悪化）
 - 成果物: crates/installer/src/main.rs
@@ -744,6 +745,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
   - 段 `moved` の更新の移動ループが途中で Err になる（ファイルの錠など）と、すぐ戻しが走り、まだ移していない前の版のファイルが `failed\` へ入る。さらに Err になれば次の再開で消される。最悪は `pgsql\` などが欠け、DB を起こせず毎回同じ戻しに入る。
 - 提案: 移動ループの完了を別の段にする。戻しの開始（例: `program_restoring`）を印に書き、再開時は 1 本目のループを飛ばして previous の残りだけを戻す。`failed\` を消さない
 - kind: technical
+- 処置: fixed R53 — `program_restoring` を永続化し、再開時は新しい版の退避を繰り返さず、前版の残りだけを戻す。既存の `failed` は消さない。
 
 ## R54. `record_rollback` は今も DB を戻したかどうかを見ずに毎回呼ばれ、`backup_failed` を書かず、落ちた版と SQLSTATE を埋める。呼ぶ実行ファイルも `failed\` 側にある（R35 の直しが不完全）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
@@ -760,6 +762,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: `migrate_kind` を読むのは印の引き継ぎ（`crates/installer/src/main.rs:1127`）だけ。`update_failure_reason(&error, …)`（`:1196`・`:1209`）が見る `error` は `output_tail`（最後の 5 行）から作られる。db_ahead は知らない版 n 行を含む n+3 行を出す（`crates/server/src/migration_ledger.rs:73-85`）ので、知らない版が 3 つ以上で kind 行が落ち、「戻しました」に誤って分類される
 - 提案: 分類を印の `migrate_kind`、または終了コードから行う
 - kind: technical
+- 処置: fixed R55 — rollback が印を消す前に `migrate_kind`・版・SQLSTATE を読み、出力末尾ではなく機械可読な印を outcomes の分類へ渡す。
 
 ## R56. 戻しの DB の入れ替えの 2 つの `ALTER DATABASE … RENAME` は今も別々の文で autocommit される（R42 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
@@ -772,6 +775,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: `crates/installer/src/main.rs:1488`。`started` では DB はまだ起きている。`stopped` でも、DB を止める処理が落ちた回なら起きている
 - 提案: `ensure_running` を使う
 - kind: technical
+- 処置: fixed R57 — 初期段と前版サービスの再開を、既に起動済みを成功扱いにする `ensure_running` に揃えた。
 
 ## R58. Windows の通し `update-apply-install.sh` は R36 の (a)〜(c) を今も持ち、(d) サーバの差し込みの環境変数がサービスに届かない。tasks 6.1・8.2 の終了条件（CI の緑）に届かない（R36 の直しが不完全）
 - 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
@@ -790,6 +794,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: `ashiato_build_stamp::channel("0.0.0")` は Official。ST57 の開発版が入った PC で ST58 の開発版のインストーラを走らせると、`version_action` が `LeaveAlone` を返し（`crates/installer/src/update_plan.rs:14-22`）、「別の系統」で止まる。正式版でも `0.0.0` が `from_version`、窓の文「0.0.0 に戻しました」、`--previous-version` に出る
 - 提案: R33 の提案どおり「アプリと機能」の DisplayVersion を先に読む。または自分と同じ系統の基準版を使う
 - kind: technical
+- 処置: fixed R59 — `0.0.0` は旧版の `--version` 非対応を表す互換値として候補版の系統判定より先に更新へ進める。
 
 ## R60. R37・R38 の直しの印が観測しない試験に付いている。携帯の失敗の行はその場で出ず、PC の「戻しても未送信を消さない」は戻しを通らない
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt, crates/collector-windows/tests/st58_pc_update.rs
@@ -805,6 +810,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: `web/src/update.ts:82,86` は `server_not_listening` でも「移行が落ちたので…戻しました」を出す。spec に待ち受けの文が無い（「待ち受けを開かなかった」は 0 件）。`finish_restored` の再開は理由を常に `Aborted` にする（`crates/installer/src/main.rs:1653-1661`）
 - 提案: spec に待ち受けの回の文を足し、画面と再開の経路の理由を印から読む
 - kind: daily
+- 処置: fixed R61 — `server_not_listening` の戻しを画面で待ち受け失敗として分け、distribution spec の帯の文も同じ分岐を正本にした。
 
 ## R62. 計画の純粋な関数（`retain_backups`・`classify_backup_state`・`history_line`・`RecoveryPlan::steps`・`update_layout`・`pg_major_matches`）を `main.rs` が 1 回も呼ばず、試験は使われないコードを固定している（R22 の直しが不完全）
 - 成果物: crates/installer/src/lib.rs, crates/installer/src/update_plan.rs, crates/installer/src/main.rs
