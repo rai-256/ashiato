@@ -715,3 +715,110 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - kind: technical
 - 処置: fixed D1 — ST57 以前の「知らない引数: --version」だけを互換版 0.0.0 とし、他の終了失敗は更新を止めて返す。
 - 判定: ADDRESSED（re-review 8 @c3831b598f28a8d0bb50fe00d6fb2e9c74ccce1d）
+
+## final review（23b9b22..45091d2）
+
+2 回目の final review。final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が `review-23b9b2280..45091d205.diff` と、settle の差分 `review-28f8571cf..45091d205.diff` を何回かに分けて読んだ。実行はせず、静的な読みだけで判断した。`gh run list --branch feat/st58-update-apply-rollback` は 0 件で、Windows の通しはこの枝で一度も走っていない。R52（C1）はこの段でコードを読み直して確かめた（`crates/installer/src/main.rs:1321` で更新係を `disabled` にし、`:267-272`・`:1616-1627` は `start= auto` に戻さずに `ensure_running` だけを呼ぶ）。浅く読んだのは次の範囲: `web/src/__tests__/update.test.ts`・`St58PackageReplacedInstrumentedTest.kt`・`android-st58-replace.sh`・`st58_tests.rs` の history 群の本体・`installer/src/lib.rs` の試験の中身・`commands.rs` の差分の残り・`copy_program_files` の順序。
+
+申し送り（`docs/handoff/ST58.md`）は開始時から変わっていない（最後の変更は 2026-11-12 の 916f111a3）。各見出しの扱いは 1 回目の final review の照合のとおり。新しく見つかった食い違いは次のとおり。
+- st51-update-history R1 — 戻した後に、落ちた試みの結果と戻したことを更新の履歴に書き直す: 今も DB を戻していない回に書き、`backup_failed` を書かない（R54）
+- st48-db-version-guard R21 — 終了コード 3 は「移行の失敗」ではない（この回の退避は無い）: DB は戻さないが、履歴には「戻した」を書く（R54）
+- ST57 — 更新の確認を引き継ぐ事項: 戻しの後、切っていない更新係が無効のまま残り、戻しが落ちる（R52）
+- ST52 D5（仮）・R14 — PC の後戻り: 未送信を消さない印が、戻しを通らない試験に付いている（R60）
+
+## R52. 更新係を `disabled` にしたまま `sc start` するので、更新の確認が入（既定）の PC では戻しが毎回落ち、以後どのインストーラも通らない（R43 の直しが新しく壊した）
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - 更新は最初に更新係を `start= disabled` にする（`crates/installer/src/main.rs:1321`）。
+  - 新しい `start_enabled_update_check`（`:267-272`）は `ensure_running` → `sc start` を呼ぶだけで、`start= auto` に戻さない。以前の `update_check(true)` は `update_check_service_commands` で auto に戻していた。無効のサービスへの `sc start` は 1058 で落ちる。
+  - 戻しの経路（`start_previous_services` `:1616-1627`、`started` / `stopped` の枝 `:1497`）: 印が `restored` のまま「戻しにも失敗した」で終わり、outcomes に何も書かないので帯にも出ない。次の `install()` は `rollback` → `finish_restored`（`:2000-2008`）に入り、`record_rollback` をもう一度呼んで履歴の行を二重に足し、続く `start_previous_services` は前の回に起きたサーバに素の `sc start` をかけて 1056 で落ちる。抜けられない輪になる。
+  - 成功の経路（`:1466`）は Err の後に `finish_update` で救われるが、`applied` の行が 2 本になる。`finish_update` は今も `update_check_enabled(..).unwrap_or(true)` → `update_check(true)`（`:1878-1880`）で `since` を書き直す（R43 の残り）。auto に戻しているのはここだけ。
+  - ST57 の申し送り「前の版へ戻したときに更新係のサービスをどう扱うか…戻しの手順と合わせて検証すること」の Scenario（戻した後、切っていない更新係は動いている）は Windows の通しが走っていないので捕まえていない。
+- 提案: 「有効なら `sc config start= auto` → 起きていなければ起こす」を 1 つの関数にし、`finish_update` も同じ関数に揃える。戻し・再開の経路のサービスの起動はすべて `ensure_running`（1056 を許す）にする。`record_rollback` は書いたことを印に残してから先へ進む
+- kind: technical
+
+## R53. 戻しは `program\` の中身を全部「落ちた版」とみなして `failed\` へ移す。移動の途中・戻しの途中で落ちた回の再開では、前の版のファイルが `failed\` に入り、消される（R32 の直しで悪化）
+- 成果物: crates/installer/src/main.rs
+- 根拠:
+  - 再開した戻しは `failed\` があれば `remove_dir_all` する（`crates/installer/src/main.rs:1535-1537`）。戻しの 2 本目のループ（previous → program）の途中で落ちた回では、program に戻した前の版のファイルが再開時に `failed\` へ移され、前回の `failed\` も消える。
+  - 段 `moved` の更新の移動ループが途中で Err になる（ファイルの錠など）と、すぐ戻しが走り、まだ移していない前の版のファイルが `failed\` へ入る。さらに Err になれば次の再開で消される。最悪は `pgsql\` などが欠け、DB を起こせず毎回同じ戻しに入る。
+- 提案: 移動ループの完了を別の段にする。戻しの開始（例: `program_restoring`）を印に書き、再開時は 1 本目のループを飛ばして previous の残りだけを戻す。`failed\` を消さない
+- kind: technical
+
+## R54. `record_rollback` は今も DB を戻したかどうかを見ずに毎回呼ばれ、`backup_failed` を書かず、落ちた版と SQLSTATE を埋める。呼ぶ実行ファイルも `failed\` 側にある（R35 の直しが不完全）
+- 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
+- 根拠:
+  - `rollback` は `recovery.restore_database()` を見ずに `record_rollback` を呼ぶ（`crates/installer/src/main.rs:1580-1591`）。終了コード 3 / 4（outcomes は `not_applied`）や、移行の前（`moved`・`program_swapped`）に落ちた回にも `startup-failed` の `rolled_back` 行を書く。サーバ側は `StartupFailed` で DB に無い自分の MIGRATIONS を当てた版に並べる（`crates/server/src/update_history.rs:183-195`）ので、当てていない版が「当てて戻した」と残る。
+  - `backup_failed` は今も書かない。`failed_version` は `unwrap_or(new_version)`、`sqlstate` は `""`（`crates/installer/src/commands.rs:1161-1167`）。R35 の処置の文は R40 の分（試みの行が無い回）しか直していない。
+  - 呼ぶのは `failed\ashiato-server.exe`（`main.rs:1585`）。`moved` や複製の途中で落ちた回は、ここに実行ファイルが無いか前の版（ST57 以前は `update-history` を知らない）が入っており、`restored` を書いた後に Err になる（`:1589`）。サーバは止まったまま `finish_restored` が同じ Err を繰り返す（R40 と同じ型の輪）。
+  - 申し送り「st51-update-history R1 — 戻した後に、落ちた試みの結果と戻したことを更新の履歴に書き直す」・「st48-db-version-guard R21 — 終了コード 3 は「移行の失敗」ではない（この回の退避は無い）」と食い違う。
+- 提案: R35 の提案どおり、DB を戻した回と「移行が通り、待ち受けを開かなかった回」だけで呼ぶ。退避の失敗は `backup_failed`、無い値は `None` のまま渡す。実行ファイルは存在を確かめたうえで選ぶ
+- kind: technical
+
+## R55. 移行の失敗の種別を今も出力の最後の 5 行から読む。印に書いた `migrate_kind` は分類に使われていない（R41 の直しが不完全）
+- 成果物: crates/installer/src/main.rs
+- 根拠: `migrate_kind` を読むのは印の引き継ぎ（`crates/installer/src/main.rs:1127`）だけ。`update_failure_reason(&error, …)`（`:1196`・`:1209`）が見る `error` は `output_tail`（最後の 5 行）から作られる。db_ahead は知らない版 n 行を含む n+3 行を出す（`crates/server/src/migration_ledger.rs:73-85`）ので、知らない版が 3 つ以上で kind 行が落ち、「戻しました」に誤って分類される
+- 提案: 分類を印の `migrate_kind`、または終了コードから行う
+- kind: technical
+
+## R56. 戻しの DB の入れ替えの 2 つの `ALTER DATABASE … RENAME` は今も別々の文で autocommit される（R42 の直しが不完全）
+- 成果物: crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:1817`。R42 の処置の文（交換後の状態を印に残す）はプログラムの置き場の話で、DB の入れ替えに触れていない。2 つ目だけが落ちると `ashiato` が無くなり、再開は 1 つ目の RENAME で永久に落ちる
+- 提案: 2 つを `BEGIN; …; COMMIT;` で包む（RENAME DATABASE は取引の中で動くか確かめる）。または、再開時に `ashiato` が無く `ashiato_restore` があれば 2 つ目からやり直す
+- kind: technical
+
+## R57. 段 `started` / `stopped` からの戻しは、起きている DB に素の `sc start` をかけて 1056 で落ち、印が残って次の install も同じ所で落ちる（R44 の直しで新しく）
+- 成果物: crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs:1488`。`started` では DB はまだ起きている。`stopped` でも、DB を止める処理が落ちた回なら起きている
+- 提案: `ensure_running` を使う
+- kind: technical
+
+## R58. Windows の通し `update-apply-install.sh` は R36 の (a)〜(c) を今も持ち、(d) サーバの差し込みの環境変数がサービスに届かない。tasks 6.1・8.2 の終了条件（CI の緑）に届かない（R36 の直しが不完全）
+- 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
+- 根拠:
+  - `tools/` には 28f8571 以後の commit が 0 件。R36 の処置の文（swapped 段）は台本の (a)〜(d) に触れていない。
+  - (a) `STOP_AT=migrating` の 2 本は自動で戻して前の版を起こすので healthz=200・START_TYPE=2 になり、判定（`tools/release/update-apply-install.sh:211-215`）が die する。
+  - (b) `STOP_AT=restoring` の 2 本（`:162-163`）は移行の失敗を起こさず `restore_database` に届かないので更新が通り、`(( rc != 0 ))` で die する。
+  - (c) 「移行の前に止まると…」は spec の db_ahead ではなく差し込みの文字列を見ている。
+  - (d) `ASHIATO_SERVER_TEST_NO_LISTEN` / `EXIT_AFTER_LISTEN`（`:160-161`）はインストーラの環境に置かれるが、サーバは SCM が起こすので届かない。2 本とも更新が通って die する。
+  - 1 本目の die で残りの Scenario が走らず、CI の Scenario の突き合わせも欠ける。
+- 提案: R36 の提案どおり Scenario・差し込み・インストーラの実際の動き・判定の 4 列の表で見直し、サーバへの差し込みはサービスの環境（または印のファイル）経由にする。そのうえで Windows CI を実際に走らせる
+- kind: technical
+
+## R59. 互換の版 `0.0.0` は正式版の系統なので開発版を更新できず、値が outcomes・窓の文・更新の履歴・画面の帯に漏れる（R33・R51 の直しの副作用）
+- 成果物: crates/installer/src/main.rs, crates/installer/src/update_plan.rs
+- 根拠: `ashiato_build_stamp::channel("0.0.0")` は Official。ST57 の開発版が入った PC で ST58 の開発版のインストーラを走らせると、`version_action` が `LeaveAlone` を返し（`crates/installer/src/update_plan.rs:14-22`）、「別の系統」で止まる。正式版でも `0.0.0` が `from_version`、窓の文「0.0.0 に戻しました」、`--previous-version` に出る
+- 提案: R33 の提案どおり「アプリと機能」の DisplayVersion を先に読む。または自分と同じ系統の基準版を使う
+- kind: technical
+
+## R60. R37・R38 の直しの印が観測しない試験に付いている。携帯の失敗の行はその場で出ず、PC の「戻しても未送信を消さない」は戻しを通らない
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt, crates/collector-windows/tests/st58_pc_update.rs
+- 根拠:
+  - 携帯: `recordFailure` は executor のスレッドから SharedPreferences に書くだけで、画面を描き直す口が無い（`MainActivity.kt:540,544-546`。listener が無い）。「更新あり」を押して落とせなかった・指紋が合わなかった回は、次に開くまで行が出ず、spec の THEN「行に…が出る」に届かない。試験は文字列を組み立てる関数の比較だけ（`St58UpdateInstallTest.kt:117-118`）。`:102` の印は無関係の試験に付いたまま。`:120` の印「…古い許可待ちの文を残さない」は spec に無い。
+  - PC: 「前の版に戻しても、新しい版が積んだ未送信を消さない」の印が、戻しの無い成功経路の試験に付いた（`st58_pc_update.rs:258-262`）。申し送り「ST52 D5（仮）・R14 — PC の後戻り」を担う試験が今も戻しを通らない。
+  - PC: tasks 8.1 が求める印「落とす要求は自分の版も端末の情報も持たない」は、`ASSET_DOWNLOAD_HEADERS == UPDATE_CHECK_HEADERS` を確かめる試験ごと消えた。
+- 提案: 携帯は SharedPreferences の変化で行を描き直し、試験は画面の行を観測する。PC は戻しを通る通しで未送信を数える。消えた印の試験を戻す
+- kind: technical
+
+## R61. 待ち受けを開かなかった回の文は、インストーラの窓だけ直り、画面・spec・再開の経路は「移行が落ちた」のまま（R46 の直しが不完全）
+- 成果物: web/src/update.ts, openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md, crates/installer/src/main.rs
+- 根拠: `web/src/update.ts:82,86` は `server_not_listening` でも「移行が落ちたので…戻しました」を出す。spec に待ち受けの文が無い（「待ち受けを開かなかった」は 0 件）。`finish_restored` の再開は理由を常に `Aborted` にする（`crates/installer/src/main.rs:1653-1661`）
+- 提案: spec に待ち受けの回の文を足し、画面と再開の経路の理由を印から読む
+- kind: daily
+
+## R62. 計画の純粋な関数（`retain_backups`・`classify_backup_state`・`history_line`・`RecoveryPlan::steps`・`update_layout`・`pg_major_matches`）を `main.rs` が 1 回も呼ばず、試験は使われないコードを固定している（R22 の直しが不完全）
+- 成果物: crates/installer/src/lib.rs, crates/installer/src/update_plan.rs, crates/installer/src/main.rs
+- 根拠: `crates/installer/src/main.rs` を grep して 0 件。`installer/src/lib.rs` の `st58_plan_` の試験群の多くは使われないコードを見ており、本番の `retain_update_artifacts`・`classify_update_backup` 等は試験されていない
+- 提案: 本番の経路をこれらの純粋な関数に寄せるか、使われない関数と試験を消して本番の関数を試験する
+- kind: technical
+
+## R63. 細かい残り（Minor）
+- 成果物: crates/installer/src/main.rs, crates/installer/src/lib.rs, collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
+- 根拠:
+  - 古いサーバの判定（`crates/installer/src/main.rs:1157`）は `decode_child_output`（窓のコード頁を先に見る）で読む。Rust の子の出力は UTF-8 なので D8 の規則では `decode_tail_output`。単一バイトのコード頁（437・1252）では化けた読みが通り、判定が外れる。
+  - `restored` 以外の段から戻した回は outcomes を書かない（Task 5 F22 を確認）。
+  - `st58_update_stage_distinguishes_program_exchange_directions` は 2 つの段が同じ型になることだけを見ている。「`program_restored` では入れ替えを飛ばす」試験と、R40 の直し（試みの行が無い回）の試験が無い。
+  - R50 の残り: 失敗の行は成功するまで残り、MainActivity を閉じさせない。更新の確認を切った後も消えない。
+  - Task 1 F13（確認した）: `replay_pending` は commit の後に rename するので、その間に落ちると二重に入る。
+  - Task 6 F12（確認した）: ACL の正規表現が `(DE)` `(GW)` `(WDAC)` `(WO)` などを拾わない。
+- kind: technical
