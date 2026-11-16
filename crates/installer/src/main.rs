@@ -1401,15 +1401,8 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
             .ok_or("更新の印に退避の場所が無い")?,
     );
     let backup_state = classify_update_backup(&backup_dir);
-    let stage_kind = match stage {
-        "started" => update_plan::UpdateStage::Started,
-        "stopped" => update_plan::UpdateStage::Stopped,
-        "moved" => update_plan::UpdateStage::Moved,
-        "replaced" => update_plan::UpdateStage::Replaced,
-        "migrating" => update_plan::UpdateStage::Migrating,
-        "starting" => update_plan::UpdateStage::Starting,
-        _ => return Err(format!("未知の更新段です: {stage}")),
-    };
+    let stage_kind =
+        update_plan::update_stage(stage).ok_or_else(|| format!("未知の更新段です: {stage}"))?;
     let exit_code = state["migrate_exit_code"].as_i64().unwrap_or(1) as i32;
     let recovery = update_plan::recovery_plan(stage_kind, exit_code, backup_state);
     let program = PathBuf::from(layout.program_dir);

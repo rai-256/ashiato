@@ -38,3 +38,15 @@
 - `scripts/quiet-run st58-settle-installer -- cargo test -p ashiato-setup st58_` — rc=0、2 passed。
 - `scripts/quiet-run st58-settle-pc -- cargo test -p ashiato-collector-windows st58_` — rc=0、19 passed。
 - `tools/release/update-apply-install.sh --self-test` — rc=0。
+
+## 機械検査の追補（R6 / R8 / R21 / R22）
+
+- R6: 指紋不一致の PC 配布物を loopback の実更新経路へ渡し、失敗時に `versions/0.5.0` を作らないことを確認する試験へ替えた。
+- R21: 生存印の無い収集アプリには handoff を発行・待機せず、直ちに staged 版の起動へ進む。生存印のある既存プロセスには従来どおり停止確認を求める。
+- R22: state.json の段名から `UpdateStage` への変換を `update_plan` に集約し、実行経路が同じ復旧段の定義を使うようにした。
+- R8: 追加した根拠行は、機械検査の指示に従い元へ戻した。
+
+## 検証（追補）
+
+- `scripts/quiet-run st58-settle-followup -- cargo test -p ashiato-collector-windows st58_` — rc=0、19 passed。
+- `scripts/quiet-run st58-settle-plan -- cargo test -p ashiato-setup st58_` — rc=0、2 passed。

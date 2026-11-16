@@ -191,24 +191,49 @@ fn st58_pc_update_preserves_disabled_setting() {
 #[test]
 fn st58_pc_update_rejects_wrong_digest() {
     // Scenario: PC は指紋の合わない配布物で入れ替えない
-    let release = ashiato_update_check::Release {
-        tag_name: "v0.5.0".into(),
-        draft: false,
-        assets: vec![ashiato_update_check::Asset {
-            name: "ashiato-collector-windows-0.5.0-x86_64.zip".into(),
-            browser_download_url: Some(
-                "https://github.com/rai-256/ashiato/releases/download/a/x".into(),
-            ),
-            digest: Some(
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
-            ),
-        }],
-    };
-    assert!(ashiato_update_check::select_asset(
-        ashiato_update_check::Component::CollectorWindows,
-        &release
+    let _guard = UPDATE_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let archive = b"not a zip";
+    let releases = r#"[{"tag_name":"v0.5.0","draft":false,"assets":[{"name":"ashiato-collector-windows-0.5.0-x86_64.zip","browser_download_url":"https://github.com/rai-256/ashiato/releases/download/v0.5.0/asset.zip","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]}]"#;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for body in [releases.as_bytes(), archive.as_slice()] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(body).unwrap();
+        }
+    });
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        format!(r#"{{"base_url":"{base}"}}"#),
     )
-    .is_some());
+    .unwrap();
+    std::fs::write(
+        dir.path().join("update-check.json"),
+        r#"{"latest":"0.5.0"}"#,
+    )
+    .unwrap();
+    let mut input = &b"y\n\n"[..];
+    let mut output = Vec::new();
+    assert!(ashiato_collector_windows::update_apply::run_update(
+        &config(dir.path()),
+        ashiato_build_stamp::Channel::Official,
+        &mut input,
+        &mut output,
+    )
+    .is_err());
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+    server.join().unwrap();
+    assert!(!dir.path().join("versions/0.5.0").exists());
 }
 
 #[test]
@@ -291,6 +316,7 @@ fn st58_pc_update_runs_against_loopback_with_a_real_staged_program() {
         r#"{"latest":"0.5.0"}"#,
     )
     .unwrap();
+    write_alive(dir.path(), env!("ASHIATO_VERSION")).unwrap();
 
     let handoff_dir = dir.path().to_owned();
     let handoff = std::thread::spawn(move || {
@@ -398,6 +424,7 @@ fn st58_pc_update_replaces_twice_and_keeps_only_the_two_latest_versions() {
             format!(r#"{{"latest":"{version}"}}"#),
         )
         .unwrap();
+        write_alive(dir.path(), env!("ASHIATO_VERSION")).unwrap();
         let handoff_dir = dir.path().to_owned();
         let handoff = std::thread::spawn(move || {
             for _ in 0..200 {

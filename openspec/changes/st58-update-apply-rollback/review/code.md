@@ -125,7 +125,6 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 
 ## R8. 決めた値と分岐のうち 3 つは、書き換えても試験が落ちない（1 MB・終了コード 5・待ち受けの後は戻さない）
 - 成果物: crates/server/src/update_status.rs / crates/server/src/lib.rs / crates/installer/src/main.rs
-- 根拠: 下記の 1 MB・終了コード 5・`listening` 段の三つの変更をそれぞれ加えた実行記録。各変更後にも既存の ST58 試験が通った。
 - 根拠（いずれも壊して走らせ、`git checkout` で戻した。前後の `git status --porcelain` と `git diff` は同じ）:
   - `MAX_OUTCOMES_JSONL_BYTES` を `1024 * 1024` から `1024` に（`update_status.rs:18`）→ `cargo test -p ashiato-server st58_` の `st58_status_` 8 本はすべて通った。試験は 1 MB を超える行を断ることしか見ず（`st58_tests.rs:263-279`）、1 MB 以下を読むことは見ていない。Scenario 名「1 MB を超える更新の記録は画面に出さない」の値は、下から固定されていない。
   - `record-rollback` の `std::process::exit(5)` を `exit(6)` に（`lib.rs:510`）→ `cargo test -p ashiato-server st58_` は 16 passed（rc=0）、`cargo test -p ashiato-setup st58_plan_` は 27 passed（rc=0）。サーバの終了コードとインストーラの `HISTORY_PENDING_WRITTEN` を突き合わせる試験は無い（R1 と同じ継ぎ目）。

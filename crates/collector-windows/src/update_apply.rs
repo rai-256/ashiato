@@ -167,15 +167,21 @@ fn run_update_inner<R: BufRead, W: Write>(
     let staged = layout.version_dir(latest);
     extract_zip(&bytes, &staged)?;
     let executable = update_executable(&staged, channel)?;
+    // A collector that is not running cannot consume a handoff.  Its live
+    // marker is refreshed while it runs, so a stale marker from a closed or
+    // crashed process must not make an update wait for an acknowledgement.
+    let collector_was_running = collector_is_running(&layout);
     let _ = std::fs::remove_file(layout.ack_path());
     let _ = std::fs::remove_file(layout.alive_path());
-    crate::fsutil::atomic_write(
-        &layout.handoff_path(),
-        &serde_json::to_vec(&Handoff {
-            version: latest.to_owned(),
-        })?,
-    )?;
-    wait_for_ack(&layout, WAIT_FOR_ALIVE)?;
+    if collector_was_running {
+        crate::fsutil::atomic_write(
+            &layout.handoff_path(),
+            &serde_json::to_vec(&Handoff {
+                version: latest.to_owned(),
+            })?,
+        )?;
+        wait_for_ack(&layout, WAIT_FOR_ALIVE)?;
+    }
     writeln!(output, "配布物を照らしています")?;
     writeln!(output, "新しい版の起動を待っています")?;
     output.flush()?;
@@ -293,6 +299,19 @@ pub fn wait_for_alive(layout: &UpdateLayout, version: &str, timeout: Duration) -
     Ok(false)
 }
 
+fn collector_is_running(layout: &UpdateLayout) -> bool {
+    std::fs::read(layout.alive_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Alive>(&bytes).ok())
+        .is_some_and(|alive| {
+            Utc::now()
+                .signed_duration_since(alive.at)
+                .num_seconds()
+                .abs()
+                <= WAIT_FOR_ALIVE.as_secs() as i64 * 2
+        })
+}
+
 #[allow(clippy::needless_borrow)]
 fn spawn_staged_collector(
     staged: &Path,
@@ -373,6 +392,22 @@ mod tests {
         std::fs::write(layout.handoff_path(), br#"{"version":"0.5.0"}"#).unwrap();
         assert!(wait_for_ack(&layout, Duration::ZERO).is_err());
         assert!(!layout.handoff_path().exists());
+    }
+
+    #[test]
+    fn st58_update_stale_alive_marker_does_not_require_a_handoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = UpdateLayout::new(dir.path());
+        std::fs::write(
+            layout.alive_path(),
+            serde_json::to_vec(&Alive {
+                version: "0.4.0".into(),
+                at: Utc::now() - chrono::Duration::minutes(3),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!collector_is_running(&layout));
     }
 
     #[test]

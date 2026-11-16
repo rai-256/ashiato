@@ -279,6 +279,12 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
     }
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
+        // The update window uses this as a heartbeat before requesting a
+        // handoff.  A stale marker means the old process is gone.
+        if let Err(error) = c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION"))
+        {
+            tracing::warn!(error = %c02::telemetry::error_kind(&error), "更新の生存印を書き換えられない");
+        }
         match cfg.reload_from_disk() {
             Ok(true) => {
                 transport.reload(&cfg.base_url, &cfg.api_token);

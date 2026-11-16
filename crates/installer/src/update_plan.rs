@@ -33,6 +33,21 @@ pub enum UpdateStage {
     Restored,
 }
 
+/// 永続化した印の段名を、復旧計画が使う型へ一か所で戻す。
+pub fn update_stage(name: &str) -> Option<UpdateStage> {
+    Some(match name {
+        "started" => UpdateStage::Started,
+        "stopped" => UpdateStage::Stopped,
+        "moved" => UpdateStage::Moved,
+        "replaced" => UpdateStage::Replaced,
+        "migrating" => UpdateStage::Migrating,
+        "starting" => UpdateStage::Starting,
+        "listening" => UpdateStage::Listening,
+        "restored" => UpdateStage::Restored,
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryStep {
     RestoreDatabase,
