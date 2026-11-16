@@ -459,8 +459,11 @@ open class MainActivity : Activity() {
                         ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
             )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
-        val failureLine = UpdateInstall.visibleFailureLine(this, updateAvailable && updatePreferences.getBoolean("enabled", true))
-        if (restricted || notice != null || setupRow || updateIntroPending || updateStale || failureLine != null) {
+        val updateEnabled = updatePreferences.getBoolean("enabled", true)
+        val failureLine = UpdateInstall.visibleFailureLine(this, updateAvailable && updateEnabled)
+        val statusRow = restricted || notice != null || setupRow
+        val updateRow = updateIntroPending || updateStale || failureLine != null
+        if (statusRow || updateRow) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
             val shownState = state.takeIf { restricted }
             redrawStatus = { showStatus(shownState, notice, setupNeeded, setupRow) }
@@ -556,10 +559,11 @@ open class MainActivity : Activity() {
         updatePrefs.getString("latest", null)?.let { latest ->
             if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
                 val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-                column.addView(Button(this).apply {
+                val button = Button(this).apply {
                     text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）"
                     setOnClickListener { UpdateInstall.start(this@MainActivity) }
-                })
+                }
+                column.addView(button)
             }
         }
         UpdateInstall.visibleFailureLine(this, updateOffered && updatePrefs.getBoolean("enabled", true))?.let { line ->

@@ -4,10 +4,10 @@ package dev.ashiato.collector
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.content.pm.PackageInstaller
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
@@ -20,6 +20,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
 
+@Suppress("TooManyFunctions") // 落とす・照らす・入れる・失敗の行・開始の印を 1 か所に置く（ST58 D21）
 internal object UpdateInstall {
     private const val GITHUB_PREFIX = "https://github.com/rai-256/ashiato/releases/download/"
     private const val ASSET_HOST = "release-assets.githubusercontent.com"
@@ -33,6 +34,14 @@ internal object UpdateInstall {
     const val UPDATE_DIR = "update"
     private const val FAILURE_PREFS = "update-install"
     private const val FAILURE_LINE = "failure-line"
+    internal const val UNKNOWN_SOURCES_LINE = "許可した後に、もう一度押してください"
+    private const val CONNECT_TIMEOUT_MS = 10_000
+    private const val READ_TIMEOUT_MS = 30_000
+    private const val MAX_FETCHES = 4
+    private const val HTTP_TEMPORARY_REDIRECT = 307
+    private const val HTTP_PERMANENT_REDIRECT = 308
+    private const val DIGEST_BUFFER_BYTES = 8192
+    private val SHA256_HEX = Regex("[0-9a-fA-F]{64}")
 
     data class Asset(val version: String, val url: String, val sha256: String, val name: String)
 
@@ -42,8 +51,11 @@ internal object UpdateInstall {
         val releases = if (root is JsonArray) root else JsonArray(listOf(root))
         return releases.asSequence().flatMap { release ->
             val obj = release.jsonObject
-            if (obj["draft"]?.jsonPrimitive?.content == "true") emptySequence()
-            else obj["assets"]?.jsonArray.orEmpty().asSequence()
+            if (obj["draft"]?.jsonPrimitive?.content == "true") {
+                emptySequence()
+            } else {
+                obj["assets"]?.jsonArray.orEmpty().asSequence()
+            }
         }.mapNotNull { asset ->
             val obj = asset.jsonObject
             val name = obj["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
@@ -51,18 +63,19 @@ internal object UpdateInstall {
             val digest = obj["digest"]?.jsonPrimitive?.content ?: return@mapNotNull null
             val sha = digest.removePrefix("sha256:")
             val prefix = if (installed.contains("-dev.")) "ashiato-collector-dev-" else APK_PREFIX
-            if (name != "$prefix$latest$APK_SUFFIX" || !isAllowedDownloadUrl(url) ||
-                !Regex("[0-9a-fA-F]{64}").matches(sha) || !digest.startsWith("sha256:")) null
-            else Asset(latest, url, sha.lowercase(), name)
+            val wellFormedDigest = digest.startsWith("sha256:") && SHA256_HEX.matches(sha)
+            val expected = name == "$prefix$latest$APK_SUFFIX" && isAllowedDownloadUrl(url)
+            if (expected && wellFormedDigest) Asset(latest, url, sha.lowercase(), name) else null
         }.firstOrNull()
     }
 
     fun isAllowedDownloadUrl(value: String): Boolean =
-        value.startsWith(GITHUB_PREFIX) || runCatching { URL(value).host == ASSET_HOST && URL(value).protocol == "https" }.getOrDefault(false)
+        value.startsWith(GITHUB_PREFIX) || runCatching {
+            URL(value).host == ASSET_HOST && URL(value).protocol == "https"
+        }.getOrDefault(false)
 
     fun updateDirectory(context: Context): File = File(context.noBackupFilesDir, UPDATE_DIR)
 
-    internal fun unknownSourcesLine(): String = "許可した後に、もう一度押してください"
     internal fun installFailureLine(reason: String): String = "入れられませんでした（$reason）"
 
     internal fun failurePreferences(context: Context): android.content.SharedPreferences =
@@ -95,7 +108,7 @@ internal object UpdateInstall {
 
     /** 「提供元不明」の許可だけは、設定から戻った時点で解消済みである。 */
     internal fun clearResolvedUnknownSourcesFailure(context: Context, permitted: Boolean) {
-        if (permitted && failureLine(context) == unknownSourcesLine()) clearFailure(context)
+        if (permitted && failureLine(context) == UNKNOWN_SOURCES_LINE) clearFailure(context)
     }
 
     internal fun updateStartIntent(context: Context): Intent {
@@ -109,12 +122,11 @@ internal object UpdateInstall {
 
     /** Accept the one-time token only when it was minted for our notification. */
     internal fun consumeUpdateStart(context: Context, intent: Intent?): Boolean {
-        if (intent?.getBooleanExtra(EXTRA_START, false) != true) return false
-        val token = intent.getStringExtra(EXTRA_START_TOKEN) ?: return false
+        val token = intent?.takeIf { it.getBooleanExtra(EXTRA_START, false) }?.getStringExtra(EXTRA_START_TOKEN)
         val prefs = context.getSharedPreferences(START_PREFS, Context.MODE_PRIVATE)
-        if (token != prefs.getString(START_TOKEN, null)) return false
-        prefs.edit().remove(START_TOKEN).apply()
-        return true
+        val accepted = token != null && token == prefs.getString(START_TOKEN, null)
+        if (accepted) prefs.edit().remove(START_TOKEN).apply()
+        return accepted
     }
 
     internal fun unknownSourcesIntent(context: Context): Intent =
@@ -142,15 +154,18 @@ internal object UpdateInstall {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls(),
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-            recordFailure(context, unknownSourcesLine())
+            recordFailure(context, UNKNOWN_SOURCES_LINE)
             context.startActivity(unknownSourcesIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
         Executors.newSingleThreadExecutor().execute {
             try {
-                val path = if (BuildConfig.VERSION_NAME.contains("-dev.")) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH
-                val connection = (URL(BuildConfig.UPDATE_CHECK_URL + path).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10_000; readTimeout = 30_000
+                val nightly = BuildConfig.VERSION_NAME.contains("-dev.")
+                val path = if (nightly) UpdateCheck.NIGHTLY_PATH else UpdateCheck.URL_PATH
+                val url = URL(BuildConfig.UPDATE_CHECK_URL + path)
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = CONNECT_TIMEOUT_MS
+                    readTimeout = READ_TIMEOUT_MS
                     downloadHeaders().forEach { (name, value) -> setRequestProperty(name, value) }
                 }
                 val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
@@ -158,7 +173,7 @@ internal object UpdateInstall {
                     recordFailure(context, installFailureLine("配布物を確認できません"))
                     return@execute
                 }
-                install(context, asset, body)
+                install(context, asset)
             } catch (_: Exception) {
                 clean(context)
                 recordFailure(context, installFailureLine("配布物を落とせません"))
@@ -166,7 +181,7 @@ internal object UpdateInstall {
         }
     }
 
-    fun install(context: Context, asset: Asset, releasesBody: String) {
+    fun install(context: Context, asset: Asset) {
         Executors.newSingleThreadExecutor().execute {
             val file = File(updateDirectory(context), asset.name)
             try {
@@ -178,11 +193,23 @@ internal object UpdateInstall {
                     return@execute
                 }
                 val installer = context.packageManager.packageInstaller
-                val sessionId = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL))
+                val sessionId = installer.createSession(
+                    PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                )
                 installer.openSession(sessionId).use { session ->
-                    file.inputStream().use { input -> session.openWrite("base.apk", 0, file.length()).use { output -> input.copyTo(output); session.fsync(output) } }
+                    file.inputStream().use { input ->
+                        session.openWrite("base.apk", 0, file.length()).use { output ->
+                            input.copyTo(output)
+                            session.fsync(output)
+                        }
+                    }
                     val intent = Intent(context, UpdateInstallResultReceiver::class.java).setAction(ACTION_RESULT)
-                    val pending = PendingIntent.getBroadcast(context, sessionId, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+                    val pending = PendingIntent.getBroadcast(
+                        context,
+                        sessionId,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                    )
                     session.commit(pending.intentSender)
                 }
                 clearFailure(context)
@@ -195,16 +222,23 @@ internal object UpdateInstall {
 
     private fun download(source: String, target: File) {
         var url = URL(source)
-        repeat(4) { count ->
+        repeat(MAX_FETCHES) { count ->
             require(isAllowedDownloadUrl(url.toString()))
             val connection = (url.openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false; connectTimeout = 10_000; readTimeout = 30_000
+                instanceFollowRedirects = false
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
                 downloadHeaders().forEach { (name, value) -> setRequestProperty(name, value) }
             }
             when (connection.responseCode) {
-                in 200..299 -> connection.inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }.also { return }
-                301, 302, 303, 307, 308 -> {
-                    require(count < 3)
+                in HttpURLConnection.HTTP_OK until HttpURLConnection.HTTP_MULT_CHOICE -> {
+                    connection.inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }
+                    return
+                }
+                HttpURLConnection.HTTP_MOVED_PERM, HttpURLConnection.HTTP_MOVED_TEMP, HttpURLConnection.HTTP_SEE_OTHER,
+                HTTP_TEMPORARY_REDIRECT, HTTP_PERMANENT_REDIRECT,
+                -> {
+                    require(count < MAX_FETCHES - 1)
                     url = URL(url, connection.getHeaderField("Location") ?: error("redirect"))
                 }
                 else -> error("download")
@@ -212,16 +246,21 @@ internal object UpdateInstall {
         }
     }
 
-    private fun sha256(file: File): String = MessageDigest.getInstance("SHA-256").let { digest ->
-        file.inputStream().use { input -> val buffer = ByteArray(8192); var n = input.read(buffer); while (n >= 0) { if (n > 0) digest.update(buffer, 0, n); n = input.read(buffer) } }
-        digest.digest().joinToString("") { "%02x".format(it) }
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DIGEST_BUFFER_BYTES)
+            generateSequence { input.read(buffer).takeIf { it >= 0 } }.forEach { digest.update(buffer, 0, it) }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 }
 
 internal class UpdateInstallResultReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         UpdateInstall.clean(context)
-        if (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE) == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+        val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.let {
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(it)

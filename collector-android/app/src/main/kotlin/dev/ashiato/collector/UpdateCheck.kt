@@ -6,7 +6,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
@@ -259,7 +258,20 @@ internal class UpdateChecker(private val context: Context, private val testDesti
         manager.createNotificationChannel(NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
         if (!UpdateCheck.canPost(context, manager, UpdateCheck.CHANNEL)) return false
         val intent = UpdateInstall.updateStartIntent(context)
-        manager.notify(id, NotificationCompat.Builder(context, UpdateCheck.CHANNEL).setContentTitle("あしあと。").setContentText(text).setSmallIcon(android.R.drawable.ic_popup_sync).setContentIntent(PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build())
+        val pending = PendingIntent.getActivity(
+            context,
+            id,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, UpdateCheck.CHANNEL)
+            .setContentTitle("あしあと。")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(id, notification)
         return true
     }
 

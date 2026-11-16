@@ -30,13 +30,23 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-internal fun foregroundServiceTypeFor(replacedStart: Boolean, promoted: Boolean, fine: Boolean, background: Boolean): Int =
-    if (promoted || (fine && (!replacedStart || background))) {
+internal fun foregroundServiceTypeFor(
+    replacedStart: Boolean,
+    promoted: Boolean,
+    fine: Boolean,
+    background: Boolean,
+): Int {
+    // 更新の後の受け手からの起動（replacedStart）は、裏の位置の権限が無ければ位置の種別で起こせない（ST58 D10）
+    val locationAllowedNow = !replacedStart || background
+    return if (promoted || (fine && locationAllowedNow)) {
         ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
     } else {
         ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
     }
+}
 
+/** 更新の後に specialUse で起きている間、位置だけを権限不足として扱う（ST58 D10）。入力は判定表の 6 つの列そのもの。 */
+@Suppress("LongParameterList")
 internal fun replacementLocationCapability(
     replacedStart: Boolean,
     isLocation: Boolean,
@@ -44,9 +54,15 @@ internal fun replacementLocationCapability(
     fine: Boolean,
     background: Boolean,
     actual: Capability,
-): Capability = if (replacedStart && isLocation && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE && fine && !background) {
-    Capability(capturable = false, blockers = listOf(Capability.PERMISSION))
-} else actual
+): Capability {
+    val startedWithoutLocation = replacedStart && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+    val waitingForBackground = fine && !background
+    return if (isLocation && startedWithoutLocation && waitingForBackground) {
+        Capability(capturable = false, blockers = listOf(Capability.PERMISSION))
+    } else {
+        actual
+    }
+}
 
 /**
  * `source_unavailable` の重複抑止。
@@ -435,13 +451,18 @@ open class LocationService : Service() {
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         ) {
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
+            manager.createNotificationChannel(
+                NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT),
+            )
             if (UpdateCheck.canPost(this, manager, UpdateCheck.CHANNEL)) {
-                manager.notify(UPDATE_WAITING_NOTIFICATION_ID, Notification.Builder(this, UpdateCheck.CHANNEL)
-                    .setContentTitle("あしあと。").setContentText("更新の後、位置の収集が止まっています。開いてください")
+                val notification = Notification.Builder(this, UpdateCheck.CHANNEL)
+                    .setContentTitle("あしあと。")
+                    .setContentText("更新の後、位置の収集が止まっています。開いてください")
                     .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                     .setContentIntent(updateWaitingPendingIntent())
-                    .setAutoCancel(true).build())
+                    .setAutoCancel(true)
+                    .build()
+                manager.notify(UPDATE_WAITING_NOTIFICATION_ID, notification)
             }
         }
         // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
@@ -940,10 +961,12 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.getBooleanExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, false) == true && replacedStart &&
-            foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
+        val openedFromForeground = intent?.getBooleanExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, false) == true
+        val startedWithoutLocation =
+            replacedStart && foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        val fineGranted =
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (openedFromForeground && startedWithoutLocation && fineGranted) {
             foregroundPromoted = true
             startForeground(NOTIFICATION_ID, notification(ongoingText()), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             Log.i(TAG, Telemetry.line(FOREGROUND_LOCATION, source = null))

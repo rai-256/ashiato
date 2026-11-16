@@ -17,7 +17,9 @@ import java.io.File
 class St58PackageReplacedInstrumentedTest {
     @Test fun restartsWithoutOpening() { // Scenario: 携帯は更新の後、開かなくても収集を再開する
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        assertNotNull(context.packageManager.getReceiverInfo(ComponentName(context, PackageReplacedReceiver::class.java), 0))
+        assertNotNull(
+            context.packageManager.getReceiverInfo(ComponentName(context, PackageReplacedReceiver::class.java), 0)
+        )
         Config.overrideForTest("http://127.0.0.1", "token", "user")
         val marker = marker(context)
         marker.delete()
@@ -81,8 +83,10 @@ class St58PackageReplacedInstrumentedTest {
         clearLogs()
         PackageReplacedReceiver().onReceive(context, replacedIntent())
         assertTrue("昇格前の specialUse が観測できない", waitForLog("kind=foreground_special_use"))
-        context.startService(android.content.Intent(context, LocationService::class.java)
-            .putExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, true))
+        context.startService(
+            android.content.Intent(context, LocationService::class.java)
+                .putExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, true)
+        )
         assertTrue("location への昇格が観測できない", waitForLog("kind=foreground_location"))
         assertFalse("昇格後も更新待機通知が残っている", hasNotification(context, LocationService.UPDATE_WAITING_NOTIFICATION_ID))
         Config.clearOverrideForTest()
@@ -95,7 +99,10 @@ class St58PackageReplacedInstrumentedTest {
     }
 
     @Test fun disabledUpdateStaysDisabled() { // Scenario: 携帯の切った更新の確認は、入れ替えても切ったまま
-        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>().getSharedPreferences(UpdateCheck.PREFS, 0)
+        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>().getSharedPreferences(
+            UpdateCheck.PREFS,
+            0
+        )
         prefs.edit().putBoolean("enabled", false).commit()
         assertFalse(prefs.getBoolean("enabled", true))
     }
@@ -107,9 +114,12 @@ class St58PackageReplacedInstrumentedTest {
         context.stopService(android.content.Intent(context, LocationService::class.java))
         val manager = context.getSystemService(android.app.ActivityManager::class.java)
         val deadline = System.currentTimeMillis() + 10_000
+
         @Suppress("DEPRECATION")
-        while (manager.getRunningServices(Int.MAX_VALUE).any { it.service.className == LocationService::class.java.name } &&
-            System.currentTimeMillis() < deadline) Thread.sleep(100)
+        val running = {
+            manager.getRunningServices(Int.MAX_VALUE).any { it.service.className == LocationService::class.java.name }
+        }
+        while (running() && System.currentTimeMillis() < deadline) Thread.sleep(100)
     }
 
     private fun awaitMarkerConsumed(marker: File) {
