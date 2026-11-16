@@ -134,6 +134,21 @@ assert_output_contains() {
   grep -Fq -- "$phrase" <<<"$output" || die "出力に必要な文が無い: $phrase"
 }
 
+# インストーラが落ちたときに、終了コードと出力の末尾を添えて止まる（CI のログに理由を残す）。
+die_install() {
+  local rc="$1" output="$2" what="$3"
+  {
+    echo "== インストーラの終了コード: $rc"
+    if [[ -s "$output" ]]; then
+      echo "== インストーラの出力の末尾（$output）:"
+      tail -n 60 "$output" | tr -d '\r'
+    else
+      echo "== インストーラの出力が無い（$output）"
+    fi
+  } >&2
+  die "$what"
+}
+
 append_install_output() {
   local output="$1" trace="$2"
   cat "$output" >>"$trace"
@@ -415,7 +430,8 @@ run_scenario() {
   work="$root_work/${#name}-$RANDOM"; mkdir -p "$work/old" "$work/new"
   output="$work/install.out"
   clear_service_env
-  install_zip "$old_zip" "$work/old" "$output" install || die "前の版の初回インストールに失敗: $name"
+  rc=0; install_zip "$old_zip" "$work/old" "$output" install || rc=$?
+  (( rc == 0 )) || die_install "$rc" "$output" "前の版の初回インストールに失敗: $name"
   trace="$work/trace"
   settings_before="$(settings_fingerprint)"
   backups_before="$(completed_backup_count)"
@@ -604,6 +620,14 @@ EOF
   expect_fail assert_count 7 8 'self-test の記録'
   expect_fail assert_output_contains 'status=ok' '更新が完了しました'
   expect_fail assert_update_acl $'C:\\ProgramData\\ashiato\\update Administrators:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(M)'
+  # インストーラが落ちたときは、終了コードと出力の末尾が CI のログに出る（NG の 1 行だけで終わらない）
+  printf 'line-1\r\nst58-installer-reason: port 5432 in use\r\n' >"$work/die-install.out"
+  local die_install_log
+  die_install_log="$( (die_install 3 "$work/die-install.out" 'self-test の初回インストール') 2>&1 || true)"
+  grep -Fq '終了コード: 3' <<<"$die_install_log" || die 'インストーラの失敗に終了コードが出ない'
+  grep -Fxq 'st58-installer-reason: port 5432 in use' <<<"$die_install_log" || die 'インストーラの失敗に出力の末尾が出ない'
+  grep -Fq 'NG: self-test の初回インストール' <<<"$die_install_log" || die 'インストーラの失敗に NG の行が出ない'
+  ( die_install 3 "$work/die-install.out" x ) >/dev/null 2>&1 && die 'die_install が止まらない'
   PATH="$fake_path:$PATH" windows_sc ashiato-server qc | grep -q 'START_TYPE' || die '偽の sc.exe 経路を通っていない'
   PATH="$fake_path:$PATH" windows_icacls 'C:\ProgramData\ashiato\update' | grep -q Administrators || die '偽の icacls.exe 経路を通っていない'
   PATH="$fake_path:$PATH" ashiato-setup.exe install | grep -q '更新が完了' || die '偽の installer 経路を通っていない'
