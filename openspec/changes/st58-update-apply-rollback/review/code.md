@@ -156,3 +156,31 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - **手 7（機械が承認した訂正）: 該当なし。** `python3 scripts/plan_fix.py pending openspec/changes/st58-update-apply-rollback` → `[]`。`correction-review.md` は作っていない。
 
 壊した試験と一時の試験は、すべて `git checkout` で戻した。最後の `git status --porcelain` は、このファイルの差分だけ。DB のコンテナは `check-immutable.sh` の後に消えていたので、`tools/db.sh up -d --wait db` と `tools/db-roles.sh` で起こし直した。
+
+## security review（23b9b22..4733291）
+
+見た経路:
+- 画面 `GET /update-status`（`lib.rs:4501`）→ `update_status::get` → 状態の置き場の `update/outcomes.jsonl` を 1 MB の上限で読み、版・結果・理由の種類を許した値の表で絞ってから `last_update` に出す（`update_status.rs:267-314`）。入口は ST57 からある画面のログインの内側で、版の文字列に `<` `>` と制御文字を通さない（4）
+- サーバ `update-history record-rollback|replay`（`main.rs:38` → `lib.rs:461`）: CLI だけ。`DATABASE_OWNER_URL` が要り、`net_guard::db_host_is_local` で loopback に限る。HTTP の口ではなく、標準出力に履歴を出さない（3）
+- インストーラの更新と戻し: 印 `update\state.json` → `backup_dir` → `pg_restore` → `ALTER DATABASE … RENAME`。`update\` には `update_directory_acl_command` で継承を切り、Administrators・SYSTEM・2 つのサービスだけを付ける（`commands.rs:1150-1160`。更新の度に `main.rs:1162` で当て直す）。合言葉は `PGPASSWORD`（環境変数）で渡し、`pg_restore` と `psql` の引数には置かない。`--trace` が出すのは環境変数の名前だけ（`main.rs:1025-1036`・`update_plan.rs:313-348`）（3）
+- PC の `update`: 版の一覧を取り直す → `select_asset`（接頭辞 `https://github.com/rai-256/ashiato/releases/download/`・`sha256:` 64 桁）→ `download_asset`（自動の転送を 0 にし、`https` + `release-assets.githubusercontent.com` だけを 3 回まで追う。試験の差し込みは `cfg(ashiato_test_build)` の中）→ `verify_digest` → `extract_zip`（`enclosed_name` で `../` と絶対の道を拒む）→ `versions\<版>`。`<版>` は `semver::Version::parse` を通った値だけで、`/` `\` を含められない（`update_apply.rs:136-170`・`update-check/src/lib.rs:246-276`）（3）
+- 携帯の更新: `chooseAsset` が名前を `ashiato-collector-<latest>.apk` に固定し、URL と `sha256:` を確かめる → `download` は転送の各段で `isAllowedDownloadUrl` を確かめる → 指紋の照合 → `PackageInstaller` のセッション（入れるのは本人の確認の後。`UpdateInstall.kt:33-140`）（3）
+- 携帯 `PackageReplacedReceiver`（exported）: `ACTION_MY_PACKAGE_REPLACED` 以外の action は捨てる（`PackageReplacedReceiver.kt:12`）。この action は保護された broadcast で、ほかのアプリは送れない。`UpdateInstallResultReceiver` は exported=false（3）
+- 携帯 `MainActivity`（exported・ランチャー）の intent の追加の値 `UPDATE_START` → `start()` → `UpdateInstall.start`（`MainActivity.kt:430-433`）。→ R12（3）
+- 戻しで残す DB `ashiato_failed_<時刻>` → 次に更新が通るまで残る。サーバと削除は DB `ashiato` だけを見る。→ R11（3）
+
+安全の決め手: 新しく画面に出る値（`last_update`）は、ST57 からある `/update-status` の口だけから出る。その口は画面のログインが無いと 401、API の token では 403 を返す —— 確かさ 4。この HEAD で `scripts/quiet-run st57auth -- cargo test -p ashiato-server st57_update_status_requires_login_and_rejects_api_token` → `test st57_tests::st57_update_status_requires_login_and_rejects_api_token ... ok` / `1 passed`（ログは `.superpowers/sdd/logs/20261116-091608-st57auth.log`）。新しいサーバの口（`update-history`）は HTTP の router に載っておらず CLI だけにある（`main.rs:38`）。
+
+## R11. 戻した回の落ちた DB `ashiato_failed_<時刻>` は、記録の全部の写しのまま次に更新が通るまで残る。その間に本人が消した記録は、この写しに残り続ける。本人にもこの写しは見えない
+- 成果物: `crates/installer/src/main.rs`（`restore_database`・`cleanup_failed_databases`）、`openspec/changes/st58-update-apply-rollback/specs/distribution/spec.md:285,532`、`docs/install.md`
+- 根拠: `main.rs:1612-1616` は戻すとき、元の DB を消さずに `ALTER DATABASE ashiato RENAME TO ashiato_failed_<時刻>` で残す。消すのは `cleanup_failed_databases`（`main.rs:1716-1760`）だけで、呼ぶのは更新が通った 2 か所（`update_install_attempt` の `main.rs:1300` と `finish_update` の `main.rs:1681`）だけ。戻した後に前の版のサーバが繋ぐ先は `postgres://…/ashiato` に決まっている（`secrets.rs:14`）。削除（`deletion.rs:636` `purge_scope`）も書き出しの「後に消した記録の件数」もこの DB にしか届かない。つまり、更新が通らないままのあいだ（本人が更新の確認を切った・次の版も落ちる・更新しない）は、本人が消した滞在・位置・本文が `ashiato_failed_*` に期限なく残る。`docs/install.md` にも画面にもこの DB の説明は無く（`grep -rn 'ashiato_failed' docs web/src` は 0 件）、本人は消す手段も残っていることも知らない。PC の外へは出ないが、「消した」の約束が DB の写しの中で破れる（確かさ 3。Windows の本物での再現はしていない）
+- kind: premise
+- 提案: 落ちた DB は戻し終えて前の版のサーバが待ち受けを開いた時点で消す（調べたいなら、すでにある移行の前の退避で足りる）。残すなら、`docs/install.md` と帯の「戻しました」に「落ちた DB を `ashiato_failed_…` として残している・消す手順」を書き、削除の spec に「戻しで残した DB には削除が届かない」ことを足して本人に問う
+
+## R12. 端末のほかのアプリが、最初の画面に `UPDATE_START` を付けて開くだけで、更新の取得と Android のインストール画面（または「提供元不明のアプリ」の設定）を本人の操作なしに出せる
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt`
+- 根拠: `MainActivity` は `android:exported="true"`（`AndroidManifest.xml:82-83`）。`onResume`（`:134`）→ `proceed()` → `start()`（`:408`）の中で、`intent` の追加の値 `dev.ashiato.collector.UPDATE_START` が true なら `UpdateInstall.start(this)` を呼ぶ（`:430-433`）。呼び手が自分の通知（`LocationService.updateWaitingPendingIntent`）かどうかは見ていない。`start` は `canRequestPackageInstalls()` が false なら設定の画面を出し、true なら GitHub から版の一覧と APK を落として `PackageInstaller` のセッションを commit する（`UpdateInstall.kt:66-110`）。入るのは指紋の合った本物の新しい版で、最後の確認は本人がするので、書き換えや漏れには至らない。ただ「入れるのは本人（押したときだけ取りに行く。D9）」の前提を、ほかのアプリが押したことにできる（確かさ 3。端末では試していない）
+- kind: technical
+- 提案: 通知からの起動は `PendingIntent` にだけ載る印（たとえば非公開の action を持つ別の Activity か、`UpdateInstall.updateStartIntent` に乱数の 1 回きりの印を付けて `SharedPreferences` と照らす）で受け、ランチャーの intent の追加の値では始めない
+
+範囲外: 移行の前の退避（`backups\pre-migrate\*.dump`。ST54 から）も、本人が後で消した記録を持ち続ける。ST58 は通った更新で古い退避を消す（`retain_update_artifacts`）ので短くなる側だが、戻した回の退避は次に通るまで残る —— R11 と同じ扱いを決めるときに併せて見る。
