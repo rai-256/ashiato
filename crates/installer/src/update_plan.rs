@@ -27,6 +27,7 @@ pub enum UpdateStage {
     Stopped,
     Moved,
     Replaced,
+    Swapped,
     Migrating,
     Starting,
     Listening,
@@ -40,6 +41,7 @@ pub fn update_stage(name: &str) -> Option<UpdateStage> {
         "stopped" => UpdateStage::Stopped,
         "moved" => UpdateStage::Moved,
         "replaced" => UpdateStage::Replaced,
+        "swapped" => UpdateStage::Swapped,
         "migrating" => UpdateStage::Migrating,
         "starting" => UpdateStage::Starting,
         "listening" => UpdateStage::Listening,
@@ -89,7 +91,7 @@ impl RecoveryPlan {
 pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) -> RecoveryPlan {
     let restore_db = match stage {
         UpdateStage::Starting => backup == BackupState::Completed && !matches!(exit_code, 2..=4),
-        UpdateStage::Migrating => {
+        UpdateStage::Migrating | UpdateStage::Swapped => {
             backup == BackupState::Completed && !matches!(exit_code, 0 | 2..=4)
         }
         _ => false,
@@ -107,6 +109,7 @@ pub fn recovery_plan(stage: UpdateStage, exit_code: i32, backup: BackupState) ->
             stage,
             UpdateStage::Moved
                 | UpdateStage::Replaced
+                | UpdateStage::Swapped
                 | UpdateStage::Migrating
                 | UpdateStage::Starting
         ) {

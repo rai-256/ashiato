@@ -108,3 +108,12 @@
 - `scripts/quiet-run st58-settle-r23-r28-r30 -- cargo test -p ashiato-setup st58_` — rc=0、6 passed。
 - `tools/release/update-apply-install.sh --self-test` — rc=0。
 - `bash -n tools/release/update-apply-install.sh` / `git diff --check` — rc=0。
+# settle 2026-11-16 — R31–R46
+
+- R31–R34, R36, R42–R44: インストーラの更新・復旧状態を補正した。`previous` を先に作成し、`failed` を移動対象から除外した。入替後は `swapped` 段を残すため、再開で同じ入替を繰り返さない。初期段の復旧は DB サービスも起動し、更新係は既存設定を変更せず有効時だけ起動する。
+- R33: 古いサーバの `--version` 非対応を互換基準版として扱うようにした。
+- R35, R40: 試み行がない更新履歴では失敗行を追加せず、戻した行の記録を継続する。
+- R37, R45: PC の失敗文を仕様の文言に揃え、通常起動で自動起動台本を上書きしないようにした。
+- R39: Android の収集再開待ち通知は、更新取得を開始せず通常の画面を開くようにした。
+- R41, R46: migrate の機械可読な失敗種別は全出力から読むようにし、待受失敗の通知を移行失敗から分離した。
+- 検証: `scripts/quiet-run st58-settle-rust-all -- bash -c 'cargo test -p ashiato-setup st58_ && cargo test -p ashiato-server st58_history_ && cargo test -p ashiato-collector-windows st58_pc_'` — rc=0（setup 6件、collector 19件）。

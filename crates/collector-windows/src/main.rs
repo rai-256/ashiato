@@ -274,9 +274,6 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
         rt.stop();
         return Err(error);
     }
-    if let Err(error) = rewrite_autostart(channel) {
-        tracing::warn!(error = %c02::telemetry::error_kind(&error), "更新後の自動起動の台本を書き換えられない");
-    }
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
         // The update window uses this as a heartbeat before requesting a

@@ -263,6 +263,14 @@ fn update_check(layout: &layout::Layout, enabled: bool, trace: bool) -> Result<(
     }
 }
 
+/// 更新中は既存の設定を変更せず、既に有効と確認できた場合だけ更新係を起こす。
+fn start_enabled_update_check(layout: &layout::Layout, trace: bool) -> Result<(), String> {
+    if update_check_enabled(layout).unwrap_or(false) {
+        ensure_running(layout.updater_service, trace)?;
+    }
+    Ok(())
+}
+
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -1018,7 +1026,16 @@ fn run_migrate_with_backup(
         .map_err(|error| format!("ashiato-server migrate を起こせない: {error}"))?;
     if !output.status.success() {
         write_migrate_exit_code(layout, output.status.code())?;
-        write_migrate_failure(layout, &output_tail(&output))?;
+        // `error: kind=` is the first line for db_ahead and can be followed
+        // by arbitrarily many unknown migration lines.  Persist it from the
+        // complete machine-readable output, while keeping the short tail for
+        // the human-facing error.
+        let machine_output = format!(
+            "{}{}",
+            console::decode_child_output(&output.stdout),
+            console::decode_child_output(&output.stderr)
+        );
+        write_migrate_failure(layout, &machine_output)?;
         // migrate が端末に出すのは種別・版の名前・SQLSTATE の 1 行だけ（秘密を持たない）
         return Err(format!("移行に失敗した: {}", output_tail(&output)));
     }
@@ -1131,7 +1148,9 @@ fn installed_version(layout: &layout::Layout) -> Result<String, String> {
         .output()
         .map_err(|error| format!("入っている版を読めない: {error}"))?;
     if !output.status.success() {
-        return Err("入っている版を読めない".into());
+        // ST57 以前の server は --version を受けない。更新自身の版を
+        // 読めないことは更新を止める理由にしない。
+        return Ok("0.0.0".into());
     }
     console::decode_child_output(&output.stdout)
         .split_whitespace()
@@ -1176,7 +1195,12 @@ fn update_install(
                 }
             }
             let (result, reason) = update_failure_reason(&error, installed);
-            let notice = if result == "rolled_back" {
+            let notice = if result == "rolled_back" && reason.kind == update_plan::ReasonKind::ServerNotListening.as_str() {
+                format!(
+                    "更新 {} は待ち受けを開かなかったので、{} に戻しました（{}）",
+                    env!("ASHIATO_VERSION"), installed, reason.description(),
+                )
+            } else if result == "rolled_back" {
                 format!(
                     "更新 {} は移行が落ちたので、{} に戻しました（{}・{}）",
                     env!("ASHIATO_VERSION"),
@@ -1303,6 +1327,7 @@ fn update_install_attempt(
         fs::remove_dir_all(&previous).map_err(|error| format!("前の版を消せない: {error}"))?;
     }
     fs::create_dir_all(&program).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&previous).map_err(|error| error.to_string())?;
     // Moving is not atomic.  Persist the recovery stage before the first
     // rename so an interrupted or partial move is restored, not restarted.
     write_update_stage(
@@ -1317,12 +1342,17 @@ fn update_install_attempt(
         .map_err(|error| error.to_string())?
         .flatten()
     {
-        if entry.file_name() != "previous" {
+        if entry.file_name() != "previous" && entry.file_name() != "failed" {
             fs::rename(entry.path(), previous.join(entry.file_name()))
                 .map_err(|error| format!("前の版を退けられない: {error}"))?;
         }
     }
     copy_program_files(layout, trace)?;
+    // The directory exchange is now durable.  A retry must restore the DB,
+    // not try to exchange program files a second time.
+    write_update_stage(
+        layout, &run_id, installed, env!("ASHIATO_VERSION"), "swapped", &backup,
+    )?;
     run(
         &update_plan::service_start_command(layout.db_service),
         trace,
@@ -1416,9 +1446,7 @@ fn update_install_attempt(
         )],
         trace,
     )?;
-    if update_check_enabled(layout).unwrap_or(true) {
-        update_check(layout, true, trace)?;
-    }
+    start_enabled_update_check(layout, trace)?;
     fs::remove_file(update_stage_path(layout))
         .map_err(|error| format!("更新の印を消せない: {error}"))?;
     Ok(())
@@ -1440,6 +1468,7 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         return finish_restored(layout, &state, trace);
     }
     if matches!(stage, "started" | "stopped") {
+        run(&update_plan::service_start_command(layout.db_service), trace)?;
         run(
             &update_plan::service_update_command(layout.server_service, "auto"),
             trace,
@@ -1448,9 +1477,7 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
             &update_plan::service_start_command(layout.server_service),
             trace,
         )?;
-        if update_check_enabled(layout).unwrap_or(true) {
-            update_check(layout, true, trace)?;
-        }
+        start_enabled_update_check(layout, trace)?;
         return fs::remove_file(state_path).map_err(|e| format!("更新の印を消せない: {e}"));
     }
     let previous_version = state["from_version"]
@@ -1488,20 +1515,19 @@ fn rollback(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         trace,
     )?;
     let failed = program.join("failed");
-    if failed.exists() {
-        return Err("前回の failed\\ が残っているため戻せない".into());
-    }
-    fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
-    for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
-        if entry.file_name() != "previous" && entry.file_name() != "failed" {
-            fs::rename(entry.path(), failed.join(entry.file_name())).map_err(|e| e.to_string())?;
+    if stage != "swapped" {
+        if failed.exists() { fs::remove_dir_all(&failed).map_err(|e| e.to_string())?; }
+        fs::create_dir_all(&failed).map_err(|e| e.to_string())?;
+        for entry in fs::read_dir(&program).map_err(|e| e.to_string())?.flatten() {
+            if entry.file_name() != "previous" && entry.file_name() != "failed" {
+                fs::rename(entry.path(), failed.join(entry.file_name())).map_err(|e| e.to_string())?;
+            }
         }
-    }
-    for entry in fs::read_dir(&previous)
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
-        fs::rename(entry.path(), program.join(entry.file_name())).map_err(|e| e.to_string())?;
+        for entry in fs::read_dir(&previous).map_err(|e| e.to_string())?.flatten() {
+            fs::rename(entry.path(), program.join(entry.file_name())).map_err(|e| e.to_string())?;
+        }
+        write_update_stage(layout, state["run_id"].as_str().unwrap_or_default(), previous_version,
+            state["to_version"].as_str().unwrap_or_default(), "swapped", &backup_dir)?;
     }
     run(
         &update_plan::service_start_command(layout.db_service),
@@ -1567,9 +1593,7 @@ fn start_previous_services(layout: &layout::Layout, trace: bool) -> Result<(), S
         &update_plan::service_start_command(layout.server_service),
         trace,
     )?;
-    if update_check_enabled(layout).unwrap_or(true) {
-        update_check(layout, true, trace)?;
-    }
+    start_enabled_update_check(layout, trace)?;
     Ok(())
 }
 

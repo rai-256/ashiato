@@ -221,12 +221,7 @@ pub async fn record_rollback(
         .fetch_optional(&mut *tx)
         .await
         .map_err(database_error)?;
-        let Some((from_version, to_version)) = attempted else {
-            return Err(database_error(sqlx::Error::Protocol(
-                "最後の試みの行が無い".into(),
-            )));
-        };
-        Some(PendingRow {
+        attempted.map(|(from_version, to_version)| PendingRow {
             at: at.clone(),
             component: "S-01".into(),
             via: "migrate".into(),

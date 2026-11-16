@@ -109,7 +109,7 @@ pub fn run_update<R: BufRead, W: Write>(
     let result = run_update_inner(cfg, channel, input, output);
     match &result {
         Ok(()) => writeln!(output, "Enter で閉じます")?,
-        Err(error) => writeln!(output, "更新に失敗しました: {error}\nEnter で閉じます")?,
+        Err(error) => writeln!(output, "入れられませんでした: {error}\nEnter で閉じます")?,
     }
     output.flush()?;
     let mut ignored = String::new();
