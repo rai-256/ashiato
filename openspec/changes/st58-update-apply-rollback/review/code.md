@@ -666,13 +666,16 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 成果物: crates/installer/src/main.rs
 - 根拠: crates/installer/src/main.rs:1030（re-review 7 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D20 — 更新印への終了コード追記を best-effort にし、印の読み書きが失敗しても元の移行失敗を rollback 分類へ返す。
 
 ## R50. 失敗の行は成功して commit するまで消えない。failureLine != null が画面の finish() を止め続けるので、一度失敗して再試行しないと、開くたびに行が残る。許可を与えた後も「許可した後に…」が残る。
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt (recordFailure) / MainActivity.kt
 - 根拠: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt (recordFailure) / MainActivity.kt:445（re-review 7 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D21 — 許可済みへ戻った時は「許可した後に…」だけを消し、取得・照合・インストールの失敗文は成功まで残す。
 
 ## R51. --version が通らない理由を問わず 0.0.0 を返す。新しいサーバの本当の故障も古いサーバ扱いになり、更新が続く。
 - 成果物: crates/installer/src/main.rs installed_version
 - 根拠: crates/installer/src/main.rs installed_version（re-review 7 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D1 — ST57 以前の「知らない引数: --version」だけを互換版 0.0.0 とし、他の終了失敗は更新を止めて返す。

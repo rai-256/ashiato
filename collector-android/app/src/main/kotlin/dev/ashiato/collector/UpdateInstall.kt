@@ -69,7 +69,7 @@ internal object UpdateInstall {
         context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
             .getString(FAILURE_LINE, null)
 
-    private fun recordFailure(context: Context, line: String) {
+    internal fun recordFailure(context: Context, line: String) {
         context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
             .edit().putString(FAILURE_LINE, line).apply()
     }
@@ -77,6 +77,11 @@ internal object UpdateInstall {
     private fun clearFailure(context: Context) {
         context.getSharedPreferences(FAILURE_PREFS, Context.MODE_PRIVATE)
             .edit().remove(FAILURE_LINE).apply()
+    }
+
+    /** 「提供元不明」の許可だけは、設定から戻った時点で解消済みである。 */
+    internal fun clearResolvedUnknownSourcesFailure(context: Context, permitted: Boolean) {
+        if (permitted && failureLine(context) == unknownSourcesLine()) clearFailure(context)
     }
 
     internal fun updateStartIntent(context: Context): Intent {
@@ -118,6 +123,10 @@ internal object UpdateInstall {
     internal fun verifyDigest(file: File, expected: String): Boolean = sha256(file) == expected.lowercase()
 
     fun start(context: Context) {
+        clearResolvedUnknownSourcesFailure(
+            context,
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls(),
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             recordFailure(context, unknownSourcesLine())
             context.startActivity(unknownSourcesIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

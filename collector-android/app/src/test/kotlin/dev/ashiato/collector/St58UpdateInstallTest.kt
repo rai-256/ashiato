@@ -117,6 +117,15 @@ class St58UpdateInstallTest {
     @Test fun `指紋が違えば画面に失敗の文を出す`() { // Scenario: 携帯は指紋の合わない APK でインストール画面を開かない
         assertEquals("入れられませんでした（指紋が一致しません）", UpdateInstall.installFailureLine("指紋が一致しません"))
     }
+    @Test fun `許可を与えて戻ると許可待ちの文だけを消す`() { // Scenario: 携帯は提供元不明のアプリを許可した後、古い許可待ちの文を残さない
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        UpdateInstall.recordFailure(app, UpdateInstall.unknownSourcesLine())
+        UpdateInstall.clearResolvedUnknownSourcesFailure(app, permitted = true)
+        assertNull(UpdateInstall.failureLine(app))
+        UpdateInstall.recordFailure(app, UpdateInstall.installFailureLine("指紋が一致しません"))
+        UpdateInstall.clearResolvedUnknownSourcesFailure(app, permitted = true)
+        assertEquals(UpdateInstall.installFailureLine("指紋が一致しません"), UpdateInstall.failureLine(app))
+    }
     @Test fun `取り消し結果の受け手を持つ`() { // Scenario: 携帯でインストール画面を取り消すと、入っている版のまま動き続ける
         assertEquals("dev.ashiato.collector.UPDATE_RESULT", UpdateInstall.ACTION_RESULT)
     }

@@ -131,3 +131,14 @@
 - `scripts/quiet-run settle-pc -- cargo test -p ashiato-collector-windows st58_pc_` — rc=0、14 passed。
 - `scripts/quiet-run settle-android-2 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58*'` — rc=0、BUILD SUCCESSFUL（50s）。
 - `git diff --check` — rc=0。
+
+## 追加の settle（R49 / R50 / R51）
+
+- R49: 更新印への migrate 終了コード追記を best-effort にし、印が壊れていても元の「移行に失敗した」を返して rollback の分類を保つ。
+- R50: 提供元不明アプリの許可を与えて戻った時だけ、古い許可待ち表示を消す。取得・照合・インストールの失敗表示は成功まで残す。
+- R51: `--version` が旧サーバ固有の「知らない引数」拒否なら互換版を使い、それ以外の失敗では更新を止める。
+
+## 検証（R49 / R50 / R51）
+
+- `scripts/quiet-run st58-settle-r49-r51 -- cargo test -p ashiato-setup st58_` — rc=0、8 passed。
+- `scripts/quiet-run st58-settle-r50 -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St58UpdateInstallTest*'` — rc=0、BUILD SUCCESSFUL。

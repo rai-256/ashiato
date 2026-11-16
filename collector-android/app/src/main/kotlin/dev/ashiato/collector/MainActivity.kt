@@ -431,6 +431,10 @@ open class MainActivity : Activity() {
             updateStarted = true
             UpdateInstall.start(this)
         }
+        UpdateInstall.clearResolvedUnknownSourcesFailure(
+            this,
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls(),
+        )
         val updateStale = updatePreferences.getBoolean("enabled", true) && updatePreferences.getString("last_reason", null) != null &&
             UpdateCheck.stale(
                 java.time.Instant.now(),

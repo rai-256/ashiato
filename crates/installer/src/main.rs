@@ -1025,7 +1025,9 @@ fn run_migrate_with_backup(
         .output()
         .map_err(|error| format!("ashiato-server migrate を起こせない: {error}"))?;
     if !output.status.success() {
-        write_migrate_exit_code(layout, output.status.code())?;
+        // The migration itself is the failure to report. A damaged recovery
+        // marker must not replace it with a marker I/O error.
+        let _ = write_migrate_exit_code(layout, output.status.code());
         // `error: kind=` is the first line for db_ahead and can be followed
         // by arbitrarily many unknown migration lines.  Persist it from the
         // complete machine-readable output, while keeping the short tail for
@@ -1150,15 +1152,23 @@ fn installed_version(layout: &layout::Layout) -> Result<String, String> {
         .output()
         .map_err(|error| format!("入っている版を読めない: {error}"))?;
     if !output.status.success() {
-        // ST57 以前の server は --version を受けない。更新自身の版を
-        // 読めないことは更新を止める理由にしない。
-        return Ok("0.0.0".into());
+        // ST57 以前の server は --version を「知らない引数」として
+        // 断る。それ以外の故障は更新を続けず、本人へ返す。
+        let stderr = console::decode_child_output(&output.stderr);
+        if is_legacy_version_rejection(&stderr) {
+            return Ok("0.0.0".into());
+        }
+        return Err(format!("入っている版を読めない: {}", output_tail(&output)));
     }
     console::decode_child_output(&output.stdout)
         .split_whitespace()
         .find(|word| word.chars().next().is_some_and(|c| c.is_ascii_digit()))
         .map(ToOwned::to_owned)
         .ok_or_else(|| "入っている版を読めない".into())
+}
+
+fn is_legacy_version_rejection(stderr: &str) -> bool {
+    stderr.contains("知らない引数: --version（使えるのは migrate だけ）")
 }
 
 fn update_install(
@@ -2841,6 +2851,16 @@ mod tests {
             super::update_failure_reason("更新を移行の段で停止しました", "0.4.0");
         assert_eq!(result, "not_applied");
         assert_eq!(reason.kind, "aborted");
+    }
+
+    #[test]
+    fn st58_only_legacy_server_version_rejection_uses_compatibility_version() {
+        assert!(super::is_legacy_version_rejection(
+            "Error: 知らない引数: --version（使えるのは migrate だけ）"
+        ));
+        assert!(!super::is_legacy_version_rejection(
+            "Error: database connection failed"
+        ));
     }
 
     #[test]
