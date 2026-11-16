@@ -2295,7 +2295,9 @@ fn install(
     // 設定は `server.json` と表の所有者の `owner.json` の 2 つが揃って「ある」（片方だけなら秘密が欠けている。D4）
     let settings_exists = present(&settings_path) && present(&owner_settings_path);
     let fresh = !settings_exists;
-    if !fresh {
+    // 消した後の入れ直し（状態は残り、プログラムは無い）は比べる版が無い。更新ではなく、
+    // 前の記録の上で続けるいつものインストールに進む（ST55 の Scenario「消した後に入れ直すと、前の記録の上で続く」）
+    if !fresh && present(&commands::server_executable(layout)) {
         let installed = installed_version(layout)?;
         match update_plan::version_action(&installed, env!("ASHIATO_VERSION")) {
             VersionAction::Update => return update_install(layout, &installed, identity, trace),
