@@ -26,8 +26,7 @@ class St58PackageReplacedInstrumentedTest {
         stopRunningService(context)
         clearWaitingNotification(context)
         clearLogs()
-        PackageReplacedReceiver().onReceive(context, replacedIntent())
-        assertTrue(marker.isFile)
+        assertTrue("受け手が印を書いていない", receiveWritesMarker(context, marker))
         awaitMarkerConsumed(marker)
         assertTrue("更新後にサービスが再開していない", waitForLog("kind="))
         Config.clearOverrideForTest()
@@ -41,8 +40,7 @@ class St58PackageReplacedInstrumentedTest {
         stopRunningService(context)
         clearWaitingNotification(context)
         clearLogs()
-        PackageReplacedReceiver().onReceive(context, replacedIntent())
-        assertTrue(marker.isFile)
+        assertTrue("受け手が印を書いていない", receiveWritesMarker(context, marker))
         awaitMarkerConsumed(marker)
         assertTrue("specialUse でサービスが立っていない", waitForLog("kind=foreground_special_use"))
         assertTrue("位置の収集停止通知が出ていない", hasNotification(context, LocationService.UPDATE_WAITING_NOTIFICATION_ID))
@@ -109,6 +107,17 @@ class St58PackageReplacedInstrumentedTest {
 
     private fun marker(context: android.content.Context) = File(context.noBackupFilesDir, "update/replaced-start")
     private fun replacedIntent() = android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED)
+
+    // 受け手は本物と同じく主の糸で走らせ、印をその場で見る。試験の糸で見ると、起こされたサービスの
+    // onCreate（主の糸）が先に印を消して、書いたのに「無い」と落ちることがある（CI run 43909248310）
+    private fun receiveWritesMarker(context: android.content.Context, marker: File): Boolean {
+        var written = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            PackageReplacedReceiver().onReceive(context, replacedIntent())
+            written = marker.isFile
+        }
+        return written
+    }
 
     private fun stopRunningService(context: android.content.Context) {
         context.stopService(android.content.Intent(context, LocationService::class.java))
