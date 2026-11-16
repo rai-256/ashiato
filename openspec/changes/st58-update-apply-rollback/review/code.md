@@ -57,6 +57,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R2. Windows の通し `update-apply-install.sh` の判定は、誰も出さない文字列を待っている。Windows の CI で走らせても緑にならず、3 本目の Scenario で止まる
 - 成果物: tools/release/update-apply-install.sh / crates/installer/src/commands.rs
@@ -101,6 +102,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R4. 移行が落ちて戻した回の理由が、spec と画面の試験の想定と違う。落ちた版の欄に前のアプリの版が入り、SQLSTATE は出ず、`db_ahead` と系統違いも「戻した・移行が途中で終わった」になる
 - 成果物: crates/installer/src/main.rs / web/e2e/st58-update-apply.spec.ts / specs/distribution/spec.md
@@ -125,6 +127,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R5. 段 `restored` から戻し終えた回は、理由の無い `rolled_back` の行を書く。サーバはその行を捨てるので、画面の帯に「戻しました」が出ない
 - 成果物: crates/installer/src/main.rs / crates/server/src/update_status.rs
@@ -146,6 +149,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R6. PC の入れ替えの試験の多くは、自分で書いたファイルを読み直すか、主張と逆を見ている。指紋の照合を消しても、印のある試験は 1 本も落ちない。60 秒はどの試験からも参照されていない
 - 成果物: crates/collector-windows/tests/st58_pc_update.rs / crates/collector-windows/tests/runtime_windows.rs / crates/collector-windows/src/update_apply.rs
@@ -208,6 +212,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R9. 配る組み立ての検査は、サーバの新しい試験の差し込み（`ASHIATO_SERVER_TEST_*`）を見ていない
 - 成果物: tools/release/check-artifacts.sh
@@ -318,6 +323,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R16. Update and rollback stop services with a bare `sc.exe stop` (`update_plan::service_stop_command`). That command exits non-zero on an already-stopped service (1062) and does not wait for the stop to finish. The existing `commands::stop_service_and_wait_command` handles both cases.
 - 成果物: crates/installer/src/main.rs:1376
@@ -336,6 +342,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R17. If a step fails after the `listening` stage, `update_install` calls `rollback`, which runs `finish_update` and appends `applied`. Then `update_install` also appends `rolled_back`/aborted, prints a failure reason, and returns Err.
 - 成果物: crates/installer/src/main.rs:1111
@@ -354,6 +361,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R18. The program files are moved into previous\ while the recorded stage is still `stopped`, and `rollback` for `stopped` only restarts the server. A move that fails partway is never undone.
 - 成果物: crates/installer/src/main.rs:1195
@@ -372,6 +380,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: NOT ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）: main.rs restore_program_files（diff 2429-2434）が、途中で移動に落ちた回に program\ へ残った前の版の未移動ファイルも failed\ へ移し、finish_restored が failed\ を削除（diff 2561-2563）。前の版が欠けたまま消え、サービスは起きない。試験にこの形が無い
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R19. `clean()` deletes every file in `noBackupFilesDir/update`, which includes the `update/replaced-start` marker written by `PackageReplacedReceiver`. `UpdateInstallResultReceiver` (on any status) and `MainActivity.onCreate` both call `clean()`.
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt:69
@@ -403,6 +412,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R21. The PC update always waits for a handoff ack from a running collector and fails after 60s if no collector is running. Also, `run()` now rewrites autostart to `current_exe` on every start (main.rs:277), which duplicates the rewrite done after alive.
 - 成果物: crates/collector-windows/src/update_apply.rs:178
@@ -453,6 +463,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 2 @484ab87）: 処置の直しが新しく壊したもの
 
@@ -480,6 +491,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R27. 共有ベクターを通す新しい Kotlin 試験と開発版の接頭辞の変更は、Gradle が完了せず実行結果が無い。compile だけが通っている。
 - 成果物: collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt
@@ -516,6 +528,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 4 @4ac9d0d）: 処置の直しが新しく壊したもの
 
@@ -557,6 +570,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R32. 戻しはプログラムの置き場を入れ替えてから段 `restored` を書く。その間に落ちると `failed\` だけが残り、やり直しの `rollback` は必ず「前回の failed\ が残っている」で止まる
 - 成果物: crates/installer/src/main.rs
@@ -574,6 +588,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R33. ST57 までの版が入った PC からは ST58 へ更新できない。`installed_version` が古いサーバの `--version` を呼ぶが、古いサーバはその引数を知らずに終了コード 1 で終わる（R15 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
@@ -591,6 +606,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R34. 前回の戻しで残った `failed\` が次の更新で `previous\failed\` に入る。その更新も落ちると、戻しの rename がぶつかって置き場が半分入れ替わったまま止まる
 - 成果物: crates/installer/src/main.rs
@@ -607,6 +623,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R35. `record-rollback` は DB を戻したかどうかに関わらず「失敗」と「戻した」の 2 行を書く。`backup_failed` は一度も書かず、落ちた版にはアプリの版を、SQLSTATE には空文字を入れる
 - 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
@@ -625,6 +642,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R36. Windows の通し `update-apply-install.sh` は、R23・R28・R30 と同じ種類の食い違いを今も 4 つ持つ。R30 は狭い意味では直ったが、6.1・8.2 の終了条件（CI の緑）には届かない
 - 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
@@ -642,6 +660,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R37. spec が SHALL で求める携帯と PC の文が製品に無い（R7 の直しが不完全）
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, crates/collector-windows/src/update_apply.rs, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt
@@ -702,6 +721,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R41. 移行の失敗の種別（`error: kind=`）を出力の最後の 5 行から読むので、`db_ahead` で知らない版が 4 つ以上あると種別が消え、「戻しました」に誤って分類される
 - 成果物: crates/installer/src/console.rs, crates/installer/src/main.rs
@@ -715,6 +735,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R42. 戻しの DB の入れ替えは 2 つの `ALTER DATABASE … RENAME` を別々の文で走らせる。2 つ目だけが落ちると `ashiato` という名前の DB が無くなる
 - 成果物: crates/installer/src/main.rs
@@ -728,6 +749,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R43. 戻しと更新が更新係を起こすかどうかを `update_check_enabled(..).unwrap_or(true)` で決める。設定を読めないと「入」に倒れ、`update_check(true)` は `check.json` の `since` を毎回書き直す（D4 は「書き換えない」）
 - 成果物: crates/installer/src/main.rs
@@ -741,6 +763,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R44. 段 `started` / `stopped` からの戻しは DB のサービスを起こさない。DB を止めた後・`moved` を書く前に落ちた回は、DB が止まったまま残る
 - 成果物: crates/installer/src/main.rs
@@ -753,6 +776,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R45. PC の収集アプリは起動のたびに自動起動の台本を `current_exe` に書き直す。D12 の「窓を閉じたら台本は前の版のまま」と食い違い、R21 の処置の文とも合っていない
 - 成果物: crates/collector-windows/src/main.rs, openspec/changes/st58-update-apply-rollback/design.md
@@ -777,6 +801,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 6 @01f268d）: 処置の直しが新しく壊したもの
 
@@ -790,6 +815,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R48. `write_migrate_failure(...)?` が失敗すると、元の「移行に失敗した」ではなく印の読み書きの誤りを返す。update_failure_reason の分類が rolled_back から外れる。
 - 成果物: crates/installer/src/main.rs
@@ -801,6 +827,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 7 @d49498c）: 処置の直しが新しく壊したもの
 
@@ -813,6 +840,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R50. 失敗の行は成功して commit するまで消えない。failureLine != null が画面の finish() を止め続けるので、一度失敗して再試行しないと、開くたびに行が残る。許可を与えた後も「許可した後に…」が残る。
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt (recordFailure) / MainActivity.kt
@@ -832,6 +860,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## final review（23b9b22..45091d2）
 
@@ -857,6 +886,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R53. 戻しは `program\` の中身を全部「落ちた版」とみなして `failed\` へ移す。移動の途中・戻しの途中で落ちた回の再開では、前の版のファイルが `failed\` に入り、消される（R32 の直しで悪化）
 - 成果物: crates/installer/src/main.rs
@@ -869,6 +899,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R54. `record_rollback` は今も DB を戻したかどうかを見ずに毎回呼ばれ、`backup_failed` を書かず、落ちた版と SQLSTATE を埋める。呼ぶ実行ファイルも `failed\` 側にある（R35 の直しが不完全）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/commands.rs, crates/server/src/update_history.rs
@@ -883,6 +914,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R55. 移行の失敗の種別を今も出力の最後の 5 行から読む。印に書いた `migrate_kind` は分類に使われていない（R41 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
@@ -893,6 +925,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R56. 戻しの DB の入れ替えの 2 つの `ALTER DATABASE … RENAME` は今も別々の文で autocommit される（R42 の直しが不完全）
 - 成果物: crates/installer/src/main.rs
@@ -903,6 +936,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R57. 段 `started` / `stopped` からの戻しは、起きている DB に素の `sc start` をかけて 1056 で落ち、印が残って次の install も同じ所で落ちる（R44 の直しで新しく）
 - 成果物: crates/installer/src/main.rs
@@ -913,6 +947,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R58. Windows の通し `update-apply-install.sh` は R36 の (a)〜(c) を今も持ち、(d) サーバの差し込みの環境変数がサービスに届かない。tasks 6.1・8.2 の終了条件（CI の緑）に届かない（R36 の直しが不完全）
 - 成果物: tools/release/update-apply-install.sh, crates/installer/src/main.rs
@@ -929,6 +964,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R59. 互換の版 `0.0.0` は正式版の系統なので開発版を更新できず、値が outcomes・窓の文・更新の履歴・画面の帯に漏れる（R33・R51 の直しの副作用）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/update_plan.rs
@@ -939,6 +975,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R60. R37・R38 の直しの印が観測しない試験に付いている。携帯の失敗の行はその場で出ず、PC の「戻しても未送信を消さない」は戻しを通らない
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt, collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt, crates/collector-windows/tests/st58_pc_update.rs
@@ -961,6 +998,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R62. 計画の純粋な関数（`retain_backups`・`classify_backup_state`・`history_line`・`RecoveryPlan::steps`・`update_layout`・`pg_major_matches`）を `main.rs` が 1 回も呼ばず、試験は使われないコードを固定している（R22 の直しが不完全）
 - 成果物: crates/installer/src/lib.rs, crates/installer/src/update_plan.rs, crates/installer/src/main.rs
@@ -971,6 +1009,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R63. 細かい残り（Minor）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/lib.rs, collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt
@@ -986,6 +1025,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 9 @af457e2649939b84da4a5adf698706f19c047613）
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 9 @af457e2）: 処置の直しが新しく壊したもの
 
@@ -996,6 +1036,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 処置: fixed D20 — 移し終えたかを印の `program_moved` で区別する。無ければ（移す途中で止まった）program に残るのは前の版だけなので退ける段を飛ばし `program_returning` から戻す。あれば（新しい版を置く途中）従来どおり新しい版を `failed\` へ退ける。試験 `st58_restore_program_files_partial_move_keeps_unmoved_previous`・`st58_restore_program_files_moved_after_full_move_sets_new_aside`。
 - 判定: ADDRESSED（re-review 10 @d6d21f0f4e2432141b8418bb317c3ec406e156f7）
 - 判定: ADDRESSED（re-review 11 @98c0e5a892bee4855ee9934922116c59224c4753）
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## settle_review（re-review 11 @98c0e5a）: 処置の直しが新しく壊したもの
 
@@ -1004,9 +1045,11 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 根拠: crates/installer/src/main.rs:1124（re-review 11 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed D20 — 段を書き直すときに引き継ぐ印を `CARRIED_UPDATE_STAGE_KEYS` にまとめ、`program_moved` を加えた（`carry_update_stage_fields`）。試験 `st58_rewriting_stage_keeps_program_moved_mark`（定数から外すと落ちることを確かめた）。
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
 
 ## R66. fix report にテスト名も実行結果も無い。実装者の「テストを実行した」という主張を裏付けられない。
 - 成果物: .superpowers/sdd/st58-settle/report.md
 - 根拠: .superpowers/sdd/st58-settle/report.md（re-review 11 の New Breakage。Minor）
 - kind: technical
 - 処置: rejected: `.superpowers/sdd/st58-settle/report.md` は自己 ignore の作業場で git の管理外（49c1dc303 で追跡から外した）。前の回の報告は片付けで消えたもので、成果物の欠陥ではなく commit で直せない。証跡はこの回の report に置き直した —— `cargo test -p ashiato-setup st58_` の全件の名前と結果（R64 の `st58_restore_program_files_partial_move_keeps_unmoved_previous`・`st58_restore_program_files_moved_after_full_move_sets_new_aside` を含め lib 29 件・bin 18 件すべて ok）。
+- 判定: ADDRESSED（re-review 12 @ec0e8eb7e136615573187362d2b33dcbd2d23d99）
