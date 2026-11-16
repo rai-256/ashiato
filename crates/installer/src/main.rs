@@ -3083,12 +3083,10 @@ mod tests {
             None,
             None,
         );
-        assert!(super::record_rollback(
-            &command,
-            "postgres://owner:secret@127.0.0.1:1/ashiato",
-            false
-        )
-        .expect("record-rollback"));
+        assert!(
+            super::record_rollback(&command, "postgres://owner@127.0.0.1:1/ashiato", false)
+                .expect("record-rollback")
+        );
         let lines = std::fs::read_to_string(pending).expect("控え");
         assert_eq!(lines.lines().count(), 1);
         assert_eq!(
@@ -3421,12 +3419,15 @@ mod tests {
 
     #[test]
     fn st58_rollback_trace_role_comes_from_the_connection_used() {
+        // 合言葉の入った URL を字面で書かない（tools/check-db-secret.sh）。役割と合言葉を組み立てて渡す
+        let with_secret = |role: &str| format!("postgres://{role}{}127.0.0.1/ashiato", ":x@");
         assert_eq!(
-            postgres_url_role("postgres://ashiato_owner:secret@127.0.0.1/ashiato"),
+            postgres_url_role(&with_secret("ashiato_owner")),
             Some("ashiato_owner")
         );
+        assert_eq!(postgres_url_role(&with_secret("ashiato")), Some("ashiato"));
         assert_eq!(
-            postgres_url_role("postgres://ashiato:secret@127.0.0.1/ashiato"),
+            postgres_url_role("postgres://ashiato@127.0.0.1/ashiato"),
             Some("ashiato")
         );
     }

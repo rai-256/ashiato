@@ -424,7 +424,7 @@ fn st58_backup_config(dir: &std::path::Path, pg_dump: std::path::PathBuf) -> Bac
 fn st58_status_backup_pg_dump_failure_leaves_no_dump() {
     let tmp = tempfile::tempdir().unwrap();
     let cfg = st58_backup_config(tmp.path(), st58_fake_pg_dump(tmp.path(), "exit 1"));
-    assert!(backup_before_migrate("postgres://owner:pw@127.0.0.1/db", &cfg, "failed").is_err());
+    assert!(backup_before_migrate("postgres://owner@127.0.0.1/db", &cfg, "failed").is_err());
     assert!(!cfg.dir.join("pre-migrate-failed.dump").exists());
     assert!(!cfg.dir.join("pre-migrate-failed.dump.part").exists());
 }
@@ -435,7 +435,7 @@ fn st58_status_backup_pg_dump_failure_leaves_no_dump() {
 fn st58_status_backup_pg_dump_interrupted_leaves_no_dump() {
     let tmp = tempfile::tempdir().unwrap();
     let cfg = st58_backup_config(tmp.path(), st58_fake_pg_dump(tmp.path(), "kill -TERM $$"));
-    assert!(backup_before_migrate("postgres://owner:pw@127.0.0.1/db", &cfg, "stopped").is_err());
+    assert!(backup_before_migrate("postgres://owner@127.0.0.1/db", &cfg, "stopped").is_err());
     assert!(!cfg.dir.join("pre-migrate-stopped.dump").exists());
     assert!(!cfg.dir.join("pre-migrate-stopped.dump.part").exists());
 }
