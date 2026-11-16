@@ -108,8 +108,29 @@ fn st58_pc_update_does_not_install_an_older_version() {
 #[test]
 fn st58_pc_update_does_not_download_before_confirmation() {
     // Scenario: 押す前は配布物を落とさない
+    let _guard = UPDATE_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::env::set_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL", &base);
+    std::fs::write(dir.path().join("update-check.json"), r#"{"latest":"9.9.9"}"#).unwrap();
+    let mut input = &b"n\n"[..];
+    let mut output = Vec::new();
+    ashiato_collector_windows::update_apply::run_update(
+        &config(dir.path()),
+        ashiato_build_stamp::Channel::Official,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+    std::env::remove_var("ASHIATO_COLLECTOR_TEST_UPDATE_URL");
+
     assert!(!UpdateLayout::new(dir.path()).version_dir("0.5.0").exists());
+    assert!(matches!(
+        listener.accept(),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+    ));
 }
 
 #[test]
