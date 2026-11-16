@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST58": "録画の環境で ST58 の本物の流れを通せない。waive は Story 全体に効くので、3 つの面をまとめて撮らない。PC: 録画の Windows Sandbox は網を切ってあり、HEAD の 1 つの組み立てしか持ち込まない。サーバの更新と戻しには、版の違う 2 つの zip を順に入れ、同梱の PostgreSQL で移行を当てる必要がある。PC の収集アプリの入れ替えには、決まった 2 つの宛先（GitHub）から落とす必要がある。携帯: 更新は GitHub の本物の新しい版の APK を落とし、OS のインストール画面を通る。入れ替えると録画の試験のプロセスも落ちる。web: 変えたのは、サーバの更新を戻した・入らなかったときの帯と設定の 1 行だけ。その行は Windows のサーバで更新が落ちたときにしか出ない。撮るなら API の答えを差し替えた絵になり、e2e と同じ文字列を映すだけになる。代わりに次の試験が見る。web: web/e2e/st58-update-apply.spec.ts（本物のブラウザで 7 本）。携帯: St58UpdateInstallTest・St58PackageReplacedTest（Robolectric）と、tools/android-st58-replace.sh（エミュレータで 2 つの APK を入れ替えて 7 段。CI の android-instrumented）。PC: tools/release/update-apply-install.sh（Windows の runner で 2 つの zip を使う 34 の Scenario）、runtime_windows.rs の st58 の 6 本、st58_pc_update.rs。"
+  }
+}
