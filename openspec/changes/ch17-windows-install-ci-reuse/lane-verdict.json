@@ -1,0 +1,37 @@
+{
+ "lane": "light",
+ "reason": "same",
+ "declared": {
+  "reason": "same",
+  "paths": [
+   ".github/workflows/ci.yml",
+   "tools/release/changes.sh",
+   "tools/release/windows-build-key*.sh",
+   "docs/testing.md",
+   "docs/adr/*.md"
+  ],
+  "why": "CI の package-windows / install-windows の job の回し方（台本だけの変更では前に作った Windows の配布物を使い回す・Rust のビルドにキャッシュを効かせる）を変えるだけで、製品のコード・配布物の中身・API や送信の契約・移行には触れない。走らせる確かめ（install-check / update-check-install の Scenario）も変えない。使い回しの可否を決めるビルドの入力の鍵は、本人が「作るときに決める」とした範囲で、誤っても CI の設定を直せば戻る（取っていないデータ・捨てたデータ・外に出たものは無い）ので、spec の段で D（仮）と反転条件に書き、spec-review に確かめさせる。鍵を出す判定は changes.sh の正本に足すか、tools/release/ に新しい台本を置く"
+ },
+ "at": "2026-11-17T00:02:55+00:00",
+ "config": "tools/lanes.json",
+ "entry": {
+  "ok": true,
+  "why": [],
+  "paths": [
+   ".github/workflows/ci.yml",
+   "tools/release/changes.sh",
+   "tools/release/windows-build-key*.sh",
+   "docs/testing.md",
+   "docs/adr/*.md"
+  ],
+  "classes": [
+   "docs",
+   "risky",
+   "tooling"
+  ],
+  "code": [
+   "tools/release/changes.sh",
+   "tools/release/windows-build-key*.sh"
+  ]
+ }
+}
