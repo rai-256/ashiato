@@ -364,6 +364,8 @@ OWNER_SETTINGS="$STATE/settings/owner.json"
 URL='http://127.0.0.1:18700'
 PW1='install-check-password-0123'
 PW2='install-check-reset-0123456'
+# 書き出しに渡す合言葉。観測で伏せる値にも同じ変数を使う（写しを持たない）
+EXPORT_PASSWORD='install-check-export-0123'
 OTHER_USER='ashiato-ci-other'
 ADMIN_B='ashiato-ci-admin'
 ADMIN_NONASCII='ashiato-ci-é'
@@ -395,24 +397,15 @@ secret_values() {
 }
 # 観測で伏せる値を 1 行ずつ出す（部品が呼ぶ。design D4）。字面の合言葉と台本が作った利用者の合言葉は、設定を読めなくても出す。
 # 設定のファイルが無ければ rc=0、あるのに読めない・形が読めないときだけ rc≠0（部品は記録とファイルの末尾を出さない）。
-# 設定は 1 つのファイルにつき Python を 1 回だけ起こす（命令の記録のたびに呼ばれる）
+# 設定の秘密は部品の読み手（ng_settings_secrets。キーの一覧も部品が持つ）で読む
 ng_secret_values() {
-  printf '%s\n' "$PW1" "$PW2" "${OTHER_PASSWORD:-}" "${ADMIN_B_PASSWORD:-}" "${ADMIN_NONASCII_PASSWORD:-}"
-  [[ ! -e "$SETTINGS" ]] || ng_read_secrets "$SETTINGS" API_TOKEN WEB_SESSION_KEY WEB_PASSWORD_VERIFIER DATABASE_URL || return 1
-  [[ ! -e "$OWNER_SETTINGS" ]] || ng_read_secrets "$OWNER_SETTINGS" DATABASE_OWNER_URL || return 1
-  return 0
+  printf '%s\n' "$PW1" "$PW2" "$EXPORT_PASSWORD" "${OTHER_PASSWORD:-}" "${ADMIN_B_PASSWORD:-}" "${ADMIN_NONASCII_PASSWORD:-}"
+  ng_settings_secrets "$SETTINGS" "$OWNER_SETTINGS"
 }
-# 設定のファイル $1 の、キー（$2 以降）の秘密を 1 行ずつ出す。キーが URL で終わるものは接続の合言葉を出す
-ng_read_secrets() {
-  PY -c '
-import json, sys, urllib.parse
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-for k in sys.argv[2:]:
-    v = str(d.get(k, "") or "")
-    if k.endswith("_URL"):
-        v = urllib.parse.unquote(urllib.parse.urlparse(v).password or "")
-    print(v)' "$@" | tr -d '\r'
-  return "${PIPESTATUS[0]}"
+# 判定が落ちたときの観測の入力（design D3）。命令の記録と伏せる値は $WORK の中だけに置く
+ng_inputs() {
+  NG_STATE_DIR="$STATE" NG_HEALTHZ_URL="$URL/healthz" NG_OBSERVED_DIR="$WORK"
+  NG_SETTINGS_FILES="$SETTINGS"$'\n'"$OWNER_SETTINGS"
 }
 # Git Bash 自身にも GNU の whoami.exe があり、PATH から呼ぶと Windows の /groups などを
 # 引数として受け取れない。Windows 本体の実行ファイルを必ず使う。
@@ -694,11 +687,11 @@ install_with() {
   if [[ "$rc" == 124 || "$rc" == 137 ]]; then
     # 呼び手は出力を $out へ向け、「失敗するはず」の Scenario では失敗を合格と読む。止まったことを紛れさせないよう、
     # 呼び手の向け先でない元の標準エラー（fd 9）へ書き、その場で落とす
-    local seen=''
-    # 呼び手の多くは出力を $out へ向ける（bash の動的な見え方で呼び手の local が見える）
-    [[ -z "${out:-}" || ! -f "${out:-}" ]] || seen="$(tail -n 80 "$out")"$'\n'
-    seen+="$(tasklist.exe /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'ashiato|postgres|pg_ctl|psql|takeown|icacls|powershell|sc\.exe' || true)"
-    ng_report "インストーラ（$*）が ${limit} 秒で戻らない" "$seen" 9
+    local seen
+    seen="$(tasklist.exe /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'ashiato|postgres|pg_ctl|psql|takeown|icacls|powershell|sc\.exe' || true)"
+    # 呼び手の多くは出力を $out へ向ける（bash の動的な見え方で呼び手の local が見える）。インストーラの出力はファイルとして渡し、
+    # 末尾は部品が伏せる値を読めるときだけ出す（値に入れると、読めないときも伏せずに出てしまう）
+    ng_report "インストーラ（$*）が ${limit} 秒で戻らない" "$seen" 9 "${out:-}"
     exit 1 # ng-observations: 呼び手が標準エラーを向け替えるので fd 9 へ出す
   fi
   return "$rc"
@@ -715,8 +708,7 @@ common_setup() {
   windows_whoami /groups | grep -Fq 'S-1-16-12288' || die 'P17: 上がった札（High Mandatory Level）で動いていない'
   [[ -f "$archive" ]] || die "配布 zip が無い: $archive"
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-install.XXXXXX")"
-  # 観測の部品へ渡す名前（design D3）。命令の記録と伏せる値は $WORK の中だけに置く
-  NG_STATE_DIR="$STATE" NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS" NG_HEALTHZ_URL="$URL/healthz" NG_OBSERVED_DIR="$WORK"
+  ng_inputs
   unzip -q "$archive" -d "$WORK/unpacked"
   SETUP="$WORK/unpacked/ashiato-setup.exe"
   [[ -f "$SETUP" && -f "$WORK/unpacked/ashiato-server.exe" && -f "$WORK/unpacked/pgsql/bin/postgres.exe" ]] ||
@@ -1062,7 +1054,7 @@ check_release_zip() {
   [[ -n "$export_cookie" ]] || die '書き出しの前にログインできない'
   export_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
     -H "Cookie: ashiato_session=$export_cookie" -H 'Content-Type: application/json' \
-    --data '{"password":"install-check-export-0123"}' "$URL/export" || true)"
+    --data "{\"password\":\"$EXPORT_PASSWORD\"}" "$URL/export" || true)"
   [[ "$export_code" == 202 ]] || die "書き出しを始められない (HTTP $export_code)"
   export_deadline=$((SECONDS + 180))
   until compgen -G "$export/ashiato-export-*.zip" >/dev/null; do
@@ -1785,7 +1777,8 @@ EOF
     (
       PATH="$ngbin:$PATH"
       SETTINGS="$ngw/state/settings/server.json" OWNER_SETTINGS="$ngw/state/settings/owner.json"
-      NG_STATE_DIR="$ngw/state" NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS" NG_HEALTHZ_URL='http://127.0.0.1:1/healthz' NG_OBSERVED_DIR="$ngw/obs"
+      STATE="$ngw/state" URL='http://127.0.0.1:1' WORK="$ngw/obs"
+      ng_inputs
       "$@"
     ) >"$ngso" 2>"$ngse" || ngrc=$?
   }
@@ -1799,6 +1792,36 @@ EOF
   ng_fake curl 'echo "healthz HTTP 200"'
   ng_run observation_probe
   [[ "$ngrc" == 0 ]] || die_seen "空行で始まる sc.exe の答えで観測の確かめが落ちる: $ngrc" "$(cat "$ngse")"
+  # 観測の確かめ（D7）は、sc.exe の答えの行か healthz の番号の行が無ければ NG で終わる
+  ng_fake sc.exe ':'
+  ng_run observation_probe
+  [[ "$ngrc" == 1 ]] && grep -q '^NG: 観測の塊に ashiato-db の sc.exe の答えの行が無い$' "$ngse" ||
+    die "sc.exe の答えが無いのに観測の確かめが落ちない: rc=$ngrc"
+  ng_fake sc.exe 'printf "SERVICE_NAME: %s\n" "$2"'
+  ng_fake curl ':'
+  ng_run observation_probe
+  [[ "$ngrc" == 1 ]] && grep -q '^NG: 観測の塊に healthz の番号の行が無い$' "$ngse" ||
+    die "healthz の番号が無いのに観測の確かめが落ちない: rc=$ngrc"
+  # 実地の確かめは、観測の入力を渡し（ng_inputs）、観測の確かめをしてから始まる（呼び出しが消えると CI は何も見ずに緑になる）
+  awk '/^common_setup\(\)/,/^}/' "$script" | grep -Eq '^[[:space:]]+ng_inputs$' || die 'common_setup が観測の入力を渡さない'
+  awk '/^common_setup\(\)/,/^}/' "$script" | grep -Eq '^[[:space:]]+observation_probe$' || die 'common_setup が観測の確かめをしない'
+  ( STATE=S URL=U WORK=W SETTINGS=A OWNER_SETTINGS='B C'; ng_inputs
+    [[ "$NG_STATE_DIR" == S && "$NG_HEALTHZ_URL" == U/healthz && "$NG_OBSERVED_DIR" == W && "$NG_SETTINGS_FILES" == $'A\nB C' ]] ) ||
+    die 'ng_inputs が観測の入力を渡さない'
+
+  # 台本が字面で持つ合言葉（install-check-*-0123…）は全部、伏せる値にある（伏せる値の列挙の書き忘れを落とす）
+  local ngsv
+  ngsv="$(SETTINGS="$work/none/server.json" OWNER_SETTINGS="$work/none/owner.json"; ng_secret_values)"
+  while IFS= read -r ngv; do
+    grep -Fxq -- "$ngv" <<<"$ngsv" || die "伏せる値に無い字面の合言葉がある（$(grep -nF -- "$ngv" "$script" | head -n 1 | cut -d: -f1) 行目）"
+  done < <(grep -oE '(install|update)-check-[a-z-]+-0123[0-9]*' "$script" | sort -u)
+  # 判定が読む秘密（secret_values）のキーは全部、観測で伏せるキー（部品の一覧）にある
+  while read -r ngv; do
+    case "$ngv" in
+      owner_setting\ *) [[ " ${NG_OWNER_SECRET_KEYS[*]} " == *" ${ngv#* } "* ]] ;;
+      *) [[ " ${NG_SERVER_SECRET_KEYS[*]} " == *" ${ngv#* } "* ]] ;;
+    esac || die "判定が読む秘密を観測で伏せない: $ngv"
+  done < <(awk '/^secret_values\(\)/,/^}/' "$script" | grep -oE '(owner_)?setting [A-Z_]+')
 
   # Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る
   ng_fake sc.exe 'printf "\nSERVICE_NAME: ashiato-server\n        TYPE               : 10  WIN32_OWN_PROCESS\n        STATE              : 4  RUNNING\n"'
@@ -1847,6 +1870,24 @@ EOF
   done
   grep -q 'API_TOKEN' "$ngse" || die '秘密の試験で設定のキーの名前が出ない'
   grep -q '\*\*\*' "$ngse" || die '秘密を *** に置き換えた跡が無い'
+
+  # インストーラが戻らないときは、元の標準エラー（fd 9）へ NG の行と観測を出して落ちる。インストーラの出力の末尾は、
+  # 伏せる値を読めるときだけ伏せて出し、読めないときは出さない
+  ng_fake setup-hang 'exec sleep 30'
+  ng_case_hang() {
+    local out="$ngw/hang.out"
+    printf 'INSTALLER-TAIL-NG api-token-ng-1\n' >"$out"
+    exec 9>&2
+    SETUP="$ngbin/setup-hang" ASHIATO_INSTALL_CHECK_SETUP_TIMEOUT=1 install_with '' install >>"$out" 2>/dev/null
+  }
+  ng_run ng_case_hang
+  [[ "$ngrc" == 1 ]] || die "戻らないインストーラで rc=1 にならない: $ngrc"
+  ng_shape || die "戻らないインストーラで NG の行か見出しの形が違う: $(cat "$ngse")"
+  grep -qx 'INSTALLER-TAIL-NG \*\*\*' "$ngse" || die 'インストーラの出力の末尾を伏せて出さない'
+  printf '{"API_TOKEN":' >"$ngw/state/settings/server.json"
+  ng_run ng_case_hang
+  [[ "$ngrc" == 1 ]] && grep -q '（伏せる値を読めないので出さない）' "$ngse" && ! grep -q 'INSTALLER-TAIL-NG' "$ngse" ||
+    die '伏せる値を読めないのにインストーラの出力の末尾を出す'
 
   # Scenario: 2 つの台本は検査を通る
   "$root/tools/release/check-ng-observations.sh" "$script" || die 'install-check.sh が観測の検査を通らない'

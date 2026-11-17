@@ -8,43 +8,104 @@
 # source されたときは関数を定義するだけで、呼び手のシェルの設定（set -e など）には触れない。
 # 台本が渡す名前（読むのは呼ぶ時。source 時には読まない）:
 #   NG_STATE_DIR      状態の置き場（サーバのログは logs/server の最新）
-#   NG_SETTINGS_FILES 設定のファイル（空白区切り。キーの名前だけ出す）
+#   NG_SETTINGS_FILES 設定のファイル（改行区切り。場所に空白があってよい。キーの名前だけ出す）
 #   NG_HEALTHZ_URL    サーバの healthz
 #   NG_OBSERVED_DIR   命令の記録（observed.log）と、判定のために書く出力のファイルの置き場
 #   NG_OBSERVE_TIMEOUT 観測を取る命令 1 つの時間の上限（秒。既定 30）
 #   ng_secret_values  台本が定義する関数。伏せる値を 1 行ずつ出す。設定が「無い」ときは字面の値だけで rc=0、
-#                     「あるのに読めない」ときだけ rc≠0
+#                     「あるのに読めない」ときだけ rc≠0。設定の秘密は部品の ng_settings_secrets で読む（読み手を台本に写さない）
 
 # ---------------------------------------------------------------------------
 # 部品（source されたとき使う）
 # ---------------------------------------------------------------------------
 
-# 伏せる値の置き場。NG_OBSERVED_DIR があればそこ（権限を絞る）。無ければ呼び出しの一時の置き場 $1
+# 伏せる値の置き場を NG_SF に置く。NG_OBSERVED_DIR があればそこ（権限を絞る）。無ければ呼び出しの一時の置き場 $1
 ng_secret_file() {
   if [[ -n "${NG_OBSERVED_DIR:-}" && -d "${NG_OBSERVED_DIR:-}" ]]; then
-    printf '%s' "$NG_OBSERVED_DIR/.ng-secrets"
+    NG_SF="$NG_OBSERVED_DIR/.ng-secrets"
   else
-    printf '%s' "$1/.ng-secrets"
+    NG_SF="$1/.ng-secrets"
   fi
 }
 
-# 伏せる値を集めて NG_SF に書き足す（一度集めた値は消さない）。rc≠0 は「伏せる値を読めない」
+# ファイル $1 の中身を変数 $2 へ（fork しない）。無ければ空
+ng_slurp() {
+  local -n ng_slurp_to="$2"
+  ng_slurp_to=''
+  [[ ! -f "$1" ]] || IFS= read -r -d '' ng_slurp_to <"$1" || true
+}
+
+# 伏せる値を集めて NG_SF に書き足す（一度集めた値は消さない）。rc≠0 は「伏せる値を読めない」。
+# 命令の記録のたびに呼ばれるので、集めた値が前の回と同じなら書き足さない（fork を減らす）
 ng_collect_secrets() {
-  local vals='' rc=0 sf="${NG_SF:-}"
+  local vals='' rc=0 sf="${NG_SF:-}" last
   [[ -n "$sf" ]] || return 1
   if declare -F ng_secret_values >/dev/null 2>&1; then
     vals="$(ng_secret_values 2>/dev/null)" || rc=$?
   else
     rc=1
   fi
+  if [[ -f "$sf" ]]; then
+    ng_slurp "$sf.vals" last
+    [[ ! -f "$sf.vals" || "$last" != "$vals" ]] || return "$rc"
+  fi
   (
     umask 077
     {
       [[ ! -f "$sf" ]] || cat "$sf"
       printf '%s\n' "$vals" | tr -d '\r'
-    } | awk 'length($0) > 0 && !seen[$0]++' >"$sf.new" 2>/dev/null && mv -f "$sf.new" "$sf"
+    } | awk 'length($0) > 0 && !seen[$0]++' >"$sf.new" 2>/dev/null && mv -f "$sf.new" "$sf" &&
+      printf '%s' "$vals" >"$sf.vals"
   ) 2>/dev/null || rc=1
   return "$rc"
+}
+
+# インストーラが設定に書く秘密のキー（観測で伏せる）。_URL で終わるキーは接続の合言葉を伏せる
+NG_SERVER_SECRET_KEYS=(API_TOKEN WEB_SESSION_KEY WEB_PASSWORD_VERIFIER DATABASE_URL)
+NG_OWNER_SECRET_KEYS=(DATABASE_OWNER_URL)
+
+ng_read_secrets_py() {
+  local py=python
+  command -v python >/dev/null 2>&1 || py=python3
+  "$py" -c '
+import json, sys, urllib.parse
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+for k in sys.argv[2:]:
+    v = str(d.get(k, "") or "")
+    if k.endswith("_URL"):
+        v = urllib.parse.unquote(urllib.parse.urlparse(v).password or "")
+    print(v)' "$@" | tr -d '\r'
+  return "${PIPESTATUS[0]}"
+}
+
+# 設定のファイル $1 の、キー（$2 以降）の秘密を 1 行ずつ出す。読めない・形が読めないときは rc≠0。
+# 命令の記録のたびに呼ばれるので、NG_OBSERVED_DIR があれば、ファイルの中身とキーが前と同じ間は前の答えを使う
+# （Python を起こさない。中身で比べるので、同じ時刻に書き換えても古い答えを使わない。比べるのは bash の read で fork しない）
+ng_read_secrets() {
+  local c want src val
+  if [[ -z "${NG_OBSERVED_DIR:-}" || ! -d "${NG_OBSERVED_DIR:-}" || ! -r "$1" ]]; then
+    ng_read_secrets_py "$@"
+    return
+  fi
+  c="$NG_OBSERVED_DIR/.ng-read-${2:-none}"
+  ng_slurp "$1" want
+  want="$*"$'\n'"$want"
+  ng_slurp "$c.src" src
+  if [[ ! -f "$c.val" || ! -f "$c.src" || "$src" != "$want" ]]; then
+    rm -f "$c.src"
+    ( umask 077; ng_read_secrets_py "$@" >"$c.val" ) || { rm -f "$c.val"; return 1; }
+    ( umask 077; printf '%s' "$want" >"$c.src" ) || true
+  fi
+  ng_slurp "$c.val" val
+  printf '%s' "$val"
+}
+
+# インストーラの 2 つの設定（$1 = server.json・$2 = owner.json）の秘密を 1 行ずつ出す。無いファイルは飛ばす（rc=0）。
+# あるのに読めない・形が読めないときだけ rc≠0
+ng_settings_secrets() {
+  [[ ! -e "$1" ]] || ng_read_secrets "$1" "${NG_SERVER_SECRET_KEYS[@]}" || return 1
+  [[ ! -e "$2" ]] || ng_read_secrets "$2" "${NG_OWNER_SECRET_KEYS[@]}" || return 1
+  return 0
 }
 
 # 標準入力を、伏せる値（NG_SF）と見出しの形（Authorization:・ashiato_session=）を *** にして標準出力へ
@@ -90,15 +151,14 @@ ng_part_services() {
 }
 
 ng_part_settings() {
-  local f keys rc
-  local -a files=()
-  read -ra files <<<"${NG_SETTINGS_FILES:-}"
-  for f in "${files[@]}"; do
+  local f keys
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
     if [[ ! -e "$f" ]]; then echo "設定 $f: まだ無い"; continue; fi
-    rc=0
-    keys="$(grep -oE '"[^"]+"[[:space:]]*:' "$f" 2>/dev/null | sed -E 's/^"([^"]+)".*/\1/' | tr '\n' ' ')" || rc=$?
-    if [[ -r "$f" ]]; then echo "設定のキー $f: $keys"; else echo "（取れない: 設定の読み取り rc=1）"; fi
-  done
+    if [[ ! -r "$f" ]]; then echo "（取れない: 設定の読み取り $f）"; continue; fi
+    keys="$(grep -oE '"[^"]+"[[:space:]]*:' "$f" 2>/dev/null | sed -E 's/^"([^"]+)".*/\1/' | tr '\n' ' ')"
+    echo "設定のキー $f: $keys"
+  done <<<"${NG_SETTINGS_FILES:-}"
 }
 
 ng_part_files() {
@@ -119,24 +179,30 @@ ng_part_serverlog() {
   tail -n 40 "$latest" | tr -d '\r'
 }
 
-# 命令の記録（observed.log）の直近 12 件（1 件 40 行まで）
+# 命令の記録（observed.log.1 と observed.log）の直近 12 件（1 件 40 行まで）。記録の後の「@@x <n>」は直前の記録の回数
 ng_part_records() {
-  local log="${NG_OBSERVED_DIR:-}/observed.log"
+  local d="${NG_OBSERVED_DIR:-}" pend=1
+  local log="$d/observed.log"
   [[ -s "$log" ]] || return 0
+  [[ ! -f "$d/.observed.dup" ]] || pend="$(<"$d/.observed.dup")"
   echo '-- 命令の記録（直近 12 件）'
-  tr -d '\r' <"$log" | awk -v max=12 -v per=40 '
-    /^@@@ / { n++; head[n] = substr($0, 5); cnt[n] = 0; om[n] = 0; next }
+  {
+    [[ ! -f "$log.1" ]] || cat "$log.1"
+    cat "$log"
+    if [[ "$pend" =~ ^[0-9]+$ ]] && (( pend > 1 )); then printf '@@x %s\n' "$pend"; fi
+  } | tr -d '\r' | awk -v max=12 -v per=40 '
+    /^@@@ / { n++; head[n] = substr($0, 5); cnt[n] = 0; om[n] = 0; dup[n] = 1; next }
+    n > 0 && /^@@x [0-9]+$/ { dup[n] = substr($0, 5) + 0; next }
     n > 0 { if (cnt[n] < per) { cnt[n]++; body[n, cnt[n]] = $0 } else om[n]++ }
     END {
       s = n - max + 1; if (s < 1) s = 1
       for (i = s; i <= n; i++) {
-        h = head[i]; dup = 1
-        if (match(h, / ×[0-9]+$/)) { dup = h; sub(/^.*×/, "", dup); dup += 0; h = substr(h, 1, RSTART - 1) }
+        h = head[i]
         if (match(h, / rc=[0-9]+$/)) h = substr(h, 1, RSTART - 1) " (rc=" substr(h, RSTART + 4) ")"
         print "[命令] " h
         for (k = 1; k <= cnt[i]; k++) print body[i, k]
         if (om[i] > 0) print "（以降 " om[i] " 行省略）"
-        if (dup > 1) print "（同じ記録 ×" dup "）"
+        if (dup[i] > 1) print "（同じ記録 ×" dup[i] "）"
       }
     }'
 }
@@ -145,16 +211,16 @@ ng_part_health() {
   ng_try curl -s -o /dev/null -w 'healthz HTTP %{http_code}\n' --max-time 10 "$NG_HEALTHZ_URL"
 }
 
-# 観測の塊を標準出力へ。ng_report が部分殻で呼ぶ
+# 観測の塊を標準出力へ。ng_report が部分殻で呼ぶ。$2 は判定が見たファイル（末尾 80 行を、伏せる値を読めるときだけ出す）
 ng_emit() {
-  local obs="${1:-}" ok=1
+  local obs="${1:-}" tf="${2:-}" ok=1
   set +e +u +o pipefail
   NG_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ng-obs.XXXXXX")" || NG_TMP=''
   if [[ -z "$NG_TMP" ]]; then
     printf '== 観測（ここから）\n（取れない: mktemp rc=1）\n== 観測（ここまで）\n'
     return 0
   fi
-  NG_SF="$(ng_secret_file "$NG_TMP")"
+  ng_secret_file "$NG_TMP"
   ng_collect_secrets || ok=0
   {
     [[ -z "$obs" ]] || printf '%s\n' "$obs"
@@ -162,6 +228,7 @@ ng_emit() {
     if [[ -n "${NG_HEALTHZ_URL:-}" ]]; then ng_part_health; fi
     if [[ -n "${NG_SETTINGS_FILES:-}" ]]; then ng_part_settings; fi
     if (( ok )); then
+      if [[ -n "$tf" && -f "$tf" ]]; then echo "-- $tf（末尾 80 行）"; tail -n 80 "$tf" | tr -d '\r'; fi
       ng_part_records
       ng_part_files
       if [[ -n "${NG_STATE_DIR:-}" ]]; then ng_part_serverlog; fi
@@ -177,11 +244,14 @@ ng_emit() {
 }
 
 # NG の行と観測の塊を fd（既定は標準エラー）へ出して戻る。exit しない
+#   ng_report <理由> [<判定が見た値>] [<fd>] [<判定が見たファイル>]
+# 判定が見た値は伏せる値を読めなくても出す（値を選んで渡すのは判定）。ファイルの中身は値に入れず第 4 引数で渡す
+# （伏せる値を読めないときは部品が出さない）
 ng_report() {
-  local reason="${1:-}" obs="${2:-}" fd="${3:-2}"
+  local reason="${1:-}" obs="${2:-}" fd="${3:-2}" tf="${4:-}"
   {
     printf 'NG: %s\n' "$reason"
-    ( ng_emit "$obs" ) || true
+    ( ng_emit "$obs" "$tf" ) || true
   } >&"$fd" || true
   return 0
 }
@@ -208,12 +278,14 @@ ng_observed_exec() {
 }
 ng_observed() { local n="$1"; shift; ng_observed_exec "$n" "$n" "$@"; }
 
-# 記録を 1 件書く。直前と同じなら書き足さず、回数だけ数える。書くときにも伏せる
+# 記録を 1 件書く。書くときにも伏せる。直前と同じなら書き足さず、回数だけ .observed.dup に数える（記録を読み直さない・
+# 書き直さない）。記録は NG_RECORDS_PER_FILE 件ごとに observed.log.1 へ送る（残るのは多くてその 2 倍。出すのは直近 12 件）
+NG_RECORDS_PER_FILE=24
 ng_record() {
-  local t="$1" cmdline="$2" rc="$3" log="$NG_OBSERVED_DIR/observed.log" last="$NG_OBSERVED_DIR/.observed.last"
-  local ln hdr cnt
+  local t="$1" cmdline="$2" rc="$3" d="$NG_OBSERVED_DIR"
+  local log="$d/observed.log" last="$d/.observed.last" dup="$d/.observed.dup" num="$d/.observed.n" n=0 c=1
   set +e +u +o pipefail
-  NG_SF="$(ng_secret_file "$t")"
+  ng_secret_file "$t"
   ng_collect_secrets || true
   {
     printf '@@@ %s rc=%s\n' "$(printf '%s' "$cmdline" | tr '\n' ' ')" "$rc"
@@ -221,14 +293,25 @@ ng_record() {
     if [[ -s "$t/e" ]]; then echo '@@ stderr'; head -n 200 "$t/e"; fi
   } 2>/dev/null | ng_redact >"$t/rec"
   if [[ -f "$last" && -s "$log" && "$(<"$last")" == "$(<"$t/rec")" ]]; then
-    ln="$(grep -n '^@@@ ' "$log" | tail -n 1)"; ln="${ln%%:*}"
-    hdr="$(sed -n "${ln}p" "$log")"
-    cnt=1; [[ "$hdr" =~ ×([0-9]+)$ ]] && cnt="${BASH_REMATCH[1]}"
-    cnt=$((cnt + 1))
-    awk -v ln="$ln" -v c="$cnt" 'NR == ln { sub(/ ×[0-9]+$/, ""); $0 = $0 " ×" c } { print }' "$log" >"$t/log.new" && cat "$t/log.new" >"$log"
-  else
-    ( umask 077; cat "$t/rec" >>"$log"; cp "$t/rec" "$last" )
+    [[ ! -f "$dup" ]] || c="$(<"$dup")"
+    [[ "$c" =~ ^[0-9]+$ ]] || c=1
+    printf '%s' "$((c + 1))" >"$dup"
+    return 0
   fi
+  (
+    umask 077
+    if [[ -f "$dup" ]]; then
+      c="$(<"$dup")"
+      if [[ "$c" =~ ^[0-9]+$ ]] && (( c > 1 )); then printf '@@x %s\n' "$c" >>"$log"; fi
+      rm -f "$dup"
+    fi
+    [[ ! -f "$num" ]] || n="$(<"$num")"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    if (( n >= NG_RECORDS_PER_FILE )); then mv -f "$log" "$log.1"; n=0; fi
+    cat "$t/rec" >>"$log"
+    cp "$t/rec" "$last"
+    printf '%s' "$((n + 1))" >"$num"
+  )
   return 0
 }
 
@@ -249,6 +332,17 @@ ng_check_file() {
   [[ -r "$f" ]] || { echo "NG: 読めない台本: $f" >&2; return 1; }
   awk -v file="$f" '
     function bad(rule, name, text) { printf "%s:%d: 決まり %d（%s）: %s\n", file, NR, rule, name, text; found = 1 }
+    # 引用の中身を空白にする（ヒアドキュメントの開きを探すため）。<< の直後の引用（区切りの語）は残す
+    function unquoted(s,   out, i, ch, q) {
+      out = ""; q = ""
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (q != "") { if (ch == q) q = ""; else if (ch == "\\" && q == "\"") i++; continue }
+        if ((ch == "\"" || ch == "\047") && out !~ /<<-?[[:space:]]*$/) { q = ch; out = out " "; continue }
+        out = out ch
+      }
+      return out
+    }
     BEGIN {
       N[1] = "NG の行は観測を出す口だけが出す"
       N[2] = "0 でない exit は観測を出す口と使い方を示す口の中だけ"
@@ -287,15 +381,17 @@ ng_check_file() {
 
       if (!marked) {
         if (c ~ /(^|[;&|({[:space:]])(echo|printf)[[:space:]]/ && c ~ /NG:/) bad(1, N[1], line)
-        if (c ~ /(^|[;&|({[:space:]])exit[[:space:]]+[1-9]/ && cur != "usage") bad(2, N[2], line)
-        if (c ~ /[Ss]ystem32\/(sc|icacls|netstat|netsh|reg|curl)(\.exe)?([^A-Za-z0-9_]|$)/ && c !~ /ng_observed/) bad(3, N[3], line)
+        # 字面の 1〜9 と、変数・$? の終了コード（"$rc"・$?）。exit 0 と引数の無い exit は見ない
+        if (c ~ /(^|[;&|({[:space:]])exit[[:space:]]+("?\$|[1-9])/ && cur != "usage") bad(2, N[2], line)
+        if (c ~ /[Ss]ystem32[\\\/]+(sc|icacls|netstat|netsh|reg|curl)(\.exe)?([^A-Za-z0-9_]|$)/ && c !~ /ng_observed/) bad(3, N[3], line)
       }
       if (c ~ /(^|[;&|({[:space:]])(source|\.)[[:space:]]+[^#]*check-ng-observations\.sh/) sourced = 1
       if (c ~ /^(function[[:space:]]+)?(die|ng_report|die_seen)[[:space:]]*\(\)/ || c ~ /^function[[:space:]]+(die|ng_report|die_seen)([[:space:]{]|$)/) bad(4, N[4], line)
 
-      # ヒアドキュメントの開き。この行の判定は済んでいる
-      if (match(line, /(^|[^<])<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
-        h = substr(line, RSTART, RLENGTH); sub(/^[^<]*<</, "", h)
+      # ヒアドキュメントの開き。この行の判定は済んでいる。コメント（c で除いた）・引用の中・算術の << は開きでない
+      hc = unquoted(c); gsub(/\$?\(\([^)]*\)\)/, " ", hc)
+      if (match(hc, /(^|[^<])<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
+        h = substr(hc, RSTART, RLENGTH); sub(/^[^<]*<</, "", h)
         dash = (h ~ /^-/); sub(/^-/, "", h); gsub(/^[[:space:]]+|["\047]/, "", h)
         heredoc = h
       }
@@ -345,6 +441,15 @@ ng_self_test() {
   runcheck
   [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 2' "$d/chk.out" && ! grep -Eq '決まり [134]' "$d/chk.out" ||
     fail "決まり 2 だけに外れる写しを落とさない: rc=$rc $(cat "$d/chk.out")"
+  # 変数・$? の終了コードの exit も決まり 2 に外れる
+  for t in 'f() { local rc=3; exit "$rc"; }' 'f || exit $?' 'f() { exit $rc; }'; do
+    mkcopy "$t"
+    runcheck
+    [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 2' "$d/chk.out" || fail "変数の exit を落とさない: $t"
+  done
+  mkcopy 'f() { exit 0; }' 'g() { exit; }'
+  runcheck
+  [[ $rc == 0 ]] || fail "exit 0 と引数の無い exit を落とした: $(cat "$d/chk.out")"
   mkcopy 'usage() { echo "使い方" >&2; exit 2; }'
   runcheck
   [[ $rc == 0 ]] || fail "usage の中の exit 2 を通さない: $(cat "$d/chk.out")"
@@ -363,6 +468,9 @@ ng_self_test() {
   mkcopy 'f() { "$windir/System32/netsh.exe" advfirewall; }'
   runcheck
   [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 3' "$d/chk.out" || fail "netsh の直呼びを落とさない: rc=$rc"
+  mkcopy 'f() { "$windir\System32\sc.exe" query x; }'
+  runcheck
+  [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 3' "$d/chk.out" || fail "System32\\ の形の直呼びを落とさない: rc=$rc"
 
   # Scenario: 観測を出す部品を読まない・口を定義し直す台本を、検査が落とす
   printf '%s\n' '#!/usr/bin/env bash' 'f() { :; }' >"$d/copy.sh"
@@ -386,6 +494,15 @@ ng_self_test() {
   mkcopy 'cat <<'"'"'EOF'"'"'' 'echo "NG: x"' 'exit 3' 'EOF'
   runcheck
   [[ $rc == 0 ]] || fail "ヒアドキュメントの中を見た: $(cat "$d/chk.out")"
+  mkcopy 'cat <<-"EOF" # 区切りの後のコメント' 'exit 3' '	EOF' 'cat <<<"NG: 文字列"'
+  runcheck
+  [[ $rc == 0 ]] || fail "引用の区切り・タブを除く区切りのヒアドキュメントの中を見た: $(cat "$d/chk.out")"
+  # コメント・引用の中・算術の << はヒアドキュメントの開きでない（後ろの行を検査から外さない）
+  for t in 'sc_query x # 出力は <<EOF の形' 'echo "a <<EOF b"' 'mask=$((1<<n))' 'echo '"'"'<<EOF'"'"''; do
+    mkcopy "$t" 'f() { exit 3; }'
+    runcheck
+    [[ $rc == 1 ]] && grep -q 'copy.sh:4: 決まり 2' "$d/chk.out" || fail "ヒアドキュメントでない << の後ろの行を見ない: $t"
+  done
 
   # ---- 部品 ----
   # 偽の命令は置き場の bin に置く。run_case が PATH の先に足して、子の bash で台本を走らせる
@@ -472,16 +589,19 @@ die_seen "理由" "Authorization: Bearer HDR-SEEN-SECRET"'
   reset_work
   printf '{"api_secret":"SECRET-API-1","db_password":"SECRET-DB-1"}\n' >"$settings"
   fake sc.exe 'echo "got SECRET-API-1 and SECRET-DB-1"'
+  fake icacls.exe 'echo "new SECRET-API-2"'
   run_case "$sv"'
 sc.exe query
 printf "{\"api_secret\":\"SECRET-API-2\"}\n" >"'"$settings"'"
+icacls.exe x
 echo "tail SECRET-API-1" >"'"$work"'/out"
 die "設定が変わった後"'
   [[ $rc == 1 ]] || fail "設定を変える試験が rc=1 で終わらない: $rc"
   ! grep -q 'SECRET-API-1\|SECRET-DB-1' "$d/se" "$work/observed.log" || fail "前の値が標準エラーか記録に残る"
   grep -q 'got \*\*\* and \*\*\*' "$d/se" || fail "命令の記録が出ない: $(cat "$d/se")"
   grep -q 'api_secret' "$d/se" || fail "設定のキーの名前が出ない"
-  ! grep -q 'SECRET-API-2' "$d/se" || fail "設定の値が出る"
+  # 変えた後の値も集め直して伏せる（前の回と同じ値なら集め直しを飛ばすが、変われば飛ばさない）
+  ! grep -q 'SECRET-API-2' "$d/se" "$work/observed.log" && grep -q '^new \*\*\*$' "$d/se" || fail "変えた後の設定の値が出る"
 
   # Scenario: 待ちのループの同じ記録は 1 件にまとまり、判定が見た出力を押し出さない
   reset_work
@@ -520,6 +640,71 @@ die "読めない"'
   run_case 'icacls.exe x
 die "定義が無い"'
   grep -q '（伏せる値を読めないので出さない）' "$d/se" && ! grep -q 'REC-OUT' "$d/se" || fail "ng_secret_values が無いとき記録を出す"
+
+  # 判定が渡したファイルの末尾は、伏せる値を読めるときだけ出す（値に入れて渡すと読めなくても出てしまう）
+  reset_work
+  printf '{"api_secret":"SECRET-API-1"}\n' >"$settings"
+  printf 'TAIL-FILE-LINE SECRET-API-1\n' >"$d/tail.in"
+  run_case "$sv"'
+ng_report "ファイルつき" "" 2 "'"$d"'/tail.in"; exit 1'
+  grep -q '^TAIL-FILE-LINE \*\*\*$' "$d/se" || fail "判定が渡したファイルの末尾を伏せて出さない: $(cat "$d/se")"
+  run_case 'ng_secret_values() { return 1; }
+ng_report "ファイルつき" "" 2 "'"$d"'/tail.in"; exit 1'
+  ! grep -q 'TAIL-FILE-LINE' "$d/se" && grep -q '（伏せる値を読めないので出さない）' "$d/se" ||
+    fail "伏せる値を読めないのに判定が渡したファイルの末尾を出す"
+
+  # 観測の量の上限: 記録は直近 12 件・1 件 40 行・出力のファイルは 2 つ・サーバのログは末尾 40 行。命令 1 つの時間の既定は 30 秒
+  reset_work
+  fake sc.exe 'if [[ "$2" == long ]]; then seq 41 | sed "s/^/LONG-/"; else echo "REC-$2"; fi'
+  for t in a b c; do echo "FILE-$t" >"$work/$t.out"; done
+  seq 41 | sed 's/^/SLOG-/' >"$state/logs/server/zz-latest.log"
+  run_case "$sv"'
+for i in $(seq 13); do sc.exe query "n$i"; done
+sc.exe query long; sc.exe query long
+die "上限"'
+  rm -f "$state/logs/server/zz-latest.log"
+  [[ $rc == 1 ]] || fail "上限の試験が rc=1 で終わらない: $rc"
+  ! grep -qx 'REC-n2' "$d/se" && grep -qx 'REC-n3' "$d/se" || fail "命令の記録が直近 12 件でない: $(cat "$d/se")"
+  grep -qx 'LONG-40' "$d/se" && ! grep -qx 'LONG-41' "$d/se" && grep -q '（以降 1 行省略）' "$d/se" || fail "1 件の記録が 40 行で切れない"
+  grep -q '（同じ記録 ×2）' "$d/se" || fail "最後の記録の回数が出ない"
+  [[ "$(grep -c '^-- [a-z]*\.out（末尾 40 行）$' "$d/se")" == 2 ]] || fail "出力のファイルが 2 つでない"
+  ! grep -qx 'SLOG-1' "$d/se" && grep -qx 'SLOG-2' "$d/se" || fail "サーバのログが末尾 40 行でない"
+  awk '/^ng_try\(\)/,/^}/' "$part" | grep -q 'NG_OBSERVE_TIMEOUT:-30}' || fail "観測の命令の時間の既定が 30 秒でない"
+
+  # 記録は 24 件ごとに送り、残るのは多くて 48 件（待ちのループが長くても記録が育ち続けない）
+  reset_work
+  fake sc.exe 'echo "REC-$2"'
+  run_case 'for i in $(seq 60); do sc.exe query "m$i"; done'
+  [[ -f "$work/observed.log.1" ]] || fail "記録を送らない"
+  (( $(cat "$work/observed.log.1" "$work/observed.log" | grep -c '^@@@ ') <= 48 )) || fail "記録が 48 件を超えて残る"
+  run_case "$sv"'
+die "送った後"'
+  grep -qx 'REC-m60' "$d/se" && grep -qx 'REC-m49' "$d/se" && ! grep -qx 'REC-m48' "$d/se" || fail "送った後に直近 12 件が出ない"
+
+  # 設定の秘密の読み手は、中身が同じ間は Python を起こし直さない。中身が変われば（同じ秒・同じ長さでも）読み直す
+  reset_work
+  local py3; py3="$(command -v python3)"
+  printf '#!/usr/bin/env bash\necho x >>"%s/pycount"\nexec "%s" "$@"\n' "$d" "$py3" >"$bin/python"; chmod +x "$bin/python"
+  rm -f "$d/pycount"
+  printf '{"API_TOKEN":"tok-a-1"}\n' >"$settings"
+  run_case 'a="$(ng_read_secrets "'"$settings"'" API_TOKEN)"; b="$(ng_read_secrets "'"$settings"'" API_TOKEN)"
+printf "{\"API_TOKEN\":\"tok-b-1\"}\n" >"'"$settings"'"
+c="$(ng_read_secrets "'"$settings"'" API_TOKEN)"
+[[ $a == tok-a-1 && $b == tok-a-1 && $c == tok-b-1 ]]'
+  rm -f "$bin/python"
+  [[ $rc == 0 ]] || fail "設定の秘密の読み手が中身の変化に追いつかない: $(cat "$d/se")"
+  [[ "$(wc -l <"$d/pycount")" == 2 ]] || fail "中身が同じなのに Python を起こし直す: $(wc -l <"$d/pycount") 回"
+
+  # 設定のファイルの場所に空白があっても 1 つの場所として読む（改行区切り）
+  reset_work
+  mkdir -p "$d/state dir"
+  printf '{"api_secret":"SECRET-API-1"}\n' >"$d/state dir/settings.json"
+  CASE_ENV=(NG_SETTINGS_FILES="$d/state dir/settings.json"$'\n'"$d/state dir/none.json")
+  run_case "$sv"'
+die "空白"'
+  CASE_ENV=(X_UNUSED=1)
+  grep -qF "設定のキー $d/state dir/settings.json: api_secret" "$d/se" && grep -qF "設定 $d/state dir/none.json: まだ無い" "$d/se" ||
+    fail "空白を含む設定の場所を 1 つとして読まない: $(cat "$d/se")"
 
   echo 'check-ng-observations: self-test OK'
 }

@@ -56,6 +56,9 @@
 `NG_OBSERVED_DIR` が無ければ記録はせず、命令をそのまま呼ぶ。口は記録の直近 12 件（1 件 40 行まで）を出す。
 待ちのループ（`wait_state`・`wait_healthz` など）は 1 秒ごとに同じ命令を呼ぶので、**直前と名前・引数・終了コード・出力が同じ記録は書き足さず、回数だけ数える**
 （`（同じ記録 ×<n>）`）。そうしないと、待ちの後の NG で 12 件が同じ行で埋まり、判定が見た出力が押し出される。
+直前と同じ記録の回数は別のファイル（`.observed.dup`）に数え、次の別の記録を書くときに `@@x <n>` の 1 行として足す（記録を読み直さない・書き直さない）。
+記録は 24 件ごとに `observed.log.1` へ送り、残るのは多くて 48 件（長い待ちのループでも記録が育ち続けない。review R12）。
+上限の値（12 件・40 行・ファイル 2 つ・末尾 40 行・30 秒・24 件）は（仮）だが、変えると部品の自己試験が落ちる（review R6）。
 記録は書くときにも D4 の伏せ方で伏せる（`curl --data` の合言葉などを素のまま残さない）。記録の置き場は `NG_OBSERVED_DIR`（`$WORK` か自己試験の置き場）だけで、
 状態の置き場・プロファイル・登録簿には書かない（実地の確かめの秘密の判定 —— `$STATE`・登録簿・インストーラの出力を探す —— に記録が引っかからない）。`$WORK` は `common_teardown` が消す。
 
@@ -68,13 +71,15 @@
 台本の変数の名前を推して読まず、台本が次の名前で渡したときだけ出す:
 `NG_STATE_DIR`（状態の置き場。サーバのログは `logs/server` の最新）・`NG_SETTINGS_FILES`（設定のファイル。キーの名前だけ）・
 `NG_HEALTHZ_URL`（サーバの healthz）・`NG_OBSERVED_DIR`（命令の記録と、台本が判定のために書く出力のファイルの置き場）。
+`NG_SETTINGS_FILES` は改行区切り（Windows の一時の置き場は利用者名の空白を含みうる。review R16）。
+2 つの台本は 4 つの名前を関数 `ng_inputs` で渡し、自己試験も同じ関数で置き場を向ける（配線を消すと自己試験が落ちる。review R3）。
 出すもの: `ashiato-db`・`ashiato-server`・`ashiato-updater` の `sc.exe queryex` と `sc.exe qc`・healthz の HTTP の番号・設定のキーの名前・
 `NG_OBSERVED_DIR` の中で最後に書かれた出力のファイル 2 つの末尾 40 行（判定が grep する実名に合わせる: `out`・`*.out`（`install.out`・`repair.out`・`*.ps.out`）・`trace`・
 `*.window`・`redirect.*.txt`。合言葉を渡す `*.in`・設定の写し `settings.*`・記録 `observed.log` 自身・展開した `unpacked/` は出さない）・サーバのログの最新の末尾 40 行。
 
-- `install-check.sh` は `common_setup` で `NG_STATE_DIR="$STATE"`・`NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS"`・`NG_HEALTHZ_URL="$URL/healthz"`・`NG_OBSERVED_DIR="$WORK"`
-- `update-check-install.sh` は実地の確かめの始めで `NG_STATE_DIR='C:/ProgramData/ashiato'`・`NG_SETTINGS_FILES='C:/ProgramData/ashiato/settings/server.json'`・
-  `NG_HEALTHZ_URL='http://127.0.0.1:18700/healthz'`・`NG_OBSERVED_DIR="$work"`（偽の配布元の `URL` は渡さない）
+- `install-check.sh` は `common_setup` で `NG_STATE_DIR="$STATE"`・`NG_SETTINGS_FILES`（`$SETTINGS` と `$OWNER_SETTINGS`）・`NG_HEALTHZ_URL="$URL/healthz"`・`NG_OBSERVED_DIR="$WORK"`
+- `update-check-install.sh` は実地の確かめの始めで `NG_STATE_DIR="$STATE"`（`C:/ProgramData/ashiato`）・`NG_SETTINGS_FILES`（`server.json` と `owner.json`。review R15）・
+  `NG_HEALTHZ_URL='http://127.0.0.1:18700/healthz'`・`NG_OBSERVED_DIR="$WORK"`（偽の配布元の `URL` は渡さない）
 - 観測の命令は 1 つずつ `NG_OBSERVE_TIMEOUT` 秒（既定 30）で打ち切り（`timeout`）、落ちたら `（取れない: <命令> rc=<n>）` と 1 行書いて次へ進む
 - 今の `service_diagnostics` はそのまま残す
 - 反転条件: 打ち切りの 30 秒が runner で足りない・長すぎる（CI の 1 周が目に見えて延びる）と分かったら変える
@@ -90,6 +95,16 @@
 `ng_secret_values` が rc≠0 なら、命令の記録とファイルとログの末尾を出さず、`（伏せる値を読めないので出さない）` と書く（厳しい側）。
 ただし台本が字面で持つ合言葉は、設定を読めなくても伏せる値に入れる。設定はキーの名前だけで、値は伏せる前から出さない。
 
+設定の秘密の読み手（`ng_settings_secrets`・`ng_read_secrets`）とキーの一覧（`NG_SERVER_SECRET_KEYS`・`NG_OWNER_SECRET_KEYS`）は部品に 1 つだけ置き、
+2 つの台本の `ng_secret_values` はそれを呼ぶ（review R14）。読み手は記録のたびに呼ばれるので、`NG_OBSERVED_DIR` の中に答えを控え、
+ファイルの中身とキーが前と同じ間は Python を起こさない（中身で比べるので、同じ時刻の書き換えでも古い答えを使わない）。集めた値が前の回と同じなら
+伏せる値のファイルを書き直さない（review R8・R11。Linux で包んだ命令 1 回あたり約 103 ms → 約 44 ms）。
+`install-check.sh` の判定が読む `secret_values` は判定の入力なので変えない（D6）。そのキーが部品の一覧に全部あることを自己試験が見る。
+台本が字面で持つ合言葉（`*-check-*-0123…` の形）は変数 1 つにして、使う所と伏せる値の両方から参照する。字面の合言葉が全部 `ng_secret_values` の出力に
+あることを 2 つの自己試験が見る（書き出しの合言葉の書き忘れ・写しの直し忘れを落とす。review R4・R13）。
+判定が見たファイルの中身（`install_with` の時間切れのインストーラの出力）は値に入れず `ng_report` の第 4 引数で渡し、部品が伏せる値を読めるときだけ末尾 80 行を出す
+（値は読めなくても出すので、ファイルの末尾を値に入れると読めないときの約束をすり抜ける。review R5・R10）。
+
 - なぜ: CI のログは外から読めて、一度出た値は消せない。「インストーラの出力とログに秘密が出ない」の判定が落ちたときこそ、出力の末尾に秘密がある
 - 反転条件: 伏せる値の集め方で漏れる秘密が見つかったら、その値を集める側へ足す（出す側を広げない）
 
@@ -99,6 +114,9 @@
 （同じ部品を 2 つの台本に写さない）。検査の決まりは spec の 4 つ。決まり 4 は「`check-ng-observations.sh` を `source` する行が無い」か
 「`die()` / `ng_report()` / `die_seen()` の定義が台本にある」で外れる。
 `check-ng-observations.sh --self-test` は決まりごとに 1 つの決まりにだけ外れる写しを作って落ちることを見る。
+決まり 2 の `exit` は字面の 1〜9 と、変数・`$?` の終了コード（`exit "$rc"`・`exit $?`）を見る。受けた終了コードを素通しするだけの `exit`
+（`update-check-install.sh` の `cleanup`）は印で除く。決まり 3 は `System32/` と `System32\` の両方の形を見る。
+ヒアドキュメントの開きは、コメントを除き、引用の中身と算術（`$((…))`）を外した行で探す（行末のコメントや `$((1<<n))` で後ろの行を検査から外さない。review R7・R9・R17）。
 2 つの台本の `--self-test` は自分に検査を当て、`install-check.sh --self-test` は検査の `--self-test` も走らせる。
 CI は既に 2 つの `--self-test` を `chain` の job で走らせているので、`ci.yml` は変えない。
 
