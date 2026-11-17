@@ -16,7 +16,7 @@ ST58 の関門で、CI の 1 周が約 1 時間かかり、13 時間で 12 周�
   GitHub Actions のキャッシュにあれば、ビルドせずにそれを同じ名前の成果物として上げる（job が上げる置き場の全部を保存して引く）。無ければ今と同じにビルドし、鍵で保存する（design D1〜D4）
 - 鍵は「試験の台本と文書だけを除いた、追跡している全部のファイルの中身」と道具の版から作る。除くものは名指しし、名指ししていない
   ファイルが変われば鍵が変わる（ビルドし直す側に倒れる。design D1）
-- 鍵を出す台本 `tools/release/windows-build-key.sh` を置き、自己試験を持たせる（`package-windows` で鍵を使う前に走らせる）
+- 鍵を出す台本 `tools/release/windows-build-key.sh` を置き、自己試験と使い回しの形の検査（`--check-workflow`）を持たせる（どちらも `chain` の job（Linux）で PR ごとに走らせる。深掘り第 2 回 Q3）
 - `package-windows` がビルドするときは Rust のビルド（`~/.cargo` と `target`）をキャッシュから戻す（design D5）
 - `install-windows` は今と同じ成果物を受け取り、インストールと更新の Scenario を全部走らせ、欠けたら落ちる（変えない）
 - 使い回した Windows の配布物の `SOURCE.txt` と組み立ての印は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指したまま上げる
