@@ -268,45 +268,53 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 根拠: この関数は呼び手のシェル（`set -euo pipefail`）で動く。偽の `rm`（exit 1）を PATH の先に置き、`sc.exe q >/dev/null; echo survived` を走らせると、`survived` は出ず rc=1 で終わった。当たるのは包んだ命令を素の文で呼ぶ所（install-check.sh:569/572 の `icacls.exe … /grant` / `/reset`）と、update-check の `windows_*` をパイプの中で呼ぶ所（pipefail）。Windows では書いた直後のファイルを Defender などがつかみ、`rm` が一時的に落ちることがある。tasks.md の Global Constraints「部品の中の命令は全部 `|| true` 相当」と design D6「判定の条件を変えない」に反する
 - kind: technical
 - 提案: `rm -rf "$t" || true` にする。部品の自己試験に、偽の `rm` を置いても包んだ命令の後の文が走ることを見る 1 本を足す
+- 処置: fixed D6 —— （ng_observed_exec の `rm -rf "$t"` を `|| true` にした。自己試験に、偽の rm（exit 1）を PATH の先に置いても set -e の台本が包んだ sc.exe の後の文へ進むことを見る 1 本を足した。直しを戻すとその試験が落ちることを確かめた）
 
 ## R20. 検査の決まり 2 は、字面の数字を引用した `exit "1"`・`exit '2'` を見逃す（R7 の直しの残り）
 - 成果物: tools/release/check-ng-observations.sh:385
 - 根拠: 正規表現 `exit[[:space:]]+("?\$|[1-9])` は、引用符の後に `$` が来る形しか見ない。写しの台本に `exit "1"` を置くと、検査は rc=0 で通った。task-1-findings.md の F2 の残り
 - kind: technical
 - 提案: `("?\$|[1-9])` を `["']?(\$|[1-9])` にし、自己試験に `exit "1"` の形を足す
+- 処置: fixed D5 —— （決まり 2 の正規表現を `exit[[:space:]]+["\047]?(\$|[1-9])` にし、自己試験に `exit "1"` と `exit '2'` の写しを足した。直しを戻すと落ちる。install-check.sh・update-check-install.sh は直した検査を rc=0 で通る）
 
 ## R21. 伏せる値が別の伏せる値の部分文字列だと、長い方の残りが素で出る
 - 成果物: tools/release/check-ng-observations.sh:103-111
 - 根拠: `abc` と `abcdef-LONGSECRET` を伏せる値にすると、出力は `val=***def-LONGSECRET` になった（実測）。今の値（base64url の乱数と別々の字面）では起きにくいが、spec の「観測に秘密の値が出ない」の穴。task-1-findings.md の F4（まだ直っていない）
 - kind: technical
 - 提案: 伏せる値を長さの降順に並べてから置き換える。自己試験に部分文字列の組を足す
+- 処置: fixed D4 —— （ng_redact の awk で伏せる値を長さの降順に並べてから置き換える。自己試験に `abc` と `abcdef-LONGSECRET` の組で、出力が `val=***` になり LONGSECRET が塊にも記録にも残らないことを見る 1 本を足した。直しを戻すと落ちる）
 
 ## R22. `timeout` が無いときの道で `"$@"` が包んだ関数を呼び、塊を出す最中に記録が足されて判定の記録を押し出す
 - 成果物: tools/release/check-ng-observations.sh:138
 - 根拠: `timeout` を外した PATH で塊を出すと、出す途中の命令が 7 件記録に足された。記録は直近 12 件しか出さないので、判定の直前の記録が押し出される。Git Bash には `timeout` があるので実害は小さい。task-1-findings.md の F6（まだ直っていない）
 - kind: technical
 - 提案: `command "$@"` で呼ぶ
+- 処置: fixed D2 —— （ng_try の timeout が無い道を `command "$@"` にした。自己試験に、timeout を除いた PATH で塊を出しても記録が判定の 1 件のまま増えないことを見る 1 本を足した。直しを戻すと塊の curl などが記録に足されて落ちる）
 
 ## R23. 命令の出力にある `@@@ ` で始まる行を、記録の区切りと取り違える
 - 成果物: tools/release/check-ng-observations.sh:157
 - 根拠: 偽の命令の出力に `@@@ fake header` の行を混ぜると、観測の塊に `[命令] fake header` と出た（実測）。見た目だけの問題だが、切り分けの材料を誤らせる。task-1-findings.md の F10（まだ直っていない）
 - kind: technical
 - 提案: 記録の中の出力の行に接頭辞を付けて書く（例: 2 字の字下げ）か、区切りをファイルの外（長さの見出し）で持つ
+- 処置: fixed D2 —— （ng_record で命令の出力（標準出力・標準エラー）の @ で始まる行の前に空白を 1 つ置く。自己試験に、出力に `@@@ fake header` と `@@x 9` を混ぜても `[命令] fake header` も `（同じ記録 ×9）` も出ず、` @@@ fake header` として本文に出ることを見る 1 本を足した。直しを戻すと落ちる）
 
 ## R24. update-check の自己試験のコメントが実際の動きと違い、効いていない `PATH="$fake:$PATH"` がある
 - 成果物: tools/release/update-check-install.sh:396-397
 - 根拠: コメントは「観測の部品が PATH から呼ぶ」とあるが、この部分殻は `ng_inputs` を呼ばず `NG_STATE_DIR` が空なので `ng_part_services` は走らない。出ている qc は `die_seen` の値で、Scenario としてはそれで足りるが、読み手はサービスの観測を試していると誤解する
 - kind: technical
 - 提案: コメントを実際の動きに合わせて直し、使っていない PATH の足しを外す
+- 処置: fixed 3.1 —— （コメントを「windows_sc が System32 の場所で呼ぶ偽の sc.exe・この部分殻は観測の入力を渡さないので qc の出力は die_seen に渡した値」に直し、効いていない `PATH="$fake:$PATH"` を外した。update-check の自己試験は rc=0）
 
 ## R25. `die_seen` の値（netstat の全出力・probe の `$block`）には行の上限が無い
 - 成果物: tools/release/check-ng-observations.sh / tools/release/install-check.sh
 - 根拠: spec の上限の列挙（記録の件数・1 件の行数・ファイルの末尾）に「判定が見た値」は入っていないので違反ではない。ただ netstat の全出力などは CI のログを長くし、塊の読みやすさ（D2 の上限の狙い）を崩す
 - kind: technical
 - 提案: `ng_emit` で値も 80 行などで切り、切ったことを 1 行で示す
+- 処置: fixed D2 —— （ng_emit で判定が見た値も 80 行で切り、`（以降 N 行省略）` を 1 行添える。自己試験に 85 行の値で SEEN-80 まで出て SEEN-81 が出ず省略の行が出ることを見る 1 本を足した。直しを戻すと落ちる）
 
 ## R26. 本物の Windows の Python で `ng_read_secrets` が動くことを、どの確かめも通らない（計画の隙間）
 - 成果物: tools/release/install-check.sh（observation_probe）/ tools/release/check-ng-observations.sh（ng_read_secrets・ng_settings_secrets）
 - 根拠: task-3-findings.md の ⚠️ は「PR の CI を見て確かめる」とするが、`observation_probe` はインストールの前に走るので設定が無く、読み手は一度も走らない。CI が緑でも確かめにならない。壊れていても、本物の NG のときに `（伏せる値を読めないので出さない）` と出るだけで漏れはしない（厳しい側に倒れる）が、そのとき観測の記録と末尾が全部失われ、CH16 の狙い（NG の切り分けの材料）が本物の Windows で空振りする
 - kind: technical
 - 提案: インストールの後、最初の判定の前に `ng_settings_secrets` が値を 1 つ以上返すことを一度確かめる（D7 を広げるので、settle が処置の表で決める）
+- 処置: fixed D7 —— （observation_probe の最後に、決まった値を持つ server.json・owner.json の写しを $WORK/ng-probe（cygpath -m で C:/… の形）に置き、部品の ng_settings_secrets で読んだ 5 つの値が揃わなければ die_seen にした。インストールの前でも本物の Windows の Python を一度通す。design D7 に 1 文足した。install-check の自己試験に、python・python3 を落ちる偽物にすると observation_probe が `NG: 設定の秘密の読み手が本物の Python で動かない` で終わることを見る 1 本を足し、確かめを外すと自己試験が落ちることを確かめた）

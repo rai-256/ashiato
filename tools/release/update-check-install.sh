@@ -392,9 +392,10 @@ EOF
   while IFS= read -r name; do count="$(grep -Fxc -- "  echo '== Scenario: $name'" <<<"$body" || true)"; [[ $count == 1 ]] || die "Scenario の印が不正: $name"; done < <(list_scenarios)
   ! awk '/^self_test\(\)/{on=1} on' "$0" | grep -v 'grep -Eq' | grep -Eq '^[[:space:]]*echo .== Scenario:' || die 'self-test に Scenario の印がある'
   # Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る
-  # 偽の sc.exe（観測の部品が PATH から呼ぶ）で assert_service を外す。判定が受けた qc の出力が NG の行より後に出る
+  # 偽の sc.exe（windows_sc が System32 の場所で呼ぶ）で assert_service を外す。この部分殻は観測の入力を渡さない
+  # （サービスの観測は走らない）ので、NG の行より後に出る qc の出力は、判定が die_seen に渡した値
   err="$work/assert.err"; count=0
-  if ( PATH="$fake:$PATH"; SC_MODE=disabled; assert_service ashiato-updater ) >/dev/null 2>"$err"; then count=1; fi
+  if ( SC_MODE=disabled; assert_service ashiato-updater ) >/dev/null 2>"$err"; then count=1; fi
   [[ "$count" == 0 ]] || die '自動で起きない assert_service が通った'
   [[ "$(head -n 1 "$err")" == 'NG: ashiato-updater が自動で起きない' ]] || die "NG の行が 1 行目に無い: $(head -n 1 "$err")"
   awk 'seen { if ($0 ~ /START_TYPE +: 4/) found = 1 } /^NG: / { seen = 1 } END { exit !found }' "$err" || die 'NG の行より後に判定が見た sc qc の出力が無い'

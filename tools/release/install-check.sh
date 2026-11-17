@@ -735,7 +735,7 @@ common_setup() {
 # 壊れていても、観測が要る回まで分からない（design D7）。出力は標準エラーへ（標準出力を変えない）
 # Scenario: CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る
 observation_probe() {
-  local block service
+  local block service probe got
   block="$( ( ng_report '観測の塊の確かめ（NG ではない）' ) 2>&1 )" || true
   grep -Fxq '== 観測（ここから）' <<<"$block" && grep -Fxq '== 観測（ここまで）' <<<"$block" ||
     die_seen '観測の塊の見出しが出ない' "$block"
@@ -747,6 +747,17 @@ observation_probe() {
       die_seen "観測の塊に $service の sc.exe の答えの行が無い" "$block"
   done
   grep -Eq '^healthz HTTP [0-9]{3}$' <<<"$block" || die_seen '観測の塊に healthz の番号の行が無い' "$block"
+  # 設定の秘密の読み手（部品の ng_settings_secrets）を本物の Python で一度走らせる。この時はまだ設定が無く、上の塊では
+  # 読み手が走らない。壊れていると、本物の NG の回に命令の記録とファイルの末尾が全部出ない（design D7）。
+  # 置き場は本物の設定と同じ C:/… の形で渡す（MSYS_NO_PATHCONV=1 では /tmp/… が Windows の Python に素で渡る）
+  probe="$WORK/ng-probe"
+  if command -v cygpath >/dev/null 2>&1; then probe="$(cygpath -m "$probe")"; fi
+  mkdir -p "$probe"
+  printf '{"API_TOKEN":"probe-tok","WEB_SESSION_KEY":"probe-key","WEB_PASSWORD_VERIFIER":"probe-ver","DATABASE_URL":"postgres://ashiato:probe%%40db@127.0.0.1:5432/ashiato"}\r\n' >"$probe/server.json"
+  printf '{"DATABASE_OWNER_URL":"postgres://owner:probe-owner@127.0.0.1:5432/ashiato"}\r\n' >"$probe/owner.json"
+  got="$(NG_OBSERVED_DIR=''; ng_settings_secrets "$probe/server.json" "$probe/owner.json" 2>&1)" || got="$got"$'\n'"（rc≠0）"
+  [[ "$got" == $'probe-tok\nprobe-key\nprobe-ver\nprobe@db\nprobe-owner' ]] ||
+    die_seen '設定の秘密の読み手が本物の Python で動かない' "$got"
   { echo '== 観測の塊を本物の命令で一度出した（NG ではない）'; sed 1d <<<"$block"; } >&2
 }
 
@@ -1802,6 +1813,13 @@ EOF
   ng_run observation_probe
   [[ "$ngrc" == 1 ]] && grep -q '^NG: 観測の塊に healthz の番号の行が無い$' "$ngse" ||
     die "healthz の番号が無いのに観測の確かめが落ちない: rc=$ngrc"
+  # 観測の確かめ（D7）は、設定の秘密の読み手（Python）が動かなければ NG で終わる
+  ng_fake curl 'echo "healthz HTTP 200"'
+  ng_fake python 'exit 1'; ng_fake python3 'exit 1'
+  ng_run observation_probe
+  rm -f "$ngbin/python" "$ngbin/python3"
+  [[ "$ngrc" == 1 ]] && grep -q '^NG: 設定の秘密の読み手が本物の Python で動かない$' "$ngse" ||
+    die "設定の秘密の読み手が動かないのに観測の確かめが落ちない: rc=$ngrc"
   # 実地の確かめは、観測の入力を渡し（ng_inputs）、観測の確かめをしてから始まる（呼び出しが消えると CI は何も見ずに緑になる）
   awk '/^common_setup\(\)/,/^}/' "$script" | grep -Eq '^[[:space:]]+ng_inputs$' || die 'common_setup が観測の入力を渡さない'
   awk '/^common_setup\(\)/,/^}/' "$script" | grep -Eq '^[[:space:]]+observation_probe$' || die 'common_setup が観測の確かめをしない'

@@ -113,7 +113,9 @@ ng_redact() {
   local q="'"
   if [[ -f "${NG_SF:-}" ]]; then
     NG_SF="$NG_SF" awk '
-      BEGIN { n = 0; sf = ENVIRON["NG_SF"]; while ((getline v < sf) > 0) if (length(v) > 0) vals[++n] = v; close(sf) }
+      BEGIN { n = 0; sf = ENVIRON["NG_SF"]; while ((getline v < sf) > 0) if (length(v) > 0) vals[++n] = v; close(sf)
+        # 長い値から置き換える（短い値が長い値の部分文字列でも、長い値の残りを素で出さない）
+        for (i = 2; i <= n; i++) { v = vals[i]; for (j = i - 1; j >= 1 && length(vals[j]) < length(v); j--) vals[j + 1] = vals[j]; vals[j + 1] = v } }
       { line = $0
         for (i = 1; i <= n; i++) {
           v = vals[i]; out = ""
@@ -135,7 +137,8 @@ ng_try() {
   if command -v timeout >/dev/null 2>&1; then
     timeout -k 1 "${NG_OBSERVE_TIMEOUT:-30}" "$@" >"$t/try" 2>&1 </dev/null || rc=$?
   else
-    "$@" >"$t/try" 2>&1 </dev/null || rc=$?
+    # 包んだ関数（sc.exe など）でなく実体を呼ぶ（塊を出す最中に記録を足して、判定の記録を押し出さない）
+    command "$@" >"$t/try" 2>&1 </dev/null || rc=$?
   fi
   tr -d '\r' <"$t/try"
   (( rc == 0 )) || echo "（取れない: $1 rc=$rc）"
@@ -223,7 +226,10 @@ ng_emit() {
   ng_secret_file "$NG_TMP"
   ng_collect_secrets || ok=0
   {
-    [[ -z "$obs" ]] || printf '%s\n' "$obs"
+    # 判定が見た値も 80 行まで（netstat の全出力などで塊を読めなくしない）
+    if [[ -n "$obs" ]]; then
+      printf '%s\n' "$obs" | awk 'NR <= 80 { print; next } { om++ } END { if (om > 0) print "（以降 " om " 行省略）" }'
+    fi
     if [[ -n "${NG_STATE_DIR:-}" ]]; then ng_part_services; fi
     if [[ -n "${NG_HEALTHZ_URL:-}" ]]; then ng_part_health; fi
     if [[ -n "${NG_SETTINGS_FILES:-}" ]]; then ng_part_settings; fi
@@ -273,7 +279,8 @@ ng_observed_exec() {
   # 書き先のパイプが閉じていても失敗にしない。cat は外部命令なので SIGPIPE はこの関数を殺さない
   cat "$t/o" || true
   cat "$t/e" >&2 || true
-  rm -rf "$t"
+  # 一時の置き場を消せなくても（Defender などがつかむ）呼び手の set -e を止めない
+  rm -rf "$t" || true
   return "$rc"
 }
 ng_observed() { local n="$1"; shift; ng_observed_exec "$n" "$n" "$@"; }
@@ -289,8 +296,9 @@ ng_record() {
   ng_collect_secrets || true
   {
     printf '@@@ %s rc=%s\n' "$(printf '%s' "$cmdline" | tr '\n' ' ')" "$rc"
-    head -n 200 "$t/o"
-    if [[ -s "$t/e" ]]; then echo '@@ stderr'; head -n 200 "$t/e"; fi
+    # 出力の行が @ で始まるなら空白を 1 つ前に置く（記録の区切り @@@・@@x と取り違えない）
+    head -n 200 "$t/o" | sed 's/^@/ @/'
+    if [[ -s "$t/e" ]]; then echo '@@ stderr'; head -n 200 "$t/e" | sed 's/^@/ @/'; fi
   } 2>/dev/null | ng_redact >"$t/rec"
   if [[ -f "$last" && -s "$log" && "$(<"$last")" == "$(<"$t/rec")" ]]; then
     [[ ! -f "$dup" ]] || c="$(<"$dup")"
@@ -381,8 +389,8 @@ ng_check_file() {
 
       if (!marked) {
         if (c ~ /(^|[;&|({[:space:]])(echo|printf)[[:space:]]/ && c ~ /NG:/) bad(1, N[1], line)
-        # 字面の 1〜9 と、変数・$? の終了コード（"$rc"・$?）。exit 0 と引数の無い exit は見ない
-        if (c ~ /(^|[;&|({[:space:]])exit[[:space:]]+("?\$|[1-9])/ && cur != "usage") bad(2, N[2], line)
+        # 字面の 1〜9 と、変数・$? の終了コード（"$rc"・$?）。引用した字面（"1" など）も。exit 0 と引数の無い exit は見ない
+        if (c ~ /(^|[;&|({[:space:]])exit[[:space:]]+["\047]?(\$|[1-9])/ && cur != "usage") bad(2, N[2], line)
         if (c ~ /[Ss]ystem32[\\\/]+(sc|icacls|netstat|netsh|reg|curl)(\.exe)?([^A-Za-z0-9_]|$)/ && c !~ /ng_observed/) bad(3, N[3], line)
       }
       if (c ~ /(^|[;&|({[:space:]])(source|\.)[[:space:]]+[^#]*check-ng-observations\.sh/) sourced = 1
@@ -442,7 +450,7 @@ ng_self_test() {
   [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 2' "$d/chk.out" && ! grep -Eq '決まり [134]' "$d/chk.out" ||
     fail "決まり 2 だけに外れる写しを落とさない: rc=$rc $(cat "$d/chk.out")"
   # 変数・$? の終了コードの exit も決まり 2 に外れる
-  for t in 'f() { local rc=3; exit "$rc"; }' 'f || exit $?' 'f() { exit $rc; }'; do
+  for t in 'f() { local rc=3; exit "$rc"; }' 'f || exit $?' 'f() { exit $rc; }' 'f() { exit "1"; }' "f() { exit '2'; }"; do
     mkcopy "$t"
     runcheck
     [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 2' "$d/chk.out" || fail "変数の exit を落とさない: $t"
@@ -705,6 +713,54 @@ die "空白"'
   CASE_ENV=(X_UNUSED=1)
   grep -qF "設定のキー $d/state dir/settings.json: api_secret" "$d/se" && grep -qF "設定 $d/state dir/none.json: まだ無い" "$d/se" ||
     fail "空白を含む設定の場所を 1 つとして読まない: $(cat "$d/se")"
+
+  # 包んだ命令の一時の置き場を消せなくても（偽の rm が落ちる）、set -e の台本は包んだ命令の後の文へ進む
+  reset_work
+  fake sc.exe 'echo OUT'
+  fake rm 'exit 1'
+  run_case 'sc.exe query >/dev/null; echo survived'
+  /bin/rm -f "$bin/rm"
+  [[ $rc == 0 ]] && grep -qx survived "$d/so" || fail "一時の置き場を消せないと台本が止まる: rc=$rc $(cat "$d/se")"
+
+  # 伏せる値が別の伏せる値の部分文字列でも、長い方を全部伏せる
+  reset_work
+  fake sc.exe 'echo "val=abcdef-LONGSECRET"'
+  run_case 'ng_secret_values() { printf "%s\n" abc abcdef-LONGSECRET; }
+sc.exe query
+die "部分文字列"'
+  ! grep -q 'LONGSECRET' "$d/se" "$work/observed.log" && grep -qx 'val=\*\*\*' "$d/se" ||
+    fail "部分文字列の組で長い方の残りが出る: $(grep 'val=' "$d/se")"
+
+  # timeout が無いときも、塊を出す最中の命令（sc.exe など）は記録に足さない（判定の記録を押し出さない）
+  reset_work
+  mkdir -p "$d/nto"
+  for t in bash env grep sed awk tail head cat mktemp tr date rm ls mv cp sort mkdir cmp seq; do
+    ln -sf "$(command -v "$t")" "$d/nto/$t"
+  done
+  fake sc.exe 'echo "REC-$2"'
+  CASE_PATH="$bin:$d/nto"
+  run_case "$sv"'
+sc.exe query only
+die "timeout が無い"'
+  unset CASE_PATH
+  [[ $rc == 1 ]] && grep -q '^-- sc.exe queryex ashiato-db$' "$d/se" || fail "timeout が無いとき塊を出さない: rc=$rc $(cat "$d/se")"
+  [[ "$(grep -c '^@@@ ' "$work/observed.log")" == 1 ]] || fail "timeout が無いとき塊を出す命令が記録に足される: $(grep '^@@@ ' "$work/observed.log")"
+
+  # 命令の出力にある @@@ で始まる行を、記録の区切りと取り違えない
+  reset_work
+  fake sc.exe 'echo "@@@ fake header"; echo "@@x 9"; echo "after"'
+  run_case "$sv"'
+sc.exe query
+die "区切りの形"'
+  ! grep -q '^\[命令\] fake header' "$d/se" && grep -qx ' @@@ fake header' "$d/se" && grep -qx 'after' "$d/se" &&
+    ! grep -q '（同じ記録 ×9）' "$d/se" || fail "出力の @@@ の行を記録の区切りと取り違える: $(cat "$d/se")"
+
+  # 判定が見た値も 80 行で切り、切ったことを示す
+  reset_work
+  run_case "$sv"'
+die_seen "長い値" "$(seq 85 | sed "s/^/SEEN-/")"'
+  grep -qx 'SEEN-80' "$d/se" && ! grep -qx 'SEEN-81' "$d/se" && grep -q '（以降 5 行省略）' "$d/se" ||
+    fail "判定が見た値が 80 行で切れない"
 
   echo 'check-ng-observations: self-test OK'
 }

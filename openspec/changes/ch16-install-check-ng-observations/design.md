@@ -133,6 +133,8 @@ CI の `install-windows` は標準出力を `tee` して `== Scenario:` を数�
 緑の CI は NG の道を通らないので、観測の塊の Windows の部分（本物の `sc.exe`・`timeout`・`curl` を Git Bash で呼ぶ）が壊れていても、
 次に判定が落ちた回 —— まさに観測が要る回 —— まで分からない。`install-check.sh` の `common_setup` の末尾（2 つの実地の確かめ `check_release_zip`・`check_test_zip` の始めで呼ばれる）に、
 部分殻で `ng_report` を本物の命令に向けて一度走らせ、見出しの 2 行と 3 つのサービスの `sc.exe` の答えの行があることを見る（無ければ `die`）。
+この時はまだ設定が無く、塊の中では設定の秘密の読み手（部品の `ng_settings_secrets`。本物の Windows の Python を呼ぶ）が走らないので、
+決まった値を持つ設定の写しを `C:/…` の形の場所に置いて一度読ませ、値が揃うことも見る（無ければ `die`。review R26）。
 出力は標準エラーへ（標準出力を変えない）。`ci.yml` は変えない。
 
 - 反転条件: 実地の確かめの時間が目に見えて延びる（1 分を超える）と分かったら、`--probe-console` の側へ移す
