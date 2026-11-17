@@ -354,15 +354,18 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 根拠: R26 の処置で design.md の D7 に 1 文足し、install-check.sh の `observation_probe` は決まった値の server.json・owner.json の写しを `ng_settings_secrets` で読み、5 つの値が揃わなければ die_seen で終わるようになった。spec の Scenario「CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る」の THEN/AND は見出しと sc.exe の答えの行だけで、この判定の条件が正典から読めない。D7 が判定を足すことを許しているので違反ではなく記述の漏れ
 - kind: technical
 - 提案: その Scenario に AND を 1 行足す（例:「決まった値を持つ設定の写しを、設定の秘密の読み手が全部読み出せなければ NG で終わる」）。コードは変えない
+- 処置: fixed D7 —— （spec の Scenario「CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る」に AND「決まった値を持つ設定の写しから、設定の秘密の読み手が決まった値を全部読み出せなければ、それを理由に NG で終わる」を足した。コードは変えていない。`openspec validate --strict` は valid）
 
 ## R28. 自己試験で PATH を絞る 2 か所が、道具が 1 つでも無い環境では理由の行を出さずに止まる
 - 成果物: tools/release/check-ng-observations.sh:553-555 / tools/release/check-ng-observations.sh:736-738
 - 根拠: `for t in …; do ln -sf "$(command -v "$t")" …; done` は、道具（例: `timeout`・`seq`・`cmp`）が無いと `command -v` が空を返して `ln -sf ""` が落ち、`set -e` で `NG:` の行の無いまま自己試験が終わる。CI（ubuntu）と Git Bash には全部あるので実害は小さく、最小の image で走らせたときだけ切り分けが難しくなる
 - kind: technical
 - 提案: `command -v "$t" >/dev/null || continue` を足す（または無い道具を名指しして NG で終える）
+- 処置: fixed D2 —— （PATH を絞る 2 か所のループで、道具が無ければ `fail "自己試験に要る道具が無い: $t"` で名指しして NG で終える。並べに無い道具を 1 つ足した写しで、`NG: 自己試験に要る道具が無い: no-such-tool-x`・rc=1 になることを確かめた）
 
 ## R29. 伏せる値どうしが前後で重なる組では、長い順に置き換えても残りが素で出る
 - 成果物: tools/release/check-ng-observations.sh:112（ng_redact）
 - 根拠: R21 の直し（長さの降順）は部分文字列の組を塞いだが、`abcX` と `Xdef` のように前後が重なる組で値に `abcXdef` があると、`***def` になり 3 字が素で出る。今の伏せる値は base64url の乱数と別々の字面なので起きるとは考えにくい（理論上の穴）
 - kind: technical
 - 提案: 記録に留める（処置の表で wontfix の理由を書く）か、置き換えの前に全部の値の出現位置を印付けしてからまとめて伏せる
+- 処置: fixed D4 —— （ng_redact の awk を、全部の値の出現（重なりも）の位置に先に印を付け、印の続く所をまとめて `***` にする形に変えた（長さの並べ替えは要らなくなったので外した）。design D4 に 1 文。自己試験に `abcX`・`Xdef` と出力 `val=abcXdef` で `val=***` になり def が塊にも記録にも残らないことを見る 1 本を足した。前の awk に戻すと `val=***def` で落ちる。R21 の試験も通る）

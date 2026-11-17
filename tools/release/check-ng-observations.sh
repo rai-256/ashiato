@@ -113,16 +113,20 @@ ng_redact() {
   local q="'"
   if [[ -f "${NG_SF:-}" ]]; then
     NG_SF="$NG_SF" awk '
-      BEGIN { n = 0; sf = ENVIRON["NG_SF"]; while ((getline v < sf) > 0) if (length(v) > 0) vals[++n] = v; close(sf)
-        # 長い値から置き換える（短い値が長い値の部分文字列でも、長い値の残りを素で出さない）
-        for (i = 2; i <= n; i++) { v = vals[i]; for (j = i - 1; j >= 1 && length(vals[j]) < length(v); j--) vals[j + 1] = vals[j]; vals[j + 1] = v } }
-      { line = $0
+      BEGIN { n = 0; sf = ENVIRON["NG_SF"]; while ((getline v < sf) > 0) if (length(v) > 0) vals[++n] = v; close(sf) }
+      # 先に全部の値の出現（重なりも）の位置に印を付け、印の続く所をまとめて *** にする
+      # （値が別の値の部分文字列でも、前後が重なっても、残りを素で出さない）
+      { line = $0; L = length(line); split("", m)
         for (i = 1; i <= n; i++) {
-          v = vals[i]; out = ""
-          while ((p = index(line, v)) > 0) { out = out substr(line, 1, p - 1) "***"; line = substr(line, p + length(v)) }
-          line = out line
+          v = vals[i]; lv = length(v); s = 1
+          while (s <= L && (p = index(substr(line, s), v)) > 0) { q = s + p - 1; for (k = q; k < q + lv; k++) m[k] = 1; s = q + 1 }
         }
-        print line }'
+        out = ""; k = 1
+        while (k <= L) {
+          if (k in m) { out = out "***"; while (k <= L && (k in m)) k++ }
+          else { j = k; while (j <= L && !(j in m)) j++; out = out substr(line, k, j - k); k = j }
+        }
+        print out }'
   else
     cat
   fi | sed -E \
@@ -552,6 +556,7 @@ rc2=0; command sc.exe query >"'"$d"'/d.o" 2>"'"$d"'/d.e" || rc2=$?
   reset_work
   nobin="$d/nobin"; mkdir -p "$nobin"
   for t in bash env grep sed awk tail head cat mktemp timeout tr date rm ls mv cp sort mkdir cmp; do
+    command -v "$t" >/dev/null || fail "自己試験に要る道具が無い: $t"
     ln -sf "$(command -v "$t")" "$nobin/$t"
   done
   CASE_PATH="$nobin"
@@ -730,11 +735,19 @@ sc.exe query
 die "部分文字列"'
   ! grep -q 'LONGSECRET' "$d/se" "$work/observed.log" && grep -qx 'val=\*\*\*' "$d/se" ||
     fail "部分文字列の組で長い方の残りが出る: $(grep 'val=' "$d/se")"
+  reset_work
+  fake sc.exe 'echo "val=abcXdef"'
+  run_case 'ng_secret_values() { printf "%s\n" abcX Xdef; }
+sc.exe query
+die "前後が重なる"'
+  ! grep -q 'val=.*def' "$d/se" "$work/observed.log" && grep -qx 'val=\*\*\*' "$d/se" ||
+    fail "前後が重なる組で残りが出る: $(grep 'val=' "$d/se")"
 
   # timeout が無いときも、塊を出す最中の命令（sc.exe など）は記録に足さない（判定の記録を押し出さない）
   reset_work
   mkdir -p "$d/nto"
   for t in bash env grep sed awk tail head cat mktemp tr date rm ls mv cp sort mkdir cmp seq; do
+    command -v "$t" >/dev/null || fail "自己試験に要る道具が無い: $t"
     ln -sf "$(command -v "$t")" "$d/nto/$t"
   done
   fake sc.exe 'echo "REC-$2"'
