@@ -48,3 +48,25 @@ PR の head の commit そのものから組む」に例外を足すので、req
 - C3: design D3 の反転条件に当たる手順が `docs/release.md:151`（run の head_sha と配布物の印を比べる）に既にある。`draft.sh:45` の説明も使い回した run では正しくない
 - C4: 走っている st58 が `package-windows-test` を 6 つの成果物に分け、試験の台本 `update-apply-install.sh` を足す。D1（除く台本）・D2（保存する 2 つ）・CH17.md の「壊してはいけないもの」の成果物の名前が、st58 が先に main に入ると変わる
 - K1: `package-artifacts` は版と `LICENSE` を head の木から取る（ci.yml:549-559）。使い回しが通るのは `Cargo.toml` と `LICENSE` が鍵に入っている間だけ。:2261 の `MODIFIED` にこの条件を書く
+
+# 深掘り（第 2 回）
+
+> 下流の最後の段（settle）で、review/code.md の R5・R7（検査を走らせる job が無い）と R6（同じ PR の前の push の保存物を確かめずに使う）は、本人の範囲（Windows の 2 つの job だけ）と第 1 回の答え（Q1・Q2）に触れないと直せないので、A として本人に返す。問いは `deep-questions-r2.json`・`docs/briefs/CH17-deep-r2.html`。
+
+### Q3. 使い回しの形の検査（`--check-workflow`）を、Linux の CI の job で毎回走らせるか（R5・R7）
+
+- 問い: `windows-build-key.sh --check-workflow` とその自己試験を Linux の `chain` の job に 2 行足して PR ごとに走らせるか。本人の範囲（Windows の 2 つの job だけを変える）を 2 行越える
+- 答え: (未回答)
+- kind: premise
+- 出所: review/code.md R5（code-verify）・R7（/code-review）
+- 推奨: 足す（`chain` の job に 2 行。`package-windows` の自己試験の step は消す）
+- 族「使い回しの形を守る検査が、後の変更で走らない」: `--check-workflow` → Q3／鍵の `--self-test` → Windows の job で組み立てるとき（R10 の直し。Q3 で移すかも決まる）／`check-guards.sh workflows`・`check-ci-ch14-step.sh` → 既に CI で走る
+
+### Q4. 同じ PR の前の push が保存した組み立てを、後の run が確かめずに使う件（R6）
+
+- 問い: 同じ PR の前の push が保存した Windows の配布物（と Rust の `target`）を、後の run がそのまま使う形を、今のまま受け入れるか
+- 答え: (未回答)
+- kind: premise
+- 出所: review/code.md R6（security-review）
+- 推奨: 受け入れる（今のまま。残る危険を design の Risks と docs/release.md §11.1 に書く）。ほかの案: 保存を main への push に限る（Q1 を狭める）／使い回した run では release-package を上げない（Q2 を改める）
+- 族「PR から書けるキャッシュを、後の run が確かめずに使う」: 同じ PR の Windows の配布物・Rust の target → Q4／他の PR → 引けない（D2）／main の置き場 → PR から書けない／pgsql → sha256 で確かめる（既存）／release・nightly → 自分で組む

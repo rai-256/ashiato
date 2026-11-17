@@ -30,6 +30,8 @@
 
 鍵 = sha256（`git -C <repo の根> ls-tree -r --full-tree <checkout した commit>` の行のうち、除くパスを落としたもの ＋ 走っている run の CI の定義 ＋ 道具の版の行）。
 `--full-tree` と repo の根で読む（cwd に依らない。review R8）。repo の根が引けなければ落ちる。
+`-z` で読む（`core.quotePath` が日本語などの名前を引用符で包み、`docs/*`・`*.md` に当たらなくなるのを避ける。code review R9）。
+除くパスの一覧は spec の名指しの 6 つちょうどで、自己試験がそれを固定する（足しすぎを止める。code review R4）。
 
 - **除くもの（名指し）**: 試験の台本 `tools/release/install-check.sh`・`tools/release/update-check-install.sh`・`tools/release/conpty-run.ps1`（`install-check.sh` だけが読む）と、
   `changes.sh code` が「コードでない」とするもの（`docs/`・`openspec/` の下と `*.md`）。`build.sh`・`package.sh`・`notices.sh`・`pgsql.sh` はこの 3 つの台本を読まない
@@ -64,7 +66,12 @@
   `install-windows` と `package-artifacts` は何も変えない
 - 引けなかったら: 今と同じにビルドし、成功したときだけ `actions/cache/save` で保存する
 - job の `if:` と checkout は変えない。step の並び（`ch14_` → 2 つの `package.sh windows`）も変えない（Context の表の検査）
-- 鍵を出す step が落ちたら、鍵を空にして「引けなかった」と同じに扱う（既存の「比較できないときは全部走らせる」に合わせる）。台本の自己試験が落ちたら job を落とす
+- 鍵を出す step が落ちたら、鍵を空にして「引けなかった」と同じに扱う（既存の「比較できないときは全部走らせる」に合わせる）。台本の自己試験が落ちたら job を落とす。
+  自己試験は組み立てるときだけ走らせる（引けたときは、同じ台本・同じ ci.yml の run が自己試験を通して保存している。code review R10）
+- 走っている run の CI の定義は、run の commit が checkout した HEAD と同じ（main への push）なら HEAD から読み、fetch しない。PR の run だけ merge commit を浅く fetch し、
+  token は `git -c` の引数でなく `GIT_CONFIG_*` の環境変数で渡す（code review R12）
+- 鍵は commit の木から出すが、組み立ては作業木から組む。組み立ての後に追跡しているファイルが commit のままか（`git status --porcelain --untracked-files=no` が空か）を見て、
+  変わっていれば警告を出して保存しない（code review R13）
 
 退けた案: 前の run の成果物（artifact）を探して引く。`permissions: contents: read` を広げ（`actions: read`）、どの run を信じるかの判定が要る。キャッシュは
 PR ごとの置き場に分かれ、fork の PR の保存物は他の PR や main から引けない。

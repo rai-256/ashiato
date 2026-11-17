@@ -36,6 +36,7 @@
   `--check-workflow` を走らせれば 8 件とも実際に検査され `ok` を出す。担保はあるが、印が無い状態。
 - kind: technical
 - 提案: `scenario(...)` の呼び出しごとに `# Scenario: <名前>` のコメント（字面は spec と一字一句）を台本に置く。そのあと `check_scenarios.py` が rc=0 になることを確かめる。
+- 処置: fixed 2.2 — （`scenario(...)` の呼び出しごとに `# Scenario: <名前>` の印を spec と一字一句で置き、`print` は `"== %s: %s" % ("Scenario", name)` にして空の印を拾わせない。`check_scenarios.py` は rc=0・`scenarios: OK`）
 
 ## R2. `--check-workflow` は、restore を組み立ての後ろへ動かした ci.yml を通す。この形では、引けても毎回ビルドし、検査は緑のまま
 - 成果物: tools/release/windows-build-key.sh（`s_asis`・`s_skip`・`s_restore`）/ .github/workflows/ci.yml
@@ -48,6 +49,7 @@
   33 分の短縮（この change の目的）が無言で消え、どの検査も落ちない。自己試験の 13 通りの壊しの中に、並びの壊しは無い。
 - kind: technical
 - 提案: `s_skip`（か `s_asis`）に「`ch14_` の step と 2 つの `package.sh windows` の step は restore より後にある」を足す。`mutate` に「restore を組み立ての後ろへ動かした版」を足し、`--check-workflow` が落ちることを自己試験で見る。
+- 処置: fixed 2.2 — （`s_skip` に「`ch14_` と 2 つの `package.sh windows` は restore より後」と「restore の `cache-hit` を見る step は restore より後」を足し、`mutate` に restore を最初の upload の直前へ動かした版（n）を足した。指摘の版は `NG: step 7（ch14_ の試験か package.sh windows）が restore より前にある` で rc=1）
 
 ## R3. `--check-workflow` は、restore の `== 'pull_request'` を `!=` に変えた ci.yml を通す。この形では、PR は使い回さず、main への push が使い回す
 - 成果物: tools/release/windows-build-key.sh（`s_restore`）/ specs の Requirement「WHEN 幹（`main`）への push … 使い回さずにビルドする」
@@ -56,6 +58,7 @@
   自己試験の壊し (d) は条件を丸ごと消す版だけで、向きの反転は見ていない。spec の Scenario「前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く」と Requirement の main の SHALL を、字面の一部だけで固定している。
 - kind: technical
 - 提案: `s_restore` は `github.event_name == 'pull_request'` の完全な字面（`&&` で結んだ項の 1 つ）を見る。`mutate` に `!=` へ反転した版を足す。
+- 処置: fixed 2.2 — （`s_restore` は `if:` を `&&` の項に割り、`github.event_name == 'pull_request'` がちょうど 1 項としてあること・`||` と否定が無いことを見る。`mutate` に `!=` へ反転した版（o）を足した。指摘の sed の版は rc=1）
 
 ## R4. 除くパスの一覧の広げすぎを、どの試験も止めない（`crates/installer/*` や `tools/release/package.sh` を足しても自己試験は通る）
 - 成果物: tools/release/windows-build-key.sh（`EXCLUDE_PATHS`・自己試験）/ specs の Requirement「除くのは … だけ。名指ししていないファイルが 1 つでも変われば、鍵は変わる」
@@ -66,6 +69,7 @@
   広げすぎは「古い配布物で試験が通る」側に倒れる（design の Risks の 1 つ目）。今の一覧は spec と同じなので、いま壊れているものは無い。
 - kind: technical
 - 提案: 自己試験に「`EXCLUDE_PATHS` が spec の 6 項目とちょうど同じ」の確かめを足す（台本の配列を出して、固定の 6 行と比べる）。一覧を変えるときは、spec と自己試験を一緒に変えることになる。
+- 処置: fixed D1 — （自己試験の「組み立てに入るファイルが 1 つでも違えば、鍵が変わる」で、`EXCLUDE_PATHS` が spec の名指しの 6 つちょうどであることを比べる。`'crates/installer/*'`・`'tools/release/package.sh'` を足した写しの `--self-test` はどちらも `NG: 除くパスが spec の 6 つと違う` で rc=1。design D1 に追記）
 
 ## R5. `--check-workflow` を走らせる CI の job が無く、ci.yml の使い回しの形は merge の後に誰も見ない
 - 成果物: .github/workflows/ci.yml / tools/release/windows-build-key.sh / tasks.md 2.2（「Linux の手元と merge gate で走らせる」）/ design D2（ST58 が置き場を足したら「上げる置き場は全部、保存と引きの置き場に入る」が見る）
@@ -77,6 +81,7 @@
   直す先は Linux の job への 1 行で、tasks の Global Constraints（「`ci.yml` で変えてよいのは `package-windows` の job の step だけ」）の外になる。
 - kind: conflict
 - 提案: Linux の自己試験の job（`check-guards.sh --self-test` の並び）に `tools/release/windows-build-key.sh --check-workflow` と `--self-test` を足す。範囲を広げるかを人間に返す。広げないなら、design D2 の「`--check-workflow` が見る」を「merge gate の時点で一度だけ見る」に書き直す。
+- 処置: escalated — （範囲の外の job に足すかは本人の範囲「Windows の 2 つの job だけ」に触れる。deep.md 第 2 回 Q3・`docs/briefs/CH17-deep-r2.html`）
 
 ## 手 2: ガードをわざと壊す
 
@@ -150,12 +155,13 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
      design の Risks「キャッシュの中身の改竄」が扱うのは、他の PR と main からの汚染だけで、同じ PR の前の push は扱っていない
   - 起きるには PR の枝へ push できる者（グラフの agent か本人）が要る。途中の push を force-push で消せば、人間が merge の前に見る最後の diff には残らない。
     下書きは非公開。それでも `docs/release.md` §11.1 の確かめでは、人が下書きの zip を落としてインストールする
-- kind: conflict（D3「`package-artifacts` は変えない」は本人の決定 Q2 の範囲。直し方によっては、Q1 の「同じ PR の前の push を使い回す」も狭まる）
+- kind: conflict （D3「`package-artifacts` は変えない」は本人の決定 Q2 の範囲。直し方によっては、Q1 の「同じ PR の前の push を使い回す」も狭まる）
 - 提案: `save`（と cargo の cache の保存）を `github.event_name == 'push'`（main）に限る。PR は main が組んだものだけを引く。Q1 の範囲は狭まる。
   狭めないなら、`package-windows` の出力（`cache-hit`）を `package-artifacts` に渡し、使い回した run では `release-package` を上げない（D3 の反転の条件が挙げる案）。
   どちらにするかを人間に返す。
 
 範囲外: `release.yml` の pgsql のキャッシュ（`restore-keys: pgsql-`）は既存のもの。中身は pgsql.sh が sha256 で検証している。
+- 処置: escalated — （直し方はどちらも第 1 回の答え Q1（同じ PR の前の push を使い回す）か Q2（package-artifacts は変えない）を改める。受け入れる案も含めて deep.md 第 2 回 Q4 で本人に返す）
 
 ## /code-review（f62c86d..1dbe541）
 
@@ -166,39 +172,46 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 根拠: A later PR adds `restore-keys: windows-package-` to the restore step, or removes the `cache-hit` guard from a `package.sh windows` step. The script's header says the check runs "on Linux locally and in the merge gate", but grep finds it wired into nothing (no Linux job, no merge-gate script). On windows-latest the self-test prints "飛ばした" and exits 0, so CI stays green while stale or partial artifacts get reused.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: escalated — （R5 と同じ。CI のどの job で `--check-workflow` を走らせるかは deep.md 第 2 回 Q3。Windows で yaml を入れて走らせる案は新しい依存が要るので取らない）
 
 ## R8. `EXCLUDE_PATHS` copies the "not code" classification (`docs/*`, `openspec/*`, `*.md`) from `tools/release/changes.sh` (`^(docs/|openspec/)|\.md$`) instead of sharing one definition.
 - 成果物: tools/release/windows-build-key.sh:17
 - 根拠: Someone widens `changes.sh code` (for example to skip `.superpowers/`) but not the key script, or the other way round. The two lists drift silently: either reuse quietly stops happening, or a path that `package.sh` reads gets excluded from the key and a stale Windows zip is reused.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 共有すると `tools/release/changes.sh` を変えることになり、tasks の Global Constraints（`changes.sh` に触れない・`changes.sh code` の判定はそのまま）と design D1（`changes.sh` に足すと `deps` の判定が動き `vulns` の job が走る）に反する。指摘の危険な向き（鍵だけが広がり、組み立てが読むパスを除く）は R4 の直しで自己試験が止める（写しで `'tools/release/package.sh'` を足すと rc=1）。逆の向き（`changes.sh code` だけが広がる）は、その変更では `package-windows` 自体が走らないか、鍵が除かないパスが増えるだけで、使い回しが減る側に倒れ、古い配布物は使わない
 
 ## R9. Exclusion matching runs against `git ls-tree` output, which C-quotes non-ASCII or special paths (core.quotePath). A quoted path starts with `"` and ends with `.md"`, so neither `docs/*` nor `*.md` matches it.
 - 成果物: tools/release/windows-build-key.sh:299
 - 根拠: A doc with a Japanese file name, e.g. `docs/設計.md`, is listed as `"docs/\350...\.md"`. It is not excluded, so editing it changes the key and forces a full Windows rebuild that the design says should be skipped. Using `ls-tree -z` or `-c core.quotePath=false` would avoid this.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D1 — （`git ls-tree -r -z` と `read -r -d ''` で読み、名前を引用符で包ませない。前の版では `docs/設計.md` を足した木の鍵が `1e5a6793e861…` → `817a9c4d7a40…` と変わり、今の版では同じ `1e5a6793e861…` のまま。ASCII の木の鍵は前と同じ。自己試験の 1 つ目の Scenario に `docs/設計.md`・`openspec/説明 書.txt` を足した。design D1 に追記）
 
 ## R10. The full key self-test (temp repo, about 20 commits and checkouts, about 15 key computations) runs on every `package-windows` run on the Windows runner, which bills at 2x. It runs even when the cache hits and nothing is built.
 - 成果物: .github/workflows/ci.yml:465
 - 根拠: Every PR run with code changes spends extra Windows minutes on a pure-bash self-test that would give the same result in a Linux job such as `chain`/`package-linux`. That works against the CH17 goal of saving Windows minutes; the repo has already run out of its Actions budget once (2026-09-19).（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D2 — （`package-windows` の自己試験の step を restore の後へ動かし、`if: steps.reuse.outputs.cache-hit != 'true'` を付けた。引けたときは同じ台本・同じ ci.yml（どちらも鍵に入る）の run が自己試験を通して保存しているので、飛ばしても確かめは減らない。Linux へ移すかは Q3。design D2 に追記）
 
 ## R11. Every build with a new key saves a new `windows-package-<key>` cache containing both zips (each bundles PostgreSQL). It also saves a new Windows Rust `target` cache whenever Cargo.lock changes. Almost every code push changes the key, so most of these entries are never read.
 - 成果物: .github/workflows/ci.yml:525
 - 根拠: Several active PRs each push a few code commits and each push writes hundreds of MB of package cache in its PR scope, while Windows `target` caches add several more GB. That hits the 10 GB repo cache limit and LRU eviction removes main's `windows-package-*` and `pgsql-*` entries, which are the ones PRs could actually reuse. Reuse then quietly stops working.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 正しさの欠陥ではない。GitHub のキャッシュは置き場が溢れると最後に使った日時の古い順に消すので、誰も引かない保存物が先に消え、毎回引かれる `pgsql-` と、同じ PR が直前に保存したものは残る。消えたときは組み直す（CH17 の前と同じ）だけで、古い配布物を使うことは無い。今のキャッシュは `gh cache list` で `pgsql-` の 1 件（307.78 MiB）だけ。溢れて使い回しが効かないと分かったときの手は design D2 と D5 の反転条件（Rust のキャッシュを `~/.cargo` だけに絞る）が既に持つ
 
 ## R12. The step always runs `git fetch --depth=1 origin $RUN_SHA` and passes the token as a `-c http.extraheader=AUTHORIZATION: basic …` argument on the command line, even on push runs where RUN_SHA == HEAD and `git rev-parse HEAD:.github/workflows/ci.yml` would be enough.
 - 成果物: .github/workflows/ci.yml:477
 - 根拠: On push-to-main runs this adds a network round trip that can fail. A fetch failure leaves the key empty and nothing is saved for later PRs to reuse. The base64 token also appears in the process arguments of every child process on the runner, where `GIT_CONFIG_*` environment variables would keep it out.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D2 — （run の commit が checkout した HEAD と同じ（main への push）なら HEAD から ci.yml の blob を読み、fetch しない。PR の run だけ fetch し、token は `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` の環境変数で subshell の中だけに渡す。手元で step の run を走らせ、push 相当（RUN_SHA=HEAD）は fetch なしで鍵を出し、PR 相当（引けない sha・偽の token）は鍵を空にして警告を出した。design D2 に追記）
 
 ## R13. The key is built from `ls-tree` of the commit, but `package.sh` builds from the checked-out working tree. Nothing confirms that the two match, so on a dirty or modified working tree the key describes a different tree than the one actually built.
 - 成果物: tools/release/windows-build-key.sh:296
 - 根拠: Any step between checkout and package (now or added later, e.g. a codegen or `npm` step that rewrites tracked files) changes the build input but not the key. The saved cache entry then claims to be the build of commit X while its contents differ, and later PR runs with the same key reuse it.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed D2 — （upload の後・save の前に `id: tree` の step を足し、`git status --porcelain --untracked-files=no` が空のときだけ `clean=true` を出す。save の `if:` に `steps.tree.outputs.clean == 'true'` を足し、変わっていれば警告を出して保存しない。`s_save` がこの step と条件を見て、条件を外した版（p）で `--check-workflow` が落ちる。design D2 に追記）

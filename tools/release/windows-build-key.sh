@@ -52,7 +52,7 @@ def check(path):
     fails = []
 
     def scenario(name, fn):
-        print("== Scenario: " + name)
+        print("== %s: %s" % ("Scenario", name))
         try:
             msgs = fn()
         except Exception as e:  # 形が想定と違う（step が無いなど）も落ちとして数える
@@ -94,8 +94,11 @@ def check(path):
             m.append("restore の鍵が windows-package- と鍵の step の出力だけから成らない: %r" % rs["with"].get("key"))
             return m
         c = str(rs.get("if", ""))
-        if "pull_request" not in c:
-            m.append("restore の if: が pull_request を条件に持たない")
+        terms = [t.strip() for t in c.split("&&")]
+        if "||" in c or "!" in c.replace("!=", ""):
+            m.append("restore の if: が && で結んだ項だけから成らない: %r" % c)
+        if "github.event_name == \x27pull_request\x27" not in terms:
+            m.append("restore の if: が github.event_name == \x27pull_request\x27 を && の項に持たない")
         if "steps.%s.outputs.%s != \x27\x27" % (ks["id"], mm.group(1)) not in c:
             m.append("restore の if: が鍵が空でないことを条件に持たない")
         return m
@@ -113,6 +116,11 @@ def check(path):
         for i in ch + pk:
             if not_hit(rid) not in str(steps[i].get("if", "")):
                 m.append("step %d の if: が restore の cache-hit でないことを条件に持たない" % i)
+            if i < r:
+                m.append("step %d（ch14_ の試験か package.sh windows）が restore より前にある（cache-hit を見る前に組む）" % i)
+        for i in find(lambda s: ("steps.%s.outputs.%s" % (rid, HIT)) in str(s.get("if", ""))):
+            if i < r:
+                m.append("step %d の if: が、まだ走っていない restore の cache-hit を見る" % i)
         ups = {steps[i]["with"]["name"]: steps[i] for i in find(is_up)}
         for n in ("package-windows-release", "package-windows-test"):
             if n not in ups:
@@ -168,6 +176,17 @@ def check(path):
             m.append("save の if: が鍵が空でないことを条件に持たない")
         if "success()" not in c:
             m.append("save の if: が success() を条件に持たない")
+        tr = find(lambda s: "git status --porcelain --untracked-files=no" in str(s.get("run", "")))
+        if len(tr) != 1:
+            m.append("作業木が commit のままかを見る step が %d 個ある（1 個のはず）" % len(tr))
+        else:
+            pk = find(lambda s: "package.sh windows" in str(s.get("run", "")))
+            if pk and tr[0] < max(pk):
+                m.append("作業木を見る step が package.sh windows より前にある")
+            if tr[0] > sv:
+                m.append("作業木を見る step が save より後にある")
+            if "steps.%s.outputs.clean == \x27true\x27" % steps[tr[0]].get("id", "?") not in c:
+                m.append("save の if: が作業木が commit のままであることを条件に持たない")
         if ss["with"].get("key") != steps[r]["with"].get("key"):
             m.append("save の鍵が restore の鍵と違う")
         if set(paths_of(ss)) != set(paths_of(steps[r])):
@@ -228,13 +247,21 @@ def check(path):
                 m.append("%s の step が if: を持つ" % lst)
         return m
 
+    # Scenario: 前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く
     scenario("前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く", s_restore)
+    # Scenario: 引けたときだけ組み立てを飛ばし、今と同じ名前で上げる
     scenario("引けたときだけ組み立てを飛ばし、今と同じ名前で上げる", s_skip)
+    # Scenario: 上げる配布物は全部、保存と引きの置き場に入る
     scenario("上げる配布物は全部、保存と引きの置き場に入る", s_paths)
+    # Scenario: 使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる
     scenario("使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる", s_asis)
+    # Scenario: 組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する
     scenario("組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する", s_save)
+    # Scenario: 鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる
     scenario("鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる", s_tools)
+    # Scenario: ビルドするときは、Rust の依存のビルドを戻す
     scenario("ビルドするときは、Rust の依存のビルドを戻す", s_rust)
+    # Scenario: 使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる
     scenario("使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる", s_install)
     return 1 if fails else 0
 
@@ -277,6 +304,13 @@ def mutate(name, src, dst):
         k = ix(lambda s: "WINDOWS_BUILD_KEY_TOOLS" in str(s.get("run", "")))[0]
         drop = "$(rustc -V)|" if name == "l" else "|ci.yml=$blob"
         steps[k]["run"] = "\n".join(l.replace(drop, "") if "export WINDOWS_BUILD_KEY_TOOLS=" in l else l for l in steps[k]["run"].splitlines())
+    elif name == "p":
+        steps[sv]["if"] = re.sub(r"\s*&&\s*steps\.\w+\.outputs\.clean == \x27true\x27", "", steps[sv]["if"])
+    elif name == "n":
+        st = steps.pop(r)
+        steps.insert(ix(is_up)[0], st)
+    elif name == "o":
+        steps[r]["if"] = steps[r]["if"].replace("github.event_name == \x27pull_request\x27", "github.event_name != \x27pull_request\x27")
     else:
         raise SystemExit("unknown mutation " + name)
     with open(dst, "w", encoding="utf-8") as f:
@@ -294,7 +328,8 @@ key() {
     || { echo "windows-build-key: commit を引けない: $commit" >&2; return 2; }
   {
     printf 'tools:%s\n' "${WINDOWS_BUILD_KEY_TOOLS:-}"
-    git -C "$root" ls-tree -r --full-tree "$commit" | while IFS= read -r line; do
+    # -z: 名前を引用符で包まない（core.quotePath。`docs/設計.md` が `"docs/\350…"` になり除くパスに当たらなくなる）
+    git -C "$root" ls-tree -r -z --full-tree "$commit" | while IFS= read -r -d '' line; do
       path="${line#*$'\t'}"
       skip=0
       for pat in "${EXCLUDE_PATHS[@]}"; do
@@ -326,13 +361,13 @@ self_test_workflow() {
   fi
   echo "-- --check-workflow の自己試験"
   check_workflow "$ci" >/dev/null || { check_workflow "$ci"; echo "NG: 今の ci.yml が --check-workflow を通らない"; return 1; }
-  for m in a b c d e f g h i j k l m; do
+  for m in a b c d e f g h i j k l m n o p; do
     python3 -I -c "$CHECK_PY" mutate "$m" "$ci" "$work/mut-$m.yml" || { echo "NG: 変えた版 ($m) を作れない"; return 1; }
     rc=0
     check_workflow "$work/mut-$m.yml" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "NG: 変えた版 ($m) でも --check-workflow が通った"; return 1; }
   done
-  echo "ok: 変えた版 13 通りは全部落ちる"
+  echo "ok: 変えた版 16 通りは全部落ちる"
 }
 
 self_test() {
@@ -391,7 +426,18 @@ self_test() {
   [ "$k" != "$(cd "$t" && "$alt" "$base")" ] || { echo "NG: 除くパスを外しても鍵が変わらない（除くことが効いていない）"; return 1; }
   echo "ok"
 
+  # 日本語の名前の文書も除く（ls-tree の引用符に負けない）
+  k="$(key_with "$script" 'docs/設計.md=new doc' 'openspec/説明 書.txt=x')"
+  [ "$k" = "$base_key" ] || { echo "NG: 日本語の名前の文書で鍵が変わった"; return 1; }
+
   echo "== Scenario: 組み立てに入るファイルが 1 つでも違えば、鍵が変わる"
+  # 除くパスは spec の名指しの 6 つちょうど（足しすぎると、組み立てが読むファイルの変更で古い配布物を使い回す）。
+  # 一覧を変えるときは spec の Requirement とここを一緒に変える
+  local want got
+  want="$(printf '%s\n' 'tools/release/install-check.sh' 'tools/release/update-check-install.sh' \
+    'tools/release/conpty-run.ps1' 'docs/*' 'openspec/*' '*.md')"
+  got="$(printf '%s\n' "${EXCLUDE_PATHS[@]}")"
+  [ "$got" = "$want" ] || { echo "NG: 除くパスが spec の 6 つと違う:"; printf '%s\n' "$got"; return 1; }
   for f in crates/server/src/lib.rs migrations/ORDER web/src/App.tsx tools/release/build.sh tools/release/pgsql.lock \
            tools/licenses/a.txt LICENSE Cargo.toml collector-android/app.kt Cargo.lock .github/workflows/ci.yml; do
     k="$(key_with "$script" "$f=changed")"

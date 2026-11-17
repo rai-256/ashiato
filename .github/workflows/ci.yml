@@ -461,11 +461,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
-      # CH17 D1: 鍵の台本の自己試験。落ちたら job を落とす
-      - run: tools/release/windows-build-key.sh --self-test
-        shell: bash
       # CH17 D1・D2: 組み立ての鍵を出す。道具の版と、走っている run の CI の定義（github.sha の ci.yml の blob の id）を渡す。
-      # fetch か台本が落ちたら鍵を空にして続ける（引かずにビルドする）
+      # run の commit が checkout した HEAD と同じ（main への push）なら fetch しない。PR の run は merge commit を浅く fetch する
+      # （token は引数に置かず GIT_CONFIG_* の環境変数で渡す）。fetch か台本が落ちたら鍵を空にして続ける（引かずにビルドする）
       - id: wbk
         shell: bash
         env:
@@ -474,7 +472,15 @@ jobs:
         run: |
           echo "rustc=$(printf '%s' "$(rustc -V)" | tr -cs 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
           key=""
-          if blob="$(git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" fetch --quiet --depth=1 origin "$RUN_SHA" && git rev-parse "FETCH_HEAD:.github/workflows/ci.yml")"; then
+          src=""
+          if [ "$RUN_SHA" = "$(git rev-parse HEAD)" ]; then
+            src=HEAD
+          elif (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader \
+                  GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+                git fetch --quiet --depth=1 origin "$RUN_SHA"); then
+            src=FETCH_HEAD
+          fi
+          if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
             export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
             key="$(tools/release/windows-build-key.sh HEAD)" || key=""
           fi
@@ -489,6 +495,11 @@ jobs:
             ${{ runner.temp }}/package-windows
             ${{ runner.temp }}/package-windows-test
           key: windows-package-${{ steps.wbk.outputs.key }}
+      # CH17 D1: 鍵の台本の自己試験。組み立てるときだけ走らせ、落ちたら job を落とす
+      # （引けたときは同じ台本・同じ道具の版の run が自己試験を通して保存している。台本と ci.yml は鍵に入る）
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: tools/release/windows-build-key.sh --self-test
+        shell: bash
       # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
       - if: steps.reuse.outputs.cache-hit != 'true'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -523,8 +534,19 @@ jobs:
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-test, path: "${{ runner.temp }}/package-windows-test" }
-      # CH17 D2: ビルドしたとき（引けず・鍵が空でなく・ここまで成功）だけ、同じ鍵・同じ置き場で保存する
-      - if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != '' && success()
+      # CH17 D2: 鍵は commit の木から出すが、組み立ては作業木から組む。組み立ての後に、追跡しているファイルが鍵を出した
+      # commit のままかを確かめる（変わっていれば、鍵はこの組み立ての入力を表さないので保存しない）
+      - id: tree
+        if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != ''
+        shell: bash
+        run: |
+          dirty="$(git status --porcelain --untracked-files=no)"
+          if [ -z "$dirty" ]; then echo "clean=true" >> "$GITHUB_OUTPUT"; else
+            echo "::warning::組み立ての間に追跡しているファイルが変わったので、組み立てを保存しない: $(printf '%s' "$dirty" | head -5 | tr '\n' ' ')"
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+          fi
+      # CH17 D2: ビルドしたとき（引けず・鍵が空でなく・作業木が commit のまま・ここまで成功）だけ、同じ鍵・同じ置き場で保存する
+      - if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != '' && steps.tree.outputs.clean == 'true' && success()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
