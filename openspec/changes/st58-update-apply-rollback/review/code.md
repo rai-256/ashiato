@@ -90,6 +90,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R3. 同じ台本の「しない」の判定 3 本は、何も観測しなくても通る。self-test は Scenario の判定を 1 度も呼ばない
 - 成果物: tools/release/update-apply-install.sh / crates/installer/src/main.rs
@@ -117,6 +118,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R4. 移行が落ちて戻した回の理由が、spec と画面の試験の想定と違う。落ちた版の欄に前のアプリの版が入り、SQLSTATE は出ず、`db_ahead` と系統違いも「戻した・移行が途中で終わった」になる
 - 成果物: crates/installer/src/main.rs / web/e2e/st58-update-apply.spec.ts / specs/distribution/spec.md
@@ -491,6 +493,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R24. 戻しの履歴の種別が常に startup-failed で、移行失敗の戻しも同じ種別で記録される。画面の理由は outcomes 側で別に持つので影響は小さい。
 - 成果物: crates/installer/src/main.rs
@@ -528,6 +531,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R26. state.json を直接上書きし、fs::write の失敗を無視する。原子的でなく、書きかけで落ちると更新の印が壊れ、再開時に読めなくなる。
 - 成果物: crates/installer/src/main.rs write_migrate_failure
@@ -574,6 +578,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R29. finish_restored が履歴の種別を 'startup-failed' に固定し、印の migrate_exit_code・migrate_version・migrate_sqlstate を使わない。再開した戻しは migration-failed にならない。処置の「再開した戻しも印に残した値を使う」と食い違う。
 - 成果物: crates/installer/src/main.rs
@@ -607,6 +612,7 @@ ST01 と同じく、ずれはコマンドの rc ではなく「主張の階層�
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## final review（23b9b22..28f8571）
 
@@ -750,6 +756,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R37. spec が SHALL で求める携帯と PC の文が製品に無い（R7 の直しが不完全）
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateInstall.kt, crates/collector-windows/src/update_apply.rs, collector-android/app/src/test/kotlin/dev/ashiato/collector/St58UpdateInstallTest.kt
@@ -1109,6 +1116,7 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 判定: ADDRESSED（re-review 15 @a8a2fd578e73738e8536b7c38d68bf508c1c46ec）
 - 判定: ADDRESSED（re-review 17 @e73acf98c1feae082336cfc438be48ba573e206d）
 - 判定: ADDRESSED（re-review 19 @bec5a845c680642bee3c449b707f11ebd8cbb6af）
+- 判定: ADDRESSED（re-review 20 @72d042066b2edd1893723d7bb2a823dc29e9d0c2）
 
 ## R59. 互換の版 `0.0.0` は正式版の系統なので開発版を更新できず、値が outcomes・窓の文・更新の履歴・画面の帯に漏れる（R33・R51 の直しの副作用）
 - 成果物: crates/installer/src/main.rs, crates/installer/src/update_plan.rs
