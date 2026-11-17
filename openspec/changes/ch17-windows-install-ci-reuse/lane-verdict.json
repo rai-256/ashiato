@@ -33,5 +33,12 @@
    "tools/release/changes.sh",
    "tools/release/windows-build-key*.sh"
   ]
+ },
+ "promoted": {
+  "stage": "spec",
+  "why": [
+   "仕様の段で A が出た: (未回答)"
+  ],
+  "at": "2026-11-17T00:27:45+00:00"
  }
 }
