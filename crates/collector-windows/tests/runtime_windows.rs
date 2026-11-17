@@ -47,6 +47,100 @@ fn desktop() -> std::sync::MutexGuard<'static, ()> {
     DESKTOP.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+#[test]
+fn st58_update_notice_opens_the_update_window() {
+    // Scenario: PC は新しい版の通知を押すと、入れ替えの窓を開く
+    assert_eq!(ashiato_collector_windows::toast::UPDATE_TAG, "update");
+    let xml = ashiato_collector_windows::update_check::toast_xml("更新", "入れ替えますか");
+    assert!(xml.contains("入れ替えますか"));
+    assert!(xml.contains("更新"));
+    assert!(!xml.contains("update-rollback"));
+}
+
+#[test]
+fn st58_update_staged_directory_keeps_the_previous_executable_path() {
+    // Scenario: PC は y で新しい版に入れ替え、前の版の実行ファイルを残す
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("ashiato-collector-windows.exe");
+    std::fs::write(&old, b"old").unwrap();
+    let staged =
+        ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path()).version_dir("0.5.0");
+    std::fs::create_dir_all(&staged).unwrap();
+    std::fs::write(staged.join("ashiato-collector-windows.exe"), b"new").unwrap();
+    assert_eq!(
+        ashiato_collector_windows::update_apply::update_executable(
+            &staged,
+            ashiato_build_stamp::Channel::Official
+        )
+        .unwrap(),
+        staged.join("ashiato-collector-windows.exe")
+    );
+    assert_eq!(std::fs::read(&old).unwrap(), b"old");
+}
+
+#[test]
+fn st58_update_autostart_can_point_at_the_staged_executable() {
+    // Scenario: PC は新しい版が動き出してから、自動起動の台本を新しい版に向ける
+    let previous = autostart::startup_script(
+        std::path::Path::new(r"C:\state\ashiato-collector-windows.exe"),
+        &[
+            ("ASHIATO_STATE_DIR", r"C:\state".into()),
+            ("ASHIATO_DEVICE_ID", "pc-runtime".into()),
+        ],
+    );
+    let script = autostart::rewrite_for_setup(
+        &previous,
+        std::path::Path::new(r"C:\state\versions\0.5.0\ashiato-collector-windows.exe"),
+    );
+    assert!(script.contains(r"versions\0.5.0\ashiato-collector-windows.exe"));
+    assert!(script.contains(r#"set "ASHIATO_STATE_DIR=C:\state""#));
+    assert!(script.contains(r#"set "ASHIATO_DEVICE_ID=pc-runtime""#));
+}
+
+#[test]
+fn st58_update_missing_alive_means_rollback_is_needed() {
+    // Scenario: PC は新しい版が 1 分以内に動き出さなければ、前の版に戻して起こし直す
+    let dir = tempfile::tempdir().unwrap();
+    let layout = ashiato_collector_windows::update_apply::UpdateLayout::new(dir.path());
+    std::fs::write(
+        dir.path().join("update-alive.json"),
+        r#"{"version":"0.4.0","at":"2026-11-16T00:00:00Z"}"#,
+    )
+    .unwrap();
+    assert!(!ashiato_collector_windows::update_apply::wait_for_alive(
+        &layout,
+        "0.5.0",
+        Duration::ZERO
+    )
+    .unwrap());
+}
+
+#[test]
+fn st58_update_handoff_prevents_two_collectors_from_writing_at_once() {
+    // Scenario: PC は入れ替えの間、前の版と新しい版が同時に記録を積まない
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("update-handoff.json"),
+        r#"{"version":"0.5.0"}"#,
+    )
+    .unwrap();
+    assert!(ashiato_collector_windows::update_apply::take_handoff(dir.path()).unwrap());
+    assert!(!dir.path().join("update-handoff.json").exists());
+    ashiato_collector_windows::update_apply::acknowledge_handoff(dir.path()).unwrap();
+    assert!(dir.path().join("update-handoff.ack.json").exists());
+}
+
+#[test]
+fn st58_update_alive_survives_closing_the_update_window() {
+    // Scenario: PC は窓を閉じた後も、入れ替えた新しい版が動き続ける
+    let dir = tempfile::tempdir().unwrap();
+    ashiato_collector_windows::update_apply::write_alive(dir.path(), "0.5.0").unwrap();
+    let alive = std::fs::read_to_string(dir.path().join("update-alive.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&alive).unwrap();
+    assert_eq!(parsed["version"], "0.5.0");
+    assert!(parsed["at"].as_str().is_some_and(|at| at.ends_with('Z')));
+}
+
 const MIN_DWELL: chrono::Duration = chrono::Duration::seconds(1);
 const IDLE_THRESHOLD: chrono::Duration = chrono::Duration::seconds(2);
 
@@ -208,6 +302,19 @@ fn st56_dpapi_setup_has_no_plaintext_and_can_send() {
             request.push_str(&line);
         }
         assert!(request.contains("authorization: Bearer token-for-test-0123456789"));
+        // 本文を読み切ってから返す。読まずに閉じると Windows は RST を送り、送り手が
+        // 「確立された接続が中止された」（os error 10053）で落ちることがある（CI 43842116656）
+        let length = request
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .expect("content-length");
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).expect("request body");
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
             .expect("reply");

@@ -44,7 +44,8 @@ class St57UpdateQueryTest {
         assertTrue(lines.any { it.startsWith("Accept-Encoding: gzip") })
         val names = lines.drop(1).map { it.substringBefore(':').lowercase() }.toSet()
         assertTrue(names.all { it in setOf("host", "user-agent", "accept", "accept-encoding", "connection") })
-        val values = lines.drop(1).joinToString("\n")
+        // Host の行は試験のサーバの乱数のポートを持つ（エミュレータの OS の版 "15" が 41523 などに当たる。CI 43842116656）
+        val values = lines.drop(1).filterNot { it.startsWith("Host:", ignoreCase = true) }.joinToString("\n")
         assertFalse(values.contains(Build.MODEL, ignoreCase = true))
         assertFalse(values.contains(Build.VERSION.RELEASE, ignoreCase = true))
         assertFalse(values.contains(BuildConfig.VERSION_NAME, ignoreCase = true))

@@ -1086,7 +1086,7 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
     let command = args.first().copied().unwrap_or("install");
     if !matches!(
         command,
-        "install" | "password" | "repair" | "uninstall" | "update-check"
+        "install" | "password" | "repair" | "uninstall" | "update-check" | "rollback"
     ) {
         return Err(format!("不明な引数: {command}"));
     }
@@ -1096,6 +1096,12 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
             Some("off" | "on") => index += 1,
             _ => return Err("update-check は off または on を指定してください".into()),
         }
+    }
+    if command == "rollback" {
+        if args.len() > 2 || args.get(1).is_some_and(|arg| *arg != "--elevated") {
+            return Err("rollback は引数を受け取りません".into());
+        }
+        return Ok(command.to_owned());
     }
     while index < args.len() {
         match args[index] {
@@ -1110,6 +1116,88 @@ pub fn parse_args(args: &[&str]) -> Result<String, String> {
         }
     }
     Ok(command.to_owned())
+}
+
+pub fn update_history_record_rollback_command(
+    program: &Path,
+    pending_out: &Path,
+    new_version: &str,
+    previous_version: &str,
+    kind: &str,
+) -> SetupCommand {
+    SetupCommand::new(
+        program.display().to_string(),
+        [
+            "update-history",
+            "record-rollback",
+            "--new-version",
+            new_version,
+            "--previous-version",
+            previous_version,
+            "--kind",
+            kind,
+            "--pending-out",
+            &pending_out.display().to_string(),
+        ],
+    )
+}
+
+pub fn rollback_history_command(
+    program: &Path,
+    pending_out: &Path,
+    new_version: &str,
+    previous_version: &str,
+    kind: &str,
+    failed_version: Option<&str>,
+    sqlstate: Option<&str>,
+) -> SetupCommand {
+    let mut command = update_history_record_rollback_command(
+        program,
+        pending_out,
+        new_version,
+        previous_version,
+        kind,
+    );
+    if kind == "migration-failed" {
+        // 分からない値は空で渡し、サーバが列を NULL にする（新しい版の名前で埋めない。review/code.md R54）
+        command.args.extend([
+            "--failed-version".to_owned(),
+            failed_version.unwrap_or_default().to_owned(),
+            "--sqlstate".to_owned(),
+            sqlstate.unwrap_or_default().to_owned(),
+        ]);
+    }
+    command
+}
+
+pub fn update_history_replay_command(program: &Path, pending: &Path) -> SetupCommand {
+    SetupCommand::new(
+        program.display().to_string(),
+        ["update-history", "replay", &pending.display().to_string()],
+    )
+}
+
+/// 更新の置き場の ACL。サービス SID は登録済みのサービスでないと `icacls` が名前解決できない
+/// （1332）ので、サーバのサービスを登録した後に呼び、更新係は登録済みのときだけ ACE を付ける。
+pub fn update_directory_acl_command(layout: &Layout, updater_registered: bool) -> SetupCommand {
+    let mut args = vec![
+        format!(r"{}\update", layout.state_dir),
+        "/inheritance:r".into(),
+        "/grant:r".into(),
+        "*S-1-5-32-544:(OI)(CI)M".into(),
+        "*S-1-5-18:(OI)(CI)M".into(),
+        format!("{}:(OI)(CI)RX", service_principal(layout.server_service)),
+        // 仕様: サーバと DB のサービスのアカウントは読めるが書けない（distribution の「更新の途中の印」）。
+        // DB のサービスはサーバより先に登録するので、ここでは名前解決できる
+        format!("{}:(OI)(CI)RX", service_principal(layout.db_service)),
+    ];
+    if updater_registered {
+        args.push(format!(
+            "{}:(OI)(CI)RX",
+            service_principal(layout.updater_service)
+        ));
+    }
+    icacls(args)
 }
 
 /// 引数の値を読む（`parse_args` で形を確かめた後に使う）。
