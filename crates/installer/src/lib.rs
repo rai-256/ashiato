@@ -619,7 +619,10 @@ mod tests {
         let db = commands::service_sid(layout.db_service);
         let without = commands::update_directory_acl_command(&layout, false).line();
         assert!(without.contains(&server));
-        assert!(without.contains(&format!("{db}:(OI)(CI)RX")), "DB のサービスは更新の印を読める（仕様）");
+        assert!(
+            without.contains(&format!("{db}:(OI)(CI)RX")),
+            "DB のサービスは更新の印を読める（仕様）"
+        );
         assert!(!without.contains(&updater));
         let with = commands::update_directory_acl_command(&layout, true).line();
         assert!(with.contains(&server) && with.contains(&updater));
