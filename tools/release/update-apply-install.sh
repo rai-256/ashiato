@@ -304,10 +304,19 @@ json_value() {
   "$python_bin" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))' "$file" "$key"
 }
 
+# owner.json の形（有無と鍵の名前）。値は出さない
+owner_settings_shape() {
+  local file='C:/ProgramData/ashiato/settings/owner.json' python_bin
+  [[ -e "$file" ]] || { printf 'absent'; return 0; }
+  if command -v python >/dev/null 2>&1; then python_bin=python; else python_bin=python3; fi
+  "$python_bin" -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); print("keys=" + ",".join(sorted(d)) if isinstance(d, dict) else "not-an-object", end="")' "$file" 2>&1 || true
+}
+
 owner_sql() {
   local url
   url="$(json_value 'C:/ProgramData/ashiato/settings/owner.json' DATABASE_OWNER_URL | tr -d '\r')"
-  [[ "$url" == postgres://* ]] || die '所有者の設定に表の所有者の接続が無い'
+  # 接続の値は秘密を含むので出さない。ファイルの有無と鍵の名前だけを添える
+  [[ "$url" == postgres://* ]] || die "所有者の設定に表の所有者の接続が無い（owner.json: $(owner_settings_shape)）"
   PGPASSFILE=NUL MSYS2_ARG_CONV_EXCL='*' 'C:/Program Files/ashiato/pgsql/bin/psql.exe' -X -A -t -q -w -v ON_ERROR_STOP=1 -d "$url" -c "$1" | tr -d '\r'
 }
 
@@ -539,8 +548,9 @@ run_scenario() {
   fi
   settings_before="$(settings_fingerprint)"
   backups_before="$(completed_backup_count)"
-  history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' 2>/dev/null || printf unavailable)"
-  failed_before="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" 2>/dev/null || printf unavailable)"
+  # owner_sql の die は $(...) の中で exit するので || printf unavailable に届かない。その理由（die の 1 行と出力の末尾）を捨てないよう stderr は塞がない
+  history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
+  failed_before="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
   printf 'failed-databases-before=%s\n' "$failed_before" >>"$trace"
   retry_output=''
   final_zip="$new_zip"
@@ -623,9 +633,9 @@ run_scenario() {
       printf 'installed-version-dev=%s\n' "$(server_version_at 'C:/Program Files/ashiato-dev/ashiato-server.exe')"
     printf 'settings-before=%s\nsettings-after=%s\n' "$settings_before" "$(settings_fingerprint)"
     printf 'backups-before=%s\nbackups-after=%s\n' "$backups_before" "$(completed_backup_count)"
-    history_after="$(owner_sql 'SELECT count(*) FROM core.update_history' 2>/dev/null || printf unavailable)"
+    history_after="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
     printf 'history-before=%s\nhistory-after=%s\n' "$history_before" "$history_after"
-    failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" 2>/dev/null || printf unavailable)"
+    failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
     printf 'failed-databases=%s\n' "$failed_databases"
     update_check_enabled="$(json_value 'C:/ProgramData/ashiato-updater/settings/check.json' enabled 2>/dev/null || printf unavailable)"
     printf 'update-check-enabled=%s\n' "${update_check_enabled,,}"
