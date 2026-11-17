@@ -226,3 +226,67 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D2 — （upload の後・save の前に `id: tree` の step を足し、`git status --porcelain --untracked-files=no` が空のときだけ `clean=true` を出す。save の `if:` に `steps.tree.outputs.clean == 'true'` を足し、変わっていれば警告を出して保存しない。`s_save` がこの step と条件を見て、条件を外した版（p）で `--check-workflow` が落ちる。design D2 に追記）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+
+## final review（f62c86d..abd2843）
+
+見た: `superpowers:requesting-code-review` の `code-reviewer.md`（whole-branch）。Task 1・2 の指摘の記録（`task-1-findings.md`・`task-2-findings.md`）の Minor と ⚠️ も振り分けた。
+手元の結果: `--self-test`・`--check-workflow`・`check-guards.sh workflows`・`check-guards.sh --self-test`・`check-ci-ch14-step.sh` は rc=0。`check_scenarios.py` は `scenarios: OK`。tasks 2.3 の 4 本目だけ rc=1（R14）。
+Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉じた。F2 は R17、F4 は R18 に写した。Task 2 F1 は ADDRESSED。F2 は R15、F3 は R16 に写した。
+⚠️ のうち次の 3 つは差分からは確かめられない。最初の PR の run で見る（完了の判定 2〜3）: Git Bash で鍵を出せるか・`chain`（ubuntu-24.04）で `import yaml` できるか・merge commit の fetch。
+
+## R14. tasks 2.3 の検証コマンド（merge-base との比較）が HEAD で rc=1。`[x]` と証跡は Q3 より前のまま
+- 成果物: openspec/changes/ch17-windows-install-ci-reuse/tasks.md（2.3 の 4 本目）/ openspec/changes/ch17-windows-install-ci-reuse/evidence.jsonl
+- 根拠: tasks 2.3 の python の比較（「`package-windows` 以外の job は 1 字も変わらない」）を HEAD で走らせると `AssertionError`、rc=1 だった（final の席で再現した）。
+  - 原因: 深掘り第 2 回 Q3 の答えで、`chain` の job に `windows-build-key.sh --self-test` と `--check-workflow` の 2 step を足した（b5e319f5b）。
+  - `evidence.jsonl` の 2.3 は Q3 より前の 77a86c5d3 で取ったもので、`evidence.py check` は `[OK]` を返す。
+  - reviewer の調べでは、`chain` で増えたのはこの 2 step だけで、消えた step も他のキーの変化も無い。Q3 が許した範囲どおりだが、今これを固定している検査は無い。
+- kind: technical
+- 提案:
+  - 2.3 のコマンドで `chain` も 1 字比較から外す。代わりに「`chain` の step は merge-base の並びに、ちょうどその 2 step を足しただけ」を assert する。
+  - 走らせ直して証跡を取り直す。
+
+## R15. `s_asis` は 2 つの `upload-artifact` の間の step を見ない。引いた置き場を、上げる前に書き換えても `--check-workflow` が通る（Task 2 F2 が残っている）
+- 成果物: tools/release/windows-build-key.sh（`s_asis`。`range(r + 1, ups[0])`、:155 付近）
+- 根拠: 1 つ目の `upload-artifact` の直後に、`if:` の無い `- run: echo x > "$RUNNER_TEMP/package-windows-test/x"` を足した ci.yml の写しを作った（diff は 1 行）。`tools/release/windows-build-key.sh --check-workflow <写し>` は **rc=0** だった（final の席で再現した）。
+  本人の決定 Q2（使い回した配布物は組んだ commit のまま上げる）を守る検査に穴があり、検査は緑のまま。
+- kind: technical
+- 提案: 見る範囲を最後の upload の手前まで広げる（upload の step 自体は除く）。`mutate` に、この版を足す。
+
+## R16. `if:` の検査は restore 以外は部分文字列の一致のまま。`|| always()` を足しても通る（Task 2 F3。R3 の直しは restore だけ）
+- 成果物: tools/release/windows-build-key.sh（`s_skip`・`s_asis`・`s_save`・`s_rust` が使う `not_hit` の比べ方）
+- 根拠: reviewer が次の 3 版を作り、`--check-workflow` がどれも rc=0 になるのを確かめた。
+  - `package.sh windows` の `if:` に `|| always()` を足した版
+  - save の `if:` に `|| always()` を足した版
+  - Rust の cache の `if:` に `… || true` を足した版
+- kind: technical
+- 提案: これらの検査も `s_restore` と同じく `if:` を `&&` の項に割り、`||` と否定を拒む。`mutate` に `|| always()` の版を足す。
+
+## R17. 鍵を出す途中で落ちても、64 桁のハッシュが標準出力に出る（Task 1 F2。再現した）
+- 成果物: tools/release/windows-build-key.sh（:329-341 付近）
+- 根拠: reviewer が部分木の object を消した git の木で `windows-build-key.sh HEAD` を走らせると、rc=1 なのに 64 桁のハッシュが出た。spec の約束「何も出さずに落ちる」に反する。
+  CI は `|| key=""` で捨てるので、今は実害が無い。
+- kind: technical
+- 提案: 結果を変数に受け、全部が成功したときだけ出す。
+
+## R18. 自己試験の `trap "rm -rf '$work'" EXIT` がパスの `'` に弱い（Task 1 F4）
+- 成果物: tools/release/windows-build-key.sh（:377 付近）
+- 根拠: `$work` を二重引用符の中で展開して、単引用符で包んでいる。`mktemp -d` の置き場（`TMPDIR`）に `'` があると、trap の命令が壊れる。実害は小さい。
+- kind: technical
+- 提案: `trap 'rm -rf "$work"' EXIT` にする。
+
+## R19. `docs/testing.md` の「使い回しを止めたいとき: `EXCLUDE_PATHS` を空にする」が R4 の直しと食い違い、止めたことにもならない
+- 成果物: docs/testing.md
+- 根拠:
+  - R4 の直しで、自己試験は `EXCLUDE_PATHS` が spec の 6 つちょうどであることを見る。空にすると `chain` の `--self-test` が「除くパスが spec の 6 つと違う」で落ちる。
+  - 空にしても、同じ木の Re-run は鍵が完全一致するので使い回す。止めたことにならない。
+- kind: technical
+- 提案: 止める手順は `gh cache delete`（か、鍵の接頭辞を変える）だけにする。
+
+## R20. Q3 と直しの後で古くなった記述が残っている
+- 成果物: openspec/changes/ch17-windows-install-ci-reuse/design.md / openspec/changes/ch17-windows-install-ci-reuse/proposal.md / openspec/changes/ch17-windows-install-ci-reuse/tasks.md
+- 根拠:
+  - `design.md:47` は、`--check-workflow` が見るのを「CI の定義の 2 つの Scenario」と書く。実際は 8 つ。
+  - `proposal.md:19` と tasks 2.1 の本文は、自己試験を `package-windows` で走らせると書く。Q3 で、その step は消した。
+  - tasks 2.2 の本文は、変えた版を (a)〜(k) と書く。実際は (a)〜(p) の 16 通り。「Windows の runner の自己試験はこの節を飛ばす」も古い。
+- kind: technical
+- 提案: 今の形に書き直す。
