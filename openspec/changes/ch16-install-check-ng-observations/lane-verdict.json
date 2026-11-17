@@ -34,5 +34,38 @@
    "tools/release/update-check-install.sh",
    "tools/release/check-*.sh"
   ]
+ },
+ "diff": {
+  "ok": true,
+  "why": [],
+  "reason": "same",
+  "base": "7109e94aa827035ce99b09d07de55c523bd517b8",
+  "head": "f6b1838c06ef1ab8b74f872ce1f76bb7bda25cda",
+  "paths": [
+   "docs/testing.md",
+   "tools/release/check-ng-observations.sh",
+   "tools/release/install-check.sh",
+   "tools/release/update-check-install.sh"
+  ],
+  "classes": [
+   "docs",
+   "risky"
+  ],
+  "code": [
+   "tools/release/check-ng-observations.sh",
+   "tools/release/install-check.sh",
+   "tools/release/update-check-install.sh"
+  ],
+  "code_tasks": 3,
+  "seats": {
+   "task_review": "常に",
+   "code_review": "常に",
+   "merge_gate": "常に",
+   "code_verify": "本番のコードに触れる（tools/release/check-ng-observations.sh, tools/release/install-check.sh, tools/release/update-check-install.sh）",
+   "final_review": "本番のコードを 3 Task で触った",
+   "security_review": "risky に触れる"
+  },
+  "grounds": [],
+  "at": "2026-11-17T00:36:43+00:00"
  }
 }
