@@ -30,7 +30,7 @@
 
 ## Task 1: 観測を出す部品と、出さない道を落とす検査
 
-- [ ] 1.1 `tools/release/check-ng-observations.sh` を作る。2 つの役を持つ（design D5）:
+- [x] 1.1 `tools/release/check-ng-observations.sh` を作る。2 つの役を持つ（design D5）:
   - **`source` されたとき**: 観測を出す部品を定義する —— `ng_report`・`die`・`die_seen`（design D1）、観測の命令を包む関数と記録する口 `ng_observed`
     （design D2）、共通の様子（design D3。`NG_STATE_DIR`・`NG_SETTINGS_FILES`・`NG_HEALTHZ_URL`・`NG_OBSERVED_DIR` を渡されたものだけ）、伏せる関数（design D4。
     伏せる値は台本が定義する `ng_secret_values` から集め、定義が無ければ値の伏せは見出しの形だけにして記録とファイルの末尾は出さない）
