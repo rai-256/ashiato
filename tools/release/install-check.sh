@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-die() { echo "NG: $*" >&2; exit 1; }
+# 観測を出す部品（die・die_seen・ng_report と、命令の記録の包み）。NG の行は部品の口だけが出す（CH16）
+. "$root/tools/release/check-ng-observations.sh"
 usage() { echo "使い方: $0 <配布 zip> | --self-test | --list | --probe-console | --check-coverage <change>" >&2; exit 2; }
 
 scenario_names=(
@@ -207,14 +208,14 @@ acl_perm() {
 # ACL の主体が、与えた主体だけであることを見る（受け継いだ ACE も主体として数える）。
 assert_acl_only() {
   local lines="$1" what="$2"; shift 2
-  [[ -n "$lines" ]] || die "$what の ACL を読めない"
+  [[ -n "$lines" ]] || die_seen "$what の ACL を読めない" "$lines"
   local principal allowed ok
   while IFS=$'\t' read -r principal _; do
     ok=0
     for allowed in "$@"; do
       [[ "${principal,,}" == "${allowed,,}" ]] && ok=1
     done
-    [[ "$ok" == 1 ]] || die "$what の ACL に余計な主体がある: $principal"
+    [[ "$ok" == 1 ]] || die_seen "$what の ACL に余計な主体がある: $principal" "$lines"
   done <<<"$lines"
 }
 
@@ -227,36 +228,36 @@ assert_acl_not_inherited() {
 # 権限が読みだけ（RX）で、書き（M・F・W）を持たない。
 assert_read_only_perm() {
   local perm="$1" what="$2"
-  [[ -n "$perm" ]] || die "$what の項目が無い"
-  grep -Fq '(RX)' <<<"$perm" || die "$what が読みでない: $perm"
-  ! grep -Eq '\((M|F|W|D)\)|\(M,|,W|WD|AD' <<<"$perm" || die "$what が書きを持つ: $perm"
+  [[ -n "$perm" ]] || die_seen "$what の項目が無い" "$perm"
+  grep -Fq '(RX)' <<<"$perm" || die_seen "$what が読みでない: $perm" "$perm"
+  ! grep -Eq '\((M|F|W|D)\)|\(M,|,W|WD|AD' <<<"$perm" || die_seen "$what が書きを持つ: $perm" "$perm"
 }
 
 assert_modify_perm() {
   local perm="$1" what="$2"
-  grep -Eq '\((M|F)\)' <<<"$perm" || die "$what が読み書きを持たない: ${perm:-（項目が無い）}"
+  grep -Eq '\((M|F)\)' <<<"$perm" || die_seen "$what が読み書きを持たない: ${perm:-（項目が無い）}" "$perm"
 }
 
 # sc.exe qc の出力: 自動で起き、サービスの仮想アカウントで動く。
 assert_service_config() {
   local qc="$1" service="$2"
-  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' <<<"$qc" || die "$service が自動で起きる形でない"
+  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' <<<"$qc" || die_seen "$service が自動で起きる形でない" "$qc"
   grep -Eiq "SERVICE_START_NAME[[:space:]]*:[[:space:]]*NT SERVICE\\\\$service[[:space:]]*\$" <<<"${qc//$'\r'/}" ||
-    die "$service がサービス専用のアカウントで動かない"
+    die_seen "$service がサービス専用のアカウントで動かない" "$qc"
 }
 
 # sc.exe qfailure の出力: 異常に終わると起こし直す。
 assert_restart_on_failure() {
   local qfailure="$1" service="$2"
-  grep -Eiq 'RESTART' <<<"$qfailure" || die "$service の回復の設定に起こし直しが無い"
+  grep -Eiq 'RESTART' <<<"$qfailure" || die_seen "$service の回復の設定に起こし直しが無い" "$qfailure"
 }
 
 assert_db_watch_acl() {
   local sddl="$1" server_sid="$2"
   local dacl="${sddl%%S:*}"
-  grep -Fq "(A;;LCRP;;;$server_sid)" <<<"$dacl" || die 'DB のサービスにサーバの状態読み・開始の権限が無い'
+  grep -Fq "(A;;LCRP;;;$server_sid)" <<<"$dacl" || die_seen 'DB のサービスにサーバの状態読み・開始の権限が無い' "$sddl"
   ! grep -Eq "\(A;;[^;]*(WP|DC)[^;]*;;;${server_sid//\/\\}\)" <<<"$dacl" ||
-    die 'DB のサービスにサーバの停止・設定変更権限がある'
+    die_seen 'DB のサービスにサーバの停止・設定変更権限がある' "$sddl"
 }
 
 # sc.exe query の出力の状態の番号（4 = RUNNING・1 = STOPPED）。
@@ -268,14 +269,14 @@ service_state_of() {
 assert_loopback_listener_only() {
   local netstat="$1" port="$2"
   grep -Eq "^[[:space:]]*TCP[[:space:]]+127\\.0\\.0\\.1:$port[[:space:]].*:0[[:space:]]" <<<"$netstat" ||
-    die "127.0.0.1:$port で待ち受けていない"
+    die_seen "127.0.0.1:$port で待ち受けていない" "$netstat"
   ! grep -Eq "^[[:space:]]*TCP[[:space:]]+(0\\.0\\.0\\.0|\\[::\\]):$port[[:space:]]" <<<"$netstat" ||
-    die "$port が手元の外のアドレスで待ち受けている"
+    die_seen "$port が手元の外のアドレスで待ち受けている" "$netstat"
 }
 
 # pg_hba.conf の有効な行に trust が無い。
 assert_no_trust() {
-  ! grep -Ev '^[[:space:]]*(#|$)' <<<"$1" | grep -Ewq 'trust' || die 'pg_hba.conf の有効な行に trust がある'
+  ! grep -Ev '^[[:space:]]*(#|$)' <<<"$1" | grep -Ewq 'trust' || die_seen 'pg_hba.conf の有効な行に trust がある' "$1"
 }
 
 # 文の中に秘密（$2 以降）の値が 1 つも無い。値は出さず、項目の番号だけを示す。
@@ -392,6 +393,27 @@ secret_values() {
   setting API_TOKEN; setting WEB_SESSION_KEY; setting WEB_PASSWORD_VERIFIER
   url_password "$(setting DATABASE_URL)"; url_password "$(owner_setting DATABASE_OWNER_URL)"
 }
+# 観測で伏せる値を 1 行ずつ出す（部品が呼ぶ。design D4）。字面の合言葉と台本が作った利用者の合言葉は、設定を読めなくても出す。
+# 設定のファイルが無ければ rc=0、あるのに読めない・形が読めないときだけ rc≠0（部品は記録とファイルの末尾を出さない）。
+# 設定は 1 つのファイルにつき Python を 1 回だけ起こす（命令の記録のたびに呼ばれる）
+ng_secret_values() {
+  printf '%s\n' "$PW1" "$PW2" "${OTHER_PASSWORD:-}" "${ADMIN_B_PASSWORD:-}" "${ADMIN_NONASCII_PASSWORD:-}"
+  [[ ! -e "$SETTINGS" ]] || ng_read_secrets "$SETTINGS" API_TOKEN WEB_SESSION_KEY WEB_PASSWORD_VERIFIER DATABASE_URL || return 1
+  [[ ! -e "$OWNER_SETTINGS" ]] || ng_read_secrets "$OWNER_SETTINGS" DATABASE_OWNER_URL || return 1
+  return 0
+}
+# 設定のファイル $1 の、キー（$2 以降）の秘密を 1 行ずつ出す。キーが URL で終わるものは接続の合言葉を出す
+ng_read_secrets() {
+  PY -c '
+import json, sys, urllib.parse
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+for k in sys.argv[2:]:
+    v = str(d.get(k, "") or "")
+    if k.endswith("_URL"):
+        v = urllib.parse.unquote(urllib.parse.urlparse(v).password or "")
+    print(v)' "$@" | tr -d '\r'
+  return "${PIPESTATUS[0]}"
+}
 # Git Bash 自身にも GNU の whoami.exe があり、PATH から呼ぶと Windows の /groups などを
 # 引数として受け取れない。Windows 本体の実行ファイルを必ず使う。
 windows_whoami() {
@@ -412,7 +434,7 @@ windows_net() {
 windows_netsh() {
   local windows_dir
   windows_dir="$(cygpath -u "${WINDIR:-${SystemRoot:-C:\\Windows}}")"
-  MSYS2_ARG_CONV_EXCL='*' "$windows_dir/System32/netsh.exe" "$@"
+  MSYS2_ARG_CONV_EXCL='*' ng_observed_exec netsh.exe "$windows_dir/System32/netsh.exe" "$@"
 }
 block_outbound_program() {
   local rule="$1" program="$2" remote_ip="$3"
@@ -672,13 +694,12 @@ install_with() {
   if [[ "$rc" == 124 || "$rc" == 137 ]]; then
     # 呼び手は出力を $out へ向け、「失敗するはず」の Scenario では失敗を合格と読む。止まったことを紛れさせないよう、
     # 呼び手の向け先でない元の標準エラー（fd 9）へ書き、その場で落とす
-    {
-      echo "NG: インストーラ（$*）が ${limit} 秒で戻らない"
-      # 呼び手の多くは出力を $out へ向ける（bash の動的な見え方で呼び手の local が見える）
-      [[ -n "${out:-}" && -f "${out:-}" ]] && tail -n 80 "$out"
-      tasklist.exe /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'ashiato|postgres|pg_ctl|psql|takeown|icacls|powershell|sc\.exe' || true
-    } >&9
-    exit 1
+    local seen=''
+    # 呼び手の多くは出力を $out へ向ける（bash の動的な見え方で呼び手の local が見える）
+    [[ -z "${out:-}" || ! -f "${out:-}" ]] || seen="$(tail -n 80 "$out")"$'\n'
+    seen+="$(tasklist.exe /FO CSV /NH 2>/dev/null | tr -d '\r' | grep -Ei 'ashiato|postgres|pg_ctl|psql|takeown|icacls|powershell|sc\.exe' || true)"
+    ng_report "インストーラ（$*）が ${limit} 秒で戻らない" "$seen" 9
+    exit 1 # ng-observations: 呼び手が標準エラーを向け替えるので fd 9 へ出す
   fi
   return "$rc"
 }
@@ -694,6 +715,8 @@ common_setup() {
   windows_whoami /groups | grep -Fq 'S-1-16-12288' || die 'P17: 上がった札（High Mandatory Level）で動いていない'
   [[ -f "$archive" ]] || die "配布 zip が無い: $archive"
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-install.XXXXXX")"
+  # 観測の部品へ渡す名前（design D3）。命令の記録と伏せる値は $WORK の中だけに置く
+  NG_STATE_DIR="$STATE" NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS" NG_HEALTHZ_URL="$URL/healthz" NG_OBSERVED_DIR="$WORK"
   unzip -q "$archive" -d "$WORK/unpacked"
   SETUP="$WORK/unpacked/ashiato-setup.exe"
   [[ -f "$SETUP" && -f "$WORK/unpacked/ashiato-server.exe" && -f "$WORK/unpacked/pgsql/bin/postgres.exe" ]] ||
@@ -712,13 +735,32 @@ common_setup() {
   powershell.exe -NoProfile -NonInteractive -Command 'Set-Culture ja-JP' || die '地域の設定を ja-JP にできない'
   trap common_teardown EXIT
   make_users
+  observation_probe
+}
+
+# 観測の塊を本物の命令（Git Bash の timeout・本物の sc.exe と curl）で一度出し、見出しの 2 行と 3 つのサービスの
+# sc.exe の答えの行（まだ無ければ無いという答え）があることを見る。緑の CI は NG の道を通らないので、塊の Windows の部分が
+# 壊れていても、観測が要る回まで分からない（design D7）。出力は標準エラーへ（標準出力を変えない）
+# Scenario: CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る
+observation_probe() {
+  local block service
+  block="$( ( ng_report '観測の塊の確かめ（NG ではない）' ) 2>&1 )" || true
+  grep -Fxq '== 観測（ここから）' <<<"$block" && grep -Fxq '== 観測（ここまで）' <<<"$block" ||
+    die_seen '観測の塊の見出しが出ない' "$block"
+  for service in ashiato-db ashiato-server ashiato-updater; do
+    # 答えの行は SERVICE_NAME: <名前>（あるとき）か [SC] …（無いとき）。どちらも言語に依らない
+    grep -A1 -Fx -- "-- sc.exe queryex $service" <<<"$block" | tail -n 1 | grep -Eq '^(SERVICE_NAME:|\[SC\])' ||
+      die_seen "観測の塊に $service の sc.exe の答えの行が無い" "$block"
+  done
+  grep -Eq '^healthz HTTP [0-9]{3}$' <<<"$block" || die_seen '観測の塊に healthz の番号の行が無い' "$block"
+  { echo '== 観測の塊を本物の命令で一度出した（NG ではない）'; sed 1d <<<"$block"; } >&2
 }
 
 common_teardown() {
   local exit_code=$?
   if (( FIREWALL_RULE_COUNT > 0 )); then
     clear_outbound_block_rules "$FIREWALL_RULE_COUNT" || {
-      echo 'NG: 外向き遮断の規則を外せない' >&2
+      ng_report '外向き遮断の規則を外せない'
       [[ "$exit_code" != 0 ]] || exit_code=1
     }
   fi
@@ -1469,13 +1511,13 @@ console_probe() {
   export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
   if command -v wslpath >/dev/null 2>&1; then
     ps=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
-    [[ -x "$ps" ]] || { echo 'Windows の PowerShell が無い' >&2; exit 2; }
+    [[ -x "$ps" ]] || { echo 'Windows の PowerShell が無い' >&2; exit 2; } # ng-observations: 窓の試験を走らせられない環境
     script="$(wslpath -w "$root/tools/release/conpty-run.ps1")"
   elif command -v powershell.exe >/dev/null 2>&1; then
     ps=powershell.exe
     script="$(cygpath -w "$root/tools/release/conpty-run.ps1")"
   else
-    echo 'Windows の PowerShell が無い' >&2; exit 2
+    echo 'Windows の PowerShell が無い' >&2; exit 2 # ng-observations: 窓の試験を走らせられない環境
   fi
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-console.XXXXXX")"
   trap "rm -rf '$work'" EXIT
@@ -1571,13 +1613,13 @@ EOF
     WINDIR="$fake_windows" windows_net user test /add
   )"
   [[ "$whoami_output" == 'user test /add ' ]] || die 'Windows 本体の net.exe を選べない'
-  cat >"$fake_windows/System32/netsh.exe" <<'EOF'
+  cat >"$fake_windows/System32/netsh.exe" <<'EOF' # ng-observations: 偽の netsh を置く自己試験
 #!/usr/bin/env bash
 printf '<%s>\n' "$@"
 if [[ -n "${NETSH_LOG:-}" ]]; then printf '<%s>\n' "$@" >>"$NETSH_LOG"; fi
 if [[ "${NETSH_FAIL_RULE:-}" == "${!#}" ]]; then exit 1; fi
 EOF
-  chmod +x "$fake_windows/System32/netsh.exe"
+  chmod +x "$fake_windows/System32/netsh.exe" # ng-observations: 偽の netsh を置く自己試験
   whoami_output="$(
     cygpath() { [[ "$1" == -u ]] && printf '%s\n' "$2"; }
     WINDIR="$fake_windows" block_outbound_program ashiato-install-check-1 'C:\Program Files\ashiato\ashiato-server.exe' '0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255'
@@ -1729,6 +1771,78 @@ EOF
   # (3) Windows でないと実地の確かめは走らない
   touch "$work/package-windows-test.zip"
   if (check_zip "$work/package-windows-test.zip") >/dev/null 2>&1; then die 'Windows でないのに実地の確かめが走った'; fi
+
+  # (4) 判定が NG になったときの観測（CH16。部品は check-ng-observations.sh。偽の命令は PATH の先の置き場に置く）
+  local ngw="$work/ng" ngbin="$work/ng/bin" ngrc=0 ngse="$work/ng/se" ngso="$work/ng/so" ngv
+  mkdir -p "$ngbin" "$ngw/state/logs/server" "$ngw/state/settings"
+  ng_fake() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$ngbin/$1"; chmod +x "$ngbin/$1"; }
+  # 観測の入力を自己試験の置き場へ向けた部分殻で、関数 $1 を走らせる。落ちるはずの判定は || で受ける（set -e に頼らない）
+  ng_run() {
+    rm -rf "$ngw/obs"; mkdir -p "$ngw/obs"
+    ngrc=0
+    (
+      PATH="$ngbin:$PATH"
+      SETTINGS="$ngw/state/settings/server.json" OWNER_SETTINGS="$ngw/state/settings/owner.json"
+      NG_STATE_DIR="$ngw/state" NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS" NG_HEALTHZ_URL='http://127.0.0.1:1/healthz' NG_OBSERVED_DIR="$ngw/obs"
+      "$@"
+    ) >"$ngso" 2>"$ngse" || ngrc=$?
+  }
+  # 標準エラーで、行 $1（完全一致）が見出しの 2 行の間にある
+  ng_between() { awk -v want="$1" '$0 == "== 観測（ここから）" { on = 1; next } $0 == "== 観測（ここまで）" { on = 0 } on && $0 == want { found = 1 } END { exit !found }' "$ngse"; }
+  # 標準エラーの 1 行目が NG の行で、見出しが 2 行ちょうどあり、標準出力は空
+  ng_shape() { [[ "$(head -n 1 "$ngse")" == NG:\ * && "$(grep -c '^== 観測（' "$ngse")" == 2 && ! -s "$ngso" ]]; }
+
+  # Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る
+  ng_fake sc.exe 'printf "\nSERVICE_NAME: ashiato-server\n        TYPE               : 10  WIN32_OWN_PROCESS\n        STATE              : 4  RUNNING\n"'
+  ng_case_state() { [[ "$(state_code ashiato-server)" == 1 ]] || die 'ashiato-server が止まっていない'; }
+  ng_run ng_case_state
+  [[ "$ngrc" == 1 ]] || die "状態が違う判定が rc=1 で終わらない: $ngrc"
+  ng_shape || die "NG の行か見出しの形が違う: $(cat "$ngse")"
+  ng_between '        STATE              : 4  RUNNING' || die '判定が見た命令の出力が見出しの間に出ない'
+
+  # Scenario: 判定が渡した値は、命令を走らせない判定でも観測に出る
+  ng_case_acl() { assert_acl_only $'EXTRA-PRINCIPAL-NG\t(OI)(CI)(RX)\nNT SERVICE\\ashiato-server\t(M)' t 'NT SERVICE\ashiato-server'; }
+  ng_run ng_case_acl
+  [[ "$ngrc" == 1 ]] || die "余計な主体の判定が rc=1 で終わらない: $ngrc"
+  ng_shape || die "NG の行か見出しの形が違う: $(cat "$ngse")"
+  ng_between $'EXTRA-PRINCIPAL-NG\t(OI)(CI)(RX)' || die '判定に渡した値が観測に出ない'
+
+  # Scenario: 実地の確かめの中の NG は、サービスの状態・healthz・設定のキー・命令の記録とサーバのログの末尾を出す
+  ng_fake sc.exe 'echo "FAKE-SC $*"'
+  ng_fake curl 'echo "healthz HTTP 503"'
+  printf 'SERVER-LOG-TAIL-NG\n' >"$ngw/state/logs/server/server.log"
+  printf '{"API_TOKEN":"api-token-ng-1","WEB_SESSION_KEY":"session-key-ng-1","WEB_PASSWORD_VERIFIER":"verifier-ng-1","DATABASE_URL":"postgres://ashiato_app:app-pw-ng-1@127.0.0.1:55400/ashiato"}\n' >"$ngw/state/settings/server.json"
+  printf '{"DATABASE_OWNER_URL":"postgres://ashiato_owner:owner-pw-ng-1@127.0.0.1:55400/ashiato"}\n' >"$ngw/state/settings/owner.json"
+  ng_case_field() { printf 'TRACE-TAIL-NG\n' >"$NG_OBSERVED_DIR/trace"; sc.exe query RECORDED-ARG-NG >/dev/null; die '実地の確かめの中の判定'; }
+  ng_run ng_case_field
+  [[ "$ngrc" == 1 ]] || die "実地の確かめの中の判定が rc=1 で終わらない: $ngrc"
+  ng_shape || die "NG の行か見出しの形が違う: $(cat "$ngse")"
+  for ngv in 'FAKE-SC queryex ashiato-db' 'FAKE-SC qc ashiato-db' 'FAKE-SC queryex ashiato-server' 'FAKE-SC qc ashiato-server' \
+    'FAKE-SC queryex ashiato-updater' 'FAKE-SC qc ashiato-updater' 'healthz HTTP 503' 'SERVER-LOG-TAIL-NG' 'TRACE-TAIL-NG'; do
+    ng_between "$ngv" || die "実地の確かめの観測に出ない: $ngv"
+  done
+  grep -q 'API_TOKEN' "$ngse" && grep -q 'DATABASE_OWNER_URL' "$ngse" || die '設定のキーの名前が出ない'
+  grep -q '^\[命令\] sc.exe query RECORDED-ARG-NG' "$ngse" || die '命令の記録の末尾が出ない'
+
+  # Scenario: 観測に秘密の値が出ない
+  ng_fake sc.exe 'echo "out api-token-ng-1 session-key-ng-1 verifier-ng-1 app-pw-ng-1 owner-pw-ng-1"'
+  ng_case_secret() {
+    PW1='screen-password-ng-1'
+    sc.exe query "arg-$PW1-api-token-ng-1" >/dev/null
+    die_seen '秘密を含む判定' "got $PW1 session-key-ng-1 owner-pw-ng-1"
+  }
+  ng_run ng_case_secret
+  [[ "$ngrc" == 1 ]] || die "秘密の試験が rc=1 で終わらない: $ngrc"
+  ng_shape || die "NG の行か見出しの形が違う: $(cat "$ngse")"
+  for ngv in api-token-ng-1 session-key-ng-1 verifier-ng-1 app-pw-ng-1 owner-pw-ng-1 screen-password-ng-1; do
+    ! grep -Fq -- "$ngv" "$ngse" "$ngw/obs/observed.log" || die '観測に秘密の値が出る（値は出さない。項目の名前: '"${ngv%%-*}"'）'
+  done
+  grep -q 'API_TOKEN' "$ngse" || die '秘密の試験で設定のキーの名前が出ない'
+  grep -q '\*\*\*' "$ngse" || die '秘密を *** に置き換えた跡が無い'
+
+  # Scenario: 2 つの台本は検査を通る
+  "$root/tools/release/check-ng-observations.sh" "$script" || die 'install-check.sh が観測の検査を通らない'
+  "$root/tools/release/check-ng-observations.sh" --self-test >/dev/null || die 'check-ng-observations.sh の自己試験が通らない'
 
   rm -rf "$work"
   trap - EXIT
