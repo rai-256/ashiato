@@ -148,7 +148,11 @@ after="$(git ls-remote --tags origin 'v*' | wc -l)"
 test "$before" = "$after"
 ```
 
-4 つの配布物を落として、tar / zip の根に `LICENSE`・`THIRD-PARTY-NOTICES.txt`・`SOURCE.txt` の 3 点があること、APK は `unzip -l` で `assets/licenses/` に 3 点があることを見る。`SOURCE.txt` が `Commit:` を持つこと、`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha` の値と配布物の組み立ての印の commit が同じで `.dirty` が無いことを見る。見た後に下書きと不要な成果物を削除する。
+4 つの配布物を落として、tar / zip の根に `LICENSE`・`THIRD-PARTY-NOTICES.txt`・`SOURCE.txt` の 3 点があること、APK は `unzip -l` で `assets/licenses/` に 3 点があることを見る。`SOURCE.txt` が `Commit:` を持つこと、`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha` の値と配布物の組み立ての印の commit が同じで `.dirty` が無いことを見る。
+
+**使い回した run の見方**（CH17 design D3）: Windows の配布物を使い回した run（`package-windows` の組み立ての step が飛ばされた run）では、Windows の 2 つの zip の印と `SOURCE.txt` は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指し、`head_sha` と一致しない。そのときは 2 つの zip について、`SOURCE.txt` の `Commit:` と組み立ての印の commit が同じで `.dirty` が無いことを見る（`head_sha` との照合は、ほかの配布物だけで行う）。
+
+見た後に下書きと不要な成果物を削除する。
 
 ### 11.2 承認者が job を止めることと、権限を絞った token が承認できないこと
 
