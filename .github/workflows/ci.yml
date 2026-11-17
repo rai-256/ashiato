@@ -496,7 +496,12 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/package-windows
-            ${{ runner.temp }}/package-windows-test
+            ${{ runner.temp }}/package-windows-test-old
+            ${{ runner.temp }}/package-windows-test-new
+            ${{ runner.temp }}/package-windows-test-dev-old
+            ${{ runner.temp }}/package-windows-test-dev-new
+            ${{ runner.temp }}/package-windows-test-compat-old
+            ${{ runner.temp }}/package-windows-test-compat-new
           key: windows-package-${{ steps.wbk.outputs.key }}
       # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
       - if: steps.reuse.outputs.cache-hit != 'true'
