@@ -70,13 +70,14 @@
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --check-workflow); for s in "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く" "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる" "上げる配布物は全部、保存と引きの置き場に入る" "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる" "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する" "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる" "ビルドするときは、Rust の依存のビルドを戻す" "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"; do grep -qF "== Scenario: $s" <<<"$out" || exit 1; done'` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --self-test); ! grep -q "飛ばした" <<<"$out"'` rc=0（手元では `--check-workflow` の自己試験も走ったこと）
-- [x] 2.3 今の振る舞いが残ることを確かめる（壊してはいけないもの）。`ci.yml` で変わったのが `package-windows` の job の中だけであることも見る。
+- [x] 2.3 今の振る舞いが残ることを確かめる（壊してはいけないもの）。`ci.yml` で変わったのが `package-windows` の job の中と、深掘り第 2 回 Q3 の `chain` の 2 step だけであることも見る。
   検証: `tools/release/check-guards.sh workflows` rc=0 /
   `tools/release/check-guards.sh --self-test` rc=0 /
   `tools/check-ci-ch14-step.sh` rc=0 /
-  `python3 -c 'import subprocess as sp, yaml; base=sp.run(["git","merge-base","HEAD","origin/main"],capture_output=True,text=True,check=True).stdout.strip(); o=yaml.safe_load(sp.run(["git","show",base+":.github/workflows/ci.yml"],capture_output=True,text=True,check=True).stdout); n=yaml.safe_load(open(".github/workflows/ci.yml",encoding="utf-8")); oj=o.pop("jobs"); nj=n.pop("jobs"); assert o==n and oj.keys()==nj.keys(); assert all(oj[k]==nj[k] for k in oj if k!="package-windows"); a=dict(oj["package-windows"]); b=dict(nj["package-windows"]); a.pop("steps"); b.pop("steps"); assert a==b'` rc=0（`package-windows` の step 以外は 1 字も変わっていない）/
+  `./openspec/changes/ch17-windows-install-ci-reuse/check-ci-scope.sh` rc=0（`package-windows` の step と `chain` の 2 step 以外は 1 字も変わっていない）/
   `bash -c 'printf "%s\n" tools/release/install-check.sh | tools/release/changes.sh code && ! printf "%s\n" docs/x.md | tools/release/changes.sh code'` rc=0（出し分けの判定はそのまま）
 
+  （訂正 2026-11-17: 検証の入口を「python3 -c 'import subprocess as sp, yaml; base=sp.run(["git","merge-base","HEAD","origin/main"],capture_output=True,text=True,check=True).stdout.strip(); o=yaml.safe_load(sp.run(["git","show",base+":.github/workflows/ci.yml"],capture_output=True,text=True,check=True).stdout); n=yaml.safe_load(open(".github/workflows/ci.yml",encoding="utf-8")); oj=o.pop("jobs"); nj=n.pop("jobs"); assert o==n and oj.keys()==nj.keys(); assert all(oj[k]==nj[k] for k in oj if k!="package-windows"); a=dict(oj["package-windows"]); b=dict(nj["package-windows"]); a.pop("steps"); b.pop("steps"); assert a==b'」から上の入口に。受け入れ条件は変えない。理由: 深掘り第 2 回 Q3 の答えで chain の job に 2 step を足した（b5e319f5b）ので、package-windows 以外を 1 字比較する旧コマンドは HEAD で AssertionError（rc=1）。Q3 が許した範囲（chain は merge-base の並びにその 2 step を足しただけ）を assert する台本に移す（review R14） 実証: evidence.jsonl 2026-11-17T05:20:49+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-17T05:21:17+00:00 PASS。記録: plan-corrections.md）
 ## Task 3: 文書
 
 - [x] 3.1 `docs/testing.md` の CI の job の表の `package-windows` / `install-windows` の行（無ければ表の近くの段落）に、使い回す条件（鍵の作り方・除くもの・PR の run だけ・完全一致）・

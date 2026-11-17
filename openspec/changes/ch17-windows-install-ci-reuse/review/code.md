@@ -244,6 +244,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - 提案:
   - 2.3 のコマンドで `chain` も 1 字比較から外す。代わりに「`chain` の step は merge-base の並びに、ちょうどその 2 step を足しただけ」を assert する。
   - 走らせ直して証跡を取り直す。
+- 処置: fixed 2.3 — （`plan_fix.py --approved machine` で 2.3 の 4 本目を `./openspec/changes/ch17-windows-install-ci-reuse/check-ci-scope.sh` に直した。台本は `package-windows` は step の外が同じ、`chain` は merge-base の並びに Q3 の 2 step を続けて足しただけ、それ以外の job と jobs の外は 1 字も同じことを assert する。旧コマンドは HEAD で AssertionError（FAIL の証跡 2026-11-17T05:20:49）、新は PASS。`chain` の別の step に `|| true` を足した版・足した 2 step の片方を変えた版はどちらも rc=1。2.3 の本文の「package-windows の job の中だけ」も直し、1.1・2.2・2.3・3.1 の証跡を今の木で取り直した）
 
 ## R15. `s_asis` は 2 つの `upload-artifact` の間の step を見ない。引いた置き場を、上げる前に書き換えても `--check-workflow` が通る（Task 2 F2 が残っている）
 - 成果物: tools/release/windows-build-key.sh（`s_asis`。`range(r + 1, ups[0])`、:155 付近）
@@ -251,6 +252,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   本人の決定 Q2（使い回した配布物は組んだ commit のまま上げる）を守る検査に穴があり、検査は緑のまま。
 - kind: technical
 - 提案: 見る範囲を最後の upload の手前まで広げる（upload の step 自体は除く）。`mutate` に、この版を足す。
+- 処置: fixed 2.2 — （`s_asis` の範囲を restore から**最後の** upload の手前までにし、upload の step 自体は除いた。`mutate` に 1 つ目の upload の直後へ `if:` の無い `run:` を足した版（q）を足した。q は `NG: restore と最後の upload-artifact の間の step 11 が if: で飛ばされない` で rc=1、前の台本では rc=0）
 
 ## R16. `if:` の検査は restore 以外は部分文字列の一致のまま。`|| always()` を足しても通る（Task 2 F3。R3 の直しは restore だけ）
 - 成果物: tools/release/windows-build-key.sh（`s_skip`・`s_asis`・`s_save`・`s_rust` が使う `not_hit` の比べ方）
@@ -260,6 +262,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   - Rust の cache の `if:` に `… || true` を足した版
 - kind: technical
 - 提案: これらの検査も `s_restore` と同じく `if:` を `&&` の項に割り、`||` と否定を拒む。`mutate` に `|| always()` の版を足す。
+- 処置: fixed 2.2 — （`cond_lacks` を足し、`ch14_`・`package.sh windows`・`s_asis` の間の step・save・Rust の cache の `if:` を `&&` の項に割って、要る項がちょうどあること・`||` と否定が無いことを見る（save の `success()`・鍵が空でない・作業木の条件も項で見る）。`mutate` に `package.sh windows` に `|| always()`（r）・save に `|| always()`（s）・Rust の cache に `|| true`（t）を足した版を足した。3 つとも今の台本で rc=1、前の台本では rc=0）
 
 ## R17. 鍵を出す途中で落ちても、64 桁のハッシュが標準出力に出る（Task 1 F2。再現した）
 - 成果物: tools/release/windows-build-key.sh（:329-341 付近）
@@ -267,12 +270,14 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   CI は `|| key=""` で捨てるので、今は実害が無い。
 - kind: technical
 - 提案: 結果を変数に受け、全部が成功したときだけ出す。
+- 処置: fixed 1.1 — （鍵を変数に受け、パイプ全体が成功したときだけ出す。落ちたら `木を読めない` と rc=2。部分木の object を消した木で、前の台本は rc=1 で `608eea34…` を出し、今の台本は rc=2・出力なし。自己試験の「鍵を出せない木では、鍵を出さずに落ちる」に、clone した木から部分木の object を消して鍵を出さないことを見る確かめを足した）
 
 ## R18. 自己試験の `trap "rm -rf '$work'" EXIT` がパスの `'` に弱い（Task 1 F4）
 - 成果物: tools/release/windows-build-key.sh（:377 付近）
 - 根拠: `$work` を二重引用符の中で展開して、単引用符で包んでいる。`mktemp -d` の置き場（`TMPDIR`）に `'` があると、trap の命令が壊れる。実害は小さい。
 - kind: technical
 - 提案: `trap 'rm -rf "$work"' EXIT` にする。
+- 処置: fixed 1.1 — （`trap "rm -rf $(printf '%q' "$work")" EXIT` にした。`$work` は `self_test` の local で EXIT の時には消えているので、提案の `trap 'rm -rf "$work"' EXIT` では消せない。値を `%q` で埋め込んで `'` に負けないようにした）
 
 ## R19. `docs/testing.md` の「使い回しを止めたいとき: `EXCLUDE_PATHS` を空にする」が R4 の直しと食い違い、止めたことにもならない
 - 成果物: docs/testing.md
@@ -281,6 +286,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   - 空にしても、同じ木の Re-run は鍵が完全一致するので使い回す。止めたことにならない。
 - kind: technical
 - 提案: 止める手順は `gh cache delete`（か、鍵の接頭辞を変える）だけにする。
+- 処置: fixed 3.1 — （`docs/testing.md` の止め方を「`windows-package-` の項目を `gh cache delete` で消す」だけにし、`EXCLUDE_PATHS` を空にしても止まらない理由（同じ木の Re-run は完全一致で引く・自己試験が 6 つちょうどでないと落ちる）を書いた。tasks 3.1 の本文の同じ記述も直した）
 
 ## R20. Q3 と直しの後で古くなった記述が残っている
 - 成果物: openspec/changes/ch17-windows-install-ci-reuse/design.md / openspec/changes/ch17-windows-install-ci-reuse/proposal.md / openspec/changes/ch17-windows-install-ci-reuse/tasks.md
@@ -290,3 +296,4 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   - tasks 2.2 の本文は、変えた版を (a)〜(k) と書く。実際は (a)〜(p) の 16 通り。「Windows の runner の自己試験はこの節を飛ばす」も古い。
 - kind: technical
 - 提案: 今の形に書き直す。
+- 処置: fixed 2.2 — （design.md:47 を「8 つの Scenario。`if:` は `&&` の項に割って見る」に、proposal.md:19 を「自己試験と `--check-workflow` は `chain` の job で走らせる（Q3）」に、tasks 2.1 の自己試験の step を「Q3 で `chain` へ移した」に、tasks 2.2 の変えた版を (a)〜(t) の 20 通りに、「Windows の runner の自己試験はこの節を飛ばす」を「CI では `chain` の job で走り、飛ばさない」に直した）
