@@ -94,6 +94,7 @@
 - 処置: fixed D4 —— （update-check の自己試験に、ng_inputs で置き場を向けた偽の設定 2 つと 2 つの画面の合言葉を偽の sc.exe の出力・記録の引数・die_seen の値に混ぜて落とし、どれも出ないことを見る試験を足した。状態の置き場は変数 STATE に出した）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R2. D7 の確かめ（`observation_probe`）は、呼び出しを消しても、落とす分岐を消しても、自己試験が緑のまま
 - 成果物: tools/release/install-check.sh
@@ -121,6 +122,7 @@
 - 処置: fixed D4 —— （書き出しの合言葉を変数 EXPORT_PASSWORD にして curl と ng_secret_values の両方から参照した。台本の字面の合言葉（*-check-*-0123…）が全部 ng_secret_values の出力にあることを 2 つの自己試験が見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R5. 伏せる値を読めないときも、`install_with` の時間切れはインストーラの出力の末尾を出す
 - 成果物: tools/release/install-check.sh / tools/release/check-ng-observations.sh
@@ -130,6 +132,7 @@
 - 処置: fixed D4 —— （install_with はインストーラの出力を値に入れず ng_report の第 4 引数で渡し、部品は伏せる値を読めるときだけ末尾を出す。読める・読めない両方と fd 9 への出力を自己試験が見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R6. 観測の上限の値（記録 12 件・1 件 40 行・ファイル 2 つ・末尾 40 行・時間 30 秒）は、変えても全部通る
 - 成果物: tools/release/check-ng-observations.sh
@@ -139,6 +142,7 @@
 - 処置: fixed D2 —— （部品の自己試験に、記録 12 件・1 件 40 行・ファイル 2 つ・サーバのログ 40 行・時間の既定 30 秒・記録の送り 24 件をそれぞれ外す試験を足した）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R7. 検査の決まり 2 は、字面の数字の `exit` しか見ない
 - 成果物: tools/release/check-ng-observations.sh
@@ -148,6 +152,7 @@
 - 処置: fixed D5 —— （決まり 2 は変数・$? の終了コードの exit も見る。update-check の cleanup の素通しの exit には理由の印を付けた）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R8. 包んだ命令は 1 回ごとに伏せる値を集め直すので、Linux で 1 回あたり約 20 倍遅くなる
 - 成果物: tools/release/check-ng-observations.sh / tools/release/install-check.sh
@@ -157,6 +162,7 @@
 - 処置: fixed D4 —— （設定の秘密の読み手の答えを中身で控え、集めた値が前と同じなら書き直さない。Linux で包んだ命令 30 回が 3114 ms → 1313 ms〔直に呼ぶと 183 ms〕）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## security review（7109e94..f24ec34）
 
@@ -195,6 +201,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D5 —— （exit "$rc"・exit $? は決まり 2 で落とす。set -e で判定の外の命令が落ちる道と、それに当たる return の伝播は、spec の「この約束は…set -e…の道は含まない」と design D8 で対象の外に決めてあり、この change では足さない）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R10. install_with の時間切れの道は、インストーラの出力の末尾 80 行を ng_report の obs（判定が見た値）として渡している。obs は ng_emit の中で ok=0（伏せる値を読めない）でも出力されるため、「伏せる値を読めなければファイルの末尾を出さない」という決まりをすり抜ける。
 - 成果物: tools/release/install-check.sh:699
@@ -213,6 +220,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D4 —— （R8 と同じ直し。Python は設定のファイルの中身が変わったときだけ起こし、伏せる値のファイルは値が変わったときだけ書き直す）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R12. observed.log には上限が無く、命令 1 件につき最大約 400 行が足され続ける。さらに直前と同じ記録のたびに、ログ全体を grep・awk で読み直して `cat > log` で丸ごと書き直す。
 - 成果物: tools/release/check-ng-observations.sh:228
@@ -222,6 +230,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D2 —— （同じ記録の回数は .observed.dup に数えて記録を書き直さない。記録は 24 件ごとに observed.log.1 へ送り、残るのは多くて 48 件）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R13. 伏せる画面の合言葉を、install_zip（199・203・213 行目）とは別の字面の写しで ng_secret_values に持っている。片方だけを変えると、伏せる値の一覧から黙って漏れる。
 - 成果物: tools/release/update-check-install.sh:41
@@ -258,6 +267,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D3 —— （NG_SETTINGS_FILES を改行区切りにした。空白を含む場所の設定を 1 つとして読む試験を部品の自己試験に足した）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R17. ヒアドキュメントの開きを、コメントを除く前の生の行（line）に対する `<<WORD` の照合で見つけている。このため、行末のコメントや文字列の中の `<<WORD`、算術の `$((x<<n))` もヒアドキュメントの開きとみなされ、終わりの印が来るまで後続の行がまるごと検査から外れる。決まり 3 も `System32/` の形しか見ず、`System32\sc.exe` の形を見逃す。
 - 成果物: tools/release/check-ng-observations.sh:297
@@ -267,6 +277,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D5 —— （ヒアドキュメントの開きは、コメントを除き引用の中身と算術を外した行で探す。決まり 3 は System32\ の形も見る。どちらも自己試験に足した）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R18. ng_part_settings では変数 rc に `|| rc=$?` で代入しているが、どこでも使っていない（読み取りの失敗の判定は後の `[[ -r "$f" ]]` が別に行う）。
 - 成果物: tools/release/check-ng-observations.sh:98
@@ -276,6 +287,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed 1.1 —— （ng_part_settings の使わない rc を消し、読み取りの判定を grep の前に置いた）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## final review（7109e94..f09de9b）
 
@@ -288,6 +300,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: `rm -rf "$t" || true` にする。部品の自己試験に、偽の `rm` を置いても包んだ命令の後の文が走ることを見る 1 本を足す
 - 処置: fixed D6 —— （ng_observed_exec の `rm -rf "$t"` を `|| true` にした。自己試験に、偽の rm（exit 1）を PATH の先に置いても set -e の台本が包んだ sc.exe の後の文へ進むことを見る 1 本を足した。直しを戻すとその試験が落ちることを確かめた）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R20. 検査の決まり 2 は、字面の数字を引用した `exit "1"`・`exit '2'` を見逃す（R7 の直しの残り）
 - 成果物: tools/release/check-ng-observations.sh:385
@@ -296,6 +309,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: `("?\$|[1-9])` を `["']?(\$|[1-9])` にし、自己試験に `exit "1"` の形を足す
 - 処置: fixed D5 —— （決まり 2 の正規表現を `exit[[:space:]]+["\047]?(\$|[1-9])` にし、自己試験に `exit "1"` と `exit '2'` の写しを足した。直しを戻すと落ちる。install-check.sh・update-check-install.sh は直した検査を rc=0 で通る）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R21. 伏せる値が別の伏せる値の部分文字列だと、長い方の残りが素で出る
 - 成果物: tools/release/check-ng-observations.sh:103-111
@@ -304,6 +318,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: 伏せる値を長さの降順に並べてから置き換える。自己試験に部分文字列の組を足す
 - 処置: fixed D4 —— （ng_redact の awk で伏せる値を長さの降順に並べてから置き換える。自己試験に `abc` と `abcdef-LONGSECRET` の組で、出力が `val=***` になり LONGSECRET が塊にも記録にも残らないことを見る 1 本を足した。直しを戻すと落ちる）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R22. `timeout` が無いときの道で `"$@"` が包んだ関数を呼び、塊を出す最中に記録が足されて判定の記録を押し出す
 - 成果物: tools/release/check-ng-observations.sh:138
@@ -312,6 +327,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: `command "$@"` で呼ぶ
 - 処置: fixed D2 —— （ng_try の timeout が無い道を `command "$@"` にした。自己試験に、timeout を除いた PATH で塊を出しても記録が判定の 1 件のまま増えないことを見る 1 本を足した。直しを戻すと塊の curl などが記録に足されて落ちる）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R23. 命令の出力にある `@@@ ` で始まる行を、記録の区切りと取り違える
 - 成果物: tools/release/check-ng-observations.sh:157
@@ -320,6 +336,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: 記録の中の出力の行に接頭辞を付けて書く（例: 2 字の字下げ）か、区切りをファイルの外（長さの見出し）で持つ
 - 処置: fixed D2 —— （ng_record で命令の出力（標準出力・標準エラー）の @ で始まる行の前に空白を 1 つ置く。自己試験に、出力に `@@@ fake header` と `@@x 9` を混ぜても `[命令] fake header` も `（同じ記録 ×9）` も出ず、` @@@ fake header` として本文に出ることを見る 1 本を足した。直しを戻すと落ちる）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R24. update-check の自己試験のコメントが実際の動きと違い、効いていない `PATH="$fake:$PATH"` がある
 - 成果物: tools/release/update-check-install.sh:396-397
@@ -336,6 +353,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: `ng_emit` で値も 80 行などで切り、切ったことを 1 行で示す
 - 処置: fixed D2 —— （ng_emit で判定が見た値も 80 行で切り、`（以降 N 行省略）` を 1 行添える。自己試験に 85 行の値で SEEN-80 まで出て SEEN-81 が出ず省略の行が出ることを見る 1 本を足した。直しを戻すと落ちる）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R26. 本物の Windows の Python で `ng_read_secrets` が動くことを、どの確かめも通らない（計画の隙間）
 - 成果物: tools/release/install-check.sh（observation_probe）/ tools/release/check-ng-observations.sh（ng_read_secrets・ng_settings_secrets）
@@ -344,6 +362,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: インストールの後、最初の判定の前に `ng_settings_secrets` が値を 1 つ以上返すことを一度確かめる（D7 を広げるので、settle が処置の表で決める）
 - 処置: fixed D7 —— （observation_probe の最後に、決まった値を持つ server.json・owner.json の写しを $WORK/ng-probe（cygpath -m で C:/… の形）に置き、部品の ng_settings_secrets で読んだ 5 つの値が揃わなければ die_seen にした。インストールの前でも本物の Windows の Python を一度通す。design D7 に 1 文足した。install-check の自己試験に、python・python3 を落ちる偽物にすると observation_probe が `NG: 設定の秘密の読み手が本物の Python で動かない` で終わることを見る 1 本を足し、確かめを外すと自己試験が落ちることを確かめた）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## final review（7109e94..c193d61）
 
@@ -355,6 +374,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - kind: technical
 - 提案: その Scenario に AND を 1 行足す（例:「決まった値を持つ設定の写しを、設定の秘密の読み手が全部読み出せなければ NG で終わる」）。コードは変えない
 - 処置: fixed D7 —— （spec の Scenario「CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る」に AND「決まった値を持つ設定の写しから、設定の秘密の読み手が決まった値を全部読み出せなければ、それを理由に NG で終わる」を足した。コードは変えていない。`openspec validate --strict` は valid）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R28. 自己試験で PATH を絞る 2 か所が、道具が 1 つでも無い環境では理由の行を出さずに止まる
 - 成果物: tools/release/check-ng-observations.sh:553-555 / tools/release/check-ng-observations.sh:736-738
@@ -362,6 +382,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - kind: technical
 - 提案: `command -v "$t" >/dev/null || continue` を足す（または無い道具を名指しして NG で終える）
 - 処置: fixed D2 —— （PATH を絞る 2 か所のループで、道具が無ければ `fail "自己試験に要る道具が無い: $t"` で名指しして NG で終える。並べに無い道具を 1 つ足した写しで、`NG: 自己試験に要る道具が無い: no-such-tool-x`・rc=1 になることを確かめた）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 
 ## R29. 伏せる値どうしが前後で重なる組では、長い順に置き換えても残りが素で出る
 - 成果物: tools/release/check-ng-observations.sh:112（ng_redact）
@@ -369,3 +390,4 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - kind: technical
 - 提案: 記録に留める（処置の表で wontfix の理由を書く）か、置き換えの前に全部の値の出現位置を印付けしてからまとめて伏せる
 - 処置: fixed D4 —— （ng_redact の awk を、全部の値の出現（重なりも）の位置に先に印を付け、印の続く所をまとめて `***` にする形に変えた（長さの並べ替えは要らなくなったので外した）。design D4 に 1 文。自己試験に `abcX`・`Xdef` と出力 `val=abcXdef` で `val=***` になり def が塊にも記録にも残らないことを見る 1 本を足した。前の awk に戻すと `val=***def` で落ちる。R21 の試験も通る）
+- 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
