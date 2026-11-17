@@ -37,6 +37,7 @@
 - kind: technical
 - 提案: `scenario(...)` の呼び出しごとに `# Scenario: <名前>` のコメント（字面は spec と一字一句）を台本に置く。そのあと `check_scenarios.py` が rc=0 になることを確かめる。
 - 処置: fixed 2.2 — （`scenario(...)` の呼び出しごとに `# Scenario: <名前>` の印を spec と一字一句で置き、`print` は `"== %s: %s" % ("Scenario", name)` にして空の印を拾わせない。`check_scenarios.py` は rc=0・`scenarios: OK`）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R2. `--check-workflow` は、restore を組み立ての後ろへ動かした ci.yml を通す。この形では、引けても毎回ビルドし、検査は緑のまま
 - 成果物: tools/release/windows-build-key.sh（`s_asis`・`s_skip`・`s_restore`）/ .github/workflows/ci.yml
@@ -50,6 +51,7 @@
 - kind: technical
 - 提案: `s_skip`（か `s_asis`）に「`ch14_` の step と 2 つの `package.sh windows` の step は restore より後にある」を足す。`mutate` に「restore を組み立ての後ろへ動かした版」を足し、`--check-workflow` が落ちることを自己試験で見る。
 - 処置: fixed 2.2 — （`s_skip` に「`ch14_` と 2 つの `package.sh windows` は restore より後」と「restore の `cache-hit` を見る step は restore より後」を足し、`mutate` に restore を最初の upload の直前へ動かした版（n）を足した。指摘の版は `NG: step 7（ch14_ の試験か package.sh windows）が restore より前にある` で rc=1）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R3. `--check-workflow` は、restore の `== 'pull_request'` を `!=` に変えた ci.yml を通す。この形では、PR は使い回さず、main への push が使い回す
 - 成果物: tools/release/windows-build-key.sh（`s_restore`）/ specs の Requirement「WHEN 幹（`main`）への push … 使い回さずにビルドする」
@@ -59,6 +61,7 @@
 - kind: technical
 - 提案: `s_restore` は `github.event_name == 'pull_request'` の完全な字面（`&&` で結んだ項の 1 つ）を見る。`mutate` に `!=` へ反転した版を足す。
 - 処置: fixed 2.2 — （`s_restore` は `if:` を `&&` の項に割り、`github.event_name == 'pull_request'` がちょうど 1 項としてあること・`||` と否定が無いことを見る。`mutate` に `!=` へ反転した版（o）を足した。指摘の sed の版は rc=1）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R4. 除くパスの一覧の広げすぎを、どの試験も止めない（`crates/installer/*` や `tools/release/package.sh` を足しても自己試験は通る）
 - 成果物: tools/release/windows-build-key.sh（`EXCLUDE_PATHS`・自己試験）/ specs の Requirement「除くのは … だけ。名指ししていないファイルが 1 つでも変われば、鍵は変わる」
@@ -70,6 +73,7 @@
 - kind: technical
 - 提案: 自己試験に「`EXCLUDE_PATHS` が spec の 6 項目とちょうど同じ」の確かめを足す（台本の配列を出して、固定の 6 行と比べる）。一覧を変えるときは、spec と自己試験を一緒に変えることになる。
 - 処置: fixed D1 — （自己試験の「組み立てに入るファイルが 1 つでも違えば、鍵が変わる」で、`EXCLUDE_PATHS` が spec の名指しの 6 つちょうどであることを比べる。`'crates/installer/*'`・`'tools/release/package.sh'` を足した写しの `--self-test` はどちらも `NG: 除くパスが spec の 6 つと違う` で rc=1。design D1 に追記）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R5. `--check-workflow` を走らせる CI の job が無く、ci.yml の使い回しの形は merge の後に誰も見ない
 - 成果物: .github/workflows/ci.yml / tools/release/windows-build-key.sh / tasks.md 2.2（「Linux の手元と merge gate で走らせる」）/ design D2（ST58 が置き場を足したら「上げる置き場は全部、保存と引きの置き場に入る」が見る）
@@ -173,6 +177,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.2 — （R5 と同じ直し。深掘り第 2 回 Q3 で `chain` の job（ubuntu）に `--check-workflow` を足した。そこでは yaml が無ければ「飛ばした」でなく rc=2 で落ちる。`package-windows`（ci.yml:465 付近）の自己試験の step は消した）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R8. `EXCLUDE_PATHS` copies the "not code" classification (`docs/*`, `openspec/*`, `*.md`) from `tools/release/changes.sh` (`^(docs/|openspec/)|\.md$`) instead of sharing one definition.
 - 成果物: tools/release/windows-build-key.sh:17
@@ -180,6 +185,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 共有すると `tools/release/changes.sh` を変えることになり、tasks の Global Constraints（`changes.sh` に触れない・`changes.sh code` の判定はそのまま）と design D1（`changes.sh` に足すと `deps` の判定が動き `vulns` の job が走る）に反する。指摘の危険な向き（鍵だけが広がり、組み立てが読むパスを除く）は R4 の直しで自己試験が止める（写しで `'tools/release/package.sh'` を足すと rc=1）。逆の向き（`changes.sh code` だけが広がる）は、その変更では `package-windows` 自体が走らないか、鍵が除かないパスが増えるだけで、使い回しが減る側に倒れ、古い配布物は使わない
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R9. Exclusion matching runs against `git ls-tree` output, which C-quotes non-ASCII or special paths (core.quotePath). A quoted path starts with `"` and ends with `.md"`, so neither `docs/*` nor `*.md` matches it.
 - 成果物: tools/release/windows-build-key.sh:299
@@ -187,6 +193,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — （`git ls-tree -r -z` と `read -r -d ''` で読み、名前を引用符で包ませない。前の版では `docs/設計.md` を足した木の鍵が `1e5a6793e861…` → `817a9c4d7a40…` と変わり、今の版では同じ `1e5a6793e861…` のまま。ASCII の木の鍵は前と同じ。自己試験の 1 つ目の Scenario に `docs/設計.md`・`openspec/説明 書.txt` を足した。design D1 に追記）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R10. The full key self-test (temp repo, about 20 commits and checkouts, about 15 key computations) runs on every `package-windows` run on the Windows runner, which bills at 2x. It runs even when the cache hits and nothing is built.
 - 成果物: .github/workflows/ci.yml:465
@@ -194,6 +201,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D2 — （`package-windows` の自己試験の step を restore の後へ動かし、`if: steps.reuse.outputs.cache-hit != 'true'` を付けた。引けたときは同じ台本・同じ ci.yml（どちらも鍵に入る）の run が自己試験を通して保存しているので、飛ばしても確かめは減らない。Linux へ移すかは Q3。design D2 に追記）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R11. Every build with a new key saves a new `windows-package-<key>` cache containing both zips (each bundles PostgreSQL). It also saves a new Windows Rust `target` cache whenever Cargo.lock changes. Almost every code push changes the key, so most of these entries are never read.
 - 成果物: .github/workflows/ci.yml:525
@@ -201,6 +209,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 正しさの欠陥ではない。GitHub のキャッシュは置き場が溢れると最後に使った日時の古い順に消すので、誰も引かない保存物が先に消え、毎回引かれる `pgsql-` と、同じ PR が直前に保存したものは残る。消えたときは組み直す（CH17 の前と同じ）だけで、古い配布物を使うことは無い。今のキャッシュは `gh cache list` で `pgsql-` の 1 件（307.78 MiB）だけ。溢れて使い回しが効かないと分かったときの手は design D2 と D5 の反転条件（Rust のキャッシュを `~/.cargo` だけに絞る）が既に持つ
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R12. The step always runs `git fetch --depth=1 origin $RUN_SHA` and passes the token as a `-c http.extraheader=AUTHORIZATION: basic …` argument on the command line, even on push runs where RUN_SHA == HEAD and `git rev-parse HEAD:.github/workflows/ci.yml` would be enough.
 - 成果物: .github/workflows/ci.yml:477
@@ -208,6 +217,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D2 — （run の commit が checkout した HEAD と同じ（main への push）なら HEAD から ci.yml の blob を読み、fetch しない。PR の run だけ fetch し、token は `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` の環境変数で subshell の中だけに渡す。手元で step の run を走らせ、push 相当（RUN_SHA=HEAD）は fetch なしで鍵を出し、PR 相当（引けない sha・偽の token）は鍵を空にして警告を出した。design D2 に追記）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
 
 ## R13. The key is built from `ls-tree` of the commit, but `package.sh` builds from the checked-out working tree. Nothing confirms that the two match, so on a dirty or modified working tree the key describes a different tree than the one actually built.
 - 成果物: tools/release/windows-build-key.sh:296
@@ -215,3 +225,4 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D2 — （upload の後・save の前に `id: tree` の step を足し、`git status --porcelain --untracked-files=no` が空のときだけ `clean=true` を出す。save の `if:` に `steps.tree.outputs.clean == 'true'` を足し、変わっていれば警告を出して保存しない。`s_save` がこの step と条件を見て、条件を外した版（p）で `--check-workflow` が落ちる。design D2 に追記）
+- 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
