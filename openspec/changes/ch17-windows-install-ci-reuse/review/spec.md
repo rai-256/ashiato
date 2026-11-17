@@ -73,7 +73,7 @@ Task 2.3 の検証コマンドを今の木で走らせた結果（変更前の�
 - 提案: 正典の本文を `## MODIFIED Requirements` で書き換える。例:「組み立てる。ただし組み立ての鍵が同じ前の組み立ての Windows の配布物があれば、それを使う」
   「CI の実行の成果物と CI のキャッシュにだけ置き、公開しない」。そのうえで通常の路へ昇格する。
   loss は名付けられない（後から直しても失うデータは無い）。人間へ返す理由は「既存の Requirement は変えない」という軽い路の前提が崩れたことなので、kind を premise にした。
-- 処置: escalated —— 第 1 回 Q1（deep-questions-r1.json）。正典の本文を MODIFIED で改めるかは本人の範囲の外。答えで通常の路へ
+- 処置: escalated —— 第 1 回 Q1（deep-questions-r1.json）。本人の答えを写した: 本人が「改める（使い回しを認める）」と答えた（deep.md）。正典の本文を MODIFIED で改めた（Windows 向けは鍵が同じ前の組み立てを使う・置き場は CI の実行の成果物と CI のキャッシュで公開しない）。3 つの Scenario は名前も中身も変えない。通常の路へ移った
 
 ## R2. D3 は正典「配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ」の本文と食い違う。loss は無いが、仮で閉じられない
 - 成果物: openspec/changes/ch17-windows-install-ci-reuse/design.md（D3）, proposal.md:44-45
@@ -96,7 +96,7 @@ Task 2.3 の検証コマンドを今の木で走らせた結果（変更前の�
 - 提案: 本人の範囲（他の job は変えない）の中で閉じる道は、正典 `:2259-2260` の本文を MODIFIED で「使い回した配布物は、それを組んだ commit を指す」に変えることだけ。
   これは R1 と同じ昇格になる。もう 1 つの道は、`package-artifacts` を変える（使い回した run では `release-package` を上げない、など）。こちらは範囲を越えるので、本人に確かめる。
   どちらを選んでも、D3 の振る舞いを spec の Scenario に移す。
-- 処置: escalated —— 第 1 回 Q2（deep-questions-r1.json）。正典を改めるか、package-artifacts を変える（範囲を広げる）かを本人に聞く
+- 処置: escalated —— 第 1 回 Q2（deep-questions-r1.json）。本人の答えを写した: 本人が「要件を改め、使い回した配布物は組んだ commit を指すとする」と答えた（deep.md）。正典の本文を MODIFIED で改め（:2259・:2260・:2261 の 3 か所。:2261 には Cargo.toml と LICENSE が鍵に入ることを条件に書いた）、D3 の振る舞いを Scenario「使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる」に移した。D3 は（仮）を外した。package-artifacts は変えない
 
 ## R3. 鍵から除くものの一覧が spec に無く、除き過ぎた実装が全部の Scenario を通る
 - 成果物: openspec/changes/ch17-windows-install-ci-reuse/specs/distribution/spec.md

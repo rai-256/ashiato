@@ -10,7 +10,7 @@
   走った Scenario を `--list` の全部と突き合わせる
 - `package-artifacts` が Linux と Windows の配る形を集め、`check-artifacts.sh` を通して `release-package` に上げる（`tools/release/draft.sh` が下書きのリリースに使う）
 
-守らなければならない機械の検査（このパスの外にあり、触れない。触れると軽い路から昇格する）:
+守らなければならない機械の検査（触れない。本人の範囲は CI の Windows の 2 つの job だけ）:
 
 | 検査 | 見ているもの |
 |---|---|
@@ -36,7 +36,7 @@
   （`grep` で確かめた。premise 確かさ 2）。配る組み立て（`cfg(test)` でないコード・`build.rs`・`build.sh` 系）は `*.md`・`docs/`・`openspec/` を読まない（同）。
   試験のコードは `docs/contracts/` などを `include_str!` で読む（`crates/update-check`・`crates/collector-windows` の `cfg(test)`。review R5）が、配る実行ファイルには入らず、D4 で飛ばす `ch14_` の試験は `docs/` を読まない
 - **含むもの**: 上以外の追跡している全部。`.github/workflows/ci.yml`（`package-windows` の手順そのもの）・`tools/release/pgsql.lock`・`tools/licenses/`・`LICENSE`・
-  `Cargo.lock`・`web/`・`migrations/`・`collector-android/` も入る
+  `Cargo.toml`（版番号の出所。`package-artifacts` が head から取る期待値と、使い回した配布物の中身が同じであるための条件。spec の MODIFIED・整合の確認 K1）・`Cargo.lock`・`web/`・`migrations/`・`collector-android/` も入る
 - **道具の版**: `rustc -V`・`node -v`・runner の `ImageOS` と `ImageVersion`（`dtolnay/rust-toolchain` の `stable` と `setup-node` の `24` は浮いている）。
   `ImageVersion` は git の木の外の入力 —— runner の Visual Studio から写す VC の実行時の DLL（`build.sh` の `bundle_vc_runtime`）と MSVC のリンカの版 —— も覆う（review R4）
 - **走っている run の CI の定義**: pull_request の run は、head ではなく GitHub が作る merge の commit の `ci.yml` で走る（GitHub の一般の振る舞い。この repo では未確認・確かさ 1。review R11）。
@@ -52,13 +52,15 @@
 `collector-android/` などを足す（足すときは、その下を Windows の組み立てが読まないことを確かめる）。ImageVersion で鍵が週ごとに変わり、
 使い回しがほとんど効かないと分かったら、ImageVersion を外し、代わりに VC の再頒布の置き場の版（`VC/Redist/MSVC/<版>`）と MSVC の toolset の版を道具の版の行に入れる（review R4）。
 試験でないコードが `docs/contract/` などを読むようになったら、その置き場を除くものから外す（review R5）。
+除くものを足すときも、`Cargo.toml` と `LICENSE` は外さない（外すと `package-artifacts` の期待値と使い回した配布物が食い違い、使い回した run が落ちる）。
 
 ### D2（仮）. 保存物は actions/cache の完全一致で引き、PR の run でだけ使う
 
 - 置き場: GitHub Actions のキャッシュ（`actions/cache/restore` と `actions/cache/save`。今の `actions/cache` と同じ repo・同じ pin の commit。依存は増えない）。
-  中身は `package-windows`・`package-windows-test` の 2 つの置き場。鍵は `windows-package-<D1 の鍵>`。`restore-keys` を書かない（前方一致で古い組み立てを引かない）
+  中身は `package-windows` の job が `upload-artifact` で上げる置き場の**全部**（今は `package-windows`・`package-windows-test` の 2 つ）。上げる置き場を足したら、保存と引きの置き場にも足す
+  （`--check-workflow` が「上げる置き場は全部、保存と引きの置き場に入る」を見る。走っている ST58 は試験の形を 6 つに分けるので、どちらが先に main に入っても後の側が合わせる。整合の確認 C4）。鍵は `windows-package-<D1 の鍵>`。`restore-keys` を書かない（前方一致で古い組み立てを引かない）
 - 使うのは `pull_request` の run だけ。`main` への push は毎回ビルドし、保存する（PR の run は main の保存物を引けるので、main から枝を切った直後の台本だけの PR でも効く）
-- 引けたら: `ch14_` の試験・2 つの `package.sh windows` の step を `if:` で飛ばし、引いた 2 つを今と同じ名前（`package-windows-release` / `package-windows-test`）で上げる。
+- 引けたら: `ch14_` の試験・`package.sh windows` の step を `if:` で飛ばし、引いた置き場を今と同じ名前（`package-windows-release` / `package-windows-test`）で、書き換えずに上げる。
   `install-windows` と `package-artifacts` は何も変えない
 - 引けなかったら: 今と同じにビルドし、成功したときだけ `actions/cache/save` で保存する
 - job の `if:` と checkout は変えない。step の並び（`ch14_` → 2 つの `package.sh windows`）も変えない（Context の表の検査）
@@ -70,17 +72,21 @@ PR ごとの置き場に分かれ、fork の PR の保存物は他の PR や mai
 **反転条件**: キャッシュの置き場（10 GB）が溢れて保存物がすぐ消え、使い回しが効かないと分かったら、Rust のキャッシュ（D5）を `~/.cargo` だけに絞る。
 main の push の 33 分が問題になったら、main でも引く。
 
-### D3（仮）. 使い回した run の `release-package` には、使い回した Windows の配布物が入る
+### D3. 使い回した run の `release-package` には、使い回した Windows の配布物が、組んだ commit の印のまま入る（本人の決定: 深掘り第 1 回 Q2）
 
-`package-artifacts` は変えない（本人の範囲: 他の job は変えない）。使い回した run では、`release-package` の Windows の 2 つの zip
-（サーバ・収集アプリ）は前の commit でビルドしたもので、組み立ての印の commit は前の commit になる。中身は鍵が同じ入力から組んだもの。
-`check-artifacts.sh` は印と `SOURCE.txt` の commit の一致を見るので、どちらも前の commit で揃い、通る。
+本人は「要件を改め、使い回した配布物は組んだ commit を指すとする」を選んだ（`package-artifacts` は変えない）。振る舞いは spec の MODIFIED
+（Requirement「配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ」と Scenario「使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる」）が持つ。
+ここには、その振る舞いがどう成り立つかだけを書く。
 
+- 使い回した run では、`release-package` の Windows の 2 つの zip（サーバ・収集アプリ）の `SOURCE.txt` と組み立ての印は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指す
+- `check-artifacts.sh` は配布物ごとに印と `SOURCE.txt` の commit の一致を見る（`check-artifacts.sh:164-167`）ので、どちらも組んだ commit で揃い、通る
+- `package-artifacts` は期待する版番号と `LICENSE` を head から取る（`ci.yml` の `built/`）。`Cargo.toml` と `LICENSE` が鍵に入っているので、使い回すときはその 2 つが head と同じ（D1。整合の確認 K1）
 - 外に出ない: `release-package` は CI の成果物で、`draft.sh` が作るのは公開しない下書き。本物のリリース（`release.yml`）と開発版（`nightly.yml`）は自分でビルドする
-- 下書きの説明文は「配布物は PR の package の組み立て（run <N>）」のまま
-
-**反転条件**: 下書きに載る配布物の印の commit が、その run の commit と同じであることを要すると分かったら（下書きで確かめる手順が commit で突き合わせる、など）、
-`draft.sh` を使い回していない run に限る（`draft.sh` の変更は別の change）か、`package-artifacts` が使い回した run では `release-package` を上げないようにする（範囲を本人に確かめる）。
+- `draft.sh` は変えない（本人の範囲）。下書きの説明文「配布物は PR の package の組み立て（run <N>）」は、使い回した run では Windows の 2 つについて別の run の組み立てになる。
+  手で確かめる手順（`docs/release.md` §11.1 の「run の `head_sha` と配布物の組み立ての印の commit が同じ」）は、使い回した run では Windows の 2 つで食い違うので、
+  その手順に「使い回した run では、Windows の 2 つは `SOURCE.txt` と印が同じ commit を指すことを見る」を足す（tasks 3.2。整合の確認 C3）
+- 未確認（確かさ 1）: 使い回した配布物の `SOURCE.txt` が指す同じ PR の前の push の head を、枝を push し直した後に空の clone から `git fetch origin <commit>` で取れるか。
+  取れなくても、PR の配布物は公開しないので外に出たものは無い。`docs/changes/CH17.md` の完了の判定 4 で確かめる（整合の確認 C2）
 
 ### D4（仮）. 使い回したときは `ch14_` の試験も飛ばす
 
