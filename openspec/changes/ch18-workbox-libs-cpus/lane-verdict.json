@@ -27,5 +27,27 @@
   "code": [
    "openspec/changes/ch18-workbox-libs-cpus/**"
   ]
+ },
+ "diff": {
+  "ok": true,
+  "why": [],
+  "reason": "same",
+  "base": "83cb773932fb97be8ad50212c2602864a8883838",
+  "head": "67a142c68a7ce22619a43687be7d83c03aed8d5b",
+  "paths": [
+   "tools/workbox.json"
+  ],
+  "classes": [
+   "tooling"
+  ],
+  "code": [],
+  "code_tasks": 0,
+  "seats": {
+   "task_review": "常に",
+   "code_review": "常に",
+   "merge_gate": "常に"
+  },
+  "grounds": [],
+  "at": "2026-11-17T11:39:03+00:00"
  }
 }
