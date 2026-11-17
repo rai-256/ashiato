@@ -30,7 +30,7 @@
 
 ## Task 1: 観測を出す部品と、出さない道を落とす検査
 
-- [ ] 1.1 `tools/release/check-ng-observations.sh` を作る。2 つの役を持つ（design D5）:
+- [x] 1.1 `tools/release/check-ng-observations.sh` を作る。2 つの役を持つ（design D5）:
   - **`source` されたとき**: 観測を出す部品を定義する —— `ng_report`・`die`・`die_seen`（design D1）、観測の命令を包む関数と記録する口 `ng_observed`
     （design D2）、共通の様子（design D3。`NG_STATE_DIR`・`NG_SETTINGS_FILES`・`NG_HEALTHZ_URL`・`NG_OBSERVED_DIR` を渡されたものだけ）、伏せる関数（design D4。
     伏せる値は台本が定義する `ng_secret_values` から集め、定義が無ければ値の伏せは見出しの形だけにして記録とファイルの末尾は出さない）
@@ -62,7 +62,7 @@
 
 ## Task 2: `install-check.sh` を観測を出す部品に寄せる
 
-- [ ] 2.1 `tools/release/install-check.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す（部品の `die` を使う）。
+- [x] 2.1 `tools/release/install-check.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す（部品の `die` を使う）。
   `ng_secret_values` を、`secret_values` と試験の画面の合言葉（`PW1` など台本が持つ値）を出す関数として置く（設定のファイルが無ければ字面の値だけで rc=0、あるのに読めなければ rc≠0。字面の合言葉はどちらでも出す。design D4）。
   `common_setup` で `NG_STATE_DIR`・`NG_SETTINGS_FILES`・`NG_HEALTHZ_URL`・`NG_OBSERVED_DIR` を渡す（design D3）。値を受けて判定する部品（`assert_acl_only`・`assert_read_only_perm`・
   `assert_modify_perm`・`assert_service_config`・`assert_restart_on_failure`・`assert_db_watch_acl`・`assert_loopback_listener_only`・`assert_no_trust`）は、
@@ -84,7 +84,7 @@
 
 ## Task 3: `update-check-install.sh` を観測を出す部品に寄せる
 
-- [ ] 3.1 `tools/release/update-check-install.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す。`windows_sc`・`windows_icacls`・`windows_netsh` は
+- [x] 3.1 `tools/release/update-check-install.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す。`windows_sc`・`windows_icacls`・`windows_netsh` は
   記録する口を通す（System32 の場所から呼ぶのは変えない）。`ng_secret_values` を置く（状態の置き場の設定の秘密と、字面の 2 つの画面の合言葉
   `update-check-test-password-0123`・`update-check-release-password-0123`。設定が無ければ rc=0、あるのに読めなければ rc≠0 で、合言葉はどちらでも出す）。
   実地の確かめの始めで design D3 の 4 つの名前を渡す（`NG_HEALTHZ_URL` はサーバの 18700。偽の配布元の `URL` は渡さない）。

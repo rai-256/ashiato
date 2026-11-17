@@ -2,15 +2,20 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# 観測を出す部品（die・die_seen・ng_report と、命令の記録の包み）。NG の行は部品の口だけが出す（CH16）
+. "$root/tools/release/check-ng-observations.sh"
 PROGRAM='C:/Program Files/ashiato'
 UPDATER="$PROGRAM/ashiato-updater.exe"
 UPDATER_DIR='C:/ProgramData/ashiato-updater'
 RULE='ashiato-update-check-ci-outbound'
 URL='http://127.0.0.1:18701'
+STATE='C:/ProgramData/ashiato'
+# 画面の合言葉（インストールと repair に渡す）。観測で伏せる値にも同じ変数を使う（写しを持たない）
+TEST_PASSWORD='update-check-test-password-0123'
+RELEASE_PASSWORD='update-check-release-password-0123'
 WORK=''
 PORT_PID=''
 
-die() { echo "NG: $*" >&2; exit 1; }
 usage() { echo "使い方: $0 --block-outbound | --self-test | --list | <配布 zip>" >&2; exit 2; }
 
 scenario_names=(
@@ -29,9 +34,21 @@ scenario_names=(
 list_scenarios() { printf '%s\n' "${scenario_names[@]}"; }
 
 windows_dir() { cygpath -u "${WINDIR:-${SystemRoot:-C:\\Windows}}"; }
-windows_netsh() { MSYS2_ARG_CONV_EXCL='*' "$(windows_dir)/System32/netsh.exe" "$@"; }
-windows_sc() { MSYS2_ARG_CONV_EXCL='*' "$(windows_dir)/System32/sc.exe" "$@" 2>/dev/null | tr -d '\r'; }
-windows_icacls() { MSYS2_ARG_CONV_EXCL='*' "$(windows_dir)/System32/icacls.exe" "$@" 2>/dev/null | tr -d '\r'; }
+windows_netsh() { MSYS2_ARG_CONV_EXCL='*' ng_observed_exec netsh.exe "$(windows_dir)/System32/netsh.exe" "$@"; }
+windows_sc() { MSYS2_ARG_CONV_EXCL='*' ng_observed_exec sc.exe "$(windows_dir)/System32/sc.exe" "$@" 2>/dev/null | tr -d '\r'; }
+windows_icacls() { MSYS2_ARG_CONV_EXCL='*' ng_observed_exec icacls.exe "$(windows_dir)/System32/icacls.exe" "$@" 2>/dev/null | tr -d '\r'; }
+
+# 観測で伏せる値を 1 行ずつ出す（部品が呼ぶ。design D4）。2 つの画面の合言葉は、設定を読めなくても出す。
+# 設定のファイルが無ければ rc=0、あるのに読めない・形が読めないときだけ rc≠0（部品は記録とファイルの末尾を出さない）
+ng_secret_values() {
+  printf '%s\n' "$TEST_PASSWORD" "$RELEASE_PASSWORD"
+  ng_settings_secrets "$STATE/settings/server.json" "$STATE/settings/owner.json"
+}
+# 判定が落ちたときの観測の入力（design D3。偽の配布元の URL は渡さない）。$1 は命令の記録の置き場
+ng_inputs() {
+  NG_STATE_DIR="$STATE" NG_HEALTHZ_URL='http://127.0.0.1:18700/healthz' NG_OBSERVED_DIR="$1"
+  NG_SETTINGS_FILES="$STATE/settings/server.json"$'\n'"$STATE/settings/owner.json"
+}
 
 # 127.0.0.0/8 と ::1 は残す。インストールされた updater だけを対象にするため、
 # PostgreSQL・サーバ・インストーラの loopback 通信は壊さない。
@@ -54,9 +71,9 @@ wait_state() {
 assert_service() {
   local service="$1" qc
   qc="$(windows_sc qc "$service")"
-  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' <<<"$qc" || die "$service が自動で起きない"
+  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*2' <<<"$qc" || die_seen "$service が自動で起きない" "$qc"
   grep -Eiq "SERVICE_START_NAME[[:space:]]*:[[:space:]]*NT SERVICE\\\\$service[[:space:]]*$" <<<"$qc" ||
-    die "$service が専用アカウントで動かない"
+    die_seen "$service が専用アカウントで動かない" "$qc"
 }
 wait_updater_request() {
   local count_file="$1" expected="$2" deadline=$((SECONDS + 60)) count
@@ -72,7 +89,7 @@ wait_updater_request() {
 assert_disabled_service() {
   local service="$1" qc
   qc="$(windows_sc qc "$service")"
-  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' <<<"$qc" || die "$service が無効でない"
+  grep -Eq 'START_TYPE[[:space:]]*:[[:space:]]*4' <<<"$qc" || die_seen "$service が無効でない" "$qc"
 }
 
 assert_disabled_setting() {
@@ -162,7 +179,7 @@ PY
 }
 
 stop_receiver() { [[ -z "$PORT_PID" ]] || { kill "$PORT_PID" 2>/dev/null || true; wait "$PORT_PID" 2>/dev/null || true; PORT_PID=''; }; }
-cleanup() { local rc=$?; stop_receiver; [[ -z "$WORK" ]] || rm -rf "$WORK"; exit "$rc"; }
+cleanup() { local rc=$?; stop_receiver; [[ -z "$WORK" ]] || rm -rf "$WORK"; exit "$rc"; } # ng-observations: 受けた終了コードの素通し
 
 install_zip() {
   local archive="$1" output="$2" test_url=''
@@ -170,11 +187,11 @@ install_zip() {
   [[ -f "$WORK/unpacked/ashiato-setup.exe" ]] || die 'zip にインストーラが無い'
   if [[ "$archive" == *package-windows-test* ]]; then test_url="$URL"; fi
   if [[ -n "$test_url" ]]; then
-    printf '%s\n%s\n' 'update-check-test-password-0123' 'update-check-test-password-0123' |
+    printf '%s\n%s\n' "$TEST_PASSWORD" "$TEST_PASSWORD" |
       env ASHIATO_SETUP_TEST_UPDATER_URL="$test_url" ASHIATO_SETUP_TEST_TRACE=1 \
       "$WORK/unpacked/ashiato-setup.exe" install >"$output" 2>&1
   else
-    printf '%s\n%s\n' 'update-check-release-password-0123' 'update-check-release-password-0123' |
+    printf '%s\n%s\n' "$RELEASE_PASSWORD" "$RELEASE_PASSWORD" |
       "$WORK/unpacked/ashiato-setup.exe" install >"$output" 2>&1
   fi
 }
@@ -184,9 +201,9 @@ install_zip() {
 repair_password() {
   local archive="$1"
   if [[ "$archive" == *package-windows-test* ]]; then
-    printf '%s\n%s\n' 'update-check-test-password-0123' 'update-check-test-password-0123'
+    printf '%s\n%s\n' "$TEST_PASSWORD" "$TEST_PASSWORD"
   else
-    printf '%s\n%s\n' 'update-check-release-password-0123' 'update-check-release-password-0123'
+    printf '%s\n%s\n' "$RELEASE_PASSWORD" "$RELEASE_PASSWORD"
   fi
 }
 
@@ -198,6 +215,7 @@ check_zip() {
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-check.XXXXXX")"
   trap cleanup EXIT
   out="$WORK/install.out"
+  ng_inputs "$WORK"
   reset_machine
 
   start_receiver "$WORK/requests"
@@ -285,7 +303,7 @@ check_zip() {
 }
 
 self_test() {
-  local work fake log body name count fake_output acl_good bad_acl password_lines
+  local work fake log body name count fake_output acl_good bad_acl password_lines err
   expect_fail() { if ( "$@" ) >/dev/null 2>&1; then die "失敗すべき判定が通った: $*"; fi; }
   work="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-update-self-test.XXXXXX")"
   trap 'rm -rf "${work:-}"' EXIT
@@ -373,6 +391,55 @@ EOF
   grep -Fq 'repair_password' <<<"$body" || die 'repair に合言葉を渡す経路が無い'
   while IFS= read -r name; do count="$(grep -Fxc -- "  echo '== Scenario: $name'" <<<"$body" || true)"; [[ $count == 1 ]] || die "Scenario の印が不正: $name"; done < <(list_scenarios)
   ! awk '/^self_test\(\)/{on=1} on' "$0" | grep -v 'grep -Eq' | grep -Eq '^[[:space:]]*echo .== Scenario:' || die 'self-test に Scenario の印がある'
+  # Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る
+  # 偽の sc.exe（windows_sc が System32 の場所で呼ぶ）で assert_service を外す。この部分殻は観測の入力を渡さない
+  # （サービスの観測は走らない）ので、NG の行より後に出る qc の出力は、判定が die_seen に渡した値
+  err="$work/assert.err"; count=0
+  if ( SC_MODE=disabled; assert_service ashiato-updater ) >/dev/null 2>"$err"; then count=1; fi
+  [[ "$count" == 0 ]] || die '自動で起きない assert_service が通った'
+  [[ "$(head -n 1 "$err")" == 'NG: ashiato-updater が自動で起きない' ]] || die "NG の行が 1 行目に無い: $(head -n 1 "$err")"
+  awk 'seen { if ($0 ~ /START_TYPE +: 4/) found = 1 } /^NG: / { seen = 1 } END { exit !found }' "$err" || die 'NG の行より後に判定が見た sc qc の出力が無い'
+
+  # 実地の確かめは観測の入力を渡してから始まり（ng_inputs）、渡す設定は 2 つ（server.json と owner.json）
+  grep -Eq '^[[:space:]]+ng_inputs "\$WORK"$' <<<"$body" || die 'check_zip が観測の入力を渡さない'
+  ( STATE='S T'; ng_inputs W
+    [[ "$NG_STATE_DIR" == 'S T' && "$NG_HEALTHZ_URL" == http://127.0.0.1:18700/healthz && "$NG_OBSERVED_DIR" == W &&
+      "$NG_SETTINGS_FILES" == $'S T/settings/server.json\nS T/settings/owner.json' ]] ) || die 'ng_inputs が観測の入力を渡さない'
+
+  # Scenario: 観測に秘密の値が出ない
+  # 実地の確かめと同じ観測の入力（ng_inputs）を自己試験の置き場へ向け、設定の秘密と 2 つの画面の合言葉を、偽の sc.exe の出力と
+  # 判定が渡す値に混ぜて落とす
+  local ngs="$work/ng-state" ngo="$work/ng-obs" ngbin="$work/ng-bin" v
+  mkdir -p "$ngs/settings" "$ngo" "$ngbin"
+  # 偽の合言葉は変数から差し込む（URL に字面で書くと tools/check-db-secret.sh が落とす）
+  local uc_pw_app='uc-app-pw-1' uc_pw_owner='uc-owner-pw-1'
+  printf '{"API_TOKEN":"uc-api-1","WEB_SESSION_KEY":"uc-session-1","WEB_PASSWORD_VERIFIER":"uc-verifier-1","DATABASE_URL":"%s"}\n' \
+    "postgres://a:${uc_pw_app}@127.0.0.1:1/x" >"$ngs/settings/server.json"
+  printf '{"DATABASE_OWNER_URL":"%s"}\n' "postgres://o:${uc_pw_owner}@127.0.0.1:1/x" >"$ngs/settings/owner.json"
+  printf '#!/usr/bin/env bash\necho "out uc-api-1 uc-verifier-1 uc-app-pw-1 %s"\n' "$RELEASE_PASSWORD" >"$ngbin/sc.exe"
+  printf '#!/usr/bin/env bash\necho "healthz HTTP 000"\n' >"$ngbin/curl"
+  chmod +x "$ngbin/sc.exe" "$ngbin/curl"
+  err="$work/secret.err"; count=0
+  if ( STATE="$ngs"; ng_inputs "$ngo"; PATH="$ngbin:$PATH"
+    sc.exe query "arg-$TEST_PASSWORD" >/dev/null
+    die_seen '秘密を含む判定' "got $TEST_PASSWORD uc-session-1 uc-owner-pw-1" ) >/dev/null 2>"$err"; then count=1; fi
+  [[ "$count" == 0 && "$(head -n 1 "$err")" == 'NG: 秘密を含む判定' ]] || die '秘密の試験が NG で終わらない'
+  for v in uc-api-1 uc-session-1 uc-verifier-1 uc-app-pw-1 uc-owner-pw-1 "$TEST_PASSWORD" "$RELEASE_PASSWORD"; do
+    ! grep -Fq -- "$v" "$err" "$ngo/observed.log" || die "観測に秘密の値が出る（値は出さない）"
+  done
+  grep -q 'API_TOKEN' "$err" && grep -q 'DATABASE_OWNER_URL' "$err" || die '観測に 2 つの設定のキーの名前が出ない'
+  grep -q '^\[命令\] sc.exe query arg-\*\*\*' "$err" || die '観測に命令の記録が出ない'
+
+  # 台本が字面で持つ合言葉（update-check-*-0123…）は全部、伏せる値にある（伏せる値の列挙の書き忘れを落とす）
+  local sv
+  sv="$(STATE="$work/none"; ng_secret_values)"
+  while IFS= read -r v; do
+    grep -Fxq -- "$v" <<<"$sv" || die "伏せる値に無い字面の合言葉がある（$(grep -nF -- "$v" "$0" | head -n 1 | cut -d: -f1) 行目）"
+  done < <(grep -oE '(install|update)-check-[a-z-]+-0123[0-9]*' "$0" | sort -u)
+
+  # Scenario: 2 つの台本は検査を通る
+  "$root/tools/release/check-ng-observations.sh" "$0" || die 'update-check-install.sh が観測の検査を通らない'
+  "$root/tools/release/check-ng-observations.sh" --self-test >/dev/null || die 'check-ng-observations.sh の自己試験が通らない'
   rm -rf "$work"; trap - EXIT
   echo 'OK: update-check-install の self-test'
 }
