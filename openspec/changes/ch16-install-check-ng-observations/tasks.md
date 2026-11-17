@@ -52,6 +52,9 @@
     `# Scenario: 観測を取る命令が戻らなくても、時間の上限で打ち切って NG で終わる`（`sleep 600` する偽の `sc.exe`・`NG_OBSERVE_TIMEOUT=1`・`NG_STATE_DIR` を渡し、
     `die` が 30 秒より前に rc=1 で終わる）/
     `# Scenario: 設定に無い秘密も、見出しの形で伏せる` /
+    `# Scenario: 一度伏せた値は、設定が変わった後も伏せ続ける`（記録を書いた後に設定の値を変え、前の値が標準エラーにも記録のファイルにも無い）/
+    `# Scenario: 待ちのループの同じ記録は 1 件にまとまり、判定が見た出力を押し出さない`（同じ偽の出力の `sc.exe` を 30 回呼んだ後に別の出力の命令を 1 回呼んで NG。どちらの出力も塊にあり、`（同じ記録 ×` の行がある）/
+    `# Scenario: 設定のファイルがまだ無くても、命令の記録は出す`（`NG_SETTINGS_FILES` の先が無い状態で NG。命令の記録の行があり、`（伏せる値を読めないので出さない）` は無い）/
     `# Scenario: 伏せる値を読めなければ、命令の記録とファイルの末尾を出さない`
   検証: `tools/release/check-ng-observations.sh --self-test` rc=0 /
   `bash -c 'd=$(mktemp -d "${TMPDIR:-/tmp}/ch16-1-1.XXXXXX"); trap "rm -rf \"$d\"" EXIT; printf "%s\n" "#!/usr/bin/env bash" ". tools/release/check-ng-observations.sh" "f() { echo \"NG: x\" >&2; }" >"$d/bad.sh"; ! tools/release/check-ng-observations.sh "$d/bad.sh" >"$d/out" 2>&1 && grep -q "bad.sh:3" "$d/out"'` rc=0（決まり 1 だけに外れる写しを行の番号つきで落とす）/
@@ -60,12 +63,12 @@
 ## Task 2: `install-check.sh` を観測を出す部品に寄せる
 
 - [ ] 2.1 `tools/release/install-check.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す（部品の `die` を使う）。
-  `ng_secret_values` を、`secret_values` と試験の画面の合言葉（`PW1` など台本が持つ値）を出す関数として置く（設定のファイルを読めなければ rc≠0。字面の合言葉はそれでも出す）。
+  `ng_secret_values` を、`secret_values` と試験の画面の合言葉（`PW1` など台本が持つ値）を出す関数として置く（設定のファイルが無ければ字面の値だけで rc=0、あるのに読めなければ rc≠0。字面の合言葉はどちらでも出す。design D4）。
   `common_setup` で `NG_STATE_DIR`・`NG_SETTINGS_FILES`・`NG_HEALTHZ_URL`・`NG_OBSERVED_DIR` を渡す（design D3）。値を受けて判定する部品（`assert_acl_only`・`assert_read_only_perm`・
   `assert_modify_perm`・`assert_service_config`・`assert_restart_on_failure`・`assert_db_watch_acl`・`assert_loopback_listener_only`・`assert_no_trust`）は、
   外れたとき受けた値を `die_seen` で渡す（`assert_no_secret_in` は値を渡さない —— 秘密そのものを含む）。
   `common_teardown` は `ng_report` で出して片付けを続ける。`install_with` の時間切れは `ng_report … 9` で出して `exit 1`（印を付ける。design D1）。`console_probe` の `exit 2` に印を付ける。
-  `check_zip` の始め（`common_setup` の後）に design D7 の確かめを置く（`# Scenario: CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る`）。
+  `common_setup` の末尾に design D7 の確かめを置く（`# Scenario: CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る`）。
   `self_test` に次を足す（偽の命令は `PATH` の先の置き場に置く）:
   `# Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る`（ST58 の形 —— 4 行目に `        STATE              : 4  RUNNING` を持つ `sc.exe query` の偽の出力で、
   `[[ "$(state_code ashiato-server)" == 1 ]] || die …` を部分殻で走らせ、rc=1・標準エラーの 1 行目が `NG: `・見出しの 2 行の間にその行がある・標準出力に塊の行が無い）/
@@ -83,7 +86,7 @@
 
 - [ ] 3.1 `tools/release/update-check-install.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す。`windows_sc`・`windows_icacls`・`windows_netsh` は
   記録する口を通す（System32 の場所から呼ぶのは変えない）。`ng_secret_values` を置く（状態の置き場の設定の秘密と、字面の 2 つの画面の合言葉
-  `update-check-test-password-0123`・`update-check-release-password-0123`。設定を読めなければ rc≠0 で、合言葉はそれでも出す）。
+  `update-check-test-password-0123`・`update-check-release-password-0123`。設定が無ければ rc=0、あるのに読めなければ rc≠0 で、合言葉はどちらでも出す）。
   実地の確かめの始めで design D3 の 4 つの名前を渡す（`NG_HEALTHZ_URL` はサーバの 18700。偽の配布元の `URL` は渡さない）。
   `assert_service`・`assert_disabled_service` は外れたとき受けた `sc qc` の出力を `die_seen` で渡す。
   `self_test` に、偽の `sc.exe`（今の自己試験の `$fake` の置き場）で `assert_service` を外し、標準エラーの `NG:` の行より後に偽の出力の行があることと、

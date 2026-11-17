@@ -20,7 +20,7 @@
 ## Goals / Non-Goals
 
 - Goals: `NG:` を出して終わる道の全部が観測を出す（判定ごとの書き忘れが起きない形）。出さない道を機械で落とす。秘密は出さない
-- Non-Goals: 判定の条件を直す・判定を足す（D7 の確かめを除く）・CI の job を変える・製品のコードを変える・ST58 の新しい台本を検査の対象に入れる・
+- Non-Goals: 判定の条件を直す・判定を足す（D7 の確かめを除く。D7 は道具自身の確かめで、製品の判定の条件は変えない）・CI の job を変える・製品のコードを変える・ST58 の新しい台本を検査の対象に入れる・
   `set -e` で判定の外の命令が落ちて止まる道に観測を出す（D8）
 
 ## Decisions
@@ -54,6 +54,10 @@
 対象の命令の出力は 64 KiB より十分小さく、今の判定でパイプが閉じる前に書き終わる）。2 つの出力を別々に返すので、呼び手が `2>&1` で 1 本に受けたときの
 行の交ざり方は直に呼んだときと違いうる（`2>&1` で受けるのは表示だけの `service_diagnostics` と、`>/dev/null 2>&1` で終了コードだけを見る判定で、判定の入力は変わらない）。
 `NG_OBSERVED_DIR` が無ければ記録はせず、命令をそのまま呼ぶ。口は記録の直近 12 件（1 件 40 行まで）を出す。
+待ちのループ（`wait_state`・`wait_healthz` など）は 1 秒ごとに同じ命令を呼ぶので、**直前と名前・引数・終了コード・出力が同じ記録は書き足さず、回数だけ数える**
+（`（同じ記録 ×<n>）`）。そうしないと、待ちの後の NG で 12 件が同じ行で埋まり、判定が見た出力が押し出される。
+記録は書くときにも D4 の伏せ方で伏せる（`curl --data` の合言葉などを素のまま残さない）。記録の置き場は `NG_OBSERVED_DIR`（`$WORK` か自己試験の置き場）だけで、
+状態の置き場・プロファイル・登録簿には書かない（実地の確かめの秘密の判定 —— `$STATE`・登録簿・インストーラの出力を探す —— に記録が引っかからない）。`$WORK` は `common_teardown` が消す。
 
 - なぜ: ST58 の誤り（`sc query` の 4 行目の状態を読めていない）は、判定が読んだ生の出力があれば 1 回のログで分かった。
   共通の様子（D3）だけでは、ACL・待ち受け・登録簿のように判定ごとに違う命令の出力が残らない
@@ -63,9 +67,10 @@
 
 台本の変数の名前を推して読まず、台本が次の名前で渡したときだけ出す:
 `NG_STATE_DIR`（状態の置き場。サーバのログは `logs/server` の最新）・`NG_SETTINGS_FILES`（設定のファイル。キーの名前だけ）・
-`NG_HEALTHZ_URL`（サーバの healthz）・`NG_OBSERVED_DIR`（命令の記録と、台本が書いた `trace`・`*.out` の置き場）。
+`NG_HEALTHZ_URL`（サーバの healthz）・`NG_OBSERVED_DIR`（命令の記録と、台本が判定のために書く出力のファイルの置き場）。
 出すもの: `ashiato-db`・`ashiato-server`・`ashiato-updater` の `sc.exe queryex` と `sc.exe qc`・healthz の HTTP の番号・設定のキーの名前・
-`NG_OBSERVED_DIR` の中で最後に書かれた `trace` / `*.out` 2 つの末尾 40 行・サーバのログの最新の末尾 40 行。
+`NG_OBSERVED_DIR` の中で最後に書かれた出力のファイル 2 つの末尾 40 行（判定が grep する実名に合わせる: `out`・`*.out`（`install.out`・`repair.out`・`*.ps.out`）・`trace`・
+`*.window`・`redirect.*.txt`。合言葉を渡す `*.in`・設定の写し `settings.*`・記録 `observed.log` 自身・展開した `unpacked/` は出さない）・サーバのログの最新の末尾 40 行。
 
 - `install-check.sh` は `common_setup` で `NG_STATE_DIR="$STATE"`・`NG_SETTINGS_FILES="$SETTINGS $OWNER_SETTINGS"`・`NG_HEALTHZ_URL="$URL/healthz"`・`NG_OBSERVED_DIR="$WORK"`
 - `update-check-install.sh` は実地の確かめの始めで `NG_STATE_DIR='C:/ProgramData/ashiato'`・`NG_SETTINGS_FILES='C:/ProgramData/ashiato/settings/server.json'`・
@@ -76,9 +81,12 @@
 
 ### D4（仮）. 秘密は、出す前に決まった値と見出しの形を伏せる
 
-台本が `ng_secret_values` を定義し、伏せる値を 1 行ずつ出す（設定のファイルを読めなければ rc≠0）:
+台本が `ng_secret_values` を定義し、伏せる値を 1 行ずつ出す。設定のファイルが**無い**（最初のインストールの前・消した後・設定を退けた Scenario）ときは
+字面の値だけを出して rc=0、**あるのに読めない・形が読めない**ときだけ rc≠0:
 `install-check.sh` は `secret_values` と `PW1` などの画面の合言葉、`update-check-install.sh` は状態の置き場の設定の秘密と 2 つの字面の合言葉。
 口は、塊を出す前にそれらの値と、`Authorization:` の見出しの値・`ashiato_session=` の値（形で見つけるので、前の値も伏せる）を `***` に置き換える。
+伏せる値は記録を書くたびと塊を出すときに集め、一度集めた値は走りの終わりまで伏せ続ける（入れ直し・repair・決め直しの前の値も伏せる）。
+集めた値は `NG_OBSERVED_DIR` の中の権限を絞ったファイルに置く（`$WORK` には設定の写しが既にあり、`common_teardown` が消す）。
 `ng_secret_values` が rc≠0 なら、命令の記録とファイルとログの末尾を出さず、`（伏せる値を読めないので出さない）` と書く（厳しい側）。
 ただし台本が字面で持つ合言葉は、設定を読めなくても伏せる値に入れる。設定はキーの名前だけで、値は伏せる前から出さない。
 
@@ -105,7 +113,7 @@ CI の `install-windows` は標準出力を `tee` して `== Scenario:` を数�
 ### D7（仮）. 観測の塊を本物の Windows で一度出してから実地の確かめに入る
 
 緑の CI は NG の道を通らないので、観測の塊の Windows の部分（本物の `sc.exe`・`timeout`・`curl` を Git Bash で呼ぶ）が壊れていても、
-次に判定が落ちた回 —— まさに観測が要る回 —— まで分からない。`install-check.sh` の実地の確かめ（`check_zip`）の始め、`common_setup` の後に、
+次に判定が落ちた回 —— まさに観測が要る回 —— まで分からない。`install-check.sh` の `common_setup` の末尾（2 つの実地の確かめ `check_release_zip`・`check_test_zip` の始めで呼ばれる）に、
 部分殻で `ng_report` を本物の命令に向けて一度走らせ、見出しの 2 行と 3 つのサービスの `sc.exe` の答えの行があることを見る（無ければ `die`）。
 出力は標準エラーへ（標準出力を変えない）。`ci.yml` は変えない。
 
