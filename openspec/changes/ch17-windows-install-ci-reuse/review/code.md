@@ -156,3 +156,49 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
   どちらにするかを人間に返す。
 
 範囲外: `release.yml` の pgsql のキャッシュ（`restore-keys: pgsql-`）は既存のもの。中身は pgsql.sh が sha256 で検証している。
+
+## /code-review（f62c86d..1dbe541）
+
+見た: Claude Code の組み込みの `/code-review`（7 件）。写しは scripts/code_review_record.py
+
+## R7. No CI job runs `windows-build-key.sh --check-workflow` (the structural guard that keeps the reuse safe). The only CI call is `--self-test` on the Windows runner, and that silently skips the workflow check when `python3`/`yaml` is missing.
+- 成果物: .github/workflows/ci.yml:465
+- 根拠: A later PR adds `restore-keys: windows-package-` to the restore step, or removes the `cache-hit` guard from a `package.sh windows` step. The script's header says the check runs "on Linux locally and in the merge gate", but grep finds it wired into nothing (no Linux job, no merge-gate script). On windows-latest the self-test prints "飛ばした" and exits 0, so CI stays green while stale or partial artifacts get reused.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. `EXCLUDE_PATHS` copies the "not code" classification (`docs/*`, `openspec/*`, `*.md`) from `tools/release/changes.sh` (`^(docs/|openspec/)|\.md$`) instead of sharing one definition.
+- 成果物: tools/release/windows-build-key.sh:17
+- 根拠: Someone widens `changes.sh code` (for example to skip `.superpowers/`) but not the key script, or the other way round. The two lists drift silently: either reuse quietly stops happening, or a path that `package.sh` reads gets excluded from the key and a stale Windows zip is reused.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. Exclusion matching runs against `git ls-tree` output, which C-quotes non-ASCII or special paths (core.quotePath). A quoted path starts with `"` and ends with `.md"`, so neither `docs/*` nor `*.md` matches it.
+- 成果物: tools/release/windows-build-key.sh:299
+- 根拠: A doc with a Japanese file name, e.g. `docs/設計.md`, is listed as `"docs/\350...\.md"`. It is not excluded, so editing it changes the key and forces a full Windows rebuild that the design says should be skipped. Using `ls-tree -z` or `-c core.quotePath=false` would avoid this.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. The full key self-test (temp repo, about 20 commits and checkouts, about 15 key computations) runs on every `package-windows` run on the Windows runner, which bills at 2x. It runs even when the cache hits and nothing is built.
+- 成果物: .github/workflows/ci.yml:465
+- 根拠: Every PR run with code changes spends extra Windows minutes on a pure-bash self-test that would give the same result in a Linux job such as `chain`/`package-linux`. That works against the CH17 goal of saving Windows minutes; the repo has already run out of its Actions budget once (2026-09-19).（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. Every build with a new key saves a new `windows-package-<key>` cache containing both zips (each bundles PostgreSQL). It also saves a new Windows Rust `target` cache whenever Cargo.lock changes. Almost every code push changes the key, so most of these entries are never read.
+- 成果物: .github/workflows/ci.yml:525
+- 根拠: Several active PRs each push a few code commits and each push writes hundreds of MB of package cache in its PR scope, while Windows `target` caches add several more GB. That hits the 10 GB repo cache limit and LRU eviction removes main's `windows-package-*` and `pgsql-*` entries, which are the ones PRs could actually reuse. Reuse then quietly stops working.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. The step always runs `git fetch --depth=1 origin $RUN_SHA` and passes the token as a `-c http.extraheader=AUTHORIZATION: basic …` argument on the command line, even on push runs where RUN_SHA == HEAD and `git rev-parse HEAD:.github/workflows/ci.yml` would be enough.
+- 成果物: .github/workflows/ci.yml:477
+- 根拠: On push-to-main runs this adds a network round trip that can fail. A fetch failure leaves the key empty and nothing is saved for later PRs to reuse. The base64 token also appears in the process arguments of every child process on the runner, where `GIT_CONFIG_*` environment variables would keep it out.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. The key is built from `ls-tree` of the commit, but `package.sh` builds from the checked-out working tree. Nothing confirms that the two match, so on a dirty or modified working tree the key describes a different tree than the one actually built.
+- 成果物: tools/release/windows-build-key.sh:296
+- 根拠: Any step between checkout and package (now or added later, e.g. a codegen or `npm` step that rewrites tracked files) changes the build input but not the key. The saved cache entry then claims to be the build of commit X while its contents differ, and later PR runs with the same key reuse it.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
