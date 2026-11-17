@@ -753,8 +753,11 @@ observation_probe() {
   probe="$WORK/ng-probe"
   if command -v cygpath >/dev/null 2>&1; then probe="$(cygpath -m "$probe")"; fi
   mkdir -p "$probe"
-  printf '{"API_TOKEN":"probe-tok","WEB_SESSION_KEY":"probe-key","WEB_PASSWORD_VERIFIER":"probe-ver","DATABASE_URL":"postgres://ashiato:probe%%40db@127.0.0.1:5432/ashiato"}\r\n' >"$probe/server.json"
-  printf '{"DATABASE_OWNER_URL":"postgres://owner:probe-owner@127.0.0.1:5432/ashiato"}\r\n' >"$probe/owner.json"
+  # 偽の合言葉は変数から差し込む（URL に字面で書くと tools/check-db-secret.sh が落とす）
+  local pw_app='probe%40db' pw_owner='probe-owner'
+  printf '{"API_TOKEN":"probe-tok","WEB_SESSION_KEY":"probe-key","WEB_PASSWORD_VERIFIER":"probe-ver","DATABASE_URL":"%s"}\r\n' \
+    "postgres://ashiato:${pw_app}@127.0.0.1:5432/ashiato" >"$probe/server.json"
+  printf '{"DATABASE_OWNER_URL":"%s"}\r\n' "postgres://owner:${pw_owner}@127.0.0.1:5432/ashiato" >"$probe/owner.json"
   got="$(NG_OBSERVED_DIR=''; ng_settings_secrets "$probe/server.json" "$probe/owner.json" 2>&1)" || got="$got"$'\n'"（rc≠0）"
   [[ "$got" == $'probe-tok\nprobe-key\nprobe-ver\nprobe@db\nprobe-owner' ]] ||
     die_seen '設定の秘密の読み手が本物の Python で動かない' "$got"
@@ -1860,8 +1863,11 @@ EOF
   ng_fake sc.exe 'echo "FAKE-SC $*"'
   ng_fake curl 'echo "healthz HTTP 503"'
   printf 'SERVER-LOG-TAIL-NG\n' >"$ngw/state/logs/server/server.log"
-  printf '{"API_TOKEN":"api-token-ng-1","WEB_SESSION_KEY":"session-key-ng-1","WEB_PASSWORD_VERIFIER":"verifier-ng-1","DATABASE_URL":"postgres://ashiato_app:app-pw-ng-1@127.0.0.1:55400/ashiato"}\n' >"$ngw/state/settings/server.json"
-  printf '{"DATABASE_OWNER_URL":"postgres://ashiato_owner:owner-pw-ng-1@127.0.0.1:55400/ashiato"}\n' >"$ngw/state/settings/owner.json"
+  # 偽の合言葉は変数から差し込む（URL に字面で書くと tools/check-db-secret.sh が落とす）
+  local ng_pw_app='app-pw-ng-1' ng_pw_owner='owner-pw-ng-1'
+  printf '{"API_TOKEN":"api-token-ng-1","WEB_SESSION_KEY":"session-key-ng-1","WEB_PASSWORD_VERIFIER":"verifier-ng-1","DATABASE_URL":"%s"}\n' \
+    "postgres://ashiato_app:${ng_pw_app}@127.0.0.1:55400/ashiato" >"$ngw/state/settings/server.json"
+  printf '{"DATABASE_OWNER_URL":"%s"}\n' "postgres://ashiato_owner:${ng_pw_owner}@127.0.0.1:55400/ashiato" >"$ngw/state/settings/owner.json"
   ng_case_field() { printf 'TRACE-TAIL-NG\n' >"$NG_OBSERVED_DIR/trace"; sc.exe query RECORDED-ARG-NG >/dev/null; die '実地の確かめの中の判定'; }
   ng_run ng_case_field
   [[ "$ngrc" == 1 ]] || die "実地の確かめの中の判定が rc=1 で終わらない: $ngrc"

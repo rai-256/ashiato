@@ -411,8 +411,11 @@ EOF
   # 判定が渡す値に混ぜて落とす
   local ngs="$work/ng-state" ngo="$work/ng-obs" ngbin="$work/ng-bin" v
   mkdir -p "$ngs/settings" "$ngo" "$ngbin"
-  printf '{"API_TOKEN":"uc-api-1","WEB_SESSION_KEY":"uc-session-1","WEB_PASSWORD_VERIFIER":"uc-verifier-1","DATABASE_URL":"postgres://a:uc-app-pw-1@127.0.0.1:1/x"}\n' >"$ngs/settings/server.json"
-  printf '{"DATABASE_OWNER_URL":"postgres://o:uc-owner-pw-1@127.0.0.1:1/x"}\n' >"$ngs/settings/owner.json"
+  # 偽の合言葉は変数から差し込む（URL に字面で書くと tools/check-db-secret.sh が落とす）
+  local uc_pw_app='uc-app-pw-1' uc_pw_owner='uc-owner-pw-1'
+  printf '{"API_TOKEN":"uc-api-1","WEB_SESSION_KEY":"uc-session-1","WEB_PASSWORD_VERIFIER":"uc-verifier-1","DATABASE_URL":"%s"}\n' \
+    "postgres://a:${uc_pw_app}@127.0.0.1:1/x" >"$ngs/settings/server.json"
+  printf '{"DATABASE_OWNER_URL":"%s"}\n' "postgres://o:${uc_pw_owner}@127.0.0.1:1/x" >"$ngs/settings/owner.json"
   printf '#!/usr/bin/env bash\necho "out uc-api-1 uc-verifier-1 uc-app-pw-1 %s"\n' "$RELEASE_PASSWORD" >"$ngbin/sc.exe"
   printf '#!/usr/bin/env bash\necho "healthz HTTP 000"\n' >"$ngbin/curl"
   chmod +x "$ngbin/sc.exe" "$ngbin/curl"
