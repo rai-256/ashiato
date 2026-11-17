@@ -92,6 +92,7 @@ THE SYSTEM SHALL `tools/release/install-check.sh` と `tools/release/update-chec
 - **WHEN** `tools/release/install-check.sh` の実地の確かめが Windows で始まる
 - **THEN** 本物の `sc.exe` と `curl` で観測の塊を一度作り、`== 観測（ここから）`・`== 観測（ここまで）` の行と 3 つのサービスそれぞれの `sc.exe` の答えの行（サービスがまだ無ければ無いという答え）があることを確かめる
 - **AND** 無ければ、それを理由に NG で終わる
+- **AND** 決まった値を持つ設定の写しから、設定の秘密の読み手が決まった値を全部読み出せなければ、それを理由に NG で終わる
 
 ### Requirement: 観測を出さずに NG で終わる道を、自己試験が落とす
 

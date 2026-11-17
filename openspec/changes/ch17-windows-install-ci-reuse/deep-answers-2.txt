@@ -1,0 +1,3 @@
+=== CH17 の深掘り 第 2 回 の回答 ===
+Q3 [使い回しの形の検査（--check-workflow）を、Linux の CI の job で毎回走らせるか] -> 足す（chain の job に 2 行。Windows の job の自己試験は消す）
+Q4 [同じ PR の前の push が保存した組み立てを、後の run が確かめずに使う件] -> 受け入れる（今のまま。残る危険を design と docs/release.md に書く）
