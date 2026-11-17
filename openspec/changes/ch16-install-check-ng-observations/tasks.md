@@ -84,7 +84,7 @@
 
 ## Task 3: `update-check-install.sh` を観測を出す部品に寄せる
 
-- [ ] 3.1 `tools/release/update-check-install.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す。`windows_sc`・`windows_icacls`・`windows_netsh` は
+- [x] 3.1 `tools/release/update-check-install.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す。`windows_sc`・`windows_icacls`・`windows_netsh` は
   記録する口を通す（System32 の場所から呼ぶのは変えない）。`ng_secret_values` を置く（状態の置き場の設定の秘密と、字面の 2 つの画面の合言葉
   `update-check-test-password-0123`・`update-check-release-password-0123`。設定が無ければ rc=0、あるのに読めなければ rc≠0 で、合言葉はどちらでも出す）。
   実地の確かめの始めで design D3 の 4 つの名前を渡す（`NG_HEALTHZ_URL` はサーバの 18700。偽の配布元の `URL` は渡さない）。
