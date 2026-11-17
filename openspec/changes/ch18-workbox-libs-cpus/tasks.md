@@ -29,9 +29,9 @@
 
 ## Task 2: 箱の中で全体テストが通り、触ったのが予定のパスだけであることを確かめる
 
-- [ ] 2.1 依頼の「確かめ方」のコマンド（検証の準備・`cargo test --workspace`・`tools/smoke.sh`・画面の e2e・携帯の単体）を、直した木で箱の中で走らせる（完了の判定 3。2026-11-17 に本人が同じ 2 つの包みを足した写しで通した。workspace 約 5 分・e2e 約 6 分・携帯の単体 約 2 分）。
+- [x] 2.1 依頼の「確かめ方」のコマンド（検証の準備・`cargo test --workspace`・`tools/smoke.sh`・画面の e2e・携帯の単体）を、直した木で箱の中で走らせる（完了の判定 3。2026-11-17 に本人が同じ 2 つの包みを足した写しで通した。workspace 約 5 分・e2e 約 6 分・携帯の単体 約 2 分）。
   依頼の逐語から変えたのは 3 つだけ: `scripts/quiet-run` で包む・1.3 と同じ設定を見るよう `-u HARNESS_WORKBOX_CONFIG` を足す・`mktemp -d` で作ったフォルダを終わりに消す（verify-run が渡す一時フォルダの下に作られ、残ると `tmp_left` になる）。
   落ちたら、落ちたのが組み立てのリンク（`-llzma` / `-lbz2` などの `unable to find library`）か、試験の中身かをログで分ける。どちらも Global Constraints のとおり直さずに、PR 本文に挙げて A として人間に返す（`cpus: 6` を置いた状態で全体が通るかは、まだ実測されていない）。
   検証: `scripts/quiet-run wb -- env -u HARNESS_WORKBOX_CONFIG HARNESS_WORKBOX=tests python3 .harness2/scripts/workbox.py run . bash -c 'export TMPDIR=$(mktemp -d); trap "rm -rf \"\$TMPDIR\"" EXIT; . ./tools/agent-env.sh; tools/verify-env.sh && cargo test --workspace --no-fail-fast && tools/smoke.sh && (cd web && npm run test:e2e) && ./collector-android/gradlew -p collector-android :app:testDebugUnitTest'` rc=0
-- [ ] 2.2 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。完了の判定 4）。
+- [x] 2.2 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。完了の判定 4）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/workbox\.json|docs/changes/CH18\.md|openspec/changes/ch18-workbox-libs-cpus/|docs/briefs/CH18|\.superpowers/|$)"'` rc=0
