@@ -461,26 +461,76 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # CH17 D1: 鍵の台本の自己試験。落ちたら job を落とす
+      - run: tools/release/windows-build-key.sh --self-test
+        shell: bash
+      # CH17 D1・D2: 組み立ての鍵を出す。道具の版と、走っている run の CI の定義（github.sha の ci.yml の blob の id）を渡す。
+      # fetch か台本が落ちたら鍵を空にして続ける（引かずにビルドする）
+      - id: wbk
+        shell: bash
+        env:
+          RUN_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "rustc=$(printf '%s' "$(rustc -V)" | tr -cs 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+          key=""
+          if blob="$(git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" fetch --quiet --depth=1 origin "$RUN_SHA" && git rev-parse "FETCH_HEAD:.github/workflows/ci.yml")"; then
+            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
+            key="$(tools/release/windows-build-key.sh HEAD)" || key=""
+          fi
+          [ -n "$key" ] || echo "::warning::組み立ての鍵を出せないので、前の組み立てを引かずにビルドする"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      # CH17 D2: PR の run で鍵が完全に一致したときだけ、前の組み立て（上げる置き場の全部）を引く。restore-keys は書かない
+      - id: reuse
+        if: github.event_name == 'pull_request' && steps.wbk.outputs.key != ''
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ runner.temp }}/package-windows
+            ${{ runner.temp }}/package-windows-test
+          key: windows-package-${{ steps.wbk.outputs.key }}
+      # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-windows-${{ steps.wbk.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-windows-${{ steps.wbk.outputs.rustc }}-
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/pgsql-cache
           key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
           restore-keys: pgsql-
       # 子の命令の出力の読み方（CH14 D8・D9）。--lib を付けない（main.rs の試験は bin の target）。下限は Task 1 の 3 本と Task 5.2 の 8 本
-      - run: |
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: |
           n=$(cargo test -p ashiato-setup ch14_ -- --list | grep -c ": test$"); [ "$n" -ge 11 ] || { echo "ch14_ の試験が $n 本しかない"; exit 1; }; cargo test -p ashiato-setup ch14_
         shell: bash
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
-      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-test, path: "${{ runner.temp }}/package-windows-test" }
+      # CH17 D2: ビルドしたとき（引けず・鍵が空でなく・ここまで成功）だけ、同じ鍵・同じ置き場で保存する
+      - if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != '' && success()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ runner.temp }}/package-windows
+            ${{ runner.temp }}/package-windows-test
+          key: windows-package-${{ steps.wbk.outputs.key }}
 
   install-windows:
     needs: [changes, package-windows]
