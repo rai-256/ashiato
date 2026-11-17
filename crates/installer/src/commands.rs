@@ -1187,6 +1187,9 @@ pub fn update_directory_acl_command(layout: &Layout, updater_registered: bool) -
         "*S-1-5-32-544:(OI)(CI)M".into(),
         "*S-1-5-18:(OI)(CI)M".into(),
         format!("{}:(OI)(CI)RX", service_principal(layout.server_service)),
+        // 仕様: サーバと DB のサービスのアカウントは読めるが書けない（distribution の「更新の途中の印」）。
+        // DB のサービスはサーバより先に登録するので、ここでは名前解決できる
+        format!("{}:(OI)(CI)RX", service_principal(layout.db_service)),
     ];
     if updater_registered {
         args.push(format!(
