@@ -1551,6 +1551,12 @@ fn update_install_attempt(
         &update_plan::service_start_command(layout.db_service),
         trace,
     )?;
+    // `sc.exe start` は起動の途中（START_PENDING）で返る。起動の途中の PostgreSQL は接続を断るので、
+    // 受け付けるまで待ってから移行に入る（待たずに入った移行が os error 10054 で落ち、
+    // 注入した失敗でない理由で戻しに入った。CI run 44063388316）
+    if !wait_for_database(layout, layout.db_port, Duration::from_secs(120)) {
+        return Err("PostgreSQL が起動しない".into());
+    }
     write_update_stage(
         layout,
         &run_id,
