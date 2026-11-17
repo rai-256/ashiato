@@ -350,8 +350,9 @@ assert_scenario_result() {
       ;;
     '同じ版で走らせ直すと、更新の手順に入らない')
       (( rc == 0 )) || die '同じ版の再実行が失敗した'
-      # 移行は「ashiato-server.exe migrate」の行で見る。素の migrate は、同じ版でも毎回直す退避の置き場（backups\pre-migrate）の権限の行に当たる
-      ! grep -Eq 'ashiato-server\.exe"? migrate( |$)|service_stop.*ashiato-server|previous' "$trace" || die '同じ版なのに更新手順へ入った'
+      # 移行は「ashiato-server.exe migrate」の行で見る。素の migrate は、同じ版でも毎回直す退避の置き場（backups\pre-migrate）の権限の行に当たる。
+      # 前の版の退け先は観測の「previous=present」の行で見る。素の previous は、同じ権限を直す PowerShell の C#（IntPtr previous）に当たる
+      ! grep -Eq 'ashiato-server\.exe"? migrate( |$)|service_stop.*ashiato-server|^previous=present$' "$trace" || die '同じ版なのに更新手順へ入った'
       ;;
     'サーバのアカウントは、更新の途中の印を書けない')
       assert_update_acl "$(windows_icacls 'C:\\ProgramData\\ashiato\\update')"
@@ -766,6 +767,12 @@ EOF
   local same_trace="$work/same-trace"
   printf '%s\n' 'result=ok takeown /F C:\ProgramData\ashiato\backups\pre-migrate /A /R /D Y' 'result=ok icacls C:\ProgramData\ashiato\backups\pre-migrate /reset /L' >"$same_trace"
   assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  # 同じ権限を直す PowerShell の C# にある previous も、前の版の退け先と取り違えない（CI run 43979482400）
+  printf '%s\n' '  [DllImport("advapi32.dll", SetLastError=true)] private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, uint length, IntPtr previous, IntPtr returnedLength);' >>"$same_trace"
+  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  local same_previous_trace="$work/same-previous-trace"
+  cp "$same_trace" "$same_previous_trace"; echo 'previous=present' >>"$same_previous_trace"
+  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.5.0 0.5.0
   printf '%s\n' 'result=ok C:\Program Files\ashiato\ashiato-server.exe migrate (env DATABASE_OWNER_URL,MIGRATE_BACKUP_DIR,PG_DUMP)' >>"$same_trace"
   expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
   local paused_trace="$work/paused-trace"
