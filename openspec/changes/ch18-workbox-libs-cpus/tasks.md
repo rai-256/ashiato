@@ -17,12 +17,12 @@
 
 ## Task 1: 箱の設定に 2 つの包みと CPU の上限を置く
 
-- [ ] 1.1 `tools/workbox.json` の `apt` の末尾に `"liblzma-dev"`・`"libbz2-dev"` を足し、`"cpus": 6` を置く（JSON の整形は今のファイルに合わせ、末尾に改行 1 つ）。
+- [x] 1.1 `tools/workbox.json` の `apt` の末尾に `"liblzma-dev"`・`"libbz2-dev"` を足し、`"cpus": 6` を置く（JSON の整形は今のファイルに合わせ、末尾に改行 1 つ）。
   置いたファイルが、base（`git merge-base origin/main HEAD`）の版から、`apt` の末尾の 2 つと `cpus` だけを変えたものであることを確かめる（壊してはいけないもの 1）。
   検証: `python3 -c 'import json,subprocess as s;b=s.run(["git","merge-base","origin/main","HEAD"],capture_output=True,text=True,check=True).stdout.strip();o=json.loads(s.run(["git","show",b+":tools/workbox.json"],capture_output=True,text=True,check=True).stdout);n=json.load(open("tools/workbox.json",encoding="utf-8"));k=len(o["apt"]);assert n["apt"][:k]==o["apt"],"既存の apt が変わった";assert sorted(n["apt"][k:])==["libbz2-dev","liblzma-dev"],"足した apt が 2 つでない: %s" % n["apt"][k:];r=lambda d:{a:v for a,v in d.items() if a!="apt"};assert r(n)=={**r(o),"cpus":6},"apt と cpus の外が変わった";assert n.get("parallel_verify")==2;assert open("tools/workbox.json",encoding="utf-8").read()==json.dumps(n,indent=2,ensure_ascii=False)+"\n","整形が今のファイルと違う"'` rc=0
-- [ ] 1.2 harness2 の `workbox.load_config` で読めて（知らない鍵があれば止まる）、鍵が `workbox.KEYS` の中で、もう効かない鍵（`workbox.RETIRED`）を持たず、`cpus` が 6 であることを確かめる。
+- [x] 1.2 harness2 の `workbox.load_config` で読めて（知らない鍵があれば止まる）、鍵が `workbox.KEYS` の中で、もう効かない鍵（`workbox.RETIRED`）を持たず、`cpus` が 6 であることを確かめる。
   検証: `python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,".harness2/scripts");import workbox;cfg=workbox.load_config(Path("."),text=open("tools/workbox.json",encoding="utf-8").read());assert set(cfg)<=workbox.KEYS;assert not set(cfg)&set(workbox.RETIRED);assert cfg["cpus"]==6;assert {"liblzma-dev","libbz2-dev"}<=set(cfg["apt"])'` rc=0
-- [ ] 1.3 置いた設定で箱を 1 つ起こし、箱の中に 2 つの包みが入っていて、CPU の上限が 6 本（cgroup v2 の `/sys/fs/cgroup/cpu.max` が `600000 100000`）であることを確かめる。
+- [x] 1.3 置いた設定で箱を 1 つ起こし、箱の中に 2 つの包みが入っていて、CPU の上限が 6 本（cgroup v2 の `/sys/fs/cgroup/cpu.max` が `600000 100000`）であることを確かめる。
   **1.1 の前に** `scripts/verify-run 1.3` を走らせて FAIL を記録する（必須。base の設定の箱では包みが無く `cpu.max` が `max 100000` で落ちる。上流と spec-review が 2026-11-17 に確かめた）。FAIL のログに `max 100000` と `no packages found` が出ていること（箱が起きずに落ちたのではないこと）を自分で確かめ、1.1 の後にもう一度走らせて PASS を記録する。
   ホストと箱は worktree の `target/` を共有するので、2.1 はホストの組み立てで温まっていると包みが無くても通りうる。直す前と後を分けるのはこの項目（値はログに出る。確認バッチはそれを見る）。
   検証: `scripts/quiet-run cg -- env -u HARNESS_WORKBOX_CONFIG python3 .harness2/scripts/workbox.py run . -- bash -c 'cat /sys/fs/cgroup/cpu.max; dpkg-query -W -f="\${Package} \${Status}\n" liblzma-dev libbz2-dev; test "$(cat /sys/fs/cgroup/cpu.max)" = "600000 100000" && test "$(dpkg-query -W -f="\${Status}\n" liblzma-dev libbz2-dev | grep -c "install ok installed")" -eq 2'` rc=0
