@@ -352,7 +352,10 @@ assert_scenario_result() {
       (( rc == 0 )) || die '同じ版の再実行が失敗した'
       # 移行は「ashiato-server.exe migrate」の行で見る。素の migrate は、同じ版でも毎回直す退避の置き場（backups\pre-migrate）の権限の行に当たる。
       # 前の版の退け先は観測の「previous=present」の行で見る。素の previous は、同じ権限を直す PowerShell の C#（IntPtr previous）に当たる
-      ! grep -Eq 'ashiato-server\.exe"? migrate( |$)|service_stop.*ashiato-server|^previous=present$' "$trace" || die '同じ版なのに更新手順へ入った'
+      # 当たった行は trace の先の方にあることが多く、die の末尾 40 行には入らない。落ちたら当たった行そのものを添える
+      local entered
+      entered="$(grep -nE 'ashiato-server\.exe"? migrate( |$)|service_stop.*ashiato-server|^previous=present$' "$trace" | head -n 5 || true)"
+      [[ -z "$entered" ]] || die $'同じ版なのに更新手順へ入った\n'"$entered"
       ;;
     'サーバのアカウントは、更新の途中の印を書けない')
       assert_update_acl "$(windows_icacls 'C:\\ProgramData\\ashiato\\update')"
@@ -773,6 +776,9 @@ EOF
   local same_previous_trace="$work/same-previous-trace"
   cp "$same_trace" "$same_previous_trace"; echo 'previous=present' >>"$same_previous_trace"
   expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.5.0 0.5.0
+  local same_log
+  same_log="$( (current_scenario_work=''; assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.5.0 0.5.0) 2>&1 || true)"
+  grep -Eq '^[0-9]+:previous=present$' <<<"$same_log" || die '同じ版の判定の失敗に当たった行が出ない'
   printf '%s\n' 'result=ok C:\Program Files\ashiato\ashiato-server.exe migrate (env DATABASE_OWNER_URL,MIGRATE_BACKUP_DIR,PG_DUMP)' >>"$same_trace"
   expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
   local paused_trace="$work/paused-trace"
