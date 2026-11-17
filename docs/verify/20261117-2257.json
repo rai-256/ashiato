@@ -1,0 +1,143 @@
+{
+  "title": "確認バッチ 20261117-2257",
+  "subtitle": "CH18 作業箱の設定に圧縮ライブラリと CPU の上限を足す / CH17 Windows のインストールの試験の 1 周を縮める（台本だけの変更ではビルドし直さない） / CH16 CI の Windows の試験の判定が落ちたら、何が起きていたかを必ずログに出す / ST58 更新を入れ、移行が失敗したら自動で戻る",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261117-2257/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。読む・作り直すのは画面の合言葉でログインして（`tools/web-login.sh`）。API の合言葉は送るだけ。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `cookie=\"$(tools/web-login.sh http://127.0.0.1:18787)\"; curl -sS -H \"$cookie\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261117-2257 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261117-2257/app-debug.apk` を作った。エミュレータが無いので入れていない（手で入れる: `adb -s エミュレータ install -r dist/verify-20261117-2257/app-debug.apk`）。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261117-2257`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261117-2257 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261117-2257/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "CH18 はこの change は振る舞いを変えない（確認の項目なし。気になれば `scripts/hx show CH18`（操作盤の「確認バッチで見る」）で前後の比較を足して作り直す）",
+    "CH16 はこの change は振る舞いを変えない（確認の項目なし。気になれば `scripts/hx show CH16`（操作盤の「確認バッチで見る」）で前後の比較を足して作り直す）",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261117-230007-6219021（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "CH17-F",
+      "topic": "CH17 違和感",
+      "kind": "check",
+      "question": "CH17「Windows のインストールの試験の 1 周を縮める（台本だけの変更ではビルドし直さない）」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / proposal.md / tasks.md\n仕様書の要点がいまの仕様とずれている（9 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261117-2257/CH17-spec.html"
+    },
+    {
+      "id": "ST58-T12.1",
+      "topic": "ST58 12.1",
+      "kind": "check",
+      "question": "本物の配布元で 1 回入れる: 配布元に版の違う 2 つのリリース（ベータ版か開発版）が出た後、携帯の「更新あり」の行・PC の通知・画面の帯から新しい版を入れ、指紋が本物の `digest` と合って入ることを見る。本物の `github.com` → `release-assets.githubusercontent.com` の転送を通るのはここが最初（試験と CI は loopback の受け手。D11（仮）の反転条件）。いまは配布元のリリースが 0 件（P1）なので、出るまで待つ",
+      "why": "ST58 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n物理: realdata —— 本物の配布元のリリースは手元の受け手では作れない（試験・CI は本物の配布元に聞かない）",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST58-T12.2",
+      "topic": "ST58 12.2",
+      "kind": "check",
+      "question": "本人の PC のサーバの更新: ST57 までの版を入れた本人の PC で、新しい版の zip のインストーラを走らせて更新が通り、記録の件数と画面の合言葉がそのままで、退避が直前の 1 つになることを見る",
+      "why": "ST58 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n物理: realdata —— 本人の PC の前のインストールの状態と記録の量は CI で再現しきれない",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST58-PD25",
+      "topic": "ST58 仮D25",
+      "kind": "check",
+      "question": "ST58 の仮の決定 D25: 戻し（別の名前の DB へ pg_restore して入れ替える）をどの役割で行うか →「表の所有者 ashiato_owner（CREATEDB・DB の持ち主）で行い、DB の管理者の資格を控え直さない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 所有者で足りなければ戻しが落ち、DB は元の名前のまま残って止まる（記録は失わない）。管理者の資格をどこにも置かない（失わない側の費用: 所有者で足りるかを Windows の CI で確かめる 1 段）\n乗っている決定: Q5\n出所: review/spec.md#R14",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST58-L4",
+      "topic": "ST58 確かめたこと・残るリスク",
+      "kind": "check",
+      "question": "ST58 について、下の確かめたこと・未確認・残るリスクを読んだ。この残るリスクを受けてよいか",
+      "why": "人間はコードではなく、独立の席が何を確かめ何を確かめていないかと、GO の影響分析に残るリスクを受ける",
+      "context": "未確認: code-verify の結論・範囲の記録が無い\nsecurity-review: 結論: 指摘あり（review/code.md を読む）\n見た範囲: - 画面 `GET /update-status`（`lib.rs:4501`）→ `update_status::get` → 状態の置き場の `update/outcomes.jsonl` を 1 MB の上限で読み、版・結果・理由の種類を許した値の表で絞ってから `last_update` に出す（`update_status.rs:267-314`）。入口は ST57 からある画面のログインの内側で、版の文字列に `<` `>` と制御文字を通さない（4）\n見ていない範囲: 記録なし（未確認）\n[NOTE] 機械が承認した検証コマンドの訂正: 無し\n残るリスク: 待ち受けを開いた後に落ち続ける新しい版からは戻れない（IMP-04）\n残るリスク: 戻すたびに落ちた DB と退避が次の更新まで残り、空きと消した記録の写しに効く（IMP-01・IMP-02）\n残るリスク: PC で置いた場所の実行ファイルから開くと前の版が開く（IMP-05）\n残るリスク: 書き出しを読む側が、rolled_back の直前の failed の有無で 2 つの回を読み分けないと、待ち受けを開かずに戻した回を読み違えうる（説明書に書く）\n残るリスク: 更新の後に受け手から起こした携帯のサービスを、開く前に OS が立て直したときの形は確かめていない（IMP-08）",
+      "options": [
+        {
+          "label": "通った（残るリスクを受ける）",
+          "detail": "ここに記録した根拠と残るリスクを受ける"
+        },
+        {
+          "label": "通らなかった（受けない）",
+          "detail": "受けない。補足に理由を書く"
+        }
+      ]
+    },
+    {
+      "id": "ST58-F",
+      "topic": "ST58 違和感",
+      "kind": "check",
+      "question": "ST58「更新を入れ、移行が失敗したら自動で戻る」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n合意したときから変わった仕様: design.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（9 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q10 C6 D27）\n録画 ▶ ST58-web-update-apply（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261117-230007-6219021\\scenarios\\ST58-web-update-apply\\video.webm",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261117-2257/ST58-spec.html"
+    }
+  ],
+  "quiet": [
+    "CH18",
+    "CH16"
+  ]
+}
