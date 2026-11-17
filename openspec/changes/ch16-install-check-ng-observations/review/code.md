@@ -133,3 +133,28 @@
 - 根拠: `ng_record` は記録のたびに `ng_collect_secrets` → `ng_secret_values` を呼ぶ。install-check では、設定が 2 つあるとき Python を 2 回起こす。Linux で、設定の 2 つのファイルがある状態で偽の `sc.exe` を 30 回呼んだ。直に呼ぶと 172 ms、包んで呼ぶと 3403 ms だった（1 回あたり約 6 ms → 約 113 ms）。待ちのループ（`wait_state` など）は 1 秒ごとに `sc.exe`・`curl` を呼ぶので、1 回ごとの待ちが延びる。Windows（Git Bash の fork と Python の起動）では未実測
 - kind: technical
 - 提案: PR の `install-windows` の所要を base の直近の run と比べる。目に見えて延びたら、設定のファイルの更新時刻が変わったときだけ集め直す（design D3 の反転条件に当たる）
+
+## security review（7109e94..f24ec34）
+
+見た経路:
+- 判定の NG → `die`/`die_seen` → `ng_report` → `ng_emit` → `ng_redact` → 標準エラー → CI の `install-windows` のログ（repo は PUBLIC。`gh repo view` で確かめた）（4）
+- 包んだ `sc.exe`/`icacls.exe`/`netstat.exe`/`netsh.exe`/`reg.exe`/`curl` → `ng_observed_exec` → `ng_record` で伏せる値を集めてから `ng_redact` → `$WORK/observed.log`（check-ng-observations.sh:193-233）（4）
+- `login`（install-check.sh:469-474）の `curl -D -` の応答の `Set-Cookie: ashiato_session=…`、`-H "Cookie: ashiato_session=…"`・`-H "Authorization: Bearer …"`（:1010・:1082・:1246）→ 見出しの形で伏せる（check-ng-observations.sh:66-67）（4）
+- 設定を退けて repair する道（:1227-1247）→ 退ける前に `wait_healthz` → 包んだ `curl` が記録のたびに古い値を集めて `.ng-secrets` に残す → 退けた後の NG でも古い値を伏せる（4）
+- `observation_probe`（:745）→ 緑の run でも毎回、塊を公開のログに出す。出るのはインストールの前の様子（サービスが無い・healthz の番号・設定のキーの名前）だけ（3）
+- 伏せる値の控え `$WORK/.ng-secrets` → umask 077 → `common_teardown`（:770）・`cleanup`（update-check-install.sh:191）が `rm -rf "$WORK"`。CI の upload-artifact は `$WORK`・`TMPDIR` を上げない（ci.yml:316-561 の `path:` は package と playwright-report だけ）（3）
+- `ng_part_files` が出すファイルは `out`・`*.out`・`trace`・`*.window`・`redirect.*.txt` だけ。合言葉を入れる `pw2.in`、設定の写し `settings.away`、`.ng-secrets` は出さない（check-ng-observations.sh:111）（3）
+- `NG:` の理由の行は伏せない（:183）。この差分で足した `die_seen` の理由に入る値は ACL の主体・権限・サービス名・ポートだけで、秘密は入らない（2）
+- 新しい待ち受け・外への送信先・依存は無い。curl の行き先は `NG_HEALTHZ_URL`（127.0.0.1:18700）だけ（2）
+
+安全の決め手: 観測の塊と命令の記録は、出す前・書く前に必ず `ng_redact` を通る。伏せる値は、インストーラが作る 5 つの秘密（API_TOKEN・WEB_SESSION_KEY・WEB_PASSWORD_VERIFIER・2 つの DB の合言葉）と台本の利用者の合言葉で、一度集めた値は走りの終わりまで残す。秘密は base64url（crates/installer/src/secrets.rs:147-150）なので、URL やエスケープで形が変わらず、字面のまま突き合わせられる —— 確かさ 4。
+台本 `/tmp/ch16sec/probe.sh` を走らせた。本物の `check-ng-observations.sh` と、install-check.sh の `PY`・`ng_secret_values`・`ng_read_secrets` を読み込んで使う。次の順で動かした:
+1. 古い設定で `curl`（Bearer・cookie・`--data` に PW1）と `sc.exe` を記録する
+2. 設定を `settings.away` へ退け、新しい設定を置く
+3. サーバのログと `install.out` に、古い値・新しい値・DB の URL の形・JSON の形を書く
+4. `die_seen` で落とす
+
+結果は `rc=1`・塊は 45 行・`***` は 51 個・`leak=0` で、15 の値が標準エラーにも `observed.log` にも出なかった。`.ng-secrets` は `-rw-------` だった。
+Windows（Git Bash の awk・本物の命令の出力）では未実測。ここは CI の `install-windows` と R2 の確かめが担う。
+
+指摘なし（秘密の漏れは、既に R4〔字面の書き出しの合言葉〕と R5〔読めないときの `install_with` の末尾〕に書いた 2 つのほかに見つからない）
