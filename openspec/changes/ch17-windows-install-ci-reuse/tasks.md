@@ -79,11 +79,11 @@
 
 ## Task 3: 文書
 
-- [ ] 3.1 `docs/testing.md` の CI の job の表の `package-windows` / `install-windows` の行（無ければ表の近くの段落）に、使い回す条件（鍵の作り方・除くもの・PR の run だけ・完全一致）・
+- [x] 3.1 `docs/testing.md` の CI の job の表の `package-windows` / `install-windows` の行（無ければ表の近くの段落）に、使い回す条件（鍵の作り方・除くもの・PR の run だけ・完全一致）・
   Rust のキャッシュ・使い回しを止めたいとき（鍵の台本の除くものを空にする／キャッシュを `gh cache delete` で消す）・使い回した run の `release-package` の Windows の配布物の印は前の commit になること（design D3）を書く。
   依存の名前は書かない。
   検証: `bash -c 'grep -q "windows-build-key.sh" docs/testing.md && grep -q "release-package" docs/testing.md'` rc=0
-- [ ] 3.2 `docs/release.md` §11.1（下書きのリリースで許諾の 3 点を見る）の「run の `head_sha` と配布物の組み立ての印の commit が同じ」の後に、使い回した run の見方を足す（design D3・整合の確認 C3）:
+- [x] 3.2 `docs/release.md` §11.1（下書きのリリースで許諾の 3 点を見る）の「run の `head_sha` と配布物の組み立ての印の commit が同じ」の後に、使い回した run の見方を足す（design D3・整合の確認 C3）:
   Windows の配布物を使い回した run（`package-windows` の組み立ての step が飛ばされた run）では、Windows の 2 つの zip の印と `SOURCE.txt` は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指す。
   そのときは 2 つの zip について、`SOURCE.txt` の `Commit:` と組み立ての印の commit が同じで `.dirty` が無いことを見る。`tools/release/draft.sh` は変えない。
   検証: `bash -c 'sed -n "/^### 11.1/,/^### 11.2/p" docs/release.md | grep -q "使い回した"'` rc=0
