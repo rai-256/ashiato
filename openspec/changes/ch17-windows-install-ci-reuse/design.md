@@ -44,7 +44,7 @@
 - **走っている run の CI の定義**: pull_request の run は、head ではなく GitHub が作る merge の commit の `ci.yml` で走る（GitHub の一般の振る舞い。この repo では未確認・確かさ 1。review R11）。
   `package-windows` は head を checkout するので、鍵の step が `${{ github.sha }}` を浅く fetch し、その commit の `.github/workflows/ci.yml` の blob の id を道具の版の行に足す。fetch できなければ鍵を空にする（D2 でビルドする側）
 - **git の blob の id から作る**: checkout の改行の変換（Windows の autocrlf）に依らない
-- **台本**: `tools/release/windows-build-key.sh <commit>`（鍵を 1 行で出す）・`--self-test`（spec の鍵の 5 つの Scenario）・`--check-workflow [ci.yml]`（spec の CI の定義の 2 つの Scenario）。
+- **台本**: `tools/release/windows-build-key.sh <commit>`（鍵を 1 行で出す）・`--self-test`（spec の鍵の 5 つの Scenario）・`--check-workflow [ci.yml]`（spec の CI の定義の 8 つの Scenario。`if:` は `&&` の項に割って見る。code review R16）。
   `changes.sh` には足さない（`deps` の判定に入っていて、触ると `vulns` の job が走る。`code` / `deps` の挙動は `check-vulns.sh --self-test` が固定している）
 
 退けた案: 入力を数え上げる（`crates/` `Cargo.*` `web/` `migrations/` `tools/release/build.sh` …）。数え漏らした入力が変わっても使い回し、古い配布物で試験が通る。

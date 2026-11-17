@@ -81,6 +81,18 @@ def check(path):
     def not_hit(rid):
         return "steps.%s.outputs.%s != \x27true\x27" % (rid, HIT)
 
+    def cond_lacks(step, need, what):
+        # if: を && の項に割り、need の項がちょうどあり、|| と否定が無いことを見る（部分文字列の一致では `|| always()` を通す）
+        c = str(step.get("if", ""))
+        terms = [t.strip() for t in c.split("&&")]
+        m = []
+        if "||" in c or "!" in c.replace("!=", ""):
+            m.append("%s の if: が && で結んだ項だけから成らない: %r" % (what, c))
+        for n in need:
+            if n not in terms:
+                m.append("%s の if: が %s を && の項に持たない" % (what, n))
+        return m
+
     def s_restore():
         m = []
         k, r = refs()
@@ -114,8 +126,7 @@ def check(path):
         if len(pk) != 2:
             m.append("package.sh windows の step が %d 個ある（2 個のはず）" % len(pk))
         for i in ch + pk:
-            if not_hit(rid) not in str(steps[i].get("if", "")):
-                m.append("step %d の if: が restore の cache-hit でないことを条件に持たない" % i)
+            m.extend(cond_lacks(steps[i], [not_hit(rid)], "step %d" % i))
             if i < r:
                 m.append("step %d（ch14_ の試験か package.sh windows）が restore より前にある（cache-hit を見る前に組む）" % i)
         for i in find(lambda s: ("steps.%s.outputs.%s" % (rid, HIT)) in str(s.get("if", ""))):
@@ -152,12 +163,13 @@ def check(path):
         ups = find(is_up)
         if not ups:
             return ["upload-artifact が無い"]
-        for i in range(r + 1, ups[0]):
+        # restore から最後の upload-artifact の手前まで（upload の間の step も、上げる前に引いた置き場に書き得る）
+        for i in range(r + 1, ups[-1]):
             s = steps[i]
-            if is_cache(s) and "run" not in s:
+            if is_up(s) or (is_cache(s) and "run" not in s):
                 continue
-            if not_hit(rid) not in str(s.get("if", "")):
-                m.append("restore と upload-artifact の間の step %d が if: で飛ばされない（引いた置き場に書き得る）" % i)
+            if cond_lacks(s, [not_hit(rid)], "step %d" % i):
+                m.append("restore と最後の upload-artifact の間の step %d が if: で飛ばされない（引いた置き場に書き得る）" % i)
         up_paths = set(p for i in ups for p in paths_of(steps[i]))
         if up_paths != set(paths_of(steps[r])):
             m.append("upload-artifact の path の集まりが restore の path と同じでない")
@@ -170,12 +182,10 @@ def check(path):
         sv = one(lambda s: uses_of(s).startswith("actions/cache/save@"), "save")
         ss = steps[sv]
         c = str(ss.get("if", ""))
-        if not_hit(rid) not in c:
-            m.append("save の if: が cache-hit でないことを条件に持たない")
-        if not re.search(r"steps\.%s\.outputs\.\w+ != \x27\x27" % re.escape(steps[k].get("id", "?")), c):
-            m.append("save の if: が鍵が空でないことを条件に持たない")
-        if "success()" not in c:
-            m.append("save の if: が success() を条件に持たない")
+        terms = [t.strip() for t in c.split("&&")]
+        m.extend(cond_lacks(ss, [not_hit(rid), "success()"], "save"))
+        if not any(re.fullmatch(r"steps\.%s\.outputs\.\w+ != \x27\x27" % re.escape(steps[k].get("id", "?")), t) for t in terms):
+            m.append("save の if: が鍵が空でないことを && の項に持たない")
         tr = find(lambda s: "git status --porcelain --untracked-files=no" in str(s.get("run", "")))
         if len(tr) != 1:
             m.append("作業木が commit のままかを見る step が %d 個ある（1 個のはず）" % len(tr))
@@ -185,8 +195,8 @@ def check(path):
                 m.append("作業木を見る step が package.sh windows より前にある")
             if tr[0] > sv:
                 m.append("作業木を見る step が save より後にある")
-            if "steps.%s.outputs.clean == \x27true\x27" % steps[tr[0]].get("id", "?") not in c:
-                m.append("save の if: が作業木が commit のままであることを条件に持たない")
+            if "steps.%s.outputs.clean == \x27true\x27" % steps[tr[0]].get("id", "?") not in terms:
+                m.append("save の if: が作業木が commit のままであることを && の項に持たない")
         if ss["with"].get("key") != steps[r]["with"].get("key"):
             m.append("save の鍵が restore の鍵と違う")
         if set(paths_of(ss)) != set(paths_of(steps[r])):
@@ -215,8 +225,7 @@ def check(path):
         rid = steps[r].get("id", "?")
         i = one(lambda s: is_cache(s) and "target" in paths_of(s), "Rust の cache")
         s = steps[i]
-        if not_hit(rid) not in str(s.get("if", "")):
-            m.append("Rust の cache の if: が restore の cache-hit でないことを条件に持たない")
+        m.extend(cond_lacks(s, [not_hit(rid)], "Rust の cache"))
         for p in ("~/.cargo/registry", "~/.cargo/git", "target"):
             if p not in paths_of(s):
                 m.append("Rust の cache の path に %s が無い" % p)
@@ -309,6 +318,16 @@ def mutate(name, src, dst):
     elif name == "n":
         st = steps.pop(r)
         steps.insert(ix(is_up)[0], st)
+    elif name == "q":
+        steps.insert(ups[0] + 1, {"shell": "bash", "run": "echo x > \"$RUNNER_TEMP/package-windows-test/x\""})
+    elif name == "r":
+        k = ix(lambda s: "package.sh windows" in str(s.get("run", "")))[0]
+        steps[k]["if"] = steps[k]["if"] + " || always()"
+    elif name == "s":
+        steps[sv]["if"] = steps[sv]["if"] + " || always()"
+    elif name == "t":
+        k = ix(lambda s: is_cache(s) and "target" in paths_of(s))[0]
+        steps[k]["if"] = steps[k]["if"] + " || true"
     elif name == "o":
         steps[r]["if"] = steps[r]["if"].replace("github.event_name == \x27pull_request\x27", "github.event_name != \x27pull_request\x27")
     else:
@@ -323,10 +342,12 @@ mutate(sys.argv[2], sys.argv[3], sys.argv[4])
 
 key() {
   local commit="${1:-HEAD}" root line path pat skip
+  local out
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "windows-build-key: git の木でない" >&2; return 2; }
   git -C "$root" rev-parse --verify --quiet "${commit}^{commit}" >/dev/null \
     || { echo "windows-build-key: commit を引けない: $commit" >&2; return 2; }
-  {
+  # 結果を変数に受け、全部が成功したときだけ出す（ls-tree が途中で落ちても、それまでの行のハッシュを出さない）
+  out="$({
     printf 'tools:%s\n' "${WINDOWS_BUILD_KEY_TOOLS:-}"
     # -z: 名前を引用符で包まない（core.quotePath。`docs/設計.md` が `"docs/\350…"` になり除くパスに当たらなくなる）
     git -C "$root" ls-tree -r -z --full-tree "$commit" | while IFS= read -r -d '' line; do
@@ -338,7 +359,8 @@ key() {
       done
       [ "$skip" = 1 ] || printf '%s\n' "$line"
     done
-  } | sha256sum | cut -d' ' -f1
+  } | sha256sum | cut -d' ' -f1)" || { echo "windows-build-key: 木を読めない: $commit" >&2; return 2; }
+  printf '%s\n' "$out"
 }
 
 default_ci() {
@@ -361,20 +383,21 @@ self_test_workflow() {
   fi
   echo "-- --check-workflow の自己試験"
   check_workflow "$ci" >/dev/null || { check_workflow "$ci"; echo "NG: 今の ci.yml が --check-workflow を通らない"; return 1; }
-  for m in a b c d e f g h i j k l m n o p; do
+  for m in a b c d e f g h i j k l m n o p q r s t; do
     python3 -I -c "$CHECK_PY" mutate "$m" "$ci" "$work/mut-$m.yml" || { echo "NG: 変えた版 ($m) を作れない"; return 1; }
     rc=0
     check_workflow "$work/mut-$m.yml" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "NG: 変えた版 ($m) でも --check-workflow が通った"; return 1; }
   done
-  echo "ok: 変えた版 16 通りは全部落ちる"
+  echo "ok: 変えた版 20 通りは全部落ちる"
 }
 
 self_test() {
   local script work t keyfile base k alt
   script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   work="$(mktemp -d "${TMPDIR:-/tmp}/wbk.XXXXXX")"
-  trap "rm -rf '$work'" EXIT
+  # self_test の local は EXIT の時には消えているので、値を %q で埋め込む（パスの ' に負けない）
+  trap "rm -rf $(printf '%q' "$work")" EXIT
   t="$work/tree"
   mkdir -p "$t"
   export WINDOWS_BUILD_KEY_TOOLS="rustc 1.90.0|node v24.0.0|ImageOS=win25|ImageVersion=20260101.1"
@@ -467,6 +490,14 @@ self_test() {
   rc=0
   out="$(cd "$t" && "$script" no-such-commit 2>/dev/null)" || rc=$?
   [ "$rc" -ne 0 ] && [ -z "$out" ] || { echo "NG: 引けない commit で鍵を出した"; return 1; }
+  # 部分木の object が欠けた木（ls-tree が途中で落ちる）でも、ハッシュを出さない
+  local broken="$work/broken" sub
+  git clone -q "$t" "$broken"
+  sub="$(git -C "$broken" rev-parse "$base:crates/server")"
+  rm -f "$broken/.git/objects/${sub:0:2}/${sub:2}"
+  rc=0
+  out="$(cd "$broken" && "$script" "$base" 2>/dev/null)" || rc=$?
+  [ "$rc" -ne 0 ] && [ -z "$out" ] || { echo "NG: 木を読み切れないのに鍵を出した: $out"; return 1; }
   echo "ok"
 
   self_test_workflow "$(default_ci)" "$work"

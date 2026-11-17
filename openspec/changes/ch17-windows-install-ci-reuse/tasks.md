@@ -44,8 +44,7 @@
 
 ## Task 2: Windows の配布物の job が鍵で使い回し、Rust のビルドをキャッシュから戻す
 
-- [x] 2.1 `.github/workflows/ci.yml` の `package-windows` の step を design D2・D4・D5 のとおりに変える: toolchain と node の後に、鍵の台本の自己試験（`tools/release/windows-build-key.sh --self-test`。
-  落ちたら job を落とす）→ 鍵を出す step（`WINDOWS_BUILD_KEY_TOOLS` に `rustc -V`・`node -v`・`$ImageOS`・`$ImageVersion` と、`${{ github.sha }}` を `git fetch --depth=1` で取ってその commit の `.github/workflows/ci.yml` の blob の id（design D1。走っている run の CI の定義）。fetch か台本が落ちたら鍵を空にして続ける）→
+- [x] 2.1 `.github/workflows/ci.yml` の `package-windows` の step を design D2・D4・D5 のとおりに変える: toolchain と node の後に、鍵を出す step（自己試験の step は深掘り第 2 回 Q3 で `chain` の job へ移した）（`WINDOWS_BUILD_KEY_TOOLS` に `rustc -V`・`node -v`・`$ImageOS`・`$ImageVersion` と、`${{ github.sha }}` を `git fetch --depth=1` で取ってその commit の `.github/workflows/ci.yml` の blob の id（design D1。走っている run の CI の定義）。fetch か台本が落ちたら鍵を空にして続ける）→
   `pull_request` の run で鍵が空でないときだけ `actions/cache/restore`（鍵 `windows-package-<鍵>`、`restore-keys` 無し、置き場は `${{ runner.temp }}/package-windows` と
   `${{ runner.temp }}/package-windows-test`）→ 引けなかったときだけ Rust のキャッシュ（`actions/cache`。`~/.cargo/registry`・`~/.cargo/git`・`target`、鍵 `cargo-windows-<rustc -V>-<hashFiles('Cargo.lock')>`、
   `restore-keys: cargo-windows-<rustc -V>-`）・PostgreSQL のキャッシュ（今のまま）・`ch14_` の試験・2 つの `package.sh windows` → 2 つの `upload-artifact`（今の名前のまま。引けたときも引けなかったときも。引いた置き場を書き換えずに上げる）→
@@ -65,8 +64,9 @@
   `--self-test` に、`--check-workflow` が落ちることの確かめを足す: 今の `ci.yml` の写しから (a) restore に `restore-keys` を足した版、(b) `package.sh windows` の step の `if:` を消した版、
   (c) `install-windows` の Scenario の突き合わせの step を消した版、(d) restore の `pull_request` の条件を消した版、(e) save の `success()` を消した版、(f) restore と save の鍵が空でない条件を消した版、
   (g) 鍵の step から `ImageVersion` を消した版、(h) Rust のキャッシュの step を消した版、(i) `upload-artifact` を 1 つ足し、その `path` を restore と save に入れない版、
-  (j) restore と `upload-artifact` の間に `if:` を持たない `run:` の step（引いた置き場に書く）を足した版、(k) `upload-artifact` の 1 つの `path` を restore の `path` と違う置き場に変え、その置き場を save にだけ足した版（引いた置き場をそのまま上げていない）を作り、どれも `--check-workflow` が 0 でない終了コードで終わること
-  （`--self-test` が `python3` を要るのはこの節だけ。`python3` か `yaml` が無ければこの節を飛ばしたと 1 行出して続ける —— Windows の runner の自己試験はこの節を飛ばす）。
+  (j) restore と `upload-artifact` の間に `if:` を持たない `run:` の step（引いた置き場に書く）を足した版、(k) `upload-artifact` の 1 つの `path` を restore の `path` と違う置き場に変え、その置き場を save にだけ足した版（引いた置き場をそのまま上げていない）、
+  (l)〜(t)（`rustc -V` か `ci.yml` を鍵から消す・作業木の条件を消す・restore を upload の前へ動かす・`pull_request` を反転・2 つの upload の間に `run:` を足す・`package.sh windows`／save／Rust の cache の `if:` に `||` を足す）の 20 通りを作り、どれも `--check-workflow` が 0 でない終了コードで終わること
+  （`--self-test` が `python3` を要るのはこの節だけ。`python3` か `yaml` が無ければこの節を飛ばしたと 1 行出して続ける。CI では `chain` の job（ubuntu）で走り、飛ばさない）。
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --check-workflow); for s in "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く" "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる" "上げる配布物は全部、保存と引きの置き場に入る" "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる" "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する" "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる" "ビルドするときは、Rust の依存のビルドを戻す" "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"; do grep -qF "== Scenario: $s" <<<"$out" || exit 1; done'` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --self-test); ! grep -q "飛ばした" <<<"$out"'` rc=0（手元では `--check-workflow` の自己試験も走ったこと）
@@ -80,7 +80,7 @@
 ## Task 3: 文書
 
 - [x] 3.1 `docs/testing.md` の CI の job の表の `package-windows` / `install-windows` の行（無ければ表の近くの段落）に、使い回す条件（鍵の作り方・除くもの・PR の run だけ・完全一致）・
-  Rust のキャッシュ・使い回しを止めたいとき（鍵の台本の除くものを空にする／キャッシュを `gh cache delete` で消す）・使い回した run の `release-package` の Windows の配布物の印は前の commit になること（design D3）を書く。
+  Rust のキャッシュ・使い回しを止めたいとき（キャッシュを `gh cache delete` で消す。除くものを空にしても止まらない。code review R19）・使い回した run の `release-package` の Windows の配布物の印は前の commit になること（design D3）を書く。
   依存の名前は書かない。
   検証: `bash -c 'grep -q "windows-build-key.sh" docs/testing.md && grep -q "release-package" docs/testing.md'` rc=0
 - [x] 3.2 `docs/release.md` §11.1（下書きのリリースで許諾の 3 点を見る）の「run の `head_sha` と配布物の組み立ての印の commit が同じ」の後に、使い回した run の見方を足す（design D3・整合の確認 C3）:
