@@ -21,7 +21,7 @@ CI の実行の成果物としてだけ置く）が、使い回しと反対の S
 
 → 正典 `distribution` の Requirement「コードを触った PR ごとに、配る形の 3 部品を公開せずに組む」を `## MODIFIED` で改める:
 「組み立てる。ただし組み立ての入力（鍵）が同じ前の組み立ての Windows の配布物があれば、それを使う」「CI の実行の成果物と CI の
-キャッシュにだけ置き、公開しない」。この Requirement の導出元は Story の価値（FR ではない）なので、requirements.md の FR は変えない。
+キャッシュにだけ置き、公開しない」。この Requirement の導出元は Story の価値（FR ではない）。requirements.md へは、Q2 の FR-127 の ★ が前置きとして使い回しを写す（整合の確認 C8）。
 正典を改めるので通常の路へ移る（`lane-verdict.json` は機械が書く）。
 
 ### Q2. 使い回した配布物が指す commit（R2）
@@ -40,3 +40,11 @@ PR の head の commit そのものから組む」に例外を足すので、req
 ## 要件へ戻すもの
 
 - FR-127（★ 2026-11-17 補足。Q2）: 使い回した Windows の配布物の `SOURCE.txt` と印は、それを組んだ commit を指す（PR の head の commit から組むことの例外）
+
+## spec の段へ渡すもの（整合の確認 `docs/audit/2026-11-17-ch17-fr127-consistency.md` の行き先 fix）
+
+- C1: `MODIFIED` の範囲は名指しの 2 つの Requirement の本文だけでなく、正典 distribution の :2261（期待値を組んだ commit から取る）と Scenario 3 つ（:2319・:2329・:2340）に及ぶ。Scenario の名前を変えるなら、印 4 か所（`notices.sh:360`・`check-guards.sh:273,328`・`check-artifacts.sh:445`）も変わり、`lane.json` の予定のパスの外になる
+- C2: 使い回した配布物の `SOURCE.txt` が指す commit（同じ PR の前の push の head）を、空の clone で `git fetch origin <commit>` できるかを完了の判定に足す（★ 2026-11-03 の未確認が ST53 の archive で宛先を失っている）
+- C3: design D3 の反転条件に当たる手順が `docs/release.md:151`（run の head_sha と配布物の印を比べる）に既にある。`draft.sh:45` の説明も使い回した run では正しくない
+- C4: 走っている st58 が `package-windows-test` を 6 つの成果物に分け、試験の台本 `update-apply-install.sh` を足す。D1（除く台本）・D2（保存する 2 つ）・CH17.md の「壊してはいけないもの」の成果物の名前が、st58 が先に main に入ると変わる
+- K1: `package-artifacts` は版と `LICENSE` を head の木から取る（ci.yml:549-559）。使い回しが通るのは `Cargo.toml` と `LICENSE` が鍵に入っている間だけ。:2261 の `MODIFIED` にこの条件を書く
