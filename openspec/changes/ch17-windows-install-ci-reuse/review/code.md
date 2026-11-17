@@ -135,6 +135,11 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 
 該当なし（`python3 scripts/plan_fix.py pending openspec/changes/ch17-windows-install-ci-reuse` は `[]`。`correction-review.md` は作っていない）。
 
+追記（2026-11-17、machine-corrections: 訂正 2.3 @ 2026-11-17T05:21:17+00:00）:
+- pending は 2.3 の 1 件。新しい入口は `./openspec/changes/ch17-windows-install-ci-reuse/check-ci-scope.sh`
+- `chain` の既存の step `- run: ./tools/check-spdx.sh`（ci.yml:649）を消すと、`NG: chain の step が、merge-base の並びに 2 step を足しただけでない` で rc=1 になった（壊す前は rc=0）。戻した後の `git status --porcelain`・`git diff` は壊す前と同じ
+- 結果: 落ちた。指摘は無い（`correction-review.md` の「2.3 2026-11-17T05:21:17+00:00」）
+
 ## security review（f62c86d..daf1a5e）
 
 見た経路:
