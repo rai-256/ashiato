@@ -235,6 +235,7 @@ ng_record() {
 sc.exe() { ng_observed sc.exe "$@"; }
 icacls.exe() { ng_observed icacls.exe "$@"; }
 netstat.exe() { ng_observed netstat.exe "$@"; }
+netsh.exe() { ng_observed netsh.exe "$@"; }
 reg.exe() { ng_observed reg.exe "$@"; }
 curl() { ng_observed curl "$@"; }
 
@@ -287,7 +288,7 @@ ng_check_file() {
       if (!marked) {
         if (c ~ /(^|[;&|({[:space:]])(echo|printf)[[:space:]]/ && c ~ /NG:/) bad(1, N[1], line)
         if (c ~ /(^|[;&|({[:space:]])exit[[:space:]]+[1-9]/ && cur != "usage") bad(2, N[2], line)
-        if (c ~ /[Ss]ystem32\/(sc|icacls|netstat|reg|curl)(\.exe)?([^A-Za-z0-9_]|$)/ && c !~ /ng_observed/) bad(3, N[3], line)
+        if (c ~ /[Ss]ystem32\/(sc|icacls|netstat|netsh|reg|curl)(\.exe)?([^A-Za-z0-9_]|$)/ && c !~ /ng_observed/) bad(3, N[3], line)
       }
       if (c ~ /(^|[;&|({[:space:]])(source|\.)[[:space:]]+[^#]*check-ng-observations\.sh/) sourced = 1
       if (c ~ /^(function[[:space:]]+)?(die|ng_report|die_seen)[[:space:]]*\(\)/ || c ~ /^function[[:space:]]+(die|ng_report|die_seen)([[:space:]{]|$)/) bad(4, N[4], line)
@@ -356,6 +357,12 @@ ng_self_test() {
   mkcopy 'windows_sc() { ng_observed_exec sc.exe "$windir/System32/sc.exe" "$@"; }'
   runcheck
   [[ $rc == 0 ]] || fail "記録する口の中の System32 の呼び出しを通さない: $(cat "$d/chk.out")"
+  mkcopy 'windows_netsh() { ng_observed_exec netsh.exe "$windir/System32/netsh.exe" "$@"; }'
+  runcheck
+  [[ $rc == 0 ]] || fail "記録を通す netsh を落とした: $(cat "$d/chk.out")"
+  mkcopy 'f() { "$windir/System32/netsh.exe" advfirewall; }'
+  runcheck
+  [[ $rc == 1 ]] && grep -q 'copy.sh:3: 決まり 3' "$d/chk.out" || fail "netsh の直呼びを落とさない: rc=$rc"
 
   # Scenario: 観測を出す部品を読まない・口を定義し直す台本を、検査が落とす
   printf '%s\n' '#!/usr/bin/env bash' 'f() { :; }' >"$d/copy.sh"
