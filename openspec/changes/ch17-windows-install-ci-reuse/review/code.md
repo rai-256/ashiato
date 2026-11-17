@@ -38,6 +38,7 @@
 - 提案: `scenario(...)` の呼び出しごとに `# Scenario: <名前>` のコメント（字面は spec と一字一句）を台本に置く。そのあと `check_scenarios.py` が rc=0 になることを確かめる。
 - 処置: fixed 2.2 — （`scenario(...)` の呼び出しごとに `# Scenario: <名前>` の印を spec と一字一句で置き、`print` は `"== %s: %s" % ("Scenario", name)` にして空の印を拾わせない。`check_scenarios.py` は rc=0・`scenarios: OK`）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R2. `--check-workflow` は、restore を組み立ての後ろへ動かした ci.yml を通す。この形では、引けても毎回ビルドし、検査は緑のまま
 - 成果物: tools/release/windows-build-key.sh（`s_asis`・`s_skip`・`s_restore`）/ .github/workflows/ci.yml
@@ -52,6 +53,7 @@
 - 提案: `s_skip`（か `s_asis`）に「`ch14_` の step と 2 つの `package.sh windows` の step は restore より後にある」を足す。`mutate` に「restore を組み立ての後ろへ動かした版」を足し、`--check-workflow` が落ちることを自己試験で見る。
 - 処置: fixed 2.2 — （`s_skip` に「`ch14_` と 2 つの `package.sh windows` は restore より後」と「restore の `cache-hit` を見る step は restore より後」を足し、`mutate` に restore を最初の upload の直前へ動かした版（n）を足した。指摘の版は `NG: step 7（ch14_ の試験か package.sh windows）が restore より前にある` で rc=1）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R3. `--check-workflow` は、restore の `== 'pull_request'` を `!=` に変えた ci.yml を通す。この形では、PR は使い回さず、main への push が使い回す
 - 成果物: tools/release/windows-build-key.sh（`s_restore`）/ specs の Requirement「WHEN 幹（`main`）への push … 使い回さずにビルドする」
@@ -62,6 +64,7 @@
 - 提案: `s_restore` は `github.event_name == 'pull_request'` の完全な字面（`&&` で結んだ項の 1 つ）を見る。`mutate` に `!=` へ反転した版を足す。
 - 処置: fixed 2.2 — （`s_restore` は `if:` を `&&` の項に割り、`github.event_name == 'pull_request'` がちょうど 1 項としてあること・`||` と否定が無いことを見る。`mutate` に `!=` へ反転した版（o）を足した。指摘の sed の版は rc=1）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R4. 除くパスの一覧の広げすぎを、どの試験も止めない（`crates/installer/*` や `tools/release/package.sh` を足しても自己試験は通る）
 - 成果物: tools/release/windows-build-key.sh（`EXCLUDE_PATHS`・自己試験）/ specs の Requirement「除くのは … だけ。名指ししていないファイルが 1 つでも変われば、鍵は変わる」
@@ -74,6 +77,7 @@
 - 提案: 自己試験に「`EXCLUDE_PATHS` が spec の 6 項目とちょうど同じ」の確かめを足す（台本の配列を出して、固定の 6 行と比べる）。一覧を変えるときは、spec と自己試験を一緒に変えることになる。
 - 処置: fixed D1 — （自己試験の「組み立てに入るファイルが 1 つでも違えば、鍵が変わる」で、`EXCLUDE_PATHS` が spec の名指しの 6 つちょうどであることを比べる。`'crates/installer/*'`・`'tools/release/package.sh'` を足した写しの `--self-test` はどちらも `NG: 除くパスが spec の 6 つと違う` で rc=1。design D1 に追記）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R5. `--check-workflow` を走らせる CI の job が無く、ci.yml の使い回しの形は merge の後に誰も見ない
 - 成果物: .github/workflows/ci.yml / tools/release/windows-build-key.sh / tasks.md 2.2（「Linux の手元と merge gate で走らせる」）/ design D2（ST58 が置き場を足したら「上げる置き場は全部、保存と引きの置き場に入る」が見る）
@@ -186,6 +190,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 共有すると `tools/release/changes.sh` を変えることになり、tasks の Global Constraints（`changes.sh` に触れない・`changes.sh code` の判定はそのまま）と design D1（`changes.sh` に足すと `deps` の判定が動き `vulns` の job が走る）に反する。指摘の危険な向き（鍵だけが広がり、組み立てが読むパスを除く）は R4 の直しで自己試験が止める（写しで `'tools/release/package.sh'` を足すと rc=1）。逆の向き（`changes.sh code` だけが広がる）は、その変更では `package-windows` 自体が走らないか、鍵が除かないパスが増えるだけで、使い回しが減る側に倒れ、古い配布物は使わない
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R9. Exclusion matching runs against `git ls-tree` output, which C-quotes non-ASCII or special paths (core.quotePath). A quoted path starts with `"` and ends with `.md"`, so neither `docs/*` nor `*.md` matches it.
 - 成果物: tools/release/windows-build-key.sh:299
@@ -194,6 +199,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D1 — （`git ls-tree -r -z` と `read -r -d ''` で読み、名前を引用符で包ませない。前の版では `docs/設計.md` を足した木の鍵が `1e5a6793e861…` → `817a9c4d7a40…` と変わり、今の版では同じ `1e5a6793e861…` のまま。ASCII の木の鍵は前と同じ。自己試験の 1 つ目の Scenario に `docs/設計.md`・`openspec/説明 書.txt` を足した。design D1 に追記）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R10. The full key self-test (temp repo, about 20 commits and checkouts, about 15 key computations) runs on every `package-windows` run on the Windows runner, which bills at 2x. It runs even when the cache hits and nothing is built.
 - 成果物: .github/workflows/ci.yml:465
@@ -226,6 +232,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D2 — （upload の後・save の前に `id: tree` の step を足し、`git status --porcelain --untracked-files=no` が空のときだけ `clean=true` を出す。save の `if:` に `steps.tree.outputs.clean == 'true'` を足し、変わっていれば警告を出して保存しない。`s_save` がこの step と条件を見て、条件を外した版（p）で `--check-workflow` が落ちる。design D2 に追記）
 - 判定: ADDRESSED（re-review 1 @b5e319f5b3d5c1e868abd3f5e7c42a8cafb44d31）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## final review（f62c86d..abd2843）
 
@@ -245,6 +252,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
   - 2.3 のコマンドで `chain` も 1 字比較から外す。代わりに「`chain` の step は merge-base の並びに、ちょうどその 2 step を足しただけ」を assert する。
   - 走らせ直して証跡を取り直す。
 - 処置: fixed 2.3 — （`plan_fix.py --approved machine` で 2.3 の 4 本目を `./openspec/changes/ch17-windows-install-ci-reuse/check-ci-scope.sh` に直した。台本は `package-windows` は step の外が同じ、`chain` は merge-base の並びに Q3 の 2 step を続けて足しただけ、それ以外の job と jobs の外は 1 字も同じことを assert する。旧コマンドは HEAD で AssertionError（FAIL の証跡 2026-11-17T05:20:49）、新は PASS。`chain` の別の step に `|| true` を足した版・足した 2 step の片方を変えた版はどちらも rc=1。2.3 の本文の「package-windows の job の中だけ」も直し、1.1・2.2・2.3・3.1 の証跡を今の木で取り直した）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R15. `s_asis` は 2 つの `upload-artifact` の間の step を見ない。引いた置き場を、上げる前に書き換えても `--check-workflow` が通る（Task 2 F2 が残っている）
 - 成果物: tools/release/windows-build-key.sh（`s_asis`。`range(r + 1, ups[0])`、:155 付近）
@@ -253,6 +261,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: 見る範囲を最後の upload の手前まで広げる（upload の step 自体は除く）。`mutate` に、この版を足す。
 - 処置: fixed 2.2 — （`s_asis` の範囲を restore から**最後の** upload の手前までにし、upload の step 自体は除いた。`mutate` に 1 つ目の upload の直後へ `if:` の無い `run:` を足した版（q）を足した。q は `NG: restore と最後の upload-artifact の間の step 11 が if: で飛ばされない` で rc=1、前の台本では rc=0）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R16. `if:` の検査は restore 以外は部分文字列の一致のまま。`|| always()` を足しても通る（Task 2 F3。R3 の直しは restore だけ）
 - 成果物: tools/release/windows-build-key.sh（`s_skip`・`s_asis`・`s_save`・`s_rust` が使う `not_hit` の比べ方）
@@ -263,6 +272,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: これらの検査も `s_restore` と同じく `if:` を `&&` の項に割り、`||` と否定を拒む。`mutate` に `|| always()` の版を足す。
 - 処置: fixed 2.2 — （`cond_lacks` を足し、`ch14_`・`package.sh windows`・`s_asis` の間の step・save・Rust の cache の `if:` を `&&` の項に割って、要る項がちょうどあること・`||` と否定が無いことを見る（save の `success()`・鍵が空でない・作業木の条件も項で見る）。`mutate` に `package.sh windows` に `|| always()`（r）・save に `|| always()`（s）・Rust の cache に `|| true`（t）を足した版を足した。3 つとも今の台本で rc=1、前の台本では rc=0）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R17. 鍵を出す途中で落ちても、64 桁のハッシュが標準出力に出る（Task 1 F2。再現した）
 - 成果物: tools/release/windows-build-key.sh（:329-341 付近）
@@ -271,6 +281,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: 結果を変数に受け、全部が成功したときだけ出す。
 - 処置: fixed 1.1 — （鍵を変数に受け、パイプ全体が成功したときだけ出す。落ちたら `木を読めない` と rc=2。部分木の object を消した木で、前の台本は rc=1 で `608eea34…` を出し、今の台本は rc=2・出力なし。自己試験の「鍵を出せない木では、鍵を出さずに落ちる」に、clone した木から部分木の object を消して鍵を出さないことを見る確かめを足した）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R18. 自己試験の `trap "rm -rf '$work'" EXIT` がパスの `'` に弱い（Task 1 F4）
 - 成果物: tools/release/windows-build-key.sh（:377 付近）
@@ -278,6 +289,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: `trap 'rm -rf "$work"' EXIT` にする。
 - 処置: fixed 1.1 — （`trap "rm -rf $(printf '%q' "$work")" EXIT` にした。`$work` は `self_test` の local で EXIT の時には消えているので、提案の `trap 'rm -rf "$work"' EXIT` では消せない。値を `%q` で埋め込んで `'` に負けないようにした）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R19. `docs/testing.md` の「使い回しを止めたいとき: `EXCLUDE_PATHS` を空にする」が R4 の直しと食い違い、止めたことにもならない
 - 成果物: docs/testing.md
@@ -287,6 +299,7 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: 止める手順は `gh cache delete`（か、鍵の接頭辞を変える）だけにする。
 - 処置: fixed 3.1 — （`docs/testing.md` の止め方を「`windows-package-` の項目を `gh cache delete` で消す」だけにし、`EXCLUDE_PATHS` を空にしても止まらない理由（同じ木の Re-run は完全一致で引く・自己試験が 6 つちょうどでないと落ちる）を書いた。tasks 3.1 の本文の同じ記述も直した）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
 
 ## R20. Q3 と直しの後で古くなった記述が残っている
 - 成果物: openspec/changes/ch17-windows-install-ci-reuse/design.md / openspec/changes/ch17-windows-install-ci-reuse/proposal.md / openspec/changes/ch17-windows-install-ci-reuse/tasks.md
@@ -297,3 +310,4 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - kind: technical
 - 提案: 今の形に書き直す。
 - 処置: fixed 2.2 — （design.md:47 を「8 つの Scenario。`if:` は `&&` の項に割って見る」に、proposal.md:19 を「自己試験と `--check-workflow` は `chain` の job で走らせる（Q3）」に、tasks 2.1 の自己試験の step を「Q3 で `chain` へ移した」に、tasks 2.2 の変えた版を (a)〜(t) の 20 通りに、「Windows の runner の自己試験はこの節を飛ばす」を「CI では `chain` の job で走り、飛ばさない」に直した）
+- 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
