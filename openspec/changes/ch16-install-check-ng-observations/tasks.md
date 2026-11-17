@@ -62,7 +62,7 @@
 
 ## Task 2: `install-check.sh` を観測を出す部品に寄せる
 
-- [ ] 2.1 `tools/release/install-check.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す（部品の `die` を使う）。
+- [x] 2.1 `tools/release/install-check.sh` の頭で `check-ng-observations.sh` を `source` し、今の `die` の定義を外す（部品の `die` を使う）。
   `ng_secret_values` を、`secret_values` と試験の画面の合言葉（`PW1` など台本が持つ値）を出す関数として置く（設定のファイルが無ければ字面の値だけで rc=0、あるのに読めなければ rc≠0。字面の合言葉はどちらでも出す。design D4）。
   `common_setup` で `NG_STATE_DIR`・`NG_SETTINGS_FILES`・`NG_HEALTHZ_URL`・`NG_OBSERVED_DIR` を渡す（design D3）。値を受けて判定する部品（`assert_acl_only`・`assert_read_only_perm`・
   `assert_modify_perm`・`assert_service_config`・`assert_restart_on_failure`・`assert_db_watch_acl`・`assert_loopback_listener_only`・`assert_no_trust`）は、
