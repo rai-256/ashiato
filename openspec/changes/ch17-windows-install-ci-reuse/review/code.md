@@ -311,3 +311,88 @@ Task の記録の振り分け: Task 1 F1 は R9 で直った。F3 は R4 で閉�
 - 提案: 今の形に書き直す。
 - 処置: fixed 2.2 — （design.md:47 を「8 つの Scenario。`if:` は `&&` の項に割って見る」に、proposal.md:19 を「自己試験と `--check-workflow` は `chain` の job で走らせる（Q3）」に、tasks 2.1 の自己試験の step を「Q3 で `chain` へ移した」に、tasks 2.2 の変えた版を (a)〜(t) の 20 通りに、「Windows の runner の自己試験はこの節を飛ばす」を「CI では `chain` の job で走り、飛ばさない」に直した）
 - 判定: ADDRESSED（re-review 2 @112c52c3272533ce373488a1fa051a0425ee12c6）
+
+## final review（f62c86d..157b863）
+
+2 回目の final review。`superpowers:requesting-code-review` の `code-reviewer.md` でブランチ全体を見た。R14〜R20 の直し（`abd2843..157b863`）を重点に見た。
+手元の結果: `--self-test`（変えた版 20 通りは全部落ちる）・`--check-workflow`・`check-ci-scope.sh`・`check-guards.sh workflows`・`check-guards.sh --self-test`・`check-ci-ch14-step.sh`・`check_scenarios.py` は、どれも rc=0。
+R14〜R20 の直しに、新しい Critical / Important の壊れは無い。R17 は、旧の台本と今の台本を、部分木の object を消した clone で比べて確かめた。旧は rc=1 でハッシュを出し、今は rc=2 で何も出さない。
+今の ci.yml に、古い配布物や誤った配布物を上げる欠陥は見つからなかった。下の R21〜R26 は、ci.yml を仮に書き換えたときに `--check-workflow` が見逃す穴と、残った Minor だけ。reviewer の判断は「Ready to merge: Yes」。
+Task の記録の振り分け:
+- Task 1 F3 の一部は R26 に写した。
+- Task 2 F3 は R16 で閉じたが、restore の 1 か所が漏れている。R21 に写した。
+- そのほかの F は R9・R15〜R18 と Task 2 の re-review 1 で閉じた。
+⚠️ のうち次は、差分からは今も確かめられない。最初の PR の run で見る。
+- Git Bash で鍵を出せるか
+- `chain` で `import yaml` できるか
+- merge commit の fetch。落ちると鍵が空になり、`::warning::組み立ての鍵を出せないので…` が出て、使い回しが無言で効かなくなる
+- `tree` の step が `clean=true` を出すか
+
+## R21. restore の「鍵が空でない」条件だけが、まだ部分文字列で比べている（R16 の直しの漏れ）
+- 成果物: tools/release/windows-build-key.sh（`s_restore`、:114）
+- 根拠:
+  - `s_restore` は `steps.<id>.outputs.<key> != ''` を、`if:` の文字列 `c` の部分文字列として探す（`not in c`）。
+  - `s_save`（:187）は、`&&` で割った項に `re.fullmatch` をかけて見る。restore だけ、項として持つことを保証していない。
+  - 確かめ: restore の `if:` を `github.event_name == 'pull_request' && format('{0}', steps.wbk.outputs.key != '') != 'zz'` にした写し（`/tmp/ch17rv/C.yml`）を作った。`--check-workflow` は rc=0 だった（final の席で再現した）。
+- kind: technical
+- 提案:
+  - `s_save` と同じく、`terms` に `fullmatch` をかけて見る。
+  - `mutate` に、この版を足す。
+
+## R22. 組み立ての step に `continue-on-error: true` を足すと、落ちた組み立ての置き場が保存される。`--check-workflow` はこれを通す
+- 成果物: tools/release/windows-build-key.sh（`s_skip`・`s_save`、:178-206）
+- 根拠:
+  - `package.sh windows` の step に `continue-on-error: true` を足しても、`success()` は真のままになる。
+  - そのため、壊れた置き場や欠けた置き場が、その鍵で保存される。同じ鍵の後の run はそれを引き、cache を消すまで `install-windows` が赤になり続ける。
+  - 確かめ: この写し（`/tmp/ch17rv/F.yml`）で `--check-workflow` は rc=0 だった（final の席で再現した）。今の ci.yml には `continue-on-error` は無い。
+- kind: technical
+- 提案:
+  - restore から save までの step が `continue-on-error` を持たないことを見る。
+  - `mutate` に、この版を足す。
+
+## R23. 最後の upload と save の間で置き場に書く step を、`--check-workflow` は捕まえない
+- 成果物: tools/release/windows-build-key.sh（`s_asis`、`range(r + 1, ups[-1])`、:169 付近）
+- 根拠:
+  - `s_asis` の範囲は、R15 の直しで restore から最後の upload の手前までになった。
+  - 最後の upload の後、save の前に、`$RUNNER_TEMP/package-windows` に書く `run:` を足すとどうなるかを見た。その run で上げて試験したものと違う置き場が保存されるのに、検査は通る。
+  - 確かめ: この写し（`/tmp/ch17rv/A.yml`）で `--check-workflow` は rc=0 だった。
+  - 同じ位置に正当な `tree` の step があるので、「置き場に書かない」を構造で言い切るのは難しい。
+- kind: technical
+- 提案: 次のどちらか。
+  - 最後の upload と save の間の step を、許した形（`tree` の step だけ）に固定する。
+  - 範囲を save の手前まで広げ、`tree` の step だけを名指しで除く。
+
+## R24. `--check-workflow` は、鍵の台本に渡す commit を見ない
+- 成果物: tools/release/windows-build-key.sh（`s_tools`）
+- 根拠:
+  - `s_tools` は `WINDOWS_BUILD_KEY_TOOLS` の行だけを見る。
+  - ci.yml の鍵の step の `windows-build-key.sh HEAD` を `HEAD~1` に変えても通る。そうすると、ビルドする木と鍵の木がずれる。
+  - 確かめ: この写し（`/tmp/ch17rv/D.yml`）で `--check-workflow` は rc=0 だった。
+- kind: technical
+- 提案:
+  - 鍵の step の `run:` が、組み立てる commit（今の `HEAD`）を渡していることを見る。
+  - `mutate` に、この版を足す。
+
+## R25. `s_asis` が `actions/cache` の step を一律に免除する（計画の側の話）
+- 成果物: tools/release/windows-build-key.sh（`s_asis`、:169 付近）/ openspec/changes/ch17-windows-install-ci-reuse/tasks.md（2.2 の「`run:` を持つものと `actions/cache` でないもの」）
+- 根拠:
+  - `s_asis` は、`run:` を持たない `actions/cache` の step を飛ばす。
+  - そのため、引いた置き場と同じ path を持ち、`if:` の無い `actions/cache` を restore の後に足しても通る。その cache が置き場を書き換え得る。
+  - 確かめ: この写し（`/tmp/ch17rv/B.yml`）で `--check-workflow` は rc=0 だった。
+  - tasks 2.2 の文言どおりの実装なので、実装の逸脱ではない。
+  - 今の ci.yml の 2 つの cache の step は、どちらも `if:` を持っている。免除をやめても、今の ci.yml は通るはず。
+- kind: technical
+- 提案:
+  - 免除を、restore と save の step 自身だけに狭める。
+  - `mutate` に、この版を足す。
+
+## R26. 除くパスの glob を分ける変種が、自己試験にまだ足りない（Task 1 F3 の残り）
+- 成果物: tools/release/windows-build-key.sh（`self_test`）
+- 根拠:
+  - R4 の直しで、一覧は 6 つちょうどに固定された。R9 の直しで、`openspec/説明 書.txt` の変種もできた。
+  - ただ、次の 2 つの変種は今も無い。そのため、glob の当て方（`docs/*` と `*.md` の効き方）が変わっても、自己試験は落ちない。
+    - `docs/` の下の .md でないファイルだけを変える変種
+    - docs の外の `*.md`（例: `README.md`）だけを変える変種
+  - 危険は低い（glob は固定の文字列）。
+- kind: technical
+- 提案: この 2 つの変種で、鍵が変わらないことを見る確かめを足す。
