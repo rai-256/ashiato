@@ -96,6 +96,7 @@ WHEN PR が `docs/`・`openspec/`・`*.md` だけを触る THE SYSTEM SHALL こ�
 
 #### Scenario: 配る形を壊した PR は、その PR の CI で落ちる
 - **WHEN** 配布物の 1 つの組み立てが失敗する木で、配る形の組み立ての手順を走らせる
+- **THEN** 手順は 0 でない終了コードで終わる
 
 ### Requirement: 配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ
 

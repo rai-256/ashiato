@@ -274,3 +274,32 @@ R3・R6・R7（本文だけが言っていて Scenario が言っていないこ�
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
 - 処置: fixed D1 —— 走っている run の CI の定義（github.sha の ci.yml の blob）を鍵に入れ、fetch できなければ鍵を空にしてビルドする。GitHub の振る舞いは未確認（確かさ 1）と書いた。tasks 2.1・2.2 と Scenario も
 
+
+---
+
+（以下は `spec --answers Q1,Q2` の確かめ（commit `e0ff80e93` の差分）で足した指摘。2026-11-17）
+
+## R12. MODIFIED で写した正典の Scenario「配る形を壊した PR は、その PR の CI で落ちる」から THEN が落ちている。archive すると正典からその主張が消える
+- 成果物: openspec/changes/ch17-windows-install-ci-reuse/specs/distribution/spec.md:97-99
+- 根拠: `grep -n -A3 "Scenario: 配る形を壊した PR は"` の結果。
+  delta は `:97 #### Scenario: 配る形を壊した PR は、その PR の CI で落ちる` / `:98 - **WHEN** 配布物の 1 つの組み立てが失敗する木で、…走らせる` / `:99`（空行）/ `:100 ### Requirement: 配布物は、…` で、THEN の行が無い。
+  正典 `openspec/specs/distribution/spec.md:799-801` は `- **THEN** 手順は 0 でない終了コードで終わる` を持つ。
+  MODIFIED は Requirement の全文を置き換えるので、archive の後の正典はこの Scenario の THEN を失う（WHEN だけで真偽の決まらない Scenario になる）。
+  `openspec validate --strict` は rc=0、印（`tools/release/package.sh:46`）は名前で当たるので `check_scenarios.py` も落ちない —— 機械はこの欠けを見つけない。
+  proposal の Capabilities（「3 つの Scenario は名前も中身も変えない」）・delta の ★ CH17 の行（「使い回しても 3 つの Scenario は成り立つ」）・R1 の処置の「名前も中身も変えない」と食い違う。
+  ほかの 2 つの Scenario と、もう 1 つの MODIFIED（「配布物は、本体の許諾…」）の 18 の既存の Scenario は、正典と 1 字も違わない（awk で節を切り出して `diff`）。
+- kind: technical
+- 提案: delta の :98 の後に正典 :801 の `- **THEN** 手順は 0 でない終了コードで終わる` を戻す。
+  直した後に、MODIFIED の 2 つの Requirement の既存の Scenario が正典と同じであることを、節を切り出した `diff` で確かめる。
+- 処置: fixed specs/distribution/spec.md —— 正典 :801 の THEN の行を戻した（節を切り出した diff で、本文の改訂と ★ CH17 の行のほかは正典と同じことを確かめた）
+
+## R13. 足した Scenario「使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる」の THEN が主張を 2 つ束ねている
+- 成果物: openspec/changes/ch17-windows-install-ci-reuse/specs/distribution/spec.md（MODIFIED「配布物は、本体の許諾…」の最後の Scenario）
+- 根拠: THEN「配布物の置き場に書く手順（…）は前の組み立てを引けなかったときだけ走り、**成果物を上げる手順は引いた置き場を書き換えずにそのまま上げる**」。
+  前半（書く step が `cache-hit` でないときだけ走る）と後半（`upload-artifact` の `path` が restore の `path` と同じ）は別の性質で、tasks 2.2 も別々の確かめ（前半は (j)、後半は path の一致）を書いている。
+  1 つの見出しの下で片方だけを確かめる実装でも、`== Scenario:` の印は出る。否定の自己試験は `--check-workflow` の rc だけを見る（tasks 2.2）ので、
+  後半だけを壊す版（(i) は別の Scenario「上げる配布物は全部、保存と引きの置き場に入る」のための版で、それが落ちてもこの Scenario の後半が確かめられたとは言えない）が落ちることは、この Scenario の確かめを固定しない。
+- kind: technical
+- 提案: 2 つの Scenario に分ける（例:「前の組み立てを引けたときは、配布物の置き場に書く手順を全部飛ばす」/「引けたときは、引いた置き場をそのまま上げる」）。
+  あるいは 1 つのままにし、tasks 2.2 の `--self-test` に後半を壊す版（`upload-artifact` の `path` を restore と違う置き場にした版）を足す。
+- 処置: fixed 2.2 —— 分けずに、2 つ目の主張（引いた置き場をそのまま上げる）だけを壊す版 (k)（upload の path を restore と違う置き場にし、save にだけ足す）を --check-workflow の否定の自己試験に足した

@@ -65,7 +65,7 @@
   `--self-test` に、`--check-workflow` が落ちることの確かめを足す: 今の `ci.yml` の写しから (a) restore に `restore-keys` を足した版、(b) `package.sh windows` の step の `if:` を消した版、
   (c) `install-windows` の Scenario の突き合わせの step を消した版、(d) restore の `pull_request` の条件を消した版、(e) save の `success()` を消した版、(f) restore と save の鍵が空でない条件を消した版、
   (g) 鍵の step から `ImageVersion` を消した版、(h) Rust のキャッシュの step を消した版、(i) `upload-artifact` を 1 つ足し、その `path` を restore と save に入れない版、
-  (j) restore と `upload-artifact` の間に `if:` を持たない `run:` の step（引いた置き場に書く）を足した版を作り、どれも `--check-workflow` が 0 でない終了コードで終わること
+  (j) restore と `upload-artifact` の間に `if:` を持たない `run:` の step（引いた置き場に書く）を足した版、(k) `upload-artifact` の 1 つの `path` を restore の `path` と違う置き場に変え、その置き場を save にだけ足した版（引いた置き場をそのまま上げていない）を作り、どれも `--check-workflow` が 0 でない終了コードで終わること
   （`--self-test` が `python3` を要るのはこの節だけ。`python3` か `yaml` が無ければこの節を飛ばしたと 1 行出して続ける —— Windows の runner の自己試験はこの節を飛ばす）。
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --check-workflow); for s in "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く" "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる" "上げる配布物は全部、保存と引きの置き場に入る" "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる" "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する" "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる" "ビルドするときは、Rust の依存のビルドを戻す" "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"; do grep -qF "== Scenario: $s" <<<"$out" || exit 1; done'` rc=0 /
