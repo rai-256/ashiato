@@ -158,3 +158,67 @@
 Windows（Git Bash の awk・本物の命令の出力）では未実測。ここは CI の `install-windows` と R2 の確かめが担う。
 
 指摘なし（秘密の漏れは、既に R4〔字面の書き出しの合言葉〕と R5〔読めないときの `install_with` の末尾〕に書いた 2 つのほかに見つからない）
+
+## /code-review（7109e94..2e412fa）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R9. 検査の決まり 2 は `exit` の後に数字が直に続く形しか見ない。このため `exit "$rc"`・`exit $?`・`return 1` の伝播や、`set -e` での中断（例: common_setup の `unzip -q`）は NG の行も観測も出さずに終わり、それでも検査は通る。
+- 成果物: tools/release/check-ng-observations.sh:290
+- 根拠: common_setup の `unzip -q "$archive" -d "$WORK/unpacked"` が壊れた zip で落ちると、set -e で rc≠0 のまま終わる。NG の行も観測の塊も出ないのに check-ng-observations.sh は rc=0 を返し、CH16 の「出さない判定を検査で落とす」が成り立たない。根本の直し方は、既存の EXIT trap（common_teardown・cleanup）で、exit_code≠0 なのに ng_report をまだ通っていないとき観測を出すこと。そうすれば静的な検査に頼らずにすべての道を覆える。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. install_with の時間切れの道は、インストーラの出力の末尾 80 行を ng_report の obs（判定が見た値）として渡している。obs は ng_emit の中で ok=0（伏せる値を読めない）でも出力されるため、「伏せる値を読めなければファイルの末尾を出さない」という決まりをすり抜ける。
+- 成果物: tools/release/install-check.sh:699
+- 根拠: settings/server.json はあるが Python が JSON を読めない（壊れている・BOM 付き等）状態で、インストーラが時間切れになったとき。ng_part_files は抑止されるが、$out の末尾 80 行は obs として見出しの書き換え（Authorization・ashiato_session）だけを通って CI のログに出る。インストーラの出力に API_TOKEN や DB の合言葉が含まれていれば伏せられないまま漏れる。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. ng_record は記録する命令ごとに ng_collect_secrets を呼び、install-check ではそのたびに ng_secret_values が Python を 2 回起こす（server.json・owner.json）。sc.exe・curl・icacls の呼び出し 1 回ごとに Python 2 本と mktemp・awk・mv が付いてくる。
+- 成果物: tools/release/check-ng-observations.sh:217
+- 根拠: wait_state や healthz の待ちのループは state_code（sc.exe query）を毎秒呼ぶ。Windows の Git Bash では Python の起動 1 回で数百 ms かかるため、1 回の確かめに 0.5〜1 秒が足され、CI の 1 周（約 1 時間）が目に見えて延びる。安い代わりは 2 つ。伏せる値は設定のファイルの mtime が変わったときだけ集め直すか、記録の時点では伏せずに ng_emit の時点で 1 回だけ集めて伏せる（ng_emit はすでに塊全体を ng_redact に通している）。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. observed.log には上限が無く、命令 1 件につき最大約 400 行が足され続ける。さらに直前と同じ記録のたびに、ログ全体を grep・awk で読み直して `cat > log` で丸ごと書き直す。
+- 成果物: tools/release/check-ng-observations.sh:228
+- 根拠: 数百の Scenario で sc.exe・icacls /T・curl を呼ぶ長い実地の確かめでは、observed.log が数 MB に育つ。待ちのループで同じ記録が続くたびにファイル全体の書き直しが走り、回を追うごとに遅くなる。表示は直近 12 件しか使わない。直し方は、末尾の N 件だけを残すように切り詰めるか、回数を別のファイルに持って追記だけにすること。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. 伏せる画面の合言葉を、install_zip（199・203・213 行目）とは別の字面の写しで ng_secret_values に持っている。片方だけを変えると、伏せる値の一覧から黙って漏れる。
+- 成果物: tools/release/update-check-install.sh:41
+- 根拠: 誰かが install_zip の 'update-check-test-password-0123' を別の値に変え、41 行目を直し忘れたとする。新しい合言葉は伏せる値に入らず、命令の記録（curl の --data など）やインストーラの出力の末尾にそのまま CI のログへ出る。検査も自己試験も、この食い違いを捕まえない。直し方は、合言葉を 1 つの変数にして両方から参照すること。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. ng_read_secrets（JSON を読み、_URL のキーは接続の合言葉を取り出す Python）は、install-check.sh と update-check-install.sh にほぼ同じ形で 2 つある。しかも install-check.sh にはすでに setting・owner_setting・url_password・secret_values があり、同じことをしている。
+- 成果物: tools/release/install-check.sh:406
+- 根拠: 伏せるキーを足す（例: 新しい秘密の設定）とき、secret_values・install-check の ng_read_secrets・update-check の ng_read_secrets の 3 か所を直さなければならず、1 つでも漏れるとその台本だけで秘密がログに出る。直し方は、読み出しの部分を check-ng-observations.sh に 1 つだけ置き、両方の台本はキーの一覧だけを渡すこと。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R15. update-check-install の NG_SETTINGS_FILES には server.json しか入っておらず、owner.json が抜けている（ng_secret_values は owner.json も読む）。このため、観測に「設定のキー」として owner.json の状態が出ない。
+- 成果物: tools/release/update-check-install.sh:228
+- 根拠: 更新の後に owner.json が消えた・壊れたことで判定が落ちても、観測には server.json のキーしか出ない。owner.json について「まだ無い」も「キーの一覧」も出ないので、install-check.sh（両方を渡している）と比べて切り分けの材料が欠ける。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R16. NG_SETTINGS_FILES を空白区切りで `read -ra` に分けているため、空白を含む場所（Windows の TMPDIR、例: C:/Users/First Last/AppData/Local/Temp）を渡すと、1 つのファイルが 2 つの場所に割れる。
+- 成果物: tools/release/check-ng-observations.sh:95
+- 根拠: 利用者名に空白がある Windows の手元で install-check.sh --self-test を走らせると、ng_run が渡す "$ngw/state/settings/server.json" が 2 つに割れ、どちらも「まだ無い」と出る。その結果 `grep -q 'API_TOKEN' "$ngse"` が外れ、自己試験が '設定のキーの名前が出ない' で落ちる。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R17. ヒアドキュメントの開きを、コメントを除く前の生の行（line）に対する `<<WORD` の照合で見つけている。このため、行末のコメントや文字列の中の `<<WORD`、算術の `$((x<<n))` もヒアドキュメントの開きとみなされ、終わりの印が来るまで後続の行がまるごと検査から外れる。決まり 3 も `System32/` の形しか見ず、`System32\sc.exe` の形を見逃す。
+- 成果物: tools/release/check-ng-observations.sh:297
+- 根拠: `sc_query x # 出力は <<EOF の形` のような行や、`mask=$((1<<n))` が台本に入ると、それ以降に置いた `echo "NG: …" >&2; exit 1` が決まり 1・2 に引っかからず、検査は rc=0 で通る。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R18. ng_part_settings では変数 rc に `|| rc=$?` で代入しているが、どこでも使っていない（読み取りの失敗の判定は後の `[[ -r "$f" ]]` が別に行う）。
+- 成果物: tools/release/check-ng-observations.sh:98
+- 根拠: 読み手は rc がエラーの出し分けに使われていると思い込みやすく、grep の失敗（形の読めない JSON）と読み取り権限の無さを区別しているように見える。実際は区別していない。rc を消し、`-r` の判定を grep より前に置けば同じ働きで短くなる。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
