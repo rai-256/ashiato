@@ -150,7 +150,7 @@ test "$before" = "$after"
 
 4 つの配布物を落として、tar / zip の根に `LICENSE`・`THIRD-PARTY-NOTICES.txt`・`SOURCE.txt` の 3 点があること、APK は `unzip -l` で `assets/licenses/` に 3 点があることを見る。`SOURCE.txt` が `Commit:` を持つこと、`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha` の値と配布物の組み立ての印の commit が同じで `.dirty` が無いことを見る。
 
-**使い回した run の見方**（CH17 design D3）: Windows の配布物を使い回した run（`package-windows` の組み立ての step が飛ばされた run）では、Windows の 2 つの zip の印と `SOURCE.txt` は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指し、`head_sha` と一致しない。そのときは 2 つの zip について、`SOURCE.txt` の `Commit:` と組み立ての印の commit が同じで `.dirty` が無いことを見る（`head_sha` との照合は、ほかの配布物だけで行う）。
+**使い回した run の見方**（CH17 design D3）: Windows の配布物を使い回した run（`package-windows` の組み立ての step が飛ばされた run）では、Windows の 2 つの zip の印と `SOURCE.txt` は、それを組んだ commit（同じ PR の前の push の head か main の commit）を指し、`head_sha` と一致しない。そのときは 2 つの zip について、`SOURCE.txt` の `Commit:` と組み立ての印の commit が同じで `.dirty` が無いことを見る（`head_sha` との照合は、ほかの配布物だけで行う）。さらに、その commit が PR の履歴（`gh api repos/rai-256/ashiato/pulls/<PR>/commits --jq '.[].sha'`、force-push で消えた push は PR の画面の履歴）にあることを確かめてから zip を使う。同じ PR の前の push が保存した組み立ては、後の run が中身を確かめずに使う（CH17 design の Risks「同じ PR の前の push の保存物を確かめずに使う」。深掘り第 2 回 Q4 で受け入れた）。
 
 見た後に下書きと不要な成果物を削除する。
 

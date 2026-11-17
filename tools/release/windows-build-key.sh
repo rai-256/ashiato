@@ -3,7 +3,7 @@
 #   windows-build-key.sh [<commit>]   既定は HEAD。鍵（sha256 の 16 進 64 桁）を標準出力へ
 #   windows-build-key.sh --self-test  使い捨ての git の木で鍵の Scenario を確かめる（python3 と yaml があれば --check-workflow の自己試験も）
 #   windows-build-key.sh --check-workflow [<ci.yml>]  CI の定義（既定 .github/workflows/ci.yml）の package-windows の使い回しの形を確かめる
-#                                                    Linux の手元と merge gate で走らせる（Windows の runner では走らせない）
+#                                                    Linux の手元と CI の chain の job で走らせる（Windows の runner では走らせない）
 #
 # 鍵 = sha256（ls-tree の行のうち除くパスを落としたもの ＋ 道具の版の行）。
 # 道具の版の行は環境変数 WINDOWS_BUILD_KEY_TOOLS の文字列（CI は rustc -V・node -v・ImageOS・ImageVersion を並べて渡す）。

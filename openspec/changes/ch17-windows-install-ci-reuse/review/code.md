@@ -81,7 +81,7 @@
   直す先は Linux の job への 1 行で、tasks の Global Constraints（「`ci.yml` で変えてよいのは `package-windows` の job の step だけ」）の外になる。
 - kind: conflict
 - 提案: Linux の自己試験の job（`check-guards.sh --self-test` の並び）に `tools/release/windows-build-key.sh --check-workflow` と `--self-test` を足す。範囲を広げるかを人間に返す。広げないなら、design D2 の「`--check-workflow` が見る」を「merge gate の時点で一度だけ見る」に書き直す。
-- 処置: escalated — （範囲の外の job に足すかは本人の範囲「Windows の 2 つの job だけ」に触れる。deep.md 第 2 回 Q3・`docs/briefs/CH17-deep-r2.html`）
+- 処置: escalated —— deep.md 第 2 回 Q3 で答えが出た。本人が推奨「足す（chain の job に 2 行）」を選んだ（2026-11-17、`deep-answers-2.txt`）ので、答えに沿って直した（ci.yml の `chain` の job の自己試験の並び（`draft.sh --self-test` の後）に `./tools/release/windows-build-key.sh --self-test` と `--check-workflow` の 2 行を足した。`--check-workflow` は yaml が無ければ rc=2 で落ちる。tasks 2.2 の「merge gate で走らせる」を「`chain` の job で走らせる」に、Global Constraints に例外を、design D2・台本の冒頭の説明を直した）
 
 ## 手 2: ガードをわざと壊す
 
@@ -161,7 +161,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
   どちらにするかを人間に返す。
 
 範囲外: `release.yml` の pgsql のキャッシュ（`restore-keys: pgsql-`）は既存のもの。中身は pgsql.sh が sha256 で検証している。
-- 処置: escalated — （直し方はどちらも第 1 回の答え Q1（同じ PR の前の push を使い回す）か Q2（package-artifacts は変えない）を改める。受け入れる案も含めて deep.md 第 2 回 Q4 で本人に返す）
+- 処置: escalated —— deep.md 第 2 回 Q4 で答えが出た。本人が推奨「受け入れる（今のまま）」を選んだ（2026-11-17、`deep-answers-2.txt`）ので、答えに沿って（ci.yml は変えない。design の Risks に「同じ PR の前の push の保存物を確かめずに使う」（書けるのは PR の枝へ push できる者だけ・release/nightly は自分で組む）を足し、`docs/release.md` §11.1 の「使い回した run の見方」に、組んだ commit を PR の履歴で確かめてから zip を使う手順を足した）
 
 ## /code-review（f62c86d..1dbe541）
 
@@ -172,7 +172,7 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 - 根拠: A later PR adds `restore-keys: windows-package-` to the restore step, or removes the `cache-hit` guard from a `package.sh windows` step. The script's header says the check runs "on Linux locally and in the merge gate", but grep finds it wired into nothing (no Linux job, no merge-gate script). On windows-latest the self-test prints "飛ばした" and exits 0, so CI stays green while stale or partial artifacts get reused.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
-- 処置: escalated — （R5 と同じ。CI のどの job で `--check-workflow` を走らせるかは deep.md 第 2 回 Q3。Windows で yaml を入れて走らせる案は新しい依存が要るので取らない）
+- 処置: fixed 2.2 — （R5 と同じ直し。深掘り第 2 回 Q3 で `chain` の job（ubuntu）に `--check-workflow` を足した。そこでは yaml が無ければ「飛ばした」でなく rc=2 で落ちる。`package-windows`（ci.yml:465 付近）の自己試験の step は消した）
 
 ## R8. `EXCLUDE_PATHS` copies the "not code" classification (`docs/*`, `openspec/*`, `*.md`) from `tools/release/changes.sh` (`^(docs/|openspec/)|\.md$`) instead of sharing one definition.
 - 成果物: tools/release/windows-build-key.sh:17

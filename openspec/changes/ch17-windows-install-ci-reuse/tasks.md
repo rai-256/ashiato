@@ -12,7 +12,7 @@
   `tools/release/draft.sh`・他の workflow（`release.yml`・`nightly.yml`）・製品のコードには触れない**（本人の範囲は CI の Windows の配布物の job だけ。Q2 で `package-artifacts` も変えないと決めた）
 - **正典（`openspec/specs/`）を直に書かない**。この change の spec（ADDED 1・MODIFIED 2）は archive で正典に入る。MODIFIED の 2 つの Requirement の既存の Scenario は名前を変えていないので、
   その印（`notices.sh`・`check-guards.sh`・`check-artifacts.sh`）には触れない
-- **`ci.yml` で変えてよいのは `package-windows` の job の step だけ**。`package-windows` の job の `if:`・`needs:`・`runs-on:`・checkout の `ref:` と、
+- **`ci.yml` で変えてよいのは `package-windows` の job の step だけ**（例外: 深掘り第 2 回 Q3 で、`chain` の job の自己試験の並びに `windows-build-key.sh --self-test` と `--check-workflow` の 2 行を足す）。`package-windows` の job の `if:`・`needs:`・`runs-on:`・checkout の `ref:` と、
   `changes`・`install-windows`・`package-artifacts` ほか全部の job は変えない（`install-windows` は今と同じ成果物の名前を受け取るので変える必要が無い）
 - **壊してはいけないもの**（`docs/changes/CH17.md`）: `changes` の job の出し分け・`tools/release/check-guards.sh workflows`・`tools/check-ci-ch14-step.sh` が通ること・
   成果物の名前（`package-windows-release` / `package-windows-test`）・`install-windows` のインストールと更新の Scenario の全数の突き合わせ・
@@ -51,7 +51,7 @@
   `restore-keys: cargo-windows-<rustc -V>-`）・PostgreSQL のキャッシュ（今のまま）・`ch14_` の試験・2 つの `package.sh windows` → 2 つの `upload-artifact`（今の名前のまま。引けたときも引けなかったときも。引いた置き場を書き換えずに上げる）→
   引けなかったときで、鍵が空でなく、ここまでが成功したときだけ `actions/cache/save`（同じ鍵・同じ置き場）。restore と save の置き場は、`package-windows` の `upload-artifact` の `path` の全部と同じにする（design D2。今は 2 つ）。job の `if:`・checkout・step の並び（`ch14_` → 2 つの `package.sh windows`）は変えない。
   既存の step のコメントは残し、足した step には何のための step かを 1 行のコメントで書く。
-- [x] 2.2 `tools/release/windows-build-key.sh --check-workflow [<ci.yml>]`（既定 `.github/workflows/ci.yml`。`python3` と `yaml` で読む。この口は Linux の手元と merge gate で走らせ、Windows の runner では走らせない）を足し、
+- [x] 2.2 `tools/release/windows-build-key.sh --check-workflow [<ci.yml>]`（既定 `.github/workflows/ci.yml`。`python3` と `yaml` で読む。この口は Linux の手元と CI の `chain` の job で走らせ、Windows の runner では走らせない。深掘り第 2 回 Q3）を足し、
   spec の CI の定義の 8 つの Scenario を確かめる（各 Scenario の前に `echo "== Scenario: <名前>"`）:
   「前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く」（`package-windows` の配布物の restore が `restore-keys` を持たず、鍵が `windows-package-` と鍵の step の出力から成り、`if:` が `pull_request` と鍵が空でないことを条件に持つ）/
   「引けたときだけ組み立てを飛ばし、今と同じ名前で上げる」（`ch14_` の試験と 2 つの `package.sh windows` の step の `if:` が restore の `cache-hit` が `'true'` でないことを条件に持つ／2 つの `upload-artifact` が `if:` で飛ばされず今の名前を持つ）/

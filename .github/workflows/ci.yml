@@ -495,11 +495,6 @@ jobs:
             ${{ runner.temp }}/package-windows
             ${{ runner.temp }}/package-windows-test
           key: windows-package-${{ steps.wbk.outputs.key }}
-      # CH17 D1: 鍵の台本の自己試験。組み立てるときだけ走らせ、落ちたら job を落とす
-      # （引けたときは同じ台本・同じ道具の版の run が自己試験を通して保存している。台本と ci.yml は鍵に入る）
-      - if: steps.reuse.outputs.cache-hit != 'true'
-        run: tools/release/windows-build-key.sh --self-test
-        shell: bash
       # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
       - if: steps.reuse.outputs.cache-hit != 'true'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -681,6 +676,9 @@ jobs:
       - run: ./tools/release/install-check.sh --self-test
       - run: ./tools/release/update-check-install.sh --self-test
       - run: ./tools/release/draft.sh --self-test
+      # CH17 深掘り第 2 回 Q3: Windows の組み立ての鍵の自己試験と、package-windows の使い回しの形（--check-workflow。python3 と yaml が無ければ落ちる）
+      - run: ./tools/release/windows-build-key.sh --self-test
+      - run: ./tools/release/windows-build-key.sh --check-workflow
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
