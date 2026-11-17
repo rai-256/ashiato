@@ -1225,3 +1225,4 @@ final reviewer（`superpowers:requesting-code-review` の code-reviewer.md）が
 - 成果物: .superpowers/sdd/st58-settle/report.md
 - 根拠: .superpowers/sdd/st58-settle/report.md:1（re-review 17 の New Breakage。Minor）
 - kind: technical
+- 処置: rejected: `.superpowers/sdd/st58-settle/report.md` は `.superpowers/sdd/.gitignore`（`*`）で git の管理外の作業場（R66・R67 と同じ）で、commit では直せない。前の回（d2b17fe10・81eb6b41f・3c82cb08b・e73acf98c）の証跡をこの回に走らせ直して report に置いた —— `cargo test -p ashiato-setup st58_` は lib 30 件・bin 18 件すべて ok、e73acf98c の DB のサービスの ACE を一時的に消すと `st58_update_directory_acl_names_updater_only_when_registered` が落ちる（`DB のサービスは更新の印を読める（仕様）`）。`update-apply-install.sh --self-test` は rc=0、判定を素の `previous` に戻した一時コピーでは rc=1（`NG: 同じ版なのに更新手順へ入った` と当たった行 `3:` が添えられる）。
