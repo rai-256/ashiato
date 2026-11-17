@@ -96,6 +96,7 @@
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R2. D7 の確かめ（`observation_probe`）は、呼び出しを消しても、落とす分岐を消しても、自己試験が緑のまま
 - 成果物: tools/release/install-check.sh
@@ -105,6 +106,7 @@
 - 処置: fixed D7 —— （install-check の自己試験に、答えの行を出さない偽の sc.exe・healthz の行を出さない偽の curl で observation_probe が NG で終わることと、common_setup の本文に observation_probe の行があることを見る確かめを足した）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R3. 2 つの台本の実地の確かめで観測の入力を渡す行（`NG_*`）を消しても、自己試験は緑のまま
 - 成果物: tools/release/install-check.sh / tools/release/update-check-install.sh
@@ -114,6 +116,7 @@
 - 処置: fixed D3 —— （2 つの台本は 4 つの名前を関数 ng_inputs で渡し、install-check の ng_run も同じ関数を通す。common_setup / check_zip がそれを呼ぶこと・ng_inputs が 4 つの名前を渡すことを自己試験が見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R4. 書き出しの合言葉 `install-check-export-0123` が、命令の記録と観測の塊に素のまま出る
 - 成果物: tools/release/install-check.sh / tools/release/check-ng-observations.sh
@@ -125,6 +128,7 @@
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R5. 伏せる値を読めないときも、`install_with` の時間切れはインストーラの出力の末尾を出す
 - 成果物: tools/release/install-check.sh / tools/release/check-ng-observations.sh
@@ -136,6 +140,7 @@
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R6. 観測の上限の値（記録 12 件・1 件 40 行・ファイル 2 つ・末尾 40 行・時間 30 秒）は、変えても全部通る
 - 成果物: tools/release/check-ng-observations.sh
@@ -169,6 +174,7 @@
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## security review（7109e94..f24ec34）
 
@@ -218,6 +224,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D4 —— （R5 と同じ直し。インストーラの出力は ng_report の第 4 引数で渡し、伏せる値を読めないときは出さない）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R11. ng_record は記録する命令ごとに ng_collect_secrets を呼び、install-check ではそのたびに ng_secret_values が Python を 2 回起こす（server.json・owner.json）。sc.exe・curl・icacls の呼び出し 1 回ごとに Python 2 本と mktemp・awk・mv が付いてくる。
 - 成果物: tools/release/check-ng-observations.sh:217
@@ -249,6 +256,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D4 —— （画面の合言葉を変数 TEST_PASSWORD・RELEASE_PASSWORD にし、install_zip・repair_password・ng_secret_values が同じ変数を参照する。字面の合言葉が伏せる値に全部あることを自己試験が見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R14. ng_read_secrets（JSON を読み、_URL のキーは接続の合言葉を取り出す Python）は、install-check.sh と update-check-install.sh にほぼ同じ形で 2 つある。しかも install-check.sh にはすでに setting・owner_setting・url_password・secret_values があり、同じことをしている。
 - 成果物: tools/release/install-check.sh:406
@@ -258,6 +266,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D4 —— （読み手 ng_read_secrets・ng_settings_secrets とキーの一覧を部品に 1 つだけ置き、2 つの台本の写しを消した。判定の入力の secret_values は D6 で変えず、そのキーが部品の一覧に全部あることを自己試験が見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R15. update-check-install の NG_SETTINGS_FILES には server.json しか入っておらず、owner.json が抜けている（ng_secret_values は owner.json も読む）。このため、観測に「設定のキー」として owner.json の状態が出ない。
 - 成果物: tools/release/update-check-install.sh:228
@@ -267,6 +276,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 処置: fixed D3 —— （update-check の NG_SETTINGS_FILES に owner.json を足した。自己試験が 2 つのキーの名前が出ることを見る）
 - 判定: ADDRESSED（re-review 1 @81a964309922ac29175c2785dc77efcec648913c）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R16. NG_SETTINGS_FILES を空白区切りで `read -ra` に分けているため、空白を含む場所（Windows の TMPDIR、例: C:/Users/First Last/AppData/Local/Temp）を渡すと、1 つのファイルが 2 つの場所に割れる。
 - 成果物: tools/release/check-ng-observations.sh:95
@@ -362,6 +372,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: コメントを実際の動きに合わせて直し、使っていない PATH の足しを外す
 - 処置: fixed 3.1 —— （コメントを「windows_sc が System32 の場所で呼ぶ偽の sc.exe・この部分殻は観測の入力を渡さないので qc の出力は die_seen に渡した値」に直し、効いていない `PATH="$fake:$PATH"` を外した。update-check の自己試験は rc=0）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R25. `die_seen` の値（netstat の全出力・probe の `$block`）には行の上限が無い
 - 成果物: tools/release/check-ng-observations.sh / tools/release/install-check.sh
@@ -372,6 +383,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## R26. 本物の Windows の Python で `ng_read_secrets` が動くことを、どの確かめも通らない（計画の隙間）
 - 成果物: tools/release/install-check.sh（observation_probe）/ tools/release/check-ng-observations.sh（ng_read_secrets・ng_settings_secrets）
@@ -382,6 +394,7 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
 - 判定: ADDRESSED（re-review 3 @3d25d285a1a2a941acd296c23f15970b4e5e4fb9）
 - 判定: ADDRESSED（re-review 4 @0258bad5bc40836f37a02daf44e3ca1633cc612b）
+- 判定: ADDRESSED（re-review 5 @698a2277447bc166ac4f8a64dda72794c678463e）
 
 ## final review（7109e94..c193d61）
 
