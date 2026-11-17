@@ -111,8 +111,8 @@ def check(path):
             m.append("restore の if: が && で結んだ項だけから成らない: %r" % c)
         if "github.event_name == \x27pull_request\x27" not in terms:
             m.append("restore の if: が github.event_name == \x27pull_request\x27 を && の項に持たない")
-        if "steps.%s.outputs.%s != \x27\x27" % (ks["id"], mm.group(1)) not in c:
-            m.append("restore の if: が鍵が空でないことを条件に持たない")
+        if "steps.%s.outputs.%s != \x27\x27" % (ks["id"], mm.group(1)) not in terms:
+            m.append("restore の if: が鍵が空でないことを && の項に持たない")
         return m
 
     def s_skip():
@@ -166,7 +166,7 @@ def check(path):
         # restore から最後の upload-artifact の手前まで（upload の間の step も、上げる前に引いた置き場に書き得る）
         for i in range(r + 1, ups[-1]):
             s = steps[i]
-            if is_up(s) or (is_cache(s) and "run" not in s):
+            if is_up(s):
                 continue
             if cond_lacks(s, [not_hit(rid)], "step %d" % i):
                 m.append("restore と最後の upload-artifact の間の step %d が if: で飛ばされない（引いた置き場に書き得る）" % i)
@@ -195,6 +195,10 @@ def check(path):
                 m.append("作業木を見る step が package.sh windows より前にある")
             if tr[0] > sv:
                 m.append("作業木を見る step が save より後にある")
+            # 最後の upload と save の間は、作業木を見る step だけ（上げた後に置き場へ書けば、試験したものと違う置き場を保存する）
+            ups = find(is_up)
+            if ups and [i for i in range(ups[-1] + 1, sv)] != [tr[0]]:
+                m.append("最後の upload-artifact と save の間に、作業木を見る step のほかの step がある")
             if "steps.%s.outputs.clean == \x27true\x27" % steps[tr[0]].get("id", "?") not in terms:
                 m.append("save の if: が作業木が commit のままであることを && の項に持たない")
         if ss["with"].get("key") != steps[r]["with"].get("key"):
@@ -203,6 +207,12 @@ def check(path):
             m.append("save の path が restore の path と違う")
         if any(sv < i for i in find(is_up)):
             m.append("save が upload-artifact より前にある")
+        # continue-on-error は落ちた step を success() に数えさせる（落ちた組み立ての置き場を保存する）
+        if "continue-on-error" in doc["jobs"]["package-windows"]:
+            m.append("package-windows の job が continue-on-error を持つ")
+        for i in range(0, sv + 1):
+            if "continue-on-error" in steps[i]:
+                m.append("save までの step %d が continue-on-error を持つ" % i)
         return m
 
     def s_tools():
@@ -217,6 +227,10 @@ def check(path):
                 m.append("WINDOWS_BUILD_KEY_TOOLS の行が %s を持たない" % w)
         if "github.sha" not in json.dumps(steps[k]):
             m.append("鍵の step が github.sha を持たない")
+        # 鍵は組み立てる木（checkout した HEAD）から出す。ほかの commit を渡すと、ビルドする木と鍵の木がずれる
+        calls = re.findall(r"windows-build-key\.sh\b([^)\n]*)", run)
+        if [c.strip() for c in calls] != ["HEAD"]:
+            m.append("鍵の step が windows-build-key.sh に HEAD だけを渡す呼び出し 1 つでない: %r" % calls)
         return m
 
     def s_rust():
@@ -328,6 +342,18 @@ def mutate(name, src, dst):
     elif name == "t":
         k = ix(lambda s: is_cache(s) and "target" in paths_of(s))[0]
         steps[k]["if"] = steps[k]["if"] + " || true"
+    elif name == "u":
+        # 鍵が空でない条件を、項でなく式の中に埋める（部分文字列では見つかる）
+        steps[r]["if"] = re.sub(r"steps\.\w+\.outputs\.\w+ != \x27\x27", lambda g: "format(\x27{0}\x27, %s) != \x27zz\x27" % g.group(0), steps[r]["if"])
+    elif name == "v":
+        steps[ix(lambda s: "package.sh windows" in str(s.get("run", "")))[0]]["continue-on-error"] = True
+    elif name == "w":
+        steps.insert(ups[-1] + 1, {"shell": "bash", "run": "echo x > \"$RUNNER_TEMP/package-windows/x\""})
+    elif name == "x":
+        k = ix(lambda s: "WINDOWS_BUILD_KEY_TOOLS" in str(s.get("run", "")))[0]
+        steps[k]["run"] = steps[k]["run"].replace("windows-build-key.sh HEAD)", "windows-build-key.sh HEAD~1)")
+    elif name == "y":
+        steps.insert(r + 1, {"uses": steps[r]["uses"].replace("cache/restore@", "cache@"), "with": {"path": steps[r]["with"]["path"], "key": "other"}})
     elif name == "o":
         steps[r]["if"] = steps[r]["if"].replace("github.event_name == \x27pull_request\x27", "github.event_name != \x27pull_request\x27")
     else:
@@ -383,13 +409,13 @@ self_test_workflow() {
   fi
   echo "-- --check-workflow の自己試験"
   check_workflow "$ci" >/dev/null || { check_workflow "$ci"; echo "NG: 今の ci.yml が --check-workflow を通らない"; return 1; }
-  for m in a b c d e f g h i j k l m n o p q r s t; do
+  for m in a b c d e f g h i j k l m n o p q r s t u v w x y; do
     python3 -I -c "$CHECK_PY" mutate "$m" "$ci" "$work/mut-$m.yml" || { echo "NG: 変えた版 ($m) を作れない"; return 1; }
     rc=0
     check_workflow "$work/mut-$m.yml" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "NG: 変えた版 ($m) でも --check-workflow が通った"; return 1; }
   done
-  echo "ok: 変えた版 20 通りは全部落ちる"
+  echo "ok: 変えた版 25 通りは全部落ちる"
 }
 
 self_test() {
@@ -452,6 +478,11 @@ self_test() {
   # 日本語の名前の文書も除く（ls-tree の引用符に負けない）
   k="$(key_with "$script" 'docs/設計.md=new doc' 'openspec/説明 書.txt=x')"
   [ "$k" = "$base_key" ] || { echo "NG: 日本語の名前の文書で鍵が変わった"; return 1; }
+  # glob の効き方: docs の下の .md でないファイルだけ、docs の外の *.md だけを変えても鍵は変わらない
+  k="$(key_with "$script" 'docs/a.txt=changed')"
+  [ "$k" = "$base_key" ] || { echo "NG: docs/ の下の .md でないファイルで鍵が変わった"; return 1; }
+  k="$(key_with "$script" 'README.md=changed')"
+  [ "$k" = "$base_key" ] || { echo "NG: docs の外の *.md で鍵が変わった"; return 1; }
 
   echo "== Scenario: 組み立てに入るファイルが 1 つでも違えば、鍵が変わる"
   # 除くパスは spec の名指しの 6 つちょうど（足しすぎると、組み立てが読むファイルの変更で古い配布物を使い回す）。

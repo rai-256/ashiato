@@ -55,9 +55,9 @@
   「前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く」（`package-windows` の配布物の restore が `restore-keys` を持たず、鍵が `windows-package-` と鍵の step の出力から成り、`if:` が `pull_request` と鍵が空でないことを条件に持つ）/
   「引けたときだけ組み立てを飛ばし、今と同じ名前で上げる」（`ch14_` の試験と 2 つの `package.sh windows` の step の `if:` が restore の `cache-hit` が `'true'` でないことを条件に持つ／2 つの `upload-artifact` が `if:` で飛ばされず今の名前を持つ）/
   「上げる配布物は全部、保存と引きの置き場に入る」（`package-windows` の `upload-artifact` の `path` が 1 つ残らず、restore と save の `path` に入っている）/
-  「使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる」（restore より後で `upload-artifact` より前の step のうち、`run:` を持つものと `actions/cache` でないものは全部 `if:` に restore の `cache-hit` が `'true'` でないことを持つ／`upload-artifact` の `path` が restore の `path` と同じ）/
-  「組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する」（`actions/cache/save` が `cache-hit` でないこと・鍵が空でないこと・`success()` を条件に持ち、restore と同じ鍵と置き場を持つ）/
-  「鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる」（鍵の step の `WINDOWS_BUILD_KEY_TOOLS` が `rustc -V`・`node -v`・`ImageOS`・`ImageVersion`・`github.sha` の `ci.yml` を持つ）/
+  「使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる」（restore より後で最後の `upload-artifact` より前の step のうち、`upload-artifact` でないものは全部（`actions/cache` も）`if:` に restore の `cache-hit` が `'true'` でないことを持つ／最後の `upload-artifact` と save の間は作業木を見る step だけ／`upload-artifact` の `path` が restore の `path` と同じ）/
+  「組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する」（`actions/cache/save` が `cache-hit` でないこと・鍵が空でないこと・`success()` を条件に持ち、restore と同じ鍵と置き場を持つ／job と save までの step が `continue-on-error` を持たない）/
+  「鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる」（鍵の step の `WINDOWS_BUILD_KEY_TOOLS` が `rustc -V`・`node -v`・`ImageOS`・`ImageVersion`・`github.sha` の `ci.yml` を持ち、`windows-build-key.sh` に組み立てる `HEAD` を渡す）/
   「ビルドするときは、Rust の依存のビルドを戻す」（Rust の `actions/cache` が restore の `cache-hit` でないときだけ走り、`~/.cargo/registry`・`~/.cargo/git`・`target` を持ち、鍵が `rustc -V` と `hashFiles('Cargo.lock')` を含み、`restore-keys` が Rust の版までの前方一致）/
   「使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる」（`install-windows` が `install-check.sh --list` と `update-check-install.sh --list` の全部との突き合わせ
   （`comm -23` と `test ! -s`）を 2 つとも持ち、それらの step が `if:` を持たない）。
@@ -65,7 +65,7 @@
   (c) `install-windows` の Scenario の突き合わせの step を消した版、(d) restore の `pull_request` の条件を消した版、(e) save の `success()` を消した版、(f) restore と save の鍵が空でない条件を消した版、
   (g) 鍵の step から `ImageVersion` を消した版、(h) Rust のキャッシュの step を消した版、(i) `upload-artifact` を 1 つ足し、その `path` を restore と save に入れない版、
   (j) restore と `upload-artifact` の間に `if:` を持たない `run:` の step（引いた置き場に書く）を足した版、(k) `upload-artifact` の 1 つの `path` を restore の `path` と違う置き場に変え、その置き場を save にだけ足した版（引いた置き場をそのまま上げていない）、
-  (l)〜(t)（`rustc -V` か `ci.yml` を鍵から消す・作業木の条件を消す・restore を upload の前へ動かす・`pull_request` を反転・2 つの upload の間に `run:` を足す・`package.sh windows`／save／Rust の cache の `if:` に `||` を足す）の 20 通りを作り、どれも `--check-workflow` が 0 でない終了コードで終わること
+  (l)〜(t)（`rustc -V` か `ci.yml` を鍵から消す・作業木の条件を消す・restore を upload の前へ動かす・`pull_request` を反転・2 つの upload の間に `run:` を足す・`package.sh windows`／save／Rust の cache の `if:` に `||` を足す）、(u)〜(y)（restore の鍵が空でない条件を式の中に埋める・`package.sh windows` に `continue-on-error` を足す・最後の upload と save の間に置き場へ書く `run:` を足す・鍵の台本に `HEAD~1` を渡す・restore の後に同じ置き場の `if:` 無しの `actions/cache` を足す）の 25 通りを作り、どれも `--check-workflow` が 0 でない終了コードで終わること
   （`--self-test` が `python3` を要るのはこの節だけ。`python3` か `yaml` が無ければこの節を飛ばしたと 1 行出して続ける。CI では `chain` の job（ubuntu）で走り、飛ばさない）。
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --check-workflow); for s in "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く" "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる" "上げる配布物は全部、保存と引きの置き場に入る" "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる" "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する" "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる" "ビルドするときは、Rust の依存のビルドを戻す" "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"; do grep -qF "== Scenario: $s" <<<"$out" || exit 1; done'` rc=0 /

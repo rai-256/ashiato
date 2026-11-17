@@ -338,6 +338,7 @@ Task の記録の振り分け:
 - 提案:
   - `s_save` と同じく、`terms` に `fullmatch` をかけて見る。
   - `mutate` に、この版を足す。
+- 処置: fixed 2.2 — （`s_restore` の鍵が空でない条件を `terms`（`&&` の項）の中で探すようにした。mutate u（その条件を `format('{0}', … != '') != 'zz'` に埋める）を足した。前の台本 rc=0、今の台本 `NG: restore の if: が鍵が空でないことを && の項に持たない` rc=1）
 
 ## R22. 組み立ての step に `continue-on-error: true` を足すと、落ちた組み立ての置き場が保存される。`--check-workflow` はこれを通す
 - 成果物: tools/release/windows-build-key.sh（`s_skip`・`s_save`、:178-206）
@@ -349,6 +350,7 @@ Task の記録の振り分け:
 - 提案:
   - restore から save までの step が `continue-on-error` を持たないことを見る。
   - `mutate` に、この版を足す。
+- 処置: fixed 2.2 — （`s_save` に「`package-windows` の job と save までの step が `continue-on-error` を持たない」を足した。mutate v（`package.sh windows` に `continue-on-error: true`）。前の台本 rc=0、今の台本 `NG: save までの step 8 が continue-on-error を持つ` rc=1）
 
 ## R23. 最後の upload と save の間で置き場に書く step を、`--check-workflow` は捕まえない
 - 成果物: tools/release/windows-build-key.sh（`s_asis`、`range(r + 1, ups[-1])`、:169 付近）
@@ -361,6 +363,7 @@ Task の記録の振り分け:
 - 提案: 次のどちらか。
   - 最後の upload と save の間の step を、許した形（`tree` の step だけ）に固定する。
   - 範囲を save の手前まで広げ、`tree` の step だけを名指しで除く。
+- 処置: fixed 2.2 — （提案の 1 つ目。`s_save` で、最後の upload-artifact と save の間の step が作業木を見る step ちょうど 1 つであることを見る。mutate w（最後の upload の後に `$RUNNER_TEMP/package-windows` へ書く `run:`）。前の台本 rc=0、今の台本 `NG: 最後の upload-artifact と save の間に、作業木を見る step のほかの step がある` rc=1）
 
 ## R24. `--check-workflow` は、鍵の台本に渡す commit を見ない
 - 成果物: tools/release/windows-build-key.sh（`s_tools`）
@@ -372,6 +375,7 @@ Task の記録の振り分け:
 - 提案:
   - 鍵の step の `run:` が、組み立てる commit（今の `HEAD`）を渡していることを見る。
   - `mutate` に、この版を足す。
+- 処置: fixed 2.2 — （`s_tools` で、鍵の step の `run:` の `windows-build-key.sh` の呼び出しがちょうど 1 つで、引数が `HEAD` だけであることを見る。mutate x（`HEAD~1` を渡す）。前の台本 rc=0、今の台本 `NG: 鍵の step が windows-build-key.sh に HEAD だけを渡す呼び出し 1 つでない: [' HEAD~1']` rc=1）
 
 ## R25. `s_asis` が `actions/cache` の step を一律に免除する（計画の側の話）
 - 成果物: tools/release/windows-build-key.sh（`s_asis`、:169 付近）/ openspec/changes/ch17-windows-install-ci-reuse/tasks.md（2.2 の「`run:` を持つものと `actions/cache` でないもの」）
@@ -385,6 +389,7 @@ Task の記録の振り分け:
 - 提案:
   - 免除を、restore と save の step 自身だけに狭める。
   - `mutate` に、この版を足す。
+- 処置: fixed 2.2 — （`s_asis` の `actions/cache` の免除をやめた（範囲は restore の後から最後の upload の手前なので、restore と save 自身は元から入らない）。今の ci.yml の 2 つの `actions/cache` は `if:` を持つので通る。tasks 2.2 の本文も直した。mutate y（restore の直後に同じ path・`if:` 無しの `actions/cache`）。前の台本 rc=0、今の台本 `NG: restore と最後の upload-artifact の間の step 5 が if: で飛ばされない` rc=1）
 
 ## R26. 除くパスの glob を分ける変種が、自己試験にまだ足りない（Task 1 F3 の残り）
 - 成果物: tools/release/windows-build-key.sh（`self_test`）
@@ -396,3 +401,4 @@ Task の記録の振り分け:
   - 危険は低い（glob は固定の文字列）。
 - kind: technical
 - 提案: この 2 つの変種で、鍵が変わらないことを見る確かめを足す。
+- 処置: fixed 1.1 — （自己試験の 1 つ目の Scenario に `docs/a.txt` だけ・`README.md` だけを変える変種を足し、鍵が変わらないことを見る。`'*.md'` を `'docs/*.md'` にした写しは `NG: docs の外の *.md で鍵が変わった`、`'docs/*'` を `'docs/*.md'` にした写しは `NG: docs/ の下の .md でないファイルで鍵が変わった` で rc=1）
