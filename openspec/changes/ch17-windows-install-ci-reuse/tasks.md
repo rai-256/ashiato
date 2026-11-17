@@ -24,7 +24,7 @@
 
 ## Task 1: 組み立ての鍵を出す台本
 
-- [ ] 1.1 `tools/release/windows-build-key.sh` を置く（design D1）。`windows-build-key.sh [<commit>]`（既定 `HEAD`）は、repo の根（`git rev-parse --show-toplevel`。引けなければ落ちる）で `git -C <根> ls-tree -r --full-tree <commit>` を読み、除くパス
+- [x] 1.1 `tools/release/windows-build-key.sh` を置く（design D1）。`windows-build-key.sh [<commit>]`（既定 `HEAD`）は、repo の根（`git rev-parse --show-toplevel`。引けなければ落ちる）で `git -C <根> ls-tree -r --full-tree <commit>` を読み、除くパス
   （`tools/release/install-check.sh`・`tools/release/update-check-install.sh`・`tools/release/conpty-run.ps1`・`docs/` と `openspec/` の下・`*.md`）を落とした行と、
   道具の版の行（環境変数 `WINDOWS_BUILD_KEY_TOOLS` に渡された文字列。CI では `rustc -V`・`node -v`・`ImageOS`・`ImageVersion` を並べて渡す）を合わせた sha256 を 1 行で出す。
   git の木でない・commit が引けないときは、何も出さずに 0 でない終了コードで終わる。除くパスは台本の先頭に 1 か所で列挙し、理由（その台本を組み立てが読まない）をコメントに書く。
