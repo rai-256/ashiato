@@ -179,10 +179,15 @@ def check(path):
     def s_tools():
         m = []
         k, r = refs()
-        t = json.dumps(steps[k])
-        for w in ("WINDOWS_BUILD_KEY_TOOLS", "rustc -V", "node -v", "ImageOS", "ImageVersion", "github.sha", "ci.yml"):
-            if w not in t:
-                m.append("鍵の step が %s を持たない" % w)
+        run = str(steps[k].get("run", ""))
+        lines = [l for l in run.splitlines() if "export WINDOWS_BUILD_KEY_TOOLS=" in l]
+        if len(lines) != 1:
+            return ["WINDOWS_BUILD_KEY_TOOLS を渡す行が %d 本ある（1 本のはず）" % len(lines)]
+        for w in ("$(rustc -V)", "$(node -v)", "$ImageOS", "$ImageVersion", "ci.yml=$blob"):
+            if w not in lines[0]:
+                m.append("WINDOWS_BUILD_KEY_TOOLS の行が %s を持たない" % w)
+        if "github.sha" not in json.dumps(steps[k]):
+            m.append("鍵の step が github.sha を持たない")
         return m
 
     def s_rust():
@@ -268,6 +273,10 @@ def mutate(name, src, dst):
         other = "${{ runner.temp }}/package-windows-other"
         steps[ups[-1]]["with"]["path"] = other
         steps[sv]["with"]["path"] = str(steps[sv]["with"]["path"]).rstrip("\n") + "\n" + other + "\n"
+    elif name in ("l", "m"):
+        k = ix(lambda s: "WINDOWS_BUILD_KEY_TOOLS" in str(s.get("run", "")))[0]
+        drop = "$(rustc -V)|" if name == "l" else "|ci.yml=$blob"
+        steps[k]["run"] = "\n".join(l.replace(drop, "") if "export WINDOWS_BUILD_KEY_TOOLS=" in l else l for l in steps[k]["run"].splitlines())
     else:
         raise SystemExit("unknown mutation " + name)
     with open(dst, "w", encoding="utf-8") as f:
@@ -317,13 +326,13 @@ self_test_workflow() {
   fi
   echo "-- --check-workflow の自己試験"
   check_workflow "$ci" >/dev/null || { check_workflow "$ci"; echo "NG: 今の ci.yml が --check-workflow を通らない"; return 1; }
-  for m in a b c d e f g h i j k; do
+  for m in a b c d e f g h i j k l m; do
     python3 -I -c "$CHECK_PY" mutate "$m" "$ci" "$work/mut-$m.yml" || { echo "NG: 変えた版 ($m) を作れない"; return 1; }
     rc=0
     check_workflow "$work/mut-$m.yml" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "NG: 変えた版 ($m) でも --check-workflow が通った"; return 1; }
   done
-  echo "ok: 変えた版 11 通りは全部落ちる"
+  echo "ok: 変えた版 13 通りは全部落ちる"
 }
 
 self_test() {
