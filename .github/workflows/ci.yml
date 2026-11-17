@@ -461,26 +461,93 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # CH17 D1・D2: 組み立ての鍵を出す。道具の版と、走っている run の CI の定義（github.sha の ci.yml の blob の id）を渡す。
+      # run の commit が checkout した HEAD と同じ（main への push）なら fetch しない。PR の run は merge commit を浅く fetch する
+      # （token は引数に置かず GIT_CONFIG_* の環境変数で渡す）。fetch か台本が落ちたら鍵を空にして続ける（引かずにビルドする）
+      - id: wbk
+        shell: bash
+        env:
+          RUN_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "rustc=$(printf '%s' "$(rustc -V)" | tr -cs 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+          key=""
+          src=""
+          if [ "$RUN_SHA" = "$(git rev-parse HEAD)" ]; then
+            src=HEAD
+          elif (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader \
+                  GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+                git fetch --quiet --depth=1 origin "$RUN_SHA"); then
+            src=FETCH_HEAD
+          fi
+          if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
+            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
+            key="$(tools/release/windows-build-key.sh HEAD)" || key=""
+          fi
+          [ -n "$key" ] || echo "::warning::組み立ての鍵を出せないので、前の組み立てを引かずにビルドする"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      # CH17 D2: PR の run で鍵が完全に一致したときだけ、前の組み立て（上げる置き場の全部）を引く。restore-keys は書かない
+      - id: reuse
+        if: github.event_name == 'pull_request' && steps.wbk.outputs.key != ''
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ runner.temp }}/package-windows
+            ${{ runner.temp }}/package-windows-test
+          key: windows-package-${{ steps.wbk.outputs.key }}
+      # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-windows-${{ steps.wbk.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-windows-${{ steps.wbk.outputs.rustc }}-
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/pgsql-cache
           key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}
           restore-keys: pgsql-
       # 子の命令の出力の読み方（CH14 D8・D9）。--lib を付けない（main.rs の試験は bin の target）。下限は Task 1 の 3 本と Task 5.2 の 8 本
-      - run: |
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: |
           n=$(cargo test -p ashiato-setup ch14_ -- --list | grep -c ": test$"); [ "$n" -ge 11 ] || { echo "ch14_ の試験が $n 本しかない"; exit 1; }; cargo test -p ashiato-setup ch14_
         shell: bash
       # Windows の runner では build.sh が native の target で組む（gnu の target は使わない）。手順は bash で走らせる
-      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      - run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
+      - if: steps.reuse.outputs.cache-hit != 'true'
+        run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-test, path: "${{ runner.temp }}/package-windows-test" }
+      # CH17 D2: 鍵は commit の木から出すが、組み立ては作業木から組む。組み立ての後に、追跡しているファイルが鍵を出した
+      # commit のままかを確かめる（変わっていれば、鍵はこの組み立ての入力を表さないので保存しない）
+      - id: tree
+        if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != ''
+        shell: bash
+        run: |
+          dirty="$(git status --porcelain --untracked-files=no)"
+          if [ -z "$dirty" ]; then echo "clean=true" >> "$GITHUB_OUTPUT"; else
+            echo "::warning::組み立ての間に追跡しているファイルが変わったので、組み立てを保存しない: $(printf '%s' "$dirty" | head -5 | tr '\n' ' ')"
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+          fi
+      # CH17 D2: ビルドしたとき（引けず・鍵が空でなく・作業木が commit のまま・ここまで成功）だけ、同じ鍵・同じ置き場で保存する
+      - if: steps.reuse.outputs.cache-hit != 'true' && steps.wbk.outputs.key != '' && steps.tree.outputs.clean == 'true' && success()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ runner.temp }}/package-windows
+            ${{ runner.temp }}/package-windows-test
+          key: windows-package-${{ steps.wbk.outputs.key }}
 
   install-windows:
     needs: [changes, package-windows]
@@ -609,6 +676,9 @@ jobs:
       - run: ./tools/release/install-check.sh --self-test
       - run: ./tools/release/update-check-install.sh --self-test
       - run: ./tools/release/draft.sh --self-test
+      # CH17 深掘り第 2 回 Q3: Windows の組み立ての鍵の自己試験と、package-windows の使い回しの形（--check-workflow。python3 と yaml が無ければ落ちる）
+      - run: ./tools/release/windows-build-key.sh --self-test
+      - run: ./tools/release/windows-build-key.sh --check-workflow
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる

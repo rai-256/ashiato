@@ -1,0 +1,86 @@
+{
+  "title": "CH17 の深掘り 第 2 回",
+  "subtitle": "最後のレビューで、本人が決めた範囲の外に出ないと直せない指摘が 2 つ出ました（2 問）",
+  "note": [
+    "鍵の台本と CI の定義の直せる指摘（11 件）は直しました。残る 2 つは、本人が決めた「Windows の 2 つの job だけを変える」「同じ PR の前の push を使い回す・package-artifacts は変えない」に触れるので聞きます。",
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。"
+  ],
+  "questions": [
+    {
+      "id": "Q3",
+      "topic": "使い回しの形の検査（--check-workflow）を、Linux の CI の job で毎回走らせるか",
+      "kind": "premise",
+      "multi": false,
+      "allow_free": true,
+      "question": "CI の定義の使い回しの形を確かめる検査（`windows-build-key.sh --check-workflow` とその自己試験）を、Linux の `chain` の job に 2 行足して PR ごとに走らせますか。本人が決めた範囲（Windows の 2 つの job だけを変える）を 2 行越えます。",
+      "why": "今はこの検査を走らせる CI の job がありません。Windows の job の自己試験は、python3 か yaml が無いとこの検査を飛ばし、緑のまま通ります（windows-latest にあるかは手元で確かめられない）。後の Story が `package-windows` に上げる置き場を足して保存と引きに入れ忘れたり、組み立ての step の `if:` を外したりしても、その PR の CI は落ちません。そのとき、古い配布物や欠けた配布物で試験が通ります。",
+      "context": "指摘は review/code.md の R5（code-verify）と R7（/code-review）。足す先は `chain` の job（ubuntu。`check-guards.sh --self-test` などの自己試験を並べている所）で、yaml はそこにあります。足すなら、Windows の job の自己試験は消せます（Windows の分は 2 倍の課金。R10 は「組み立てるときだけ走らせる」に直し済み）。Windows の job で yaml を入れて走らせる案は、新しい依存（PyPI から取る）が要るので挙げません。走っている ST58 は試験の配布物を 6 つに分けるので、この検査が真っ先に当たる場面です。",
+      "family": {
+        "name": "使い回しの形を守る検査が、後の変更で走らない",
+        "siblings": [
+          {"case": "--check-workflow（CI の定義の 8 つの Scenario）を CI で走らせる", "decided": "未決 Q3"},
+          {"case": "--self-test（鍵の 5 つの Scenario）を CI で走らせる", "decided": "Windows の job で組み立てるときに走る（R10 の直し）。Q3 で Linux へ移すかも決まる"},
+          {"case": "check-guards.sh workflows（package-artifacts の checkout と期待値）", "decided": "既に chain の job で走っている"},
+          {"case": "check-ci-ch14-step.sh（ch14_ の試験の並び）", "decided": "既に CI で走っている"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "tasks 2.2 が「Linux の手元と merge gate で走らせる」と書いたが、merge gate（harness2 の台本）は ashiato2 の台本を名指しで走らせない。Global Constraints の「ci.yml で変えてよいのは package-windows の step だけ」と、検査を CI に置く場所が無いことを突き合わせなかった",
+        "prevention": "構造の検査を新しく作る Task には「どの CI の job が毎回走らせるか」を書かせ、その job が Global Constraints の範囲の中にあるかを tasks の段で確かめる"
+      },
+      "options": [
+        {
+          "label": "足す（chain の job に 2 行。Windows の job の自己試験は消す）",
+          "detail": "`chain` の job の自己試験の並びに `tools/release/windows-build-key.sh --self-test` と `--check-workflow` を足し、`package-windows` の自己試験の step を消す。後の Story が使い回しの形を壊せば、その PR の CI で落ちる。Windows の分の分数も減る。本人の範囲は 2 行だけ広がる",
+          "recommended": true
+        },
+        {
+          "label": "足さない（範囲を守る。検査はこの change の merge の時点で一度だけ）",
+          "detail": "design D2 の「`--check-workflow` が見る」を「この change の merge の時点で一度だけ見る」に書き直す。後の Story が使い回しの形を壊しても CI は落ちず、古い配布物や欠けた配布物で試験が通るおそれが残る"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "topic": "同じ PR の前の push が保存した組み立てを、後の run が確かめずに使う件",
+      "kind": "premise",
+      "multi": false,
+      "allow_free": true,
+      "question": "同じ PR の前の push が保存した Windows の配布物（と Rust の `target`）を、後の run がそのまま使う形を、今のまま受け入れますか。",
+      "why": "PR の枝へ push できる者は、途中の push で `windows-build-key.sh` か ci.yml を書き換え、後の head が出す鍵の名前で、中身を自由に作った zip を保存できます。後の run は鍵が一致すると組み立てを飛ばし、その zip を `release-package` と下書きに載せます。中身を head と比べる箇所はありません。途中の push を force-push で消せば、merge の前に人が見る最後の diff には残りません。",
+      "context": "指摘は review/code.md の R6（security-review。確かさ 3、Actions の上では再現していない）。書けるのは PR の枝へ push できる者（グラフの agent と本人）だけです。main の置き場は PR から書けず、本物のリリース（release.yml）と開発版（nightly.yml）はキャッシュを引かずに自分で組みます。下書きは非公開ですが、docs/release.md §11.1 では人が下書きの zip を落としてインストールします。直し方は 2 つあり、どちらも第 1 回の答え（Q1「同じ PR の前の push を使い回す」・Q2「package-artifacts は変えない」）のどちらかを改めます。",
+      "family": {
+        "name": "PR から書けるキャッシュを、後の run が確かめずに使う",
+        "siblings": [
+          {"case": "同じ PR の前の push が保存した Windows の配布物", "decided": "未決 Q4"},
+          {"case": "同じ PR の前の push が保存した Rust の target（restore-keys で前方一致）", "decided": "未決 Q4（同じ直し方に乗る）"},
+          {"case": "他の PR の保存物", "decided": "GitHub の置き場が PR ごとに分かれ、引けない（design D2）"},
+          {"case": "PR から main の置き場へ書く", "decided": "書けない。main の保存は main への push の run だけ（security review で確かめた）"},
+          {"case": "PostgreSQL の zip のキャッシュ（pgsql-）", "decided": "pgsql.sh が pgsql.lock の sha256 で中身を確かめる（既存）"},
+          {"case": "本物のリリースと開発版", "decided": "キャッシュを引かずに自分で組む（release.yml / nightly.yml）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "deep-review",
+        "why": "第 1 回 Q1 は「使い回しを認めるか」を聞いたが、使い回す置き場を書ける者（同じ PR へ push できる者）と、その中身を確かめないことを問いの context に書かなかった。design の Risks の「キャッシュの中身の改竄」は他の PR と main からだけを扱った",
+        "prevention": "キャッシュや前の成果物を使い回す問いでは、その置き場へ書ける者を全部挙げ、配る物に入る経路で中身を確かめるかを問いの context に書く"
+      },
+      "options": [
+        {
+          "label": "受け入れる（今のまま。残る危険を design と docs/release.md に書く）",
+          "detail": "書けるのは PR の枝へ push できる者だけで、本物のリリースと開発版は自分で組む。同じ PR の台本だけの周（ST58 の最後の 3 周）も約 33 分縮む。design の Risks に「同じ PR の前の push の保存物は確かめずに使う」を足し、§11.1 に「使い回した run の下書きの Windows の zip は、組んだ commit を PR の履歴で確かめてから使う」を足す",
+          "recommended": true
+        },
+        {
+          "label": "保存を main への push に限る（PR は main が組んだものだけを引く）",
+          "detail": "PR の run は保存しない（Windows の配布物も Rust の target も）。PR から書ける置き場が無くなる。代わりに同じ PR の台本だけの周は縮まず、効くのは main から枝を切った直後の周だけになる。CH17 の目的（ST58 の最後の 3 周を縮める）の大半を失う。Q1 を狭める"
+        },
+        {
+          "label": "使い回した run では release-package を上げない（package-artifacts を変える）",
+          "detail": "`package-windows` が使い回したかを `package-artifacts` へ渡し、使い回した run では `release-package` と下書きを作らない。試験の周は縮むが、使い回した run の下書きは無くなり、§11.1 で下書きを確かめたいときは組み直す push が要る。Q2 の「package-artifacts は変えない」を改める"
+        }
+      ]
+    }
+  ]
+}
