@@ -100,3 +100,31 @@
   → 対応: spec --answers（Q8,Q9）で、distribution の「S-01 の版が変わると、更新の履歴に 1 行残る」を MODIFIED にした（正典の塊を写し、読み方の 1 文に `rolled_back` を結果の行に数えないことと、直前の `failed` の有無で 2 つの回を分けて読むことを足した。Scenario は変えない）。data-durability の説明書の文と Scenario「説明書が更新の履歴と版の変化と生存信号の版を説明する」の AND に「`failed` が無ければ」を足した
 - K1: tasks 1.1 は既存の `st51_form_rejects_unknown_via`（`crates/server/src/update_history_tests.rs:89-93`）がそのまま通ると書くが、その試験は `("S-01","migrate","rolled_back")` が断られることを確かめているので、CHECK に `rolled_back` を足すと落ちる。1.1 に「その組を、まだ決めていない別の値に替える（印は消さない）」を足す
   → 対応: spec --answers（Q8,Q9）で、tasks 1.1 に「`st51_form_rejects_unknown_via` の `rolled_back` の組を、まだ決めていない別の値（`reverted` など）に替える。印は消さない」を足した。Q9 の答えではなく Q6 の CHECK の追加から来る食い違い
+
+## 深掘り（第 3 回）
+
+### Q10. 戻した回の失敗した DB をいつ消すか
+
+- 問い: 更新が失敗して前の版へ戻したときに残る `ashiato_failed_<時刻>`（失敗した更新時点の DB の写し）は、次の更新が通るまで残しますか。それとも、前の版が起動した時点で消しますか。
+- 答え: 前の版が待ち受けを開いたら直ちに消す（本人が選んだ。推奨と同じ側。補足なし。`deep-answers-4.txt`）
+- loss: discarded / uncaptured
+- 出所: review/code.md R11
+- 背景: 今の形では、この DB は本人が通常の DB から記録を消しても更新が通るまで残り、本人には存在も削除方法も見えない。一方、戻した直後に消せば、失敗原因を調べるための DB の写しは失われる。
+- 族「削除した記録を別の DB の写しが保持する」: 通った更新の前の退避 → Q7（通った直後に古いものを消す）／戻した回の `ashiato_failed_*` → 未決 Q10／戻した回の移行の前の退避 → ST58 の spec「戻した回は退避を消さない」と Q7（通ったらその回の 1 つ）。消した記録がそこに残ることは本人が IMP-02 で受け入れ済み（整合の確認 C3 で呼び名を直した。退避は ST54 由来でない）
+
+## 要件へ戻すもの（第 3 回の答え。2026-11-16）
+
+- FR-119: Q10 の答え。戻した回の落ちた DB（`ashiato_failed_<時刻>`）は、前の版の S-01 が待ち受けを開いたら直ちに消す。本人が消した記録を、本人に見えない写しに残さない。失敗の原因を調べる DB の写しは残らない（理由は FR-120 の知らせと更新の履歴に残る）
+
+## 当初案を覆したもの（第 3 回）
+
+- D23（仮）の「落ちた DB は `ashiato_failed_<時刻>` で残し、次に更新が通ったときに消す」→ Q10: 前の版が待ち受けを開いたら直ちに消す。spec の段で distribution の「落ちた DB を…残し、次に更新が通ったときに消す」の本文と、戻した回の Scenario の「`ashiato_failed_` で始まる名前の DB が 1 つある」、「更新が通ると、前の回に残した落ちた DB を消す」（前の回の写しは残らなくなる。ST58 以後の版が、消す前に止まった回・前の版が待ち受けを開かなかった回に残したものの掃除として残すかを含めて。`ashiato_failed_*` を作る版は ST58 より前に無い —— 整合の確認 C7）を直す
+- 族の兄弟: 戻した回の移行の前の退避は、ST58 の spec「戻した回は退避を消さない」のまま。消した記録が退避に残ることは本人が IMP-02 で受け入れ済みで、Q10 は落ちた DB だけを決めた（聞き直さない。整合の確認 C3）
+
+## spec の段へ渡すもの（第 3 回の整合の確認。`docs/audit/2026-11-16-st58-fr119-q10-consistency.md`）
+
+- C6: Q10 の前の形（落ちた DB は次に更新が通ったときに消す）のままの所 —— spec `specs/distribution/spec.md:285`・:297・:532・:549-553、design D3（:57 の `failed\` の扱いも K3 と併せて）・D23（仮。台帳に行が無い）、`defaults.md:38`、tasks 5.1・6.1、go.json の IMP-01・IMP-02（落ちた DB の側は閉じ、退避の側は残る）、`tools/release/update-apply-install.sh:222`（戻した後に落ちた DB が「ある」を求める向きを反す）
+- K1（高）: インストーラは移行が落ちた回も `record-rollback --kind startup-failed` でしか呼ばず（`crates/installer/src/main.rs:1474`・:1537、`commands.rs:1121-1143` は `--failed-version`・`--sqlstate` を組めない）、`failed` の行が戻した DB に書かれない。Q10 で落ちた DB が直ちに消えるので、その行はどこにも残らない。`rolled_back` の行が当てていない版を `applied_versions` に持つ（`update_history.rs:182-195`。書き出しに出る）。review/code.md R24 と同じ根。tasks に直しを置く
+- K2（中）: コードは古い D23（仮）のまま。戻した後に落ちた DB を消さず、前の版の待ち受けも確かめない（`start_previous_services` に `wait_for_port` が無い）。Q10 は「待ち受けを開いたら」消すので、待ち受けの確かめが要る
+- K3（高）: 戻しの主な道が `<プログラムの置き場>\failed\` を消さず、続けてもう 1 回落ちると `previous\failed` → `failed` の `fs::rename` で戻しが落ち、以後 `rollback` の口も止まる（`main.rs:1429-1484`・:1443・:1430-1431）。Windows の本物では未確認。Q10 と同じ「戻した回の失敗した版をいつ消すか」の族（プログラムの側）
+- K4（中）: `docs/install.md` の「サーバの更新」が、退避の置き場（`ProgramData\ashiato\backups\pre-migrate`）・戻すもの（設定は戻さない）・残る退避の数（戻した回の退避は残る）をコードと spec と違えて書いている

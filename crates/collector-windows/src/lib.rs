@@ -49,6 +49,7 @@ pub mod time_sync;
 #[cfg(windows)]
 pub mod toast;
 pub mod toast_names;
+pub mod update_apply;
 pub mod update_check;
 pub mod winrules;
 

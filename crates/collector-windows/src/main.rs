@@ -18,6 +18,14 @@ fn main() -> anyhow::Result<()> {
     if args.iter().any(|a| a == c02::SETUP_ARGUMENT) {
         return run_setup(&cfg, channel);
     }
+    if args.iter().any(|a| a == "update") {
+        return c02::update_apply::run_update(
+            &cfg,
+            channel,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+        );
+    }
     if let Some(command) = args.iter().position(|a| a == "update-check") {
         let value = args.get(command + 1).map(String::as_str);
         let enabled = match value {
@@ -255,14 +263,25 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
     }
 
     let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let mut handed_off = false;
     {
         let stop = std::sync::Arc::clone(&stop);
         let _ = ctrlc::set_handler(move || stop.store(true, Ordering::Relaxed));
     }
 
     rt.start(&source);
+    if let Err(error) = c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION")) {
+        rt.stop();
+        return Err(error);
+    }
     tracing::info!("{}", c02::telemetry::line("started", None, None, None));
     while !stop.load(Ordering::Relaxed) {
+        // The update window uses this as a heartbeat before requesting a
+        // handoff.  A stale marker means the old process is gone.
+        if let Err(error) = c02::update_apply::write_alive(&cfg.state_dir, env!("ASHIATO_VERSION"))
+        {
+            tracing::warn!(error = %c02::telemetry::error_kind(&error), "更新の生存印を書き換えられない");
+        }
         match cfg.reload_from_disk() {
             Ok(true) => {
                 transport.reload(&cfg.base_url, &cfg.api_token);
@@ -278,10 +297,26 @@ fn run(mut cfg: c02::config::Config, channel: ashiato_build_stamp::Channel) -> a
             tracing::warn!(error = %c02::telemetry::error_kind(&error), "設定状態の再読み込みに失敗");
         }
         rt.tick(&mut source);
+        let handoff = match c02::update_apply::take_handoff(&cfg.state_dir) {
+            Ok(value) => value,
+            Err(error) => {
+                rt.stop();
+                return Err(error);
+            }
+        };
+        if handoff {
+            rt.stop();
+            c02::update_apply::acknowledge_handoff(&cfg.state_dir)?;
+            handed_off = true;
+            break;
+        }
         wait_for_change(&source, &stop);
     }
     // **手元の数えを吐き出し、自分で止まった印を残してから終わる**（R13 / D23）
-    rt.stop();
+    if !handed_off {
+        // handoff で既に停止処理を済ませた場合は二重に flush しない。
+        rt.stop();
+    }
     tracing::info!("{}", c02::telemetry::line("stopped", None, None, None));
     Ok(())
 }

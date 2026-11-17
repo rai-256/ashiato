@@ -92,6 +92,7 @@ open class MainActivity : Activity() {
     private var introRowShownInThisActivity = false
     private var exemptSettingsOpened = false
     private var usageAccessOpenedInThisStart = false
+    private var updateStarted = false
     private val updateChecker by lazy { UpdateChecker(this) }
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
@@ -117,6 +118,7 @@ open class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        UpdateInstall.clean(this)
         Config.initialize(this)
         if (shouldOfferInitialSetup() && !Config.isComplete &&
             !getSharedPreferences(Config.SETUP_PREFS, MODE_PRIVATE).getBoolean(SETUP_SKIPPED, false)
@@ -129,8 +131,23 @@ open class MainActivity : Activity() {
     /** 初回の自動導線はランチャーからの起動だけ。設定画面から戻る経路は onActivityResult が扱う。 */
     protected open fun shouldOfferInitialSetup(): Boolean = intent?.action == Intent.ACTION_MAIN
 
+    /**
+     * 失敗の行は executor のスレッドが書く（落とせなかった・指紋が合わなかった）。書かれたら、
+     * いま出している行をその場で描き直す（次に開くまで待たせない。review/code.md R60）。
+     */
+    private var redrawStatus: (() -> Unit)? = null
+    private val failureListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        runOnUiThread { if (!isFinishing) redrawStatus?.invoke() }
+    }
+
+    override fun onPause() {
+        UpdateInstall.failurePreferences(this).unregisterOnSharedPreferenceChangeListener(failureListener)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        UpdateInstall.failurePreferences(this).registerOnSharedPreferenceChangeListener(failureListener)
         // 設定画面から戻った後は、行が再び見えるので入れ替えの印を立ててよい。
         // start() ごとに戻すと、設定を開いた回の途中で start() が呼ばれた場合にも保護が外れる。
         exemptSettingsOpened = false
@@ -411,7 +428,7 @@ open class MainActivity : Activity() {
         }
         // **先に収集を始める**（本人の決定 Q3「拒んでも位置の収集は始める」）——
         // 設定画面から戻ってこない本人の端末でも、収集はもう動いている
-        startForegroundService(Intent(this, LocationService::class.java))
+        startForegroundService(Intent(this, LocationService::class.java).putExtra(EXTRA_STARTED_FROM_FOREGROUND, true))
         sendToUsageAccessOnce()
         val state = unusedAppRestrictionsReader().read(this)
         val restricted = state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN
@@ -425,6 +442,14 @@ open class MainActivity : Activity() {
         val updatePreferences = getSharedPreferences(UpdateCheck.PREFS, MODE_PRIVATE)
         val updateAvailable = updatePreferences.getString("latest", null)
             ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
+        if (!updateStarted && UpdateInstall.consumeUpdateStart(this, intent)) {
+            updateStarted = true
+            UpdateInstall.start(this)
+        }
+        UpdateInstall.clearResolvedUnknownSourcesFailure(
+            this,
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls(),
+        )
         val updateStale = updatePreferences.getBoolean("enabled", true) && updatePreferences.getString("last_reason", null) != null &&
             UpdateCheck.stale(
                 java.time.Instant.now(),
@@ -434,9 +459,15 @@ open class MainActivity : Activity() {
                         ?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() },
             )
         val updateIntroPending = Config.isComplete && (updateChecker.introPending() || introRowShownInThisActivity || updateAvailable)
-        if (restricted || notice != null || setupRow || updateIntroPending || updateStale) {
+        val updateEnabled = updatePreferences.getBoolean("enabled", true)
+        val failureLine = UpdateInstall.visibleFailureLine(this, updateAvailable && updateEnabled)
+        val statusRow = restricted || notice != null || setupRow
+        val updateRow = updateIntroPending || updateStale || failureLine != null
+        if (statusRow || updateRow) {
             // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば・更新を済ませていれば閉じる）
-            showStatus(state.takeIf { restricted }, notice, setupNeeded, setupRow)
+            val shownState = state.takeIf { restricted }
+            redrawStatus = { showStatus(shownState, notice, setupNeeded, setupRow) }
+            showStatus(shownState, notice, setupNeeded, setupRow)
             if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
             if (Config.isComplete && introRowShownInThisActivity && exemptDialog?.isShowing != true &&
                 !exemptSettingsOpened && !usageAccessOpenedInThisStart
@@ -444,6 +475,7 @@ open class MainActivity : Activity() {
                 updateChecker.markIntroShown()
             }
         } else {
+            redrawStatus = null
             finish()
         }
     }
@@ -522,11 +554,20 @@ open class MainActivity : Activity() {
             column.addView(TextView(this).apply { text = "更新の確認: 有効（切るには設定の画面）" })
             introRowShownInThisActivity = true
         }
+        val updateOffered = updatePrefs.getString("latest", null)
+            ?.let { UpdateCheck.isNewer(BuildConfig.VERSION_NAME, it) } == true
         updatePrefs.getString("latest", null)?.let { latest ->
             if (UpdateCheck.isNewer(BuildConfig.VERSION_NAME, latest)) {
                 val found = updatePrefs.getString("found_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
-                column.addView(TextView(this).apply { text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）" })
+                val button = Button(this).apply {
+                    text = "更新あり $latest（${UpdateCheck.date(found)} に見つけた）"
+                    setOnClickListener { UpdateInstall.start(this@MainActivity) }
+                }
+                column.addView(button)
             }
+        }
+        UpdateInstall.visibleFailureLine(this, updateOffered && updatePrefs.getBoolean("enabled", true))?.let { line ->
+            column.addView(TextView(this).apply { text = line })
         }
         if (updatePrefs.getBoolean("enabled", true) && updatePrefs.getString("last_reason", null) != null) {
             val lastOk = updatePrefs.getString("last_ok_at", null)?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
@@ -588,6 +629,7 @@ open class MainActivity : Activity() {
     }
 
     internal companion object {
+        const val EXTRA_STARTED_FROM_FOREGROUND = "dev.ashiato.collector.STARTED_FROM_FOREGROUND"
         private const val TAG = "ashiato"
         private const val REQUEST = 1
         const val HEALTH_REQUEST = 2

@@ -4371,6 +4371,42 @@
           }
         }
       },
+      "LastUpdate": {
+        "type": "object",
+        "required": [
+          "at",
+          "result",
+          "to_version"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateReason"
+              }
+            ]
+          },
+          "result": {
+            "type": "string"
+          },
+          "to_version": {
+            "type": "string"
+          }
+        }
+      },
       "LastView": {
         "type": "object",
         "required": [
@@ -6143,6 +6179,29 @@
           }
         }
       },
+      "UpdateReason": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "failed_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "sqlstate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateStatus": {
         "type": "object",
         "required": [
@@ -6173,6 +6232,16 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "last_update": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LastUpdate"
+              }
+            ]
           },
           "latest": {
             "type": [
