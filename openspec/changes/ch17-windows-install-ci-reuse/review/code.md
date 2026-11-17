@@ -117,3 +117,42 @@ R2・R3・R4 のほかに、次を壊して確かめた（どれも期待どお�
 ## 手 7: 機械が承認した訂正
 
 該当なし（`python3 scripts/plan_fix.py pending openspec/changes/ch17-windows-install-ci-reuse` は `[]`。`correction-review.md` は作っていない）。
+
+## security review（f62c86d..daf1a5e）
+
+見た経路:
+- PR の run → `wbk`（PR の head の木から鍵）→ `reuse`（`actions/cache/restore`、PR の置き場か main の置き場）→ `upload-artifact` → `package-artifacts` の `release-package` → `draft.sh` の下書き（3）
+- main への push の run → `reuse` は `github.event_name == 'pull_request'` で飛ぶ → 毎回組む → `save`（main の置き場）（4）
+- `release.yml` / `nightly.yml` → `windows-package-` / `cargo-windows-` のキャッシュを引かず、自分で組む（4）
+- `wbk` の `GH_TOKEN`（`github.token`、`permissions: contents: read`）→ `git -c http.extraheader` の引数だけ。`GITHUB_OUTPUT`・`echo` には出ない（ci.yml:473-482、3）
+- 新しい Rust の依存のビルドのキャッシュ（`target`、`restore-keys: cargo-windows-<rustc>-`）→ PR の置き場からも戻る → `package.sh windows`（3）
+- 鍵の台本 → `git ls-tree` と `sha256sum` だけ。外から来る値を eval・パスへ入れない（`mktemp -d` と `trap rm -rf` は自己試験だけ。windows-build-key.sh:341-342）（2）
+- 依存: 足したものは無い（`actions/cache/restore` と `actions/cache/save` は既存の `actions/cache` と同じ commit `0057852…` に固定）（2）
+- 私的データ: 差分はライフログの記録を読まず、書きもしない。キャッシュに入るのは、すでに artifact として上げている配る zip 2 つだけ（2）
+
+安全の決め手: 「Windows の組み立てのキャッシュを引くのは `ci.yml` の PR の run だけで、main の push と配布の workflow（`release.yml` / `nightly.yml`）は必ず自分で組む」—— 確かさ 4。
+`/tmp/ch17sec/check.py` で全 workflow の `actions/cache*` の step を YAML で読んだ。確かめた点は 3 つ。`windows-package-` / `cargo-windows-` の鍵を使うのは `ci.yml` だけ。引く step は `/restore@`・`== 'pull_request'` 付き・`restore-keys` 無し。token を出力へ書く行が無い。
+本物の ci.yml では `rc 0`。restore の条件を `!=` に変えた写しでは `NG: PR 以外でも引く: ci.yml:package-windows#5 …` / `rc 1` で落ちる。
+これで main の置き場と配布の流れは PR から汚せない。ただし **同じ PR の中** はこの事実の外にある（R6）。
+
+## R6. 同じ PR の前の push が保存した Windows の zip と `target` を、後の run が検証せずに使う。レビューした head と違うコードの組み立てが `release-package` と下書きに載る
+- 成果物: .github/workflows/ci.yml（`reuse`・cargo の cache・`save`）/ docs/release.md §11.1 / design.md D3・Risks「キャッシュの中身の改竄」
+- 根拠（確かさ 3。Actions の上では再現していない）:
+  1. `pull_request` の run は PR の merge commit の ci.yml と台本で走る。保存は PR の置き場（`refs/pull/N/merge`）に入り、同じ PR の後の run が引ける（GitHub の文書「current branch か default branch のキャッシュを引ける」。design D2・D3 は、この引きを「同じ PR の前の push」の使い回しとして使っている）。
+     前の push の commit は、`windows-build-key.sh` か ci.yml の `save` を書き換えられる。鍵の値は後の head の木（とそれを書いた本人が知っている道具の版）だけから決まる（windows-build-key.sh の冒頭の説明、ci.yml:479）。
+     そのため前の push は、後の head が出す鍵の名前で、任意の中身の zip を保存できる
+  2. 後の run は鍵が完全に一致すると組み立てを飛ばし（ci.yml:485-519）、引いた置き場をそのまま `package-windows-release` / `package-windows-test` として上げる（ci.yml:522-525）。`package-artifacts` は、それを `release-package` に入れる（ci.yml:608-611）
+  3. 中身を確かめる箇所は無い。`check-artifacts.sh` は zip の中の印と `SOURCE.txt` の一致だけを見る（:164-167）。
+     2 つとも zip の中身なので、組んだ側が head の commit を名乗ることもできる。`draft.sh` が見るのは、run が同じ repo の枝・`ci`・成功の 3 つだけ（draft.sh:25-31。`head_sha` も `windows-build-key` も grep で 0 件）。
+     今回の docs/release.md §11.1 は、Windows の 2 つについて `head_sha` との照合を外した
+  4. 差分の前は、キャッシュから来る中身は pgsql の zip だけで、`pgsql.lock` の sha256 で検証していた（pgsql.sh:19-39）。検証しないキャッシュが配る zip に入る経路は、この差分で増えた。
+     新しい cargo の `target` のキャッシュも同じく PR の置き場から戻り（`restore-keys` 付き）、組み立ての中間物を検証しない。
+     design の Risks「キャッシュの中身の改竄」が扱うのは、他の PR と main からの汚染だけで、同じ PR の前の push は扱っていない
+  - 起きるには PR の枝へ push できる者（グラフの agent か本人）が要る。途中の push を force-push で消せば、人間が merge の前に見る最後の diff には残らない。
+    下書きは非公開。それでも `docs/release.md` §11.1 の確かめでは、人が下書きの zip を落としてインストールする
+- kind: conflict（D3「`package-artifacts` は変えない」は本人の決定 Q2 の範囲。直し方によっては、Q1 の「同じ PR の前の push を使い回す」も狭まる）
+- 提案: `save`（と cargo の cache の保存）を `github.event_name == 'push'`（main）に限る。PR は main が組んだものだけを引く。Q1 の範囲は狭まる。
+  狭めないなら、`package-windows` の出力（`cache-hit`）を `package-artifacts` に渡し、使い回した run では `release-package` を上げない（D3 の反転の条件が挙げる案）。
+  どちらにするかを人間に返す。
+
+範囲外: `release.yml` の pgsql のキャッシュ（`restore-keys: pgsql-`）は既存のもの。中身は pgsql.sh が sha256 で検証している。
