@@ -30,6 +30,8 @@
 
 鍵 = sha256（`git -C <repo の根> ls-tree -r --full-tree <checkout した commit>` の行のうち、除くパスを落としたもの ＋ 走っている run の CI の定義 ＋ 道具の版の行）。
 `--full-tree` と repo の根で読む（cwd に依らない。review R8）。repo の根が引けなければ落ちる。
+`-z` で読む（`core.quotePath` が日本語などの名前を引用符で包み、`docs/*`・`*.md` に当たらなくなるのを避ける。code review R9）。
+除くパスの一覧は spec の名指しの 6 つちょうどで、自己試験がそれを固定する（足しすぎを止める。code review R4）。
 
 - **除くもの（名指し）**: 試験の台本 `tools/release/install-check.sh`・`tools/release/update-check-install.sh`・`tools/release/conpty-run.ps1`（`install-check.sh` だけが読む）と、
   `changes.sh code` が「コードでない」とするもの（`docs/`・`openspec/` の下と `*.md`）。`build.sh`・`package.sh`・`notices.sh`・`pgsql.sh` はこの 3 つの台本を読まない
@@ -42,7 +44,7 @@
 - **走っている run の CI の定義**: pull_request の run は、head ではなく GitHub が作る merge の commit の `ci.yml` で走る（GitHub の一般の振る舞い。この repo では未確認・確かさ 1。review R11）。
   `package-windows` は head を checkout するので、鍵の step が `${{ github.sha }}` を浅く fetch し、その commit の `.github/workflows/ci.yml` の blob の id を道具の版の行に足す。fetch できなければ鍵を空にする（D2 でビルドする側）
 - **git の blob の id から作る**: checkout の改行の変換（Windows の autocrlf）に依らない
-- **台本**: `tools/release/windows-build-key.sh <commit>`（鍵を 1 行で出す）・`--self-test`（spec の鍵の 5 つの Scenario）・`--check-workflow [ci.yml]`（spec の CI の定義の 2 つの Scenario）。
+- **台本**: `tools/release/windows-build-key.sh <commit>`（鍵を 1 行で出す）・`--self-test`（spec の鍵の 5 つの Scenario）・`--check-workflow [ci.yml]`（spec の CI の定義の 8 つの Scenario。`if:` は `&&` の項に割って見る。code review R16）。
   `changes.sh` には足さない（`deps` の判定に入っていて、触ると `vulns` の job が走る。`code` / `deps` の挙動は `check-vulns.sh --self-test` が固定している）
 
 退けた案: 入力を数え上げる（`crates/` `Cargo.*` `web/` `migrations/` `tools/release/build.sh` …）。数え漏らした入力が変わっても使い回し、古い配布物で試験が通る。
@@ -64,7 +66,14 @@
   `install-windows` と `package-artifacts` は何も変えない
 - 引けなかったら: 今と同じにビルドし、成功したときだけ `actions/cache/save` で保存する
 - job の `if:` と checkout は変えない。step の並び（`ch14_` → 2 つの `package.sh windows`）も変えない（Context の表の検査）
-- 鍵を出す step が落ちたら、鍵を空にして「引けなかった」と同じに扱う（既存の「比較できないときは全部走らせる」に合わせる）。台本の自己試験が落ちたら job を落とす
+- 鍵を出す step が落ちたら、鍵を空にして「引けなかった」と同じに扱う（既存の「比較できないときは全部走らせる」に合わせる）。
+  台本の自己試験（`--self-test`）と使い回しの形の検査（`--check-workflow`）は、Windows の runner でなく Linux の `chain` の job で PR ごとに走らせる
+  （本人の決定: 深掘り第 2 回 Q3。範囲を `chain` の 2 行だけ広げる。`package-windows` の自己試験の step は消す。code review R5・R7・R10）。
+  `chain` の runner に `python3` か `yaml` が無ければ `--check-workflow` は rc=2 で落ちる（黙って飛ばさない）
+- 走っている run の CI の定義は、run の commit が checkout した HEAD と同じ（main への push）なら HEAD から読み、fetch しない。PR の run だけ merge commit を浅く fetch し、
+  token は `git -c` の引数でなく `GIT_CONFIG_*` の環境変数で渡す（code review R12）
+- 鍵は commit の木から出すが、組み立ては作業木から組む。組み立ての後に追跡しているファイルが commit のままか（`git status --porcelain --untracked-files=no` が空か）を見て、
+  変わっていれば警告を出して保存しない（code review R13）
 
 退けた案: 前の run の成果物（artifact）を探して引く。`permissions: contents: read` を広げ（`actions: read`）、どの run を信じるかの判定が要る。キャッシュは
 PR ごとの置き場に分かれ、fork の PR の保存物は他の PR や main から引けない。
@@ -112,6 +121,10 @@ main の push の 33 分が問題になったら、main でも引く。
 - [使い回した配布物の印が前の commit] → D3。`release-package` から作った下書きの Windows の配布物は、前の commit の印を持つ
 - [キャッシュの置き場の溢れ] → 古いものから消え、ビルドし直すだけ（遅くなるが、誤った配布物は使わない）
 - [キャッシュの中身の改竄] → PR の保存物はその PR の置き場にあり、他の PR と main は引けない。main の保存物は main の push の run だけが書く
+- [同じ PR の前の push の保存物を確かめずに使う]（受け入れ。本人の決定: 深掘り第 2 回 Q4。code review R6）→ 同じ PR の前の push が保存した Windows の配布物と Rust の `target` は、
+  後の run が中身を確かめずに使う。前の push の commit は鍵の台本や `save` を書き換えて、後の head の鍵の名前で任意の中身を保存できる。書けるのは PR の枝へ push できる者
+  （グラフの agent か本人）だけ。本物のリリースと開発版（`release.yml` / `nightly.yml`）はキャッシュを引かずに自分で組む。PR の下書き（`docs/release.md` §11.1）で使い回した
+  Windows の zip を使うときは、組んだ commit を PR の履歴で確かめてから使う
 
 ## Migration Plan
 
