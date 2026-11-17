@@ -140,7 +140,8 @@ assert_update_acl() {
       die "Administrators と SYSTEM 以外に更新の印の書き権限がある: $principal"
     fi
   done <<<"$acl"
-  (( admins && system && server_read && db_read )) || die '更新の印の ACL が必要な主体を満たさない'
+  # 足りない主体と、icacls が返した ACL そのものを添える（NG の 1 行だけでは何が欠けたか分からない。2026-11-17 の CI）
+  (( admins && system && server_read && db_read )) || die "更新の印の ACL が必要な主体を満たさない（Administrators=$admins SYSTEM=$system server-read=$server_read db-read=$db_read）"$'\n'"== icacls の出力:"$'\n'"${acl:-（空）}"
 }
 
 assert_output_contains() {
@@ -358,7 +359,10 @@ assert_scenario_result() {
       [[ -z "$entered" ]] || die $'同じ版なのに更新手順へ入った\n'"$entered"
       ;;
     'サーバのアカウントは、更新の途中の印を書けない')
-      assert_update_acl "$(windows_icacls 'C:\\ProgramData\\ashiato\\update')"
+      local update_acl
+      # icacls の標準エラーも残す（windows_icacls は捨てる。空の出力で落ちたときに理由が見えない）
+      update_acl="$(MSYS2_ARG_CONV_EXCL='*' icacls.exe 'C:\\ProgramData\\ashiato\\update' 2>&1 | tr -d '\r'; echo "icacls-rc=${PIPESTATUS[0]}")"
+      assert_update_acl "$update_acl"
       ;;
     '開発版のインストーラは、正式版のインストールを更新しない')
       (( rc == 0 )) || die '別チャンネルのインストーラが失敗した'
@@ -717,6 +721,13 @@ EOF
   expect_fail assert_count 7 8 'self-test の記録'
   expect_fail assert_output_contains 'status=ok' '更新が完了しました'
   expect_fail assert_update_acl $'C:\\ProgramData\\ashiato\\update Administrators:(OI)(CI)(F)\nNT SERVICE\\ashiato-server:(OI)(CI)(M)'
+  # 主体が足りずに落ちたときは、どれが欠けたかと icacls の出力そのものが CI のログに出る
+  local acl_fail_log
+  acl_fail_log="$( (assert_update_acl $'Administrators:(OI)(CI)(F)\nst58-acl-marker:(OI)(CI)(R)') 2>&1 || true)"
+  grep -Fq 'SYSTEM=0' <<<"$acl_fail_log" || die 'ACL の失敗に欠けた主体が出ない'
+  grep -Fxq 'st58-acl-marker:(OI)(CI)(R)' <<<"$acl_fail_log" || die 'ACL の失敗に icacls の出力が出ない'
+  acl_fail_log="$( (assert_update_acl '') 2>&1 || true)"
+  grep -Fq '（空）' <<<"$acl_fail_log" || die 'ACL の失敗で空の出力が分からない'
   # インストーラが落ちたときは、終了コードと出力の末尾が CI のログに出る（NG の 1 行だけで終わらない）
   printf 'line-1\r\nst58-installer-reason: port 5432 in use\r\n' >"$work/die-install.out"
   local die_install_log
