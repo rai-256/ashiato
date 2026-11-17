@@ -549,8 +549,13 @@ run_scenario() {
   settings_before="$(settings_fingerprint)"
   backups_before="$(completed_backup_count)"
   # owner_sql の die は $(...) の中で exit するので || printf unavailable に届かない。その理由（die の 1 行と出力の末尾）を捨てないよう stderr は塞がない
-  history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
-  failed_before="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
+  # 開発版だけが入った機械には正式版の owner.json が無い（開発版の状態は C:/ProgramData/ashiato-dev）。この場面は版が替わらないことだけを見る
+  if [[ "$name" == '正式版のインストーラは、開発版のインストールを更新しない' ]]; then
+    history_before=dev-channel; failed_before=dev-channel
+  else
+    history_before="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
+    failed_before="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
+  fi
   printf 'failed-databases-before=%s\n' "$failed_before" >>"$trace"
   retry_output=''
   final_zip="$new_zip"
@@ -633,9 +638,13 @@ run_scenario() {
       printf 'installed-version-dev=%s\n' "$(server_version_at 'C:/Program Files/ashiato-dev/ashiato-server.exe')"
     printf 'settings-before=%s\nsettings-after=%s\n' "$settings_before" "$(settings_fingerprint)"
     printf 'backups-before=%s\nbackups-after=%s\n' "$backups_before" "$(completed_backup_count)"
-    history_after="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
+    if [[ "$history_before" == dev-channel ]]; then
+      history_after=dev-channel; failed_databases=dev-channel
+    else
+      history_after="$(owner_sql 'SELECT count(*) FROM core.update_history' || printf unavailable)"
+      failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
+    fi
     printf 'history-before=%s\nhistory-after=%s\n' "$history_before" "$history_after"
-    failed_databases="$(owner_sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'ashiato_failed_%'" || printf unavailable)"
     printf 'failed-databases=%s\n' "$failed_databases"
     update_check_enabled="$(json_value 'C:/ProgramData/ashiato-updater/settings/check.json' enabled 2>/dev/null || printf unavailable)"
     printf 'update-check-enabled=%s\n' "${update_check_enabled,,}"
