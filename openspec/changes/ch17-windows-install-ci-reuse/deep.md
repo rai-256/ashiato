@@ -17,7 +17,12 @@
 正典 `distribution` の Requirement「コードを触った PR ごとに、配る形の 3 部品を公開せずに組む」の本文（コードを触った PR では Windows 向けも組む・
 CI の実行の成果物としてだけ置く）が、使い回しと反対の SHALL を言う。推奨: 改める（使い回しを認める）。
 
-(未回答)
+本人の答え（`deep-answers-1.txt`。推奨の選択肢をはっきり選んだ。補足なし）: **改める（使い回しを認める）**
+
+→ 正典 `distribution` の Requirement「コードを触った PR ごとに、配る形の 3 部品を公開せずに組む」を `## MODIFIED` で改める:
+「組み立てる。ただし組み立ての入力（鍵）が同じ前の組み立ての Windows の配布物があれば、それを使う」「CI の実行の成果物と CI の
+キャッシュにだけ置き、公開しない」。この Requirement の導出元は Story の価値（FR ではない）なので、requirements.md の FR は変えない。
+正典を改めるので通常の路へ移る（`lane-verdict.json` は機械が書く）。
 
 ### Q2. 使い回した配布物が指す commit（R2）
 
@@ -25,4 +30,13 @@ CI の実行の成果物としてだけ置く）が、使い回しと反対の S
 そのものから組み、`SOURCE.txt`・印・組んだソースが同じ commit を指す）と design D3 が食い違う。推奨: 要件を改め、使い回した配布物は組んだ commit を指すとする
 （`package-artifacts` は変えない）。
 
-(未回答)
+本人の答え（`deep-answers-1.txt`。推奨の選択肢をはっきり選んだ。補足なし）: **要件を改め、使い回した配布物は組んだ commit を指すとする**
+
+→ 正典 `distribution` の Requirement「配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ」を `## MODIFIED` で改め、
+「使い回した Windows の配布物の `SOURCE.txt` と組み立ての印は、それを組んだ commit を指す」を足す。design D3 の振る舞いを spec の
+Scenario に移す。`package-artifacts` の job は変えない（本人の範囲のまま）。要件 FR-127 の ★ 2026-11-03（第 3 回）「PR の組み立ては
+PR の head の commit そのものから組む」に例外を足すので、requirements.md の FR-127 に ★ 2026-11-17 補足を入れた。
+
+## 要件へ戻すもの
+
+- FR-127（★ 2026-11-17 補足。Q2）: 使い回した Windows の配布物の `SOURCE.txt` と印は、それを組んだ commit を指す（PR の head の commit から組むことの例外）
