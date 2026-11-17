@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 shopt -s extglob
+# die を通らずに set -e で止まったときも、どの行の何で止まったかを出す（2026-11-17 の CI は Scenario 13 の後に何も出さずに止まった）
+# set +e で落ちてよい所（落ちる更新を確かめる段）は出さない
+trap 'rc_err=$?; [[ $- != *e* ]] || echo "NG: 予期しない失敗（行 $LINENO・rc=$rc_err）: $BASH_COMMAND" >&2' ERR
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # 走っている Scenario の置き場（落ちたときに出力と観測の末尾を出す。$work は終わりに消える）
