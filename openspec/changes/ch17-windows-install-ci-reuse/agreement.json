@@ -1,0 +1,36 @@
+{
+  "status": "accepted",
+  "digest": "e8e12afbf1a2b0acf2e9fa5c2bf7c5cebe45bc6b8f047fe103bc2921bfb1320a",
+  "head": "a0e38e165d0784051d81529a503f973aaa6bb0b6",
+  "answers": "deep-answers-2.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-17T03:56:27Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "low",
+      "title": "使い回した配布物の SOURCE.txt の commit を後から取れるか確かめていない"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "上げる置き場を後から足した change の合わせ忘れを、CI の中では見ない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "下書きの説明文の run 番号は、使い回した Windows の配布物の組み立ての run ではない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "キャッシュの置き場 10 GB を Windows の配布物と Rust のビルドで使い、ほかの保存物を押し出すかもしれない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "使い回した run では、文字化けの試験の結果を前の run に頼る"
+    }
+  ]
+}
