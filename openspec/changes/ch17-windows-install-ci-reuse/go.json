@@ -1,0 +1,1788 @@
+{
+ "purpose": "試験の台本と文書だけを直した PR を push したとき、CI が Windows の配布物を組み直さず、組み立ての入力が同じ前の配布物でインストールと更新の試験だけを走らせる。組み直すときも Rust の依存をキャッシュから戻す。台本を直して CI を待つ 1 周が約 1 時間から試験の分（約 17 分と少し）に縮む。",
+ "model": {
+  "kind": "diagram",
+  "caption": "Windows の配布物の job が、鍵で「組む」か「前のものを使う」かを分ける",
+  "text": "PR の push\n   ↓\n組み立ての鍵 = 追跡している全部（3 つの試験の台本・docs/・openspec/・*.md を除く）\n              ＋ 走っている CI の定義 ＋ 道具の版（Rust・Node・runner の image）\n   ↓\nCI のキャッシュに同じ鍵がある？\n   ├─ ある（PR の run だけ）→ 組まずに引く ─┐\n   └─ 無い・鍵が空・main への push → 今と同じに組む（Rust はキャッシュから戻す）→ 鍵で保存\n                                              ↓\n                 今と同じ名前の成果物（配る形・試験の形）で上げる\n                                              ↓\n         インストールと更新の試験（Scenario を全部走らせ、欠ければ落ちる）"
+ },
+ "before_after": [
+  {
+   "area": "試験の台本だけを直した PR の push",
+   "before": "Windows の配布物を毎回組む（約 33 分）→ インストールの試験（約 17 分）",
+   "after": "前の配布物を引いて上げる（数分の見込み）→ インストールの試験（約 17 分。変えない）"
+  },
+  {
+   "area": "使い回した run の release-package の Windows の 2 つの zip",
+   "before": "SOURCE.txt と印は、その run の PR の head の commit",
+   "after": "それを組んだ commit（同じ PR の前の push の head か main の commit）。Linux の tar と APK は head のまま"
+  },
+  {
+   "area": "Windows の配布物を組むとき",
+   "before": "Rust の依存を毎回はじめから組む",
+   "after": "Rust の版が同じ前のビルドから戻す（cargo が変わった所だけ組み直す）"
+  }
+ ],
+ "highlights": [
+  "source.2",
+  "key.3",
+  "reuse.3",
+  "source.3"
+ ],
+ "features": [
+  {
+   "id": "reuse",
+   "title": "台本だけの変更では組み直さない",
+   "summary": "鍵が同じ前の配布物が CI のキャッシュにあれば、組まずにそれを今と同じ名前で上げる",
+   "points": [
+    {
+     "id": "reuse.1",
+     "kind": "normal",
+     "text": "PR の run で、鍵が空でなく、同じ鍵の前の配布物（配る形と試験の形の 2 つ）が CI のキャッシュにあれば、組み立ての手順を飛ばし、引いたものを書き換えずに今と同じ成果物の名前で上げる。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く",
+       "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる"
+      ],
+      "decisions": [
+       "Q1",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "reuse.2",
+     "kind": "normal",
+     "text": "引けなかったときは今と同じ手順で組み、組み立てが成功したときだけ同じ鍵で保存する。保存と引きの置き場は、job が上げる置き場の全部（一部だけを使い回さない）。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する",
+       "上げる配布物は全部、保存と引きの置き場に入る"
+      ],
+      "decisions": [
+       "D2",
+       "C4"
+      ]
+     }
+    },
+    {
+     "id": "reuse.3",
+     "kind": "exception",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "main への push と、鍵を出せなかった run は使い回さずに組む。鍵の一部だけが一致する前の組み立ても使わない（前方一致で古いものを引かない）。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "reuse.4",
+     "kind": "caution",
+     "text": "使い回したときは、インストーラの文字化けの試験（ch14_）も飛ばす。その試験の入力は鍵に入っていて、同じ鍵の前の run で通ってから保存されている。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "key",
+   "title": "組み立ての鍵",
+   "summary": "名指しして除くもの以外の全部と、走っている CI の定義と道具の版から作る",
+   "points": [
+    {
+     "id": "key.1",
+     "kind": "normal",
+     "text": "鍵は追跡している全部のファイルの中身（git の blob の id）から、試験の台本 3 つ（install-check.sh・update-check-install.sh・conpty-run.ps1）と docs/・openspec/・*.md を除いたものに、走っている run の CI の定義と道具の版（Rust・Node・runner の image の名前と版）を足して作る。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "試験の台本と文書だけが違う 2 つの木は、同じ組み立ての鍵になる",
+       "道具の版が違えば、鍵が変わる",
+       "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     },
+     "examples": [
+      {
+       "wrong": "Cargo.toml や LICENSE は配布物の中身に関係が薄いので鍵から外れている",
+       "right": "Cargo.toml（版番号の出所）と LICENSE は鍵に入る。外すと、配布物の検査が head から取る期待値と使い回した配布物が食い違う"
+      }
+     ]
+    },
+    {
+     "id": "key.2",
+     "kind": "normal",
+     "text": "名指ししていないファイルが 1 つでも変わる・増えると鍵が変わり、組み直す側に倒れる。鍵を出せない木では鍵を出さずに落ち、CI は組む側に回る。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てに入るファイルが 1 つでも違えば、鍵が変わる",
+       "名指ししていないファイルが増えれば、鍵が変わる",
+       "鍵を出せない木では、鍵を出さずに落ちる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "key.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "Android の収集アプリだけ・Linux の道具だけの変更でも、Windows の配布物は組み直す（除くものは試験の台本と文書だけ）。runner の image の版が上がる週ごとにも鍵が変わり、その後の最初の run は組み直す。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てに入るファイルが 1 つでも違えば、鍵が変わる",
+       "道具の版が違えば、鍵が変わる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "key.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "走っている ST58 が足す試験の台本 update-apply-install.sh は、除くものに先回りして足さない。その台本だけを変えた PR は組み直す（足すかは ST58 の後に決める）。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "名指ししていないファイルが増えれば、鍵が変わる"
+      ],
+      "decisions": [
+       "D1",
+       "C4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "tests",
+   "title": "インストールの試験は全部走る",
+   "summary": "使い回したかどうかに依らず、インストールと更新の Scenario を全部走らせて突き合わせる",
+   "points": [
+    {
+     "id": "tests.1",
+     "kind": "normal",
+     "text": "インストールの試験の job は変えない。配る形と試験の形の 2 つの配布物でインストールと更新の試験を走らせ、走った Scenario を台本の --list の全部と突き合わせ、1 つでも欠ければ CI を落とす。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"
+      ]
+     }
+    },
+    {
+     "id": "tests.2",
+     "kind": "normal",
+     "text": "配る形を壊す変更（コード・依存・組み立ての台本・CI の定義など）は鍵を変えるので、その PR の CI で組み直され、組めなければ落ちる。文書だけの PR は今と同じく組み立てを飛ばす。",
+     "refs": {
+      "requirements": [
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+      ],
+      "scenarios": [
+       "コードを触った PR では、配る形の組み立てが走る",
+       "文書だけの PR では、配る形の組み立てを飛ばす",
+       "配る形を壊した PR は、その PR の CI で落ちる"
+      ],
+      "decisions": [
+       "Q1"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "source",
+   "title": "使い回した配布物のソースの場所",
+   "summary": "使い回した Windows の配布物は、それを組んだ commit を指したまま上げる",
+   "points": [
+    {
+     "id": "source.1",
+     "kind": "normal",
+     "text": "使い回した Windows の配布物の SOURCE.txt と組み立ての印は書き換えず、どちらもそれを組んだ commit（同じ PR の前の push の head か main の commit。ほかの PR の組み立ては使わない）を指す。配布物の検査は配布物ごとに SOURCE.txt と印の一致を見るので通る。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる",
+       "PR の組み立ての配布物のソースの場所は、PR の head の commit"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "source.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "使い回した run の release-package（下書きのリリースの材料）では、Linux の tar と携帯の APK は head の commit、Windows の 2 つの zip は前の commit を指す。1 つの run の中で配布物の commit が揃わない。",
+     "examples": [
+      {
+       "wrong": "release-package の 4 つの配布物は、どれも run の head_sha を指す",
+       "right": "Linux の tar・APK → head（例: B）／Windows の 2 つの zip → 組んだ commit（例: A）"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "source.3",
+     "kind": "caution",
+     "tags": [
+      "未解決"
+     ],
+     "text": "SOURCE.txt が指す前の push の head を、枝を push し直した後に空の clone から取れるかは確かめていない。完了の判定 4 で確かめ、取れなければ結果を記録して人間に返す。PR の配布物は公開しない。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "C2",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "source.4",
+     "kind": "normal",
+     "text": "配布物の検査は期待する版番号と LICENSE を head から取る。Cargo.toml と LICENSE が鍵に入っているので、使い回すのはその 2 つが head と同じときだけで、期待値と使い回した配布物の中身が合う。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "source.5",
+     "kind": "normal",
+     "text": "下書きのリリースで配布物を手で確かめる手順（docs/release.md §11.1）に、使い回した run では Windows の 2 つについて SOURCE.txt と印が同じ commit を指すことを見る、を足す。下書きを作る台本は変えない。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "C3",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "source.6",
+     "kind": "exception",
+     "text": "正式版・ベータ版・開発版の配布物は使い回さない（それぞれの workflow が自分で組む）。SOURCE.txt が自分を組んだ commit や印を指すのは今のまま。",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "正式版の配布物のソースの場所は、その版の印"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "cache",
+   "title": "Rust のキャッシュと置き場",
+   "summary": "組むときは Rust の依存を戻す。置き場は repo あたり 10 GB の Actions のキャッシュ",
+   "points": [
+    {
+     "id": "cache.1",
+     "kind": "normal",
+     "text": "組むとき（前の配布物を引けなかったとき）だけ、~/.cargo の依存と target を、Rust の版と Cargo.lock の hash の鍵で戻す。Rust の版が同じなら前の鍵からも戻し、cargo が変わった所だけ組み直す。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "ビルドするときは、Rust の依存のビルドを戻す"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "cache.2",
+     "kind": "caution",
+     "text": "置き場は GitHub Actions のキャッシュ（repo あたり 10 GB、7 日使われないと消える）。配布物 2 つと Rust のビルドで使う。溢れたら古いものから消え、組み直すだけになる（遅くなるが、誤った配布物は使わない）。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する"
+      ],
+      "decisions": [
+       "D2",
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "keep",
+   "title": "変えないもの",
+   "summary": "触るのは Windows の配布物の job の step と、鍵の台本と、文書だけ",
+   "points": [
+    {
+     "id": "keep.1",
+     "kind": "normal",
+     "text": "変えないもの: job の出し分け・Windows の配布物の job の if と checkout する commit・文字化けの試験が最初の組み立てより前にあること・成果物の名前・インストールの試験の job・配布物を集めて検査する job・他の job・製品のコード・配布物の作り方。",
+     "refs": {
+      "requirements": [
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+      ],
+      "scenarios": [
+       "コードを触った PR では、配る形の組み立てが走る",
+       "文書だけの PR では、配る形の組み立てを飛ばす"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "id": "keep.2",
+     "kind": "normal",
+     "text": "改める 2 つの要件の既存の Scenario は、名前も中身も変えない（使い回しの後も成り立つ）。印を持つ台本にも触れない。",
+     "refs": {
+      "requirements": [
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む",
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "配る形を壊した PR は、その PR の CI で落ちる",
+       "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+      ],
+      "decisions": [
+       "C1"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "インストールの試験そのもの（約 17 分）を縮めること",
+   "refs": {}
+  },
+  {
+   "text": "手元の Windows を試験に使うこと（並列とコンテナ化を保つ。受け皿の依頼 #308 の本人の決定）",
+   "refs": {}
+  },
+  {
+   "text": "Android だけ・Linux の道具だけの変更で Windows の配布物を使い回すこと（D1 の反転条件で後から足せる）",
+   "refs": {
+    "decisions": [
+     "D1"
+    ]
+   }
+  },
+  {
+   "text": "下書きのリリースを作る台本と、配布物を集めて検査する job を変えること（深掘り Q2 で変えないと決めた）",
+   "refs": {
+    "decisions": [
+     "Q2"
+    ]
+   }
+  }
+ ],
+ "open": [
+  {
+   "text": "走っている ST58 の枝は、試験の形の成果物を 6 つの名前に分け、組み立てを 1 つの step のループにする。ST58 が先に main に入ると、この change の Scenario「引けたときだけ組み立てを飛ばし、今と同じ名前で上げる」の「今と同じ名前」と、tasks 2.2 の --check-workflow が前提にする 2 つの組み立ての step と package-windows-test の名前が合わなくなる。どちらが合わせるかを spec も design も決めていない（IMP-02）",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "scenarios": [
+     "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる",
+     "上げる配布物は全部、保存と引きの置き場に入る"
+    ],
+    "decisions": [
+     "C4",
+     "D2"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "保存物の鍵の名前（windows-package-<鍵>・cargo-windows-<Rust の版>-<Cargo.lock の hash>）と、Rust のキャッシュに入れる置き場の範囲",
+   "refs": {
+    "decisions": [
+     "D2",
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "鍵の台本の置き場と口（tools/release/windows-build-key.sh の --self-test・--check-workflow）。出し分けの台本 changes.sh には足さない",
+   "refs": {
+    "decisions": [
+     "D1"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "組み立ての鍵",
+   "def": "Windows の配布物を組む入力（除くもの以外の全部のファイル・CI の定義・道具の版）から作る sha256。同じなら同じ配布物ができるとみなす"
+  },
+  {
+   "term": "使い回す",
+   "def": "同じ鍵の前の run が CI のキャッシュに保存した配布物を引き、組まずにこの run の成果物として上げること"
+  },
+  {
+   "term": "release-package",
+   "def": "Linux と Windows の配る形を集めて検査した CI の成果物。下書きのリリース（公開しない）の材料になる"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "Windows のインストールの試験の台本を直して、すぐ結果を見る",
+   "trigger": "関門でインストールの試験が落ち、直すのは試験の台本（install-check.sh）の 1 行だけ。今は push のたびに配布物を組み直すので、結果まで約 1 時間待つ。",
+   "steps": [
+    {
+     "do": "台本の 1 行を直して PR に push する",
+     "see": "CI の Windows の配布物の job で、鍵を出す step の後の組み立ての step が skipped になり、2 つの成果物が今と同じ名前で上がる"
+    },
+    {
+     "do": "インストールの試験の job の結果を見る",
+     "see": "配る形と試験の形の 2 つでインストールと更新の Scenario が全部走り、欠けがあれば落ちている"
+    }
+   ],
+   "outcome": "直した台本で試験が通るかが、組み立ての約 33 分を待たずに分かる。13 時間で 12 周した ST58 のような関門で、台本だけの周が速く回る。",
+   "without": "台本の 1 行の変更でも毎回 Windows の配布物を組み直し、1 周に約 1 時間かかる。",
+   "refs": {
+    "requirements": [
+     "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+    ],
+    "scenarios": [
+     "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる",
+     "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"
+    ],
+    "decisions": [
+     "Q1"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "何を変えた push なら組み直さないか",
+   "feature": "key",
+   "scene": "本人が同じ PR に、変えるファイルの違う push を順に重ねる。1 回目の push で Windows の配布物が組まれ、鍵 K1 で保存されている。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "2 回目の push で変えたもの → Windows の配布物の job がすること（K1・K2 は説明用の名前）",
+    "head": [
+     "2 回目の push で変えたもの",
+     "鍵",
+     "Windows の配布物",
+     "インストールの試験"
+    ],
+    "rows": [
+     [
+      "tools/release/install-check.sh の 1 行",
+      "K1（同じ）",
+      "引いて上げる（組まない）",
+      "全部走る"
+     ],
+     [
+      "docs/testing.md",
+      "K1（同じ）",
+      "文書だけの PR なら job ごと飛ぶ。台本と一緒なら引く",
+      "台本と一緒なら全部走る"
+     ],
+     [
+      "crates/server/src/lib.rs",
+      "K2（変わる）",
+      "組み直して K2 で保存",
+      "全部走る"
+     ],
+     [
+      "collector-android/ の 1 ファイル",
+      "K2（変わる）",
+      "組み直す（短縮は効かない）",
+      "走らない（Windows の試験の出し分けは今のまま）"
+     ],
+     [
+      "tools/release/ に新しい台本を足す",
+      "K2（変わる）",
+      "組み直す",
+      "出し分けは今のまま"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "試験の台本だけを直した",
+     "outcome": "ok",
+     "result": "鍵が K1 のままなので組まずに引き、インストールの試験は全部走る"
+    },
+    {
+     "label": "サーバのコードを直した",
+     "outcome": "ok",
+     "result": "鍵が変わるので組み直す。壊れていればこの PR の CI で落ちる"
+    },
+    {
+     "label": "Android の収集アプリだけを直した",
+     "outcome": "problem",
+     "result": "Windows の配布物に入らない変更でも鍵が変わり、約 33 分の組み立てが走る（D1 の反転条件で後から除ける）"
+    }
+   ],
+   "why": "鍵は「名指しして除くもの以外の全部」から作る。数え漏らした入力が変わっても使い回して古い配布物で試験が通ることを避けるため、知らない変更があれば組み直す。",
+   "conditions": {
+    "occurs_when": [
+     "PR の run で、前の push の配布物が同じ鍵で保存されている"
+    ],
+    "not_when": [
+     "main への push（毎回組む）",
+     "鍵を出せなかった run（組む）",
+     "保存物がキャッシュから消えた（7 日・10 GB）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "どの行も説明用で、実際の run で確かめた時間ではない。短縮の実測は完了の判定 3・4",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "requirements": [
+     "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+    ],
+    "scenarios": [
+     "試験の台本と文書だけが違う 2 つの木は、同じ組み立ての鍵になる",
+     "組み立てに入るファイルが 1 つでも違えば、鍵が変わる",
+     "名指ししていないファイルが増えれば、鍵が変わる"
+    ],
+    "decisions": [
+     "D1",
+     "D2"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "使い回した run の release-package の commit",
+   "feature": "source",
+   "scene": "本人が PR に 2 回 push した（1 回目の head が A、2 回目の head が B。2 回目は試験の台本だけ）。2 回目の run の release-package で、下書きのリリースの配布物を確かめる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "2 回目の run（head B）の release-package の中身が指す commit",
+    "head": [
+     "配布物",
+     "この change の前",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "サーバの Linux 版の tar",
+      "B",
+      "B"
+     ],
+     [
+      "携帯の APK",
+      "B",
+      "B"
+     ],
+     [
+      "サーバの Windows 版の zip",
+      "B",
+      "A（1 回目に組んだもの）"
+     ],
+     [
+      "PC の収集アプリの zip",
+      "B",
+      "A（1 回目に組んだもの）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "配布物の検査（配布物ごとに SOURCE.txt と印の一致を見る）",
+     "outcome": "ok",
+     "result": "Windows の 2 つは SOURCE.txt も印も A で揃っているので通る"
+    },
+    {
+     "label": "§11.1 の今の手順（run の head_sha と配布物の印を比べる）で確かめる",
+     "outcome": "problem",
+     "result": "Windows の 2 つは A で head_sha の B と違い、今の手順のままだと食い違いに見える。手順に使い回した run の見方を足す（tasks 3.2）"
+    }
+   ],
+   "why": "深掘り Q2 で本人が、使い回した配布物は組んだ commit を指すとした。配布物を集める job は変えないので、Linux と APK は head、Windows は組んだ commit になる。",
+   "conditions": {
+    "occurs_when": [
+     "2 回目の push で Windows の配布物を使い回した"
+    ],
+    "not_when": [
+     "組み直した run（4 つとも B）",
+     "main への push（毎回組む）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "A を空の clone から取れるかは確かめていない（完了の判定 4）",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "decisions": [
+       "C2"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+    ],
+    "scenarios": [
+     "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+    ],
+    "decisions": [
+     "Q2",
+     "D3",
+     "C3"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "試験の台本（3 つ）と文書だけが違う PR の push では、CI が Windows の配布物を組まずに、組み立ての鍵が同じ前の配布物を CI のキャッシュから引いて上げ、インストールと更新の試験は今と同じく全部走らせる。組むときも Rust の依存をキャッシュから戻す。効くのは PR の run で、同じ鍵の保存物がキャッシュに残っているときだけで、main への push と Android だけの変更などでは今と同じく組む。できなくなるのは、使い回した run で release-package の 4 つの配布物が同じ commit を指すことで、Windows の 2 つは組んだ前の commit を指す。もう 1 つ、使い回した run ではインストーラの文字化けの試験（ch14_）がその push では走らず、同じ鍵の前の run の結果に頼る。",
+  "problem": "ST58 の関門で、CI の 1 周が約 1 時間（Windows の配布物の組み立て 33 分・インストールの試験 17 分）かかり、13 時間で 12 周した。最後の 3 周は試験の台本しか変えていないのに、毎回 Windows の配布物を組み直していた。",
+  "depth": "full",
+  "depth_why": "正典 distribution の 2 つの Requirement を MODIFIED で改め、使い回した run の配布物の commit の意味（before_after）を変える。CI を落とす規則も持つ。",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "私的なデータの流れは増減しない。足すのは、PR の CI の Windows の配布物を GitHub Actions のキャッシュに置くことだけで、成果物と同じく公開しない。",
+    "why": "配布物は本人の記録を持たない組み立ての結果で、置き場も CI の中に閉じる",
+    "refs": {
+     "requirements": [
+      "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "後から外せる。ci.yml の差分を戻せば今の形に戻り、保存物は 7 日使われなければ消える。前の commit を指す SOURCE.txt の配布物は PR の CI と公開しない下書きにだけ出て、公開の組み立ては使い回さない。",
+    "why": "配った写しに書いたソースの場所は後から直せないが、この change は配る写しを作らない",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "正式版の配布物のソースの場所は、その版の印"
+     ],
+     "decisions": [
+      "Q2",
+      "D3"
+     ]
+    }
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "lifecycle",
+    "name": "Windows の配布物の job（package-windows）の手順",
+    "change": "鍵を出し、PR の run で同じ鍵の保存物があれば組み立ての step を飛ばして引いたものを上げる。組んだら保存する。組むときは Rust のキャッシュを戻す",
+    "searched": "ci.yml で package-windows の成果物の名前（package-windows-release / package-windows-test）を読む job と、job の if・checkout・step の並びを見る検査（check-guards.sh・check-ci-ch14-step.sh）を開いた。impact_deps.py で同じ台本を触る走っている change（ST58）を出し、その tasks と design を読んだ",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる",
+      "上げる配布物は全部、保存と引きの置き場に入る"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "data",
+    "name": "使い回した run の Windows の配布物の SOURCE.txt と組み立ての印の commit",
+    "change": "その run の PR の head ではなく、それを組んだ commit（同じ PR の前の push の head か main の commit）を指す",
+    "searched": "release-package を作る job（package-artifacts）の検査の呼び出し、check-artifacts.sh の SOURCE.txt の検査、版番号の読み方（version.sh）、下書きを作る draft.sh、手で確かめる手順 docs/release.md §11.1 を読んだ",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "file",
+    "name": "GitHub Actions のキャッシュの置き場（repo あたり 10 GB）",
+    "change": "Windows の配布物 2 つと Rust のビルド（~/.cargo・target）を新しく置く",
+    "searched": "ci.yml と release.yml で actions/cache を使う step を grep した（ci.yml は PostgreSQL の zip の 1 つ、release.yml に 1 つ）",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する",
+      "ビルドするときは、Rust の依存のビルドを戻す"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "インストールの試験の job（install-windows）",
+    "role": "reads",
+    "assumes": "package-windows-* の成果物に配る形と試験の形の zip がある。Scenario は --list の全部と突き合わせる",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E3",
+     "E4"
+    ],
+    "affects": "",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"
+     ]
+    }
+   },
+   {
+    "id": "D2",
+    "target": "T2",
+    "who": "配布物を集めて検査する job（package-artifacts）と check-artifacts.sh",
+    "role": "reads",
+    "assumes": "期待する版番号と LICENSE を head から取り、配布物ごとに SOURCE.txt の commit と印の commit が同じことを見る",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E1",
+     "E2",
+     "E10"
+    ],
+    "affects": "Cargo.toml か LICENSE を鍵から外すと、使い回した配布物が期待値と食い違って落ちる（D1 の反転条件が外さないと書く）",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "下書きのリリースで配布物を手で確かめる手順（docs/release.md §11.1）と、下書きの説明文（draft.sh）",
+    "role": "reads",
+    "assumes": "run の head_sha と、配布物の組み立ての印の commit が同じ。説明文は「配布物は run <N> の組み立て」",
+    "holds": "no",
+    "basis": "observed",
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "affects": "使い回した run では、Windows の 2 つの印が head_sha と違い、手順のままだと食い違いに見える。説明文の run 番号は Windows の 2 つの組み立ての run ではない",
+    "leads_to": [
+     "IMP-03"
+    ],
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "C3",
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "SOURCE.txt の commit からソースを取る人（本人）",
+    "role": "reads",
+    "assumes": "SOURCE.txt の commit を空の clone から git fetch で取れる",
+    "holds": "unknown",
+    "basis": "unconfirmed",
+    "affects": "前の push の head を枝の push し直しの後に取れないと、使い回した配布物の SOURCE.txt が取れない commit を指す",
+    "leads_to": [
+     "IMP-01"
+    ],
+    "verify": "完了の判定 4: 使い回した run の Windows の zip の SOURCE.txt の commit を空の clone で git fetch origin <commit> する",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "decisions": [
+      "C2"
+     ]
+    }
+   },
+   {
+    "id": "D5",
+    "target": "T1",
+    "who": "走っている ST58（st58-update-apply-rollback）。origin/feat/st58-update-apply-rollback の ci.yml では、試験の形を 1 つの step の中のループで 6 つ組み（版番号を替えて）、package-windows-test-old / -new / -dev-old / -dev-new / -compat-old / -compat-new で上げる。install-windows に試験の台本 update-apply-install.sh を足す",
+    "role": "writes",
+    "assumes": "（この change の側の前提）保存と引きの置き場は、package-windows が上げる置き場の全部と同じ。足した置き場は --check-workflow が見る",
+    "holds": "unknown",
+    "basis": "observed",
+    "evidence": [
+     "E7",
+     "E8",
+     "E13"
+    ],
+    "affects": "保存と引きに足し忘れても誰も --check-workflow を走らせず、使い回した run で欠けた置き場が空のまま上がり、install-windows が落ちる。ST58 が先に入ると、package-windows-test の名前と 2 つの組み立ての step が無くなり、この change の spec の文（今と同じ名前）と --check-workflow の形が合わなくなる（落ちる側）",
+    "leads_to": [
+     "IMP-02"
+    ],
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "上げる配布物は全部、保存と引きの置き場に入る"
+     ],
+     "decisions": [
+      "C4",
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "D6",
+    "target": "T3",
+    "who": "PostgreSQL の zip のキャッシュ（package-windows）と release.yml のキャッシュ",
+    "role": "reads",
+    "assumes": "保存物が置き場に残り、次の run で引ける",
+    "holds": "unknown",
+    "basis": "observed",
+    "evidence": [
+     "E9"
+    ],
+    "affects": "置き場が 10 GB を超えると古いものから消え、PostgreSQL の zip を外から取り直す・使い回しが効かない run が増える",
+    "leads_to": [
+     "IMP-04"
+    ],
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する"
+     ],
+     "decisions": [
+      "D2",
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "D7",
+    "target": "T1",
+    "who": "組み立ての印（build-stamp）。Rust の target を戻したときの作り直しの判定",
+    "role": "reads",
+    "assumes": "checkout が HEAD を書き直すので、印は戻した target からでも組み直される",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E11"
+    ],
+    "affects": "HEAD の更新時刻が戻した target より新しくならず印が前の commit のまま残っても、check-artifacts が「SOURCE.txt が印の commit と違う」で落とす（黙って通らない）",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "ビルドするときは、Rust の依存のビルドを戻す"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "D8",
+    "target": "T1",
+    "who": "workflow の検査（check-guards.sh workflows）と、文字化けの試験の位置の検査（check-ci-ch14-step.sh）",
+    "role": "reads",
+    "assumes": "package-windows の if と、head の commit を checkout すること、ch14_ の step が最初の package.sh windows より前にあること",
+    "holds": "yes",
+    "basis": "derived",
+    "affects": "",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:559",
+    "quote": "--expect-version \"$(tools/release/version.sh source built/Cargo.toml)\" --expect-license built/LICENSE"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": "tools/release/check-artifacts.sh:167",
+    "quote": "[[ -n \"$expected_commit\" && \"$expected_commit\" == \"$stamp_commit\" ]] || die \"$name の SOURCE.txt が組み立ての印の commit と違う\""
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:510",
+    "quote": "comm -23 \"$RUNNER_TEMP/install-scenarios.expected\" \"$RUNNER_TEMP/install-scenarios.actual\" |"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:481",
+    "quote": "with: { name: package-windows-release, path: \"${{ runner.temp }}/package-windows\" }"
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": "docs/release.md:151",
+    "quote": "`gh api repos/rai-256/ashiato/actions/runs/<run-id> --jq .head_sha` の値と配布物の組み立ての印の commit が同じで `.dirty` が無いことを見る"
+   },
+   {
+    "id": "E6",
+    "source": "ops",
+    "loc": "tools/release/draft.sh:45",
+    "quote": "配布物は PR の package（出所の版 $src）の組み立て（run $run_id）。公開しない"
+   },
+   {
+    "id": "E7",
+    "source": "story",
+    "loc": "openspec/changes/st58-update-apply-rollback/tasks.md:10",
+    "quote": "Windows の CI の job `install-windows` が新しい `tools/release/update-apply-install.sh` で毎回見る"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:606",
+    "quote": "- run: ./tools/release/check-guards.sh --self-test"
+   },
+   {
+    "id": "E9",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:467",
+    "quote": "key: pgsql-${{ hashFiles('tools/release/pgsql.lock') }}"
+   },
+   {
+    "id": "E10",
+    "source": "ops",
+    "loc": "tools/release/version.sh:14",
+    "quote": "sed -n '/^\\[workspace\\.package\\]/,/^\\[/{s/^version[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p;}' \"${1:-$ROOT/Cargo.toml}\" | head -n1"
+   },
+   {
+    "id": "E11",
+    "source": "code",
+    "loc": "crates/build-stamp/src/lib.rs:158",
+    "quote": "watch.push(git_dir.join(\"HEAD\"));"
+   },
+   {
+    "id": "E12",
+    "source": "spec",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ]
+    }
+   },
+   {
+    "id": "E13",
+    "source": "story",
+    "loc": "openspec/changes/ch17-windows-install-ci-reuse/tasks.md:54",
+    "quote": "この口は Linux の手元と merge gate で走らせ、Windows の runner では走らせない"
+   }
+  ],
+  "lost": [
+   {
+    "before": "PR の run の release-package の 4 つの配布物は、どれもその run の head の commit を指した（§11.1 の手順は run の head_sha と印を比べて確かめた）",
+    "after": "Windows の配布物を使い回した run では、Windows の 2 つの zip はそれを組んだ前の commit を指す。Linux の tar と APK は head のまま",
+    "who": "下書きのリリースで配布物を確かめる本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    }
+   },
+   {
+    "before": "PR の push ごとに、その head から Windows の配布物を組み、文字化けの試験（ch14_）もその push で走った",
+    "after": "鍵が同じなら前の push の組み立てと、そのときに通った試験の結果を使う",
+    "who": "CI の結果を見る本人",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる"
+     ],
+     "decisions": [
+      "Q1",
+      "D4"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "試験の台本と文書だけを直した PR の push で、組み立てを飛ばしてインストールの試験だけを待てる",
+    "cannot": "Android だけ・Linux の道具だけの変更では使い回せない（組み直す）。使い回した run の release-package の commit は揃わない",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる",
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "試験の台本と文書だけが違う 2 つの木は、同じ組み立ての鍵になる",
+      "組み立てに入るファイルが 1 つでも違えば、鍵が変わる",
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "name": "道具の更新（Rust・Node・runner の image）",
+    "applies": true,
+    "can": "Rust の版・Node の版・runner の image の版が上がると鍵が変わり、新しい道具で組み直す",
+    "cannot": "runner の image の版が週ごとに上がると、その後の最初の run は使い回せない（どれだけ効かなくなるかは確かめていない）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "道具の版が違えば、鍵が変わる",
+      "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "ci.yml の差分を戻せば今の形に戻る。保存物は 7 日使われなければ消える",
+    "cannot": "この分析では見つけていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "merge の後の最初の run は鍵が新しいので組み、以後の同じ鍵の PR の run で使い回す。今の PostgreSQL の zip のキャッシュはそのまま使う",
+    "cannot": "merge の前に組んだ配布物は使い回せない（ci.yml が変わり鍵が変わる）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる",
+      "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "PR の run は main の push が保存した配布物も引ける（main から枝を切った直後の台本だけの PR）。fork の PR の保存物は、ほかの PR や main からは引けない",
+    "cannot": "走っている ST58 が package-windows の上げる置き場を足すと、保存と引きの置き場を合わせる必要がある。合わせ忘れを CI の中では見ない（IMP-02）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "上げる配布物は全部、保存と引きの置き場に入る",
+      "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く"
+     ],
+     "decisions": [
+      "D2",
+      "C4"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "保存物が消えた・鍵を出せなかった run は組み直す。誤った保存物を疑うときは gh cache delete で消すと次の run が組み直す",
+    "cannot": "保存物の中身が正しいかを引くときには確かめない（保存は組み立てが成功した run だけが行う）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する",
+      "鍵を出せない木では、鍵を出さずに落ちる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "制約",
+    "rule": "前の組み立ては、PR の run で鍵が空でなく完全な一致のときだけ使う。main への push と鍵を出せない run は組む",
+    "target": "数え漏らした入力が変わったのに古い配布物で試験が通ること",
+    "legit": "正当な利用は止めない。使い回せないときは今と同じに組むので、時間が掛かるだけ",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く",
+      "鍵を出せない木では、鍵を出さずに落ちる"
+     ],
+     "decisions": [
+      "D1",
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "使い回した run でも、インストールと更新の Scenario が 1 つでも走らなければ CI を落とす",
+    "target": "使い回しで試験が黙って飛ぶこと",
+    "legit": "今と同じ判定で、使い回したかどうかで分けない",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "停止",
+    "rule": "コードを触った PR で、配布物が組めない・版番号が食い違う・配る組み立ての検査に当たれば CI を落とす",
+    "target": "配る形を壊した変更が PR の時点で見つからないこと",
+    "legit": "今と同じ。配る形を壊す変更は鍵を変えるので、使い回しで落ちるべきものが通ることはこの分析では見つけていない",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+     ],
+     "scenarios": [
+      "配る形を壊した PR は、その PR の CI で落ちる"
+     ],
+     "decisions": [
+      "Q1",
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "拒否",
+    "rule": "配布物の許諾のファイル・SOURCE.txt・LICENSE・版番号が決まりと合わなければ検査を落とし、公開しない",
+    "target": "ソースの場所や許諾を誤った配布物",
+    "legit": "使い回した Windows の配布物は SOURCE.txt と印が組んだ commit で揃い、Cargo.toml と LICENSE が鍵にある間は期待値とも合うので、この規則では止まらない。使い回した run はまだ走っていないので、完了の判定 3・4 の run で確かめる",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる",
+      "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+     ],
+     "decisions": [
+      "Q2",
+      "D1"
+     ]
+    }
+   }
+  ],
+  "scenarios": [],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "low",
+    "status": "open",
+    "title": "使い回した配布物の SOURCE.txt の commit を後から取れるか確かめていない",
+    "text": "使い回した Windows の配布物の SOURCE.txt は、同じ PR の前の push の head を指す。枝を push し直した後に、その commit を空の clone から取れるかは確かめていない。取れなければ、SOURCE.txt が取れない commit を指す。",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "GitHub が push し直された枝の前の head を、どれだけの間 git fetch で渡すか",
+     "PR の配布物が CI の成果物と下書きの外に出る経路が今後できるか"
+    ],
+    "derived": "Q2 の答えで、使い回した配布物は組んだ commit を指す。組んだ commit は前の push の head のことがある",
+    "undefined": "前の push の head を取れなくなったときの扱い（仕様は定めていない）",
+    "feasibility": "unverified",
+    "deps": [
+     "D4"
+    ],
+    "options": [
+     {
+      "label": "完了の判定 4 で確かめ、取れなければ人間に返す（今の計画）"
+     }
+    ],
+    "verify": "完了の判定 4: 台本だけの PR で使い回した run の Windows の zip の SOURCE.txt の commit を、空の clone で git fetch origin <commit> する",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ],
+     "decisions": [
+      "Q2",
+      "C2"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "上げる置き場を後から足した change の合わせ忘れを、CI の中では見ない",
+    "text": "「上げる配布物は全部、保存と引きの置き場に入る」を確かめる --check-workflow は、この change の tasks の検証としてだけ走る。CI の chain の job にも Windows の runner にも入らず、merge gate も別の change に対して走らせる口を持たない。後から package-windows の上げる置き場を足す・名前を変える change は、その change の tasks が書かない限り、誰もこの検査を走らせない。走っている ST58 の枝の ci.yml は、試験の形を 1 つの step の中のループで 6 つ組み、package-windows-test の名前を無くして 6 つの名前で上げる。保存と引きに足し忘れると、2 回目の push から、使い回した run で欠けた置き場が空のまま上がり、インストールの試験の job が配布物を見つけられずに落ちる見込み（原因が見えにくい）。",
+    "basis": "observed",
+    "deps": [
+     "D5"
+    ],
+    "evidence": [
+     "E7",
+     "E8",
+     "E13"
+    ],
+    "derived": "--check-workflow はこの change の tasks の検証（tasks 2.2）で、CI の chain の job はほかの台本の自己試験だけを走らせる（E8）。Windows の runner の --self-test はこの節を飛ばす。後の change の tasks が書かない限り、手元でも merge gate でも走らない",
+    "undefined": "ST58 と CH17 のどちらが先に main に入ったときに、どちらが package-windows の手順と spec の文（「今と同じ名前で上げる」・2 つの組み立ての step）を合わせるか（仕様は定めていない）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "upload-artifact に if-no-files-found: error を付け、欠けた置き場を package-windows の中で落とす（package-windows の step の範囲内）"
+     },
+     {
+      "label": "CI の chain の job に windows-build-key.sh --check-workflow を足す（触るのは Windows の 2 つの job の外の 1 行。本人の範囲を少し越える）"
+     },
+     {
+      "label": "Windows の配布物の job の中で --check-workflow も走らせる（Windows の runner に yaml の読み手が要る）"
+     },
+     {
+      "label": "ST58 に申し送り、足すときに保存と引きにも足させる。それ以外は受け入れる"
+     }
+    ],
+    "verify": "--check-workflow を chain の job の一覧と照らし、ST58 の package-windows の上げる置き場を写した ci.yml に --check-workflow を当てて落ちることを見る",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "上げる配布物は全部、保存と引きの置き場に入る"
+     ],
+     "decisions": [
+      "C4",
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "下書きの説明文の run 番号は、使い回した Windows の配布物の組み立ての run ではない",
+    "text": "draft.sh の下書きの説明文は「配布物は PR の package の組み立て（run <N>）」と書く。使い回した run では、Windows の 2 つは別の run の組み立て。§11.1 の手順は tasks 3.2 で直すが、draft.sh は変えないので説明文はそのまま。",
+    "basis": "observed",
+    "deps": [
+     "D3"
+    ],
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "derived": "D3: draft.sh は変えない。使い回した run の Windows の 2 つは前の run で組んだもの",
+    "undefined": "説明文に使い回しを書くか（仕様は定めていない）",
+    "feasibility": "unverified",
+    "refs": {
+     "requirements": [
+      "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+     ],
+     "scenarios": [
+      "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+     ],
+     "decisions": [
+      "C3",
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "キャッシュの置き場 10 GB を Windows の配布物と Rust のビルドで使い、ほかの保存物を押し出すかもしれない",
+    "text": "Windows の配布物 2 つ（PostgreSQL を含む）と Rust の target を、組み直すたびに新しい鍵で保存する。PR ごと・Cargo.lock ごとに積み、10 GB を超えると古いものから消える。PostgreSQL の zip のキャッシュが消えると、外の配布元から取り直す。使い回したい保存物が先に消えると、短縮が効かない。 Rust のキャッシュは組んだ PR の run ごとにその PR の置き場へ保存され、PR の置き場はほかの PR から読めない。並走する PR の保存物が古い順の押し出しで、全 PR が引ける main の保存物を先に押し出す向きがある。",
+    "basis": "guess",
+    "deps": [
+     "D6"
+    ],
+    "evidence": [
+     "E9"
+    ],
+    "unknowns": [
+     "配布物 2 つと Windows の target の実際の大きさ",
+     "PR がいくつ並走したときに 10 GB を超えるか",
+     "PR の置き場の保存物が、main の保存物（配布物・Rust・PostgreSQL の zip）をどれだけ早く押し出すか"
+    ],
+    "derived": "置き場は repo あたり 10 GB で、超えると古いものから消える（GitHub の一般の振る舞い）。この change は保存物を増やす",
+    "undefined": "置き場の使い方の上限（仕様は定めていない）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "D2・D5 の反転条件のとおり、溢れると分かったら Rust のキャッシュを ~/.cargo だけに絞る"
+     },
+     {
+      "label": "Rust のキャッシュの保存を main の push の run だけにする（PR の run は戻すだけ）"
+     },
+     {
+      "label": "受け入れる（消えたら組み直すだけで、誤った配布物は使わない）"
+     }
+    ],
+    "verify": "merge の後の数 run で gh cache list を見て、保存物の大きさと合計を記録する",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する",
+      "ビルドするときは、Rust の依存のビルドを戻す"
+     ],
+     "decisions": [
+      "D2",
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "low",
+    "status": "open",
+    "title": "使い回した run では、文字化けの試験の結果を前の run に頼る",
+    "text": "使い回した run は ch14_ の試験を飛ばす。入力は鍵に入るが、結果が runner の環境（コンソールのコードページなど）で揺れるなら、前の run で通ったことはこの run で通ることを言わない。鍵に runner の image の版が入るので、引ける前の run は同じ版の image で走ったものに限られる。",
+    "basis": "guess",
+    "unknowns": [
+     "ch14_ の試験が同じ版の image の上で揺れるか"
+    ],
+    "derived": "D4: 使い回したときは ch14_ も飛ばす。保存は試験が成功した run だけが行う",
+    "undefined": "揺れが見つかったときの扱いは D4 の反転条件（使い回したときも走らせる）が持つ",
+    "feasibility": "unverified",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる"
+     ],
+     "decisions": [
+      "D4"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "spec の Scenario が全部通る（鍵の台本の --self-test と --check-workflow。今の検査 check-guards.sh・check-ci-ch14-step.sh も rc=0 のまま）",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "試験の台本と文書だけが違う 2 つの木は、同じ組み立ての鍵になる",
+      "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"
+     ]
+    }
+   },
+   {
+    "text": "完了の判定 2〜5 の run で、使い回した run の組み立てが飛び、インストールの試験が全部走って通り、Rust のキャッシュが戻る",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる",
+      "ビルドするときは、Rust の依存のビルドを戻す"
+     ]
+    }
+   },
+   {
+    "text": "IMP-02（合わせ忘れを CI の中で見ない）と IMP-04（置き場）を、書いた残るもののまま受け入れるか、違和感として返す",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "scenarios": [
+      "上げる配布物は全部、保存と引きの置き場に入る"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "コードを触った PR の CI の、Windows の配布物の job（使い回しと Rust のキャッシュ）。インストールの試験の job は今のまま",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる",
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+      ],
+      "scenarios": [
+       "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "使い回すのは PR の run で、鍵が空でなく、同じ鍵の保存物が CI のキャッシュに残っているときだけ（7 日・10 GB）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く"
+      ]
+     }
+    },
+    {
+     "text": "コードを触った PR だけが組み立ての job を走らせる。文書だけの PR は今と同じく job ごと飛ぶ",
+     "refs": {
+      "requirements": [
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む"
+      ],
+      "scenarios": [
+       "文書だけの PR では、配る形の組み立てを飛ばす"
+      ]
+     }
+    },
+    {
+     "text": "配布物の検査の期待値と使い回した配布物が合うのは、Cargo.toml と LICENSE が鍵に入っている間だけ",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "main への push（毎回組んで保存する）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く"
+      ]
+     }
+    },
+    {
+     "text": "正式版・ベータ版・開発版の組み立て（それぞれの workflow が自分で組む）",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "正式版の配布物のソースの場所は、その版の印"
+      ]
+     }
+    },
+    {
+     "text": "Android だけ・Linux の道具だけの変更での使い回し",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てに入るファイルが 1 つでも違えば、鍵が変わる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "使い回した run の release-package で、Windows の 2 つが前の commit を指す（IMP-01・IMP-03）",
+     "refs": {
+      "requirements": [
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ],
+      "scenarios": [
+       "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる"
+      ]
+     }
+    },
+    {
+     "text": "後から上げる置き場を足した change の合わせ忘れを CI の中で見ない（IMP-02）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "上げる配布物は全部、保存と引きの置き場に入る"
+      ]
+     }
+    },
+    {
+     "text": "キャッシュの置き場の押し出し（IMP-04）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する"
+      ]
+     }
+    },
+    {
+     "text": "使い回した run で ch14_ の結果を前の run に頼る（IMP-05）",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "ci.yml の package-windows・install-windows・package-artifacts・chain の job、check-artifacts.sh の SOURCE.txt の検査、version.sh、draft.sh、docs/release.md §11.1、build-stamp の作り直しの判定、ST58 の tasks と design",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる",
+       "コードを触った PR ごとに、配る形の 3 部品を公開せずに組む",
+       "配布物は、本体の許諾・依存の許諾の一覧・対応するソースの場所を持つ"
+      ]
+     }
+    },
+    {
+     "text": "組み立ての台本（build.sh・package.sh・notices.sh・pgsql.sh）と build.rs が、鍵から除く 3 つの試験の台本の名前を持たないことを grep で見た（名前で読まない読み方は見ていない）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "試験の台本と文書だけが違う 2 つの木は、同じ組み立ての鍵になる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "text": "設計の決定 D1〜D5 と、整合の確認の C1〜C4",
+     "refs": {
+      "decisions": [
+       "D1",
+       "D2",
+       "D3",
+       "D4",
+       "D5",
+       "C1",
+       "C2",
+       "C3",
+       "C4"
+      ]
+     }
+    },
+    {
+     "text": "走っている ST58 の枝（origin/feat/st58-update-apply-rollback）の ci.yml の package-windows と install-windows を git show で読んだ",
+     "refs": {
+      "scenarios": [
+       "上げる配布物は全部、保存と引きの置き場に入る"
+      ],
+      "decisions": [
+       "C4"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "pull_request の run が merge の commit の ci.yml で走ること・PR の run が main の保存物を引けること・fork の PR の保存物の分かれ方を、この repo の run で確かめていない",
+     "why": "本物の Actions の run が要る。完了の判定 2〜4 で見る"
+    },
+    {
+     "text": "Windows の配布物 2 つと target の実際の大きさ、キャッシュに置く・戻す時間",
+     "why": "Windows の runner で組まないと分からない（IMP-04 の verify）"
+    },
+    {
+     "text": "release.yml と nightly.yml",
+     "why": "変えない。自分で組むので使い回しの影響を受けない（ci.yml の差分だけで閉じる）"
+    },
+    {
+     "text": "鍵の step が、資格情報を渡さない checkout（persist-credentials: false）のまま merge の commit を git fetch で取れるか。repo は公開（gh repo view で PUBLIC）なので取れる見込みだが、走らせていない。取れなければ全 run で鍵が空になり、使い回しが効かないまま CI は緑になる",
+     "why": "本物の Actions の run が要る。完了の判定 3（同じ commit の再実行で組み立てが飛ぶか）で気づける"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "Linux・Android・画面の job",
+     "why": "触らず、Windows の配布物を読まない"
+    }
+   ]
+  }
+ }
+}
