@@ -44,14 +44,14 @@
 
 ## Task 2: Windows の配布物の job が鍵で使い回し、Rust のビルドをキャッシュから戻す
 
-- [ ] 2.1 `.github/workflows/ci.yml` の `package-windows` の step を design D2・D4・D5 のとおりに変える: toolchain と node の後に、鍵の台本の自己試験（`tools/release/windows-build-key.sh --self-test`。
+- [x] 2.1 `.github/workflows/ci.yml` の `package-windows` の step を design D2・D4・D5 のとおりに変える: toolchain と node の後に、鍵の台本の自己試験（`tools/release/windows-build-key.sh --self-test`。
   落ちたら job を落とす）→ 鍵を出す step（`WINDOWS_BUILD_KEY_TOOLS` に `rustc -V`・`node -v`・`$ImageOS`・`$ImageVersion` と、`${{ github.sha }}` を `git fetch --depth=1` で取ってその commit の `.github/workflows/ci.yml` の blob の id（design D1。走っている run の CI の定義）。fetch か台本が落ちたら鍵を空にして続ける）→
   `pull_request` の run で鍵が空でないときだけ `actions/cache/restore`（鍵 `windows-package-<鍵>`、`restore-keys` 無し、置き場は `${{ runner.temp }}/package-windows` と
   `${{ runner.temp }}/package-windows-test`）→ 引けなかったときだけ Rust のキャッシュ（`actions/cache`。`~/.cargo/registry`・`~/.cargo/git`・`target`、鍵 `cargo-windows-<rustc -V>-<hashFiles('Cargo.lock')>`、
   `restore-keys: cargo-windows-<rustc -V>-`）・PostgreSQL のキャッシュ（今のまま）・`ch14_` の試験・2 つの `package.sh windows` → 2 つの `upload-artifact`（今の名前のまま。引けたときも引けなかったときも。引いた置き場を書き換えずに上げる）→
   引けなかったときで、鍵が空でなく、ここまでが成功したときだけ `actions/cache/save`（同じ鍵・同じ置き場）。restore と save の置き場は、`package-windows` の `upload-artifact` の `path` の全部と同じにする（design D2。今は 2 つ）。job の `if:`・checkout・step の並び（`ch14_` → 2 つの `package.sh windows`）は変えない。
   既存の step のコメントは残し、足した step には何のための step かを 1 行のコメントで書く。
-- [ ] 2.2 `tools/release/windows-build-key.sh --check-workflow [<ci.yml>]`（既定 `.github/workflows/ci.yml`。`python3` と `yaml` で読む。この口は Linux の手元と merge gate で走らせ、Windows の runner では走らせない）を足し、
+- [x] 2.2 `tools/release/windows-build-key.sh --check-workflow [<ci.yml>]`（既定 `.github/workflows/ci.yml`。`python3` と `yaml` で読む。この口は Linux の手元と merge gate で走らせ、Windows の runner では走らせない）を足し、
   spec の CI の定義の 8 つの Scenario を確かめる（各 Scenario の前に `echo "== Scenario: <名前>"`）:
   「前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く」（`package-windows` の配布物の restore が `restore-keys` を持たず、鍵が `windows-package-` と鍵の step の出力から成り、`if:` が `pull_request` と鍵が空でないことを条件に持つ）/
   「引けたときだけ組み立てを飛ばし、今と同じ名前で上げる」（`ch14_` の試験と 2 つの `package.sh windows` の step の `if:` が restore の `cache-hit` が `'true'` でないことを条件に持つ／2 つの `upload-artifact` が `if:` で飛ばされず今の名前を持つ）/
@@ -70,7 +70,7 @@
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --check-workflow); for s in "前の組み立ては、鍵が空でなく完全に一致した PR の run でだけ引く" "引けたときだけ組み立てを飛ばし、今と同じ名前で上げる" "上げる配布物は全部、保存と引きの置き場に入る" "使い回した Windows の配布物は、組んだ commit のソースの場所と印のまま上げる" "組み立てた配布物は、鍵が空でなく組み立てが成功したときだけ保存する" "鍵を出す手順は、道具の版と走っている CI の定義を鍵に入れる" "ビルドするときは、Rust の依存のビルドを戻す" "使い回した run でも、インストールと更新の Scenario が 1 つ欠ければ CI が落ちる"; do grep -qF "== Scenario: $s" <<<"$out" || exit 1; done'` rc=0 /
   `bash -c 'out=$(tools/release/windows-build-key.sh --self-test); ! grep -q "飛ばした" <<<"$out"'` rc=0（手元では `--check-workflow` の自己試験も走ったこと）
-- [ ] 2.3 今の振る舞いが残ることを確かめる（壊してはいけないもの）。`ci.yml` で変わったのが `package-windows` の job の中だけであることも見る。
+- [x] 2.3 今の振る舞いが残ることを確かめる（壊してはいけないもの）。`ci.yml` で変わったのが `package-windows` の job の中だけであることも見る。
   検証: `tools/release/check-guards.sh workflows` rc=0 /
   `tools/release/check-guards.sh --self-test` rc=0 /
   `tools/check-ci-ch14-step.sh` rc=0 /
