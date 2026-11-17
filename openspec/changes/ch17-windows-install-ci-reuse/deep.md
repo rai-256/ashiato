@@ -56,7 +56,7 @@ PR の head の commit そのものから組む」に例外を足すので、req
 ### Q3. 使い回しの形の検査（`--check-workflow`）を、Linux の CI の job で毎回走らせるか（R5・R7）
 
 - 問い: `windows-build-key.sh --check-workflow` とその自己試験を Linux の `chain` の job に 2 行足して PR ごとに走らせるか。本人の範囲（Windows の 2 つの job だけを変える）を 2 行越える
-- 答え: (未回答)
+- 答え（`deep-answers-2.txt`。推奨の選択肢をはっきり選んだ。補足なし）: **足す（chain の job に 2 行。Windows の job の自己試験は消す）**
 - kind: premise
 - 出所: review/code.md R5（code-verify）・R7（/code-review）
 - 推奨: 足す（`chain` の job に 2 行。`package-windows` の自己試験の step は消す）
@@ -65,8 +65,23 @@ PR の head の commit そのものから組む」に例外を足すので、req
 ### Q4. 同じ PR の前の push が保存した組み立てを、後の run が確かめずに使う件（R6）
 
 - 問い: 同じ PR の前の push が保存した Windows の配布物（と Rust の `target`）を、後の run がそのまま使う形を、今のまま受け入れるか
-- 答え: (未回答)
+- 答え（`deep-answers-2.txt`。推奨の選択肢をはっきり選んだ。補足なし）: **受け入れる（今のまま。残る危険を design と docs/release.md に書く）**
 - kind: premise
 - 出所: review/code.md R6（security-review）
 - 推奨: 受け入れる（今のまま。残る危険を design の Risks と docs/release.md §11.1 に書く）。ほかの案: 保存を main への push に限る（Q1 を狭める）／使い回した run では release-package を上げない（Q2 を改める）
 - 族「PR から書けるキャッシュを、後の run が確かめずに使う」: 同じ PR の Windows の配布物・Rust の target → Q4／他の PR → 引けない（D2）／main の置き場 → PR から書けない／pgsql → sha256 で確かめる（既存）／release・nightly → 自分で組む
+
+### 第 2 回の答えで決まったこと（下流の settle へ渡す）
+
+- Q3 → 本人の範囲（Windows の 2 つの job だけ）を `chain` の job の 2 行だけ広げる。`chain` の job の自己試験の並びに
+  `tools/release/windows-build-key.sh --self-test` と `--check-workflow` を足し、`package-windows` の自己試験の step を消す。
+  design D2 の「`--check-workflow` が見る」はそのまま成り立つ（毎回の PR の CI で走る）。tasks 2.2 の「merge gate で走らせる」を
+  「`chain` の job で走らせる」に直す。review/code.md の R5・R7 はこれで処置する
+- Q4 → 今のまま受け入れる。design の Risks に「同じ PR の前の push が保存した Windows の配布物と Rust の `target` は、後の run が
+  中身を確かめずに使う（書けるのは PR の枝へ push できる者だけ。本物のリリースと開発版はキャッシュを引かずに自分で組む）」を足し、
+  `docs/release.md` §11.1 に「使い回した run の下書きの Windows の zip は、組んだ commit を PR の履歴で確かめてから使う」を足す。
+  第 1 回の Q1・Q2 は変えない。review/code.md の R6 はこれで処置する（受け入れ）
+
+## 要件へ戻すもの（第 2 回）
+
+- なし。Q3 は CI の job の置き場、Q4 は残る危険の受け入れで、要件の本文（FR-127 ★ 2026-11-17 を含む）は変わらない
