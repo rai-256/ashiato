@@ -344,3 +344,25 @@ Windows（Git Bash の awk・本物の命令の出力）では未実測。ここ
 - 提案: インストールの後、最初の判定の前に `ng_settings_secrets` が値を 1 つ以上返すことを一度確かめる（D7 を広げるので、settle が処置の表で決める）
 - 処置: fixed D7 —— （observation_probe の最後に、決まった値を持つ server.json・owner.json の写しを $WORK/ng-probe（cygpath -m で C:/… の形）に置き、部品の ng_settings_secrets で読んだ 5 つの値が揃わなければ die_seen にした。インストールの前でも本物の Windows の Python を一度通す。design D7 に 1 文足した。install-check の自己試験に、python・python3 を落ちる偽物にすると observation_probe が `NG: 設定の秘密の読み手が本物の Python で動かない` で終わることを見る 1 本を足し、確かめを外すと自己試験が落ちることを確かめた）
 - 判定: ADDRESSED（re-review 2 @fbf0d29f288ba63cbf82e3992ef85711468cdf77）
+
+## final review（7109e94..c193d61）
+
+見た: superpowers:requesting-code-review の code-reviewer（whole-branch の 2 回目。R19〜R26 の直し fbf0d29 を重点に）。3 つの `--self-test` と 2 つの台本への検査は一時の worktree で全部 rc=0。R22・R25 の直しを戻すと自己試験が落ちることも確かめた。Critical・Important は無し。task-1〜3-findings.md の ⚠️ は、task-1 の `curl -o /dev/null` の形は同じ台本が CI で既に通している形なので問題にせず、本物の Windows の道は R26 の直しで実地の確かめの始めに一度通る（残りは PR の `install-windows` のログに `== 観測の塊を本物の命令で一度出した（NG ではない）` が出ることを見る）。
+
+## R27. spec の D7 の Scenario が、R26 で足した「設定の秘密の読み手が揃わなければ NG」を書いていない
+- 成果物: openspec/changes/ch16-install-check-ng-observations/specs/install-check-diagnostics/spec.md:91
+- 根拠: R26 の処置で design.md の D7 に 1 文足し、install-check.sh の `observation_probe` は決まった値の server.json・owner.json の写しを `ng_settings_secrets` で読み、5 つの値が揃わなければ die_seen で終わるようになった。spec の Scenario「CI の Windows で、観測の塊を本物の命令で一度出してから実地の確かめに入る」の THEN/AND は見出しと sc.exe の答えの行だけで、この判定の条件が正典から読めない。D7 が判定を足すことを許しているので違反ではなく記述の漏れ
+- kind: technical
+- 提案: その Scenario に AND を 1 行足す（例:「決まった値を持つ設定の写しを、設定の秘密の読み手が全部読み出せなければ NG で終わる」）。コードは変えない
+
+## R28. 自己試験で PATH を絞る 2 か所が、道具が 1 つでも無い環境では理由の行を出さずに止まる
+- 成果物: tools/release/check-ng-observations.sh:553-555 / tools/release/check-ng-observations.sh:736-738
+- 根拠: `for t in …; do ln -sf "$(command -v "$t")" …; done` は、道具（例: `timeout`・`seq`・`cmp`）が無いと `command -v` が空を返して `ln -sf ""` が落ち、`set -e` で `NG:` の行の無いまま自己試験が終わる。CI（ubuntu）と Git Bash には全部あるので実害は小さく、最小の image で走らせたときだけ切り分けが難しくなる
+- kind: technical
+- 提案: `command -v "$t" >/dev/null || continue` を足す（または無い道具を名指しして NG で終える）
+
+## R29. 伏せる値どうしが前後で重なる組では、長い順に置き換えても残りが素で出る
+- 成果物: tools/release/check-ng-observations.sh:112（ng_redact）
+- 根拠: R21 の直し（長さの降順）は部分文字列の組を塞いだが、`abcX` と `Xdef` のように前後が重なる組で値に `abcXdef` があると、`***def` になり 3 字が素で出る。今の伏せる値は base64url の乱数と別々の字面なので起きるとは考えにくい（理論上の穴）
+- kind: technical
+- 提案: 記録に留める（処置の表で wontfix の理由を書く）か、置き換えの前に全部の値の出現位置を印付けしてからまとめて伏せる
