@@ -182,6 +182,11 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 - 実機: adb で繋いで `./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787`（同じテスト）
 - `-Pashiato.baseUrl` は平文 HTTP を 127.0.0.1 に許すためだけ
 
+**release の台本**（`tools/release/install-check.sh`・`update-check-install.sh`。Windows の実地の確かめ。CH16）
+
+- 判定は `die` / `die_seen`（`tools/release/check-ng-observations.sh` の部品）で落とす。NG の行に続く観測（サービス・healthz・設定のキー・命令の記録・ログの末尾）は部品が標準エラーに出し、台本は `echo 'NG:` や裸の `exit 1` で落とさない
+- 観測を出さずに NG で終わる道は、`tools/release/check-ng-observations.sh <台本>…` が静的に落とす。2 つの台本の `--self-test` がこれを呼ぶ（CI の `chain`）
+
 ## 6. tasks の検証コマンドは実在し、rc=0 になる
 
 - 各タスクの本文に検証を書く。「動いた」ではなく**コマンドと終了コード**
