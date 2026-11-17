@@ -749,7 +749,9 @@ observation_probe() {
     die_seen '観測の塊の見出しが出ない' "$block"
   for service in ashiato-db ashiato-server ashiato-updater; do
     # 答えの行は SERVICE_NAME: <名前>（あるとき）か [SC] …（無いとき）。どちらも言語に依らない
-    grep -A1 -Fx -- "-- sc.exe queryex $service" <<<"$block" | tail -n 1 | grep -Eq '^(SERVICE_NAME:|\[SC\])' ||
+    # 本物の sc.exe は、あるとき先頭に空行を置く。見出しの次の「空でない」最初の行を見る
+    awk -v h="-- sc.exe queryex $service" 'found { if ($0 != "") { print; exit } } $0 == h { found = 1 }' <<<"$block" |
+      grep -Eq '^(SERVICE_NAME:|\[SC\])' ||
       die_seen "観測の塊に $service の sc.exe の答えの行が無い" "$block"
   done
   grep -Eq '^healthz HTTP [0-9]{3}$' <<<"$block" || die_seen '観測の塊に healthz の番号の行が無い' "$block"
@@ -1791,6 +1793,12 @@ EOF
   ng_between() { awk -v want="$1" '$0 == "== 観測（ここから）" { on = 1; next } $0 == "== 観測（ここまで）" { on = 0 } on && $0 == want { found = 1 } END { exit !found }' "$ngse"; }
   # 標準エラーの 1 行目が NG の行で、見出しが 2 行ちょうどあり、標準出力は空
   ng_shape() { [[ "$(head -n 1 "$ngse")" == NG:\ * && "$(grep -c '^== 観測（' "$ngse")" == 2 && ! -s "$ngso" ]]; }
+
+  # 観測の確かめ（D7）は、あるサービスの sc.exe の答えが空行で始まっても落ちない（本物の sc.exe queryex の形）
+  ng_fake sc.exe 'printf "\nSERVICE_NAME: %s\n        STATE              : 4  RUNNING\n" "$2"'
+  ng_fake curl 'echo "healthz HTTP 200"'
+  ng_run observation_probe
+  [[ "$ngrc" == 0 ]] || die_seen "空行で始まる sc.exe の答えで観測の確かめが落ちる: $ngrc" "$(cat "$ngse")"
 
   # Scenario: 判定が NG になると、NG の行に続けて判定が見た命令の出力が出る
   ng_fake sc.exe 'printf "\nSERVICE_NAME: ashiato-server\n        TYPE               : 10  WIN32_OWN_PROCESS\n        STATE              : 4  RUNNING\n"'
