@@ -280,8 +280,10 @@ ng_observed_exec() {
   t="$(mktemp -d "$NG_OBSERVED_DIR/.cap.XXXXXX" 2>/dev/null)" || { command "$exe" "$@"; return; }
   command "$exe" "$@" >"$t/o" 2>"$t/e" || rc=$?
   ( NG_REC_BUSY=1; ng_record "$t" "$name $*" "$rc" ) 2>/dev/null || true
-  # 書き先のパイプが閉じていても失敗にしない。cat は外部命令なので SIGPIPE はこの関数を殺さない
-  cat "$t/o" || true
+  # 書き先のパイプが閉じていても失敗にしない。cat は外部命令なので SIGPIPE はこの関数を殺さない。
+  # SIGPIPE を無視して起こされた（GitHub Actions など）cat は「write error: Broken pipe」を標準エラーに書くので、
+  # 書き戻しの cat 自身の標準エラーは捨てる（命令の標準エラーは次の行で $t/e から返す）
+  cat "$t/o" 2>/dev/null || true
   cat "$t/e" >&2 || true
   # 一時の置き場を消せなくても（Defender などがつかむ）呼び手の set -e を止めない
   rm -rf "$t" || true
@@ -547,8 +549,11 @@ rc2=0; command sc.exe query >"'"$d"'/d.o" 2>"'"$d"'/d.e" || rc2=$?
   # Scenario: 記録する命令の出力をパイプが途中で閉じても、終了コードは命令のものになる
   reset_work
   fake sc.exe 'echo FIRSTLINE; head -c 200000 /dev/zero | tr "\0" x; echo; exit 0'
-  run_case 'rc1=0; sc.exe query | grep -q "^FIRSTLINE$" || rc1=$?
-[[ $rc1 == 0 ]]'
+  # GitHub Actions は SIGPIPE を無視して子を起こす。手元でも同じ条件にし、読み手が先に閉じる形（| true）も必ず踏む
+  run_case 'trap "" PIPE
+rc1=0; sc.exe query | grep -q "^FIRSTLINE$" || rc1=$?
+rc2=0; sc.exe query | true || rc2=$?
+[[ $rc1 == 0 && $rc2 == 0 ]]'
   [[ $rc == 0 ]] || fail "パイプが閉じたとき終了コードが命令のものでない: rc=$rc $(cat "$d/se")"
   [[ ! -s "$d/se" ]] || fail "パイプが閉じたとき標準エラーに出る: $(cat "$d/se")"
 
