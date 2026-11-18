@@ -1899,6 +1899,27 @@ fn finish_restored(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         set_update_stage_fields(layout, &[("history_recorded", true.into())])?;
     }
     start_previous_services(layout, trace)?;
+    // Q10（FR-119）: 前の版が待ち受けを開いたら、落ちた DB（`ashiato_failed_*`）を直ちに消す。
+    // 本人が消した記録を、本人に見えない写しに残さない。開かなければ残し、次に更新が通ったときに消す。
+    let dropped = drop_failed_databases_once_listening(
+        || wait_for_port(layout.server_port, Duration::from_secs(180)),
+        || {
+            let settings = read_settings(&commands::settings_path(layout))?;
+            let owner = read_settings(&commands::owner_settings_path(layout))?;
+            let generated = secrets::InstallSecrets::from_settings(
+                &settings,
+                &owner,
+                secrets::new_admin_password(),
+            )?;
+            cleanup_failed_databases(layout, &generated.owner_password, trace)
+        },
+    )?;
+    if !dropped {
+        terminal_line(
+            "前の版のサーバが待ち受けを開かないため、落ちた DB を残しました（次に更新が通ったときに消します）",
+            false,
+        );
+    }
     let failed = PathBuf::from(layout.program_dir).join("failed");
     if failed.exists() {
         fs::remove_dir_all(failed).map_err(|e| format!("失敗した版を消せない: {e}"))?;
@@ -1909,6 +1930,19 @@ fn finish_restored(layout: &layout::Layout, trace: bool) -> Result<(), String> {
         state["restore_database"].as_bool() == Some(true),
     );
     fs::remove_file(update_stage_path(layout)).map_err(|e| format!("更新の印を消せない: {e}"))
+}
+
+/// 戻した後、前の版のサーバが待ち受けを開いたときだけ落ちた DB を消す（Q10。design D23）。
+/// 消したら真。待ち受けを開かなければ消さずに偽（落ちた DB は次に更新が通ったときに消える）。
+fn drop_failed_databases_once_listening(
+    listening: impl FnOnce() -> bool,
+    drop: impl FnOnce() -> Result<(), String>,
+) -> Result<bool, String> {
+    if !listening() {
+        return Ok(false);
+    }
+    drop()?;
+    Ok(true)
 }
 
 /// 戻し終えた回の更新の記録の 1 行。結果と理由は、落ちたときに `update_install` が印に書いた
@@ -3255,6 +3289,45 @@ mod tests {
         assert!(!program.join("only-new.dll").exists());
         assert_eq!(st58_read(program.join("failed/ashiato-server.exe")), "new");
         assert_eq!(st58_read(program.join("failed/only-new.dll")), "new");
+    }
+
+    // Scenario: 更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる
+    // Q10: 前の版が待ち受けを開いたら、落ちた DB を直ちに消す
+    #[test]
+    fn st58_plan_rollback_drops_failed_db_once_previous_listens() {
+        let mut dropped = 0;
+        let result = super::drop_failed_databases_once_listening(
+            || true,
+            || {
+                dropped += 1;
+                Ok(())
+            },
+        );
+        assert_eq!(result, Ok(true));
+        assert_eq!(dropped, 1);
+    }
+
+    // Q10: 前の版が待ち受けを開かなければ、落ちた DB を消さない（次に更新が通ったときに消える）
+    #[test]
+    fn st58_plan_rollback_keeps_failed_db_when_previous_does_not_listen() {
+        let mut dropped = 0;
+        let result = super::drop_failed_databases_once_listening(
+            || false,
+            || {
+                dropped += 1;
+                Ok(())
+            },
+        );
+        assert_eq!(result, Ok(false));
+        assert_eq!(dropped, 0);
+    }
+
+    // 落ちた DB を消せなければ、戻しを終えずに誤りを返す（印は段 `restored` のまま残り、やり直せる）
+    #[test]
+    fn st58_plan_rollback_reports_failed_db_drop_error() {
+        let result =
+            super::drop_failed_databases_once_listening(|| true, || Err("消せない".into()));
+        assert_eq!(result, Err("消せない".to_owned()));
     }
 
     // 前の版を戻す途中で落ちた回の再開は、戻した前の版を failed へ動かさず、前回の failed も消さない（R53）

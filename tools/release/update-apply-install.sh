@@ -217,8 +217,17 @@ reset_machine() {
 # （PC を毎回空にするので、前の Scenario の残りに頼らない）。
 scenario_prior_failed_update() {
   case "$1" in
-    '更新が通ると、前の回に残した落ちた DB を消す'|'更新が通ると、移行の前の退避は直前の 1 つだけになる') return 0 ;;
+    '更新が通ると、移行の前の退避は直前の 1 つだけになる') return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+# 前の回に残った落ちた DB を、Scenario の中で表の所有者で作る。戻した回は前の版が待ち受けを開いたら
+# 落ちた DB を消すので（Q10）、残るのは戻しが前の版の待ち受けの前に止まった回だけ。その形を直接置く。
+scenario_leftover_failed_db() {
+  case "$1" in
+    '更新が通ると、前の回に残した落ちた DB を消す') printf '%s\n' 'CREATE DATABASE ashiato_failed_19700101000000' ;;
+    *) : ;;
   esac
 }
 
@@ -389,7 +398,8 @@ assert_scenario_result() {
       grep -Fq "installed-version=$old_version" "$trace" || die '戻し後の版が旧版でない'
       grep -Fq 'update-stage=absent' "$trace" || die '戻し後に更新の印が残っている'
       grep -Eq '^healthz=200$' "$trace" || die '戻した前の版が答えない'
-      (( $(failed_db_delta "$trace") >= 1 )) || die '戻しで落ちた DB を退けていない'
+      # Q10（FR-119）: 前の版が待ち受けを開いたら、落ちた DB を直ちに消す
+      [[ "$(failed_db_delta "$trace")" == 0 ]] || die '前の版が待ち受けを開いた後も落ちた DB が残っている'
       ;;
     '戻した後、更新の間に溜まった未送信が入る')
       grep -Fq 'update-stage=absent' "$trace" || die '戻しの完了を確認できない'
@@ -418,7 +428,7 @@ assert_scenario_result() {
       ;;
     '更新が通ると、前の回に残した落ちた DB を消す')
       (( rc == 0 )) || die '更新が成功しなかった'
-      grep -Fq 'prior-failed-update=ok' "$trace" || die '前の回の落ちた DB を残す更新を先に通していない'
+      grep -Fq 'leftover-failed-db=ok' "$trace" || die '前の回の落ちた DB を先に置いていない'
       grep -Eq '^failed-databases-before=[1-9][0-9]*$' "$trace" || die '更新の前に前の回の落ちた DB が無い（掃除を確かめられない）'
       grep -Fq 'failed-databases=0' "$trace" || die '前回の落ちた DB の掃除を確認できない'
       ;;
@@ -545,6 +555,12 @@ run_scenario() {
     (( prior_rc != 0 )) || die_install "$prior_rc" "$prior_output" "前の回の落ちる更新が成功した: $name"
     [[ ! -e 'C:/ProgramData/ashiato/update/state.json' ]] || die_install "$prior_rc" "$prior_output" "前の回の落ちる更新が戻しきれていない: $name"
     echo 'prior-failed-update=ok' >>"$trace"
+  fi
+  local leftover_sql
+  leftover_sql="$(scenario_leftover_failed_db "$name")"
+  if [[ -n "$leftover_sql" ]]; then
+    owner_sql "$leftover_sql" || die "前の回の落ちた DB を置けない: $name"
+    echo 'leftover-failed-db=ok' >>"$trace"
   fi
   settings_before="$(settings_fingerprint)"
   backups_before="$(completed_backup_count)"
@@ -858,10 +874,11 @@ updater-config:
 START_TYPE : 4 DISABLED
 EOF
   assert_scenario_result '書きかけの退避は戻さない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '書きかけ退避の判定が通らない'
+  assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 ||
+    die '戻した後に落ちた DB が無い判定が通らない'
   sed -i 's/^failed-databases=0$/failed-databases=1/' "$evidence_trace"
-  assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
-  sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
   expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
+  sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
   assert_scenario_result '戻しは DB の管理者の役割を使わない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻し役割の判定が通らない'
   assert_scenario_result 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '更新確認の判定が通らない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
@@ -899,15 +916,25 @@ EOF
   grep -Fq 'reset_machine' <<<"$(declare -f run_scenario)" || die '各 Scenario が前の版を入れる前に PC を空に戻していない'
   # 「前の回」の残りを前提にする Scenario は、Scenario の中で先に落ちる更新を通し、その残りがあることを判定で見る
   local prior_name prior_trace="$work/prior-trace"
-  for prior_name in '更新が通ると、前の回に残した落ちた DB を消す' '更新が通ると、移行の前の退避は直前の 1 つだけになる'; do
-    scenario_prior_failed_update "$prior_name" || die "前の回の残りが要る Scenario で先に落ちる更新を通さない: $prior_name"
-    printf '%s\n' 'prior-failed-update=ok' 'failed-databases-before=1' 'failed-databases=0' 'backups-before=1' 'backups-after=1' >"$prior_trace"
-    assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
-    sed -i '/^prior-failed-update=ok$/d' "$prior_trace"
-    expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
-  done
-  printf '%s\n' 'prior-failed-update=ok' 'failed-databases-before=0' 'failed-databases=0' >"$prior_trace"
-  expect_fail assert_scenario_result '更新が通ると、前の回に残した落ちた DB を消す' "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  prior_name='更新が通ると、移行の前の退避は直前の 1 つだけになる'
+  scenario_prior_failed_update "$prior_name" || die "前の回の残りが要る Scenario で先に落ちる更新を通さない: $prior_name"
+  printf '%s\n' 'prior-failed-update=ok' 'backups-before=1' 'backups-after=1' >"$prior_trace"
+  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  sed -i '/^prior-failed-update=ok$/d' "$prior_trace"
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  # 前の回の落ちた DB は、落ちる更新でなく Scenario の中で直接置く（戻した回は待ち受けの後に消すので残らない。Q10）
+  prior_name='更新が通ると、前の回に残した落ちた DB を消す'
+  ! scenario_prior_failed_update "$prior_name" || die '落ちた DB の掃除の Scenario が、落ちた DB を残さない落ちる更新に頼っている'
+  grep -Fq 'CREATE DATABASE ashiato_failed_' <<<"$(scenario_leftover_failed_db "$prior_name")" ||
+    die '落ちた DB の掃除の Scenario が、前の回の落ちた DB を置いていない'
+  printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=1' 'failed-databases=0' >"$prior_trace"
+  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  sed -i '/^leftover-failed-db=ok$/d' "$prior_trace"
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=0' 'failed-databases=0' >"$prior_trace"
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=1' 'failed-databases=1' >"$prior_trace"
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
   printf '%s\n' 'prior-failed-update=ok' 'backups-before=0' 'backups-after=1' >"$prior_trace"
   expect_fail assert_scenario_result '更新が通ると、移行の前の退避は直前の 1 つだけになる' "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
   ! scenario_prior_failed_update '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる' ||

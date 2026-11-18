@@ -64,19 +64,22 @@ PC の入れ替え（版ごとの置き場からの起動・自動起動の台�
 
 ## Task 4: インストーラの更新の計画（純粋な関数）
 
-- [x] 4.1 `crates/installer` に更新の計画の純粋な関数を足す（D1・D2・D5・D15（仮）・D20（仮）・D23（仮））: 入っている版と自分の版から「走らせ直し / 更新 / 系統が違うので触らない」を決める・印の段から「前の版へ戻し終える手順」か「(7) の残りを進める手順」（段 `listening`）を組む・`migrate` の終了コードとこの回の置き場の中身から「DB を戻す / プログラムだけ戻す」を決める（0・2・3・4 以外で、この回の取り終えた退避があれば戻す。2・3・4 と、取り終えた退避が無い回は戻さない）・
+- [x] 4.1 `crates/installer` に更新の計画の純粋な関数を足す（D1・D2・D5・D15（仮）・D20（仮）・D23）: 入っている版と自分の版から「走らせ直し / 更新 / 系統が違うので触らない」を決める・印の段から「前の版へ戻し終える手順」か「(7) の残りを進める手順」（段 `listening`）を組む・`migrate` の終了コードとこの回の置き場の中身から「DB を戻す / プログラムだけ戻す」を決める（0・2・3・4 以外で、この回の取り終えた退避があれば戻す。2・3・4 と、取り終えた退避が無い回は戻さない）・
   理由の種別と短い説明・`PG_VERSION` と組み立ての大きい版の比べ・保持で消す退避と DB の選び方（この回の置き場以外・`pre-migrate-*.dump`・`ashiato_failed_*`）・更新の記録の 1 行の形・`sc.exe` / `pg_restore` / `psql` の命令を組む関数（戻しは `ashiato_owner` で繋ぐ）。
   試験（`#[cfg(test)]`、名前は `st58_plan_`）: 終了コード 0〜4・137 と、この回の取り終えた退避のある・書きかけだけ・無いの全部の組み合わせ（18 件以上。0・2・3・4 以外で取り終えた退避があれば戻す）・段 `listening` の印では戻さないこと・印の段ごとの戻し終える手順（`started`〜`restored`）・保持の選び方（前の回の置き場 2 つ・じかの退避 1 つ・この回 1 つ）・大きい版 `17` / `18`・命令に DB の管理者の役割 `ashiato` が現れないこと・開発版のインストーラが正式版の置き場を選ばないこと
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st58_plan_ && test "$(cargo test -p ashiato-setup st58_plan_ -- --list 2>/dev/null | grep -c ": test$")" -ge 20'` rc=0
 
 ## Task 5: インストーラの更新の手順・戻し・`rollback` の口
 
-- [x] 5.1 `crates/installer/src/main.rs` に更新の手順を足す（D1〜D6・D16（仮）・D20（仮）・D23（仮））: 入っている版を読み、違えば（系統が同じなら）D1 の 8 段で更新する。`program_version_mismatch_message` で止まる形を更新の手順に置き換える（同じ版の走らせ直しは今のまま）。
+- [x] 5.1 `crates/installer/src/main.rs` に更新の手順を足す（D1〜D6・D16（仮）・D20（仮）・D23）: 入っている版を読み、違えば（系統が同じなら）D1 の 8 段で更新する。`program_version_mismatch_message` で止まる形を更新の手順に置き換える（同じ版の走らせ直しは今のまま）。
   印と記録の置き場 `update\` を作り、ACL を Administrators と SYSTEM の書き・2 つのサービスのアカウントの読みにする（初回のインストールでも作る）。退避は回ごとの置き場を `MIGRATE_BACKUP_DIR` で渡す。戻しは D3（新しい版を `failed\` へ退け、`previous\` を戻し、`ashiato_restore` → 名前の入れ替え。役割は D25（仮））。戻した後は `failed\` の新しい版の `ashiato-server update-history record-rollback --pending-out <状態の置き場>\update\history-pending.jsonl` を走らせ、終了コード 5 は「控えに書いた」と読む（D18（仮））。戻した後、切ってなければ前の版の更新係を起こす。
   更新が通った後は、`update-history replay`・保持・`ashiato_failed_*` を消す・更新の記録に `applied`。入らなかった回は窓に D15（仮）の文を出して rc≠0、更新の記録に `rolled_back` / `not_applied`（大きい版の違いも `not_applied`・`pg_major_mismatch`）。印に段 `listening` を書いてから (7) の残りを進め、段 `listening` の印の走らせ直しと `rollback` は戻さずに残りを進める。口 `rollback`（印が無ければ「戻すものはありません」）。試験の組み立ての差し込み `ASHIATO_SETUP_TEST_STOP_AT`（`migrating`・`after-migrate`・`after-listen`・`restoring`）・`ASHIATO_SETUP_TEST_PG_MAJOR`。
   起こした命令の記録（ST55 の試験の組み立ての記録）に、戻しの命令の役割が出るようにする
   試験（`crates/installer` の `#[cfg(test)]`・`st58_plan_`）: 偽の `ashiato-server`（終了コード 5 で、渡された `--pending-out` のファイルに 1 行を足し、標準出力にログの行を出す）で戻しの後の段を走らせ、控えのファイルが JSON の行だけを持ち、インストーラが終了コード 5 を「控えに書いた」と読んで先へ進むことを見る（review/spec.md R35）
   検証: `cargo clippy -p ashiato-setup --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0 / `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup'` rc=0 / `tools/release/check-artifacts.sh --self-test` rc=0
+- [x] 5.2 確認バッチ 20261118-0905 で、深掘り Q10（戻した回の落ちた DB は、前の版のサーバが待ち受けを開いたら直ちに消す）が仕様にもコードにも入っていないと分かった。`finish_restored` で前の版を起こした後に `wait_for_port` で待ち受けを確かめ、開いたら `ashiato_failed_*` を表の所有者で消す（開かなければ残し、次に更新が通ったときに消す。design D3・D23）。`tools/release/update-apply-install.sh` の戻しの Scenario は落ちた DB が増えていないことを求め、`更新が通ると、前の回に残した落ちた DB を消す` は前の回の残りを表の所有者で置いてから見る
+  試験（`#[cfg(test)]`・`st58_plan_rollback_`）: 待ち受けを開いたら消す・開かなければ消さない・消せなければ誤りを返す
+  検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-setup st58_plan_rollback && test "$(cargo test -p ashiato-setup st58_plan_rollback -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 / `tools/release/update-apply-install.sh --self-test` rc=0 / 終了の条件: PR の CI の `install-windows` が緑（下流の手元では走らない）
 
 ## Task 6: Windows の CI で、更新・戻し・途中で止まる・やり直しを通す
 
