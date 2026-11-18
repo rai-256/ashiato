@@ -12,7 +12,7 @@
     "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
     "この回の DB（project `ashiato-verify-20261118-0905`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261118-0905 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
     "成果物: `dist/verify-20261118-0905/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
-    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261118-090746-8509b65（全体 ok / 片付け ok）"
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261118-181024-5a09e0d（全体 ok / 片付け ok）"
   ],
   "questions": [
     {
@@ -101,7 +101,7 @@
       "kind": "check",
       "question": "ST58「更新を入れ、移行が失敗したら自動で戻る」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
-      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n合意したときから変わった仕様: design.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（7 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q10 C6 D27）\n録画 ▶ ST58-web-update-apply（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261118-090746-8509b65\\scenarios\\ST58-web-update-apply\\video.webm",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n合意したときから変わった仕様: design.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（7 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q10 C6 D27）\n録画 ▶ ST58-web-update-apply（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261118-181024-5a09e0d\\scenarios\\ST58-web-update-apply\\video.webm",
       "options": [
         {
           "label": "通った",
