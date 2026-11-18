@@ -10,8 +10,10 @@
 //! 組み立ての印は引数で受ける。実行時に差し替える口は作らない（D15）。
 
 use crate::migration_ledger::{compare, read_ledger_on, Ledger, Verdict, LOCK_KEY};
+use serde::{Deserialize, Serialize};
 use sqlx::{Connection as _, PgConnection};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 /// 書けなかったときの警告の種別（D9）。種別の語はここにだけ置く（起動の接続を取れない分岐も同じ口を通る）。
 pub const UNWRITTEN_KIND: &str = "update_history_unwritten";
@@ -36,6 +38,8 @@ pub enum Outcome<'a> {
     },
     /// 退避に失敗して、何も当てていない。
     BackupFailed,
+    /// 退避から戻した。`previous_version` の判定には数えない。
+    RolledBack { applied: &'a [String] },
 }
 
 impl Outcome<'_> {
@@ -46,15 +50,274 @@ impl Outcome<'_> {
             Self::NothingToApply => "nothing_to_apply",
             Self::Failed { .. } => "failed",
             Self::BackupFailed => "backup_failed",
+            Self::RolledBack { .. } => "rolled_back",
         }
     }
 
     fn applied(&self) -> &[String] {
         match self {
-            Self::Applied(v) | Self::Failed { applied: v, .. } => v,
+            Self::Applied(v)
+            | Self::Failed { applied: v, .. }
+            | Self::RolledBack { applied: v } => v,
             _ => &[],
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RollbackKind<'a> {
+    /// 落ちた版と SQLSTATE。分からなければ `None`（列は NULL。新しい版の名前で埋めない）。
+    MigrationFailed {
+        failed_version: Option<&'a str>,
+        sqlstate: Option<&'a str>,
+    },
+    StartupFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PendingRow {
+    at: String,
+    component: String,
+    via: String,
+    from_version: Option<String>,
+    to_version: String,
+    outcome: String,
+    applied_versions: Vec<String>,
+    failed_version: Option<String>,
+    sqlstate: Option<String>,
+    #[serde(default)]
+    written_at: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum RollbackError {
+    Database { sqlstate: Option<String> },
+    PendingWritten,
+    PendingIo(std::io::Error),
+    PendingJson(serde_json::Error),
+}
+
+impl std::fmt::Display for RollbackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database { .. } => f.write_str("更新の履歴を書けず、控えにも書けない"),
+            Self::PendingWritten => f.write_str("更新の履歴は控えに書いた"),
+            Self::PendingIo(_) => f.write_str("控えの読み書きに失敗"),
+            Self::PendingJson(_) => f.write_str("控えの JSON が不正"),
+        }
+    }
+}
+
+impl std::error::Error for RollbackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::PendingIo(e) => Some(e),
+            Self::PendingJson(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+fn database_error(error: sqlx::Error) -> RollbackError {
+    RollbackError::Database {
+        sqlstate: error
+            .as_database_error()
+            .and_then(|e| e.code().as_deref().map(str::to_owned)),
+    }
+}
+
+fn rollback_row(
+    at: &str,
+    from: &str,
+    to: &str,
+    applied: &[String],
+    failed: Option<&str>,
+    state: Option<&str>,
+) -> PendingRow {
+    PendingRow {
+        at: at.into(),
+        component: "S-01".into(),
+        via: "migrate".into(),
+        from_version: Some(from.into()),
+        to_version: to.into(),
+        outcome: "rolled_back".into(),
+        applied_versions: applied.to_vec(),
+        failed_version: failed.map(str::to_owned),
+        sqlstate: state.map(str::to_owned),
+        written_at: None,
+    }
+}
+
+async fn now_string(conn: &mut PgConnection) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')",
+    )
+    .fetch_one(conn)
+    .await
+}
+
+async fn insert_pending_row(conn: &mut PgConnection, row: &PendingRow) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO core.update_history (at, component, via, from_version, to_version, outcome, applied_versions, failed_version, sqlstate) VALUES ($1::timestamptz, $2, $3, $4, $5, $6, $7, $8, $9)")
+        .bind(&row.at).bind(&row.component).bind(&row.via).bind(&row.from_version).bind(&row.to_version)
+        .bind(&row.outcome).bind(&row.applied_versions).bind(&row.failed_version).bind(&row.sqlstate)
+        .execute(conn).await?;
+    Ok(())
+}
+
+/// 戻した DB に履歴を足す。DB へ足す 1 回の取引に失敗した場合だけ控えへ書く。
+pub async fn record_rollback(
+    conn: &mut PgConnection,
+    new_version: &str,
+    previous: &str,
+    kind: RollbackKind<'_>,
+    versions: &[(&str, &str)],
+    pending_out: Option<&Path>,
+) -> Result<(), RollbackError> {
+    let mut tx = conn.begin().await.map_err(database_error)?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(HISTORY_KEY)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
+    let at = now_string(&mut tx).await.map_err(database_error)?;
+    let applied: Vec<String> = if matches!(kind, RollbackKind::StartupFailed) {
+        let known: BTreeSet<&str> = versions.iter().map(|(name, _)| *name).collect();
+        let current: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM migration_ledger.applied ORDER BY name")
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(database_error)?;
+        versions
+            .iter()
+            .filter(|(name, _)| !current.iter().any(|x| x == name) && known.contains(name))
+            .map(|(name, _)| (*name).to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let (failed_version, sqlstate) = match kind {
+        RollbackKind::MigrationFailed {
+            failed_version,
+            sqlstate,
+        } => (failed_version, sqlstate),
+        RollbackKind::StartupFailed => (None, None),
+    };
+    let rollback = rollback_row(
+        &at,
+        new_version,
+        previous,
+        &applied,
+        failed_version,
+        sqlstate,
+    );
+    let failed = if let RollbackKind::MigrationFailed {
+        failed_version,
+        sqlstate,
+    } = kind
+    {
+        let attempted: Option<(Option<String>, String)> = sqlx::query_as(
+            "SELECT from_version, to_version FROM core.update_history
+             WHERE outcome = 'attempted' ORDER BY seq DESC LIMIT 1",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        attempted.map(|(from_version, to_version)| PendingRow {
+            at: at.clone(),
+            component: "S-01".into(),
+            via: "migrate".into(),
+            from_version,
+            to_version,
+            outcome: "failed".into(),
+            applied_versions: Vec::new(),
+            failed_version: failed_version.map(str::to_owned),
+            sqlstate: sqlstate.map(str::to_owned),
+            written_at: None,
+        })
+    } else {
+        None
+    };
+    let write_result = async {
+        if let Some(failed) = &failed {
+            insert_pending_row(&mut tx, failed).await?;
+        }
+        insert_pending_row(&mut tx, &rollback).await
+    }
+    .await;
+    match write_result {
+        Ok(()) => {
+            tx.commit().await.map_err(database_error)?;
+            Ok(())
+        }
+        Err(e) => {
+            tx.rollback().await.ok();
+            if let Some(path) = pending_out {
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .map_err(RollbackError::PendingIo)?;
+                if let Some(failed) = &failed {
+                    serde_json::to_writer(&mut f, failed).map_err(RollbackError::PendingJson)?;
+                    use std::io::Write as _;
+                    writeln!(f).map_err(RollbackError::PendingIo)?;
+                }
+                serde_json::to_writer(&mut f, &rollback).map_err(RollbackError::PendingJson)?;
+                use std::io::Write as _;
+                writeln!(f).map_err(RollbackError::PendingIo)?;
+                Err(RollbackError::PendingWritten)
+            } else {
+                Err(database_error(e))
+            }
+        }
+    }
+}
+
+/// 控えの未写し行を時刻を保ったまま書き、成功した行に `written_at` を付ける。
+pub async fn replay_pending(conn: &mut PgConnection, path: &Path) -> Result<(), RollbackError> {
+    let text = std::fs::read_to_string(path).map_err(RollbackError::PendingIo)?;
+    let mut rows: Vec<PendingRow> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).map_err(RollbackError::PendingJson))
+        .collect::<Result<_, _>>()?;
+    let mut tx = conn.begin().await.map_err(database_error)?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(HISTORY_KEY)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
+    for row in rows.iter_mut().filter(|r| r.written_at.is_none()) {
+        // 写した後・控えを書き直す前に落ちた回は、控えに written_at が無いまま残る。
+        // 同じ時刻・結果・版の行が既にあれば写し済みとみなし、2 行にしない（review/code.md R63）
+        let already: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM core.update_history
+              WHERE at = $1::timestamptz AND component = $2 AND outcome = $3 AND to_version = $4)",
+        )
+        .bind(&row.at)
+        .bind(&row.component)
+        .bind(&row.outcome)
+        .bind(&row.to_version)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        if !already {
+            insert_pending_row(&mut tx, row)
+                .await
+                .map_err(database_error)?;
+        }
+        row.written_at = Some(now_string(&mut tx).await.map_err(database_error)?);
+    }
+    tx.commit().await.map_err(database_error)?;
+    let out = rows
+        .into_iter()
+        .map(|r| serde_json::to_string(&r).map_err(RollbackError::PendingJson))
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n")
+        + "\n";
+    let tmp = path.with_extension(format!("pending.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, out).map_err(RollbackError::PendingIo)?;
+    std::fs::rename(tmp, path).map_err(RollbackError::PendingIo)
 }
 
 /// 試みの行をどうしたか（結果の行を書くかを決める。D16（仮））。

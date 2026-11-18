@@ -78,6 +78,11 @@ ENV
 #!/usr/bin/env bash
 echo media-fixtures >> "${FAKE_LOG:?}"
 MEDIA
+  # ST58 の入れ替えの段の台本は APK を 2 つ組んで端末に入れるので、偽の端末では呼ばれたことだけを残す
+  cat > "$root/tools/android-st58-replace.sh" <<'ST58'
+#!/usr/bin/env bash
+echo st58-replace >> "${FAKE_LOG:?}"
+ST58
   cat > "$root/collector-android/gradlew" <<'GRADLE'
 #!/usr/bin/env bash
 set -euo pipefail

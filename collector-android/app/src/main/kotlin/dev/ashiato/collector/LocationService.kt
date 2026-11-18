@@ -30,6 +30,40 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
+internal fun foregroundServiceTypeFor(
+    replacedStart: Boolean,
+    promoted: Boolean,
+    fine: Boolean,
+    background: Boolean,
+): Int {
+    // 更新の後の受け手からの起動（replacedStart）は、裏の位置の権限が無ければ位置の種別で起こせない（ST58 D10）
+    val locationAllowedNow = !replacedStart || background
+    return if (promoted || (fine && locationAllowedNow)) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+    } else {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+    }
+}
+
+/** 更新の後に specialUse で起きている間、位置だけを権限不足として扱う（ST58 D10）。入力は判定表の 6 つの列そのもの。 */
+@Suppress("LongParameterList")
+internal fun replacementLocationCapability(
+    replacedStart: Boolean,
+    isLocation: Boolean,
+    type: Int,
+    fine: Boolean,
+    background: Boolean,
+    actual: Capability,
+): Capability {
+    val startedWithoutLocation = replacedStart && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+    val waitingForBackground = fine && !background
+    return if (isLocation && startedWithoutLocation && waitingForBackground) {
+        Capability(capturable = false, blockers = listOf(Capability.PERMISSION))
+    } else {
+        actual
+    }
+}
+
 /**
  * `source_unavailable` の重複抑止。
  *
@@ -72,6 +106,8 @@ open class LocationService : Service() {
     private val originalThread: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
     private lateinit var ageClock: AgeClock
     private lateinit var ledger: DropLedger
+    private var replacedStart = false
+    private var foregroundPromoted = false
 
     /**
      * 置き場に書けなかった記録の数え。**ソースごとに別ファイル**（tasks 5.1 / 独立レビュー R10）——
@@ -392,15 +428,43 @@ open class LocationService : Service() {
      * Android は長期間使っていないアプリの権限を自動で剥がす。
      * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
      */
-    protected open fun readCapability(source: CollectionSource): Capability = source.capability(this)
+    protected open fun readCapability(source: CollectionSource): Capability = replacementLocationCapability(
+        replacedStart,
+        source.logicalSource == SourceCadence.LOCATION.logicalSource,
+        foregroundServiceType(),
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        source.capability(this),
+    )
 
     override fun onCreate() {
         super.onCreate()
         Config.initialize(this)
+        val marker = File(noBackupFilesDir, "update/replaced-start")
+        replacedStart = marker.isFile
+        if (replacedStart) marker.delete()
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
         val type = foregroundServiceType()
         startForeground(NOTIFICATION_ID, notification(ongoingText()), type)
+        if (replacedStart && type == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        ) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(UpdateCheck.CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT),
+            )
+            if (UpdateCheck.canPost(this, manager, UpdateCheck.CHANNEL)) {
+                val notification = Notification.Builder(this, UpdateCheck.CHANNEL)
+                    .setContentTitle("あしあと。")
+                    .setContentText("更新の後、位置の収集が止まっています。開いてください")
+                    .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                    .setContentIntent(updateWaitingPendingIntent())
+                    .setAutoCancel(true)
+                    .build()
+                manager.notify(UPDATE_WAITING_NOTIFICATION_ID, notification)
+            }
+        }
         // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
         // `startForeground` が投げて `onCreate` ごと落ちるので、**この 1 行が出たこと自体が
         // 「前景サービスが立った」の証拠**になる（計測テストがこれを見る）
@@ -874,12 +938,12 @@ open class LocationService : Service() {
      * 半分しか守れない。`specialUse` にその上限は無い。
      * 打ち切られた場合の備えは [onTimeout]（畳んで落ちない）。
      */
-    private fun foregroundServiceType(): Int =
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        }
+    private fun foregroundServiceType(): Int = foregroundServiceTypeFor(
+        replacedStart,
+        foregroundPromoted,
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED,
+    )
 
     /** ログに出す種別の名前。**値そのものは出さない**（数でも私的でもないが、読めない）。 */
     private fun foregroundServiceTypeKind(type: Int): String = when (type) {
@@ -897,6 +961,17 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val openedFromForeground = intent?.getBooleanExtra(MainActivity.EXTRA_STARTED_FROM_FOREGROUND, false) == true
+        val startedWithoutLocation =
+            replacedStart && foregroundServiceType() == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        val fineGranted =
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (openedFromForeground && startedWithoutLocation && fineGranted) {
+            foregroundPromoted = true
+            startForeground(NOTIFICATION_ID, notification(ongoingText()), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            Log.i(TAG, Telemetry.line(FOREGROUND_LOCATION, source = null))
+            getSystemService(NotificationManager::class.java).cancel(UPDATE_WAITING_NOTIFICATION_ID)
+        }
         if (intent?.action == ACTION_SETUP_CHANGED) {
             flusher?.cancel()
             flusher = null
@@ -1466,12 +1541,20 @@ open class LocationService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
+    private fun updateWaitingPendingIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        UPDATE_WAITING_NOTIFICATION_ID,
+        Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
     internal companion object {
         const val ACTION_SETUP_CHANGED = "dev.ashiato.collector.ACTION_SETUP_CHANGED"
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val SETUP_CHANNEL = "setup"
         const val SETUP_NOTIFICATION_ID = 6
+        const val UPDATE_WAITING_NOTIFICATION_ID = 12
 
         // Keep this distinct from the ST57 update-notice IDs (9 through 11).
         const val DESTINATION_NOTIFICATION_ID = 13

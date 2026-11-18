@@ -221,6 +221,9 @@ async fn st51_export_readme_explains() {
     };
     let history = section("update_history.jsonl");
     assert!(history.contains("戻すと消えることがある"), "{history}");
+    assert!(history.contains("`rolled_back`"), "{history}");
+    assert!(history.contains("`failed` が無ければ"), "{history}");
+    assert!(history.contains("控えから写す"), "{history}");
     assert!(history.contains("前の版が空なら記録の始まり"));
     let changes = section("collector_version_changes.jsonl");
     assert!(changes.contains("S-01 は確かめていない"), "{changes}");

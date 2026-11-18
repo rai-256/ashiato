@@ -54,7 +54,7 @@ pub fn not_included() -> Vec<String> {
 fn file_note(name: &str) -> Option<&'static str> {
     match name {
         UPDATE_HISTORY_FILE => Some(
-            "S-01 が自分の版の変化を書いた。前の版が空なら記録の始まり。落ちた回の行は、退避から D-01 を戻すと消えることがある",
+            "S-01 が自分の版の変化を書いた。前の版が空なら記録の始まり。落ちた回の行は、退避から D-01 を戻すと消えることがある。`rolled_back` は戻した行で、直前に `failed` が無ければ移行は通ったが待ち受けを開かずに戻した回。前の版の表が受け付けなかった行は控えから写す",
         ),
         COLLECTOR_VERSION_CHANGES_FILE => Some(
             "生存信号から導いた。端末・部品ごとに発信の時刻の順に並べて、版が変わった所。収集アプリの申告で、S-01 は確かめていない",

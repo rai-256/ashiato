@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 import { defineConfig, devices } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * 録画用（人間が後から動画で見る）。通常の e2e（`web/playwright.config.ts`）は変えない。
@@ -17,6 +20,9 @@ import { defineConfig, devices } from "@playwright/test";
 declare const process: { env: Record<string, string | undefined> };
 
 const OUT = process.env.REC_OUT ?? "./recording-results";
+// e2e の global-setup は更新係の置き場（ASHIATO_UPDATER_DIR。ST57）を作り直す。録画のサーバは record-env.sh が立てて
+// この置き場を読まないので、渡されていなければ使い捨ての置き場を作って渡す（無いと global-setup で全シナリオが落ちた。ST58）
+process.env.ASHIATO_UPDATER_DIR ??= mkdtempSync(join(tmpdir(), "ashiato-rec-updater-"));
 
 export default defineConfig({
   testDir: ".",

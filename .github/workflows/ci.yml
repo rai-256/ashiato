@@ -146,6 +146,7 @@ jobs:
       # 収集アプリ 2 本の欄のずれは、それぞれの job の St50EnvelopeShapeTest・st50_envelope_shape が落とす
       - run: ./tools/check-contract-version.sh --self-test
       - run: ./tools/check-contract-version.sh
+      - run: ./tools/release/update-apply-install.sh --self-test
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
       # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中
@@ -258,7 +259,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $out = Get-Content runtime.log -Raw
           if ($out -notmatch 'test result: ok\. (\d+) passed') { Write-Error "結果の行が無い"; exit 1 }
-          if ([int]$Matches[1] -lt 13) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（13 本のはず）"; exit 1 }
+          if ([int]$Matches[1] -lt 19) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（19 本のはず）"; exit 1 }
 
   web:
     needs: changes
@@ -381,7 +382,7 @@ jobs:
           # ST09: 写真と動画は**別のアプリが入れたもの**として入れる（位置を伏せるのは他のアプリの項目だけ。tools/android-media-fixtures.sh）
           script: |
             ../tools/android-media-fixtures.sh
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.St56BackupTest,dev.ashiato.collector.UsageVolumeInstrumentedTest,dev.ashiato.collector.St58PackageReplacedInstrumentedTest
             ./gradlew :app:installDebug :app:installDebugAndroidTest
             adb shell bmgr enable true
             adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
@@ -403,6 +404,8 @@ jobs:
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest
+            ../tools/android-st58-replace.sh
+            adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
 
   smoke:
@@ -493,7 +496,12 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/package-windows
-            ${{ runner.temp }}/package-windows-test
+            ${{ runner.temp }}/package-windows-test-old
+            ${{ runner.temp }}/package-windows-test-new
+            ${{ runner.temp }}/package-windows-test-dev-old
+            ${{ runner.temp }}/package-windows-test-dev-new
+            ${{ runner.temp }}/package-windows-test-compat-old
+            ${{ runner.temp }}/package-windows-test-compat-new
           key: windows-package-${{ steps.wbk.outputs.key }}
       # CH17 D5: ビルドするときだけ、Rust の依存のビルドを戻す（Rust の版が同じなら前の鍵からも）
       - if: steps.reuse.outputs.cache-hit != 'true'
@@ -521,14 +529,35 @@ jobs:
         run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+      # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.4.0 と 0.5.0 など）。
+      # 版番号の出所の一致（version.sh・build-stamp）は配る組み立てを守るので緩めず、この runner の木の
+      # Cargo.toml の出所の版だけを組むたびに替え、終わったら戻す
       - if: steps.reuse.outputs.cache-hit != 'true'
-        run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test" --test-build
+        run: |
+          set_source() { sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"$1\"/" Cargo.toml; }
+          for spec in 0.4.0:old 0.5.0:new 0.4.0-dev.20261115:dev-old 0.5.0-dev.20261116:dev-new 0.4.1:compat-old 0.6.0:compat-new; do
+            v="${spec%%:*}"; name="${spec#*:}"
+            set_source "${v%%-*}"
+            [ "$(tools/release/version.sh source)" = "${v%%-*}" ] || { echo "出所の版を ${v%%-*} に替えられない"; exit 1; }
+            ASHIATO_BUILD_VERSION="$v" tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-$name" --test-build
+          done
+          git checkout -- Cargo.toml Cargo.lock
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: package-windows-test, path: "${{ runner.temp }}/package-windows-test" }
+        with: { name: package-windows-test-old, path: "${{ runner.temp }}/package-windows-test-old" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-new, path: "${{ runner.temp }}/package-windows-test-new" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-dev-old, path: "${{ runner.temp }}/package-windows-test-dev-old" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-dev-new, path: "${{ runner.temp }}/package-windows-test-dev-new" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-compat-old, path: "${{ runner.temp }}/package-windows-test-compat-old" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: package-windows-test-compat-new, path: "${{ runner.temp }}/package-windows-test-compat-new" }
       # CH17 D2: 鍵は commit の木から出すが、組み立ては作業木から組む。組み立ての後に、追跡しているファイルが鍵を出した
       # commit のままかを確かめる（変わっていれば、鍵はこの組み立ての入力を表さないので保存しない）
       - id: tree
@@ -546,7 +575,12 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/package-windows
-            ${{ runner.temp }}/package-windows-test
+            ${{ runner.temp }}/package-windows-test-old
+            ${{ runner.temp }}/package-windows-test-new
+            ${{ runner.temp }}/package-windows-test-dev-old
+            ${{ runner.temp }}/package-windows-test-dev-new
+            ${{ runner.temp }}/package-windows-test-compat-old
+            ${{ runner.temp }}/package-windows-test-compat-new
           key: windows-package-${{ steps.wbk.outputs.key }}
 
   install-windows:
@@ -571,7 +605,7 @@ jobs:
           powershell.exe -NoProfile -NonInteractive -Command 'Set-Culture ja-JP'
           tools/release/install-check.sh --list | sort -u > "$RUNNER_TEMP/install-scenarios.expected"
           tools/release/install-check.sh package/package-windows-release/ashiato-server-*.zip | tee "$RUNNER_TEMP/install-release.log"
-          ASHIATO_INSTALL_CHECK_TEST_TAKEOUT=1 tools/release/install-check.sh package/package-windows-test/ashiato-server-*.zip | tee "$RUNNER_TEMP/install-test.log"
+          ASHIATO_INSTALL_CHECK_TEST_TAKEOUT=1 tools/release/install-check.sh package/package-windows-test-new/ashiato-server-*.zip | tee "$RUNNER_TEMP/install-test.log"
           cat "$RUNNER_TEMP/install-release.log" "$RUNNER_TEMP/install-test.log" | tr -d '\r' |
             sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/install-scenarios.actual"
           comm -23 "$RUNNER_TEMP/install-scenarios.expected" "$RUNNER_TEMP/install-scenarios.actual" |
@@ -581,13 +615,24 @@ jobs:
       - shell: bash
         run: |
           tools/release/update-check-install.sh package/package-windows-release/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-release.log"
-          tools/release/update-check-install.sh package/package-windows-test/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-test.log"
+          tools/release/update-check-install.sh package/package-windows-test-new/ashiato-server-*.zip | tee "$RUNNER_TEMP/update-test.log"
           tools/release/update-check-install.sh --list | sort -u > "$RUNNER_TEMP/update-scenarios.expected"
           cat "$RUNNER_TEMP/update-release.log" "$RUNNER_TEMP/update-test.log" | tr -d '\r' |
             sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/update-scenarios.actual"
           comm -23 "$RUNNER_TEMP/update-scenarios.expected" "$RUNNER_TEMP/update-scenarios.actual" |
             tee "$RUNNER_TEMP/update-scenarios.missing"
           test ! -s "$RUNNER_TEMP/update-scenarios.missing"
+      - shell: bash
+        run: |
+          tools/release/update-apply-install.sh \
+            package/package-windows-test-old/ashiato-server-*.zip package/package-windows-test-new/ashiato-server-*.zip \
+            package/package-windows-test-dev-old/ashiato-server-*.zip package/package-windows-test-dev-new/ashiato-server-*.zip \
+            package/package-windows-test-compat-old/ashiato-server-*.zip package/package-windows-test-compat-new/ashiato-server-*.zip |
+            tee "$RUNNER_TEMP/update-apply-install.log"
+          tools/release/update-apply-install.sh --list | sort -u > "$RUNNER_TEMP/update-apply-scenarios.expected"
+          tr -d '\r' < "$RUNNER_TEMP/update-apply-install.log" | sed -n 's/^== Scenario: //p' | sort -u > "$RUNNER_TEMP/update-apply-scenarios.actual"
+          comm -23 "$RUNNER_TEMP/update-apply-scenarios.expected" "$RUNNER_TEMP/update-apply-scenarios.actual" | tee "$RUNNER_TEMP/update-apply-scenarios.missing"
+          test ! -s "$RUNNER_TEMP/update-apply-scenarios.missing"
       # spec の Scenario と印の突き合わせ（scripts/check_scenarios.py）。scripts/ は .harness2/scripts への symlink で、
       # .harness2 は runner に無い（Windows の checkout では symlink も張れない）。chain の job と同じく token があるときだけ
       # harness2 を取り、その中の台本を直に走らせる。無ければ warning で素通りする（ローカルの merge_gate が同じ検査を走らせる）

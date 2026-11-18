@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH AdditionRef-ashiato-play-services
 //! S-01 の起動口。中身は lib.rs にある（`bin/openapi.rs` から同じ型を読むため）。
 
+use std::io::Write as _;
+
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let command = args.next();
@@ -34,7 +36,12 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(async move {
         match command.as_deref() {
             None => ashiato_server::run().await,
+            Some("--version") => {
+                std::io::stdout().write_all(format!("{}\n", env!("ASHIATO_VERSION")).as_bytes())?;
+                Ok(())
+            }
             Some("migrate") => ashiato_server::run_migrate().await,
+            Some("update-history") => ashiato_server::run_update_history(args).await,
             Some(other) => anyhow::bail!("知らない引数: {other}（使えるのは migrate だけ）"),
         }
     })

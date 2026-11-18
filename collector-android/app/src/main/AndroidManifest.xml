@@ -28,6 +28,7 @@
          打ち切られたときの備えは LocationService.onTimeout（畳んで落ちない）。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- ST17: 再起動の後に通知の予約を戻す（実行時の確認の要らない権限）。
          **正確な時刻の権限（SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM）は宣言しない** —— 15 分の窓で足りる（design D10） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -134,5 +135,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".PackageReplacedReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".UpdateInstallResultReceiver" android:exported="false" />
     </application>
 </manifest>

@@ -204,6 +204,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { buildConfig = true }
+    // Task 9.1: Android verifies the same malformed-asset matrix as the
+    // shared Rust contract; include the canonical file rather than copying it.
+    sourceSets {
+        getByName("test").resources.srcDir(rootProject.file("../docs/contracts"))
+    }
     // Robolectric は本物の framework を JVM 上で動かすので資源が要る。
     // **本番経路（LocationCallback / Activity の権限フロー）を実機なしで通すための唯一の道具**
     testOptions {
