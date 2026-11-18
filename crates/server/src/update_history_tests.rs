@@ -89,7 +89,7 @@ async fn st51_form_rejects_unknown_via() {
     for (component, via, outcome) in [
         ("S-01", "upgrade", "applied"),
         ("C-01", "migrate", "applied"),
-        ("S-01", "migrate", "rolled_back"),
+        ("S-01", "migrate", "reverted"),
     ] {
         let e = sqlx::query(
             "INSERT INTO core.update_history (component, via, to_version, outcome) VALUES ($1, $2, 'v', $3)",

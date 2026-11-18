@@ -33,6 +33,7 @@ pub const CHANNEL_TAG: &str = "channel";
 pub const UPDATE_TAG: &str = "update";
 pub const UPDATE_INTRO_TAG: &str = "update-intro";
 pub const UPDATE_STALE_TAG: &str = "update-stale";
+pub const UPDATE_ROLLBACK_TAG: &str = "update-rollback";
 
 /// 通知の設定の窓口。
 pub struct WindowsToaster {
@@ -81,6 +82,28 @@ impl WindowsToaster {
         // 同じ札の前の通知は置き換わったので、受け手も新しいものだけを持つ
         activations.retain(|(held, _, _)| *held != tag);
         activations.push((tag, toast, token));
+        Ok(())
+    }
+
+    fn show_opening_update(&self, xml: &str) -> anyhow::Result<()> {
+        let toast = build_toast_tagged(xml, true, UPDATE_TAG)
+            .map_err(|_| anyhow::anyhow!("toast build failed"))?;
+        let handler = TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, _| {
+            let _ = spawn_update_window();
+            Ok(())
+        });
+        let token = toast
+            .Activated(&handler)
+            .map_err(|_| anyhow::anyhow!("toast activation registration failed"))?;
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(self.aumid.as_str()))
+            .and_then(|notifier| notifier.Show(&toast))
+            .map_err(|_| anyhow::anyhow!("toast show failed"))?;
+        let mut activations = self
+            .setup_activations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("toast activation lock failed"))?;
+        activations.retain(|(held, _, _)| *held != UPDATE_TAG);
+        activations.push((UPDATE_TAG, toast, token));
         Ok(())
     }
 
@@ -165,6 +188,14 @@ fn spawn_setup_window() -> std::io::Result<std::process::Child> {
         .spawn()
 }
 
+fn spawn_update_window() -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt as _;
+    std::process::Command::new(std::env::current_exe()?)
+        .arg("update")
+        .creation_flags(0x0000_0010)
+        .spawn()
+}
+
 /// 通知を組む。音なし（`sound = false`）は `SuppressPopup` を立てる。
 /// 試験が組んだ通知の設定を読めるよう公開している。
 pub fn build_toast(xml: &str, sound: bool) -> windows::core::Result<ToastNotification> {
@@ -226,6 +257,9 @@ impl ContractToaster for WindowsToaster {
 
 impl crate::update_check::Toaster for WindowsToaster {
     fn show_update(&self, xml: &str, tag: &str) -> anyhow::Result<()> {
+        if tag == UPDATE_TAG {
+            return self.show_opening_update(xml);
+        }
         self.show_tagged(xml, true, tag)
     }
 }

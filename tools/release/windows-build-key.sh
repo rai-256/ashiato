@@ -133,7 +133,8 @@ def check(path):
             if i < r:
                 m.append("step %d の if: が、まだ走っていない restore の cache-hit を見る" % i)
         ups = {steps[i]["with"]["name"]: steps[i] for i in find(is_up)}
-        for n in ("package-windows-release", "package-windows-test"):
+        # ST58 D24: 試験用の zip は版違いの 6 つ（CH17 D2 の「後から入る側が合わせる」）
+        for n in ("package-windows-release",) + tuple("package-windows-test-" + v for v in ("old", "new", "dev-old", "dev-new", "compat-old", "compat-new")):
             if n not in ups:
                 m.append("upload-artifact %s が無い" % n)
             elif "if" in ups[n]:
@@ -333,7 +334,7 @@ def mutate(name, src, dst):
         st = steps.pop(r)
         steps.insert(ix(is_up)[0], st)
     elif name == "q":
-        steps.insert(ups[0] + 1, {"shell": "bash", "run": "echo x > \"$RUNNER_TEMP/package-windows-test/x\""})
+        steps.insert(ups[0] + 1, {"shell": "bash", "run": "echo x > \"$RUNNER_TEMP/package-windows-test-old/x\""})
     elif name == "r":
         k = ix(lambda s: "package.sh windows" in str(s.get("run", "")))[0]
         steps[k]["if"] = steps[k]["if"] + " || always()"

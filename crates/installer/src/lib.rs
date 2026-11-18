@@ -5,14 +5,381 @@ pub mod layout;
 pub mod password;
 pub mod secrets;
 pub mod state;
+pub mod update_plan;
 
 #[cfg(test)]
 mod tests {
     use super::commands::SetupCommand;
+    use super::update_plan::*;
     use super::{commands, db, layout, password, secrets, state};
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
+
+    #[test]
+    fn st58_plan_version_decision_distinguishes_rerun_update_and_other_channel() {
+        assert_eq!(version_action("0.4.0", "0.4.0"), VersionAction::Rerun);
+        assert_eq!(version_action("0.4.0", "0.5.0"), VersionAction::Update);
+        assert_eq!(
+            version_action("0.4.0", "0.5.0-dev.20261116"),
+            VersionAction::LeaveAlone
+        );
+        assert_eq!(
+            version_action("0.0.0", "0.5.0-dev.20261116"),
+            VersionAction::Update
+        );
+    }
+
+    #[test]
+    fn st58_plan_recovery_matrix() {
+        for (code, backup, should_restore) in [
+            (0, BackupState::Completed, false),
+            (0, BackupState::PartialOnly, false),
+            (0, BackupState::None, false),
+            (1, BackupState::Completed, true),
+            (1, BackupState::PartialOnly, false),
+            (1, BackupState::None, false),
+            (2, BackupState::Completed, false),
+            (2, BackupState::PartialOnly, false),
+            (2, BackupState::None, false),
+            (3, BackupState::Completed, false),
+            (3, BackupState::PartialOnly, false),
+            (3, BackupState::None, false),
+            (4, BackupState::Completed, false),
+            (4, BackupState::PartialOnly, false),
+            (4, BackupState::None, false),
+            (137, BackupState::Completed, true),
+            (137, BackupState::PartialOnly, false),
+            (137, BackupState::None, false),
+        ] {
+            let plan = recovery_plan(UpdateStage::Migrating, code, backup);
+            assert_eq!(
+                plan.restore_database(),
+                should_restore,
+                "code={code:?} backup={backup:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn st58_plan_listening_never_restores() {
+        for stage in [UpdateStage::Listening, UpdateStage::Restored] {
+            assert!(!recovery_plan(stage, 1, BackupState::Completed).restore_database());
+        }
+    }
+
+    #[test]
+    fn st58_plan_stage_recovery_steps_finish_in_order() {
+        assert_eq!(
+            recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::StartPrevious]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Stopped, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::StartPrevious]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Moved, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Replaced, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Migrating, 1, BackupState::Completed).steps(),
+            vec![
+                RecoveryStep::RestoreDatabase,
+                RecoveryStep::RestoreProgram,
+                RecoveryStep::StartPrevious
+            ]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Starting, 0, BackupState::Completed).steps(),
+            vec![
+                RecoveryStep::RestoreDatabase,
+                RecoveryStep::RestoreProgram,
+                RecoveryStep::StartPrevious
+            ]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Restored, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::StartPrevious]
+        );
+        assert_eq!(
+            recovery_plan(UpdateStage::Listening, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::Finish]
+        );
+    }
+
+    #[test]
+    fn st58_plan_backup_selection_keeps_only_current_completed_dump() {
+        let selected = retain_backups(
+            "run-2",
+            &[
+                BackupEntry::completed("run-0", "pre-migrate-before.dump"),
+                BackupEntry::completed("run-1", "pre-migrate-a.dump"),
+                BackupEntry::direct("pre-migrate-old.dump"),
+                BackupEntry::partial("run-2", "pre-migrate-b.dump.part"),
+                BackupEntry::completed("run-2", "pre-migrate-c.dump"),
+            ],
+        );
+        assert_eq!(selected.keep, vec!["run-2/pre-migrate-c.dump"]);
+        assert_eq!(
+            selected.remove,
+            vec![
+                "run-0/pre-migrate-before.dump",
+                "run-1/pre-migrate-a.dump",
+                "pre-migrate-old.dump",
+                "run-2/pre-migrate-b.dump.part",
+            ]
+        );
+    }
+
+    #[test]
+    fn st58_plan_classifies_completed_partial_and_empty_current_run() {
+        let entries = [
+            BackupEntry::completed("run-1", "pre-migrate-a.dump"),
+            BackupEntry::partial("run-1", "pre-migrate-b.dump.part"),
+        ];
+        assert_eq!(
+            classify_backup_state("run-1", &entries),
+            BackupState::Completed
+        );
+        assert_eq!(classify_backup_state("run-2", &entries), BackupState::None);
+        assert_eq!(
+            classify_backup_state(
+                "run-1",
+                &[BackupEntry::partial("run-1", "pre-migrate-b.dump.part")]
+            ),
+            BackupState::PartialOnly
+        );
+    }
+
+    #[test]
+    fn st58_plan_retention_includes_failed_databases_and_run_paths() {
+        let selected = retain_backups(
+            "run-2",
+            &[
+                BackupEntry::completed("run-0", "pre-migrate-before.dump"),
+                BackupEntry::completed("run-1", "pre-migrate-a.dump"),
+                BackupEntry::direct("pre-migrate-old.dump"),
+                BackupEntry::completed("run-2", "pre-migrate-c.dump"),
+                BackupEntry::direct("ashiato_failed_20261116"),
+            ],
+        );
+        assert_eq!(selected.keep, vec!["run-2/pre-migrate-c.dump"]);
+        assert_eq!(selected.drop_databases, vec!["ashiato_failed_20261116"]);
+    }
+
+    #[test]
+    fn st58_plan_pg_major_and_reason_descriptions_are_stable() {
+        assert!(pg_major_matches("17\n", 17));
+        assert!(!pg_major_matches("18\n", 17));
+        assert_eq!(reason_for_sqlstate("23505"), ("23", "制約に反した"));
+        assert_eq!(
+            reason_for_kind(ReasonKind::ServerNotListening).description(),
+            "新しい版のサーバが起きない"
+        );
+    }
+
+    #[test]
+    fn st58_plan_rollback_cli_accepts_only_the_bare_command() {
+        assert_eq!(
+            commands::parse_args(&["rollback"]).expect("rollback の引数"),
+            "rollback"
+        );
+        assert!(commands::parse_args(&["rollback", "--elevated"]).is_ok());
+    }
+
+    #[test]
+    fn st58_plan_history_line_and_commands_use_owner_not_admin() {
+        let line = history_line(
+            "2026-11-16T00:00:00Z",
+            "rolled_back",
+            "0.5.0",
+            "0.4.0",
+            Some(Reason::kind(ReasonKind::BackupFailed, "0.5.0", None)),
+        );
+        assert!(line.contains("\"result\":\"rolled_back\"") && line.ends_with('\n'));
+        let restore = pg_restore_command(
+            Path::new(r"C:\pgsql\bin\pg_restore.exe"),
+            Path::new(r"C:\backup.dump"),
+            55401,
+        );
+        let psql = rollback_psql_command(Path::new(r"C:\pgsql\bin\psql.exe"), "127.0.0.1", 55400);
+        assert!(
+            restore.args.contains(&"ashiato_owner".into())
+                && psql.args.contains(&"ashiato_owner".into())
+        );
+        assert!(restore.args.contains(&"-p".into()) && restore.args.contains(&"55401".into()));
+        assert!(!restore.line().contains("ashiato ") && !psql.line().contains("ashiato "));
+    }
+
+    #[test]
+    fn st58_plan_rollback_history_command_is_traced_as_failed_program() {
+        let command = commands::rollback_history_command(
+            Path::new(r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"),
+            Path::new(r"C:\\ProgramData\\ashiato\\update\\history-pending.jsonl"),
+            "0.5.0",
+            "0.4.0",
+            "startup-failed",
+            None,
+            None,
+        );
+        assert_eq!(
+            command.program,
+            r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"
+        );
+        assert!(command.line().contains("record-rollback"));
+        assert!(command.line().contains("history-pending.jsonl"));
+    }
+
+    #[test]
+    fn st58_plan_migration_rollback_history_keeps_failure_kind() {
+        let command = commands::rollback_history_command(
+            Path::new(r"C:\\ProgramData\\ashiato\\failed\\ashiato-server.exe"),
+            Path::new(r"C:\\ProgramData\\ashiato\\update\\history-pending.jsonl"),
+            "0.5.0",
+            "0.4.0",
+            "migration-failed",
+            Some("202611152200_x"),
+            Some("23505"),
+        );
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--kind", "migration-failed"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--failed-version", "202611152200_x"]));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|args| args == ["--sqlstate", "23505"]));
+    }
+
+    #[test]
+    fn st58_plan_development_layout_is_not_release_layout() {
+        // 本番の経路（`Layout::for_version`）が版から置き場を選ぶ
+        assert_eq!(
+            layout::for_version("0.1.0").program_dir,
+            layout::Layout::release().program_dir
+        );
+        assert_ne!(
+            layout::for_version("0.1.0-dev.20261116").program_dir,
+            layout::Layout::release().program_dir
+        );
+    }
+
+    #[test]
+    fn st58_plan_exit_zero_never_restores() {
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 0, BackupState::Completed).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_exit_two_never_restores() {
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 2, BackupState::Completed).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_exit_three_never_restores() {
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 3, BackupState::Completed).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_exit_four_never_restores() {
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 4, BackupState::Completed).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_exit_137_restores_completed_backup() {
+        assert!(
+            recovery_plan(UpdateStage::Migrating, 137, BackupState::Completed).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_partial_backup_is_never_used() {
+        assert!(
+            !recovery_plan(UpdateStage::Migrating, 1, BackupState::PartialOnly).restore_database()
+        );
+    }
+    #[test]
+    fn st58_plan_started_has_no_database_restore() {
+        assert_eq!(
+            recovery_plan(UpdateStage::Started, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::StartPrevious]
+        );
+    }
+    #[test]
+    fn st58_plan_replaced_has_no_database_restore() {
+        assert_eq!(
+            recovery_plan(UpdateStage::Replaced, 1, BackupState::Completed).steps(),
+            vec![RecoveryStep::RestoreProgram, RecoveryStep::StartPrevious]
+        );
+    }
+    #[test]
+    fn st58_plan_starting_restores_database() {
+        assert_eq!(
+            recovery_plan(UpdateStage::Starting, 0, BackupState::Completed).steps()[0],
+            RecoveryStep::RestoreDatabase
+        );
+    }
+    #[test]
+    fn st58_plan_restore_stage_only_starts_previous() {
+        assert_eq!(
+            recovery_plan(UpdateStage::Restored, 1, BackupState::None).steps(),
+            vec![RecoveryStep::StartPrevious]
+        );
+    }
+    #[test]
+    fn st58_plan_sqlstate_unknown_is_generic() {
+        assert_eq!(reason_for_sqlstate("XX000"), ("XX", "DB の誤り"));
+    }
+    #[test]
+    fn st58_plan_reason_kind_has_wire_name() {
+        assert_eq!(ReasonKind::PgMajorMismatch.as_str(), "pg_major_mismatch");
+    }
+    #[test]
+    fn st58_plan_pg_version_rejects_malformed_text() {
+        assert!(!pg_major_matches("17.0\n", 17));
+    }
+    #[test]
+    fn st58_plan_service_command_is_sc_config() {
+        assert_eq!(
+            service_update_command("ashiato-server", "disabled").program,
+            "sc.exe"
+        );
+    }
+    #[test]
+    fn st58_plan_start_disabled_service_sets_demand_before_start() {
+        // 移行の後、「無効」のサーバを「自動」にせずに起こす（1058 で落ちない）
+        let commands = start_disabled_service_commands("ashiato-server");
+        let args: Vec<Vec<String>> = commands
+            .iter()
+            .map(|c| {
+                std::iter::once(c.program.clone())
+                    .chain(c.args.clone())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                vec!["sc.exe", "config", "ashiato-server", "start=", "demand"],
+                vec!["sc.exe", "start", "ashiato-server"],
+            ]
+        );
+    }
+    #[test]
+    fn st58_plan_history_success_has_null_reason() {
+        assert!(history_line("at", "applied", "new", "old", None).contains("\"reason\":null"));
+    }
 
     #[test]
     fn st55_password_length_boundary_is_sixteen() {
@@ -241,6 +608,24 @@ mod tests {
         assert!(
             !lines(&commands::acl_commands(&layout, "S-1-5-21-owner")).contains("ashiato-updater")
         );
+    }
+
+    #[test]
+    fn st58_update_directory_acl_names_updater_only_when_registered() {
+        // 未登録のサービス SID は icacls が名前解決できず 1332 で落ちる（初回のインストール）
+        let layout = layout::Layout::release();
+        let server = commands::service_sid(layout.server_service);
+        let updater = commands::service_sid(layout.updater_service);
+        let db = commands::service_sid(layout.db_service);
+        let without = commands::update_directory_acl_command(&layout, false).line();
+        assert!(without.contains(&server));
+        assert!(
+            without.contains(&format!("{db}:(OI)(CI)RX")),
+            "DB のサービスは更新の印を読める（仕様）"
+        );
+        assert!(!without.contains(&updater));
+        let with = commands::update_directory_acl_command(&layout, true).line();
+        assert!(with.contains(&server) && with.contains(&updater));
     }
 
     #[test]

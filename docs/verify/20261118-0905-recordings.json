@@ -1,0 +1,25 @@
+{
+  "tag": "20261118-0905",
+  "run_id": "20261118-181024-5a09e0d",
+  "commit": "5a09e0d88d1d5e214deeed083e471c4ba5209b56",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261118-181024-5a09e0d",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261118-181024-5a09e0d",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST58-web-update-apply",
+      "story": "ST58",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST58-web-update-apply/video.webm",
+      "trace": "scenarios/ST58-web-update-apply/trace.zip"
+    }
+  ],
+  "uncovered_stories": []
+}

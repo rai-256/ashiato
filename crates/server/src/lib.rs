@@ -15,6 +15,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::Connection as _;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 /// この S-01 の組み立ての印 `<版番号>+<commit>[.dirty][.debug]`（ST49 / design D5）。
@@ -262,6 +263,8 @@ mod st55_tests;
 mod st56_tests;
 #[cfg(test)]
 mod st57_tests;
+#[cfg(test)]
+mod st58_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -411,6 +414,10 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
     let me = build_channel();
     let backup = || {
+        #[cfg(ashiato_test_build)]
+        if std::env::var("ASHIATO_SERVER_TEST_MIGRATE_FAIL").as_deref() == Ok("before-backup") {
+            std::process::exit(1);
+        }
         match migrate_backup::backup_before_migrate(
             &url,
             &migrate_backup::BackupConfig::from_env(me),
@@ -448,6 +455,86 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     }
     tracing::info!(versions = MIGRATIONS.len(), "移行を当てた");
     Ok(())
+}
+
+/// 試験の組み立ての起動の差し込みが自分に当たるか。値は `1`（どの版にも）か版番号（その版だけ）。
+/// サービスの環境は前の版と新しい版で共通なので、版で絞らないと戻した前の版まで落ちる（review/code.md R58）。
+#[cfg(ashiato_test_build)]
+fn test_hook_applies(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| value == "1" || value == env!("ASHIATO_VERSION"))
+}
+
+/// `ashiato-server update-history` の所有者向け口。標準出力には履歴を出さない。
+pub async fn run_update_history(mut args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let sub = args.next().context("update-history の操作が必要です")?;
+    let mut value = |name: &str| -> anyhow::Result<String> {
+        let flag = args
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("{name} が必要です"))?;
+        anyhow::ensure!(flag == name, "{name} が必要です");
+        args.next()
+            .ok_or_else(|| anyhow::anyhow!("{name} の値が必要です"))
+    };
+    let url = std::env::var("DATABASE_OWNER_URL").context("DATABASE_OWNER_URL が未設定")?;
+    anyhow::ensure!(net_guard::db_host_is_local(&url), "DB は loopback に限る");
+    let mut conn = sqlx::PgConnection::connect(&url).await?;
+    match sub.as_str() {
+        "record-rollback" => {
+            let new_version = value("--new-version")?;
+            let previous = value("--previous-version")?;
+            let kind = value("--kind")?;
+            let pending = value("--pending-out")?;
+            let failed_version = if kind == "migration-failed" {
+                Some(value("--failed-version")?)
+            } else {
+                None
+            };
+            let sqlstate = if kind == "migration-failed" {
+                Some(value("--sqlstate")?)
+            } else {
+                None
+            };
+            let kind = match kind.as_str() {
+                // 空の値は「分からない」（インストーラが印に持っていない）。列は NULL にする
+                "migration-failed" => update_history::RollbackKind::MigrationFailed {
+                    failed_version: failed_version.as_deref().filter(|v| !v.is_empty()),
+                    sqlstate: sqlstate.as_deref().filter(|v| !v.is_empty()),
+                },
+                "startup-failed" => update_history::RollbackKind::StartupFailed,
+                _ => anyhow::bail!("未知の rollback 種別"),
+            };
+            match update_history::record_rollback(
+                &mut conn,
+                &new_version,
+                &previous,
+                kind,
+                MIGRATIONS,
+                Some(std::path::Path::new(&pending)),
+            )
+            .await
+            {
+                Ok(()) => Ok(()),
+                Err(update_history::RollbackError::PendingWritten) => {
+                    std::process::exit(5);
+                }
+                Err(e) => Err(e.into()),
+            }
+        }
+        "replay" => {
+            let path = args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("控えのファイルが必要です"))?;
+            anyhow::ensure!(args.next().is_none(), "引数が多すぎます");
+            // A rollback may have had no history to defer.  Replaying that
+            // absent file is deliberately a no-op so completion is restartable.
+            if !std::path::Path::new(&path).exists() {
+                return Ok(());
+            }
+            update_history::replay_pending(&mut conn, std::path::Path::new(&path)).await?;
+            Ok(())
+        }
+        _ => anyhow::bail!("知らない update-history の操作"),
+    }
 }
 
 /// 取り込み器の内部の App が持つ画面の合言葉。**HTTP に出さない**ので使われない（ログインの口を通らない）。
@@ -4718,9 +4805,20 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         app = app.route("/selftest/panic", get(selftest_panic));
     }
 
+    #[cfg(ashiato_test_build)]
+    if test_hook_applies("ASHIATO_SERVER_TEST_NO_LISTEN") {
+        std::process::exit(1);
+    }
     // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
+    #[cfg(ashiato_test_build)]
+    if test_hook_applies("ASHIATO_SERVER_TEST_EXIT_AFTER_LISTEN") {
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            std::process::exit(1);
+        });
+    }
     if service_mode {
         axum::serve(listener, app)
             .with_graceful_shutdown(crate::service::wait_for_stop())

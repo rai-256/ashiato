@@ -28,4 +28,15 @@ fn main() {
     ashiato_build_stamp::emit_rerun(&repo, INPUTS);
     println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
     println!("cargo:rustc-env=ASHIATO_VERSION={version}");
+    // 同梱する PostgreSQL の大きい版（D5）。入っている DB の `PG_VERSION` と比べる
+    let lock = repo.join("tools/release/pgsql.lock");
+    println!("cargo:rerun-if-changed={}", lock.display());
+    let text = std::fs::read_to_string(&lock).expect("tools/release/pgsql.lock を読めない");
+    let major = text
+        .lines()
+        .find_map(|line| line.strip_prefix("version="))
+        .and_then(|version| version.split('.').next())
+        .filter(|major| !major.is_empty() && major.bytes().all(|b| b.is_ascii_digit()))
+        .expect("pgsql.lock の version= から大きい版を読めない");
+    println!("cargo:rustc-env=ASHIATO_PG_MAJOR={major}");
 }

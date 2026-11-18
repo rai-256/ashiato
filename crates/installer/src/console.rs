@@ -38,10 +38,12 @@ pub fn decode_child_output(bytes: &[u8]) -> String {
     }
 }
 
-/// 失敗の理由に添える子の出力を読む。UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む
-/// （Rust の子 `ashiato-server migrate` が窓のコード頁に依らず UTF-8 で書くので、UTF-8 を先に見るのはここだけ。D8）。
+/// Rust の子（`ashiato-server`）の出力を読む。UTF-8 として正しければそのまま、そうでなければ窓のコード頁で読む
+/// （Rust の子は窓のコード頁に依らず UTF-8 で書くので、失敗の理由の末尾と `ashiato-server --version` の読みは
+/// UTF-8 を先に見る。D8）。
+#[must_use]
 #[cfg_attr(not(windows), allow(clippy::disallowed_methods))] // Windows 以外の子は UTF-8 で書く
-fn decode_tail_output(bytes: &[u8]) -> String {
+pub fn decode_tail_output(bytes: &[u8]) -> String {
     #[cfg(windows)]
     {
         windows_console::decode_tail_output(bytes)

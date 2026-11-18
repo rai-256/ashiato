@@ -111,9 +111,14 @@ pub fn backup_before_migrate(
     private_dir(&cfg.dir)
         .with_context(|| format!("退避の置き場を作れない: {}", cfg.dir.display()))?;
     let file = cfg.dir.join(format!("pre-migrate-{stamp}.dump"));
+    let part = cfg.dir.join(format!("pre-migrate-{stamp}.dump.part"));
     // 退避は実データの全部の写し。pg_dump が書く前に、本人だけが読める空のファイルを作っておく
     // （pg_dump と tools/pg_dump-docker.sh は既にあるファイルへ書くので、権限はこのまま残る）
-    private_file(&file).with_context(|| format!("退避のファイルを作れない: {}", file.display()))?;
+    private_file(&part).with_context(|| format!("退避のファイルを作れない: {}", part.display()))?;
+    #[cfg(ashiato_test_build)]
+    if std::env::var("ASHIATO_SERVER_TEST_MIGRATE_FAIL").as_deref() == Ok("during-backup") {
+        std::process::exit(1);
+    }
     let mut cmd = std::process::Command::new(&cfg.pg_dump);
     cmd.args([
         "--no-password",
@@ -124,7 +129,7 @@ pub fn backup_before_migrate(
         &t.port.to_string(),
     ])
     .args(["--username", &t.user, "--dbname", &t.database, "--file"])
-    .arg(&file)
+    .arg(&part)
     .env_remove("PGPASSWORD");
     if let Some(p) = &t.password {
         cmd.env("PGPASSWORD", p);
@@ -135,8 +140,8 @@ pub fn backup_before_migrate(
             cfg.pg_dump.display()
         )
     })?;
-    if !out.status.success() || !non_empty(&file) {
-        let _ = std::fs::remove_file(&file); // 途中の空の退避を残さない（退避があると読み違える）
+    if !out.status.success() || !non_empty(&part) {
+        let _ = std::fs::remove_file(&part); // 途中の退避を残さない（退避があると読み違える）
         let why = String::from_utf8_lossy(&out.stderr);
         // pg_dump の言い分の最後の行を添える（版の食い違いなどの理由が rc だけでは見えない。2026-10-25 の CI）
         bail!(
@@ -148,6 +153,8 @@ pub fn backup_before_migrate(
                 .unwrap_or("")
         );
     }
+    std::fs::rename(&part, &file)
+        .with_context(|| format!("退避の名前を変えられない: {}", file.display()))?;
     Ok(Some(file))
 }
 
