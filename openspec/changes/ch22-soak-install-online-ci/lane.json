@@ -1,0 +1,3 @@
+{"reason": "none",
+ "paths": [".github/workflows/ci.yml", "tools/**", "openspec/specs/distribution/spec.md", "docs/**"],
+ "why": "正典 distribution の Requirement（自動の試験は本物の配布元に問い合わせない・CI は外への接続を塞ぐ、spec.md:2523）を、外向きを開けて置く段と tls_online_* に合わせて改める。MODIFIED になり振る舞いの約束を変える。加えて依頼が「PC の収集アプリも配る形で置くか」を深掘りで決めると残しており、判定の閾値（何回の再起動・何件の誤りで落とすか）も決めることがある"}
