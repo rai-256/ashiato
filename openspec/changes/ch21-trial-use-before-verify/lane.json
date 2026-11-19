@@ -1,0 +1,3 @@
+{"reason": "none",
+ "paths": ["tools/verify-prep.sh", "tools/trial-use/**", "tools/recording/**", "docs/testing.md", "docs/adr/*.md", "docs/changes/CH21.md"],
+ "why": "道具の change だが、確認バッチに新しい席（Claude が Windows Sandbox に配る zip を入れて筋書きなしで使い、違和感の候補を手順書に載せ、issue を作る）を足し、手順書の中身と外へ出るもの（issue）が変わる。決めることが残っている —— 何を『違和感の候補』とみなし根拠をどう添えるか（誤検知の抑え方）、issue を自動で作るか人間の選別を挟むか、Sandbox の中で Claude をどう動かすか（画面の操作か API か）、数日分の使い方の真似をどう作るか、どこまでを完了とするか。省く理由（same / look / bug / recipe）のどれにも当たらない"}
