@@ -1,0 +1,2 @@
+{"id": "D16", "question": "実地口をどこで実行するか", "chosen": "GitHub Actions runnerに限定する", "keeps": "本人のPCの記録を消さない", "cost": "CI外では実地口を使えない", "follows": null, "rests_on": [], "source": "review/code.md#R11", "at": "2026-11-20"}
+{"id": "D17", "question": "置く時間をどう固定するか", "chosen": "300秒を自己試験で固定する", "keeps": "5分の置く時間を固定する", "cost": "時間変更には設計の見直しが要る", "follows": null, "rests_on": [], "source": "review/code.md#R10", "at": "2026-11-20"}

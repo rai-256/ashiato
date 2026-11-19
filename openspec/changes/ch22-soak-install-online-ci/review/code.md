@@ -95,6 +95,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   深掘り Q7・design D12 の「段の判定を緩めない」にも反する（落とす条件を黙って外している）。D7 の反転（runner で通知を登録できない）を先取りしたようにも読めるが、design・ledger に `Ruling:` は無い（`git log -S'no post-restart record'` は `0ce817585` だけ）
 - kind: technical
 - 提案: 起こし直しより後の行が 0 なら `die` にして、自己試験を `expect_fail`（needle は PC の収集アプリ）に直す。runner で登録できないと分かったら、D7・D15 のとおり spec ごと直す
+- 処置: fixed 1.1
 
 ## R2. 置く段は更新係のログを読んでいない（置き場が違う）。読めても、本物の形では同じ誤りを数えない
 - 成果物: tools/release/soak-install.sh
@@ -108,6 +109,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   自己試験の更新係のログの行は全部 `…Z ERROR same`（`:571-580`）で、製品が書かない形
 - kind: technical
 - 提案: 更新係のログを `$SOAK_UPDATER_DIR/logs/updater.log` から読み、ログごとに見つけたか・読んだ行数を落ちない回にも 1 行出す。更新係の時刻の形（`+00:00`）を読み、キーから外す。更新係は全部の行を数える。基準の行数は置く間の始まりに取る。自己試験の入力を `crates/updater` の書く形に合わせる
+- 処置: fixed 1.1
 
 ## R3. システムの記録を読めなくても「読めた・0 件」と出て、警告が出ない
 - 成果物: tools/release/soak-install.sh
@@ -116,6 +118,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   spec の Scenario「システムの記録を読めなければ…」の GIVEN は「終了コード 1 で何も返さない偽の命令」だが、自己試験は `events` を消しているだけ（`:566`）。P11 の観測（読めたか）が CI のログで嘘になる
 - kind: technical
 - 提案: `wevtutil` の rc（と 1 件も読めないこと）で読めたかを決め、読めないときは `events` を作らない。自己試験は実地の口で偽の `wevtutil` を `exit 1` にして警告の行を見る。spec の AND（`ashiato-db` の番号を変えると落ちる）も足す
+- 処置: fixed 1.1
 
 ## R4. PC の収集アプリが、台本の起こし直しより前に終わっても落ちない
 - 成果物: tools/release/soak-install.sh
@@ -123,6 +126,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   起こし直しより前に PID が 100 → 空 → 101 と変わる読みを入れた `--evaluate` → rc=0（`collector pid changes=0`）。実地では最初の 60 秒（`SOAK_COLLECTOR_RESTART_SECONDS`）が見られない。1 回目の起動（案内を出す）で落ちる不具合は、台本の起こし直しで隠れる
 - kind: technical
 - 提案: 置く間の始まりから起こし直しまでの読みも数え、台本の `taskkill` の前後の 1 回だけを除く。自己試験に「起こし直しより前に消える」入力を足す
+- 処置: fixed 1.1
 
 ## R5. 「数えない」の 2 つの Scenario は 1 行だけで試していて、除外を消しても緑のまま
 - 成果物: tools/release/soak-install.sh
@@ -130,6 +134,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   複製の台本で、窓の比べ（`:88`）と `ERROR` の絞り（`:98`）を両方 `:` にした → `--self-test` rc=0（`OK: soak-install self-test`）。tasks 1.1 の「1 か所だけ直した入力では通ることを並べて見る」の逆（除外が効かなければ落ちる側）も無い。spec の AND（同じ 5 行を置く間へ移すと落ちる）も無い
 - kind: technical
 - 提案: spec のとおり 5 行を、spec の名指しのログ（PC の収集アプリ・DB）に置き、置く間へ移した写しで `expect_fail` を並べる。手 3 の「見る場所のずれ」4 件も、spec の GIVEN・THEN に合わせる
+- 処置: fixed 1.1
 
 ## R6. 台本の合言葉を伏せる値に入れていない
 - 成果物: tools/release/soak-install.sh
@@ -138,6 +143,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   spec の Scenario「置く段の出力に秘密の値が出ない」は「画面の合言葉」も挙げるが、自己試験の入力（`:599`）に合言葉が無い。値は repo に書いてある固定の字面なので漏れの害は小さいが、spec の主張は満たしていない
 - kind: technical
 - 提案: `ng_secret_values` で `SOAK_INSTALL_PASSWORD` を出し、自己試験の誤りの行に合言葉を混ぜる
+- 処置: fixed 1.1
 
 ## R7. 「塞ぎを外す手順は置く段の 1 つだけ」の検査が、別の書き方の 2 つ目を見逃す
 - 成果物: tools/release/soak-install.sh（`soak_ci_definition_self_test`）
@@ -146,6 +152,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   `shell: pwsh` の `Remove-NetFirewallRule -Name ashiato-update-check-ci-outbound` を足した → rc=0。spec の Scenario「更新係の外向きの塞ぎを外す手順は、置く段の 1 つだけである」は「置く段の台本を走らせる・塞ぎの規則を消す」手順の全部を数える主張
 - kind: technical
 - 提案: `soak-install.sh` の実地の口（`--self-test`・`--list` 以外の引数）を走らせる手順をどの引数でも数え、規則の名前 `ashiato-update-check-ci-outbound` を持つ手順を `--block-outbound` のほかに置く段だけに限る
+- 処置: fixed 2.2
 
 ## R8. 自己試験がまれに落ちる（「更新係の確かめた記録が無い」）
 - 成果物: tools/release/soak-install.sh
@@ -153,6 +160,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   実地の口の自己試験（`soak_install_self_test`）は、偽のインストーラが `date` で書く `at` と台本が取る `start` をミリ秒の字面の `>` で比べ、インストーラの上限は `SOAK_SETUP_TIMEOUT=1` 秒。原因はまだ特定していない（出力にインストーラの失敗の NG は無い）。揺れを見たのはこの WSL の上だけ（CI の runner では走らせていない）
 - kind: technical
 - 提案: 落ちた回の `checks.jsonl` と `start` を観測に出し、原因を決めてから直す（偽の記録の時刻を `start` から作るなど、比べの両側を台本が決める形）
+- 処置: fixed 1.1
 
 ## R9. Task 2.2 の終了の条件（`install-windows` が置く段を含めて緑）が未確認のまま `[x]`
 - 成果物: openspec/changes/ch22-soak-install-online-ci/tasks.md / .github/workflows/ci.yml
@@ -160,6 +168,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   自己試験は全部偽の命令で、R2・R3 のように偽の形と本物の形がずれたところは緑になる。tasks の本文も「下流の手元では走らない」と書いている
 - kind: premise
 - 提案: settle と final で、PR の CI の `install-windows` の置く段の出力（起こし直しの回数・誤りの行・`system-events`・`outage_notice_unavailable`・確かめた記録）を読んでから完了とする。R1〜R4 を直す前の走りが緑でも、判定が働いた証にはならない
+- 処置: escalated
 
 ## R10. 置く時間の 5 分（`SOAK_WAIT_SECONDS=300`）を変えても全部通る
 - 成果物: tools/release/soak-install.sh
@@ -167,6 +176,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   5 分は依頼の本人の決定（「5 分ほど」）で、spec の Requirement の本文と Scenario の名前にある。`SOAK_SAME_ERROR_LIMIT` には `== 3` の assert があるが、こちらには無い
 - kind: daily
 - 提案: 自己試験に `[[ "$SOAK_WAIT_SECONDS" == 300 ]]` を足す（同じ誤りの閾値と同じ形）
+- 処置: fixed D17 仮
 
 ## security review（7817dc5..d5e974b）
 
@@ -184,8 +194,9 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 根拠: `soak_run`（`:294`）は zip を開く（`:223`・`:310`）より前に `soak_reset_machine`（`:304`）を呼び、`:202`〜`:209` で `C:/ProgramData/ashiato`（DB）と `SOAK_COLLECTOR_DIR` = `%LOCALAPPDATA%/ashiato/collector`（`:299`。`crates/collector-windows/src/config.rs:146`〜`148` の置き場と同じで、`runtime.rs:305` の `outbox.jsonl` を持つ）を `rm -rf` する。`GITHUB_ACTIONS` や確認の引数を見る分岐は `main`（`:615`）に無い。
   台本で確かめた: 一時の箱の中に `C:/ProgramData/ashiato/db/PG_VERSION` と `LOCALAPPDATA/ashiato/collector/outbox.jsonl` を置き、`sc.exe` などを rc=1 の偽にして、`GITHUB_ACTIONS`・`CI` を外し、**存在しない** zip 2 つで `soak-install.sh` を走らせた → `NG: 配るサーバの zip を開けない` rc=1 で終わったが、終わったあとに 2 つの置き場は空。`taskkill /F /IM ashiato-collector-windows.exe` も呼ばれていた（確かさ 4）。
   DB を消すこと自体は既存の `update-check-install.sh:140`・`update-apply-install.sh` の reset と同じだが、**PC の収集アプリの置き場（まだサーバへ届いていない記録）を消すのはこの差分から**で、本人が自分の Windows で置く段を試せば（`docs/testing.md` は「Windows の実地の確かめ」の台本として並べている）、まだ送っていない記録が戻らない形で消える
-- kind: irreversible
+- kind: conflict
 - 提案: 実地の口は `GITHUB_ACTIONS=true`（か、明示の `--i-am-ci` のような引数）でないと reset の前に `die` する。少なくとも `SOAK_COLLECTOR_DIR` の既定を本人の `%LOCALAPPDATA%` にせず、`ASHIATO_STATE_DIR` で作業の箱の置き場を渡して収集アプリを起こす。引数の zip の確かめは reset より前に回す
+- 処置: fixed D16 仮
 
 範囲外: `update-check-install.sh`・`update-apply-install.sh` の reset も CI の上かを見ずに `C:/ProgramData/ashiato` を消す（既存）。
 
@@ -198,57 +209,67 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 根拠: During the soak, the updater service writes the same error 3 or more times to C:/ProgramData/ashiato-updater/logs/updater.log. The script reads a file that does not exist, so logs/updater.log ends up empty. The 'same error repeated' check does not fire and the step passes.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R13. The collector's PID reading returns the session number, not the PID, so the 'PID changed' check can never fire. In the tasklist CSV line `"exe","PID","Console","Session#","Mem"`, the greedy `.*,"\([0-9][0-9]*\)",` in `sed` matches the last `,"digits",`, which is the Session# field. Fix: take the second column with a non-greedy pattern such as `sed -n 's/^"[^"]*","\([0-9]*\)".*/\1/p'`, and make the self-test stub check the value too.
 - 成果物: tools/release/soak-install.sh:248
 - 根拠: The collector crashes during the soak and something restarts it right away (PID 100→200). collector.pid records the same session number ('1' or '0') each time, so changes=0 and the step passes. The self-test stub's `"42","Console","1"` also yields '1', and the self-test does not catch it.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1
 
 ## R14. On failure, the NG output shows only a file path, not the file's contents, so the cause can't be traced. `die_seen <reason> <value>` prints its second argument as the observed value; file contents only come out when the file is passed as ng_report's fourth argument. This script passes `"$work/install.out"`, `"$dir/services/$svc"` (l.64), `"$SOAK_TMP/errors"` (l.108) and `"$file"` (l.154) as the second argument. On top of that, NG_STATE_DIR, NG_HEALTHZ_URL and NG_SETTINGS_FILES are never set, so the service, healthz and server-log observations are empty too. Fix: pass the file contents as the value (e.g. the output of `tail -n 80`), or call ng_report with the file as the fourth argument, and set the NG_* variables in soak_run.
 - 成果物: tools/release/soak-install.sh:228
 - 根拠: The installer fails during the soak. The CI log shows only 'NG: 配る形のサーバのインストールに失敗' and the path '/tmp/ch22-soak-run.xxx/install.out', and $work is then deleted. Nothing remains to explain why it failed.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1
 
 ## R15. Real secrets are written as plain text into the shared temp folder and never removed. NG_OBSERVED_DIR defaults to `${TMPDIR:-/tmp}`, so ng_secret_file/ng_collect_secrets inside soak_evaluate write `$TMPDIR/.ng-secrets`, `.ng-secrets.vals` and `.ng-read-API_TOKEN.val`. These hold the values read from server.json/owner.json: API_TOKEN, WEB_PASSWORD_VERIFIER and the DB passwords. Only the --self-test path removes them. Fix: point NG_OBSERVED_DIR at a dedicated folder created with mktemp and remove it in the EXIT trap.
 - 成果物: tools/release/soak-install.sh:13
 - 根拠: After a real soak run on the Windows runner, C:\Users\runneradmin\AppData\Local\Temp\.ng-secrets keeps the server's API token and DB owner password. Later steps can read them, and they leak if the folder is uploaded as an artifact or the machine is shared.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R16. The real run's work folder is never cleaned up. soak_evaluate's `trap '...' RETURN EXIT` replaces main's `trap 'rm -rf "$work"' EXIT` (l.629). Even if it did not, `work` is local to main, so under `set -u` it is unbound when the EXIT trap runs after main returns. Fix: register the cleanup of $work and SOAK_TMP together in one global trap. Do not override EXIT inside soak_evaluate (use RETURN only, or clean up explicitly).
 - 成果物: tools/release/soak-install.sh:160
 - 根拠: After every real run, /tmp/ch22-soak-run.XXXXXX is left behind, holding copied logs, the event log, the collector executable and install.out. This also trips the harness's leak check (HARNESS_TMP_LEAK=fail).（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1
 
 ## R17. The baseline line count is always written as 0, so a log line whose timestamp can't be read is counted even if it was written before the soak window. The updater log uses the format `Utc::now().to_rfc3339()`, which ends in `+00:00`, and the timestamp regex (which only accepts `...Z`) does not match it. Every updater log line therefore falls through to the 'unreadable timestamp' path and the window check does not apply. Fix: record each log's line count at soak_start as the baseline, and accept the `+00:00` form in the regex as well.
 - 成果物: tools/release/soak-install.sh:264
 - 根拠: Right after install, before the soak starts, the updater writes the same error 3 times (e.g. at startup). Once the path in the first finding is fixed, those lines are counted as errors 'inside the window', and the soak fails even though it ran normally.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R18. The collector the script started is never stopped when the step ends. It is started in the background with `"$collector" &` and never killed after the soak, so it keeps running from $work. Fix: kill the collector with taskkill before evaluating or before exiting.
 - 成果物: tools/release/soak-install.sh:320
 - 根拠: Once the soak step ends, the collector keeps running for the rest of the job. On Windows it locks the executable under $work, so `rm -rf "$work"` fails. Later steps also see a collector that keeps sending and writing its log.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1
 
 ## R19. The 'system-events: readable count' shown in the output is three times the real number of events. `((total++))` sits inside the per-service loop and runs for every 7031/7034 event, whichever service it belongs to. Fix: count total in a separate loop that runs once, or only on lines that match a service.
 - 成果物: tools/release/soak-install.sh:58
 - 根拠: With a single 7034 event, the output reads 'readable count=3', which is misleading when someone reads the evidence.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R20. The secrets list includes two variables that are never set, while the password actually used for install is left out. ng_secret_values outputs `SOAK_RELEASE_PASSWORD` and `SOAK_TEST_PASSWORD`, which nothing sets. `SOAK_INSTALL_PASSWORD`, the one fed to the installer, is not listed. Fix: add `$SOAK_INSTALL_PASSWORD` to the output and remove the unused variable names.
 - 成果物: tools/release/soak-install.sh:25
 - 根拠: If the installer echoes the entered password into install.out or a log, the password is printed to the CI log without being masked.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R21. An error message containing `|` is never counted, so its repeats go undetected. Keys are saved as `name|key` and counted with `awk -F'|'` comparing only `$2`. If the key itself contains `|`, it never matches and count=0. Comparing timestamps as strings also gets the order wrong when the fractional-second precision differs (chrono omits the fraction for whole seconds, and 'Z' sorts after '.'). Fix: separate the fields with a tab or similar and compare with `substr`, and normalize timestamps before comparing.
 - 成果物: tools/release/soak-install.sh:106
 - 根拠: The server logs 3 lines of `ERROR ... a|b`. Each count comes out as 0, the 'same error repeated' check does not fire, and the step passes.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1

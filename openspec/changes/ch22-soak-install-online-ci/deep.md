@@ -32,3 +32,8 @@
 
 - 問い: 置く段が最初の走りでいまの不具合を見つけて赤になったら、どうしますか。
 - 答え: (推奨のまま: 段は緩めず、直しは別の change にし、この change はその直しの後に merge する)
+
+### Q8. Windows の実地 CI がまだ無い段階での完了判定（R9・未回答）
+
+- 問い: 実地の `install-windows` は PR を publish するまで起動できません。今回の修正を re-review して publish へ進め、PR CI の置く段が緑で観測を出したことを最終の完了条件としてよいですか。
+- 背景: 手元の Linux 自己試験は Windows の `sc.exe`、`tasklist.exe`、`wevtutil.exe`、Git Bash の引数の実物を再現できません。R1〜R4 のように偽物と実物の差が見つかったため、PR CI の実地結果なしに Task 2.2 の終了条件を満たしたとは判断できません。
