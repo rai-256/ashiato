@@ -135,9 +135,28 @@ soak_log_errors() {
   done < <(awk -F'\t' '!seen[$0]++' "$SOAK_TMP/errors")
 }
 
+soak_collector_launch_details() {
+  local dir="$1" output status pid number
+  for output in "$dir"/collector-launch-*.out; do
+    [[ -f "$output" ]] || continue
+    number="${output##*-}"; number="${number%.out}"
+    status="${output%.out}.status"; pid="${output%.out}.pid"
+    printf 'collector launch #%s' "$number"
+    [[ ! -f "$pid" ]] || printf ' shell_pid=%s' "$(<"$pid")"
+    if [[ -f "$status" ]]; then printf ' %s' "$(<"$status")"; else printf ' exit=running_or_unrecorded'; fi
+    printf '\n'
+    printf '%s\n' "-- $output（末尾 80 行）"
+    if [[ -s "$output" ]]; then tail -n 80 "$output"; else printf '%s\n' '（出力なし）'; fi
+  done
+}
+
 soak_check_records() {
-  local file="$1" since="$2" label="$3" line at ok reason any=0 bad=0 only_limit=1
-  [[ -f "$file" ]] || { die "${label} の確かめた記録が無い"; return; }
+  local file="$1" since="$2" label="$3" details_dir="${4:-}" line at ok reason any=0 bad=0 only_limit=1 details=''
+  if [[ ! -f "$file" ]]; then
+    [[ -z "$details_dir" ]] || details="$(soak_collector_launch_details "$details_dir")"
+    die_seen "${label} の確かめた記録が無い" "$details"
+    return
+  fi
   while IFS= read -r line; do
     at="$(sed -nE 's/.*"at":"([^"]+)".*/\1/p' <<<"$line")"
     [[ "$at" > "$since" ]] || continue
@@ -190,7 +209,7 @@ soak_evaluate() {
   soak_service_failures "$dir" "$soak_start" "$end" "$dir/events"
   soak_log_errors "$soak_start" "$end" "$baseline_dir" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
   soak_check_records "$dir/checks.jsonl" "$start" updater
-  soak_check_records "$dir/update-checks.jsonl" "$restart" collector
+  soak_check_records "$dir/update-checks.jsonl" "$restart" collector "$dir"
   soak_collector_pid "$dir/collector.pid" "$start" "$restart" "$end"
   [[ "$(<"$dir/health")" == 200 ]] || die "置き終わりの healthz が 200 ではない"
   for svc in ashiato-db ashiato-server ashiato-updater; do
@@ -355,6 +374,19 @@ soak_collect_observations() {
   printf '%s\n' "$(curl.exe -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)" >"$dir/health"
 }
 
+soak_collector_process() {
+  local collector="$1" output="$2" status="$3" rc=0
+  "$collector" >"$output" 2>&1 || rc=$?
+  printf 'exit=%s\n' "$rc" >"$status"
+  return "$rc"
+}
+
+soak_launch_collector() {
+  local collector="$1" work="$2" number="$3" output="$work/collector-launch-$3.out" status="$work/collector-launch-$3.status" pid="$work/collector-launch-$3.pid"
+  soak_collector_process "$collector" "$output" "$status" &
+  printf '%s\n' "$!" >"$pid"
+}
+
 soak_run() {
   local server_zip="$1" collector_zip="$2" work="$3" start soak_start restart='' end collector collector_native
   mkdir -p "$work/services" "$work/observed"
@@ -393,14 +425,14 @@ $SOAK_STATE_DIR/settings/owner.json"
   collector="$work/collector/ashiato-collector-windows.exe"
   [[ -f "$collector" ]] || die '配る PC の収集アプリの zip に実行ファイルが無い'
   collector_native="$(soak_native_path "$collector")"
-  "$collector_native" >/dev/null 2>&1 &
+  soak_launch_collector "$collector_native" "$work" 1
   soak_record_sample "$work"
   local elapsed=0
   while (( elapsed < SOAK_WAIT_SECONDS )); do
     sleep "$SOAK_READ_INTERVAL_SECONDS"; elapsed=$((elapsed + SOAK_READ_INTERVAL_SECONDS)); soak_record_sample "$work"
     if (( elapsed >= SOAK_COLLECTOR_RESTART_SECONDS )) && [[ -z "$restart" ]]; then
       taskkill.exe /F /IM ashiato-collector-windows.exe >/dev/null 2>&1 || true
-      "$collector_native" >/dev/null 2>&1 &
+      soak_launch_collector "$collector_native" "$work" 2
       restart="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
     fi
   done
@@ -709,6 +741,12 @@ soak_self_test() {
   printf '2026-11-20T00:01:20.000Z|\n' >>"$work/collector-pid/collector.pid"; expect_fail "$work/collector-pid"
   # Scenario: 起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす
   cp -R "$base" "$work/collector-before"; printf '{"at":"2026-11-20T00:00:05.000Z","ok":false,"reason":"unreachable","latest":null}\n' >"$work/collector-before/update-checks.jsonl"; expect_fail "$work/collector-before" "collector"
+  # PC の収集アプリの記録が無いときは、起動したプログラムの出力と終了状態を出す
+  cp -R "$base" "$work/collector-missing"; rm "$work/collector-missing/update-checks.jsonl"
+  printf '%s\n' 'collector launch exception' >"$work/collector-missing/collector-launch-1.out"
+  printf '%s\n' 'exit=42' >"$work/collector-missing/collector-launch-1.status"
+  expect_fail "$work/collector-missing" "collector launch exception"
+  grep -q 'exit=42' "$work/collector-missing/err" || die 'self-test: collector の終了状態が出ない'
   # Scenario: 置く段の出力に秘密の値が出ない
   self_test_db_secret="$(printf '%s%s' 'secret-' db)"
   self_test_owner_secret="$(printf '%s%s' 'secret-' owner)"
