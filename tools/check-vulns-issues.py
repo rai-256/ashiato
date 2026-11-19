@@ -149,17 +149,15 @@ def load_material(directory: Path) -> list[dict]:
 
 
 def file_issues(directory: Path) -> int:
-    if not directory.exists():
-        print("error: issue を記録できなかった（材料が無い）", file=sys.stderr)
-        return 2
-    rows = load_material(directory)
-    if not rows:
-        print("error: issue を記録できなかった（材料が無い）", file=sys.stderr)
-        return 2
-    grouped: dict[str, list[dict]] = {}
-    for row in rows:
-        grouped.setdefault(title_for(row), []).append(row)
     try:
+        if not directory.exists():
+            raise ValueError("材料が無い")
+        rows = load_material(directory)
+        if not rows:
+            raise ValueError("材料が無い")
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            grouped.setdefault(title_for(row), []).append(row)
         labels = gh_json(["label", "list", "--search", "脆弱性", "--json", "name"], empty=[])
         if not any(item.get("name") == "脆弱性" for item in labels):
             proc = run(["gh", "label", "create", "脆弱性", "--color", "B60205"])
@@ -196,15 +194,17 @@ def file_issues(directory: Path) -> int:
             if proc.returncode != 0:
                 raise RuntimeError(proc.stderr.strip() or "issue に追記できない")
         return 0
-    except (RuntimeError, OSError) as exc:
+    except (RuntimeError, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"error: issue を記録できなかった（{exc}）", file=sys.stderr)
         return 2
 
 
 def report_unfiled(run_url: str) -> int:
-    body = f"夜: {datetime.now(timezone.utc):%F}\nrun: {run_url}"
+    date = os.environ.get("CHECK_VULNS_TEST_UTC_DATE") or f"{datetime.now(timezone.utc):%F}"
+    body = f"夜: {date}\nrun: {run_url}"
     try:
-        issues = gh_json(["issue", "list", "--state", "open", "--limit", str(ISSUE_LIMIT), "--json", "number,title"])
+        issues = gh_json(["issue", "list", "--state", "open", "--limit", str(ISSUE_LIMIT),
+                          "--search", f"{UNFILED_TITLE} in:title", "--json", "number,title"])
         existing = next((issue for issue in issues if issue.get("title") == UNFILED_TITLE), None)
         if existing is None:
             create_issue(UNFILED_TITLE, body)

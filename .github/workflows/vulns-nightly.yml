@@ -55,19 +55,26 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - id: download
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           pattern: '*-findings'
           path: "${{ runner.temp }}/findings"
           merge-multiple: true
       - id: file
+        timeout-minutes: 5
         if: always()
         run: |
+          if [ "$DOWNLOAD_OUTCOME" = 'failure' ]; then
+            echo 'error: findings の取得に失敗したため issue を記録できない' >&2
+            exit 2
+          fi
           if [ -d "$RUNNER_TEMP/findings" ] && find "$RUNNER_TEMP/findings" -type f -print -quit | grep -q .; then
             tools/check-vulns.sh file-issues "$RUNNER_TEMP/findings"
           fi
         env:
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
           GH_TOKEN: ${{ github.token }}
       - if: failure() && steps.file.outcome == 'failure'
         run: tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

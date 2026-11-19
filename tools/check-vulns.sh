@@ -372,7 +372,7 @@ PY
 #!/usr/bin/env bash
 set -u
 log_args=$*
-if [[ "${GH_FAIL_ASSIGNEE:-}" == 1 ]]; then log_args=${log_args//$'\n'/\\n}; fi
+log_args=${log_args//$'\n'/\\n}
 printf '%s\n' "$log_args" >>"$GH_LOG"
 body=""
 limit=30
@@ -528,27 +528,27 @@ JSON
   echo "== Scenario: 知らせの段が落ちた夜は、決まった題の 1 件の issue が立つ"
   : >"$gh_log"
   rm -f "$gh_body_dir"/*
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/1 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/1 || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
   ! grep -Eq '^issue create .*--label' "$gh_log" || return 1
   echo "== Scenario: 知らせの issue はラベルに触れない"
   ! grep -Eq '^(label list|label create) ' "$gh_log" || return 1
-  grep -Eq '^issue list --state open --limit 1000 --json number,title$' "$gh_log" || return 1
+  grep -Fq -- '--search 脆弱性: 毎晩の知らせを issue にできなかった in:title' "$gh_log" || return 1
   ! grep -Eq '^issue list .*--label' "$gh_log" || return 1
   echo "== Scenario: 知らせの issue の本文は、日付と run の 2 行だけ"
-  printf '夜: %s\nrun: https://example.invalid/run/1' "$(date -u +%F)" | diff -u - "$gh_body_dir/create-1" || return 1
+  printf '%s\n%s' '夜: 2026-01-02' 'run: https://example.invalid/run/1' | diff -u - "$gh_body_dir/create-1" || return 1
   echo "== Scenario: 知らせの issue が開いていれば、立て直さずに追記する"
   : >"$gh_log"
   rm -f "$gh_body_dir"/*
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
   ! grep -Eq '^issue create ' "$gh_log" || return 1
   [[ "$(grep -Ec '^issue comment 12 ' "$gh_log")" == 2 ]] || return 1
-  printf '夜: %s\nrun: https://example.invalid/run/2' "$(date -u +%F)" | diff -u - "$gh_body_dir/comment-1" || return 1
-  printf '夜: %s\nrun: https://example.invalid/run/2' "$(date -u +%F)" | diff -u - "$gh_body_dir/comment-2" || return 1
+  printf '%s\n%s' '夜: 2026-01-02' 'run: https://example.invalid/run/2' | diff -u - "$gh_body_dir/comment-1" || return 1
+  printf '%s\n%s' '夜: 2026-01-02' 'run: https://example.invalid/run/2' | diff -u - "$gh_body_dir/comment-2" || return 1
   echo "== Scenario: 知らせの issue を立てられなければ、rc=2 で落ちる"
   local report_create_rc=0
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_CREATE=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/3 2>"$tmp/report-create.err" || report_create_rc=$?
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_CREATE=1 CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/3 2>"$tmp/report-create.err" || report_create_rc=$?
   [[ "$report_create_rc" == 2 ]] || return 1
   grep -Fq 'error: 知らせの issue を立てられなかった' "$tmp/report-create.err" || return 1
   echo "== Scenario: report-unfiled の引数が違えば、rc=2 で落ちる"
@@ -563,17 +563,17 @@ JSON
   echo "== Scenario: 毎晩の検査が立てる issue は、持ち主が担当者になる"
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GITHUB_REPOSITORY_OWNER=owner-x CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
   [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 2 ]] || return 1
   echo "== Scenario: 持ち主の名前が無ければ、担当者を付けない"
   : >"$gh_log"
   env -u GITHUB_REPOSITORY_OWNER PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
-  env -u GITHUB_REPOSITORY_OWNER PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  env -u GITHUB_REPOSITORY_OWNER PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
   ! grep -Fq -- '--assignee' "$gh_log" || return 1
   echo "== Scenario: 開いた issue への追記では、担当者を足さない"
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 GITHUB_REPOSITORY_OWNER=owner-x CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
   ! grep -Eq '^issue (comment|edit) .*--assignee' "$gh_log" || return 1
   echo "== Scenario: 担当者を付けられなければ、担当者無しで立て直す"
   cat >"$tmp/retry-findings.json" <<'JSON'
@@ -581,7 +581,7 @@ JSON
 JSON
   : >"$gh_log"
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/retry-findings.json" || return 1
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/5 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x CHECK_VULNS_TEST_UTC_DATE=2026-01-02 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/5 || return 1
   [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 3 ]] || return 1
   [[ "$(grep -Ec '^issue create ' "$gh_log")" == 6 ]] || return 1
   grep '^issue create ' "$gh_log" >"$tmp/retry-creates.log"
@@ -594,6 +594,13 @@ JSON
   sed -n '5p' "$tmp/retry-creates.log" | grep -F '脆弱性: 毎晩の知らせを issue にできなかった' | grep -F -- '--assignee owner-x' >/dev/null || return 1
   sed -n '6p' "$tmp/retry-creates.log" | grep -F '脆弱性: 毎晩の知らせを issue にできなかった' >/dev/null || return 1
   ! sed -n '6p' "$tmp/retry-creates.log" | grep -F -- '--assignee' >/dev/null || return 1
+  echo "== Scenario: 壊れた材料は、error と rc=2 で終わる"
+  printf '{' >"$tmp/broken-material.json"
+  local broken_material_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/broken-material.json" 2>"$tmp/broken-material.err" || broken_material_rc=$?
+  [[ "$broken_material_rc" == 2 ]] || return 1
+  grep -Fq 'error: issue を記録できなかった' "$tmp/broken-material.err" || return 1
+  ! grep -Fq 'Traceback' "$tmp/broken-material.err" || return 1
   return 0
 }
 
