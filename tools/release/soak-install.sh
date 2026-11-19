@@ -429,6 +429,7 @@ EOF
   : >"$ST22_RULE"
   if (PATH="$bin:$PATH" ST22_KEEP_RULE=1 soak_remove_outbound_rule) >"$work/rule.out" 2>&1; then die 'self-test: 塞ぎが残るのに通った'; fi
   grep -q 'NG:' "$work/rule.out" || die 'self-test: 塞ぎが残った理由が出ない'
+  # Scenario: 消した後に前の段の入れたものが残れば、配る zip を入れずに落ちる
   # Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる
   : >"$ST22_RULE"; : >"$calls"
   if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' ST22_KEEP_RULE=1 reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/rule-fail") >"$work/order.out" 2>&1; then
