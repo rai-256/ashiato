@@ -14,6 +14,7 @@
 | 配る zip のインストーラ（サービスの登録・昇格を含む）が Sandbox の中で最後まで通る | この change の土台・Q2 | 未実施（ST55 の P16/P19 は CI に委ねたまま。Sandbox で通ったのは利用者の権限で動く PC の収集アプリの録画だけ）。下流の最初の Task で試す | 未確認 | 知識 | 1 |
 | 11-19 の違和感（更新の確認がエラーを出し続ける）がどの版・どの条件で起き、Sandbox で再現するか | Q13 | 未実施 | 未確認 | 本人の報告（依頼） | 1 |
 | 確認バッチの手順書（`docs/verify/<tag>.json`）は commit されて公開の origin へ push され、manifest は PR の本文にも写る | Q7 | `.harness2/scripts/verify_checklist.py:583-586`・`verify_batch.sh:209・214・234`（deep-review R2）と、main に commit 済みの手順書に manifest の段落があるか（`git ls-files docs/verify` → `grep run.sh`） | そのとおり。commit 済みの手順書に manifest の段落が載っている | 実物 | 5 |
+| 手順書に出る候補の題に、本人の記録・私的な値が入らない | Q7（題 1 行は公開の手順書に出る） | Claude に渡す材料が目的の一覧・配る zip・合成の書き出しだけであること（spec の「材料の置き場と Claude の作業場所には…何も無い」が機械で縛る）を辿り、題は 1 行 60 文字・`tools/check-private.sh` の型を伏せる（spec の「題は 1 行 60 文字までで…」）。spec-review R2 | 材料に本人のものは無い（作りで）。Claude の言い回しそのものは機械では縛れない | 設計（この change の spec） | 3（自己検査が通れば 4） |
 
 失われるもの（`loss`）を持つ決定は Q7・Q8 で、依る前提（公開のリポジトリは確かさ 5、手順書が公開の repo に出ることも確かさ 5）。
 確かさ 1〜2 の前提に依る問い（Q2・Q3・Q13）は、どれを選んでも何も失わない（作り直せば戻る）ので B に置いた。
