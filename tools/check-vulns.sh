@@ -371,7 +371,9 @@ PY
   cat >"$fake_gh" <<'GH'
 #!/usr/bin/env bash
 set -u
-printf '%s\n' "$*" >>"$GH_LOG"
+log_args=$*
+if [[ "${GH_FAIL_ASSIGNEE:-}" == 1 ]]; then log_args=${log_args//$'\n'/\\n}; fi
+printf '%s\n' "$log_args" >>"$GH_LOG"
 body=""
 limit=30
 for ((i = 1; i <= $#; i++)); do
@@ -574,11 +576,24 @@ JSON
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
   ! grep -Eq '^issue (comment|edit) .*--assignee' "$gh_log" || return 1
   echo "== Scenario: 担当者を付けられなければ、担当者無しで立て直す"
+  cat >"$tmp/retry-findings.json" <<'JSON'
+[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-retry-lodash","severity":"HIGH"},{"kind":"vulnerability","ecosystem":"crates.io","name":"ansi_term","version":"0.12.1","id":"RUSTSEC-retry-ansi","severity":"HIGH"}]
+JSON
   : >"$gh_log"
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/retry-findings.json" || return 1
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/5 || return 1
-  [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 2 ]] || return 1
-  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 4 ]] || return 1
+  [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 3 ]] || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 6 ]] || return 1
+  grep '^issue create ' "$gh_log" >"$tmp/retry-creates.log"
+  sed -n '1p' "$tmp/retry-creates.log" | grep -F '脆弱性: npm lodash' | grep -F -- '--assignee owner-x' >/dev/null || return 1
+  sed -n '2p' "$tmp/retry-creates.log" | grep -F '脆弱性: npm lodash' >/dev/null || return 1
+  ! sed -n '2p' "$tmp/retry-creates.log" | grep -F -- '--assignee' >/dev/null || return 1
+  sed -n '3p' "$tmp/retry-creates.log" | grep -F '脆弱性: crates.io ansi_term' | grep -F -- '--assignee owner-x' >/dev/null || return 1
+  sed -n '4p' "$tmp/retry-creates.log" | grep -F '脆弱性: crates.io ansi_term' >/dev/null || return 1
+  ! sed -n '4p' "$tmp/retry-creates.log" | grep -F -- '--assignee' >/dev/null || return 1
+  sed -n '5p' "$tmp/retry-creates.log" | grep -F '脆弱性: 毎晩の知らせを issue にできなかった' | grep -F -- '--assignee owner-x' >/dev/null || return 1
+  sed -n '6p' "$tmp/retry-creates.log" | grep -F '脆弱性: 毎晩の知らせを issue にできなかった' >/dev/null || return 1
+  ! sed -n '6p' "$tmp/retry-creates.log" | grep -F -- '--assignee' >/dev/null || return 1
   return 0
 }
 

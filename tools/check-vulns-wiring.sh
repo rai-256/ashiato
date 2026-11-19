@@ -41,6 +41,7 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail '知らせの段を削除' sed -i '/tools\/check-vulns.sh report-unfiled/d' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail '知らせの段を常に実行' sed -i "s/if: failure() && steps.file.outcome == 'failure'/if: always()/" "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail '知らせの段の failure 条件を削除' sed -i "s/if: failure() && steps.file.outcome == 'failure'/if: steps.file.outcome == 'failure'/" "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '知らせの段の GH_TOKEN を削除' sed -i '0,/GH_TOKEN: \${{ github.token }}/!{ /GH_TOKEN: \${{ github.token }}/d; }' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail '材料の有無の分岐を削除' sed -i 's/if \[ -d "\$RUNNER_TEMP\/findings" \] && find/if true #/' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail 'CI vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/ci.yml"
   expect_fail 'release vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/release.yml"
@@ -150,14 +151,19 @@ issue_jobs = [body for body in vulns_nightly.values() if "issues: write" in body
 require(len(issue_jobs) == 1, "issues: write の job が 1 つではない")
 issues = vulns_nightly.get("issues", "")
 require("needs: [vulns, pg-minor]" in issues and "if: always()" in issues, "issues job の待機条件が不足")
-require("- id: file" in issues, "file-issues の段に id: file が無い")
-require("tools/check-vulns.sh file-issues" in issues, "file-issues の段が無い")
-require("- if: failure() && steps.file.outcome == 'failure'" in issues,
+steps = re.split(r"(?m)(?=^      - )", issues)
+file_step = next((step for step in steps if "- id: file" in step), "")
+report_step = next((step for step in steps if "tools/check-vulns.sh report-unfiled" in step), "")
+require(file_step, "file-issues の段に id: file が無い")
+require("tools/check-vulns.sh file-issues" in file_step, "file-issues の段が無い")
+require(report_step, "知らせの段が無い")
+require(steps.index(report_step) > steps.index(file_step), "知らせの段が file-issues の段より前にある")
+require("- if: failure() && steps.file.outcome == 'failure'" in report_step,
         "知らせの段が file-issues の失敗時だけ走らない")
-require('tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"' in issues,
+require('tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"' in report_step,
         "知らせの段が run の URL を渡していない")
-require("GH_TOKEN: ${{ github.token }}" in issues, "知らせの段に GH_TOKEN が無い")
-file_run = re.search(r"- id: file.*?run: \|(?P<body>.*?)(?=\n      - |\Z)", issues, re.S)
+require("GH_TOKEN: ${{ github.token }}" in report_step, "知らせの段に GH_TOKEN が無い")
+file_run = re.search(r"run: \|(?P<body>.*?)(?=\n      - |\Z)", file_step, re.S)
 require(file_run and "find \"$RUNNER_TEMP/findings\" -type f -print -quit" in file_run.group("body"),
         "材料が無い夜に file-issues を呼ばない分岐が無い")
 nightly_text = (root / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
