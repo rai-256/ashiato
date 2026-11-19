@@ -263,7 +263,31 @@ soak_collect_observations() {
     if [[ -f "$path" ]]; then cp "$path" "$dir/logs/$name.log"; else cat "$path"/* >"$dir/logs/$name.log" 2>/dev/null || :; fi
     printf '0\n' >"$dir/.soak-log-baselines/$name.log.lines"
   done
-  wevtutil.exe qe System /f:text >"$dir/events" 2>/dev/null || :
+  wevtutil.exe qe System /f:text 2>/dev/null |
+    awk '
+      function flush() {
+        if (event_date != "" && event_code != "" && event_service != "")
+          print event_date "\t" event_service "\t" event_code
+        event_date = event_code = event_service = ""
+      }
+      /^[[:space:]]*Date[[:space:]]*:/ {
+        line = $0; sub(/^[^:]*:[[:space:]]*/, "", line); event_date = line
+      }
+      /^[[:space:]]*Event ID[[:space:]]*:/ {
+        line = $0; sub(/^[^:]*:[[:space:]]*/, "", line)
+        match(line, /[0-9]+/); event_code = substr(line, RSTART, RLENGTH)
+      }
+      /ashiato-(db|server|updater)(-dev)?/ {
+        match($0, /ashiato-(db|server|updater)(-dev)?/)
+        event_service = substr($0, RSTART, RLENGTH)
+      }
+      /^[[:space:]]*$/ { flush() }
+      END { flush() }
+    ' |
+    while IFS=$'\t' read -r event_date event_service event_code; do
+      normalized="$(date -u -d "$event_date" +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || true)"
+      [[ -n "$normalized" ]] && printf '%s|%s|%s\n' "$normalized" "$event_service" "$event_code"
+    done >"$dir/events"
   printf '%s\n' "$(curl.exe -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)" >"$dir/health"
 }
 
@@ -332,9 +356,19 @@ printf 'netsh %s\n' "$*" >>"$ST22_CALLS"
 if [[ "$*" == *'show rule'* && -e "$ST22_RULE" ]]; then printf 'Rule Name: ashiato-update-check-ci-outbound\n'; fi
 if [[ "$*" == *'delete rule'* && "${ST22_KEEP_RULE:-0}" != 1 ]]; then rm -f "$ST22_RULE"; fi
 EOF
-cat >"$bin/wevtutil.exe" <<'EOF'
+  cat >"$bin/wevtutil.exe" <<'EOF'
 #!/usr/bin/env bash
-printf '2026-11-20T00:00:11.000Z|ashiato-server|0\n'
+cat <<'EVENT'
+Log Name: System
+Source: Service Control Manager
+Date: 11/20/2026 12:00:11 AM
+Event ID: 0
+Task Category: None
+Level: Information
+Description:
+The ashiato-server service is running.
+
+EVENT
 EOF
   cat >"$bin/curl.exe" <<'EOF'
 #!/usr/bin/env bash
@@ -375,6 +409,8 @@ EOF
     SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' \
     reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 \
     "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
+  grep -q '^2026-11-20T00:00:11.000Z|ashiato-server|0$' "$work/run/events" ||
+    die 'self-test: wevtutil の /f:text 出力を判定用の行へ変換していない'
   local wiring reset_line rule_line setup_line
   wiring="$(declare -f soak_evaluate)"
   for name in soak_service_failures soak_log_errors soak_check_records soak_collector_pid; do
@@ -420,19 +456,62 @@ root = Path(sys.argv[1])
 files = sorted((root / '.github' / 'workflows').glob('*.yml')) + sorted((root / '.github' / 'workflows').glob('*.yaml'))
 text = '\n'.join(p.read_text(encoding='utf-8') for p in files)
 ci = (root / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+def run_blocks(source):
+    lines = source.splitlines()
+    blocks = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        if (stripped.startswith('run:') or stripped.startswith('- run:')) and not stripped.startswith('#'):
+            indent = len(line) - len(stripped)
+            block = []
+            inline = stripped.split('run:', 1)[1].strip()
+            if inline and inline not in ('|', '>') and not inline.startswith('#'):
+                block.append(inline)
+            i += 1
+            while i < len(lines):
+                child = lines[i]
+                if child.strip() and len(child) - len(child.lstrip()) <= indent:
+                    break
+                if not child.lstrip().startswith('#'):
+                    block.append(child)
+                i += 1
+            blocks.append('\n'.join(block))
+            continue
+        i += 1
+    return blocks
+
 def check(value):
-    assert 'soak-install.sh --self-test' in value
-    assert sum('--block-outbound' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
-    assert sum('soak-install.sh package/' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
-    assert sum('soak-install.sh --list' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
+
+    blocks = run_blocks(value)
+    commands = '\n'.join(blocks)
+    assert 'soak-install.sh --self-test' in commands
+    ignored_count = sum(block.count('--ignored') + block.count('--include-ignored') for block in blocks)
+    assert ignored_count == 1
+    assert sum(('--ignored' in block or '--include-ignored' in block) and 'tls_' in block for block in blocks) == 1
+    assert sum('soak-install.sh package/' in block for block in blocks) == 1
+    assert sum('--block-outbound' in block for block in blocks) == 1
+    assert sum('delete rule' in block and 'ashiato-update-check-ci-outbound' in block for block in blocks) == 0
     for script in ('install-check.sh', 'update-check-install.sh', 'update-apply-install.sh', 'soak-install.sh'):
-        assert f'{script} --list' in value
-    assert value.index('update-check-install.sh --block-outbound') < value.index('install-check.sh --list')
-    assert value.index('soak-install.sh package/') > value.index('update-apply-install.sh \\')
-    assert 'timeout-minutes: 15' in value
+        assert f'{script} --list' in commands
+    assert commands.index('update-check-install.sh --block-outbound') < commands.index('install-check.sh --list')
+    assert commands.index('soak-install.sh package/') > commands.index('update-apply-install.sh \\')
+    soak_step_start = value.index('- name: 配る形を外につながる状態で置く')
+    soak_step_end = value.index('\n      # spec の Scenario', soak_step_start)
+    assert 'timeout-minutes: 15' in value[soak_step_start:soak_step_end]
     assert 'install-windows:\n    timeout-minutes: 100' in value
 assert files
 check(ci)
+all_blocks = []
+for workflow in files:
+    all_blocks.extend(run_blocks(workflow.read_text(encoding='utf-8')))
+all_commands = '\n'.join(all_blocks)
+assert sum(block.count('--ignored') + block.count('--include-ignored') for block in all_blocks) == 1
+assert sum(('--ignored' in block or '--include-ignored' in block) and 'tls_' in block for block in all_blocks) == 1
+assert sum('soak-install.sh package/' in block for block in all_blocks) == 1
+assert sum('--block-outbound' in block for block in all_blocks) == 1
+assert sum('delete rule' in block and 'ashiato-update-check-ci-outbound' in block for block in all_blocks) == 0
 assert text.count('soak-install.sh package/') == 1
 def must_fail(old, new):
     broken = ci.replace(old, new, 1)
@@ -446,6 +525,8 @@ must_fail('update-check-install.sh --block-outbound', 'update-check-install.sh -
 must_fail('timeout-minutes: 15', 'timeout-minutes: 14')
 must_fail('soak-install.sh --list', 'soak-install.sh --scenarios')
 must_fail('timeout-minutes: 100', 'timeout-minutes: 99')
+must_fail('tools/release/soak-install.sh --list', 'tools/release/soak-install.sh --list --ignored')
+must_fail('soak-install.sh package/', 'netsh.exe advfirewall firewall delete rule name=ashiato-update-check-ci-outbound\n          soak-install.sh package/')
 PY
 }
 
