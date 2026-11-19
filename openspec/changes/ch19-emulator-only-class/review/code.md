@@ -226,15 +226,18 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 根拠: evidence.jsonl の 4.1・4.2 の行はどれも `head=1ae6ebe27`。その後の `4f1c6925f`（settle の直し）が、本物の端末の出力に依存する ONLY の行を変えた —— `tools/android-emulator.sh:121`（標準エラーの印）、`:127-138`（prepare / verify の出力を捕まえて `^OK (1 test)` を照合）、`:145`（XML の判定を `grep -rqF --include`）。4f1c692 より後に本物のエミュレータの evidence は無い。完了の判定 3 と 6（確認バッチの問い）は「今の台本で ONLY の 2 回が rc=0」を前提にしている。前の本物の実行のログ（`.superpowers/sdd/logs/20261119-225443-rv56.log:32`）では prepare の出力に行頭の `OK (1 test)` があり、新しい照合は通る見込みだが、HEAD では確かめていない（確かさ 3）
 - kind: technical
 - 提案: 4.1 の 2 本（St56BackupTest・MediaPremisesInstrumentedTest。合わせて 6 分ほど）を HEAD で `scripts/verify-run 4.1` から取り直す。全体の経路は 4f1c692 で変わっておらず、only-base で命令の列が base と同じことも確かめられているので、4.2（33 分）は取り直さなくても筋は通る
+- 処置: fixed 4.1 — `scripts/verify-run 4.1` を HEAD で取り直し、St56BackupTest（83 秒）と MediaPremisesInstrumentedTest（79 秒）がともに PASS した証跡を evidence.jsonl に記録した。
 
 ## R16. AGENTS.md の絞った実行の書き方では、quiet-run のログの頭に ONLY が残らない
 - 成果物: AGENTS.md:47
 - 根拠: `ONLY=… scripts/quiet-run emu -- tools/android-emulator.sh` の形だと、ログの `$ <コマンド>` 行は `tools/android-emulator.sh` だけになる。tasks 4.1 が使った `scripts/quiet-run emu1 -- env ONLY=… tools/android-emulator.sh` の形ならログの頭に ONLY が残る。標準エラーの印（R3 の直し）がログに入るので見分けは付くが、絞った実行を全体と読み違える余地が残る（確かさ 2。Minor）
 - kind: technical
 - 提案: AGENTS.md の例を `scripts/quiet-run emu -- env ONLY=dev.ashiato.collector.<クラス> tools/android-emulator.sh` の形にそろえる
+- 処置: fixed 3.2 — `env ONLY=…` を quiet-run の子コマンドに含め、ログの `$ <コマンド>` 行にも絞ったクラス名が残る形に変更した。
 
 ## R17. `tools/test-usage-volume.sh:88` の「最初の connectedDebugAndroidTest」が、ONLY の塊の行（`tools/android-emulator.sh:142`）を指すようになった
 - 成果物: tools/android-emulator.sh:142
 - 根拠: `tools/test-usage-volume.sh:87-90` は「1 段目の gradle より前にアプリを外している」を、ファイルの最初の `connectedDebugAndroidTest` の行と `adb uninstall` の行で比べる。今は ONLY の塊が uninstall より後なので通るが、比べている行は全体の 1 段目ではなくなった。将来この検査を直す人が意味を読み違える（確かさ 2。Minor）
 - kind: technical
 - 提案: `tools/test-usage-volume.sh` は予定のパス（tasks 4.3）の外なので、この change では直さない。PR 本文か申し送りに一言残す
+- 処置: followup CH19 — `docs/handoff/CH19.md` に、全体経路に探索を限定する小さな follow-up change を記録した。CH19 の凍結済み tasks には差し戻さない。

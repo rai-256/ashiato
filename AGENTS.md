@@ -44,7 +44,7 @@ Story をまたぐ判断（製品の前提・コードの構成・道具の規�
   **gradle（`collector-android`）/ `cargo test` / `tools/smoke.sh` / 計測テスト（`tools/android-emulator.sh`）**。
   gradle は `-p` でプロジェクトを指す:
   `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*SourceIndependenceTest*'`
-- 直している途中は落ちたところだけに絞って走らせる（エミュレータ: `ONLY=dev.ashiato.collector.<クラス> scripts/quiet-run emu -- tools/android-emulator.sh`、`cargo test`: `cargo test -p <crate> <名前>` に `-- --list` で 1 本以上を確かめる）。通ったら最後に全体を `scripts/verify-run <項目>` で走らせる。tasks.md の検証コマンドは全体のまま書き換えない（絞った実行は Task の完了の証跡にしない）。
+- 直している途中は落ちたところだけに絞って走らせる（エミュレータ: `scripts/quiet-run emu -- env ONLY=dev.ashiato.collector.<クラス> tools/android-emulator.sh`、`cargo test`: `cargo test -p <crate> <名前>` に `-- --list` で 1 本以上を確かめる）。通ったら最後に全体を `scripts/verify-run <項目>` で走らせる。tasks.md の検証コマンドは全体のまま書き換えない（絞った実行は Task の完了の証跡にしない）。
 
 ## Android の環境は設定済み（**探さない**。executor に依らない）
 <!-- harness2:env -->
