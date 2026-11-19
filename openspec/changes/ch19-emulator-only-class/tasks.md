@@ -23,7 +23,7 @@
 
 ## Task 1: 偽の SDK が命令を 1 本の記録に残し、全体の命令の列を固定する
 
-- [ ] 1.1 `tools/test-android-emulator.sh` の偽物を、受け取った命令を**同じ 1 本の記録**（`FAKE_SEQ_LOG`。木の中の `seq.log`）に 1 行ずつ足す形にする: 偽の gradle は `gradle <引数>`、偽の adb は `adb <引数>`、偽の `android-media-fixtures.sh` は `media-fixtures`、偽の `android-st58-replace.sh` は `st58-replace`（既存の `FAKE_LOG`・`FAKE_ADB_LOG` への記録は残す。既存の場合が読む）。
+- [x] 1.1 `tools/test-android-emulator.sh` の偽物を、受け取った命令を**同じ 1 本の記録**（`FAKE_SEQ_LOG`。木の中の `seq.log`）に 1 行ずつ足す形にする: 偽の gradle は `gradle <引数>`、偽の adb は `adb <引数>`、偽の `android-media-fixtures.sh` は `media-fixtures`、偽の `android-st58-replace.sh` は `st58-replace`（既存の `FAKE_LOG`・`FAKE_ADB_LOG` への記録は残す。既存の場合が読む）。
   偽の gradle は、引数に `connectedDebugAndroidTest` があるときだけ結果の XML を書く（`installDebug` だけのときは書かない。spec-review R1）。`classname` は、引数に `-Pandroid.testInstrumentationRunnerArguments.class=<名前>` があればその名前、無ければ今と同じ `fake`、`FAKE_GRADLE_CLASS` が渡されたときはその値にする。`FAKE_GRADLE_RC` が渡されたときは、XML を書いた後にその rc で終わる。
   偽の adb は、`FAKE_VERIFY_OUT` が渡されたとき、`St56BackupTest#verifyRestored` の `am instrument` にその値を返す（無ければ今どおり `OK (1 test)`）。
   場合選びの変数を `CASE` に改め（Global Constraints）、`run_emulator` に `ONLY` を渡す引数を足す（既存の呼び出しは変えずに済む形で）。命令の列の比べは、`seq.log` から `getprop`・`devices`・`get-state`・`wait-for-device`・`emu avd name` を含む行を除いたもので行う（spec と同じ一覧）。
@@ -31,7 +31,7 @@
   `only-empty`: `echo 'Scenario: ONLY が空なら、渡さないときと同じ命令の列で全段を走らせる'`（`ONLY` を渡さない木と `ONLY=` の木。どちらも rc=0・段の置き場の数が 2 つで同じで、行頭の `keep_stage` の行の数と等しい（8 と決め打たない。`assert_normal` と同じ数え方）・`st58-replace` が 1 回・命令の列が同じ） /
   `only-base`: `echo 'Scenario: ONLY を渡さなければ、この change の前の版の台本と同じ命令の列で全段を走らせる'`（比べる元の版は明示した `ASHIATO_TEST_BASE_REV` だけ。渡されなければ `比べる元の版が無いので飛ばす: only-base` を出して通す —— merge の後に全体の段を足す Story で落ちないよう、`origin/main` を既定にしない。元の版の台本は `git show <rev>:tools/android-emulator.sh` で写す（`ASHIATO_TEST_SCRIPT_REV` と同じ写し方））。
   検証: `tools/test-android-emulator.sh` rc=0 / `bash -c 'out=$(ASHIATO_TEST_ONLY=only-base ASHIATO_TEST_BASE_REV=$(git merge-base origin/main HEAD) tools/test-android-emulator.sh) && ! grep -q "飛ばす" <<<"$out"'` rc=0 / `tools/test-usage-volume.sh` rc=0
-- [ ] 1.2 `--self-test` に、`only-base` が全体の経路の変化を本当に見ていることの確かめを足す: 写した台本の全体の経路から `adb shell pm reset-permissions` の行を 1 つ消すと `only-base` の比べ（元の版は消していない台本）が落ち、同じ行を gradle の段の後ろへ動かしても落ちる（gradle と adb をまたいだ順を見ている。壊すのは使い捨ての木の写しだけ）。
+- [x] 1.2 `--self-test` に、`only-base` が全体の経路の変化を本当に見ていることの確かめを足す: 写した台本の全体の経路から `adb shell pm reset-permissions` の行を 1 つ消すと `only-base` の比べ（元の版は消していない台本）が落ち、同じ行を gradle の段の後ろへ動かしても落ちる（gradle と adb をまたいだ順を見ている。壊すのは使い捨ての木の写しだけ）。
   検証: `tools/test-android-emulator.sh --self-test` rc=0
 
 ## Task 2: ONLY の口（ふつうのクラス・専用の台本のクラス・形の違う値）
