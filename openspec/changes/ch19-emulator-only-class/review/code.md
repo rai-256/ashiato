@@ -280,3 +280,16 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 提案: 「いつ・どこで」を「CH19 の merge 後に `scripts/hx change` で立てる」に寄せる
 - 処置: fixed 4.3 — `docs/handoff/CH19.md` を、CH19 merge 後に `scripts/hx change` で小さな change を立てる経路に修正した。
 - 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
+
+## 手 7: 機械が承認した訂正（machine-corrections、2026-11-19）
+
+`python3 scripts/plan_fix.py pending openspec/changes/ch19-emulator-only-class` → 1 件（4.3、at `2026-11-19T14:44:01+00:00`。旧は bash -c の 1 行、新は `./openspec/changes/ch19-emulator-only-class/check-allowed-paths.sh`。許可の正規表現に `docs/handoff/CH19\.md` が 1 つ足されただけで、ほかの許可は旧と同じ）。
+
+| 壊したもの（作業ツリーで一時的に） | 新しいコマンドの rc | 出力 |
+|---|---|---|
+| 壊さない（下地） | 0 | なし |
+| 未追跡の `crates/server/src/ch19_probe_untracked.rs` を作る | 1（落ちた） | そのパスを出す |
+| 追跡済みの `tools/smoke.sh` に 1 行足す | 1（落ちた） | `tools/smoke.sh` |
+| `docs/handoff/CH20.md` を作る（許可が handoff 全体へ広がっていないか） | 1（落ちた） | `docs/handoff/CH20.md` |
+
+戻した後の `git status --porcelain` と `git diff` の sha256 は壊す前と同じ。結果は `correction-review.md` に「落ちた」で記録した。新しいコマンドは未追跡・追跡済みのどちらの逸脱も捕まえ、範囲は `docs/handoff/CH19.md` の 1 本しか広がっていない。指摘は無し。
