@@ -490,6 +490,7 @@ EOF
   export ST22_RULE="$work/rule"; : >"$ST22_RULE"
   printf 'leftover\n' >"$work/C:/ProgramData/ashiato-updater/status.json"
   (cd "$work" && PATH="$bin:$PATH" \
+    ST22_SELF_TEST_BIN="$bin" \
     SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' \
     SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' \
     SOAK_PROFILE='C:/Users/soak' SOAK_DOWNLOADS='C:/Users/soak/Downloads' \
@@ -518,20 +519,25 @@ EOF
   grep -q 'NG:' "$work/rule.out" || die 'self-test: 塞ぎが残った理由が出ない'
   # Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる
   : >"$ST22_RULE"; : >"$calls"
-  if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' ST22_KEEP_RULE=1 reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/rule-fail") >"$work/order.out" 2>&1; then
+  if (cd "$work" && PATH="$bin:$PATH" ST22_SELF_TEST_BIN="$bin" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' ST22_KEEP_RULE=1 reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/rule-fail") >"$work/order.out" 2>&1; then
     die 'self-test: 塞ぎが残るのに実地の口が通った'
   fi
   ! grep -q '^setup ' "$calls" || die 'self-test: 塞ぎが残るのにインストーラを呼んだ'
   # Scenario: 消した後に前の段の入れたものが残れば、配る zip を入れずに落ちる
   mkdir -p "$work/C:/ProgramData/ashiato/settings"
   : >"$calls"
-  if (cd "$work" && PATH="$bin:$PATH" ST22_KEEP_STATE=1 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/state-fail") >"$work/state.out" 2>"$work/state.err"; then
+  if (cd "$work" && PATH="$bin:$PATH" ST22_SELF_TEST_BIN="$bin" ST22_KEEP_STATE=1 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/state-fail") >"$work/state.out" 2>"$work/state.err"; then
     die 'self-test: 残った置き場を通した'
   fi
   grep -q 'C:/ProgramData/ashiato' "$work/state.err" || die 'self-test: 残った置き場の名前が標準エラーに出ない'
   ! grep -q '^netsh ' "$calls" || die 'self-test: 残った置き場なのに塞ぎの命令を呼んだ'
   ! grep -q '^setup ' "$calls" || die 'self-test: 残った置き場なのにインストーラを呼んだ'
   [[ "$(soak_list | wc -l)" -eq 2 ]] || die 'self-test: --list が実地の 2 Scenario でない'
+  : >"$calls"
+  if (cd "$work" && ST22_SELF_TEST_BIN="$bin" "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/unsafe-path") >"$work/unsafe-path.out" 2>&1; then
+    die 'self-test: 偽の命令が PATH の先頭に無い --self-test-run を通した'
+  fi
+  [[ ! -s "$calls" ]] || die 'self-test: 偽の命令が PATH の先頭に無いのに reset の命令を呼んだ'
   if (cd "$work" && PATH="$bin:$PATH" env -u ST22_CALLS "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/unsafe") >"$work/unsafe.out" 2>&1; then
     die 'self-test: 偽の命令の印無しで --self-test-run を通した'
   fi
@@ -721,11 +727,23 @@ soak_list() {
 EOF
 }
 
+soak_self_test_command_guard() {
+  local cmd expected actual
+  [[ -n "${ST22_CALLS:-}" && -f "$ST22_CALLS" && -n "${ST22_SELF_TEST_BIN:-}" && -d "$ST22_SELF_TEST_BIN" ]] ||
+    die '--self-test-run は自己試験の偽の命令の印と置き場が必要です'
+  for cmd in sc.exe taskkill.exe reg.exe icacls.exe netsh.exe wevtutil.exe curl.exe tasklist.exe rm; do
+    expected="$ST22_SELF_TEST_BIN/$cmd"
+    actual="$(type -P "$cmd" 2>/dev/null || true)"
+    [[ -x "$expected" && "$actual" == "$expected" ]] ||
+      die "--self-test-run は偽の命令を PATH の先頭に置く必要があります: $cmd (expected=$expected actual=${actual:-none})"
+  done
+}
+
 main() {
   trap soak_cleanup EXIT
   case "${1:-}" in
     --self-test-run)
-      [[ -n "${ST22_CALLS:-}" && -f "$ST22_CALLS" ]] || die '--self-test-run は自己試験の偽の命令の印が必要です'
+      soak_self_test_command_guard
       SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state'
       export SOAK_STATE_DIR
       SOAK_WAIT_SECONDS=2 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 reset_wait_seconds=0

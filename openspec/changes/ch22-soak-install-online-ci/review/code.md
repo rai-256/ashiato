@@ -528,3 +528,4 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:728（re-review 5 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.1
