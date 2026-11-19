@@ -118,13 +118,17 @@ keep_stage() {
 }
 rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数えない
 if [ -n "${ONLY:-}" ]; then
+  echo "== 絞った実行（ONLY=$ONLY）。全体ではない" >&2
   rm -rf "$OUT/androidTest-results"
   if [ "$ONLY" = dev.ashiato.collector.St56BackupTest ]; then
     (cd collector-android && ./gradlew -q :app:installDebug :app:installDebugAndroidTest)
     adb shell bmgr enable true
     adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
-    adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
-      dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner
+    prepare_out=$(adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
+      dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r')
+    echo "$prepare_out"
+    grep -q '^OK (1 test)' <<<"$prepare_out" \
+      || { echo "error: St56BackupTest のバックアップの準備が通らない" >&2; exit 1; }
     ./tools/android-backup-roundtrip.sh
     verify_out=$(adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored \
       dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r')
@@ -138,8 +142,7 @@ if [ -n "${ONLY:-}" ]; then
   (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
      -Pandroid.testInstrumentationRunnerArguments.class="$ONLY")
   keep_stage
-  if ! find "$OUT/androidTest-results-stage1" -type f -name 'TEST-*.xml' \
-      -exec grep -Fq "classname=\"$ONLY\"" {} +; then
+  if ! grep -rqF --include='TEST-*.xml' "classname=\"$ONLY\"" "$OUT/androidTest-results-stage1"; then
     echo "error: ONLY=$ONLY のテストが 1 本も走っていない" >&2
     exit 1
   fi
