@@ -19,4 +19,10 @@
 同じ族: 入れ替えの試験（`tools/android-st58-replace.sh`）と採寸の試験（`tools/usage-volume.sh`）も gradle の 1 段では前提が無く必ず落ちる。
 推奨: St56 は全体と同じ準備・往復・確かめの手順だけを走らせる（design D2（仮））。入れ替えと採寸は起こさずに専用の台本の名前を出して止める（D4（仮））。
 
-(未回答)
+**答え（本人の選択。推奨と同じ選択肢を本人が選んだ・補足なし）**: 全体と同じ準備・往復・確かめの手順だけを走らせる
+
+- 決まったこと: `ONLY=dev.ashiato.collector.St56BackupTest` のときは gradle の計測テストを呼ばず、全体の 2〜3 段目と同じ命令
+  （installDebug → bmgr enable → am instrument …#prepareBackup → `tools/android-backup-roundtrip.sh` → am instrument …#verifyRestored と `OK (1 test)` の照合）を同じ順に走らせる。
+  議論で決めた「指定したクラスだけを 1 段で走らせる」は、このクラスに限りこの手順として読む（決定の「何を」の読み替え。範囲「台本の絞る口と AGENTS.md だけ」は変えない）
+- 選択肢の detail にあった「入れ替え・採寸の試験は起こさずに止める」も同じ答えに含まれる（D4（仮）の向きを本人が選んだ）
+- 仕様への写し: design D2（仮）・D4（仮）は本人の答えで決まった。spec の段で（仮）を外し、出所を Q1 にする
