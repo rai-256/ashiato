@@ -87,6 +87,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 2.1 — `grep -rqF --include='TEST-*.xml'` に替え、XML を一切書かない偽 Gradle の場合とガードを外した場合を self-test で落とす。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R2. 「アニメーションの設定 3 つ」の Scenario は 1 つしか見ておらず、gradle より前であることも見ていない
 - 成果物: tools/test-android-emulator.sh（`assert_only_prep`）/ specs/emulator-startup/spec.md
@@ -96,6 +97,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 2.2 — 3 つの animation key を個別に存在・Gradle より前で確認する。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R3. 環境に `ONLY` が残っていると、全体の検証コマンドの証跡が 1 クラスの実行のまま PASS になり、記録からは見分けられない
 - 成果物: tools/android-emulator.sh / AGENTS.md（`scripts/evidence.py` は harness2 側）
@@ -114,6 +116,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 2.2 — 5 つの命令が全て存在することを awk の順序判定に加えた。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## security review（25ddd53..112ae15）
 
@@ -150,6 +153,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: rejected: tasks.md:32 の Task 1.1 は、merge 後の別 Story で余計に落とさないため base が無いときは「飛ばす」を出して rc=0 とすることを明示している。CI に base を必須化する変更は予定外であり、この Scenario の PR 証跡は Task の指定どおり base を明示して実行する。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R7. The self-test for `only-base` does not exercise `assert_only_base`. It runs `run_emulator` and `filtered_seq` on two copies of the current script and compares them directly. Fix: drive `assert_only_base` itself against a broken copy, for example by pointing `ASHIATO_TEST_BASE_REV` at a commit or tree that holds the mutated script.
 - 成果物: tools/test-android-emulator.sh:502
@@ -159,6 +163,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 1.2 — self-test は一時 git tree の base commit と reset-permissions を消した作業版を用意し、`assert_only_base` 自体へ渡して失敗を確かめる。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R8. The ONLY St56 path ignores the result of the `prepareBackup` instrumentation. `am instrument` exits 0 even when the test fails, and its output is not grepped for `OK (1 test)` the way `verifyRestored` is. The full path at line 160 has the same flaw and this copies it. Fix: capture the output and check `^OK (1 test)` before running the backup round trip, in both places.
 - 成果物: tools/android-emulator.sh:126
@@ -192,6 +197,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 2.2 — ヘッダの鍵と Scenario の表に 13 件を追加した。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R12. `assert_only_base` runs `unset ASHIATO_TEST_SCRIPT_REV` without restoring the caller's value. When the whole file runs, every case after `only-base` silently switches from the caller's script revision to the current script. Fix: save the previous value and restore it afterwards, or scope the assignment, for example `ASHIATO_TEST_SCRIPT_REV=$base new_tree`, together with a local variable.
 - 成果物: tools/test-android-emulator.sh:582
@@ -201,6 +207,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 1.1 — 呼び出し元の `ASHIATO_TEST_SCRIPT_REV` の有無と値を保存し、base の木を作った後に復元する。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R13. `run_usage` does not strip `ONLY` from the environment. `run_emulator` and `assert_term_cleanup` now do (`env -u ONLY`). If the caller has `ONLY` exported, as AGENTS.md now suggests, it leaks into the usage-volume cases. Fix: add `-u ONLY` to the `env` call in `run_usage` for consistency.
 - 成果物: tools/test-android-emulator.sh:381
@@ -210,6 +217,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 処置: fixed 1.1 — `run_usage` も `env -u ONLY` で呼び出し元の絞り込みを外す。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## settle_review（re-review 1 @4f1c692）: 処置の直しが新しく壊したもの
 
@@ -219,6 +227,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 処置: fixed 2.2 — 偽 Gradle は XML を省く場合も結果ディレクトリを作る。`only-zero` は XML 無しでも指定の error で rc=1 になることを確認し、self-test は grep ガードを外した写しで `assert_only_no_xml` が失敗することを確認する。
 - 判定: ADDRESSED（re-review 2 @80f61ebe71395e5cb5ba3e3cd1fd8ae886f74b63）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## final review（25ddd53..83cabcf）
 
@@ -229,6 +238,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 提案: 4.1 の 2 本（St56BackupTest・MediaPremisesInstrumentedTest。合わせて 6 分ほど）を HEAD で `scripts/verify-run 4.1` から取り直す。全体の経路は 4f1c692 で変わっておらず、only-base で命令の列が base と同じことも確かめられているので、4.2（33 分）は取り直さなくても筋は通る
 - 処置: fixed 4.1 — `scripts/verify-run 4.1` を HEAD で取り直し、St56BackupTest（83 秒）と MediaPremisesInstrumentedTest（79 秒）がともに PASS した証跡を evidence.jsonl に記録した。
 - 判定: ADDRESSED（re-review 3 @0e541741361d90e2a5b402b6aaaea90b90e83222）
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R16. AGENTS.md の絞った実行の書き方では、quiet-run のログの頭に ONLY が残らない
 - 成果物: AGENTS.md:47
@@ -253,6 +263,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 提案: 4.3 の主張と実態をそろえる —— handoff を予定のパスの扱いにするなら、その理由（followup にハーネスが要るファイル）を Ruling として残し PR 本文に写す。ハーネス側の根本の対応（4.3 型の許可リストの雛形に `docs/handoff/<自分の ID>.md` を含める）は harness2 への提案
 - 処置: fixed 4.3 — `review_triage.py` が R17 の `followup CH19` に `docs/handoff/CH19.md` を必須とするため、旧 4.3 コマンドは正式な申し送りを必ず FAIL にした。FAIL 証跡の後、同じ範囲検査を change 内の `check-allowed-paths.sh` に移し、そのファイルと申し送りを許可して PASS を記録した。`plan_fix.py --approved machine` で凍結後の検証コマンドだけを訂正した。
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R19. R8 の直し（prepareBackup の出力の `^OK (1 test)` の照合）を固定する試験が無い
 - 成果物: tools/test-android-emulator.sh
@@ -260,6 +271,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 提案: 偽の adb に `FAKE_PREPARE_OUT` を足し、準備が通らないとき rc=1・backupnow を呼ばない・emu kill が届く、を見る場合を 1 つ足す。spec の Scenario には無い振る舞いなので印は Scenario 外の形（`== …`）にする
 - 処置: fixed 3.1 — 偽 adb に `FAKE_PREPARE_OUT` を加え、prepareBackup が `OK (1 test)` を返さないときは rc=1、往復・verify が未実行、emu kill が届くことを通常の偽 SDK 試験で固定した。
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
 
 ## R20. 申し送りの「いつ・どこで」が、実行の経路（グラフだけ）と合わない書き方になっている
 - 成果物: docs/handoff/CH19.md
@@ -267,3 +279,4 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 提案: 「いつ・どこで」を「CH19 の merge 後に `scripts/hx change` で立てる」に寄せる
 - 処置: fixed 4.3 — `docs/handoff/CH19.md` を、CH19 merge 後に `scripts/hx change` で小さな change を立てる経路に修正した。
+- 判定: ADDRESSED（re-review 4 @2b0d292ec30064680e61fb626ce3b4ba429d7918）
