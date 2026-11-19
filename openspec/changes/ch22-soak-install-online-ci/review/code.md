@@ -96,6 +96,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: 起こし直しより後の行が 0 なら `die` にして、自己試験を `expect_fail`（needle は PC の収集アプリ）に直す。runner で登録できないと分かったら、D7・D15 のとおり spec ごと直す
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R2. 置く段は更新係のログを読んでいない（置き場が違う）。読めても、本物の形では同じ誤りを数えない
 - 成果物: tools/release/soak-install.sh
@@ -110,6 +111,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: 更新係のログを `$SOAK_UPDATER_DIR/logs/updater.log` から読み、ログごとに見つけたか・読んだ行数を落ちない回にも 1 行出す。更新係の時刻の形（`+00:00`）を読み、キーから外す。更新係は全部の行を数える。基準の行数は置く間の始まりに取る。自己試験の入力を `crates/updater` の書く形に合わせる
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R3. システムの記録を読めなくても「読めた・0 件」と出て、警告が出ない
 - 成果物: tools/release/soak-install.sh
@@ -119,6 +121,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: `wevtutil` の rc（と 1 件も読めないこと）で読めたかを決め、読めないときは `events` を作らない。自己試験は実地の口で偽の `wevtutil` を `exit 1` にして警告の行を見る。spec の AND（`ashiato-db` の番号を変えると落ちる）も足す
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R4. PC の収集アプリが、台本の起こし直しより前に終わっても落ちない
 - 成果物: tools/release/soak-install.sh
@@ -127,6 +130,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: 置く間の始まりから起こし直しまでの読みも数え、台本の `taskkill` の前後の 1 回だけを除く。自己試験に「起こし直しより前に消える」入力を足す
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R5. 「数えない」の 2 つの Scenario は 1 行だけで試していて、除外を消しても緑のまま
 - 成果物: tools/release/soak-install.sh
@@ -135,6 +139,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: spec のとおり 5 行を、spec の名指しのログ（PC の収集アプリ・DB）に置き、置く間へ移した写しで `expect_fail` を並べる。手 3 の「見る場所のずれ」4 件も、spec の GIVEN・THEN に合わせる
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R6. 台本の合言葉を伏せる値に入れていない
 - 成果物: tools/release/soak-install.sh
@@ -144,6 +149,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: `ng_secret_values` で `SOAK_INSTALL_PASSWORD` を出し、自己試験の誤りの行に合言葉を混ぜる
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R7. 「塞ぎを外す手順は置く段の 1 つだけ」の検査が、別の書き方の 2 つ目を見逃す
 - 成果物: tools/release/soak-install.sh（`soak_ci_definition_self_test`）
@@ -153,6 +159,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: `soak-install.sh` の実地の口（`--self-test`・`--list` 以外の引数）を走らせる手順をどの引数でも数え、規則の名前 `ashiato-update-check-ci-outbound` を持つ手順を `--block-outbound` のほかに置く段だけに限る
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R8. 自己試験がまれに落ちる（「更新係の確かめた記録が無い」）
 - 成果物: tools/release/soak-install.sh
@@ -161,6 +168,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: 落ちた回の `checks.jsonl` と `start` を観測に出し、原因を決めてから直す（偽の記録の時刻を `start` から作るなど、比べの両側を台本が決める形）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R9. Task 2.2 の終了の条件（`install-windows` が置く段を含めて緑）が未確認のまま `[x]`
 - 成果物: openspec/changes/ch22-soak-install-online-ci/tasks.md / .github/workflows/ci.yml
@@ -177,6 +185,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: daily
 - 提案: 自己試験に `[[ "$SOAK_WAIT_SECONDS" == 300 ]]` を足す（同じ誤りの閾値と同じ形）
 - 処置: fixed D17 仮
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## security review（7817dc5..d5e974b）
 
@@ -199,6 +208,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 処置: fixed D16 仮
 
 範囲外: `update-check-install.sh`・`update-apply-install.sh` の reset も CI の上かを見ずに `C:/ProgramData/ashiato` を消す（既存）。
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## /code-review（7817dc5..721d2e3）
 
@@ -210,6 +220,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R13. The collector's PID reading returns the session number, not the PID, so the 'PID changed' check can never fire. In the tasklist CSV line `"exe","PID","Console","Session#","Mem"`, the greedy `.*,"\([0-9][0-9]*\)",` in `sed` matches the last `,"digits",`, which is the Session# field. Fix: take the second column with a non-greedy pattern such as `sed -n 's/^"[^"]*","\([0-9]*\)".*/\1/p'`, and make the self-test stub check the value too.
 - 成果物: tools/release/soak-install.sh:248
@@ -217,6 +228,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R14. On failure, the NG output shows only a file path, not the file's contents, so the cause can't be traced. `die_seen <reason> <value>` prints its second argument as the observed value; file contents only come out when the file is passed as ng_report's fourth argument. This script passes `"$work/install.out"`, `"$dir/services/$svc"` (l.64), `"$SOAK_TMP/errors"` (l.108) and `"$file"` (l.154) as the second argument. On top of that, NG_STATE_DIR, NG_HEALTHZ_URL and NG_SETTINGS_FILES are never set, so the service, healthz and server-log observations are empty too. Fix: pass the file contents as the value (e.g. the output of `tail -n 80`), or call ng_report with the file as the fourth argument, and set the NG_* variables in soak_run.
 - 成果物: tools/release/soak-install.sh:228
@@ -224,6 +236,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: NOT ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）: install.out は tail -n 80 の中身を渡し、NG_* も設定した。しかし die_seen の services/$svc・$SOAK_TMP/errors・collector.pid の 3 か所は、パスを渡すまま。中身が出ず、評価後に消える
 
 ## R15. Real secrets are written as plain text into the shared temp folder and never removed. NG_OBSERVED_DIR defaults to `${TMPDIR:-/tmp}`, so ng_secret_file/ng_collect_secrets inside soak_evaluate write `$TMPDIR/.ng-secrets`, `.ng-secrets.vals` and `.ng-read-API_TOKEN.val`. These hold the values read from server.json/owner.json: API_TOKEN, WEB_PASSWORD_VERIFIER and the DB passwords. Only the --self-test path removes them. Fix: point NG_OBSERVED_DIR at a dedicated folder created with mktemp and remove it in the EXIT trap.
 - 成果物: tools/release/soak-install.sh:13
@@ -231,6 +244,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: NOT ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）: soak_evaluate の trap は RETURN のみ。die は exit なので発火せず、失敗経路で ch22-soak-observed.*（.ng-secrets）が残る。実測で 258 個
 
 ## R16. The real run's work folder is never cleaned up. soak_evaluate's `trap '...' RETURN EXIT` replaces main's `trap 'rm -rf "$work"' EXIT` (l.629). Even if it did not, `work` is local to main, so under `set -u` it is unbound when the EXIT trap runs after main returns. Fix: register the cleanup of $work and SOAK_TMP together in one global trap. Do not override EXIT inside soak_evaluate (use RETURN only, or clean up explicitly).
 - 成果物: tools/release/soak-install.sh:160
@@ -238,6 +252,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R17. The baseline line count is always written as 0, so a log line whose timestamp can't be read is counted even if it was written before the soak window. The updater log uses the format `Utc::now().to_rfc3339()`, which ends in `+00:00`, and the timestamp regex (which only accepts `...Z`) does not match it. Every updater log line therefore falls through to the 'unreadable timestamp' path and the window check does not apply. Fix: record each log's line count at soak_start as the baseline, and accept the `+00:00` form in the regex as well.
 - 成果物: tools/release/soak-install.sh:264
@@ -245,6 +260,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R18. The collector the script started is never stopped when the step ends. It is started in the background with `"$collector" &` and never killed after the soak, so it keeps running from $work. Fix: kill the collector with taskkill before evaluating or before exiting.
 - 成果物: tools/release/soak-install.sh:320
@@ -252,6 +268,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R19. The 'system-events: readable count' shown in the output is three times the real number of events. `((total++))` sits inside the per-service loop and runs for every 7031/7034 event, whichever service it belongs to. Fix: count total in a separate loop that runs once, or only on lines that match a service.
 - 成果物: tools/release/soak-install.sh:58
@@ -259,6 +276,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R20. The secrets list includes two variables that are never set, while the password actually used for install is left out. ng_secret_values outputs `SOAK_RELEASE_PASSWORD` and `SOAK_TEST_PASSWORD`, which nothing sets. `SOAK_INSTALL_PASSWORD`, the one fed to the installer, is not listed. Fix: add `$SOAK_INSTALL_PASSWORD` to the output and remove the unused variable names.
 - 成果物: tools/release/soak-install.sh:25
@@ -266,6 +284,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
 
 ## R21. An error message containing `|` is never counted, so its repeats go undetected. Keys are saved as `name|key` and counted with `awk -F'|'` comparing only `$2`. If the key itself contains `|`, it never matches and count=0. Comparing timestamps as strings also gets the order wrong when the fractional-second precision differs (chrono omits the fraction for whole seconds, and 'Z' sorts after '.'). Fix: separate the fields with a tab or similar and compare with `substr`, and normalize timestamps before comparing.
 - 成果物: tools/release/soak-install.sh:106
@@ -273,3 +292,26 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @e43c6b3c87976157edc7fdaa0cd1d7cf2b184c2c）
+
+## settle_review（re-review 1 @e43c6b3）: 処置の直しが新しく壊したもの
+
+## R22. 失敗の経路（die → exit 1）では RETURN の trap が発火せず、SOAK_TMP と observed（.ng-secrets を持つ）が消えない。自己試験の失敗ケースごとに残り、1 回で約 46 個。実測で ch22-soak-eval.* と ch22-soak-observed.* が計 548 個。HARNESS_TMP_LEAK=fail に当たり、実際の失敗でも秘密が平文で残る（R15 が直りきっていない理由）。EXIT の掃除に両方を足す。
+- 成果物: tools/release/soak-install.sh
+- 根拠: tools/release/soak-install.sh:soak_evaluate (trap ... RETURN)（re-review 1 の New Breakage。Important）
+- kind: technical
+
+## R23. 起こした直後の最初の読みで PID が空だと、起こし直し前の空 PID は許されず「変化」と数えられる。tasklist が間に合わないときだけ起きる。
+- 成果物: tools/release/soak-install.sh
+- 根拠: tools/release/soak-install.sh:soak_collector_pid（re-review 1 の New Breakage。Minor）
+- kind: technical
+
+## R24. 収集アプリのスタブの at が date の現在時刻のまま。R1 で return 0 を外したため、起こし直しの時刻との取り合いに負けると失敗になる。12 回では再現しなかった。
+- 成果物: tools/release/soak-install.sh
+- 根拠: tools/release/soak-install.sh:soak_install_self_test (collector スタブ)（re-review 1 の New Breakage。Minor）
+- kind: technical
+
+## R25. must_fail に ValueError を足したため、broken/ 差し替えは数えの assert でなく index の例外で通る。その must_fail の効きが弱い。
+- 成果物: tools/release/soak-install.sh
+- 根拠: tools/release/soak-install.sh:soak_ci_definition_self_test（re-review 1 の New Breakage。Minor）
+- kind: technical
