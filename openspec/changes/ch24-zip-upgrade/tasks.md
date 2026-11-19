@@ -37,7 +37,7 @@
   zip の部品を使わずバイト列から読む小さな関数で取る。3 本目の試験は、環境変数 `CH24_DUMP_DIR` があれば書いた zip をそこに `ch24.zip` として写す（2.2 の python3 の確かめが読む）。
   検証: `scripts/quiet-run ch24a -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 3'` rc=0
 - [ ] 1.2 zip 2.6.1 のままの木で、`crates/server/src/export_job_tests.rs` に Scenario「以前の版で書いた書き出しは、次の書き出しを書き終えると消える」の試験
-  `ch24_previous_export_replaced_after_next_export` を足す（印を逐語で）。1.1 の埋め込みを置き場に置き、台帳の done の行にその大きさと SHA-256 を持たせ、書き出しの仕事を 1 回走らせて、
+  `ch24_previous_export_replaced_after_next_export` を足す（印を逐語で）。1.1 の埋め込みを置き場に置き、台帳の done の行にその大きさと SHA-256 と書き出しの id（埋め込みの注記の id と同じ）を持たせ、書き出しの仕事を 1 回走らせて、
   置き場に新しい 1 つだけが残ることを見る（design D8）。
   検証: `scripts/quiet-run ch24b -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 4'` rc=0
 - [ ] 1.3 zip 2.6.1 のままの木で、`crates/server/src/archive_tests.rs` に Takeout の項目の名前の読み方の試験を 2 本足す（design D7）:
@@ -86,3 +86,5 @@
 
 - [ ] 4.1 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。完了の判定 5）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(crates/server/Cargo\.toml|crates/collector-windows/Cargo\.toml|Cargo\.lock|crates/server/src/archive/open\.rs|crates/server/src/export/(dump|ledger)\.rs|crates/collector-windows/src/update_apply\.rs|crates/server/src/(archive_tests|archive_flow_tests|media_export_tests|export_job_tests|export_tests|export_file_tests)\.rs|crates/collector-windows/tests/st58_pc_update\.rs|osv-scanner\.toml|tools/licenses/.*|docs/changes/CH24\.md|openspec/changes/ch24-zip-upgrade/.*|docs/briefs/CH24.*|\.superpowers/.*|)$"'` rc=0
+- [ ] 4.2 全部の Task の後に、1.5 と同じ確かめをもう一度走らせる（上げた後の commit で囲みの中が書き直されていないこと。1.5 は上げる前に走るので、上げた後の書き直しはここで見る。完了の判定 2）。
+  検証: `bash -c 'set -o pipefail; for f in crates/server/src/export_file_tests.rs crates/server/src/archive_tests.rs crates/collector-windows/src/update_apply.rs; do c=$(git log --format=%H -S CH24-FIXTURE-BEGIN -- "$f" | tail -1); test -n "$c" || { echo "囲みが無い: $f"; exit 1; }; git show "$c:Cargo.lock" | python3 -c "import sys,re;t=sys.stdin.read();v=re.findall(r\"name = \\\"zip\\\"\\nversion = \\\"([^\\\"]+)\\\"\",t);print(v);assert v==[\"2.6.1\"],v" || exit 1; diff <(git show "$c:$f" | sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p") <(sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p" "$f") || { echo "囲みの中が変わった: $f"; exit 1; }; done'` rc=0
