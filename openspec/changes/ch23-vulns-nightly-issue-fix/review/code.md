@@ -82,3 +82,4 @@
 - 成果物: .github/workflows/vulns-nightly.yml
 - 根拠: .github/workflows/vulns-nightly.yml:59（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: rejected: 固定された actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 の `src/download-artifact.ts` を確認した。`pattern` は artifact 一覧を filter するだけで、0 件でも `artifacts.map(...)` は空・`Total of 0 artifact(s) downloaded` の後に成功終了する（150〜186 行）。この workflow の 0 件の夜は `steps.download.outcome == 'success'` なので file 段の材料 guard が file-issues を呼ばず、report-unfiled に進まない。取得 API 等の実際の失敗だけが `failure` となり、現在の通知対象である。
