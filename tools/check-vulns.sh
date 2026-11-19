@@ -121,6 +121,7 @@ github_settings() {
 
 self_test() {
   local scanner tmp
+  unset GITHUB_REPOSITORY_OWNER
   tmp="$(cd "$(mktemp -d)" && pwd)" || return 2
   trap "rm -rf -- '$tmp'" EXIT
   export XDG_CACHE_HOME="$tmp/cache"
@@ -388,9 +389,11 @@ case "$1 ${2:-}" in
       # gh と同じく、既定では 30 件までしか返さない
       for ((k = 1; k <= GH_MANY_ISSUES && k <= limit; k++)); do printf '{"number":%d,"title":"脆弱性: npm pkg%d","body":"勧告: GHSA-pkg%d"}\n' "$k" "$k" "$k"; done | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin]))'
     elif [[ "${GH_TABLE_ISSUE:-}" == 1 ]]; then printf '[{"number":11,"title":"脆弱性: 例外の表","body":"勧告: A-1\\n理由: 期限切れ"}]\n'
-    elif [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6\\n最新: 17.11"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
+    elif [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6\\n最新: 17.11"}]\n'; elif [[ "${GH_REPORT_EXISTING:-}" == 1 ]]; then printf '[{"number":12,"title":"脆弱性: 毎晩の知らせを issue にできなかった"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
   "issue view") if [[ "${GH_OPEN_ISSUE_EMPTY:-}" == 1 ]]; then :; else printf '{"comments":[]}\n'; fi ;;
   "issue create")
+    if [[ "${GH_FAIL_ASSIGNEE:-}" == 1 ]] && printf '%s\\n' "$*" | grep -q -- '--assignee'; then exit 1; fi
+    if [[ "${GH_FAIL_CREATE:-}" == 1 ]]; then exit 1; fi
     n=$(find "$GH_BODY_DIR" -name 'create-*' | wc -l)
     printf '%s' "$body" >"$GH_BODY_DIR/create-$((n + 1))"
     exit 0 ;;
@@ -520,6 +523,62 @@ JSON
   PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GH_PG_ISSUE=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$pg_findings" || return 1
   ! grep -Eq '^issue create ' "$gh_log" || return 1
   printf '%s' "同梱: 17.6"$'\n'"最新: 17.12"$'\n'"EDB の zip: present"$'\n'"公開日: $pg_date" | diff -u - "$gh_body_dir/comment-1" || return 1
+  echo "== Scenario: 知らせの段が落ちた夜は、決まった題の 1 件の issue が立つ"
+  : >"$gh_log"
+  rm -f "$gh_body_dir"/*
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/1 || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 1 ]] || return 1
+  ! grep -Eq '^issue create .*--label' "$gh_log" || return 1
+  echo "== Scenario: 知らせの issue はラベルに触れない"
+  ! grep -Eq '^(label list|label create) ' "$gh_log" || return 1
+  grep -Eq '^issue list --state open --limit 1000 --json number,title$' "$gh_log" || return 1
+  ! grep -Eq '^issue list .*--label' "$gh_log" || return 1
+  echo "== Scenario: 知らせの issue の本文は、日付と run の 2 行だけ"
+  printf '夜: %s\nrun: https://example.invalid/run/1' "$(date -u +%F)" | diff -u - "$gh_body_dir/create-1" || return 1
+  echo "== Scenario: 知らせの issue が開いていれば、立て直さずに追記する"
+  : >"$gh_log"
+  rm -f "$gh_body_dir"/*
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/2 || return 1
+  ! grep -Eq '^issue create ' "$gh_log" || return 1
+  [[ "$(grep -Ec '^issue comment 12 ' "$gh_log")" == 2 ]] || return 1
+  printf '夜: %s\nrun: https://example.invalid/run/2' "$(date -u +%F)" | diff -u - "$gh_body_dir/comment-1" || return 1
+  printf '夜: %s\nrun: https://example.invalid/run/2' "$(date -u +%F)" | diff -u - "$gh_body_dir/comment-2" || return 1
+  echo "== Scenario: 知らせの issue を立てられなければ、rc=2 で落ちる"
+  local report_create_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_CREATE=1 "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/3 2>"$tmp/report-create.err" || report_create_rc=$?
+  [[ "$report_create_rc" == 2 ]] || return 1
+  grep -Fq 'error: 知らせの issue を立てられなかった' "$tmp/report-create.err" || return 1
+  echo "== Scenario: report-unfiled の引数が違えば、rc=2 で落ちる"
+  local report_usage_rc=0
+  "$SCRIPT_DIR/check-vulns.sh" report-unfiled >"$tmp/report-usage.out" 2>&1 || report_usage_rc=$?
+  [[ "$report_usage_rc" == 2 ]] || return 1
+  grep -Fq 'error: 検査できなかった（使い方）' "$tmp/report-usage.out" || return 1
+  report_usage_rc=0
+  "$SCRIPT_DIR/check-vulns.sh" report-unfiled a b >"$tmp/report-usage.out" 2>&1 || report_usage_rc=$?
+  [[ "$report_usage_rc" == 2 ]] || return 1
+  grep -Fq 'error: 検査できなかった（使い方）' "$tmp/report-usage.out" || return 1
+  echo "== Scenario: 毎晩の検査が立てる issue は、持ち主が担当者になる"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 2 ]] || return 1
+  echo "== Scenario: 持ち主の名前が無ければ、担当者を付けない"
+  : >"$gh_log"
+  env -u GITHUB_REPOSITORY_OWNER PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  env -u GITHUB_REPOSITORY_OWNER PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  ! grep -Fq -- '--assignee' "$gh_log" || return 1
+  echo "== Scenario: 開いた issue への追記では、担当者を足さない"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_OPEN_ISSUE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_REPORT_EXISTING=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/4 || return 1
+  ! grep -Eq '^issue (comment|edit) .*--assignee' "$gh_log" || return 1
+  echo "== Scenario: 担当者を付けられなければ、担当者無しで立て直す"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/finding.json" || return 1
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_FAIL_ASSIGNEE=1 GITHUB_REPOSITORY_OWNER=owner-x "$SCRIPT_DIR/check-vulns.sh" report-unfiled https://example.invalid/run/5 || return 1
+  [[ "$(grep -Fc -- '--assignee owner-x' "$gh_log")" == 2 ]] || return 1
+  [[ "$(grep -Ec '^issue create ' "$gh_log")" == 4 ]] || return 1
   return 0
 }
 
@@ -534,7 +593,7 @@ main() {
     github_settings
     return $?
   fi
-  if [[ "${1:-}" == "nightly" || "${1:-}" == "file-issues" ]]; then
+  if [[ "${1:-}" == "nightly" || "${1:-}" == "file-issues" || "${1:-}" == "report-unfiled" ]]; then
     [[ $# == 2 ]] || { echo "error: 検査できなかった（使い方）"; return 2; }
     if [[ "$1" == nightly ]]; then
       local scanner

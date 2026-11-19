@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import importlib.util
+from datetime import datetime, timezone
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("check_vulns", Path(__file__).with_name("check-vulns.py"))
@@ -22,6 +23,7 @@ scan_root = _module.scan_root
 
 
 ISSUE_LIMIT = 1000
+UNFILED_TITLE = "脆弱性: 毎晩の知らせを issue にできなかった"
 
 
 def run(command: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -105,6 +107,34 @@ def title_for(row: dict) -> str:
     return row["title"]
 
 
+def issue_create_args(title: str, body: str, *, label: str | None = None) -> list[str]:
+    args = ["issue", "create", "--title", title]
+    if label is not None:
+        args.extend(["--label", label])
+    args.extend(["--body", body])
+    owner = os.environ.get("GITHUB_REPOSITORY_OWNER")
+    if owner:
+        args.extend(["--assignee", owner])
+    return args
+
+
+def create_issue(title: str, body: str, *, label: str | None = None) -> None:
+    args = issue_create_args(title, body, label=label)
+    proc = run(["gh", *args])
+    if proc.returncode == 0:
+        return
+    if os.environ.get("GITHUB_REPOSITORY_OWNER"):
+        fallback = ["issue", "create", "--title", title]
+        if label is not None:
+            fallback.extend(["--label", label])
+        fallback.extend(["--body", body])
+        retry = run(["gh", *fallback])
+        if retry.returncode == 0:
+            return
+        proc = retry
+    raise RuntimeError(proc.stderr.strip() or "issue を作れない")
+
+
 def load_material(directory: Path) -> list[dict]:
     rows: list[dict] = []
     json_paths = [directory] if directory.is_file() and directory.suffix == ".json" else sorted(directory.glob("*.json"))
@@ -146,9 +176,7 @@ def file_issues(directory: Path) -> int:
             existing = next((issue for issue in issues if issue.get("title") == title), None)
             body = "\n".join(issue_body(item) for item in title_rows)
             if existing is None:
-                proc = run(["gh", "issue", "create", "--title", title, "--label", "脆弱性", "--body", body])
-                if proc.returncode != 0:
-                    raise RuntimeError(proc.stderr.strip() or "issue を作れない")
+                create_issue(title, body, label="脆弱性")
                 continue
             comments = gh_json(["issue", "view", str(existing["number"]), "--json", "comments"])
             text = str(existing.get("body", "")) + "\n" + "\n".join(
@@ -173,6 +201,23 @@ def file_issues(directory: Path) -> int:
         return 2
 
 
+def report_unfiled(run_url: str) -> int:
+    body = f"夜: {datetime.now(timezone.utc):%F}\nrun: {run_url}"
+    try:
+        issues = gh_json(["issue", "list", "--state", "open", "--limit", str(ISSUE_LIMIT), "--json", "number,title"])
+        existing = next((issue for issue in issues if issue.get("title") == UNFILED_TITLE), None)
+        if existing is None:
+            create_issue(UNFILED_TITLE, body)
+        else:
+            proc = run(["gh", "issue", "comment", str(existing["number"]), "--body", body])
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or "issue に追記できない")
+        return 0
+    except (RuntimeError, OSError) as exc:
+        print(f"error: 知らせの issue を立てられなかった（{exc}）", file=sys.stderr)
+        return 2
+
+
 def main() -> int:
     root = Path(os.environ.get("CHECK_VULNS_ROOT", Path.cwd()))
     scanner = Path(os.environ.get("OSV_SCANNER_BIN", ""))
@@ -180,6 +225,8 @@ def main() -> int:
         return nightly(root, scanner, Path(sys.argv[2]))
     if sys.argv[1] == "file-issues" and len(sys.argv) == 3:
         return file_issues(Path(sys.argv[2]))
+    if sys.argv[1] == "report-unfiled" and len(sys.argv) == 3:
+        return report_unfiled(sys.argv[2])
     print("error: 検査できなかった（使い方）")
     return 2
 

@@ -61,10 +61,15 @@ jobs:
           pattern: '*-findings'
           path: "${{ runner.temp }}/findings"
           merge-multiple: true
-      - if: always()
+      - id: file
+        if: always()
         run: |
           if [ -d "$RUNNER_TEMP/findings" ] && find "$RUNNER_TEMP/findings" -type f -print -quit | grep -q .; then
             tools/check-vulns.sh file-issues "$RUNNER_TEMP/findings"
           fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - if: failure() && steps.file.outcome == 'failure'
+        run: tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
         env:
           GH_TOKEN: ${{ github.token }}
