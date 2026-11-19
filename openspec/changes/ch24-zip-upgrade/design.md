@@ -17,7 +17,7 @@
 
 ## Decisions
 
-### D1（仮）. zip の features は既定のまま
+### D1. zip の features は既定のまま（人間へ返した。deep.md Q-G1）
 
 `zip = "9"`（既定の features）にする。`default-features = false` で aes-crypto と deflate だけに絞れば依存は減るが、Takeout の zip を読める
 圧縮の方式が今より狭くなりうる（2.6.1 の既定は bzip2・lzma・zstd なども読む）。振る舞いを変えない約束なので、絞らない。
