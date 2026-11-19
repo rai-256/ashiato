@@ -96,7 +96,7 @@
 
 ## Task 3: 文書
 
-- [ ] 3.1 `docs/testing.md` の CI の job の表の `install-windows` の行に、最後の置く段（配る形を外につながる状態で入れて 5 分置き、起こし直し・止まり・同じ誤りの続き・panic・配布元に確かめた記録を見る）を足し、
+- [x] 3.1 `docs/testing.md` の CI の job の表の `install-windows` の行に、最後の置く段（配る形を外につながる状態で入れて 5 分置き、起こし直し・止まり・同じ誤りの続き・panic・配布元に確かめた記録を見る）を足し、
   「release の台本」の節に `tools/release/soak-install.sh` を足す（観測の部品を使うこと・自己試験は `rust` の job）
   検証: `bash -c 'grep -q "soak-install.sh" docs/testing.md && grep -q "置く段" docs/testing.md'` rc=0
 
