@@ -28,10 +28,16 @@
 
 上げる前の木（zip 2.6.1）で、試験の DB に決まった記録を置いて書き出しを 1 回走らせ、そのファイルのバイト列・項目ごとの SHA-256・書き出しの id・
 合言葉を `crates/server/src/export_file_tests.rs` に定数（`CH24_PREVIOUS_EXPORT` など）として置く。別の材料のファイル（`crates/server/tests/fixtures/`）に置かないのは、
-予定のパス（`lane.json`）の外だから。埋め込みを入れた commit の `Cargo.lock` が zip 2.6.1 であることを tasks 1.2 が git で確かめる
+予定のパス（`lane.json`）の外だから。埋め込みを入れた commit の `Cargo.lock` が zip 2.6.1 であることを tasks 1.5 が git で確かめる
 （上げた後に作り直すと互換を見なくなる）。
-AES の形は zip の部品の読み方を通さず、中央ディレクトリと追加の欄 `0x9901`（vendor version・`AE` の印・強さ・実の圧縮方式）を試験の中でバイト列から読む。
-手元に AES の zip を読める別の道具（7-Zip など）が無いため、別の実装で読む確かめは置かない。
+埋め込みは `// CH24-FIXTURE-BEGIN` と `// CH24-FIXTURE-END` の行で囲み、tasks 1.5 が「初めて入れた commit の囲みの中」と「HEAD の囲みの中」が
+同じことも見る（`git log -S` は初めの commit しか拾わず、上げた後にバイト列だけを書き直しても気づかない。review R7）。
+記録の置き方は、書いた量が 20 バイト未満の項目（0 行の `.jsonl`）と 20 バイト以上の項目の両方が出るようにする（AE-2 と AE-1 の両方の枝を比べるため。review R5）。
+AES の形は zip の部品の読み方を通さず、試験の中でバイト列から読む: 中央ディレクトリ（`PK\x01\x02`）と局所ヘッダ（`PK\x03\x04`）の両方の
+圧縮方式（`99`）・汎用の印の暗号化の bit（bit 0）・追加の欄 `0x9901`（vendor version・`AE` の印・強さ・実の圧縮方式）（review R6）。
+手元に AES の zip を解ける別の道具（7-Zip など）は無いが、python3 の標準の `zipfile` は AES を解けなくても項目の名前と形（`compress_type`・`flag_bits`）を
+別の実装として読める。上げた後の書き出しを試験が `CH24_DUMP_DIR` に書き、tasks 2.2 が python3 で全部の項目について `compress_type == 99` と
+`flag_bits & 1` を見る（zip の部品の外の実装で、形が壊れていないことの下限）。
 反転条件: 埋め込みが大きすぎて試験のファイルが読めなくなる（目安 64 KiB を超える）なら、書き出す記録を減らす。
 
 ### D3. 例外の表から消すのは zip の 7 行
@@ -49,12 +55,52 @@ AES の形は zip の部品の読み方を通さず、中央ディレクトリ�
 ### D5. `update_apply.rs` の展開は自前のまま
 
 RUSTSEC-2026-0367・0368・0369 は zip の `extract` の振る舞い（SUID の保持・道の外への symlink・symlink 越しの権限）の勧告。
-`update_apply.rs` は `extract` を使わず、`enclosed_name` で道の外を断り、`#[cfg(unix)]` で `unix_mode` を写す。上げても自前の展開の振る舞いは変わらず、
-SUID の保持の直しも効かない。PC の収集アプリは Windows で動くので、`#[cfg(unix)]` の枝は配る物では走らない。振る舞いを変えない約束なので触らず、
-PR 本文に挙げる（直すなら別の change）。
+`update_apply.rs` は `extract` を使わず、項目の名前を自前に確かめて道の外を断り（D6）、`#[cfg(unix)]` で `unix_mode` を写す。展開を `extract` に置き換えない。
+zip 9 の `unix_mode()` は Unix の項目の特別な bit（SUID・SGID・sticky）を落として返す（`zip-9.7.3/src/format/functions.rs` の `clear_specials_bits`）。
+これは勧告 RUSTSEC-2026-0367 の直しそのもので、`#[cfg(unix)]` の枝が写す権限から SUID などが消える。PC の収集アプリは Windows で動き、この枝は
+配る物では走らない（Linux の試験でだけ走る）。DOS の項目の読み取り専用の扱いも書き方が変わった（2.6.1 は `&= 0o555`、9 は `&= !0o222`）が、
+これも `#[cfg(unix)]` の枝だけに効く。自前の写し方のコードは変えず、この差を PR 本文に挙げる。
+ディレクトリの判定（`is_dir`）は 2 つの版で同じ規則（名前の最後の文字が `/` か `\`。2.6.1 は文字、9 はバイトで見るが、どちらも ASCII の 1 文字）。
+
+### D6. PC の更新の展開は、2.6.1 と同じ名前の確かめを自前で当てる
+
+zip 9 の `enclosed_name` は判定が変わった（review R1・R11。2 つの版の source と、Windows 向けに組んだ使い捨ての .exe で確かめた）:
+2.6.1 が断った絶対パス（`/etc/passwd`）・ドライブの前置き（`C:\x`）・根から始まる名前（`\x`）・Windows で前置きになる `a:b` を、9 は相対に直して受け付ける。
+逆に、2.6.1 が通した Windows の装置の名前（`NUL`）・末尾の `.`（`a.`）を 9 は Windows で断り、どの OS でも `\` を区切りとみなすので Linux で `..\x` も断る。
+`extract_zip` は 9 の `enclosed_name()` を使わず、2.6.1 と同じ確かめ（名前に `\0` を含む・`std::path::Path` の成分に前置きか根がある・`..` で根の外へ出る、のどれかなら
+「zip の道が不正」で断る）を自前の関数で当て、展開する先は 2.6.1 と同じく `destination.join(PathBuf::from(名前))` にする。受け付ける名前と展開先は、どの OS でも 2.6.1 と同じ。
+名前の文字列は 9 の `name()` から取り、Err なら断る。2.6.1 と文字列が違いうるのは UTF-8 の印の無い ASCII でない名前だけで、指紋を照合した配る zip の項目の名前は
+`tools/release/build.sh` が決めた ASCII の固定のもの（`ashiato-collector.exe` など）なので当たらない。
+正典に Scenario を置かない: 振る舞いを変えないことを試験（tasks 1.4）で固定するだけで、正典の約束を足さない（`distribution` は `ch22-soak-install-online-ci` が触っている）。
+次に zip を上げる change は、この D6 と 1.4 の試験から同じ確かめを引き継ぐ（review R16）。
+
+### D7（仮）. Takeout の書庫の項目の名前は、2.6.1 と同じ規則で読む
+
+zip 9 は名前の読み方を変えた（review R3）: 2.6.1 は汎用の印の bit 11（UTF-8 の印）があれば UTF-8（不正なバイトは置換文字にする
+`String::from_utf8_lossy`）、無ければ CP437 で読む（`zip-2.6.1/src/read.rs:1297-1300`）。9 は印を見ず、バイト列が UTF-8 として正しければ UTF-8、
+でなければ CP437 で読み、`name()` は `ZipResult` を返す。項目の名前は記録の `inner_path` と台帳の照合（`core.archive_file`・保留の形の行）に残るので、
+読み方が変わると、上げる前に取り込んだ記録と名前が揃わなくなる。
+`open.rs` は `name()` を使わず、`name_raw()` と `flags().as_u16() & 0x0800` から 2.6.1 と同じ規則で名前を作る。CP437 の表は zip 9 が公開していないので、
+`open.rs` に 128 字（0x80〜0xFF）の表を置く（0x00〜0x7F は ASCII のまま。2.6.1 の `cp437.rs` と同じ）。この読み方は失敗しないので、`name()` の Err の扱いは決めなくてよい。
+正しい CRC の Info-ZIP Unicode Path（`0x7075`）を持つ項目は、9 が `name_raw()` を置き換えて bit 11 を立てるので、この読み方でも 2.6.1 と同じ名前になる（review R3 の再確認）。
+CRC の合わない `0x7075` を持つ書庫だけは、2.6.1 では開けず `broken_zip` になり、9 では見出しの名前で読める（review R12）。読める側に変わるだけで、取り込んだ記録と名前は変わらず
+失うものは無いので受け入れる。
+正典に Scenario を置かない: 理由は D6 と同じ（試験 tasks 1.3 で固定する。次に zip を上げる change はこの D7 と 1.3 から引き継ぐ。review R16）。
+実物の Takeout の書庫が UTF-8 の印を持つかは確かめていない（`premises.md`）が、2.6.1 と同じ規則で読む限り、どちらでも記録に残る名前は変わらない。
+反転条件: 実物の Takeout の書庫が UTF-8 の印を持たず、2.6.1 の読み方で名前が化けていると分かったら、9 の読み方へ移すかを別の change で決める
+（移すと上げる前に取り込んだ記録の `inner_path` と揃わなくなるので、記録の名前の直し方と一緒に決める）。
+
+### D8. 書き出しの台帳の照合（注記を読む）は、前の版で書いた書き出しでも「書いたまま」と判定する
+
+前の書き出しを消すかどうかは、台帳の照合が置き場のファイルを zip として開いて注記を読めるかで決まる（`ledger.rs` の `is_untouched_with`。false なら消さない側に倒れる）。
+上げた後の版で、前の版で書いた書き出しを置いた状態から新しい書き出しを書き終えると、前のファイルが消えて 1 つだけ残ることを Scenario にする（review R4）。
 
 ## Risks
 
-- zip 9 の API の変化（例: `set_comment` が結果を返すようになった）は組み立てで分かる。読み方の意味の変化（項目の名前・ディレクトリの判定・`unix_mode`）は
-  既存の試験（書き出し・Takeout・PC の更新）が見る
-- PC の収集アプリは Windows で動く。Linux で走る試験に加え、PR の CI の Windows 向けの clippy と `runtime_windows` が見る（tasks 2.4）
+- zip 9 の API の変化（例: `set_comment` が結果を返す・`name()` が結果を返す）は組み立てで分かる。読み方の意味の変化のうち、項目の名前（D7）と
+  道の判定（D6）は既存の試験では落ちないので、どちらも 2.6.1 の振る舞いを自前で残し、上げる前の版の結果を試験に固定する（tasks 1.3・1.4）。`is_dir` は同じ規則、`unix_mode` は `#[cfg(unix)]` の枝だけ（D5）
+- 名前の試験の材料は zip の部品の外（python3 の `zipfile`・Info-ZIP の `zip`）で作ったバイト列を試験に埋め込む。部品の `ZipWriter` で作ると、書く側も上げで変わり、
+  bit 11 を必ず付けるので、印の無い名前や道の外の名前を作れない
+- PC の収集アプリは Windows で動く。CI の Windows の job は `cargo test -p ashiato-collector-windows --lib` を走らせるので、`update_apply.rs` の `#[cfg(test)]` に置く
+  名前の試験（tasks 1.4）はそこで走る。手元でも `--target x86_64-pc-windows-gnu` の `--lib` が WSL の interop で走る（2026-11-20 に 435 本を数えた）。
+  `runtime_windows` と `st58_pc_update` は展開の名前の判定を見ない（review R2）

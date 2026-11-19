@@ -16,6 +16,8 @@
   （`archive/open.rs`・`export/dump.rs`・`export/ledger.rs`・`update_apply.rs`）と試験を新しい API に合わせる。features は既定のまま（design D1）
 - **上げる前に**、今の版（zip 2.6.1）で書いた書き出しの zip を試験に埋め込み、上げた後の版で同じ中身に読めること・AES の形が同じことを試験で固定する
   （`specs/data-durability`。ADDED の 1 Requirement。design D2）。今の試験は書くのも読むのも同じ版の部品なので、版の間の互換を見ていない
+- zip 9 は項目の名前の読み方と道の判定を変えた。2.6.1 と同じに振る舞うよう、Takeout の名前は 2.6.1 と同じ規則で読み（design D7）、PC の更新の展開は 9 の判定を使わず
+  2.6.1 と同じ名前の確かめを自前で当てる（design D6）。上げる前の結果を、zip の部品の外で作った材料で試験に固定する
 - 例外の表から zip の行を消す。本人が名指しした GHSA 3 件に加え、同じ zip 2.6.1 の RUSTSEC-2026-0367・0368・0369・0429 の 4 行も消す
   （9.0.0 で直っている。残すと検査の「勧告がもう出ない」で落ちる。design D3）
 - 上げきれなければ、本人の決めた代わり（理由を `上げる予定: 2 → 9 の上げの作業が残る` に直し、期限を 90 日以内）を計画の直しとして人間に返す（design D4）
@@ -28,7 +30,7 @@
 
 ### Modified Capabilities
 
-- `data-durability`: ADDED の 1 Requirement（前の版の zip の部品で書いた書き出しを同じに読み、同じ AES の形で書く）。既存の Requirement は変えない
+- `data-durability`: ADDED の 1 Requirement（以前の版のサーバが書いた書き出しを同じ中身で読み、台帳の照合で書いたままと判定し、同じ AES の形で書く）。既存の Requirement は変えない
 
 ## Impact
 

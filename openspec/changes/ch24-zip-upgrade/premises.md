@@ -9,7 +9,12 @@
 | zip 9 は rust 1.88 以上を求める | 組み立てが通るか | `cargo info zip@9`（9.7.3） | `rust-version: 1.88`。手元の rustc は 1.99、CI は `dtolnay/rust-toolchain` の stable | 実物 | 4 |
 | zip 9 の既定の features は aes-crypto と deflate を含む | 書き出しの AES と Takeout の deflate を読むこと | `cargo info zip@9` | `default = [aes-crypto, bzip2, deflate64, deflate, lzma, ppmd, time, zstd, xz]` | 実物 | 4 |
 | AE-1 / AE-2 の選び方は 2.6.1 と 9.7.3 で同じ（書いた量が 20 バイト未満なら AE-2） | 上げた後に書いた zip の AES の形が変わらないこと | 両方の版の `src/write.rs` を読んだ（2.6.1 は 1087 行付近、9.7.3 は 2979 行付近） | 同じ規則 | 公式文書（crate の source） | 2 |
-| 手元に AES の zip を読める別の道具が無い | 「今と同じに読める」を何で確かめるか | `which 7z 7za 7zz`・`python3 -c 'import pyzipper'` | どれも無い。`unzip` は AES を読めない | 実物 | 5 |
+| zip 9 は `enclosed_name` の判定を変えた（絶対パス・前置きを相対に直して受け付け、Windows で装置の名前・末尾の `.` を断る） | 更新の展開の道の確かめ（design D6。9 の判定を使わない理由） | review R1 が 2 つの版に依る使い捨ての crate を Linux と Windows 向けの .exe（WSL の interop）で走らせた。`zip-9.7.3/src/path.rs:235-262` | review/spec.md R1 の表のとおり | 実物 | 4 |
+| zip 9 は名前を UTF-8 の印でなくバイト列の正しさで読む | Takeout の項目の名前（design D7） | review R3 が印を消した zip を両方の版で読んだ。`zip-2.6.1/src/read.rs:1297-1300`・`zip-9.7.3/src/types.rs:143-151` | 2.6.1 は CP437 の文字列、9.7.3 は UTF-8 の文字列 | 実物 | 4 |
+| zip 9 の `name_raw()` と `flags().as_u16()` は公開され、CP437 の変換は公開されていない | D7 を `open.rs` の中で実装できること | `zip-9.7.3/src/read/zipfile.rs:81・180`・`src/format/flags.rs`・`src/lib.rs`（`cp437` は `pub` でない） | 名前のバイト列と印は読める。CP437 の表は自前で持つ | 公式文書（crate の source） | 2 |
+| 実物の Takeout の書庫の項目は UTF-8 の印を持つ | （D7 で 2.6.1 の規則で読むので、どちらでも記録に残る名前は変わらない。何も依らない） | 確かめていない | — | 知識 | 1 |
+| `cargo test --target x86_64-pc-windows-gnu` の `--lib` が手元で走る | tasks 1.4・2.5 | 2026-11-20 に `cargo test -p ashiato-collector-windows --lib --target x86_64-pc-windows-gnu -- --list` | rc=0・435 本 | 実物 | 5 |
+| 手元に AES の zip を読める別の道具が無い | 「今と同じに読める」を何で確かめるか | `which 7z 7za 7zz`・`python3 -c 'import pyzipper'` | どれも無い。`unzip` は AES を読めない。python3 の標準の `zipfile` は解けないが、名前と形（`compress_type`・`flag_bits`）は読める（tasks 2.2） | 実物 | 5 |
 
-確かさ 2 の AE-1 / AE-2 の前提は、`specs/data-durability` の Scenario「上げた後に書いた書き出しの zip の項目は、前の版と同じ AES の形で書かれる」が
+確かさ 2 の AE-1 / AE-2 の前提は、`specs/data-durability` の Scenario「新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる」が
 上げた後の版で走らせて確かめる（tasks 2.2。外れれば落ちる）。
