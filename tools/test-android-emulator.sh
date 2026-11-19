@@ -699,7 +699,10 @@ assert_only_st56() {
     && grep -Fq 'shell bmgr enable true' "$root/seq.log" \
     && grep -Fq 'St56BackupTest#prepareBackup' "$root/seq.log" \
     && grep -Fq 'backupnow' "$root/seq.log" \
+    && grep -Fq 'bmgr restore' "$root/seq.log" \
     && grep -Fq 'St56BackupTest#verifyRestored' "$root/seq.log" \
+    && awk '/gradle -q :app:installDebug :app:installDebugAndroidTest/{install=NR} /shell bmgr enable true/{enable=NR} /St56BackupTest#prepareBackup/{prepare=NR} /backupnow/{backup=NR} /bmgr restore/{restore=NR} /St56BackupTest#verifyRestored/{verify=NR} END{exit !(install < enable && enable < prepare && prepare < backup && backup < restore && restore < verify)}' "$root/seq.log" \
+    && ! grep -q 'st58-replace' "$root/seq.log" \
     && grep -Fq 'OK (1 test)' "$root/stdout" \
     && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 0 ] \
     && [ ! -d "$root/collector-android/app/build/outputs/androidTest-results" ]
@@ -711,9 +714,10 @@ assert_only_st56_fail() {
   export FAKE_VERIFY_OUT='FAILURES!!!'
   rc=$(run_emulator "$root" '' 1 only-st56-fail ok normal "$root/kvm" '' '' '' "$class")
   unset FAKE_VERIFY_OUT
-  [ "$rc" -ne 0 ] \
+  [ "$rc" -eq 1 ] \
     && grep -Fq 'error: St56BackupTest の復元の確かめが通らない' "$root/stderr" \
     && ! grep -q 'connectedDebugAndroidTest' "$root/seq.log" \
+    && grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log" \
     && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 0 ]
 }
 
