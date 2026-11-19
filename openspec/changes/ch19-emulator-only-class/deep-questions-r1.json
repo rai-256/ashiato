@@ -1,0 +1,32 @@
+{
+  "title": "CH19 の深掘り（第 1 回・spec のレビューから）",
+  "subtitle": "エミュレータの計測テストを 1 クラスだけ走らせる口を足す",
+  "note": "軽い路で進めていましたが、仕様のレビューで「依頼の例のクラス（St56BackupTest）は、gradle に class= を渡すだけでは走らない」と分かりました。決めたこと（指定したクラスだけを 1 段で）をこのクラスでどう読むかを聞きます。答えると通常の路で続きます。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "ONLY に St56BackupTest を渡したとき、何を走らせるか",
+      "kind": "premise",
+      "question": "ONLY=dev.ashiato.collector.St56BackupTest を渡したとき、gradle の 1 段ではなく、全体の実行と同じ「準備 → バックアップの往復 → 確かめ」の手順だけを走らせてよいですか。",
+      "why": "議論で決めた「指定したクラスだけを 1 段で走らせる（gradle の class= を台本から渡すだけ）」は、例に挙げた St56BackupTest そのものでは成り立ちません。このクラスは準備（prepareBackup）と確かめ（verifyRestored）の間に、テストの外でアプリのデータを消してバックアップから戻す往復が要ります。gradle の 1 段で走らせると、間で APK を入れ直して戻したデータが消え、確かめが必ず落ちます。どれを選んでもデータは失いません（台本の口の形だけで、後から変えられます）。",
+      "context": "全体の実行（tools/android-emulator.sh）でも、St56BackupTest は gradle の段から外し、installDebug → bmgr enable → am instrument …#prepareBackup → tools/android-backup-roundtrip.sh → am instrument …#verifyRestored と OK (1 test) の照合、で走らせています（2〜3 段目）。ST56 Task 5 で全体を 27 回まわしたのは、このクラスを直していたときです。同じ族として、入れ替えの試験（St58PackageReplacedInstrumentedTest。tools/android-st58-replace.sh が APK を 2 つ組んで入れ替える。依頼が対象外とした）と採寸の試験（UsageVolumeInstrumentedTest。tools/usage-volume.sh が利用状況の許可とイベントを用意する）も gradle の 1 段では前提が無く必ず落ちます。推奨ではこの 2 つは、エミュレータを起こさずに専用の台本の名前を出して止めます。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "全体と同じ準備・往復・確かめの手順だけを走らせる",
+          "detail": "St56BackupTest に限り、gradle の計測テストは呼ばず、全体の 2〜3 段目と同じ命令を同じ順に走らせる（段の置き場は作らず、判定は OK (1 test) の照合）。ST56 Task 5 のような直しの繰り返しが数分で回る。入れ替え・採寸の試験は起こさずに止める",
+          "recommended": true
+        },
+        {
+          "label": "決めたとおり gradle の 1 段で走らせる",
+          "detail": "台本は全クラスを同じに扱う（特別扱いなし）。St56BackupTest は ONLY では必ず落ちるので、このクラスを直すときは今どおり全体（17 分）を走らせる"
+        },
+        {
+          "label": "St56BackupTest は ONLY で断る",
+          "detail": "入れ替え・採寸の試験と同じく、起こさずに「全体で走らせる」と出して止める。台本は単純なまま。このクラスを直すときは全体を走らせる"
+        }
+      ]
+    }
+  ]
+}
