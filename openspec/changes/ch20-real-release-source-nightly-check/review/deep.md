@@ -58,7 +58,7 @@
 - 根拠: `openspec/specs/distribution/spec.md:2523`「試験の組み立ては差し替えの宛先が無ければ確かめない（**自動の試験は本物の配布元に問い合わせない**。配る組み立てを動かす CI は、外への接続を塞いで走らせる）」 / 依頼 `docs/changes/CH20.md`「本物の配布元…と話したときに正しく振る舞うことを、nightly で 1 日 1 回確かめる」 / Q9 の推奨の detail「この change の中では製品のコードと正典の振る舞いを変えない」と context の「壊してはいけないもの」の候補 / `lane.json` の paths に `openspec/specs/**` が無い / `.harness2/docs/flow-gates.md:275`（仮で進めるのは「要件を変えない」ときだけ）
 - kind: conflict
 - 提案: 第 1 回に問いを 1 つ足す（kind `conflict`。推奨を付ける）。中身は「正典 2523 行の括弧書きを、『PR の CI と配る組み立てを動かす CI は本物に問い合わせない。毎晩の検査だけは、試験の組み立てで本物に問い合わせてよい』のように改める（MODIFIED）か」。選択肢には、変えるのは試験の決まりの文で、製品の振る舞いは変わらないことを書く。Q9 の「正典の振る舞いを変えない」は「正典の製品の振る舞いは変えない。試験の決まりの文だけ変える」に直す。
-- 処置: fixed Q10（premise で第 1 回に足した。要件の本文を変えるので A）。Q9 の文も「製品の振る舞いは変えない」に寄せた
+- 処置: escalated （fixed Q10（premise で第 1 回に足した。要件の本文を変えるので A）。Q9 の文も「製品の振る舞いは変えない」に寄せた）
 
 ## R2. Q7 の前提が誤っている。正典は開発版の道の 404 を「確かめられない（配布元が見つからない）」と決めていて、依頼の「エラーを記録し続けない」と衝突する。推奨の「赤にする」は、正典どおりの振る舞いを赤とみなす
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json / premises.md
@@ -76,7 +76,7 @@
   - Q7 の kind を `conflict` にする。context を「正典は 404 を確かめられないと決めていて、いまの製品は正典どおり。依頼の『エラーを記録し続けない』とぶつかる」に直す
   - 「赤にする」は、正典の意味を変える（いまの 404 の扱いを誤りとみなす）ことを選択肢に書く。仮（P）にはしない
   - premises.md の P4 は「決めている（`spec.md:2897`・`:3236`）」に直す
-- 処置: fixed Q7（context と選択肢を直し、推奨を「正典どおりなら緑・食い違いを要約に出す」にした）・fixed premises.md P4
+- 処置: escalated （fixed Q7（context と選択肢を直し、推奨を「正典どおりなら緑・食い違いを要約に出す」にした）・fixed premises.md P4）
 
 ## R3. 抜け: 本物の印 `nightly` の答え（リリース 1 件のオブジェクト）を、更新係と PC の収集アプリは読めない。試験の受け手と共有の材料が配列を返しているので、試験は通る。依頼が捕まえたい「偽の配布元が本物とずれる」が既に起きている
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -94,7 +94,7 @@
   - Q7 の context に、この食い違いを事実として書く
   - Q4 の「作る状態」の族に「印 `nightly` がある日の 200（リリース 1 件のオブジェクト。形は本物の 1 件から取る）」を足す。失わない側なので仮（P）でよい
   - この状態を入れると、Q9 の推奨（直さない）のもとでは初日から赤になる。そのことを Q9 の context に書く
-- 処置: fixed Q9（見つかった食い違い (1) として問いに載せた）・fixed premises.md P9
+- 処置: fixed deep-questions.json （fixed Q9（見つかった食い違い (1) として問いに載せた）・fixed premises.md P9）
 
 ## R4. 抜け: 版の一覧に 64 KiB の上限がある。正典に無い決まりで、リリース 8 件ほどで本物の答えが上限を超え、更新係と PC の収集アプリは毎日「読めない答え」になる。Q5 の context は、この上限を製品の決まりとして書いている
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -114,7 +114,7 @@
   - Q5 の context を「64 KiB の上限はコードの定数で、正典に無い。本物はリリース 8 件ほどで超える」に直す
   - Q4 の「作る状態」に「本物の形で 20 件・各 4 配布物の一覧（上限いっぱいの大きさ）」を足す（P でよい）
   - R3 と同じく、Q9 の推奨のもとでは初日から赤になることを Q9 の context に書く
-- 処置: fixed Q9（(2) として載せた）・fixed Q5 の context（正典に無い決まりと明記）・fixed premises.md P10
+- 処置: fixed deep-questions.json （fixed Q9（(2) として載せた）・fixed Q5 の context（正典に無い決まりと明記）・fixed premises.md P10）
 
 ## R5. Q8 の context の前提が誤っている。PC の収集アプリは 5xx と別の宛先への転送を「配布元に届かない」と記録し、正典の「読めない答え」と合わない。届かない夜の族にも 5xx が無い
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -131,7 +131,7 @@
   - Q8 の context に「PC の収集アプリは 5xx と別の宛先への転送を『配布元に届かない』と記録していて、正典と合わない。配布元に障害がある夜は、この判定で赤になる」を書く
   - Q8 の族に「配布元が 5xx を返した夜」を足し、その夜を「届かない夜」として扱うかを推奨とともに書く
   - Q9 の「直さない」に、この食い違いも含めて挙げる
-- 処置: fixed Q8 の context・fixed Q9（(3) として載せた）・fixed premises.md P11
+- 処置: fixed deep-questions.json （fixed Q8 の context・fixed Q9（(3) として載せた）・fixed premises.md P11）
 
 ## R6. Q2 の前提が誤っている。携帯は選び方のコードを共有していない（Kotlin で自前に持ち、共有しているのは材料だけ）。R3・R4 の食い違いは Rust の 2 部品だけにある
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -141,7 +141,7 @@
   - 本物との違い: 携帯は印 `nightly` のオブジェクトを受け（`:106`）、版の一覧に大きさの上限を持たない（`:217`）
 - kind: premise
 - 提案: Q2 の context を「3 つの部品は共有の材料（`update-check-vectors.json`）で同じ答えを出すことだけを試している。選び方のコードは、サーバの更新係と PC の収集アプリが共有し、携帯は Kotlin で別に持つ。本物の答えの読み方も携帯だけ違う」に直す。推奨（依頼どおり 2 部品）はこのままでよいが、携帯を外すと「携帯の読み方が本物とずれたら気づかない」ことを選択肢 1 の detail に書く。
-- 処置: fixed Q2 の context
+- 処置: fixed deep-questions.json （fixed Q2 の context）
 
 ## R7. Q4 の推奨は、PC の収集アプリの版を組み立てで変えて「本物の最新より 1 つ古い版」を作る前提に立つ。組み立ての規則では、出所の版と土台が違う版は組めない
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json / premises.md
@@ -153,7 +153,7 @@
   - P7 は、版の上書きを更新係（`ASHIATO_UPDATER_VERSION`）でしか確かめていない
 - kind: premise
 - 提案: Q4 の推奨を「入っている版は組み立てのまま変えず、流し直す一覧の版の名前を書き換えて版の関係（同じ・新しい・古い）を作る」に直す。少なくとも context に、PC の収集アプリの版は土台を変えられないことを書く。premises.md の P7 にもこの制約を足す。
-- 処置: fixed Q4（推奨を、一覧の側の版の名前を書き換える形に直した）
+- 処置: fixed deep-questions.json （fixed Q4（推奨を、一覧の側の版の名前を書き換える形に直した））
 
 ## R8. Q3 の推奨（配る形を Windows に入れて PC の収集アプリを回す）が、確かめていない前提に乗っている。前提は 2 つ: runner でトーストが成功すること、配る zip がその晩にあること
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json / premises.md
@@ -168,7 +168,7 @@
   - いまの Windows のインストールの台本は、PC の収集アプリを入れない（`tools/release/update-check-install.sh:21-32` の Scenario の一覧は更新係とインストーラだけ）
 - kind: premise
 - 提案: premises.md に 2 行を足す（確かさ付き）。1 行目は「runner の Windows でトーストが成功するか」、2 行目は「毎晩の検査が使う配る zip をどこから得るか（その晩に組む／前の組み立てを取る）」。Q3 の推奨の detail にも、この 2 つと、トーストが出なければ PC の収集アプリは問い合わせずに終わることを書く。
-- 処置: fixed Q3（推奨を、サーバは配る形・PC の収集アプリは試験の組み立てに直した。配る zip は検査の中で組む）
+- 処置: fixed deep-questions.json （fixed Q3（推奨を、サーバは配る形・PC の収集アプリは試験の組み立てに直した。配る zip は検査の中で組む））
 
 ## R9. 抜け: 検査をどの workflow に置くかが、Q7 の推奨の detail の中にしか無い。既存の決まりは、毎晩の検査を公開の流れから分けている
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -181,7 +181,7 @@
   - 過去の取りこぼし「構造の検査を新しく作るなら、どの CI の job が毎回走らせるかを書く」
 - kind: technical
 - 提案: 置き場を独立の問いにする（B。推奨は「開発版の組み立てと公開の workflow とは別の毎晩の workflow に置き、配線の検査（`check-vulns-wiring.sh` と同じ形）で『公開の流れから独立』『予定と手動の起動を持つ』『時間の上限がある』を見る」）。`lane.json` の paths に新しい workflow を足すことも書く。
-- 処置: fixed Q7 の context（別の実行に置くことを書いた）。置き場の細部は C の既定として design の D に残す
+- 処置: fixed D1 （fixed Q7 の context（別の実行に置くことを書いた）。置き場の細部は C の既定として design の D に残す）
 
 ## R10. 抜け（日常）: 赤になったことを本人がどう知るか。Q7 の推奨では直しが入るまで毎晩赤が続くのに、その間の知らせ方も上限も決まっていない
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -192,7 +192,7 @@
   - 過去の取りこぼし「送らずに止める決定には、止めたことを本人がどう知るかを問う」「解消するまで待つ規則には上限を問う」
 - kind: daily
 - 提案: B の問いを足す。推奨は「赤の理由ごとに issue を 1 本だけ開いたまま更新し、通った夜に閉じる（毎晩新しい issue を立てない）」。対案に「赤だけ（issue なし）」と「issue を毎晩立てる」を並べる。Q7 の「赤が続く」には「理由ごとに 1 本の issue が開いたままになる」を書く。
-- 処置: rejected: 問いにしない（C）。予定の workflow の失敗は GitHub が起こした人へ通知する既定の仕組みで届く。追加の知らせ方は design の D（仮）に残す
+- 処置: fixed D9 仮 （rejected: 問いにしない（C）。予定の workflow の失敗は GitHub が起こした人へ通知する既定の仕組みで届く。追加の知らせ方は design の D（仮）に残す）
 
 ## R11. 抜け（一方通行）: 毎晩の本物の答えを残すか、比べる基準をどこに置くか。残さなければ、いつから形が変わったかを後から引けない。lane-verdict は人間と決めるとしたのに、一覧に無い
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -203,7 +203,7 @@
 - kind: technical
 - loss: uncaptured
 - 提案: Q5 の兄弟として問いを足す。失わない側（その晩の本物の答えと判定の要約を run の成果物に残し、基準は repo の中の固定のファイルに置いて変えるときは PR で変える）は安く、範囲内で、要件を変えないので、推奨を付けて仮（P）で進めてよい。選択肢には「残さない側を選ぶと、形が変わった日を後から特定できない（uncaptured）」を書く。
-- 処置: rejected: 問いにしない（C、扉を開けたままにする既定）。毎晩の本物の答えは artifact に残し、比べる基準は repo の材料に置く。design の D に残す
+- 処置: fixed D13 仮 （rejected: 問いにしない（C、扉を開けたままにする既定）。毎晩の本物の答えは artifact に残し、比べる基準は repo の材料に置く。design の D に残す）
 
 ## R12. 抜け: 検査の側の問い合わせ（Q5 の本物の形・Q6 の別の repo・Q8 の前の実行の読み出し）に、workflow の資格情報を使うか
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -214,7 +214,7 @@
   - Q6 の推奨（別の公開の repo を読む）と Q8 の推奨（前の実行の結果から数える）は、どちらも問い合わせを足す
 - kind: technical
 - 提案: B の問いか、Q8 の context に書く。推奨は「製品の問い合わせは資格情報なしのまま。検査の側の問い合わせだけ workflow の読み取りの資格情報で行い、共有の上限を製品の問い合わせだけで使う」。依頼の「数回まで」が製品の問い合わせの数を指すと書く。
-- 処置: rejected: 問いにしない（C）。検査の側の問い合わせだけ workflow の資格情報を使い、製品の問い合わせは資格情報なしのまま。design の D に残す
+- 処置: fixed D4 （rejected: 問いにしない（C）。検査の側の問い合わせだけ workflow の資格情報を使い、製品の問い合わせは資格情報なしのまま。design の D に残す）
 
 ## R13. 前提が足りない（P5・P6・Q1 の context）。記録の形から、更新係も PC の収集アプリも一度も確かめを終えていないと言える。P6 の根拠の zip には更新係が入っていない
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/premises.md / deep-questions.json
@@ -235,7 +235,7 @@
   - P6 の確かめ方を「アプリと機能」の版の表示（`crates/installer/src/main.rs` の `uninstall_registration_commands` が書く）に替え、確かさを付け直す
   - Q1 の context に「どちらの部品にも、配布元の答えに由来する記録は無い（更新係は有効だった 8 分にも確かめを終えていない）。07:58 に `update-check` の口で切られている」を書く。本人が何を見たかの推測は書かない
   - Q1 の推奨（覚えていない → この change は検査だけ）の irreversible に、「記録の上では、本人が見たものはこの検査が捕まえる種類ではない見込みが高い」を足す
-- 処置: fixed premises.md P5・P6・fixed Q1 の context と推奨の irreversible
+- 処置: fixed premises.md （fixed premises.md P5・P6・fixed Q1 の context と推奨の irreversible）
 
 ## R14. 範囲の食い違い: lane の paths に製品のコード `crates/update-check/**` がある。Q9 の推奨は「製品のコードを変えない」。壊してはいけないものの候補からも 4 つが漏れている
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -251,7 +251,7 @@
   - Q9 の context の候補に、上の 4 つを足す
   - Q9 の推奨を「直さない」にするなら、`crates/update-check/**` に触れてよいのは試験（`#[cfg(test)]`）と材料だけ、と書く。または lane の paths から外す
   - 製品のコードに触れる余地を残すなら、Q9 の選択肢 2 と同じく正典の振る舞いの変更になることを書く
-- 処置: fixed Q9 の context（壊してはいけないものの候補を足した）。lane.json は昇格済みの履歴なので書き換えない（触れる予定のパスは spec の段で proposal に書く）
+- 処置: fixed deep-questions.json （fixed Q9 の context（壊してはいけないものの候補を足した）。lane.json は昇格済みの履歴なので書き換えない（触れる予定のパスは spec の段で proposal に書く））
 
 ## R15. Q4 の選択肢 3 は外に出る（exported）のに、`loss` が無い。Q4 の推奨は、Q6 の推奨に乗っているのに、それが書かれていない
 - 成果物: openspec/changes/ch20-real-release-source-nightly-check/deep-questions.json
@@ -262,5 +262,5 @@
 - kind: technical
 - loss: exported
 - 提案: Q4 に `loss: exported` を付ける（推奨は選択肢 1 のままで、仮で進める側）。Q4 の推奨の detail に「Q6 で別の repo を読まない答えなら、0 件の間は共有の材料の形で代える」と書く。または Q4 を Q6 に従う問いとして結ぶ。
-- 処置: fixed Q4 の選択肢 3 の irreversible に「外に出る（exported）」を明記し、推奨が Q6 に乗ることを書いた。問いの loss は付けない —— 推奨の側は失わず、付けると A になって第 1 回の答えを必須にしてしまう（選択肢 3 を選ばれたら、そのとき A として扱う）
+- 処置: escalated （fixed Q4 の選択肢 3 の irreversible に「外に出る（exported）」を明記し、推奨が Q6 に乗ることを書いた。問いの loss は付けない —— 推奨の側は失わず、付けると A になって第 1 回の答えを必須にしてしまう（選択肢 3 を選ばれたら、そのとき A として扱う））
 
