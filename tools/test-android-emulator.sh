@@ -103,8 +103,10 @@ ST58
 set -euo pipefail
 echo gradle >> "${FAKE_LOG:?}"
 printf 'gradle %s\n' "$*" >> "${FAKE_SEQ_LOG:?}"
-if [[ "$*" == *connectedDebugAndroidTest* ]] && [ -z "${FAKE_GRADLE_NO_XML:-}" ]; then
+if [[ "$*" == *connectedDebugAndroidTest* ]]; then
   mkdir -p app/build/outputs/androidTest-results
+fi
+if [[ "$*" == *connectedDebugAndroidTest* ]] && [ -z "${FAKE_GRADLE_NO_XML:-}" ]; then
   classname=fake
   for arg in "$@"; do
     case "$arg" in
@@ -554,6 +556,7 @@ self_test() {
   fi
 
   new_tree; root=$NEW_ROOT
+  sed -i "/grep -rqF --include='TEST-\*.xml'/c\  if false; then" "$root/tools/android-emulator.sh"
   if assert_only_no_xml "$root"; then
     echo 'self-test: ONLY の XML 無しを検出できない' >&2
     return 1
@@ -670,7 +673,8 @@ assert_only_zero() {
   export FAKE_GRADLE_CLASS=dev.ashiato.collector.Other
   rc=$(run_emulator "$root" '' 1 only-zero ok normal "$root/kvm" '' '' '' "$class")
   unset FAKE_GRADLE_CLASS
-  [ "$rc" -eq 1 ] && grep -Fq "error: ONLY=$class のテストが 1 本も走っていない" "$root/stderr"
+  [ "$rc" -eq 1 ] && grep -Fq "error: ONLY=$class のテストが 1 本も走っていない" "$root/stderr" \
+    && assert_only_no_xml
 }
 
 assert_only_no_xml() {

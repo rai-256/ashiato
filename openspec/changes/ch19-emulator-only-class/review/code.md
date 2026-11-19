@@ -208,3 +208,4 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 成果物: tools/test-android-emulator.sh
 - 根拠: tools/test-android-emulator.sh:676-683（assert_only_no_xml）と self-test の呼び出し（557）（re-review 1 の New Breakage。Important）
 - kind: technical
+- 処置: fixed 2.2 — 偽 Gradle は XML を省く場合も結果ディレクトリを作る。`only-zero` は XML 無しでも指定の error で rc=1 になることを確認し、self-test は grep ガードを外した写しで `assert_only_no_xml` が失敗することを確認する。
