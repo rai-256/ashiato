@@ -102,3 +102,18 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 根拠: `assert_only_order` の awk（`tools/test-android-emulator.sh:620-625`）は、見つからなかった行の番号を 0 のまま `u<a && a<f && f<p && p<g` で比べる。写しの台本から `adb uninstall dev.ashiato.collector.test >/dev/null 2>&1 || true` を消すと、`ASHIATO_TEST_ONLY=only-order` は rc=0（落ちない）。spec の THEN は `uninstall dev.ashiato.collector.test` が命令の記録にあることを主張している。この行は全体の経路と共有なので、PR の証跡の `only-base` では落ちるが、Scenario の印の先のテストは見ていない
 - kind: technical
 - 提案: awk の END で 5 つの番号がすべて 0 でないことも条件にする（`u && a && f && p && g && u<a && …`）。`--self-test` に、この行を消すと `only-order` が落ちることを足す
+
+## security review（25ddd53..112ae15）
+
+見た経路:
+- 環境変数 `ONLY` → `tools/android-emulator.sh:21-36` の case と正規表現の検査 → `:139` の gradle 引数 `-Pandroid.testInstrumentationRunnerArguments.class="$ONLY"`（引用付き）と `:141-142` の `grep -Fq`（固定文字列）。シェル・gradle の引数・正規表現のどれにも検査を通った形でしか入らない（4）
+- `ONLY=dev.ashiato.collector.St56BackupTest` → `:122-133` は固定の命令（`bmgr`・`am instrument`・既存の `tools/android-backup-roundtrip.sh`）だけで、`ONLY` の値は比較にしか使わない（3）
+- 待ち受けと接続先: 差分の gradle 呼び出しの `ashiato.baseUrl` は既存の経路と同じ `http://127.0.0.1:18787`。新しい listen・外部への送信先は無い（2: `tools/android-emulator.sh:138`）
+- 出力: `echo "$verify_out"` はエミュレータ上の計測テストの出力（台本が作る試験のデータ）で、記録の中身ではない（2: `:129-131`）
+- `tools/test-android-emulator.sh` の追加分は一時の写しの中の偽の gradle で、`rm -rf`・`mktemp` 以外の外への作用（通信・eval）は無い（2: 差分を grep して該当が `sed -i` の 1 行だけ）
+- 依存: gradle / Cargo / npm の定義に差分なし（4: `git diff … -- '*.gradle*' '*Cargo*' '*package*.json'` が 0 行）
+- 認可・秘密: 差分は開発者の手元の道具と AGENTS.md だけで、API・画面・token・合言葉に触れない（2）
+
+安全の決め手: `ONLY` は使われる前に必ず `^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$` の検査を通り、外れたら `exit 1` する（`tools/android-emulator.sh:32-35`。`:120` 以降の使い所はすべてこの後）—— 確かさ 4。`:21-36` を切り出して走らせ、`a.b;touch /tmp/x`・`a.b$(id)`・改行入り・`a.b -Pfoo=1`・`a.b,c.d`・`a.b#m`・`-Dx.y`・`a.b"`・`a.b*` はすべて `error: … 完全修飾のクラス名 1 つの形でない` で止まり、`dev.ashiato.collector.St56BackupTest` だけが通った
+
+指摘なし
