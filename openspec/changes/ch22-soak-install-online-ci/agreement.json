@@ -1,0 +1,31 @@
+{
+  "status": "accepted",
+  "digest": "53d5886fbef558e6f86f5bdaf265a14f9be0588b39ea9969151e6d8ae1e9e841",
+  "head": "6ab06fb42c1d2eb295c9356d965d9034509136f0",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-19T14:55:17Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "配布元の 403 も「問い合わせの上限」になり、警告だけで通る"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "上限の警告が常になると、一覧の読み取りを確かめない回が続く"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "リリースを公開すると、コードを変えない PR の置く段の結果も変わりうる"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "置く段の台本だけを直しても、Windows の配布物を組み直す"
+    }
+  ]
+}
