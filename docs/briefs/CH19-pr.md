@@ -1,34 +1,52 @@
-# CH19 エミュレータの計測テストを 1 クラスだけ走らせる口を足す
+# CH19 —— エミュレータの計測テストを 1 クラスだけ走らせる口を足す
 
-change: `openspec/changes/ch19-emulator-only-class/`（capability `emulator-startup`・ADDED の Scenario 13 本）。依頼と完了の判定は `docs/changes/CH19.md`（受け皿の依頼 #328 から）。
-`tools/android-emulator.sh` に `ONLY=dev.ashiato.collector.<クラス>` の口を足す。直している途中はそのクラスだけを走らせ（全体の 17 分を待たない）、通ったら最後に全体を `scripts/verify-run` で走らせる。`ONLY` が無いか空なら、全体の 8 段は命令も行も変えない。
+change: `openspec/changes/ch19-emulator-only-class/`
 
-軽い路（`same`）で入ったが、仕様のレビュー（R11。premise）が「依頼の例の `St56BackupTest` は gradle の 1 段では走らない」と見つけたので通常の路へ昇格し、本人に問うた。
+## deep.md に積んだ未決（A）
 
-## 深掘りで本人が決めたこと（A）
+なし
 
-- **Q1（第 1 回・R11 から）ONLY に St56BackupTest を渡したとき何を走らせるか** —— 答え: 全体と同じ準備・往復・確かめの手順だけを走らせる（推奨と同じ・補足なし）。
-  gradle の計測テストは呼ばず、全体の 2〜3 段目と同じ命令（installDebug → bmgr enable → prepareBackup → `tools/android-backup-roundtrip.sh` → verifyRestored と `OK (1 test)` の照合）を同じ順に走らせる（design D2）。
-  入れ替え（`St58PackageReplacedInstrumentedTest`）と採寸（`UsageVolumeInstrumentedTest`）の試験は、エミュレータを起こさずに専用の台本の名前を出して rc=1 で止める（design D4）
-- 議論で決めたこと（何を・なぜ・どこまで）は依頼の逐語のまま（`docs/changes/CH19.md`）。聞き直していない
+## 仮決め（B）と Ruling
 
-## 仮決め（B）
+design の（仮）:
+- D3（仮）. ONLY の段の前に前の実行の結果を消し、段の後に渡したクラスの結果が XML にあることを確かめる
+- D5（仮）. ONLY の値は完全修飾のクラス名 1 つだけ
 
-- D3（仮）ONLY の段の前に前の実行の結果を消し、段の後に渡したクラスの結果が XML に無ければ 0 本として rc=1。反転条件: gradle が 0 本で確実に rc≠0 になると実物で確かめられたら
-- D5（仮）ONLY の値は完全修飾のクラス名 1 つだけ（メソッド・複数は rc=1）。反転条件: 絞った検証（harness2 #271）がメソッド単位か複数を要ると分かったら
-- 仮の台帳（`provisional.jsonl`）に載せたものは無い
+全 Task の ledger に `Ruling:` の行は無い。
 
-## capability
+## Task
 
-前倒しなし。依頼の `device-collection` を、台本の振る舞いの正典の `emulator-startup`（CH10 が作った）に直した（`docs/changes/CH19.md` の「行き先」）。
-正典の「6 段」の Requirement は実物（8 段）より古い。ADDED は 8 を決め打たず台本から数える形にし、MODIFIED での直しは別の change へ持ち越す（proposal の Impact・R12）。
+4 Task のうち、埋めた Task は 4 本。
+残した項目は無い。
 
-## tasks
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-4 Task・9 項目（偽の SDK の命令の列の固定 → ONLY の口 → バックアップの試験の手順と AGENTS.md → 本物のエミュレータと触ったパスの確かめ）。
-既存の Story / change の `tasks.md` の検証コマンドは書き換えない。
+- 1.1 `tools/test-android-emulator.sh` → rc=0（PASS・head f1fe856）
+- 1.1 `bash -c 'out=$(ASHIATO_TEST_ONLY=only-base ASHIATO_TEST_BASE_REV=$(git merge-base origin/main HEAD) tools/test-android-emulator.sh) && ! grep -q "飛ばす" <<<"$out"'` → rc=0（PASS・head f1fe856）
+- 1.1 `tools/test-usage-volume.sh` → rc=0（PASS・head f1fe856）
+- 1.2 `tools/test-android-emulator.sh --self-test` → rc=0（PASS・head f1fe856）
+- 2.1 `bash -n tools/android-emulator.sh` → rc=0（PASS・head d15391f）
+- 2.1 `tools/test-usage-volume.sh` → rc=0（PASS・head d15391f）
+- 2.1 `bash -c 'base=$(git merge-base origin/main HEAD) && test "$(git diff "$base" -- tools/android-emulator.sh | grep -c "^-[^-]")" -eq 0'` → rc=0（PASS・head d15391f）
+- 2.2 `tools/test-android-emulator.sh` → rc=0（PASS・head b582bf3）
+- 2.2 `tools/test-android-emulator.sh --self-test` → rc=0（PASS・head b582bf3）
+- 2.2 `bash -c 'base=$(git merge-base origin/main HEAD); out=$(ASHIATO_TEST_ONLY=only-class ASHIATO_TEST_SCRIPT_REV=$base tools/test-android-emulator.sh 2>&1) && exit 1; grep -q "Scenario: ONLY にクラスを渡すと、そのクラスだけに絞った計測テストを 1 回だけ走らせる" <<<"$out"'` → rc=0（PASS・head b582bf3）
+- 3.1 `tools/test-android-emulator.sh` → rc=0（PASS・head cfb8128）
+- 3.1 `bash -c 'ASHIATO_TEST_ONLY=only-st56 tools/test-android-emulator.sh'` → rc=0（PASS・head cfb8128）
+- 3.1 `bash -c 'out=$(ASHIATO_TEST_ONLY=only-base ASHIATO_TEST_BASE_REV=$(git merge-base origin/main HEAD) tools/test-android-emulator.sh) && ! grep -q "飛ばす" <<<"$out"'` → rc=0（PASS・head cfb8128）
+- 3.2 `bash -c 's=$(awk "/^### 長いコマンド/{f=1;next} /^##/{f=0} f" AGENTS.md); grep -q "harness2:long-commands" <<<"$s" && grep -q "ONLY=dev.ashiato.collector" <<<"$s" && grep -q "scripts/verify-run" <<<"$s" && grep -q "cargo test" <<<"$s" && grep -q -- "-- --list" <<<"$s"'` → rc=0（PASS・head cfb8128）
+- 4.1 `bash -c 'rm -rf collector-android/app/build/outputs/androidTest-results && scripts/quiet-run emu56 -- env ONLY=dev.ashiato.collector.St56BackupTest tools/android-emulator.sh'` → rc=0（PASS・head d429a39）
+- 4.1 `scripts/quiet-run emu1 -- env ONLY=dev.ashiato.collector.MediaPremisesInstrumentedTest tools/android-emulator.sh` → rc=0（PASS・head d429a39）
+- 4.2 `scripts/quiet-run emu -- tools/android-emulator.sh` → rc=0（PASS・head 1ae6ebe）
+- 4.3 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/android-emulator\.sh|tools/test-android-emulator\.sh|AGENTS\.md|docs/changes/CH19\.md|openspec/changes/ch19-emulator-only-class/|docs/briefs/CH19|\.superpowers/|$)"'` → rc=1（FAIL・head 2826a0f）
+- 4.3 `./openspec/changes/ch19-emulator-only-class/check-allowed-paths.sh` → rc=0（PASS・head 2826a0f）
 
-## レビュー
+## レビュー（`review/code.md`）
 
-- `review/spec.md`: 12 件。fixed 10（D2・D4・1.1×3・2.2×3・spec×2 … R1〜R10）・fixed proposal.md 1（R12。持ち越し）・escalated 1（R11 → Q1 で本人が答えた）
-- `review/answers.md`: Q1 は写った・答え以外の変更なし（D2・D4 の（仮）を外し出所を Q1 にしただけ）
+- 指摘 20 件（fixed 16・followup 1・rejected 3）
+- 処置の re-review: 4 回。最後の判定が NOT ADDRESSED のもの: なし
+
+## 未処置の申し送り
+
+- R17. `tools/test-usage-volume.sh:88` の「最初の connectedDebugAndroidTest」が、ONLY の塊の行（`tools/android-emulator.sh:142`）を指すようになった —— followup CH19 — `docs/handoff/CH19.md` に、全体経路に探索を限定する小さな follow-up change を記録した。CH19 の凍結済み tasks には差し戻さない。
+- ch19-emulator-only-class R17 — usage-volume の「最初の Gradle 段」の探索を全体経路に限定する（`docs/handoff/CH19.md`。review/code.md で触れていない）
