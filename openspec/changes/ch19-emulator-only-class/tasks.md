@@ -36,7 +36,7 @@
 
 ## Task 2: ONLY の口（ふつうのクラス・専用の台本のクラス・形の違う値）
 
-- [ ] 2.1 `tools/android-emulator.sh` に design D1・D3（仮）・D4（仮）・D5（仮）のとおり `ONLY` の口を足す。冒頭のコメントの使い方に `ONLY=dev.ashiato.collector.<クラス> ./tools/android-emulator.sh` の 1 行と、なぜ要るか（CH19）を足す。
+- [ ] 2.1 `tools/android-emulator.sh` に design D1・D3（仮）・D4・D5（仮）のとおり `ONLY` の口を足す。冒頭のコメントの使い方に `ONLY=dev.ashiato.collector.<クラス> ./tools/android-emulator.sh` の 1 行と、なぜ要るか（CH19）を足す。
   ふつうのクラスの段: 前の実行の結果（`$OUT/androidTest-results`）を消す → `adb shell am force-stop dev.ashiato.collector` → `adb shell pm reset-permissions` → 全体と同じ `-Pashiato.baseUrl=http://127.0.0.1:18787` と `-Pandroid.testInstrumentationRunnerArguments.class="$ONLY"` だけを付けた `connectedDebugAndroidTest` → 字下げした `keep_stage` →
   `androidTest-results-stage1` の XML に `classname="$ONLY"` が無ければ `error: ONLY=<クラス> のテストが 1 本も走っていない` を標準エラーに出して rc=1 → 結果の置き場を出して `exit 0`。値の誤りと専用の台本のクラスは rc=1（D4・D5 の文言）。
   検証: `bash -n tools/android-emulator.sh` rc=0 / `tools/test-usage-volume.sh` rc=0 / `bash -c 'base=$(git merge-base origin/main HEAD) && test "$(git diff "$base" -- tools/android-emulator.sh | grep -c "^-[^-]")" -eq 0'` rc=0（全体の経路の行を消していない・書き換えていない）
@@ -56,7 +56,7 @@
 
 ## Task 3: バックアップの試験の手順と、AGENTS.md の書き方
 
-- [ ] 3.1 `tools/android-emulator.sh` の ONLY の塊に、design D2（仮）のとおり `St56BackupTest` の経路を足す（全体の 2〜3 段目と同じ命令を同じ順。**`keep_stage` は呼ばない**。`OK (1 test)` の照合と文言は全体と同じ。XML の確かめはしない）。全体の経路の行は変えない（関数に括り出さない）。
+- [ ] 3.1 `tools/android-emulator.sh` の ONLY の塊に、design D2（Q1）のとおり `St56BackupTest` の経路を足す（全体の 2〜3 段目と同じ命令を同じ順。**`keep_stage` は呼ばない**。`OK (1 test)` の照合と文言は全体と同じ。XML の確かめはしない）。全体の経路の行は変えない（関数に括り出さない）。
   `tools/test-android-emulator.sh` に場合を 2 つ足す:
   `only-st56`: `echo 'Scenario: バックアップの試験を渡すと、gradle の計測テストを呼ばずに準備・往復・確かめを順に走らせる'`（`androidTest-results` の無い木で。段の置き場が 1 つも無いことも見る） /
   `only-st56-fail`: `echo 'Scenario: バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる'`（`FAKE_VERIFY_OUT='FAILURES!!!'`）。

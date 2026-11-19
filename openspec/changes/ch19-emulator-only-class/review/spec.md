@@ -27,7 +27,7 @@
 - kind: technical
 - 提案: St56 の経路では `keep_stage` を呼ばない（`am instrument` は XML を書かず、判定は `OK (1 test)` の照合だけ。D3 も「XML の確かめはしない」と言っている）。そう決めたら D2 の「段の置き場 2 つ」を消し、spec に「St56 を渡したときは段の結果の置き場を作らない（または前の実行の XML を写さない）」を 1 本足す。
   試験は、`androidTest-results` の無い木で `only-st56` が rc=0 になることを見る。そのため、偽の gradle は `connectedDebugAndroidTest` のときだけ XML を書くようにする。これで依頼の「1 段」と D2 の「2 段」の字面の食い違いも消える
-- 処置: fixed D2 仮 — St56 の経路では keep_stage を呼ばず段の置き場を作らないと D2 に書き、spec の Requirement と Scenario（段の置き場が 1 つも無い・androidTest-results の無い木で）に写した。偽の gradle は connectedDebugAndroidTest のときだけ XML を書く（tasks 1.1）。4.1 は置き場を消してから St56 を先に走らせる
+- 処置: fixed D2 — （D2 は深掘り第 1 回 Q1 で本人が決めた決定になった）St56 の経路では keep_stage を呼ばず段の置き場を作らないと D2 に書き、spec の Requirement と Scenario（段の置き場が 1 つも無い・androidTest-results の無い木で）に写した。偽の gradle は connectedDebugAndroidTest のときだけ XML を書く（tasks 1.1）。4.1 は置き場を消してから St56 を先に走らせる
 
 ## R2. gradle と adb の間の順番が、偽の SDK では観測できない（Scenario「ONLY の段の前に…」と、Requirement 1 の「同じ順に」）
 - 成果物: openspec/changes/ch19-emulator-only-class/specs/emulator-startup/spec.md、tasks.md（1.1・2.2）
@@ -80,7 +80,7 @@
   - D4・D5（design.md:45・:51）は、ONLY の値が誤りのとき rc=2 にする（rc=2 は spec:67・:72・:76 にも写っている。写っていないのは D4・D5 の文言のほう）。正典の同じ台本では、設定の値が誤りなら rc=1 で、rc=2 は採寸の台本の「測れなかった」（openspec/specs/emulator-startup/spec.md:61）。D4・D5 は、なぜこの台本で rc=2 を使い分けるか（verify-run や harness2 #271 が rc=2 をどう読むか）を書いていない
 - kind: technical
 - 提案: Scenario の THEN に `rc=1` と `error: ONLY=<クラス> のテストが 1 本も走っていない` の字面を置く。ONLY の値が誤りのときの rc は、D4・D5 に使い分けの理由を書くか、正典に合わせて rc=1 にする（どちらでも、Scenario と完了の判定 1 の「rc=2」を同じにそろえる）
-- 処置: fixed D4 仮 — D3 の文言と rc=1 を spec の Scenario に写した。ONLY の値の誤りと専用の台本のクラスは、同じ台本の既存の設定の誤りに合わせて rc=1 にし（D4・D5 に理由）、spec と完了の判定 1 をそろえた
+- 処置: fixed D4 — （D4 は深掘り第 1 回 Q1 で本人が決めた決定になった）D3 の文言と rc=1 を spec の Scenario に写した。ONLY の値の誤りと専用の台本のクラスは、同じ台本の既存の設定の誤りに合わせて rc=1 にし（D4・D5 に理由）、spec と完了の判定 1 をそろえた
 
 ## R7. tasks 2.2 の「直す前の台本では落ちる」は、どんな失敗でも通る
 - 成果物: openspec/changes/ch19-emulator-only-class/tasks.md:52

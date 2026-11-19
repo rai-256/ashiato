@@ -13,8 +13,8 @@ ST56 Task 5 で、計測テストの 1 クラス（`St56BackupTest`）を直す�
 
 - `tools/android-emulator.sh` に環境変数 `ONLY` を足す。完全修飾のクラス名を 1 つ渡すと、エミュレータを起こしてアプリを外し・権限を戻した後、gradle の計測テストを `-Pandroid.testInstrumentationRunnerArguments.class=<ONLY>` で 1 段だけ走らせる。
   走ったクラスの結果が XML に無ければ 0 本として止まる（design D3（仮））
-- `ONLY=dev.ashiato.collector.St56BackupTest`（依頼の例そのもの）は、gradle の 1 段では走らない（準備と確かめの間にテストの外でバックアップを往復させる）ので、全体のときのバックアップの段と同じ手順だけを走らせる（design D2（仮））
-- 入れ替えの試験（`tools/android-st58-replace.sh` が走らせる）と採寸の試験（`tools/usage-volume.sh` が走らせる）、形の違う値は、エミュレータを起こさずに rc=1 で止める（同じ台本の既存の設定の誤りと同じ rc）（design D4（仮）・D5（仮））
+- `ONLY=dev.ashiato.collector.St56BackupTest`（依頼の例そのもの）は、gradle の 1 段では走らない（準備と確かめの間にテストの外でバックアップを往復させる）ので、全体のときのバックアップの段と同じ手順だけを走らせる（design D2。深掘り第 1 回 Q1 で本人が選んだ）
+- 入れ替えの試験（`tools/android-st58-replace.sh` が走らせる）と採寸の試験（`tools/usage-volume.sh` が走らせる）、形の違う値は、エミュレータを起こさずに rc=1 で止める（同じ台本の既存の設定の誤りと同じ rc）（design D4（Q1 で本人が選んだ）・D5（仮））
 - `ONLY` が無いか空なら、今の全段（8 段）をそのまま走らせる。命令の列が変わらないことを偽の SDK の試験で固定する
 - `AGENTS.md` の「長いコマンド」に、直している途中は絞って走らせ（エミュレータは `ONLY=`、`cargo test` は名前の絞り）、通ったら最後に全体を `scripts/verify-run` で走らせることを書く
 - `docs/changes/CH19.md` の front matter の capability を `device-collection` から `emulator-startup` に直す（台本の振る舞いの正典は CH10 が作った `emulator-startup`。携帯の収集の振る舞いには触れない）
