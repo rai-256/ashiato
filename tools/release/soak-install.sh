@@ -429,16 +429,21 @@ EOF
   : >"$ST22_RULE"
   if (PATH="$bin:$PATH" ST22_KEEP_RULE=1 soak_remove_outbound_rule) >"$work/rule.out" 2>&1; then die 'self-test: 塞ぎが残るのに通った'; fi
   grep -q 'NG:' "$work/rule.out" || die 'self-test: 塞ぎが残った理由が出ない'
-  # Scenario: 消した後に前の段の入れたものが残れば、配る zip を入れずに落ちる
   # Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる
   : >"$ST22_RULE"; : >"$calls"
   if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' ST22_KEEP_RULE=1 reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/rule-fail") >"$work/order.out" 2>&1; then
     die 'self-test: 塞ぎが残るのに実地の口が通った'
   fi
   ! grep -q '^setup ' "$calls" || die 'self-test: 塞ぎが残るのにインストーラを呼んだ'
+  # Scenario: 消した後に前の段の入れたものが残れば、配る zip を入れずに落ちる
   mkdir -p "$work/C:/ProgramData/ashiato/settings"
-  if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' ST22_KEEP_STATE=1 reset_wait_seconds=0 soak_reset_machine) >"$work/reset.out" 2>&1; then die 'self-test: 残った置き場を通した'; fi
-  grep -q 'ashiato' "$work/reset.out" || die 'self-test: 残った置き場の名前が出ない'
+  : >"$calls"
+  if (cd "$work" && PATH="$bin:$PATH" ST22_KEEP_STATE=1 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/state-fail") >"$work/state.out" 2>"$work/state.err"; then
+    die 'self-test: 残った置き場を通した'
+  fi
+  grep -q 'C:/ProgramData/ashiato' "$work/state.err" || die 'self-test: 残った置き場の名前が標準エラーに出ない'
+  ! grep -q '^netsh ' "$calls" || die 'self-test: 残った置き場なのに塞ぎの命令を呼んだ'
+  ! grep -q '^setup ' "$calls" || die 'self-test: 残った置き場なのにインストーラを呼んだ'
   [[ "$(soak_list | wc -l)" -eq 2 ]] || die 'self-test: --list が実地の 2 Scenario でない'
 }
 
