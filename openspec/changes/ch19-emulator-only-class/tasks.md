@@ -56,12 +56,12 @@
 
 ## Task 3: バックアップの試験の手順と、AGENTS.md の書き方
 
-- [ ] 3.1 `tools/android-emulator.sh` の ONLY の塊に、design D2（Q1）のとおり `St56BackupTest` の経路を足す（全体の 2〜3 段目と同じ命令を同じ順。**`keep_stage` は呼ばない**。`OK (1 test)` の照合と文言は全体と同じ。XML の確かめはしない）。全体の経路の行は変えない（関数に括り出さない）。
+- [x] 3.1 `tools/android-emulator.sh` の ONLY の塊に、design D2（Q1）のとおり `St56BackupTest` の経路を足す（全体の 2〜3 段目と同じ命令を同じ順。**`keep_stage` は呼ばない**。`OK (1 test)` の照合と文言は全体と同じ。XML の確かめはしない）。全体の経路の行は変えない（関数に括り出さない）。
   `tools/test-android-emulator.sh` に場合を 2 つ足す:
   `only-st56`: `echo 'Scenario: バックアップの試験を渡すと、gradle の計測テストを呼ばずに準備・往復・確かめを順に走らせる'`（`androidTest-results` の無い木で。段の置き場が 1 つも無いことも見る） /
   `only-st56-fail`: `echo 'Scenario: バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる'`（`FAKE_VERIFY_OUT='FAILURES!!!'`）。
   検証: `tools/test-android-emulator.sh` rc=0 / `bash -c 'ASHIATO_TEST_ONLY=only-st56 tools/test-android-emulator.sh'` rc=0 / `bash -c 'out=$(ASHIATO_TEST_ONLY=only-base ASHIATO_TEST_BASE_REV=$(git merge-base origin/main HEAD) tools/test-android-emulator.sh) && ! grep -q "飛ばす" <<<"$out"'` rc=0
-- [ ] 3.2 `AGENTS.md` の「長いコマンド」に design D6 の 1 項目を足す（`<!-- harness2:long-commands -->` の印と既存の行は変えない）。
+- [x] 3.2 `AGENTS.md` の「長いコマンド」に design D6 の 1 項目を足す（`<!-- harness2:long-commands -->` の印と既存の行は変えない）。
   検証: `bash -c 's=$(awk "/^### 長いコマンド/{f=1;next} /^##/{f=0} f" AGENTS.md); grep -q "harness2:long-commands" <<<"$s" && grep -q "ONLY=dev.ashiato.collector" <<<"$s" && grep -q "scripts/verify-run" <<<"$s" && grep -q "cargo test" <<<"$s" && grep -q -- "-- --list" <<<"$s"'` rc=0
 
 ## Task 4: 本物のエミュレータで絞った実行と全体を走らせ、触ったのが予定のパスだけであることを確かめる
