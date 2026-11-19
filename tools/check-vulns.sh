@@ -382,14 +382,14 @@ for ((i = 1; i <= $#; i++)); do
   fi
 done
 case "$1 ${2:-}" in
-  "label list") [[ "${GH_LABEL_EXISTS:-}" == 1 ]] && printf '[{"name":"脆弱性"}]\n' || printf '[]\n' ;;
+  "label list") if [[ "${GH_LABEL_EXISTS:-}" == 1 ]]; then printf '[{"name":"脆弱性"}]\n'; fi ;;
   "label create") printf '[]\n' ;;
   "issue list") if [[ -n "${GH_MANY_ISSUES:-}" ]]; then
       # gh と同じく、既定では 30 件までしか返さない
       for ((k = 1; k <= GH_MANY_ISSUES && k <= limit; k++)); do printf '{"number":%d,"title":"脆弱性: npm pkg%d","body":"勧告: GHSA-pkg%d"}\n' "$k" "$k" "$k"; done | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin]))'
     elif [[ "${GH_TABLE_ISSUE:-}" == 1 ]]; then printf '[{"number":11,"title":"脆弱性: 例外の表","body":"勧告: A-1\\n理由: 期限切れ"}]\n'
     elif [[ "${GH_PG_ISSUE:-}" == 1 ]]; then printf '[{"number":10,"title":"脆弱性: PostgreSQL 17 の minor の遅れ","body":"同梱: 17.6\\n最新: 17.11"}]\n'; elif [[ "${GH_ONLY_EXISTING:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm"}]\n'; elif [[ "${GH_OPEN_ISSUE:-}" == 1 ]]; then printf '[{"number":7,"title":"脆弱性: npm lodash","body":"勧告: GHSA-35jh-r3h4-6jhm\\n勧告: GHSA-29mw-wpgm-hmr9\\n勧告: GHSA-r5fr-rjxr-66jc\\n勧告: GHSA-xxjr-mmjv-4gpg"},{"number":8,"title":"脆弱性: crates.io ansi_term","body":"勧告: RUSTSEC-2021-0139"},{"number":9,"title":"脆弱性: Maven com.fasterxml.jackson.core:jackson-databind","body":"勧告: GHSA-57j2-w4cx-62h2"}]\n'; else printf '[]\n'; fi ;;
-  "issue view") [[ "${GH_OPEN_ISSUE:-}" == 1 ]] && printf '{"comments":[]}\n' || printf '{"comments":[]}\n' ;;
+  "issue view") if [[ "${GH_OPEN_ISSUE_EMPTY:-}" == 1 ]]; then :; else printf '{"comments":[]}\n'; fi ;;
   "issue create")
     n=$(find "$GH_BODY_DIR" -name 'create-*' | wc -l)
     printf '%s' "$body" >"$GH_BODY_DIR/create-$((n + 1))"
@@ -424,6 +424,19 @@ GH
   grep -Eq '^label create 脆弱性' "$gh_log" || return 1
   printf '%s' $'依存: ansi_term\n版: 0.12.1\n勧告: RUSTSEC-2021-0139\n重大度: 不明\nURL: https://osv.dev/vulnerability/RUSTSEC-2021-0139' | diff -u - "$gh_body_dir/create-1" || return 1
   printf '%s' $'依存: lodash\n版: 4.17.20\n勧告: GHSA-29mw-wpgm-hmr9\n重大度: 5.3\nURL: https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9\n依存: lodash\n版: 4.17.20\n勧告: GHSA-35jh-r3h4-6jhm\n重大度: 7.2\nURL: https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm\n依存: lodash\n版: 4.17.20\n勧告: GHSA-r5fr-rjxr-66jc\n重大度: 8.1\nURL: https://osv.dev/vulnerability/GHSA-r5fr-rjxr-66jc\n依存: lodash\n版: 4.17.20\n勧告: GHSA-xxjr-mmjv-4gpg\n重大度: 6.9\nURL: https://osv.dev/vulnerability/GHSA-xxjr-mmjv-4gpg' | diff -u - "$gh_body_dir/create-2" || return 1
+  echo "== Scenario: ラベルが無いと空の文字で答える gh でも、ラベルを作ってから issue を立てる"
+  label_line="$(grep -n '^label create 脆弱性' "$gh_log" | head -n1 | cut -d: -f1)"
+  issue_line="$(grep -n '^issue create ' "$gh_log" | head -n1 | cut -d: -f1)"
+  [[ -n "$label_line" && -n "$issue_line" && "$label_line" -lt "$issue_line" ]] || return 1
+  echo "== Scenario: ラベルがあれば、作り直さない"
+  : >"$gh_log"
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_BODY_DIR="$gh_body_dir" GH_LABEL_EXISTS=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/findings" || return 1
+  ! grep -Eq '^label create ' "$gh_log" || return 1
+  echo "== Scenario: 開いた issue のコメントの問い合わせが空の文字なら、rc=2 で落ちる"
+  printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/open-issue-empty.json"
+  local open_issue_empty_rc=0
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 GH_OPEN_ISSUE_EMPTY=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/open-issue-empty.json" || open_issue_empty_rc=$?
+  [[ "$open_issue_empty_rc" == 2 ]] || return 1
   echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
   printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/existing.json"
   mkdir -p "$tmp/existing-dir"

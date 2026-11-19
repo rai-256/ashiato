@@ -70,10 +70,12 @@ def nightly(root: Path, scanner: Path, directory: Path) -> int:
     return 1
 
 
-def gh_json(args: list[str]) -> object:
+def gh_json(args: list[str], *, empty: object | None = None) -> object:
     proc = run(["gh", *args])
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "gh の実行")
+    if not proc.stdout.strip() and empty is not None:
+        return empty
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
@@ -128,7 +130,7 @@ def file_issues(directory: Path) -> int:
     for row in rows:
         grouped.setdefault(title_for(row), []).append(row)
     try:
-        labels = gh_json(["label", "list", "--search", "脆弱性", "--json", "name"])
+        labels = gh_json(["label", "list", "--search", "脆弱性", "--json", "name"], empty=[])
         if not any(item.get("name") == "脆弱性" for item in labels):
             proc = run(["gh", "label", "create", "脆弱性", "--color", "B60205"])
             if proc.returncode != 0:
