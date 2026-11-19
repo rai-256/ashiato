@@ -55,13 +55,13 @@ spec は組み立ての台本の名前を持たない（HEAD から組んだ 2 �
 ### D4（仮）. Claude は席の台本が `claude -p` で起こす（グラフの外。Q12 の推奨に従う）
 
 `verify-prep.sh` はグラフの `verify_batch.sh` の中で走るので、グラフの `agent()`（利用上限の扱い・記録）を通らない。harness2 に手を入れないので、席の台本が直に `claude -p` を起こす。
-- 作業場所・引数・許す道具の約束は spec（「Claude はリポジトリの外で、限った道具だけで起こされる」）。作り方: `--allowedTools` にブラウザを操る MCP の道具・`Bash(tools/trial-use/box.sh:*)` の形の 1 つ・候補の置き場への `Write` を並べ、作業場所は `mktemp -d` の下に材料を写したもの
+- 作業場所・引数・許す道具の約束は spec（「Claude はリポジトリの外で、限った道具だけで起こされる」）。作り方: `box.sh` をリポジトリの外の道具の置き場（`$TRIAL_USE_HOME/<tag>/tools/box.sh`。材料の置き場とも作業場所とも別）に写し、`--allowedTools` にブラウザを操る MCP の道具・`Bash(<写した box.sh の絶対パス>:*)` の 1 つ・候補の置き場への `Write` を並べる。作業場所は `mktemp -d` の下に材料を写したもの。リポジトリのパスはどこにも渡さない
 - Claude が動けなかったときに起こし直さないのは、利用上限が数時間戻らないから（約束は spec）
 - 反転条件: harness2 に「確認バッチの準備から agent を起こす口」ができたら、そちらに乗り換える（Q12 で範囲を広げると答えたときも）
 
 ### D5. 席の入口と、準備との境目
 
-- 入口は `tools/trial-use/seat.sh <tag> <manifest のパス>`。**どう終わっても rc=0** で、manifest の末尾に「使ってみた」で始まる 1 段落を足す（`>>`）。
+- 入口は `tools/trial-use/seat.sh <tag> <manifest のパス>`。**どう終わっても rc=0** で、manifest の末尾に空行を 1 つ挟んでから「使ってみた」で始まる 1 段落を足す（`>>`。挟まないと既存の最後の段落に繋がる）。段落の中に空行を入れない
   中で本体（`tools/trial-use/run.sh`）を時間の上限つきで呼び、本体の rc・止まった理由を段落にする。本体を差し替える環境変数（`TRIAL_USE_BODY`）は自己検査だけが使う
 - `verify-prep.sh` には、manifest の heredoc の後・`== 出来た` の前に 1 行だけ足す: `./tools/trial-use/seat.sh "$tag" "$out/manifest.md" || echo "warn: 使ってみる席の入口が落ちた"`
   （`set -e` の下でも準備を止めない二重の守り。既存の段の順・成果物は変えない）
@@ -100,12 +100,12 @@ spec は組み立ての台本の名前を持たない（HEAD から組んだ 2 �
 zip は同じソースでも版の文字列と時刻が変わる（Context）。比べるのは、組み立てに入るものの木の hash: `git rev-parse HEAD:<path>` を
 `crates` `web` `migrations` `Cargo.toml` `Cargo.lock` `.cargo` `LICENSE` `tools/db-roles.sql` `tools/release` `tools/trial-use` について並べた文字列の sha256
 （spec-review R13。一覧は `tools/trial-use/sources.txt` の 1 か所に置き、自己検査が `tools/release/build.sh`・`package.sh` が `$root/` から読む・`git show HEAD:` するパスが一覧のどれかに含まれることを突き合わせる）。
-前の回の値・tag・段落・終わり方は手元の置き場の `last.json` に置く。tag が `probe-` で始まる回は読みも書きもしない（spec。手で試した 1 回が確認バッチの回を写しにしないように。spec-review R18）。
+前の回の値・tag・段落・終わり方は手元の置き場の `last.json` に置く。「走れた」に数える終わり方は `一通り終えた` と `時間の上限で打ち切った` だけで、それ以外（`Claude が動けなかった` を含む）の回の後は同じ出所でも走る（利用上限の回が写され続けないように）。tag が `probe-` で始まる回は読みも書きもしない（spec。手で試した 1 回が確認バッチの回を写しにしないように。spec-review R18）。
 反転条件: 出所が同じなのに見え方が変わる原因（同梱の PostgreSQL の版の取り直し・配布元の更新）が見つかったら、その入力も比べる値に入れる。
 
 ### D10（仮）. 時間の上限は 45 分（Q9 の推奨）
 
-`timeout --kill-after=30s 45m claude -p …`。上限は `TRIAL_USE_LIMIT`（秒）で変えられる（自己検査は 2 秒）。打ち切った後も、それまでに書かれた候補と写しで報告を作る。
+`timeout --kill-after=30s 2700 claude -p …`。上限は `TRIAL_USE_LIMIT`（秒）で変えられる（自己検査は 2 秒）。打ち切った後も、それまでに書かれた候補と写しで報告を作る。
 組み立て（D2）・Sandbox の起動・片付け・照合（D8）は 45 分の外。組み立てには別に 60 分の上限（約束は spec）。手順書が遅れるのは、初回で最大およそ 45 + 60 + 数分、2 回目からは 45 分と差分のビルドと数分（Q9 の detail もこう直した。spec-review R4）。
 反転条件: 一通り（インストールから入れ直しまで）に届かない回が続くなら延ばす。手順書が遅れることへの不満が出たら縮める。
 
@@ -116,14 +116,14 @@ zip は同じソースでも版の文字列と時刻が変わる（Context）。
 - 錠: 手元の置き場の `.lock` に `flock -n` を掛ける。取れなければ起こさない（Q12 の推奨の「ashiato2 の側の錠」。spec-review R5）。録画は harness2 の側なのでこの錠を見ないが、席は準備の中で同期に走り、録画は準備の後なので重ならない
 - 起こす前に、動いている Sandbox のプロセス（`WindowsSandbox*`）を問う（録画の `record-run` の `sandbox_pids` と同じ問いを ashiato2 の側に写す。harness2 は変えない）
 - 起こした後に増えたプロセスを控え、終わり（`trap` で、正常・失敗・打ち切りのどれでも）に `wsb stop`（あれば）か控えたプロセスの停止で閉じ、残っていないかを問い直す
-- 閉じる前に、`runner.ps1` に頼んでログ（サーバ・同梱の DB・更新係・インストーラ）を `C:\trial\out\logs\` に写させ、`http://127.0.0.1:18700/healthz` が応えるかを書かせる（インストールまで届いたかの機械の確かめ。約束は spec）
+- 閉じる前に、`runner.ps1` に頼んでログ（サーバ・同梱の DB・更新係・インストーラ）を `C:\trial\out\logs\` に写させ、回の間に `runner.ps1` が 30 秒ごとに `http://127.0.0.1:18700/healthz` を問い、一度でも応えたかを `C:\trial\out\healthz.txt` に書く（インストールまで届いたかの機械の確かめ。使い終えた後の 1 回だけでは、アンインストールの後に終わった回を誤って「届かなかった」にする。約束は spec）
 - 時計は動かさない
 
 ### D12（仮）. 置き場と手順書の段落（Q7 の推奨。A）
 
 - 手元の置き場: `C:\dev\ashiato2-trial-use\<tag>\`（WSL からは `/mnt/c/dev/ashiato2-trial-use/<tag>/`。自己検査は `TRIAL_USE_HOME` で一時の場所）。
   `report.html`（候補の全件・根拠・写し・違和感メモ・根拠が欠けたもの・巡った目的・取り出せなかったログ）・`shots/`・`logs/`・`transcript.jsonl`（Claude の操作の記録）・`candidates/`
-- 段落の形: `使ってみた（Windows Sandbox・<所要> 分・<終わり方>）: 違和感の候補 <N> 件（手順書には上位 <M> 件）。` に続けて題を 1 行ずつ（印つき）、巡った目的の札、
+- 段落の形（手順書は段落の中の改行を空白に潰す —— `.harness2/scripts/verify_checklist.py:583-586`。1 行で読める形にする）: `使ってみた（Windows Sandbox・<所要> 分・<終わり方>）: 違和感の候補 <N> 件（手順書には上位 <M> 件）。` に続けて題を `①… ②…` の番号つきで 1 行に並べ（印つき）、`巡った目的: install・login・…`、
   `報告: C:\dev\ashiato2-trial-use\<tag>\report.html`。本文・根拠・画像名・ログの中身・Claude の自由な文（題を除く）は書かない（約束は spec）
 - 終わり方の決まった語: `一通り終えた` / `時間の上限で打ち切った` / `Claude が動けなかった` / `組めなかった` / `別の Sandbox が動いていた` / `別の席が走っていた` / `Windows Sandbox が無い` / `本体が落ちた` / `前の回（<tag>）の結果`
 - Q7 の推奨は「件数・題 1 行・場所だけ」。巡った目的は Q13 の推奨「0 件でも見たもの」を満たすために足すが、Claude の文ではなく目的の一覧の札（追跡する `goals.md` の固定の語）だけにし、

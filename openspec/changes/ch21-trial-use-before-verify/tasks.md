@@ -10,8 +10,9 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** bash は `echo "Scenario: …"`（その場合を確かめる直前に出す）。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。
   印の名前は spec の `#### Scenario:` と**一字一句合わせる**。印は、その Scenario が言う道筋（席の入口か本体を走らせる）を本当に通る試験にだけ付ける
-- **この change の Scenario は 39 本**（`trial-use` の ADDED 9 つ: 4・3・5・4・4・7・5・3・4 本）。38 本は `tools/trial-use/check-trial-use.sh --self-test` に置き、
-  1 本（「本物の確認バッチで、手順書の冒頭に使ってみた段落が載る」）は下の「人間の確認待ち」に置く。**38 本とも、このファイルのどこかの Task が名指しする**
+- **この change の Scenario は 40 本**（`trial-use` の ADDED 9 つ: 4・3・5・5・4・7・5・3・4 本）。39 本は `tools/trial-use/check-trial-use.sh --self-test` に置き、
+  1 本（「本物の確認バッチで、手順書の冒頭に使ってみた段落が載る」）は下の「人間の確認待ち」に置く。**39 本とも、このファイルのどこかの Task が名指しする**
+- **追跡するファイルに点区切りの私設 IP の 4 つ組を書かない**（`tools/check-private.sh` が落とす）。題を伏せる Scenario の材料は `printf '192.168.%d.%d' 1 2` のように組み、期待値も同じく組む
 - **自己検査は Windows も Claude も GitHub も要らない形にする**（design D14）。偽の `powershell.exe`・Sandbox のプロセスの問い・`wsb`・組み立て・`claude`・時間の包み・`gh` を一時の場所の `PATH` の先頭に置くか、
   `TRIAL_USE_*` の差し替えの変数で渡す。一時の場所は `mktemp -d`（`$TMPDIR` の下）で、`trap` で消す。`/tmp` の固定名に書かない。手元の置き場は自己検査では `TRIAL_USE_HOME` で一時の場所にする
 - **harness2（`.harness2/` の下・symlink の先）を変えない**（Q12）。録画の Sandbox の扱いが要るなら ashiato2 の側に写す
@@ -39,7 +40,7 @@
   検証: `bash -c 'grep -q "tools/trial-use/(probe|seat)" tools/workbox.json && python3 -m json.tool tools/workbox.json >/dev/null'` rc=0 / `tools/trial-use/probe.sh build` rc=0 / `tools/trial-use/probe.sh install` rc=0 / `tools/trial-use/probe.sh drive` rc=0
 - [ ] 1.2 結果を `premises.md` に写す（確かめた 3 行の確かさを 5 に・結果を `PASS` / `FAIL: <理由>` に）。`FAIL` の行があれば design の倒し先に倒す:
   `build` が FAIL → D2 の CI の artifact の案（倒したことを D2 に追記）。`drive` が FAIL → D3 の第 2 案（中に Node と Playwright）。`install` が FAIL → 後の Task はそのまま作り、
-  席はインストールまで届かなかったことを警告に書く（spec）。倒したら `python3 scripts/provisional.py add` で台帳に載せる（`--follows Q2` / `--follows Q3`）。
+  席はインストールまで届かなかったことを警告に書く（spec）。11.1 は FAIL の側の検証で閉じる（`probe/install.txt` で分かれる。Q13 の推奨「結果か警告が載ること」の範囲）。倒したら `python3 scripts/provisional.py add` で台帳に載せる（`--follows Q2` / `--follows Q3`）。
   検証: `bash -c 'f=openspec/changes/ch21-trial-use-before-verify/premises.md; [ "$(grep -E "^\| (手元の Windows に Git|配る zip のインストーラ|手元の側（WSL）の Claude)" "$f" | grep -c "| 5 |$")" -eq 3 ]'` rc=0
 
 ## Task 2: 席の入口と準備との境目
@@ -66,8 +67,8 @@
 
 - [ ] 4.1 `tools/trial-use/run.sh` に Sandbox の段を書く（design D11）: 錠が取れなければ警告、動いている Sandbox を問い（あれば起こさず閉じず警告）、`.wsb`（網は既定＝開ける・`C:\trial\in` と `C:\trial\bin` は読みだけ・`C:\trial\out` は書ける・
   LogonCommand は `C:\trial\bin\runner.ps1`）を書いて起こし、増えたプロセスを控え、`trap` で正常・失敗・打ち切りのどれでも閉じ、閉じた後に問い直して残っていれば段落に書く。
-  閉じる前に `runner.ps1` にログ（サーバ・同梱の DB・更新係・インストーラ）を `C:\trial\out\logs\` に写させ、`healthz` の応えを書かせる。
-  `tools/trial-use/runner.ps1`（中で動く。頼みの箱 `C:\trial\out\box\` を順に実行し、結果と写しを書く。Edge を遠隔のデバッグの口つきで起こして網の口へ転送する —— Task 1 の結果の形で）を書く。`--self-test` に 4 本:
+  閉じる前に `runner.ps1` にログ（サーバ・同梱の DB・更新係・インストーラ）を `C:\trial\out\logs\` に写させる。
+  `tools/trial-use/runner.ps1`（中で動く。頼みの箱 `C:\trial\out\box\` を順に実行し、結果と写しを書く。回の間 30 秒ごとに `healthz` を問い、一度でも応えたかを `C:\trial\out\healthz.txt` に書く。Edge を遠隔のデバッグの口つきで起こして網の口へ転送する —— Task 1 の結果の形で）を書く。`--self-test` に 4 本:
   `echo "Scenario: 別の席が走っていれば、Sandbox を起こさず警告を書く"` / `echo "Scenario: Sandbox が既に動いていれば、起こさず閉じず警告を書く"` / `echo "Scenario: 閉じても残った Sandbox は、段落に書く"` /
   `echo "Scenario: 席の Sandbox の設定は網を開けている"`。
   検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 10 ]'` rc=0
@@ -77,7 +78,7 @@
 - [ ] 5.1 `tools/trial-use/goals.md`（目的の一覧。札 `install` `password` `login` `import` `browse` `settings` `update-check` `uninstall` `reinstall` `pc-collector` を 1 つずつ持つ目的を利用者の言葉で。手順・順・部品の名前を書かない。design D6）・
   `tools/trial-use/prompt.md`（指示。候補の基準と 4 つの根拠・もう 1 回確かめる・Sandbox に固有の違い・好みの話は挙げない・時計を変えない・巡った札を書く）・
   `tools/trial-use/make-export.py`（合成の Takeout の形の zip。席を走らせた日の前の 7 日分の YouTube の視聴と検索。`archive_prepare` の形と同じ）・
-  `tools/trial-use/box.sh`（外の Claude が使う「頼みを書いて結果を待つ」道具。時計を変える命令を含む頼みは届けずに非 0）を書く。`--self-test` に 2 本:
+  `tools/trial-use/box.sh`（外の Claude が使う「頼みを書いて結果を待つ」道具。時計やタイムゾーンを変える命令を含む頼みは届けずに非 0。`Get-Date` のような読むだけの頼みは届ける）を書く。`--self-test` に 2 本:
   `echo "Scenario: 目的の一覧は、依頼の対象の札を全部持ち、手順を書かない"` / `echo "Scenario: Sandbox の時計を変える頼みは断る"`。
   検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 12 ]'` rc=0 /
   `bash -c 'python3 tools/trial-use/make-export.py "$TMPDIR/e.zip" && python3 -c "import zipfile,sys; n=zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(0 if any(\"YouTube\" in x for x in n) else 1)" "$TMPDIR/e.zip"'` rc=0
@@ -90,11 +91,11 @@
 
 - [ ] 6.1 `tools/trial-use/run.sh` に Claude の段を書く（design D4・D6・D10）: 材料の置き場（`in/` には目的・2 つの zip・合成の書き出しだけ。`runner.ps1` は `bin/`）を置き、リポジトリの外の一時の作業場所に材料を写し、
   `claude -p` を限った道具で起こす（`TRIAL_USE_CLAUDE` で差し替え）。`timeout --kill-after=30s "${TRIAL_USE_LIMIT:-2700}"`（包みは `TRIAL_USE_TIMEOUT` で差し替え）で止め、それまでの候補と写しで `report.py` を呼ぶ。
-  Claude が動けなければ警告にして起こし直さない。使い終えた後に `runner.ps1` の `healthz` の結果を読み、届いていなければ段落に書く。操作の記録を `transcript.jsonl` に残す。`--self-test` に 7 本:
+  Claude が動けなければ警告にして起こし直さない。使い終えた後に `healthz.txt`（回の間に一度でも応えたか）を読み、一度も応えていなければ段落に書く。`box.sh` はリポジトリの外の道具の置き場に写して許す（design D4）。操作の記録を `transcript.jsonl` に残す。`--self-test` に 8 本:
   `echo "Scenario: 席が起こした Sandbox は、どう終わっても閉じる"` / `echo "Scenario: 時間の上限を越えると、それまでの候補で報告を作って閉じる"` / `echo "Scenario: 上限を指定しなければ、Claude に許す時間は 2700 秒である"` /
-  `echo "Scenario: Claude が動けなければ警告を書き、起こし直さない"` / `echo "Scenario: インストールまで届かなければ、候補とは別の警告として書く"` /
+  `echo "Scenario: Claude が動けなければ警告を書き、起こし直さない"` / `echo "Scenario: インストールまで届かなければ、候補とは別の警告として書く"` / `echo "Scenario: 一度応えた後に消された回は、インストールまで届いたとみなす"` /
   `echo "Scenario: 材料の置き場と Claude の作業場所には、目的と zip と合成の書き出しのほかに何も無い"` / `echo "Scenario: Claude はリポジトリの外で、限った道具だけで起こされる"`。
-  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 19 ]'` rc=0
+  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 20 ]'` rc=0
 
 ## Task 7: 候補と報告と段落を、席を通して確かめる
 
@@ -104,7 +105,7 @@
   `echo "Scenario: 手順書の段落には件数と題と札と場所だけが載る"`（目印の文字列が段落にも `git status --porcelain` の追跡するファイルの差分にも無い）/ `echo "Scenario: 見たものとログは、手元の置き場に残る"` /
   `echo "Scenario: 取り出せなかったログは、報告に書く"` / `echo "Scenario: 警告で終わった回も、そこまでの写しで報告を作る"` / `echo "Scenario: 候補が 0 件でも、巡った目的を書く"` /
   `echo "Scenario: 各候補に、そのまま貼れる違和感メモが付く"`。
-  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 31 ]'` rc=0
+  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 32 ]'` rc=0
 
 ## Task 8: 既知の照合と、GitHub に書き込まないこと
 
@@ -112,16 +113,16 @@
   候補と一覧だけを渡した 2 回目の `claude -p`（道具なし・JSON の出力。`TRIAL_USE_MATCH` で差し替え）で同じものの番号を受け取り、候補に `known` を書き足してから `report.py` を呼ぶ。読めなければ飛ばし、報告に書く。`--self-test` に 3 本:
   `echo "Scenario: 既知と照合した候補は数えず、印を付けて手元に残す"` / `echo "Scenario: 席が打つ GitHub の命令は、一覧を読むことだけ"`（偽の `gh` が書き留めた命令がすべて `issue list` で始まる）/
   `echo "Scenario: 一覧を読めなければ、照合を飛ばして報告に書く"`。
-  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 34 ]'` rc=0
+  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 35 ]'` rc=0
 
 ## Task 9: 配る形の出所が同じなら走らない
 
 - [ ] 9.1 `tools/trial-use/sources.txt`（出所の一覧。design D9）を置き、`tools/trial-use/run.sh` の最初（錠の後・組み立ての前）に出所の比べを書く: 一覧の `git rev-parse HEAD:<path>` を並べた sha256 を `$TRIAL_USE_HOME/last.json` と比べ、
-  同じで前の回が走れていれば、Sandbox を起こさずに前の回の段落を「前の回（<前の tag>）の結果」として写す。走ったら `last.json` を書き直す（警告で終わった回も書き、`outcome` で区別する）。tag が `probe-` で始まる回は読みも書きもしない。
+  同じで前の回が走れていれば（終わり方が `一通り終えた` か `時間の上限で打ち切った`。design D9）、Sandbox を起こさずに前の回の段落を「前の回（<前の tag>）の結果」として写す。走ったら `last.json` を書き直す（警告で終わった回も書き、`outcome` で区別する）。tag が `probe-` で始まる回は読みも書きもしない。
   `--self-test` に、一覧が `tools/release/build.sh`・`package.sh` の読むパス（`$root/<path>`・`git show HEAD:<path>`）を全部含むことの突き合わせ（印なし）と、4 本:
   `echo "Scenario: 出所が同じなら、走らずに前の回の結果を写す"` / `echo "Scenario: 出所が変われば走る"`（一時の repo で commit を 1 つ足す）/ `echo "Scenario: 前の回が走れていなければ、同じ出所でも走る"` /
   `echo "Scenario: 手で試す回は、前の回の記録に触らない"`。
-  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 38 ]'` rc=0 / `python3 scripts/check_scenarios.py . ch21-trial-use-before-verify` rc=0
+  検証: `tools/trial-use/check-trial-use.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "echo \"Scenario: " tools/trial-use/check-trial-use.sh)" -ge 39 ]'` rc=0 / `python3 scripts/check_scenarios.py . ch21-trial-use-before-verify` rc=0
 
 ## Task 10: CI・文書・ADR・変えないもの
 
@@ -134,9 +135,9 @@
 ## Task 11: 本物の Sandbox と Claude で 1 回通す
 
 - [ ] 11.1 **手元の Windows・Sandbox・Claude の利用枠が要る**（作業箱の外）。手元の機械で、席を本物のまま 1 回走らせる（確認バッチの外。tag は `probe-<YYYYMMDD>` なので前の回の記録に触らない）。
-  段落が「使ってみた」で始まり、手元の置き場に `report.html` と写しが 1 枚以上あり、インストールまで届いたこと（`logs/` の `healthz` の結果）を見る。
+  段落が「使ってみた」で始まり、手元の置き場に `report.html` があることを見る。1.1 の `install` が PASS なら写しが 1 枚以上あり、インストールまで届いたこと（`healthz.txt`）も見る。
   11-19 の違和感（更新の確認がエラーを出し続ける）が候補に出たかは記録するが、合否に使わない（Q13）。結果（件数・巡った札・所要・終わり方）をこの Task の ledger に書く。
-  検証: `bash -c 't="probe-$(date +%Y%m%d)"; m="$TMPDIR/manifest.md"; d="/mnt/c/dev/ashiato2-trial-use/$t"; : >"$m"; tools/trial-use/seat.sh "$t" "$m" && grep -q "^使ってみた" "$m" && [ -f "$d/report.html" ] && [ -n "$(ls -A "$d/shots")" ] && ! grep -q "インストールまで届かなかった" "$m"'` rc=0
+  検証: `bash -c 't="probe-$(date +%Y%m%d)"; m="$TMPDIR/manifest.md"; d="/mnt/c/dev/ashiato2-trial-use/$t"; : >"$m"; tools/trial-use/seat.sh "$t" "$m" && grep -q "^使ってみた" "$m" && [ -f "$d/report.html" ] && if grep -q "^PASS" /mnt/c/dev/ashiato2-trial-use/probe/install.txt; then [ -n "$(ls -A "$d/shots")" ] && ! grep -q "インストールまで届かなかった" "$m"; else grep -q "インストールまで届かなかった" "$m"; fi'` rc=0（1.1 の `install` が PASS なら写しとインストールまで届いたことを、FAIL なら警告と報告を見る）
 
 ## 人間の確認待ち
 

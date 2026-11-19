@@ -27,7 +27,7 @@ A は推奨を置いてあるが、本人は答えを省略できない（触ら
 
 ## capability
 
-新しい `trial-use`（ADDED 9 Requirement・39 Scenario。38 本は偽の Windows・Claude・gh の自己検査、1 本は確認バッチの「人間の確認待ち」（`> 物理: device`））。
+新しい `trial-use`（ADDED 9 Requirement・40 Scenario。39 本は偽の Windows・Claude・gh の自己検査、1 本は確認バッチの「人間の確認待ち」（`> 物理: device`））。
 既存の `verify-environment` には積まない（D1（仮））。前倒しは無い。
 
 ## tasks
