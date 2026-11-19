@@ -189,7 +189,7 @@ new_tree() {
 run_emulator() {
   local root=$1 keep=${2:-} avd_exists=${3:-1} key=${4:-emulator} rc
   local fake_emu=${5:-ok} adb_mode=${6:-normal} kvm_device=${7:-$root/kvm}
-  local device_timeout=${8:-} boot_attempts=${9:-} adb_timeout=${10:-} only=${11:-}
+  local device_timeout=${8:-} boot_attempts=${9:-} adb_timeout=${10:-} only=${11-} only_set=${11+set}
   : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"; : > "$root/seq.log"
   rm -f "$root/visible" "$root/child"
   local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
@@ -203,7 +203,7 @@ run_emulator() {
     FAKE_EXISTING_AVD="${FAKE_EXISTING_AVD:-}")
   set +e
   local only_env=(-u ONLY)
-  [ -n "$only" ] && only_env=(ONLY="$only")
+  [ -n "$only_set" ] && only_env=(ONLY="$only")
   env "${only_env[@]}" "${envs[@]}" ${keep:+KEEP=1} timeout 30 "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr"
   rc=$?
   set -e
@@ -453,6 +453,7 @@ assert_term_cleanup() {
     FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child" FAKE_ROOT="$root" \
     FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log" FAKE_AVD_LOG="$root/avd.log" \
     FAKE_SEQ_LOG="$root/seq.log" \
+    env -u ONLY \
     FAKE_AVD_EXISTS=1 FAKE_EMU=sleep FAKE_ADB_MODE=normal ASHIATO_EMULATOR_DEVICE_TIMEOUT=30 \
     ASHIATO_KVM_DEVICE="$root/kvm" FAKE_EXISTING_DEVICES='' FAKE_EXISTING_AVD='' \
     "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr" &
@@ -532,17 +533,23 @@ self_test() {
 }
 
 assert_only_empty() {
-  local root unset_root empty_root unset_seq empty_seq
+  local root unset_root empty_root unset_seq empty_seq unset_stages empty_stages unset_replace empty_replace keep_stages
   new_tree; unset_root=$NEW_ROOT
   run_emulator "$unset_root" '' 1 only-empty >"$unset_root/rc"
   new_tree; empty_root=$NEW_ROOT
   run_emulator "$empty_root" '' 1 only-empty ok normal "$empty_root/kvm" '' '' '' '' >"$empty_root/rc"
   unset_seq=$(filtered_seq "$unset_root")
   empty_seq=$(filtered_seq "$empty_root")
+  keep_stages=$(grep -c '^keep_stage$' "$unset_root/tools/android-emulator.sh")
+  unset_stages=$(find "$unset_root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)
+  empty_stages=$(find "$empty_root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)
+  unset_replace=$(grep -c '^st58-replace$' "$unset_root/seq.log")
+  empty_replace=$(grep -c '^st58-replace$' "$empty_root/seq.log")
   [ "$(cat "$unset_root/rc")" -eq 0 ] && [ "$(cat "$empty_root/rc")" -eq 0 ] \
     && [ "$unset_seq" = "$empty_seq" ] \
-    && [ "$(find "$unset_root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq "$(grep -c '^keep_stage$' "$unset_root/tools/android-emulator.sh")" ] \
-    && [ "$(grep -c '^st58-replace$' "$unset_root/seq.log")" -eq 1 ]
+    && [ "$unset_stages" -eq "$empty_stages" ] \
+    && [ "$unset_stages" -eq "$keep_stages" ] \
+    && [ "$unset_replace" -eq 1 ] && [ "$empty_replace" -eq 1 ]
 }
 
 assert_only_base() {
