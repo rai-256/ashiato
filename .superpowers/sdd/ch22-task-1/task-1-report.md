@@ -48,3 +48,14 @@ Task 1 の実地 Windows 起動手順は brief の指定どおり Task 2 の範�
 - RED: review findings が示した既存の自己試験は、実質 17 本でダミー印を含み、`RateLimited` を使っていたため `rate_limited` の誤判定を検出できなかった。
 - GREEN: `scripts/verify-run 1.1` — 3/3 PASS、各 rc=0。`tools/release/soak-install.sh --self-test` は `OK: soak-install self-test`。
 - 追加確認: `bash -n tools/release/soak-install.sh`、`git diff --check`、`--list` 20 行。
+
+## Fix round 2 report
+
+- F5/F15: DB ログの `YYYY-MM-DD HH:MM:SS.mmm UTC` を置く間の ISO 窓へ正規化し、UTC と DB PID をキーから除外した。読めない日時の行は、ログ読込前に記録した `.soak-log-baselines/<basename>.lines` より後の行だけを数えるようにした。
+- F7: 自己試験を、サービス PID だけが変わる入力、7031/7034 の記録だけがある入力、collector PID が変わる入力と消える入力に分離した。DB の実際の日時形式と、基準後に追加された同一の日時不明行 3/2 行も試験する。
+
+### Verification
+
+- GREEN: `tools/release/soak-install.sh --self-test` — `OK: soak-install self-test`、rc=0。
+- GREEN: `scripts/verify-run 1.1` — 3/3 検証 PASS、各 rc=0。`check-ng-observations.sh` と Scenario/LIMIT 検査も PASS。
+- 追加確認: `git diff --check` — PASS。

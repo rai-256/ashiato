@@ -45,8 +45,9 @@ soak_service_failures() {
     fi
     if [[ -r "$events" ]]; then
       readable=1
-      while IFS='|' read -r ts line _; do
+      while IFS='|' read -r ts line event_code; do
         [[ "$ts" > "$start" && "$ts" < "$end" ]] || continue
+        [[ "$event_code" == 7031 || "$event_code" == 7034 ]] || continue
         [[ "$line" == "$svc" ]] && ((event_count++))
         ((total++))
       done <"$events"
@@ -65,11 +66,14 @@ soak_service_failures() {
 }
 
 soak_log_errors() {
-  local start="$1" end="$2" log name line ts key count line_no base_lines
-  for log in "$3" "$4" "$5" "$6"; do
+  local start="$1" end="$2" baseline_dir="$3" log name line ts key count line_no base_lines
+  for log in "$4" "$5" "$6" "$7"; do
     [[ -f "$log" ]] || continue
     name="$(basename "$log")"
-    base_lines="$(wc -l <"$log")"
+    base_lines=0
+    if [[ -r "$baseline_dir/$name.lines" ]]; then
+      base_lines="$(cat "$baseline_dir/$name.lines")"
+    fi
     line_no=0
     while IFS= read -r line; do
       ((line_no++))
@@ -145,12 +149,12 @@ soak_collector_pid() {
 }
 
 soak_evaluate() {
-  local dir="$1" start="$2" soak_start="$3" restart="$4" end="$5"
+  local dir="$1" start="$2" soak_start="$3" restart="$4" end="$5" baseline_dir="${6:-$1/.soak-log-baselines}"
   SOAK_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak-eval.XXXXXX")" || die '判定の一時置き場を作れない'
   trap 'rm -rf "${SOAK_TMP:-}"' RETURN EXIT
   ng_secret_file "${NG_OBSERVED_DIR:-$SOAK_TMP}"; ng_collect_secrets || true
   soak_service_failures "$dir" "$soak_start" "$end" "$dir/events"
-  soak_log_errors "$soak_start" "$end" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
+  soak_log_errors "$soak_start" "$end" "$baseline_dir" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
   soak_check_records "$dir/checks.jsonl" "$start" updater
   soak_check_records "$dir/update-checks.jsonl" "$restart" collector
   soak_collector_pid "$dir/collector.pid" "$restart" "$end"
@@ -167,16 +171,18 @@ soak_self_test() {
   export NG_OBSERVED_DIR="$work/observed"
   base="$work/base"
   mkdir -p "$base/services" "$base/logs"
-  printf '2026-11-20T00:00:00.000Z|RUNNING|10\n2026-11-20T00:00:15.000Z|RUNNING|10\n' >"$base/services/ashiato-db"
+  printf '2026-11-20T00:00:00.000Z|RUNNING|10\n2026-11-20T00:00:15.000Z|RUNNING|10\n2026-11-20T00:00:20.000Z|RUNNING|10\n' >"$base/services/ashiato-db"
   cp "$base/services/ashiato-db" "$base/services/ashiato-server"; cp "$base/services/ashiato-db" "$base/services/ashiato-updater"
   printf '200\n' >"$base/health"; printf '2026-11-20T00:00:00.000Z|ashiato-db|0\n' >"$base/events"
   printf '{"at":"2026-11-20T00:00:01.000Z","ok":true,"reason":null,"latest":null}\n' >"$base/checks.jsonl"
   printf '{"at":"2026-11-20T00:00:11.000Z","ok":true,"reason":null,"latest":null}\n' >"$base/update-checks.jsonl"
   printf '2026-11-20T00:00:11.000Z|100\n2026-11-20T00:01:10.000Z|100\n' >"$base/collector.pid"
   : >"$base/logs/updater.log"; : >"$base/logs/server.log"; : >"$base/logs/db.log"; : >"$base/logs/collector.log"
+  mkdir -p "$base/.soak-log-baselines"
+  for log in updater.log server.log db.log collector.log; do printf '0\n' >"$base/.soak-log-baselines/$log.lines"; done
 
   # Scenario: 置く間に 1 回でも起こし直されたら、サービスの名前と回数を出して落ちる
-  cp -R "$base" "$work/restart"; sed -i '2s/RUNNING/STOPPED/' "$work/restart/services/ashiato-server"; expect_fail "$work/restart" "ashiato-server"
+  cp -R "$base" "$work/restart"; sed -i '3s/|10$/|11/' "$work/restart/services/ashiato-server"; expect_fail "$work/restart" "ashiato-server"
   # Scenario: 起こし直されずに止まったままのサービスがあれば落ちる
   cp -R "$base" "$work/stopped"; sed -i '2s/RUNNING/STOPPED/' "$work/stopped/services/ashiato-db"; expect_fail "$work/stopped" "ashiato-db"
   # Scenario: 置き終わりに healthz が 200 でなければ落ちる
@@ -185,6 +191,8 @@ soak_self_test() {
   cp -R "$base" "$work/old-event"; printf '2026-11-19T23:59:00.000Z|ashiato-db|7031\n' >"$work/old-event/events"; expect_pass "$work/old-event" "system-events: readable count=0"
   # Scenario: システムの記録を読めなければ、警告を出し、状態とプロセスの番号で判定する
   cp -R "$base" "$work/no-event"; rm "$work/no-event/events"; expect_pass "$work/no-event" "system-events: unreadable"
+  # The service state is healthy; a 7031/7034 record alone must still fail.
+  cp -R "$base" "$work/event-only"; printf '2026-11-20T00:00:11.000Z|ashiato-server|7034\n' >"$work/event-only/events"; expect_fail "$work/event-only" "ashiato-server"
   # Scenario: 同じ誤りが 3 回あると落ちる
   [[ "$SOAK_SAME_ERROR_LIMIT" == 3 ]] || die "self-test: SOAK_SAME_ERROR_LIMIT is not 3"; cp -R "$base" "$work/three"; for i in 1 2 3; do printf '2026-11-20T00:01:0%s.000Z ERROR same\n' "$i" >>"$work/three/logs/updater.log"; done; expect_fail "$work/three"
   # Scenario: 2 回の同じ誤りは、行を出して通る
@@ -194,7 +202,9 @@ soak_self_test() {
   # Scenario: 置く段の始まりと置く間の始まりの間に書かれた誤りの行は数えない
   cp -R "$base" "$work/before-soak"; printf '2026-11-20T00:00:01.000Z ERROR same\n' >"$work/before-soak/logs/updater.log"; expect_pass "$work/before-soak"
   # Scenario: プロセスの番号だけが違う DB のログの行は、同じ誤りとして数える
-  cp -R "$base" "$work/db-pid"; printf '2026-11-20T00:01:01.000Z [1] ERROR: same\n2026-11-20T00:01:02.000Z [2] ERROR: same\n2026-11-20T00:01:03.000Z [3] ERROR: same\n' >"$work/db-pid/logs/db.log"; expect_fail "$work/db-pid"
+  cp -R "$base" "$work/db-pid"; printf '2026-11-20 00:01:01.000 UTC [1] ERROR: same\n2026-11-20 00:01:02.000 UTC [2] ERROR: same\n2026-11-20 00:01:03.000 UTC [3] ERROR: same\n' >"$work/db-pid/logs/db.log"; expect_fail "$work/db-pid"
+  # Unreadable timestamps are counted only when appended after the recorded baseline.
+  cp -R "$base" "$work/unreadable-log"; printf '%s\n' 'bad-time ERROR same' 'bad-time ERROR same' 'bad-time ERROR same' >>"$work/unreadable-log/logs/updater.log"; expect_fail "$work/unreadable-log"; sed -i '$d' "$work/unreadable-log/logs/updater.log"; expect_pass "$work/unreadable-log"
   # Scenario: サーバのログの panic の行は 1 行でも落ちる
   cp -R "$base" "$work/panic"; printf '2026-11-20T00:01:01.000Z kind="panic" boom\n' >"$work/panic/logs/server.log"; expect_fail "$work/panic"
   # Scenario: 置く段の始まりより後に確かめた行があれば通る
@@ -209,6 +219,7 @@ soak_self_test() {
   cp -R "$base" "$work/mixed"; printf '%s\n' '{"at":"2026-11-20T00:01:00.000Z","ok":false,"reason":"rate_limited","latest":null}' '{"at":"2026-11-20T00:01:01.000Z","ok":false,"reason":"unreachable","latest":null}' >"$work/mixed/checks.jsonl"; expect_fail "$work/mixed" "問い合わせの上限以外"
   # Scenario: 台本が止めたほかに PC の収集アプリが終われば落ちる
   cp -R "$base" "$work/collector-pid"; printf '2026-11-20T00:01:20.000Z|102\n' >>"$work/collector-pid/collector.pid"; expect_fail "$work/collector-pid"
+  printf '2026-11-20T00:01:20.000Z|\n' >>"$work/collector-pid/collector.pid"; expect_fail "$work/collector-pid"
   # Scenario: 起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす
   cp -R "$base" "$work/collector-before"; printf '{"at":"2026-11-20T00:00:05.000Z","ok":false,"reason":"unreachable","latest":null}\n' >"$work/collector-before/update-checks.jsonl"; expect_pass "$work/collector-before"
   # Scenario: 置く段の出力に秘密の値が出ない
