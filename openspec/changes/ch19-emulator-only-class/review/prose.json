@@ -1,0 +1,15 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 64,
+ "applied": [
+  "uses[U2].trigger",
+  "walkthroughs[W1].why",
+  "points[full.2].text",
+  "points[narrow.3].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}

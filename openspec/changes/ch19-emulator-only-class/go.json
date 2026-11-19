@@ -1,0 +1,1194 @@
+{
+ "purpose": "計測テストの 1 クラスを直している間は、そのクラスだけをエミュレータで走らせて結果を数分で見られる（全体の 17 分を毎回待たない）。通ったら最後に全体を 1 回走らせる、という回し方を、エージェントも本人も同じ口（`ONLY=`）で取れるようになる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "計測テストの台本の分かれ道（ONLY の有無と値）",
+  "text": "tools/android-emulator.sh\n  │\n  ├─ ONLY が無い・空 ──→ 今と同じ全体（8 段 + 入れ替えの台本）\n  │\n  └─ ONLY=<クラス>\n       ├─ 形が違う・専用の台本のクラス ──→ 起こさずに rc=1（台本の名前を出す）\n       │\n       │   （エミュレータを起こす → アプリを外す、までは全体と同じ）\n       │\n       ├─ St56BackupTest ──→ 準備 → 往復 → 確かめ（全体の 2〜3 段目と同じ手順）\n       └─ ほかのクラス ──→ 前の結果を消す → gradle を class= で 1 回 → そのクラスの結果が無ければ rc=1",
+  "alt": "ONLY が無ければ今の全体の 8 段。ONLY に値があれば、形の誤りと専用の台本のクラスは起こさずに止め、St56BackupTest は全体と同じ往復の手順、ほかのクラスは gradle を 1 回だけ絞って走らせる。"
+ },
+ "before_after": [
+  {
+   "area": "計測テストの 1 クラスを直す回し方",
+   "before": "絞る口が無く、毎回全体（約 17 分）を走らせる",
+   "after": "`ONLY=dev.ashiato.collector.<クラス>` でそのクラスだけを走らせ、最後に全体を 1 回"
+  },
+  {
+   "area": "AGENTS.md の「長いコマンド」",
+   "before": "絞り方の記述が無い",
+   "after": "直している途中は絞る（エミュレータは `ONLY=`、`cargo test` は名前）、最後に全体を `scripts/verify-run` で、が書いてある"
+  }
+ ],
+ "highlights": [
+  "narrow.3",
+  "st56.1",
+  "full.2",
+  "guard.1",
+  "guide.2"
+ ],
+ "features": [
+  {
+   "id": "full",
+   "title": "指定しないときは今の全体のまま",
+   "summary": "`ONLY` が無いか空なら、命令も順も段の数も今と同じ。",
+   "figure": null,
+   "points": [
+    {
+     "id": "full.1",
+     "kind": "normal",
+     "text": "`ONLY` を渡さない・空で渡すと、今と同じ命令を同じ順に送り、今と同じ数の段の結果を残し、最後に入れ替えの台本を走らせる。全体の経路の行は字下げも含めて書き換えない。",
+     "refs": {
+      "requirements": [
+       "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+      ],
+      "scenarios": [
+       "ONLY が空なら、渡さないときと同じ命令の列で全段を走らせる"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "full.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "「前の版と同じ命令の列か」を比べる確認は、比べる元の版を明示して渡したときだけ走る。CI の普段の実行では「比べる元の版が無いので飛ばす」と出して通る。効くのはこの change の PR の証跡（Task 1.1・3.1 が元の版を渡し、飛ばしていないことを見る）。",
+     "examples": [
+      {
+       "wrong": "CI が毎回、前の版の台本と命令の列を比べている",
+       "right": "CI では飛ばす。元の版を渡した PR の証跡でだけ比べる（後の Story が全体に段を足しても落ちないように）"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "ONLY を渡さなければ、この change の前の版の台本と同じ命令の列で全段を走らせる"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "narrow",
+   "title": "1 クラスだけに絞って走らせる",
+   "summary": "全体と同じ準備の後、gradle をそのクラスに絞って 1 回だけ。",
+   "figure": null,
+   "points": [
+    {
+     "id": "narrow.1",
+     "kind": "normal",
+     "text": "`ONLY=dev.ashiato.collector.MediaPremisesInstrumentedTest` のように完全修飾のクラス名を 1 つ渡すと、全体と同じにエミュレータを起こし、アニメーションを切り、写真と動画を入れ、アプリを外し、止めて権限を戻してから、gradle の計測テストをそのクラスに絞って 1 回だけ走らせる。残る結果の置き場は `androidTest-results-stage1` の 1 つ。",
+     "refs": {
+      "requirements": [
+       "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+      ],
+      "scenarios": [
+       "ONLY にクラスを渡すと、そのクラスだけに絞った計測テストを 1 回だけ走らせる",
+       "ONLY でも、全体と同じにアニメーションを切り、写真と動画を入れる",
+       "ONLY の段の前に、アプリを外し、止めて、権限を戻す"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "narrow.2",
+     "kind": "normal",
+     "text": "クラスのテストが落ちたら rc≠0 で止まり、エミュレータを止める。`KEEP=1` を一緒に渡せば、通った後もエミュレータを止めない（全体のときと同じ）。",
+     "refs": {
+      "scenarios": [
+       "ONLY のクラスのテストが落ちたら、rc≠0 で止まり、エミュレータを止める",
+       "ONLY と KEEP=1 を一緒に渡すと、通った後にエミュレータを止めない"
+      ]
+     }
+    },
+    {
+     "id": "narrow.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "走らせる前に、前の実行の結果（`collector-android/app/build/outputs/androidTest-results`）を消す。走った後、渡したクラスの結果が 1 本も無ければ `error: ONLY=<クラス> のテストが 1 本も走っていない` で rc=1。クラス名の打ち間違いはエミュレータを起こした後のこの確認で初めて分かる（形だけは起こす前に見る）。",
+     "examples": [
+      {
+       "wrong": "gradle が rc=0 なら通った（0 本でも）",
+       "right": "そのクラスの結果が XML に無ければ rc=1。前の実行の XML が残っていても今回の結果として数えない"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "渡したクラスの結果が無ければ、0 本として止まる",
+       "前の実行の結果が残っていても、今回の結果として数えない"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "narrow.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "絞った実行で通っても、全体で通るとは限らない。全体の 1 段目は多くのクラスを権限を戻さずに続けて走らせるが、絞った実行は毎回まっさらな権限から始める。だから最後に全体を走らせる手順（AGENTS.md）とセットで使う。",
+     "refs": {
+      "requirements": [
+       "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "st56",
+   "title": "バックアップの試験だけは往復の手順で走らせる",
+   "summary": "`St56BackupTest` は gradle 1 回では通らないので、全体と同じ準備・往復・確かめをする。",
+   "figure": null,
+   "points": [
+    {
+     "id": "st56.1",
+     "kind": "normal",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "`ONLY=dev.ashiato.collector.St56BackupTest` は gradle の計測テストを呼ばず、全体の 2〜3 段目と同じ手順（アプリと試験のアプリを入れる → バックアップを有効にする → 準備 → `tools/android-backup-roundtrip.sh` で往復 → 確かめて `OK (1 test)` を照らす）だけを同じ順に走らせる。議論で決めた「1 段で」は、このクラスに限りこの手順と読む。",
+     "examples": [
+      {
+       "wrong": "gradle の class= に St56BackupTest を渡して 1 回走らせる",
+       "right": "準備と確かめの間にテストの外で消して戻す往復が要るので、全体と同じ往復の手順を走らせる"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+      ],
+      "scenarios": [
+       "バックアップの試験を渡すと、gradle の計測テストを呼ばずに準備・往復・確かめを順に走らせる"
+      ],
+      "decisions": [
+       "Q1",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "st56.2",
+     "kind": "exception",
+     "text": "この経路は段の結果の置き場を作らない（`am instrument` は XML を書かない）。判定は `OK (1 test)` の照合だけで、通らなければ全体と同じ `error: St56BackupTest の復元の確かめが通らない` で rc=1。",
+     "refs": {
+      "scenarios": [
+       "バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "guard",
+   "title": "絞れない指定は起こす前に止める",
+   "summary": "専用の台本で走るクラスと形の違う値は、エミュレータを起こさずに rc=1。",
+   "figure": {
+    "kind": "table",
+    "caption": "ONLY の値と結果（起こす前に決まるもの）",
+    "head": [
+     "ONLY の値",
+     "結果"
+    ],
+    "rows": [
+     [
+      "dev.ashiato.collector.St58PackageReplacedInstrumentedTest",
+      "rc=1。`tools/android-st58-replace.sh` で走らせる、と出す"
+     ],
+     [
+      "dev.ashiato.collector.UsageVolumeInstrumentedTest",
+      "rc=1。`tools/usage-volume.sh` で走らせる、と出す"
+     ],
+     [
+      "MediaPremisesInstrumentedTest（パッケージ無し）",
+      "rc=1。形が違う"
+     ],
+     [
+      "…A,…B（複数）／ …#prepareBackup（メソッド）／ 空白を含む",
+      "rc=1。形が違う"
+     ],
+     [
+      "空",
+      "渡していないのと同じ（全体）"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "guard.1",
+     "kind": "normal",
+     "text": "入れ替えの試験と採寸の試験は gradle の 1 段では前提が無く必ず落ちるので、起こさずに `error: ONLY=` で始まる行にその台本の名前を出して rc=1 で止める。",
+     "refs": {
+      "requirements": [
+       "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+      ],
+      "scenarios": [
+       "入れ替えの試験か採寸の試験を渡すと、専用の台本の名前を出して起こさずに止まる"
+      ],
+      "decisions": [
+       "Q1",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "guard.2",
+     "kind": "exception",
+     "text": "値は完全修飾のクラス名 1 つだけ。メソッド 1 つだけ・複数のクラスを一度に、は受け付けない（起こさずに rc=1）。",
+     "refs": {
+      "scenarios": [
+       "完全修飾のクラス名 1 つの形でない値を渡すと、起こさずに止まる"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "guide",
+   "title": "回し方を AGENTS.md に書く",
+   "summary": "直している途中は絞り、最後に全体を verify-run で。",
+   "figure": null,
+   "points": [
+    {
+     "id": "guide.1",
+     "kind": "normal",
+     "text": "AGENTS.md の「長いコマンド」に 1 項目足す: 直している途中は落ちたところだけに絞って走らせ（エミュレータは `ONLY=dev.ashiato.collector.<クラス> scripts/quiet-run emu -- tools/android-emulator.sh`、`cargo test` は名前で絞って `-- --list` で 1 本以上を確かめる）、通ったら最後に全体を `scripts/verify-run <項目>` で走らせる。",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "guide.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "既存の Story / change の tasks.md の検証コマンドは全体のまま書き換えない。絞った実行は Task の完了の証跡にしない（完了は全体の verify-run で決まる）。",
+     "refs": {
+      "requirements": [
+       "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "入れ替えの台本（`tools/android-st58-replace.sh`）と採寸の台本（`tools/usage-volume.sh`）を絞る口（依頼が対象外とした）",
+   "refs": {
+    "decisions": [
+     "D4"
+    ]
+   }
+  },
+  {
+   "text": "正典の「正常にエミュレータが立つとき…」が「6 段」と書いている古さの直し（軽い路は正典を書き換えない。別の change が直す）",
+   "refs": {}
+  },
+  {
+   "text": "CI の計測テストの job（台本を呼ばず、同じ命令を自分で持っている）",
+   "refs": {}
+  },
+  {
+   "text": "既存の tasks.md の検証コマンドの書き換え・製品のコードと計測テストの中身",
+   "refs": {
+    "decisions": [
+     "D6"
+    ]
+   }
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "ONLY の段の行を全体の経路のどこに置くか（アプリを外した後・全体の 1 段目の gradle の前。全体の行は動かさない）",
+   "refs": {
+    "decisions": [
+     "D1"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "段",
+   "def": "台本が gradle か am instrument で計測テストを 1 回走らせる単位。段ごとの結果の XML を `androidTest-results-stage<N>` に残す"
+  },
+  {
+   "term": "専用の台本",
+   "def": "前提を自分で用意して計測テストを走らせる別の台本（入れ替えの `tools/android-st58-replace.sh`、採寸の `tools/usage-volume.sh`）"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "落ちた 1 クラスを直して、そこだけ確かめる",
+   "trigger": "Task の全体の検証で `MediaPremisesInstrumentedTest` だけが落ちた。直したが、確かめるたびに 17 分待つのは長い。",
+   "steps": [
+    {
+     "do": "`ONLY=dev.ashiato.collector.MediaPremisesInstrumentedTest scripts/quiet-run emu1 -- tools/android-emulator.sh`",
+     "see": "エミュレータが立ち、そのクラスだけが走る。結果は `androidTest-results-stage1` の 1 つ"
+    },
+    {
+     "do": "落ちたら直して同じコマンドをもう一度",
+     "see": "rc≠0 と gradle の失敗。通れば rc=0"
+    },
+    {
+     "do": "通ったら `scripts/verify-run <項目>`（全体の `tools/android-emulator.sh`）",
+     "see": "全体の 8 段と入れ替えの台本が走り、証跡が残る"
+    }
+   ],
+   "outcome": "直す回のたびに全体を待たずに済み、完了の判定は今までどおり全体の証跡で決まる",
+   "without": "ST56 Task 5 のように、1 クラスを直すのに全体を 27 回まわす（implement が 485 分）",
+   "refs": {
+    "requirements": [
+     "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+     "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+    ],
+    "decisions": [
+     "D6"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "バックアップの試験を直す（ST56 Task 5 の場面）",
+   "trigger": "`St56BackupTest` の復元の確認が「未送信が戻らない」で落ちた。",
+   "steps": [
+    {
+     "do": "`ONLY=dev.ashiato.collector.St56BackupTest scripts/quiet-run emu56 -- tools/android-emulator.sh`",
+     "see": "準備 → 往復 → 確かめだけが走り、`OK (1 test)` か `error: St56BackupTest の復元の確かめが通らない`"
+    }
+   ],
+   "outcome": "往復を含むこのクラスも、全体を待たずに繰り返せる",
+   "without": "全体の 2〜3 段目に届くまで毎回ほかの段を待つ",
+   "refs": {
+    "requirements": [
+     "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+    ],
+    "decisions": [
+     "Q1"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "ONLY に何を渡すと何が走るか",
+   "feature": "narrow",
+   "scene": "エージェントが計測テストの 1 クラスを直していて、ONLY に色々なクラス名を渡す。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "ONLY の値ごとの動き（クラス名は実在のもの、結果は仕様から）",
+    "head": [
+     "ONLY",
+     "エミュレータ",
+     "走るもの",
+     "結果"
+    ],
+    "rows": [
+     [
+      "（無い・空）",
+      "起こす",
+      "全体の 8 段 + 入れ替えの台本",
+      "今と同じ"
+     ],
+     [
+      "…MediaPremisesInstrumentedTest",
+      "起こす",
+      "gradle を class= で 1 回",
+      "通れば rc=0"
+     ],
+     [
+      "…MediaPremisesInstrumentedTset（打ち間違い）",
+      "起こす",
+      "gradle を class= で 1 回（何も走らない）",
+      "rc=1「1 本も走っていない」"
+     ],
+     [
+      "…St56BackupTest",
+      "起こす",
+      "準備 → 往復 → 確かめ",
+      "`OK (1 test)` なら rc=0"
+     ],
+     [
+      "…St58PackageReplacedInstrumentedTest",
+      "起こさない",
+      "なし",
+      "rc=1。入れ替えの台本の名前を出す"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "ふつうのクラスを渡す",
+     "outcome": "ok",
+     "result": "そのクラスだけが走り、通れば rc=0"
+    },
+    {
+     "label": "クラス名を打ち間違えた",
+     "outcome": "problem",
+     "result": "形は正しいので起こしてから、そのクラスの結果が無いことで rc=1（数分かかる）"
+    },
+    {
+     "label": "専用の台本のクラスを渡した",
+     "outcome": "neutral",
+     "result": "起こさずにすぐ rc=1。使うべき台本の名前が出る"
+    }
+   ],
+   "why": "台本はエミュレータを起こす前には値の形だけを見て、クラスが実在するかは gradle が走った後の結果で見る。専用の台本のクラスは名前で分かるので、起こす前に止められる。",
+   "conditions": {
+    "occurs_when": [
+     "ONLY に値を渡した"
+    ],
+    "not_when": [
+     "ONLY が無いか空（今の全体）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "表の値は説明のための組み合わせ。打ち間違いの例の名前は実在しない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+     "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる",
+     "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+    ],
+    "scenarios": [
+     "渡したクラスの結果が無ければ、0 本として止まる"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "計測テストの台本に `ONLY` の口が増え、1 クラスだけを走らせられるようになる。`ONLY` を渡さなければ今の全体のまま。この分析で見つけた、できなくなることは 1 つで、ふつうのクラスを絞って走らせた後は、前の全体の実行の結果の XML が残らない（St56BackupTest の経路では古い XML が残る）。注意は 2 つあり、`ONLY` が環境に export されたままだと、rc だけを見る全体の検証（verify-run を含む）が黙って 1 クラスに絞られうること（IMP-01）と、後の Story が全体に特別な手順の段を足すと、そのクラスは `ONLY` では落ちうること（IMP-02）。",
+  "problem": "ST56 Task 5 で、計測テストの 1 クラスを直すのに全体（1 回 17 分。gradle 自体は 20 秒で落ちていた）を 27 回まわし、implement が 485 分かかった。台本に 1 クラスだけを走らせる口が無かった。",
+  "depth": "full",
+  "depth_why": "起こさずに止める規則・前の結果を消す規則・0 本で止める規則を持ち、全体の振る舞いの前後（before_after）がある",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "この change は私的データを増減しない。触るのは開発の道具の台本と、エミュレータの上の試験の結果だけ",
+    "why": "製品（収集アプリ・サーバ・画面）のコードと記録には触れない",
+    "refs": {
+     "requirements": [
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "後から外せる。環境変数の名前 `ONLY` は、ハーネスの絞った検証（harness2 #271。まだ設計されておらず、確かめた呼び手は無い）が使う予定。名前を変えるなら、その呼び手ができる前の方が安い",
+    "why": "台本の口の名前は外から呼ばれる約束になる",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "lifecycle",
+    "name": "計測テストの台本 `tools/android-emulator.sh` の走らせ方",
+    "change": "`ONLY` に値があるとき、全体の段の代わりに 1 クラスの段（か St56 の往復の手順）を走らせて終える。値の誤りは起こす前に止める",
+    "searched": "`android-emulator.sh` の名前でリポジトリを探し（impact_deps）、呼ぶ台本・行の形を検査する台本・CI・AGENTS.md・docs/testing.md を開いた",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる",
+      "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "file",
+    "name": "計測テストの結果の置き場 `collector-android/app/build/outputs/androidTest-results`",
+    "change": "ふつうのクラスの `ONLY` の段の前に消す（全体の実行が残した XML と `connected/st57-update` の写しも消える）。St56BackupTest の経路では消さず、段の置き場だけが消える",
+    "searched": "`androidTest-results` と `st57-update` の名前で tools・openspec/changes・docs/changes・web を探した",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "api",
+    "name": "環境変数 `ONLY`（台本の新しい口）",
+    "change": "新しく足す。値があれば台本の振る舞いが変わる",
+    "searched": "`ONLY` を語として tools・scripts（ハーネス）・.github で探した。使っているのは tools/test-android-emulator.sh の場合選びの変数だけ",
+    "refs": {
+     "requirements": [
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "file",
+    "name": "AGENTS.md の「長いコマンド」",
+    "change": "絞り方と、最後に全体を verify-run で走らせることを 1 項目足す",
+    "searched": "AGENTS.md の該当の節を読んだ",
+    "refs": {
+     "decisions": [
+      "D6"
+     ]
+    },
+    "no_dependents_why": "AGENTS.md の文はエージェントが読む指示で、機械が行の形を読む台本は探して見つからなかった（`long-commands` の印を読むハーネスの検査は、印の行を残すので変わらない）"
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "台本の行の形の検査 `tools/test-usage-volume.sh`",
+    "role": "reads",
+    "assumes": "コメントでない最初の `connectedDebugAndroidTest` の行が `adb uninstall dev.ashiato.collector ` の行より後にあり、採寸の試験を `notClass` で除く行がある",
+    "holds": "yes",
+    "affects": "崩れると採寸の試験の検査が落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T3",
+    "who": "検証の入口 `scripts/verify-run`（`scripts/evidence.py` が呼ばれた環境をそのまま検証のコマンドに渡す）",
+    "role": "reads",
+    "assumes": "全体を走らせる検証のコマンド（`tools/android-emulator.sh`）は、どの環境から呼んでも全体を走らせる",
+    "holds": "unknown",
+    "affects": "`ONLY` が export されたシェルから全体の verify-run を呼ぶと、1 クラスだけが走って PASS の証跡が残りうる",
+    "basis": "observed",
+    "evidence": [
+     "E2"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "全体の実行の末尾が作る `connected/st57-update` の写しと、全体の結果の XML を後から読む人",
+    "role": "reads",
+    "assumes": "最後に走らせた全体の結果が置き場に残っている",
+    "holds": "no",
+    "affects": "絞った実行の後は、前の全体の結果を読めない（全体を走らせ直せば作り直される）",
+    "basis": "observed",
+    "evidence": [
+     "E3"
+    ],
+    "leads_to": [
+     "S1"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T1",
+    "who": "CI の unit の job（`tools/test-android-emulator.sh` と `--self-test` を、比べる元の版を渡さずに走らせる）",
+    "role": "reads",
+    "assumes": "試験の全部の場合が rc=0",
+    "holds": "yes",
+    "affects": "崩れると CI が赤になる",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T1",
+    "who": "採寸の台本 `tools/usage-volume.sh`（同じ AVD を使い、終わりにアプリを外して許可を持ち込まない）",
+    "role": "writes",
+    "assumes": "次の計測テストの実行はアプリを外したところから始まる",
+    "holds": "yes",
+    "affects": "崩れると採寸の後の実行で許可が残り、別のクラスが落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T1",
+    "who": "後で全体の経路に特別な手順の段を足す Story（St56 のように gradle 1 回では通らないクラス）",
+    "role": "writes",
+    "assumes": "全体に足した段のクラスは、`ONLY` でも同じ手順で走る",
+    "holds": "no",
+    "affects": "そのクラスを `ONLY` で渡すと gradle 1 回で走り、落ちうる（St56 は実物で落ちた）。台本は理由を出さない",
+    "basis": "derived",
+    "leads_to": [
+     "IMP-02"
+    ],
+    "refs": {
+     "requirements": [
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ],
+     "decisions": [
+      "D2",
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "D7",
+    "target": "T3",
+    "who": "ハーネスの絞った検証（harness2 #271。まだ作られていない）",
+    "role": "reads",
+    "assumes": "`ONLY` にクラス 1 つを渡せば足りる・rc で結果が分かる",
+    "holds": "unknown",
+    "affects": "メソッド単位や複数のクラスが要ると分かれば、値の形を広げる（D5 の見直す条件）",
+    "basis": "unconfirmed",
+    "verify": "harness2 #271 の設計が決まったときに、要る絞りの単位を D5 と照らす"
+   },
+   {
+    "id": "D8",
+    "target": "T2",
+    "who": "`connected/` の結果の XML を数える検証（例: ST57 の項目は `connected/*/TEST-*.xml` の St57UpdateQueryTest を数える）",
+    "role": "reads",
+    "assumes": "`connected/` の XML は直前の実行が書いたもの",
+    "holds": "unknown",
+    "affects": "`ONLY=…St56BackupTest` の後は、前の全体の古い XML が `connected/` に残る。台本を走らせずに XML だけを読む検証があれば、古い結果を読む",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ]
+    },
+    "verify": "走っている change の tasks に、台本を走らせずに `connected/` の XML だけを読む検証があるかを探す（2026-11-19 時点で走っている change は CH19 だけ）"
+   },
+   {
+    "id": "D9",
+    "target": "T3",
+    "who": "偽の SDK の試験 `tools/test-android-emulator.sh`（場合選びの変数が同じ名前 `ONLY`）",
+    "role": "writes",
+    "assumes": "場合選びの変数の名前は台本の口とぶつからない",
+    "holds": "yes",
+    "affects": "ぶつかったままだと、`ONLY` を export したシェルから試験を走らせたとき場合名が台本へ漏れ、台本が形の誤りで止まる。tasks の Global Constraints が `CASE` に改め、台本を起こすときは `env -u ONLY` で外すので成り立つ",
+    "basis": "observed",
+    "evidence": [
+     "E6"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "ops",
+    "loc": "tools/test-usage-volume.sh:88",
+    "quote": "first_gradle=$(grep -n 'connectedDebugAndroidTest' tools/android-emulator.sh | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": "scripts/evidence.py:419",
+    "quote": "env = {**os.environ, VERIFY_FLAG: \"1\"}"
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": "tools/android-emulator.sh:165",
+    "quote": "rm -rf \"$OUT/androidTest-results/connected/st57-update\""
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:183",
+    "quote": "- run: ./tools/test-android-emulator.sh"
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": "tools/usage-volume.sh:169",
+    "quote": "# この AVD を次に使う tools/android-emulator.sh へ「利用状況へのアクセス」の許可を持ち込まない"
+   },
+   {
+    "id": "E6",
+    "source": "ops",
+    "loc": "tools/test-android-emulator.sh:477",
+    "quote": "ONLY=${ASHIATO_TEST_ONLY:-}"
+   },
+   {
+    "id": "E7",
+    "source": "story",
+    "loc": "openspec/changes/archive/2026-10-04-st28-private-network-only/tasks.md:176",
+    "quote": "検証: `tools/android-emulator.sh`"
+   }
+  ],
+  "lost": [
+   {
+    "before": "全体の実行の後、結果の XML（と `connected/st57-update` の写し）が次に全体を走らせるまで残っていた",
+    "after": "ふつうのクラスを `ONLY` で絞って走らせると、走らせる前に結果の置き場を消すので、前の全体の結果は残らない。St56BackupTest の経路は消さないので、前の全体の XML（`connected/st57-update` を含む）は古いまま残り、段の置き場（stage）だけが消える",
+    "who": "全体の結果を後から読む人（エージェント・本人）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "`ONLY` で 1 クラスを走らせる。`ONLY` 無しで今の全体を走らせる",
+    "cannot": "メソッド 1 つだけ・複数のクラスを一度に絞る。入れ替えと採寸の試験を `ONLY` で走らせる",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+      "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "後の Story が全体の経路に gradle の段を足しても、`ONLY` の経路はそのまま使える",
+    "cannot": "全体に特別な手順の段（St56 のような往復）を足したクラスは、`ONLY` の経路にも足さないと `ONLY` では走らない（IMP-02）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": false,
+    "why": "道具の台本だけで、記録やデータの形を変えない。戻せば `ONLY` の口が消えるだけ"
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "前の実行が AVD に残したアプリや許可は、全体と同じくアプリを外して権限を戻してから走らせるので持ち込まない",
+    "cannot": "前の全体の結果の XML を残しておく（絞った実行が消す）",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "ONLY の段の前に、アプリを外し、止めて、権限を戻す",
+      "前の実行の結果が残っていても、今回の結果として数えない"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "同じ AVD で、絞った実行と全体を順に走らせる",
+    "cannot": "`ONLY` が export されたシェルから全体のつもりで呼ぶと、黙って絞られうる（IMP-01）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる",
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "絞った実行が落ちても止められても、全体と同じにエミュレータを止める（`KEEP=1` なら残す）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "ONLY のクラスのテストが落ちたら、rc≠0 で止まり、エミュレータを止める",
+      "バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "拒否",
+    "rule": "専用の台本で走るクラスと、完全修飾のクラス名 1 つの形でない値は、エミュレータを起こさずに rc=1 で止める",
+    "target": "gradle 1 回では前提が無く必ず落ちる指定・絞りが曖昧になる指定",
+    "legit": "入れ替えと採寸の試験を直す人は、今までどおり専用の台本を使う。1 メソッドだけ・複数クラスを一度に絞りたい人は、クラス 1 つずつ渡す",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+     ],
+     "decisions": [
+      "D4",
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "渡したクラスの結果が段の XML に 1 本も無ければ rc=1 で止める",
+    "target": "クラス名の打ち間違いや、何も走らなかった実行を「通った」と見せること",
+    "legit": "そのクラスのテストが 1 本でも走れば結果が出るので、正当な実行は止まらない（class= だけで絞り、annotation では除かない）",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "削除",
+    "rule": "ふつうのクラスの `ONLY` の段の前に、前の実行の結果の置き場を消す（St56BackupTest の経路は消さない）",
+    "target": "古い XML を今回の結果として数えること",
+    "legit": "前の全体の実行の結果を後から読みたい人も、読めなくなる",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "停止",
+    "rule": "St56BackupTest の確かめが `OK (1 test)` でなければ rc=1 で止める",
+    "target": "バックアップの復元が通っていないのに通ったと見せること",
+    "legit": "全体のときと同じ判定で、正当な実行は止めない",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "削除",
+    "rule": "`ONLY` が無いか空のときは今と同じに、1 段目の gradle の前にアプリと試験のアプリを外す（既存の振る舞いをそのまま保つ）",
+    "target": "前の台本が AVD に残した許可を持ち込むこと",
+    "legit": "今と同じ振る舞いで、新しく止めるものは無い",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R3",
+    "goal": "全体の実行で落ちたクラスを直した後、前の全体の結果の XML を見返したい",
+    "initial": "全体の実行が終わり、段ごとの XML と `connected/st57-update` の写しが残っている",
+    "action": "落ちたクラスを `ONLY` で走らせる",
+    "trigger": "`ONLY` の段の前に結果の置き場を消す",
+    "result": "前の全体の結果は消え、今回の 1 クラスの結果だけが残る",
+    "lost": "前の全体の結果を見返すこと（全体を走らせ直せば作り直される）",
+    "decision": "受け入れる（古い結果を今回の結果として読ませない方を取る。D3）",
+    "occurs_when": [
+     "全体の実行の後に、ふつうのクラスを `ONLY` で走らせた"
+    ],
+    "not_when": [
+     "`ONLY=…St56BackupTest` だった（古い結果が残る）",
+     "全体の結果を先に別の場所へ写した・全体を走らせ直した"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "`ONLY` が export されたままだと、rc だけを見る全体の verify-run が黙って 1 クラスに絞られうる",
+    "text": "`scripts/verify-run` は呼ばれた環境をそのまま検証のコマンドに渡す。`export ONLY=…` したシェル（シェルの状態が続く executor）から全体の項目を verify-run すると、台本は 1 クラスだけを走らせ、通れば PASS の証跡が残りうる。「最後に全体を走らせる」手順の意味が崩れる",
+    "basis": "guess",
+    "unknowns": [
+     "エージェントが `ONLY` を export する形で使うか（AGENTS.md の例はコマンドの前に付ける形で、export しない）",
+     "harness2 #271 が `ONLY` をどの環境に置くか",
+     "今後の全体の項目の検証が、rc だけを見る型か、XML のクラス数を数える型か"
+    ],
+    "derived": "台本は環境の `ONLY` を読む（仕様）。verify-run は環境を引き継ぐ（E2）。両方が成り立てば、export された `ONLY` は全体の検証に届く。rc だけを見る検証（例: ST28 の「検証: `tools/android-emulator.sh`」）は絞られても PASS になる。結果の XML のクラス数を数える検証（例: ST57・ST17）は、絞った実行が置き場を消すので落ちる（絞ったクラスが数えるクラスと同じときを除く）",
+    "undefined": "全体の検証が絞られていないことを、台本の出力や証跡で見分ける方法。仕様は決めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "このまま受け入れる（AGENTS.md の例は export しない形）"
+     },
+     {
+      "label": "`ONLY` の経路は「ONLY=<クラス> に絞った」と出力に出し、全体の verify-run の証跡で見分けられるようにする（仕様を直す）"
+     }
+    ],
+    "verify": "`ONLY` を export したシェルから、偽の SDK の木で全体の検証のコマンドを走らせ、1 クラスに絞られることを確かめる",
+    "deps": [
+     "D2",
+     "D9"
+    ],
+    "evidence": [
+     "E2",
+     "E7"
+    ],
+    "refs": {
+     "requirements": [
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる",
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "low",
+    "status": "open",
+    "title": "後の Story が全体に特別な手順の段を足すと、そのクラスは `ONLY` では理由を出さずに落ちうる",
+    "text": "`ONLY` の経路が特別扱いするのは St56BackupTest と専用の台本の 2 クラスだけ。後で St56 のような往復の手順を全体に足したクラスは、`ONLY` では gradle 1 回で走り、落ちうる（St56 は実物で gradle 1 回では通らなかった）。台本はその理由を出さない",
+    "basis": "derived",
+    "derived": "特別扱いはクラス名で決めている（D2・D4）。名前に無いクラスはふつうのクラスとして gradle 1 回で走る",
+    "undefined": "全体に特別な段を足す Story が、`ONLY` の経路にも同じ扱いを足す約束。仕様は決めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "受け入れる（D2 の見直す条件で、特別扱いが増えたら別の change で段を関数にまとめる）"
+     },
+     {
+      "label": "全体の段を足す Story の tasks に「ONLY の経路も見直す」を書く約束を足す"
+     }
+    ],
+    "verify": "全体の経路に gradle 以外の段を足した差分で、`ONLY` の経路が変わっていないものを探す",
+    "deps": [
+     "D6"
+    ],
+    "evidence": [],
+    "refs": {
+     "requirements": [
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+     ],
+     "decisions": [
+      "D2",
+      "D4"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "偽の SDK の試験 `tools/test-android-emulator.sh` の `only-*` の場合と `--self-test` が rc=0 で、元の版を渡した `only-base` が飛ばさずに rc=0",
+    "refs": {
+     "scenarios": [
+      "ONLY を渡さなければ、この change の前の版の台本と同じ命令の列で全段を走らせる"
+     ]
+    }
+   },
+   {
+    "text": "本物のエミュレータで `ONLY` の 2 回（MediaPremisesInstrumentedTest・St56BackupTest）と全体がどれも rc=0（確認バッチで、絞った 2 回が全体より短いことも証跡で見る）",
+    "refs": {
+     "requirements": [
+      "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+      "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる",
+      "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる"
+     ]
+    }
+   },
+   {
+    "text": "`tools/test-usage-volume.sh` がファイルを変えずに rc=0。触ったファイルが予定のパスの中だけ",
+    "refs": {}
+   },
+   {
+    "text": "IMP-01 は受け入れるか仕様を直すかを合意で決める（medium。合意すれば書いた残るもののまま受け入れたとみなす）",
+    "refs": {}
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "手元とエージェントが `tools/android-emulator.sh` を呼ぶ計測テストの実行",
+     "refs": {
+      "requirements": [
+       "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる",
+       "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "`ONLY` は完全修飾のクラス名 1 つだけ。空は渡していないのと同じ",
+     "refs": {
+      "requirements": [
+       "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "text": "St56BackupTest のときだけは gradle を呼ばず、全体と同じ往復の手順を走らせる",
+     "refs": {
+      "requirements": [
+       "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる"
+      ]
+     }
+    },
+    {
+     "text": "`ONLY` にクラスを渡したときは、そのクラスだけが 1 段で走り、全体のほかの段・バックアップの往復・入れ替えの台本は走らない",
+     "refs": {
+      "requirements": [
+       "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "入れ替えの試験と採寸の試験（専用の台本で走らせる）",
+     "refs": {
+      "requirements": [
+       "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+      ]
+     }
+    },
+    {
+     "text": "CI の計測テストの job（台本を呼ばない）",
+     "refs": {}
+    }
+   ],
+   "residual": [
+    {
+     "text": "絞った実行で通っても全体で通るとは限らない（最後の全体の実行で確かめる）",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "text": "export された `ONLY` が全体の検証を絞りうる（IMP-01）",
+     "refs": {}
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "spec の 4 本の Requirement と 13 本の Scenario、design の D1〜D6、深掘り Q1 を、今の台本 `tools/android-emulator.sh` の全体の経路に当てはめた",
+     "refs": {
+      "requirements": [
+       "ONLY を渡さなければ、計測テストの台本は今の全段をそのまま走らせる",
+       "ONLY にクラスを 1 つ渡すと、計測テストの台本はそのクラスだけを 1 段で走らせる",
+       "ONLY にバックアップの試験を渡すと、全体と同じ準備・往復・確かめの手順だけを走らせる",
+       "ONLY に専用の台本で走るクラスや形の違う値を渡すと、エミュレータを起こさずに止まる"
+      ],
+      "decisions": [
+       "Q1",
+       "D1",
+       "D2",
+       "D3",
+       "D4",
+       "D5",
+       "D6"
+      ]
+     }
+    },
+    {
+     "text": "台本を呼ぶ・形を検査する台本（test-usage-volume・usage-volume・test-android-emulator）、CI の unit の job、verify-run の環境の渡し方、`ONLY` の名前の既存の使い方（E6）",
+     "refs": {}
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "本物のエミュレータで、gradle の class= に実在しないクラスを渡したときの終わり方",
+     "why": "エミュレータを起こしていない（D3 の反転条件。Task 4 の本物の実行で分かる）"
+    },
+    {
+     "text": "Health Connect の権限のクラスを `ONLY` で何度も続けて走らせたとき、断る画面が出なくなるか",
+     "why": "実機・エミュレータで確かめていない。全体と同じくアプリを外して権限を戻してから走らせる"
+    },
+    {
+     "text": "harness2 #271 が `ONLY` をどう呼ぶか",
+     "why": "まだ設計されていない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "CI の android-instrumented の job",
+     "why": "台本を呼ばず、同じ命令を自分で持っている（`.github/workflows/ci.yml` の 385 行目付近）"
+    },
+    {
+     "text": "収集アプリのコードと計測テストの中身",
+     "why": "この change は触れない"
+    }
+   ]
+  }
+ }
+}
