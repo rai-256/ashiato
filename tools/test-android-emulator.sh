@@ -661,19 +661,20 @@ assert_only_stale() {
   [ "$rc" -eq 1 ] && grep -Fq "error: ONLY=$class のテストが 1 本も走っていない" "$root/stderr"
 }
 
-assert_only_rejected() {
-  local value root rc
+assert_only_dedicated() {
+  local value script root rc
   for value in \
     dev.ashiato.collector.St58PackageReplacedInstrumentedTest \
-    dev.ashiato.collector.UsageVolumeInstrumentedTest \
-    MediaPremisesInstrumentedTest \
-    dev.ashiato.collector.A,dev.ashiato.collector.B \
-    dev.ashiato.collector.St56BackupTest#prepareBackup \
-    'dev.ashiato.collector.A B'; do
+    dev.ashiato.collector.UsageVolumeInstrumentedTest; do
+    if [ "$value" = dev.ashiato.collector.St58PackageReplacedInstrumentedTest ]; then
+      script=tools/android-st58-replace.sh
+    else
+      script=tools/usage-volume.sh
+    fi
     new_tree; root=$NEW_ROOT
-    rc=$(run_emulator "$root" '' 1 only-rejected ok normal "$root/kvm" '' '' '' "$value")
+    rc=$(run_emulator "$root" '' 1 only-dedicated ok normal "$root/kvm" '' '' '' "$value")
     [ "$rc" -eq 1 ] && [ ! -s "$root/run.log" ] && [ ! -s "$root/avd.log" ] \
-      && grep -Fq "error: ONLY=$value" "$root/stderr" || return 1
+      && grep -Fq "error: ONLY=$value は $script で走らせる" "$root/stderr" || return 1
   done
 }
 
@@ -695,7 +696,7 @@ fi
 
 CASE=${ASHIATO_TEST_ONLY:-}
 case "$CASE" in
-  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base|only-class|only-prep|only-order|only-keep|only-fail|only-zero|only-stale|only-rejected|only-bad) ;;
+  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base|only-class|only-prep|only-order|only-keep|only-fail|only-zero|only-stale|only-dedicated|only-bad) ;;
   *) echo "未知の ASHIATO_TEST_ONLY: $CASE" >&2; exit 2 ;;
 esac
 
@@ -735,6 +736,6 @@ run_only only-keep && { echo 'Scenario: ONLY と KEEP=1 を一緒に渡すと、
 run_only only-fail && { echo 'Scenario: ONLY のクラスのテストが落ちたら、rc≠0 で止まり、エミュレータを止める'; assert_only_fail || exit 1; }
 run_only only-zero && { echo 'Scenario: 渡したクラスの結果が無ければ、0 本として止まる'; assert_only_zero || exit 1; }
 run_only only-stale && { echo 'Scenario: 前の実行の結果が残っていても、今回の結果として数えない'; assert_only_stale || exit 1; }
-run_only only-rejected && { echo 'Scenario: 入れ替えの試験か採寸の試験を渡すと、専用の台本の名前を出して起こさずに止まる'; assert_only_rejected || exit 1; }
+run_only only-dedicated && { echo 'Scenario: 入れ替えの試験か採寸の試験を渡すと、専用の台本の名前を出して起こさずに止まる'; assert_only_dedicated || exit 1; }
 run_only only-bad && { echo 'Scenario: 完全修飾のクラス名 1 つの形でない値を渡すと、起こさずに止まる'; assert_only_bad || exit 1; }
 true
