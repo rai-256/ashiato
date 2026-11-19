@@ -1,0 +1,31 @@
+{
+ "lane": "light",
+ "reason": "same",
+ "declared": {
+  "reason": "same",
+  "paths": [
+   "tools/android-emulator.sh",
+   "tools/test-android-emulator.sh",
+   "AGENTS.md",
+   "docs/changes/CH19.md"
+  ],
+  "why": "計測テストの台本に、指定したときだけ 1 クラスを 1 段で走らせる口を足し、AGENTS.md に絞り方を書くだけ。指定が無いときの 8 段と既存の検証コマンドは変えず、製品（収集アプリ・サーバ・画面）の振る舞いは変わらない"
+ },
+ "at": "2026-11-19T01:20:21+00:00",
+ "config": "tools/lanes.json",
+ "entry": {
+  "ok": true,
+  "why": [],
+  "paths": [
+   "tools/android-emulator.sh",
+   "tools/test-android-emulator.sh",
+   "AGENTS.md",
+   "docs/changes/CH19.md"
+  ],
+  "classes": [
+   "docs",
+   "tooling"
+  ],
+  "code": []
+ }
+}
