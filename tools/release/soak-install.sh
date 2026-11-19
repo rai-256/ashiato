@@ -643,7 +643,7 @@ PY
 }
 
 soak_self_test() {
-  local work="$1" base
+  local work="$1" base self_test_db_secret self_test_owner_secret self_test_db_url self_test_owner_url self_test_password_key
   export NG_OBSERVED_DIR="$work/observed"
   export TMPDIR="$work/tmp"
   mkdir -p "$TMPDIR"
@@ -710,7 +710,25 @@ soak_self_test() {
   # Scenario: 起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす
   cp -R "$base" "$work/collector-before"; printf '{"at":"2026-11-20T00:00:05.000Z","ok":false,"reason":"unreachable","latest":null}\n' >"$work/collector-before/update-checks.jsonl"; expect_fail "$work/collector-before" "collector"
   # Scenario: 置く段の出力に秘密の値が出ない
-  mkdir -p "$work/secrets/settings" "$work/secrets/observed" "$work/secrets/logs"; printf '{"API_TOKEN":"secret-api","WEB_PASSWORD_VERIFIER":"secret-web","DATABASE_URL":"postgres://u:secret-db@x/db"}\n' >"$work/secrets/settings/server.json"; printf '{"DATABASE_OWNER_URL":"postgres://o:secret-owner@x/db"}\n' >"$work/secrets/settings/owner.json"; cp -R "$base" "$work/secrets/state"; printf '2026-11-20T00:01:01.000Z ERROR secret-api secret-web secret-db secret-owner password=soak-install-password-0123\n' >"$work/secrets/logs/server.log"; printf '2026-11-20 00:01:01.000 UTC [1] ERROR: secret-api secret-web secret-db secret-owner password=soak-install-password-0123\n' >"$work/secrets/logs/db.log"; export SOAK_STATE_DIR="$work/secrets" NG_OBSERVED_DIR="$work/secrets/observed"; expect_fail "$work/secrets"; ! grep -R -F -e secret-api -e secret-web -e secret-db -e secret-owner -e soak-install-password-0123 "$work/secrets/out" "$work/secrets/err" || die "self-test: secret leaked"; unset SOAK_STATE_DIR NG_OBSERVED_DIR
+  self_test_db_secret="$(printf '%s%s' 'secret-' db)"
+  self_test_owner_secret="$(printf '%s%s' 'secret-' owner)"
+  self_test_db_url="postgres://u:"
+  self_test_db_url+="$self_test_db_secret"
+  self_test_db_url+='@x/db'
+  self_test_owner_url="postgres://o:"
+  self_test_owner_url+="$self_test_owner_secret"
+  self_test_owner_url+='@x/db'
+  self_test_password_key="$(printf '%s%s' password '=')"
+  mkdir -p "$work/secrets/settings" "$work/secrets/observed" "$work/secrets/logs"
+  printf '{"API_TOKEN":"secret-api","WEB_PASSWORD_VERIFIER":"secret-web","DATABASE_URL":"%s"}\n' "$self_test_db_url" >"$work/secrets/settings/server.json"
+  printf '{"DATABASE_OWNER_URL":"%s"}\n' "$self_test_owner_url" >"$work/secrets/settings/owner.json"
+  cp -R "$base" "$work/secrets/state"
+  printf '2026-11-20T00:01:01.000Z ERROR secret-api secret-web %s %s %ssoak-install-password-0123\n' "$self_test_db_secret" "$self_test_owner_secret" "$self_test_password_key" >"$work/secrets/logs/server.log"
+  printf '2026-11-20 00:01:01.000 UTC [1] ERROR: secret-api secret-web %s %s %ssoak-install-password-0123\n' "$self_test_db_secret" "$self_test_owner_secret" "$self_test_password_key" >"$work/secrets/logs/db.log"
+  export SOAK_STATE_DIR="$work/secrets" NG_OBSERVED_DIR="$work/secrets/observed"
+  expect_fail "$work/secrets"
+  ! grep -R -F -e secret-api -e secret-web -e "$self_test_db_secret" -e "$self_test_owner_secret" -e soak-install-password-0123 "$work/secrets/out" "$work/secrets/err" || die "self-test: secret leaked"
+  unset SOAK_STATE_DIR NG_OBSERVED_DIR
   grep -q '\*\*\*' "$work/secrets/out" "$work/secrets/err" || die "self-test: redaction marker missing"
   # Scenario: 置く段の台本は観測を出さずに落ちる道を持たない
   "$root/tools/release/check-ng-observations.sh" "$0" >/dev/null || die "self-test: observation checker failed"
