@@ -499,7 +499,7 @@ self_test() {
   new_tree; base_root=$NEW_ROOT
   new_tree; changed_root=$NEW_ROOT
   awk '
-    /adb shell pm reset-permissions/ && !removed { removed=1; next }
+    /adb shell pm reset-permissions            #/ && !removed { removed=1; next }
     { print }
   ' "$changed_root/tools/android-emulator.sh" >"$changed_root/android-emulator.sh.tmp"
   mv "$changed_root/android-emulator.sh.tmp" "$changed_root/tools/android-emulator.sh"
@@ -516,7 +516,7 @@ self_test() {
   new_tree; base_root=$NEW_ROOT
   new_tree; changed_root=$NEW_ROOT
   awk '
-    /adb shell pm reset-permissions/ && !removed { saved=$0; removed=1; next }
+    /adb shell pm reset-permissions            #/ && !removed { saved=$0; removed=1; next }
     removed && /^keep_stage$/ && !inserted { print; print saved; inserted=1; next }
     { print }
   ' "$changed_root/tools/android-emulator.sh" >"$changed_root/android-emulator.sh.tmp"
@@ -528,6 +528,27 @@ self_test() {
   changed_seq=$(filtered_seq "$changed_root")
   if [ "$base_seq" = "$changed_seq" ]; then
     echo 'self-test: only-base の命令順序変更を検出できない' >&2
+    return 1
+  fi
+
+  new_tree; root=$NEW_ROOT
+  sed -i 's/-Pandroid.testInstrumentationRunnerArguments.class="$ONLY")/-Pandroid.testInstrumentationRunnerArguments.notClass="$ONLY")/' "$root/tools/android-emulator.sh"
+  if assert_only_class "$root"; then
+    echo 'self-test: ONLY の class= 絞りの破壊を検出できない' >&2
+    return 1
+  fi
+
+  new_tree; root=$NEW_ROOT
+  sed -i '/if ! find "\$OUT\/androidTest-results-stage1"/,/^  fi$/c\  if false; then\n    :\n  fi' "$root/tools/android-emulator.sh"
+  if assert_only_zero "$root"; then
+    echo 'self-test: ONLY の XML の確かめの破壊を検出できない' >&2
+    return 1
+  fi
+
+  new_tree; root=$NEW_ROOT
+  sed -i 's/rm -rf "\$OUT\/androidTest-results"/:/' "$root/tools/android-emulator.sh"
+  if assert_only_stale "$root"; then
+    echo 'self-test: ONLY の前の結果削除の破壊を検出できない' >&2
     return 1
   fi
 }
@@ -571,6 +592,102 @@ assert_only_base() {
     && [ "$current_seq" = "$base_seq" ]
 }
 
+assert_only_class() {
+  local root=${1:-} class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  [ -n "$root" ] || { new_tree; root=$NEW_ROOT; }
+  rc=$(run_emulator "$root" '' 1 only-class ok normal "$root/kvm" '' '' '' "$class")
+  [ "$rc" -eq 0 ] \
+    && [ "$(grep -c 'connectedDebugAndroidTest' "$root/seq.log")" -eq 1 ] \
+    && grep -Fq -- "-Pandroid.testInstrumentationRunnerArguments.class=$class" "$root/seq.log" \
+    && ! grep -q 'notClass\|annotation' "$root/seq.log" \
+    && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 1 ] \
+    && ! grep -q 'st58-replace\|bmgr' "$root/seq.log" \
+    && grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log"
+}
+
+assert_only_prep() {
+  local root class='dev.ashiato.collector.MediaPremisesInstrumentedTest' gradle_line rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_emulator "$root" '' 1 only-prep ok normal "$root/kvm" '' '' '' "$class")
+  gradle_line=$(grep -n 'connectedDebugAndroidTest' "$root/seq.log" | cut -d: -f1)
+  [ "$rc" -eq 0 ] \
+    && grep -Fq 'settings put global window_animation_scale 0' "$root/seq.log" \
+    && [ "$(grep -c '^media-fixtures$' "$root/seq.log")" -eq 1 ] \
+    && [ "$(grep -n 'media-fixtures' "$root/seq.log" | cut -d: -f1)" -lt "$gradle_line" ]
+}
+
+assert_only_order() {
+  local root class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_emulator "$root" '' 1 only-order ok normal "$root/kvm" '' '' '' "$class")
+  [ "$rc" -eq 0 ] \
+    && awk '/uninstall dev.ashiato.collector.test/{u=NR} /uninstall dev.ashiato.collector$/{a=NR} /shell am force-stop dev.ashiato.collector/{f=NR} /shell pm reset-permissions/{p=NR} /connectedDebugAndroidTest/{g=NR} END{exit !(u<a && a<f && f<p && p<g)}' "$root/seq.log"
+}
+
+assert_only_keep() {
+  local root class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_emulator "$root" 1 1 only-keep ok normal "$root/kvm" '' '' '' "$class")
+  [ "$rc" -eq 0 ] && ! grep -q 'emu kill' "$root/adb.log"
+}
+
+assert_only_fail() {
+  local root class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  new_tree; root=$NEW_ROOT
+  export FAKE_GRADLE_RC=1
+  rc=$(run_emulator "$root" '' 1 only-fail ok normal "$root/kvm" '' '' '' "$class")
+  unset FAKE_GRADLE_RC
+  [ "$rc" -ne 0 ] && grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log" \
+    && ! grep -Fq 'のテストが 1 本も走っていない' "$root/stderr"
+}
+
+assert_only_zero() {
+  local root=${1:-} class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  [ -n "$root" ] || { new_tree; root=$NEW_ROOT; }
+  export FAKE_GRADLE_CLASS=dev.ashiato.collector.Other
+  rc=$(run_emulator "$root" '' 1 only-zero ok normal "$root/kvm" '' '' '' "$class")
+  unset FAKE_GRADLE_CLASS
+  [ "$rc" -eq 1 ] && grep -Fq "error: ONLY=$class のテストが 1 本も走っていない" "$root/stderr"
+}
+
+assert_only_stale() {
+  local root=${1:-} class='dev.ashiato.collector.MediaPremisesInstrumentedTest' rc
+  [ -n "$root" ] || { new_tree; root=$NEW_ROOT; }
+  mkdir -p "$root/collector-android/app/build/outputs/androidTest-results/connected"
+  printf '<testsuite classname="%s"/>\n' "$class" > "$root/collector-android/app/build/outputs/androidTest-results/connected/TEST-stale-_app-.xml"
+  export FAKE_GRADLE_CLASS=dev.ashiato.collector.Other
+  rc=$(run_emulator "$root" '' 1 only-stale ok normal "$root/kvm" '' '' '' "$class")
+  unset FAKE_GRADLE_CLASS
+  [ "$rc" -eq 1 ] && grep -Fq "error: ONLY=$class のテストが 1 本も走っていない" "$root/stderr"
+}
+
+assert_only_rejected() {
+  local value root rc
+  for value in \
+    dev.ashiato.collector.St58PackageReplacedInstrumentedTest \
+    dev.ashiato.collector.UsageVolumeInstrumentedTest \
+    MediaPremisesInstrumentedTest \
+    dev.ashiato.collector.A,dev.ashiato.collector.B \
+    dev.ashiato.collector.St56BackupTest#prepareBackup \
+    'dev.ashiato.collector.A B'; do
+    new_tree; root=$NEW_ROOT
+    rc=$(run_emulator "$root" '' 1 only-rejected ok normal "$root/kvm" '' '' '' "$value")
+    [ "$rc" -eq 1 ] && [ ! -s "$root/run.log" ] && [ ! -s "$root/avd.log" ] \
+      && grep -Fq "error: ONLY=$value" "$root/stderr" || return 1
+  done
+}
+
+assert_only_bad() {
+  local value root rc
+  for value in MediaPremisesInstrumentedTest dev.ashiato.collector.A,dev.ashiato.collector.B \
+    dev.ashiato.collector.St56BackupTest#prepareBackup 'dev.ashiato.collector.A B'; do
+    new_tree; root=$NEW_ROOT
+    rc=$(run_emulator "$root" '' 1 only-bad ok normal "$root/kvm" '' '' '' "$value")
+    [ "$rc" -eq 1 ] && [ ! -s "$root/run.log" ] && [ ! -s "$root/avd.log" ] \
+      && grep -Fq "error: ONLY=$value" "$root/stderr" || return 1
+  done
+}
+
 if [ "$SELF_TEST" = --self-test ]; then
   self_test
   exit 0
@@ -578,7 +695,7 @@ fi
 
 CASE=${ASHIATO_TEST_ONLY:-}
 case "$CASE" in
-  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base) ;;
+  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base|only-class|only-prep|only-order|only-keep|only-fail|only-zero|only-stale|only-rejected|only-bad) ;;
   *) echo "未知の ASHIATO_TEST_ONLY: $CASE" >&2; exit 2 ;;
 esac
 
@@ -611,4 +728,13 @@ run_only usage-bad-value && { echo '== 採寸の台本の上限の値（Scenario
 run_only term-cleanup && { echo '== 待ちの最中の SIGTERM の後片付け（Scenario 外・final R2）'; assert_term_cleanup; }
 run_only only-empty && { echo 'Scenario: ONLY が空なら、渡さないときと同じ命令の列で全段を走らせる'; assert_only_empty; }
 run_only only-base && { echo 'Scenario: ONLY を渡さなければ、この change の前の版の台本と同じ命令の列で全段を走らせる'; assert_only_base; }
+run_only only-class && { echo 'Scenario: ONLY にクラスを渡すと、そのクラスだけに絞った計測テストを 1 回だけ走らせる'; assert_only_class || exit 1; }
+run_only only-prep && { echo 'Scenario: ONLY でも、全体と同じにアニメーションを切り、写真と動画を入れる'; assert_only_prep || exit 1; }
+run_only only-order && { echo 'Scenario: ONLY の段の前に、アプリを外し、止めて、権限を戻す'; assert_only_order || exit 1; }
+run_only only-keep && { echo 'Scenario: ONLY と KEEP=1 を一緒に渡すと、通った後にエミュレータを止めない'; assert_only_keep || exit 1; }
+run_only only-fail && { echo 'Scenario: ONLY のクラスのテストが落ちたら、rc≠0 で止まり、エミュレータを止める'; assert_only_fail || exit 1; }
+run_only only-zero && { echo 'Scenario: 渡したクラスの結果が無ければ、0 本として止まる'; assert_only_zero || exit 1; }
+run_only only-stale && { echo 'Scenario: 前の実行の結果が残っていても、今回の結果として数えない'; assert_only_stale || exit 1; }
+run_only only-rejected && { echo 'Scenario: 入れ替えの試験か採寸の試験を渡すと、専用の台本の名前を出して起こさずに止まる'; assert_only_rejected || exit 1; }
+run_only only-bad && { echo 'Scenario: 完全修飾のクラス名 1 つの形でない値を渡すと、起こさずに止まる'; assert_only_bad || exit 1; }
 true

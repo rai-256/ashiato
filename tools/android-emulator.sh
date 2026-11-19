@@ -3,6 +3,7 @@
 #
 #   ./tools/android-emulator.sh            # AVD が無ければ作る → 起動（画面なし）→ connectedDebugAndroidTest → 止める
 #   KEEP=1 ./tools/android-emulator.sh     # 終わってもエミュレータを止めない（続けて手で触るとき）
+#   ONLY=dev.ashiato.collector.<クラス> ./tools/android-emulator.sh  # CH19: 1 クラスだけを専用の段で確かめる
 #
 # 前提: tools/android-env.sh の SDK に emulator と system-images;android-35;google_apis;x86_64 が入っていること
 #   sdkmanager --install "emulator" "system-images;android-35;google_apis;x86_64"
@@ -16,6 +17,23 @@ cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 . ./tools/android-env.sh
 export PATH="$ANDROID_HOME/emulator:$PATH"
+
+if [ -n "${ONLY:-}" ]; then
+  case "$ONLY" in
+    dev.ashiato.collector.St58PackageReplacedInstrumentedTest)
+      echo "error: ONLY=$ONLY は tools/android-st58-replace.sh で走らせる" >&2
+      exit 1
+      ;;
+    dev.ashiato.collector.UsageVolumeInstrumentedTest)
+      echo "error: ONLY=$ONLY は tools/usage-volume.sh で走らせる" >&2
+      exit 1
+      ;;
+  esac
+  if [[ ! "$ONLY" =~ ^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$ ]]; then
+    echo "error: ONLY=$ONLY は完全修飾のクラス名 1 つの形でない（例: dev.ashiato.collector.St56BackupTest）" >&2
+    exit 1
+  fi
+fi
 
 AVD="${AVD:-ashiato-api35}"
 IMAGE="system-images;android-35;google_apis;x86_64"
@@ -99,6 +117,21 @@ keep_stage() {
   find "$OUT/androidTest-results" -name 'TEST-*.xml' -exec cp {} "$OUT/androidTest-results-stage$STAGE"/ \;
 }
 rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数えない
+if [ -n "${ONLY:-}" ]; then
+  rm -rf "$OUT/androidTest-results"
+  adb shell am force-stop dev.ashiato.collector
+  adb shell pm reset-permissions
+  (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+     -Pandroid.testInstrumentationRunnerArguments.class="$ONLY")
+  keep_stage
+  if ! find "$OUT/androidTest-results-stage1" -type f -name 'TEST-*.xml' \
+      -exec grep -Fq "classname=\"$ONLY\"" {} +; then
+    echo "error: ONLY=$ONLY のテストが 1 本も走っていない" >&2
+    exit 1
+  fi
+  echo "== 結果: collector-android/app/build/reports/androidTests/connected/（段ごとの XML は $OUT/androidTest-results-stage1）"
+  exit 0
+fi
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
