@@ -16,7 +16,7 @@
 
 ## Task 1: 偽の gh を本物の返し方に合わせ、ラベルが無くても issue を立てる
 
-- [ ] 1.1 Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ を試験で確かめる。直す前に verify-run で落ちることを記録する。
+- [x] 1.1 Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ を試験で確かめる。直す前に verify-run で落ちることを記録する。
   手順: (a) `tools/check-vulns.sh` の `self_test` の偽の `gh` の `label list` を、`GH_LABEL_EXISTS=1` のときは今のとおり `[{"name":"脆弱性"}]`、それ以外は**何も出さない**（rc=0。本物と同じ空の文字）に変える。
   `tools/check-vulns-issues.py` にはまだ触らない。(b) `scripts/verify-run 1.1` を走らせ、FAIL を記録する（ログの `== Scenario: 落ちた夜に、依存ごとに 1 件の issue が立つ` の後で止まり、`gh の応答: Expecting value` が出ていること —— osv.dev に届かずに落ちたのではないこと —— を自分で確かめる。
   2026-11-20 に spec-review が捨てる写しで再演し、この形で落ちることを確かめた）。
@@ -24,7 +24,7 @@
   （`git diff --quiet <base> <tree> -- tools/check-vulns-issues.py`）を、code review の席が証跡で確かめる。
   (c) `tools/check-vulns-issues.py` の `gh_json` を直す（D1。`label list` の呼び出しだけ、rc=0 で空白だけの応答を `[]` として読む。`issue list`・`issue view` は今のまま）。(d) もう一度 `scripts/verify-run 1.1` を走らせて PASS を記録する。
   検証: `scripts/quiet-run vulns-st -- tools/check-vulns.sh --self-test` rc=0
-- [ ] 1.2 specs の Requirement「gh がラベルの一覧に空の文字で答えたら、ラベルが無いと読む」の 3 つの Scenario を自己試験に足す（`self_test` の中、1.1 の節の後に、`echo "== Scenario: <名前>"` の印を付けて）:
+- [x] 1.2 specs の Requirement「gh がラベルの一覧に空の文字で答えたら、ラベルが無いと読む」の 3 つの Scenario を自己試験に足す（`self_test` の中、1.1 の節の後に、`echo "== Scenario: <名前>"` の印を付けて）:
   Scenario: ラベルが無いと空の文字で答える gh でも、ラベルを作ってから issue を立てる（1.1 の節の材料を使い、`label create 脆弱性` の行が最初の `issue create` の行より前にあることを `gh.log` の行番号で見る）・
   Scenario: ラベルがあれば、作り直さない（`GH_LABEL_EXISTS=1` で `file-issues` を走らせ、`gh.log` に `label create` が無いことを見る）・
   Scenario: 開いた issue のコメントの問い合わせが空の文字なら、rc=2 で落ちる（偽の `gh` に `issue view` を空の文字で答えさせる切り替えを新しい環境変数で足し、`GH_OPEN_ISSUE=1` と合わせて走らせる）。
