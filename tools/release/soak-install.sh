@@ -175,8 +175,7 @@ soak_evaluate() {
   SOAK_OBSERVED="$observed"
   previous_observed="${NG_OBSERVED_DIR:-}"
   NG_OBSERVED_DIR="$observed"
-  trap 'rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"' EXIT
-  trap "rm -rf \"\${SOAK_TMP:-}\" \"\${SOAK_OBSERVED:-}\"; SOAK_TMP=''; SOAK_OBSERVED=''; NG_OBSERVED_DIR=\"$previous_observed\"; if (( BASH_SUBSHELL == 0 )); then trap soak_cleanup EXIT; else trap - EXIT; fi" RETURN
+  trap "rm -rf \"\${SOAK_TMP:-}\" \"\${SOAK_OBSERVED:-}\"; SOAK_TMP=''; SOAK_OBSERVED=''; NG_OBSERVED_DIR=\"$previous_observed\"; trap - RETURN" RETURN
   ng_secret_file "$NG_OBSERVED_DIR"; ng_collect_secrets || true
   soak_service_failures "$dir" "$soak_start" "$end" "$dir/events"
   soak_log_errors "$soak_start" "$end" "$baseline_dir" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
