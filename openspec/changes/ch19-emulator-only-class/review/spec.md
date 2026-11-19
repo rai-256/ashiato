@@ -49,7 +49,7 @@
 - kind: technical
 - 提案: Scenario を 2 本に分ける。(a)「空と未設定は同じ命令の列」は常に走る。(b)「前の版と同じ命令の列」は、PR の証跡（tasks 1.1・3.1 の BASE_REV つきの検証）で確かめるものだと Scenario に書く。
   または、試験が `origin/main` を解決できるときは BASE_REV を既定で merge-base にして、CI でも PR の間は比べるようにする
-- 処置: fixed 1.1 — Scenario を 2 本に分けた（空と未設定の比べは常に走る `only-empty`／前の版との比べ `only-base` は、元の版が渡されないとき origin/main との分岐点を使い、どちらも無ければ飛ばしたことを出す。PR の証跡では飛ばしていないことを検証で見る）
+- 処置: fixed 1.1 — Scenario を 2 本に分けた（空と未設定の比べは常に走る `only-empty`／前の版との比べ `only-base` は、元の版を明示して渡したときだけ比べ、渡されなければ飛ばしたことを出す（merge の後に段を足す Story で落ちないよう、origin/main を既定にしない）。PR の証跡では飛ばしていないことを検証で見る）
 
 ## R4. `only-stale` は、別の理由で落ちても緑になる。置く XML の名前の決め方によっては、消す処理が無くても通る
 - 成果物: openspec/changes/ch19-emulator-only-class/specs/emulator-startup/spec.md:45-47、tasks.md 2.2
