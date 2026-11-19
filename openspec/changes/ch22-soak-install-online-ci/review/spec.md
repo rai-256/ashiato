@@ -55,7 +55,7 @@
   - P2・P7 の行も P8・P11 と同じく確かめる
   - ただし、検証に `gh` を呼ぶ Task には、今のグラフでは誰も `[x]` を付けず、merge_gate が落ちる（CH11/CH13 の gate_help の実例）。
     `gh` を使うなら、付ける席を名指す。使わないなら、4.1 を「人間の確認待ち」（CI の run を読む工程）に移し、そう書く
-- 処置: fixed tasks.md 4.1 — 「PR の CI の後の工程」と題に書き、走らせる席（CI を待つ段・ci-fix）を名指しした。検証は P2・P7・P8・P11 の 4 行の出所に `run <番号>` があることと、P8・P11 の確かさが 2 以上であることを見る（`gh` は使わない。run の番号を書かずには通らない）。人間の確認待ちの節にもその旨を書いた
+- 処置: fixed tasks.md — 最初の走りの記録を Task から外した（PR の後にしか通らない検証を持つ Task には、今のグラフでは誰も印を付けない）。代わりに、置く段は緑の回でも起こし直しの回数・誤りの行・システムの記録を読めたか・`outage_notice_unavailable` の行・確かめた記録の行を出す形を spec と Task 1.1 に書き、観測は PR の CI のログに残る。CH22.md の完了の判定と「人間の確認待ち」の節も同じに直した。赤のときの扱いは design D12・D15
 
 ## R3. D4・D6・D7 の反転条件の処置は、D12・Q7・完了の判定と食い違う。どれも CH22 自身の Requirement の書き直しを要する
 - 成果物: openspec/changes/ch22-soak-install-online-ci/design.md
@@ -70,7 +70,7 @@
   - 加えて、P7 は通知の差出人の登録を確かめていない（P7 の確かめ方は ci.yml:230 だけ）。登録に失敗すると、PC の収集アプリは警告の行 `outage_notice_unavailable` を書き、確かめる係を付けない（crates/collector-windows/src/main.rs:222-253）。この読み方が、premises と Task 4.1 のどちらにも無い
 - kind: technical
 - 提案: 反転の処置を「CH22 の中で spec・design・tasks を直す」に揃え、そのとき合意を引き継ぐかどうかを書く（仮の D だけか、Requirement の本文を変えるか）。D7 の反転を判定する観測（`collector.log` の `outage_notice_unavailable`）を、premises の行と Task 4.1 の記録に足す
-- 処置: fixed design.md — D15 を足し、反転の処置を「CH22 の中で spec・design・tasks を直す」に揃えた（D と定数だけなら合意を引き継ぎ、Requirement の本文か Scenario を直すなら合意を聞き直す）。D4・D6・D7・D12 の反転条件を D15 に寄せ、D7 に `outage_notice_unavailable` の読み方を、premises P7 と Task 4.1 に記録の対象を足した
+- 処置: fixed design.md — D15 を足し、反転の処置を「CH22 の中で spec・design・tasks を直す」に揃えた（D と定数だけなら合意を引き継ぎ、Requirement の本文か Scenario を直すなら合意を聞き直す）。D4・D6・D7・D12 の反転条件を D15 に寄せ、D7 と premises P7 に `outage_notice_unavailable` の読み方を足した
 
 ## R4. Q3 の推奨の数「3 回」が Scenario に無い。正典の本文は、archive の後に残らない design の D 番号を指す
 - 成果物: openspec/changes/ch22-soak-install-online-ci/specs/distribution/spec.md

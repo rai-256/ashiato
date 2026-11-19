@@ -10,7 +10,7 @@
 - **ST57 D18 を残す**: `install-windows` の最初の `tools/release/update-check-install.sh --block-outbound` の手順を消さない・動かさない。塞ぎを外すのは置く段の台本の中だけ
 - **置く段の位置**: `install-windows` の、インストールと更新の試験（`install-check.sh <zip>`・`update-check-install.sh <zip>`・`update-apply-install.sh <zip>`）の手順より後。
   その後ろに harness2 の `check_scenarios` の手順が続くのはよい（spec の「インストールと更新の試験の手順より後」と同じ）
-- **段の判定を緩めない・外れを許す一覧を持たない**（深掘り Q7・design D12）。配布元の答えの形を見本と比べない。PC の収集アプリに送り先を設定しない。最初の走りで赤になったら Task 4 の手順に従う
+- **段の判定を緩めない・外れを許す一覧を持たない**（深掘り Q7・design D12）。配布元の答えの形を見本と比べない。PC の収集アプリに送り先を設定しない。最初の走りで赤になったら design D12・D15 のとおりに扱う
 - **NG は観測の部品の口で出す**（design D9）: `soak-install.sh` は頭で `tools/release/check-ng-observations.sh` を `source` し、`die`・`die_seen`・`ng_report` で落とす。
   `echo 'NG:` や裸の `exit 1` を書かない。誤りの行・確かめた記録の行を出すときも部品の伏せる関数を通す（公開の CI ログに出る）
 - **Scenario の印**: 実地の確かめ（Windows の runner）は確かめの前に `echo "== Scenario: <名前>"`。`--list` は実地の印の名前を 1 行ずつ出す。
@@ -48,7 +48,7 @@
   `# Scenario: 置く段の始まりと置く間の始まりの間に書かれた誤りの行は数えない`・
   `# Scenario: プロセスの番号だけが違う DB のログの行は、同じ誤りとして数える`・
   `# Scenario: サーバのログの panic の行は 1 行でも落ちる`・
-  `# Scenario: 置く間に確かめた行があれば通る`・
+  `# Scenario: 置く段の始まりより後に確かめた行があれば通る`・
   `# Scenario: 置く段の始まりより後の確かめた記録が 1 行も無ければ落ちる`・
   `# Scenario: 届かない・読めない答えの行だけなら落ちる`・
   `# Scenario: 問い合わせの上限の行だけなら、警告を出して通る`・
@@ -85,14 +85,14 @@
   `# Scenario: 置く段は、インストールと更新の試験の手順より後に走る`・
   `# Scenario: 更新係の外向きを塞ぐ手順は、最初のインストールの試験の手順より前のままである`・
   `# Scenario: 置く段の手順と、Windows のインストールの試験の job に時間の上限がある`・
-  `# Scenario: インストールと更新の 3 つの台本の Scenario の突き合わせは残る`（`install-check.sh`・`update-check-install.sh`・`update-apply-install.sh`・`soak-install.sh` の 4 つの `--list` と `comm -23`）・
+  `# Scenario: インストールと更新の試験と置く段の 4 つの台本の Scenario の突き合わせは残る`（`install-check.sh`・`update-check-install.sh`・`update-apply-install.sh`・`soak-install.sh` の 4 つの `--list` と `comm -23`）・
   `# Scenario: 網に出る試験を走らせる手順は、握手の試験の 1 つだけである`・
   `# Scenario: 更新係の外向きの塞ぎを外す手順は、置く段の 1 つだけである`
   検証: `tools/release/soak-install.sh --self-test` rc=0 /
   `bash -c 'f="$1"; { actionlint -ignore SC2155 "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -ignore SC2155 "$f"; }' _ .github/workflows/ci.yml` rc=0
   （SC2155 は `package-windows` の手順（`ci.yml:487`）に今ある 2 件で、この change の範囲の外。ほかの指摘は新しいものとして落とす）/
   `bash -c 'grep -q "soak-install.sh --self-test" .github/workflows/ci.yml && grep -q "soak-install.sh --list" .github/workflows/ci.yml && grep -q -- "--block-outbound" .github/workflows/ci.yml'` rc=0 /
-  終了の条件: PR の CI の `install-windows` が緑（下流の手元では走らない。Task 4）
+  終了の条件: PR の CI の `install-windows` が、置く段を含めて緑（下流の手元では走らない。赤のときは design D12・D15）
 
 ## Task 3: 文書
 
@@ -100,25 +100,15 @@
   「release の台本」の節に `tools/release/soak-install.sh` を足す（観測の部品を使うこと・自己試験は `rust` の job）
   検証: `bash -c 'grep -q "soak-install.sh" docs/testing.md && grep -q "置く段" docs/testing.md'` rc=0
 
-## Task 4: 最初の走りの記録と、赤のときの扱い（PR の CI の後の工程）
+## Task 4: 全体
 
-- [ ] 4.1 PR を出した後、PR の CI の `install-windows` の run を待って置く段の出力を読む（グラフの CI を待つ段と ci-fix の席が走らせる。下流の手元では走らない）。
-  確かさ 1 だった前提と P7 を `premises.md` に記録する（行の「結果」「出所」「確かさ」の欄を直し、出所に `run <番号>` を書く）:
-  P2（置く間の起こし直しの回数。正常なら 0）・P7（`collector.log` の `outage_notice_unavailable` の行の有無と、`update-checks.jsonl` の起こし直しより後の行の有無）・
-  P8（何もしないで置いたときの誤りの行。ログごとの行と回数）・P11（システムの記録を読めたか・置く間の件数）。
-  赤になったら design D12・D15 のとおり: 原因が製品の不具合なら、判定・閾値・製品のコードを変えず、`BLOCKED` で終えて段の出力の抜き書き（サービス・行・記録）を報告に書く（直しの change は人間が登録し、CH22 の `requires` に足す）。
-  原因が段の側なら CH22 の中で台本を直す。反転条件（D4・D6・D7）に当たるなら、仮の D と定数だけを直すときは design に観測と `Ruling:` を、Requirement の本文か Scenario を直すときは design に理由を書く（グラフが合意を聞き直す）。
-  配布元の揺れ（5xx・時間切れ）なら走らせ直す
-  検証: `bash -c 'f=openspec/changes/ch22-soak-install-online-ci/premises.md; for p in P2 P7 P8 P11; do grep -E "^\| $p \|" "$f" | grep -Eq "run [0-9]{8,}" || exit 1; done; for p in P8 P11; do grep -E "^\| $p \|" "$f" | grep -Eq "\| [2-5] \|$" || exit 1; done'` rc=0 /
-  終了の条件: PR の CI の `install-windows` が、置く段を含めて緑
-
-## Task 5: 全体
-
-- [ ] 5.1 Scenario の印の突き合わせと、台本の検査
+- [ ] 4.1 Scenario の印の突き合わせと、台本の検査
   検証: `python3 scripts/check_scenarios.py . ch22-soak-install-online-ci` rc=0 / `tools/release/soak-install.sh --self-test` rc=0 /
   `tools/release/install-check.sh --self-test` rc=0 / `tools/release/update-check-install.sh --self-test` rc=0 / `tools/release/update-apply-install.sh --self-test` rc=0 /
   `bash -c 'git diff --name-only origin/main...HEAD | grep -Ev "^(tools/release/soak-install\.sh|\.github/workflows/ci\.yml|docs/testing\.md|docs/changes/CH22\.md|openspec/changes/ch22-soak-install-online-ci/.*)$" | grep -v "^docs/briefs/" | { ! grep -q .; }'` rc=0（予定のパスの外に触れていない）
 
 ## 人間の確認待ち
 
-なし（画面も本人の操作も変わらない。置く段は PR の CI が機械で見る。最初の走りの記録は Task 4 が PR の CI の後に書く）
+なし（画面も本人の操作も変わらない。置く段は PR の CI が機械で見る）。
+置く段は緑の回でも、サービスごとの起こし直しの回数・置く間の誤りの行・システムの記録を読めたか・`outage_notice_unavailable` の行の有無・確かめた記録の行を出すので、
+確かさ 1 だった前提（P2 の後半・P7・P8・P11）の観測は PR の CI のログに残る。`premises.md` への写しは、この change の Task にしない（PR の後にしか通らない検証を持つ Task には、今のグラフでは誰も印を付けない）

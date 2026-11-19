@@ -84,7 +84,7 @@
 - 確かめた記録は既定の置き場（`%LOCALAPPDATA%\ashiato\collector`）の `update-checks.jsonl`、誤りの行は同じ置き場の `collector.log`（`crates/collector-windows/src/main.rs:105`）。`ASHIATO_STATE_DIR` は渡さない（配る形のまま）
 - 台本が止めた 1 回のほかに PID が消えた・変わったら落とす（5 秒ごとに `tasklist` で読む）
 - 登録できたかは `collector.log` の警告の行 `outage_notice_unavailable` で読む（登録できなければこの行を書き、確かめる係を付けない。`crates/collector-windows/src/main.rs:222-253`）。
-  置く段はこの行の有無を落ちない回にも 1 行出す（Task 4.1 が P7 に記録する）
+  置く段はこの行の有無を落ちない回にも 1 行出す（最初の走りの P7 の観測が CI のログに残る）
 - 反転条件: runner で通知の差出人を登録できず、PC の収集アプリが確かめる係を付けないと分かったとき（review/deep.md R3・P7 は通知の登録を確かめていない）。
   これは製品の不具合ではないので、CH22 の中で PC の収集アプリの「確かめた」の判定だけを外し（spec の Requirement「置く間に更新係と PC の収集アプリが…」の本文と、
   Scenario「配る形の PC の収集アプリは、設定せずに起こし直すと本物の配布元に確かめ、動き続ける」を直す）、落ちない・止まらない・誤りの続きの判定は残す（D15）。

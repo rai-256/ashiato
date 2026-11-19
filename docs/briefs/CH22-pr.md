@@ -40,10 +40,11 @@ CI の `install-windows` の、インストールと更新の試験の後に「�
 
 ## tasks
 
-5 Task・6 項目（判定と自己試験 → 実地の口と CI の配線 → 文書 → PR の CI の後の最初の走りの記録 → 全体）。
-`install-windows` の置く段は Windows の runner でしか走らないので、Task 2.2・4.1 の終了の条件は PR の CI の `install-windows` が緑であること。
+4 Task・5 項目（判定と自己試験 → 実地の口と CI の配線 → 文書 → 全体）。
+`install-windows` の置く段は Windows の runner でしか走らないので、Task 2.2 の終了の条件は PR の CI の `install-windows` が置く段を含めて緑であること。
+置く段は緑の回でも観測（起こし直しの回数・誤りの行・システムの記録を読めたか・通知の登録・確かめた記録）を出すので、確かさ 1 の前提の観測は CI のログに残る。
 
 ## レビュー
 
 - `review/deep.md`: 13 件。fixed 13（問い・前提を直した）
-- `review/spec.md`: 13 件。fixed 13（Scenario の分割と追加 9 本・窓の定義・Q3 の数を正典に・反転を CH22 の中で直す D15・panic の判定・自己試験の継ぎ目・CI の定義の全部を読む）。escalated 0
+- `review/spec.md`: 13 件。fixed 13（Scenario の分割と追加で新しい Scenario は 21 本から 32 本に・最初の走りの記録を Task から外した・窓の定義・Q3 の数を正典に・反転を CH22 の中で直す D15・panic の判定・自己試験の継ぎ目・CI の定義の全部を読む）。escalated 0
