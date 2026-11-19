@@ -33,14 +33,14 @@
 
 ## Task 2: 知らせの段が落ちた夜に、決まった題の issue で知らせる
 
-- [ ] 2.1 `tools/check-vulns.sh report-unfiled <run の URL>` を足す（`main` の分岐から `tools/check-vulns-issues.py report-unfiled <URL>` を呼ぶ）。振る舞いは specs の Requirement「毎晩の知らせの段が落ちた夜は、決まった題の 1 件の issue で知らせる」と design D2 のとおり
+- [x] 2.1 `tools/check-vulns.sh report-unfiled <run の URL>` を足す（`main` の分岐から `tools/check-vulns-issues.py report-unfiled <URL>` を呼ぶ）。振る舞いは specs の Requirement「毎晩の知らせの段が落ちた夜は、決まった題の 1 件の issue で知らせる」と design D2 のとおり
   （開いた issue は gh の `issue list` に `--state open --limit 1000 --json number,title` を渡し、`--label` を付けずに読む・無ければ `--label` 無しの `issue create`・あれば `issue comment`・本文は 2 行・`label list`/`label create` を呼ばない・使い方と gh の失敗は rc=2）。
   偽の `gh` に、同じ題の開いた issue を返す切り替えと、`issue create` を 0 でない rc で落とす切り替えを足す（既存の切り替えの返し方は変えない）。
   自己試験（PostgreSQL の節の後）に、次の 6 つを `echo "== Scenario: <名前>"` の印つきで足す: 知らせの段が落ちた夜は、決まった題の 1 件の issue が立つ・知らせの issue はラベルに触れない・知らせの issue の本文は、日付と run の 2 行だけ・
   知らせの issue が開いていれば、立て直さずに追記する・知らせの issue を立てられなければ、rc=2 で落ちる・report-unfiled の引数が違えば、rc=2 で落ちる。本文は `GH_BODY_DIR` の写しを `diff` で見る（日付の行は `printf '夜: %s' "$(date -u +%F)"` と比べる）。
   検証: `bash -c 'for s in "知らせの段が落ちた夜は、決まった題の 1 件の issue が立つ" "知らせの issue はラベルに触れない" "知らせの issue の本文は、日付と run の 2 行だけ" "知らせの issue が開いていれば、立て直さずに追記する" "知らせの issue を立てられなければ、rc=2 で落ちる" "report-unfiled の引数が違えば、rc=2 で落ちる"; do grep -qF "== Scenario: $s" tools/check-vulns.sh || { echo "無い: $s"; exit 1; }; done'` rc=0
   検証: `scripts/quiet-run vulns-st -- tools/check-vulns.sh --self-test` rc=0
-- [ ] 2.2 `.github/workflows/vulns-nightly.yml` の `issues` の job で、`file-issues` を呼ぶ段に `id: file` を付け、その後に D2 の段（`if: failure() && steps.file.outcome == 'failure'`・`run: tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"`・`env: GH_TOKEN: ${{ github.token }}`）を足す。
+- [x] 2.2 `.github/workflows/vulns-nightly.yml` の `issues` の job で、`file-issues` を呼ぶ段に `id: file` を付け、その後に D2 の段（`if: failure() && steps.file.outcome == 'failure'`・`run: tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"`・`env: GH_TOKEN: ${{ github.token }}`）を足す。
   `issues` の job のほかの段・ほかの job・権限・`timeout-minutes`・材料が無ければ `file-issues` を呼ばない分岐は変えない。
   `tools/check-vulns-wiring.sh` の本体に、specs の 3 つの配線の Scenario（知らせの段は、材料を issue にする段の後にあり、run の URL を渡す・知らせの段は、材料を issue にする段が落ちたときだけ走る・材料が無い夜は、file-issues を呼ばない）の検査と `print("== Scenario: …")` の印を足す。
   自己試験に `expect_fail` を 4 つ足す（`sed` で写しの `vulns-nightly.yml` を書き換える）: 知らせの段を消す・その段の `if:` を `if: always()` にする・その段の `if:` から `failure() && ` を外す・材料の有無の分岐を外して `file-issues` を毎晩呼ぶ。
@@ -48,7 +48,7 @@
   検証: `bash -c 'out=$(tools/check-vulns-wiring.sh) || exit 1; for s in "知らせの段は、材料を issue にする段の後にあり、run の URL を渡す" "知らせの段は、材料を issue にする段が落ちたときだけ走る" "材料が無い夜は、file-issues を呼ばない" "毎晩の検査は公開の流れから独立し、issue の権限は 1 つの job だけ"; do grep -qF "== Scenario: $s" <<<"$out" || { echo "無い: $s"; exit 1; }; done'` rc=0
   検証（壊してはいけないもの: `issues` の外の job と、検査の段の `exit "$rc"` を変えない）: `python3 -c 'import re,subprocess as s;b=s.run(["git","merge-base","origin/main","HEAD"],capture_output=True,text=True,check=True).stdout.strip();o=s.run(["git","show",b+":.github/workflows/vulns-nightly.yml"],capture_output=True,text=True,check=True).stdout;n=open(".github/workflows/vulns-nightly.yml",encoding="utf-8").read();cut=lambda t:t[:t.index("\n  issues:\n")];assert cut(o)==cut(n),"issues の job より前（vulns・pg-minor・起動の条件・権限）が変わった";assert cut(n).count("exit \"$rc\"")==2'` rc=0
 
-- [ ] 2.3 specs の Requirement「毎晩の検査が新しく立てる issue は、リポジトリの持ち主を担当者にする」を作る（design D5）。`file-issues` と `report-unfiled` の新しく立てる呼び出しだけに、`GITHUB_REPOSITORY_OWNER` が空でなければ `--assignee <その値>` を引数の末尾に足す（既存の自己試験の `^issue create --title …` の見方が変わらないように、題と本文の後ろに置く）。
+- [x] 2.3 specs の Requirement「毎晩の検査が新しく立てる issue は、リポジトリの持ち主を担当者にする」を作る（design D5）。`file-issues` と `report-unfiled` の新しく立てる呼び出しだけに、`GITHUB_REPOSITORY_OWNER` が空でなければ `--assignee <その値>` を引数の末尾に足す（既存の自己試験の `^issue create --title …` の見方が変わらないように、題と本文の後ろに置く）。
   `vulns-nightly.yml` には手を入れない（`GITHUB_REPOSITORY_OWNER` は Actions が既定で渡す）。担当者つきの `issue create` が落ちたら、担当者を外して 1 回だけ立て直す（D5）。偽の `gh` に、`--assignee` を含む `issue create` だけを落とす切り替えを足す。
   自己試験に 4 つの Scenario（毎晩の検査が立てる issue は、持ち主が担当者になる・持ち主の名前が無ければ、担当者を付けない・開いた issue への追記では、担当者を足さない・担当者を付けられなければ、担当者無しで立て直す）を `echo "== Scenario: <名前>"` の印つきで足す。
   既存の自己試験の節は、`GITHUB_REPOSITORY_OWNER` を渡さない（手元の環境に値があっても効かないよう、自己試験の頭で `unset GITHUB_REPOSITORY_OWNER` する）。
