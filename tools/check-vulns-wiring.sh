@@ -38,6 +38,13 @@ if [[ ${1:-} == --self-test ]]; then
   expect_fail 'dependency-review allow list' sed -i '/allow-ghsas:/d' "$tmp/.github/workflows/ci.yml"
   expect_fail 'dependency-review comments' sed -i '/fail-on-severity: high/a\          comment-summary-in-pr: always' "$tmp/.github/workflows/ci.yml"
   expect_fail 'issues always' sed -i '/if: always()/d' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '知らせの段を削除' sed -i '/tools\/check-vulns.sh report-unfiled/d' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '知らせの段を常に実行' sed -i "s/if: failure() && steps.file.outcome == 'failure'/if: always()/" "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '知らせの段の failure 条件を削除' sed -i "s/if: failure() && steps.file.outcome == 'failure'/if: steps.file.outcome == 'failure'/" "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '知らせの段の GH_TOKEN を削除' sed -i '0,/GH_TOKEN: \${{ github.token }}/!{ /GH_TOKEN: \${{ github.token }}/d; }' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '材料の有無の分岐を常に通す' sed -i '/if \[ -d "\$RUNNER_TEMP\/findings"/c\          if true; then' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail '材料の取得の失敗を隠す' sed -i '/DOWNLOAD_OUTCOME: \${{ steps.download.outcome }}/d' "$tmp/.github/workflows/vulns-nightly.yml"
+  expect_fail 'file-issues の段の時間上限を削除' sed -i '/^      - id: file$/,/^      - if: failure()/{/timeout-minutes: 5/d}' "$tmp/.github/workflows/vulns-nightly.yml"
   expect_fail 'CI vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/ci.yml"
   expect_fail 'release vulns の時間の上限' sed -i '/^  vulns:$/,/^  [a-z-]*:$/{/^    timeout-minutes:/d}' "$tmp/.github/workflows/release.yml"
   expect_fail '毎晩の時間の上限' sed -i '0,/timeout-minutes: 20/{/timeout-minutes: 20/d}' "$tmp/.github/workflows/vulns-nightly.yml"
@@ -146,12 +153,37 @@ issue_jobs = [body for body in vulns_nightly.values() if "issues: write" in body
 require(len(issue_jobs) == 1, "issues: write の job が 1 つではない")
 issues = vulns_nightly.get("issues", "")
 require("needs: [vulns, pg-minor]" in issues and "if: always()" in issues, "issues job の待機条件が不足")
+steps = re.split(r"(?m)(?=^      - )", issues)
+file_step = next((step for step in steps if "- id: file" in step), "")
+download_step = next((step for step in steps if "- id: download" in step), "")
+report_step = next((step for step in steps if "tools/check-vulns.sh report-unfiled" in step), "")
+require(download_step and "continue-on-error: true" in download_step, "findings の取得の段が無い")
+require(file_step, "file-issues の段に id: file が無い")
+require("tools/check-vulns.sh file-issues" in file_step, "file-issues の段が無い")
+require("timeout-minutes: 5" in file_step, "file-issues の段に短い時間の上限が無い")
+require("DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}" in file_step and
+        'if [ "$DOWNLOAD_OUTCOME" = \'failure\' ]; then' in file_step,
+        "findings の取得の失敗を file-issues の失敗にしていない")
+require(report_step, "知らせの段が無い")
+require(steps.index(report_step) > steps.index(file_step), "知らせの段が file-issues の段より前にある")
+require("- if: failure() && steps.file.outcome == 'failure'" in report_step,
+        "知らせの段が file-issues の失敗時だけ走らない")
+require('tools/check-vulns.sh report-unfiled "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"' in report_step,
+        "知らせの段が run の URL を渡していない")
+require("GH_TOKEN: ${{ github.token }}" in report_step, "知らせの段に GH_TOKEN が無い")
+file_run = re.search(r"run: \|(?P<body>.*?)(?=\n      - |\Z)", file_step, re.S)
+material_guard = 'if [ -d "$RUNNER_TEMP/findings" ] && find "$RUNNER_TEMP/findings" -type f -print -quit | grep -q .; then'
+require(file_run and re.search(rf"(?m)^\s*{re.escape(material_guard)}\s*$", file_run.group("body")),
+        "材料が無い夜に file-issues を呼ばない分岐が無い")
 nightly_text = (root / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
 require("check-vulns" not in nightly_text and "check-pg-minor" not in nightly_text, "nightly に脆弱性検査が混入")
 
 print("== Scenario: CI は判定の結果で脆弱性の job を出し分ける")
 print("== Scenario: dependency-review の設定は high・全部の範囲・表からの許可")
 print("== Scenario: 毎晩の検査は公開の流れから独立し、issue の権限は 1 つの job だけ")
+print("== Scenario: 知らせの段は、材料を issue にする段の後にあり、run の URL を渡す")
+print("== Scenario: 知らせの段は、材料を issue にする段が落ちたときだけ走る")
+print("== Scenario: 材料が無い夜は、file-issues を呼ばない")
 print("== Scenario: 印の組み立ての job は脆弱性の検査を待つ")
 print("== Scenario: 開発版の組み立てと公開は脆弱性の検査を待たない")
 PY
