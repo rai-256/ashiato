@@ -6,6 +6,10 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=check-ng-observations.sh
 source "$root/tools/release/check-ng-observations.sh"
 
+# Git Bash が Windows のスイッチを POSIX の場所へ書き換えないようにする。
+# `/FI` や `/grant` が化けると、置く段の観測と掃除が黙って無効になる。
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+
 SOAK_SAME_ERROR_LIMIT=3
 SOAK_WAIT_SECONDS=300
 SOAK_COLLECTOR_RESTART_SECONDS=60
@@ -19,11 +23,13 @@ SOAK_PROGRAM_DIR='C:/Program Files/ashiato'
 SOAK_STATE_DIR='C:/ProgramData/ashiato'
 SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater'
 SOAK_COLLECTOR_DIR=''
+SOAK_PROFILE="${SOAK_PROFILE:-}"
+SOAK_DOWNLOADS="${SOAK_DOWNLOADS:-}"
 
 ng_secret_values() {
   local server="${SOAK_STATE_DIR:-}/settings/server.json" owner="${SOAK_STATE_DIR:-}/settings/owner.json"
-  ng_settings_secrets "$server" "$owner" || return 1
   printf '%s\n' "$SOAK_INSTALL_PASSWORD"
+  ng_settings_secrets "$server" "$owner"
 }
 
 soak_out() { printf '%s\n' "$*" | ng_redact; }
@@ -87,7 +93,7 @@ soak_log_timestamp() {
 }
 
 soak_log_errors() {
-  local start="$1" end="$2" baseline_dir="$3" log name line ts ts_ns start_ns end_ns key count line_no base_lines
+  local start="$1" end="$2" baseline_dir="$3" log name line ts ts_ns start_ns end_ns key count line_no base_lines panic
   start_ns="$(soak_log_timestamp "$start")"; end_ns="$(soak_log_timestamp "$end")"
   for log in "$4" "$5" "$6" "$7"; do
     [[ -f "$log" ]] || continue
@@ -99,6 +105,16 @@ soak_log_errors() {
     line_no=0
     while IFS= read -r line; do
       ((line_no++))
+      panic=0
+      # まず段で絞る。Windows では各行の sed/date 起動が特に重い。
+      if [[ "$name" == *server* ]]; then
+        [[ "$line" == *ERROR* || "$line" == *kind=\"panic\"* || "$line" == *panic* ]] || continue
+        [[ "$line" == *kind=\"panic\"* || "$line" == *panic* ]] && panic=1
+      elif [[ "$name" == *db* ]]; then
+        [[ "$line" =~ (ERROR:|FATAL:|PANIC:) ]] || continue
+      elif [[ "$name" == *collector* ]]; then
+        [[ "$line" == *ERROR* ]] || continue
+      fi
       ts="$(sed -nE 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9]{2}:[0-9]{2})).*/\1/p; s/^([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9:.]+) UTC.*/\1T\2Z/p' <<<"$line")"
       if [[ -n "$ts" ]]; then
         ts_ns="$(soak_log_timestamp "$ts")"
@@ -106,14 +122,7 @@ soak_log_errors() {
       else
         (( line_no > base_lines )) || continue
       fi
-      if [[ "$name" == *server* ]]; then
-        [[ "$line" == *ERROR* || "$line" == *kind=\"panic\"* || "$line" == *panic* ]] || continue
-        [[ "$line" == *kind=\"panic\"* || "$line" == *panic* ]] && die_seen "サーバのログの panic" "$line"
-      elif [[ "$name" == *db* ]]; then
-        [[ "$line" =~ (ERROR:|FATAL:|PANIC:) ]] || continue
-      elif [[ "$name" == *collector* ]]; then
-        [[ "$line" == *ERROR* ]] || continue
-      fi
+      (( panic == 0 )) || die_seen "サーバのログの panic" "$line"
       key="$(printf '%s' "$line" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9]{2}:[0-9]{2})|[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ UTC)[[:space:]]*//; s/^\[[0-9]+\][[:space:]]*//')"
       printf '%s\t%s\n' "$name" "$key" >>"$SOAK_TMP/errors"
     done <"$log"
@@ -176,7 +185,8 @@ soak_evaluate() {
   previous_observed="${NG_OBSERVED_DIR:-}"
   NG_OBSERVED_DIR="$observed"
   trap "rm -rf \"\${SOAK_TMP:-}\" \"\${SOAK_OBSERVED:-}\"; SOAK_TMP=''; SOAK_OBSERVED=''; NG_OBSERVED_DIR=\"$previous_observed\"; trap - RETURN" RETURN
-  ng_secret_file "$NG_OBSERVED_DIR"; ng_collect_secrets || true
+  ng_secret_file "$NG_OBSERVED_DIR"
+  ng_collect_secrets || die '伏せる値を読めないため、置く段の観測を続けられない'
   soak_service_failures "$dir" "$soak_start" "$end" "$dir/events"
   soak_log_errors "$soak_start" "$end" "$baseline_dir" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
   soak_check_records "$dir/checks.jsonl" "$start" updater
@@ -190,7 +200,19 @@ soak_evaluate() {
   soak_out "collector outage_notice_unavailable=$(grep -c 'outage_notice_unavailable' "$dir/logs/collector.log" 2>/dev/null || true)"
 }
 
+# 自己試験の失敗は部分殻で受けるため、RETURN trap だけには頼らない。
+soak_evaluate_isolated() {
+  local rc=0
+  soak_evaluate "$@" || rc=$?
+  rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"
+  return "$rc"
+}
+
 soak_windows_path() { printf '%s' "${1//\//\\}"; }
+
+soak_native_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
 
 soak_service_state() {
   sc.exe queryex "$1" 2>/dev/null | tr -d '\r' | awk -F ':' '
@@ -237,12 +259,15 @@ soak_remove_outbound_rule() {
 }
 
 soak_install_server() {
-  local archive="$1" work="$2" setup
+  local archive="$1" work="$2" setup setup_native profile_args=()
   unzip -q "$archive" -d "$work/server" || die '配るサーバの zip を開けない'
   setup="$work/server/ashiato-setup.exe"
   [[ -f "$setup" ]] || die '配るサーバの zip にインストーラが無い'
+  setup_native="$(soak_native_path "$setup")"
+  [[ -z "$SOAK_PROFILE" ]] || profile_args+=(--profile "$SOAK_PROFILE")
+  [[ -z "$SOAK_DOWNLOADS" ]] || profile_args+=(--downloads "$SOAK_DOWNLOADS")
   printf '%s\n%s\n' "$SOAK_INSTALL_PASSWORD" "$SOAK_INSTALL_PASSWORD" |
-    timeout -k 10 "${SOAK_SETUP_TIMEOUT:-600}" "$setup" install >"$work/install.out" 2>&1 ||
+    timeout -k 10 "${SOAK_SETUP_TIMEOUT:-600}" "$setup_native" install "${profile_args[@]}" >"$work/install.out" 2>&1 ||
     die_seen '配る形のサーバのインストールに失敗' "$(tail -n 80 "$work/install.out" 2>/dev/null || true)"
 }
 
@@ -275,7 +300,13 @@ soak_record_log_baselines() {
     [[ "$name" == server ]] && path="$SOAK_STATE_DIR/logs/server"
     [[ "$name" == db ]] && path="$SOAK_STATE_DIR/logs/db"
     [[ "$name" == collector ]] && path="$SOAK_COLLECTOR_DIR/collector.log"
-    [[ -f "$path" ]] && wc -l <"$path" >"$dir/.soak-log-baselines/$name.log.lines" || printf '0\n' >"$dir/.soak-log-baselines/$name.log.lines"
+    if [[ -f "$path" ]]; then
+      wc -l <"$path" >"$dir/.soak-log-baselines/$name.log.lines"
+    elif [[ -d "$path" ]]; then
+      cat "$path"/* 2>/dev/null | wc -l >"$dir/.soak-log-baselines/$name.log.lines"
+    else
+      printf '0\n' >"$dir/.soak-log-baselines/$name.log.lines"
+    fi
   done
 }
 
@@ -325,8 +356,10 @@ soak_collect_observations() {
 }
 
 soak_run() {
-  local server_zip="$1" collector_zip="$2" work="$3" start soak_start restart='' end collector
-  mkdir -p "$work/services"
+  local server_zip="$1" collector_zip="$2" work="$3" start soak_start restart='' end collector collector_native
+  mkdir -p "$work/services" "$work/observed"
+  # 失敗が評価より前でも、秘密を含む観測は実地の作業場所だけに置き、cleanup で消す。
+  NG_OBSERVED_DIR="$work/observed"
   if [[ -z "$SOAK_COLLECTOR_DIR" ]]; then
     if [[ -n "${LOCALAPPDATA:-}" && $(command -v cygpath 2>/dev/null || true) ]]; then
       SOAK_COLLECTOR_DIR="$(cygpath -m "$LOCALAPPDATA/ashiato/collector")"
@@ -334,6 +367,17 @@ soak_run() {
       SOAK_COLLECTOR_DIR="${LOCALAPPDATA:-C:/Users/runneradmin/AppData/Local}/ashiato/collector"
     fi
   fi
+  if [[ -z "$SOAK_PROFILE" && -n "${USERPROFILE:-}" && $(command -v cygpath 2>/dev/null || true) ]]; then
+    SOAK_PROFILE="$(cygpath -m "$USERPROFILE")"
+  fi
+  if [[ -n "$SOAK_PROFILE" && -z "$SOAK_DOWNLOADS" ]]; then
+    local downloads
+    downloads="$(reg.exe query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' /v '{374DE290-123F-4565-9164-39C4925E467B}' 2>/dev/null | tr -d '\r' | sed -n 's/.*REG_[A-Z_]*[[:space:]]\{1,\}//p' | head -n 1)"
+    downloads="${downloads//%USERPROFILE%/$USERPROFILE}"
+    [[ -n "$downloads" ]] || downloads="$USERPROFILE\\Downloads"
+    SOAK_DOWNLOADS="$(soak_native_path "$downloads")"
+  fi
+  [[ -z "$SOAK_DOWNLOADS" ]] || mkdir -p "$SOAK_DOWNLOADS"
   NG_STATE_DIR="$SOAK_STATE_DIR"
   NG_HEALTHZ_URL='http://127.0.0.1:18700/healthz'
   NG_SETTINGS_FILES="$SOAK_STATE_DIR/settings/server.json
@@ -348,14 +392,15 @@ $SOAK_STATE_DIR/settings/owner.json"
   unzip -q "$collector_zip" -d "$work/collector" || die '配る PC の収集アプリの zip を開けない'
   collector="$work/collector/ashiato-collector-windows.exe"
   [[ -f "$collector" ]] || die '配る PC の収集アプリの zip に実行ファイルが無い'
-  "$collector" >/dev/null 2>&1 &
+  collector_native="$(soak_native_path "$collector")"
+  "$collector_native" >/dev/null 2>&1 &
   soak_record_sample "$work"
   local elapsed=0
   while (( elapsed < SOAK_WAIT_SECONDS )); do
     sleep "$SOAK_READ_INTERVAL_SECONDS"; elapsed=$((elapsed + SOAK_READ_INTERVAL_SECONDS)); soak_record_sample "$work"
     if (( elapsed >= SOAK_COLLECTOR_RESTART_SECONDS )) && [[ -z "$restart" ]]; then
       taskkill.exe /F /IM ashiato-collector-windows.exe >/dev/null 2>&1 || true
-      "$collector" >/dev/null 2>&1 &
+      "$collector_native" >/dev/null 2>&1 &
       restart="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
     fi
   done
@@ -447,10 +492,12 @@ EOF
   (cd "$work" && PATH="$bin:$PATH" \
     SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' \
     SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' \
+    SOAK_PROFILE='C:/Users/soak' SOAK_DOWNLOADS='C:/Users/soak/Downloads' \
     reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 \
     "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
   grep -q '^2026-11-20T00:00:11.000Z|ashiato-server|0$' "$work/run/events" ||
     die 'self-test: wevtutil の /f:text 出力を判定用の行へ変換していない'
+  grep -q '^setup install --profile .* --downloads ' "$calls" || die 'self-test: install-check と同じ profile/downloads の口で入れていない'
   local wiring reset_line rule_line setup_line
   wiring="$(declare -f soak_evaluate)"
   for name in soak_service_failures soak_log_errors soak_check_records soak_collector_pid; do
@@ -485,6 +532,9 @@ EOF
   ! grep -q '^netsh ' "$calls" || die 'self-test: 残った置き場なのに塞ぎの命令を呼んだ'
   ! grep -q '^setup ' "$calls" || die 'self-test: 残った置き場なのにインストーラを呼んだ'
   [[ "$(soak_list | wc -l)" -eq 2 ]] || die 'self-test: --list が実地の 2 Scenario でない'
+  if (cd "$work" && PATH="$bin:$PATH" env -u ST22_CALLS "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/unsafe") >"$work/unsafe.out" 2>&1; then
+    die 'self-test: 偽の命令の印無しで --self-test-run を通した'
+  fi
 }
 
 soak_ci_definition_self_test() {
@@ -589,6 +639,8 @@ PY
 soak_self_test() {
   local work="$1" base
   export NG_OBSERVED_DIR="$work/observed"
+  export TMPDIR="$work/tmp"
+  mkdir -p "$TMPDIR"
   base="$work/base"
   mkdir -p "$base/services" "$base/logs"
   printf '2026-11-20T00:00:00.000Z|RUNNING|10\n2026-11-20T00:00:15.000Z|RUNNING|10\n2026-11-20T00:00:20.000Z|RUNNING|10\n' >"$base/services/ashiato-db"
@@ -629,6 +681,11 @@ soak_self_test() {
   cp -R "$base" "$work/db-pid"; printf '2026-11-20 00:01:01.000 UTC [1] ERROR: same\n2026-11-20 00:01:02.000 UTC [2] ERROR: same\n2026-11-20 00:01:03.000 UTC [3] ERROR: same\n' >"$work/db-pid/logs/db.log"; expect_fail "$work/db-pid"
   # Unreadable timestamps are counted only when appended after the recorded baseline.
   cp -R "$base" "$work/unreadable-log"; printf '%s\n' 'bad-time ERROR same' 'bad-time ERROR same' 'bad-time ERROR same' >>"$work/unreadable-log/logs/updater.log"; expect_fail "$work/unreadable-log"; sed -i '$d' "$work/unreadable-log/logs/updater.log"; expect_pass "$work/unreadable-log"
+  # Directory logs need their initial line count too; otherwise old unreadable lines are counted.
+  mkdir -p "$work/baseline-dir/state/logs/server" "$work/baseline-dir/out"
+  printf '%s\n%s\n' 'old unreadable ERROR one' 'old unreadable ERROR two' >"$work/baseline-dir/state/logs/server/server.log"
+  (SOAK_STATE_DIR="$work/baseline-dir/state" SOAK_UPDATER_DIR="$work/baseline-dir/updater" SOAK_COLLECTOR_DIR="$work/baseline-dir/collector" soak_record_log_baselines "$work/baseline-dir/out")
+  [[ "$(<"$work/baseline-dir/out/.soak-log-baselines/server.log.lines")" == 2 ]] || die 'self-test: サーバのログの基準行数がディレクトリを数えていない'
   # Scenario: サーバのログの panic の行は 1 行でも落ちる
   cp -R "$base" "$work/panic"; printf '2026-11-20T00:01:01.000Z kind="panic" boom\n' >"$work/panic/logs/server.log"; expect_fail "$work/panic"
   # Scenario: 置く段の始まりより後に確かめた行があれば通る
@@ -647,14 +704,15 @@ soak_self_test() {
   # Scenario: 起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす
   cp -R "$base" "$work/collector-before"; printf '{"at":"2026-11-20T00:00:05.000Z","ok":false,"reason":"unreachable","latest":null}\n' >"$work/collector-before/update-checks.jsonl"; expect_fail "$work/collector-before" "collector"
   # Scenario: 置く段の出力に秘密の値が出ない
-  mkdir -p "$work/secrets/settings" "$work/secrets/observed" "$work/secrets/logs"; printf '{"API_TOKEN":"secret-api","WEB_PASSWORD_VERIFIER":"secret-web","DATABASE_URL":"postgres://u:secret-db@x/db"}\n' >"$work/secrets/settings/server.json"; printf '{"DATABASE_OWNER_URL":"postgres://o:secret-owner@x/db"}\n' >"$work/secrets/settings/owner.json"; cp -R "$base" "$work/secrets/state"; printf '2026-11-20T00:01:01.000Z ERROR secret-api secret-web secret-db secret-owner password=soak-install-password-0123\n' >"$work/secrets/logs/server.log"; export SOAK_STATE_DIR="$work/secrets" NG_OBSERVED_DIR="$work/secrets/observed"; expect_fail "$work/secrets"; ! grep -R -F -e secret-api -e secret-web -e secret-db -e secret-owner -e soak-install-password-0123 "$work/secrets/out" "$work/secrets/err" || die "self-test: secret leaked"; unset SOAK_STATE_DIR NG_OBSERVED_DIR
+  mkdir -p "$work/secrets/settings" "$work/secrets/observed" "$work/secrets/logs"; printf '{"API_TOKEN":"secret-api","WEB_PASSWORD_VERIFIER":"secret-web","DATABASE_URL":"postgres://u:secret-db@x/db"}\n' >"$work/secrets/settings/server.json"; printf '{"DATABASE_OWNER_URL":"postgres://o:secret-owner@x/db"}\n' >"$work/secrets/settings/owner.json"; cp -R "$base" "$work/secrets/state"; printf '2026-11-20T00:01:01.000Z ERROR secret-api secret-web secret-db secret-owner password=soak-install-password-0123\n' >"$work/secrets/logs/server.log"; printf '2026-11-20 00:01:01.000 UTC [1] ERROR: secret-api secret-web secret-db secret-owner password=soak-install-password-0123\n' >"$work/secrets/logs/db.log"; export SOAK_STATE_DIR="$work/secrets" NG_OBSERVED_DIR="$work/secrets/observed"; expect_fail "$work/secrets"; ! grep -R -F -e secret-api -e secret-web -e secret-db -e secret-owner -e soak-install-password-0123 "$work/secrets/out" "$work/secrets/err" || die "self-test: secret leaked"; unset SOAK_STATE_DIR NG_OBSERVED_DIR
   grep -q '\*\*\*' "$work/secrets/out" "$work/secrets/err" || die "self-test: redaction marker missing"
   # Scenario: 置く段の台本は観測を出さずに落ちる道を持たない
   "$root/tools/release/check-ng-observations.sh" "$0" >/dev/null || die "self-test: observation checker failed"
+  ! find "$TMPDIR" -mindepth 1 \( -name 'ch22-soak-eval.*' -o -name 'ch22-soak-observed.*' \) | grep -q . || die 'self-test: 判定の一時置き場が残った'
 }
 
-expect_fail() { local d="$1" needle="${2:-}"; if (soak_evaluate "$d" 2026-11-20T00:00:00.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:02:00.000Z) >"$d/out" 2>"$d/err"; then die "self-test: fail case unexpectedly passed: $d"; fi; grep -q 'NG:' "$d/err" || die "self-test: fail case had no NG: $d"; [[ -z "$needle" || "$(cat "$d/err")" == *"$needle"* ]] || die "self-test: missing failure detail: $d"; }
-expect_pass() { local d="$1" needle="${2:-}"; (soak_evaluate "$d" 2026-11-20T00:00:00.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:02:00.000Z) >"$d/out" 2>"$d/err" || die "self-test: pass case failed: $d"; [[ -z "$needle" || "$(cat "$d/out" "$d/err")" == *"$needle"* ]] || die "self-test: missing output detail: $d"; }
+expect_fail() { local d="$1" needle="${2:-}"; if (trap 'rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"' EXIT; soak_evaluate_isolated "$d" 2026-11-20T00:00:00.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:02:00.000Z) >"$d/out" 2>"$d/err"; then die "self-test: fail case unexpectedly passed: $d"; fi; grep -q 'NG:' "$d/err" || die "self-test: fail case had no NG: $d"; [[ -z "$needle" || "$(cat "$d/err")" == *"$needle"* ]] || die "self-test: missing failure detail: $d"; }
+expect_pass() { local d="$1" needle="${2:-}"; (trap 'rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"' EXIT; soak_evaluate_isolated "$d" 2026-11-20T00:00:00.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:00:10.000Z 2026-11-20T00:02:00.000Z) >"$d/out" 2>"$d/err" || die "self-test: pass case failed: $d"; [[ -z "$needle" || "$(cat "$d/out" "$d/err")" == *"$needle"* ]] || die "self-test: missing output detail: $d"; }
 
 soak_list() {
   cat <<'EOF'
@@ -667,7 +725,9 @@ main() {
   trap soak_cleanup EXIT
   case "${1:-}" in
     --self-test-run)
+      [[ -n "${ST22_CALLS:-}" && -f "$ST22_CALLS" ]] || die '--self-test-run は自己試験の偽の命令の印が必要です'
       SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state'
+      export SOAK_STATE_DIR
       SOAK_WAIT_SECONDS=2 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 reset_wait_seconds=0
       soak_run "$2" "$3" "$4"
       ;;

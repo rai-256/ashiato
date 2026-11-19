@@ -411,6 +411,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   `taskkill /F /IM`（`:40,266,357,365`）は `|| true` に隠れて効かない。そのため 60 秒での起こし直しも、終わりの停止（R18）も実際には起きない。`reg delete /f` と `icacls /T` も効かない。
   自己試験の偽の命令は引数を見ないので、これを捕まえられない
 - kind: technical
+- 処置: fixed 2.1
 - 提案: Windows の口の頭で `install-check.sh` と同じく `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'` を置く。あわせて、起こし直しの前と後のそれぞれに空でない PID が 1 つ以上あることを求め、すべて空なら落とす。注意: `MSYS_NO_PATHCONV=1` を置くと、Windows の命令（インストーラ・PC の収集アプリ・Python）に渡す `/tmp/…` や mktemp の場所も読み替えられなくなる（`install-check.sh:752` の注記）。`$work` などは `cygpath -m` で `C:/…` の形にして渡す
 
 ## R28. R22 が戻っている。自己試験で落ちる場合ごとに、一時の置き場 `ch22-soak-eval.*` と `ch22-soak-observed.*`（偽の秘密の `.ng-read-*.val` 入り）が 1 組ずつ残る
@@ -418,6 +419,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 根拠: `soak-install.sh:656-657`（`expect_fail` / `expect_pass` が部分殻の中で `soak_evaluate` を呼ぶ）と `:178`。3b6e9e86e（R26 の直し）で `soak_evaluate` の中の EXIT trap を外した。部分殻の中で `die` すると RETURN の trap は発火しない。親の `soak_cleanup` は部分殻の変数を見られない。
   隔離した `TMPDIR` で `--self-test` を 1 回走らせると、それぞれ 17 個残った（落ちる場合の数と一致）。HARNESS_TMP_LEAK=fail に当たる
 - kind: technical
+- 処置: fixed 1.1
 - 提案: 部分殻の中で `trap 'rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"' EXIT` を張ってから `soak_evaluate` を呼ぶ。または `--self-test` の間は `TMPDIR` を自己試験の作業場所の下に向け、終わりにまとめて消す
 
 ## R29. サーバと DB のログの基準の行数がいつも 0 になる（R17 の直しがディレクトリを見ていない）。日時を読めない行は、インストールのときの誤りまで数える
@@ -425,52 +427,61 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 根拠: `soak-install.sh:278` の `[[ -f "$path" ]]` は、`logs/server` と `logs/db`（`:275-276`。ディレクトリ）ではいつも偽になり、`0` が書かれる。一方、集める側（`:293`）は `cat "$path"/*` でつないでいる。
   design D6 の「置く間の始まりのログの大きさ」と食い違う。Scenario「置く段の始まりと置く間の始まりの間に書かれた誤りの行は数えない」は、日時が読める前提でしか守られない
 - kind: technical
+- 処置: fixed 1.1
 - 提案: ディレクトリなら `cat "$path"/* | wc -l` を基準にする。自己試験に、基準が 0 でない場合（日時を読めない古い行がある場合）を足す
 
 ## R30. `--self-test-run` は `GITHUB_ACTIONS` の確かめを通らずに、`soak_reset_machine`（本人の PC の DB と未送信の記録を消す）まで行ける（R11 の穴）
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:669-672`。Windows では `C:/ProgramData/ashiato` は絶対の場所なので、偽の PATH が無いまま呼ぶと本物を消す（design D16）
 - kind: technical
+- 処置: fixed 2.1
 - 提案: `--self-test-run` は、偽の命令の印（例: `ST22_CALLS` が設定済み）があるときだけ受け付ける
 
 ## R31. 自己試験の偽の `rm` が見る `$SOAK_STATE_DIR` は export されていないので空になる。`ST22_KEEP_STATE=1` の間はどの rm も何もせず、`ng-obs.*` が 1 つ残る
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:420-424`。`*""*` がすべてに当たる。判定は settings だけが残る形で区別できているので、試験の結論は変わらない
 - kind: technical
+- 処置: fixed 2.1
 - 提案: 偽の命令に場所を export して渡すか、偽の `rm` の条件を空の値で当たらない形にする
 
 ## R32. 設定の秘密を読めないと、台本の合言葉も伏せる値に入らず、失敗も握りつぶされて、値が伏せずに出る
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:23-27`（`ng_settings_secrets` が失敗すると `|| return 1` で、その後の `SOAK_INSTALL_PASSWORD` を出さない）と `:179`（`ng_collect_secrets || true`）。その後の `soak_out` と `die_seen` が出す値は伏せられない
 - kind: technical
+- 処置: fixed 1.1
 - 提案: 台本の合言葉を先に出す。秘密を読めなかったときは、誤りの行の中身を出さずに落とす
 
 ## R33. `NG_OBSERVED_DIR` の既定が `$TMPDIR` のまま。評価より前で `die` すると（インストールの失敗・healthz）、本物の秘密の入った `.ng-secrets` と `.ng-read-*.val` が `$TMPDIR` に残る（R15 は評価の中しか直っていない）
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:13`。runner は捨てられるので影響は小さい
 - kind: technical
+- 処置: fixed 2.1
 - 提案: `soak_run` の頭で `NG_OBSERVED_DIR` を mktemp の専用の置き場に向け、`soak_cleanup` で消す
 
 ## R34. 「秘密の値が出ない」の Scenario は、GIVEN の「サーバのログと DB のログ」のうちサーバのログしか試していない
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:650`。`openspec/changes/ch22-soak-install-online-ci/specs/distribution/spec.md` の該当の Scenario
 - kind: technical
+- 処置: fixed 1.1
 - 提案: DB のログに秘密を入れる場合を自己試験に足す
 
 ## R35. 文書に古い記述が残っている。「2 つの台本の `--self-test` がこれを呼ぶ（CI の `chain`）」とあり、`rust` の行に `soak-install.sh --self-test` が無い（task-3 F1・F2 の残り）
 - 成果物: docs/testing.md
 - 根拠: `docs/testing.md:189` と `:32`。`.superpowers/sdd/ch22-task-3/task-3-findings.md` の F1・F2
 - kind: technical
+- 処置: fixed 3.1
 - 提案: 呼ぶ台本と job の実際に合わせて 2 か所を直す
 
 ## R36. 1 行ごとに `sed` と `date` を起こし、段の絞り込みはその後にしている。Windows の fork は遅い（Minor）
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:100-105`
 - kind: technical
+- 処置: fixed 1.1
 - 提案: 段で先に絞ってから日時を読む
 
 ## R37. `soak_install_server` が `install-check.sh` と同じ口で入れていない（`--profile` / `--downloads` と、別の管理者で走らせる口を使わない）。tasks の「同じ口で入れる」と違うが、意図的かは確かめていない
 - 成果物: tools/release/soak-install.sh
 - 根拠: `soak-install.sh:239`（`soak_install_server`）と `install-check.sh:1225` の比べ。`openspec/changes/ch22-soak-install-online-ci/tasks.md:67` の「配る zip を `install-check.sh` と同じ口で入れる」
 - kind: technical
+- 処置: fixed 2.1
 - 提案: 意図的でなければ `install-check.sh` の口に合わせる。意図的なら design に理由を書く

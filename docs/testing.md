@@ -185,7 +185,7 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 **release の台本**（`tools/release/install-check.sh`・`update-check-install.sh`・`update-apply-install.sh`・`tools/release/soak-install.sh`。Windows の実地の確かめ。CH16・CH22）
 
 - 判定は `die` / `die_seen`（`tools/release/check-ng-observations.sh` の部品）で落とす。NG の行に続く観測（サービス・healthz・設定のキー・命令の記録・ログの末尾）は部品が標準エラーに出し、台本は `echo 'NG:` や裸の `exit 1` で落とさない
-- 観測を出さずに NG で終わる道は、`tools/release/check-ng-observations.sh <台本>…` が静的に落とす。2 つの台本の `--self-test` がこれを呼ぶ（CI の `chain`）
+- 観測を出さずに NG で終わる道は、`tools/release/check-ng-observations.sh <台本>…` が静的に落とす。`install-check.sh` と `update-apply-install.sh` の `--self-test`、および `soak-install.sh` の `--self-test` がこれを呼ぶ
 - `soak-install.sh` も観測の部品を使い、`--self-test` は `rust` の job で走らせる
 
 ## 6. tasks の検証コマンドは実在し、rc=0 になる
