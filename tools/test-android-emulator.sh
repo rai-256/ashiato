@@ -689,6 +689,34 @@ assert_only_bad() {
   done
 }
 
+assert_only_st56() {
+  local root class='dev.ashiato.collector.St56BackupTest' rc
+  new_tree; root=$NEW_ROOT
+  rc=$(run_emulator "$root" '' 1 only-st56 ok normal "$root/kvm" '' '' '' "$class")
+  [ "$rc" -eq 0 ] \
+    && ! grep -q 'connectedDebugAndroidTest' "$root/seq.log" \
+    && grep -Fq 'gradle -q :app:installDebug :app:installDebugAndroidTest' "$root/seq.log" \
+    && grep -Fq 'shell bmgr enable true' "$root/seq.log" \
+    && grep -Fq 'St56BackupTest#prepareBackup' "$root/seq.log" \
+    && grep -Fq 'backupnow' "$root/seq.log" \
+    && grep -Fq 'St56BackupTest#verifyRestored' "$root/seq.log" \
+    && grep -Fq 'OK (1 test)' "$root/stdout" \
+    && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 0 ] \
+    && [ ! -d "$root/collector-android/app/build/outputs/androidTest-results" ]
+}
+
+assert_only_st56_fail() {
+  local root class='dev.ashiato.collector.St56BackupTest' rc
+  new_tree; root=$NEW_ROOT
+  export FAKE_VERIFY_OUT='FAILURES!!!'
+  rc=$(run_emulator "$root" '' 1 only-st56-fail ok normal "$root/kvm" '' '' '' "$class")
+  unset FAKE_VERIFY_OUT
+  [ "$rc" -ne 0 ] \
+    && grep -Fq 'error: St56BackupTest の復元の確かめが通らない' "$root/stderr" \
+    && ! grep -q 'connectedDebugAndroidTest' "$root/seq.log" \
+    && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 0 ]
+}
+
 if [ "$SELF_TEST" = --self-test ]; then
   self_test
   exit 0
@@ -696,7 +724,7 @@ fi
 
 CASE=${ASHIATO_TEST_ONLY:-}
 case "$CASE" in
-  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base|only-class|only-prep|only-order|only-keep|only-fail|only-zero|only-stale|only-dedicated|only-bad) ;;
+  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base|only-class|only-prep|only-order|only-keep|only-fail|only-zero|only-stale|only-dedicated|only-bad|only-st56|only-st56-fail) ;;
   *) echo "未知の ASHIATO_TEST_ONLY: $CASE" >&2; exit 2 ;;
 esac
 
@@ -738,4 +766,6 @@ run_only only-zero && { echo 'Scenario: 渡したクラスの結果が無けれ�
 run_only only-stale && { echo 'Scenario: 前の実行の結果が残っていても、今回の結果として数えない'; assert_only_stale || exit 1; }
 run_only only-dedicated && { echo 'Scenario: 入れ替えの試験か採寸の試験を渡すと、専用の台本の名前を出して起こさずに止まる'; assert_only_dedicated || exit 1; }
 run_only only-bad && { echo 'Scenario: 完全修飾のクラス名 1 つの形でない値を渡すと、起こさずに止まる'; assert_only_bad || exit 1; }
+run_only only-st56 && { echo 'Scenario: バックアップの試験を渡すと、gradle の計測テストを呼ばずに準備・往復・確かめを順に走らせる'; assert_only_st56 || exit 1; }
+run_only only-st56-fail && { echo 'Scenario: バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる'; assert_only_st56_fail || exit 1; }
 true

@@ -119,6 +119,20 @@ keep_stage() {
 rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数えない
 if [ -n "${ONLY:-}" ]; then
   rm -rf "$OUT/androidTest-results"
+  if [ "$ONLY" = dev.ashiato.collector.St56BackupTest ]; then
+    (cd collector-android && ./gradlew -q :app:installDebug :app:installDebugAndroidTest)
+    adb shell bmgr enable true
+    adb shell bmgr enabled | grep -qx 'Backup Manager currently enabled'
+    adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#prepareBackup \
+      dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner
+    ./tools/android-backup-roundtrip.sh
+    verify_out=$(adb shell am instrument -w -r -e class dev.ashiato.collector.St56BackupTest#verifyRestored \
+      dev.ashiato.collector.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r')
+    echo "$verify_out"
+    grep -q '^OK (1 test)' <<<"$verify_out" \
+      || { echo "error: St56BackupTest の復元の確かめが通らない" >&2; exit 1; }
+    exit 0
+  fi
   adb shell am force-stop dev.ashiato.collector
   adb shell pm reset-permissions
   (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
