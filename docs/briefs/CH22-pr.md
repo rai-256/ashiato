@@ -1,50 +1,55 @@
-# CH22 配る形を外につながる状態で入れて置き、落ち続けや誤りの続きを PR の CI で捕まえる
+# CH22 —— 配る形を外につながる状態で入れて置き、落ち続けや誤りの続きを PR の CI で捕まえる
 
-change: `openspec/changes/ch22-soak-install-online-ci/`（capability `distribution`。ADDED の Requirement 5 つ・Scenario 30 本、MODIFIED の Requirement 1 つ（Scenario 2 本を足す））。
-依頼と完了の判定は `docs/changes/CH22.md`（受け皿の依頼 #332 から）。
+change: `openspec/changes/ch22-soak-install-online-ci/`
 
-CI の `install-windows` の、インストールと更新の試験の後に「置く段」を足す。前の段の入れたものを消し、更新係の外向きの塞ぎを外してから、配る形のサーバの zip を入れ、配る形の PC の収集アプリを設定せずに起こして 5 分置く。
-3 つのサービスの起こし直し・止まり、同じ誤りの行の続き、サーバの panic、更新係と PC の収集アプリが本物の配布元に確かめた記録の有無を機械が判定し、どれかが外れたら job を落とす。
-正典の「自動の試験は本物の配布元に問い合わせない」は、握手の試験 `tls_online_*` と置く段の 2 つを名指しで例外にする形に改める。製品のコードは変えない。
+## deep.md に積んだ未決（A）
 
-軽い路で入ったが、正典を MODIFIED で改め、深掘りで決めることが残っていたので通常の路になった（`lane-verdict.json`）。
+なし
 
-## 深掘りで本人が決めたこと（A）
+## 仮決め（B）と Ruling
 
-第 1 回（Q1〜Q5・Q7）はどれも失うものの無い B の問いで、推奨の答えで先に書いた（`deep.md` の「答え待ち」）。本人の答えが推奨と違えば `spec --answers` で写す。
-議論で決めたこと（何を・なぜ・どこまで）は依頼の逐語のまま（`docs/changes/CH22.md`）。聞き直していない。
+design の（仮）:
+- D1（仮）. 置く段は新しい台本 `tools/release/soak-install.sh` に置き、組み立ての鍵が変わることを受け入れる
+- D2（仮）. 消すのは台本の掃除で、対象は `update-apply-install.sh` の `reset_machine` と同じものに PC の収集アプリを足す
+- D4（仮）. 起こし直しは、5 秒ごとの状態とプロセスの番号と、システムの記録の 2 つから数える
+- D5（仮）. 置く段の始まりは「塞ぎの規則を消す直前」、置く間は「入れ終わって healthz が 200 になってから 5 分」
+- D6（仮）. 同じ誤りは、日時を除いた中身が同じ行が 1 つのログに 3 回以上で落とす。サーバの panic の行は 1 行で落とす
+- D7（仮）. PC の収集アプリは、入れ終わりに起こし、1 分後に 1 回止めて起こし直す
+- D8（仮）. 時間の上限は、置く段の手順に 15 分、`install-windows` の job に 100 分
+- D13（仮）. 問い合わせの上限だけのときの警告は、GitHub の注記（`::warning::`）で出す
+- D16（仮）. 実地の置く段は GitHub Actions の runner に限定する
+- D17（仮）. 置く時間 300 秒を自己試験で固定する
 
-- Q1 PC の収集アプリも置くか —— 推奨: 設定せずに置き、途中で 1 回起こし直して確かめさせる
-- Q2 落ちた・止まったとみなす条件 —— 推奨: 1 回でも起こし直されたら落とし、置き終わりに 3 つのサービスが実行中で healthz が 200 でなければ落とす
-- Q3 誤りの記録の「連続」 —— 推奨: 同じ誤りが 3 回以上続いたら落とす
-- Q4 本物の配布元に聞けたか —— 推奨: 段の始まりより後の「確かめた」が 1 回は無ければ落とす。理由が「問い合わせの上限」のときだけ警告に留める
-- Q5 何の上に、どの順で置くか —— 推奨: 置き場ごと消す → 塞ぎを外す → 配る zip を入れる → 5 分置く（決定の字義の順序「入れた後に外す」を変える）
-- Q7 最初の走りで不具合が見つかったら —— 推奨: 段は緩めず、直しは別の change にし、この change はその直しの後に merge する
+全 Task の ledger に `Ruling:` の行は無い。
 
-## 仮決め（B）
+## Task
 
-- D1（仮）置く段は新しい台本 `tools/release/soak-install.sh`。CH17 の組み立ての鍵の除く名指しに入らないので、台本だけの直しでも Windows の配布物を組み直す。反転条件: 組み直しの時間が目立ったら
-- D2（仮）掃除は `update-apply-install.sh` の `reset_machine` を写し、PC の収集アプリの置き場を足す。反転条件: 写しがずれて置く段が前の段の残りで落ちたら
-- D4（仮）起こし直しは 5 秒ごとの状態と PID と、システムの記録の 7031/7034 から数える。読めなければ警告にして状態と PID だけで判定する。反転条件: 7031/7034 が出ないと分かったら
-- D5（仮）置く段の始まりは塞ぎの規則を消す直前、置く間は healthz が 200 になってから 5 分
-- D6（仮）同じ誤りの行の切り方（日時と DB のプロセスの番号を除く）と数える段。サーバの panic の行は 1 行で落とす。反転条件: 正常に置いて同じ誤りが 3 回以上出る行が見つかったら
-- D7（仮）PC の収集アプリは入れ終わりに起こし、1 分後に 1 回起こし直す。通知の差出人の登録は `outage_notice_unavailable` の行で読む。反転条件: runner で登録できないと分かったら
-- D8（仮）時間の上限は置く段 15 分・job 100 分（今の job は約 61 分）
-- D13（仮）問い合わせの上限だけのときは `::warning::` で警告
-- 聞かずに決めたこと（C）: D9（出力は観測の部品で伏せる）・D10（例外を 2 つ名指しし、塞ぐ対象を更新係に揃える）・D11（深掘りの答えの数は正典に、ほかの閾値は台本の定数に）・D12（段を緩めない・外れを許す一覧を持たない）・D15（最初の走りで反転に当たったら CH22 の中で直す）
-- 仮の台帳（`provisional.jsonl`）に載せたものは無い
+4 Task のうち、埋めた Task は 4 本。
+残した項目は無い。
 
-## capability
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-前倒しなし。CI の約束は CH17 の Requirement と同じ `distribution` に置いた。
+- 1.1 `tools/release/soak-install.sh --self-test` → rc=0（PASS・head 0ce8175）
+- 1.1 `tools/release/check-ng-observations.sh tools/release/soak-install.sh` → rc=0（PASS・head 0ce8175）
+- 1.1 `bash -c 'test "$(grep -c "^[[:space:]]*# Scenario: " tools/release/soak-install.sh)" -ge 20 && grep -q "^SOAK_SAME_ERROR_LIMIT=3$" tools/release/soak-install.sh'` → rc=0（PASS・head 0ce8175）
+- 2.1 `tools/release/soak-install.sh --self-test` → rc=0（PASS・head 184ec31）
+- 2.1 `bash -c 'test "$(tools/release/soak-install.sh --list | wc -l)" -eq 2'` → rc=0（PASS・head 184ec31）
+- 2.2 `tools/release/soak-install.sh --self-test` → rc=0（PASS・head 184ec31）
+- 2.2 `bash -c 'f="$1"; { actionlint -ignore SC2155 "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -ignore SC2155 "$f"; }' _ .github/workflows/ci.yml` → rc=0（PASS・head 184ec31）
+- 2.2 `bash -c 'grep -q "soak-install.sh --self-test" .github/workflows/ci.yml && grep -q "soak-install.sh --list" .github/workflows/ci.yml && grep -q -- "--block-outbound" .github/workflows/ci.yml'` → rc=0（PASS・head 184ec31）
+- 3.1 `bash -c 'grep -q "soak-install.sh" docs/testing.md && grep -q "置く段" docs/testing.md'` → rc=0（PASS・head 2231311）
+- 4.1 `python3 scripts/check_scenarios.py . ch22-soak-install-online-ci` → rc=0（PASS・head 7c2a39d）
+- 4.1 `tools/release/soak-install.sh --self-test` → rc=0（PASS・head 7c2a39d）
+- 4.1 `tools/release/install-check.sh --self-test` → rc=0（PASS・head 7c2a39d）
+- 4.1 `tools/release/update-check-install.sh --self-test` → rc=0（PASS・head 7c2a39d）
+- 4.1 `tools/release/update-apply-install.sh --self-test` → rc=0（PASS・head 7c2a39d）
+- 4.1 `bash -c 'git diff --name-only origin/main...HEAD | grep -Ev "^(tools/release/soak-install\.sh|\.github/workflows/ci\.yml|docs/testing\.md|docs/changes/CH22\.md|openspec/changes/ch22-soak-install-online-ci/.*)$" | grep -v "^docs/briefs/" | { ! grep -q .; }'` → rc=0（PASS・head 7c2a39d）
 
-## tasks
+## レビュー（`review/code.md`）
 
-4 Task・5 項目（判定と自己試験 → 実地の口と CI の配線 → 文書 → 全体）。
-`install-windows` の置く段は Windows の runner でしか走らないので、Task 2.2 の終了の条件は PR の CI の `install-windows` が置く段を含めて緑であること。
-置く段は緑の回でも観測（起こし直しの回数・誤りの行・システムの記録を読めたか・通知の登録・確かめた記録）を出すので、確かさ 1 の前提の観測は CI のログに残る。
+- 指摘 38 件（escalated 1・fixed 37）
+- 処置の re-review: 6 回。最後の判定が NOT ADDRESSED のもの: なし
 
-## レビュー
+## 未処置の申し送り
 
-- `review/deep.md`: 13 件。fixed 13（問い・前提を直した）
-- `review/spec.md`: 13 件。fixed 13（Scenario の分割と追加で新しい Scenario は 21 本から 32 本に・最初の走りの記録を Task から外した・窓の定義・Q3 の数を正典に・反転を CH22 の中で直す D15・panic の判定・自己試験の継ぎ目・CI の定義の全部を読む）。escalated 0
+なし
