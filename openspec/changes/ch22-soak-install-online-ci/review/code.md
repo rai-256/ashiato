@@ -188,3 +188,67 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 提案: 実地の口は `GITHUB_ACTIONS=true`（か、明示の `--i-am-ci` のような引数）でないと reset の前に `die` する。少なくとも `SOAK_COLLECTOR_DIR` の既定を本人の `%LOCALAPPDATA%` にせず、`ASHIATO_STATE_DIR` で作業の箱の置き場を渡して収集アプリを起こす。引数の zip の確かめは reset より前に回す
 
 範囲外: `update-check-install.sh`・`update-apply-install.sh` の reset も CI の上かを見ずに `C:/ProgramData/ashiato` を消す（既存）。
+
+## /code-review（7817dc5..721d2e3）
+
+見た: Claude Code の組み込みの `/code-review`（10 件）。写しは scripts/code_review_record.py
+
+## R12. The soak step never reads the updater's error log, so updater errors during the soak can never fail it. soak_collect_observations reads `$SOAK_UPDATER_DIR/updater.log`, but the updater writes its errors to `dir/logs/updater.log` (crates/updater/src/lib.rs `log_service_error`). Fix: change the path to `$SOAK_UPDATER_DIR/logs/updater.log`.
+- 成果物: tools/release/soak-install.sh:259
+- 根拠: During the soak, the updater service writes the same error 3 or more times to C:/ProgramData/ashiato-updater/logs/updater.log. The script reads a file that does not exist, so logs/updater.log ends up empty. The 'same error repeated' check does not fire and the step passes.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. The collector's PID reading returns the session number, not the PID, so the 'PID changed' check can never fire. In the tasklist CSV line `"exe","PID","Console","Session#","Mem"`, the greedy `.*,"\([0-9][0-9]*\)",` in `sed` matches the last `,"digits",`, which is the Session# field. Fix: take the second column with a non-greedy pattern such as `sed -n 's/^"[^"]*","\([0-9]*\)".*/\1/p'`, and make the self-test stub check the value too.
+- 成果物: tools/release/soak-install.sh:248
+- 根拠: The collector crashes during the soak and something restarts it right away (PID 100→200). collector.pid records the same session number ('1' or '0') each time, so changes=0 and the step passes. The self-test stub's `"42","Console","1"` also yields '1', and the self-test does not catch it.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R14. On failure, the NG output shows only a file path, not the file's contents, so the cause can't be traced. `die_seen <reason> <value>` prints its second argument as the observed value; file contents only come out when the file is passed as ng_report's fourth argument. This script passes `"$work/install.out"`, `"$dir/services/$svc"` (l.64), `"$SOAK_TMP/errors"` (l.108) and `"$file"` (l.154) as the second argument. On top of that, NG_STATE_DIR, NG_HEALTHZ_URL and NG_SETTINGS_FILES are never set, so the service, healthz and server-log observations are empty too. Fix: pass the file contents as the value (e.g. the output of `tail -n 80`), or call ng_report with the file as the fourth argument, and set the NG_* variables in soak_run.
+- 成果物: tools/release/soak-install.sh:228
+- 根拠: The installer fails during the soak. The CI log shows only 'NG: 配る形のサーバのインストールに失敗' and the path '/tmp/ch22-soak-run.xxx/install.out', and $work is then deleted. Nothing remains to explain why it failed.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R15. Real secrets are written as plain text into the shared temp folder and never removed. NG_OBSERVED_DIR defaults to `${TMPDIR:-/tmp}`, so ng_secret_file/ng_collect_secrets inside soak_evaluate write `$TMPDIR/.ng-secrets`, `.ng-secrets.vals` and `.ng-read-API_TOKEN.val`. These hold the values read from server.json/owner.json: API_TOKEN, WEB_PASSWORD_VERIFIER and the DB passwords. Only the --self-test path removes them. Fix: point NG_OBSERVED_DIR at a dedicated folder created with mktemp and remove it in the EXIT trap.
+- 成果物: tools/release/soak-install.sh:13
+- 根拠: After a real soak run on the Windows runner, C:\Users\runneradmin\AppData\Local\Temp\.ng-secrets keeps the server's API token and DB owner password. Later steps can read them, and they leak if the folder is uploaded as an artifact or the machine is shared.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R16. The real run's work folder is never cleaned up. soak_evaluate's `trap '...' RETURN EXIT` replaces main's `trap 'rm -rf "$work"' EXIT` (l.629). Even if it did not, `work` is local to main, so under `set -u` it is unbound when the EXIT trap runs after main returns. Fix: register the cleanup of $work and SOAK_TMP together in one global trap. Do not override EXIT inside soak_evaluate (use RETURN only, or clean up explicitly).
+- 成果物: tools/release/soak-install.sh:160
+- 根拠: After every real run, /tmp/ch22-soak-run.XXXXXX is left behind, holding copied logs, the event log, the collector executable and install.out. This also trips the harness's leak check (HARNESS_TMP_LEAK=fail).（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R17. The baseline line count is always written as 0, so a log line whose timestamp can't be read is counted even if it was written before the soak window. The updater log uses the format `Utc::now().to_rfc3339()`, which ends in `+00:00`, and the timestamp regex (which only accepts `...Z`) does not match it. Every updater log line therefore falls through to the 'unreadable timestamp' path and the window check does not apply. Fix: record each log's line count at soak_start as the baseline, and accept the `+00:00` form in the regex as well.
+- 成果物: tools/release/soak-install.sh:264
+- 根拠: Right after install, before the soak starts, the updater writes the same error 3 times (e.g. at startup). Once the path in the first finding is fixed, those lines are counted as errors 'inside the window', and the soak fails even though it ran normally.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R18. The collector the script started is never stopped when the step ends. It is started in the background with `"$collector" &` and never killed after the soak, so it keeps running from $work. Fix: kill the collector with taskkill before evaluating or before exiting.
+- 成果物: tools/release/soak-install.sh:320
+- 根拠: Once the soak step ends, the collector keeps running for the rest of the job. On Windows it locks the executable under $work, so `rm -rf "$work"` fails. Later steps also see a collector that keeps sending and writing its log.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R19. The 'system-events: readable count' shown in the output is three times the real number of events. `((total++))` sits inside the per-service loop and runs for every 7031/7034 event, whichever service it belongs to. Fix: count total in a separate loop that runs once, or only on lines that match a service.
+- 成果物: tools/release/soak-install.sh:58
+- 根拠: With a single 7034 event, the output reads 'readable count=3', which is misleading when someone reads the evidence.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R20. The secrets list includes two variables that are never set, while the password actually used for install is left out. ng_secret_values outputs `SOAK_RELEASE_PASSWORD` and `SOAK_TEST_PASSWORD`, which nothing sets. `SOAK_INSTALL_PASSWORD`, the one fed to the installer, is not listed. Fix: add `$SOAK_INSTALL_PASSWORD` to the output and remove the unused variable names.
+- 成果物: tools/release/soak-install.sh:25
+- 根拠: If the installer echoes the entered password into install.out or a log, the password is printed to the CI log without being masked.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R21. An error message containing `|` is never counted, so its repeats go undetected. Keys are saved as `name|key` and counted with `awk -F'|'` comparing only `$2`. If the key itself contains `|`, it never matches and count=0. Comparing timestamps as strings also gets the order wrong when the fractional-second precision differs (chrono omits the fraction for whole seconds, and 'Z' sorts after '.'). Fix: separate the fields with a tab or similar and compare with `substr`, and normalize timestamps before comparing.
+- 成果物: tools/release/soak-install.sh:106
+- 根拠: The server logs 3 lines of `ERROR ... a|b`. Each count comes out as 0, the 'same error repeated' check does not fire, and the step passes.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
