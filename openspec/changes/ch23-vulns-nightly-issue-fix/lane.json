@@ -1,0 +1,15 @@
+{
+  "reason": "bug",
+  "scenario": "落ちた夜に、依存ごとに 1 件の issue が立つ",
+  "paths": [
+    "tools/check-vulns-issues.py",
+    "tools/check-vulns.sh",
+    "tools/check-vulns-wiring.sh",
+    "tools/check-vulns*",
+    ".github/workflows/vulns-nightly.yml",
+    "docs/changes/CH23.md",
+    "docs/testing.md",
+    "docs/adr/*.md"
+  ],
+  "why": "正典の Scenario「落ちた夜に、依存ごとに 1 件の issue が立つ」は、ラベル「脆弱性」が無いとき label create の後に issue create を受けると言っているが、本物の gh はラベルが無いと空の文字を返し、tools/check-vulns-issues.py が読めずに落ちて issue を立てていなかった（偽の gh は [] を返すので自己試験は通っていた）。直すのは台本と自己試験の偽の gh で、赤に気づける形にするのは同じ毎晩の workflow と道具の中に閉じる（製品のコード・API・移行・収集アプリに触れない）"
+}
