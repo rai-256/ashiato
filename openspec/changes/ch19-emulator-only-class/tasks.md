@@ -36,11 +36,11 @@
 
 ## Task 2: ONLY の口（ふつうのクラス・専用の台本のクラス・形の違う値）
 
-- [ ] 2.1 `tools/android-emulator.sh` に design D1・D3（仮）・D4・D5（仮）のとおり `ONLY` の口を足す。冒頭のコメントの使い方に `ONLY=dev.ashiato.collector.<クラス> ./tools/android-emulator.sh` の 1 行と、なぜ要るか（CH19）を足す。
+- [x] 2.1 `tools/android-emulator.sh` に design D1・D3（仮）・D4・D5（仮）のとおり `ONLY` の口を足す。冒頭のコメントの使い方に `ONLY=dev.ashiato.collector.<クラス> ./tools/android-emulator.sh` の 1 行と、なぜ要るか（CH19）を足す。
   ふつうのクラスの段: 前の実行の結果（`$OUT/androidTest-results`）を消す → `adb shell am force-stop dev.ashiato.collector` → `adb shell pm reset-permissions` → 全体と同じ `-Pashiato.baseUrl=http://127.0.0.1:18787` と `-Pandroid.testInstrumentationRunnerArguments.class="$ONLY"` だけを付けた `connectedDebugAndroidTest` → 字下げした `keep_stage` →
   `androidTest-results-stage1` の XML に `classname="$ONLY"` が無ければ `error: ONLY=<クラス> のテストが 1 本も走っていない` を標準エラーに出して rc=1 → 結果の置き場を出して `exit 0`。値の誤りと専用の台本のクラスは rc=1（D4・D5 の文言）。
   検証: `bash -n tools/android-emulator.sh` rc=0 / `tools/test-usage-volume.sh` rc=0 / `bash -c 'base=$(git merge-base origin/main HEAD) && test "$(git diff "$base" -- tools/android-emulator.sh | grep -c "^-[^-]")" -eq 0'` rc=0（全体の経路の行を消していない・書き換えていない）
-- [ ] 2.2 `tools/test-android-emulator.sh` に次の場合を足す（鍵は `ASHIATO_TEST_ONLY` の一覧にも足す）。それぞれの前に印を出す:
+- [x] 2.2 `tools/test-android-emulator.sh` に次の場合を足す（鍵は `ASHIATO_TEST_ONLY` の一覧にも足す）。それぞれの前に印を出す:
   `only-class`: `echo 'Scenario: ONLY にクラスを渡すと、そのクラスだけに絞った計測テストを 1 回だけ走らせる'` /
   `only-prep`: `echo 'Scenario: ONLY でも、全体と同じにアニメーションを切り、写真と動画を入れる'` /
   `only-order`: `echo 'Scenario: ONLY の段の前に、アプリを外し、止めて、権限を戻す'`（`seq.log` の順で見る） /
