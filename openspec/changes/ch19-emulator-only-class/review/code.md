@@ -117,3 +117,61 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 安全の決め手: `ONLY` は使われる前に必ず `^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$` の検査を通り、外れたら `exit 1` する（`tools/android-emulator.sh:32-35`。`:120` 以降の使い所はすべてこの後）—— 確かさ 4。`:21-36` を切り出して走らせ、`a.b;touch /tmp/x`・`a.b$(id)`・改行入り・`a.b -Pfoo=1`・`a.b,c.d`・`a.b#m`・`-Dx.y`・`a.b"`・`a.b*` はすべて `error: … 完全修飾のクラス名 1 つの形でない` で止まり、`dev.ashiato.collector.St56BackupTest` だけが通った
 
 指摘なし
+
+## /code-review（25ddd53..ce62bc9）
+
+見た: Claude Code の組み込みの `/code-review`（9 件）。写しは scripts/code_review_record.py
+
+## R5. The zero-tests guard passes when the stage directory has no XML at all. `find ... -exec grep -Fq ... {} +` returns 0 when nothing matches the file pattern, because grep never runs, so `if ! find` does not fire. Fix: count the files first (for example `compgen -G` or `find ... | grep -q .`), or use `grep -rqF --include='TEST-*.xml' "classname=\"$ONLY\"" "$OUT/androidTest-results-stage1"`, which returns 1 when no file matches.
+- 成果物: tools/android-emulator.sh:141
+- 根拠: ONLY names a class that gradle filters to nothing, or gradle writes no XML for some reason, and gradle exits 0. `keep_stage` makes an empty `androidTest-results-stage1`. The find returns 0, the script prints the results path and exits 0. A run where zero tests ran is reported as a pass. `assert_only_zero` and `assert_only_stale` only cover the case where an XML exists with the wrong classname, so the tests miss this.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. The `only-base` Scenario passes without checking anything when `ASHIATO_TEST_BASE_REV` is not set. The default run (`tools/test-android-emulator.sh`, as used by CI and the verify runs) never sets it. It prints the Scenario marker and returns 0. Fix: make the skip visible to the Scenario check (non-zero rc or a distinct marker), or make sure CI always passes a base rev.
+- 成果物: tools/test-android-emulator.sh:578
+- 根拠: A later change edits the full-path command sequence by mistake. The plain test run still prints 'Scenario: ONLY を渡さなければ…同じ命令の列で全段を走らせる' and exits 0, so the Scenario looks covered while nothing was compared.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. The self-test for `only-base` does not exercise `assert_only_base`. It runs `run_emulator` and `filtered_seq` on two copies of the current script and compares them directly. Fix: drive `assert_only_base` itself against a broken copy, for example by pointing `ASHIATO_TEST_BASE_REV` at a commit or tree that holds the mutated script.
+- 成果物: tools/test-android-emulator.sh:502
+- 根拠: `assert_only_base` loses its comparison, or stops applying `ASHIATO_TEST_SCRIPT_REV`, so both trees are the current script. `--self-test` still passes because it never calls the function, and `only-base` then always passes.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. The ONLY St56 path ignores the result of the `prepareBackup` instrumentation. `am instrument` exits 0 even when the test fails, and its output is not grepped for `OK (1 test)` the way `verifyRestored` is. The full path at line 160 has the same flaw and this copies it. Fix: capture the output and check `^OK (1 test)` before running the backup round trip, in both places.
+- 成果物: tools/android-emulator.sh:126
+- 根拠: `prepareBackup` throws (assertion or crash). The script goes on to backup and restore and then fails later at verify or backup with 'バックアップが取れない' or '復元の確かめが通らない'. That misleads the person using ONLY to narrow the cause.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. The ONLY validation accepts any dotted identifier, so dedicated names and non-test types get through. Annotations such as `dev.ashiato.collector.NeedsPristinePermissions` and misspelled dedicated classes boot the emulator. The dedicated-script check compares exact strings only. Nested classes (`Outer$Inner`) are rejected even though instrumentation can run them. Fix: check that the class source exists under `collector-android/app/src/androidTest` (`<Name>.kt` or `.java`), so the error comes before the emulator boots.
+- 成果物: tools/android-emulator.sh:32
+- 根拠: `ONLY=dev.ashiato.collector.NeedsPristinePermissions` passes validation, boots the emulator (minutes) and runs a gradle class filter on an annotation. The run ends in a gradle error or zero tests, and combined with the find bug above it may report success.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. The ONLY path runs `rm -rf "$OUT/androidTest-results"`, which also deletes `connected/st57-update`. The full path keeps that directory for the Task evidence commands, and the ONLY path never recreates it, even for `ONLY=...St57UpdateQueryTest`. Fix: recreate the st57-update copy when ONLY is St57UpdateQueryTest, or document that an ONLY run wipes the earlier evidence.
+- 成果物: tools/android-emulator.sh:121
+- 根拠: A developer runs the full suite, then an ONLY run to check one class. The ST57 evidence that the Task verification commands read under `connected/st57-update` is gone and those checks fail.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. The key-to-Scenario table in the file header was not updated. It lists the old keys only, while 13 new `only-*` keys were added to the `ASHIATO_TEST_ONLY` list and the run lines. Fix: add a `only-empty | ...` through `only-st56-fail | ...` row for each new key.
+- 成果物: tools/test-android-emulator.sh:3
+- 根拠: Anyone reading the header (or a tool that maps keys to Scenarios from it) cannot find the new ONLY cases.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. `assert_only_base` runs `unset ASHIATO_TEST_SCRIPT_REV` without restoring the caller's value. When the whole file runs, every case after `only-base` silently switches from the caller's script revision to the current script. Fix: save the previous value and restore it afterwards, or scope the assignment, for example `ASHIATO_TEST_SCRIPT_REV=$base new_tree`, together with a local variable.
+- 成果物: tools/test-android-emulator.sh:582
+- 根拠: `ASHIATO_TEST_SCRIPT_REV=<old> tools/test-android-emulator.sh` tests the old script for the cases before only-base and the current script for only-class through only-st56-fail. The results mix two script versions.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. `run_usage` does not strip `ONLY` from the environment. `run_emulator` and `assert_term_cleanup` now do (`env -u ONLY`). If the caller has `ONLY` exported, as AGENTS.md now suggests, it leaks into the usage-volume cases. Fix: add `-u ONLY` to the `env` call in `run_usage` for consistency.
+- 成果物: tools/test-android-emulator.sh:381
+- 根拠: A developer exports `ONLY=dev.ashiato.collector.X` in their shell and then runs `tools/test-android-emulator.sh`. The usage-* cases run with ONLY set, which differs from the isolation the other cases get. It is harmless today only because usage-volume.sh does not read ONLY.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
