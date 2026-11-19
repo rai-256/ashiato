@@ -77,18 +77,33 @@ ENV
   cat > "$root/tools/android-media-fixtures.sh" <<'MEDIA'
 #!/usr/bin/env bash
 echo media-fixtures >> "${FAKE_LOG:?}"
+echo media-fixtures >> "${FAKE_SEQ_LOG:?}"
 MEDIA
   # ST58 の入れ替えの段の台本は APK を 2 つ組んで端末に入れるので、偽の端末では呼ばれたことだけを残す
   cat > "$root/tools/android-st58-replace.sh" <<'ST58'
 #!/usr/bin/env bash
 echo st58-replace >> "${FAKE_LOG:?}"
+echo st58-replace >> "${FAKE_SEQ_LOG:?}"
 ST58
   cat > "$root/collector-android/gradlew" <<'GRADLE'
 #!/usr/bin/env bash
 set -euo pipefail
-mkdir -p app/build/outputs/androidTest-results
-printf '<testsuite classname="fake" tests="1"/>\n' > app/build/outputs/androidTest-results/TEST-fake-_app-.xml
 echo gradle >> "${FAKE_LOG:?}"
+printf 'gradle %s\n' "$*" >> "${FAKE_SEQ_LOG:?}"
+if [[ "$*" == *connectedDebugAndroidTest* ]]; then
+  mkdir -p app/build/outputs/androidTest-results
+  classname=fake
+  for arg in "$@"; do
+    case "$arg" in
+      -Pandroid.testInstrumentationRunnerArguments.class=*) classname=${arg#*=} ;;
+    esac
+  done
+  classname=${FAKE_GRADLE_CLASS:-$classname}
+  printf '<testsuite classname="%s" tests="1"/>\n' "$classname" > app/build/outputs/androidTest-results/TEST-fake-_app-.xml
+fi
+if [ -n "${FAKE_GRADLE_RC:-}" ]; then
+  exit "$FAKE_GRADLE_RC"
+fi
 GRADLE
   cat > "$root/sdk/emulator/emulator" <<'EMU'
 #!/usr/bin/env bash
@@ -113,6 +128,7 @@ EMU
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${FAKE_ADB_LOG:?}"
+printf 'adb %s\n' "$*" >> "${FAKE_SEQ_LOG:?}"
 case "$*" in
   devices)
     printf 'List of devices attached\n'
@@ -132,6 +148,7 @@ case "$*" in
     if [ "${FAKE_ADB_MODE:-normal}" = hang ]; then sleep 1000; fi
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
     [ -f "$FAKE_VISIBLE" ] && echo 1 || echo 0 ;;
+  *'shell am instrument'*'St56BackupTest#verifyRestored'*) printf '%s\n' "${FAKE_VERIFY_OUT:-OK (1 test)}" ;;
   *'shell am instrument'*) printf 'OK (1 test)\n' ;;
   *'shell bmgr enabled'*) printf 'Backup Manager currently enabled\n' ;;
   *'shell bmgr transport'*) printf 'Selected transport com.android.localtransport/.LocalTransport\n' ;;
@@ -172,25 +189,33 @@ new_tree() {
 run_emulator() {
   local root=$1 keep=${2:-} avd_exists=${3:-1} key=${4:-emulator} rc
   local fake_emu=${5:-ok} adb_mode=${6:-normal} kvm_device=${7:-$root/kvm}
-  local device_timeout=${8:-} boot_attempts=${9:-} adb_timeout=${10:-}
-  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
+  local device_timeout=${8:-} boot_attempts=${9:-} adb_timeout=${10:-} only=${11:-}
+  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"; : > "$root/seq.log"
   rm -f "$root/visible" "$root/child"
   local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
     FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child"
     FAKE_ROOT="$root"
     FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
+    FAKE_SEQ_LOG="$root/seq.log"
     FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS="$avd_exists" FAKE_EMU="$fake_emu" FAKE_ADB_MODE="$adb_mode"
     ASHIATO_EMULATOR_DEVICE_TIMEOUT="$device_timeout" ASHIATO_EMULATOR_BOOT_ATTEMPTS="$boot_attempts" ASHIATO_ADB_CALL_TIMEOUT="$adb_timeout"
     ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="${FAKE_EXISTING_DEVICES:-}"
     FAKE_EXISTING_AVD="${FAKE_EXISTING_AVD:-}")
   set +e
-  env "${envs[@]}" ${keep:+KEEP=1} timeout 30 "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr"
+  local only_env=(-u ONLY)
+  [ -n "$only" ] && only_env=(ONLY="$only")
+  env "${only_env[@]}" "${envs[@]}" ${keep:+KEEP=1} timeout 30 "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr"
   rc=$?
   set -e
   if [ "$rc" -eq 124 ]; then
     echo "見張りで打ち切った: $key" >&2
   fi
   echo "$rc"
+}
+
+filtered_seq() {
+  local root=$1
+  grep -Ev 'getprop|devices|get-state|wait-for-device|emu avd name' "$root/seq.log"
 }
 
 assert_kvm_failure() {
@@ -355,11 +380,12 @@ assert_other_device() {
 
 run_usage() {
   local root=$1 key=$2 fake_emu=${3:-ok} kvm_device=${4:-$root/kvm} existing=${5:-} device_timeout=${6:-} rc
-  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"
+  : > "$root/adb.log"; : > "$root/avd.log"; : > "$root/run.log"; : > "$root/seq.log"
   rm -f "$root/visible" "$root/child"
   local envs=(HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH"
     ANDROID_HOME="$root/sdk" FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child"
     FAKE_ROOT="$root" FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log"
+    FAKE_SEQ_LOG="$root/seq.log"
     FAKE_AVD_LOG="$root/avd.log" FAKE_AVD_EXISTS=1 FAKE_EMU="$fake_emu" FAKE_ADB_MODE=normal
     ASHIATO_KVM_DEVICE="$kvm_device" FAKE_EXISTING_DEVICES="$existing"
     ASHIATO_EMULATOR_DEVICE_TIMEOUT="$device_timeout")
@@ -426,6 +452,7 @@ assert_term_cleanup() {
   env HOME="$root/home" ANDROID_AVD_HOME="$root/avd" PATH="$root/bin:$PATH" \
     FAKE_ANDROID_HOME="$root/sdk" FAKE_VISIBLE="$root/visible" FAKE_CHILD="$root/child" FAKE_ROOT="$root" \
     FAKE_ARGS="$root/args" FAKE_LOG="$root/run.log" FAKE_ADB_LOG="$root/adb.log" FAKE_AVD_LOG="$root/avd.log" \
+    FAKE_SEQ_LOG="$root/seq.log" \
     FAKE_AVD_EXISTS=1 FAKE_EMU=sleep FAKE_ADB_MODE=normal ASHIATO_EMULATOR_DEVICE_TIMEOUT=30 \
     ASHIATO_KVM_DEVICE="$root/kvm" FAKE_EXISTING_DEVICES='' FAKE_EXISTING_AVD='' \
     "$root/tools/android-emulator.sh" >"$root/stdout" 2>"$root/stderr" &
@@ -454,7 +481,7 @@ assert_term_cleanup() {
 }
 
 self_test() {
-  local root rc
+  local root rc base_root changed_root base_seq changed_seq
   new_tree; root=$NEW_ROOT
   sed -i 's/ -no-snapshot//' "$root/tools/android-emulator.sh"
   if assert_normal "$root"; then
@@ -467,6 +494,74 @@ self_test() {
     echo 'self-test: KEEP の破壊を検出できない' >&2
     return 1
   fi
+
+  new_tree; base_root=$NEW_ROOT
+  new_tree; changed_root=$NEW_ROOT
+  awk '
+    /adb shell pm reset-permissions/ && !removed { removed=1; next }
+    { print }
+  ' "$changed_root/tools/android-emulator.sh" >"$changed_root/android-emulator.sh.tmp"
+  mv "$changed_root/android-emulator.sh.tmp" "$changed_root/tools/android-emulator.sh"
+  chmod +x "$changed_root/tools/android-emulator.sh"
+  run_emulator "$base_root" '' 1 only-base >"$base_root/rc"
+  run_emulator "$changed_root" '' 1 only-base >"$changed_root/rc"
+  base_seq=$(filtered_seq "$base_root")
+  changed_seq=$(filtered_seq "$changed_root")
+  if [ "$base_seq" = "$changed_seq" ]; then
+    echo 'self-test: only-base の命令削除を検出できない' >&2
+    return 1
+  fi
+
+  new_tree; base_root=$NEW_ROOT
+  new_tree; changed_root=$NEW_ROOT
+  awk '
+    /adb shell pm reset-permissions/ && !removed { saved=$0; removed=1; next }
+    removed && /^keep_stage$/ && !inserted { print; print saved; inserted=1; next }
+    { print }
+  ' "$changed_root/tools/android-emulator.sh" >"$changed_root/android-emulator.sh.tmp"
+  mv "$changed_root/android-emulator.sh.tmp" "$changed_root/tools/android-emulator.sh"
+  chmod +x "$changed_root/tools/android-emulator.sh"
+  run_emulator "$base_root" '' 1 only-base >"$base_root/rc"
+  run_emulator "$changed_root" '' 1 only-base >"$changed_root/rc"
+  base_seq=$(filtered_seq "$base_root")
+  changed_seq=$(filtered_seq "$changed_root")
+  if [ "$base_seq" = "$changed_seq" ]; then
+    echo 'self-test: only-base の命令順序変更を検出できない' >&2
+    return 1
+  fi
+}
+
+assert_only_empty() {
+  local root unset_root empty_root unset_seq empty_seq
+  new_tree; unset_root=$NEW_ROOT
+  run_emulator "$unset_root" '' 1 only-empty >"$unset_root/rc"
+  new_tree; empty_root=$NEW_ROOT
+  run_emulator "$empty_root" '' 1 only-empty ok normal "$empty_root/kvm" '' '' '' '' >"$empty_root/rc"
+  unset_seq=$(filtered_seq "$unset_root")
+  empty_seq=$(filtered_seq "$empty_root")
+  [ "$(cat "$unset_root/rc")" -eq 0 ] && [ "$(cat "$empty_root/rc")" -eq 0 ] \
+    && [ "$unset_seq" = "$empty_seq" ] \
+    && [ "$(find "$unset_root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq "$(grep -c '^keep_stage$' "$unset_root/tools/android-emulator.sh")" ] \
+    && [ "$(grep -c '^st58-replace$' "$unset_root/seq.log")" -eq 1 ]
+}
+
+assert_only_base() {
+  local base=${ASHIATO_TEST_BASE_REV:-} current_root base_root current_seq base_seq
+  if [ -z "$base" ]; then
+    echo '比べる元の版が無いので飛ばす: only-base'
+    return 0
+  fi
+  unset ASHIATO_TEST_SCRIPT_REV
+  new_tree; current_root=$NEW_ROOT
+  run_emulator "$current_root" '' 1 only-base >"$current_root/rc"
+  ASHIATO_TEST_SCRIPT_REV=$base
+  new_tree; base_root=$NEW_ROOT
+  unset ASHIATO_TEST_SCRIPT_REV
+  run_emulator "$base_root" '' 1 only-base >"$base_root/rc"
+  current_seq=$(filtered_seq "$current_root")
+  base_seq=$(filtered_seq "$base_root")
+  [ "$(cat "$current_root/rc")" -eq 0 ] && [ "$(cat "$base_root/rc")" -eq 0 ] \
+    && [ "$current_seq" = "$base_seq" ]
 }
 
 if [ "$SELF_TEST" = --self-test ]; then
@@ -474,13 +569,13 @@ if [ "$SELF_TEST" = --self-test ]; then
   exit 0
 fi
 
-ONLY=${ASHIATO_TEST_ONLY:-}
-case "$ONLY" in
-  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup) ;;
-  *) echo "未知の ASHIATO_TEST_ONLY: $ONLY" >&2; exit 2 ;;
+CASE=${ASHIATO_TEST_ONLY:-}
+case "$CASE" in
+  ""|args|stages|keep|missing|avd-create|usage-shape|kvm-missing|kvm-denied|kvm-sign|dies|tail40|late-die|device-default|bad-value|device-timeout|getprop-hang|keep-cleanup|no-named-kill|same-avd|other-device|usage-dies|usage-kvm|usage-reuse|usage-bad-value|term-cleanup|only-empty|only-base) ;;
+  *) echo "未知の ASHIATO_TEST_ONLY: $CASE" >&2; exit 2 ;;
 esac
 
-run_only() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+run_only() { [ -z "$CASE" ] || [ "$CASE" = "$1" ]; }
 
 run_only args && { echo 'Scenario: 正常に立つとき、今と同じ引数でエミュレータを起こす'; assert_normal; }
 run_only stages && { echo 'Scenario: 正常に最後まで走ると、6 段の結果を残してエミュレータを止める'; assert_normal; }
@@ -507,4 +602,6 @@ run_only keep-cleanup && { echo 'Scenario: 上限で止まったとき、KEEP=1 
 run_only no-named-kill && { echo 'Scenario: 起動の途中で終わったとき、名指しの端末を止めない'; assert_late_die; }
 run_only usage-bad-value && { echo '== 採寸の台本の上限の値（Scenario 外・final R1）'; assert_usage_bad_value; }
 run_only term-cleanup && { echo '== 待ちの最中の SIGTERM の後片付け（Scenario 外・final R2）'; assert_term_cleanup; }
+run_only only-empty && { echo 'Scenario: ONLY が空なら、渡さないときと同じ命令の列で全段を走らせる'; assert_only_empty; }
+run_only only-base && { echo 'Scenario: ONLY を渡さなければ、この change の前の版の台本と同じ命令の列で全段を走らせる'; assert_only_base; }
 true
