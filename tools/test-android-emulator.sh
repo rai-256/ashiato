@@ -163,6 +163,7 @@ case "$*" in
     if [ "${FAKE_ADB_MODE:-normal}" = hang ]; then sleep 1000; fi
     if [ "${FAKE_EMU:-ok}" = late-die ]; then echo 0; exit 0; fi
     [ -f "$FAKE_VISIBLE" ] && echo 1 || echo 0 ;;
+  *'shell am instrument'*'St56BackupTest#prepareBackup'*) printf '%s\n' "${FAKE_PREPARE_OUT:-OK (1 test)}" ;;
   *'shell am instrument'*'St56BackupTest#verifyRestored'*) printf '%s\n' "${FAKE_VERIFY_OUT:-OK (1 test)}" ;;
   *'shell am instrument'*) printf 'OK (1 test)\n' ;;
   *'shell bmgr enabled'*) printf 'Backup Manager currently enabled\n' ;;
@@ -757,6 +758,18 @@ assert_only_st56_fail() {
     && [ "$(find "$root/collector-android/app/build/outputs" -maxdepth 1 -type d -name 'androidTest-results-stage*' | wc -l)" -eq 0 ]
 }
 
+assert_only_st56_prepare_fail() {
+  local root class='dev.ashiato.collector.St56BackupTest' rc
+  new_tree; root=$NEW_ROOT
+  export FAKE_PREPARE_OUT='FAILURES!!!'
+  rc=$(run_emulator "$root" '' 1 only-st56-prepare-fail ok normal "$root/kvm" '' '' '' "$class")
+  unset FAKE_PREPARE_OUT
+  [ "$rc" -eq 1 ] \
+    && grep -Fq 'error: St56BackupTest のバックアップの準備が通らない' "$root/stderr" \
+    && ! grep -q 'backupnow\|bmgr restore\|St56BackupTest#verifyRestored' "$root/seq.log" \
+    && grep -Fq -- '-s emulator-5554 emu kill' "$root/adb.log"
+}
+
 if [ "$SELF_TEST" = --self-test ]; then
   self_test
   exit 0
@@ -808,4 +821,5 @@ run_only only-dedicated && { echo 'Scenario: 入れ替えの試験か採寸の�
 run_only only-bad && { echo 'Scenario: 完全修飾のクラス名 1 つの形でない値を渡すと、起こさずに止まる'; assert_only_bad || exit 1; }
 run_only only-st56 && { echo 'Scenario: バックアップの試験を渡すと、gradle の計測テストを呼ばずに準備・往復・確かめを順に走らせる'; assert_only_st56 || exit 1; }
 run_only only-st56-fail && { echo 'Scenario: バックアップの試験の確かめが通らなければ、全体と同じ文言で止まる'; assert_only_st56_fail || exit 1; }
+run_only "" && { echo '== St56BackupTest の準備が通らなければ、往復前に止まる（final R19）'; assert_only_st56_prepare_fail || exit 1; }
 true

@@ -252,15 +252,18 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 根拠: tasks.md:76 の許可リストに `docs/handoff/` が無く、HEAD で走らせると `docs/handoff/CH19.md` を出して rc=1。4.3 の PASS の証跡は `1ae6ebe27` のもので、`0e5417413`（R17 の処置 `followup CH19`）がこのファイルを足した後に取り直されていない。`review_triage.py` は `followup` の処置に `docs/handoff/<ID>.md` を求めるので、fixer がハーネスの規則に従った結果の逸脱で、計画とハーネスが食い違っている。lanes gate は handoff を docs に分けて通すので merge は止まらないが、`[x]` の主張と実態がずれている（確かさ 4。Important）
 - kind: technical
 - 提案: 4.3 の主張と実態をそろえる —— handoff を予定のパスの扱いにするなら、その理由（followup にハーネスが要るファイル）を Ruling として残し PR 本文に写す。ハーネス側の根本の対応（4.3 型の許可リストの雛形に `docs/handoff/<自分の ID>.md` を含める）は harness2 への提案
+- 処置: fixed 4.3 — `review_triage.py` が R17 の `followup CH19` に `docs/handoff/CH19.md` を必須とするため、旧 4.3 コマンドは正式な申し送りを必ず FAIL にした。FAIL 証跡の後、同じ範囲検査を change 内の `check-allowed-paths.sh` に移し、そのファイルと申し送りを許可して PASS を記録した。`plan_fix.py --approved machine` で凍結後の検証コマンドだけを訂正した。
 
 ## R19. R8 の直し（prepareBackup の出力の `^OK (1 test)` の照合）を固定する試験が無い
 - 成果物: tools/test-android-emulator.sh
 - 根拠: tools/android-emulator.sh:130-131 のガードに対し、偽の adb（tools/test-android-emulator.sh:166）は `FAKE_VERIFY_OUT` の口を verifyRestored にしか持たず、prepareBackup には必ず `OK (1 test)` を返す。final reviewer が一時 worktree で `:130-131` の grep ガードを消しても `only-st56`・`only-st56-fail`・`--self-test` はすべて rc=0 のまま。「バックアップの準備が通らない」は試験に 1 回も出ない。R8 は ADDRESSED と判定されているが、直しが試験で守られていない（確かさ 4。Minor）
 - kind: technical
 - 提案: 偽の adb に `FAKE_PREPARE_OUT` を足し、準備が通らないとき rc=1・backupnow を呼ばない・emu kill が届く、を見る場合を 1 つ足す。spec の Scenario には無い振る舞いなので印は Scenario 外の形（`== …`）にする
+- 処置: fixed 3.1 — 偽 adb に `FAKE_PREPARE_OUT` を加え、prepareBackup が `OK (1 test)` を返さないときは rc=1、往復・verify が未実行、emu kill が届くことを通常の偽 SDK 試験で固定した。
 
 ## R20. 申し送りの「いつ・どこで」が、実行の経路（グラフだけ）と合わない書き方になっている
 - 成果物: docs/handoff/CH19.md
 - 根拠: docs/handoff/CH19.md の「いつ・どこで: CH19 の merge 後に `fix/usage-volume-first-full-suite` で」。宛先が自分自身（CH19）で、merge 後にこの handoff を読む下流はなく、拾う経路は PR 本文の「未処置の申し送り」だけ。CLAUDE.md は要件から来ない作業も `scripts/hx change` で流すと決めている（前例: CH11 の申し送り）。`fix/<slug>` は docs/handoff/README.md の規則 2(ii) の形には合う（確かさ 2。nit）
 - kind: technical
 - 提案: 「いつ・どこで」を「CH19 の merge 後に `scripts/hx change` で立てる」に寄せる
+- 処置: fixed 4.3 — `docs/handoff/CH19.md` を、CH19 merge 後に `scripts/hx change` で小さな change を立てる経路に修正した。
