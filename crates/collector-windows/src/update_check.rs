@@ -359,7 +359,7 @@ fn request(base: &str) -> Result<Vec<u8>, CheckReason> {
     let initial_uri = url
         .parse::<ureq::http::Uri>()
         .map_err(|_| CheckReason::Unreadable)?;
-    let agent = ureq::Agent::config_builder()
+    let agent = crate::tls::agent_builder()
         .timeout_connect(Some(StdDuration::from_secs(10)))
         .timeout_global(Some(StdDuration::from_secs(30)))
         .max_redirects(0)
@@ -426,7 +426,7 @@ pub fn download_asset(url: &str) -> Result<Vec<u8>, CheckReason> {
             );
         }
     }
-    let agent = ureq::Agent::config_builder()
+    let agent = crate::tls::agent_builder()
         .timeout_connect(Some(StdDuration::from_secs(10)))
         .timeout_global(Some(StdDuration::from_secs(60)))
         .max_redirects(0)
@@ -514,4 +514,15 @@ pub fn toast_xml(title: &str, body: &str) -> String {
         esc(title),
         esc(body)
     )
+}
+
+#[cfg(test)]
+mod tls_tests {
+    /// 版の一覧の問い合わせは HTTPS の握手を始め、panic せずに「確かめられない」で返る（2026-11-19 の 0.1.0 の abort）。
+    #[test]
+    fn tls_update_request_handshake_starts_without_panic() {
+        crate::tls::assert_handshake_started(crate::tls::handshake_against_loopback(|base| {
+            super::request(&base).is_err()
+        }));
+    }
 }
