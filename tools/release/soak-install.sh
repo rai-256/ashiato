@@ -291,7 +291,7 @@ soak_run() {
   local elapsed=0
   while (( elapsed < SOAK_WAIT_SECONDS )); do
     sleep "$SOAK_READ_INTERVAL_SECONDS"; elapsed=$((elapsed + SOAK_READ_INTERVAL_SECONDS)); soak_record_sample "$work"
-    if (( elapsed >= SOAK_COLLECTOR_RESTART_SECONDS && restart == '' )); then
+    if (( elapsed >= SOAK_COLLECTOR_RESTART_SECONDS )) && [[ -z "$restart" ]]; then
       taskkill.exe /F /IM ashiato-collector-windows.exe >/dev/null 2>&1 || true
       "$collector" >/dev/null 2>&1 &
       restart="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
@@ -332,9 +332,9 @@ printf 'netsh %s\n' "$*" >>"$ST22_CALLS"
 if [[ "$*" == *'show rule'* && -e "$ST22_RULE" ]]; then printf 'Rule Name: ashiato-update-check-ci-outbound\n'; fi
 if [[ "$*" == *'delete rule'* && "${ST22_KEEP_RULE:-0}" != 1 ]]; then rm -f "$ST22_RULE"; fi
 EOF
-  cat >"$bin/wevtutil.exe" <<'EOF'
+cat >"$bin/wevtutil.exe" <<'EOF'
 #!/usr/bin/env bash
-:
+printf '2026-11-20T00:00:11.000Z|ashiato-server|0\n'
 EOF
   cat >"$bin/curl.exe" <<'EOF'
 #!/usr/bin/env bash
@@ -369,17 +369,38 @@ EOF
   server="$work/server.zip"; collector="$work/collector.zip"
   (cd "$work" && zip -q "$server" ashiato-setup.exe && zip -q "$collector" ashiato-collector-windows.exe)
   export ST22_RULE="$work/rule"; : >"$ST22_RULE"
-  export SOAK_PROGRAM_DIR="$work/C:/Program Files/ashiato" SOAK_STATE_DIR="$work/C:/ProgramData/ashiato" SOAK_UPDATER_DIR="$work/C:/ProgramData/ashiato-updater" SOAK_COLLECTOR_DIR="$work/collector-state"
-  (cd "$work" && PATH="$bin:$PATH" reset_wait_seconds=0 SOAK_WAIT_SECONDS=0 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=0 SOAK_SETUP_TIMEOUT=1 \
-    soak_run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
+  printf 'leftover\n' >"$work/C:/ProgramData/ashiato-updater/status.json"
+  (cd "$work" && PATH="$bin:$PATH" \
+    SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' \
+    SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' \
+    reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 \
+    "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
+  local wiring reset_line rule_line setup_line
+  wiring="$(declare -f soak_evaluate)"
+  for name in soak_service_failures soak_log_errors soak_check_records soak_collector_pid; do
+    [[ "$wiring" == *"$name"* ]] || die "self-test: 実地の判定関数を呼んでいない: $name"
+  done
+  reset_line="$(grep -n '^sc\|^taskkill\|^reg\|^icacls' "$calls" | head -n 1 | cut -d: -f1)"
+  rule_line="$(grep -n '^netsh .*delete rule' "$calls" | head -n 1 | cut -d: -f1)"
+  setup_line="$(grep -n '^setup install' "$calls" | head -n 1 | cut -d: -f1)"
+  (( reset_line < rule_line && rule_line < setup_line )) || die 'self-test: 掃除・塞ぎ・インストールの順序が違う'
+  [[ ! -e "$work/C:/ProgramData/ashiato-updater/status.json" ]] || die 'self-test: status.json が残っている'
+  # Scenario: 置く段は、前の段の入れたものと更新係の置き場を消し、塞ぎを外してから配る zip を入れる
+  # Scenario: 配る zip を入れる時に、前の段の更新係の置き場が残っていない
   grep -q 'taskkill.*ashiato-collector-windows.exe' "$calls" || die 'self-test: 収集アプリを起こし直していない'
   [[ "$(grep -c '^netsh ' "$calls")" == 2 ]] || die 'self-test: 塞ぎの削除と確認をしていない'
   grep -q '^setup install' "$calls" || die 'self-test: インストーラを呼んでいない'
   : >"$ST22_RULE"
   if (PATH="$bin:$PATH" ST22_KEEP_RULE=1 soak_remove_outbound_rule) >"$work/rule.out" 2>&1; then die 'self-test: 塞ぎが残るのに通った'; fi
   grep -q 'NG:' "$work/rule.out" || die 'self-test: 塞ぎが残った理由が出ない'
-  mkdir -p "$SOAK_STATE_DIR/settings"
-  if (PATH="$bin:$PATH" ST22_KEEP_STATE=1 reset_wait_seconds=0 soak_reset_machine) >"$work/reset.out" 2>&1; then die 'self-test: 残った置き場を通した'; fi
+  # Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる
+  : >"$ST22_RULE"; : >"$calls"
+  if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state' ST22_KEEP_RULE=1 reset_wait_seconds=0 SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/rule-fail") >"$work/order.out" 2>&1; then
+    die 'self-test: 塞ぎが残るのに実地の口が通った'
+  fi
+  ! grep -q '^setup ' "$calls" || die 'self-test: 塞ぎが残るのにインストーラを呼んだ'
+  mkdir -p "$work/C:/ProgramData/ashiato/settings"
+  if (cd "$work" && PATH="$bin:$PATH" SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' ST22_KEEP_STATE=1 reset_wait_seconds=0 soak_reset_machine) >"$work/reset.out" 2>&1; then die 'self-test: 残った置き場を通した'; fi
   grep -q 'ashiato' "$work/reset.out" || die 'self-test: 残った置き場の名前が出ない'
   [[ "$(soak_list | wc -l)" -eq 2 ]] || die 'self-test: --list が実地の 2 Scenario でない'
 }
@@ -399,17 +420,32 @@ root = Path(sys.argv[1])
 files = sorted((root / '.github' / 'workflows').glob('*.yml')) + sorted((root / '.github' / 'workflows').glob('*.yaml'))
 text = '\n'.join(p.read_text(encoding='utf-8') for p in files)
 ci = (root / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
-assert files and 'soak-install.sh --self-test' in ci
-assert ci.count('--block-outbound') == 1, '塞ぎの最初の遮断を残す'
-assert ci.count('soak-install.sh package/') == 1
-assert ci.count('soak-install.sh --list') == 1
-for script in ('install-check.sh', 'update-check-install.sh', 'update-apply-install.sh', 'soak-install.sh'):
-    assert f'{script} --list' in ci
-assert ci.index('update-check-install.sh --block-outbound') < ci.index('install-check.sh --list')
-assert ci.index('soak-install.sh package/') > ci.index('update-apply-install.sh \\')
-assert 'timeout-minutes: 15' in ci and 'install-windows:\n' in ci
-assert 'install-windows:\n    timeout-minutes: 100' in ci
+def check(value):
+    assert 'soak-install.sh --self-test' in value
+    assert sum('--block-outbound' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
+    assert sum('soak-install.sh package/' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
+    assert sum('soak-install.sh --list' in line and not line.lstrip().startswith('#') for line in value.splitlines()) == 1
+    for script in ('install-check.sh', 'update-check-install.sh', 'update-apply-install.sh', 'soak-install.sh'):
+        assert f'{script} --list' in value
+    assert value.index('update-check-install.sh --block-outbound') < value.index('install-check.sh --list')
+    assert value.index('soak-install.sh package/') > value.index('update-apply-install.sh \\')
+    assert 'timeout-minutes: 15' in value
+    assert 'install-windows:\n    timeout-minutes: 100' in value
+assert files
+check(ci)
 assert text.count('soak-install.sh package/') == 1
+def must_fail(old, new):
+    broken = ci.replace(old, new, 1)
+    try:
+        check(broken)
+    except AssertionError:
+        return
+    raise AssertionError('壊した CI の写しを自己試験が通した')
+must_fail('soak-install.sh package/', 'soak-install.sh broken/')
+must_fail('update-check-install.sh --block-outbound', 'update-check-install.sh --no-block-outbound')
+must_fail('timeout-minutes: 15', 'timeout-minutes: 14')
+must_fail('soak-install.sh --list', 'soak-install.sh --scenarios')
+must_fail('timeout-minutes: 100', 'timeout-minutes: 99')
 PY
 }
 
@@ -491,10 +527,23 @@ EOF
 
 main() {
   case "${1:-}" in
+    --self-test-run)
+      SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state'
+      SOAK_WAIT_SECONDS=1 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 reset_wait_seconds=0
+      soak_run "$2" "$3" "$4"
+      ;;
     --self-test) SOAK_SELF_TEST_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak.XXXXXX")" || die '自己試験の置き場を作れない'; trap 'rm -rf "$SOAK_SELF_TEST_WORK"' EXIT; mkdir -p "$SOAK_SELF_TEST_WORK/observed"; soak_self_test "$SOAK_SELF_TEST_WORK"; NG_OBSERVED_DIR="$SOAK_SELF_TEST_WORK/observed" "$root/tools/release/check-ng-observations.sh" "$0" || die '観測の検査に失敗'; rm -f "$SOAK_SELF_TEST_WORK/observed/.ng-secrets"*; echo 'OK: soak-install self-test' ;;
     --list) soak_list ;;
     --evaluate) soak_evaluate "$2" "$3" "$4" "$5" "$6" ;;
-    *) soak_usage; die '実地の口は Task 2 で接続されます' ;;
+    *)
+      [[ "$#" -eq 2 ]] || { soak_usage; die 'サーバ zip と収集アプリ zip が必要です'; }
+      local work server_zip collector_zip
+      work="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak-run.XXXXXX")" || die '実地の置き場を作れない'
+      trap 'rm -rf "$work"' EXIT
+      server_zip="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" || die 'サーバ zip の道を読めない'
+      collector_zip="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")" || die '収集アプリ zip の道を読めない'
+      soak_run "$server_zip" "$collector_zip" "$work"
+      ;;
   esac
 }
 main "$@"
