@@ -63,7 +63,7 @@
 
 ## Task 2: 置く段の実地と、CI の配線
 
-- [ ] 2.1 `soak-install.sh <配るサーバの zip> <配る PC の収集アプリの zip>` の実地の口を作る（design D2・D3・D5・D7）: 掃除（D2。消した後に残りが無いことを確かめ、残れば塞ぎの規則に触れずに `die`）→
+- [x] 2.1 `soak-install.sh <配るサーバの zip> <配る PC の収集アプリの zip>` の実地の口を作る（design D2・D3・D5・D7）: 掃除（D2。消した後に残りが無いことを確かめ、残れば塞ぎの規則に触れずに `die`）→
   置く段の始まりの時刻を取る → 塞ぎの規則 `ashiato-update-check-ci-outbound` を消し、`show rule` で無いことを確かめる（残れば入れずに `die`）→ 配る zip を `install-check.sh` と同じ口で入れる →
   healthz が 200 になるのを 150 秒まで待ち、置く間の始まりの時刻を取る → PC の収集アプリを開いて送り先なしで起こす → 5 秒ごとに 3 つのサービスの `sc.exe queryex` と PC の収集アプリの `tasklist` を読み、60 秒で PC の収集アプリを止めて起こし直す →
   300 秒の後にシステムの記録を読み、Task 1 の判定を全部通す。
@@ -76,7 +76,7 @@
   `# Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる`（`show rule` が規則を返し続ける偽の `netsh.exe`。インストーラの呼び出しが 0 回）。
   加えて、実地の口が Task 1 の判定の関数を全部呼ぶことを `declare -f <実地の関数>` の中の名前で見る（1 つでも欠ければ `die`。実地の印 1 つが判定を束ねるので、呼び忘れを `comm` は捕まえない）
   検証: `tools/release/soak-install.sh --self-test` rc=0 / `bash -c 'test "$(tools/release/soak-install.sh --list | wc -l)" -eq 2'` rc=0
-- [ ] 2.2 `.github/workflows/ci.yml` を直す: `install-windows` の、`update-apply-install.sh` の手順の後に置く段の手順を足し（`timeout-minutes: 15`。D8（仮））、
+- [x] 2.2 `.github/workflows/ci.yml` を直す: `install-windows` の、`update-apply-install.sh` の手順の後に置く段の手順を足し（`timeout-minutes: 15`。D8（仮））、
   `tools/release/soak-install.sh package/package-windows-release/ashiato-server-*.zip package/package-windows-release/ashiato-collector-windows-*.zip | tee "$RUNNER_TEMP/soak.log"` を走らせ、
   `--list` と走った `== Scenario:` の行を `comm -23` で突き合わせて欠けがあれば落とす（ほかの 3 つの台本と同じ形）。`install-windows` の job に `timeout-minutes: 100`（D8（仮））。
   D18 の注記（`ci.yml:607-608`「この規則は job の終わりまで外さない」）を「置く段（`soak-install.sh`）で外すまで外さない」に直す。`rust` の job の `update-apply-install.sh --self-test` の隣に `./tools/release/soak-install.sh --self-test` を足す。
