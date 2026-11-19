@@ -102,7 +102,7 @@
 
 ## Task 4: 全体
 
-- [ ] 4.1 Scenario の印の突き合わせと、台本の検査
+- [x] 4.1 Scenario の印の突き合わせと、台本の検査
   検証: `python3 scripts/check_scenarios.py . ch22-soak-install-online-ci` rc=0 / `tools/release/soak-install.sh --self-test` rc=0 /
   `tools/release/install-check.sh --self-test` rc=0 / `tools/release/update-check-install.sh --self-test` rc=0 / `tools/release/update-apply-install.sh --self-test` rc=0 /
   `bash -c 'git diff --name-only origin/main...HEAD | grep -Ev "^(tools/release/soak-install\.sh|\.github/workflows/ci\.yml|docs/testing\.md|docs/changes/CH22\.md|openspec/changes/ch22-soak-install-online-ci/.*)$" | grep -v "^docs/briefs/" | { ! grep -q .; }'` rc=0（予定のパスの外に触れていない）
