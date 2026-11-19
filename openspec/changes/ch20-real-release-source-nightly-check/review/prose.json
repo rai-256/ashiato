@@ -1,0 +1,17 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 97,
+ "applied": [
+  "impact.overview",
+  "points[replay.2].text",
+  "points[shape.1].text",
+  "impact.findings[IMP-04].title",
+  "impact.findings[IMP-04].text",
+  "impact.findings[IMP-07].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
