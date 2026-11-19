@@ -21,6 +21,7 @@
 - `tools/check-vulns.sh` の自己試験の偽の `gh`: `label list` は、ラベルが無いとき本物と同じく空の文字を返す（`issue list` は本物と同じ `[]` のまま）
 - 知らせの段が落ちた夜の知らせ（ADDED）: `tools/check-vulns.sh report-unfiled <run の URL>` が、題 `脆弱性: 毎晩の知らせを issue にできなかった` の issue を
   ラベル無しで 1 件立てる（開いていれば、その夜の行を追記する）。`vulns-nightly.yml` の `issues` の job に、`file-issues` の段が落ちたときだけ走る段を足す（D2）
+- 新しく立てる issue はリポジトリの持ち主を担当者にする（本人はこのリポジトリを watch しておらず、Actions が立てた issue の知らせが届かない見込み。D5）
 - 配線の検査（`tools/check-vulns-wiring.sh`）がその段を見る。`docs/testing.md` の毎晩の行に書き足す
 - 正典の Requirement と Scenario は変えない（`## MODIFIED` を書かない）。検査できなかった夜（rc=2）は正典のとおり issue を立てない（D3）
 
@@ -32,7 +33,7 @@
 
 ### Modified Capabilities
 
-- `dependency-vulnerability-scan`: Requirement を 2 つ足す（ADDED のみ）
+- `dependency-vulnerability-scan`: Requirement を 3 つ足す（ADDED のみ）
 
 ## Impact
 

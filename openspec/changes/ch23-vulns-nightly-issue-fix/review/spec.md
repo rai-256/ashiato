@@ -160,3 +160,86 @@ R8・R9。1.1〜3.2 はどれも検証コマンドと rc を持ち、書いた�
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。
 補足: proposal.md:105 は走っている change として `ch19-emulator-only-class` だけを挙げるが、origin/main には `ch22-soak-install-online-ci`（`distribution`）も走っている。
 `git show origin/main:openspec/changes/ch22-soak-install-online-ci/…` には `check-vulns`・`vulns-nightly` を触る記述が無く（review/spec.md:201 で名前に触れるだけ）、重ならない。
+
+## 2 巡目
+
+1 巡目の R と `- 処置:` の行には触れていない。直した後の spec・design・tasks・premises・proposal・docs/changes/CH23.md を読み直した。
+
+### 機械の検査（2 巡目）
+
+- `openspec validate ch23-vulns-nightly-issue-fix --strict` → valid（rc=0）
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`
+- `python3 scripts/check_scenarios.py . ch23-vulns-nightly-issue-fix` → `scenarios: FAIL (担保なし 15 件 …)`。15 件はどれもこの change の新しい Scenario で、spec 段では予期どおり（印は tasks 1.2・2.1・2.2・2.3 で入る）
+- `python3 scripts/review_triage.py . ch23-vulns-nightly-issue-fix` → `指摘 11 件 / 仮決め 0 件 / 要件へ戻すもの 0 件`・`triage: OK`
+- `python3 scripts/spec_overlap.py candidates . ch23-vulns-nightly-issue-fix` → `[]`
+- `python3 scripts/evidence.py lint openspec/changes/ch23-vulns-nightly-issue-fix` → `[OK] 検証コマンド`
+- tasks 2.2 の 3 つ目の検証（`issues` の job より前が base と同じで、`exit "$rc"` が 2 つある）を今の木で書いたまま走らせた → rc=0
+- 名指しの Scenario の名前を本文に含む tasks の項目は 1.1 だけになった（tasks.md:5 は前置きなので項目に数えない）
+
+### (a) R11 を premise から technical に分け直したこと
+
+妥当と判断する。R11 が premise だったのは、公式文書の逐語を確かめていなかったから（1 巡目の根拠）。これは github/docs の原稿の逐語（premises.md:66、確かさ 2）で、機械で確かめ終えた。
+残るのは本人だけが答えられる受け取りの事実（届いたか・なぜ気づかなかったか）で、tasks 4.1 (2) に問いとして置かれている。どちらに転んでも失うものは無い。escalated にする必要は無い。
+同じ型（機械で確かめられる前提を確かさ 1 のまま置いている）が D5 に残っているので、R12 として別に挙げる。
+
+### (b) 1 巡目の処置の確かめ
+
+- R1: ADDRESSED — spec.md:29-30 が「材料が 1 つも無い夜」「片方だけ検査できなかった夜」を名指すようになった。Scenario「材料が無い夜は、file-issues を呼ばない」（spec.md:69-72）が分岐を配線の検査で固定し、分岐を外した写しの `expect_fail` もある（tasks 2.2 の tasks.md:44・46）
+- R2: ADDRESSED — spec.md:66 が `failure()` と `outcome == 'failure'` の両方を求め、spec.md:67 と tasks.md:46 に `failure() && ` を外した写しの `expect_fail` がある。premises.md:67 に暗の `success()` の逐語の行がある
+- R3: ADDRESSED — spec.md:26「ラベルで絞らずに題で探す」と、spec.md:41「受けた `issue list` の引数に `--label` は無い」。ラベルで絞る実装はこの Scenario で落ちる
+- R4: ADDRESSED — ADDED の Requirement が 3 つになり、空の応答とラベルの Scenario は「gh がラベルの一覧に空の文字で答えたら、ラベルが無いと読む」（spec.md:3-20）の下に移った
+- R5: ADDRESSED — (a) spec.md:7 と Scenario spec.md:18-20、(b) 空の扱いを `label list` だけに絞った（spec.md:5・design.md:15-18）、(c) 使い方は Scenario spec.md:55-57 に、件数の上限は理由つきで外した（design.md:26）
+- R6: ADDRESSED — spec.md:27「落ちた run ごとに 1 回。同じ日に 2 回落ちれば 2 回追記する」、spec.md:45 が `date -u +%F` と比べ、spec.md:48-49 が 2 回走らせて 2 回の `issue comment` を見る
+- R7: ADDRESSED — 立つ / ラベルに触れない / 本文の 2 行（spec.md:35-45）と、配線の 3 つ（spec.md:59-72）に分かれた。配線の Scenario に残る `AND`（写しを書き換えると落ちる）は、同じ主張を確かめる手段なので束ねとはみなさない
+- R8: ADDRESSED — 1.2 の本文から名前の逐語が消え（tasks.md:27「1.1 の節の後に」）、1.1 に、FAIL の記録の tree を code review の席が確かめることが書かれた（tasks.md:23-24）。機械の判定が空振りすることは変わらず、確かめは人の席に移っている
+- R9: ADDRESSED — tasks.md:49 の検証。今の木で rc=0
+- R10: ADDRESSED — tasks 4.1 (3)（tasks.md:70）と docs/changes/CH23.md の完了の判定 5
+
+### (c) D5 と担当者の Requirement
+
+正典との矛盾は見つからなかった。正典が固定するのは題・ラベル・本文・重複・閉じないこと（openspec/specs/dependency-vulnerability-scan/spec.md:211-254）で、担当者には触れない。
+既存の自己試験は `GITHUB_REPOSITORY_OWNER` を外して走らせる（tasks.md:53）。`--assignee` は引数の末尾に置く（tasks.md:51）ので、`^issue create --title …` の見方（tools/check-vulns.sh の PostgreSQL の節）も変わらない。
+人に返すべき A も無い。D5 とリポジトリ全体を watch してもらう案（design.md:49）は、どちらも戻せて安い。
+Scenario（spec.md:81-91）はどれも、偽の `gh` の記録で真偽が決まる。
+
+## R12. D5 の前提「担当者にされた人には知らせが届く」が確かさ 1 のままだが、公式文書の原稿で機械が確かめられる
+- 成果物: openspec/changes/ch23-vulns-nightly-issue-fix/premises.md
+- 根拠: premises.md:69 は「公式文書では確かめていない」・確かさ 1。github/docs の原稿を `gh api repos/github/docs/contents/<path> -H 'Accept: application/vnd.github.raw'` で読むと、次の逐語がある。
+  - `content/subscriptions-and-notifications/concepts/about-notifications.md:39-41`「you are automatically subscribed to conversations by default when you have: … Been assigned to an issue or pull request.」
+  - `content/rest/activity/notifications.md:55`「`assign` | You were assigned to the issue.」
+
+  あわせて次も確かめた。
+  - `gh api users/rai-256 --jq .type` → `User`
+  - `gh api -i repos/rai-256/ashiato/assignees/rai-256` → `HTTP/2.0 204 No Content`（担当者にできる）
+
+  design.md:58 の Risk（持ち主が組織なら付けられない）は今は当たらない。`GITHUB_REPOSITORY_OWNER` を Actions が既定で渡すこと（tasks.md:52）にも、premises の行が無い
+- kind: technical
+- 提案: premises.md:69 に上の逐語を写して確かさを上げ、担当者にできることの実測の行と、`GITHUB_REPOSITORY_OWNER` の既定の環境変数の行（出所: 公式文書）を足す。実際にメールや受信箱に届くか（知らせの設定）は本人にしか分からないので、4.1 (1) に残す
+- 処置: fixed premises.md — 担当者の購読と知らせ（公式文書・確かさ 2）・本人を担当者にできること（実物・確かさ 4）・`GITHUB_REPOSITORY_OWNER`（公式文書 variables.md:59・確かさ 2）の 3 行にした。design の「組織なら付けられない」の Risk を、立て直しの後に残るものへ書き直した
+
+## R13. 「担当者を付けられなければ知らせの段が拾う」（D5）は成り立たない。知らせの段も同じ `--assignee` で落ちる
+- 成果物: openspec/changes/ch23-vulns-nightly-issue-fix/design.md / specs/dependency-vulnerability-scan/spec.md
+- 根拠: design.md:51「担当者を付けられない（`gh` が落ちる）ときは、issue を立てられなかったのと同じに rc=2 で落とす（知らせの段が拾う）」。spec.md:76 と tasks.md:51 は `report-unfiled` にも同じ `--assignee` を付ける。
+  担当者で落ちる夜は、`file-issues` も `report-unfiled` も同じ所で落ちる。D2 の原則（design.md:28「同じ所で落ちる経路は知らせにならない」）に反し、赤だけが残る。
+  加えて、これは正典の `file-issues` の経路に新しい落ち方を足す。担当者 1 つで、その夜の依存の issue が全部立たない。本物の `gh` が付けられない login でどう落ちるかは premises に無く、偽の `gh` も表さない（この change が直す型の取りこぼし）。
+  今は付けられる（R12 の 204）ので、起きる見込みは低い
+- kind: technical
+- 提案: 少なくとも `report-unfiled` は、担当者つきの `issue create` が落ちたら担当者無しで 1 回立て直すことにし、その Scenario（「担当者を付けられなくても、知らせの issue は担当者無しで立つ」）を足す。`file-issues` も同じにするか、design.md:51 の「知らせの段が拾う」を消して、残るものに書き直す
+- 処置: fixed D5 — 担当者つきの `issue create` が落ちたら、担当者を外して 1 回だけ立て直すと決め、specs の Requirement の本文と Scenario「担当者を付けられなければ、担当者無しで立て直す」を足した（2.3 が試験にする）
+
+## R14. 確認バッチの問い 4.1 (1) は、merge の後に観測できる場面が来ないことがある
+- 成果物: openspec/changes/ch23-vulns-nightly-issue-fix/tasks.md
+- 根拠: tasks.md:67「merge の後の最初の毎晩の検査…で、本人を担当者にして立った issue の知らせが本人に届いたか」。今の当たりは #334〜#337 が開いたままで、`file-issues` は追記するだけで担当者を付けない（spec.md:78、design.md:50）。
+  そのため新しく担当者つきの issue が立つのは、新しい依存に勧告が出た夜か、知らせの段が落ちた夜だけになる。どちらも起きないまま確認バッチが来ると、「届いたか」に答える材料が無い。
+  あるいは「届かなかった」と取り違え、D5 の反転条件（design.md:52）を誤って引く
+- kind: technical
+- 提案: 4.1 (1) に観測の手順を足す。例えば、docs/changes/CH23.md の「残るもの」にある「閉じて立て直させる」を手順にし、merge の後に #334〜#337 のどれか 1 つを本人が閉じて `workflow_dispatch` で起動し、担当者つきで立て直された issue の知らせが届いたかを聞く。新しい issue が立たなかったときは「観測できなかった」と答えられるようにする
+- 処置: fixed 4.1 — 担当者つきの issue が立たないときに、本人が 1 つ閉じて手動で起動する手順と、「観測できなかった」と答える道を足した
+
+## R15. tasks の読む順が D5 を指していない
+- 成果物: openspec/changes/ch23-vulns-nightly-issue-fix/tasks.md
+- 根拠: tasks.md:3「`design.md`（D1〜D4）」。2.3（tasks.md:51）は D5 を名指す
+- kind: technical
+- 提案: 「D1〜D5」に直す
+- 処置: fixed tasks.md — 読む順を D1〜D5 にした
+

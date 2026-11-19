@@ -12,6 +12,7 @@
 
 - 本物の gh 2.104.0 は、当てはまるラベルが無いと `label list --json` に空の文字（0 バイト・rc=0）を返す。`issue list` のほうは `[]` を返す（どちらも実測）
 - 予定した workflow の知らせは、cron を最後に変えた人（本人）に送られる（github/docs の原稿の逐語）。届いたか・埋もれたかは確かめていないので、確認バッチで聞く
+- 本人はこのリポジトリを watch していない（`subscription` が 404、`subscribers_count` が 0）。Actions が立てた issue（#334〜#337）の知らせも、本人に届いていない見込み
 - 勧告が残る夜は、検査の job が毎晩赤になる（11-19 は issue が立った後も赤だった）。だから赤の色は知らせにならない
 
 ## 仮決め（`design.md`）
@@ -20,14 +21,17 @@
 - **D2（仮）**: `file-issues` の段が落ちた夜は、同じ `issues` の job の `report-unfiled` で知らせる。題は `脆弱性: 毎晩の知らせを issue にできなかった`、ラベルは付けない。開いていれば追記し、落ちた run ごとに 1 回書く
 - **D3（仮）**: 検査できなかった夜（rc=2）は、正典のとおり issue を立てない。変えると MODIFIED になり、軽い路の外。確認バッチで本人に聞く
 - **D4（仮）**: job の赤と緑の付き方は変えない
+- **D5（仮）**: 毎晩の検査が新しく立てる issue は、リポジトリの持ち主（`GITHUB_REPOSITORY_OWNER`）を担当者にする。担当者を付けられなければ、担当者無しで 1 回立て直す。リポジトリ全体を watch すると、ハーネスの PR の知らせに埋もれるので、その案は採らない
 
 ## 規模
 
-- specs: `dependency-vulnerability-scan` に Requirement を 2 つ足す（ADDED のみ。Scenario は 12）。capability の前倒しはしない
-- tasks: 3 Task・7 項目と、人間の確認待ち 1 つ（確認バッチの問いが 3 つ）
-- spec-review: 指摘 11 件。technical 9 件・defer 1 件・premise 1 件で、11 件とも fixed。premise の 1 件は、前提を公式文書の原稿で確かめてから technical に分け直した。A（人間に返す問い）は 0 件
+- specs: `dependency-vulnerability-scan` に Requirement を 3 つ足す（ADDED のみ。Scenario は 16）。capability の前倒しはしない
+- tasks: 3 Task・8 項目と、人間の確認待ち 1 つ（確認バッチの問いが 3 つ）
+- spec-review: 2 巡で指摘 15 件（technical 13 件・defer 1 件・premise 1 件）。15 件とも fixed。premise の 1 件は、前提を公式文書の原稿で確かめてから technical に分け直した。その分け直しは 2 巡目のレビューが妥当と判断した。A（人間に返す問い）は 0 件
 
 ## 残るもの
+
+- 既に開いている #334〜#337 は担当者が無い。本人が手で担当者になるか、閉じて立て直させる
 
 - 検査できなかった夜は、赤だけで本人に届かないことがある（D3）
 - gh そのもの・権限・GitHub の障害で知らせの段も落ちた夜は、赤だけが残る（D2）
