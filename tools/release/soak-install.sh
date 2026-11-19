@@ -38,7 +38,7 @@ EOF
 
 soak_cleanup() {
   taskkill.exe /F /IM ashiato-collector-windows.exe >/dev/null 2>&1 || true
-  rm -rf "${SOAK_CLEANUP_WORK:-}"
+  rm -rf "${SOAK_CLEANUP_WORK:-}" "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"
 }
 
 soak_service_failures() {
@@ -156,6 +156,7 @@ soak_collector_pid() {
   local file="$1" start="$2" restart="$3" end="$4" ts pid previous='' changes=0 allow_restart=1
   while IFS='|' read -r ts pid; do
     [[ "$ts" > "$start" && "$ts" < "$end" ]] || continue
+    [[ -z "$pid" && -z "$previous" ]] && continue
     if [[ -z "$pid" ]]; then
       if [[ "$ts" > "$restart" && $allow_restart -eq 1 ]]; then allow_restart=0; else ((changes++)); fi
     elif [[ -n "$previous" && "$pid" != "$previous" ]]; then
@@ -171,9 +172,11 @@ soak_evaluate() {
   local dir="$1" start="$2" soak_start="$3" restart="$4" end="$5" baseline_dir="${6:-$1/.soak-log-baselines}" observed previous_observed
   SOAK_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak-eval.XXXXXX")" || die '判定の一時置き場を作れない'
   observed="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak-observed.XXXXXX")" || die '観測の一時置き場を作れない'
+  SOAK_OBSERVED="$observed"
   previous_observed="${NG_OBSERVED_DIR:-}"
   NG_OBSERVED_DIR="$observed"
-  trap "rm -rf \"\${SOAK_TMP:-}\" \"$observed\"; NG_OBSERVED_DIR=\"$previous_observed\"" RETURN
+  trap 'rm -rf "${SOAK_TMP:-}" "${SOAK_OBSERVED:-}"' EXIT
+  trap "rm -rf \"\${SOAK_TMP:-}\" \"\${SOAK_OBSERVED:-}\"; SOAK_TMP=''; SOAK_OBSERVED=''; NG_OBSERVED_DIR=\"$previous_observed\"; if (( BASH_SUBSHELL == 0 )); then trap soak_cleanup EXIT; else trap - EXIT; fi" RETURN
   ng_secret_file "$NG_OBSERVED_DIR"; ng_collect_secrets || true
   soak_service_failures "$dir" "$soak_start" "$end" "$dir/events"
   soak_log_errors "$soak_start" "$end" "$baseline_dir" "$dir/logs/updater.log" "$dir/logs/server.log" "$dir/logs/db.log" "$dir/logs/collector.log"
@@ -434,7 +437,7 @@ EOF
 #!/usr/bin/env bash
 printf 'collector %s\n' "$*" >>"$ST22_CALLS"
 mkdir -p "$SOAK_COLLECTOR_DIR"
-printf '{"at":"%s","ok":true,"reason":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >"$SOAK_COLLECTOR_DIR/update-checks.jsonl"
+printf '%s\n' '{"at":"2099-11-20T00:00:00.000Z","ok":true,"reason":null}' >"$SOAK_COLLECTOR_DIR/update-checks.jsonl"
 : >"$SOAK_COLLECTOR_DIR/collector.log"
 EOF
   chmod +x "$bin"/* "$work/ashiato-setup.exe" "$work/ashiato-collector-windows.exe"
@@ -540,9 +543,15 @@ def check(value):
     assert sum('ashiato-update-check-ci-outbound' in block and ('delete rule' in block or 'Remove-NetFirewallRule' in block) for block in blocks) == 0
     for script in ('install-check.sh', 'update-check-install.sh', 'update-apply-install.sh', 'soak-install.sh'):
         assert f'{script} --list' in commands
+    assert 'update-check-install.sh --block-outbound' in commands
+    assert 'install-check.sh --list' in commands
+    assert 'soak-install.sh package/' in commands
+    assert 'update-apply-install.sh \\' in commands
     assert commands.index('update-check-install.sh --block-outbound') < commands.index('install-check.sh --list')
     assert commands.index('soak-install.sh package/') > commands.index('update-apply-install.sh \\')
+    assert '- name: 配る形を外につながる状態で置く' in value
     soak_step_start = value.index('- name: 配る形を外につながる状態で置く')
+    assert '\n      # spec の Scenario' in value[soak_step_start:]
     soak_step_end = value.index('\n      # spec の Scenario', soak_step_start)
     assert 'timeout-minutes: 15' in value[soak_step_start:soak_step_end]
     assert 'install-windows:\n    timeout-minutes: 100' in value
@@ -559,10 +568,12 @@ assert sum('--block-outbound' in block for block in all_blocks) == 1
 assert sum('ashiato-update-check-ci-outbound' in block and ('delete rule' in block or 'Remove-NetFirewallRule' in block) for block in all_blocks) == 0
 assert text.count('soak-install.sh package/') == 1
 def must_fail(old, new):
+    assert old in ci
     broken = ci.replace(old, new, 1)
+    assert broken != ci
     try:
         check(broken)
-    except (AssertionError, ValueError):
+    except AssertionError:
         return
     raise AssertionError('壊した CI の写しを自己試験が通した')
 must_fail('soak-install.sh package/', 'soak-install.sh broken/')
@@ -654,13 +665,14 @@ EOF
 }
 
 main() {
+  trap soak_cleanup EXIT
   case "${1:-}" in
     --self-test-run)
       SOAK_PROGRAM_DIR='C:/Program Files/ashiato' SOAK_STATE_DIR='C:/ProgramData/ashiato' SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater' SOAK_COLLECTOR_DIR='collector-state'
       SOAK_WAIT_SECONDS=2 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=1 SOAK_SETUP_TIMEOUT=1 reset_wait_seconds=0
       soak_run "$2" "$3" "$4"
       ;;
-    --self-test) SOAK_SELF_TEST_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak.XXXXXX")" || die '自己試験の置き場を作れない'; trap 'rm -rf "$SOAK_SELF_TEST_WORK"' EXIT; mkdir -p "$SOAK_SELF_TEST_WORK/observed"; soak_self_test "$SOAK_SELF_TEST_WORK"; NG_OBSERVED_DIR="$SOAK_SELF_TEST_WORK/observed" "$root/tools/release/check-ng-observations.sh" "$0" || die '観測の検査に失敗'; rm -f "$SOAK_SELF_TEST_WORK/observed/.ng-secrets"*; echo 'OK: soak-install self-test' ;;
+    --self-test) SOAK_SELF_TEST_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak.XXXXXX")" || die '自己試験の置き場を作れない'; SOAK_CLEANUP_WORK="$SOAK_SELF_TEST_WORK"; trap soak_cleanup EXIT; mkdir -p "$SOAK_SELF_TEST_WORK/observed"; soak_self_test "$SOAK_SELF_TEST_WORK"; NG_OBSERVED_DIR="$SOAK_SELF_TEST_WORK/observed" "$root/tools/release/check-ng-observations.sh" "$0" || die '観測の検査に失敗'; rm -f "$SOAK_SELF_TEST_WORK/observed/.ng-secrets"*; echo 'OK: soak-install self-test' ;;
     --list) soak_list ;;
     --evaluate) soak_evaluate "$2" "$3" "$4" "$5" "$6" ;;
     *)
@@ -670,7 +682,6 @@ main() {
       local work server_zip collector_zip
       work="$(mktemp -d "${TMPDIR:-/tmp}/ch22-soak-run.XXXXXX")" || die '実地の置き場を作れない'
       SOAK_CLEANUP_WORK="$work"
-      trap soak_cleanup EXIT
       server_zip="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" || die 'サーバ zip の道を読めない'
       collector_zip="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")" || die '収集アプリ zip の道を読めない'
       soak_run "$server_zip" "$collector_zip" "$work"

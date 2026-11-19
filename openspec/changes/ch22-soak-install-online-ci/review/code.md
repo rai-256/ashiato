@@ -300,18 +300,22 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:soak_evaluate (trap ... RETURN)（re-review 1 の New Breakage。Important）
 - kind: technical
+- 処置: fixed 1.1
 
 ## R23. 起こした直後の最初の読みで PID が空だと、起こし直し前の空 PID は許されず「変化」と数えられる。tasklist が間に合わないときだけ起きる。
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:soak_collector_pid（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.1
 
 ## R24. 収集アプリのスタブの at が date の現在時刻のまま。R1 で return 0 を外したため、起こし直しの時刻との取り合いに負けると失敗になる。12 回では再現しなかった。
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:soak_install_self_test (collector スタブ)（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.1
 
 ## R25. must_fail に ValueError を足したため、broken/ 差し替えは数えの assert でなく index の例外で通る。その must_fail の効きが弱い。
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:soak_ci_definition_self_test（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.1
