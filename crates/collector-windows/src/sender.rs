@@ -355,7 +355,7 @@ pub const REQUEST_TIMEOUT_SEC: u64 = 30;
 /// 既定のままだと 400 で本文ごと捨てられ、1 件ごとの理由が読めず、
 /// 断られた同じ 200 件を永久に送り直す。
 pub fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
+    crate::tls::agent_builder()
         .http_status_as_error(false)
         .timeout_connect(Some(std::time::Duration::from_secs(CONNECT_TIMEOUT_SEC)))
         .timeout_global(Some(std::time::Duration::from_secs(REQUEST_TIMEOUT_SEC)))
@@ -363,7 +363,8 @@ pub fn agent() -> ureq::Agent {
         .new_agent()
 }
 
-/// 実際に HTTP を叩く係。**TLS を持たない**（design D16。オンプレ前提）。
+/// 実際に HTTP を叩く係。送り先は `http://` でも `https://` でもよい（Tailscale の HTTPS 越しなど）。
+/// HTTPS の証明書は OS の根で確かめる（[`crate::tls`]）。
 pub struct HttpTransport {
     base_url: std::cell::RefCell<String>,
     token: std::cell::RefCell<String>,
@@ -467,7 +468,7 @@ impl std::fmt::Debug for HttpOutageQuery {
 
 impl HttpOutageQuery {
     pub fn new(base_url: &str, token: &str, user_id: uuid::Uuid) -> Self {
-        let agent = ureq::Agent::config_builder()
+        let agent = crate::tls::agent_builder()
             .http_status_as_error(false)
             .timeout_global(Some(std::time::Duration::from_secs(
                 OUTAGE_QUERY_TIMEOUT_SEC,

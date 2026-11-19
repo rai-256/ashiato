@@ -250,6 +250,18 @@ jobs:
       # 単体 + 実行時テスト。ST08 の Edge / Chrome / Firefox 履歴 3 本を含める。
       # 前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
+      # HTTPS の握手を Windows の証明書の置き場で 1 回は終える（2026-11-19: 0.1.0 は根を指定せず、最初の握手で
+      # panic した。配る組み立ての CI は外を塞ぐので、HTTPS を 1 度も叩かずに配られた）。手元の受け口への握手
+      # （tls_*）は ubuntu の rust の job も走らせる。ここでは本物の api.github.com へ繋ぐ 2 本（--ignored）を走らせ、
+      # 走った本数も確かめる（0 本でも緑になる）
+      - shell: pwsh
+        run: |
+          foreach ($p in 'ashiato-updater', 'ashiato-collector-windows') {
+            cargo test -p $p --lib tls_ -- --include-ignored 2>&1 | Tee-Object -FilePath tls.log
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $out = Get-Content tls.log -Raw
+            if ($out -notmatch 'test [\w:]*tls_online_\w+ \.\.\. ok') { Write-Error "$p の本物の配布元との握手の試験が走っていない"; exit 1 }
+          }
       # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
       # 出力は**流しながら**ファイルにも残す。変数に溜めて最後に出すと、固まって打ち切られたときに
       # どのテストで止まったかがログに 1 行も残らない（実測 2026-10-14: 18 分の無言の後に打ち切り）

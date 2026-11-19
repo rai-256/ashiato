@@ -1,0 +1,18 @@
+# 更新係だけの clippy の設定（clippy はこの crate の Cargo.toml の置き場から探す）。
+# `ureq` の係は `agent_builder`（lib.rs）からだけ作る。ほかの口は既定の根 `RootCerts::WebPki` を選び、
+# 根の一覧の機能を入れていないこの crate では、最初の HTTPS の握手で panic する（2026-11-19 の 0.1.0）。
+disallowed-methods = [
+  { path = "ureq::Agent::config_builder", reason = "係は crate::agent_builder から作る（根を OS のものにする）" },
+  { path = "ureq::Agent::new_with_defaults", reason = "既定の根（WebPki）は入っていない。crate::agent_builder を使う" },
+  { path = "ureq::Agent::new_with_config", reason = "係は crate::agent_builder から作る（根を OS のものにする）" },
+  { path = "ureq::config::Config::builder", reason = "係は crate::agent_builder から作る（根を OS のものにする）" },
+  { path = "ureq::get", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::post", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::put", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::delete", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::head", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::patch", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::options", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::trace", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+  { path = "ureq::connect", reason = "既定の係は根が WebPki のまま。crate::agent_builder の係を使う" },
+]

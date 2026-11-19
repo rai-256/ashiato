@@ -15,9 +15,9 @@ chrono.workspace = true
 uuid.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# 取り込み口へ送るだけ。**TLS の機能を入れない**（design D16）——
-# S-01 / C-02 はどちらもオンプレ（要件 §5 技術的制約 ★2026-09-12）で、
-# 依存を増やすほど許諾の検査（tools/check-licenses.sh）の面が広がる。
+# 取り込み口へ送る・配布元へ版の一覧を取りに行く。TLS は rustls + OS の根（`platform-verifier`。ST57 D12）。
+# 同梱の根の一覧（`rustls-webpki-roots`）は入れない（tools/check-updater-deps.sh）—— だから ureq 既定の
+# `RootCerts::WebPki` のまま係を作ると最初の握手で panic する。係は必ず `tls::agent_builder` から作る（clippy.toml）。
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "_ring", "platform-verifier", "gzip"] }
 # 記録に載せる IANA のタイムゾーン識別子（FR-20）。chrono は名前を持たない。
 iana-time-zone = "0.1"

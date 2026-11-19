@@ -137,6 +137,21 @@ fn save_status(dir: &Path, status: &Status) -> Result<(), Error> {
     Ok(())
 }
 
+/// `ureq` の係を組み立てる唯一の口。**証明書の根を OS のもの（`RootCerts::PlatformVerifier`）に決める**。
+///
+/// `ureq` 3 の既定の根は `RootCerts::WebPki`（同梱の根の一覧）だが、更新係はその機能を入れていない
+/// （spec distribution「根の一覧を同梱しない」・ST57 D12）。根を指定しないまま係を作ると、配布元との
+/// **最初の HTTPS の握手で panic する**（`WebPki is disabled`）。0.1.0 はこれでサービスが 10 秒ごとに
+/// 落ち続けた（2026-11-19 実機）。ほかの場所での `ureq::Agent::config_builder` などは `clippy.toml` が落とす。
+#[allow(clippy::disallowed_methods)] // ここが唯一の口
+fn agent_builder() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
+    ureq::Agent::config_builder().tls_config(
+        ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+            .build(),
+    )
+}
+
 fn request(base: &str, component: Component, installed: &str) -> Result<Vec<u8>, CheckReason> {
     let path = match component {
         Component::Server | Component::CollectorWindows | Component::Android
@@ -152,7 +167,7 @@ fn request(base: &str, component: Component, installed: &str) -> Result<Vec<u8>,
         format!("{base}{path}")
     };
     let initial_uri: ureq::http::Uri = initial_url.parse().map_err(|_| CheckReason::Unreadable)?;
-    let agent = ureq::Agent::config_builder()
+    let agent = agent_builder()
         .timeout_connect(Some(Duration::from_secs(10)))
         .timeout_global(Some(Duration::from_secs(30)))
         .max_redirects(0)
@@ -332,4 +347,57 @@ pub fn service(dir: PathBuf, development: bool) -> Result<(), String> {
         SERVICE_STOP.store(true, Ordering::Relaxed)
     })
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::*;
+    use std::io::Read as _;
+
+    /// 手元の受け口（TLS を話さない）へ `request` で HTTPS を 1 回繋がせ、結果と受け口が読んだ最初の数バイトを返す。
+    fn request_against_loopback() -> (Result<Vec<u8>, CheckReason>, Vec<u8>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let peer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .expect("timeout");
+            let mut head = [0u8; 5];
+            let n = stream.read(&mut head).unwrap_or(0);
+            head[..n].to_vec()
+        });
+        let result = request(
+            &format!("https://127.0.0.1:{port}"),
+            Component::Server,
+            "0.1.0",
+        );
+        (result, peer.join().expect("peer"))
+    }
+
+    /// 更新係の問い合わせは HTTPS の握手を始め、相手が切っても panic せずに「繋がらない」で返る
+    /// （2026-11-19: 0.1.0 は `WebPki is disabled` で panic し、サービスが 10 秒ごとに落ち続けた）。
+    #[test]
+    fn tls_request_handshake_starts_without_panic() {
+        let (result, head) = request_against_loopback();
+        assert_eq!(result, Err(CheckReason::Unreachable));
+        assert_eq!(
+            head.first(),
+            Some(&0x16),
+            "握手の記録が届いていない: {head:02x?}"
+        );
+        assert_eq!(head.get(1), Some(&0x03), "TLS の版の印が無い: {head:02x?}");
+    }
+
+    /// 本物の配布元と握手を終え、**OS の根で証明書を確かめられる**（繋がらない・時間切れでなければ握手は済んでいる）。
+    /// 網に出るので既定では走らせない。CI の Windows の job（`collector-windows-runtime`）が `--ignored` で走らせる。
+    #[test]
+    #[ignore = "網に出る。CI の Windows の job が --ignored で走らせる"]
+    fn tls_online_request_verifies_with_os_roots() {
+        let result = request(GITHUB_API, Component::Server, "0.1.0");
+        assert!(
+            !matches!(result, Err(CheckReason::Unreachable | CheckReason::Timeout)),
+            "配布元と握手できない: {result:?}"
+        );
+    }
 }
