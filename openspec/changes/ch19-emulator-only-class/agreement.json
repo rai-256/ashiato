@@ -1,0 +1,21 @@
+{
+  "status": "accepted",
+  "digest": "69bd2c347e57aafc729dae29cd841ec45ff41aa0a315b501d84f419079d5db65",
+  "head": "74bf4c5e34ec61862b98f1387af999d75837bddc",
+  "answers": "deep-answers-2.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-19T12:11:00Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "`ONLY` が export されたままだと、rc だけを見る全体の verify-run が黙って 1 クラスに絞られうる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "low",
+      "title": "後の Story が全体に特別な手順の段を足すと、そのクラスは `ONLY` では理由を出さずに落ちうる"
+    }
+  ]
+}
