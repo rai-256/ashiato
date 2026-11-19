@@ -71,7 +71,7 @@ soak_service_failures() {
       done <"$events"
     fi
     soak_out "service=$svc stopped=$stopped pid_changed=$changed system_events=$event_count"
-    (( stopped + changed + event_count == 0 )) || die_seen "$svc の起こし直し・停止を観測: stopped=$stopped pid_changed=$changed system_events=$event_count" "$dir/services/$svc"
+    (( stopped + changed + event_count == 0 )) || die_seen "$svc の起こし直し・停止を観測: stopped=$stopped pid_changed=$changed system_events=$event_count" "$(tail -n 80 "$dir/services/$svc" 2>/dev/null || true)"
   done
   if (( readable )); then
     soak_out "system-events: readable count=$total"
@@ -122,7 +122,7 @@ soak_log_errors() {
   while IFS=$'\t' read -r name key; do
     count="$(awk -F'\t' -v want_name="$name" -v want_key="$key" '$1==want_name && substr($0, length($1) + 2) == want_key {count++} END{print count+0}' "$SOAK_TMP/errors")"
     soak_out "error[$name] $key (count=$count)"
-    (( count < SOAK_SAME_ERROR_LIMIT )) || die_seen "$name の同じ誤りが ${count} 回" "$SOAK_TMP/errors"
+    (( count < SOAK_SAME_ERROR_LIMIT )) || die_seen "$name の同じ誤りが ${count} 回" "$(tail -n 80 "$SOAK_TMP/errors" 2>/dev/null || true)"
   done < <(awk -F'\t' '!seen[$0]++' "$SOAK_TMP/errors")
 }
 
@@ -165,7 +165,7 @@ soak_collector_pid() {
     [[ -n "$pid" ]] && previous="$pid"
   done <"$file"
   soak_out "collector pid changes=$changes"
-  (( changes == 0 )) || die_seen "台本が止めたほかに PC の収集アプリの PID が消えた・変わった: $changes" "$file"
+  (( changes == 0 )) || die_seen "台本が止めたほかに PC の収集アプリの PID が消えた・変わった: $changes" "$(tail -n 80 "$file" 2>/dev/null || true)"
 }
 
 soak_evaluate() {
