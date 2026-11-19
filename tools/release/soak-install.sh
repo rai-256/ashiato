@@ -12,6 +12,12 @@ SOAK_COLLECTOR_RESTART_SECONDS=60
 SOAK_READ_INTERVAL_SECONDS=5
 NG_OBSERVED_DIR="${NG_OBSERVED_DIR:-${TMPDIR:-/tmp}}"
 SOAK_SELF_TEST_WORK=''
+SOAK_RULE='ashiato-update-check-ci-outbound'
+SOAK_INSTALL_PASSWORD='soak-install-password-0123'
+SOAK_PROGRAM_DIR='C:/Program Files/ashiato'
+SOAK_STATE_DIR='C:/ProgramData/ashiato'
+SOAK_UPDATER_DIR='C:/ProgramData/ashiato-updater'
+SOAK_COLLECTOR_DIR=''
 
 ng_secret_values() {
   local server="${SOAK_STATE_DIR:-}/settings/server.json" owner="${SOAK_STATE_DIR:-}/settings/owner.json"
@@ -166,6 +172,247 @@ soak_evaluate() {
   soak_out "collector outage_notice_unavailable=$(grep -c 'outage_notice_unavailable' "$dir/logs/collector.log" 2>/dev/null || true)"
 }
 
+soak_windows_path() { printf '%s' "${1//\//\\}"; }
+
+soak_service_state() {
+  sc.exe queryex "$1" 2>/dev/null | tr -d '\r' | awk -F ':' '
+    toupper($1) ~ /STATE/ { split($2,a," "); state=a[1] }
+    toupper($1) ~ /PID/ { gsub(/ /,"",$2); pid=$2 }
+    END { printf "%s|%s\n", state, pid }'
+}
+
+soak_reset_machine() {
+  local service state until reset_seconds="${reset_wait_seconds:-120}"
+  for service in ashiato-updater ashiato-server ashiato-db ashiato-updater-dev ashiato-server-dev ashiato-db-dev; do
+    if sc.exe query "$service" >/dev/null 2>&1; then
+      sc.exe stop "$service" >/dev/null 2>&1 || true
+      until=$((SECONDS + reset_seconds))
+      while :; do
+        state="$(soak_service_state "$service")"
+        [[ "$state" == 1\|* || "$SECONDS" -ge "$until" ]] && break
+        sleep 1
+      done
+      sc.exe delete "$service" >/dev/null 2>&1 || true
+    fi
+  done
+  for process in ashiato-updater.exe ashiato-server.exe postgres.exe ashiato-collector-windows.exe; do
+    taskkill.exe /F /IM "$process" >/dev/null 2>&1 || true
+  done
+  reg.exe delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ashiato' /f >/dev/null 2>&1 || true
+  rm -rf "$SOAK_PROGRAM_DIR" 'C:/Program Files/ashiato-dev' "$SOAK_UPDATER_DIR" 'C:/ProgramData/ashiato-updater-dev'
+  for dir in "$SOAK_STATE_DIR" 'C:/ProgramData/ashiato-dev'; do
+    [[ -e "$dir" ]] || continue
+    icacls.exe "$(soak_windows_path "$dir")" /setowner '*S-1-5-32-544' /T /C /L >/dev/null 2>&1 || true
+    icacls.exe "$(soak_windows_path "$dir")" /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /L >/dev/null 2>&1 || true
+    rm -rf "$dir"
+  done
+  [[ -n "$SOAK_COLLECTOR_DIR" ]] && rm -rf "$SOAK_COLLECTOR_DIR"
+  [[ ! -e "$SOAK_PROGRAM_DIR/ashiato-server.exe" && ! -e "$SOAK_STATE_DIR/settings" && ! -e "$SOAK_UPDATER_DIR/status.json" ]] ||
+    die "前の段の入れたものを消せない: $SOAK_PROGRAM_DIR $SOAK_STATE_DIR $SOAK_UPDATER_DIR"
+}
+
+soak_remove_outbound_rule() {
+  local shown
+  netsh.exe advfirewall firewall delete rule "name=$SOAK_RULE" >/dev/null 2>&1 || true
+  shown="$(netsh.exe advfirewall firewall show rule "name=$SOAK_RULE" 2>&1 || true)"
+  [[ "$shown" != *"$SOAK_RULE"* ]] || die_seen "更新係の外向きの塞ぎを外せない: $SOAK_RULE" "$shown"
+}
+
+soak_install_server() {
+  local archive="$1" work="$2" setup
+  unzip -q "$archive" -d "$work/server" || die '配るサーバの zip を開けない'
+  setup="$work/server/ashiato-setup.exe"
+  [[ -f "$setup" ]] || die '配るサーバの zip にインストーラが無い'
+  printf '%s\n%s\n' "$SOAK_INSTALL_PASSWORD" "$SOAK_INSTALL_PASSWORD" |
+    timeout -k 10 "${SOAK_SETUP_TIMEOUT:-600}" "$setup" install >"$work/install.out" 2>&1 ||
+    die_seen '配る形のサーバのインストールに失敗' "$work/install.out"
+}
+
+soak_wait_healthz() {
+  local seconds="$1" deadline
+  deadline=$((SECONDS + seconds))
+  while [[ "$(curl.exe -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)" != 200 ]]; do
+    [[ "$SECONDS" -lt "$deadline" ]] || die 'サーバが healthz に答えない'
+    sleep 1
+  done
+}
+
+soak_record_sample() {
+  local dir="$1" now service state pid
+  now="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  for service in ashiato-db ashiato-server ashiato-updater; do
+    IFS='|' read -r state pid <<<"$(soak_service_state "$service")"
+    [[ "$state" == 4 ]] && state=RUNNING
+    printf '%s|%s|%s\n' "$now" "${state:-UNKNOWN}" "${pid:-}" >>"$dir/services/$service"
+  done
+  pid="$(tasklist.exe /FI 'IMAGENAME eq ashiato-collector-windows.exe' /FO CSV /NH 2>/dev/null | tr -d '\r' | sed -n 's/.*,"\([0-9][0-9]*\)",.*/\1/p' | head -n 1)"
+  printf '%s|%s\n' "$now" "$pid" >>"$dir/collector.pid"
+}
+
+soak_collect_observations() {
+  local dir="$1" name path
+  mkdir -p "$dir/logs" "$dir/.soak-log-baselines"
+  cp "$SOAK_UPDATER_DIR/checks.jsonl" "$dir/checks.jsonl" 2>/dev/null || :
+  cp "$SOAK_COLLECTOR_DIR/update-checks.jsonl" "$dir/update-checks.jsonl" 2>/dev/null || :
+  cp "$SOAK_COLLECTOR_DIR/collector.log" "$dir/logs/collector.log" 2>/dev/null || :
+  for name in updater server db collector; do
+    path="$SOAK_UPDATER_DIR/updater.log"
+    [[ "$name" == server ]] && path="$SOAK_STATE_DIR/logs/server"
+    [[ "$name" == db ]] && path="$SOAK_STATE_DIR/logs/db"
+    [[ "$name" == collector ]] && path="$SOAK_COLLECTOR_DIR/collector.log"
+    if [[ -f "$path" ]]; then cp "$path" "$dir/logs/$name.log"; else cat "$path"/* >"$dir/logs/$name.log" 2>/dev/null || :; fi
+    printf '0\n' >"$dir/.soak-log-baselines/$name.log.lines"
+  done
+  wevtutil.exe qe System /f:text >"$dir/events" 2>/dev/null || :
+  printf '%s\n' "$(curl.exe -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)" >"$dir/health"
+}
+
+soak_run() {
+  local server_zip="$1" collector_zip="$2" work="$3" start soak_start restart='' end collector
+  mkdir -p "$work/services"
+  if [[ -z "$SOAK_COLLECTOR_DIR" ]]; then
+    if [[ -n "${LOCALAPPDATA:-}" && $(command -v cygpath 2>/dev/null || true) ]]; then
+      SOAK_COLLECTOR_DIR="$(cygpath -m "$LOCALAPPDATA/ashiato/collector")"
+    else
+      SOAK_COLLECTOR_DIR="${LOCALAPPDATA:-C:/Users/runneradmin/AppData/Local}/ashiato/collector"
+    fi
+  fi
+  soak_reset_machine
+  start="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  soak_remove_outbound_rule
+  soak_install_server "$server_zip" "$work"
+  soak_wait_healthz 150
+  soak_start="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  unzip -q "$collector_zip" -d "$work/collector" || die '配る PC の収集アプリの zip を開けない'
+  collector="$work/collector/ashiato-collector-windows.exe"
+  [[ -f "$collector" ]] || die '配る PC の収集アプリの zip に実行ファイルが無い'
+  "$collector" >/dev/null 2>&1 &
+  soak_record_sample "$work"
+  local elapsed=0
+  while (( elapsed < SOAK_WAIT_SECONDS )); do
+    sleep "$SOAK_READ_INTERVAL_SECONDS"; elapsed=$((elapsed + SOAK_READ_INTERVAL_SECONDS)); soak_record_sample "$work"
+    if (( elapsed >= SOAK_COLLECTOR_RESTART_SECONDS && restart == '' )); then
+      taskkill.exe /F /IM ashiato-collector-windows.exe >/dev/null 2>&1 || true
+      "$collector" >/dev/null 2>&1 &
+      restart="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+    fi
+  done
+  [[ -n "$restart" ]] || restart="$soak_start"
+  end="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  soak_collect_observations "$work"
+  echo '== Scenario: 配る形のサーバを外につながる状態で 5 分置くと、落ちず・止まらず・誤りが続かず、本物の配布元に確かめる'
+  echo '== Scenario: 配る形の PC の収集アプリは、設定せずに起こし直すと本物の配布元に確かめ、動き続ける'
+  soak_evaluate "$work" "$start" "$soak_start" "$restart" "$end"
+}
+
+soak_install_self_test() {
+  local work="$1" bin="$1/bin" calls="$1/calls" server collector
+  mkdir -p "$bin" "$work/C:/ProgramData/ashiato-updater" "$work/C:/ProgramData/ashiato/settings"
+  export ST22_CALLS="$calls"; : >"$calls"
+  cat >"$bin/sc.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'sc %s\n' "$*" >>"$ST22_CALLS"
+printf 'STATE : 4 RUNNING\nPID : 42\n'
+EOF
+  cat >"$bin/taskkill.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'taskkill %s\n' "$*" >>"$ST22_CALLS"
+EOF
+  cat >"$bin/reg.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'reg %s\n' "$*" >>"$ST22_CALLS"
+EOF
+  cat >"$bin/icacls.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'icacls %s\n' "$*" >>"$ST22_CALLS"
+EOF
+  cat >"$bin/netsh.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'netsh %s\n' "$*" >>"$ST22_CALLS"
+if [[ "$*" == *'show rule'* && -e "$ST22_RULE" ]]; then printf 'Rule Name: ashiato-update-check-ci-outbound\n'; fi
+if [[ "$*" == *'delete rule'* && "${ST22_KEEP_RULE:-0}" != 1 ]]; then rm -f "$ST22_RULE"; fi
+EOF
+  cat >"$bin/wevtutil.exe" <<'EOF'
+#!/usr/bin/env bash
+:
+EOF
+  cat >"$bin/curl.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '200'
+EOF
+  cat >"$bin/tasklist.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '"ashiato-collector-windows.exe","42","Console","1","1,000 K"\n'
+EOF
+  cat >"$bin/rm" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${ST22_KEEP_STATE:-0}" == 1 && "$*" == *"$SOAK_STATE_DIR"* ]]; then exit 0; fi
+exec /bin/rm "$@"
+EOF
+  cat >"$work/ashiato-setup.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'setup %s\n' "$*" >>"$ST22_CALLS"
+[[ ! -e 'C:/ProgramData/ashiato-updater/status.json' ]] || exit 1
+mkdir -p "$SOAK_STATE_DIR/settings" "$SOAK_STATE_DIR/logs/server" "$SOAK_STATE_DIR/logs/db"
+printf '200\n' >"$SOAK_STATE_DIR/health"
+mkdir -p "$SOAK_UPDATER_DIR"
+printf '{"at":"%s","ok":true,"reason":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >"$SOAK_UPDATER_DIR/checks.jsonl"
+EOF
+  cat >"$work/ashiato-collector-windows.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'collector %s\n' "$*" >>"$ST22_CALLS"
+mkdir -p "$SOAK_COLLECTOR_DIR"
+printf '{"at":"%s","ok":true,"reason":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >"$SOAK_COLLECTOR_DIR/update-checks.jsonl"
+: >"$SOAK_COLLECTOR_DIR/collector.log"
+EOF
+  chmod +x "$bin"/* "$work/ashiato-setup.exe" "$work/ashiato-collector-windows.exe"
+  server="$work/server.zip"; collector="$work/collector.zip"
+  (cd "$work" && zip -q "$server" ashiato-setup.exe && zip -q "$collector" ashiato-collector-windows.exe)
+  export ST22_RULE="$work/rule"; : >"$ST22_RULE"
+  export SOAK_PROGRAM_DIR="$work/C:/Program Files/ashiato" SOAK_STATE_DIR="$work/C:/ProgramData/ashiato" SOAK_UPDATER_DIR="$work/C:/ProgramData/ashiato-updater" SOAK_COLLECTOR_DIR="$work/collector-state"
+  (cd "$work" && PATH="$bin:$PATH" reset_wait_seconds=0 SOAK_WAIT_SECONDS=0 SOAK_COLLECTOR_RESTART_SECONDS=0 SOAK_READ_INTERVAL_SECONDS=0 SOAK_SETUP_TIMEOUT=1 \
+    soak_run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
+  grep -q 'taskkill.*ashiato-collector-windows.exe' "$calls" || die 'self-test: 収集アプリを起こし直していない'
+  [[ "$(grep -c '^netsh ' "$calls")" == 2 ]] || die 'self-test: 塞ぎの削除と確認をしていない'
+  grep -q '^setup install' "$calls" || die 'self-test: インストーラを呼んでいない'
+  : >"$ST22_RULE"
+  if (PATH="$bin:$PATH" ST22_KEEP_RULE=1 soak_remove_outbound_rule) >"$work/rule.out" 2>&1; then die 'self-test: 塞ぎが残るのに通った'; fi
+  grep -q 'NG:' "$work/rule.out" || die 'self-test: 塞ぎが残った理由が出ない'
+  mkdir -p "$SOAK_STATE_DIR/settings"
+  if (PATH="$bin:$PATH" ST22_KEEP_STATE=1 reset_wait_seconds=0 soak_reset_machine) >"$work/reset.out" 2>&1; then die 'self-test: 残った置き場を通した'; fi
+  grep -q 'ashiato' "$work/reset.out" || die 'self-test: 残った置き場の名前が出ない'
+  [[ "$(soak_list | wc -l)" -eq 2 ]] || die 'self-test: --list が実地の 2 Scenario でない'
+}
+
+soak_ci_definition_self_test() {
+  # Scenario: 置く段は、インストールと更新の試験の手順より後に走る
+  # Scenario: 更新係の外向きを塞ぐ手順は、最初のインストールの試験の手順より前のままである
+  # Scenario: 置く段の手順と、Windows のインストールの試験の job に時間の上限がある
+  # Scenario: インストールと更新の試験と置く段の 4 つの台本の Scenario の突き合わせは残る
+  # Scenario: 網に出る試験を走らせる手順は、握手の試験の 1 つだけである
+  # Scenario: 更新係の外向きの塞ぎを外す手順は、置く段の 1 つだけである
+  local root_dir="$1"
+  python3 - "$root_dir" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+files = sorted((root / '.github' / 'workflows').glob('*.yml')) + sorted((root / '.github' / 'workflows').glob('*.yaml'))
+text = '\n'.join(p.read_text(encoding='utf-8') for p in files)
+ci = (root / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+assert files and 'soak-install.sh --self-test' in ci
+assert ci.count('--block-outbound') == 1, '塞ぎの最初の遮断を残す'
+assert ci.count('soak-install.sh package/') == 1
+assert ci.count('soak-install.sh --list') == 1
+for script in ('install-check.sh', 'update-check-install.sh', 'update-apply-install.sh', 'soak-install.sh'):
+    assert f'{script} --list' in ci
+assert ci.index('update-check-install.sh --block-outbound') < ci.index('install-check.sh --list')
+assert ci.index('soak-install.sh package/') > ci.index('update-apply-install.sh \\')
+assert 'timeout-minutes: 15' in ci and 'install-windows:\n' in ci
+assert 'install-windows:\n    timeout-minutes: 100' in ci
+assert text.count('soak-install.sh package/') == 1
+PY
+}
+
 soak_self_test() {
   local work="$1" base
   export NG_OBSERVED_DIR="$work/observed"
@@ -180,6 +427,9 @@ soak_self_test() {
   : >"$base/logs/updater.log"; : >"$base/logs/server.log"; : >"$base/logs/db.log"; : >"$base/logs/collector.log"
   mkdir -p "$base/.soak-log-baselines"
   for log in updater.log server.log db.log collector.log; do printf '0\n' >"$base/.soak-log-baselines/$log.lines"; done
+
+  soak_install_self_test "$work" || die '置く段の実地の自己試験が通らない'
+  soak_ci_definition_self_test "$root" || die 'self-test: CI の置く段の定義が通らない'
 
   # Scenario: 置く間に 1 回でも起こし直されたら、サービスの名前と回数を出して落ちる
   cp -R "$base" "$work/restart"; sed -i '3s/|10$/|11/' "$work/restart/services/ashiato-server"; expect_fail "$work/restart" "ashiato-server"
@@ -234,26 +484,8 @@ expect_pass() { local d="$1" needle="${2:-}"; (soak_evaluate "$d" 2026-11-20T00:
 
 soak_list() {
   cat <<'EOF'
-置く間に 1 回でも起こし直されたら、サービスの名前と回数を出して落ちる
-起こし直されずに止まったままのサービスがあれば落ちる
-置き終わりに healthz が 200 でなければ落ちる
-置く間より前のサービスの終わりの記録は数えない
-システムの記録を読めなければ、警告を出し、状態とプロセスの番号で判定する
-同じ誤りが 3 回あると落ちる
-2 回の同じ誤りは、行を出して通る
-警告の段の行と置く段の始まりより前の行は数えない
-置く段の始まりと置く間の始まりの間に書かれた誤りの行は数えない
-プロセスの番号だけが違う DB のログの行は、同じ誤りとして数える
-サーバのログの panic の行は 1 行でも落ちる
-置く段の始まりより後に確かめた行があれば通る
-置く段の始まりより後の確かめた記録が 1 行も無ければ落ちる
-届かない・読めない答えの行だけなら落ちる
-問い合わせの上限の行だけなら、警告を出して通る
-問い合わせの上限と届かないの行が混ざれば落ちる
-台本が止めたほかに PC の収集アプリが終われば落ちる
-起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす
-置く段の出力に秘密の値が出ない
-置く段の台本は観測を出さずに落ちる道を持たない
+配る形のサーバを外につながる状態で 5 分置くと、落ちず・止まらず・誤りが続かず、本物の配布元に確かめる
+配る形の PC の収集アプリは、設定せずに起こし直すと本物の配布元に確かめ、動き続ける
 EOF
 }
 
