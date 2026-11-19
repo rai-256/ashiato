@@ -104,6 +104,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - 提案: ONLY の経路の終わりの行（`== 結果`）の前に、標準エラーへ `== 絞った実行（ONLY=…）。全体ではない` を出す（ONLY の塊の中なので、全体の経路の行は変わらない）。あわせて harness2 の `evidence.py` が `ONLY` を記録の `env` に残すか外すかを決める（harness2 #271 の絞った検証と一緒に。ここでは提案だけ）
 - 処置: fixed 2.1 — ONLY 経路が標準エラーに「絞った実行・全体ではない」を必ず残し、偽 SDK 試験もその印を照合する。evidence.py の環境記録はこの Story の予定外であり変更しない。
 - 判定: ADDRESSED（re-review 1 @4f1c6925f30ed4c02fe54c9ba6d4657bbb554299）
+- 判定: ADDRESSED（re-review 3 @0e541741361d90e2a5b402b6aaaea90b90e83222）
 
 ## R4. 「アプリを外し、止めて、権限を戻す」の順の Scenario は、先頭の命令が無くても通る
 - 成果物: tools/test-android-emulator.sh（`assert_only_order`）
@@ -227,6 +228,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 提案: 4.1 の 2 本（St56BackupTest・MediaPremisesInstrumentedTest。合わせて 6 分ほど）を HEAD で `scripts/verify-run 4.1` から取り直す。全体の経路は 4f1c692 で変わっておらず、only-base で命令の列が base と同じことも確かめられているので、4.2（33 分）は取り直さなくても筋は通る
 - 処置: fixed 4.1 — `scripts/verify-run 4.1` を HEAD で取り直し、St56BackupTest（83 秒）と MediaPremisesInstrumentedTest（79 秒）がともに PASS した証跡を evidence.jsonl に記録した。
+- 判定: ADDRESSED（re-review 3 @0e541741361d90e2a5b402b6aaaea90b90e83222）
 
 ## R16. AGENTS.md の絞った実行の書き方では、quiet-run のログの頭に ONLY が残らない
 - 成果物: AGENTS.md:47
@@ -234,6 +236,7 @@ tools の写しを `/tmp/ch19probe.*` に作り、その写しだけを壊して
 - kind: technical
 - 提案: AGENTS.md の例を `scripts/quiet-run emu -- env ONLY=dev.ashiato.collector.<クラス> tools/android-emulator.sh` の形にそろえる
 - 処置: fixed 3.2 — `env ONLY=…` を quiet-run の子コマンドに含め、ログの `$ <コマンド>` 行にも絞ったクラス名が残る形に変更した。
+- 判定: ADDRESSED（re-review 3 @0e541741361d90e2a5b402b6aaaea90b90e83222）
 
 ## R17. `tools/test-usage-volume.sh:88` の「最初の connectedDebugAndroidTest」が、ONLY の塊の行（`tools/android-emulator.sh:142`）を指すようになった
 - 成果物: tools/android-emulator.sh:142
