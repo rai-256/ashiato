@@ -64,4 +64,5 @@
 - 成果物: tools/check-vulns.sh:1
 - 根拠: /home/yosis/dev/ashiato2-ch23/CLAUDE.md, section 'git': 「コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」」 (the type prefix plus one line in Japanese, with the why in the body). Commit 8ebce8bbe has an English subject line.（確かさ 2）
 - kind: technical
+- 処置: fixed 2.3 —— `8ebce8bbe` を `18399c534 fix: 毎晩の issue 再試行の確認を強める` に reword し、本文に理由を加えた。後続のローカル commit は rebase により再生成された
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
