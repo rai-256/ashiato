@@ -57,9 +57,9 @@
 
 ## Task 3: 文書を合わせ、触ったのが予定のパスだけであることを確かめる
 
-- [ ] 3.1 `docs/testing.md` の `vulns-nightly.yml` の行に、`file-issues` が落ちた夜は同じ job の `tools/check-vulns.sh report-unfiled` が題 `脆弱性: 毎晩の知らせを issue にできなかった` の issue（ラベル無し）で知らせることを書き足す（その行の中だけ。ほかの行は変えない）。
+- [x] 3.1 `docs/testing.md` の `vulns-nightly.yml` の行に、`file-issues` が落ちた夜は同じ job の `tools/check-vulns.sh report-unfiled` が題 `脆弱性: 毎晩の知らせを issue にできなかった` の issue（ラベル無し）で知らせることを書き足す（その行の中だけ。ほかの行は変えない）。
   検証: `bash -c 'grep -E "^\| \`vulns-nightly.yml\`" docs/testing.md | grep -qF "report-unfiled"'` rc=0
-- [ ] 3.2 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 4）。
+- [x] 3.2 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 4）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/check-vulns-issues\.py|tools/check-vulns\.sh|tools/check-vulns-wiring\.sh|\.github/workflows/vulns-nightly\.yml|docs/testing\.md|docs/changes/CH23\.md|openspec/changes/ch23-vulns-nightly-issue-fix/|docs/briefs/CH23|\.superpowers/|$)"'` rc=0
 
 ## 人間の確認待ち
