@@ -434,9 +434,12 @@ GH
   ! grep -Eq '^label create ' "$gh_log" || return 1
   echo "== Scenario: 開いた issue のコメントの問い合わせが空の文字なら、rc=2 で落ちる"
   printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/open-issue-empty.json"
+  : >"$gh_log"
   local open_issue_empty_rc=0
-  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 GH_OPEN_ISSUE_EMPTY=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/open-issue-empty.json" || open_issue_empty_rc=$?
+  PATH="$tmp:$PATH" GH_LOG="$gh_log" GH_OPEN_ISSUE=1 GH_ONLY_EXISTING=1 GH_OPEN_ISSUE_EMPTY=1 "$SCRIPT_DIR/check-vulns.sh" file-issues "$tmp/open-issue-empty.json" 2>"$tmp/open-issue-empty.err" || open_issue_empty_rc=$?
   [[ "$open_issue_empty_rc" == 2 ]] || return 1
+  grep -Fq 'error: issue を記録できなかった（gh の応答:' "$tmp/open-issue-empty.err" || return 1
+  grep -Eq '^issue view 7 ' "$gh_log" || return 1
   echo "== Scenario: 同じ依存の issue が開いていれば、立て直さない"
   printf '%s\n' '[{"kind":"vulnerability","ecosystem":"npm","name":"lodash","version":"4.17.20","id":"GHSA-35jh-r3h4-6jhm","severity":"HIGH"}]' >"$tmp/existing.json"
   mkdir -p "$tmp/existing-dir"

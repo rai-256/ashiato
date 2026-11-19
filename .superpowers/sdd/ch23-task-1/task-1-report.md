@@ -26,3 +26,10 @@
 空応答を許可する呼び出しは `label list` だけであり、`issue list` と `issue view` は JSON 応答を要求する。偽の `gh` の空応答切り替えは新しい `GH_OPEN_ISSUE_EMPTY` 環境変数でのみ有効になる。追加した Scenario は `gh.log` の順序、ラベル再作成抑止、空応答時の rc=2 をそれぞれ確認している。
 
 懸念事項なし。
+
+## 修正報告（review 1 F1）
+
+- `tools/check-vulns.sh` の「開いた issue のコメントの問い合わせが空の文字なら、rc=2 で落ちる」Scenario で gh のログを事前に空にした。
+- stderr を一時ファイルへ捕捉し、`error: issue を記録できなかった（gh の応答:` の出力と `issue view 7` の呼び出しを検査するようにした。
+- テスト: `scripts/quiet-run vulns-st -- tools/check-vulns.sh --self-test` — rc=0、PASS。
+- 検証: `scripts/verify-run 1.2` — Scenario 名の検査 rc=0、自己試験 rc=0、証跡を `openspec/changes/ch23-vulns-nightly-issue-fix/evidence.jsonl` に記録。
