@@ -1,0 +1,18 @@
+# CH22 の前提（外の形式・振る舞いに依る決定）
+
+| # | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
+|---|---|---|---|---|---|---|
+| P1 | 更新係のサービスは、起きたときと以後 1 時間ごとに、前回の確かめから 24 時間経っていれば 1 回問い合わせる（届かなかった回も確かめた時刻を書く。状態が残っていれば 0 回） | 置く段で本物の配布元に何回聞くか・入れ直しで置き場を消すこと（Q4・Q5） | `crates/updater/src/lib.rs:241-243`・`:269-270`・`:298-305`、`crates/update-check/src/lib.rs:255-258`（review/deep.md R6） | 置き場を消して入れた直後に 1 回 | 実物（コード） | 2 |
+| P2 | サービスの回復は 10 秒ごとに起こし直す（`reset= 86400`）。4 回目以降も起こし直すか、1 日 3 回で止まるかは確かめていない | 0.1.0 型の落ち続けが起こし直しの回数として見えるか、3 回の後は止まったまま（Q2 の置き終わりの状態で捕まえる）か | `crates/installer/src/commands.rs:584-592`。`crates/server/src/service.rs:646` の注記は「1 日 3 回まで」 | 0.1.0 の実機で「10 秒ごとに落ち続けた」（commit 97a43bcf6 の本文）。注記と食い違う | 実物（実機の観測）・既存の注記 | 5（落ち続けが見えること）/ 1（4 回目以降の規則） |
+| P3 | 配る形の Windows の配布物（`package-windows-release`）は、サーバの zip と PC の収集アプリの zip を両方持つ | PC の収集アプリも配る形で置けるか（Q1） | `tools/release/package.sh:24-25`・`:63` | 両方組む | 実物（コード） | 2 |
+| P4 | サーバの更新の適用はインストーラを本人が走らせたときだけで、更新係は落とさない。PC の収集アプリの入れ替えは本人が `y` と答えたときだけ | 外を開けて置いても、本物の配布物を落として入れ替えないこと | 正典 distribution `spec.md:3507`・`:3633` | 自動では入れ替えない | 実物（正典） | 2 |
+| P5 | 本物の配布元の `GET /repos/rai-256/ashiato/releases?per_page=20` は、いま 200 で空の一覧を返す（公開のリリースが 0 件。`nightly` も 404） | 置く段で更新係が何を受け取るか（いまは「新しい版なし」）・Q4 の理由の分け方 | 2026-11-19 に `curl -H 'User-Agent: ashiato-update-check' …`・`gh api …/releases/tags/nightly` | 200・0 件／nightly は 404 | 実物 | 5 |
+| P6 | 配布元への認証の無い問い合わせは、元の IP ごとに 1 時間 60 回まで | 置く段と握手の試験（tls_online_*）が上限に当たらないこと | GitHub の公式文書（REST API の rate limits） | 60 回/時 | 公式文書 https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api | 2 |
+| P7 | windows-latest の runner は対話のセッションで動き、PC の収集アプリを窓のある形で動かせる | Q1（PC の収集アプリを置く） | `.github/workflows/ci.yml:230`（collector-windows-runtime が本物の前景を読む実行時テストを毎回走らせている） | 動く | 実物（CI） | 4 |
+| P8 | 何もしないで置いたサーバ・DB・更新係・収集アプリが、正常でもログにどれだけ誤りの行を書くか | Q3 の閾値 | 未確認（runner で配る形を置いた記録が無い） | 不明 | 知識 | 1 |
+| P9 | 置く段の前の段（`update-apply-install.sh`）は試験の zip を入れたまま終わる。`ashiato-setup.exe uninstall` は状態の置き場と更新係の置き場（`status.json`・`check.json`）を残すので、置き場まで消すには台本の掃除（`reset_machine`）が要る | Q5（消して入れ直す・順序） | `.github/workflows/ci.yml:630-640`・`crates/installer/src/main.rs:2819-2823`・`tools/release/update-apply-install.sh:190-212`（review/deep.md R5） | 消す口は置き場を残す | 実物（コード） | 2 |
+| P10 | PC の収集アプリは初めて起きたとき更新の案内を出すだけで確かめず、定期の確かめは起動の 1 時間後から。案内が済んだ 2 回目の起動では起きてすぐ確かめる。通知の差出人を登録できなければ確かめる係を付けない | Q1（5 分で配布元に聞かせるには起こし直しが要る） | `crates/collector-windows/src/update_check.rs:148-163`・`runtime.rs:359-360`・`main.rs:222-253`（review/deep.md R3） | 1 回目の起動では聞かない | 実物（コード） | 2 |
+| P11 | 起こし直しと異常終了は、Windows のシステムの記録（サービスの起動・終了）とプロセスの番号の変わり方から、Git Bash の台本で読める | Q2 の数え方 | 未確認（runner で読んだ記録が無い。review/deep.md R7） | 不明。最初の走りで確かめ、読めなければ番号の変わり方だけで数える | 知識 | 1 |
+| P12 | 確かめられない理由の語は、ashiato の誤りか外の揺れかで分かれていない。更新係は 403・429 を上限・404 を見つからない・それ以外の状態の番号（5xx を含む）を読めない答え・証明書の確かめの失敗を含む接続の失敗を届かないにする。PC の収集アプリは 5xx を届かないにする | Q4 の判定 | `crates/updater/src/lib.rs:187-191`・`crates/collector-windows/src/update_check.rs:479-485`（review/deep.md R4） | 分かれていない | 実物（コード） | 2 |
+
+失われるもの（`loss`）のある決定は無い（CI の段の形・閾値・正典の文はどれも後から直せる）。P2 の後半・P8・P11 は判定の閾値と数え方（B）にだけ効くので、確かさ 1 のまま推奨を置き、最初の走りで見たものを記録して反転条件にする。
