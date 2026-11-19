@@ -66,11 +66,11 @@
 
 ## Task 4: 本物のエミュレータで絞った実行と全体を走らせ、触ったのが予定のパスだけであることを確かめる
 
-- [ ] 4.1 本物のエミュレータで、ふつうのクラスとバックアップの試験を ONLY で 1 回ずつ走らせる（`/dev/kvm` が要る。開けなければ verify-run が `BLOCKED_INFRA` を返す）。
+- [x] 4.1 本物のエミュレータで、ふつうのクラスとバックアップの試験を ONLY で 1 回ずつ走らせる（`/dev/kvm` が要る。開けなければ verify-run が `BLOCKED_INFRA` を返す）。
   落ちたら、落ちたのが台本の ONLY の経路か、試験の中身か（同じクラスが全体の実行で通るか）をログで分け、試験の中身なら直さずに PR 本文に挙げる。
   St56 は、置き場の無い状態でも通ることを見るため、先に `collector-android/app/build/outputs/androidTest-results` を消してから走らせる（spec-review R1）。
   検証: `bash -c 'rm -rf collector-android/app/build/outputs/androidTest-results && scripts/quiet-run emu56 -- env ONLY=dev.ashiato.collector.St56BackupTest tools/android-emulator.sh'` rc=0 / `scripts/quiet-run emu1 -- env ONLY=dev.ashiato.collector.MediaPremisesInstrumentedTest tools/android-emulator.sh` rc=0
-- [ ] 4.2 本物のエミュレータで全体（ONLY なし）を走らせる（壊してはいけないもの 1。1 回 17 分ほど。1 回で待つ）。落ちたら、同じ失敗が base の台本でも起きるか（`git stash` を使わず、`git show <base>:tools/android-emulator.sh` を一時の場所に写して走らせる）で分け、base でも落ちるなら直さずに PR 本文に挙げて A として人間に返す。
+- [x] 4.2 本物のエミュレータで全体（ONLY なし）を走らせる（壊してはいけないもの 1。1 回 17 分ほど。1 回で待つ）。落ちたら、同じ失敗が base の台本でも起きるか（`git stash` を使わず、`git show <base>:tools/android-emulator.sh` を一時の場所に写して走らせる）で分け、base でも落ちるなら直さずに PR 本文に挙げて A として人間に返す。
   検証: `scripts/quiet-run emu -- tools/android-emulator.sh` rc=0
-- [ ] 4.3 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る）。
+- [x] 4.3 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(tools/android-emulator\.sh|tools/test-android-emulator\.sh|AGENTS\.md|docs/changes/CH19\.md|openspec/changes/ch19-emulator-only-class/|docs/briefs/CH19|\.superpowers/|$)"'` rc=0
