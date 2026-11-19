@@ -167,3 +167,24 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
   5 分は依頼の本人の決定（「5 分ほど」）で、spec の Requirement の本文と Scenario の名前にある。`SOAK_SAME_ERROR_LIMIT` には `== 3` の assert があるが、こちらには無い
 - kind: daily
 - 提案: 自己試験に `[[ "$SOAK_WAIT_SECONDS" == 300 ]]` を足す（同じ誤りの閾値と同じ形）
+
+## security review（7817dc5..d5e974b）
+
+見た経路:
+- `install-windows` の置く段 → `soak_remove_outbound_rule`（`tools/release/soak-install.sh:214`）→ 更新係と PC の収集アプリが本物の配布元へ出る。塞ぎを外すのは job の最後の試験の step（`ci.yml` の「配る形を外につながる状態で置く」）で、後ろは `check_scenarios`（差分の外・変わらず）だけ（3）
+- 新しい listen・平文の外への送信先・証明書の検証を切る設定・依存の追加: 差分に無い（`git diff --stat` は ci.yml・docs/testing.md・soak-install.sh・openspec だけ）（2）
+- サーバ・DB・更新係・PC の収集アプリのログの ERROR 行 → `soak_out`（`:28`、`ng_redact`）→ CI の標準出力。設定の秘密（API_TOKEN・WEB_PASSWORD_VERIFIER・DB の URL）は伏せる。CI の runner の上の記録は runner の窓だけで、本人の記録は届かない（4: `--self-test` rc=0。`:599` の「秘密の値が出ない」の場合を含む）
+- 実地の口（引数 2 つ）→ `soak_reset_machine`（`:184`）→ サービスの停止・削除、`C:/ProgramData/ashiato`（DB）と `%LOCALAPPDATA%/ashiato/collector`（PC の収集アプリの未送信の outbox）を `rm -rf`。CI の上かを見る関門は無く、zip の有無より前に走る（4。下の R11）
+- 偽の命令で台本を走らせる口 `--self-test-run`（`:617`）: 置き場を `C:/…` の相対パスに固定し、作業の箱の中で走らせる。本番の組み立てからは呼ばれない（3）
+
+安全の決め手: 「外向きの塞ぎを外すのは、配布元へ出ることを主張する置く段 1 つだけで、その後ろに本物の配布元に問い合わせる別の step が無い」—— 確かさ 3（`ci.yml` の `install-windows` の step の並びを辿った。別の書き方の 2 つ目は R7 が既に指摘）。秘密の伏せは確かさ 4（`tools/release/soak-install.sh --self-test` → `OK: soak-install self-test`）
+
+## R11. 実地の口は CI の上かを確かめずに、本人の PC の DB と PC の収集アプリの未送信の記録を消す
+- 成果物: tools/release/soak-install.sh
+- 根拠: `soak_run`（`:294`）は zip を開く（`:223`・`:310`）より前に `soak_reset_machine`（`:304`）を呼び、`:202`〜`:209` で `C:/ProgramData/ashiato`（DB）と `SOAK_COLLECTOR_DIR` = `%LOCALAPPDATA%/ashiato/collector`（`:299`。`crates/collector-windows/src/config.rs:146`〜`148` の置き場と同じで、`runtime.rs:305` の `outbox.jsonl` を持つ）を `rm -rf` する。`GITHUB_ACTIONS` や確認の引数を見る分岐は `main`（`:615`）に無い。
+  台本で確かめた: 一時の箱の中に `C:/ProgramData/ashiato/db/PG_VERSION` と `LOCALAPPDATA/ashiato/collector/outbox.jsonl` を置き、`sc.exe` などを rc=1 の偽にして、`GITHUB_ACTIONS`・`CI` を外し、**存在しない** zip 2 つで `soak-install.sh` を走らせた → `NG: 配るサーバの zip を開けない` rc=1 で終わったが、終わったあとに 2 つの置き場は空。`taskkill /F /IM ashiato-collector-windows.exe` も呼ばれていた（確かさ 4）。
+  DB を消すこと自体は既存の `update-check-install.sh:140`・`update-apply-install.sh` の reset と同じだが、**PC の収集アプリの置き場（まだサーバへ届いていない記録）を消すのはこの差分から**で、本人が自分の Windows で置く段を試せば（`docs/testing.md` は「Windows の実地の確かめ」の台本として並べている）、まだ送っていない記録が戻らない形で消える
+- kind: irreversible
+- 提案: 実地の口は `GITHUB_ACTIONS=true`（か、明示の `--i-am-ci` のような引数）でないと reset の前に `die` する。少なくとも `SOAK_COLLECTOR_DIR` の既定を本人の `%LOCALAPPDATA%` にせず、`ASHIATO_STATE_DIR` で作業の箱の置き場を渡して収集アプリを起こす。引数の zip の確かめは reset より前に回す
+
+範囲外: `update-check-install.sh`・`update-apply-install.sh` の reset も CI の上かを見ずに `C:/ProgramData/ashiato` を消す（既存）。
