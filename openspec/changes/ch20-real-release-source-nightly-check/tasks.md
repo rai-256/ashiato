@@ -34,11 +34,11 @@
   `tools/release/release_source.py` に、置き場（design D2 の形: `fetch/`・`replay/`・`records/`・`history/`）だけを読む `judge` を置く: 本物の状態の期待と届かなかった段の扱い（spec・design D10）・
   流し直しの期待（spec の場合ごとの期待）・答えの形の比べ（読む項目の有無と型・道ごとの答えの形・一覧の本文の上限・知らない状態コードは注意。読まない項目と値の変化は見ない）・
   記録の無い段（`records/mode` による。design D2）・180 秒の記録（`records/updater-release-real.timeout`）・届かない夜の数え方（予定の起動の実行だけ。design D8）。
-  結果を標準出力の `NG` / `WARN` の行と要約（`summary.md`。先頭で既に分かっている食い違いとそれ以外の赤を分ける）と `summary.json`（`reached`・`ng`・`warn`・比べに使った repo の名前）に出し、赤なら rc=1、緑なら rc=0。
+  結果を標準出力の `NG` / `WARN` の行（標準出力にはこの 2 種の行だけを出す）と、置き場のファイルの要約（`summary.md`。先頭で既に分かっている食い違いとそれ以外の赤を分ける）と `summary.json`（`reached`・`ng`・`warn`・比べに使った repo の名前）に出し、赤なら rc=1、緑なら rc=0。
   `tools/release/release-source-check.sh judge <置き場>` がそれを呼ぶ。
   検証: `bash -n tools/release/release-source-check.sh` rc=0 /
   `python3 -I -m py_compile tools/release/release_source.py` rc=0
-- [ ] 1.2 `tools/release/release-source-check.d/` に自己試験の材料を置く: 本物の答え（`material/` の写し）と、そこから手で変えた答え（`reactions` を足す・`digest` を消す・`draft` を文字列にする・
+- [ ] 1.2 `tools/release/release-source-check.d/` に自己試験の材料を置く（自己試験と `--replay-fixture` はここだけを読む）: 本物の答え（change の `material/` から写す）と、そこから手で変えた答え（`reactions` を足す・`digest` を消す・`draft` を文字列にする・
   値だけを変える・一覧の本文を 70000 バイトにする・状態 `502`・`cli/cli` の一覧を `[]` にする）と、場合ごとの確かめた記録（正典どおり・正典と違う・本物の段で上限）と、
   `records/mode` の有無・180 秒の印と、前の実行の要約（予定の起動で届いた・届かない・手動の起動・読めない）。
   `release-source-check.sh --self-test` が、材料に `judge` を当てて次の Scenario を確かめる（各 Scenario の前に `echo "== Scenario: <名前>"`）:
@@ -81,13 +81,13 @@
 ## Task 4: 部品を走らせて記録を集める（`collect`）と、手順の一覧（`--plan`）
 
 - [ ] 4.1 `release-source-check.sh collect <置き場>` を置く（design D2・D3・D6・D7）。最初に `records/mode` に `full` を書き、`GH_TOKEN`・`GITHUB_TOKEN` を unset する。
-  (a) 配る形のサーバを `tools/release/build.sh server-windows` で組み、`ashiato-setup.exe` で入れ、更新係のサービスが `C:\ProgramData\ashiato-updater\checks.jsonl` に書く最初の 1 行を
+  (a) 配る形のサーバを `tools/release/build.sh server-windows` で組み、`ashiato-setup.exe install` で入れ（入れ方は `tools/release/install-check.sh:1225` の `install --profile … --downloads …` と標準入力の答え・`:311` のコンソールの包み（`conpty-run.ps1`）に合わせ、`install-check.sh` は呼ばない）、更新係のサービスが `C:\ProgramData\ashiato-updater\checks.jsonl` に書く最初の 1 行を
   180 秒まで待って `records/updater-release-real.json` に置く（来なければ `records/updater-release-real.timeout`）/ (b) 試験の組み立ての更新係を開発版の版で本物に 1 回（`real-dev`）/
   (c) 試験の組み立ての PC の収集アプリを本物に 1 回（`real`。Task 3 の入口）/ (d) Task 2 で組んだ答えを受け手から返し、試験の組み立ての更新係と PC の収集アプリに `same`・`newer`・`full-20`・`status-503`・`redirect-offhost` を、
   版の上書きで開発版にした更新係と、開発版の版で組んだ PC の収集アプリ（`collector-dev`）に `nightly-object` を通す。(a)〜(c) が部品の本物への問い合わせの全部（3 回）。
   途中の段が落ちても次の段へ進み、落ちた段は記録を置かない（`judge` が記録の無い段を赤にする）。
   `collect --replay-only <置き場>` は `records/mode` に `replay-only` を書き、(a)〜(c) を飛ばし、置き場に先に置いた `fetch/` から (d) だけを走らせる（Linux でも動く）。
-  `judge` は `replay-only` の置き場では本物の 3 段を `WARN` 1 行ずつ（「本物の段を飛ばした」）にする。`--replay-fixture <置き場>` は `material/` の写しを `fetch/` に置くだけの口（この Task で置く）。
+  `judge` は `replay-only` の置き場では本物の 3 段を `WARN` 1 行ずつ（「本物の段を飛ばした」）にする。`--replay-fixture <置き場>` は `tools/release/release-source-check.d/` の本物の答えの写しを `fetch/` に置くだけの口（この Task で置く。change の `material/` は archive で動くので直に読まない）。
   `--plan` は部品が本物に問い合わせる段を 1 行ずつ（`updater-release real`・`updater real-dev`・`collector real`）出す。
   (a)〜(c) の実地（本物の配布元と Windows のサービス）は下流では走らせない。merge の後の最初の毎晩の実行で確かめる（`docs/changes/CH20.md` の確認バッチの問い）。
   検証: `bash -c '[ "$(tools/release/release-source-check.sh --plan | grep -c .)" -eq 3 ]'` rc=0 /
@@ -122,10 +122,10 @@
   `--self-test` に、壊した写し（(a) `permissions` に `contents: write` を足す (b) `nightly.yml` に毎晩の検査の job を足す (c) `collect` の step に `GH_TOKEN` を足す (d) `upload-artifact` の `if: always()` を消す
   (e) `ci.yml` の `--block-outbound` の step を消す (f) `ci.yml` の `rust` の job に `cargo test -- --ignored` を足す (g) `judge` の step に `continue-on-error: true` を足す
   (h) `judge` の `if: always()` を消す (i) `retention-days` を 30 にする (j) `workflow_dispatch` を消す (k) `ci.yml` の job に `release-source-check.sh fetch` を足す）で `--check-workflow` が
-  0 でない終了コードで終わることを確かめる節を足す（`python3` か `yaml` が無ければこの節を飛ばしたと 1 行出して続ける。CI の `chain`（ubuntu）では飛ばさない）。
+  0 でない終了コードで終わることを確かめる節を足す（`python3` か `yaml` が無ければ `== 配線の壊した写しの確かめを省いた（yaml が無い）` を 1 行出して続ける。CI の `chain`（ubuntu）では省かない）。
   検証: `tools/release/release-source-check.sh --check-workflow` rc=0 /
   `bash -c 'out=$(tools/release/release-source-check.sh --check-workflow); for s in "毎晩の検査は予定と手動の起動を持つ" "毎晩の検査は読む権限だけで走る" "毎晩の検査は公開の流れから独立する" "部品が本物に問い合わせるのは 1 回の実行で 3 回まで" "部品の問い合わせに workflow の資格情報を渡さない" "判定と成果物の保存は、前の段が落ちても走る" "PR ごとの CI は本物の配布元に問い合わせない"; do grep -qF "== Scenario: $s" <<<"$out" || { echo "無い: $s"; exit 1; }; done'` rc=0 /
-  `bash -c 'out=$(tools/release/release-source-check.sh --self-test); ! grep -q "飛ばした" <<<"$out"'` rc=0
+  `bash -c 'out=$(tools/release/release-source-check.sh --self-test); ! grep -qF "== 配線の壊した写しの確かめを省いた" <<<"$out"'` rc=0
 - [ ] 6.2 `.github/workflows/ci.yml` の `chain` の job の、`./tools/release/update-check-install.sh --self-test` の次に `./tools/release/release-source-check.sh --self-test` と
   `./tools/release/release-source-check.sh --check-workflow` の 2 行を足す。ほかの job と step は 1 字も変えない。
   検証: `bash -c 'grep -qF "./tools/release/release-source-check.sh --self-test" .github/workflows/ci.yml && grep -qF "./tools/release/release-source-check.sh --check-workflow" .github/workflows/ci.yml'` rc=0 /
@@ -145,3 +145,11 @@
   `bash -c '[ "$(cargo test -p ashiato-updater --test st57_once -- --list 2>/dev/null | grep -c ": test$")" -ge 1 ]'` rc=0 /
   `scripts/quiet-run st57pc -- cargo test -p ashiato-collector-windows --test st57_pc_update` rc=0 /
   `bash -c '[ "$(cargo test -p ashiato-collector-windows --test st57_pc_update -- --list 2>/dev/null | grep -c ": test$")" -ge 1 ]'` rc=0
+
+## 人間の確認待ち（確認バッチ。merge の後の最初の毎晩の実行の後）
+
+Scenario ではない —— 機械が全部の Scenario を見る。ここは本物の配布元と Windows のサービスの実地で、下流の検証は本物に問い合わせない（正典 MODIFIED）。結果は確認バッチが `premises.md` に書く。
+
+- [ ] 8.1 **最初の毎晩の実行の要約を読む**: merge の後の最初の `release-source-nightly` の実行（待てなければ Actions の画面から手動で起動）の要約を開き、「既に分かっている食い違い」に (1) 印 `nightly` の 1 件を読めない（更新係・PC の収集アプリ・答えの形）・(2) 20 件の一覧を読めない・(3) PC の収集アプリの `503` と別の宛先への `301` が出て、「それ以外の赤」が無いかを見る。本物の状態の行で、配る形の更新係のサービスが 180 秒のうちに確かめ、正式版の道は「確かめた・新しい版なし」、開発版の道は「配布元が見つからない」と「依頼と正典の食い違い」の注意か。成果物 `release-source-raw` に本物の答えと部品の記録が残っているか。「それ以外の赤」があれば、本物との新しい食い違いか検査の誤りかを書く
+  > 物理: realdata —— 本物の配布元の答えと、Windows に入れた更新係のサービスの実地は手元の受け手では作れない（試験・下流の検証は本物の配布元に聞かない）
+
