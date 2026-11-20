@@ -127,9 +127,11 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - 根拠: Server reply at T = x.9995 s, so `r.time` is cut to x s plus 5 min. The client reads `wall_after` 2.4 ms later and the uptime readings give width = 2. The real skew is -300000 + 999.5 + 2.4 = -298998.1, which truncates to -298998. That is not below -299000 + 2 = -298998, so the assertion panics.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.2
 
 ## R7. The new test `clock_reference_setup_time_is_not_in_the_difference` copies the 'clock ahead' and 'clock behind' checks line for line instead of reusing `skew_against`. It also has no doc comment, unlike every other test in this module. If the shared range logic changes, these four copies can drift apart. Fix: give `skew_against` a sleep parameter (or add a helper that sleeps before creating the clock) and call it twice from the new test, with a one-line `///` comment saying why it sleeps 1.5 s.
 - 成果物: crates/collector-windows/src/clock.rs:496
 - 根拠: Someone later adjusts the range in `clock_reference_pc_ahead_gives_positive_difference` and the 'clock behind' test, but not the copies in the new test. The regression test then checks different bounds than the spec, which Task 1.3's `check-ch25.py clock` only enforces on the two tests marked with a Scenario.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1

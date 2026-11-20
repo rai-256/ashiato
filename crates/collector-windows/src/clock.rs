@@ -431,7 +431,14 @@ mod tests {
                     .unwrap_or_default()
                     .to_string();
                 seen.lock().unwrap().push(first);
-                let date = Utc::now() + skew;
+                // Date は秒に切り捨てられる。秒の最後の 10 ms に当たると、差のミリ秒への丸め（0 の側へ）と
+                // 幅の丸め（下の側へ）で正典の幅の端を 1 ms 越えうる（CH25 R6）。その 10 ms は次の秒まで待って返す
+                let mut date = Utc::now() + skew;
+                let ms = date.timestamp_subsec_millis();
+                if ms >= 990 {
+                    std::thread::sleep(std::time::Duration::from_millis(u64::from(1_000 - ms)));
+                    date = Utc::now() + skew;
+                }
                 let reply = format!(
                     "HTTP/1.1 200 OK\r\nDate: {}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
                     date.format("%a, %d %b %Y %H:%M:%S GMT")
@@ -444,7 +451,13 @@ mod tests {
 
     /// 基準を 1 回読んで、PC の差（ミリ秒）と、読む直前と直後の経過時間の幅を返す。
     fn skew_against(skew: Duration) -> (i64, u64) {
+        skew_against_after(skew, std::time::Duration::ZERO)
+    }
+
+    /// 偽の取り込み口を用意してから `setup` だけ待ち、そのあと時計を作って基準を 1 回読む（差と幅は `skew_against` と同じ）。
+    fn skew_against_after(skew: Duration, setup: std::time::Duration) -> (i64, u64) {
         let (base, _) = fake_ingest(skew);
+        std::thread::sleep(setup);
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         let r = clock.now().unwrap();
         (
@@ -493,25 +506,19 @@ mod tests {
         );
     }
 
+    /// 用意（取り込み口を立ててから時計を作るまで）に 1.5 秒かかっても、その時間は差に混ざらない。
+    /// Date を用意の時点で決める偽物だと差が幅の外へ出る（CH25 で直した揺れ）。
     #[test]
     fn clock_reference_setup_time_is_not_in_the_difference() {
-        let (base, _) = fake_ingest(Duration::minutes(-5));
-        std::thread::sleep(std::time::Duration::from_millis(1_500));
-        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
-        let r = clock.now().unwrap();
-        let skew = (r.wall_after - r.time).num_milliseconds();
-        let width = r.uptime_after_ms - r.uptime_before_ms;
+        let setup = std::time::Duration::from_millis(1_500);
+
+        let (skew, width) = skew_against_after(Duration::minutes(-5), setup);
         assert!(
             (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
             "skew={skew} width={width}"
         );
 
-        let (base, _) = fake_ingest(Duration::minutes(5));
-        std::thread::sleep(std::time::Duration::from_millis(1_500));
-        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
-        let r = clock.now().unwrap();
-        let skew = (r.wall_after - r.time).num_milliseconds();
-        let width = r.uptime_after_ms - r.uptime_before_ms;
+        let (skew, width) = skew_against_after(Duration::minutes(5), setup);
         assert!(
             (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
                 .contains(&skew),
