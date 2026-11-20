@@ -29,6 +29,11 @@ RANGES = {
     "clock_reference_pc_ahead_gives_positive_difference": "(300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew)",
     "clock_reference_pc_behind_gives_negative_difference": "(-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())",
 }
+CACHE_INPUTS = (
+    "collector-android/**/*.gradle.kts",
+    "collector-android/**/*.lockfile",
+    "collector-android/gradle/wrapper/gradle-wrapper.properties",
+)
 
 fails = []
 
@@ -53,15 +58,22 @@ def uses_gradle(job):
 
 
 def has_cache(job):
-    """setup-java の cache: gradle か、gradle を呼ぶ最初の段より前の setup-gradle。"""
+    """D1/D3 の鍵の材料を持つ取り置きが、gradle より前にあるか。"""
     for s in job.get("steps", []):
         u = str(s.get("uses", ""))
-        if "actions/setup-java" in u and (s.get("with") or {}).get("cache") == "gradle":
-            return True
+        w = s.get("with") or {}
+        if "actions/setup-java" in u and w.get("cache") == "gradle":
+            paths = tuple(p.strip() for p in str(w.get("cache-dependency-path", "")).splitlines() if p.strip())
+            return paths == CACHE_INPUTS and "restore-keys" not in w
         if "gradle/actions/setup-gradle" in u:
             return True
         if is_gradle_cache_step(s):
-            return True
+            key = str(w.get("key", ""))
+            return (
+                all(repr(path) in key for path in CACHE_INPUTS)
+                and "hashFiles(" in key
+                and "restore-keys" not in w
+            )
         if GRADLE_RUN.search(str(s.get("run", ""))) or "android-emulator-runner" in u:
             return False
     return False

@@ -408,8 +408,8 @@ mod tests {
         }
     }
 
-    /// `date` に指定の時刻を入れて返す偽の取り込み口。受けた要求の 1 行目を数える。
-    fn fake_ingest(date: DateTime<Utc>) -> (String, Arc<Mutex<Vec<String>>>) {
+    /// 応答を返す瞬間の時刻にずらしを足して `date` に入れる偽の取り込み口。受けた要求の 1 行目を数える。
+    fn fake_ingest(skew: Duration) -> (String, Arc<Mutex<Vec<String>>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -431,6 +431,14 @@ mod tests {
                     .unwrap_or_default()
                     .to_string();
                 seen.lock().unwrap().push(first);
+                // Date は秒に切り捨てられる。秒の最後の 10 ms に当たると、差のミリ秒への丸め（0 の側へ）と
+                // 幅の丸め（下の側へ）で正典の幅の端を 1 ms 越えうる（CH25 R6）。その 10 ms は次の秒まで待って返す
+                let mut date = Utc::now() + skew;
+                let ms = date.timestamp_subsec_millis();
+                if ms >= 990 {
+                    std::thread::sleep(std::time::Duration::from_millis(u64::from(1_000 - ms)));
+                    date = Utc::now() + skew;
+                }
                 let reply = format!(
                     "HTTP/1.1 200 OK\r\nDate: {}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
                     date.format("%a, %d %b %Y %H:%M:%S GMT")
@@ -442,8 +450,14 @@ mod tests {
     }
 
     /// 基準を 1 回読んで、PC の差（ミリ秒）と、読む直前と直後の経過時間の幅を返す。
-    fn skew_against(reference: DateTime<Utc>) -> (i64, u64) {
-        let (base, _) = fake_ingest(reference);
+    fn skew_against(skew: Duration) -> (i64, u64) {
+        skew_against_after(skew, std::time::Duration::ZERO)
+    }
+
+    /// 偽の取り込み口を用意してから `setup` だけ待ち、そのあと時計を作って基準を 1 回読む（差と幅は `skew_against` と同じ）。
+    fn skew_against_after(skew: Duration, setup: std::time::Duration) -> (i64, u64) {
+        let (base, _) = fake_ingest(skew);
+        std::thread::sleep(setup);
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         let r = clock.now().unwrap();
         (
@@ -465,7 +479,7 @@ mod tests {
                 1_000
             }
         }
-        let (base, _) = fake_ingest(Utc::now());
+        let (base, _) = fake_ingest(Duration::zero());
         let r = HttpDateClock::new(&base, Arc::new(Coarse)).now().unwrap();
         assert_eq!(r.uptime_before_ms, 5_000);
         assert_eq!(r.uptime_after_ms, 5_999);
@@ -474,7 +488,7 @@ mod tests {
     /// Scenario: PC の時計が進んでいると差が正で残る
     #[test]
     fn clock_reference_pc_ahead_gives_positive_difference() {
-        let (skew, width) = skew_against(Utc::now() - Duration::minutes(5));
+        let (skew, width) = skew_against(Duration::minutes(-5));
         assert!(
             (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
             "skew={skew} width={width}"
@@ -484,7 +498,27 @@ mod tests {
     /// Scenario: PC の時計が遅れていると差が負で残る
     #[test]
     fn clock_reference_pc_behind_gives_negative_difference() {
-        let (skew, width) = skew_against(Utc::now() + Duration::minutes(5));
+        let (skew, width) = skew_against(Duration::minutes(5));
+        assert!(
+            (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
+                .contains(&skew),
+            "skew={skew} width={width}"
+        );
+    }
+
+    /// 用意（取り込み口を立ててから時計を作るまで）に 1.5 秒かかっても、その時間は差に混ざらない。
+    /// Date を用意の時点で決める偽物だと差が幅の外へ出る（CH25 で直した揺れ）。
+    #[test]
+    fn clock_reference_setup_time_is_not_in_the_difference() {
+        let setup = std::time::Duration::from_millis(1_500);
+
+        let (skew, width) = skew_against_after(Duration::minutes(-5), setup);
+        assert!(
+            (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
+            "skew={skew} width={width}"
+        );
+
+        let (skew, width) = skew_against_after(Duration::minutes(5), setup);
         assert!(
             (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
                 .contains(&skew),
@@ -495,7 +529,7 @@ mod tests {
     /// 壁時計は応答を受け取った直後に読み、経過時間はその前後を挟む。
     #[test]
     fn clock_reference_reads_wall_between_the_uptime_readings() {
-        let (base, _) = fake_ingest(Utc::now());
+        let (base, _) = fake_ingest(Duration::zero());
         let uptime = Arc::new(ElapsedUptime(Instant::now()));
         let clock = HttpDateClock::new(&base, uptime.clone());
         let (before, started) = (Utc::now(), uptime.millis());
@@ -509,7 +543,7 @@ mod tests {
     /// Scenario: 測るための要求は取り込み口の生存確認の 1 本だけ
     #[test]
     fn clock_reference_asks_the_ingest_health_check_once() {
-        let (base, requests) = fake_ingest(Utc::now());
+        let (base, requests) = fake_ingest(Duration::zero());
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         clock.now().unwrap();
         let seen = requests.lock().unwrap().clone();
