@@ -17,6 +17,8 @@ D1 を台帳から外し（`provisional.py resolve`）、design の見出しの�
 
 (未回答)
 
+- **答え**: `deep-answers-1.txt`（2026-11-20）でも `(未回答)`。A なので推奨（案 (1)）を採ったとはみなさず、もう一度聞く
+
 - **分類**: A（loss: discarded。案 (2) は bzip2 で縮めた項目を持つ Takeout の書庫を読めなくなる）
 - **事実**: zip 9.7.3 の bzip2 は Rust で書き直した libbz2（`libbz2-rs-sys` 0.2.7）を引き、その許諾は `bzip2-1.0.6`。
   `tools/check-licenses.sh` の許す一覧（`ALLOW`）に無く、検査は `cargo metadata --all-features` の全部の部品を見るので、tasks 3.2 が必ず落ちる。
