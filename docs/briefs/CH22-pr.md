@@ -20,7 +20,8 @@ design の（仮）:
 - D16（仮）. 実地の置く段は GitHub Actions の runner に限定する
 - D17（仮）. 置く時間 300 秒を自己試験で固定する
 
-全 Task の ledger に `Ruling:` の行は無い。
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger に `Ruling:` の行は無い。
 
 ## Task
 
@@ -47,8 +48,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 38 件（escalated 1・fixed 37）
-- 処置の re-review: 6 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 40 件（escalated 1・fixed 39）
+- 処置の re-review: 9 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
