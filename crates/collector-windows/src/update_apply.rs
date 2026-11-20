@@ -413,6 +413,7 @@ fn remove_old_versions(layout: &UpdateLayout, current: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    #![cfg_attr(windows, allow(dead_code))]
     use super::*;
 
     // CH24-FIXTURE-BEGIN
@@ -430,7 +431,6 @@ mod tests {
         "a\\..\\..\\x",
         "ab:c",
     ];
-    #[cfg(not(windows))]
     const CH24_EXTRACT_EXPECTED_UNIX: [bool; 12] = [
         false, true, true, true, false, true, true, true, true, true, true, true,
     ];
