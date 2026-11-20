@@ -15,13 +15,13 @@ import sys
 import yaml
 
 WORKFLOWS = {
-    ".github/workflows/ci.yml": {"build-stamp", "android", "android-instrumented", "package-linux"},
+    ".github/workflows/ci.yml": {"build-stamp", "android", "android-instrumented", "package-linux", "chain"},
     ".github/workflows/nightly.yml": {"package-linux"},
     ".github/workflows/release.yml": {"package-linux"},
 }
 # gradle を（直に・台本を通して）呼ぶ印。setup-java を持つ job も gradle の job とみなす
 GRADLE_RUN = re.compile(
-    r"gradlew\b|check-gradle-locks\.sh|build\.sh apk|check-build-stamp\.sh android|check-licenses\.sh android|package\.sh linux"
+    r"gradlew\b|check-gradle-locks\.sh|build\.sh apk|check-build-stamp\.sh android|check-licenses\.sh android|package\.sh linux|draft\.sh --self-test"
 )
 SHA = re.compile(r"@[0-9a-f]{40}( |$)")
 CLOCK = "crates/collector-windows/src/clock.rs"
@@ -60,9 +60,17 @@ def has_cache(job):
             return True
         if "gradle/actions/setup-gradle" in u:
             return True
+        if is_gradle_cache_step(s):
+            return True
         if GRADLE_RUN.search(str(s.get("run", ""))) or "android-emulator-runner" in u:
             return False
     return False
+
+
+def is_gradle_cache_step(s):
+    """chain の job（setup-java を持たない）の取り置き: actions/cache で ~/.gradle を持つ段。"""
+    u = str(s.get("uses", ""))
+    return u.startswith("actions/cache@") and ".gradle/caches" in str((s.get("with") or {}).get("path", ""))
 
 
 def without_cache(job):
@@ -70,7 +78,7 @@ def without_cache(job):
     j = copy.deepcopy(job)
     steps = []
     for s in j.get("steps", []):
-        if "gradle/actions/setup-gradle" in str(s.get("uses", "")):
+        if "gradle/actions/setup-gradle" in str(s.get("uses", "")) or is_gradle_cache_step(s):
             continue
         if "actions/setup-java" in str(s.get("uses", "")) and isinstance(s.get("with"), dict):
             s["with"].pop("cache", None)
@@ -135,9 +143,29 @@ def check_clock():
             continue
         if rng not in body:
             fails.append(f"{CLOCK}: {name} の幅が Scenario の字面（{rng}）でない")
+        if "skew_against(Duration::minutes(" not in body:
+            fails.append(f"{CLOCK}: {name} がずらし（Duration）で skew_against を呼んでいない")
         sc = "Scenario: PC の時計が" + ("進んでいると差が正で残る" if "ahead" in name else "遅れていると差が負で残る")
         if f"/// {sc}\n    #[test]\n    fn {name}(" not in now:
             fails.append(f"{CLOCK}: {name} に「{sc}」の印が無い")
+    check_clock_guard(now)
+
+
+def check_clock_guard(now):
+    body = fn_body(now, "clock_reference_setup_time_is_not_in_the_difference")
+    if body is None:
+        fails.append(f"{CLOCK}: 用意の時間を長くする試験 clock_reference_setup_time_is_not_in_the_difference が無い")
+    else:
+        if "std::thread::sleep" not in body or not re.search(r"1_?500", body):
+            fails.append(f"{CLOCK}: clock_reference_setup_time_is_not_in_the_difference が 1,500 ms 眠っていない")
+        for rng in RANGES.values():
+            if rng not in body:
+                fails.append(f"{CLOCK}: clock_reference_setup_time_is_not_in_the_difference に幅の字面 {rng} が無い")
+    # 差と幅の式（skew_against か、そこから呼ぶ skew_against_* の中）
+    bodies = [fn_body(now, n) or "" for n in re.findall(r"fn (skew_against\w*)\(", now)]
+    for expr in ("(r.wall_after - r.time).num_milliseconds()", "r.uptime_after_ms - r.uptime_before_ms"):
+        if not any(expr in b for b in bodies):
+            fails.append(f"{CLOCK}: skew_against の差・幅の式 {expr} が字面のまま無い")
 
 
 def main():
