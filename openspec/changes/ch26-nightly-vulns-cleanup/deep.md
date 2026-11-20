@@ -1,0 +1,8 @@
+# 深掘り（軽い路）
+
+人間の深掘りと合意を省いた change（2026-11-09 の軽い路）。AI が入口で省く理由を申告し、`scripts/lanes.py entry` が
+触れる予定のパスで裏を取った。実装の後に実際の diff で裏を取り直し、外れたら通常の路へ昇格する（`lane-verdict.json`）。
+
+- 理由: same（振る舞いが変わらない）
+- 申告の根拠: 夜間の脆弱性検査が挙げた 4 件を互換の範囲で上げるだけ。chrono・libsqlite3-sys（rusqlite 経由）・rustix は Cargo.toml / Cargo.lock の版を上げ、上げられないものは AGENTS.md の規則どおり osv-scanner.toml の例外の表に理由と 90 日以内の期限で書く。同梱の PostgreSQL は pgsql.lock の version・url・sha256 を 17.12 にそろえるだけで major（17）は変えない（installer の build.rs が読むのは major だけ）。何を・なぜ・どこまでは依頼が決めてあり、要件は変えない。API・送信の契約・移行には触れない。新しい版が足す依存の許諾文が要れば tools/licenses に置く。minor の更新と戻しの確かめは docs/release.md §PostgreSQL の小さい版を上げる PR の手順で行う。走っている CH24 も Cargo.lock と osv-scanner.toml を触るので、後から merge する側が rebase で合わせる
+- 触れる予定のパス: Cargo.toml / Cargo.lock / crates/*/Cargo.toml / osv-scanner.toml / tools/release/pgsql.lock / tools/licenses/** / docs/release.md / docs/changes/CH26.md
