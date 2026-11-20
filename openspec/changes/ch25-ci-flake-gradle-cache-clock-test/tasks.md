@@ -52,7 +52,7 @@
 
 ## Task 3: 触ったのが予定のパスだけであることを確かめる
 
-- [ ] 3.1 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。完了の判定 4）。
+- [x] 3.1 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。`git` が落ちたら落ちる。完了の判定 4）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(\.github/workflows/(ci|nightly|release)\.yml|crates/collector-windows/src/clock\.rs|docs/changes/CH25\.md|openspec/changes/ch25-ci-flake-gradle-cache-clock-test/|docs/briefs/CH25|\.superpowers/|$)"'` rc=0
 
 ## 人間の確認待ち
