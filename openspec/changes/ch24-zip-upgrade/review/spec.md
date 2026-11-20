@@ -353,3 +353,19 @@ worktree `ashiato2-up-ch24`、HEAD 11e52034f（答えを写す前は 6e1f5dd69�
 - ch22-soak-install-online-ci / 更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る: 独立（候補はこの change の proposal.md:49 が「触れない」と書くために名を挙げた名指しだけ。こちらが MODIFIED にするのは同じ distribution の別の Requirement「配布物に入る依存の許諾を、携帯の依存も含めて検査する」で、ch22 の delta（origin/main・origin/docs/ch22-upstream とも同じ）はこの Requirement も `tools/check-licenses.sh` も持たず、こちらの Scenario・設計は ch22 の足す振る舞いを当てにしない）
 
 追記の後: tasks 4.1 を書いたまま走らせて rc=0（差分は review の 2 ファイルだけ）。`spec_overlap.py check` は `{"ok": true, "candidates": 1}`。`review_triage.py` は指摘 19 / 仮決め 2、FAIL は R17〜R19 の「処置が無い」3 件（書き手が処置を付ける）。
+
+## 再確認 3（2026-11-20、R17〜R19 の処置 75c45e741）
+
+`git show 75c45e741` を読んだ。成果物は直していない。
+
+- **R17: 閉じた。** delta の Requirement の節を正典と切り出して比べ直した（79 行どうし）。差はいまも 3 行（SHALL の一覧の文・導出元の末尾・THEN）で、SHALL は「…`Python-2.0`・`bzip2-1.0.6` の 18 の値。」の状態の形、THEN は「並べた 18 の値とちょうど同じ」。
+  specs の中に `libbz2-rs-sys`・「17 の値」・「のまま。これに」は残っていない（`grep` で 0 件。CH24.md:18・96 と proposal.md:17・42 にはあるが、正典に入らない文書で、経緯の説明として正しい）。
+  導出元の「zip 9 の既定の features」は Q-G1 の答えの引用で、本文の SHALL ではないので残してよい。Scenario の名前を残す理由は design D1 にある。tasks 3.2 の比べは台本の 2 か所だけを見るので、変わらず成り立つ
+- **R18: 閉じた。** 2.1 の検証の頭（`cargo metadata --format-version 1 --no-deps` の assert の部分）を書いたまま切り出して走らせた。いまの木で 2 つの crate の zip が `uses_default_features: True` を示し rc=0。
+  使い捨ての worktree で `crates/collector-windows/Cargo.toml` だけを `default-features = false, features = ["aes-crypto", "deflate"]` にすると `AssertionError: zip の既定の features が切られた`・rc=1（片方の crate だけを絞っても落ちる）。worktree は消した。
+  `evidence.declared` は 2.1 から 1 本だけ取り出し、`evidence.py lint` は `[OK]`。CH24.md:90（完了の判定 1「既定の features で組み立つ（tasks 2.1）」）と合う
+- **R19: 閉じた。** design.md の D6 の「正典に Scenario を置かない」から括弧が消え、主の理由だけが残る。D7 の「理由は D6 と同じ」もそのまま通る
+- `openspec validate ch24-zip-upgrade --strict` は valid。新しい指摘は無い
+- 観点 6 のやり直し（`review/answers.md` を書き直した）: 11e52034f に加えて 75c45e741 の塊も分けた。
+  SHALL と THEN の書き方（R17）と D1 に足した Scenario の名前を残す理由（R17）は、Q-G1 の答えを specs に写した文の直し。2.1 の features の assert（R18）は、答えの前半「zip 9 の既定のまま」を検証に写したもの。
+  D6 の括弧を消した（R19）のは、答えで `distribution` の delta を持った帰結で、D6 の決定（正典に Scenario を置かない・2.6.1 と同じ確かめを自前で当てる）は変わっていない。ほかの決定を変えた塊は無いので、答え以外の変更は `なし` のまま
