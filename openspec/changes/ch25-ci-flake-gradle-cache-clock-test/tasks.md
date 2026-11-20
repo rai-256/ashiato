@@ -41,13 +41,13 @@
 
 ## Task 2: gradle を使う job で、部品を CI の取り置きから取る
 
-- [ ] 2.1 gradle を使う 7 つの job に部品の取り置きを置く（design D1（仮）・D3（仮）。Global Constraints の 7 つと形）。
+- [x] 2.1 gradle を使う 7 つの job に部品の取り置きを置く（design D1（仮）・D3（仮）。Global Constraints の 7 つと形）。
   base の workflow では次の検証が「部品の取り置きを持たない」で落ちる（上流が 2026-11-21 に確かめた）。直した後に PASS になることを `scripts/verify-run 2.1` で記録する。
   検証: `python3 openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py ci` rc=0
-- [ ] 2.2 workflow を読む既存の検査が、直した workflow でも通ることを確かめる（依存の検査の配線・Windows の組み立ての鍵・試験の一時フォルダの配線）。
+- [x] 2.2 workflow を読む既存の検査が、直した workflow でも通ることを確かめる（依存の検査の配線・Windows の組み立ての鍵・試験の一時フォルダの配線）。
   配る組み立ての守り（`check-guards.sh`。`package-linux` を読む）と ADR の検査（ci.yml を読む）も含める。
   検証: `bash -c 'set -e; tools/check-vulns-wiring.sh --self-test; tools/check-vulns-wiring.sh; tools/release/windows-build-key.sh --check-workflow; tools/check-tmp-hygiene.sh --self-test; tools/check-tmp-hygiene.sh; tools/tmp-leak-check.sh --self-test; tools/release/check-guards.sh --self-test; tools/check-adr.sh --self-test; tools/check-adr.sh'` rc=0
-- [ ] 2.3 ロックの検査が今と同じに効くことを確かめる（自己試験はロックを壊すと落ちることを見る。依存の版は変えていない）。
+- [x] 2.3 ロックの検査が今と同じに効くことを確かめる（自己試験はロックを壊すと落ちることを見る。依存の版は変えていない）。
   検証: `scripts/quiet-run locks -- bash -c 'tools/check-gradle-locks.sh --self-test && tools/check-gradle-locks.sh'` rc=0
 
 ## Task 3: 触ったのが予定のパスだけであることを確かめる
