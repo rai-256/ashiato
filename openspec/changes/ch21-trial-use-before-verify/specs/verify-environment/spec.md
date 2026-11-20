@@ -345,7 +345,7 @@ THE SYSTEM SHALL 配る形のサーバの zip と PC の収集アプリの zip �
 THE SYSTEM SHALL そうでなければ、網をつないだ（`.wsb` に `<Networking>Disable</Networking>` を書かない）Sandbox を 1 つ起こし、その id を `<state>` に残し、何かを入れる前に、Sandbox の中のファイアウォールで外向きの既定を「塞ぐ」にし、外の宛先と、Sandbox の既定のゲートウェイへの名前の問い合わせ（53 番）だけを通させる。
 通す外の宛先は `env-hook.sh` が数から組み（`env-hook.sh --print-net-rules` で出せる）、私設網（tailscale の IPv4 の範囲と IPv6 の範囲）・3 つの私用の範囲・リンクローカル（IPv4 と IPv6）・IPv6 の私用の範囲・マルチキャストを含めない。
 THE SYSTEM SHALL 確かめは対照つきで行わせる: その回だけ待ち受ける一時の口を、この PC の私設網の宛先（IPv4 と、あれば IPv6）と手元の網の宛先（Windows 側のこの PC のアドレス）に立て、塞ぐ前に Sandbox の中からその口に届く（つながる）ことを、塞いだ後に同じ口が時間切れになることを見る。外は `api.github.com` を引いて HTTPS で届くかを見る。
-塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに `UNAVAILABLE=` を置かせる。塞いだ後に私設網か手元の網の口に届いたら、外の宛先を通す規則も外して外向きを全部塞ぎ、同じ口で確かめ直す。それでも届けば、何も入れずに `UNAVAILABLE=` を置かせる。外にだけ届かなかったときは続け、案内と `INFO_NET=` にそう書く。一時の口は確かめの後に閉じる。
+一時の口を立てられない（この PC の私設網の宛先を求められない・待ち受けを立てられない）か、塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに `UNAVAILABLE=` を置かせる（理由に口の名前）。塞いだ後に私設網か手元の網の口に届いたら、外の宛先を通す規則も外して外向きを全部塞ぎ、同じ口で確かめ直す。それでも届けば、何も入れずに `UNAVAILABLE=` を置かせる。外にだけ届かなかったときは続け、案内と `INFO_NET=` にそう書く。一時の口は確かめの後に閉じる。
 THE SYSTEM SHALL 確かめた後に、配る形のサーバの zip を、その場で作った乱数の合言葉でインストーラで入れ（`--repo` と確認バッチの作業ツリーの `.env` は読まない）、サーバが応えたら Sandbox の窓を本人のデスクトップに開き（`wsb connect`）、その後に配る形の PC の収集アプリを利用者のセッション（`ExistingLogin`）で起こしてから、案内（`GUIDE=`）を置いた `ready` を置かせる。
 案内には、Sandbox の中でコマンドを走らせて出力を受け取る口と画面の写しを撮る口（`tools/tsukau/pc.sh`）、サービスとログの場所、網の様子（外にはつながり、私設網と手元の網は塞いである。全部塞いだ回・外に届かなかった回はそう書く）、
 触らないもの（本人のサーバ・本人の PC の配布版 `C:\ProgramData\ashiato`・確認バッチの DB・main の checkout の `.env`・本人が起こした Sandbox・ファイアウォールの規則）を書く。
@@ -374,9 +374,14 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **THEN** 塞ぐ前の確かめ・塞ぐ台本・塞いだ後の確かめの `exec` がこの順に、サーバのインストールの `exec` より先に呼ばれる
 
 #### Scenario: 通す外の宛先は、私設網と手元の網の範囲を含まない
-- **GIVEN** 自己試験が数から組んだ見本の宛先: tailscale の IPv4 の範囲の 1 つ・IPv6 の範囲の 1 つ・3 つの私用の範囲の 1 つずつ・リンクローカル・マルチキャスト・外の宛先 1 つ
+- **GIVEN** 自己試験が数から組んだ見本の宛先: tailscale の IPv4 の範囲の 1 つ・IPv6 の範囲の 1 つ・3 つの私用の範囲の 1 つずつ・IPv4 のリンクローカル・IPv6 の私用の範囲の 1 つ・IPv6 のリンクローカル・マルチキャスト・外の宛先 1 つ
 - **WHEN** `tools/tsukau/env-hook.sh --print-net-rules` の出力の範囲に、見本を 1 つずつ当てる
 - **THEN** 外の宛先だけがどれかの範囲に入り、ほかの見本はどの範囲にも入らない
+
+#### Scenario: 一時の口を立てられなければ、何も入れずに断る
+- **GIVEN** この PC の私設網の宛先を返さない偽の `tailscale` と、配る zip の置き場と、受けた引数を記録する偽の `wsb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、その理由に一時の口の名前があり、サーバのインストールの `exec` も `connect` も呼ばれない
 
 #### Scenario: 塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに断る
 - **GIVEN** 塞ぐ前の確かめに「一時の口に届かない」と答える偽の `wsb` と配る zip の置き場
@@ -401,7 +406,7 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 #### Scenario: 立てるときは、塞いで確かめ、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く
 - **GIVEN** 塞ぐ前の確かめに「一時の口に届く」、塞いだ後の確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** 偽の `wsb` は `start`・塞ぐ台本の `exec`・塞いだ後の確かめの `exec`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
+- **THEN** 偽の `wsb` は `start`・塞ぐ前の確かめの `exec`・塞ぐ台本の `exec`・塞いだ後の確かめの `exec`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
 
 #### Scenario: PC の相手は、本人の合言葉でなく、その場の合言葉で入れる
 - **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、`exec` が受けた引数と標準入力を記録する偽の `wsb` と配る zip の置き場
@@ -447,7 +452,7 @@ THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port �
 THE SYSTEM SHALL `adb` の操作を、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
 案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
 THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
-導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D23（仮）・D24（仮）・D25・D26（仮）。review/spec.md R20〜R27。
+導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31（仮）・D25・D26（仮）。review/spec.md R20〜R27。
 
 #### Scenario: KVM を開けなければ、何も起こさずに断る
 - **GIVEN** 読み書きで開けない置き場を `/dev/kvm` の代わりに向けた自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本

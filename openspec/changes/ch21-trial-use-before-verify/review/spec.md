@@ -287,7 +287,7 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
 - kind: technical
 - 提案: 確かめに、ホストの loopback の別名の宛先を足す（字面は数から組む）。当てるのはその回の専用環境の port で、塞ぐ前と後の対にする（R22 と同じ）。
   Scenario「網の確かめで、ホストに届くと答えれば、APK を入れずに断る」を足す。premises.md に「`svc wifi disable`・`svc data disable` で、外とホストの loopback への道が切れる」を確かさ 1 で足す（確かめるのは Task 10）
-- 処置: fixed D24 仮 —— 携帯の確かめを、切る前にホストの loopback の別名の宛先のその回のサーバの port に届くこと（対照）・切った後に届かないことと既定の経路が無いことの対にした。外へは問わない（問うこと自体が外へ出る）。Scenario「切った後もホストに届けば…」「切った後も外への経路があれば…」「切る前に届かなければ…」を足し、premises.md に `svc` で道が切れるかを確かさ 1 で足した
+- 処置: fixed D31 仮 —— （旧 D24。R32 で立て直した）携帯の確かめを、切る前にホストの loopback の別名の宛先のその回のサーバの port に届くこと（対照）・切った後に届かないことと既定の経路が無いことの対にした。外へは問わない（問うこと自体が外へ出る）。Scenario「切った後もホストに届けば…」「切った後も外への経路があれば…」「切る前に届かなければ…」を足し、premises.md に `svc` で道が切れるかを確かさ 1 で足した
 
 ## R25. premises.md に、携帯の相手が寄りかかる確かめていない前提の行が無く、Task 10.1 が指す行の名前が premises.md に無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/premises.md・tasks.md
@@ -298,7 +298,7 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
 - kind: premise
 - 提案: premises.md に 3 行を確かさ 1 で足す（携帯の相手は 900 秒の中で立つ／`svc` で外とホストへの道が切れる／`-no-window` で `screencap` と `uiautomator dump` が動く）。どれも確かめ方は「Task 10 で測る」。
   tasks.md:210 の行の名前を premises.md:41 に合わせる。10.1 の検証に、その行の確かさが 5 になったことを grep で見る 1 つを足す
-- 処置: rejected: 前提が成り立たない疑いは実物で反証した（行は足した）。spec の段に使い捨ての AVD（同じ image・`-no-window -wipe-data`）で、`svc wifi disable`・`svc data disable` で外への道（`dumpsys connectivity` の既定のネットワークが `none`）とホストの loopback の別名への道が切れ、`adb reverse` の道は通り、画面なしで `screencap`・`uiautomator dump`・`input` が動き、起動が 52 秒であることを確かめた（premises.md の 4 行。3 行は確かさ 5、900 秒の行は起動だけ測って確かさ 4。残る APK の組み立ての秒数は Task 10 が測り、収まらなくても env_failed で失うものは無く D22・D23（仮）の反転条件で直す）。`ip route` は切る前から既定の経路を見せないと分かったので、確かめを `dumpsys connectivity` に直した（spec・design D24・D26・tasks 9.1）。tasks 10.1 の行の名前も premises.md と合わせた
+- 処置: rejected: 前提が成り立たない疑いは実物で反証した（行は足した）。spec の段に使い捨ての AVD（同じ image・`-no-window -wipe-data`）で、`svc wifi disable`・`svc data disable` で外への道（`dumpsys connectivity` の既定のネットワークが `none`）とホストの loopback の別名への道が切れ、`adb reverse` の道は通り、画面なしで `screencap`・`uiautomator dump`・`input` が動き、起動が 52 秒であることを確かめた（premises.md の 4 行。3 行は確かさ 5、900 秒の行は起動だけ測った（確かさ 2。R32 で 4 から下げた）。残る APK の組み立ての秒数は Task 10 が測り、収まらなくても env_failed で失うものは無く D22・D23（仮）の反転条件で直す）。`ip route` は切る前から既定の経路を見せないと分かったので、確かめを `dumpsys connectivity` に直した（spec・design D24・D26・tasks 9.1）。tasks 10.1 の行の名前も premises.md と合わせた
 
 ## R26. 第 2 版で足した本文のうち、Scenario が言っていないものがある
 - 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md
@@ -377,4 +377,40 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
 - 仮の台帳: design の（仮）の 15 件（D1・D3・D5・D7・D9・D12・D15・D16・D18・D19・D20・D21・D22・D23・D24）と、provisional.jsonl の resolve されていない 15 件は合う。D10 は resolve 済みで、design の見出しからも（仮）が外れている
 - `go.json` には推奨の版（網を切った Sandbox・前の結果を写す）が残っている。直すのは `reading --carry` の受け持ちなので、指摘にしていない
 - 処置: fixed tasks.md —— Global Constraints の「Task 9」を「Task 11」に、読む順に `specs/distribution/spec.md` を足した
+
+
+## R31. R22 の処置で足した「一時の口」は、立て方を試す口と、立てられないときの決まりが無い。このままでは自己試験が Linux の CI で通らない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md・specs/verify-environment/spec.md・premises.md
+- 根拠: 処置（HEAD 50d685430）で、PC の相手は塞ぐ前に一時の口を 2 か所に立てるようになった。WSL 側は `tailscale ip -4`・`-6` の宛先、Windows 側はこの PC の手元の網のアドレスで待ち受ける（tasks.md:155、spec の PC の Requirement、design D26）。
+  ところが Global Constraints の偽物の一覧（tasks.md:18・:20）にも 7.1 の偽物の説明にも、`tailscale` と、Windows 側で待ち受けを立てる命令（`powershell.exe` など）が無い。
+  自己試験は Linux の CI（`rust` の job）で走り、そこには `tailscale` も Windows も無い（tasks.md:18）。一時の口を立てられなければ PC の相手は回らない（design D26 の費用）ので、インストールまで進むことを見る Scenario は、偽物が無い限り CI で落ちる（「立てるときは…」「何かを入れる前に、塞いで確かめる」「外にだけ届かなければ…」「PC の相手は、本人の合言葉でなく…」など）。
+  あわせて、次のことが決まっていない:
+  - 一時の口を立てられないとき（`tailscale` が無い・動いていない、Windows 側で待ち受けを立てられない）にどうなるかを、spec が決めていない。spec が言うのは「塞ぐ前に一時の口に届かなければ `UNAVAILABLE=`」だけ
+  - Windows 側の待ち受けには、Windows のファイアウォールの受け入れの許可が要りうる（design D26 の費用は「かもしれない（Task 8 で確かめる）」と書く）。許可の問い合わせの窓が本人のデスクトップに出るかもしれないが、premises.md に行が無い
+  - 「通す外の宛先は…含まない」の Scenario（spec）の見本は、tailscale の IPv4 と IPv6・3 つの私用の範囲・リンクローカル・マルチキャストだけ。Requirement が除くとしている IPv6 の私用の範囲と IPv6 のリンクローカルの見本が無い
+  - 「立てるときは、塞いで確かめ、…」の THEN が並べる順に、塞ぐ前の確かめが無い。別の Scenario（「何かを入れる前に、塞いで確かめる」）では、塞ぐ前の確かめが塞ぐ台本より先に来る。THEN を呼ばれた順の全部と読むと、2 つの Scenario は食い違う
+- kind: technical
+- 提案: Global Constraints と 7.1 の偽物に `tailscale` と Windows 側の待ち受けを立てる命令を足し、`TSUKAU_TEST_` で渡す。
+  spec に「一時の口を立てられなければ、何も入れずに `UNAVAILABLE=`（理由に口の名前）」と、その Scenario を足す。
+  premises.md に「Windows 側の手元の網のアドレスで、許可の窓を出さずに一時の待ち受けを立てられる」を確かさ 1 で足す（確かめるのは Task 8）。
+  見本に IPv6 の私用の範囲と IPv6 のリンクローカルを足す。順の THEN は「…がこの順に（ほかの呼び出しを挟んでよい）」と書くか、塞ぐ前の確かめを入れる
+- 処置: fixed D26 仮 —— 偽物に `tailscale`・`powershell.exe` を足し（Global Constraints・7.1）、一時の口を立てられなければ何も入れずに `UNAVAILABLE=` を spec の Requirement と Scenario「一時の口を立てられなければ、何も入れずに断る」に足し（7.1 の下限 28・9.1 の下限 46）、premises.md に Windows 側の待ち受けの許可の窓の行を確かさ 1 で足し（Task 8.1 で確かめる）、見本に IPv6 の私用の範囲と IPv6 のリンクローカルを足し、「立てるときは…」の THEN に塞ぐ前の確かめを入れた
+
+## R32. 処置の後に、仮の台帳・design の見出し・premises の行に、古い文と食い違いが残っている
+- 成果物: openspec/changes/ch21-trial-use-before-verify/provisional.jsonl・design.md・premises.md
+- 根拠:
+  - 台帳の D23 の `chosen`（provisional.jsonl:16）は「合言葉は <state>/tree の local.properties にだけ書き」のまま。処置で design D23 と spec は、資格情報を `-P` で渡す形に変わった
+  - 台帳の D24 の `chosen`（provisional.jsonl:17）は「外に届かないことを確かめてから渡す」のまま。処置で design D24 と spec は、外へは問わず、既定のネットワークが無いことと、ホストの loopback の別名に届かないことを、切る前と後の対で見る形に変わった
+    （台帳は確認バッチで人間に見せる。D27・D28 のように立て直すか、今の中身で足し直す）
+  - design.md:192 の D27 の見出しは「旧 D27」、design.md:141 の D28 の見出しは「旧 D28」と書く。立て直す前の番号は D16 と D19（provisional.jsonl の resolve の行）
+  - D23 は資格情報を組み立ての引数（`-P`）で渡す。ところが、写しているはずの録画の形は、`ps` に見えるのを避けるために、わざとコマンド行に出さずに `local.properties` に書いている（tools/record-env.sh:176-179）。
+    その回の乱数の資格情報なので失うものは小さいが、design D23 はこの違いと、それでよい理由を書いていない
+  - premises.md の「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」の行は、確かめ方の欄が「確かめていない。…（知識）」で始まるのに、結果は「実物」「5」で、同じ行の中で食い違う
+  - premises.md の「携帯の相手は、…立てる上限の 900 秒の中で立つ」の行は、測ったのがエミュレータの起動（52 秒）だけなのに確かさが 4。D5（design.md:73）が PC の zip の組み立てを `up` の外に出した理由（冷えた組み立てが立てる時間を食う）に当たるのは、まっさらな `<state>/tree` での APK の組み立てで、そこは測っていない。
+    同じ表の 4 は「数えた」もの（premises.md の「1 日に 1〜5 回作り直される」）に付いている
+- kind: technical
+- 提案: `provisional.py` で D23 と D24 を今の中身で立て直す。design.md:141・:192 の「旧 D28」「旧 D27」を「旧 D19」「旧 D16」に直す。
+  D23 に、`-P` にした理由（`~/.gradle/gradle.properties` に負けない）と、その回の資格情報が `ps` に見えることを書く。
+  premises.md の adb reverse の行の確かめ方を、実測の文に揃える。900 秒の行は、組み立てを測るまで確かさを 2 以下にする（Task 10 の検証は 5 になったことを見るので、そこで上がる）
+- 処置: fixed D30 仮 —— D23・D24 を resolve して D30・D31 に立て直した（参照も直した）。D27・D28 の見出しを「旧 D16」「旧 D19」に直した。D30 に `-P` にした理由と `ps` に見える代償を書いた。premises.md の adb reverse の行の確かめ方を実測の文に揃え、900 秒の行は確かさを 2 に下げた（R25 の処置の文も直した）
 
