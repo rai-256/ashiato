@@ -173,3 +173,43 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 範囲外（R 番号なし）:
 - `update_apply.rs:151-166` の指紋（`asset.digest`）は、配る物と同じ GitHub の版の一覧から取っていて、配る物の出所を独立に確かめてはいない（ST58。この差分は触れていない）
 - `archive/open.rs:113` の `read_to_end` には、項目ごとの大きさの上限も合計の上限も無い（展開後に大きくなる zip を読み込む。この差分の前から同じ）
+
+## /code-review（65eb1de..977a149）
+
+見た: Claude Code の組み込みの `/code-review`（6 件）。写しは scripts/code_review_record.py
+
+## R6. AES の形の試験は、仕様が求める AES の強さ（`3` = 256 ビット）を一度も読まないので、強さが落ちても気づかない。`ch24_aes_extra` が返すのは vendor version（`extra[p+4..p+6]`）と実の圧縮方式（`extra[p+9..p+11]`）だけで、強さのバイト `extra[p+8]` を読んでいない。しかも項目は名前ではなく並び順で組にしている（L374 の `old.iter().zip(new.iter())`）。Fix: `extra[p+8] == 3` を確かめ、実の圧縮方式は以前の値と比べるのではなく `8` と直に比べ、組は名前で作る。
+- 成果物: crates/server/src/export_file_tests.rs:176
+- 根拠: zip の版を上げたことで、新しい書き出しが AES-128（強さ `1`）で書かれるようになったとする。`ch24_export_aes_shape_matches_previous` は (method, flags&1, vendor, actual) しか比べないので通ってしまい、Scenario「強さが `3`」は検証されないまま緑になる。新しい版で項目の並びが変わったときも、別の名前の項目どうしの AE-1 / AE-2 を比べることになる。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. UTF-8 の印が立った書庫で、名前に不正な UTF-8 が入っていると、黙って U+FFFD に置き換えて取り込むようになった。以前（zip 2.6.1）は名前を厳密に UTF-8 として読み、失敗すれば `by_index` が落ちて broken_zip として台帳に残っていた。新しい `zip_name` は `from_utf8_lossy` を使う。Fix: 印付きの分岐では `std::str::from_utf8` が失敗したら broken_zip の OpenError を返す（以前の振る舞いを保つ）。
+- 成果物: crates/server/src/archive/open.rs:20
+- 根拠: 印が立っていて、名前のバイトが違う 2 つの項目（どちらも不正な UTF-8）を持つ Takeout の zip を読む。どちらも同じ `Takeout/�.json` という path の ArchiveFile になり、以前は「読めない形の書庫」として台帳に残ったものが、名前の衝突した中身として取り込まれる。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. Scenario「印の無い書庫は CP437 で読む」の試験は、2.6.1 の書き手で作った deflate の Takeout の fixture（`CH24_TAKEOUT_UNFLAGGED_ZIP_B64`）と、その期待値（`CH24_CP437_80_FF`）を `let _ =` で捨てている。実際に開いているのは手で組んだ raw の fixture だけになっている。Fix: `CH24_TAKEOUT_UNFLAGGED_ZIP_B64` を開き、2 つ目の項目の名前が `CH24_CP437_80_FF` と一致することも確かめる。
+- 成果物: crates/server/src/archive_tests.rs:506
+- 根拠: 以前の版が実際に書いた形（deflate、UTF-8 のバイトを CP437 で読み替えた名前）を今の版で読むと名前が変わる、という回帰が起きても、この試験は raw の fixture しか見ていないので緑のまま通る。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. zip 9 には、より厳しい `enclosed_name`（Windows の道の規則を全環境で当て、区切りを含む要素も弾く）がある。それを使わず、2.6.1 の緩い検査を自前で写したので、Windows で問題のある名前が通り続ける。NTFS の代替データストリーム（`ab:c`）や予約名（`NUL`）は受け入れ、試験（`CH24_EXTRACT_EXPECTED_WINDOWS` の true）がその振る舞いを固定している。また `#[cfg(unix)]` の枝は SUID を含む mode をそのまま写す（RUSTSEC-2026-0367 と同じ型。design では「直さない」としている）。Fix: zip 9 の `entry.enclosed_name()` に切り替えるか、`:` を含む要素と予約名を弾く。
+- 成果物: crates/collector-windows/src/update_apply.rs:258
+- 根拠: Windows で、名前が `ashiato-collector.exe:evil` の項目を持つ配布物を展開すると、ファイルではなく代替データストリームに書かれる。`NUL` は NUL デバイスに書かれ、何も残らないまま成功する（指紋の照合が前にあるので、届くのは署名側の配布物に限られる）。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. `ch24_zip64_offset` は、追加の欄の中で最初に現れる `01 00` を zip64 の見出しとみなしている。ところが AES の欄の vendor version（AE-1）も `01 00` なので、AES の欄が先に並ぶと誤った位置を読む。さらに、2 つの大きさがどちらも zip64 側にある前提で `+4+16` を固定している。Fix: 追加の欄を (id, size) の単位で順にたどり、id が `0x0001` の欄だけを読む。
+- 成果物: crates/server/src/export_file_tests.rs:168
+- 根拠: 中央ディレクトリの局所オフセットが 0xFFFFFFFF で、追加の欄が AES（`01 99 07 00 01 00 ...`）、zip64 の順に並ぶ書庫では、AES の欄の中の `01 00` を zip64 と取り違える。その結果オフセットが壊れ、`assert_eq!(&bytes[local..local + 4], b"PK\x03\x04")` が落ちるか、範囲外の参照で panic する。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. `zip = "9"` を既定の features のまま取り込んだため、外から届く Takeout の書庫を読むサーバに、新しい展開器（`ppmd-rust`・`lzma-rust2`）と `nix`・`typed-path` が入った。そのうえ、使わない bzip2 のために許諾の許可の一覧へ `bzip2-1.0.6` を足している。書き出しが使うのは deflate と AES だけ。Fix: `default-features = false, features = ["deflate", "aes-crypto", ...]` のように必要なものだけに絞り、収集アプリ側（`crates/collector-windows/Cargo.toml` L28）も同じにする。
+- 成果物: crates/server/Cargo.toml:32
+- 根拠: 攻撃者が置いた Takeout の zip の項目が PPMd（method 98）で圧縮されていると、今回新しく入った `ppmd-rust` の展開器がサーバの中で走る。以前の版では、この経路はそもそも存在しなかった。（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
