@@ -26,7 +26,7 @@ ashiato-setup.exe update-check on
 sc.exe delete ashiato-updater
 ```
 
-0.1.0（commit `de49710d1`）の更新係は、配布元との最初の HTTPS の接続で異常終了し、Windows の回復動作で 10 秒ごとに再起動を繰り返します（イベント 7031。手で `ashiato-updater.exe once` を走らせると `WebPki is disabled` と出ます）。この版を入れている場合は、先に `ashiato-setup.exe update-check off` で止め、直った版の zip の `ashiato-setup.exe` を管理者として実行してから `ashiato-setup.exe update-check on` で戻します。0.1.0 の更新係は自分では直った版を取りに行けません。
+0.1.0（commit `de49710d1`）の更新係は、配布元との最初の HTTPS の接続で異常終了し、Windows の回復動作で 10 秒ごとに再起動を繰り返します（イベント 7031。手で `ashiato-updater.exe once` を走らせると `WebPki is disabled` と出ます）。この版を入れている場合は、先に `ashiato-setup.exe update-check off` で止め、0.1.1 以降の zip の `ashiato-setup.exe` を管理者として実行して更新してから `ashiato-setup.exe update-check on` で戻します。0.1.0 の更新係は自分では直った版を取りに行けません。版番号が 0.1.0 のまま中身だけ違う zip（PR #329 の CI の成果物など）は、インストーラが「別の版が入っています」で止めるので使えません。
 
 サービスを手で消した後は、`update-check on` だけではサービスを再登録できません。更新係を戻すには、同じ版のインストーラを走らせ直して不足している更新係を足してから、`ashiato-setup.exe update-check on` を実行します。`repair` は DB や秘密の復旧用で、更新係の再登録には使いません。
 

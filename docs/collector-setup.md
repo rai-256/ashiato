@@ -86,7 +86,7 @@ ashiato-collector-windows.exe update
 0.1.0（commit `de49710d1`）の PC の収集アプリは、HTTPS の接続を張る時点で落ちます。送り先が `https://`
 （Tailscale の HTTPS の URL など）だと記録を送れず、配布元へ繋ぐ `update` と更新の確認も使えません。
 送り先が `http://127.0.0.1` などの平文なら記録は送れますが、`update` では直った版へ上げられないので、
-収集アプリを止めてから直った版の zip の `ashiato-collector-windows.exe` に手で置き換えます。
+収集アプリを止めてから 0.1.1 以降の zip の `ashiato-collector-windows.exe` に手で置き換えます。
 
 ### 携帯
 
