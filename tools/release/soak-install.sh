@@ -148,6 +148,10 @@ soak_collector_launch_details() {
     printf '%s\n' "-- $output（末尾 80 行）"
     if [[ -s "$output" ]]; then tail -n 80 "$output"; else printf '%s\n' '（出力なし）'; fi
   done
+  if [[ -s "$dir/collector-events" ]]; then
+    printf '%s\n' '-- Windows Application の collector の障害記録（末尾 80 行）'
+    tail -n 80 "$dir/collector-events"
+  fi
 }
 
 soak_check_records() {
@@ -371,6 +375,11 @@ soak_collect_observations() {
     rm -f "$dir/events"
   fi
   rm -f "$dir/events.raw"
+  if wevtutil.exe qe Application /rd:true /c:40 /f:text >"$dir/collector-events.raw" 2>/dev/null; then
+    awk 'BEGIN { RS=""; ORS="\n\n" } /ashiato-collector-windows\.exe/ { print }' \
+      <"$dir/collector-events.raw" >"$dir/collector-events"
+  fi
+  rm -f "$dir/collector-events.raw"
   printf '%s\n' "$(curl.exe -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18700/healthz 2>/dev/null || true)" >"$dir/health"
 }
 
@@ -477,6 +486,20 @@ if [[ "$*" == *'delete rule'* && "${ST22_KEEP_RULE:-0}" != 1 ]]; then rm -f "$ST
 EOF
   cat >"$bin/wevtutil.exe" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$*" == *'qe Application'* ]]; then
+cat <<'EVENT'
+Log Name: Application
+Source: Application Error
+Date: 11/20/2026 12:00:12 AM
+Event ID: 1000
+Task Category: (100)
+Level: Error
+Description:
+Faulting application name: ashiato-collector-windows.exe, version: 0.1.0.0
+
+EVENT
+exit 0
+fi
 cat <<'EVENT'
 Log Name: System
 Source: Service Control Manager
@@ -533,6 +556,8 @@ EOF
     "$root/tools/release/soak-install.sh" --self-test-run "$server" "$collector" "$work/run") || die 'self-test: 実地の口が通らない'
   grep -q '^2026-11-20T00:00:11.000Z|ashiato-server|0$' "$work/run/events" ||
     die 'self-test: wevtutil の /f:text 出力を判定用の行へ変換していない'
+  grep -q 'Faulting application name: ashiato-collector-windows.exe' "$work/run/collector-events" ||
+    die 'self-test: collector の Application 障害記録を残していない'
   grep -q '^setup install --profile .* --downloads ' "$calls" || die 'self-test: install-check と同じ profile/downloads の口で入れていない'
   local wiring reset_line rule_line setup_line
   wiring="$(declare -f soak_evaluate)"
@@ -748,8 +773,11 @@ soak_self_test() {
   cp -R "$base" "$work/collector-missing"; rm "$work/collector-missing/update-checks.jsonl"
   printf '%s\n' 'collector launch exception' >"$work/collector-missing/collector-launch-1.out"
   printf '%s\n' 'exit=42' >"$work/collector-missing/collector-launch-1.status"
+  printf '%s\n' 'Faulting application name: ashiato-collector-windows.exe' >"$work/collector-missing/collector-events"
   expect_fail "$work/collector-missing" "collector launch exception"
   grep -q 'exit=42' "$work/collector-missing/err" || die 'self-test: collector の終了状態が出ない'
+  grep -q 'Faulting application name: ashiato-collector-windows.exe' "$work/collector-missing/err" ||
+    die 'self-test: collector の Application 障害記録が出ない'
   # Scenario: 置く段の出力に秘密の値が出ない
   self_test_db_secret="$(printf '%s%s' 'secret-' db)"
   self_test_owner_secret="$(printf '%s%s' 'secret-' owner)"
