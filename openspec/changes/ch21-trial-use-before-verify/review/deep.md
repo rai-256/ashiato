@@ -151,7 +151,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: premise
 - loss: exported
 - 提案: 網をつないだ Sandbox を 1 回起こし、私設網の宛先と手元の網に届くかを確かめて（確かさ 4）、Q2 の irreversible と harm に書く。premises.md 冒頭の「依らない」を消す。届くなら、Q2 に「網はつなぐが、手元の網と私設網への宛先は塞ぐ」案を足せるかを確かめる。
-- 処置: escalated —— 本人への問い Q2 にした（deep.md の「レビューから問いに入れたもの」）。Sandbox を網ありで起こして確かめた（premises.md 行 6、確かさ 5: 私設網の WSL と Windows に届いた）。premises.md 冒頭の「依らない」を消した。Q2 に「外にはつなぎ、私設網と手元の網を塞ぐ」案を足して推奨にし、塞げるかは確かさ 1 として unknown に書き、塞げなければ切る側に倒すと書いた
+- 処置: escalated —— 本人への問い Q2 にした（deep.md の「レビューから問いに入れたもの」）。Sandbox を網ありで起こして確かめた（premises.md 行 6、確かさ 5: 私設網の WSL と Windows に届いた）。premises.md 冒頭の「依らない」を消した。Q2 に「外にはつなぎ、私設網と手元の網を塞ぐ」案を足して推奨にし（spec の段で review/spec.md R1 を受けて推奨を「網を切る」に移した）、塞げるかは確かさ 1 として unknown に書き、塞げなければ切る側に倒すと書いた
 
 ## R14. Q2 の不可逆の記述が、外へ出るものを GitHub への問い合わせに限っている
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json（Q2）

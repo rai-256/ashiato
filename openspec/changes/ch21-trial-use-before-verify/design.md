@@ -76,7 +76,7 @@
 ### D7（仮）. 画面の相手は録画の専用環境と同じ立て方にする（review/deep.md R4・R11）
 
 - 実行ごとの compose project `ashiato-tsukau-<実行の時刻>`・空いている port（DB・API・画面）・`openssl rand` の合言葉・`SEED=normal` の偽データで `tools/stack.sh up` を前景で立てる（`up` は前景に残り、台本が最後にプロセスグループを止める）
-- `stack.sh` は `.env` の無い木（`<state>/tree`。`--repo` の HEAD を detached で取り出した作業ツリー。片付けで消す）で走らせ、合言葉・port・project は環境変数で渡す。`--repo` には何も書かない（D9 の確かめと、席の台本の「repo を書き換えた」の警告に引っかからない）
+- `stack.sh` は `<state>/tree`（`--repo` の HEAD を detached で取り出した作業ツリー。片付けで消す）で走らせ、その木に乱数の合言葉と `COMPOSE_PROJECT_NAME` を持つ `.env` と port の上書き（`docker-compose.override.yml`）を置く（`tools/record-env.sh` の `up` と同じ形。`env-init.sh` は `COMPOSE_PROJECT_NAME` の行がある `.env` には触らない）。`--repo` には何も書かない（D9 の確かめと、席の台本の「repo を書き換えた」の警告に引っかからない）
 - サーバと画面は、確認バッチでは `verify-prep` が組んだものを絶対パスで受け、無ければ組まずに断る（確認バッチの道で組むと 15 分の上限を越えうる。review/spec.md R12）。手で呼んだときは `<state>/tree` で組む（時間は下流が測って premises.md に書く）
 - 案内: 画面の URL・その回の画面の合言葉（`<state>` の外に出さない。案内は実行のフォルダにだけ写る）・本物のブラウザで開いて写しを撮るコマンド（`web/` の Playwright で。下流が実地で通るものを書く）・サーバのログの場所・触らないもの
 - `tools/record-env.sh` は `source` しない（録画の変数の契約に縛られる）。立て方を写す。共有の部品に切り出すのは 3 つ目の写しが要るとき
@@ -132,7 +132,8 @@
 ### D15（仮）. 題は確認バッチの commit を止める形も伏せ、1 行に整える（review/spec.md R9）
 
 - 手順書は pre-commit の `check-private`・`check-secrets` を通って commit される。題 1 つで commit が落ちると確認バッチ全体が止まり、stage したままのファイルが次のバッチも止める
-- 伏せる判定は `tools/check-private.sh` と `tools/check-secrets.sh` そのものを題に当てる（一時の git の木のファイルに題を 1 行ずつ置いて stage し、落ちた行の題を伏せる）。形を写して持たない（写すと検査の側の変更とずれる）
+- 伏せる判定は `tools/check-private.sh` と `tools/check-secrets.sh` そのものを題に当てる。どちらも自分の repo の根へ `cd` してその index を見るので、台本を持つ使い捨ての作業ツリー（D9 と同じ作り方。席を呼ばなかった回は検査のためだけに作る）に題を 1 行ずつ置き、`GIT_INDEX_FILE` の一時の index で stage して当て、落ちた行の題を伏せる（`check-private.sh --self-test` と同じ当て方）。確認バッチの作業ツリーには何も置かない（途中で止まると未追跡のファイルが次のバッチを止める）。形を写して持たない（写すと検査の側の変更とずれる）
+- 検査を走らせられない（gitleaks を取れない など。`check-secrets.sh` は取れなければ落ちる）ときは、全部の題を伏せる（伏せる側に倒す）
 - 伏せなかった題は、改行を空白・80 字で切る・`@` を「＠」・`#<数字>` の `#` を「＃」に替える（席の台本の 80 字・1 行の制限は `candidate` の口だけで、手で書いた行は通る。`tsukau.py:307`・`:574-575`）
 - 失わない側: 伏せた題も本文も手元の `RESULT.md` に残る
 - 反転条件: 検査に当てる時間が 1 回の準備で目立つ（数十秒を超える）とき（形を写して持つ）

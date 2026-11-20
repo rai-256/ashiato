@@ -144,6 +144,7 @@ THE SYSTEM SHALL issue を作らせない。
 THE SYSTEM SHALL 題を写す前に、題に次のどれかがあれば、その題を「（伏せた）」に置き換えさせる（件数には数える）:
 この PC の利用者名・ホスト名・私設網の名前、確認バッチの作業ツリーの `.env` の 8 字以上の値、絶対パスの形（`/home/`・`/mnt/`・`/Users/`・`C:\`・`\\` で始まる語）、
 確認バッチの手順書の commit の検査（`tools/check-private.sh`・`tools/check-secrets.sh`）が止める形（私設網と手元の網の IPv4・私設網のホスト名・秘密の形）。
+検査は台本を持つ使い捨ての作業ツリーに題を置き、一時の index で stage して当てる（確認バッチの作業ツリーには何も置かない）。検査を走らせられない（`tools/check-secrets.sh` が gitleaks を用意できない など）ときは、全部の題を伏せる。
 THE SYSTEM SHALL 伏せなかった題は、改行を空白にし、80 字で切り、`@` を「＠」に、`#` に続く数字の `#` を「＃」に替えてから写させる（verify PR の本文で人への通知や issue への繋がりにしない）。
 導出元: CH21（依頼「題を写す」）。review/deep.md R5。review/spec.md R9。
 
@@ -154,7 +155,7 @@ THE SYSTEM SHALL 伏せなかった題は、改行を空白にし、80 字で切
 
 #### Scenario: 伏せた後の段落は、確認バッチの commit の検査を通る
 - **GIVEN** 私設網の IPv4 の形（自己試験が数から組んだもの）を含む題、私設網のホスト名の形を含む題、秘密の形を含む題、ふつうの題 1 つの最後の行を出す偽の席の台本
-- **WHEN** `tools/tsukau/verify-batch.sh t1` の出力を一時の git の木のファイルに置いて stage し、`tools/check-private.sh --staged` と `tools/check-secrets.sh --staged` を走らせる
+- **WHEN** `tools/tsukau/verify-batch.sh t1` の出力を、台本を持つ使い捨ての作業ツリーのファイルに置いて一時の index で stage し、`tools/check-private.sh --staged` と `tools/check-secrets.sh --staged` を走らせる
 - **THEN** どちらも rc=0 で、段落の件数は 4 件、「（伏せた）」は 3 つである
 
 #### Scenario: 題は 1 行に整え、通知の形を替える
@@ -261,17 +262,17 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 ### Requirement: 画面の相手は専用の環境で立て、本人の合言葉と確認バッチの DB を使わない
 
 WHEN 差し込み口が画面の相手を立てるとき（`env-hook.sh up <repo> <state> web`）、
-THE SYSTEM SHALL `<state>/tree` に `--repo` の HEAD を detached で取り出した、`.env` の無い木で `tools/stack.sh up` を起こさせ、実行ごとの compose project（`ashiato-tsukau-` で始まる名前）・空いている port・その場で作った乱数の合言葉・作り直した偽データを環境変数で渡させる。
+THE SYSTEM SHALL `<state>/tree` に `--repo` の HEAD を detached で取り出した木に、実行ごとの compose project（`ashiato-tsukau-` で始まる名前）・空いている port・その場で作った乱数の合言葉を持つ `.env` と port の上書きを置き（録画の専用環境と同じ形）、その木で作り直した偽データとともに `tools/stack.sh up` を起こさせる。
 `--repo` の作業ツリーの `.env` は読まず、`--repo` には何も書かない。本人の合言葉・確認バッチの DB（`ashiato-verify-` の compose project）・既定の compose project を使わない。
 THE SYSTEM SHALL サーバと画面の置き場が `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` で渡されたらそれを使い、渡された置き場が無ければ組まずに `UNAVAILABLE=` を置かせる。渡されていなければ（手で呼んだとき）`<state>/tree` で組む。
 THE SYSTEM SHALL 案内に、画面の URL・その回の画面の合言葉・本物のブラウザで画面を開いて写しを撮るコマンド・サーバのログの場所・触らないもの（本人のサーバ・確認バッチの DB・main の checkout の `.env`）を書かせ、`INFO_COMMIT=` に立てたコミットを残させる。
 THE SYSTEM SHALL 片付けでは、その compose project のコンテナと volume だけを消し、`<state>/tree` を消させ、残れば rc≠0 で終わらせる。
 導出元: CH21。review/deep.md R4・R11（録画の専用環境と同じ立て方）。review/spec.md R11・R12。
 
-#### Scenario: 画面の相手は、.env の無い木から起動する
-- **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、起こされた場所とその木の根に `.env` があるかを記録する偽の起動の台本（`<state>/tree/tools/stack.sh` の位置に置く）
+#### Scenario: 画面の相手は、本人の .env を持たない別の木から起動する
+- **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、起こされた場所とその木の根の `.env` の中身を記録する偽の起動の台本（`<state>/tree/tools/stack.sh` の位置に置く）
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> web` を走らせる
-- **THEN** 起動の台本は `<state>/tree` の中で起こされ、その木の根に `.env` は無く、`--repo` の `git status --porcelain` は呼ぶ前と同じである
+- **THEN** 起動の台本は `<state>/tree` の中で起こされ、その木の `.env` に `honnin-no-aikotoba` は無く `COMPOSE_PROJECT_NAME=ashiato-tsukau-` の行があり、`--repo` の `git status --porcelain` は呼ぶ前と同じである
 
 #### Scenario: 画面の相手は、専用の project と本人のものでない合言葉で立つ
 - **GIVEN** 上と同じ `.env` と、受けた環境変数を記録する偽の起動の台本

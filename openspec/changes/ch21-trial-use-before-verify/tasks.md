@@ -18,7 +18,7 @@
 - 定数は台本の頭に置く: 席の時間 10 分・token 200,000（深掘り Q5・design D8）・SIGTERM までの 1,560 秒と片付けの猶予 360 秒・PC の組み立ての上限 2,400 秒（design D5（仮））・準備の全体の上限 6,540 秒
 - Sandbox は起こす前に動いているものを確かめ、止めるのは自分の id だけ（design D3）。本物の Sandbox を使う確かめ（Task 1・7・8）は、録画と本人が Sandbox を使っていないときに走らせる
 - Windows に渡す `.ps1` は UTF-8 の BOM 付きで書く（Windows PowerShell 5.1 は BOM が無いと日本語の注釈で構文エラーになる）。`cmd.exe` はフルパス `/mnt/c/Windows/System32/cmd.exe` で呼ぶ
-- 私設網や手元の網の IPv4 の字面（範囲を含む）は `tools/check-private.sh` が commit で止める。自己試験でその形が要るときは数から組む
+- 私設網や手元の網の IPv4 の字面（範囲を含む）・私設網のホスト名の形・秘密の形は、`tools/check-private.sh`・`tools/check-secrets.sh` が commit で止める。自己試験でその形が要るときは実行時に組む（数や文字片から）
 
 ## Task 1: PC の配る zip を手元で組む
 
@@ -71,7 +71,7 @@
   「書く」Scenario は、それぞれ段落に `/home/`・`RESULT.md`・`.local/state`・`logs/env-down.log` が無いことを並べて見る
   検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 20'` rc=0
 - [ ] 3.2 題を伏せて整える部分を書く（design D12（仮）・D15（仮）・spec の題の Requirement）: 利用者名・ホスト名・私設網の名前・`.env` の 8 字以上の値・絶対パスの形に当たる題と、
-  一時の git の木で `tools/check-private.sh --staged`・`tools/check-secrets.sh --staged` に当てて落ちた行の題を「（伏せた）」に。伏せなかった題は改行を空白・80 字・`@`→「＠」・`#<数字>`→「＃<数字>」。
+  台本を持つ使い捨ての作業ツリーに題を 1 行ずつ置き、`GIT_INDEX_FILE` の一時の index で stage して `tools/check-private.sh --staged`・`tools/check-secrets.sh --staged` に当て、落ちた行の題を「（伏せた）」に（検査を走らせられなければ全部を伏せる）。伏せなかった題は改行を空白・80 字・`@`→「＠」・`#<数字>`→「＃<数字>」。
   `--self-test` に足す印:
   `# Scenario: 私的な形を含む題は伏せて、件数には数える`・
   `# Scenario: 伏せた後の段落は、確認バッチの commit の検査を通る`（`tools/check-secrets.sh` が gitleaks を見つけられない木では、飛ばしたことを 1 行出して秘密の形の題だけを外す）・
@@ -92,14 +92,14 @@
 ## Task 5: 差し込み口と画面の相手
 
 - [ ] 5.1 `tools/tsukau/tsukau.json`（design D1 の値）と `tools/tsukau/env-hook.sh`（`up` / `down` / `--self-test`。実行できる形）を作り、画面の相手（design D7・spec の画面の Requirement）を書く:
-  `<state>/tree` に `--repo` の HEAD を detached で取り出し、空いている port・`openssl rand -hex 24` の合言葉・`ashiato-tsukau-<実行の時刻>` の project・`SEED=normal` を環境変数で渡して `<state>/tree/tools/stack.sh up` を前景で立て、
+  `<state>/tree` に `--repo` の HEAD を detached で取り出し、その木に空いている port・`openssl rand -hex 24` の合言葉・`COMPOSE_PROJECT_NAME=ashiato-tsukau-<実行の時刻>` の `.env` と port の上書きを置き（`tools/record-env.sh` の `up` と同じ形）、`SEED=normal` で `<state>/tree/tools/stack.sh up` を前景で立て、
   画面の URL が応えたら、案内（`<state>/guide.md`）を書いて `ready` を `ready.tmp` → `mv` で置く（`GUIDE=`・`LOG_SERVER=`（サーバのログ）・`INFO_COMMIT=`）。
   `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` が渡されたらそれを使い、渡された置き場が無ければ `UNAVAILABLE=`。渡されていなければ `<state>/tree` で組む（かかった秒数を `env-up.log` に出す）。
   `down` はその project だけを `docker compose -p <project> down -v` し、`<state>/tree` を消し、残れば rc≠0。
   `--self-test` に置く印（偽の `docker` と、`<state>/tree/tools/stack.sh` の位置に置く偽の起動の台本を `TSUKAU_TEST_` の環境変数で渡す）:
   `# Scenario: 差し込み口の形が席の台本の契約に合う`・
   `# Scenario: 携帯は相手に持たない`・
-  `# Scenario: 画面の相手は、.env の無い木から起動する`・
+  `# Scenario: 画面の相手は、本人の .env を持たない別の木から起動する`・
   `# Scenario: 画面の相手は、専用の project と本人のものでない合言葉で立つ`・
   `# Scenario: 渡されたサーバと画面の置き場がそのまま起動に届き、無ければ立てずに断る`・
   `# Scenario: 画面の案内は、URL と触らないものを書き、立てたコミットを残す`・
