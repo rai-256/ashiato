@@ -24,17 +24,17 @@
 
 ## Task 1: 時計の試験で、用意の時間を差の誤差に入れない
 
-- [ ] 1.1 **直す前に**、用意の時間を確実に長くする試験を `mod tests` に足す: 名前は `clock_reference_setup_time_is_not_in_the_difference`。
+- [x] 1.1 **直す前に**、用意の時間を確実に長くする試験を `mod tests` に足す: 名前は `clock_reference_setup_time_is_not_in_the_difference`。
   偽の取り込み口を立ててから `HttpDateClock::new` までの間に 1,500 ms 眠り（`std::thread::sleep`）、進んでいる側（ずらし −5 分）と遅れている側（+5 分）を 1 回ずつ読み、
   それぞれ 2 つの Scenario の試験と同じ字面の幅に入ることを確かめる。この時点では今の `fake_ingest`（用意の前に決めた固定の Date）のまま書く。
   書いたら `scripts/verify-run 1.2` を走らせ、**FAIL を記録する**（必須。今の作りでは差に 1.5 秒が入り、幅を外れて必ず落ちる）。ログの失敗が新しい試験の `skew=… width=…` であること（組み立ての失敗でないこと）を自分で確かめる
-- [ ] 1.2 偽の取り込み口（`fake_ingest`）が、**応答を返す瞬間の時刻**にずらしを足して `Date` を返すようにする（引数を固定の時刻からずらし `chrono::Duration` に変える。ずらしの無い試験は `Duration::zero()`）。
+- [x] 1.2 偽の取り込み口（`fake_ingest`）が、**応答を返す瞬間の時刻**にずらしを足して `Date` を返すようにする（引数を固定の時刻からずらし `chrono::Duration` に変える。ずらしの無い試験は `Duration::zero()`）。
   `skew_against` もずらしを受け取る形にし、2 つの Scenario の試験は `skew_against(Duration::minutes(-5))`（進んでいる側）・`skew_against(Duration::minutes(5))`（遅れている側）にする。1.1 の試験も同じ形に合わせる。
   幅の字面・関数の名前・Scenario の印は変えない（Global Constraints）。直した後に `scripts/verify-run 1.2` で PASS を記録する。
   検証: `scripts/quiet-run clk -- cargo test -p ashiato-collector-windows --lib clock::tests::clock_reference` rc=0（`-- --list` で 6 本以上）
-- [ ] 1.3 製品のコードが base のままで、2 つの Scenario の試験の幅と印が字面のまま残っていることを確かめる。
+- [x] 1.3 製品のコードが base のままで、2 つの Scenario の試験の幅と印が字面のまま残っていることを確かめる。
   検証: `python3 openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py clock` rc=0
-- [ ] 1.4 直した試験を繰り返し走らせても落ちないことを確かめる（直す前は 1 回あたりおよそ 0.5〜1% で落ちていた。依頼の見積り）。
+- [x] 1.4 直した試験を繰り返し走らせても落ちないことを確かめる（直す前は 1 回あたりおよそ 0.5〜1% で落ちていた。依頼の見積り）。
   試験の実行ファイルを 1 回組み立て、`clock::tests::clock_reference` のうち 1.1 の試験（1.5 秒眠る）を除く 5 本であることを確かめてから、3000 回走らせる
   （spec-review の実測: 直す前の作りでも Linux では 5000 回に 22 回しか落ちず、300 回では 4 回に 1 回は通る。3000 回なら直す前に全部通る見込みは約 2×10⁻⁶。1.4 は直す前の FAIL の証跡にしない —— それは 1.1 が持つ）。
   検証: `bash -c 'set -euo pipefail; bin=$(cargo test -p ashiato-collector-windows --lib --no-run --message-format=json 2>/dev/null | python3 -c "import sys,json;print([j[\"executable\"] for j in map(json.loads,sys.stdin) if j.get(\"reason\")==\"compiler-artifact\" and j.get(\"executable\") and j[\"target\"][\"kind\"]==[\"lib\"]][-1])"); test "$("$bin" clock::tests::clock_reference --skip clock_reference_setup_time --list | grep -c ": test$")" -eq 5; for i in $(seq 3000); do "$bin" clock::tests::clock_reference --skip clock_reference_setup_time -q >/dev/null || { echo "落ちた: $i 回目"; exit 1; }; done; echo "3000 回 PASS"'` rc=0
