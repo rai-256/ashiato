@@ -131,6 +131,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - 処置: fixed D6 — 展開を試す表に、書き込みの成否とは別に `enclosed_zip_path` 自体の受理・拒否を同じ名前の期待値で確かめる assert を加えた。
 - 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 - 判定: ADDRESSED（re-review 2 @07198092bdf27bb3f30868ee7c3614d049389580）
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
 
 ## R3. 本人の決定「zip の既定の features のまま・bzip2 も読み続ける」（Q-G1・D1）を固定する試験が無い
 - 成果物: crates/server/Cargo.toml / crates/server/src/archive_tests.rs
@@ -225,6 +226,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - 処置: rejected: D6 は 2.6.1 と同じ名前の判定を保つため `enclosed_name()` を使わないと明記し、`ab:c` と `NUL` の Windows の受理も fixture として固定している。提案のより厳しい判定は振る舞いの変更になる。
 - 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 - 判定: ADDRESSED（re-review 2 @07198092bdf27bb3f30868ee7c3614d049389580）
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
 
 ## R10. `ch24_zip64_offset` は、追加の欄の中で最初に現れる `01 00` を zip64 の見出しとみなしている。ところが AES の欄の vendor version（AE-1）も `01 00` なので、AES の欄が先に並ぶと誤った位置を読む。さらに、2 つの大きさがどちらも zip64 側にある前提で `+4+16` を固定している。Fix: 追加の欄を (id, size) の単位で順にたどり、id が `0x0001` の欄だけを読む。
 - 成果物: crates/server/src/export_file_tests.rs:168
@@ -285,6 +287,7 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
 - 提案: 名前ごとの `enclosed_zip_path` の assert を `extract_zip` の呼び出しより前に置き、外れたら展開を走らせずに落ちるようにする
 - 処置: fixed 1.4 — 各名前の `enclosed_zip_path` の assert を `extract_zip` より前に置き、判定の退行時に展開を始めないようにした。
 - 判定: ADDRESSED（re-review 2 @07198092bdf27bb3f30868ee7c3614d049389580）
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
 
 ## R16. 印の付いた名前の試験は 1 つ目の項目しか見ない
 - 成果物: crates/server/src/archive_tests.rs（`ch24_takeout_flagged_name_reads_as_utf8`）
@@ -301,6 +304,7 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
 - 提案: `.context("zip の道が不正")` などで他の拒否と同じ文脈を付ける。振る舞い（Err になること）は変えない
 - 処置: fixed 2.1 — `entry.name()` の失敗にも `zip の道が不正` の文脈を付け、他の名前拒否と揃えた。
 - 判定: ADDRESSED（re-review 2 @07198092bdf27bb3f30868ee7c3614d049389580）
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
 
 ## final review（65eb1de..8835cd8）
 
@@ -316,6 +320,7 @@ Task の ⚠️: T3（新しい crate の許諾）と T4（4.1 / 4.2 を最終�
 - kind: technical
 - 提案: 断る名前では、`extract_zip` の Err の文（`format!("{e:#}")`）に `zip の道が不正` が入ることまで見る（R2 の提案の前半）。展開先の外へ書かれうる名前は、判定の assert の後でも展開を走らせない形を保つ
 - 処置: fixed 1.4 — 断る名前では `extract_zip` の Err を展開成功/失敗だけで判定せず、`zip の道が不正` の文脈を含むことまで検査するようにした。名前の判定を先に assert する R15 の形は保った。
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
 
 ## R19. 修正の波の後の証跡が HEAD に当たっていない（1.4 / 2.4 / 2.5）
 - 成果物: openspec/changes/ch24-zip-upgrade/evidence.jsonl
@@ -323,3 +328,4 @@ Task の ⚠️: T3（新しい crate の許諾）と T4（4.1 / 4.2 を最終�
 - kind: technical
 - 提案: HEAD で `scripts/verify-run 1.4`・2.4・2.5 と、修正の波が触れた 1.3 / 2.1 / 2.2 を走らせ直し、証跡の head を最終の commit に合わせる
 - 処置: fixed 1.3 / 1.4 / 2.1 / 2.2 / 2.4 / 2.5 — 現在の木で全 6 項目を `verify-run` し、evidence.jsonl に PASS の証跡を追加した。Windows GNU を含む 1.4 と 2.5 は sandbox 外で再実行して PASS した。
+- 判定: ADDRESSED（re-review 3 @9506573c81207de2dd00be087e7e87e4bed461ff）
