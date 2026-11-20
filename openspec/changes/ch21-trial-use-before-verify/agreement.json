@@ -1,13 +1,14 @@
 {
   "status": "rejected",
-  "digest": "6afe62860ced6848845eec4bd2608a6961b61fcde65259c1b9e53f2045cef042",
-  "head": "1f9a1f4a804b56490bd9454a1f09b873ad7e5b99",
-  "answers": "deep-answers-1.txt",
-  "picked": "違和感がある",
+  "digest": "6a3710d364c76ea11c8a08fa3944217365c68c6730eb43c547fdd1086948bb8d",
+  "head": "dc816fc76f396c70f93e9d184af50776347f56fe",
+  "answers": "deep-answers-2.txt",
+  "picked": "合意する",
   "notes": [
-    "補足: スマホも操作するようにしてください。エミュレータとかで"
+    "IMP-13: 仕様を直す（差し戻し）",
+    "IMP-13: 補足: 席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする"
   ],
-  "at": "2026-11-20T14:01:06Z",
+  "at": "2026-11-20T16:49:09Z",
   "impacts": {
     "IMP-05": {
       "answer": "受け入れて進める（リリースの前に判断し直す）",
@@ -24,6 +25,15 @@
         "owner": "本人",
         "due": "CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）"
       }
+    },
+    "IMP-13": {
+      "answer": "仕様を直す",
+      "closed": false,
+      "recognized": true,
+      "accepted": false,
+      "proceed": false,
+      "release": null,
+      "why": "仕様を直す（差し戻し）"
     }
   },
   "imp_history": [
@@ -33,6 +43,20 @@
       "id": "IMP-05",
       "answer": "受け入れて進める（リリースの前に判断し直す）",
       "closed": true
+    },
+    {
+      "at": "2026-11-20T16:49:09Z",
+      "head": "dc816fc76f396c70f93e9d184af50776347f56fe",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-20T16:49:09Z",
+      "head": "dc816fc76f396c70f93e9d184af50776347f56fe",
+      "id": "IMP-13",
+      "answer": "仕様を直す",
+      "closed": false
     }
   ]
 }
