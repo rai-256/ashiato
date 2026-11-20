@@ -93,14 +93,14 @@ const CH24_PREVIOUS_EXPORT_SHA256: &[&str] = &[
 ];
 // CH24-FIXTURE-END
 
-fn ch24_previous_export() -> Vec<u8> {
+pub(crate) fn ch24_previous_export() -> Vec<u8> {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD
         .decode(CH24_PREVIOUS_EXPORT_B64)
         .unwrap()
 }
 
-async fn ch24_fixture_records(w: &World) {
+pub(crate) async fn ch24_fixture_records(w: &World) {
     w.put(
         "c01-location",
         &w.at("08:00"),
@@ -119,58 +119,68 @@ async fn ch24_fixture_records(w: &World) {
         .await;
 }
 
+pub(crate) fn ch24_previous_export_id() -> Uuid {
+    Uuid::parse_str(CH24_PREVIOUS_EXPORT_ID).unwrap()
+}
+
 fn ch24_sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(bytes))
 }
 
 fn ch24_zip_parts(bytes: &[u8]) -> Vec<(u16, u16, u16, u16)> {
+    let eocd = bytes.windows(4).rposition(|w| w == b"PK\x05\x06").unwrap();
+    let cd_offset = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+    let cd_size = u32::from_le_bytes(bytes[eocd + 12..eocd + 16].try_into().unwrap()) as usize;
+    let mut p = cd_offset;
     let mut out = Vec::new();
-    let mut p = 0;
-    while p + 30 <= bytes.len() {
-        if &bytes[p..p + 4] == b"PK\x03\x04" {
-            let flags = u16::from_le_bytes([bytes[p + 6], bytes[p + 7]]);
-            let method = u16::from_le_bytes([bytes[p + 8], bytes[p + 9]]);
-            let extra_len = u16::from_le_bytes([bytes[p + 28], bytes[p + 29]]) as usize;
-            let extra = &bytes[p + 30..p + 30 + extra_len];
-            let aes = if bytes.windows(4).any(|w| w == [0x01, 0x99, 0x07, 0x00]) {
-                (1, 8)
-            } else {
-                ch24_aes_extra(&bytes[p..p + 30 + extra_len])
-            };
-            out.push((method, flags, aes.0, aes.1));
-            let name_len = u16::from_le_bytes([bytes[p + 26], bytes[p + 27]]) as usize;
-            let compressed = u32::from_le_bytes(bytes[p + 18..p + 22].try_into().unwrap()) as usize;
-            p += 30 + name_len + extra_len + compressed;
-        } else if &bytes[p..p + 4] == b"PK\x01\x02" {
-            let flags = u16::from_le_bytes([bytes[p + 8], bytes[p + 9]]);
-            let method = u16::from_le_bytes([bytes[p + 10], bytes[p + 11]]);
-            let name_len = u16::from_le_bytes([bytes[p + 28], bytes[p + 29]]) as usize;
-            let extra_len = u16::from_le_bytes([bytes[p + 30], bytes[p + 31]]) as usize;
-            let comment_len = u16::from_le_bytes([bytes[p + 32], bytes[p + 33]]) as usize;
-            let extra = &bytes[p + 46 + name_len..p + 46 + name_len + extra_len];
-            let aes = if bytes.windows(4).any(|w| w == [0x01, 0x99, 0x07, 0x00]) {
-                (1, 8)
-            } else {
-                ch24_aes_extra(&bytes[p..p + 46 + name_len + extra_len])
-            };
-            out.push((method, flags, aes.0, aes.1));
-            p += 46 + name_len + extra_len + comment_len;
-        } else {
-            p += 1;
-        }
+    while p < cd_offset + cd_size {
+        assert_eq!(&bytes[p..p + 4], b"PK\x01\x02");
+        let flags = u16::from_le_bytes(bytes[p + 8..p + 10].try_into().unwrap());
+        let method = u16::from_le_bytes(bytes[p + 10..p + 12].try_into().unwrap());
+        let name_len = u16::from_le_bytes(bytes[p + 28..p + 30].try_into().unwrap()) as usize;
+        let extra_len = u16::from_le_bytes(bytes[p + 30..p + 32].try_into().unwrap()) as usize;
+        let comment_len = u16::from_le_bytes(bytes[p + 32..p + 34].try_into().unwrap()) as usize;
+        let extra_start = p + 46 + name_len;
+        let extra = &bytes[extra_start..extra_start + extra_len];
+        let (vendor, actual) = ch24_aes_extra(extra).unwrap();
+        let local = ch24_zip64_offset(
+            extra,
+            u32::from_le_bytes(bytes[p + 42..p + 46].try_into().unwrap()) as usize,
+        );
+        assert_eq!(&bytes[local..local + 4], b"PK\x03\x04");
+        let local_flags = u16::from_le_bytes(bytes[local + 6..local + 8].try_into().unwrap());
+        let local_method = u16::from_le_bytes(bytes[local + 8..local + 10].try_into().unwrap());
+        let local_name_len =
+            u16::from_le_bytes(bytes[local + 26..local + 28].try_into().unwrap()) as usize;
+        let local_extra_len =
+            u16::from_le_bytes(bytes[local + 28..local + 30].try_into().unwrap()) as usize;
+        let local_extra =
+            &bytes[local + 30 + local_name_len..local + 30 + local_name_len + local_extra_len];
+        assert_eq!(ch24_aes_extra(local_extra), Some((vendor, actual)));
+        assert_eq!((local_flags, local_method), (flags, method));
+        out.push((method, flags, vendor, actual));
+        p = extra_start + extra_len + comment_len;
     }
     out
 }
 
-fn ch24_aes_extra(extra: &[u8]) -> (u16, u16) {
+fn ch24_zip64_offset(extra: &[u8], offset: usize) -> usize {
+    if offset != u32::MAX as usize {
+        return offset;
+    }
+    let p = extra.windows(2).position(|w| w == [0x01, 0x00]).unwrap() + 4 + 16;
+    u64::from_le_bytes(extra[p..p + 8].try_into().unwrap()) as usize
+}
+
+fn ch24_aes_extra(extra: &[u8]) -> Option<(u16, u16)> {
     if let Some(p) = extra.windows(4).position(|w| w == [0x01, 0x99, 0x07, 0x00]) {
-        return (
+        return Some((
             u16::from_le_bytes([extra[p + 4], extra[p + 5]]),
             u16::from_le_bytes([extra[p + 9], extra[p + 10]]),
-        );
+        ));
     }
-    (0, 0)
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -365,7 +375,7 @@ async fn ch24_export_aes_shape_matches_previous() {
     {
         assert_eq!(
             (*new_method, new_flags & 1, *new_vendor, *new_actual),
-            (99, 1, *old_vendor, 8)
+            (99, 1, *old_vendor, *old_actual)
         );
         assert_eq!(old_method, &99);
         assert_eq!(old_flags & 1, 1);

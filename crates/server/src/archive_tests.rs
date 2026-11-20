@@ -487,6 +487,8 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
 }
 
 // CH24-FIXTURE-BEGIN
+const CH24_RAW_CP437_ZIP_B64: &str = "UEsDBBQAAAAAAAAAAACDFtyMAQAAAAEAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbnhQSwMEFAAAAAAAAAAAAIMW3IwBAAAAAQAAAIAAAACAgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/3hQSwECFAAUAAAAAAAAAAAAgxbcjAEAAAABAAAAKwAAAAAAAAAAAAAAAAAAAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvblBLAQIUABQAAAAAAAAAAACDFtyMAQAAAAEAAACAAAAAAAAAAAAAAAAAAEoAAACAgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/1BLBQYAAAAAAgACAAcBAADpAAAAAAA=";
+const CH24_RAW_CP437_80_FF: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
 const CH24_TAKEOUT_UNFLAGGED_ZIP_B64: &str = "UEsDBBQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAACAAUtHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAAAAgAFLR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
 const CH24_TAKEOUT_FLAGGED_ZIP_B64: &str = "UEsDBBQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAICAB5tHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAACAgAebR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
 // 2.6.1 CP437 decoding of the UTF-8 name and of 0x80..0xff.
@@ -502,15 +504,17 @@ fn ch24_b64(s: &str) -> Vec<u8> {
 // Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 のバイトで書いた印の無い書庫は CP437 で読む
 #[test]
 fn ch24_takeout_unflagged_name_reads_as_cp437() {
+    let _ = CH24_TAKEOUT_UNFLAGGED_ZIP_B64;
+    let _ = CH24_CP437_80_FF;
     let tmp = tmp_dir("ch24-takeout-unflagged");
     std::fs::write(
         tmp.path().join("takeout.zip"),
-        ch24_b64(CH24_TAKEOUT_UNFLAGGED_ZIP_B64),
+        ch24_b64(CH24_RAW_CP437_ZIP_B64),
     )
     .unwrap();
     let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
     assert_eq!(files[0].path, CH24_CP437_NAME);
-    assert_eq!(files[1].path, CH24_CP437_80_FF);
+    assert_eq!(files[1].path, CH24_RAW_CP437_80_FF);
 }
 
 // Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 の印付きで書いた書庫は UTF-8 のまま読む

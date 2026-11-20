@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 use crate::export::{self, ExportConfig, ExportError, FailKind, Hooks, Stage};
 use crate::export_excluded_tests::World;
+use crate::export_file_tests::{
+    ch24_fixture_records, ch24_previous_export, ch24_previous_export_id,
+};
 use crate::export_tests::{names, tmp_dir, EXPORT_SERIAL};
 use crate::{testdb, App};
 
@@ -139,22 +142,32 @@ fn zips(dir: &Path) -> Vec<PathBuf> {
 async fn ch24_previous_export_replaced_after_next_export() {
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
-    location_at(&w, "09:00").await;
+    ch24_fixture_records(&w).await;
     let dir_tmp = tmp_dir("ch24-replaced");
     let dir = dir_tmp.path();
     let app = app_in(&w.pool, dir);
-    let first_id = export_and_wait(&app, PASS).await;
-    let first = zips(dir).pop().unwrap();
-    let first_size = std::fs::metadata(&first).unwrap().len();
-    let first_sha = sha(&first);
-    let first_ledger = ledger_of(&w.pool, first_id).await;
-    let done = first_ledger
-        .iter()
-        .find(|row| row.kind == "finish")
-        .unwrap();
-    assert_eq!(done.bytes, Some(first_size as i64));
-    assert_eq!(done.digest.as_deref(), Some(first_sha.as_str()));
-
+    let first_id = ch24_previous_export_id();
+    let first = dir.join("previous.zip");
+    let previous = ch24_previous_export();
+    std::fs::write(&first, &previous).unwrap();
+    let first_size = previous.len() as i64;
+    let first_sha = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&previous))
+    };
+    sqlx::query(
+        "INSERT INTO core.export_ledger
+           (export_id, kind, route, file, snapshot_at, result, rows, bytes, written, digest)
+         VALUES ($1, 'finish', 'pc-encrypted-zip', $2, now(), 'done', '{}'::jsonb, $3, $4, $5)",
+    )
+    .bind(first_id)
+    .bind(first.to_string_lossy().into_owned())
+    .bind(first_size)
+    .bind(Vec::<u8>::new())
+    .bind(&first_sha)
+    .execute(&w.pool)
+    .await
+    .unwrap();
     export_and_wait(&app, PASS).await;
 
     let left = zips(dir);

@@ -399,20 +399,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
 
-    fn one_name_zip(name: &str) -> Vec<u8> {
-        let mut bytes = std::io::Cursor::new(Vec::new());
-        {
-            let mut zip = zip::ZipWriter::new(&mut bytes);
-            zip.start_file(name, zip::write::SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"x").unwrap();
-            zip.finish().unwrap();
-        }
-        bytes.into_inner()
-    }
-
     // CH24-FIXTURE-BEGIN
-    // 名前ごとの 2.6.1 の結果。Info-ZIP の配布物は ASCII 固定名で、下の試験で同じ形を読む。
     const CH24_EXTRACT_NAMES: [&str; 12] = [
         "/etc/passwd",
         "C:\\x",
@@ -427,21 +414,61 @@ mod tests {
         "a\\..\\..\\x",
         "ab:c",
     ];
+    const CH24_EXTRACT_EXPECTED_UNIX: [bool; 12] = [
+        false, true, true, true, false, true, true, true, true, true, true, true,
+    ];
+    #[cfg(windows)]
+    const CH24_EXTRACT_EXPECTED_WINDOWS: [bool; 12] = [
+        false, false, false, false, false, false, true, true, true, true, false, true,
+    ];
+    const CH24_EXTRACT_ZIPS_B64: [&str; 12] = [
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAALAAAAL2V0Yy9wYXNzd2R4UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAsAAAAAAAAAAAAAAIABAAAAAC9ldGMvcGFzc3dkUEsFBgAAAAABAAEAOQAAACoAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAAQzpceHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAAQzpceFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAACAAAAXHh4UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAIAAAAAAAAAAAAAAIABAAAAAFx4UEsFBgAAAAABAAEAMAAAACEAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAYTpieFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAAAAAAAAAAACAAQAAAABhOmJQSwUGAAAAAAEAAQAxAAAAIgAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAALi4veHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAALi4veFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAALi5ceHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAALi5ceFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAATlVMeFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAAAAAAAAAAACAAQAAAABOVUxQSwUGAAAAAAEAAQAxAAAAIgAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAACAAAAYS54UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAIAAAAAAAAAAAAAAIABAAAAAGEuUEsFBgAAAAABAAEAMAAAACEAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAVAAAAYXNoaWF0by1jb2xsZWN0b3IuZXhleFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAVAAAAAAAAAAAAAACAAQAAAABhc2hpYXRvLWNvbGxlY3Rvci5leGVQSwUGAAAAAAEAAQBDAAAANAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAc3ViL2EudHh0eFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAAAAAAAAAAACAAQAAAABzdWIvYS50eHRQSwUGAAAAAAEAAQA3AAAAKAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAYVwuLlwuLlx4eFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAAAAAAAAAAACAAQAAAABhXC4uXC4uXHhQSwUGAAAAAAEAAQA3AAAAKAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAAYWI6Y3hQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAAYWI6Y1BLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+    ];
+    const CH24_INFO_ZIP_B64: &str = "UEsDBAoAAAAAAE27dF3R7b4NEQAAABEAAAAVABwAYXNoaWF0by1jb2xsZWN0b3IuZXhlVVQJAAOSWABrklgAa3V4CwABBOkDAAAE6QMAAGluZm8temlwIGZpeHR1cmUKUEsBAh4DCgAAAAAATbt0XdHtvg0RAAAAEQAAABUAGAAAAAAAAQAAALSBAAAAAGFzaGlhdG8tY29sbGVjdG9yLmV4ZVVUBQADklgAa3V4CwABBOkDAAAE6QMAAFBLBQYAAAAAAQABAFsAAABgAAAAAAA=";
     // CH24-FIXTURE-END
+
+    fn ch24_b64(s: &str) -> Vec<u8> {
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = Vec::new();
+        let mut buf = 0u32;
+        let mut bits = 0;
+        for c in s.bytes().filter(|c| *c != b'=') {
+            let value = alphabet.iter().position(|a| *a == c).unwrap() as u32;
+            buf = (buf << 6) | value;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((buf >> bits) as u8);
+                buf &= (1 << bits) - 1;
+            }
+        }
+        out
+    }
 
     #[test]
     fn ch24_extract_zip_name_rules() {
         #[cfg(not(windows))]
-        let expected = [
-            false, true, true, true, false, true, true, true, true, true, true, true,
-        ];
+        let expected = CH24_EXTRACT_EXPECTED_UNIX;
         #[cfg(windows)]
-        let expected = [
-            false, false, false, false, false, false, true, true, true, true, false, true,
-        ];
-        for (name, expected) in CH24_EXTRACT_NAMES.iter().zip(expected) {
+        let expected = CH24_EXTRACT_EXPECTED_WINDOWS;
+        for ((name, fixture), expected) in CH24_EXTRACT_NAMES
+            .iter()
+            .zip(CH24_EXTRACT_ZIPS_B64)
+            .zip(expected)
+        {
             let dir = tempfile::tempdir().unwrap();
-            let result = extract_zip(&one_name_zip(name), dir.path());
+            let result = extract_zip(&ch24_b64(fixture), dir.path());
             assert_eq!(result.is_ok(), expected, "{name}");
         }
     }
@@ -449,18 +476,7 @@ mod tests {
     #[test]
     fn ch24_extract_zip_reads_info_zip() {
         let dir = tempfile::tempdir().unwrap();
-        let mut bytes = std::io::Cursor::new(Vec::new());
-        {
-            let mut zip = zip::ZipWriter::new(&mut bytes);
-            zip.start_file(
-                "ashiato-collector.exe",
-                zip::write::SimpleFileOptions::default(),
-            )
-            .unwrap();
-            zip.write_all(b"info-zip fixture\n").unwrap();
-            zip.finish().unwrap();
-        }
-        extract_zip(&bytes.into_inner(), dir.path()).unwrap();
+        extract_zip(&ch24_b64(CH24_INFO_ZIP_B64), dir.path()).unwrap();
         assert_eq!(
             std::fs::read(dir.path().join("ashiato-collector.exe")).unwrap(),
             b"info-zip fixture\n"
