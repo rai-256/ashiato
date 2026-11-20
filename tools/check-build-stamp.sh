@@ -16,9 +16,42 @@ section="${1:-}"
 STAMP_RE='[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?'
 
 case "$section" in
-  tool | server | windows | android | release) ;;
-  *) echo "usage: $0 tool|server|windows|android（節が無い: '$section'）"; exit 2;;
+  tool | server | windows | android | release | self-test) ;;
+  *) echo "usage: $0 tool|server|windows|android|self-test（節が無い: '$section'）"; exit 2;;
 esac
+
+fail() { echo "NG: $*" >&2; exit 1; }
+
+# Maven の一時的な応答失敗で、本物の組み立てをしないまま印の検査が落ちないようにする。
+# 成功時の検査内容は変えず、2 回とも失敗した場合は従来どおり失敗にする。
+retry_once() { # <表示名> <待機秒> <command...>
+  local label=$1 delay=$2 attempt
+  shift 2
+  for attempt in 1 2; do
+    "$@" && return 0
+    if [ "$attempt" = 1 ]; then
+      echo "WARN: $label が失敗。Maven の一時的な取得失敗に備えて ${delay} 秒後に 1 回だけ再試行する" >&2
+      sleep "$delay"
+    fi
+  done
+  return 1
+}
+
+if [ "$section" = self-test ]; then
+  attempts=0
+  flaky() { attempts=$((attempts + 1)); [ "$attempts" -eq 2 ]; }
+  retry_once "自己試験の一時失敗" 0 flaky
+  [ "$attempts" -eq 2 ] || fail "自己試験: 成功までの試行回数が $attempts（2 でない）"
+
+  attempts=0
+  always_fails() { attempts=$((attempts + 1)); return 1; }
+  if retry_once "自己試験の恒久失敗" 0 always_fails; then
+    fail "自己試験: 恒久失敗を成功として扱った"
+  fi
+  [ "$attempts" -eq 2 ] || fail "自己試験: 恒久失敗の試行回数が $attempts（2 でない）"
+  echo "OK: Gradle の一時的な失敗は 1 回だけ再試行し、恒久失敗は通さない"
+  exit 0
+fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/build-stamp.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -27,7 +60,6 @@ export CARGO_TARGET_DIR="$work/target"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 unset ASHIATO_BUILD_COMMIT
 
-fail() { echo "NG: $*" >&2; exit 1; }
 # 正規表現の中で文字どおりに読むよう、版番号の . や + を逃がす
 re_quote() { printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|/]/\\&/g'; }
 # 宣言した版番号（design D5 の出所）
@@ -121,8 +153,11 @@ if [ "$section" = android ]; then
   # 宣言した版番号（根の Cargo.toml）
   av="$cargo_version"
   # 使い捨ての木の中の gradle。構成キャッシュとビルドキャッシュを付けても、印が古いまま残らないことを見る
+  gradle_build_configs() { # <collector-android の道>
+    (cd "$1" && ./gradlew -q --configuration-cache --build-cache :app:generateDebugBuildConfig :app:generateReleaseBuildConfig)
+  }
   android_stamps() { # <ラベル> -> "<debug> <release>"
-    (cd "$clone/collector-android" && ./gradlew -q --configuration-cache --build-cache :app:generateDebugBuildConfig :app:generateReleaseBuildConfig >&2) \
+    retry_once "Gradle の組み立て" 5 gradle_build_configs "$clone/collector-android" >&2 \
       || fail "$1: gradle が落ちた"
     local out="$clone/collector-android/app/build/generated/source/buildConfig" d r
     d="$(grep -Eo 'COMPONENT_VERSION = "[^"]*"' "$out/debug/dev/ashiato/collector/BuildConfig.java" | cut -d'"' -f2)"
