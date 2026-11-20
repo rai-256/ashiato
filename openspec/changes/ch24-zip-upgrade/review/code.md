@@ -153,3 +153,23 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
   時刻の試験の揺れを扱った `archive/2026-11-07-ch09-load-tolerant-timing-tests` は `clock_reference` に触れていない（grep 0 件）。受け手の Story は無い
 - kind: defer
 - 提案: CH24 の確認バッチの問い（「PR の CI の Windows の job の `--lib` が通っているか」）で、clock の 2 本の落ちを CH24 の落ちと取り違えないよう添える。直すのは新しい change（`hx change`）で、落ちる理由を確かめてから許す範囲を決める
+
+## security review（65eb1de..4fb17bb）
+
+見た経路:
+- PC の更新: GitHub の版の一覧 → `download_asset` → `verify_digest`（`update_apply.rs:163`）→ `extract_zip`（`:168`）→ 新しい `enclosed_zip_path`（`:258-273`）→ `destination.join` → `File::create`。展開は指紋の照合の後だけ（2）。名前の確かめは、Windows と Linux の本物のファイルシステムで、展開先の外へ書ける名前が 0 件（4）
+- PC の更新の権限: `#[cfg(unix)]` の `unix_mode` の写し。zip 9 は SUID・SGID・sticky を落とすので、2.6.1 より狭くなるだけ。配る物（Windows）では走らない（2）
+- Takeout の書庫: 置き場の `.zip` → `open_archive`（`archive/open.rs:77-123`）→ `zip_name`（`name_raw` と CP437 の表）→ `ArchiveFile.path`（記録の `inner_path`）。名前はディスクの道・SQL の文字列・シェルには入らない（展開しない）。2.6.1 と同じ規則（3）
+- 書庫の失敗: `ZipError` は `OpenError.source` にだけ残り、外に出るのは `kind()` の固定の文字列。zip 9 の `InvalidArchive(Cow)` の書式付きの文は型名・数・固定の文だけで、項目の名前を含まない（`zip-9.0.5/src` の `invalid!(` を grep）（3）
+- 書き出し: `dump.rs:166-171` の deflate + AES-256 → `set_comment`（Result を返すようになっただけ。注記は `ashiato-export <id>` で中身を含まない）。zip 9 が書いた AES の項目を、別の版の実装（zip 2.6.1）で、平文が無い・違う合言葉で読めない・正しい合言葉で同じ中身、と確かめた（4）
+- 試験に埋め込んだ前の版の書き出し（`export_file_tests.rs` の `CH24_PREVIOUS_EXPORT_B64`）: 解くと記録は試験が置いた 3 件（2001-02-20・`CH24 fixture`・東京駅の座標）だけ。開発の DB の記録は入っていない。合言葉の固定値は試験専用（4）
+- 依存: 新しく入った 16 の crate（RustCrypto の `hmac`・`sha1`・`sha2`・`digest`・`cmov`・`ctutils`・`cpubits`・`hybrid-array` など、`typed-path`・`libbz2-rs-sys`・`lzma-rust2`・`ppmd-rust`）は、どれも crates.io の index から引かれ、`Cargo.lock` に checksum がある。どれも zip 9.0.5 の `Cargo.toml` が名指しする名前で、`repository` は RustCrypto・trifectatech・作者本人の repo。`build.rs` も proc-macro も持たない（3）
+- 待ち受け・接続先・認可: この差分は API・router・listen・送信先に触れていない（`git diff --stat` に `lib.rs`・`net_guard.rs`・`sender.rs` が無い）（2）
+
+安全の決め手: PC の更新の展開は、`enclosed_zip_path` が `Path::components` の Prefix・RootDir と、根を越える `..` を断るので、受け付けた名前を `destination.join` してもどの OS でも展開先の外に出ない —— 確かさ 4。repo の外の使い捨ての crate に `enclosed_zip_path` を写し、23 の名前（`C:\x`・`\\?\C:\x`・`\\server\share\x`・`C:x`・`\\.\PhysicalDrive0`・`a/..\..\x`・`a/C:\x`・`ab:c` など）について、展開先に本物のファイルを作り、親を `canonicalize` して展開先の下かを見た。Linux（`cargo run`）と Windows（windows-gnu の .exe を `cmd.exe` から）の両方で `ESCAPING_ACCEPTED=0`。Windows の `a/C:\x` は受け付けるが、作るときに os error 123 で失敗する（2.6.1 と同じ規則）。repo の試験は `cargo test -p ashiato-collector-windows --lib ch24_` が 2 passed、`cargo test -p ashiato-server --lib ch24_previous_export_wrong_password_fails` が 1 passed
+
+指摘なし
+
+範囲外（R 番号なし）:
+- `update_apply.rs:151-166` の指紋（`asset.digest`）は、配る物と同じ GitHub の版の一覧から取っていて、配る物の出所を独立に確かめてはいない（ST58。この差分は触れていない）
+- `archive/open.rs:113` の `read_to_end` には、項目ごとの大きさの上限も合計の上限も無い（展開後に大きくなる zip を読み込む。この差分の前から同じ）
