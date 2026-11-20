@@ -6,7 +6,7 @@
 //! 記録と消す滞在は `testdb::unique_day()` の日に置く（R27）。書き出しを走らせるテストは `EXPORT_SERIAL` で直列にする（R16）。
 #![allow(clippy::unwrap_used)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -128,12 +128,12 @@ fn ch24_sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn ch24_zip_parts(bytes: &[u8]) -> Vec<(u16, u16, u16, u16)> {
+fn ch24_zip_parts(bytes: &[u8]) -> BTreeMap<String, (u16, u16, u16, [u8; 2], u8, u16)> {
     let eocd = bytes.windows(4).rposition(|w| w == b"PK\x05\x06").unwrap();
     let cd_offset = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
     let cd_size = u32::from_le_bytes(bytes[eocd + 12..eocd + 16].try_into().unwrap()) as usize;
     let mut p = cd_offset;
-    let mut out = Vec::new();
+    let mut out = BTreeMap::new();
     while p < cd_offset + cd_size {
         assert_eq!(&bytes[p..p + 4], b"PK\x01\x02");
         let flags = u16::from_le_bytes(bytes[p + 8..p + 10].try_into().unwrap());
@@ -142,11 +142,16 @@ fn ch24_zip_parts(bytes: &[u8]) -> Vec<(u16, u16, u16, u16)> {
         let extra_len = u16::from_le_bytes(bytes[p + 30..p + 32].try_into().unwrap()) as usize;
         let comment_len = u16::from_le_bytes(bytes[p + 32..p + 34].try_into().unwrap()) as usize;
         let extra_start = p + 46 + name_len;
+        let name = std::str::from_utf8(&bytes[p + 46..extra_start])
+            .unwrap()
+            .to_owned();
         let extra = &bytes[extra_start..extra_start + extra_len];
-        let (vendor, actual) = ch24_aes_extra(extra).unwrap();
+        let (vendor, ae, strength, actual) = ch24_aes_extra(extra).unwrap();
         let local = ch24_zip64_offset(
             extra,
-            u32::from_le_bytes(bytes[p + 42..p + 46].try_into().unwrap()) as usize,
+            u32::from_le_bytes(bytes[p + 20..p + 24].try_into().unwrap()),
+            u32::from_le_bytes(bytes[p + 24..p + 28].try_into().unwrap()),
+            u32::from_le_bytes(bytes[p + 42..p + 46].try_into().unwrap()),
         );
         assert_eq!(&bytes[local..local + 4], b"PK\x03\x04");
         let local_flags = u16::from_le_bytes(bytes[local + 6..local + 8].try_into().unwrap());
@@ -157,30 +162,60 @@ fn ch24_zip_parts(bytes: &[u8]) -> Vec<(u16, u16, u16, u16)> {
             u16::from_le_bytes(bytes[local + 28..local + 30].try_into().unwrap()) as usize;
         let local_extra =
             &bytes[local + 30 + local_name_len..local + 30 + local_name_len + local_extra_len];
-        assert_eq!(ch24_aes_extra(local_extra), Some((vendor, actual)));
+        assert_eq!(
+            ch24_aes_extra(local_extra),
+            Some((vendor, ae, strength, actual))
+        );
         assert_eq!((local_flags, local_method), (flags, method));
-        out.push((method, flags, vendor, actual));
+        assert!(out
+            .insert(name, (method, flags, vendor, ae, strength, actual))
+            .is_none());
         p = extra_start + extra_len + comment_len;
     }
     out
 }
 
-fn ch24_zip64_offset(extra: &[u8], offset: usize) -> usize {
-    if offset != u32::MAX as usize {
-        return offset;
+fn ch24_zip64_offset(extra: &[u8], compressed: u32, uncompressed: u32, offset: u32) -> usize {
+    if offset != u32::MAX {
+        return offset as usize;
     }
-    let p = extra.windows(2).position(|w| w == [0x01, 0x00]).unwrap() + 4 + 16;
-    u64::from_le_bytes(extra[p..p + 8].try_into().unwrap()) as usize
+    let mut p = 0;
+    while p + 4 <= extra.len() {
+        let id = u16::from_le_bytes(extra[p..p + 2].try_into().unwrap());
+        let size = u16::from_le_bytes(extra[p + 2..p + 4].try_into().unwrap()) as usize;
+        let value = &extra[p + 4..p + 4 + size];
+        if id == 0x0001 {
+            let mut q = 0;
+            for present in [uncompressed, compressed] {
+                if present == u32::MAX {
+                    q += 8;
+                }
+            }
+            return u64::from_le_bytes(value[q..q + 8].try_into().unwrap()) as usize;
+        }
+        p += 4 + size;
+    }
+    panic!("zip64 の追加欄が無い")
 }
 
-fn ch24_aes_extra(extra: &[u8]) -> Option<(u16, u16)> {
+fn ch24_aes_extra(extra: &[u8]) -> Option<(u16, [u8; 2], u8, u16)> {
     if let Some(p) = extra.windows(4).position(|w| w == [0x01, 0x99, 0x07, 0x00]) {
         return Some((
             u16::from_le_bytes([extra[p + 4], extra[p + 5]]),
+            [extra[p + 6], extra[p + 7]],
+            extra[p + 8],
             u16::from_le_bytes([extra[p + 9], extra[p + 10]]),
         ));
     }
     None
+}
+
+#[test]
+fn ch24_zip64_offset_reads_only_the_zip64_field_and_present_values() {
+    let mut extra = vec![0x01, 0x99, 0x07, 0x00, 0x01, 0x00, b'A', b'E', 3, 8, 0];
+    extra.extend_from_slice(&[0x01, 0x00, 0x08, 0x00]);
+    extra.extend_from_slice(&123u64.to_le_bytes());
+    assert_eq!(ch24_zip64_offset(&extra, 4, 5, u32::MAX), 123);
 }
 
 // ---------------------------------------------------------------------------
@@ -368,17 +403,29 @@ async fn ch24_export_aes_shape_matches_previous() {
     let old = ch24_zip_parts(&previous);
     let new = ch24_zip_parts(&current);
     assert!(!old.is_empty() && old.len() == new.len());
-    for (
-        (old_method, old_flags, old_vendor, old_actual),
-        (new_method, new_flags, new_vendor, new_actual),
-    ) in old.iter().zip(new.iter())
-    {
+    assert_eq!(
+        old.keys().collect::<Vec<_>>(),
+        new.keys().collect::<Vec<_>>()
+    );
+    for (name, (old_method, old_flags, old_vendor, old_ae, old_strength, old_actual)) in old {
+        let (new_method, new_flags, new_vendor, new_ae, new_strength, new_actual) = new[&name];
         assert_eq!(
-            (*new_method, new_flags & 1, *new_vendor, *new_actual),
-            (99, 1, *old_vendor, *old_actual)
+            (
+                new_method,
+                new_flags & 1,
+                new_vendor,
+                new_ae,
+                new_strength,
+                new_actual
+            ),
+            (99, 1, old_vendor, old_ae, 3, 8),
+            "{name}"
         );
-        assert_eq!(old_method, &99);
-        assert_eq!(old_flags & 1, 1);
+        assert_eq!(
+            (old_method, old_flags & 1, old_ae, old_strength, old_actual),
+            (99, 1, *b"AE", 3, 8),
+            "{name}"
+        );
     }
 }
 

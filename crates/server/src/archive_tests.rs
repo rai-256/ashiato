@@ -496,28 +496,29 @@ const CH24_CP437_NAME: &str = "Takeout/πâ₧πéñ πéóπé»πâåπéúπ�
 const CH24_CP437_80_FF: &str = "┬Ç┬ü┬é┬â┬ä┬à┬å┬ç┬ê┬ë┬è┬ï┬î┬ì┬Ä┬Å┬É┬æ┬Æ┬ô┬ö┬ò┬û┬ù┬ÿ┬Ö┬Ü┬¢┬£┬¥┬₧┬ƒ┬á┬í┬ó┬ú┬ñ┬Ñ┬ª┬º┬¿┬⌐┬¬┬½┬¼┬¡┬«┬»┬░┬▒┬▓┬│┬┤┬╡┬╢┬╖┬╕┬╣┬║┬╗┬╝┬╜┬╛┬┐├Ç├ü├é├â├ä├à├å├ç├ê├ë├è├ï├î├ì├Ä├Å├É├æ├Æ├ô├ö├ò├û├ù├ÿ├Ö├Ü├¢├£├¥├₧├ƒ├á├í├ó├ú├ñ├Ñ├ª├º├¿├⌐├¬├½├¼├¡├«├»├░├▒├▓├│├┤├╡├╢├╖├╕├╣├║├╗├╝├╜├╛├┐";
 // CH24-FIXTURE-END
 
+// Python 3.12 の zipfile.ZIP_BZIP2 で作った、zip crate の外の入力。
+const CH24_TAKEOUT_BZIP2_ZIP_B64: &str = "UEsDBC4AAAAMAKcOdV21eE4TNQAAAA0AAAASAAAAVGFrZW91dC9iemlwMi5qc29uQlpoOTFBWSZTWR+4OFYAAAEZgEAAEAATIFZQIAAiA0BoQNA0GoWDecTB8XckU4UJAfuDhWBQSwECLgMuAAAADACnDnVdtXhOEzUAAAANAAAAEgAAAAAAAAAAAAAAgAEAAAAAVGFrZW91dC9iemlwMi5qc29uUEsFBgAAAAABAAEAQAAAAGUAAAAAAA==";
+
 fn ch24_b64(s: &str) -> Vec<u8> {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()
 }
 
-// Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 のバイトで書いた印の無い書庫は CP437 で読む
+// CH24 design D7: bit 11 の無い名前は zip 2.6.1 と同じ CP437 で読む。
 #[test]
 fn ch24_takeout_unflagged_name_reads_as_cp437() {
-    let _ = CH24_TAKEOUT_UNFLAGGED_ZIP_B64;
-    let _ = CH24_CP437_80_FF;
     let tmp = tmp_dir("ch24-takeout-unflagged");
     std::fs::write(
         tmp.path().join("takeout.zip"),
-        ch24_b64(CH24_RAW_CP437_ZIP_B64),
+        ch24_b64(CH24_TAKEOUT_UNFLAGGED_ZIP_B64),
     )
     .unwrap();
     let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
     assert_eq!(files[0].path, CH24_CP437_NAME);
-    assert_eq!(files[1].path, CH24_RAW_CP437_80_FF);
+    assert_eq!(files[1].path, CH24_CP437_80_FF);
 }
 
-// Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 の印付きで書いた書庫は UTF-8 のまま読む
+// CH24 design D7: bit 11 のある名前は zip 2.6.1 と同じ UTF-8 で読む。
 #[test]
 fn ch24_takeout_flagged_name_reads_as_utf8() {
     let tmp = tmp_dir("ch24-takeout-flagged");
@@ -528,6 +529,20 @@ fn ch24_takeout_flagged_name_reads_as_utf8() {
     .unwrap();
     let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
     assert_eq!(files[0].path, "Takeout/マイ アクティビティ/a.json");
+}
+
+#[test]
+fn ch24_takeout_bzip2_reads_with_default_zip_features() {
+    let tmp = tmp_dir("ch24-takeout-bzip2");
+    let path = tmp.path().join("takeout.zip");
+    std::fs::write(&path, ch24_b64(CH24_TAKEOUT_BZIP2_ZIP_B64)).unwrap();
+    assert_eq!(
+        crate::archive::open::open_archive(&path).unwrap(),
+        [crate::archive::open::ArchiveFile {
+            path: "Takeout/bzip2.json".into(),
+            bytes: b"bzip2 fixture".to_vec(),
+        }]
+    );
 }
 
 /// Scenario: 分割書庫は 1 本ずつ読まれる

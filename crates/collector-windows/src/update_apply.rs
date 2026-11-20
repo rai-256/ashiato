@@ -487,6 +487,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let result = extract_zip(&ch24_b64(fixture), dir.path());
             assert_eq!(result.is_ok(), expected, "{name}");
+            assert_eq!(enclosed_zip_path(name).is_some(), expected, "{name}");
         }
     }
 
