@@ -232,10 +232,9 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
     std::fs::create_dir_all(destination)?;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        let Some(name) = entry.enclosed_name() else {
-            anyhow::bail!("zip の道が不正")
-        };
-        let path = destination.join(name);
+        let name = entry.name().context("zip の道が不正")?.into_owned();
+        let path = enclosed_zip_path(&name).context("zip の道が不正")?;
+        let path = destination.join(path);
         if entry.is_dir() {
             std::fs::create_dir_all(&path)?;
         } else {
@@ -254,6 +253,23 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn enclosed_zip_path(name: &str) -> Option<PathBuf> {
+    if name.contains('\0') {
+        return None;
+    }
+    let path = PathBuf::from(name);
+    let mut depth = 0usize;
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => return None,
+            std::path::Component::ParentDir => depth = depth.checked_sub(1)?,
+            std::path::Component::Normal(_) => depth += 1,
+            std::path::Component::CurDir => (),
+        }
+    }
+    Some(path)
 }
 
 pub fn update_executable(staged: &Path, channel: Channel) -> Result<PathBuf> {
@@ -397,7 +413,100 @@ fn remove_old_versions(layout: &UpdateLayout, current: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    #![cfg_attr(windows, allow(dead_code))]
     use super::*;
+
+    // CH24-FIXTURE-BEGIN
+    const CH24_EXTRACT_NAMES: [&str; 12] = [
+        "/etc/passwd",
+        "C:\\x",
+        "\\x",
+        "a:b",
+        "../x",
+        "..\\x",
+        "NUL",
+        "a.",
+        "ashiato-collector.exe",
+        "sub/a.txt",
+        "a\\..\\..\\x",
+        "ab:c",
+    ];
+    const CH24_EXTRACT_EXPECTED_UNIX: [bool; 12] = [
+        false, true, true, true, false, true, true, true, true, true, true, true,
+    ];
+    #[cfg(windows)]
+    const CH24_EXTRACT_EXPECTED_WINDOWS: [bool; 12] = [
+        false, false, false, false, false, false, true, true, true, true, false, true,
+    ];
+    const CH24_EXTRACT_ZIPS_B64: [&str; 12] = [
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAALAAAAL2V0Yy9wYXNzd2R4UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAsAAAAAAAAAAAAAAIABAAAAAC9ldGMvcGFzc3dkUEsFBgAAAAABAAEAOQAAACoAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAAQzpceHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAAQzpceFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAACAAAAXHh4UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAIAAAAAAAAAAAAAAIABAAAAAFx4UEsFBgAAAAABAAEAMAAAACEAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAYTpieFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAAAAAAAAAAACAAQAAAABhOmJQSwUGAAAAAAEAAQAxAAAAIgAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAALi4veHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAALi4veFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAALi5ceHhQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAALi5ceFBLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAATlVMeFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAADAAAAAAAAAAAAAACAAQAAAABOVUxQSwUGAAAAAAEAAQAxAAAAIgAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAACAAAAYS54UEsBAhQDFAAAAAAATbt0XYMW3IwBAAAAAQAAAAIAAAAAAAAAAAAAAIABAAAAAGEuUEsFBgAAAAABAAEAMAAAACEAAAAAAA==",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAVAAAAYXNoaWF0by1jb2xsZWN0b3IuZXhleFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAVAAAAAAAAAAAAAACAAQAAAABhc2hpYXRvLWNvbGxlY3Rvci5leGVQSwUGAAAAAAEAAQBDAAAANAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAc3ViL2EudHh0eFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAAAAAAAAAAACAAQAAAABzdWIvYS50eHRQSwUGAAAAAAEAAQA3AAAAKAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAYVwuLlwuLlx4eFBLAQIUAxQAAAAAAE27dF2DFtyMAQAAAAEAAAAJAAAAAAAAAAAAAACAAQAAAABhXC4uXC4uXHhQSwUGAAAAAAEAAQA3AAAAKAAAAAAA",
+        "UEsDBBQAAAAAAE27dF2DFtyMAQAAAAEAAAAEAAAAYWI6Y3hQSwECFAMUAAAAAABNu3RdgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAgAEAAAAAYWI6Y1BLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+    ];
+    const CH24_INFO_ZIP_B64: &str = "UEsDBAoAAAAAAE27dF3R7b4NEQAAABEAAAAVABwAYXNoaWF0by1jb2xsZWN0b3IuZXhlVVQJAAOSWABrklgAa3V4CwABBOkDAAAE6QMAAGluZm8temlwIGZpeHR1cmUKUEsBAh4DCgAAAAAATbt0XdHtvg0RAAAAEQAAABUAGAAAAAAAAQAAALSBAAAAAGFzaGlhdG8tY29sbGVjdG9yLmV4ZVVUBQADklgAa3V4CwABBOkDAAAE6QMAAFBLBQYAAAAAAQABAFsAAABgAAAAAAA=";
+    // CH24-FIXTURE-END
+
+    fn ch24_b64(s: &str) -> Vec<u8> {
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = Vec::new();
+        let mut buf = 0u32;
+        let mut bits = 0;
+        for c in s.bytes().filter(|c| *c != b'=') {
+            let value = alphabet.iter().position(|a| *a == c).unwrap() as u32;
+            buf = (buf << 6) | value;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((buf >> bits) as u8);
+                buf &= (1 << bits) - 1;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn ch24_extract_zip_name_rules() {
+        #[cfg(not(windows))]
+        let expected = CH24_EXTRACT_EXPECTED_UNIX;
+        #[cfg(windows)]
+        let expected = CH24_EXTRACT_EXPECTED_WINDOWS;
+        for ((name, fixture), expected) in CH24_EXTRACT_NAMES
+            .iter()
+            .zip(CH24_EXTRACT_ZIPS_B64)
+            .zip(expected)
+        {
+            let dir = tempfile::tempdir().unwrap();
+            assert_eq!(enclosed_zip_path(name).is_some(), expected, "{name}");
+            let result = extract_zip(&ch24_b64(fixture), dir.path());
+            if expected {
+                result.unwrap();
+            } else {
+                assert!(
+                    format!("{:#}", result.unwrap_err()).contains("zip の道が不正"),
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ch24_extract_zip_reads_info_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        extract_zip(&ch24_b64(CH24_INFO_ZIP_B64), dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("ashiato-collector.exe")).unwrap(),
+            b"info-zip fixture\n"
+        );
+    }
     #[test]
     fn st58_update_digest_rejects_missing_or_wrong_fingerprint() {
         assert!(verify_digest(b"x", "sha256:00").is_err());

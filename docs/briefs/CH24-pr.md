@@ -1,62 +1,49 @@
-# CH24 zip の部品を 2 から 9 に上げ、例外の表の理由を事実に合わせる
+# CH24 —— zip の部品を 2 から 9 に上げ、例外の表の理由を事実に合わせる
 
-change: `openspec/changes/ch24-zip-upgrade/`（capability `data-durability` に ADDED の Requirement 1 つ・Scenario 4 本、`distribution` に MODIFIED の Requirement 1 つ）。
-依頼と完了の判定は `docs/changes/CH24.md`（受け皿の依頼 #338 から）。
+change: `openspec/changes/ch24-zip-upgrade/`
 
-Rust の zip を 2.6.1 から 9（9.0.5 以上）に上げ、例外の表（`osv-scanner.toml`）から zip の行を消す。zip を読む・書く振る舞いは変えない。
-上げる前の版で書いた書き出しの zip と、上げる前の版の名前の読み方・道の判定の結果を、先に試験に固定してから上げる。
+## deep.md に積んだ未決（A）
 
-軽い路（`lane.json` の `reason: same`）で始め、仮の D1 が別の席で否になって深掘り gate の Q-G1 を人間に聞き、通常の路へ昇格した。
-正典の既存の Requirement で変えるのは `distribution` の許諾の検査の 1 つだけ（許す一覧に `bzip2-1.0.6` を足す）。
+なし
 
-## 本人が決めたこと（議論 2026-11-19。聞き直していない）
+## 仮決め（B）と Ruling
 
-- 何を: zip を直った版（9.0.5 以上）に上げ、GHSA-m665-v7pm-7grj・GHSA-q7v9-x93c-xqv3・GHSA-8hxf-qr8p-62x4 の例外を外す
-- なぜ: 例外の理由「上げる予定: 互換範囲外の修正版待ち」は事実と違う（直った版は出ている。`premises.md`）
-- どこまで: zip を使う 4 か所を新しい版に合わせ、振る舞いは変えない。書き出しの AES の zip が今と同じに読めることを確かめる。
-  上げきれなければ、例外の理由を「上げる予定: 2 → 9 の上げの作業が残る」に直して期限を 90 日以内に置く（design D4: その場合は計画の直しとして人間に返す）
+design の（仮）:
+- D2（仮）. 前の版で書いた書き出しは、試験のファイルにバイト列として埋め込む
+- D7（仮）. Takeout の書庫の項目の名前は、2.6.1 と同じ規則で読む
 
-## 深掘り gate で本人が決めたこと（Q-G1。2026-11-20）
+全 Task の ledger に `Ruling:` の行は無い。
 
-- zip 9 の既定の features のまま上げ、既定の bzip2 が引く `libbz2-rs-sys` の許諾 `bzip2-1.0.6` を、許諾の検査（`tools/check-licenses.sh`）の許す一覧に足す
-  （推奨の案と同じ。bzip2 を読むのをやめて Takeout の書庫を断る道・上げずに例外の理由を直す道は取らない）
-- 9 の `bzip2-rs`（C の libbz2）を選んでも `libbz2-rs-sys` を引くので、許諾を変えずに上げる道は無かった（repo の外の使い捨ての crate で確かめた）
-- これに伴い: `distribution` の Requirement「配布物に入る依存の許諾を、携帯の依存も含めて検査する」を MODIFIED（一覧を 17 から 18 の値に）。
-  `tools/check-licenses.sh` は一覧の 2 か所（`ALLOW` と自己試験の比べ）に足すだけ（tasks 3.2 が base との差で見る）。既定の features のままであることは tasks 2.1 が `cargo metadata` で見る
+## Task
 
-## 消す例外の行は 7 行
+4 Task のうち、埋めた Task は 4 本。
+残した項目は無い。
 
-本人が名指ししたのは GHSA 3 件。同じ zip 2.6.1 の RUSTSEC-2026-0367・0368・0369・0429 の 4 行も 9.0.0 で直っていて、残すと行の検査が「勧告がもう出ない」で落ちるので一緒に消す（design D3）。
-`lane.json` と `deep.md` は「3 件」と書いているが、触るファイルは同じで、軽い路の裏取りは変わらない（review R10）。消した行は検査の `== 例外の表で足した・変えた行` に出ない（足した・変えた行は `なし`）。
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-## 仮決め（B）と、振る舞いを残すための決定
+- 1.1 `scripts/quiet-run ch24a -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 3'` → rc=0（PASS・head 1ec847a）
+- 1.2 `scripts/quiet-run ch24b -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 4'` → rc=0（PASS・head 1ec847a）
+- 1.3 `scripts/quiet-run ch24c -- bash -c 'cargo test -p ashiato-server --lib ch24_takeout_ && n=$(cargo test -p ashiato-server --lib ch24_takeout_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_takeout_: $n" && test "$n" -ge 2'` → rc=0（PASS・head 4bd5e92）
+- 1.4 `scripts/quiet-run ch24d -- bash -c 'for t in "" "--target x86_64-pc-windows-gnu"; do cargo test -p ashiato-collector-windows --lib $t ch24_ || exit 1; n=$(cargo test -p ashiato-collector-windows --lib $t ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_ ${t:-linux}: $n"; test "$n" -ge 2 || exit 1; done'` → rc=0（PASS・head 4bd5e92）
+- 1.5 `bash -c 'set -o pipefail; for f in crates/server/src/export_file_tests.rs crates/server/src/archive_tests.rs crates/collector-windows/src/update_apply.rs; do c=$(git log --format=%H -S CH24-FIXTURE-BEGIN -- "$f" | tail -1); test -n "$c" || { echo "囲みが無い: $f"; exit 1; }; git show "$c:Cargo.lock" | python3 -c "import sys,re;t=sys.stdin.read();v=re.findall(r\"name = \\\"zip\\\"\\nversion = \\\"([^\\\"]+)\\\"\",t);print(v);assert v==[\"2.6.1\"],v" || exit 1; diff <(git show "$c:$f" | sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p") <(sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p" "$f") || { echo "囲みの中が変わった: $f"; exit 1; }; done'` → rc=1（FAIL・head 1ec847a）
+- 1.5 `./openspec/changes/ch24-zip-upgrade/check-fixtures.sh` → rc=0（PASS・head 1ec847a）
+- 2.1 `bash -c 'set -o pipefail; cargo metadata --format-version 1 --no-deps | python3 -c "import sys,json;m=json.load(sys.stdin);d={p[\"name\"]:[x for x in p[\"dependencies\"] if x[\"name\"]==\"zip\"] for p in m[\"packages\"] if p[\"name\"] in (\"ashiato-server\",\"ashiato-collector-windows\")};print(d);assert len(d)==2 and all(z and all(x[\"uses_default_features\"] for x in z) for z in d.values()),\"zip の既定の features が切られた\"" && python3 -c "import re;t=open(\"Cargo.lock\").read();v=re.findall(r\"name = \\\"zip\\\"\\nversion = \\\"([^\\\"]+)\\\"\",t);print(v);assert len(v)==1 and tuple(map(int,v[0].split(\".\")))>=(9,0,5),v" && cargo clippy --workspace --all-targets -- -D warnings && cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings && cargo clippy -p ashiato-server --all-targets --target x86_64-pc-windows-gnu -- -D warnings'` → rc=0（PASS・head 4bd5e92）
+- 2.2 `scripts/quiet-run ch24e -- bash -c 'd="$TMPDIR/ch24dump"; rm -rf "$d"; mkdir -p "$d"; CH24_DUMP_DIR="$d" cargo test -p ashiato-server --lib ch24_ || exit 1; n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_: $n"; test "$n" -ge 6 || exit 1; python3 -c "import zipfile,sys;il=zipfile.ZipFile(sys.argv[1]).infolist();print(len(il));assert il and all(i.compress_type==99 and i.flag_bits&1 for i in il),[(i.filename,i.compress_type,i.flag_bits) for i in il]" "$d/ch24.zip"'` → rc=0（PASS・head a8eb371）
+- 2.2 `scripts/quiet-run ch24e -- bash -c 'd="$TMPDIR/ch24dump"; rm -rf "$d"; mkdir -p "$d"; CH24_DUMP_DIR="$d" cargo test -p ashiato-server --lib ch24_ || exit 1; n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_: $n"; test "$n" -ge 6 || exit 1; python3 -c "import zipfile,sys;il=zipfile.ZipFile(sys.argv[1]).infolist();print(len(il));assert il and all(i.compress_type==99 and i.flag_bits&1 and (lambda p:i.extra[p+6:p+8]==b\"AE\" and i.extra[p+8]==3 and i.extra[p+9:p+11]==b\"\\x08\\x00\")(i.extra.index(b\"\\x01\\x99\\x07\\x00\")) for i in il),[(i.filename,i.compress_type,i.flag_bits) for i in il]" "$d/ch24.zip"'` → rc=0（PASS・head 4bd5e92）
+- 2.3 `scripts/quiet-run ch24f -- bash -c 'tools/check-tests-kept.sh origin/main crates/server && tools/check-tests-kept.sh origin/main crates/collector-windows && cargo test -p ashiato-server --lib -- export archive media_export || exit 1; n=$(cargo test -p ashiato-server --lib -- export archive media_export --list 2>/dev/null | grep -c ": test$"); echo "export archive media_export: $n（base で 447 本 + Task 1 の 6 本）"; test "$n" -ge 453'` → rc=0（PASS・head a8eb371）
+- 2.4 `scripts/quiet-run ch24g -- bash -c 'cargo test -p ashiato-collector-windows || exit 1; n=$(cargo test -p ashiato-collector-windows --test st58_pc_update -- --list 2>/dev/null | grep -c ": test$"); echo "st58_pc_update: $n"; test "$n" -ge 16 || exit 1; m=$(cargo test -p ashiato-collector-windows --lib ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_: $m"; test "$m" -ge 2'` → rc=0（PASS・head 4bd5e92）
+- 2.5 `scripts/quiet-run ch24h -- bash -c 'cargo test -p ashiato-collector-windows --lib --target x86_64-pc-windows-gnu || exit 1; n=$(cargo test -p ashiato-collector-windows --lib --target x86_64-pc-windows-gnu ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_ windows: $n"; test "$n" -ge 2'` → rc=0（PASS・head 4bd5e92）
+- 3.1 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; python3 -c "import tomllib,subprocess as s;b=tomllib.loads(s.run([\"git\",\"show\",\"$base:osv-scanner.toml\"],capture_output=True,text=True,check=True).stdout)[\"IgnoredVulns\"];n=tomllib.load(open(\"osv-scanner.toml\",\"rb\"))[\"IgnoredVulns\"];z={\"GHSA-m665-v7pm-7grj\",\"GHSA-q7v9-x93c-xqv3\",\"GHSA-8hxf-qr8p-62x4\",\"RUSTSEC-2026-0367\",\"RUSTSEC-2026-0368\",\"RUSTSEC-2026-0369\",\"RUSTSEC-2026-0429\"};assert [r for r in b if r[\"id\"] not in z]==n,\"zip の 7 行の外が変わった\"" || exit 1; out=$(tools/check-vulns.sh --base "$base"); rc=$?; printf "%s\n" "$out"; test $rc -eq 0 && printf "%s\n" "$out" | grep -qx "新しく持ち込んだ: 0 件" && printf "%s\n" "$out" | grep -A1 -x "== 例外の表で足した・変えた行" | grep -qx "なし"'` → rc=0（PASS・head 8a3f055）
+- 3.2 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; git show "$base:tools/check-licenses.sh" | python3 -c "import sys;b=sys.stdin.read();n=open(\"tools/check-licenses.sh\").read();o=\",CC-BY-4.0,Python-2.0\";assert b.count(o)==2,\"base の一覧の形が違う\";assert b.replace(o,o+\",bzip2-1.0.6\")==n,\"一覧に bzip2-1.0.6 を足すほかの変更がある\"" || exit 1; tools/check-licenses.sh rust && tools/check-licenses.sh --self-test && tools/check-updater-deps.sh'` → rc=0（PASS・head 8a3f055）
+- 4.1 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(crates/server/Cargo\.toml|crates/collector-windows/Cargo\.toml|Cargo\.lock|crates/server/src/archive/open\.rs|crates/server/src/export/(dump|ledger)\.rs|crates/collector-windows/src/update_apply\.rs|crates/server/src/(archive_tests|archive_flow_tests|media_export_tests|export_job_tests|export_tests|export_file_tests)\.rs|crates/collector-windows/tests/st58_pc_update\.rs|osv-scanner\.toml|tools/licenses/.*|tools/check-licenses\.sh|docs/changes/CH24\.md|openspec/changes/ch24-zip-upgrade/.*|docs/briefs/CH24.*|\.superpowers/.*|)$"'` → rc=0（PASS・head 3964d1d）
+- 4.2 `bash -c 'set -o pipefail; for f in crates/server/src/export_file_tests.rs crates/server/src/archive_tests.rs crates/collector-windows/src/update_apply.rs; do c=$(git log --format=%H -S CH24-FIXTURE-BEGIN -- "$f" | tail -1); test -n "$c" || { echo "囲みが無い: $f"; exit 1; }; git show "$c:Cargo.lock" | python3 -c "import sys,re;t=sys.stdin.read();v=re.findall(r\"name = \\\"zip\\\"\\nversion = \\\"([^\\\"]+)\\\"\",t);print(v);assert v==[\"2.6.1\"],v" || exit 1; diff <(git show "$c:$f" | sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p") <(sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p" "$f") || { echo "囲みの中が変わった: $f"; exit 1; }; done'` → rc=1（FAIL・head 3964d1d）
+- 4.2 `./openspec/changes/ch24-zip-upgrade/check-fixtures.sh` → rc=0（PASS・head 3964d1d）
 
-- D1 zip の features は既定のまま、許す一覧に `bzip2-1.0.6` を足す（仮でなく本人の決定。Q-G1）。反転条件: `bzip2-1.0.6` の外の許諾が許す一覧に無い・勧告が当たる・組み立てが通らない（そのときは人間へ返す）
-- D2（仮）前の版で書いた書き出しは試験のファイルに囲みの行つきで埋め込む。反転条件: 64 KiB を超える
-- D6 PC の更新の展開は、zip 9 の判定（`enclosed_name`）を使わず、2.6.1 と同じ名前の確かめを自前で当てる。9 は絶対パス・ドライブの前置きを相対に直して受け付け、
-  `NUL`・末尾の `.`・Linux の `..\x` を新しく断るので、そのままだと受け付ける名前が変わる
-- D7（仮）Takeout の項目の名前は 2.6.1 と同じ規則（UTF-8 の印があれば UTF-8、無ければ CP437）で読む。zip 9 は印を見ずに読むので、そのままだと印の無い書庫の名前（記録の `inner_path`）が変わる。CRC の合わない Info-ZIP Unicode Path（`0x7075`）を持つ書庫だけは、2.6.1 では開けず `broken_zip` だったが、9 では読める側に変わる（失うものが無いので受け入れた。review R12）。反転条件: 実物の Takeout が印を持たず名前が化けていると分かったら、別の change で決める
-- D8 前の版で書いた書き出しも、台帳の照合で「書いたまま」と判定されて次の書き出しで消える
-- 仮の台帳（`provisional.jsonl`）: D2・D7（D6 は 9 の判定を使わない形にして仮でなくなり外した。D1 は別の席が否とし、Q-G1 で本人が決めて外した）
+## レビュー（`review/code.md`）
 
-## 見つけたが直さないもの
+- 指摘 19 件（deferred 1・fixed 15・rejected 3）
+- 処置の re-review: 3 回。最後の判定が NOT ADDRESSED のもの: なし
 
-- `update_apply.rs` の展開は zip の `extract` を使わず自前で Unix の権限を写す。zip 9 の `unix_mode()` は SUID などの bit を落として返すので（RUSTSEC-2026-0367 の直し）、
-  `#[cfg(unix)]` の枝が写す権限は変わる。PC の収集アプリは Windows で動き、この枝は配る物では走らない。自前のコードは変えない（design D5）
-- base の全体の脆弱性の検査は zip と無関係な 3 件（chrono・libsqlite3-sys・rustix）で落ちる。この change の範囲の外
+## 未処置の申し送り
 
-## capability
-
-前倒しなし。`data-durability` に ADDED の 1 Requirement。`distribution` に MODIFIED の 1 Requirement（Q-G1。同じ capability の ch22 とは別の Requirement で独立。review 観点 7）。`dependency-vulnerability-scan` は例外の表（データ）を変えるだけで delta を持たない。
-
-## tasks
-
-14 項目（Task 1 上げる前の振る舞いの固定 5・Task 2 上げと直し 5・Task 3 例外の表と許す一覧 2・Task 4 予定のパスと埋め込みの確かめ 2）。人間の確認待ちは無い。
-
-## レビュー
-
-spec-review の指摘 16 件（`review/spec.md`。再確認で R11〜R16 が出た）: fixed 15（R1・R11・R16 → D6・R3・R12 → D7 仮・R2・R4〜R9・R13〜R15 → spec / tasks / design）、rejected 1（R10。PR 本文で名指し）。escalated 0。
-Q-G1 を写した後の再確認で R17〜R19: fixed 3（R17 → distribution の SHALL・R18 → tasks 2.1・R19 → D6）。`review/answers.md`: Q-G1 は写った。
-R3 は再確認の席が kind を premise から technical に直した（D7 で実物の Takeout の印の有無に依る決定が無くなった）。
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+- R5. collector の `clock::tests` の 2 本が、windows-gnu の `--lib`（tasks 2.5・CI の Windows の job と同じ）で 1 回落ち、走らせ直すと通った —— deferred ST05 — CH24 が触れていない `clock::tests` の揺れであり、閉じた ST05 の時計試験を新しい change で原因から扱う。CH24 の Windows `--lib` は再実行で通り、CH24 の名前試験 2 本も通った。

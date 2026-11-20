@@ -486,6 +486,83 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
     zip.finish().unwrap();
 }
 
+// CH24-FIXTURE-BEGIN
+const CH24_RAW_CP437_ZIP_B64: &str = "UEsDBBQAAAAAAAAAAACDFtyMAQAAAAEAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbnhQSwMEFAAAAAAAAAAAAIMW3IwBAAAAAQAAAIAAAACAgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/3hQSwECFAAUAAAAAAAAAAAAgxbcjAEAAAABAAAAKwAAAAAAAAAAAAAAAAAAAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvblBLAQIUABQAAAAAAAAAAACDFtyMAQAAAAEAAACAAAAAAAAAAAAAAAAAAEoAAACAgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/1BLBQYAAAAAAgACAAcBAADpAAAAAAA=";
+const CH24_RAW_CP437_80_FF: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
+const CH24_TAKEOUT_UNFLAGGED_ZIP_B64: &str = "UEsDBBQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAACAAUtHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAAAAgAFLR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
+const CH24_TAKEOUT_FLAGGED_ZIP_B64: &str = "UEsDBBQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAICAB5tHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAACAgAebR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
+// 2.6.1 CP437 decoding of the UTF-8 name and of 0x80..0xff.
+const CH24_CP437_NAME: &str = "Takeout/πâ₧πéñ πéóπé»πâåπéúπâôπâåπéú/a.json";
+const CH24_CP437_80_FF: &str = "┬Ç┬ü┬é┬â┬ä┬à┬å┬ç┬ê┬ë┬è┬ï┬î┬ì┬Ä┬Å┬É┬æ┬Æ┬ô┬ö┬ò┬û┬ù┬ÿ┬Ö┬Ü┬¢┬£┬¥┬₧┬ƒ┬á┬í┬ó┬ú┬ñ┬Ñ┬ª┬º┬¿┬⌐┬¬┬½┬¼┬¡┬«┬»┬░┬▒┬▓┬│┬┤┬╡┬╢┬╖┬╕┬╣┬║┬╗┬╝┬╜┬╛┬┐├Ç├ü├é├â├ä├à├å├ç├ê├ë├è├ï├î├ì├Ä├Å├É├æ├Æ├ô├ö├ò├û├ù├ÿ├Ö├Ü├¢├£├¥├₧├ƒ├á├í├ó├ú├ñ├Ñ├ª├º├¿├⌐├¬├½├¼├¡├«├»├░├▒├▓├│├┤├╡├╢├╖├╕├╣├║├╗├╝├╜├╛├┐";
+// CH24-FIXTURE-END
+
+// Python 3.12 の zipfile.ZIP_BZIP2 で作った、zip crate の外の入力。
+const CH24_TAKEOUT_BZIP2_ZIP_B64: &str = "UEsDBC4AAAAMAKcOdV21eE4TNQAAAA0AAAASAAAAVGFrZW91dC9iemlwMi5qc29uQlpoOTFBWSZTWR+4OFYAAAEZgEAAEAATIFZQIAAiA0BoQNA0GoWDecTB8XckU4UJAfuDhWBQSwECLgMuAAAADACnDnVdtXhOEzUAAAANAAAAEgAAAAAAAAAAAAAAgAEAAAAAVGFrZW91dC9iemlwMi5qc29uUEsFBgAAAAABAAEAQAAAAGUAAAAAAA==";
+
+fn ch24_b64(s: &str) -> Vec<u8> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(s).unwrap()
+}
+
+// CH24 design D7: bit 11 の無い名前は zip 2.6.1 と同じ CP437 で読む。
+#[test]
+fn ch24_takeout_unflagged_name_reads_as_cp437() {
+    let tmp = tmp_dir("ch24-takeout-unflagged");
+    let raw_path = tmp.path().join("raw.zip");
+    std::fs::write(&raw_path, ch24_b64(CH24_RAW_CP437_ZIP_B64)).unwrap();
+    let raw_files = crate::archive::open::open_archive(&raw_path).unwrap();
+    assert_eq!(
+        raw_files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![CH24_CP437_NAME, CH24_RAW_CP437_80_FF]
+    );
+
+    std::fs::write(
+        tmp.path().join("takeout.zip"),
+        ch24_b64(CH24_TAKEOUT_UNFLAGGED_ZIP_B64),
+    )
+    .unwrap();
+    let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
+    assert_eq!(
+        files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![CH24_CP437_NAME, CH24_CP437_80_FF]
+    );
+}
+
+// CH24 design D7: bit 11 のある名前は zip 2.6.1 と同じ UTF-8 で読む。
+#[test]
+fn ch24_takeout_flagged_name_reads_as_utf8() {
+    let tmp = tmp_dir("ch24-takeout-flagged");
+    std::fs::write(
+        tmp.path().join("takeout.zip"),
+        ch24_b64(CH24_TAKEOUT_FLAGGED_ZIP_B64),
+    )
+    .unwrap();
+    let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
+    assert_eq!(
+        files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![
+            "Takeout/マイ アクティビティ/a.json",
+            &(0x80u32..=0xff)
+                .filter_map(char::from_u32)
+                .collect::<String>(),
+        ]
+    );
+}
+
+#[test]
+fn ch24_takeout_bzip2_reads_with_default_zip_features() {
+    let tmp = tmp_dir("ch24-takeout-bzip2");
+    let path = tmp.path().join("takeout.zip");
+    std::fs::write(&path, ch24_b64(CH24_TAKEOUT_BZIP2_ZIP_B64)).unwrap();
+    assert_eq!(
+        crate::archive::open::open_archive(&path).unwrap(),
+        [crate::archive::open::ArchiveFile {
+            path: "Takeout/bzip2.json".into(),
+            bytes: b"bzip2 fixture".to_vec(),
+        }]
+    );
+}
+
 /// Scenario: 分割書庫は 1 本ずつ読まれる
 /// Scenario: 読めない形の書庫は台帳に残る
 #[test]

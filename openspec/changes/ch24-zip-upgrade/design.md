@@ -113,3 +113,4 @@ CRC の合わない `0x7075` を持つ書庫だけは、2.6.1 では開けず `b
 - PC の収集アプリは Windows で動く。CI の Windows の job は `cargo test -p ashiato-collector-windows --lib` を走らせるので、`update_apply.rs` の `#[cfg(test)]` に置く
   名前の試験（tasks 1.4）はそこで走る。手元でも `--target x86_64-pc-windows-gnu` の `--lib` が WSL の interop で走る（2026-11-20 に 435 本を数えた）。
   `runtime_windows` と `st58_pc_update` は展開の名前の判定を見ない（review R2）
+- `Cargo.lock` は zip 9.0.5 に止める。9.8.1 へ上げると既存の `clippy::large_futures` が出るためで、次に zip を更新するときはこの lint と合わせて扱う。

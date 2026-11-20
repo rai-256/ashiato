@@ -226,7 +226,8 @@ pub(super) async fn dump(
         zip.write_all(body.as_bytes())
             .map_err(|e| io_error("書けない", &e))?;
     }
-    zip.set_comment(format!("ashiato-export {export_id}"));
+    zip.set_comment(format!("ashiato-export {export_id}"))
+        .map_err(|e| zip_error("zip の注記を書けない", &e))?;
     let file = zip
         .finish()
         .map_err(|e| zip_error("zip を閉じられない", &e))?;
