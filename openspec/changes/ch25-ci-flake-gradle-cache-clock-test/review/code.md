@@ -88,3 +88,43 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
   検証コマンドが観測するのは取り置きの有無だけで、鍵の材料の正しさは機械の検証のどこにも無い（この change の残りの Task でも、これから鍵を直す fix でも、材料を落として緑になる）
 - kind: technical
 - 提案: `check-ch25.py ci` に、setup-java の段の `cache-dependency-path` が 3 つの glob ちょうどであること、chain の `key` が `hashFiles` に同じ 3 つを持ち `restore-keys` を持たないことを足す。足した後、上の 2 つの壊し方で rc=1 になることを確かめる
+
+## /code-review（6642ee7..f0cb162）
+
+見た: Claude Code の組み込みの `/code-review`（6 件）。写しは scripts/code_review_record.py
+
+## R2. Release and nightly builds may now assemble the APK from compiled outputs another run put in the cache, not from source. `collector-android/gradle.properties` sets `org.gradle.caching=true`, so `~/.gradle/caches` (what `cache: gradle` saves) includes the build-output cache `build-cache-1`, not just downloaded dependencies. Design D2 only considered dependency downloads when it said verification is no weaker. Fix: keep `build-cache-1` out of the restored cache in package-linux (nightly, release, ci), e.g. delete `~/.gradle/caches/build-cache-1` after restore or pass `--no-build-cache` in `build.sh apk`; or don't use the cache for release builds at all.
+- 成果物: .github/workflows/release.yml:47
+- 根拠: A main run (or any run that can write the default-branch cache) saves `~/.gradle/caches/build-cache-1` holding compiled classes or dex for the app. A later tag push runs release.yml, `tools/release/build.sh apk` gets cache hits for those tasks, and the signed APK we ship contains bytes that were never compiled from this tag's source in this run. Nothing checks them, because the project has no dependency verification and build-cache entries are never checked.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R3. Six jobs share one cache key (build-stamp, android, android-instrumented, package-linux, nightly, release), and setup-java saves nothing after an exact hit. So the cache only ever holds what the first job to finish downloaded. If build-stamp, which only runs the BuildConfig tasks, finishes first, the android job never gets its detekt, Robolectric or test dependencies cached. That stays true until a `.gradle.kts`, lockfile or the wrapper changes, so the download flake this change targets stays in the job that hit it. Fix: give each job its own key prefix (e.g. `actions/cache` with `gradle-<job>-...` like chain), or switch to `gradle/actions/setup-gradle`. The design's fallback (D1) only triggers after merge.
+- 成果物: .github/workflows/ci.yml:224
+- 根拠: On main, build-stamp finishes first and saves the cache under `setup-java-Linux-x64-gradle-<hash>`. The android job then restores that key on every run, gets an exact hit and skips saving. It keeps downloading detekt and the test dependencies from Maven Central on every run and still fails when that download fails.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R4. With `org.gradle.caching=true`, the restored `~/.gradle/caches` also brings back stored test results, so Gradle can report unit-test tasks as FROM-CACHE instead of running them. The cache key only covers build scripts, lockfiles and the wrapper, and the cache is never re-saved on a hit, so entries saved once stay for good. Whether the android job really runs its tests now depends on what an earlier run saved. Fix: leave `build-cache-1` out of the cached paths, or check that `testDebugUnitTest` actually runs on a cache hit.
+- 成果物: .github/workflows/ci.yml:732
+- 根拠: The android job restores a build cache that already holds `:app:testDebugUnitTest` results for the same inputs. Gradle marks the task FROM-CACHE, so tests with non-deterministic behaviour, like the flake class this change fixes in Rust, are never re-run on CI. The test-stability signal the change relies on gets weaker without anyone noticing.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R5. Task 2.1's check only verifies that a Gradle cache is present. It does not check the cache key inputs (lockfiles, `.gradle.kts` files, wrapper properties) that design D1 and D3 rely on. Removing every `cache-dependency-path`, or giving chain a different key plus `restore-keys`, still prints `OK: ci`. Fix: in `has_cache`, require the three globs in `cache-dependency-path` or in the `hashFiles(...)` key, and reject `restore-keys`.
+- 成果物: openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py:1
+- 根拠: A later fix drops `collector-android/**/*.lockfile` from `cache-dependency-path`. A `--write-locks`-only change then restores a stale cache under the same key, while `check-ch25.py ci` (task 2.1 and completion criterion 3) still passes. code_verify already found this (its R1).（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. The upper bound of the 'clock behind' range (`-299_000 + width`) can still be off by about 1 ms. `width` is the difference of two whole-millisecond uptime readings, so it can come out up to 1 ms below the real interval. The skew itself is truncated toward zero, which pushes negative values upward. If the server's whole-second `Date` cut falls in the last millisecond of a second and almost all of the measured interval comes after it, the test fails. The same bound appears in `clock_reference_setup_time_is_not_in_the_difference` (around line 516). Fix: add 1 ms of slack to the upper bound (`-299_000 + width + 1`), or compute the skew with `num_microseconds`.
+- 成果物: crates/collector-windows/src/clock.rs:489
+- 根拠: Server reply at T = x.9995 s, so `r.time` is cut to x s plus 5 min. The client reads `wall_after` 2.4 ms later and the uptime readings give width = 2. The real skew is -300000 + 999.5 + 2.4 = -298998.1, which truncates to -298998. That is not below -299000 + 2 = -298998, so the assertion panics.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. The new test `clock_reference_setup_time_is_not_in_the_difference` copies the 'clock ahead' and 'clock behind' checks line for line instead of reusing `skew_against`. It also has no doc comment, unlike every other test in this module. If the shared range logic changes, these four copies can drift apart. Fix: give `skew_against` a sleep parameter (or add a helper that sleeps before creating the clock) and call it twice from the new test, with a one-line `///` comment saying why it sleeps 1.5 s.
+- 成果物: crates/collector-windows/src/clock.rs:496
+- 根拠: Someone later adjusts the range in `clock_reference_pc_ahead_gives_positive_difference` and the 'clock behind' test, but not the copies in the new test. The regression test then checks different bounds than the spec, which Task 1.3's `check-ch25.py clock` only enforces on the two tests marked with a Scenario.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
