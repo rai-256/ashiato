@@ -232,7 +232,7 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
     std::fs::create_dir_all(destination)?;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        let name = entry.name()?.into_owned();
+        let name = entry.name().context("zip の道が不正")?.into_owned();
         let path = enclosed_zip_path(&name).context("zip の道が不正")?;
         let path = destination.join(path);
         if entry.is_dir() {
@@ -485,9 +485,9 @@ mod tests {
             .zip(expected)
         {
             let dir = tempfile::tempdir().unwrap();
+            assert_eq!(enclosed_zip_path(name).is_some(), expected, "{name}");
             let result = extract_zip(&ch24_b64(fixture), dir.path());
             assert_eq!(result.is_ok(), expected, "{name}");
-            assert_eq!(enclosed_zip_path(name).is_some(), expected, "{name}");
         }
     }
 

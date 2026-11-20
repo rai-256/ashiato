@@ -248,6 +248,7 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
   evidence.jsonl で 2.1 を最後に走らせたのは a8eb371fd で、settle の後は 2.2 と 2.5 しか走らせていない。2.1 の `[x]` は HEAD に当たっていない
 - kind: technical
 - 提案: 2 つの RAW 定数は `CH24-FIXTURE-BEGIN/END` の囲みの中にあるので、消す・囲みの中に `#[allow]` を足すと `check-fixtures.sh`（1.5・4.2）が落ちる。囲みの外の試験本体で使う（R13 と同じ直し）。type_complexity は型の別名を囲みの外に置く。直した後に `scripts/verify-run 2.1`・1.3・2.2・`check-fixtures.sh` を走らせ直す
+- 処置: fixed 2.1 / 1.3 / 2.2 — RAW fixture を試験本体で読むようにし、zip parts の型別名を囲みの外へ置いた。指定の verify-run と fixture 検査を HEAD で走らせた。
 
 ## R13. R4/R8 の直しで、印の無い名前の試験が CP437 の表の 61 字を見なくなった
 - 成果物: crates/server/src/archive_tests.rs（`ch24_takeout_unflagged_name_reads_as_cp437`）
@@ -256,6 +257,7 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
   tasks 1.3 の「CP437 の表の 128 字を全部見る」と、Task 1 の F4（re-review 2 で ADDRESSED）の観測を、上げた後の commit で外した。R4・R8 の「fixed」は不完全
 - kind: technical
 - 提案: 囲みの外の試験本体で、RAW の材料（2 つ目の項目の名前 == `CH24_RAW_CP437_80_FF`）と deflate の材料（== `CH24_CP437_80_FF`）の両方を開いて assert する。R12 の dead_code も同時に消える
+- 処置: fixed D7 — RAW と deflate の両方の書庫で、全項目の名前を対応する CP437 の期待値と比べるようにした。
 
 ## R14. Cargo.lock を zip 9.0.5 に止めた理由が成果物に無い
 - 成果物: openspec/changes/ch24-zip-upgrade/design.md
@@ -263,21 +265,25 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
   次に `cargo update` で 9.8.x に上がると clippy が落ち、原因を CH24 に辿れない
 - kind: technical
 - 提案: design.md の Risks に「9.0.5 に止めた。9.8 で `clippy::large_futures` が出る」を 1 行書く（PR 本文にも写る形で）
+- 処置: fixed D1 — design の Risks に、9.0.5 を選ぶ理由と次回更新時に lint と合わせて扱うことを記録した。
 
 ## R15. PC の更新の名前の試験は、判定が退行すると展開先の外へ書いてから落ちる
 - 成果物: crates/collector-windows/src/update_apply.rs（`ch24_extract_zip_name_rules`、L489-490 付近）
 - 根拠: R2 の直しで `enclosed_zip_path` の assert を足したが、`extract_zip` を先に呼んでからその assert を当てている。判定が退行したとき、assert で落ちる前に展開先の外へ書く（R2 の根拠で code-verify が実際に `C:\etc\passwd` を作った）
 - kind: technical
 - 提案: 名前ごとの `enclosed_zip_path` の assert を `extract_zip` の呼び出しより前に置き、外れたら展開を走らせずに落ちるようにする
+- 処置: fixed 1.4 — 各名前の `enclosed_zip_path` の assert を `extract_zip` より前に置き、判定の退行時に展開を始めないようにした。
 
 ## R16. 印の付いた名前の試験は 1 つ目の項目しか見ない
 - 成果物: crates/server/src/archive_tests.rs（`ch24_takeout_flagged_name_reads_as_utf8`）
 - 根拠: Task 1 の F8（`files[0]` だけを見る）がそのまま残っている。印の付いた項目が複数あるとき、2 つ目以降の読み方の退行は観測されない（Minor）
 - kind: technical
 - 提案: 書庫の全項目の名前を期待値の並びと比べる
+- 処置: fixed 1.3 — bit 11 の書庫の全項目を比較し、2 個目の `U+0080..U+00FF` の名前も UTF-8 のまま読むことを検査した。
 
 ## R17. `extract_zip` の `entry.name()?` の Err に「zip の道が不正」の文脈が無い
 - 成果物: crates/collector-windows/src/update_apply.rs（L235 付近）
 - 根拠: Task 2 の F3。9.0.5 の `name()` は ASCII の名前で Err にならないので実害はほぼ無いが、名前を読めないときの Err が他の拒否と文が揃わない（Minor）
 - kind: technical
 - 提案: `.context("zip の道が不正")` などで他の拒否と同じ文脈を付ける。振る舞い（Err になること）は変えない
+- 処置: fixed 2.1 — `entry.name()` の失敗にも `zip の道が不正` の文脈を付け、他の名前拒否と揃えた。

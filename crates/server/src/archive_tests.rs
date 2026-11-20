@@ -508,14 +508,24 @@ fn ch24_b64(s: &str) -> Vec<u8> {
 #[test]
 fn ch24_takeout_unflagged_name_reads_as_cp437() {
     let tmp = tmp_dir("ch24-takeout-unflagged");
+    let raw_path = tmp.path().join("raw.zip");
+    std::fs::write(&raw_path, ch24_b64(CH24_RAW_CP437_ZIP_B64)).unwrap();
+    let raw_files = crate::archive::open::open_archive(&raw_path).unwrap();
+    assert_eq!(
+        raw_files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![CH24_CP437_NAME, CH24_RAW_CP437_80_FF]
+    );
+
     std::fs::write(
         tmp.path().join("takeout.zip"),
         ch24_b64(CH24_TAKEOUT_UNFLAGGED_ZIP_B64),
     )
     .unwrap();
     let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
-    assert_eq!(files[0].path, CH24_CP437_NAME);
-    assert_eq!(files[1].path, CH24_CP437_80_FF);
+    assert_eq!(
+        files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![CH24_CP437_NAME, CH24_CP437_80_FF]
+    );
 }
 
 // CH24 design D7: bit 11 のある名前は zip 2.6.1 と同じ UTF-8 で読む。
@@ -528,7 +538,15 @@ fn ch24_takeout_flagged_name_reads_as_utf8() {
     )
     .unwrap();
     let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
-    assert_eq!(files[0].path, "Takeout/マイ アクティビティ/a.json");
+    assert_eq!(
+        files.iter().map(|file| &file.path).collect::<Vec<_>>(),
+        vec![
+            "Takeout/マイ アクティビティ/a.json",
+            &(0x80u32..=0xff)
+                .filter_map(char::from_u32)
+                .collect::<String>(),
+        ]
+    );
 }
 
 #[test]

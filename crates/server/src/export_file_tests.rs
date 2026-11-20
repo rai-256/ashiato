@@ -128,7 +128,9 @@ fn ch24_sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn ch24_zip_parts(bytes: &[u8]) -> BTreeMap<String, (u16, u16, u16, [u8; 2], u8, u16)> {
+type Ch24ZipParts = BTreeMap<String, (u16, u16, u16, [u8; 2], u8, u16)>;
+
+fn ch24_zip_parts(bytes: &[u8]) -> Ch24ZipParts {
     let eocd = bytes.windows(4).rposition(|w| w == b"PK\x05\x06").unwrap();
     let cd_offset = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
     let cd_size = u32::from_le_bytes(bytes[eocd + 12..eocd + 16].try_into().unwrap()) as usize;
