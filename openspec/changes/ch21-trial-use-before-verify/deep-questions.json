@@ -49,35 +49,34 @@
    "question": "PC を試す Sandbox をどこまで網につなぐか",
    "decide": "PC の相手を立てる使い捨ての Windows（Sandbox）を、網につなぐか、私設網だけ塞ぐか、切るか。",
    "points": [
-    "#329 は、更新係（新しい版を確かめる係）が GitHub に HTTPS でつないで初めて出た。網を切ると見えない。",
+    "#329 は、更新係が GitHub に HTTPS でつないで初めて出た。CH22 が入れば、同じ型は PR の CI が外につないで見る。",
     "この PC で確かめた: 網をつなぐと Sandbox から本人の私設網（tailscale）の機械にも届く。",
-    "つないだ網へは、更新係の問い合わせと、席が範囲の中で開く外のサイトが、この PC の網から出る。"
+    "いまの決まりは「自動の試験は本物の配布元に問い合わせない」。CH22 がこれを名指しの 2 つに限る形に改めている（本人の決定 #332）。"
    ],
    "figure": [
     {
-     "svg": "<svg viewBox=\"0 0 330 190\" role=\"img\" aria-label=\"つなぐと、外のサイトにも本人の私設網にも届く\"><rect x=\"10\" y=\"20\" width=\"130\" height=\"150\" rx=\"8\" fill=\"var(--sunk)\"/><text x=\"20\" y=\"40\" font-size=\"12\" fill=\"var(--ink)\">Sandbox</text><text x=\"20\" y=\"60\" font-size=\"11\" fill=\"var(--ink-2)\">配る形・席の操作</text><line x1=\"140\" y1=\"50\" x2=\"200\" y2=\"50\" stroke=\"var(--pick)\" stroke-width=\"2\" marker-end=\"url(#aa)\"/><text x=\"206\" y=\"54\" font-size=\"12\" fill=\"var(--pick)\">GitHub・外のサイト</text><line x1=\"140\" y1=\"95\" x2=\"200\" y2=\"95\" stroke=\"var(--pick)\" stroke-width=\"2\" marker-end=\"url(#aa)\"/><text x=\"206\" y=\"99\" font-size=\"12\" fill=\"var(--pick)\">私設網（本人のサーバ）</text><line x1=\"140\" y1=\"140\" x2=\"200\" y2=\"140\" stroke=\"var(--pick)\" stroke-width=\"2\" marker-end=\"url(#aa)\"/><text x=\"206\" y=\"144\" font-size=\"12\" fill=\"var(--pick)\">手元の網</text></svg>",
-     "caption": "A. 網につなぐ"
+     "svg": "<svg viewBox=\"0 0 330 190\" role=\"img\" aria-label=\"私設網と手元の網だけを塞ぐと、外のサイトにだけ届く\"><rect x=\"10\" y=\"20\" width=\"130\" height=\"150\" rx=\"8\" fill=\"var(--sunk)\"/><text x=\"20\" y=\"40\" font-size=\"12\" fill=\"var(--ink)\">Sandbox</text><text x=\"20\" y=\"60\" font-size=\"11\" fill=\"var(--ink-2)\">配る形・席の操作</text><line x1=\"140\" y1=\"50\" x2=\"200\" y2=\"50\" stroke=\"var(--pick)\" stroke-width=\"2\" marker-end=\"url(#aa)\"/><text x=\"206\" y=\"54\" font-size=\"12\" fill=\"var(--pick)\">GitHub・外のサイト</text><line x1=\"140\" y1=\"95\" x2=\"180\" y2=\"95\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"100\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"99\" font-size=\"12\" fill=\"var(--ink-3)\">私設網（本人のサーバ）</text><line x1=\"140\" y1=\"140\" x2=\"180\" y2=\"140\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"145\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"144\" font-size=\"12\" fill=\"var(--ink-3)\">手元の網</text></svg>",
+     "caption": "A. 外にはつなぎ、私設網と手元の網を塞ぐ"
     },
     {
-     "svg": "<svg viewBox=\"0 0 330 190\" role=\"img\" aria-label=\"私設網と手元の網だけを塞ぐと、外のサイトにだけ届く\"><rect x=\"10\" y=\"20\" width=\"130\" height=\"150\" rx=\"8\" fill=\"var(--sunk)\"/><text x=\"20\" y=\"40\" font-size=\"12\" fill=\"var(--ink)\">Sandbox</text><text x=\"20\" y=\"60\" font-size=\"11\" fill=\"var(--ink-2)\">配る形・席の操作</text><line x1=\"140\" y1=\"50\" x2=\"200\" y2=\"50\" stroke=\"var(--pick)\" stroke-width=\"2\" marker-end=\"url(#aa)\"/><text x=\"206\" y=\"54\" font-size=\"12\" fill=\"var(--pick)\">GitHub・外のサイト</text><line x1=\"140\" y1=\"95\" x2=\"180\" y2=\"95\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"100\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"99\" font-size=\"12\" fill=\"var(--ink-3)\">私設網（本人のサーバ）</text><line x1=\"140\" y1=\"140\" x2=\"180\" y2=\"140\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"145\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"144\" font-size=\"12\" fill=\"var(--ink-3)\">手元の網</text></svg>",
-     "caption": "B. 外にはつなぎ、私設網と手元の網を塞ぐ"
+     "caption": "B. 網を切る（推奨）",
+     "svg": "<svg viewBox=\"0 0 330 190\" role=\"img\" aria-label=\"網を切ると、外のサイトにも私設網にも手元の網にも届かない\"><rect x=\"10\" y=\"20\" width=\"130\" height=\"150\" rx=\"8\" fill=\"var(--sunk)\"/><text x=\"20\" y=\"40\" font-size=\"12\" fill=\"var(--ink)\">Sandbox</text><text x=\"20\" y=\"60\" font-size=\"11\" fill=\"var(--ink-2)\">配る形・席の操作</text><line x1=\"140\" y1=\"50\" x2=\"180\" y2=\"50\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"55\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"54\" font-size=\"12\" fill=\"var(--ink-3)\">GitHub・外のサイト</text><line x1=\"140\" y1=\"95\" x2=\"180\" y2=\"95\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"100\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"99\" font-size=\"12\" fill=\"var(--ink-3)\">私設網（本人のサーバ）</text><line x1=\"140\" y1=\"140\" x2=\"180\" y2=\"140\" stroke=\"var(--warn)\" stroke-width=\"2\"/><text x=\"184\" y=\"145\" font-size=\"15\" fill=\"var(--warn)\">×</text><text x=\"206\" y=\"144\" font-size=\"12\" fill=\"var(--ink-3)\">手元の網</text></svg>"
     }
    ],
-   "why": "一度外に届いた問い合わせ（この PC の網の IP と時刻）は取り消せない。私設網に届くと、席や中のソフトが本人の本物のサーバ（本物の記録）に触れうる。",
-   "context": "席は案内の「触らないもの」を守る規範だけで動く（harness2 の /tsukau）。案内には本人のサーバ・本人の PC の配布版・確認バッチの DB を名指しする。Sandbox の中のサーバと収集アプリどうしが、網を切っても中でつながるかは確かめていない。",
+   "why": "一度外に届いた問い合わせ（この PC の網の IP と時刻）は取り消せない。私設網に届くと、席や中のソフトが本人の本物のサーバ（本物の記録）に触れうる。外につなぐ案は、CH22 で本人が決めた「名指しの 2 つに限る」を変えることになる。",
+   "context": "席は案内の「触らないもの」を守る規範だけで動く（harness2 の /tsukau）。案内には本人のサーバ・本人の PC の配布版・確認バッチの DB を名指しする。\n\n外につなぐ案を選ぶと、正典 distribution の「自動の試験が本物の配布元へ繋ぐのを名指しの 2 つに限る」（CH22 の書き直し）に 3 つ目を足す必要があり、CH21 は CH22 の後に積む（requires に CH22）。推奨を「網を切る」に置いたのはこのため（推奨の下書きの仕様は、網を切った形で書いてある）。\n\nSandbox の中の規則は、中の管理者（インストーラ・席が走らせるコマンド）なら外せる。塞ぐ案の守りは「確かめてから渡す」ことと案内の規範まで。",
    "allow_free": true,
    "options": [
     {
      "label": "外にはつなぎ、私設網と手元の網を塞ぐ",
-     "gain": "#329 のような外とつないで初めて出る不具合が見え、本人のサーバには届かない。",
+     "gain": "#329 のような外とつないで初めて出る不具合が見え、塞げたことを確かめてから渡す。",
      "irreversible": "試すたびの問い合わせと、席が開いた外のサイトへの接続が外に残る",
      "harm": {
       "when": "PC を変えた回の確認バッチを作るたび（1 日 1〜5 回まで）。",
       "who": "GitHub（配布元）と、席が範囲の中で開いたサイト。",
       "link": "この PC の網の IP と時刻。GitHub のアカウントとは結びつかない（更新係はログインしない）。",
-      "unknown": "Sandbox の中のファイアウォールで私設網と手元の網だけを塞げるかは確かめていない。塞げなければ網を切る側に倒す。"
-     },
-     "recommended": true
+      "unknown": "Sandbox の中のファイアウォールで私設網と手元の網だけを塞げるか、塞いだ後に外の名前が引けるか（DNS）は確かめていない。中の管理者は規則を外せる。塞げなければ網を切る側に倒す。"
+     }
     },
     {
      "label": "網につなぐ（塞がない）",
@@ -93,13 +92,14 @@
     {
      "label": "網を切る",
      "gain": "外へも本人のサーバへも何も出ない。",
-     "cost": "外とつなぐ不具合（#329 の型）は見えず、更新係の「つながらない」が毎回の雑音になる。",
+     "cost": "外とつなぐ不具合（#329 の型）はこの席では見えず（CH22 の CI に任せる）、更新係の「つながらない」が毎回の雑音になる。",
      "harm": {
       "when": "更新係・送り先が外にあるときの不具合を探したいとき。",
       "who": "だれにも見えない。",
       "link": "何とも結びつかない。",
-      "unknown": "「つながらない」を席がどれだけ候補に書くかは試していない。"
-     }
+      "unknown": "網を切った Sandbox で、配る形のインストールと、中のサーバと PC の収集アプリの loopback の通信が通るかは確かめていない（下流の最初の PC の Task で確かめる）。「つながらない」を席がどれだけ候補に書くかは試していない。"
+     },
+     "recommended": true
     }
    ]
   },
@@ -261,7 +261,7 @@
    "question": "この change はどこまでで終わりにするか",
    "decide": "完了の判定と、変えてはいけない今の準備の振る舞い。",
    "points": [
-    "推奨の完了: 確認バッチで 1 回実地に走り、手順書に件数と題か警告が載る。PC の相手が立てられずに終わらない。",
+    "推奨の完了: 確認バッチの準備と同じ道（使い捨ての確認バッチの木で席を呼ぶ台本）を本物で 1 回通し、件数と題か警告が出る。PC の相手が立てられずに終わらない。",
     "推奨の守るもの: 今の準備が作る物（サーバ・画面・携帯のアプリ・起動の台本・手順書の段落）と、準備の成否。",
     "席が見つけた違和感を直すのは、この change の範囲の外（候補をどうするかは本人が決める）。"
    ],
@@ -279,7 +279,8 @@
      "gain": "早く終わる。",
      "cost": "本物の Sandbox で回るかは、次の確認バッチで初めて分かる。"
     }
-   ]
+   ],
+   "context": "CH21 自身は道具と文書だけを変えるので、CH21 だけの確認バッチでは席は回らない（手順書には「回さなかった」の 2 行が載る）。実地の 1 回は、画面と PC を変えた形の使い捨ての確認バッチの木を作って、同じ台本を本物で通すことで代える。"
   }
  ]
 }
