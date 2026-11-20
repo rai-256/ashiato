@@ -89,6 +89,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: `check-ch25.py ci` に、setup-java の段の `cache-dependency-path` が 3 つの glob ちょうどであること、chain の `key` が `hashFiles` に同じ 3 つを持ち `restore-keys` を持たないことを足す。足した後、上の 2 つの壊し方で rc=1 になることを確かめる
 - 処置: fixed check-ch25.py
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## /code-review（6642ee7..f0cb162）
 
@@ -100,6 +101,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: Gradle の build cache はタスクの入力から出力を一意にする key で復元する。タグの source が異なれば task key も異なり、同一入力の `FROM-CACHE` は再利用として正しい。D2 が扱う部品の信頼境界（`design.md:21-23`）を、根拠の無い出力混入の懸念だけで変えない。
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## R3. Six jobs share one cache key (build-stamp, android, android-instrumented, package-linux, nightly, release), and setup-java saves nothing after an exact hit. So the cache only ever holds what the first job to finish downloaded. If build-stamp, which only runs the BuildConfig tasks, finishes first, the android job never gets its detekt, Robolectric or test dependencies cached. That stays true until a `.gradle.kts`, lockfile or the wrapper changes, so the download flake this change targets stays in the job that hit it. Fix: give each job its own key prefix (e.g. `actions/cache` with `gradle-<job>-...` like chain), or switch to `gradle/actions/setup-gradle`. The design's fallback (D1) only triggers after merge.
 - 成果物: .github/workflows/ci.yml:224
@@ -107,6 +109,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: `design.md:13-16` が同一 key の最初の job だけが保存すること、その結果 job 固有の部品が残らないことを明記して受容し、merge 後の復元失敗または 4.1(2) の観測を反転条件にしている。提示された「build-stamp が先に終わる」はその既知の代償の再記述で、反転条件を満たす実測ではない。
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## R4. With `org.gradle.caching=true`, the restored `~/.gradle/caches` also brings back stored test results, so Gradle can report unit-test tasks as FROM-CACHE instead of running them. The cache key only covers build scripts, lockfiles and the wrapper, and the cache is never re-saved on a hit, so entries saved once stay for good. Whether the android job really runs its tests now depends on what an earlier run saved. Fix: leave `build-cache-1` out of the cached paths, or check that `testDebugUnitTest` actually runs on a cache hit.
 - 成果物: .github/workflows/ci.yml:732
@@ -114,6 +117,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: `FROM-CACHE` は同一 task inputs の成果物を復元する Gradle の正規の挙動であり、Task 2 は Android の試験を毎 run 実行する要件を持たない。根拠は将来の非決定性を仮定するだけで、現行 workflow で test task が誤って cache-hit する再現を示していない。
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## R5. Task 2.1's check only verifies that a Gradle cache is present. It does not check the cache key inputs (lockfiles, `.gradle.kts` files, wrapper properties) that design D1 and D3 rely on. Removing every `cache-dependency-path`, or giving chain a different key plus `restore-keys`, still prints `OK: ci`. Fix: in `has_cache`, require the three globs in `cache-dependency-path` or in the `hashFiles(...)` key, and reject `restore-keys`.
 - 成果物: openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py:1
@@ -121,6 +125,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed check-ch25.py
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## R6. The upper bound of the 'clock behind' range (`-299_000 + width`) can still be off by about 1 ms. `width` is the difference of two whole-millisecond uptime readings, so it can come out up to 1 ms below the real interval. The skew itself is truncated toward zero, which pushes negative values upward. If the server's whole-second `Date` cut falls in the last millisecond of a second and almost all of the measured interval comes after it, the test fails. The same bound appears in `clock_reference_setup_time_is_not_in_the_difference` (around line 516). Fix: add 1 ms of slack to the upper bound (`-299_000 + width + 1`), or compute the skew with `num_microseconds`.
 - 成果物: crates/collector-windows/src/clock.rs:489
@@ -128,6 +133,7 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.2
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
 
 ## R7. The new test `clock_reference_setup_time_is_not_in_the_difference` copies the 'clock ahead' and 'clock behind' checks line for line instead of reusing `skew_against`. It also has no doc comment, unlike every other test in this module. If the shared range logic changes, these four copies can drift apart. Fix: give `skew_against` a sleep parameter (or add a helper that sleeps before creating the clock) and call it twice from the new test, with a one-line `///` comment saying why it sleeps 1.5 s.
 - 成果物: crates/collector-windows/src/clock.rs:496
@@ -135,3 +141,4 @@ chain の `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0`（ci
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @d5a2cbaab774acb1ff825118165369757a98e31f）
