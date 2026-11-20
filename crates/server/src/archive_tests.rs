@@ -486,6 +486,46 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
     zip.finish().unwrap();
 }
 
+// CH24-FIXTURE-BEGIN
+const CH24_TAKEOUT_UNFLAGGED_ZIP_B64: &str = "UEsDBBQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAACAAUtHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAAIABS0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAAAAgAFLR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
+const CH24_TAKEOUT_FLAGGED_ZIP_B64: &str = "UEsDBBQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAVGFrZW91dC/jg57jgqQg44Ki44Kv44OG44Kj44OT44OG44KjL2EuanNvbistSbMAAFBLAwQUAAAICAB5tHRd3XEYOwUAAAADAAAAAAEAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79LzMkBAFBLAQIUAxQAAAgIAHm0dF2BO/g1BgAAAAQAAAArAAAAAAAAAAAAAACAAQAAAABUYWtlb3V0L+ODnuOCpCDjgqLjgq/jg4bjgqPjg5Pjg4bjgqMvYS5qc29uUEsBAhQDFAAACAgAebR0Xd1xGDsFAAAAAwAAAAABAAAAAAAAAAAAAIABTwAAAMKAwoHCgsKDwoTChcKGwofCiMKJworCi8KMwo3CjsKPwpDCkcKSwpPClMKVwpbCl8KYwpnCmsKbwpzCncKewp/CoMKhwqLCo8KkwqXCpsKnwqjCqcKqwqvCrMKtwq7Cr8KwwrHCssKzwrTCtcK2wrfCuMK5wrrCu8K8wr3CvsK/w4DDgcOCw4PDhMOFw4bDh8OIw4nDisOLw4zDjcOOw4/DkMORw5LDk8OUw5XDlsOXw5jDmcOaw5vDnMOdw57Dn8Ogw6HDosOjw6TDpcOmw6fDqMOpw6rDq8Osw63DrsOvw7DDscOyw7PDtMO1w7bDt8O4w7nDusO7w7zDvcO+w79QSwUGAAAAAAIAAgCHAQAAcgEAAAAA";
+// 2.6.1 CP437 decoding of the UTF-8 name and of 0x80..0xff.
+const CH24_CP437_NAME: &str = "Takeout/πâ₧πéñ πéóπé»πâåπéúπâôπâåπéú/a.json";
+const CH24_CP437_80_FF: &str = "┬Ç┬ü┬é┬â┬ä┬à┬å┬ç┬ê┬ë┬è┬ï┬î┬ì┬Ä┬Å┬É┬æ┬Æ┬ô┬ö┬ò┬û┬ù┬ÿ┬Ö┬Ü┬¢┬£┬¥┬₧┬ƒ┬á┬í┬ó┬ú┬ñ┬Ñ┬ª┬º┬¿┬⌐┬¬┬½┬¼┬¡┬«┬»┬░┬▒┬▓┬│┬┤┬╡┬╢┬╖┬╕┬╣┬║┬╗┬╝┬╜┬╛┬┐├Ç├ü├é├â├ä├à├å├ç├ê├ë├è├ï├î├ì├Ä├Å├É├æ├Æ├ô├ö├ò├û├ù├ÿ├Ö├Ü├¢├£├¥├₧├ƒ├á├í├ó├ú├ñ├Ñ├ª├º├¿├⌐├¬├½├¼├¡├«├»├░├▒├▓├│├┤├╡├╢├╖├╕├╣├║├╗├╝├╜├╛├┐";
+// CH24-FIXTURE-END
+
+fn ch24_b64(s: &str) -> Vec<u8> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(s).unwrap()
+}
+
+// Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 のバイトで書いた印の無い書庫は CP437 で読む
+#[test]
+fn ch24_takeout_unflagged_name_reads_as_cp437() {
+    let tmp = tmp_dir("ch24-takeout-unflagged");
+    std::fs::write(
+        tmp.path().join("takeout.zip"),
+        ch24_b64(CH24_TAKEOUT_UNFLAGGED_ZIP_B64),
+    )
+    .unwrap();
+    let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
+    assert_eq!(files[0].path, CH24_CP437_NAME);
+    assert_eq!(files[1].path, CH24_CP437_80_FF);
+}
+
+// Scenario: Takeout/マイ アクティビティ/a.json を UTF-8 の印付きで書いた書庫は UTF-8 のまま読む
+#[test]
+fn ch24_takeout_flagged_name_reads_as_utf8() {
+    let tmp = tmp_dir("ch24-takeout-flagged");
+    std::fs::write(
+        tmp.path().join("takeout.zip"),
+        ch24_b64(CH24_TAKEOUT_FLAGGED_ZIP_B64),
+    )
+    .unwrap();
+    let files = crate::archive::open::open_archive(&tmp.path().join("takeout.zip")).unwrap();
+    assert_eq!(files[0].path, "Takeout/マイ アクティビティ/a.json");
+}
+
 /// Scenario: 分割書庫は 1 本ずつ読まれる
 /// Scenario: 読めない形の書庫は台帳に残る
 #[test]

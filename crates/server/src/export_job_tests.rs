@@ -134,6 +134,34 @@ fn zips(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+// Scenario: 以前の版で書いた書き出しは、次の書き出しを書き終えると消える
+#[tokio::test]
+async fn ch24_previous_export_replaced_after_next_export() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let w = World::new().await;
+    location_at(&w, "09:00").await;
+    let dir_tmp = tmp_dir("ch24-replaced");
+    let dir = dir_tmp.path();
+    let app = app_in(&w.pool, dir);
+    let first_id = export_and_wait(&app, PASS).await;
+    let first = zips(dir).pop().unwrap();
+    let first_size = std::fs::metadata(&first).unwrap().len();
+    let first_sha = sha(&first);
+    let first_ledger = ledger_of(&w.pool, first_id).await;
+    let done = first_ledger
+        .iter()
+        .find(|row| row.kind == "finish")
+        .unwrap();
+    assert_eq!(done.bytes, Some(first_size as i64));
+    assert_eq!(done.digest.as_deref(), Some(first_sha.as_str()));
+
+    export_and_wait(&app, PASS).await;
+
+    let left = zips(dir);
+    assert_eq!(left.len(), 1, "新しい書き出しだけが残る: {left:?}");
+    assert!(!first.exists(), "以前の版の書き出しが残っている");
+}
+
 fn sha(path: &Path) -> String {
     export::sha256_of(path).unwrap()
 }

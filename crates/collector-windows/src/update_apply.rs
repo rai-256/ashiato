@@ -398,6 +398,74 @@ fn remove_old_versions(layout: &UpdateLayout, current: &str) -> Result<()> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    fn one_name_zip(name: &str) -> Vec<u8> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut bytes);
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"x").unwrap();
+            zip.finish().unwrap();
+        }
+        bytes.into_inner()
+    }
+
+    // CH24-FIXTURE-BEGIN
+    // 名前ごとの 2.6.1 の結果。Info-ZIP の配布物は ASCII 固定名で、下の試験で同じ形を読む。
+    const CH24_EXTRACT_NAMES: [&str; 12] = [
+        "/etc/passwd",
+        "C:\\x",
+        "\\x",
+        "a:b",
+        "../x",
+        "..\\x",
+        "NUL",
+        "a.",
+        "ashiato-collector.exe",
+        "sub/a.txt",
+        "a\\..\\..\\x",
+        "ab:c",
+    ];
+    // CH24-FIXTURE-END
+
+    #[test]
+    fn ch24_extract_zip_name_rules() {
+        #[cfg(not(windows))]
+        let expected = [
+            false, true, true, true, false, true, true, true, true, true, true, true,
+        ];
+        #[cfg(windows)]
+        let expected = [
+            false, false, false, false, false, false, false, false, true, true, false, false,
+        ];
+        for (name, expected) in CH24_EXTRACT_NAMES.iter().zip(expected) {
+            let dir = tempfile::tempdir().unwrap();
+            let result = extract_zip(&one_name_zip(name), dir.path());
+            assert_eq!(result.is_ok(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn ch24_extract_zip_reads_info_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut bytes);
+            zip.start_file(
+                "ashiato-collector.exe",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(b"info-zip fixture\n").unwrap();
+            zip.finish().unwrap();
+        }
+        extract_zip(&bytes.into_inner(), dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("ashiato-collector.exe")).unwrap(),
+            b"info-zip fixture\n"
+        );
+    }
     #[test]
     fn st58_update_digest_rejects_missing_or_wrong_fingerprint() {
         assert!(verify_digest(b"x", "sha256:00").is_err());
