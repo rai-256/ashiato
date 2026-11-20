@@ -122,3 +122,5 @@
 - QA の答え: 合意する（ただし IMP-13 が「仕様を直す」なので、合意は差し戻し）
 - IMP-13: 仕様を直す（差し戻し）
 - IMP-13 の補足（逐語）: 席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする
+  → 対応（proposal まで。2026-11-21 の `spec --until proposal`）: proposal の What Changes に「席から adb を隠す」を足した。席を起こす `PATH` から `platform-tools` と `emulator` の置き場を外し、`phone.sh` と `env-hook.sh` は `$ANDROID_HOME` からの絶対パスで `adb` を呼ぶ。準備からの呼び方はこの repo、手で呼ぶ `/tsukau` は harness2 への依頼に足す見込み（Impact）。
+    **未対応（次の spec の段がやる）**: specs（携帯の相手の Requirement に、席の環境に adb が無いことの Scenario）・design（D の追加と、手で呼ぶときの形の決定。D22（仮）・D25 の直し）・tasks（自己試験で席の PATH に adb が無いことを確かめる項目）・harness2-request.json・`docs/changes/CH21.md`。go.json の IMP-13 を `reflected` にするのは、それらを写した後の reading の段
