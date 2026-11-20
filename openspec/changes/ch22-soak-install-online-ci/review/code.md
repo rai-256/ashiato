@@ -104,6 +104,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R2. 置く段は更新係のログを読んでいない（置き場が違う）。読めても、本物の形では同じ誤りを数えない
 - 成果物: tools/release/soak-install.sh
@@ -126,6 +127,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R3. システムの記録を読めなくても「読めた・0 件」と出て、警告が出ない
 - 成果物: tools/release/soak-install.sh
@@ -143,6 +145,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R4. PC の収集アプリが、台本の起こし直しより前に終わっても落ちない
 - 成果物: tools/release/soak-install.sh
@@ -159,6 +162,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R5. 「数えない」の 2 つの Scenario は 1 行だけで試していて、除外を消しても緑のまま
 - 成果物: tools/release/soak-install.sh
@@ -175,6 +179,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R6. 台本の合言葉を伏せる値に入れていない
 - 成果物: tools/release/soak-install.sh
@@ -192,6 +197,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R7. 「塞ぎを外す手順は置く段の 1 つだけ」の検査が、別の書き方の 2 つ目を見逃す
 - 成果物: tools/release/soak-install.sh（`soak_ci_definition_self_test`）
@@ -209,6 +215,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R8. 自己試験がまれに落ちる（「更新係の確かめた記録が無い」）
 - 成果物: tools/release/soak-install.sh
@@ -225,6 +232,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R9. Task 2.2 の終了の条件（`install-windows` が置く段を含めて緑）が未確認のまま `[x]`
 - 成果物: openspec/changes/ch22-soak-install-online-ci/tasks.md / .github/workflows/ci.yml
@@ -249,6 +257,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## security review（7817dc5..d5e974b）
 
@@ -279,6 +288,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## /code-review（7817dc5..721d2e3）
 
@@ -298,6 +308,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R13. The collector's PID reading returns the session number, not the PID, so the 'PID changed' check can never fire. In the tasklist CSV line `"exe","PID","Console","Session#","Mem"`, the greedy `.*,"\([0-9][0-9]*\)",` in `sed` matches the last `,"digits",`, which is the Session# field. Fix: take the second column with a non-greedy pattern such as `sed -n 's/^"[^"]*","\([0-9]*\)".*/\1/p'`, and make the self-test stub check the value too.
 - 成果物: tools/release/soak-install.sh:248
@@ -313,6 +324,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R14. On failure, the NG output shows only a file path, not the file's contents, so the cause can't be traced. `die_seen <reason> <value>` prints its second argument as the observed value; file contents only come out when the file is passed as ng_report's fourth argument. This script passes `"$work/install.out"`, `"$dir/services/$svc"` (l.64), `"$SOAK_TMP/errors"` (l.108) and `"$file"` (l.154) as the second argument. On top of that, NG_STATE_DIR, NG_HEALTHZ_URL and NG_SETTINGS_FILES are never set, so the service, healthz and server-log observations are empty too. Fix: pass the file contents as the value (e.g. the output of `tail -n 80`), or call ng_report with the file as the fourth argument, and set the NG_* variables in soak_run.
 - 成果物: tools/release/soak-install.sh:228
@@ -328,6 +340,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R15. Real secrets are written as plain text into the shared temp folder and never removed. NG_OBSERVED_DIR defaults to `${TMPDIR:-/tmp}`, so ng_secret_file/ng_collect_secrets inside soak_evaluate write `$TMPDIR/.ng-secrets`, `.ng-secrets.vals` and `.ng-read-API_TOKEN.val`. These hold the values read from server.json/owner.json: API_TOKEN, WEB_PASSWORD_VERIFIER and the DB passwords. Only the --self-test path removes them. Fix: point NG_OBSERVED_DIR at a dedicated folder created with mktemp and remove it in the EXIT trap.
 - 成果物: tools/release/soak-install.sh:13
@@ -343,6 +356,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R16. The real run's work folder is never cleaned up. soak_evaluate's `trap '...' RETURN EXIT` replaces main's `trap 'rm -rf "$work"' EXIT` (l.629). Even if it did not, `work` is local to main, so under `set -u` it is unbound when the EXIT trap runs after main returns. Fix: register the cleanup of $work and SOAK_TMP together in one global trap. Do not override EXIT inside soak_evaluate (use RETURN only, or clean up explicitly).
 - 成果物: tools/release/soak-install.sh:160
@@ -358,6 +372,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R17. The baseline line count is always written as 0, so a log line whose timestamp can't be read is counted even if it was written before the soak window. The updater log uses the format `Utc::now().to_rfc3339()`, which ends in `+00:00`, and the timestamp regex (which only accepts `...Z`) does not match it. Every updater log line therefore falls through to the 'unreadable timestamp' path and the window check does not apply. Fix: record each log's line count at soak_start as the baseline, and accept the `+00:00` form in the regex as well.
 - 成果物: tools/release/soak-install.sh:264
@@ -373,6 +388,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R18. The collector the script started is never stopped when the step ends. It is started in the background with `"$collector" &` and never killed after the soak, so it keeps running from $work. Fix: kill the collector with taskkill before evaluating or before exiting.
 - 成果物: tools/release/soak-install.sh:320
@@ -388,6 +404,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R19. The 'system-events: readable count' shown in the output is three times the real number of events. `((total++))` sits inside the per-service loop and runs for every 7031/7034 event, whichever service it belongs to. Fix: count total in a separate loop that runs once, or only on lines that match a service.
 - 成果物: tools/release/soak-install.sh:58
@@ -403,6 +420,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R20. The secrets list includes two variables that are never set, while the password actually used for install is left out. ng_secret_values outputs `SOAK_RELEASE_PASSWORD` and `SOAK_TEST_PASSWORD`, which nothing sets. `SOAK_INSTALL_PASSWORD`, the one fed to the installer, is not listed. Fix: add `$SOAK_INSTALL_PASSWORD` to the output and remove the unused variable names.
 - 成果物: tools/release/soak-install.sh:25
@@ -418,6 +436,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R21. An error message containing `|` is never counted, so its repeats go undetected. Keys are saved as `name|key` and counted with `awk -F'|'` comparing only `$2`. If the key itself contains `|`, it never matches and count=0. Comparing timestamps as strings also gets the order wrong when the fractional-second precision differs (chrono omits the fraction for whole seconds, and 'Z' sorts after '.'). Fix: separate the fields with a tab or similar and compare with `substr`, and normalize timestamps before comparing.
 - 成果物: tools/release/soak-install.sh:106
@@ -433,6 +452,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## settle_review（re-review 1 @e43c6b3）: 処置の直しが新しく壊したもの
 
@@ -448,6 +468,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R23. 起こした直後の最初の読みで PID が空だと、起こし直し前の空 PID は許されず「変化」と数えられる。tasklist が間に合わないときだけ起きる。
 - 成果物: tools/release/soak-install.sh
@@ -461,6 +482,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R24. 収集アプリのスタブの at が date の現在時刻のまま。R1 で return 0 を外したため、起こし直しの時刻との取り合いに負けると失敗になる。12 回では再現しなかった。
 - 成果物: tools/release/soak-install.sh
@@ -474,6 +496,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R25. must_fail に ValueError を足したため、broken/ 差し替えは数えの assert でなく index の例外で通る。その must_fail の効きが弱い。
 - 成果物: tools/release/soak-install.sh
@@ -487,6 +510,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## settle_review（re-review 2 @1419463）: 処置の直しが新しく壊したもの
 
@@ -501,6 +525,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## final review（7817dc5..c2f6468）
 
@@ -517,6 +542,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R28. R22 が戻っている。自己試験で落ちる場合ごとに、一時の置き場 `ch22-soak-eval.*` と `ch22-soak-observed.*`（偽の秘密の `.ng-read-*.val` 入り）が 1 組ずつ残る
 - 成果物: tools/release/soak-install.sh
@@ -529,6 +555,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R29. サーバと DB のログの基準の行数がいつも 0 になる（R17 の直しがディレクトリを見ていない）。日時を読めない行は、インストールのときの誤りまで数える
 - 成果物: tools/release/soak-install.sh
@@ -541,6 +568,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R30. `--self-test-run` は `GITHUB_ACTIONS` の確かめを通らずに、`soak_reset_machine`（本人の PC の DB と未送信の記録を消す）まで行ける（R11 の穴）
 - 成果物: tools/release/soak-install.sh
@@ -552,6 +580,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R31. 自己試験の偽の `rm` が見る `$SOAK_STATE_DIR` は export されていないので空になる。`ST22_KEEP_STATE=1` の間はどの rm も何もせず、`ng-obs.*` が 1 つ残る
 - 成果物: tools/release/soak-install.sh
@@ -563,6 +592,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R32. 設定の秘密を読めないと、台本の合言葉も伏せる値に入らず、失敗も握りつぶされて、値が伏せずに出る
 - 成果物: tools/release/soak-install.sh
@@ -574,6 +604,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R33. `NG_OBSERVED_DIR` の既定が `$TMPDIR` のまま。評価より前で `die` すると（インストールの失敗・healthz）、本物の秘密の入った `.ng-secrets` と `.ng-read-*.val` が `$TMPDIR` に残る（R15 は評価の中しか直っていない）
 - 成果物: tools/release/soak-install.sh
@@ -585,6 +616,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R34. 「秘密の値が出ない」の Scenario は、GIVEN の「サーバのログと DB のログ」のうちサーバのログしか試していない
 - 成果物: tools/release/soak-install.sh
@@ -596,6 +628,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R35. 文書に古い記述が残っている。「2 つの台本の `--self-test` がこれを呼ぶ（CI の `chain`）」とあり、`rust` の行に `soak-install.sh --self-test` が無い（task-3 F1・F2 の残り）
 - 成果物: docs/testing.md
@@ -615,6 +648,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R37. `soak_install_server` が `install-check.sh` と同じ口で入れていない（`--profile` / `--downloads` と、別の管理者で走らせる口を使わない）。tasks の「同じ口で入れる」と違うが、意図的かは確かめていない
 - 成果物: tools/release/soak-install.sh
@@ -626,6 +660,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## settle_review（re-review 5 @3db1f67）: 処置の直しが新しく壊したもの
 
@@ -637,6 +672,7 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 判定: ADDRESSED（re-review 6 @fd1a8afe8e6bfcaa899012d817138bfc0d21e732）
 - 判定: ADDRESSED（re-review 7 @99762e399ab7935556cfde11f6c144003e60f094）
 - 判定: ADDRESSED（re-review 8 @216a722e699aa16471dafec3f908a415d5379b6f）
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## settle_review（re-review 8 @216a722）: 処置の直しが新しく壊したもの
 
@@ -645,9 +681,11 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 根拠: .superpowers/sdd/ch22-settle/report.md:1（re-review 8 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
 
 ## R40. 収集アプリが $work の削除後に終わると、soak_collector_process の status への書き込みが 'No such file' を標準エラーへ出すことがある。害は無い。
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:603-607（re-review 8 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 9 @d44e9d0198419f6f542b76c50d325265ae629add）
