@@ -1,19 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: 使ってみる席の差し込み口は、画面と PC の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す
+### Requirement: 使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す
 
 THE SYSTEM SHALL harness2 の使ってみる席（`scripts/tsukau.py`）が読む差し込み口 `tools/tsukau/tsukau.json` を持たせる。
-鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）と `pc`（PC）の 2 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つだけにする。携帯（`android`）は持たない。
+鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）・`pc`（PC）・`android`（携帯のエミュレータ）の 3 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つだけにする。
 THE SYSTEM SHALL 手で呼ぶ `/tsukau` も、確認バッチの準備から呼ぶ席も、この差し込み口と同じ `out_root` を使わせる。手で呼んだ席には処置へ渡す目録を作らせない（結果を手元に残すだけ）。
-導出元: CH21（依頼の「どこまで」）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。
+導出元: CH21（依頼の「どこまで」。携帯は依頼では「外」だったが、仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」で相手に足した）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。
 
 #### Scenario: 差し込み口の形が席の台本の契約に合う
 - **WHEN** `tools/tsukau/tsukau.json` を読む
 - **THEN** 鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` の 4 つだけで、`env_hook` の台本は実行でき、`ready_timeout_s` は 900、`out_root` は `~/.local/state/ashiato2/tsukau` である
 
-#### Scenario: 携帯は相手に持たない
+#### Scenario: 相手は画面と PC と携帯の 3 つである
 - **WHEN** `tools/tsukau/tsukau.json` の `targets` を読む
-- **THEN** `targets` はちょうど `["web", "pc"]` で、`android` を含まない
+- **THEN** `targets` はちょうど `["web", "pc", "android"]` である
 
 #### Scenario: 差し込み口だけで立てて片付けても、処置へ渡す目録は作らない
 - **GIVEN** 偽の起動の台本と偽の `docker`
@@ -24,17 +24,17 @@ THE SYSTEM SHALL 手で呼ぶ `/tsukau` も、確認バッチの準備から呼�
 
 WHEN 確認バッチの準備が席を呼ぶとき、
 THE SYSTEM SHALL 確認バッチの作業ツリーの、`origin/main` から HEAD までの merge のうち「確認バッチ <tag> に入れる」merge のそれぞれについて、その merge が入れたファイル（merge の 1 つ目の親との差）で相手を決めさせる。
-画面のファイル（`web/src/`・`web/index.html`・`web/public/`）を変えたものは画面の相手に、サーバ・PC の収集アプリ・更新係・インストーラ・サービスの部品・移行・配る形の組み立て（`crates/` の下・`migrations/`・`tools/release/`）を変えたものは PC の相手に入れる。両方を変えたものは両方に入れる。
-試験の置き場（`web/src/__tests__/`・`crates/` の下の `tests/`・名前が `_tests.rs` で終わるファイル）は数えない。携帯（`collector-android/`）だけ、文書・道具・試験だけを変えたものは、どの相手にも入れない。
+画面のファイル（`web/src/`・`web/index.html`・`web/public/`）を変えたものは画面の相手に、サーバ・PC の収集アプリ・更新係・インストーラ・サービスの部品・移行・配る形の組み立て（`crates/` の下・`migrations/`・`tools/release/`）を変えたものは PC の相手に、携帯の収集アプリ（`collector-android/` の下）を変えたものは携帯の相手に入れる。2 つ以上を変えたものは、それぞれの相手に入れる。
+試験の置き場（`web/src/__tests__/`・`crates/` の下の `tests/`・名前が `_tests.rs` で終わるファイル・`collector-android/app/src/test/`・`collector-android/app/src/androidTest/`）は数えない。文書・道具・試験だけを変えたものは、どの相手にも入れない。
 THE SYSTEM SHALL 相手ごとの範囲を、入れたものごとに 1 行の「<ID> <表題>: <何のためか>」を並べたものにさせる。表題は Story の `docs/stories/ST<NN>.md` か change の `docs/changes/CH<NN>.md` の front matter の `title`、
 「何のためか」はその文書の「価値」の節の段落のうち、`>`（引用）でも `（`（注記・雛形）でも始まらない最初の段落の 1 行目（120 字まで）。そういう段落が無ければ表題だけにする。
 THE SYSTEM SHALL 同じ作業ツリーの同じ HEAD からは、何度求めても同じ範囲と相手を返させる。範囲を AI に要約させない。
-導出元: CH21。深掘り Q6（第 1 回の推奨: 変えたファイルと表題から機械で）。
+導出元: CH21。深掘り Q6（第 1 回の推奨: 変えたファイルと表題から機械で）。携帯の相手は仕様への違和感（第 1 回の合意）で足した。
 
 #### Scenario: 画面のファイルだけを変えた Story は、画面の相手の範囲に入る
 - **GIVEN** `origin/main` に、`web/src/DayView.tsx` だけを変えた `feat/st12-day-view` を「確認バッチ t1 に入れる」merge を 1 つ重ねた木と、`docs/stories/ST12.md`（表題「1 日の画面」、価値の最初の行「本人として、1 日の動きを 1 枚で見たい。」）
 - **WHEN** 範囲を求める
-- **THEN** 画面の範囲は「ST12 1 日の画面: 本人として、1 日の動きを 1 枚で見たい。」の 1 行で、PC の範囲は空である
+- **THEN** 画面の範囲は「ST12 1 日の画面: 本人として、1 日の動きを 1 枚で見たい。」の 1 行で、PC と携帯の範囲は空である
 
 #### Scenario: 画面の入口と公開のファイルを変えたものも、画面の相手の範囲に入る
 - **GIVEN** `web/index.html` だけを変えた `feat/ch34-a` の merge と、`web/public/icon.svg` だけを変えた `feat/ch35-b` の merge を重ねた木
@@ -44,17 +44,22 @@ THE SYSTEM SHALL 同じ作業ツリーの同じ HEAD からは、何度求めて
 #### Scenario: サーバか PC のアプリか配る形の組み立てを変えたものは、PC の相手の範囲に入る
 - **GIVEN** `crates/updater/src/lib.rs` を変えた `feat/ch30-x` の merge と、`migrations/202611200000_x.sql` を変えた `feat/st40-y` の merge と、`tools/release/build.sh` を変えた `feat/ch32-v` の merge を重ねた木
 - **WHEN** 範囲を求める
-- **THEN** PC の範囲は CH30・ST40・CH32 の 3 行で、画面の範囲は空である
+- **THEN** PC の範囲は CH30・ST40・CH32 の 3 行で、画面と携帯の範囲は空である
+
+#### Scenario: 携帯の収集アプリを変えたものは、携帯の相手の範囲に入る
+- **GIVEN** `collector-android/app/src/main/kotlin/dev/ashiato/collector/A.kt` だけを変えた `feat/st41-p` の merge と、`collector-android/app/build.gradle.kts` だけを変えた `feat/ch36-q` の merge を重ねた木
+- **WHEN** 範囲を求める
+- **THEN** 携帯の範囲は ST41・CH36 の 2 行で、画面と PC の範囲は空である
 
 #### Scenario: 両方を変えたものは、両方の範囲に入る
 - **GIVEN** `web/src/App.tsx` と `crates/server/src/lib.rs` を変えた `feat/st20-z` の merge を重ねた木
 - **WHEN** 範囲を求める
 - **THEN** 画面の範囲と PC の範囲の両方に ST20 の行がある
 
-#### Scenario: 携帯だけ・文書や道具だけ・試験だけを変えたものは、どの範囲にも入らない
-- **GIVEN** `collector-android/app/src/main/kotlin/dev/ashiato/collector/A.kt` だけを変えた merge・`docs/testing.md` と `tools/verify-prep.sh` だけを変えた merge・`web/e2e/a.spec.ts` と `web/src/__tests__/a.test.ts` だけを変えた merge・`crates/server/src/stay_tests.rs` と `crates/collector-windows/tests/runtime_windows.rs` だけを変えた merge を重ねた木
+#### Scenario: 文書や道具だけ・試験だけを変えたものは、どの範囲にも入らない
+- **GIVEN** `docs/testing.md` と `tools/verify-prep.sh` だけを変えた merge・`web/e2e/a.spec.ts` と `web/src/__tests__/a.test.ts` だけを変えた merge・`crates/server/src/stay_tests.rs` と `crates/collector-windows/tests/runtime_windows.rs` だけを変えた merge・`collector-android/app/src/test/kotlin/A.kt` と `collector-android/app/src/androidTest/kotlin/B.kt` だけを変えた merge を重ねた木
 - **WHEN** 範囲を求める
-- **THEN** 画面の範囲も PC の範囲も空である
+- **THEN** 画面の範囲も PC の範囲も携帯の範囲も空である
 
 #### Scenario: 価値の節の注記と引用は飛ばし、無ければ表題だけを範囲に書く
 - **GIVEN** `web/src/App.tsx` を変えた `feat/ch31-w` の merge と、価値の節が「（`hx change` の依頼の逐語。…）」だけの `docs/changes/CH31.md`（表題「並びを直す」）、`web/src/B.tsx` を変えた `feat/ch33-u` の merge と、価値の節が「> 第 1 回の答えで…」の引用の段落の次に「本人として、並びを読みたい。」の段落を持つ `docs/changes/CH33.md`（表題「並び」）
@@ -72,11 +77,11 @@ WHEN 確認バッチの準備（`tools/verify-prep.sh <tag>`）が、既存の�
 THE SYSTEM SHALL `tools/tsukau/verify-batch.sh <tag>` を呼ばせ、範囲のある相手ごとに 1 回、`scripts/tsukau.py run --target <相手> --minutes 10 --tokens 200000 --label verify-<tag>` で席を呼ばせる。範囲が空の相手は呼ばない。
 THE SYSTEM SHALL 席を、確認バッチの作業ツリーではなく、その HEAD を detached で取り出した使い捨ての作業ツリーで走らせる（`--repo` にその作業ツリーを渡す）。
 その作業ツリーには harness2 を繋ぎ（`init.py --worktree`）、`.env` を写さない。繋げなければ、その相手の席を呼ばない。席が終わったら（どの止まり方でも）その作業ツリーを消す。
-THE SYSTEM SHALL 画面の相手には、確認バッチの準備が組んだサーバと画面の置き場を絶対パスで渡させる（`ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST`）。
+THE SYSTEM SHALL 画面の相手と携帯の相手には、確認バッチの準備が組んだサーバと画面の置き場を絶対パスで渡させる（`ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST`）。
 THE SYSTEM SHALL PC の範囲があれば、席を呼ぶ前に確認バッチの木から配る zip を組ませ（`tools/tsukau/build-pc.sh`。上限 2,400 秒）、その置き場を絶対パスで渡させる（`ASHIATO_TSUKAU_PC_ZIPS`）。組めなければ PC の席を呼ばない（画面の席は呼ぶ）。
 THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席の台本の片付けの上限に 1 分を足した 1,860 秒（900 + 600 + 300 + 60）で SIGTERM を送り、席の台本の片付けを 360 秒まで待ってから止めさせる（合わせて 2,220 秒）。打ち切った後でも、最後の行が読めて `stop` が `done`・`time`・`tokens` なら、席を呼んだ回として件数と題を写させる。
-打ち切った後、呼ぶ前に無かった Sandbox か `ashiato-tsukau-` で始まる compose project が残っていれば、片付けに残りがあるとみなす。
-導出元: CH21（依頼「小さい時間と token で毎回呼ぶ」）。深掘り Q7（第 1 回の推奨: 準備の中で、確認バッチの木から手元で組む）・Q10（10 分・20 万）。review/deep.md R2・R11。
+打ち切った後、呼ぶ前に無かった Sandbox・専用の AVD（`ashiato-tsukau-api35`）のエミュレータ・`ashiato-tsukau-` で始まる compose project のどれかが残っていれば、片付けに残りがあるとみなす。
+導出元: CH21（依頼「小さい時間と token で毎回呼ぶ」）。深掘り Q7（第 1 回の推奨: 準備の中で、確認バッチの木から手元で組む）・Q10（10 分・20 万）。review/deep.md R2・R11。携帯の相手は仕様への違和感（第 1 回の合意）で足した。
 
 #### Scenario: 範囲のある相手だけを、決まった時間と token で呼ぶ
 - **GIVEN** 画面の範囲だけがある確認バッチの木 `t1` と、受けた引数を記録し、本物と同じ 2 行（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `stop`・`count`・`titles`・`run`・`cleanup` の JSON）を出して rc=0 で終わる偽の席の台本
@@ -97,6 +102,11 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 - **GIVEN** 受けた環境変数を記録する偽の席の台本
 - **WHEN** 確認バッチの作業ツリーで `tools/tsukau/verify-batch.sh t1` を走らせる
 - **THEN** `ASHIATO_TSUKAU_SERVER_BIN` は `/` で始まり確認バッチの作業ツリーの `dist/verify-t1/ashiato-server` を指し、`ASHIATO_TSUKAU_WEB_DIST` は `/` で始まり `dist/verify-t1/web` を指す
+
+#### Scenario: 携帯の相手にも、準備が組んだサーバと画面の置き場を絶対パスで渡す
+- **GIVEN** 携帯の範囲だけがある確認バッチの木と、受けた環境変数を記録する偽の席の台本
+- **WHEN** 確認バッチの作業ツリーで `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** 偽の席の台本は `--target android` で 1 回だけ呼ばれ、渡った `ASHIATO_TSUKAU_SERVER_BIN` は `/` で始まり `dist/verify-t1/ashiato-server` を、`ASHIATO_TSUKAU_WEB_DIST` は `/` で始まり `dist/verify-t1/web` を指す
 
 #### Scenario: PC の相手には、組んだ配る zip の置き場を絶対パスで渡す
 - **GIVEN** PC の範囲がある確認バッチの木と、置き場に zip を 2 つ置いて rc=0 で終わる偽の組み立ての台本と、受けた環境変数を記録する偽の席の台本
@@ -125,7 +135,7 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 
 #### Scenario: 打ち切りの秒数は、立てる上限・席の時間・片付けの和で決まる
 - **WHEN** `tools/tsukau/verify-batch.sh --print-limits` を走らせ、`tools/verify-prep.sh` の席を呼ぶ部分を読む
-- **THEN** SIGTERM までは 1860・待ちは 360・組み立ては 2400・全体は 7140 である
+- **THEN** SIGTERM までは 1860・待ちは 360・組み立ては 2400・全体は 9360 である
 
 #### Scenario: 打ち切った後でも、最後の行が読めて席が終えていれば結果を写す
 - **GIVEN** SIGTERM を受けると `"stop":"done"`・`"count":1` の最後の行を出して rc=0 で終わる偽の席の台本と、秒数を縮めた自己試験
@@ -135,17 +145,17 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 ### Requirement: 確認バッチの準備は、処置へ渡す目録を手元にだけ書き、自分では直さず issue も作らない
 
 WHEN `tools/tsukau/verify-batch.sh <tag>` が相手ごとの処理を終えたとき、
-THE SYSTEM SHALL 処置（harness2 の確認バッチ）が読む目録 `dist/verify-<tag>/tsukau.json` を書かせる。形は `{"v": 1, "tag", "targets": [{"target", "state", "scope", "run", "copied_from", "recheck"}]}` で、
-`targets` は `web`・`pc` の 2 つをこの順に持ち、`state` は `ran`（席を呼んだ）・`copied`（前の回の結果を写した）・`skipped`（範囲が空）・`not_run`（組めない・呼べない・打ち切って最後の行が読めないか席が終えていない）のどれか、
-`scope` は範囲に入れたものの `{"id", "title"}` の配列、`run` は結果のある実行のフォルダの絶対パス（無ければ `null`）、`copied_from` は写した前の回の tag（写していなければ `null`）、`recheck` は確かめ直した候補の配列（確かめ直しでなければ空）。
+THE SYSTEM SHALL 処置（harness2 の確認バッチ）が読む目録 `dist/verify-<tag>/tsukau.json` を書かせる。形は `{"v": 1, "tag", "targets": [{"target", "state", "scope", "run", "earlier", "recheck"}]}` で、
+`targets` は `web`・`pc`・`android` の 3 つをこの順に持ち、`state` は `ran`（席を呼んだ）・`skipped`（範囲が空か、新しく入ったものが無い）・`not_run`（組めない・呼べない・打ち切って最後の行が読めないか席が終えていない）のどれか、
+`scope` はこの回に席へ渡した範囲のものの `{"id", "title"}` の配列、`run` は結果のある実行のフォルダの絶対パス（無ければ `null`）、`earlier` は前の回で試したので範囲から外したものの `{"id", "tag", "run"}` の配列（無ければ空）、`recheck` は確かめ直した候補の配列（確かめ直しでなければ空）。
 THE SYSTEM SHALL 候補の本文・根拠・止まり方は目録に写させない（実行のフォルダの `result.json`・`candidates.jsonl` が持つ）。目録は git が無視する場所にだけ置く。
 THE SYSTEM SHALL 席を呼ぶ台本に、確認バッチの作業ツリーのファイルを直させず、`gh` を呼ばせない（直す・本人に聞く・issue にするのは処置の側）。
-導出元: CH21（依頼「見つけた後の処置」「どこまでを ashiato2 に置き、どこからを harness2 の依頼にするか」）。深掘り Q1（第 1 回の推奨: 呼ぶまで ashiato2、処置は harness2 の確認バッチ）。
+導出元: CH21（依頼「見つけた後の処置」「どこまでを ashiato2 に置き、どこからを harness2 の依頼にするか」）。深掘り Q1（第 1 回の推奨: 呼ぶまで ashiato2、処置は harness2 の確認バッチ）・Q11（本人の答え: 新しく入ったものだけを範囲にする）。
 
 #### Scenario: 目録は相手ごとの状態と範囲と実行のフォルダを持つ
 - **GIVEN** 画面の範囲に ST12 だけがある確認バッチの木 `t1` と、`"run":"/home/someone/.local/state/ashiato2/tsukau/20261120-010203-web"` を出して rc=0 で終わる偽の席の台本
 - **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
-- **THEN** `dist/verify-t1/tsukau.json` の `targets` は `web`・`pc` の順で、`web` は `state` が `ran`・`scope` に `{"id":"ST12", …}`・`run` が上の絶対パス、`pc` は `state` が `skipped`・`run` が `null` である
+- **THEN** `dist/verify-t1/tsukau.json` の `targets` は `web`・`pc`・`android` の順で、`web` は `state` が `ran`・`scope` に `{"id":"ST12", …}`・`run` が上の絶対パス・`earlier` が空、`pc` と `android` は `state` が `skipped`・`run` が `null` である
 
 #### Scenario: 目録は git が無視する場所にあり、候補の本文を持たない
 - **GIVEN** 候補 1 件（題「並びがおかしい」、根拠「画面の写し a.png」）を `candidates.jsonl` に書き、最後の行を出す偽の席の台本
@@ -160,7 +170,7 @@ THE SYSTEM SHALL 席を呼ぶ台本に、確認バッチの作業ツリーのフ
 ### Requirement: 席の結果は、止まり方と件数と伏せた題だけを決まった文言で手順書に写す
 
 THE SYSTEM SHALL 確認バッチの準備に、席の結果を `dist/verify-<tag>/manifest.md` の最後に、頭の 1 段落と相手ごとに 1 段落ずつ足させる（手順書の冒頭と verify PR の本文に載る。手順書は段落ごとに 1 つの note になる）。
-頭の段落は「使ってみる席（AI が利用者として使ってみた結果。人間の確認ではない）」、相手の段落は「画面: 」か「PC: 」で始まる。
+頭の段落は「使ってみる席（AI が利用者として使ってみた結果。人間の確認ではない）」、相手の段落は「画面: 」か「PC: 」か「携帯: 」で始まる。
 写すのは、席の台本の最後の行の JSON の止まり方（`stop`）・件数（`count`）・片付けに残りがあるか（`cleanup` が「済み」か）と、その実行のフォルダ（最後の行の `run`）の `result.json` の `candidates` の候補ごとの番号（席の台本が振る `id`。`C1` から）と題（公開の題の Requirement の台本を通したもの）だけで、
 1 行目のパス・`run`・`cleanup` の文・候補の本文・根拠・画像・ログは写さない。最後の行が JSON として読めなければ「席を呼べなかった」にする。
 THE SYSTEM SHALL 止まり方ごとに次の決まった文言を書かせる: `done` は「席が自分で終えた」、`time` は「時間を使い切った」、`tokens` は「token を使い切った」に続けて「。違和感の候補 <件数> 件」と候補の番号つきの題の一覧、
@@ -189,12 +199,12 @@ THE SYSTEM SHALL どの相手をどの範囲で呼び、どの実行のフォル
 #### Scenario: 範囲が空の相手は、回さなかったと書く
 - **GIVEN** 文書だけを変えた merge だけを重ねた確認バッチの木
 - **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
-- **THEN** 席の台本は呼ばれず、段落に「回さなかった（この回に画面を変えたものが無い）」と「回さなかった（この回に PC を変えたものが無い）」がある
+- **THEN** 席の台本は呼ばれず、段落に「回さなかった（この回に画面を変えたものが無い）」と「回さなかった（この回に PC を変えたものが無い）」と「回さなかった（この回に携帯を変えたものが無い）」がある
 
 ### Requirement: 公開の repo に出す題は、1 つの台本で私的な形と commit を止める形を伏せ、1 行に整える
 
 THE SYSTEM SHALL 題を公開の repo に出す前に通す台本 `tools/tsukau/public-title.sh` を持たせる。標準入力の題 1 行ずつに、標準出力へ同じ数の行を返す。手順書の段落も、処置（harness2）が公開の repo に書く題も、これを通す。
-THE SYSTEM SHALL 題に次のどれかがあれば、その題を「（題は手元の結果に）」に置き換えさせる（前の回から写した題も通し直す）:
+THE SYSTEM SHALL 題に次のどれかがあれば、その題を「（題は手元の結果に）」に置き換えさせる:
 この PC の利用者名・ホスト名・私設網の名前、確認バッチの作業ツリーの `.env` の 8 字以上の値、ホームや絶対パスの形（`/home/`・`/mnt/`・`/Users/`・`C:\`・`\\` で始まる語）、メールの形、IPv4 の形、
 確認バッチの手順書の commit の検査（`tools/check-private.sh`・`tools/check-secrets.sh`）が止める形。
 検査は台本を持つ使い捨ての作業ツリーに題を置き、一時の index で stage して当てる（確認バッチの作業ツリーには何も置かない）。検査を走らせられない（`tools/check-secrets.sh` が gitleaks を用意できない など）ときは、全部の題を伏せる。
@@ -234,7 +244,7 @@ THE SYSTEM SHALL 伏せなかった題は、改行を空白にし、80 字で切
 ### Requirement: 席が落ちても時間切れでも、確認バッチの準備は止まらず、今の成果物を変えない
 
 THE SYSTEM SHALL 席の呼び出し（`tools/tsukau/verify-batch.sh`）がどんな終わり方をしても（非 0・何も出さない・台本が無い・終わらない）、確認バッチの準備（`tools/verify-prep.sh`）を rc=0 のまま続けさせ、そのときは手順書に「使ってみる席: 呼べなかった」で始まる 1 段落を足させる。
-THE SYSTEM SHALL 確認バッチの準備に、席の呼び出し全体を 7,140 秒（組み立ての 2,400 秒 + 2 つの相手の 2,220 秒ずつ + 300 秒）で打ち切らせる。
+THE SYSTEM SHALL 確認バッチの準備に、席の呼び出し全体を 9,360 秒（組み立ての 2,400 秒 + 3 つの相手の 2,220 秒ずつ + 300 秒）で打ち切らせる。
 THE SYSTEM SHALL 席を呼んでも、確認バッチの準備が作る成果物（`ashiato-server`・`web/`・`app-debug.apk`・`run.sh`）と、手順書の既存の段落を変えさせない。席の段落は既存の段落の後に足すだけにする。
 導出元: CH21（依頼「席が落ちても・時間切れでも、確認バッチの準備は止めない」）。深掘り Q13（第 1 回の推奨: 守るもの）。
 
@@ -250,78 +260,81 @@ THE SYSTEM SHALL 席を呼んでも、確認バッチの準備が作る成果物
 
 #### Scenario: 準備の席の部分の上限は、席の呼び出しの全体の上限と同じ
 - **WHEN** `tools/verify-prep.sh` の席を呼ぶ部分と `tools/tsukau/verify-batch.sh --print-limits` を読む
-- **THEN** 席の部分の既定の上限は 7140 で、`--print-limits` の全体の値と同じである
+- **THEN** 席の部分の既定の上限は 9360 で、`--print-limits` の全体の値と同じである
 
 #### Scenario: 席の段落は、既存の段落の後に足すだけ
 - **WHEN** 確認バッチの準備の台本を読む
 - **THEN** 席を呼ぶ部分は `manifest.md` を書く部分より後にあり、`manifest.md` へは追記（`>>`）だけで書き、`run.sh`・`ashiato-server`・`web/`・`app-debug.apk` を書く行を持たない
 
-### Requirement: 確認バッチの中身が前の回と同じなら、席を呼ばずに前の結果を写す
+### Requirement: 確認バッチを作り直したときは、前の回で試していない新しく入ったものだけを範囲にする
 
-WHEN 確認バッチの準備が相手の範囲を決めたとき、
-THE SYSTEM SHALL `origin/main` のコミット・相手・その相手の範囲に入ったものごとの ID とその PR のいちばん新しいコミット・確認バッチの HEAD の木（コミットでなく木）から鍵を作らせ、同じ鍵で前に席を呼んだ結果が `out_root` の下にあれば、席を呼ばずにその結果（件数・題・止まり方・片付けに残りがあるか）を写させる。
-そのときの段落には「前の回 <前の tag> と同じ中身なので、その結果を写した」を足し、目録のその相手は `state` を `copied`、`copied_from` を前の tag、`run` を前の実行のフォルダにする。前の結果の止まり方が `done`・`time`・`tokens` でないなら写さずに呼ぶ。
-導出元: CH21（依頼「毎回」）。深掘り Q11（第 1 回の推奨: 同じ中身なら前の結果を写す）。review/deep.md R5。
+WHEN 確認バッチの準備が相手の範囲を決めたとき（確かめ直しのときを除く）、
+THE SYSTEM SHALL 範囲に入ったものごとに、相手・ID・その PR のいちばん新しいコミット（その merge の 2 つ目の親）の組を、`out_root` の下の試した記録と突き合わせ、同じ組で席が終えた（止まり方が `done`・`time`・`tokens`）記録があるものを範囲から外させる。外した後の範囲が空なら、その相手の席を呼ばない。
+`origin/main` が進んだだけでは、試したものを範囲に戻さない。PR のいちばん新しいコミットが変わったものは、新しく入ったものとして範囲に入れる。
+THE SYSTEM SHALL 席が終えたら（最後の行の `stop` が `done`・`time`・`tokens`）、席に渡した範囲のものの組を、回の tag と実行のフォルダとともに試した記録に足させる。それ以外の止まり方・最後の行が読めない打ち切りでは足さない（次の回に試し直す）。
+THE SYSTEM SHALL 範囲から外したものを、その相手の段落に「前の回で試した: <ID>（<前の tag>）」の形で並べさせ、目録のその相手の `earlier` に `{"id", "tag", "run"}` を書かせる。外した後の範囲が空の相手は、段落を「回さなかった（この回に新しく入った<相手>のものが無い）」で始め、目録の `state` を `skipped` にする。
+導出元: CH21（依頼「毎回」）。深掘り Q11（本人の答え: 新しく入ったものだけを範囲にする）。design D10・D21（仮）。
 
-#### Scenario: 同じ中身で作り直した回は、席を呼ばずに前の結果を写す
-- **GIVEN** 確認バッチ `t1` で画面の席が `done`・候補 1 件「並びがおかしい」で終わった後、同じ `origin/main` と同じ PR のコミットで merge を作り直した確認バッチ `t2`（merge のコミットは `t1` と違い、木は同じ）
+#### Scenario: 前の回で試したものは外し、新しく入ったものだけを範囲にする
+- **GIVEN** 確認バッチ `t1` で画面の範囲 ST12 の席が `done` で終わった後、同じ PR のコミットの ST12 と、新しい `web/src/B.tsx` を変えた `feat/st13-b` を重ねた確認バッチ `t2`
 - **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
-- **THEN** 席の台本は呼ばれず、画面の段落に「違和感の候補 1 件」「並びがおかしい」と「前の回 t1 と同じ中身なので、その結果を写した」があり、目録の `web` は `state` が `copied`・`copied_from` が `t1` である
+- **THEN** 偽の席の台本は `--target web` で 1 回だけ呼ばれ、`--scope` は ST13 の行だけで ST12 の行が無く、画面の段落に「前の回で試した: ST12（t1）」があり、目録の `web` の `earlier` に `"id": "ST12"`・`"tag": "t1"` がある
 
-#### Scenario: main が進めば、呼び直す
-- **GIVEN** `t1` の後に、`origin/main` だけを進めた確認バッチ `t3`
+#### Scenario: 新しく入ったものが無ければ、呼ばずに回さなかったと書く
+- **GIVEN** 確認バッチ `t1` で画面の範囲 ST12 の席が `done`・候補 1 件で終わった後、同じ `origin/main` と同じ PR のコミットで merge を作り直した確認バッチ `t2`
+- **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
+- **THEN** 席の台本は呼ばれず、画面の段落は「回さなかった（この回に新しく入った画面のものが無い）」で始まって「前の回で試した: ST12（t1）」があり、目録の `web` は `state` が `skipped`・`earlier` に `"tag": "t1"` がある
+
+#### Scenario: main が進んだだけでは、呼び直さない
+- **GIVEN** `t1` の後に、`origin/main` だけを進め、画面の範囲は同じ PR のコミットの ST12 だけの確認バッチ `t3`
 - **WHEN** `tools/tsukau/verify-batch.sh t3` を走らせる
-- **THEN** 画面の席の台本が 1 回呼ばれる
+- **THEN** 席の台本は呼ばれない
 
-#### Scenario: PR のコミットが変われば、呼び直す
-- **GIVEN** `t1` の後に、画面の範囲の PR のコミットだけを進めた確認バッチ `t4`
+#### Scenario: PR のコミットが変われば、新しく入ったものとして呼び直す
+- **GIVEN** `t1` の後に、ST12 の PR のコミットだけを進めた確認バッチ `t4`
 - **WHEN** `tools/tsukau/verify-batch.sh t4` を走らせる
-- **THEN** 画面の席の台本が 1 回呼ばれる
+- **THEN** 画面の席の台本が 1 回呼ばれ、`--scope` に ST12 の行がある
 
-#### Scenario: 写した題も、公開の題の台本を通し直す
-- **GIVEN** `t1` で画面の席が `done`・題「/home/someone/x が開けない」1 件で終わり、前の結果の索引には伏せる前の題が残っている木と、同じ中身の確認バッチ `t2`
-- **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
-- **THEN** 画面の段落の題は「（題は手元の結果に）」で、`/home/someone` は出力に無い
-
-#### Scenario: 前の回が落ちていたら、写さずに呼び直す
+#### Scenario: 前の回が落ちていたら、試していないものとして呼び直す
 - **GIVEN** `t1` で画面の席が `env_failed` で終わった後、同じ中身の確認バッチ `t2`
 - **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
-- **THEN** 画面の席の台本が 1 回呼ばれる
+- **THEN** 画面の席の台本が 1 回呼ばれ、`--scope` に ST12 の行がある
 
 ### Requirement: 直した後の確かめ直しは、直した候補だけを範囲に、半分の大きさで呼ぶ
 
 WHEN 処置が `TSUKAU_RECHECK=<ファイル>`（`{"items": [{"target", "run", "id"}]}`。`id` は席の台本が振る `C<n>`）を渡して確認バッチの準備を走らせたとき、
 THE SYSTEM SHALL 相手ごとに、その相手の項目の候補の題（`run` の下の `result.json` の `candidates` から `id` で引き、公開の題の台本は通さない —— 範囲は手元にだけある）を「直した違和感が直ったか: <題>」の行で並べたものだけを範囲にして、`--minutes 5 --tokens 100000` で席を呼ばせる。項目の無い相手は呼ばず、段落を「回さなかった（直した候補が無い）」、目録の `state` を `skipped` にする。
-THE SYSTEM SHALL 確かめ直しでは前の結果を写させず、目録のその相手の `recheck` に項目（前の `run` と番号）を書かせ、段落に「直した候補を確かめ直した」を足させる。
-導出元: CH21（依頼「直した後に席でもう一度確かめる」）。深掘り Q10（第 1 回の推奨: 直した候補だけを範囲に上限の半分で）・Q11。review/deep.md R5。
+THE SYSTEM SHALL 確かめ直しでは試した記録を読ませず（範囲から外さない）、足させもせず（直しで進んだ PR のコミットは、次のふだんの回に新しく入ったものとして試す）、確かめ直しの範囲のほかは呼ばせない。目録のその相手の `recheck` に項目（前の `run` と番号）を書かせ、段落に「直した候補を確かめ直した」を足させる。
+導出元: CH21（依頼「直した後に席でもう一度確かめる」）。深掘り Q10（第 1 回の推奨: 直した候補だけを範囲に上限の半分で）・Q11（本人の答え: 新しく入ったものだけを範囲にする）。review/deep.md R5。design D21（仮）。
 
 #### Scenario: 確かめ直しは、直した候補の題だけを範囲に、5 分と 10 万で呼ぶ
 - **GIVEN** 前の実行のフォルダの `candidates.jsonl` が、壊れた 1 行の後に `id` が `C1`（題「設定の言葉が分からない」）と `C2`（題「並びがおかしい」）の 2 行を持ち、`result.json` の `candidates` もその 2 つで、`{"items":[{"target":"web","run":<そのフォルダ>,"id":"C2"}]}` を書いた `TSUKAU_RECHECK` のファイルと、受けた引数を記録する偽の席の台本
 - **WHEN** `TSUKAU_RECHECK` を渡して `tools/tsukau/verify-batch.sh t5` を走らせる
 - **THEN** 偽の席の台本は `--target web` で 1 回だけ呼ばれ、引数に `--minutes 5`・`--tokens 100000` があり、`--scope` は「直した違和感が直ったか: 並びがおかしい」だけである
 
-#### Scenario: 確かめ直しは、前の結果を写さず、目録に直した候補を書く
-- **GIVEN** 上と同じ `TSUKAU_RECHECK` と、同じ鍵の前の結果（`done`）が `out_root` にある木
+#### Scenario: 確かめ直しは、試した記録で外さず足しもせず、目録に直した候補を書く
+- **GIVEN** 上と同じ `TSUKAU_RECHECK` と、画面の範囲の ST12 を同じ PR のコミットで試した記録（`done`）が `out_root` にある木
 - **WHEN** `TSUKAU_RECHECK` を渡して `tools/tsukau/verify-batch.sh t5` を走らせる
-- **THEN** 偽の席の台本は 1 回呼ばれ、目録の `web` の `recheck` に `"id": "C2"` があり、画面の段落に「直した候補を確かめ直した」がある
+- **THEN** 偽の席の台本は 1 回だけ呼ばれ、目録の `web` の `recheck` に `"id": "C2"` があり、画面の段落に「直した候補を確かめ直した」があり、試した記録の行の数は走らせる前と同じである
 
 #### Scenario: 確かめ直しで項目の無い相手は、回さなかったと書く
 - **GIVEN** `web` の項目だけを書いた `TSUKAU_RECHECK` と、画面と PC の両方の範囲がある確認バッチの木
 - **WHEN** `TSUKAU_RECHECK` を渡して `tools/tsukau/verify-batch.sh t5` を走らせる
 - **THEN** 偽の席の台本は `--target pc` で呼ばれず、PC の段落は「回さなかった（直した候補が無い）」、目録の `pc` の `state` は `skipped` である
 
-### Requirement: PC の相手は、網を切ったまっさらな Windows Sandbox に配る形を入れて立て、自分が起こした Sandbox だけを、中のログを写してから片付ける
+### Requirement: PC の相手は、私設網と手元の網を塞いで外にはつないだまっさらな Windows Sandbox に配る形を入れて立て、自分が起こした Sandbox だけを、中のログを写してから片付ける
 
 WHEN 差し込み口が PC の相手を立てるとき（`env-hook.sh up <repo> <state> pc`）、
 THE SYSTEM SHALL 起こす前に別の Windows Sandbox が動いていれば立てずに `UNAVAILABLE=` を置かせる（待たない）。
 THE SYSTEM SHALL 配る形のサーバの zip と PC の収集アプリの zip が、`ASHIATO_TSUKAU_PC_ZIPS` の置き場にも `dist/tsukau-pc/<HEAD のコミット>/` にも無ければ、立てずに `UNAVAILABLE=` を置かせる（理由に `tools/tsukau/build-pc.sh` の名前）。
-THE SYSTEM SHALL そうでなければ、網を切った（`<Networking>Disable</Networking>`）Sandbox を 1 つ起こし、その id を `<state>` に残し、
-配る形のサーバの zip を、その場で作った乱数の合言葉でインストーラで入れ（`--repo` と確認バッチの作業ツリーの `.env` は読まない）、サーバが応えたら Sandbox の窓を本人のデスクトップに開き（`wsb connect`）、その後に配る形の PC の収集アプリを利用者のセッション（`ExistingLogin`）で起こしてから、案内（`GUIDE=`）を置いた `ready` を置かせる。
-案内には、Sandbox の中でコマンドを走らせて出力を受け取る口と画面の写しを撮る口（`tools/tsukau/pc.sh`）、サービスとログの場所、網が切ってあること（更新の確認が「つながらない」になるのは網を切ったため）、
-触らないもの（本人のサーバ・本人の PC の配布版 `C:\ProgramData\ashiato`・確認バッチの DB・main の checkout の `.env`・本人が起こした Sandbox）を書く。
+THE SYSTEM SHALL そうでなければ、網をつないだ（`.wsb` に `<Networking>Disable</Networking>` を書かない）Sandbox を 1 つ起こし、その id を `<state>` に残し、何かを入れる前に、Sandbox の中のファイアウォールで外向きの既定を「塞ぐ」にし、私設網（tailscale の範囲）・手元の網（私用の範囲・リンクローカル）を除いた外の宛先と、Sandbox の既定のゲートウェイへの名前の問い合わせ（53 番）だけを通させる。
+THE SYSTEM SHALL 塞いだ後に Sandbox の中から確かめさせる: この PC の私設網の宛先と手元の網の宛先（どちらも実行時に求める）に届かないこと、外の名前（`api.github.com`）が引けて HTTPS で届くこと。私設網か手元の網に届いたら、外の宛先を通す規則も外して外向きを全部塞ぎ、もう一度どこにも届かないことを確かめる。それでも届けば、何も入れずに `UNAVAILABLE=` を置かせる。外にだけ届かなかったときは続け、案内にそう書く。
+THE SYSTEM SHALL 確かめた後に、配る形のサーバの zip を、その場で作った乱数の合言葉でインストーラで入れ（`--repo` と確認バッチの作業ツリーの `.env` は読まない）、サーバが応えたら Sandbox の窓を本人のデスクトップに開き（`wsb connect`）、その後に配る形の PC の収集アプリを利用者のセッション（`ExistingLogin`）で起こしてから、案内（`GUIDE=`）を置いた `ready` を置かせる。
+案内には、Sandbox の中でコマンドを走らせて出力を受け取る口と画面の写しを撮る口（`tools/tsukau/pc.sh`）、サービスとログの場所、網の様子（外にはつながり、私設網と手元の網は塞いである。全部塞いだ回・外に届かなかった回はそう書く）、
+触らないもの（本人のサーバ・本人の PC の配布版 `C:\ProgramData\ashiato`・確認バッチの DB・main の checkout の `.env`・本人が起こした Sandbox・ファイアウォールの規則）を書く。
 THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、Sandbox の中のサービスのログ・更新係の置き場の `checks.jsonl` とログ・PC の収集アプリのログ・サービスに関わるシステムのイベントの抜き書きを `$TSUKAU_EVIDENCE/pc-logs/` へ写してから、`<state>` に残した id の Sandbox だけを止めさせる。
 止めた後もその id が動いていれば rc≠0 で終わらせる。ほかの Sandbox には触らせない。
-導出元: CH21（依頼「PC（Windows Sandbox に配る zip を入れる）」）。深掘り Q7（第 1 回の推奨: 確認バッチの木から手元で組む）・Q8（網を切る）・Q9（窓を開いて画面も触る）。review/deep.md R4。
+導出元: CH21（依頼「PC（Windows Sandbox に配る zip を入れる）」）。深掘り Q7（第 1 回の推奨: 確認バッチの木から手元で組む）・Q8（本人の答え: 外にはつなぎ、私設網と手元の網を塞ぐ。選んだ案の「塞げたことを確かめてから渡す」と、塞げなければ網を切る側に倒す）・Q9（窓を開いて画面も触る）。review/deep.md R4。design D6。
 
 #### Scenario: 別の Sandbox が動いていれば、立てずに断る
 - **GIVEN** 動いている Sandbox の id を 1 つ返す偽の `wsb`
@@ -333,15 +346,25 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、その理由に `tools/tsukau/build-pc.sh` の名前がある。`wsb start` は呼ばれない
 
-#### Scenario: Sandbox は網を切って起こす
-- **GIVEN** 動いている Sandbox が無く、`start` で id `sb-1` を返し、受けた設定を記録する偽の `wsb` と、配る zip の置き場
+#### Scenario: Sandbox は網をつないで起こし、何かを入れる前に私設網と手元の網を塞いで確かめる
+- **GIVEN** 動いている Sandbox が無く、`start` で id `sb-1` を返し、受けた設定と `exec` で走らせた台本の名前を記録し、塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と、配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** `wsb start` に渡した設定に `<Networking>Disable</Networking>` があり、`wsb start` は 1 回だけ呼ばれる
+- **THEN** `wsb start` は 1 回だけ呼ばれ、渡した設定に `<Networking>Disable</Networking>` は無く、塞ぐ台本の `exec` と確かめる台本の `exec` が、サーバのインストールの `exec` より先に呼ばれる
 
-#### Scenario: 立てるときは、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く
-- **GIVEN** 上と同じ偽の `wsb` と配る zip の置き場
+#### Scenario: 私設網か手元の網に届いたら、外向きを全部塞いで確かめ直す
+- **GIVEN** 1 回目の確かめに「私設網に届く」、全部塞いだ後の確かめに「どこにも届かない」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** 偽の `wsb` は `start`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
+- **THEN** 全部塞ぐ台本の `exec` がサーバのインストールの `exec` より先に呼ばれ、`ready` に `UNAVAILABLE=` は無く、案内に「外向きを全部塞いだ」がある
+
+#### Scenario: 全部塞いでも届くなら、何も入れずに断る
+- **GIVEN** どの確かめにも「私設網に届く」と答える偽の `wsb` と配る zip の置き場
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、サーバのインストールの `exec` も `connect` も呼ばれない
+
+#### Scenario: 立てるときは、塞いで確かめ、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く
+- **GIVEN** 塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** 偽の `wsb` は `start`・塞ぐ台本の `exec`・確かめる台本の `exec`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
 
 #### Scenario: PC の相手は、本人の合言葉でなく、その場の合言葉で入れる
 - **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、`exec` が受けた引数と標準入力を記録する偽の `wsb` と配る zip の置き場
@@ -354,9 +377,9 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **THEN** 偽の `wsb` は `exec --id sb-1 -r ExistingLogin` で呼ばれ、`pc.sh` の標準出力は「hello」である
 
 #### Scenario: PC の案内は、口と網と触らないものを書く
-- **GIVEN** 上と同じ偽の `wsb` と配る zip の置き場
+- **GIVEN** 塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/pc.sh exec`・`tools/tsukau/pc.sh shot`・画面の操作の仕方（`exec` で UI Automation を使う）・「網を切って」・`C:\ProgramData\ashiato`・`.env`・「触らない」がある
+- **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/pc.sh exec`・`tools/tsukau/pc.sh shot`・画面の操作の仕方（`exec` で UI Automation を使う）・「私設網と手元の網は塞いで」・`C:\ProgramData\ashiato`・`.env`・「触らない」がある
 
 #### Scenario: 片付けは、中のログを写してから自分の Sandbox だけを止める
 - **GIVEN** `<state>` に id `sb-1` が残り、動いている Sandbox として `sb-1` と `sb-other` を返す偽の `wsb`
@@ -373,9 +396,75 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> pc` を走らせる
 - **THEN** rc≠0 で終わる
 
-#### Scenario: 本物の Sandbox で、網を切ったまま配る形が入り、片付けで残らない
+#### Scenario: 本物の Sandbox で、私設網と手元の網を塞いだまま配る形が入り、片付けで残らない
 - **WHEN** この PC で、組んだ配る zip を置いて `tools/tsukau/env-hook.sh up` と `down` を PC の相手で本物の Sandbox に対して走らせる
-- **THEN** `ready` に `UNAVAILABLE=` が無く、Sandbox の中のサーバが loopback で応え、PC の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に動いている Sandbox は無い
+- **THEN** `ready` に `UNAVAILABLE=` が無く、Sandbox の中からこの PC の私設網の宛先と手元の網の宛先に届かず、`api.github.com` の名前が引けて HTTPS で届き、Sandbox の中のサーバが loopback で応え、PC の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に動いている Sandbox は無い
+
+### Requirement: 携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける
+
+WHEN 差し込み口が携帯の相手を立てるとき（`env-hook.sh up <repo> <state> android`）、
+THE SYSTEM SHALL `/dev/kvm` を読み書きで開けない・エミュレータか SDK か JDK が無い・専用の AVD（`ashiato-tsukau-api35`）のエミュレータがもう動いている、のどれかなら、何も起こさずに `UNAVAILABLE=` を置かせる（待たない）。
+THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、合言葉をその回のものにした debug の APK を組ませる。
+`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先・配る APK の署名の鍵は使わない。
+THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから端末の網（Wi-Fi と携帯の回線）を切り、端末から外の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。網を切れたと確かめられなければ、APK を入れずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL `adb` の操作をどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には触らせない。
+案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
+THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
+導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D23（仮）・D24（仮）・D25。
+
+#### Scenario: KVM を開けなければ、何も起こさずに断る
+- **GIVEN** 読み書きで開けない置き場を `/dev/kvm` の代わりに向けた自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と起動の台本は呼ばれない
+
+#### Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る
+- **GIVEN** `emulator-5600` を専用の AVD `ashiato-tsukau-api35` のものとして返す偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれない
+
+#### Scenario: 携帯の相手の APK は、その回のサーバ向けに、本人の合言葉を使わずに組む
+- **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、組み立ての引数と `collector-android/local.properties` の中身を記録する偽の `gradlew`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 偽の `gradlew` は `<state>/tree` の中で `:app:assembleDebug` を組み、接続先は `http://127.0.0.1:18787` で、記録・案内のどこにも `honnin-no-aikotoba` は無く、`--repo` の `git status --porcelain` は呼ぶ前と同じである
+
+#### Scenario: エミュレータは画面を出さず、前のデータを消して起こし、自分の serial だけを操作する
+- **GIVEN** 実機 `R58N12ABCDE` と別のエミュレータ `emulator-5554` を返し、受けた引数を記録する偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 偽の `emulator` の引数に `-avd ashiato-tsukau-api35`・`-no-window`・`-wipe-data` があり、偽の `adb` の `devices` 以外の呼び出しはどれも `-s` に `<state>` に残した serial を持ち、`R58N12ABCDE` と `emulator-5554` を名指す呼び出しは無い
+
+#### Scenario: 網を切って確かめてから、サーバへの道を渡し、APK を入れて案内を置く
+- **GIVEN** 網の確かめに「外に届かない」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 偽の `adb` は、`svc wifi disable` と `svc data disable`・網の確かめ・`reverse tcp:18787`・`install`・アプリを起こす `am start` の順に呼ばれ、その後に `<state>/ready` が置かれる
+
+#### Scenario: 網を切れたと確かめられなければ、APK を入れずに断る
+- **GIVEN** 網の確かめに「外に届く」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
+
+#### Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る
+- **GIVEN** `<state>` に serial `emulator-5600` が残り、`shell` で「hello」を返す偽の `adb`
+- **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
+- **THEN** 偽の `adb` は `-s emulator-5600 shell` で呼ばれ、`phone.sh` の標準出力は「hello」である
+
+#### Scenario: 携帯の案内は、口と網と触らないものを書く
+- **GIVEN** 網の確かめに「外に届かない」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/phone.sh shell`・`tools/tsukau/phone.sh shot`・`tools/tsukau/phone.sh ui`・`http://127.0.0.1:` で始まる画面の URL・「網は切って」・`.env`・「触らない」がある
+
+#### Scenario: 片付けは、端末のログを写してから自分のエミュレータだけを止める
+- **GIVEN** `<state>` に serial `emulator-5600` が残り、動いている端末として `emulator-5600` と `emulator-5554` を返す偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
+- **THEN** `-s emulator-5600 logcat -d` が `-s emulator-5600 emu kill` より先に呼ばれ、`$TSUKAU_EVIDENCE/phone-logs/` に写したファイルがあり、`emulator-5554` を名指す呼び出しは無く、`<state>/tree` は無い
+
+#### Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる
+- **GIVEN** `emu kill` の後も `emulator-5600` を返す偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
+- **THEN** rc≠0 で終わる
+
+#### Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない
+- **WHEN** この PC で `tools/tsukau/env-hook.sh up` と `down` を携帯の相手で本物のエミュレータに対して走らせる
+- **THEN** `ready` に `UNAVAILABLE=` が無く、端末から外の宛先に届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
 
 ### Requirement: 画面の相手は専用の環境で立て、本人の合言葉と確認バッチの DB を使わない
 

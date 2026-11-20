@@ -4,8 +4,12 @@
 失われるもの（`loss`）のある決定は Q4（公開の repo に出すもの）と Q8（Sandbox の網）。Q4 が依る前提のうち、repo が公開・手順書の問いと
 答えが commit される・違和感の issue が公開の repo に立つ、は実物で確かめた（確かさ 5）。席の台本が題を公開してよいと決めていること・確認バッチの DB の中身は
 読んで確かめただけ（確かさ 2）で、推奨はどちらにも寄りかからない側（題は伏せる検査を通す・席は専用の DB で立てる）に置いた。Q8 が依る前提は第 2 版で確かめたもの
-（網をつなぐと私設網に届く。確かさ 5）。網を切った Sandbox で配る形が通るかは確かめていない（確かさ 1）—— 推奨の「網を切る」は
-何も外へ出さない側なので、確かさ 1 の行に失うものは載らない。
+（網をつなぐと私設網に届く。確かさ 5）。
+
+**第 1 回の答え（2026-11-20）の後**: 本人は Q8 で「外にはつなぎ、私設網と手元の網を塞ぐ」を選んだ。外へ出るもの（更新係の問い合わせ・席が開いたサイトへの接続）は本人が受け入れた代償で、
+確かさの低い前提には載っていない。私設網と手元の網を塞げるか（確かさ 1）は、立てるたびに Sandbox の中から確かめてから渡し、届けば外も塞ぎ、それでも届けば何も入れない（design D6）ので、
+確かさ 1 のまま本人のサーバへ届く道は無い。本物で塞げるかは Task 8 で確かめる。
+携帯の相手（仕様への違和感で足した）は網を切ったエミュレータで、外へ何も出さない側（design D24（仮））。`adb reverse` の道だけでサーバに届くか（確かさ 1）は Task 10 で確かめる。
 
 | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
 |---|---|---|---|---|---|
@@ -24,10 +28,16 @@
 | Windows の `wsb` CLI で、窓を開かずに Sandbox を起こし（`wsb start -c <設定>`）、中でコマンドを走らせられる（`wsb exec`） | PC の相手で、席が Sandbox の中を操作する道 | 2026-11-20 にこの PC で `wsb start`（網あり・書ける共有フォルダ 1 つ）→ `wsb exec -r System` で PowerShell の台本を走らせ、結果を共有フォルダに書かせた | 走る。**`wsb exec` は終了コードしか返さない**（出力は共有フォルダのファイルで受け取る）。`-r System` は窓を開かなくても走る | 実物 | 5 |
 | 画面の写しを撮る・利用者として操作するには、Sandbox の窓を開く（`wsb connect`）必要がある | Q9（Sandbox の窓） | 同じ Sandbox で、窓を開く前と後に `wsb exec -r ExistingLogin` と画面の写しを試した | 窓を開く前: `ExistingLogin` は「ログオン セッションが存在しない」で走らず、`System` では画面の写しが「handle is invalid」で撮れない。`wsb connect` で窓を開いた後: `ExistingLogin` で走り、画面の写し（2032×1111）が撮れた。窓は本人のデスクトップに出る | 実物 | 5 |
 | 網をつないだ Sandbox から、外・私設網（tailscale）・手元の網に届く | Q8（Sandbox の網）の代償 | 同じ Sandbox の中から TCP でつないだ | `api.github.com:443` に届き HTTPS は 200。**私設網の WSL（`<私設網の IP>:22`）とこの Windows（`<私設網の IP>:445`）にも届いた**。手元の網の `<手元の網の宛先>:80` は届かなかった（その宛先に何も無いだけかもしれない） | 実物 | 5 |
-| Sandbox の中のファイアウォールで、私設網と手元の網への宛先だけを塞げる | Q8 の推奨の案 | 確かめていない | 不明。塞げなければ網を切る側に倒す | 知識 | 1 |
+| Sandbox の中のファイアウォールで、私設網と手元の網への宛先だけを塞げる（外向きの既定を塞ぐにし、外の範囲とゲートウェイの 53 番だけを通す） | Q8 の本人の答え（design D6） | 確かめていない。下流の Task 8 で、本物の Sandbox の中から私設網と手元の網に届かないこと・外に届くことを見る | 不明。立てるたびに確かめ、届けば外も塞ぎ、それでも届けば何も入れない | 知識 | 1 |
+| Sandbox の名前の問い合わせ先は既定のゲートウェイ（この PC の NAT）で、そこへの 53 番だけを通せば外の名前が引ける | Q8 の本人の答え（外にはつなぐ） | 確かめていない。Task 8 で `api.github.com` を引く | 不明。引けなければ外に届かず、案内にそう書く（席は続ける） | 知識 | 1 |
 | 録画は毎回まっさらな Windows Sandbox を起こし、網を切って（`<Networking>Disable`）中のデスクトップを撮る。始める前に別の Sandbox が動いていれば撮らずに止まり、自分のシナリオの後と片付けでは動いている Sandbox を全部止める | 録画との取り合い | `.harness2/scripts/record-run` の 263・265・281〜290・317・348・571〜573 行 | そのとおり。席の片付けが Sandbox を閉じ損ねると同じバッチの PC の録画が撮れない。手で呼んだ席の Sandbox は録画の片付けに止められる | 実物（`.harness2/scripts/record-run:317`） | 2 |
 | Windows の配る zip（サーバ・PC の収集アプリ）は CI の job（`package-windows`）が組むが、確認バッチの準備はその CI より前に走る。手元（WSL から Windows 側の cargo）で組んだ実績は収集アプリの exe だけ（録画） | Q7（配る zip の出所） | `.github/workflows/ci.yml:541`（`package.sh windows`）・`.harness2/scripts/verify_batch.sh` の並び（準備 → push → CI）・`tools/record-env.sh` | そのとおり。**手元で zip 全体を組めるか・何分かかるかは確かめていない** | 実物（ファイル）／組めるかは未確認 | 2 |
 | この PC の Windows 側に、配る zip を組む台本が前提にする道具がある（Git Bash の `bash.exe`・Visual Studio の `vswhere.exe`・VC の再頒布物の `Microsoft.VC143.CRT`） | Q7（手元で組む） | 2026-11-20（第 2 版の spec の段）に `/mnt/c/Program Files/Git/bin/bash.exe`・`/mnt/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe`・`…/2022/BuildTools/VC/Redist/MSVC/14.44.35112/x64/Microsoft.VC143.CRT` を `ls` で見た | 3 つとも有る。**組み立てを走らせてはいない**（何分かかるか・PostgreSQL の取得が通るかは下流で測る） | 実物（ファイルの有無） | 2 |
-| 網を切った Windows Sandbox で、配る形のインストーラ・サーバ・DB が入り、中のサーバと PC の収集アプリが loopback で通じる | Q8 の推奨（網を切る） | 確かめていない（録画は網を切った Sandbox に PC の収集アプリだけを入れ、サーバは外に置いた） | 不明。下流の最初の PC の Task で確かめる。通らなければ A として人間に返す | 知識 | 1 |
+| 外向きを塞いだ Windows Sandbox で、配る形のインストーラ・サーバ・DB が入り、中のサーバと PC の収集アプリが loopback で通じる | Q8 の本人の答え（塞いだ後に入れる・全部塞いだ回も入れる） | 確かめていない（録画は網を切った Sandbox に PC の収集アプリだけを入れ、サーバは外に置いた）。Windows のファイアウォールは loopback を通さない規則を持たない（知識） | 不明。Task 8 で確かめる。通らなければ A として人間に返す | 知識 | 1 |
+| この PC の WSL で `/dev/kvm` があり、エミュレータを起こせる | 携帯の相手（design D22（仮）） | 2026-11-20 に `ls -l /dev/kvm` を見た。計測テスト（`tools/android-emulator.sh`）が同じ形で起こしている | ある（`crw-rw---- root kvm`）。10 月半ばに Windows の更新で消えたことがある | 実物（ファイルの有無） | 2 |
+| 計測テストのエミュレータは AVD `ashiato-api35` で、同じ AVD が動いていれば断る。確認バッチの準備は作った APK を繋がっているエミュレータ全部に入れる | 携帯の相手の取り合い（design D22（仮）） | `tools/android-emulator.sh` の 19・43〜60 行、`tools/verify-prep-device.sh` の 4〜22 行 | そのとおり。席は別の AVD `ashiato-tsukau-api35` を使い、serial を名指す | 実物（`tools/verify-prep-device.sh:8`） | 2 |
+| 録画の専用環境は、端末の中の `127.0.0.1:18787` に送る debug の APK を、木の `local.properties` に合言葉を書いて組み、`adb reverse` で API の port へ渡す | 携帯の相手の APK（design D23（仮）） | `tools/record-env.sh` の 166〜201・247〜252 行 | そのとおり | 実物（`tools/record-env.sh:182`） | 2 |
+| debug の組み立ての携帯の収集アプリは、`-PupdateCheckUrl` を渡さなければ更新の宛先が空で、配布元に問い合わせない | 携帯の相手が外へ出すもの（design D24（仮）） | `collector-android/app/build.gradle.kts` の 250〜256 行 | そのとおり（debug は `updateCheckUrl` か空。release は `https://api.github.com`） | 実物（`collector-android/app/build.gradle.kts:252`） | 2 |
+| 端末の網（Wi-Fi と携帯の回線）を切っても、`adb reverse` の道で端末の中の `127.0.0.1:18787` からホストのサーバに届く | 携帯の相手（design D24（仮）） | 確かめていない。`adb reverse` は adb の通り道を使い、端末の網を使わない（知識）。Task 10 で本物のエミュレータで見る | 不明。届かなければ A として人間に返す | 知識 | 1 |
 | 0.1.0 の更新係の panic（#329）は、本人が自分の PC に配る形を入れて見つけた。外への HTTPS の握手で初めて起き、配る組み立ての CI は外への接続を塞いでいて素通りした。更新係は 1 時間ごとに確かめる | Q8（Sandbox の網）の得 | PR #329 の本文と `crates/updater/src/lib.rs:305` を読んだ | そのとおり（`api.github.com` との握手で panic） | 実物（GitHub の PR #329） | 2 |
 | 確認バッチの候補は 1 日に 1〜5 回作り直される | Q11（作り直しのたびに回すか）の費用 | `gh pr list` で `verify/` の PR の作られた日を数えた（10-30〜11-19） | 1 日 1〜5 本（平均 2 本ほど） | 実物 | 4 |
