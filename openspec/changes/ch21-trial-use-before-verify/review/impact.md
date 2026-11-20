@@ -1,60 +1,69 @@
 # impact-review — ch21-trial-use-before-verify
 
-seen: IMP-01 medium, IMP-02 medium, IMP-03 medium, IMP-04 medium, IMP-05 high, IMP-06 low, IMP-07 medium, IMP-08 medium, IMP-09 medium
+seen: IMP-02 medium, IMP-03 medium, IMP-04 medium, IMP-05 high, IMP-06 low, IMP-07 medium, IMP-08 medium, IMP-09 medium, IMP-12 medium, IMP-13 high
 
-## R1 — IMP-05 の「いま進めて安全」の材料が観察であって手当てではない。既存の agent との差も書いていない
-- 対象: impact.findings[IMP-05].if_accepted / .options[0] / .severity
-- 種類: 閉じ方
-- 指摘: `if_accepted.recheck` は「実地 1 回の journal に外のパスを読んだ跡が無いか」を見るだけである。`unknowns` 自身が「数回読まなかったとしても以後も読まないとは言えない」と書いており、これは進めて安全の根拠にならない。residual は「呼ぶかどうかを切り替える口は仕様に無い」まま。実物では、席の起動（`.harness2/scripts/tsukau.py:393-397`）は `--permission-mode auto` と Bash の kill フックだけで、読み出しを作業ツリーに限る指定は見当たらない。「案内だけで止めている」は E10 から言える。一方で、同じ host の WSL で auto の claude を走らせる口は、harness2 の他の agent にも既にあるはずである（私は確かめていない）。分析は、CH21 で新しく増える分（確認バッチごとの自動の呼び出し・Sandbox のログを読む選別の席）と既存の分を分けていない。high の根拠は「読まれた中身は取り戻せない・本人が journal を開かないと気づけない」で足りるので、high 自体は妥当（basis `guess` でも `unknowns` が足りている）。足りないのは、いま進めてよい理由として何を挙げているかである。
-- 直し方の案: `if_accepted` に実在する手当て（既定で呼ばない切り替え、または .env の無い別の利用者）を置くか、「手当ては無く、本人が merge 前に決める」と書く。あわせて「新しく増えるのはどこか」を 1 行足す。
-- 処置: fixed: IMP-05 の if_accepted の residual に「読み出しを止める手当ては無い。journal を見るのは観察で根拠ではない」、options[0] に「手当ては無い・観察」と書き、text に CH21 で新しく増える分（確認バッチごとの自動の呼び出し・選別の席）と、他の席との差を確かめていないことを足した。high のまま
+## R1 — IMP-13 は「PATH に adb があるか」を unknown にしているが実物で言え、重大度が IMP-05 と釣り合わない
+- 対象: impact.findings[IMP-13].(severity, unknowns, derived)
+- 種類: 重大度
+- 指摘: unknowns の「席を起こす環境の PATH に adb があるか」は実物で確かめられる。`tools/verify-prep.sh:48` 付近が `tools/android-env.sh` を source して PATH に `platform-tools` を足し（E20）、席の台本は `os.environ` をそのまま子に渡す（`.harness2/scripts/tsukau.py:497-498`）。確認バッチから呼ぶ席は準備の中で起きるので、adb は PATH にあるはずで、手で呼ぶ席も `agent-env.sh` 経由で同じになる。つまり残る不確かさは「席が案内に反して実機に触るか」だけで、IMP-05（high・同じ根・同じ auto）と同じ形になる。害は、実機の収集アプリを消す・止めると送る前の記録が失われ、戻せず、本人は気づけない。これは high の三条件（続けられない／自分で気づけない／配った後では直せない）の後 2 つに当たる。それなのに medium で、IMP-05 のような `if_accepted`（残る余地・見直しの担当と期限）が無い。IMP-05 の答え（受け入れて進める）は携帯の相手を足す前のもので、IMP-13 には及ばない。
+- 直し方の案: PATH の unknown を derived に直して「触るか」だけを unknown にし、high にして `if_accepted` を書くか、medium のままなら「実機が繋がっていない日は起きない」を条件にした理由を書く。
+- 処置: fixed: IMP-13 を high にし、basis を derived（E21: 準備が android-env.sh を source する・E20）に直した。unknowns を「席が実機に触るか」などに絞り、if_accepted（residual・scope・recheck）と「仕様を直す」の案を足した。IMP-05 の答えが及ばないことを text と since_last に書いた
 
-## R2 — IMP-08 の未確認の片方は、実物で答えが出ている。「Story の PR」の呼び方も実態とずれる
-- 対象: impact.findings[IMP-08].unknowns[1] / .text、dependencies[D12].assumes、lost[2].after
-- 種類: 根拠
-- 指摘: 「統合の CI の直し（ci_fix）の後に審査をやり直しているか」は未確認とされているが、`.harness2/scripts/verify_ci_route.py` は cherry-pick して push し、`scripts/ci_wait.py` で PR の CI を待つだけで、審査の席・merge_gate を呼ぶ語が 1 つも無い（冒頭 1-20 行と grep で確認）。処置は「ci_fix と同じ道」（harness2-request.json の what）なので、先例では審査はやり直されず、載せた直しの検査は CI だけである。また `verify_batch.sh:259` のとおり Story の PR は本人の merge 後に archive で**閉じられ**、main に入るのは verify PR である（D12 の assumes「本人が merge する Story の PR」は実態とずれる）。本人が直しの差分を見られる場所は verify PR の diff で、手順書は 1 行しか知らせない。medium は妥当（CI が緑・差分は PR に残る）。ただし「審査をやり直すか未確認」と書くと、先例が無いことを隠す。
-- 直し方の案: unknowns[1] を「先例の ci_fix は CI だけで審査をやり直さない（verify_ci_route.py）」に直し、載せ先を verify PR の diff と書く。
-- 処置: fixed: IMP-08 の text と unknowns を「先例の ci_fix は CI だけで審査をやり直さない（E14）・差分は verify PR の diff で見る」に直し、D12 の who / assumes / affects と lost[2] を verify PR と Story のブランチの言い方に直した
+## R2 — 形 A の「戻せない扉」に実機の未送信の記録が無い
+- 対象: impact.memory（kind: one_way_door）、impact.lost
+- 種類: 新しい帰結
+- 指摘: 一方通行の扉の一覧は「公開の repo の題・モデルに渡った入力・外に出た IP と時刻・Sandbox の窓の記録」の 4 つ。IMP-13 の害（実機の収集アプリの中の、まだ送っていない記録が消える）は、人間が覚えて持つ私的データを戻せなくする扉なのに、memory にも `lost` にも出てこない。IMP-13 の中にだけあり、形 B の 1 件に埋もれている。
+- 直し方の案: one_way_door に実機の未送信の記録（席が adb で実機に触ったとき）を足し、`lost` に 1 行加える。
+- 処置: fixed: memory の one_way_door に、席が実機に触れたときに消えうる未送信の記録（IMP-13）を足した。lost には足さない（変更の前にできていたことが減る話ではない）
 
-## R3 — harness2 の処置（まだ無い）に依る効果を、起きるものとして書いている
-- 対象: situations[normal].can、lost[2].after、rules[R10・R11]（basis `derived`）、walkthroughs[W3].cases[0]（outcome `ok`）、sections.makes.tldr / sections.uses.tldr / before_after[4]
+## R3 — IMP-12 は席の APK が置き換わることを unknown にしているが、置き換わり、その先の害を書いていない
+- 対象: impact.findings[IMP-12].(unknowns, harm, text)
+- 種類: 新しい帰結
+- 指摘: `tools/verify-prep-device.sh:4-18` は `emulator-*` で `device` のものすべてに `adb -s … install -r` する。席の APK も準備の APK も同じ debug の組み立てなので、パッケージ名と署名は同じと見てよく、`install -r` は置き換える（design D30 は debug の組み立てを使うと書いている）。置き換わった APK の接続先は準備の `ashiato.baseUrl`（`verify-prep.sh` が loopback に限っている）で、席が `adb reverse` で渡したその回のサーバの port とは違う。席の携帯の収集アプリは送れなくなり、「携帯の不具合」の候補が偽で出る。その候補は処置に渡り、「この回が原因」と選別されれば IMP-08・IMP-09 の道で審査を通った Story のブランチに要らない直しが載る。IMP-12 の harm は「席が別の APK を触った結果になる」で止まり、この先を書いていない。`link: なし` も、この道があるので言い切れない。
+- 直し方の案: 置き換わりを derived にし、偽の候補が処置へ流れる帰結を IMP-09 とつなげて書く（または準備の APK の入れ先から専用の AVD を外す案を推奨にする）。
+- 処置: fixed: IMP-12 の text に、install -r で席の APK が置き換わり接続先が変わること・偽の候補が IMP-08・IMP-09 の道に入りうることを書き、unknowns から置き換わりを外し、harm.link を直した
+
+## R4 — 「私設網と手元の網を塞げたと確かめた」は、確かめた範囲より広く読める
+- 対象: impact.scope.preconditions[2]、impact.rules[R15]、impact.overview
 - 種類: 言い切り
-- 指摘: `.harness2/scripts/` に `verify_tsukau.py` は無い（`ls` で確認）。「直したものの 1 行と本人への問いも載る」「3 件・1 回まで」「本人が見る前に直り、確かめ直しの結果も段落に載る」は、harness2-request.json の文面にしか無い。R11 の「4 件目からは本人に聞く」は依頼の scope の文をそのまま写したもので、basis は `derived` でなく `unconfirmed`/`guess` が正しい。`sections.makes.tldr` と `uses.tldr` は「直すか本人に聞くか依頼にする」「直した結果と判断の要る問いだけがある」と、条件（処置が入った後・処置が約束どおり動く）を落として言い切っている（U1 の steps には条件が付いている）。R12 で CH21 は処置が入るまで main に入らないが、入るのは「契約が動く」までで、選別の質・3 件の上限が約束どおりかは real-run の 2 候補では確かめられない（IMP-09 自身が言う）。
-- 直し方の案: 処置に依る文は「（依頼。harness2 の処置が入った後）」を付け、R10・R11 の basis を `unconfirmed` に直す。tldr 2 本にも条件を足す。
-- 処置: fixed: R10・R11 の basis を unconfirmed にし、situations.normal・lost[2]・before_after・W3 の ok の結果・sections の makes / uses の tldr に「依頼。harness2 の処置が入った後」の条件を付けた
+- 指摘: design D26 の確かめは、WSL 側で `tailscale ip` の宛先、Windows 側で手元の網のアドレスの、一時の口 2 種類に塞ぐ前後で当てるだけ。本人の携帯や LAN の他の機器など、それ以外の宛先は、D29 の数から組んだ範囲（自己試験は見本の宛先を当てるだけ）に頼っていて、生きた Sandbox では当てない（D29「確かめの対照が当てない機器（本人の携帯など）への穴を、範囲の側で塞ぐ」）。それなのに scope の「私設網と手元の網を塞げたと確かめた後にだけ配る形を入れる」と R15 は、網全体を確かめたように読める。overview の「私設網と手元の網は塞ぐ」は事実の限定として足りるが、確かめの強さは書いていない。
+- 直し方の案: 「確かめたのは、ホストの 2 つの宛先に届かないこと。ほかの機器は範囲の組み方（自己試験）で塞ぐ」と限定を書き、IMP-02 の unknowns に「範囲に載らない私的な宛先」を足す。
+- 処置: fixed: pc.1・pc.5・R15・preconditions・since_last を「この PC の 2 つの宛先に届かないと確かめる」に直し、ほかの機器は数から組んだ範囲に頼ることを pc.5 と scope.residual に書いた
 
-## R4 — IMP-04 の「段落で気づく」は、決まった文言の規則と合わない
-- 対象: impact.findings[IMP-04].options[0]・.harm.who・scenarios[S1]
-- 種類: 言い切り
-- 指摘: 選択肢 1 は「段落の『相手を立てられなかった』で気づく」、harm は「PC の段落と録画の欄が回らなかったことを示す」とある。しかし spec の「止まり方ごとに決まった文言」（specs/verify-environment/spec.md:166-168・R13 の legit）では、別の Sandbox が動いていたことも、Sandbox の起動の失敗も、同じ `env_failed`＝「相手を立てられなかった」に落ち、理由は手順書に出ない。残った Sandbox か、IMP-02（配る形が入らない）か、段落からは区別できず、手元の RESULT.md を開かないと分からない。理由が見えるのは、PC の録画が同じ回に撮られたときの record-run の文言「別の Sandbox が動いている」（`.harness2/scripts/record-run:317`）だけ。IMP-02 が起きていれば、残りの Sandbox を IMP-02 と取り違える。medium のままでよいが、「本人が自分で気づける」前提は成り立たない。
-- 直し方の案: 選択肢 1 と harm の「気づく」を「段落からは原因が分からず、結果の手元の記録か録画の欄で分かる」に直し、`undefined` に「残りの原因を手順書に出す規則が無い」を足す。
-- 処置: fixed: IMP-04 の options[0]・harm.who を「段落からは原因が分からず、手元の結果か録画の欄で分かる」に直し、undefined に「残りの原因を手順書に出す規則が無い」を足した
-
-## R5 — IMP-03 は「録画が錠で待つ」とは言えない。錠を待つのは別の台本
-- 対象: impact.findings[IMP-03].text・derived、lost[0].after、dependencies[D2]
-- 種類: 根拠
-- 指摘: 錠は `verify.py:108` で `verify_batch.sh` 全体を包む。録画（`record-run verify`）は同じ `verify_batch.sh` の中の準備の次の工程（`verify_batch.sh:196-`）で、錠を待つのでなく、準備が延びた分だけ**遅れて始まる**。錠を待つのは、別の経路の記録・fix・ci_fix・conflict_fix の後の作り直し（`verify.py:85`・`effects.py:181` の docstring）である。「録画と fix の撮り直しも待つ」と同列に書くと、延びる長さの数え方がずれる。7,140 秒は準備 1 回の上限で、処置が直して作り直すたびに準備（配る zip の 2,400 秒を含む）が走り直す回数の上限は CH21 の側に無い（harness2 次第）。unknowns は組み立てと処置の時間しか挙げていない。
-- 直し方の案: 「録画は準備の後に続くので遅れ、錠で待つのは記録・fix・ci_fix・conflict_fix」と書き分け、作り直しの回数の上限が harness2 側の約束であることを unknowns に足す。
-- 処置: fixed: IMP-03 の text と lost[0] を「記録・fix・ci_fix・conflict_fix は錠を待ち、録画は準備の後に遅れて始まる」に書き分け、unknowns に作り直しの回数の上限が harness2 側にあることを足した
-
-## R6 — 依存の見落とし: 処置が作り直すたびに、準備（配る zip の組み立てを含む）が錠の中で走り直す
-- 対象: impact.dependencies（T1 の読む側）、lost[0]
-- 種類: 依存の見落とし
-- 指摘: 依頼（harness2-request.json の what）は「直したものは Story のブランチへ載せてバッチを作り直し、準備に TSUKAU_RECHECK を渡す」とする。作り直しは `verify.py:batch`（`verify.py:108`）の同じ経路で `verify_batch.sh` 全体を錠の中でもう一度走らせるので、verify-prep の組み立て（サーバ・画面・配る zip の最大 2,400 秒）はやり直しになる。D10 の「同じ中身は写す」は、直した後の木が変わるので効かない（design D10 が自分で書いている）。T1 の読む側として「作り直しのたびに準備が走り直る」が挙がっていない。IMP-03 は延びることだけを言い、作り直しの回数の上限が CH21 の外（harness2 の約束）にあることは unknowns に無い。なお、持ち越し（処置の済んでいない候補）が処置の側の記憶に置かれる点（依頼の what）も、その記憶が落ちたら何が戻るかを依存に挙げていない。私は記憶の置き場の実物を確かめていない。
-- 直し方の案: D2 の隣に「作り直しのたびに準備が走り直る（回数の上限は harness2）」を依存として足し、holds は `unknown` にする。
-- 処置: fixed: 依存 D15（処置の作り直しのたびに準備が走り直る・持ち越しの記憶。holds unknown、IMP-03 へ）を足した
-
-## R7 — IMP-09 の閉じ方が、本人の手作業に頼っている
-- 対象: impact.findings[IMP-09].verify・.options[0]
-- 種類: 閉じ方
-- 指摘: medium は妥当（誤りは merge 前に見え、直しは CI を通る）。ただし options[0] の「誤検知も手元の結果には残る」と verify の「本人が手元の結果を見る」は、本人が開かなければ気づけない前提で、誤検知を本物と取り違えたときに見直す口が手順書に無い（`undefined` が認めている）。受け入れの理由としては、予定を書いただけである。
-- 直し方の案: 選択肢 1 に「誤検知の見直しは本人が手元の結果を開いたときだけ」と書き、何回の確認バッチで見直すかを verify に決める。
-- 処置: fixed: IMP-09 の options[0] に「誤検知の見直しは本人が手元の結果を開いたときだけ」と書き、verify を「処置が入った後の最初の 3 回の確認バッチで本人が開いて見る」に決めた
-
-## R8 — IMP-05 の text に、辿れる先が本人の携帯の記録を含みうる点が出ていない
-- 対象: impact.findings[IMP-05].text・.harm.link
+## R5 — IMP-02 の harm は「外には見えない」と言うが、失敗の仕方で外に届く
+- 対象: impact.findings[IMP-02].harm.who、harm.link
 - 種類: どれくらい困るか
-- 指摘: design.md:17 のとおり、確認バッチの DB には確認の間に本人の携帯が送った記録が入りうる。IMP-05 の text と harm.link は「合言葉と DB」とだけ書き、DB の中身が私的な実データでありうることは memory[1] の why の「中身は偽データ」とも読み違えやすい（席が見る画面の中身は偽データだが、辿れる DB は偽でない）。重大度は変わらない。
-- 直し方の案: IMP-05 の text と harm.link に「確認バッチの DB は本人の携帯の記録を含みうる（偽データでない）」を足す。
-- 処置: fixed: IMP-05 の text と harm.link、memory[1] に「確認バッチの DB は本人の携帯の記録を含みうる（偽データでない）」を足した
+- 指摘: harm.who は「本人（PC の席が回らない手順書になる）。外には見えない」。しかし unknowns の 1 つ（範囲の数をファイアウォールが受け付けるか）が外れて規則が付かなかった場合は、R15 の確かめで落ちて断る側に倒れる一方、確かめ自体が通っても規則が半端に入る（一部の範囲だけ入る）形は確かめの 2 宛先では見つからない（R4）。その場合 Sandbox の中の更新係・席が開いたサイトから、本人の網の機器へ届く余地が残る。harm は「席が回らない」だけで、この向きの害を書かず、「外には見えない」と言い切っている。
+- 直し方の案: unknown に「規則が一部だけ入った場合を確かめの 2 宛先が見つけるか」を足し、who の「外には見えない」を限定に直す。
+- 処置: fixed: IMP-02 の harm.who から「外には見えない」を外し、規則が一部だけ入ったときに 2 つの宛先の外へ届くかは確かめていないと書いた
+
+## R6 — IMP-03 の harm.when の頻度が、延びる時間の最悪を軽く見せる
+- 対象: impact.findings[IMP-03].harm.when、impact.lost[0].after
+- 種類: どれくらい困るか
+- 指摘: when は「1 日 1〜5 回まで」。premises.md の 43 行（1 日 1〜5 本・平均 2 本）は確認バッチの候補が作られる回数で、準備が席を呼ぶ回数ではないが、Q11 で作り直しは新しく入ったものだけを試すので 1 回あたりは短くなる、という含意が text には出てこない。逆に最悪（5 回 × 9,360 秒 ≈ 13 時間の錠）は書かれず、「急いで確認バッチを見たい日」の 1 件の軽さしか読めない。
+- 直し方の案: 最悪の合計と、Q11 で作り直しが縮む前提（前の回で試した分を外す）を harm に並べる。
+- 処置: fixed: IMP-03 の harm.when に、最悪 5 回とも上限まで延びて約 13 時間錠を握ることを足した
+
+## R7 — R14 の legit と blocks_legit が食い違う
+- 対象: impact.rules[R14]
+- 種類: 言い切り
+- 指摘: `legit` は「ほかの試験で外とつないで初めて出る不具合を見たいときは、名指しを足す（正典を直す）までできない」と、正当な利用が止まると書いているのに `blocks_legit` は false。同じ規則で R1 や R15 は同じ形で true にしている。
+- 直し方の案: blocks_legit を true にするか、legit を「止まらない」側の文に直す。
+- 処置: fixed: R14 の legit を「ほかの試験は本物の配布元へ繋がない。外とつないで初めて出る不具合は名指しの 3 つで見る」に直し、blocks_legit は false のまま
+
+## R8 — IMP-12 の text は「偽の候補は処置に渡り」と言い切るが、unknowns は渡るかを未確認にしている
+- 対象: impact.findings[IMP-12].(text, harm.link)
+- 種類: 言い切り
+- 指摘: text は「その偽の候補は処置に渡り、要らない直しの道（IMP-08・IMP-09）に入りうる」と続けるが、unknowns の 2 つ目は「手で呼んだ席の候補が処置に渡るのは、本人が確認バッチ以外の道で回したときだけか」と未確認。さらに `scope.preconditions` は「手で呼んだ席は目録を作らない」と言う。席のエミュレータが残る・取り合う経路で、確認バッチの目録に入る道は D22（確認バッチの席は準備の後）で閉じており、渡る道は本人の手の経路に限られる。「渡り」は限定を落としている。
+- 直し方の案: text を「本人が手で処置へ回せば渡りうる（目録には入らない）」に直し、IMP-08・09 への連鎖の条件を書く。
+- 処置: fixed: IMP-12 の text を「偽の候補が処置に渡るのは、本人が手で回したときだけ」に直した
+
+## R9 — IMP-13 は「WSL の adb に実機が見えるか」を前提にしているが unknowns に無い
+- 対象: impact.findings[IMP-13].(unknowns, harm.when, if_accepted.residual)
+- 種類: 根拠
+- 指摘: PATH に adb があること（E21・E20）は実物で言える（席の呼び出しは verify-prep.sh の中で、android-env.sh を source した後）。しかし席が走るのは WSL で、WSL2 は既定では USB の携帯を見ない（usbipd 等が要る）。見えるのは WSL から届く無線デバッグか、本人が USB を渡した場合に限られる。「USB か無線のデバッグで繋がっていれば」は、その WSL の adb に実機が出る条件を飛ばしている。unknowns は「繋がっている時間」だけで、WSL の adb が実機を見る構成か（docs/ や design に usbipd・adb connect の記述は CH21 の外にしか無い）を挙げていない。この前提が外れれば high の根拠（害の現実性）が変わる。逆に本人が WSL に渡す構成なら、`adb devices` 1 回で確かめられる。
+- 直し方の案: unknowns に「WSL の adb が本人の実機を見る構成か」を足し、harm.when の条件にも入れる（確かめ方は実地の journal と合わせて `adb devices` の出力）。
+
+前の R1〜R7 の処置は実物で直っている（IMP-13 の high・derived・if_accepted・memory の扉、R14 の legit、IMP-02 の who、IMP-03 の最悪 13 時間と 9,360 = 2,400 + 2,220×3 + 300）。
+- 処置: fixed: IMP-13 の text・unknowns・harm.when に「WSL の adb に実機が見える構成のとき」の前提を足し、見えない構成なら起きないと書いた。high は残す（無線のデバッグなら見えうり、前提を unknowns に出した）
 
