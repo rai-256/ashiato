@@ -36,5 +36,35 @@
    "tooling"
   ],
   "code": []
+ },
+ "diff": {
+  "ok": true,
+  "why": [],
+  "reason": "bug",
+  "base": "0d55f06459dc55d35b75ca9ee671dd581033e300",
+  "head": "950e9c58bf0dd98f29529a9508e78b99902a11c7",
+  "paths": [
+   ".github/workflows/vulns-nightly.yml",
+   "docs/testing.md",
+   "tools/check-vulns-issues.py",
+   "tools/check-vulns-wiring.sh",
+   "tools/check-vulns.sh"
+  ],
+  "classes": [
+   "docs",
+   "tooling"
+  ],
+  "code": [],
+  "code_tasks": 0,
+  "seats": {
+   "task_review": "常に",
+   "code_review": "常に",
+   "merge_gate": "常に"
+  },
+  "grounds": [
+   "直す前: 1.1 `scripts/quiet-run vulns-st -- tools/check-vulns.sh --self-test` が FAIL（2026-11-19T15:41:02+00:00・本番のコードは base のまま）",
+   "直した後: 1.1 `scripts/quiet-run vulns-st -- tools/check-vulns.sh --self-test` が PASS（2026-11-19T16:40:59+00:00）"
+  ],
+  "at": "2026-11-19T17:34:16+00:00"
  }
 }
