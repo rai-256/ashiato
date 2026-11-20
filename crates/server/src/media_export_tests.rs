@@ -102,7 +102,10 @@ async fn export_with_original_and_missing() -> (tempfile::TempDir, std::path::Pa
 async fn st09_exp_original_ledger_missing_and_text_extraction_are_not_exported() {
     let (_path_tmp, path) = export_with_original_and_missing().await;
     let z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
-    let names: BTreeSet<String> = z.file_names().map(String::from).collect();
+    let names: BTreeSet<String> = z
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     for n in &names {
         for banned in ["original", "missing", "extraction"] {
             assert!(!n.contains(banned), "入らないはずのファイル: {n}");

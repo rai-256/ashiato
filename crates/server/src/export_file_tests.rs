@@ -317,7 +317,7 @@ async fn ch24_previous_export_reads_same() {
         let mut f = z
             .by_index_decrypt(i, CH24_PREVIOUS_EXPORT_PASS.as_bytes())
             .unwrap();
-        let name = f.name().to_owned();
+        let name = f.name().unwrap().into_owned();
         let mut contents = Vec::new();
         f.read_to_end(&mut contents).unwrap();
         names.push(name);
@@ -703,7 +703,10 @@ async fn export_zip_one_dated_zip_with_the_twelve_entries() {
         "{name}"
     );
     let mut z = open(&file);
-    let got: BTreeSet<String> = z.file_names().map(String::from).collect();
+    let got: BTreeSet<String> = z
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     assert_eq!(got, ENTRIES.iter().map(|s| (*s).to_string()).collect());
     for n in ENTRIES {
         assert!(z.by_name_decrypt(n, PASS.as_bytes()).is_ok(), "{n}");
@@ -787,7 +790,11 @@ async fn export_zip_cannot_be_read_without_the_passphrase() {
     assert!(z
         .by_name_decrypt("events.jsonl", b"another-passphrase-0123")
         .is_err());
-    let names: String = z.file_names().collect::<Vec<_>>().join("\n");
+    let names: String = z
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
     let comment = String::from_utf8_lossy(z.comment()).into_owned();
     for hay in [&names, &comment] {
         for needle in [mark.as_str(), "35.123456", "139.654321"] {
@@ -1037,7 +1044,7 @@ async fn export_readme_readable_without_the_system() {
     let mut z = ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
     let mut found = None;
     for i in 0..z.len() {
-        let name = z.name_for_index(i).unwrap().to_string();
+        let name = z.name_for_index(i).unwrap().unwrap().into_owned();
         let mut f = z.by_name_decrypt(&name, PASS.as_bytes()).unwrap();
         if name == "README.txt" {
             continue;
@@ -1425,7 +1432,10 @@ async fn export_file_excludes_ledgers_and_derived_tables() {
     let (__first_tmp, _) = export_once(&w.pool).await;
     let (_second_tmp, second) = export_once(&w.pool).await;
     let z = open(&second);
-    let got: BTreeSet<String> = z.file_names().map(String::from).collect();
+    let got: BTreeSet<String> = z
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     assert_eq!(got, ENTRIES.iter().map(|s| (*s).to_string()).collect());
 }
 
@@ -1804,9 +1814,10 @@ async fn st48_export_starts_with_ledger() {
     // 「分類の無い表」で断られると unwrap が落ちる
     let (_path_tmp, path) = export_once(&pool).await;
     let z = open(&path);
-    let bad: Vec<&str> = z
+    let bad: Vec<String> = z
         .file_names()
-        .filter(|n| n.contains("migration_ledger"))
+        .filter(|n| n.as_ref().is_ok_and(|n| n.contains("migration_ledger")))
+        .map(|n| n.unwrap().into_owned())
         .collect();
     assert!(bad.is_empty(), "版の記録が書き出しに入っている: {bad:?}");
 }
@@ -1894,7 +1905,10 @@ async fn export_satellites_credentials_are_not_exported() {
         hashes.push(hash);
     }
     let (_path_tmp, path) = export_once(&pool).await;
-    let names_in_zip: Vec<String> = open(&path).file_names().map(String::from).collect();
+    let names_in_zip: Vec<String> = open(&path)
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     for name in &names_in_zip {
         let body = text(&path, name);
         for h in &hashes {

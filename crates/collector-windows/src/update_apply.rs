@@ -232,10 +232,9 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
     std::fs::create_dir_all(destination)?;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        let Some(name) = entry.enclosed_name() else {
-            anyhow::bail!("zip の道が不正")
-        };
-        let path = destination.join(name);
+        let name = entry.name()?.into_owned();
+        let path = enclosed_zip_path(&name).context("zip の道が不正")?;
+        let path = destination.join(path);
         if entry.is_dir() {
             std::fs::create_dir_all(&path)?;
         } else {
@@ -254,6 +253,23 @@ fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn enclosed_zip_path(name: &str) -> Option<PathBuf> {
+    if name.contains('\0') {
+        return None;
+    }
+    let path = PathBuf::from(name);
+    let mut depth = 0usize;
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => return None,
+            std::path::Component::ParentDir => depth = depth.checked_sub(1)?,
+            std::path::Component::Normal(_) => depth += 1,
+            std::path::Component::CurDir => (),
+        }
+    }
+    Some(path)
 }
 
 pub fn update_executable(staged: &Path, channel: Channel) -> Result<PathBuf> {
