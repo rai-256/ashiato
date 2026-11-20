@@ -30,7 +30,7 @@
 
 ## Task 1: 上げる前の版の振る舞いを試験に固定する
 
-- [ ] 1.1 zip 2.6.1 のままの木で、`crates/server/src/export_file_tests.rs` に `specs/data-durability` の Scenario のうち 3 本の試験を足す
+- [x] 1.1 zip 2.6.1 のままの木で、`crates/server/src/export_file_tests.rs` に `specs/data-durability` の Scenario のうち 3 本の試験を足す
   （`ch24_previous_export_reads_same` が「以前の版で書いた書き出しの zip を、同じ中身で読める」、`ch24_previous_export_wrong_password_fails` が
   「以前の版で書いた書き出しの zip は、違う合言葉では読めない」、`ch24_export_aes_shape_matches_previous` が「新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる」。
   `// Scenario: <名前>` の印を逐語で）。
@@ -39,24 +39,24 @@
   記録を置く手順を試験の補助関数にして、3 本目の試験と 1.2 が同じ記録から書き出せるようにする。局所ヘッダと中央ディレクトリの圧縮方式・汎用の印・追加の欄 `0x9901` は
   zip の部品を使わずバイト列から読む小さな関数で取る。3 本目の試験は、環境変数 `CH24_DUMP_DIR` があれば書いた zip をそこに `ch24.zip` として写す（2.2 の python3 の確かめが読む）。
   検証: `scripts/quiet-run ch24a -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 3'` rc=0
-- [ ] 1.2 zip 2.6.1 のままの木で、`crates/server/src/export_job_tests.rs` に Scenario「以前の版で書いた書き出しは、次の書き出しを書き終えると消える」の試験
+- [x] 1.2 zip 2.6.1 のままの木で、`crates/server/src/export_job_tests.rs` に Scenario「以前の版で書いた書き出しは、次の書き出しを書き終えると消える」の試験
   `ch24_previous_export_replaced_after_next_export` を足す（印を逐語で）。1.1 の埋め込みを置き場に置き、台帳の done の行にその大きさと SHA-256 と書き出しの id（埋め込みの注記の id と同じ）を持たせ、書き出しの仕事を 1 回走らせて、
   置き場に新しい 1 つだけが残ることを見る（design D8）。
   検証: `scripts/quiet-run ch24b -- bash -c 'cargo test -p ashiato-server --lib ch24_ && n=$(cargo test -p ashiato-server --lib ch24_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_: $n" && test "$n" -ge 4'` rc=0
-- [ ] 1.3 zip 2.6.1 のままの木で、`crates/server/src/archive_tests.rs` に Takeout の項目の名前の読み方の試験を 2 本足す（design D7）:
+- [x] 1.3 zip 2.6.1 のままの木で、`crates/server/src/archive_tests.rs` に Takeout の項目の名前の読み方の試験を 2 本足す（design D7）:
   `ch24_takeout_unflagged_name_reads_as_cp437`（`Takeout/マイ アクティビティ/a.json` を UTF-8 のバイトで書き、汎用の印の bit 11 を消した zip を `open_archive` で読むと、
   名前が 2.6.1 の CP437 の読み方の文字列になる。同じ書庫に、0x80〜0xFF の全部のバイトを名前に持つ印の無い項目も入れ、CP437 の表の 128 字を全部見る）・
   `ch24_takeout_flagged_name_reads_as_utf8`（bit 11 のある同じ名前は UTF-8 のまま読める）。
   zip は python3 の `zipfile` で作ってから bit 11 を書き換えたバイト列を埋め込む（中央ディレクトリと局所ヘッダの両方の印を消す）。期待値は 2.6.1 で読んだ値をそのまま書き、バイト列と一緒に囲みの中に置く。
   検証: `scripts/quiet-run ch24c -- bash -c 'cargo test -p ashiato-server --lib ch24_takeout_ && n=$(cargo test -p ashiato-server --lib ch24_takeout_ -- --list 2>/dev/null | grep -c ": test$") && echo "ch24_takeout_: $n" && test "$n" -ge 2'` rc=0
-- [ ] 1.4 zip 2.6.1 のままの木で、`crates/collector-windows/src/update_apply.rs` の `#[cfg(test)]` に PC の更新の展開の名前の試験を 2 本足す（design D6）:
+- [x] 1.4 zip 2.6.1 のままの木で、`crates/collector-windows/src/update_apply.rs` の `#[cfg(test)]` に PC の更新の展開の名前の試験を 2 本足す（design D6）:
   `ch24_extract_zip_name_rules` は、名前を 1 つずつ持つ zip（`/etc/passwd`・`C:\x`・`\x`・`a:b`・`../x`・`..\x`・`NUL`・`a.`・`ashiato-collector.exe`・`sub/a.txt`）を `extract_zip` に渡し、
   どれで「zip の道が不正」になるかを 2.6.1 の結果のとおりに見る（Windows と Windows 以外で期待値を `cfg` で分ける。Windows の値は 1.4 の検証の Windows 向けの走りで得る。
   `a\..\..\x`・`ab:c` も並びに入れる。名前と OS ごとの期待値の表は囲みの中に置く）。
   `ch24_extract_zip_reads_info_zip` は、Info-ZIP の `zip -j` で作った小さな zip（配る zip と同じ作り方。`tools/release/build.sh`）を展開し、中身が同じであることを見る。
   zip は python3 の `zipfile` と `/usr/bin/zip` で作ったバイト列を埋め込む。
   検証: `scripts/quiet-run ch24d -- bash -c 'for t in "" "--target x86_64-pc-windows-gnu"; do cargo test -p ashiato-collector-windows --lib $t ch24_ || exit 1; n=$(cargo test -p ashiato-collector-windows --lib $t ch24_ -- --list 2>/dev/null | grep -c ": test$"); echo "ch24_ ${t:-linux}: $n"; test "$n" -ge 2 || exit 1; done'` rc=0
-- [ ] 1.5 埋め込みを入れた commit の `Cargo.lock` の zip が 2.6.1 で、HEAD の囲みの中がその commit と同じであることを確かめる（上げた後に作り直していないこと。3 つのファイルそれぞれ）。
+- [x] 1.5 埋め込みを入れた commit の `Cargo.lock` の zip が 2.6.1 で、HEAD の囲みの中がその commit と同じであることを確かめる（上げた後に作り直していないこと。3 つのファイルそれぞれ）。
   検証: `./openspec/changes/ch24-zip-upgrade/check-fixtures.sh` rc=0
 
   （訂正 2026-11-20: 検証の入口を「bash -c 'set -o pipefail; for f in crates/server/src/export_file_tests.rs crates/server/src/archive_tests.rs crates/collector-windows/src/update_apply.rs; do c=$(git log --format=%H -S CH24-FIXTURE-BEGIN -- "$f" | tail -1); test -n "$c" || { echo "囲みが無い: $f"; exit 1; }; git show "$c:Cargo.lock" | python3 -c "import sys,re;t=sys.stdin.read();v=re.findall(r\"name = \\\"zip\\\"\\nversion = \\\"([^\\\"]+)\\\"\",t);print(v);assert v==[\"2.6.1\"],v" || exit 1; diff <(git show "$c:$f" | sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p") <(sed -n "/CH24-FIXTURE-BEGIN/,/CH24-FIXTURE-END/p" "$f") || { echo "囲みの中が変わった: $f"; exit 1; }; done'」から上の入口に。受け入れ条件は変えない。理由: 旧コマンドは囲みを「最初に入れた commit」と比べるため、zip を上げる前の Task 1 の中での正当な直し（review 1 の F2〜F4 が囲みの中の材料と期待値の直しを求めた。Cargo.lock の zip は HEAD でも 2.6.1）も「作り直し」として落とし、Task 1 を完了できない。新しい入口は、囲みを入れた commit の zip が 2.6.1 であることに加え、Cargo.lock の zip が 2.6.1 だった最後の版の囲みと今の囲みを比べる（上げた後の書き直しと未 commit の変更は落ちる。一時の worktree で zip を 9.0.5 にした commit の後に囲みを変えると rc=1 を確かめた） 実証: evidence.jsonl 2026-11-20T14:56:34+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-20T14:57:42+00:00 PASS。記録: plan-corrections.md）
