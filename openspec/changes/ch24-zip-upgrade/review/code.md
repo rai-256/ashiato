@@ -1,1 +1,155 @@
 <!-- 処置の判定: re-review -->
+# CH24 code_verify — zip の部品を 2 から 9 に上げる
+
+HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/main HEAD` = 65eb1de27。`Cargo.lock` の zip は `9.0.5` の 1 つだけ。
+
+## 申告: 14/14（全部 `[x]`）・検証コマンド一覧と実測
+
+検証コマンドは tasks.md の各項目の `検証:` を逐語で取り、上から順に 1 回ずつ走らせた（ログは `/tmp/ch24v_log_<項目>.txt`）。
+
+| 項目 | 検証コマンドの要点 | 申告 | 実測 | 一致 |
+|---|---|---|---|---|
+| 1.1 | `cargo test -p ashiato-server --lib ch24_`（3 本以上） | rc=0 | rc=0・`ch24_: 6` | 一致 |
+| 1.2 | 同上（4 本以上） | rc=0 | rc=0・`ch24_: 6` | 一致 |
+| 1.3 | `--lib ch24_takeout_`（2 本以上） | rc=0 | rc=0・`ch24_takeout_: 2` | 一致 |
+| 1.4 | collector `--lib ch24_` を Linux と windows-gnu で（各 2 本以上） | rc=0 | rc=0・両方 2 本 | 一致 |
+| 1.5 | `check-fixtures.sh`（訂正後） | rc=0 | rc=0・`OK: 3 つのファイルの囲みは zip 2.6.1 の木で書いた版のまま` | 一致 |
+| 2.1 | 既定の features・zip が 1 版で 9.0.5 以上・clippy 3 本 | rc=0 | rc=0・`['9.0.5']`・両 crate `uses_default_features: True` | 一致 |
+| 2.2 | `ch24_` 6 本以上 + python `zipfile` で全項目 `compress_type==99` と `flag_bits&1` | rc=0 | rc=0・`ch24_: 6`・18 項目 | 一致 |
+| 2.3 | `check-tests-kept.sh` ×2 + `export archive media_export` 453 本以上 | rc=0 | rc=0・`453 passed`（174 秒） | 一致 |
+| 2.4 | collector 全試験・`st58_pc_update` 16 本以上・`ch24_` 2 本以上 | rc=0 | rc=0・16 本・2 本 | 一致 |
+| 2.5 | collector `--lib --target x86_64-pc-windows-gnu`・`ch24_` 2 本以上 | rc=0 | **1 回目 rc=1**（change の外の `clock::tests` 2 本。R5）、走らせ直すと rc=0・436 passed・`ch24_ windows: 2` | 一致（揺れあり） |
+| 3.1 | 例外の表は zip の 7 行のほか不変・`check-vulns.sh --base` | rc=0 | rc=0・`新しく持ち込んだ: 0 件`・足した・変えた行 `なし` | 一致 |
+| 3.2 | 一覧は `bzip2-1.0.6` を足すだけ・`check-licenses.sh rust`・`--self-test`・`check-updater-deps.sh` | rc=0 | rc=0・`ライセンス OK`・`self-test OK` | 一致 |
+| 4.1 | diff と未追跡が予定のパスの中だけ | rc=0 | rc=0 | 一致 |
+| 4.2 | `check-fixtures.sh`（訂正後） | rc=0 | rc=0 | 一致 |
+
+`cargo test --test <名前>` は 2.4 の `--test st58_pc_update` だけで、`crates/collector-windows/tests/st58_pc_update.rs` は実在する。
+`tasks.md` が挙げる試験の名前（`ch24_previous_export_reads_same` などの 8 本）は、どれも実在した。
+
+## 手 1: 固定値を独立に再計算する — 全部一致
+
+- **書き出しの埋め込み**（`export_file_tests.rs` の `CH24_PREVIOUS_EXPORT_*`）: zip の部品を使わずに python で読んだ（`cryptography` の AES-CTR と `hashlib.pbkdf2_hmac`（SHA-1・1000 回）で WinZip AES を解き、`zlib` の raw deflate で伸ばす）。
+  結果は、項目の名前の並び 18 個・SHA-256 の 18 個・注記 `ashiato-export 4f17c2d4-…c10124` がどれも定数と一致した。違う合言葉 `wrong-password-for-ch24` は 18/18 の項目で検証値の照合に落ちた。
+  中身が空の項目は 12 個（0 行の `.jsonl`）で、20 バイト以上の項目もある。
+- **CP437 の表**（`open.rs` の `CP437`、`archive_tests.rs` の `CH24_RAW_CP437_80_FF` `CH24_CP437_NAME` `CH24_CP437_80_FF`）: python の `bytes(range(0x80,0x100)).decode('cp437')` と 128 字すべて一致した（0xFF は U+00A0）。
+- **2.6.1 の結果**: repo の外の使い捨ての crate（`zip = "=2.6.1"`、`--offline`）で、埋め込みの zip をそのまま読んだ。
+  - `enclosed_name()` の結果は、Linux で `[F,T,T,T,F,T,T,T,T,T,T,T]`。`--target x86_64-pc-windows-gnu` の .exe を WSL の interop で走らせると `[F,F,F,F,F,F,T,T,T,T,F,T]`。どちらも `CH24_EXTRACT_EXPECTED_UNIX` / `_WINDOWS` と一致した
+  - Takeout の名前は、印の無い 2 項目が `CH24_CP437_NAME` / `CH24_RAW_CP437_80_FF`、印のある項目が `Takeout/マイ アクティビティ/a.json` で、試験の期待値と一致した
+- **D5 / D7 の前提を 9.0.5 で**（design は 9.7.3 の source を引く）: `zip-9.0.5/src/format/functions.rs:26,45,58` に `clear_specials_bits` と `&= !0o222` があり、D5 の記述は 9.0.5 でも成り立つ。
+  正しい CRC の `0x7075` を持つ印の無い項目は、9.0.5 の `name_raw()` が `マイ.json` で印 `0x800`、2.6.1 の `name()` も `マイ.json` だった。
+  CRC の合わない項目は、2.6.1 が開けず 9.0.5 は見出しの名前で読んだ。D7 の記述どおり。
+
+## 手 2: ガードをわざと壊す
+
+どれも作業ツリーで 1 つずつ壊し、`/tmp` に退避したファイルで戻した。毎回、戻した後の `git status --porcelain` と `git diff` が空であることを確かめた。
+
+| 壊したもの | 走らせたもの | 結果 |
+|---|---|---|
+| `open.rs` の `zip_name(&entry)` を 9 の `entry.name()` に差し替え | `cargo test -p ashiato-server --lib ch24_takeout_` | rc=101。`ch24_takeout_unflagged_name_reads_as_cp437` が落ちた |
+| `ledger.rs:190` の注記の比較を常に不一致に | `--lib ch24_previous_export_replaced` | rc=101。`export_job_tests.rs:174` で落ちた（大きさと SHA-256 だけでは消えない） |
+| `update_apply.rs` の `ParentDir` を `saturating_sub` に | collector `--lib ch24_`（Linux） | rc=101。`../x` で落ちた |
+| `update_apply.rs` の `Prefix \| RootDir => return None` を `=> ()` に | collector `--lib ch24_`（Linux / windows-gnu） | **Linux rc=0**、windows-gnu rc=101（R2） |
+| `dump.rs:170` の `AesMode::Aes256` を `Aes128` に | `--lib -- export archive media_export` と 2.2 の python | `ch24_` は全部通った。2.2 の python も通った。落ちたのは既存の `export_zip_every_entry_is_aes_256` の 1 本だけ（R1） |
+| 許諾の一覧から `bzip2-1.0.6` を外す（`ALLOW_LICENSES=<base の 17 値>`） | `tools/check-licenses.sh rust` | rc=1。`NG libbz2-rs-sys: bzip2-1.0.6` |
+| `check-licenses.sh` の `ALLOW` に `GPL-3.0-only` を足す | 3.2 の検証 | rc=1。`一覧に bzip2-1.0.6 を足すほかの変更がある` |
+| 予定のパスの外に未追跡のファイル `crates/server/src/ch24v_probe.rs` を置く | 4.1 の検証 | rc=1。そのパスを出した |
+| 囲みの中を書き換える（作業ツリーと、clone での commit） | `check-fixtures.sh` | rc=1（手 7） |
+
+## 手 3: Scenario と test を突き合わせる
+
+`python3 scripts/check_scenarios.py . ch24-zip-upgrade` は rc=0（`scenarios: OK`。Scenario 3121 件 / 担保あり 3120 / 人間の確認待ち 1 は change の外）。
+`specs/data-durability` の 4 本は、それぞれの試験に印が逐語である。
+
+| Scenario | 試験 | 主張を観測しているか |
+|---|---|---|
+| 以前の版で書いた書き出しの zip を、同じ中身で読める | `ch24_previous_export_reads_same` | している（名前の並び・SHA-256・注記。手 1 で独立に一致） |
+| 以前の版で書いた書き出しの zip は、違う合言葉では読めない | `ch24_previous_export_wrong_password_fails` | している（全項目で `by_index_decrypt` が Err） |
+| 以前の版で書いた書き出しは、次の書き出しを書き終えると消える | `ch24_previous_export_replaced_after_next_export` | している（注記の比較を壊すと落ちる） |
+| 新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる | `ch24_export_aes_shape_matches_previous` | **一部だけ**。強さ `3` と `AE` の印を読んでいない（R1） |
+
+`specs/distribution` の Scenario「許可の一覧は、AGPL-3.0-only を外したほかは前と同じ」は、`check-licenses.sh --self-test` が一覧の文字列を丸ごと比べる。`ALLOW_LICENSES=<base の 17 値> tools/check-licenses.sh --self-test` は rc=1 で、その Scenario の行で止まった。
+
+## 手 4: 本人の決定が test で固定されているか
+
+`deep.md` と `docs/changes/CH24.md` の本人の決定から、値・する / しないを取った。
+
+| 決定 | 書き換えたときに落ちるもの |
+|---|---|
+| 許す一覧に `bzip2-1.0.6` を足し、ほかは足さない・外さない（Q-G1） | `check-licenses.sh --self-test`（一覧を丸ごと比べる）。`bzip2-1.0.6` を外すと rc=1。`rust` の節も rc=1（`NG libbz2-rs-sys`）。ほかの値を足すと 3.2 の比較が rc=1 |
+| zip を 9.0.5 以上にする | `Cargo.lock` だけを base の版（zip 2.6.1）に戻して `tools/check-vulns.sh --base HEAD` を走らせると、rc=1・`新しく持ち込んだ: 9 件`（zip 2.6.1 の RUSTSEC / GHSA）。merge の後に版を下げる PR は落ちる。`--base 65eb1de27`（zip 2.6.1 の base）では rc=0 で、この PR の中で下げた場合は 2.1 の 1 回きりの確かめしか見ない |
+| 書き出しの AES-256・deflate・注記 | 既存の `export_zip_every_entry_is_aes_256` などと、CH24 の 4 本。ただし強さは CH24 の試験からは見ていない（R1） |
+| 2.6.1 の名前の規則（D6・D7） | `ch24_extract_zip_name_rules`・`ch24_takeout_*`。Linux の `/etc/passwd` だけは理由を見ていない（R2） |
+| **zip の既定の features のまま・bzip2 も読み続ける（Q-G1・D1）** | **無い**。値を変えても全部通る（R3） |
+
+## 手 5: tasks の `[x]` と実体
+
+全 14 項目のコマンドが実在し、rc=0 になった（上の表）。2.5 だけ 1 回目に change の外の試験が揺れた（R5）。
+`[x]` で、挙がっている試験やコマンドが無いものは無かった。
+
+## 手 6: 隙間 — 該当なし
+
+確かめた範囲は 4 つ:
+- Takeout の名前: `0x7075` の正しい CRC と合わない CRC（手 1。D7 の記述どおりで、名前の変わる経路は無かった）
+- 埋め込みの書き出しを 9.0.5 で読む: 全項目と注記が読めた
+- 台帳の照合: 前の版の書き出しは消える側に正しく倒れる。注記で決まることを手 2 で確かめた
+- PC の更新の展開: 2.6.1 と同じ名前の判定。Linux と Windows の両方で 12 個の名前を確かめた
+
+`unix_mode` の SUID などの bit が落ちる差（D5）は design が既知として挙げていて、`#[cfg(unix)]` の枝だけに効く。
+実物の Takeout の書庫を 9 が `broken_zip` に倒すかどうかは、材料が無く走らせていないので、指摘にしない。
+
+## 手 7: 機械が承認した検証コマンドの訂正 — 2 件とも落ちた
+
+`plan_fix.py pending` は 2 件（1.5 `2026-11-20T14:57:42+00:00`、4.2 `2026-11-20T16:14:45+00:00`）。新しい入口はどちらも `check-fixtures.sh`。
+囲みの中を壊すと、どちらも rc=1 で落ちた。4.2 は、上げた後の commit での書き直し（使い捨ての clone）でも rc=1 だった。詳細は `correction-review.md`。
+
+---
+
+## R1. Scenario「以前の版と同じ AES の形」の「強さが 3」を、CH24 の試験も 2.2 の python も見ていない
+- 成果物: crates/server/src/export_file_tests.rs / openspec/changes/ch24-zip-upgrade/tasks.md（2.2）
+- 根拠: `ch24_aes_extra`（`export_file_tests.rs` の `fn ch24_aes_extra`）は、`0x9901` の欄の +4..+5（vendor version）と +9..+10（実の圧縮方式）だけを返す。+6..+7 の `AE` の印と +8 の強さは読んでいない。
+  `dump.rs:170` を `AesMode::Aes128` にして `cargo test -p ashiato-server --lib -- export archive media_export` を走らせると、rc=101・`452 passed; 1 failed` で、`ch24_export_aes_shape_matches_previous` は通った。
+  落ちたのは既存の `export_zip_every_entry_is_aes_256` の 1 本だけで、これは zip の部品の `get_aes_verification_key_and_salt` で読む。spec は「部品を使わずにバイト列から読んで確かめる」と言っている。
+  同じ壊し方で書いた `ch24.zip` に 2.2 の python の確かめを当てると、rc=0（18 項目）。部品の外で python で読むと、強さは `{1}`（埋め込みは `{3}`）だった。
+  壊していない今の木で書いた `ch24.zip` を同じ python で読むと、全項目で `(99, 1, vendor, b'AE', 3, 8)` になり、名前ごとの vendor は埋め込みと同じだった。振る舞いは正しく、試験の観測が足りないだけ
+- kind: technical
+- 提案: `ch24_aes_extra` で +8 の強さと +6..+7 の `AE` も返し、試験で `strength == 3` を新旧の両方に当てる。2.2 の python の確かめにも `0x9901` の強さ `3` を足す
+
+## R2. PC の更新の展開の名前の試験は、Linux では `/etc/passwd` を断る分岐を観測していない（権限の拒否で Err になるだけ）
+- 成果物: crates/collector-windows/src/update_apply.rs（`ch24_extract_zip_name_rules`）
+- 根拠: 試験は `extract_zip(..).is_ok()` だけを比べ、Err の理由を見ていない。`/etc/passwd` は root の持ち物（`-rw-r--r-- root root`）で、試験は uid 1001 で走る。`enclosed_zip_path` の `Prefix(_) | RootDir => return None` を `=> ()` にすると、次のとおり。
+  - `cargo test -p ashiato-collector-windows --lib ch24_` は **Linux で rc=0**（2 passed）。`/etc/passwd` に書けずに Err になったとみられ、期待の `false` と一致する
+  - windows-gnu では rc=101（`assertion failed: /etc/passwd`）。ただしこのとき WSL の interop の .exe が `C:\etc\passwd` を作った（検証者が消した）
+  - `ParentDir` の枝を壊すと、Linux で rc=101 になる一方、`$TMPDIR/x` を一時ディレクトリの外に書いた（消した）
+
+  断る名前が断られなかったとき、Err の理由が名前の判定でなければ、試験は通るか、外へ書いてから落ちる
+- kind: technical
+- 提案: 断る名前は Err の文（`format!("{e:#}")`）に `zip の道が不正` を含むことまで見る。または、`enclosed_zip_path` を名前ごとに直に呼ぶ表の試験を足し、外へ書かないで判定を観測する
+
+## R3. 本人の決定「zip の既定の features のまま・bzip2 も読み続ける」（Q-G1・D1）を固定する試験が無い
+- 成果物: crates/server/Cargo.toml / crates/server/src/archive_tests.rs
+- 根拠: `crates/server/Cargo.toml` の zip を `{ version = "9", default-features = false, features = ["aes-crypto", "deflate"] }` にした。
+  そのうえで `cargo test --offline -p ashiato-server --lib -- archive ch24_` を走らせると、rc=0・`256 passed; 0 failed` だった。
+  `cargo tree -p ashiato-server -i libbz2-rs-sys` は `did not match any packages` で、bzip2 を読めない木でも全部通る。
+  `grep -rn "bzip\|ZIP_BZIP2" crates/server/src/*tests*.rs` は 0 件。この決定を見るのは、tasks 2.1 の 1 回きりの `cargo metadata` の `uses_default_features` だけで、試験にも CI にも無い
+- kind: technical
+- 提案: python の `zipfile.ZIP_BZIP2`（部品の外）で縮めた Takeout の項目を持つ zip を埋め込み、`open_archive` が中身を読める試験を `archive_tests.rs` に 1 本足す。lzma・zstd も既定が読む方式として、同じ形で並べてよい
+
+## R4. `ch24_takeout_*` の `// Scenario:` の印が、spec に無い Scenario を指している
+- 成果物: crates/server/src/archive_tests.rs
+- 根拠: `python3 scripts/check_scenarios.py . ch24-zip-upgrade` が次の 2 件を出した。
+  - `[warn] spec に無い Scenario を指す印: Takeout/マイアクティビティ/a.jsonをUTF-8のバイトで書いた印の無い書庫はCP437で読む`
+  - 同じく `…UTF-8の印付きで書いた書庫はUTF-8のまま読む`
+
+  design D7 は「正典に Scenario を置かない」と決めていて、印は宙に浮いている。あわせて、同じ囲みの `CH24_TAKEOUT_UNFLAGGED_ZIP_B64` と `CH24_CP437_80_FF` は `let _ =` で捨てられ、どの assert にも届いていない（tasks 1.3 が求めた「python で作り bit 11 を消した」材料はこれで、試験が読むのは別の `CH24_RAW_CP437_ZIP_B64`）
+- kind: technical
+- 提案: 印を `// Scenario:` でない説明の注記（design D7 を指す）に直す。使わない 2 つの定数は囲みの中なので消さず、試験で読む（印の無い 2 項目を `CH24_CP437_NAME` / `CH24_CP437_80_FF` と比べる）か、そのまま残す理由を注記する
+
+## R5. collector の `clock::tests` の 2 本が、windows-gnu の `--lib`（tasks 2.5・CI の Windows の job と同じ）で 1 回落ち、走らせ直すと通った
+- 成果物: crates/collector-windows/src/clock.rs（change の外。ST05）
+- 根拠: 2.5 の検証の 1 回目は rc=1 だった。`clock_reference_pc_ahead_gives_positive_difference`（`skew=301046 width=32`、許す範囲は `300_000..301_032`）と `…_behind_gives_negative_difference`（`skew=-298953`）が落ちた。
+  2 本とも許す範囲の端から十数ミリ秒外れた（`301046` は上の端 `301032` より 14 ms、`-298953` は上の端 `-298968` より 15 ms 外）。同じコマンドを走らせ直すと rc=0（436 passed）。落ちた原因は確かめていない。
+  CH24 は `clock.rs` に触れていない（`git diff 65eb1de27 --stat` に無い）。持ち主は `docs/stories/ST05.md`（題が「端末時計のずれを測って残す」）。ST05 は `openspec/changes/archive/2026-10-05-st05-clock-skew` で閉じている。
+  時刻の試験の揺れを扱った `archive/2026-11-07-ch09-load-tolerant-timing-tests` は `clock_reference` に触れていない（grep 0 件）。受け手の Story は無い
+- kind: defer
+- 提案: CH24 の確認バッチの問い（「PR の CI の Windows の job の `--lib` が通っているか」）で、clock の 2 本の落ちを CH24 の落ちと取り違えないよう添える。直すのは新しい change（`hx change`）で、落ちる理由を確かめてから許す範囲を決める
