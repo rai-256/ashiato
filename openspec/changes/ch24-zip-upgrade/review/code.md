@@ -234,3 +234,50 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: openspec/changes/ch24-zip-upgrade/deep.md:21-22 の本人の答え Q-G1 と D1 は、読み取り方式を狭めないため両 crate の zip 9 を既定の features のままにし、bzip2 の許諾を加えると決めている。features を絞る提案はその A の決定と矛盾する。
 - 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
+
+## final review（65eb1de..991e0dd）
+
+見た: `superpowers:requesting-code-review` の `code-reviewer.md`（whole-branch。review package `.superpowers/sdd/tasks/review-65eb1de27..991e0ddbf.diff`）。
+task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 の Windows の job）。申し送り（`docs/handoff/CH24.md`）は無い。
+
+## R12. HEAD で `cargo clippy --workspace --all-targets -- -D warnings`（tasks 2.1・CI）が落ちる
+- 成果物: crates/server/src/archive_tests.rs / crates/server/src/export_file_tests.rs
+- 根拠: settle の commit 2112dc044 の後、`cargo clippy -p ashiato-server --all-targets -- -D warnings` が error 3 つで落ちる（reviewer の実測）。
+  `archive_tests.rs:490` `CH24_RAW_CP437_ZIP_B64` と `:491` `CH24_RAW_CP437_80_FF` が定義だけで使われていない（dead_code。grep で参照 0 件を確かめた）。
+  `export_file_tests.rs:131` の `fn ch24_zip_parts` の戻り型 `BTreeMap<String, (u16, u16, u16, [u8; 2], u8, u16)>` が `clippy::type_complexity`。
+  evidence.jsonl で 2.1 を最後に走らせたのは a8eb371fd で、settle の後は 2.2 と 2.5 しか走らせていない。2.1 の `[x]` は HEAD に当たっていない
+- kind: technical
+- 提案: 2 つの RAW 定数は `CH24-FIXTURE-BEGIN/END` の囲みの中にあるので、消す・囲みの中に `#[allow]` を足すと `check-fixtures.sh`（1.5・4.2）が落ちる。囲みの外の試験本体で使う（R13 と同じ直し）。type_complexity は型の別名を囲みの外に置く。直した後に `scripts/verify-run 2.1`・1.3・2.2・`check-fixtures.sh` を走らせ直す
+
+## R13. R4/R8 の直しで、印の無い名前の試験が CP437 の表の 61 字を見なくなった
+- 成果物: crates/server/src/archive_tests.rs（`ch24_takeout_unflagged_name_reads_as_cp437`）
+- 根拠: settle は試験の材料を `CH24_RAW_CP437_ZIP_B64`（0x80〜0xFF の 128 種を名前に持つ）から `CH24_TAKEOUT_UNFLAGGED_ZIP_B64` に**差し替え**、期待値も `CH24_RAW_CP437_80_FF` から `CH24_CP437_80_FF` に替えた。R8 が求めたのは足すこと。
+  deflate の材料の印の無い名前に現れる 0x80 以上のバイトは 67 種（0x80〜0xBF・C2・C3・E3）で、`open.rs` の `CP437` の表の 0xC0・0xC1・0xC4〜0xE2・0xE4〜0xFF の 61 字はどの assert も見ていない。
+  tasks 1.3 の「CP437 の表の 128 字を全部見る」と、Task 1 の F4（re-review 2 で ADDRESSED）の観測を、上げた後の commit で外した。R4・R8 の「fixed」は不完全
+- kind: technical
+- 提案: 囲みの外の試験本体で、RAW の材料（2 つ目の項目の名前 == `CH24_RAW_CP437_80_FF`）と deflate の材料（== `CH24_CP437_80_FF`）の両方を開いて assert する。R12 の dead_code も同時に消える
+
+## R14. Cargo.lock を zip 9.0.5 に止めた理由が成果物に無い
+- 成果物: openspec/changes/ch24-zip-upgrade/design.md
+- 根拠: `Cargo.toml` は `zip = "9"` で、`Cargo.lock` は 9.0.5。9.0.5 に止めた理由（9.8.1 では既存の `clippy::large_futures` が出る）は `.superpowers/sdd/ch24-task-2/task-2-report.md:59` にしか無く、design.md・tasks.md・`docs/changes/CH24.md` を grep しても 0 件（Task 2 の F2 が未対応）。
+  次に `cargo update` で 9.8.x に上がると clippy が落ち、原因を CH24 に辿れない
+- kind: technical
+- 提案: design.md の Risks に「9.0.5 に止めた。9.8 で `clippy::large_futures` が出る」を 1 行書く（PR 本文にも写る形で）
+
+## R15. PC の更新の名前の試験は、判定が退行すると展開先の外へ書いてから落ちる
+- 成果物: crates/collector-windows/src/update_apply.rs（`ch24_extract_zip_name_rules`、L489-490 付近）
+- 根拠: R2 の直しで `enclosed_zip_path` の assert を足したが、`extract_zip` を先に呼んでからその assert を当てている。判定が退行したとき、assert で落ちる前に展開先の外へ書く（R2 の根拠で code-verify が実際に `C:\etc\passwd` を作った）
+- kind: technical
+- 提案: 名前ごとの `enclosed_zip_path` の assert を `extract_zip` の呼び出しより前に置き、外れたら展開を走らせずに落ちるようにする
+
+## R16. 印の付いた名前の試験は 1 つ目の項目しか見ない
+- 成果物: crates/server/src/archive_tests.rs（`ch24_takeout_flagged_name_reads_as_utf8`）
+- 根拠: Task 1 の F8（`files[0]` だけを見る）がそのまま残っている。印の付いた項目が複数あるとき、2 つ目以降の読み方の退行は観測されない（Minor）
+- kind: technical
+- 提案: 書庫の全項目の名前を期待値の並びと比べる
+
+## R17. `extract_zip` の `entry.name()?` の Err に「zip の道が不正」の文脈が無い
+- 成果物: crates/collector-windows/src/update_apply.rs（L235 付近）
+- 根拠: Task 2 の F3。9.0.5 の `name()` は ASCII の名前で Err にならないので実害はほぼ無いが、名前を読めないときの Err が他の拒否と文が揃わない（Minor）
+- kind: technical
+- 提案: `.context("zip の道が不正")` などで他の拒否と同じ文脈を付ける。振る舞い（Err になること）は変えない
