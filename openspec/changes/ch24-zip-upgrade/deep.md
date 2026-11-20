@@ -17,7 +17,7 @@ D1 を台帳から外し（`provisional.py resolve`）、design の見出しの�
 
 - **本人の答え**（`deep-answers-2.txt`、2026-11-20）: zip 9 の既定のまま、許す一覧に bzip2-1.0.6 を足す
   （本人が選んだ。選んだ案は推奨の案 (1) と同じで、補足は無い）
-- 第 1 回（`deep-answers-1.txt`）は `(未回答)` で、A なので推奨を採ったとはみなさず聞き直した
+- 第 1 回（`deep-answers-1.txt`）は答えが無く、A なので推奨を採ったとはみなさず聞き直した
 - **これで決まること**: zip の features は 9 の既定のまま（design D1 は仮でない本人の決定になる）。`tools/check-licenses.sh` の
   許す一覧（`ALLOW`）に `bzip2-1.0.6` を 1 つ足す。読める圧縮の方式は今より狭まらない。サーバと PC の収集アプリの両方に当てる
 - **次の spec に効くこと**: `tools/check-licenses.sh` が触れるパスに入る（軽い路の予定のパスの外。昇格は済み）。design D1 の
