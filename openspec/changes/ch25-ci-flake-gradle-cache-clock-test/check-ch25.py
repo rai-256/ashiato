@@ -156,7 +156,9 @@ def check_clock_guard(now):
     if body is None:
         fails.append(f"{CLOCK}: 用意の時間を長くする試験 clock_reference_setup_time_is_not_in_the_difference が無い")
     else:
-        if "std::thread::sleep" not in body or not re.search(r"1_?500", body):
+        helpers = [fn_body(now, n) or "" for n in re.findall(r"fn (skew_against\w*)\(", now)]
+        slept = "std::thread::sleep" in body or any("std::thread::sleep" in h for h in helpers)
+        if not slept or not re.search(r"1_?500", body):
             fails.append(f"{CLOCK}: clock_reference_setup_time_is_not_in_the_difference が 1,500 ms 眠っていない")
         for rng in RANGES.values():
             if rng not in body:

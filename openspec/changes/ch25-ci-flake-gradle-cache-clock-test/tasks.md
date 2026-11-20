@@ -14,9 +14,9 @@
   `clock_reference_pc_behind_gives_negative_difference` の `(-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())` を字面のまま残す。関数の名前と `/// Scenario: …` の印も変えない
 - **workflow で変えるのは、gradle を使う 7 つの job の部品の取り置きの指定だけ**（ci.yml の `build-stamp`・`android`・`android-instrumented`・`package-linux`・`chain`、nightly.yml と release.yml の `package-linux`）。
   `chain` は `./tools/release/draft.sh --self-test` が `tools/release/build.sh apk` を通して gradle を呼ぶ（出力は捨てている）。
-  取り置きの形は design D1（仮）: setup-java を持つ 6 つは、既にある `actions/setup-java` の段の `with` に `cache: gradle` と `cache-dependency-path`（`collector-android/**/*.gradle.kts` と `collector-android/**/*.lockfile` を改行で並べる）を足す。
+  取り置きの形は design D1（仮）: setup-java を持つ 6 つは、既にある `actions/setup-java` の段の `with` に `cache: gradle` と `cache-dependency-path`（`collector-android/**/*.gradle.kts`・`collector-android/**/*.lockfile`・`collector-android/gradle/wrapper/gradle-wrapper.properties` を改行で並べる）を足す。
   `chain` は design D3（仮）: checkout の直後に、ci.yml で既に使っている `actions/cache`（同じ commit の SHA と版のコメント）の段を 1 つ足し、`path` に `~/.gradle/caches` と `~/.gradle/wrapper`、
-  `key` に `gradle-chain-${{ runner.os }}-${{ hashFiles('collector-android/**/*.gradle.kts', 'collector-android/**/*.lockfile') }}` を置く（setup-java は足さない。JDK を変えない）。
+  `key` に `gradle-chain-${{ runner.os }}-${{ hashFiles('collector-android/**/*.gradle.kts', 'collector-android/**/*.lockfile', 'collector-android/gradle/wrapper/gradle-wrapper.properties') }}` を置く（setup-java は足さない。JDK を変えない）。
   段の順・ほかの段・job の条件・`on`・`permissions`・ほかの job は変えない。
   D1 の反転条件に当たって `gradle/actions/setup-gradle` を使うなら、`uses:` は 40 桁の commit の SHA に版のコメントを付けて固定し（ほかの `uses:` と同じ）、gradle を呼ぶ最初の段より前に置く
 - **依存の版とロックは変えない**（`collector-android/` に触れない）。ロックの検査（`tools/check-gradle-locks.sh`）は今と同じ段・同じ順で走る
@@ -61,5 +61,7 @@
   (1) この PR の CI で、gradle を使う job（android・android-instrumented・build-stamp・package-linux・chain）が緑で、`Run actions/setup-java@…` の段のログに取り置きの復元の試み
   （`gradle cache is not found` か `Cache restored from key`。chain は `Run actions/cache@…` の段）、後片付けの段（`Post Run actions/setup-java@…`・`Post Run actions/cache@…`）に
   `Cache saved with the key` か `Cache hit occurred on the primary key` の行が出ているか。
+  あわせて、PR の CI を 1 回走らせ直し（初回は取り置きが無い）、取り置きを復元した run（`Cache restored from key`）でも、android の job のロックの検査（`check-gradle-locks.sh` とその自己試験）・
+  package-linux の `check-licenses.sh android`・build-stamp が緑か（取り置きがある状態でロックの検査が今と同じに効くことの、merge 前の唯一の証跡）。
   (2) merge の後、main の run が取り置きを保存した後の PR で、android の job の setup-java の段に `Cache restored from key` が出て、`./gradlew detekt` の段のログから
   wrapper の `Downloading https://services.gradle.org/…` の行が消え、段の時間が base（約 58 秒）より短くなったか（観測できなければ「観測できなかった」と答える。D1 の反転条件の材料）
