@@ -315,9 +315,11 @@ Task の ⚠️: T3（新しい crate の許諾）と T4（4.1 / 4.2 を最終�
 - 根拠: R15 の直しで、assert は `enclosed_zip_path(name)` を試験の定数の名前で直に呼ぶようになった。しかし、`extract_zip` の中（L235 付近）で判定を外す退行が起きても、断る名前の `extract_zip(..).is_ok() == false` は Linux では権限の不足（`/etc/passwd`）で満たされ、試験は通る。`../x` は一時ディレクトリの親に書いてから落ちる（R2 の根拠と同じ型）。Windows の CI の job は捕まえる（Minor）
 - kind: technical
 - 提案: 断る名前では、`extract_zip` の Err の文（`format!("{e:#}")`）に `zip の道が不正` が入ることまで見る（R2 の提案の前半）。展開先の外へ書かれうる名前は、判定の assert の後でも展開を走らせない形を保つ
+- 処置: fixed 1.4 — 断る名前では `extract_zip` の Err を展開成功/失敗だけで判定せず、`zip の道が不正` の文脈を含むことまで検査するようにした。名前の判定を先に assert する R15 の形は保った。
 
 ## R19. 修正の波の後の証跡が HEAD に当たっていない（1.4 / 2.4 / 2.5）
 - 成果物: openspec/changes/ch24-zip-upgrade/evidence.jsonl
 - 根拠: 修正の波（07198092b）で記録した 1.3 / 2.2 / 2.1 の証跡の head は、修正の commit 前の f5e59080d（作業ツリーに未 commit の変更がある状態）。`crates/collector-windows/src/update_apply.rs` を変えた後の 1.4 / 2.4 / 2.5 は evidence.jsonl に無い。reviewer が HEAD で 1.4（Linux と windows-gnu）・st58・clippy を走らせ、どれも通った（上の見出しのログ）が、`verify-run` の証跡ではない（Minor）
 - kind: technical
 - 提案: HEAD で `scripts/verify-run 1.4`・2.4・2.5 と、修正の波が触れた 1.3 / 2.1 / 2.2 を走らせ直し、証跡の head を最終の commit に合わせる
+- 処置: fixed 1.3 / 1.4 / 2.1 / 2.2 / 2.4 / 2.5 — 現在の木で全 6 項目を `verify-run` し、evidence.jsonl に PASS の証跡を追加した。Windows GNU を含む 1.4 と 2.5 は sandbox 外で再実行して PASS した。
