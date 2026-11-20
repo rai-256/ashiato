@@ -1,0 +1,25 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 91,
+ "applied": [
+  "impact.problem",
+  "walkthroughs[W1].cases[1].result",
+  "walkthroughs[W2].scene",
+  "points[upgrade.3].text",
+  "points[exceptions.2].text"
+ ],
+ "kept": [
+  {
+   "field": "uses[U2].without",
+   "why": [
+    "否定の言い方の数が変わった（2 → 1）"
+   ],
+   "old": "書くのも読むのも同じ版の試験しか無く、版をまたいで読めるかは確かめられていない",
+   "new": "試験は書くのも読むのも同じ版で、版をまたいで読めるかは確かめられていない"
+  }
+ ],
+ "missing": [],
+ "unknown": []
+}
