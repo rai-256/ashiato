@@ -437,7 +437,7 @@ mod tests {
         ];
         #[cfg(windows)]
         let expected = [
-            false, false, false, false, false, false, false, false, true, true, false, false,
+            false, false, false, false, false, false, true, true, true, true, false, true,
         ];
         for (name, expected) in CH24_EXTRACT_NAMES.iter().zip(expected) {
             let dir = tempfile::tempdir().unwrap();
