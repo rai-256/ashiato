@@ -133,6 +133,11 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 - **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
 - **THEN** 画面の段落に「時間の上限で打ち切った」と「片付けに残りがある」がある
 
+#### Scenario: 打ち切った後に専用の AVD のエミュレータが残っていれば、片付けに残りがあると書く
+- **GIVEN** 呼ぶ間に `-avd ashiato-tsukau-api35` のエミュレータのプロセスを残したと偽の `ps` に答えさせ、SIGTERM を受けても終わらない偽の席の台本と、秒数を縮めた自己試験と、携帯の範囲がある確認バッチの木
+- **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** 携帯の段落に「時間の上限で打ち切った」と「片付けに残りがある」がある
+
 #### Scenario: 打ち切りの秒数は、立てる上限・席の時間・片付けの和で決まる
 - **WHEN** `tools/tsukau/verify-batch.sh --print-limits` を走らせ、`tools/verify-prep.sh` の席を呼ぶ部分を読む
 - **THEN** SIGTERM までは 1860・待ちは 360・組み立ては 2400・全体は 9360 である
@@ -171,12 +176,12 @@ THE SYSTEM SHALL 席を呼ぶ台本に、確認バッチの作業ツリーのフ
 
 THE SYSTEM SHALL 確認バッチの準備に、席の結果を `dist/verify-<tag>/manifest.md` の最後に、頭の 1 段落と相手ごとに 1 段落ずつ足させる（手順書の冒頭と verify PR の本文に載る。手順書は段落ごとに 1 つの note になる）。
 頭の段落は「使ってみる席（AI が利用者として使ってみた結果。人間の確認ではない）」、相手の段落は「画面: 」か「PC: 」か「携帯: 」で始まる。
-写すのは、席の台本の最後の行の JSON の止まり方（`stop`）・件数（`count`）・片付けに残りがあるか（`cleanup` が「済み」か）と、その実行のフォルダ（最後の行の `run`）の `result.json` の `candidates` の候補ごとの番号（席の台本が振る `id`。`C1` から）と題（公開の題の Requirement の台本を通したもの）だけで、
+写すのは、席の台本の最後の行の JSON の止まり方（`stop`）・件数（`count`）・片付けに残りがあるか（`cleanup` が「済み」か）と、その実行のフォルダ（最後の行の `run`）の `result.json` の `candidates` の候補ごとの番号（席の台本が振る `id`。`C1` から）と題（公開の題の Requirement の台本を通したもの）と、前の回で試したものの ID と tag だけで、
 1 行目のパス・`run`・`cleanup` の文・候補の本文・根拠・画像・ログは写さない。最後の行が JSON として読めなければ「席を呼べなかった」にする。
 THE SYSTEM SHALL 止まり方ごとに次の決まった文言を書かせる: `done` は「席が自分で終えた」、`time` は「時間を使い切った」、`tokens` は「token を使い切った」に続けて「。違和感の候補 <件数> 件」と候補の番号つきの題の一覧、
 `crashed` は「席が途中で落ちた」、`env_failed` は「相手を立てられなかった」、`interrupted` は「中断した」、席の台本が rc=2 で終わった・最後の行が読めない・台本が無い・harness2 を繋げなかったときは「席を呼べなかった」、
-打ち切ったときは、最後の行が読めて `stop` が `done`・`time`・`tokens` ならその文言、そうでなければ「時間の上限で打ち切った」、範囲が空の相手は「回さなかった（この回に<相手>を変えたものが無い）」、PC の配る zip を組めなかったときは「配る zip を組めず、回さなかった」。
-片付けに残りがあれば、その段落に「片付けに残りがある」を足す。
+打ち切ったときは、最後の行が読めて `stop` が `done`・`time`・`tokens` ならその文言、そうでなければ「時間の上限で打ち切った」、範囲が空の相手は「回さなかった（この回に<相手>を変えたものが無い）」、前の回で試したものを外して範囲が空になった相手は「回さなかった（この回に新しく入った<相手>のものが無い）」、確かめ直しで項目の無い相手は「回さなかった（直した候補が無い）」、PC の配る zip を組めなかったときは「配る zip を組めず、回さなかった」。
+片付けに残りがあれば、その段落に「片付けに残りがある」を足す。確かめ直しの回は「直した候補を確かめ直した」を足す。前の回で試したので範囲から外したものがあれば、「前の回で試した: <ID>（<前の tag>）」を並べる（ID と tag だけ）。
 THE SYSTEM SHALL どの相手をどの範囲で呼び、どの実行のフォルダに結果があるかは、手元の目録と `dist/verify-<tag>/tsukau.log`（どちらも git が無視する）にだけ書かせる。
 導出元: CH21（依頼「落ちても準備は止めず、警告として手順書に書く」「候補の本文を公開の repo に出さない」）。深掘り Q4（第 1 回の推奨: 題と種類とどの Story だけ）・Q12（止まり方ごとの決まった文言だけ）。
 
@@ -195,6 +200,11 @@ THE SYSTEM SHALL どの相手をどの範囲で呼び、どの実行のフォル
 - **WHEN** それぞれで `tools/tsukau/verify-batch.sh t1` を走らせる
 - **THEN** 画面の段落はそれぞれ「画面: 」に続けて「時間を使い切った」「token を使い切った」「席が途中で落ちた」「相手を立てられなかった」「中断した」「席を呼べなかった」「席を呼べなかった」で始まり、`cleanup` を出した 5 つには「片付けに残りがある」がある
 - **AND** どの出力にも `logs/env-down.log` と `down rc=1` は無い
+
+#### Scenario: 携帯の段落は「携帯: 」で始まり、画面・PC・携帯の順に並ぶ
+- **GIVEN** 画面と携帯の範囲がある確認バッチの木と、どの相手でも `"stop":"done"`・`"count":0` の最後の行を出す偽の席の台本
+- **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** 頭の段落の後に「画面: 」「PC: 」「携帯: 」で始まる段落がこの順にあり、「携帯: 」の段落は「席が自分で終えた。違和感の候補 0 件」で始まる
 
 #### Scenario: 範囲が空の相手は、回さなかったと書く
 - **GIVEN** 文書だけを変えた merge だけを重ねた確認バッチの木
@@ -280,6 +290,11 @@ THE SYSTEM SHALL 範囲から外したものを、その相手の段落に「前
 - **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
 - **THEN** 偽の席の台本は `--target web` で 1 回だけ呼ばれ、`--scope` は ST13 の行だけで ST12 の行が無く、画面の段落に「前の回で試した: ST12（t1）」があり、目録の `web` の `earlier` に `"id": "ST12"`・`"tag": "t1"` がある
 
+#### Scenario: 目録の earlier の run は、前の回で席を呼んだ実行のフォルダである
+- **GIVEN** 確認バッチ `t1` で画面の範囲 ST12 の席が `done` で終わり、`t1` の目録の `web` の `run` が `/home/someone/.local/state/ashiato2/tsukau/20261120-010203-web` だった後、同じ PR のコミットの ST12 を重ねた確認バッチ `t2`
+- **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
+- **THEN** `t2` の目録の `web` の `earlier` の ST12 の `run` は、`t1` の目録の `web` の `run` と同じ絶対パスである
+
 #### Scenario: 新しく入ったものが無ければ、呼ばずに回さなかったと書く
 - **GIVEN** 確認バッチ `t1` で画面の範囲 ST12 の席が `done`・候補 1 件で終わった後、同じ `origin/main` と同じ PR のコミットで merge を作り直した確認バッチ `t2`
 - **WHEN** `tools/tsukau/verify-batch.sh t2` を走らせる
@@ -327,14 +342,16 @@ THE SYSTEM SHALL 確かめ直しでは試した記録を読ませず（範囲か
 WHEN 差し込み口が PC の相手を立てるとき（`env-hook.sh up <repo> <state> pc`）、
 THE SYSTEM SHALL 起こす前に別の Windows Sandbox が動いていれば立てずに `UNAVAILABLE=` を置かせる（待たない）。
 THE SYSTEM SHALL 配る形のサーバの zip と PC の収集アプリの zip が、`ASHIATO_TSUKAU_PC_ZIPS` の置き場にも `dist/tsukau-pc/<HEAD のコミット>/` にも無ければ、立てずに `UNAVAILABLE=` を置かせる（理由に `tools/tsukau/build-pc.sh` の名前）。
-THE SYSTEM SHALL そうでなければ、網をつないだ（`.wsb` に `<Networking>Disable</Networking>` を書かない）Sandbox を 1 つ起こし、その id を `<state>` に残し、何かを入れる前に、Sandbox の中のファイアウォールで外向きの既定を「塞ぐ」にし、私設網（tailscale の範囲）・手元の網（私用の範囲・リンクローカル）を除いた外の宛先と、Sandbox の既定のゲートウェイへの名前の問い合わせ（53 番）だけを通させる。
-THE SYSTEM SHALL 塞いだ後に Sandbox の中から確かめさせる: この PC の私設網の宛先と手元の網の宛先（どちらも実行時に求める）に届かないこと、外の名前（`api.github.com`）が引けて HTTPS で届くこと。私設網か手元の網に届いたら、外の宛先を通す規則も外して外向きを全部塞ぎ、もう一度どこにも届かないことを確かめる。それでも届けば、何も入れずに `UNAVAILABLE=` を置かせる。外にだけ届かなかったときは続け、案内にそう書く。
+THE SYSTEM SHALL そうでなければ、網をつないだ（`.wsb` に `<Networking>Disable</Networking>` を書かない）Sandbox を 1 つ起こし、その id を `<state>` に残し、何かを入れる前に、Sandbox の中のファイアウォールで外向きの既定を「塞ぐ」にし、外の宛先と、Sandbox の既定のゲートウェイへの名前の問い合わせ（53 番）だけを通させる。
+通す外の宛先は `env-hook.sh` が数から組み（`env-hook.sh --print-net-rules` で出せる）、私設網（tailscale の IPv4 の範囲と IPv6 の範囲）・3 つの私用の範囲・リンクローカル（IPv4 と IPv6）・IPv6 の私用の範囲・マルチキャストを含めない。
+THE SYSTEM SHALL 確かめは対照つきで行わせる: その回だけ待ち受ける一時の口を、この PC の私設網の宛先（IPv4 と、あれば IPv6）と手元の網の宛先（Windows 側のこの PC のアドレス）に立て、塞ぐ前に Sandbox の中からその口に届く（つながる）ことを、塞いだ後に同じ口が時間切れになることを見る。外は `api.github.com` を引いて HTTPS で届くかを見る。
+塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに `UNAVAILABLE=` を置かせる。塞いだ後に私設網か手元の網の口に届いたら、外の宛先を通す規則も外して外向きを全部塞ぎ、同じ口で確かめ直す。それでも届けば、何も入れずに `UNAVAILABLE=` を置かせる。外にだけ届かなかったときは続け、案内と `INFO_NET=` にそう書く。一時の口は確かめの後に閉じる。
 THE SYSTEM SHALL 確かめた後に、配る形のサーバの zip を、その場で作った乱数の合言葉でインストーラで入れ（`--repo` と確認バッチの作業ツリーの `.env` は読まない）、サーバが応えたら Sandbox の窓を本人のデスクトップに開き（`wsb connect`）、その後に配る形の PC の収集アプリを利用者のセッション（`ExistingLogin`）で起こしてから、案内（`GUIDE=`）を置いた `ready` を置かせる。
 案内には、Sandbox の中でコマンドを走らせて出力を受け取る口と画面の写しを撮る口（`tools/tsukau/pc.sh`）、サービスとログの場所、網の様子（外にはつながり、私設網と手元の網は塞いである。全部塞いだ回・外に届かなかった回はそう書く）、
 触らないもの（本人のサーバ・本人の PC の配布版 `C:\ProgramData\ashiato`・確認バッチの DB・main の checkout の `.env`・本人が起こした Sandbox・ファイアウォールの規則）を書く。
 THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、Sandbox の中のサービスのログ・更新係の置き場の `checks.jsonl` とログ・PC の収集アプリのログ・サービスに関わるシステムのイベントの抜き書きを `$TSUKAU_EVIDENCE/pc-logs/` へ写してから、`<state>` に残した id の Sandbox だけを止めさせる。
 止めた後もその id が動いていれば rc≠0 で終わらせる。ほかの Sandbox には触らせない。
-導出元: CH21（依頼「PC（Windows Sandbox に配る zip を入れる）」）。深掘り Q7（第 1 回の推奨: 確認バッチの木から手元で組む）・Q8（本人の答え: 外にはつなぎ、私設網と手元の網を塞ぐ。選んだ案の「塞げたことを確かめてから渡す」と、塞げなければ網を切る側に倒す）・Q9（窓を開いて画面も触る）。review/deep.md R4。design D6。
+導出元: CH21（依頼「PC（Windows Sandbox に配る zip を入れる）」）。深掘り Q7（第 1 回の推奨: 確認バッチの木から手元で組む）・Q8（本人の答え: 外にはつなぎ、私設網と手元の網を塞ぐ。選んだ案の「塞げたことを確かめてから渡す」と、塞げなければ網を切る側に倒す）・Q9（窓を開いて画面も触る）。review/deep.md R4。review/spec.md R22・R23。design D6・D26（仮）・D29（仮）。
 
 #### Scenario: 別の Sandbox が動いていれば、立てずに断る
 - **GIVEN** 動いている Sandbox の id を 1 つ返す偽の `wsb`
@@ -346,25 +363,45 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、その理由に `tools/tsukau/build-pc.sh` の名前がある。`wsb start` は呼ばれない
 
-#### Scenario: Sandbox は網をつないで起こし、何かを入れる前に私設網と手元の網を塞いで確かめる
-- **GIVEN** 動いている Sandbox が無く、`start` で id `sb-1` を返し、受けた設定と `exec` で走らせた台本の名前を記録し、塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と、配る zip の置き場
+#### Scenario: Sandbox は網をつないで起こす
+- **GIVEN** 動いている Sandbox が無く、`start` で id `sb-1` を返し、受けた設定を記録し、塞ぐ前の確かめに「一時の口に届く」、塞いだ後の確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と、配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** `wsb start` は 1 回だけ呼ばれ、渡した設定に `<Networking>Disable</Networking>` は無く、塞ぐ台本の `exec` と確かめる台本の `exec` が、サーバのインストールの `exec` より先に呼ばれる
+- **THEN** `wsb start` は 1 回だけ呼ばれ、渡した設定に `<Networking>Disable</Networking>` は無い
+
+#### Scenario: 何かを入れる前に、塞いで確かめる
+- **GIVEN** 上と同じ偽の `wsb`（`exec` で走らせた台本の名前を記録する）と配る zip の置き場
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** 塞ぐ前の確かめ・塞ぐ台本・塞いだ後の確かめの `exec` がこの順に、サーバのインストールの `exec` より先に呼ばれる
+
+#### Scenario: 通す外の宛先は、私設網と手元の網の範囲を含まない
+- **GIVEN** 自己試験が数から組んだ見本の宛先: tailscale の IPv4 の範囲の 1 つ・IPv6 の範囲の 1 つ・3 つの私用の範囲の 1 つずつ・リンクローカル・マルチキャスト・外の宛先 1 つ
+- **WHEN** `tools/tsukau/env-hook.sh --print-net-rules` の出力の範囲に、見本を 1 つずつ当てる
+- **THEN** 外の宛先だけがどれかの範囲に入り、ほかの見本はどの範囲にも入らない
+
+#### Scenario: 塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに断る
+- **GIVEN** 塞ぐ前の確かめに「一時の口に届かない」と答える偽の `wsb` と配る zip の置き場
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、サーバのインストールの `exec` も `connect` も呼ばれない
 
 #### Scenario: 私設網か手元の網に届いたら、外向きを全部塞いで確かめ直す
-- **GIVEN** 1 回目の確かめに「私設網に届く」、全部塞いだ後の確かめに「どこにも届かない」と答える偽の `wsb` と配る zip の置き場
+- **GIVEN** 塞いだ後の 1 回目の確かめに「私設網に届く」、全部塞いだ後の確かめに「どこにも届かない」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
 - **THEN** 全部塞ぐ台本の `exec` がサーバのインストールの `exec` より先に呼ばれ、`ready` に `UNAVAILABLE=` は無く、案内に「外向きを全部塞いだ」がある
 
 #### Scenario: 全部塞いでも届くなら、何も入れずに断る
-- **GIVEN** どの確かめにも「私設網に届く」と答える偽の `wsb` と配る zip の置き場
+- **GIVEN** 塞いだ後のどの確かめにも「私設網に届く」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、サーバのインストールの `exec` も `connect` も呼ばれない
 
-#### Scenario: 立てるときは、塞いで確かめ、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く
-- **GIVEN** 塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
+#### Scenario: 外にだけ届かなければ、続けて案内に書く
+- **GIVEN** 塞いだ後の確かめに「私設網に届かない・手元の網に届かない・外に届かない」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
-- **THEN** 偽の `wsb` は `start`・塞ぐ台本の `exec`・確かめる台本の `exec`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
+- **THEN** サーバのインストールの `exec` が呼ばれ、`ready` に `UNAVAILABLE=` は無く、`INFO_NET=` と案内に「外に届かなかった」がある
+
+#### Scenario: 立てるときは、塞いで確かめ、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く
+- **GIVEN** 塞ぐ前の確かめに「一時の口に届く」、塞いだ後の確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
+- **THEN** 偽の `wsb` は `start`・塞ぐ台本の `exec`・塞いだ後の確かめの `exec`・サーバのインストールの `exec`・`connect --id sb-1`・`-r ExistingLogin` で PC の収集アプリを起こす `exec` の順に呼ばれ、その後に `<state>/ready` が置かれる
 
 #### Scenario: PC の相手は、本人の合言葉でなく、その場の合言葉で入れる
 - **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、`exec` が受けた引数と標準入力を記録する偽の `wsb` と配る zip の置き場
@@ -377,7 +414,7 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 - **THEN** 偽の `wsb` は `exec --id sb-1 -r ExistingLogin` で呼ばれ、`pc.sh` の標準出力は「hello」である
 
 #### Scenario: PC の案内は、口と網と触らないものを書く
-- **GIVEN** 塞ぎの確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
+- **GIVEN** 塞ぐ前の確かめに「一時の口に届く」、塞いだ後の確かめに「私設網に届かない・手元の網に届かない・外に届く」と答える偽の `wsb` と配る zip の置き場
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> pc` を走らせる
 - **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/pc.sh exec`・`tools/tsukau/pc.sh shot`・画面の操作の仕方（`exec` で UI Automation を使う）・「私設網と手元の網は塞いで」・`C:\ProgramData\ashiato`・`.env`・「触らない」がある
 
@@ -398,47 +435,77 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 
 #### Scenario: 本物の Sandbox で、私設網と手元の網を塞いだまま配る形が入り、片付けで残らない
 - **WHEN** この PC で、組んだ配る zip を置いて `tools/tsukau/env-hook.sh up` と `down` を PC の相手で本物の Sandbox に対して走らせる
-- **THEN** `ready` に `UNAVAILABLE=` が無く、Sandbox の中からこの PC の私設網の宛先と手元の網の宛先に届かず、`api.github.com` の名前が引けて HTTPS で届き、Sandbox の中のサーバが loopback で応え、PC の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に動いている Sandbox は無い
+- **THEN** `ready` に `UNAVAILABLE=` が無く、`INFO_NET=` は「塞いだ」で、塞ぐ前には届いたこの PC の私設網と手元の網の一時の口に、塞いだ後の Sandbox の中から届かず、`api.github.com` の名前が引けて HTTPS で届き、Sandbox の中のサーバが loopback で応え、PC の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に動いている Sandbox は無い
 
 ### Requirement: 携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける
 
 WHEN 差し込み口が携帯の相手を立てるとき（`env-hook.sh up <repo> <state> android`）、
-THE SYSTEM SHALL `/dev/kvm` を読み書きで開けない・エミュレータか SDK か JDK が無い・専用の AVD（`ashiato-tsukau-api35`）のエミュレータがもう動いている、のどれかなら、何も起こさずに `UNAVAILABLE=` を置かせる（待たない）。
-THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、合言葉をその回のものにした debug の APK を組ませる。
-`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先・配る APK の署名の鍵は使わない。
-THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから端末の網（Wi-Fi と携帯の回線）を切り、端末から外の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。網を切れたと確かめられなければ、APK を入れずに `UNAVAILABLE=` を置かせる。
-THE SYSTEM SHALL `adb` の操作をどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には触らせない。
+THE SYSTEM SHALL `/dev/kvm` を読み書きで開けない・エミュレータか SDK か JDK が無い・専用の AVD（`ashiato-tsukau-api35`）のエミュレータがもう動いている（エミュレータのプロセスの引数で見る。ほかの端末に `adb` で問わない）、のどれかなら、何も起こさずに `UNAVAILABLE=` を置かせる（待たない）。
+THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、資格情報（`ashiato.apiToken`・`ashiato.userId`）をその回の環境のものにした debug の APK を組ませる。
+接続先と資格情報は組み立ての引数（`-P`）で渡し、`~/.gradle/gradle.properties` の値に負けないようにする。`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先と資格情報・配る APK の署名の鍵は使わない。
+THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた、のどちらかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL `adb` の操作を、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
 案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
 THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
-導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D23（仮）・D24（仮）・D25。
+導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D23（仮）・D24（仮）・D25・D26（仮）。review/spec.md R20〜R27。
 
 #### Scenario: KVM を開けなければ、何も起こさずに断る
 - **GIVEN** 読み書きで開けない置き場を `/dev/kvm` の代わりに向けた自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と起動の台本は呼ばれない
 
+#### Scenario: エミュレータか SDK か JDK が無ければ、何も起こさずに断る
+- **GIVEN** `emulator`・`adb`・`java` のどれか 1 つを無い場所に向けた自己試験（3 通り）と、受けた引数を記録する起動の台本
+- **WHEN** それぞれで `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 3 通りとも `<state>/ready` に `UNAVAILABLE=` の行があり、起動の台本は呼ばれない
+
 #### Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る
-- **GIVEN** `emulator-5600` を専用の AVD `ashiato-tsukau-api35` のものとして返す偽の `adb`
+- **GIVEN** `-avd ashiato-tsukau-api35` を引数に持つエミュレータのプロセスを返す偽の `ps` と、受けた引数を記録する偽の `adb`・`emulator`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれない
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれず、偽の `adb` に `-s` の呼び出しは無い
 
-#### Scenario: 携帯の相手の APK は、その回のサーバ向けに、本人の合言葉を使わずに組む
-- **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、組み立ての引数と `collector-android/local.properties` の中身を記録する偽の `gradlew`
+#### Scenario: 携帯の相手の APK は、<state>/tree で組む
+- **GIVEN** 組み立ての場所と引数を記録する偽の `gradlew`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** 偽の `gradlew` は `<state>/tree` の中で `:app:assembleDebug` を組み、接続先は `http://127.0.0.1:18787` で、記録・案内のどこにも `honnin-no-aikotoba` は無く、`--repo` の `git status --porcelain` は呼ぶ前と同じである
+- **THEN** 偽の `gradlew` は `<state>/tree` の中で `:app:assembleDebug` を組み、`--repo` の `git status --porcelain` は呼ぶ前と同じである
 
-#### Scenario: エミュレータは画面を出さず、前のデータを消して起こし、自分の serial だけを操作する
-- **GIVEN** 実機 `R58N12ABCDE` と別のエミュレータ `emulator-5554` を返し、受けた引数を記録する偽の `adb` と偽の `emulator`
+#### Scenario: 携帯の相手の APK の接続先は、端末の中のその回のサーバである
+- **GIVEN** 上と同じ偽の `gradlew`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** 偽の `emulator` の引数に `-avd ashiato-tsukau-api35`・`-no-window`・`-wipe-data` があり、偽の `adb` の `devices` 以外の呼び出しはどれも `-s` に `<state>` に残した serial を持ち、`R58N12ABCDE` と `emulator-5554` を名指す呼び出しは無い
+- **THEN** 組み立ての引数に `-Pashiato.baseUrl=http://127.0.0.1:18787` がある
+
+#### Scenario: 携帯の相手の APK に、本人の資格情報は入らない
+- **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba`・`API_TOKEN=honnin-no-token`・`ASHIATO_USER_ID=honnin-no-id` を持つ `.env` と、組み立ての引数と `collector-android/local.properties` の中身を記録する偽の `gradlew`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 組み立ての引数・`local.properties`・案内のどこにも `honnin-no-aikotoba`・`honnin-no-token`・`honnin-no-id` は無く、`-Pashiato.apiToken=` の値はその回の環境の `.env` の `API_TOKEN` と同じである
+
+#### Scenario: エミュレータは画面を出さず、前のデータを消して起こす
+- **GIVEN** 受けた引数を記録する偽の `emulator` と、網の確かめに試験が決めた答えを返す偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 偽の `emulator` の引数に `-avd ashiato-tsukau-api35`・`-no-window`・`-wipe-data` がある
+
+#### Scenario: 携帯の相手は、自分の serial だけを名指す
+- **GIVEN** 実機 `R58N12ABCDE` と別のエミュレータ `emulator-5554` を一覧に返し、受けた引数を記録する偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` と `down` を走らせる
+- **THEN** 偽の `adb` の `devices` 以外の呼び出しはどれも `-s` に `<state>` に残した serial を持ち、`R58N12ABCDE` と `emulator-5554` を名指す呼び出しは無い
 
 #### Scenario: 網を切って確かめてから、サーバへの道を渡し、APK を入れて案内を置く
-- **GIVEN** 網の確かめに「外に届かない」と答える偽の `adb` と偽の `emulator`
+- **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届かない」と答える偽の `adb` と偽の `emulator`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** 偽の `adb` は、`svc wifi disable` と `svc data disable`・網の確かめ・`reverse tcp:18787`・`install`・アプリを起こす `am start` の順に呼ばれ、その後に `<state>/ready` が置かれる
+- **THEN** 偽の `adb` は、切る前の確かめ・`svc wifi disable` と `svc data disable`・切った後の確かめ・`reverse tcp:18787`・`install`・アプリを起こす `am start` の順に呼ばれ、その後に `<state>/ready` が置かれる
 
-#### Scenario: 網を切れたと確かめられなければ、APK を入れずに断る
-- **GIVEN** 網の確かめに「外に届く」と答える偽の `adb` と偽の `emulator`
+#### Scenario: 切った後も既定のネットワークがあれば、APK を入れずに断る
+- **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークがある・ホストに届かない」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
+
+#### Scenario: 切った後もホストに届けば、APK を入れずに断る
+- **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届く」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
+
+#### Scenario: 切る前に届かなければ、確かめられないとして APK を入れずに断る
+- **GIVEN** 切る前の確かめに「ホストに届かない」と答える偽の `adb` と偽の `emulator`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
 
@@ -448,14 +515,24 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **THEN** 偽の `adb` は `-s emulator-5600 shell` で呼ばれ、`phone.sh` の標準出力は「hello」である
 
 #### Scenario: 携帯の案内は、口と網と触らないものを書く
-- **GIVEN** 網の確かめに「外に届かない」と答える偽の `adb` と偽の `emulator`
+- **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届かない」と答える偽の `adb` と偽の `emulator`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
 - **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/phone.sh shell`・`tools/tsukau/phone.sh shot`・`tools/tsukau/phone.sh ui`・`http://127.0.0.1:` で始まる画面の URL・「網は切って」・`.env`・「触らない」がある
 
-#### Scenario: 片付けは、端末のログを写してから自分のエミュレータだけを止める
+#### Scenario: 片付けは、端末のログを写してから自分のエミュレータを止める
 - **GIVEN** `<state>` に serial `emulator-5600` が残り、動いている端末として `emulator-5600` と `emulator-5554` を返す偽の `adb`
 - **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
-- **THEN** `-s emulator-5600 logcat -d` が `-s emulator-5600 emu kill` より先に呼ばれ、`$TSUKAU_EVIDENCE/phone-logs/` に写したファイルがあり、`emulator-5554` を名指す呼び出しは無く、`<state>/tree` は無い
+- **THEN** `-s emulator-5600 logcat -d` が `-s emulator-5600 emu kill` より先に呼ばれ、`$TSUKAU_EVIDENCE/phone-logs/` に写したファイルがある
+
+#### Scenario: 携帯の片付けは、ほかのエミュレータに触らない
+- **GIVEN** 上と同じ `<state>` と偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
+- **THEN** `emulator-5554` を名指す呼び出しは 1 つも無い
+
+#### Scenario: 携帯の片付けは、その回の project と木を消す
+- **GIVEN** 上と同じ `<state>` と偽の `adb` と、立てた回の compose project と別の `ashiato-verify-t1` の project を返す偽の `docker`
+- **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
+- **THEN** `docker compose` の `down -v` は立てた回の project にだけ呼ばれ、`<state>/tree` は無い
 
 #### Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる
 - **GIVEN** `emu kill` の後も `emulator-5600` を返す偽の `adb`
@@ -464,7 +541,11 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 
 #### Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない
 - **WHEN** この PC で `tools/tsukau/env-hook.sh up` と `down` を携帯の相手で本物のエミュレータに対して走らせる
-- **THEN** `ready` に `UNAVAILABLE=` が無く、端末から外の宛先に届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
+- **THEN** `ready` に `UNAVAILABLE=` が無く、端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に端末から届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
+
+#### Scenario: 本物のエミュレータで、席の口で端末を操作できる
+- **WHEN** この PC で携帯の相手を本物のエミュレータに立て、`tools/tsukau/phone.sh shot`・`phone.sh ui`・`phone.sh shell 'input keyevent KEYCODE_HOME'` を走らせてから片付ける
+- **THEN** `shot` は PNG を 1 枚置き、`ui` は携帯の収集アプリのパッケージ名を含む XML を返し、`input` の呼び出しは rc=0 で終わる
 
 ### Requirement: 画面の相手は専用の環境で立て、本人の合言葉と確認バッチの DB を使わない
 

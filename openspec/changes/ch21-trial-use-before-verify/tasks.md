@@ -1,12 +1,12 @@
 # CH21 実装タスク — 確認バッチの前に、その回で足した機能を使ってみる席（/tsukau）で確かめ、違和感を直すか人間に回す
 
-読む順: `proposal.md` → このファイル → `design.md` → `specs/verify-environment/spec.md` → `docs/changes/CH21.md` → `premises.md` → `.harness2/scripts/tsukau.py` の冒頭（差し込み口の契約）→ `CLAUDE.md`。
+読む順: `proposal.md` → このファイル → `design.md` → `specs/verify-environment/spec.md` → `specs/distribution/spec.md`（CH22 の Requirement に 3 つ目の名指しを足す）→ `docs/changes/CH21.md` → `premises.md` → `.harness2/scripts/tsukau.py` の冒頭（差し込み口の契約）→ `CLAUDE.md`。
 
 ## Global Constraints
 
 - **製品のコードを変えない**: `crates/`・`collector-android/`・`web/`・`migrations/` に触れない（携帯の相手の APK は `<state>/tree` の写しで組むだけ）。触ってよいのは `tools/tsukau/`（新しい）・`tools/verify-prep.sh`（席を呼ぶ 1 か所だけ）・
   `.github/workflows/ci.yml`（`rust` の job の `./tools/check-private.sh --self-test` の行の後に 3 行）・`docs/testing.md`・`docs/changes/CH21.md`・`openspec/changes/ch21-trial-use-before-verify/**` だけ
-- **harness2 を変えない**: `scripts/`・`.claude/skills/`・`.harness2/` は harness2 への symlink。席の中身・`scripts/tsukau.py`・`verify_batch.sh`・処置（`verify_tsukau.py`）は読むか呼ぶだけ。処置は依頼として置く（Task 9。design D15）
+- **harness2 を変えない**: `scripts/`・`.claude/skills/`・`.harness2/` は harness2 への symlink。席の中身・`scripts/tsukau.py`・`verify_batch.sh`・処置（`verify_tsukau.py`）は読むか呼ぶだけ。処置は依頼として置く（Task 11。design D15）
 - `tools/record-env.sh`・`tools/recording/`・`tools/release/`・`tools/check-private.sh`・`tools/check-secrets.sh` は読むか呼ぶだけ。`record-env.sh` を `source` しない（design D7）
 - **公開の repo に出すのは止まり方・件数・番号つきの伏せた題だけ**（深掘り Q4・Q12）: 手順書の段落に席の台本の 1 行目・`run`・`cleanup` の文・候補の本文・根拠・実行のフォルダのパスを書かない。題は必ず `tools/tsukau/public-title.sh` を通す。
   席を呼ぶ台本は `gh` を呼ばず、確認バッチの作業ツリーのファイルを直さない（処置は harness2。design D14）。実行のフォルダは `~/.local/state/ashiato2/tsukau` の下（repo の外）、目録は `dist/verify-<tag>/tsukau.json`（git が無視する）
@@ -15,11 +15,11 @@
 - **携帯のエミュレータは網を切り、自分の serial だけを操作する**（design D22（仮）・D24（仮））: `adb` は `devices` のほかは全部 `-s <自分の serial>`。実機と、ほかのエミュレータ（本人・計測テスト）に入れない・止めない。網を切れたと確かめられなければ `UNAVAILABLE=`
 - **実地は公開に何も出さない**（design D18）: `tools/tsukau/real-run.sh` は、使い捨ての木の `origin` を一時の bare repo にし、`gh` を記録する偽物にして走らせる。本物の GitHub の repo へ push しない・issue を作らない
 - **Scenario の印**: 自己試験は、確かめのすぐ上に `# Scenario: <名前>` のコメントを置く（`echo "== Scenario:` は本物で確かめる口だけ）。名前は spec の `#### Scenario:` と一字一句合わせる
-- **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`docker`・`gh`・`adb`・`emulator`・`gradlew`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
+- **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`docker`・`gh`・`adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
   本物の Sandbox・エミュレータ・docker・claude・ネットワークを使わない。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。**偽の席の台本は本物と同じ 2 行を出す**（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `v`・`stop`・`count`・`titles`・`run`・`cleanup` の JSON。`run` は `/home/…` の絶対パス）と、`run` の下に `candidates.jsonl` と、`candidates`（`id`・`title`）を持つ `result.json` を書く
-- **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`docker`・`adb`・`emulator`・`gradlew`・起動の台本・組み立ての台本・`init.py` の場所・`/dev/kvm` の代わりの置き場・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
-  `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D16）
-- 定数は台本の頭に置く: 席の時間 10 分・token 200,000、確かめ直し 5 分・100,000（design D8・D16）・SIGTERM までの 1,860 秒と片付けの猶予 360 秒・PC の組み立ての上限 2,400 秒（design D5（仮））・準備の全体の上限 9,360 秒（3 つの相手）
+- **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`docker`・`adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・`java`・起動の台本・組み立ての台本・`init.py` の場所・`/dev/kvm` の代わりの置き場・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
+  `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D27）
+- 定数は台本の頭に置く: 席の時間 10 分・token 200,000、確かめ直し 5 分・100,000（design D8・D27）・SIGTERM までの 1,860 秒と片付けの猶予 360 秒・PC の組み立ての上限 2,400 秒（design D5（仮））・準備の全体の上限 9,360 秒（3 つの相手）
 - Sandbox は起こす前に動いているものを確かめ、止めるのは自分の id だけ（design D3）。本物の Sandbox を使う確かめ（Task 8・12）は、録画と本人が Sandbox を使っていないときに走らせる。本物のエミュレータを使う確かめ（Task 10）は `/dev/kvm` が要る（開けなければ `scripts/verify-run` が BLOCKED_INFRA にする）
 - Windows に渡す `.ps1` は UTF-8 の BOM 付きで書く（Windows PowerShell 5.1 は BOM が無いと日本語の注釈で構文エラーになる）。`cmd.exe` はフルパス `/mnt/c/Windows/System32/cmd.exe` で呼ぶ
 - 私設網や手元の網の IPv4 の字面（範囲を含む）・私設網のホスト名の形・秘密の形は、`tools/check-private.sh`・`tools/check-secrets.sh` が commit で止める。自己試験でその形が要るときは実行時に組む（数や文字片から）
@@ -71,11 +71,11 @@
 - [ ] 4.1 `tools/tsukau/verify-batch.sh <tag>` の本体を書く（design D8〜D11・D14・D21（仮）・spec の呼び方・目録・写すもの・新しく入ったものだけの Requirement）: 相手（`web`・`pc`・`android` の順）ごとに、範囲のものを D10 の試した記録（`<out_root>/verify-index/tried.jsonl`）と相手・ID・PR のいちばん新しいコミットの組で突き合わせ、席が終えた記録のあるものを外し、残りがあれば使い捨ての作業ツリー（D9）を作って harness2 を繋ぎ、
   `timeout -k 360 1860 python3 <作業ツリー>/scripts/tsukau.py run --repo <作業ツリー> --scope <範囲> --target <相手> --minutes 10 --tokens 200000 --label verify-<tag>` で呼ぶ。
   PC の範囲があれば、呼ぶ前に `timeout 2400 tools/tsukau/build-pc.sh "$PWD/dist/verify-<tag>/tsukau-pc"` で組み、絶対パスを `ASHIATO_TSUKAU_PC_ZIPS` で渡す。画面と携帯の相手には `$PWD/dist/verify-<tag>/ashiato-server` と `$PWD/dist/verify-<tag>/web` を `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` で渡す。
-  呼ぶ前と後で、動いている Sandbox（`wsb list`）・専用の AVD `ashiato-tsukau-api35` のエミュレータ（`adb devices` と AVD の名前）・`ashiato-tsukau-` の compose project を数え、打ち切った後に増えていれば「片付けに残りがある」。
+  呼ぶ前と後で、動いている Sandbox（`wsb list`）・専用の AVD `ashiato-tsukau-api35` のエミュレータ（エミュレータのプロセスの引数。`adb` でほかの端末に問わない。design D22（仮））・`ashiato-tsukau-` の compose project を数え、打ち切った後に増えていれば「片付けに残りがある」。
   席が終えたら（`done`・`time`・`tokens`）、席に渡した範囲のものの組を試した記録へ追記する。外したものは段落の「前の回で試した: <ID>（<tag>）」と目録の `earlier` に書く。
   最後の行の JSON から、頭の段落と相手ごとの段落を決まった文言（spec と design D11）で組み、番号と題は最後の行の `run` の下の `result.json` の `candidates`（`id`・`title`）から取り、題は `tools/tsukau/public-title.sh` を通して「C<n>」と並べ、標準出力に段落だけを出す。
   目録 `dist/verify-<tag>/tsukau.json`（design D14 の形。`earlier` を持ち、`copied` は持たない）と手元の詳細 `dist/verify-<tag>/tsukau.log` を書く。作業ツリーは `trap` で必ず消す。どの道でも rc=0。`gh` を呼ばない
-  `--self-test` に足す印（偽の `tsukau.py`・`init.py`・組み立ての台本・`wsb`・`docker`・`gh` と、`out_root` と打ち切りの秒数を `TSUKAU_TEST_` で渡す）:
+  `--self-test` に足す印（偽の `tsukau.py`・`init.py`・組み立ての台本・`wsb`・`docker`・`ps`・`adb`・`gh` と、`out_root` と打ち切りの秒数を `TSUKAU_TEST_` で渡す）:
   `# Scenario: 範囲のある相手だけを、決まった時間と token で呼ぶ`・
   `# Scenario: 席を呼ぶ作業ツリーは確認バッチの作業ツリーと別で、harness2 が繋がり、.env が無い`・
   `# Scenario: 席が作業ツリーを書き換えても、確認バッチの作業ツリーは変わらず、使い捨ての作業ツリーは消える`・
@@ -86,6 +86,7 @@
   `# Scenario: 配る zip を組めなければ、PC の席は呼ばず、画面の席は呼ぶ`・
   `# Scenario: 時間の上限で打ち切り、片付けの間は待つ`・
   `# Scenario: 打ち切った後に立てたものが残っていれば、片付けに残りがあると書く`・
+  `# Scenario: 打ち切った後に専用の AVD のエミュレータが残っていれば、片付けに残りがあると書く`・
   `# Scenario: 打ち切りの秒数は、立てる上限・席の時間・片付けの和で決まる`（`--print-limits` を足す）・
   `# Scenario: 打ち切った後でも、最後の行が読めて席が終えていれば結果を写す`・
   `# Scenario: 目録は相手ごとの状態と範囲と実行のフォルダを持つ`・
@@ -94,22 +95,24 @@
   `# Scenario: 席が終えた相手は、件数と番号つきの題を手順書に載せる`（番号は席の台本の `id` の `C<n>`）・
   `# Scenario: 席が終えた相手の段落に、手元のパスは出ない`・
   `# Scenario: 止まり方ごとに決まった文言だけを書く`・
+  `# Scenario: 携帯の段落は「携帯: 」で始まり、画面・PC・携帯の順に並ぶ`・
   `# Scenario: 範囲が空の相手は、回さなかったと書く`・
   `# Scenario: 席の段落の題は、公開の題の台本を通したものである`・
   `# Scenario: 前の回で試したものは外し、新しく入ったものだけを範囲にする`・
+  `# Scenario: 目録の earlier の run は、前の回で席を呼んだ実行のフォルダである`・
   `# Scenario: 新しく入ったものが無ければ、呼ばずに回さなかったと書く`（merge を作り直しただけの回を作る）・
   `# Scenario: main が進んだだけでは、呼び直さない`・
   `# Scenario: PR のコミットが変われば、新しく入ったものとして呼び直す`・
   `# Scenario: 前の回が落ちていたら、試していないものとして呼び直す`。
   「書く」Scenario は、それぞれ段落に `/home/`・`RESULT.md`・`.local/state`・`logs/env-down.log` が無いことを並べて見る
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 33'` rc=0
-- [ ] 4.2 確かめ直しの口を書く（design D16（仮）・spec の確かめ直しの Requirement）: `TSUKAU_RECHECK` のファイルがあれば、相手ごとに項目の候補の題（`run` の下の `result.json` の `candidates` から `id`（`C<n>`）で引く）を「直した違和感が直ったか: <題>」で範囲にし、
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 36'` rc=0
+- [ ] 4.2 確かめ直しの口を書く（design D27（仮）・spec の確かめ直しの Requirement）: `TSUKAU_RECHECK` のファイルがあれば、相手ごとに項目の候補の題（`run` の下の `result.json` の `candidates` から `id`（`C<n>`）で引く）を「直した違和感が直ったか: <題>」で範囲にし、
   `--minutes 5 --tokens 100000` で呼ぶ。確かめ直しの範囲のほかは呼ばず、試した記録を読まず足さない（design D21（仮））。目録の `recheck` に項目を書き、段落に「直した候補を確かめ直した」を足す。項目の無い相手は呼ばず「回さなかった（直した候補が無い）」・`state: skipped`。
   `--self-test` に足す印:
   `# Scenario: 確かめ直しは、直した候補の題だけを範囲に、5 分と 10 万で呼ぶ`・
   `# Scenario: 確かめ直しは、試した記録で外さず足しもせず、目録に直した候補を書く`・
   `# Scenario: 確かめ直しで項目の無い相手は、回さなかったと書く`
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 36'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 39'` rc=0
 
 ## Task 5: 確認バッチの準備から呼ぶ
 
@@ -121,7 +124,7 @@
   `# Scenario: 席の呼び出しが終わらなくても、上限で打ち切って準備を続ける`（偽物は終わらない・上限 2 秒）・
   `# Scenario: 準備の席の部分の上限は、席の呼び出しの全体の上限と同じ`・
   `# Scenario: 席の段落は、既存の段落の後に足すだけ`（`tools/verify-prep.sh` を読み、挟んだ部分が `cat > "$out/manifest.md"` の行より後にあり、挟んだ部分の `manifest.md` への書き込みが `>>` だけで、`run.sh`・`ashiato-server`・`app-debug.apk`・`web/` を書く行が無い）
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 40'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 43'` rc=0
 
 ## Task 6: 差し込み口と画面の相手
 
@@ -149,9 +152,11 @@
 - [ ] 7.1 `tools/tsukau/env-hook.sh` に PC の相手（design D3・D4・D6・spec の PC の Requirement）と `tools/tsukau/pc.sh`（`exec` / `shot`）を書く。`up` の順:
   `wsb list` で動いている Sandbox があれば `UNAVAILABLE=` → 配る zip（`ASHIATO_TSUKAU_PC_ZIPS` か `dist/tsukau-pc/<HEAD>/`）が無ければ `UNAVAILABLE=`（理由に `tools/tsukau/build-pc.sh`）→
   `.wsb`（`<Networking>` を書かない（網をつなぐ）・共有のフォルダ 2 つ（zip は読むだけ・やり取りは書ける）・メモリ 4096 MB）で `wsb start` → id を `<state>/sandbox-id` へ →
-  塞ぐ台本（`-r System`。外向きの既定を塞ぐにし、外の宛先（私設網・私用・リンクローカル・マルチキャストの範囲を除く。範囲は数から組み、字面で書かない）と既定のゲートウェイの 53 番だけを通す規則を足す）→
-  確かめる台本（WSL 側で求めたこの PC の私設網の宛先（`tailscale ip -4`）と、Windows 側の既定のゲートウェイ・この PC の手元の網のアドレスへ TCP でつなぎ、届かないこと。`api.github.com` を引いて HTTPS で届くか）→
-  私設網か手元の網に届けば、全部塞ぐ台本（外を通す規則も外す）→ 確かめ直し → それでも届けば `UNAVAILABLE=`（何も入れない）→
+  一時の口を立てる（WSL 側でこの PC の私設網の宛先（`tailscale ip -4`・あれば `-6`）に、Windows 側でこの PC の手元の網のアドレスに、空いている port で待ち受ける。design D26（仮））→
+  塞ぐ前の確かめ（Sandbox の中から一時の口につながる。届かなければ `UNAVAILABLE=`。何も入れない）→
+  塞ぐ台本（`-r System`。外向きの既定を塞ぐにし、外の宛先と既定のゲートウェイの 53 番だけを通す規則を足す。外の範囲は `env-hook.sh` が bash で数から組んで渡す（`--print-net-rules` で出せる。私設網の IPv4 と IPv6・3 つの私用・リンクローカル・IPv6 の私用・マルチキャストを含めない。字面で書かない））→
+  塞いだ後の確かめ（同じ一時の口が時間切れになる。拒否と時間切れを分けて読む。`api.github.com` を引いて HTTPS で届くか）→
+  私設網か手元の網に届けば、全部塞ぐ台本（外を通す規則も外す）→ 確かめ直し → それでも届けば `UNAVAILABLE=`（何も入れない）→ 一時の口を閉じる →
   サーバの zip を開いて、その場で作った乱数の合言葉でインストーラで入れる（`-r System`。`--repo` の `.env` を読まない。合言葉の渡し方は `tools/release/install-check.sh` の `install_with` と同じ）→ サーバが loopback で応える → `wsb connect --id <id>` →
   PC の収集アプリの zip を開いて `-r ExistingLogin` で起こす → 案内（`pc.sh exec`・`pc.sh shot`・UI Automation と `SendKeys` で画面を操作する例・網の様子（私設網と手元の網は塞いである・全部塞いだ回・外に届かなかった回）・ファイアウォールの規則に触らない。design D4・D6）を書いて `ready`（`GUIDE=`・`INFO_COMMIT=`・`INFO_NET=`（塞いだ・全部塞いだ・外に届かない））。
   `down`: Sandbox の中のログ（design D3）を共有のフォルダへ写す `exec` → `$TSUKAU_EVIDENCE/pc-logs/` へ写す → `wsb stop --id <自分の id>` → まだ動いていれば rc≠0。
@@ -159,9 +164,13 @@
   `--self-test` に足す印（偽の `wsb` を `TSUKAU_TEST_WSB` で渡す。偽の `wsb` は `list`・`start`（受けた設定を写す）・`exec`（`-r` と走らせた台本の名前を写す。確かめる台本には、試験が決めた答え（私設網・手元の網・外に届くか）を返す）・`connect`・`stop` を記録する）:
   `# Scenario: 別の Sandbox が動いていれば、立てずに断る`・
   `# Scenario: 配る zip が無ければ、立てずに断る`・
-  `# Scenario: Sandbox は網をつないで起こし、何かを入れる前に私設網と手元の網を塞いで確かめる`・
+  `# Scenario: Sandbox は網をつないで起こす`・
+  `# Scenario: 何かを入れる前に、塞いで確かめる`・
+  `# Scenario: 通す外の宛先は、私設網と手元の網の範囲を含まない`（`--print-net-rules` の出力に、自己試験が数から組んだ見本を当てる）・
+  `# Scenario: 塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに断る`・
   `# Scenario: 私設網か手元の網に届いたら、外向きを全部塞いで確かめ直す`・
   `# Scenario: 全部塞いでも届くなら、何も入れずに断る`・
+  `# Scenario: 外にだけ届かなければ、続けて案内に書く`・
   `# Scenario: 立てるときは、塞いで確かめ、サーバを入れ、窓を開き、利用者のセッションで PC の収集アプリを起こしてから案内を置く`・
   `# Scenario: PC の相手は、本人の合言葉でなく、その場の合言葉で入れる`・
   `# Scenario: Sandbox の中のコマンドは、利用者のセッションで走り、出力が返る`（`tools/tsukau/pc.sh exec` を偽の `wsb` で）・
@@ -169,12 +178,12 @@
   `# Scenario: 片付けは、中のログを写してから自分の Sandbox だけを止める`・
   `# Scenario: 片付けは、自分の Sandbox だけを止める`・
   `# Scenario: 止めた後も自分の Sandbox が動いていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 23'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 27'` rc=0
 
 ## Task 8: 本物の Sandbox で PC の相手を立てて片付ける
 
 - [ ] 8.1 `tools/tsukau/env-hook.sh real-check-pc` を作る: 始めに `tools/tsukau/build-pc.sh "$TMPDIR/pc"` で一時の置き場に配る zip を組んで `ASHIATO_TSUKAU_PC_ZIPS` で渡し（`target` が温まっていても数分かかる。review/spec.md R16）、一時の `<state>` と `$TSUKAU_EVIDENCE` で `up <repo> <state> pc` を走らせ、
-  `ready` に `UNAVAILABLE=` が無く `INFO_NET=` が「塞いだ」であること・Sandbox の中からこの PC の私設網の宛先と手元の網の宛先に届かないこと・`api.github.com` が引けて HTTPS で届くこと（`pc.sh exec` で）・Sandbox の中でサーバが loopback で応えること（`pc.sh exec` で healthz）・PC の収集アプリのプロセスがあることを見て、`down` を走らせ、rc=0 と、終わった後に動いている Sandbox が無いことを見る。
+  `ready` に `UNAVAILABLE=` が無く `INFO_NET=` が「塞いだ」であること・塞ぐ前には届いたこの PC の私設網と手元の網の一時の口に、塞いだ後の Sandbox の中から届かないこと（`tailscale ip -6` があれば IPv6 も）・`api.github.com` が引けて HTTPS で届くこと（`pc.sh exec` で）・Sandbox の中でサーバが loopback で応えること（`pc.sh exec` で healthz）・PC の収集アプリのプロセスがあることを見て、`down` を走らせ、rc=0 と、終わった後に動いている Sandbox が無いことを見る。
   見る前に `echo "== Scenario: 本物の Sandbox で、私設網と手元の網を塞いだまま配る形が入り、片付けで残らない"` を出す。塞いだ後に名前が引けない・外の HTTPS が通らない・インストールが通らない・私設網か手元の網に届く、のどれかなら、design D6 の反転条件に当たったと `review/` に書いて止める（A として人間に返す）。
   結果を `premises.md` の「Sandbox の中のファイアウォールで、私設網と手元の網への宛先だけを塞げる」の行に書き、確かさを 5 にする
   検証: `bash -c 'out="$(tools/tsukau/env-hook.sh real-check-pc)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物の Sandbox で、私設網と手元の網を塞いだまま配る形が入り、片付けで残らない"'` rc=0
@@ -183,32 +192,42 @@
 
 - [ ] 9.1 `tools/tsukau/env-hook.sh` に携帯の相手（design D22（仮）・D23（仮）・D24（仮）・D25・spec の携帯の Requirement）と `tools/tsukau/phone.sh`（`shell` / `shot` / `ui`）を書く。`up` の順:
   `tools/emulator-start.sh` を読み込み `emu_check_kvm`（開けなければ `UNAVAILABLE=`。何も起こさない）→ SDK の `emulator`・`adb`・JDK が無ければ `UNAVAILABLE=` →
-  `adb devices` の `emulator-*` に AVD `ashiato-tsukau-api35` のものがあれば `UNAVAILABLE=`（AVD の名前は `getprop ro.boot.qemu.avd_name`。`tools/android-emulator.sh` の `emu_reject_existing_avd` と同じ読み方）→
-  画面の相手と同じ形で `<state>/tree` にその回の専用の環境を立てる（Task 6 の部品を使う）→ その木の `collector-android/local.properties` にその回の合言葉と利用者 id を書き、`-Pashiato.baseUrl=http://127.0.0.1:18787` で `:app:assembleDebug`（`tools/record-env.sh` の 166〜201 行と同じ形。`--repo` の `.env` と `~/.gradle/gradle.properties` の接続先を使わない）→
-  AVD が無ければ作る（`tools/android-emulator.sh` と同じ image）→ 空いている偶数の port で `emu_start ashiato-tsukau-api35 -port <port> -no-window -wipe-data -no-snapshot-save -no-boot-anim`・serial と PID を `<state>` へ → `emu_wait_boot` →
-  `adb -s <serial> shell svc wifi disable`・`svc data disable` → 網の確かめ（端末の中から `api.github.com` を引く・外の IP へ TCP。届けば `UNAVAILABLE=`。何も入れない）→ `adb -s <serial> reverse tcp:18787 tcp:<その回の API の port>` →
+  エミュレータのプロセスの引数（`ps -eo pid,args` で `-avd ashiato-tsukau-api35` を語として含むもの）があれば `UNAVAILABLE=`（ほかの端末に `adb -s` で問わない。`emu_reject_existing_avd` は使わない）→
+  画面の相手と同じ形で `<state>/tree` にその回の専用の環境を立てる（Task 6 の部品を使う）→ その木で `-Pashiato.baseUrl=http://127.0.0.1:18787 -Pashiato.apiToken=<その回の API_TOKEN> -Pashiato.userId=<その回の利用者 id>` で `:app:assembleDebug`（design D23（仮）。`--repo` の `.env` と `~/.gradle/gradle.properties` の値を使わない）→
+  AVD が無ければ `avdmanager` で作る（`tools/android-emulator.sh` と同じ image）→ 空いている偶数の port で `emu_start ashiato-tsukau-api35 -port <port> -no-window -wipe-data -no-snapshot-save -no-boot-anim`・serial と PID を `<state>` へ → `emu_wait_boot` →
+  切る前の確かめ（端末の中から、ホストの loopback の別名の宛先（字面で書かず数から組む）のその回のサーバの port に届く。届かなければ `UNAVAILABLE=`）→ `adb -s <serial> shell svc wifi disable`・`svc data disable` →
+  切った後の確かめ（既定のネットワークが無い（`dumpsys connectivity` の「Active default network」が `none`。`ip route` は使わない）・同じ宛先に届かない。外へは問わない。外れれば `UNAVAILABLE=`。何も入れない。design D24（仮）・D26（仮））→ `adb -s <serial> reverse tcp:18787 tcp:<その回の API の port>` →
   `install` → `am start` で起こす → 案内（`phone.sh shell`・`phone.sh shot`・`phone.sh ui`・`ui` で探して `input tap` で押す例・その回の画面の URL と合言葉・サーバのログの場所・網は切ってある・触らないもの）を書いて `ready`（`GUIDE=`・`LOG_SERVER=`・`INFO_COMMIT=`）。
   `down`: `adb -s <serial> logcat -d` を `$TSUKAU_EVIDENCE/phone-logs/` へ → `adb -s <serial> emu kill`（残れば `emu_stop_own`）→ その回の compose project を `down -v` → `<state>/tree` を消す → serial が `adb devices` に残れば rc≠0。
-  `--self-test` に足す印（偽の `adb`・`emulator`・`gradlew` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡す。偽の `adb` は受けた引数を全部記録し、`devices` と AVD の名前と網の確かめに試験が決めた答えを返す）:
+  `--self-test` に足す印（偽の `adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・`java`・`docker` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡す。偽の `adb` は受けた引数を全部記録し、`devices` と網の確かめに試験が決めた答えを返す）:
   `# Scenario: KVM を開けなければ、何も起こさずに断る`・
+  `# Scenario: エミュレータか SDK か JDK が無ければ、何も起こさずに断る`・
   `# Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る`・
-  `# Scenario: 携帯の相手の APK は、その回のサーバ向けに、本人の合言葉を使わずに組む`・
-  `# Scenario: エミュレータは画面を出さず、前のデータを消して起こし、自分の serial だけを操作する`・
+  `# Scenario: 携帯の相手の APK は、<state>/tree で組む`・
+  `# Scenario: 携帯の相手の APK の接続先は、端末の中のその回のサーバである`・
+  `# Scenario: 携帯の相手の APK に、本人の資格情報は入らない`・
+  `# Scenario: エミュレータは画面を出さず、前のデータを消して起こす`・
+  `# Scenario: 携帯の相手は、自分の serial だけを名指す`・
   `# Scenario: 網を切って確かめてから、サーバへの道を渡し、APK を入れて案内を置く`・
-  `# Scenario: 網を切れたと確かめられなければ、APK を入れずに断る`・
-  `# Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る`（`tools/tsukau/phone.sh shell` を偽の `adb` で）・
+  `# Scenario: 切った後も既定のネットワークがあれば、APK を入れずに断る`・
+  `# Scenario: 切った後もホストに届けば、APK を入れずに断る`・
+  `# Scenario: 切る前に届かなければ、確かめられないとして APK を入れずに断る`・
+  `# Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る`・
   `# Scenario: 携帯の案内は、口と網と触らないものを書く`・
-  `# Scenario: 片付けは、端末のログを写してから自分のエミュレータだけを止める`・
+  `# Scenario: 片付けは、端末のログを写してから自分のエミュレータを止める`・
+  `# Scenario: 携帯の片付けは、ほかのエミュレータに触らない`・
+  `# Scenario: 携帯の片付けは、その回の project と木を消す`・
   `# Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 33'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 45'` rc=0
 
 ## Task 10: 本物のエミュレータで携帯の相手を立てて片付ける
 
 - [ ] 10.1 `tools/tsukau/env-hook.sh real-check-android` を作る: 一時の `<state>` と `$TSUKAU_EVIDENCE` で `up <repo> <state> android` を走らせ（サーバと画面は `<state>/tree` で組む）、
-  `ready` に `UNAVAILABLE=` が無いこと・端末の中から外の宛先に届かないこと（`phone.sh shell` で）・端末の中の `http://127.0.0.1:18787` でその回のサーバが応えること・携帯の収集アプリのプロセスがあること（`pidof`）を見て、`down` を走らせ、rc=0 と、終わった後に AVD `ashiato-tsukau-api35` のエミュレータが無いことを見る。
-  見る前に `echo "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない"` を出す。網を切った端末で `adb reverse` の道が通らない・網を切れない・900 秒の中で立たない、のどれかなら、design D22（仮）・D24（仮）の反転条件に当たったと `review/` に書いて止める（A として人間に返す）。
-  結果を `premises.md` の「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」の行に書き、確かさを 5 にする（立てるのにかかった秒数も書く）
-  検証: `bash -c 'out="$(tools/tsukau/env-hook.sh real-check-android)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない"'` rc=0
+  `ready` に `UNAVAILABLE=` が無いこと・端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に届かないこと（`phone.sh shell` で）・端末の中の `http://127.0.0.1:18787` でその回のサーバが応えること・携帯の収集アプリのプロセスがあること（`pidof`）を見て、`down` を走らせ、rc=0 と、終わった後に AVD `ashiato-tsukau-api35` のエミュレータが無いことを見る。
+  続けて、同じく立てた端末で `tools/tsukau/phone.sh shot`（PNG が 1 枚置かれる）・`phone.sh ui`（携帯の収集アプリのパッケージ名を含む XML）・`phone.sh shell 'input keyevent KEYCODE_HOME'`（rc=0）を走らせてから片付ける。
+  見る前にそれぞれ `echo "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない"` と `echo "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"` を出す。網を切った端末で `adb reverse` の道が通らない・網を切れない・900 秒の中で立たない、のどれかなら、design D22（仮）・D24（仮）の反転条件に当たったと `review/` に書いて止める（A として人間に返す）。
+  結果を `premises.md` の「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」「`svc wifi disable` と `svc data disable` で…」「携帯の相手は…900 秒の中で立つ」（かかった秒数）「画面を出さない（`-no-window`）エミュレータで…」の 4 行に書き、確かさを 5 にする
+  検証: `bash -c 'out="$(tools/tsukau/env-hook.sh real-check-android)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"'` rc=0 / `bash -c 'test "$(grep -E "^\| (網を切ったエミュレータで|\`svc wifi disable\`|携帯の相手は、その回の環境|画面を出さない)" openspec/changes/ch21-trial-use-before-verify/premises.md | grep -c "| 5 |$")" -eq 4'` rc=0
 
 ## Task 11: CI・文書・harness2 への依頼
 

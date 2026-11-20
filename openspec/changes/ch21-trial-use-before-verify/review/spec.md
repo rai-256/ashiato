@@ -22,7 +22,7 @@
 - 提案: Scenario を足す:「検査を走らせられなければ、全部の題を伏せる」（差し込みで gitleaks の場所を無い所に向け、出力が全部「（題は手元の結果に）」）・「確認バッチの作業ツリーの .env の値と利用者名を含む題は伏せる」（`.env` は自己試験が作る）。
   写した回の Scenario の題に `/home/someone/x` を足し、写した段落でも伏せられていることを見る。
   tasks.md:44 の「秘密の形の題だけを外す」を消し、gitleaks が無い木では自己試験そのものを落とす（CI の `rust` の job は取れる）。`.env` を読む場所は「`--env <ファイル>` か cwd」と台本の口で決め、処置にも渡させる（D15 の 6）
-- 処置: fixed D19 仮 —— 伏せる側に倒した。spec に Scenario「利用者名と .env の値を含む題は伏せる」「検査を走らせられなければ、全部の題を伏せる」を足し、`/mnt/`・`/Users/`・`\\` を「私的な形を含む題は伏せる」に入れた。Task 2.1 は gitleaks を飛ばさない（CI は取れる）。写した題も通し直す（D10・Scenario「写した題も、公開の題の台本を通し直す」）
+- 処置: fixed D28 仮 —— （旧 D19。Q11 の答えで写す道が無くなり D28 に立て直した）伏せる側に倒した。spec に Scenario「利用者名と .env の値を含む題は伏せる」「検査を走らせられなければ、全部の題を伏せる」を足し、`/mnt/`・`/Users/`・`\\` を「私的な形を含む題は伏せる」に入れた。Task 2.1 は gitleaks を飛ばさない（CI は取れる）。写した題も通し直す（D10・Scenario「写した題も、公開の題の台本を通し直す」）
 
 ## R2. Q4 の推奨が名指す「足す試験の名前」が、D15・harness2 への依頼・spec のどこにも無く、処置の Scenario は根拠とログが公開に出ないことを見ていない
 - 成果物: openspec/changes/ch21-trial-use-before-verify/design.md・harness2-request.json・specs/verify-environment/spec.md
@@ -191,6 +191,7 @@
   design.md:154（D15 の 9）と harness2-request.json の what は「本人の「通らなかった」の後の fix の後にも、席の結果の段落を手順書に差し替える（今は録画などだけを差し替える）」で、CH21 の依頼で fix の後の手順書が変わる
 - kind: conflict
 - 提案: CH21.md の 2 つ目を「fix で直す道と、違和感の問いを issue にする道は残す（CH21 の依頼は fix の後に席の段落を差し替えることだけを足す。D15 の 9）」に直す
+- 処置: fixed D15 仮 —— docs/changes/CH21.md を 「fix の道と違和感の issue の道は残す。依頼が足すのは fix の後に席の段落を差し替えることだけ（D15 の 9）」に直した
 
 ## 観点ごとの該当なし・確かめた範囲
 
@@ -205,9 +206,175 @@
 - 観点 6: 該当なし（`spec --draft` の第 1 回の先読みで、本人の答えはまだ無い。answers.md は書かない）
 
 ## 観点 7: 走っている change との前提関係
+- ch22-soak-install-online-ci / PR の CI は、インストールと更新の試験の後に、配る形を外につながる状態で初めから入れて 5 分置く: 前提（CH21 の distribution の MODIFIED が、名指しの (2) でこの Requirement の名前を引いている。CH22 の ADDED が無い正典に入ると、指す先の無い名指しになる）
+- ch22-soak-install-online-ci / 更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る: 前提（CH21 の MODIFIED は、CH22 の delta の本文を写して (3) を足したもの。`git show origin/main:openspec/changes/ch22-soak-install-online-ci/specs/distribution/spec.md` との差は、SHALL の 1 文の「2 つ」→「3 つ」と (3)、導出元の CH21 の 1 行だけで、11 の Scenario は一字一句同じ。CH22 の下流が本文を変えれば、CH21 の写しも書き直しになる）
 
-観点 7: 該当なし（spec_overlap.py candidates が 0 件）。CH19（`emulator-startup`）・CH22（`distribution`）・CH23（`dependency-vulnerability-scan`）は `verify-environment` を持たない。
-ファイルの上では、CH22（`origin/feat/ch22-soak-install-online-ci`）は `.github/workflows/ci.yml` の `rust` の job の `update-apply-install.sh --self-test`（149 行）の後に 1 行足し、CH21 が足す `check-private.sh --self-test`（158 行）の後とは別の位置。
-CH23 は `docs/testing.md` を 2 行、CH22 は 7 行変える。CH21 の Task 9.2 は 1 節を足すだけで、置く位置は書かれていないが、同じ行を取り合うことは無い。Q8 で外につなぐ案が選ばれたときだけ CH22 が前提になる（design.md:74・proposal.md:49-51）
-- 処置: fixed D15 仮 —— docs/changes/CH21.md を 「fix の道と違和感の issue の道は残す。依頼が足すのは fix の後に席の段落を差し替えることだけ（D15 の 9）」に直した
+requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立てない。
+
+## 第 2 版（spec --answers Q8,Q11 --iwakan。2026-11-20）
+
+### 機械の検査（2026-11-20、docs/ch21-upstream の 89f553a73 の上）
+
+- `openspec validate ch21-trial-use-before-verify --strict` → `Change 'ch21-trial-use-before-verify' is valid`
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`
+- `python3 scripts/check_scenarios.py . ch21-trial-use-before-verify` → `scenarios: FAIL (担保なし 86 件 / 名無しの確認待ち 0 件)`。下流の前なので、担保が無いのは予定どおり。
+  内訳は verify-environment が 84 件、distribution が 2 件（「網に出る試験を走らせる手順は、握手の試験の 1 つだけである」「更新係の外向きの塞ぎを外す手順は、置く段の 1 つだけである」）。
+  distribution の 2 件は CH22 の delta と同じ名前で、印は CH22 の下流が置く（CH21 の tasks に印は無い。requires の順で CH22 が先に入る前提）。
+  tasks.md の `# Scenario:` と `== Scenario:` の名前は、python で抜き出して突き合わせると、spec の 84 本と一字一句合う。数の下限も合う: public-title.sh 5、verify-batch.sh 8 → 33 → 36 → 40、env-hook.sh 11 → 23 → 33。本物で確かめる口は 6 本
+- `python3 scripts/review_triage.py . ch21-trial-use-before-verify` → 書く前は `triage: OK`（指摘 35 件）。R20 以降は処置が無いので落ちる（予定どおり）
+- `python3 scripts/spec_overlap.py candidates . ch21-trial-use-before-verify` → 2 件（CH22 の 2 つの Requirement）。上の観点 7 で判定した
+
+## R20. 携帯の相手で「専用の AVD が動いているか」を読む方法が、「ほかの serial を名指さない」Scenario と両立しない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md・design.md
+- 根拠: spec.md:406 と :421 は、専用の AVD（`ashiato-tsukau-api35`）のエミュレータが動いていれば断るとしている。tasks.md:186 は AVD の名前を「`getprop ro.boot.qemu.avd_name`。`tools/android-emulator.sh` の `emu_reject_existing_avd` と同じ読み方」で取るとしている。
+  ところがその関数（tools/android-emulator.sh:44-58）は、`adb devices` の `emulator-*` すべてに `adb -s "$serial" shell getprop …`（取れなければ `emu avd name`）を打つ。
+  一方、spec.md:433 の Scenario は GIVEN に `emulator-5554` を置き、THEN で「`devices` 以外の呼び出しはどれも自分の serial を `-s` に持ち、`emulator-5554` を名指す呼び出しは無い」と言う。tasks.md:15 と design.md:224（D22「`adb devices` だけは名指ししない」）も同じことを言う。
+  tasks 9.1 のとおりに作ると、この Scenario は落ちる。Scenario を守ると、adb では AVD の名前を読めない。
+  さらに tasks.md:74（4.1）の「打ち切った後の残り」の勘定は「`adb devices` と AVD の名前」で数えるが、Global Constraints（tasks.md:18・:20）には偽の `adb` があるのに、4.1 の偽物の一覧（tasks.md:78）には `adb` が無い。
+  9.1 は「AVD が無ければ作る」（tasks.md:188）が、`avdmanager` は偽物の一覧（tasks.md:18・:20・:192）のどこにも無い。手元で走らせた自己試験が本物の avdmanager に触りうる（tasks.md:19 の「本物のエミュレータを使わない」）
+- kind: technical
+- 提案: どちらかに決めて揃える。
+  (a) ほかの serial には読むだけの問い（`shell getprop ro.boot.qemu.avd_name`・`emu avd name`）を許し、spec.md:433 の THEN を「入れる・網を切る・reverse・止める呼び出しは、自分の serial だけを名指す」に書き直す。
+  (b) adb を使わず、エミュレータのプロセスの `-avd ashiato-tsukau-api35` で見つける。
+  あわせて、4.1 の偽物に `adb`、9.1 の偽物に `avdmanager` を足す
+- 処置: fixed D22 仮 —— (b) を採った。専用の AVD が動いているかはエミュレータのプロセスの引数で見て、ほかの端末に adb で問わない（spec の携帯の Requirement と Scenario「専用の AVD のエミュレータが動いていれば、立てずに断る」・design D22・tasks 4.1・9.1）。4.1 の偽物に `ps`・`adb`、9.1 と Global Constraints の偽物に `avdmanager`・`ps`・`java` を足した
+
+## R21. 違和感の本体「スマホも操作する」を、本物のエミュレータで確かめる Scenario が無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠: 本人の補足（逐語。deep.md:100）は「スマホも操作するようにしてください。エミュレータとかで」。
+  本物の Scenario（spec.md:465-467）と Task 10.1（tasks.md:208）が見るのは、`UNAVAILABLE=` が無いこと・外に届かないこと・サーバが応えること・プロセスがあること・片付けの 5 つで、席が端末を操作できるかは見ていない。
+  本物で使う口は、網の確かめの `phone.sh shell`（tasks.md:208）だけで、`shot`・`ui`・`input` は本物では通らない。
+  操作の口（`phone.sh shell`・`shot`・`ui`、`input tap`。design.md:253-254・D25）のうち、Scenario で振る舞いを見るのは偽の `adb` での `shell` だけ（spec.md:445-448）。`shot` と `ui` は、案内に文字があるかを見るだけ（spec.md:453）。
+  画面を出さない（`-no-window`）エミュレータで `exec-out screencap` と `uiautomator dump` が動くこと（design.md:225 が前提にしている）は、premises.md にも行が無い
+- kind: technical
+- 提案: 本物の Scenario を 1 本足す:「本物のエミュレータで、`phone.sh shot` が PNG を 1 枚撮り、`phone.sh ui` が携帯の収集アプリのパッケージ名を含む XML を返し、`phone.sh shell 'input keyevent KEYCODE_HOME'` が rc=0 で終わる」。
+  これを Task 10.1 の `echo "== Scenario: …"` に足す
+- 処置: fixed tasks.md 10.1 —— 本物の Scenario「本物のエミュレータで、席の口で端末を操作できる」（`phone.sh shot`・`ui`・`input`）を spec に足し、10.1 の `== Scenario:` と検証に足した。`-no-window` で写しと UI の木が取れることを premises.md に確かさ 1 で足した
+
+## R22. Q8 の守り「塞いだことを確かめてから渡す」が、待ち受けの無い port に当てると、何も塞がなくても通る
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md・tasks.md
+- 根拠: spec.md:331・design.md:82・tasks.md:153 は「私設網の宛先と手元の網の宛先へ TCP でつなぎ、届かないこと」とだけ書く。どの port に当てるか、塞ぐ前に届くことを確かめるか（対照）が決まっていない。
+  premises.md:30 自身が、第 2 版の実測で「手元の網の <宛先>:80 は届かなかった（その宛先に何も無いだけかもしれない）」と書いている。待ち受けの無い port に当てれば、塞ぐ台本が何もしなくても「届かない」になる。
+  偽の `wsb` の Scenario（spec.md:349-367）は決まった答えを返すだけで、本物の Scenario（spec.md:401）も同じ当て方で「届かず」を見る。このため、塞ぐ台本が空でも Task 8 は緑になりうる。
+  Q8 は失う側のある問い（deep-questions.json の Q8 は `kind: irreversible`・`loss: exported`）で、選ばれた案の得は「塞げたことを確かめてから渡す」こと
+- kind: irreversible
+- loss: exported
+- 提案: 確かめを「塞ぐ前に同じ宛先と port に届く（つながるか、拒否が返る）→ 塞いだ後は時間切れ」の対にする。塞ぐ前に届かない宛先しか無ければ「確かめられない」として全部塞ぐ側（さらに `UNAVAILABLE=`）へ倒す。
+  Requirement に書き、Scenario を足す:「塞ぐ前の確かめが届かなければ、確かめられないとして全部塞ぐ」（偽の `wsb` の答えで）。拒否（届いた）と時間切れ（塞がれた）を分けて読むことも書く。
+  塞ぐ前の確かめは、Sandbox から私設網へ 1 回つなぐことになる。代わりに、待ち受けがあることをホストの側（WSL が自分の宛先と port を見る）で確かめる形もある。どちらにするかは呼び出し元が選ぶ
+- 処置: fixed D26 仮 —— 確かめを対照つきにした: その回だけ立てた一時の口（この PC の私設網と手元の網の宛先）に、塞ぐ前は届き、塞いだ後は時間切れになることを見る。塞ぐ前に届かなければ何も入れずに `UNAVAILABLE=`。確かめで届く先は自分の一時の口だけなので失うものは無い（spec の PC の Requirement・Scenario「塞ぐ前に一時の口に届かなければ、確かめられないとして何も入れずに断る」・design D6・D26・tasks 7.1・8.1）
+
+## R23. 塞いで通す範囲（私設網・私用の範囲・リンクローカル）の組み立てを見る Scenario が無く、本物の確かめはこの PC の宛先しか見ない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md・premises.md
+- 根拠: spec.md:330 は、外向きを既定で塞ぎ、私設網（tailscale の範囲）と手元の網（私用の範囲・リンクローカル）を除いた外だけを通すとしている。design.md:79 は IPv6 の私設網の範囲も挙げる。
+  範囲を組むのは Sandbox の中の PowerShell（tasks.md:152「範囲は数から組み、字面で書かない」）だが、自己試験は Linux で走り（tasks.md:18）、偽の `wsb` は走らせた台本の名前を記録するだけなので、範囲の中身はどの自己試験にも通らない。
+  本物の確かめ（spec.md:401・tasks.md:177）が当てるのは、この PC の私設網の IPv4（`tailscale ip -4`）・Windows 側の既定のゲートウェイ・この PC の手元の網のアドレスだけ。
+  私用の範囲の 1 つや IPv6 の私設網の範囲を除き忘れても、ほかの私設網の機器（本人の携帯など）に届く穴は、どの Scenario でも落ちない。
+  premises.md:9-11 の「確かさ 1 のまま本人のサーバへ届く道は無い」は、確かめで当てた宛先についてしか言えない
+- kind: irreversible
+- loss: exported
+- 提案: 通す範囲を env-hook.sh（bash）で数から組んで PowerShell に渡し、`env-hook.sh --print-net-rules` で出せるようにする。
+  Scenario「通す範囲は、私設網・3 つの私用の範囲・リンクローカル・マルチキャスト・IPv6 の私設網を含まず、外の宛先の見本を含む」を足す（見本は自己試験が数から組む）。本物の確かめには `tailscale ip -6` も足す。
+  premises.md:11 は「当てた宛先には届かないことを毎回確かめる。ほかの私設網の機器への守りは規則（確かさ 1）だけ」に改める
+- 処置: fixed D29 仮 —— 通す外の範囲を env-hook.sh が bash で数から組み `--print-net-rules` で出す形にし、Scenario「通す外の宛先は、私設網と手元の網の範囲を含まない」（見本を当てる）を足した。本物の確かめに `tailscale ip -6` を足し、premises.md の冒頭を「当てた宛先は毎回確かめる。ほかの機器への守りは範囲の組み立てと規則まで」に改めた（design D6 にも守りの範囲を書いた）
+
+## R24. 携帯の網の確かめは「外の宛先」だけで、エミュレータからホストの loopback（エミュレータがホストに付ける別名の宛先）へ届かないことを見ていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md・premises.md
+- 根拠: spec.md:409 は「端末から外の宛先に届かないことを確かめ」、design.md:244 の確かめは `api.github.com` を引くことと外の IP への TCP。本物の Scenario（spec.md:467）も「外の宛先に届かず」だけを見る。
+  一方 docs/changes/CH21.md:56 は「携帯を試すエミュレータはどこへもつながない（サーバへは `adb reverse` の道だけ）」と言う。
+  エミュレータには、ホストの loopback を指す別名の宛先がある（Android のエミュレータの決まり）。そこには、確認バッチの環境など、ホストで待ち受けるものが居る。`svc wifi disable` と `svc data disable` でこの道も切れるかは確かめておらず、premises.md にも行が無い（premises.md:41 は `adb reverse` の道だけ）。
+  当て方も R22 と同じで、待ち受けの無い port に当てれば何もしなくても通る
+- kind: technical
+- 提案: 確かめに、ホストの loopback の別名の宛先を足す（字面は数から組む）。当てるのはその回の専用環境の port で、塞ぐ前と後の対にする（R22 と同じ）。
+  Scenario「網の確かめで、ホストに届くと答えれば、APK を入れずに断る」を足す。premises.md に「`svc wifi disable`・`svc data disable` で、外とホストの loopback への道が切れる」を確かさ 1 で足す（確かめるのは Task 10）
+- 処置: fixed D24 仮 —— 携帯の確かめを、切る前にホストの loopback の別名の宛先のその回のサーバの port に届くこと（対照）・切った後に届かないことと既定の経路が無いことの対にした。外へは問わない（問うこと自体が外へ出る）。Scenario「切った後もホストに届けば…」「切った後も外への経路があれば…」「切る前に届かなければ…」を足し、premises.md に `svc` で道が切れるかを確かさ 1 で足した
+
+## R25. premises.md に、携帯の相手が寄りかかる確かめていない前提の行が無く、Task 10.1 が指す行の名前が premises.md に無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/premises.md・tasks.md
+- 根拠: design.md:237（D23（仮））は APK の組み立てを `up` の中（立てる上限 900 秒）に置く。PC の zip では、同じ理由で組み立てを `up` の外に出している（design.md:73「入れると `ready_timeout_s`（15 分）に数えられ、`target` が冷えた回は毎回「立てられなかった」になる」）。
+  携帯の相手は、毎回まっさらな `<state>/tree` で組む（gradle の `build/` が毎回冷えている）。これに `-wipe-data` の冷えた起動と、専用環境の `stack.sh up` が重なるが、900 秒に収まるかは測っていない。premises.md に行が無く、tasks.md:209 は反転条件に挙げるだけ。
+  ほかに、`svc` で端末の網を切れること（D24 が寄りかかる。R24）と、`-no-window` で写しと UI の木が取れること（R21）も行が無い。
+  tasks.md:210 は「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」という行に結果を書くとしているが、premises.md:41 の行は「端末の網（Wi-Fi と携帯の回線）を切っても、`adb reverse` の道で…ホストのサーバに届く」で、名前が合わない
+- kind: premise
+- 提案: premises.md に 3 行を確かさ 1 で足す（携帯の相手は 900 秒の中で立つ／`svc` で外とホストへの道が切れる／`-no-window` で `screencap` と `uiautomator dump` が動く）。どれも確かめ方は「Task 10 で測る」。
+  tasks.md:210 の行の名前を premises.md:41 に合わせる。10.1 の検証に、その行の確かさが 5 になったことを grep で見る 1 つを足す
+- 処置: rejected: 前提が成り立たない疑いは実物で反証した（行は足した）。spec の段に使い捨ての AVD（同じ image・`-no-window -wipe-data`）で、`svc wifi disable`・`svc data disable` で外への道（`dumpsys connectivity` の既定のネットワークが `none`）とホストの loopback の別名への道が切れ、`adb reverse` の道は通り、画面なしで `screencap`・`uiautomator dump`・`input` が動き、起動が 52 秒であることを確かめた（premises.md の 4 行。3 行は確かさ 5、900 秒の行は起動だけ測って確かさ 4。残る APK の組み立ての秒数は Task 10 が測り、収まらなくても env_failed で失うものは無く D22・D23（仮）の反転条件で直す）。`ip route` は切る前から既定の経路を見せないと分かったので、確かめを `dumpsys connectivity` に直した（spec・design D24・D26・tasks 9.1）。tasks 10.1 の行の名前も premises.md と合わせた
+
+## R26. 第 2 版で足した本文のうち、Scenario が言っていないものがある
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md
+- 根拠:
+  - 目録の `earlier` の `run`（spec.md:150・:275）。harness2 の処置は、この `run` から前の回の判定を引き継ぐ（design.md:179、D15 の 8。harness2-request.json の what）。ところが Scenario（spec.md:281・:286）が見るのは `id` と `tag` だけで、`run` が前の回の実行のフォルダを指すかは見ていない（処置との契約の要）
+  - PC: 「外にだけ届かなかったときは続け、案内にそう書く」（spec.md:331）と `INFO_NET=`（tasks.md:156）に Scenario が無い
+  - 携帯: 「エミュレータか SDK か JDK が無い」ときに断ること（spec.md:406）と、片付けでその回の compose project を消すこと（spec.md:412。spec.md:458 は `<state>/tree` だけを見る）に Scenario が無い
+  - 打ち切った後の残りに専用の AVD のエミュレータを数えること（spec.md:83）。spec.md:131-134 の Scenario は compose project でしか見ない
+  - 携帯の段落が「携帯: 」で始まり、画面・PC・携帯の順で並ぶこと（spec.md:173・design.md の D11）。席を回した携帯の段落を見る Scenario が無い（spec.md:202 は「回さなかった」の文言だけ）
+  - 携帯の APK に入る資格情報は、`ashiato.apiToken` と `ashiato.userId` である（collector-android/app/build.gradle.kts:194・:196）。録画の形は、`.env` の `API_TOKEN` と `ASHIATO_USER_ID` を `local.properties` に書く（tools/record-env.sh:182 あたり）。
+    ところが spec.md:426 の GIVEN は、`--repo` の `.env` に `WEB_PASSWORD` しか置かない。`--repo` の `.env` の `API_TOKEN` を写す実装でも、この Scenario は通る。手で呼ぶ `/tsukau` の `--repo` は本物の `.env` を持つので、第 1 版の R10 と同じ型になる。
+    また、資格情報は gradle の property が `local.properties` より先に読まれる（build.gradle.kts:22-28）。spec.md:408 が外しているのは「接続先」だけ
+  - design.md:226（D22）は片付けで「収集アプリの送信の記録（`run-as` で読める範囲）」も写すとするが、spec.md:412 と tasks.md:191 は `logcat` だけ。design が spec より多くを言っている
+- kind: technical
+- 提案: 1 つずつ Scenario を足す。資格情報は、spec.md:426 の GIVEN に本人の `API_TOKEN` と利用者 id の見本を足し、記録と APK の組み立ての引数・`local.properties` のどこにも無いことを見る。とくに `earlier` は「`earlier` の `run` は、前の回の目録の `run` と同じ絶対パスである」を足す。D22 の `run-as` は、spec に足すか design から外すかを揃える
+- 処置: fixed specs/verify-environment/spec.md —— Scenario を足した: 「目録の earlier の run は、前の回で席を呼んだ実行のフォルダである」「外にだけ届かなければ、続けて案内に書く」「エミュレータか SDK か JDK が無ければ、何も起こさずに断る」「携帯の片付けは、その回の project と木を消す」「打ち切った後に専用の AVD のエミュレータが残っていれば、片付けに残りがあると書く」「携帯の段落は「携帯: 」で始まり、画面・PC・携帯の順に並ぶ」「携帯の相手の APK に、本人の資格情報は入らない」（`API_TOKEN`・利用者 id を GIVEN に置き、資格情報は `-P` で渡して gradle.properties に負けない形を Requirement と design D23 に書いた）。D22 の `run-as` は design から外し logcat だけに揃えた
+
+## R27. 新しく足した携帯と PC の Scenario が、R14 と同じく 2 つ以上の主張を束ねている
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠:
+  - spec.md:425-428 の主張は 4 つ（`<state>/tree` で組む・接続先・本人の合言葉が無い・`--repo` が変わらない）
+  - spec.md:430-433 は、起動の引数と、自分の serial だけを名指すことの 2 つ
+  - spec.md:455-458 の主張は 4 つ（logcat が止める前・写したファイル・`emulator-5554` を名指さない・`<state>/tree` が無い）
+  - spec.md:349-352 は、`Networking` を書かないことと、塞ぐ・確かめるが入れる前であることの 2 つ
+  
+  どれも片方だけが通っても、印の名前は同じなので緑になる（R14 の処置で、PC の片付けは 2 本に分けてある。spec.md:384-392）
+- kind: technical
+- 提案: R14 と同じく 2 本ずつ（:425-428 は 3 本）に分け、tasks.md の 7.1・9.1 の印の一覧と数の下限（23・33）を直す
+- 処置: fixed specs/verify-environment/spec.md —— 束ねた Scenario を分けた（APK は「<state>/tree で組む」「接続先は…」「本人の資格情報は入らない」の 3 本、起動は「画面を出さず…」「自分の serial だけを名指す」、片付けは「ログを写してから止める」「ほかのエミュレータに触らない」「project と木を消す」、PC は「網をつないで起こす」「何かを入れる前に、塞いで確かめる」）。tasks 7.1・9.1 の印と下限（27・45）を直した
+
+## R28. 手順書へ写すものの Requirement が「だけ」と言うのに、Q11 で足した文言を含んでいない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md
+- 根拠: spec.md:174 は、写すのを止まり方・件数・片付け・候補の番号と題「だけ」とし、spec.md:176-178 で決まった文言を全部並べる。
+  ところが Q11 の Requirement は、段落に「前の回で試した: <ID>（<前の tag>）」を並べ、「回さなかった（この回に新しく入った<相手>のものが無い）」で始めるとしている（spec.md:275）。どちらも :174-178 に無い。
+  確かめ直しの「直した候補を確かめ直した」（spec.md:307）も同じ。design.md:121-127 の D11 にも、この文言は無い。
+  :170 の Requirement のとおりに作ると、:275 の Scenario（spec.md:281・:286）と食い違う
+- kind: technical
+- 提案: spec.md:174 の写すものに「前の回で試したものの ID と tag」を足す。:178 の決まった文言に「回さなかった（この回に新しく入った<相手>のものが無い）」と「直した候補を確かめ直した」を足す。D11 も同じに揃える
+- 処置: fixed specs/verify-environment/spec.md —— 写すものに前の回で試したものの ID と tag を、決まった文言に「回さなかった（この回に新しく入った<相手>のものが無い）」「回さなかった（直した候補が無い）」「直した候補を確かめ直した」「前の回で試した: <ID>（<前の tag>）」を足した。design D11 も揃えた
+
+## R29. 仮の台帳と design の見出しに、推奨（同じ中身なら写す）の名残がある
+- 成果物: openspec/changes/ch21-trial-use-before-verify/provisional.jsonl・design.md
+- 根拠:
+  - provisional.jsonl:8 の D16 の `keeps` は「確かめ直しの後も通常の回は同じ中身でなければ全体を回す」で、Q11 の答え（新しく入ったものだけ）と違う
+  - provisional.jsonl:11 の D19 の `question` は「前の回から写した題をどうするか」、`chosen` は「写した題も public-title.sh を通し直す」のまま
+  - design.md:138 の D19 の見出しも「写した題も通し直す」のまま（本文の :141 は「写す道は無くなった」と書く）
+  
+  台帳は確認バッチで人間に見せるもので（CLAUDE.md「仮は台帳に載り…確認バッチで人間が見る」）、もう無い振る舞いを仮の決定として見せることになる。
+  なお、deep.md:76 の「D10（仮。木で比べる）」は、第 1 回の時点のレビューの対応の記録なので、指摘にしていない
+- kind: technical
+- 提案: `provisional.py` で D16 と D19 を今の中身で立て直す（D16 の keeps は「確かめ直しの後も、ふだんの回は新しく入ったものを試す（D21）」、D19 は写す側を外す）。design.md:138 の見出しから「写した題も通し直す」を外す
+- 処置: fixed D27 仮 —— provisional.py で D16 と D19 を resolve し、今の中身で D27（確かめ直し）・D28（検査できなければ全部伏せる）として立て直した。design の見出しと参照（proposal・tasks・harness2-request.json）も D27・D28 に直した
+
+## R30. tasks.md に古い Task 番号が残り、読む順に distribution の delta が無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md
+- 根拠: tasks.md:9 は「処置は依頼として置く（Task 9。design D15）」と書くが、依頼を置くのは Task 11.3（tasks.md:219。design.md:187 も「下流の Task 11」）で、Task 9 は携帯の相手。
+  tasks.md:3 の読む順は `specs/verify-environment/spec.md` だけを挙げ、この版で足した `specs/distribution/spec.md`（Q8 の答え）を挙げていない
+- kind: technical
+- 提案: tasks.md:9 を「Task 11」に直し、tasks.md:3 の読む順に `specs/distribution/spec.md` を足す
+
+### 第 2 版の観点ごとの確かめた範囲
+
+- 観点 1:
+  - Q8 の答え（外にはつなぎ、私設網と手元の網を塞ぐ）は、spec.md:325-401、distribution の (3)、design D6、tasks.md:14 と 7.1・8.1、CH21.md の壊してはいけないもの、proposal、premises に写っている。
+    「網を切る」は、PC については「塞げなければ網を切る側に倒す」（Q8 の選んだ案の確かめていないこと）と、携帯の D24（仮）にだけ残る。推奨のときの Scenario「Sandbox は網を切って起こす」と案内の「網を切って」は消えている。
+    Q8 の context は、外につなぐ案を選ぶと CH22 の後になることを本人に見せていた（deep-questions.json の Q8 の context）
+  - Q11 の答え（新しく入ったものだけ）は、spec.md:269-301、目録の `earlier`、確かめ直し（spec.md:307）、design D10・D21（仮）、harness2-request.json の what と thoughts、tasks 4.1・4.2 に写っている。
+    grep すると、`copied`・`copied_from`・`同じ中身なので…写した`・`7140` は、spec と harness2-request.json には残っていない。tasks には打ち消しとして残るだけ（tasks.md:77「`copied` は持たない」）。
+    design.md:102 と :119 は「7,140 から延びた」「前の版は捨てた」という経緯として書いているだけ。名残は R29 の台帳と見出しだけ
+  - 違和感（携帯）は、spec の差し込み口・範囲・呼び方・目録・段落・携帯の Requirement と、design D22〜D25・CH21.md・proposal・tasks 9・10 に写っている。数（9,360・1,860・360・2,400）は spec.md:138・:247・:263 の Scenario にある。
+    操作できることの本物での確かめは R21
+- 観点 3: proposal の Capabilities（verify-environment は Requirement 13、distribution は MODIFIED 1）と、`specs/` のディレクトリ・CH21.md の `capability: [verify-environment, distribution]` は合う。
+  distribution の (3) は Scenario を持たない。ただし、許す側の名指しで、「塞いで確かめた後にだけ外へつなぐ」は verify-environment の spec.md:349-352・:401 が見るので、指摘にしていない（守りの中身の弱さは R22・R23）
+- 観点 4: 依存の順（Task 6 の部品を Task 9 が使う。Task 4.1 の試した記録を 4.2 が読む）に逆向きは無い。本物の確かめ（Task 8・10・12）は、`/dev/kvm` と Sandbox が要ることが Global Constraints に書いてある
+- 観点 5: CH21.md の完了の判定は、携帯（Task 10）と Task 11.3・3 つの段落に更新されていて、spec・tasks と合う。依頼（逐語）の「携帯は外」を越える分は、deep.md の違和感の `→ 対応:` が決定として持つ
+- 仮の台帳: design の（仮）の 15 件（D1・D3・D5・D7・D9・D12・D15・D16・D18・D19・D20・D21・D22・D23・D24）と、provisional.jsonl の resolve されていない 15 件は合う。D10 は resolve 済みで、design の見出しからも（仮）が外れている
+- `go.json` には推奨の版（網を切った Sandbox・前の結果を写す）が残っている。直すのは `reading --carry` の受け持ちなので、指摘にしていない
+- 処置: fixed tasks.md —— Global Constraints の「Task 9」を「Task 11」に、読む順に `specs/distribution/spec.md` を足した
 

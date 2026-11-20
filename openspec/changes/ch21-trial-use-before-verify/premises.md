@@ -8,8 +8,8 @@
 
 **第 1 回の答え（2026-11-20）の後**: 本人は Q8 で「外にはつなぎ、私設網と手元の網を塞ぐ」を選んだ。外へ出るもの（更新係の問い合わせ・席が開いたサイトへの接続）は本人が受け入れた代償で、
 確かさの低い前提には載っていない。私設網と手元の網を塞げるか（確かさ 1）は、立てるたびに Sandbox の中から確かめてから渡し、届けば外も塞ぎ、それでも届けば何も入れない（design D6）ので、
-確かさ 1 のまま本人のサーバへ届く道は無い。本物で塞げるかは Task 8 で確かめる。
-携帯の相手（仕様への違和感で足した）は網を切ったエミュレータで、外へ何も出さない側（design D24（仮））。`adb reverse` の道だけでサーバに届くか（確かさ 1）は Task 10 で確かめる。
+当てた宛先（この PC の私設網と手元の網に、その回だけ立てた一時の口）には届かないことを毎回、塞ぐ前と後の対で確かめる（design D26（仮））。ほかの私設網の機器（本人の携帯など）への守りは、通す範囲の組み立て（自己試験で固定）と規則（確かさ 1）まで。本物で塞げるかは Task 8 で確かめる。
+携帯の相手（仕様への違和感で足した）は網を切ったエミュレータで、外へ何も出さない側（design D24（仮））。`adb reverse` の道だけでサーバに届くこと・`svc` で網が切れること・画面なしで写しと UI の木が取れることは、spec の段に使い捨ての AVD で確かめた（確かさ 5）。
 
 | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
 |---|---|---|---|---|---|
@@ -38,6 +38,9 @@
 | 計測テストのエミュレータは AVD `ashiato-api35` で、同じ AVD が動いていれば断る。確認バッチの準備は作った APK を繋がっているエミュレータ全部に入れる | 携帯の相手の取り合い（design D22（仮）） | `tools/android-emulator.sh` の 19・43〜60 行、`tools/verify-prep-device.sh` の 4〜22 行 | そのとおり。席は別の AVD `ashiato-tsukau-api35` を使い、serial を名指す | 実物（`tools/verify-prep-device.sh:8`） | 2 |
 | 録画の専用環境は、端末の中の `127.0.0.1:18787` に送る debug の APK を、木の `local.properties` に合言葉を書いて組み、`adb reverse` で API の port へ渡す | 携帯の相手の APK（design D23（仮）） | `tools/record-env.sh` の 166〜201・247〜252 行 | そのとおり | 実物（`tools/record-env.sh:182`） | 2 |
 | debug の組み立ての携帯の収集アプリは、`-PupdateCheckUrl` を渡さなければ更新の宛先が空で、配布元に問い合わせない | 携帯の相手が外へ出すもの（design D24（仮）） | `collector-android/app/build.gradle.kts` の 250〜256 行 | そのとおり（debug は `updateCheckUrl` か空。release は `https://api.github.com`） | 実物（`collector-android/app/build.gradle.kts:252`） | 2 |
-| 端末の網（Wi-Fi と携帯の回線）を切っても、`adb reverse` の道で端末の中の `127.0.0.1:18787` からホストのサーバに届く | 携帯の相手（design D24（仮）） | 確かめていない。`adb reverse` は adb の通り道を使い、端末の網を使わない（知識）。Task 10 で本物のエミュレータで見る | 不明。届かなければ A として人間に返す | 知識 | 1 |
+| 網を切ったエミュレータで、adb reverse の道だけでサーバに届く（端末の網（Wi-Fi と携帯の回線）を切っても、`adb reverse` の道で端末の中の `127.0.0.1:18787` からホストのサーバに届く） | 携帯の相手（design D24（仮）） | 確かめていない。`adb reverse` は adb の通り道を使い、端末の網を使わない（知識）。2026-11-20 に同じ使い捨ての AVD で、網を切った後に `adb reverse tcp:18787 tcp:<ホストの一時の待ち受け>` を張り、端末の中の `127.0.0.1:18787` へ `nc` でつないだ | 届く（網を切っても `adb reverse` の道は通る） | 実物 | 5 |
 | 0.1.0 の更新係の panic（#329）は、本人が自分の PC に配る形を入れて見つけた。外への HTTPS の握手で初めて起き、配る組み立ての CI は外への接続を塞いでいて素通りした。更新係は 1 時間ごとに確かめる | Q8（Sandbox の網）の得 | PR #329 の本文と `crates/updater/src/lib.rs:305` を読んだ | そのとおり（`api.github.com` との握手で panic） | 実物（GitHub の PR #329） | 2 |
 | 確認バッチの候補は 1 日に 1〜5 回作り直される | Q11（作り直しのたびに回すか）の費用 | `gh pr list` で `verify/` の PR の作られた日を数えた（10-30〜11-19） | 1 日 1〜5 本（平均 2 本ほど） | 実物 | 4 |
+| `svc wifi disable` と `svc data disable` で、端末から外への道と、ホストの loopback の別名の宛先への道が切れる | 携帯の相手（design D24（仮）・D26（仮）） | 2026-11-20（spec の段）に、使い捨ての AVD（同じ image・`-no-window -wipe-data`）で、ホストに立てた一時の待ち受けへ端末から `nc` でつなぎ、切る前と後を比べた。`ip route`・`ip route show table all`・`dumpsys connectivity` も見た | 切る前は届き、切った後は届かない。`dumpsys connectivity` の「Active default network」は切る前 `101`・切った後 `none`。**`ip route` は切る前から既定の経路を見せない**（Android は経路の表を分ける。`table all` の `default` は切った後も 2 行残る）ので、外への道は `dumpsys connectivity` で見る | 実物 | 5 |
+| 携帯の相手は、その回の環境・まっさらな木での APK の組み立て・前のデータを消したエミュレータの起動を合わせて、立てる上限の 900 秒の中で立つ | 携帯の相手（design D22（仮）・D23（仮）） | 2026-11-20 にエミュレータの起動だけを測った（同じ image・`-no-window -wipe-data -no-snapshot-save`）。APK の組み立てと環境の立ち上げは Task 10 で測る | エミュレータは 52 秒で `sys.boot_completed`。残りは不明。収まらなければ反転条件（組み立てを前に出す） | 実物（起動だけ） | 4 |
+| 画面を出さない（`-no-window`）エミュレータで、`exec-out screencap` と `uiautomator dump` が動く | 席が携帯を操作する口（design D22（仮）・D25） | 2026-11-20 に同じ使い捨ての AVD で走らせた。`input keyevent KEYCODE_HOME` も | 動く。写しは PNG（1080×2400）、UI の木は XML、`input` は rc=0 | 実物 | 5 |
