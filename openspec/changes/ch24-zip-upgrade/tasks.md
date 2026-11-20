@@ -81,10 +81,10 @@
 
 ## Task 3: 例外の表から zip の行を消し、検査で確かめる
 
-- [ ] 3.1 `osv-scanner.toml` から zip の 7 行（GHSA-m665-v7pm-7grj・GHSA-q7v9-x93c-xqv3・GHSA-8hxf-qr8p-62x4・RUSTSEC-2026-0367・RUSTSEC-2026-0368・RUSTSEC-2026-0369・RUSTSEC-2026-0429）を消す。
+- [x] 3.1 `osv-scanner.toml` から zip の 7 行（GHSA-m665-v7pm-7grj・GHSA-q7v9-x93c-xqv3・GHSA-8hxf-qr8p-62x4・RUSTSEC-2026-0367・RUSTSEC-2026-0368・RUSTSEC-2026-0369・RUSTSEC-2026-0429）を消す。
   ほかの行は変えない。PR の脆弱性の検査（新しく持ち込んだ勧告が 0 件・表の行の検査が通る・足した・変えた行が `なし`）を走らせる。検査が落ちたときも出力を残す。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; python3 -c "import tomllib,subprocess as s;b=tomllib.loads(s.run([\"git\",\"show\",\"$base:osv-scanner.toml\"],capture_output=True,text=True,check=True).stdout)[\"IgnoredVulns\"];n=tomllib.load(open(\"osv-scanner.toml\",\"rb\"))[\"IgnoredVulns\"];z={\"GHSA-m665-v7pm-7grj\",\"GHSA-q7v9-x93c-xqv3\",\"GHSA-8hxf-qr8p-62x4\",\"RUSTSEC-2026-0367\",\"RUSTSEC-2026-0368\",\"RUSTSEC-2026-0369\",\"RUSTSEC-2026-0429\"};assert [r for r in b if r[\"id\"] not in z]==n,\"zip の 7 行の外が変わった\"" || exit 1; out=$(tools/check-vulns.sh --base "$base"); rc=$?; printf "%s\n" "$out"; test $rc -eq 0 && printf "%s\n" "$out" | grep -qx "新しく持ち込んだ: 0 件" && printf "%s\n" "$out" | grep -A1 -x "== 例外の表で足した・変えた行" | grep -qx "なし"'` rc=0
-- [ ] 3.2 `tools/check-licenses.sh` の許す一覧の末尾に `bzip2-1.0.6` を足す（既定の一覧 `ALLOW` と、自己試験が一覧の文字列を丸ごと比べる行の 2 か所。design D1・`specs/distribution` の
+- [x] 3.2 `tools/check-licenses.sh` の許す一覧の末尾に `bzip2-1.0.6` を足す（既定の一覧 `ALLOW` と、自己試験が一覧の文字列を丸ごと比べる行の 2 か所。design D1・`specs/distribution` の
   Scenario「許可の一覧は、AGPL-3.0-only を外したほかは前と同じ」）。台本のほかの行は変えない。そのうえで、新しく引いた依存の許諾が許す一覧に収まり、許諾の検査の自己試験が通り、
   更新係と PC の収集アプリの依存の境界が守られている（許諾の全文が要れば `tools/licenses/texts/` に置く。`libbz2-rs-sys` は crate に `LICENSE` を持つので要らない見込み）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; git show "$base:tools/check-licenses.sh" | python3 -c "import sys;b=sys.stdin.read();n=open(\"tools/check-licenses.sh\").read();o=\",CC-BY-4.0,Python-2.0\";assert b.count(o)==2,\"base の一覧の形が違う\";assert b.replace(o,o+\",bzip2-1.0.6\")==n,\"一覧に bzip2-1.0.6 を足すほかの変更がある\"" || exit 1; tools/check-licenses.sh rust && tools/check-licenses.sh --self-test && tools/check-updater-deps.sh'` rc=0
