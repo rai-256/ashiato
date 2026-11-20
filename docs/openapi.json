@@ -7,7 +7,7 @@
       "name": "AGPL-3.0-only WITH AdditionRef-ashiato-play-services",
       "identifier": "AGPL-3.0-only WITH AdditionRef-ashiato-play-services"
     },
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "paths": {
     "/archives/status": {
