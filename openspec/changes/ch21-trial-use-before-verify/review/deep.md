@@ -41,7 +41,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - 根拠: `.harness2/scripts/tsukau.py:501`（`claude -p` は `cwd=self.repo` で、確認バッチから呼べば `<repo>-verify` になる）・`:397`（`--permission-mode auto`）・`:576-577`（前後の `git status` の差は warnings に数えるだけで、戻さない）／`.harness2/scripts/verify_batch.sh:113`（作業ツリーに未コミットの変更があると `error` で exit 1。次のバッチ全体が止まる）・`:216`（`git add docs/verify` で手順書を commit・push する。席が `docs/verify/` の下に書けば、それも公開の repo に入る）／`.gitignore:37,40,41`（無視されるのは `dist/`・`web/test-results/`・`web/playwright-report/` だけ）
 - kind: conflict
 - 提案: 問いを 1 つ足すか、扉を開けたままにする既定（C）として design に置く。席の後に verify-prep が作業ツリーを席の前の状態へ戻す（増えた変更は警告に書いてから捨てる）か、席を別の使い捨ての作業ツリーで走らせるか。どちらにしても「席が repo を書き換えた」を警告の族に入れる（R10）。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）C（扉を開けたままにする既定）。席は確認バッチの作業ツリーでなく、その木の使い捨ての worktree（detached）を `--repo` にして走らせ、終わったら消す。席が書き換えたものは確認バッチの木に残らない。spec の段で design の D に置く
+- 処置: fixed D9 仮 —— 席は確認バッチの作業ツリーの HEAD を detached で取り出した使い捨ての作業ツリーで走らせ、harness2 を繋ぎ、終わったら消す（spec「確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで…」）
 
 ## R2. PC の相手に入れる「配る zip」を、どこで・何から組むかが、問いにも前提の表にも無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json / premises.md
@@ -70,7 +70,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: irreversible
 - loss: exported
 - 提案: 問いを足す。失わない側が安ければ、P として台帳に載せる。画面の相手は record-env と同じく、乱数の合言葉・専用の compose project・空いている port で立て、作業ツリーの `.env` を使わない。案内（GUIDE）の「触らないもの」に、本人の配布版（`C:\ProgramData\ashiato`）・main の `.env`・確認バッチの DB（`ashiato-verify-<tag>`）を名指す。席の権限で塞げない分は harness2 へ申し送る。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）C（既定は厳しい側）。画面の相手は録画の専用環境と同じく、乱数の合言葉・専用の compose project・空いている port で立て、確認バッチの `.env` を使わない。席は使い捨ての worktree で走らせ（R1）、そこへ `.env` を写さない。案内の「触らないもの」に本人のサーバ・本人の PC の配布版・確認バッチの DB を名指す。私設網へ届くこと（確かめた）は Q2 の案と harm に書いた。spec の段で design の D に置く
+- 処置: fixed D7 仮 —— 失わない側（本人の合言葉と DB を席に渡さない）を選んで台帳に載せた。画面の相手は専用の project・空いている port・乱数の合言葉で `.env` の無い木から立て、席の作業ツリーに `.env` を写さない（D9）。案内の「触らないもの」に本人のサーバ・本人の PC の配布版・確認バッチの DB・main の `.env` を名指す
 
 ## R5. 公開の repo に出る「題」を、写す前に機械で確かめるかが無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
@@ -78,7 +78,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: irreversible
 - loss: exported
 - 提案: 問いを足す（依頼の「題を写す」は変えず、写す前の確かめ方だけを問う）。例: 本人の利用者名・ホスト名・私設網の名前・`.env` の値・パスの形を含む題は、伏せて件数だけにする。失わない側（機械で確かめる）が安ければ P。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）P（失わない側＝伏せる側が安い）。写す前に、題に利用者名・ホスト名・私設網の名前・`.env` の値・絶対パスの形があれば、その題を「（伏せた）」にして件数だけ数える機械の確かめを置く。spec の段で D<n>（仮）と台帳（provisional.py）に載せる
+- 処置: fixed D12 仮 —— 題に利用者名・ホスト名・私設網の名前・`.env` の値・絶対パスの形があれば「（伏せた）」にして件数だけ数える。台帳（provisional.jsonl）に載せた
 
 ## R6. Sandbox の中のログ（サービス・更新係・インストーラ）を、閉じる前に外へ写すかが無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
@@ -86,7 +86,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: irreversible
 - loss: uncaptured
 - 提案: 写すもの（状態の置き場の logs・更新係の `checks.jsonl`・イベントログの抜き書き）を決める問いを足す。写す側が安ければ P として台帳に載せる。写さないと、題を見て根拠を開いたときに、ログが Sandbox ごと消えている。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）C（取っておく側）。down の前に、Sandbox の中の状態の置き場の logs・更新係の `checks.jsonl`・サービスのイベントログの抜き書きを共有フォルダへ写し、`LOG_<名前>` で実行のフォルダへ写させる。spec の段で design の D に置く
+- 処置: fixed D3 仮 —— 失わない側（取っておく側）を選んで台帳に載せた。片付けで、止める前に Sandbox の中のログ・更新係の `checks.jsonl`・PC の収集アプリのログ・イベントの抜き書きを `$TSUKAU_EVIDENCE/pc-logs/` へ写す（`LOG_` は down より前に写されるので使わない）
 
 ## R7. Sandbox の取り合い（本人の Sandbox・手で呼んだ /tsukau・録画）と、閉じ損ねたときの扱いが無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
@@ -101,7 +101,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
   - (c) 本人が自分で Sandbox を使っているときに、席が起こせない
 - kind: daily
 - 提案: 推奨つきの B を足す。Sandbox が使われているとき、席は待つ（上限は何分か）か、飛ばして警告にするか（`upstream_misses` の観点 7）。片付けは自分が起こした Sandbox だけを id で止める（録画の「全部止める」を写さない）ことを、C として design に置く。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）C。起こす前に別の Sandbox が動いていれば立てず `UNAVAILABLE=` で警告にする（待たない）。片付けは自分が起こした Sandbox だけを id で止める（録画の「全部止める」を写さない）。同じバッチでは席が録画より先に終わる並びなので、閉じ損ねは片付けの「残りあり」として警告に出す。spec の段で design の D に置く
+- 処置: fixed D3 仮 —— 起こす前に別の Sandbox が動いていれば `UNAVAILABLE=`（待たない）。片付けは自分の id だけを止める
 
 ## R8. 確認バッチの準備がどれだけ延び、その間に何が待たされるかが無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
@@ -114,28 +114,29 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
   - 1 回の準備には、zip の組み立て（R2。何分か測っていない）、Sandbox を起こして入れる時間、席の時間 × 相手の数、片付けが足される。これが 1 日 1〜5 回ある（premises.md 行 8）
 - kind: daily
 - 提案: Q3 に「立てる時間の上限（`ready_timeout_s`）」と「1 回の準備全体の上限」を足すか、推奨つきの B を別に立てる。R2 の実測の数字を Q3 の points に書く（「準備は延びる」でなく「約 N 分延びる」）。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）Q5 に立てる時間の上限と、待たされるもの（確認バッチの作業場所の錠）を書き、図を足した。準備全体の上限は相手の数 ×（立てる上限 + 席の時間 + 片付けの上限）で決まる形を spec の段で design に置く
+- 処置: escalated —— 本人への問い Q5 にした（deep.md の「レビューから問いに入れたもの」）。Q5 に立てる時間の上限と、待たされるもの（確認バッチの作業場所の錠）を書き、図を足した。準備全体の上限は相手の数 ×（立てる上限 + 席の時間 + 片付けの上限）で決まる形を spec の段で design に置く
 
 ## R9. Sandbox の窓が本人の PC に毎日出て、本人の記録に混ざりうる
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
 - 根拠: 録画の実績は、`cmd.exe /c start <.wsb>` で窓を本人のデスクトップに開く形（`record-run:344`）。メモリは 4096 MB（`:300`）／PC の収集アプリは前景の窓を集める（`CLAUDE.md` の構成表）。本人の PC で収集アプリが動いていれば、前景に出た Sandbox の窓が、本人が使ったのではない時間として記録に入る／録画が Sandbox を起こすのは PC のシナリオがある回だけだが、席は PC を変えた回ごとに起こす（Q5 の推奨）
 - kind: daily
 - 提案: 推奨つきの B を足す。窓を出す起こし方か、窓を出さない起こし方（wsb の CLI で起こして画面に繋がない。できるかは premises で確かめる）か。本人が PC を使っている時間を避けるか。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）問いに足した（Q4「Sandbox の窓」）。窓が本人のデスクトップに出ること・前景の記録に入りうることを points と代償に書いた
+- 処置: escalated —— 本人への問い Q4 にした（deep.md の「レビューから問いに入れたもの」）。問いに足した（Q4「Sandbox の窓」）。窓が本人のデスクトップに出ること・前景の記録に入りうることを points と代償に書いた
 
 ## R10. 席が落ちた・回らなかったときの警告の形と、落ち続けたときの扱いが無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
 - 根拠: 依頼は「警告として手順書に書く」まで／`tsukau.py` の止まり方は、rc 3（crashed・env_failed・interrupted）、rc 2（差し込み口の誤り。実行のフォルダを作らず、public.json も無い）、片付けの「残りあり」、repo の書き換え（R1）／`tools/verify-prep.sh:14` は `set -euo pipefail` で、verify-prep が落ちると `verify_batch.sh:189-193` が manifest ごと捨てる（警告も手順書に載らない）／`detail` にはログの場所や `UNAVAILABLE=` の理由がそのまま入りうる（tsukau.py:526）
 - kind: daily
 - 提案: 推奨つきの B を足す。警告に書くもの（止まり方だけか、`detail` も書くか。`detail` は公開の repo に出る）。範囲が空で回さなかった回も一行書くか。同じ止まり方が続いたとき（Sandbox が使えなくなった、など）に、手順書の警告のほかにも知らせるか。rc 2（設定の誤り）を毎回の警告で済ませず、`tsukau.py check` を CI の検査にするかは C で design に置く。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）問いに足した（Q7「警告の書き方」。決まった文言だけを推奨）。verify-prep 全体を落とさない（席の呼び出しの失敗は捕まえて警告にし、準備の rc を変えない）は Q8 の守るものに入れた。`tsukau.py check` を CI の検査にするのは C として spec の段で design に置く
+- 処置: escalated —— 本人への問い Q7 にした（deep.md の「レビューから問いに入れたもの」）。問いに足した（Q7「警告の書き方」。決まった文言だけを推奨）。verify-prep 全体を落とさない（席の呼び出しの失敗は捕まえて警告にし、準備の rc を変えない）は Q8 の守るものに入れた。`tsukau.py check` を CI の検査にするのは C として spec の段で design に置く
+  spec の段: `tsukau.py check` 相当は自己試験に置き、CI の `rust` の job で走らせる（fixed D13）。verify-prep を止めないのは spec の「席が落ちても時間切れでも…」の Requirement（fixed D11）
 
 ## R11. 手で呼ぶ /tsukau とバッチの席が、置き場と立てる物で食い違う・取り合う
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
 - 根拠: `.harness2/scripts/tsukau.py:245`（`out_root` の既定は `~/.local/state/harness2/tsukau/<repo の名前>`）。確認バッチは `<repo>-verify` で走る（`verify_batch.sh:108`）ので `ashiato2-verify`、main の checkout から手で呼ぶと `ashiato2`、ほかの worktree からならその名前に分かれる／手とバッチが同時に走ると、画面の相手の port・compose project と、PC の Sandbox（R7）を取り合う。run.sh の port は決め打ち（verify-prep.sh の manifest、5180・18787）／`upstream_misses` の観点 26
 - kind: technical
 - 提案: 扉を開けたままにする既定（C）として design に置く。`tools/tsukau/tsukau.json` に `out_root` を明示する。立てる物の名前と port は、実行ごとに被らないように決める（record-env の「空いている port」と同じ）。手で呼んだときの相手のコミットを `INFO_` に残す。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）C。`tools/tsukau/tsukau.json` に `out_root` を明示して置き場を 1 つにする。画面の相手の compose project と port は実行ごとに空いているものを選ぶ（録画の専用環境と同じ）。PC は R7 の「動いていれば立てない」で取り合わない。`INFO_` に相手のコミットを残す。spec の段で design の D に置く
+- 処置: fixed D1 —— `tsukau.json` に `out_root` を明示し、画面の相手は実行ごとの project と空いている port で立てる（D7）。`INFO_COMMIT=` を残す
 
 ## R12. change の第 1 回で問うはずの範囲（完了の判定・壊してはいけないもの）が無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json
@@ -150,7 +151,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: premise
 - loss: exported
 - 提案: 網をつないだ Sandbox を 1 回起こし、私設網の宛先と手元の網に届くかを確かめて（確かさ 4）、Q2 の irreversible と harm に書く。premises.md 冒頭の「依らない」を消す。届くなら、Q2 に「網はつなぐが、手元の網と私設網への宛先は塞ぐ」案を足せるかを確かめる。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）Sandbox を網ありで起こして確かめた（premises.md 行 6、確かさ 5: 私設網の WSL と Windows に届いた）。premises.md 冒頭の「依らない」を消した。Q2 に「外にはつなぎ、私設網と手元の網を塞ぐ」案を足して推奨にし、塞げるかは確かさ 1 として unknown に書き、塞げなければ切る側に倒すと書いた
+- 処置: escalated —— 本人への問い Q2 にした（deep.md の「レビューから問いに入れたもの」）。Sandbox を網ありで起こして確かめた（premises.md 行 6、確かさ 5: 私設網の WSL と Windows に届いた）。premises.md 冒頭の「依らない」を消した。Q2 に「外にはつなぎ、私設網と手元の網を塞ぐ」案を足して推奨にし、塞げるかは確かさ 1 として unknown に書き、塞げなければ切る側に倒すと書いた
 
 ## R14. Q2 の不可逆の記述が、外へ出るものを GitHub への問い合わせに限っている
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json（Q2）
@@ -158,7 +159,7 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
 - kind: irreversible
 - loss: exported
 - 提案: Q2 の `irreversible` と `harm` に「席がその回の範囲で開く外のサイト（この PC の網の IP で届く）」を足す。Windows 自身の通信は `unknown` に「確かめていない」と書く。`exported` という分類は妥当（つないだ時点で問い合わせが外へ出て戻せない）。足りないのは中身の記述。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）Q2 の points・irreversible・harm.who に「席が範囲の中で開く外のサイト」を足した
+- 処置: escalated —— 本人への問い Q2 にした（deep.md の「レビューから問いに入れたもの」）。Q2 の points・irreversible・harm.who に「席が範囲の中で開く外のサイト」を足した
 
 ## R15. premises.md 行 5 の「走り出しに動いている Sandbox を全部止める」「録画が席の Sandbox を止める」は実物と違う
 - 成果物: openspec/changes/ch21-trial-use-before-verify/premises.md
@@ -183,21 +184,21 @@ Sandbox の実績（`.harness2/scripts/record-run`・`tools/record-env.sh`・`to
   - 配る zip のサーバは画面を中に持つ（`tools/release/build.sh:73` の `build_web`、`crates/server/build.rs:137-151`）ので、PC の相手の中でも画面に辿り着ける。points はこれに触れていない
 - kind: conflict
 - 提案: Q1 を削る。「差し込み口は web と pc を持ち、回ごとの相手は Q5 で決める」を design に置く。残すなら Q5 と同じ前提に書き直し、PC の相手の中のサーバも画面を持つことを points に書く。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）元の Q1 を削った。相手は新しい Q1（範囲と相手の決め方）で回ごとに決める形にし、context に「差し込み口は画面と PC の両方を持つ」「PC の相手の中のサーバも画面を持つ」を書いた
+- 処置: escalated —— 本人への問い Q1 にした（deep.md の「レビューから問いに入れたもの」）。元の Q1 を削った。相手は新しい Q1（範囲と相手の決め方）で回ごとに決める形にし、context に「差し込み口は画面と PC の両方を持つ」「PC の相手の中のサーバも画面を持つ」を書いた
 
 ## R18. Q6 は依頼の「写すのは件数・題・止まり方だけ」を問い直している。公開に何も足さない手がかりがある（不要）
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json（Q6）
 - 根拠: `docs/changes/CH21.md` の「どこまで」／`.harness2/scripts/tsukau.py:688`（`--label` は request.json に残る）。回の名前（tag）はすでに手順書と PR に出ている／`upstream_misses` の観点 40（後で見つける手がかり）
 - kind: conflict
 - 提案: Q6 を削る。`--label verify-<tag>` で走らせ、置き場を `tsukau.json` で固定し（R11）、tag から実行のフォルダを引ける形を design に置く（公開に新しく出るものが無い）。残すなら、decide に「依頼の『だけ』を変える問い」と書く。
-- 処置: （spec の段で design の D<n> に置き `fixed D<n> 仮` に書き換える）元の Q6 を削った。C として `--label verify-<tag>` で走らせ、置き場を `tsukau.json` で固定する（R11）。公開に新しく出るものは無い。spec の段で design の D に置く
+- 処置: fixed D1 仮 —— `--label verify-<tag>` で走らせ、置き場を `tsukau.json` で固定する。公開に新しく出るものは無い
 
 ## R19. Q4 の推奨は依頼の「毎回呼ぶ」を狭めているのに、そう書いていない。比べる「中身」にも抜けがある
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json（Q4）
 - 根拠: 依頼「小さい時間と token で毎回呼ぶ」、本人の決定「毎回簡単な動作確認もしてほしい」（`docs/changes/CH21.md`）／Q4 の points 2 は「入った Story・change と、その head の版」で比べるが、確認バッチは毎回 origin/main から作り直す（`verify_batch.sh` の冒頭）。main が進むと、同じ Story の組でも配る物は変わる
 - kind: conflict
 - 提案: Q4 の points に「依頼は毎回。作り直しで中身が同じときを 1 回と数えるかを決める」と書く。比べる中身に main 側の版（origin/main のコミット）を入れるかを、案の代償に書く。
-- 処置: （本人への問いにした。record の後に deep.md の答えを指して書き換える）Q6 の decide に「依頼は毎回。同じ中身を 1 回と数えるか」と書き、比べる中身に main のコミットを入れた
+- 処置: escalated —— 本人への問い Q6 にした（deep.md の「レビューから問いに入れたもの」）。Q6 の decide に「依頼は毎回。同じ中身を 1 回と数えるか」と書き、比べる中身に main のコミットを入れた
 
 ## R20. Q2 の「どれくらい困るか」と context に、元の資料に無い言い切りがある
 - 成果物: openspec/changes/ch21-trial-use-before-verify/deep-questions.json（Q2）
