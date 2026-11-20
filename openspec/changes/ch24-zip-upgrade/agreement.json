@@ -1,0 +1,26 @@
+{
+  "status": "accepted",
+  "digest": "7d3fe14b5f03d13e670fbd9e85cdf78f235572f27604495706c564c0a819de6c",
+  "head": "ff0198ec06a0443d65b6512e9b419b00947de0b7",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-20T13:24:42Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "low",
+      "title": "Linux の展開で SUID などが写らなくなる"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "low",
+      "title": "切り戻した前の版が、上げた後の書き出しを照合できるかは試験しない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "上げた後の書き出しを外の道具で解けるかは確かめていない"
+    }
+  ]
+}
