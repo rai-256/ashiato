@@ -1,0 +1,55 @@
+{
+  "format": 2,
+  "title": "CH26 の深掘り（spec-review・第 1 回）",
+  "subtitle": "同梱の PostgreSQL を 17.6 から 17.12 に上げるときの、既存の DB の確かめ方",
+  "makes": "夜間の脆弱性検査の 4 件を片付け、配る zip の PostgreSQL を 17.6 から 17.12 に上げる。製品の振る舞いは変えない。",
+  "note": [
+    "CH26 は軽い路（人間の深掘りと合意を省く。理由: 振る舞いが変わらない）で計画しました。計画を別の席が確かめたところ、PostgreSQL の確かめ方が依頼と社内の手順より狭くなっていました。コードはまだ書いていません。",
+    "選んだら一番下の「回答をコピー」を押してください。"
+  ],
+  "questions": [
+    {
+      "id": "R2",
+      "topic": "17.6 から 17.12 への更新と戻しの確かめ方",
+      "kind": "premise",
+      "question": "17.6 から 17.12 への更新と戻しを、どこまで確かめるか",
+      "decide": "Windows の配る zip どうしで更新と戻しを通すか、PostgreSQL の部分だけを Linux で確かめて済ませるか。",
+      "points": [
+        "依頼は「既に入っている PC で、更新が既存の DB をそのまま使えることを確かめる」。docs/release.md の手順は「前の版を同梱した zip から更新と戻しを通す」。",
+        "CI は古い zip と新しい zip を同じ commit から組むので、17.6 の zip から 17.12 の zip への更新は走らない。CI を変えると軽い路を外れる。",
+        "インストーラ（配布版を入れる・更新する係）は小さい版の数字で処理を分けない。分かれるのは PostgreSQL 自身の互換だけ。"
+      ],
+      "figure": [
+        {
+          "svg": "<svg viewBox=\"0 0 560 120\" role=\"img\" aria-label=\"案 A は PostgreSQL の置き場と退避を Linux で確かめ、Windows の更新は本人の PC で見る\"><g font-size=\"12\" fill=\"var(--ink)\"><text x=\"0\" y=\"30\">Linux（機械）</text><text x=\"0\" y=\"90\">本人の PC</text></g><rect x=\"110\" y=\"12\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"120\" y=\"31\" font-size=\"12\" fill=\"var(--pick)\">17.6 → 17.12 → 17.6 の置き場・17.12 の退避を 17.6 で戻す</text><rect x=\"110\" y=\"72\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"120\" y=\"91\" font-size=\"12\" fill=\"var(--ink-2)\">入っていれば、更新した後に記録が見えるか（確認バッチ）</text></svg>",
+          "caption": "A. PostgreSQL の部分を Linux で確かめる"
+        },
+        {
+          "svg": "<svg viewBox=\"0 0 560 120\" role=\"img\" aria-label=\"案 B は Windows で 17.6 の zip から 17.12 の zip への更新と戻しの試験を走らせる\"><g font-size=\"12\" fill=\"var(--ink)\"><text x=\"0\" y=\"30\">Linux（機械）</text><text x=\"0\" y=\"90\">Windows</text></g><rect x=\"110\" y=\"12\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"120\" y=\"31\" font-size=\"12\" fill=\"var(--ink-2)\">A と同じ確かめ</text><rect x=\"110\" y=\"72\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"120\" y=\"91\" font-size=\"12\" fill=\"var(--pick)\">17.6 の zip → 17.12 の zip で更新と戻しの試験の一式</text></svg>",
+          "caption": "B. Windows の zip どうしでも通す"
+        }
+      ],
+      "why": "軽い路の申告は「docs/release.md の手順で確かめる」と言っていたが、計画（design D5）はそれを Linux の確かめで代えていた。依頼の「どこまで」を狭めるので、本人が決める。\n\nインストーラの戻しは、前の版のプログラムを戻してから、17.12 の pg_dump で取った退避を 17.6 の pg_restore で戻す。案 A はこの「17.12 の退避を 17.6 で戻す」も Linux で走らせるよう計画を直した（spec-review R2 を受けて）。",
+      "context": "`tools/release/update-apply-install.sh` は zip を引数で取るので、repo のファイルに触らずに Windows で走らせられる。ただし管理者でサービスを入れ替える使い捨ての Windows が要り、この流れの中には無い（本人の PC で走らせると、試験用のサービスを入れて消す）。\n\nPostgreSQL の公式文書は、小さい版は保存の形を変えず、同じ大きい版の前後の小さい版と互換だと書く（premises.md P11）。インストーラは lock の大きい版だけを読む（P12）。退避は `pg_dump --format=custom`（P17）。",
+      "allow_free": true,
+      "options": [
+        {
+          "label": "A. PostgreSQL の部分を Linux で確かめ、Windows は本人の PC で見る",
+          "gain": "軽い路のまま進み、置き場の互換と退避の戻しは機械で確かめる。",
+          "cost": "Windows のインストーラが 17.6 の zip から 17.12 の zip へ更新・戻しする道そのものは走らせない。docs/release.md の手順をこの PR では省く。",
+          "recommended": true
+        },
+        {
+          "label": "B. Windows でも 17.6 の zip から 17.12 の zip への更新と戻しを通す",
+          "gain": "docs/release.md の手順どおり、配る物の更新と戻しを実際に通す。",
+          "cost": "使い捨ての Windows を用意して走らせる手間が要る。本人の PC で走らせるなら、試験用のサービスを入れて消す。"
+        },
+        {
+          "label": "C. CI で前の lock の zip を組んで、毎回の PR で走らせる",
+          "gain": "次の小さい版の更新からも機械が毎回確かめる。",
+          "cost": "CI を変えるので軽い路を外れ、通常の路（深掘りと合意）になる。CI の時間が延びる。"
+        }
+      ]
+    }
+  ]
+}
