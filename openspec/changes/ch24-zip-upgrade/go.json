@@ -1,0 +1,1559 @@
+{
+ "format": 2,
+ "purpose": "zip を読み書きする部品を、勧告の直った版（9 系）に上げる。例外の表に「修正版待ち」という事実と違う理由で残っていた zip の 7 行が消える。書き出し・Takeout の取り込み・PC の更新の展開の振る舞いは前と同じで、前の版で書いた書き出しも、上げた後の版で同じに読めることを試験で固定する。",
+ "model": {
+  "kind": "diagram",
+  "caption": "上げる部品と、前と同じに振る舞う 3 つの所",
+  "text": "zip の部品 2.6.1 → 9（既定の features のまま）\n  ├─ 書き出し（サーバ）: AES-256 の zip を書く・前の版の書き出しも読む・台帳で照合\n  ├─ Takeout の取り込み（サーバ）: 項目の名前は 2.6.1 と同じ規則で読む\n  └─ PC の更新の展開: 断る名前は 2.6.1 と同じ（自前の確かめ）\n例外の表（osv-scanner.toml）: zip の 7 行を消す\n許す許諾の一覧（check-licenses.sh）: bzip2-1.0.6 を足す",
+  "alt": "zip の部品を 9 に上げるが、それを使う 3 つの所は 2.6.1 と同じに振る舞うように自前の確かめと読み方を残す。変わるのは例外の表と許諾の一覧だけ。"
+ },
+ "before_after": [
+  {
+   "area": "例外の表（osv-scanner.toml）",
+   "before": "zip の 7 行を「上げる予定: 互換範囲外の修正版待ち」で外している",
+   "after": "zip の 7 行が無い（上げた版には勧告が当たらない）"
+  },
+  {
+   "area": "zip の部品の版",
+   "before": "2.6.1",
+   "after": "9.0.5 以上の 1 つの版（既定の features のまま）"
+  },
+  {
+   "area": "許す許諾の一覧",
+   "before": "17 の値",
+   "after": "bzip2-1.0.6 を足した 18 の値"
+  },
+  {
+   "area": "前の版の書き出しが読めるか",
+   "before": "試験は書くのも読むのも同じ版で、版の間を見ていない",
+   "after": "2.6.1 で書いた書き出しを試験に埋め込み、上げた後の版で読めることを固定する"
+  }
+ ],
+ "highlights": [
+  "upgrade.2",
+  "takeout.2",
+  "pcupdate.2",
+  "license.1"
+ ],
+ "features": [
+  {
+   "id": "upgrade",
+   "title": "zip の部品を 9 に上げる",
+   "summary": "2 つの部品の zip を 9 にし、使う 4 か所を新しい API に合わせる",
+   "tldr": "サーバと PC の収集アプリの zip を 9.0.5 以上に上げる。使い方は新しい API に合わせるだけ。",
+   "gist": [
+    "既定の features のまま上げ、読める圧縮の方式を今より狭めない。",
+    "上げきれなければ切り替えずに、本人の決めた代わりを添えて返す。"
+   ],
+   "words": [
+    {
+     "term": "features",
+     "def": "部品のどの機能を組み込むかの切り替え。既定は部品が決めた組"
+    }
+   ],
+   "no_picture": "上の作るものの図と同じになる",
+   "points": [
+    {
+     "id": "upgrade.1",
+     "kind": "normal",
+     "text": "サーバと PC の収集アプリの `Cargo.toml` の zip を `\"9\"` にし、`Cargo.lock` の zip は 9.0.5 以上の 1 つの版になる。zip を使う 4 か所（書き出し・台帳の照合・Takeout の取り込み・PC の更新の展開）と試験は、新しい API に合わせて直すだけで意味を変えない。",
+     "refs": {
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "upgrade.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "features は既定のまま。既定の bzip2 が新しい部品（Rust で書き直した libbz2）を引くので、許す許諾の一覧に 1 つ足す（下の「許諾の一覧」）。絞れば一覧は変えずに済むが、bzip2 などで縮めた Takeout の書庫を読めなくなる。",
+     "refs": {
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "upgrade.3",
+     "kind": "exception",
+     "text": "予定のパスの中で直しても試験が通らないときでも、Task agent は例外の理由を直す側へ自分で切り替えない。落ちたものと、本人の決めた代わり（理由を「上げる予定: 2 → 9 の上げの作業が残る」に直し、期限を 90 日以内に置く）を添えて人間に返す。",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "export",
+   "title": "前の版で書いた書き出しを読む",
+   "summary": "2.6.1 で書いた書き出しを試験に埋め込み、上げた後も同じに読めると固定する",
+   "tldr": "前の版で書いた書き出しの zip を、上げた後の版で同じ中身に読めることを試験で固定する。",
+   "gist": [
+    "今の試験は書くのも読むのも同じ版で、版の間の互換を見ていなかった。",
+    "上げる前の木で書いたバイト列を埋め込み、後から書き直していないことを git で見る。"
+   ],
+   "words": [
+    {
+     "term": "書き出し",
+     "def": "本人の記録を合言葉つきの zip（AES-256）にまとめたファイル"
+    },
+    {
+     "term": "台帳の照合",
+     "def": "置き場の書き出しが書いたままかを、大きさ・注記・SHA-256 で確かめること"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 130\" role=\"img\" aria-label=\"前の版で書いた書き出しの zip を試験に埋め込み、上げた後の版で読む・照合する・同じ形で書くことを確かめる\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"40\" width=\"150\" height=\"50\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"75\" y=\"62\" text-anchor=\"middle\">上げる前の木</text><text x=\"75\" y=\"77\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">zip 2.6.1 で書き出す</text><rect x=\"220\" y=\"40\" width=\"160\" height=\"50\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"300\" y=\"62\" text-anchor=\"middle\">試験に埋め込む</text><text x=\"300\" y=\"77\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">囲みの行で包む</text><rect x=\"450\" y=\"0\" width=\"150\" height=\"36\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"525\" y=\"22\" text-anchor=\"middle\">同じ中身で読める</text><rect x=\"450\" y=\"47\" width=\"150\" height=\"36\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"525\" y=\"69\" text-anchor=\"middle\">違う合言葉では読めない</text><rect x=\"450\" y=\"94\" width=\"150\" height=\"36\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"525\" y=\"116\" text-anchor=\"middle\">AES の形が同じ</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M152 65 L216 65\"/><path d=\"M382 58 L446 18\"/><path d=\"M382 65 L446 65\"/><path d=\"M382 72 L446 112\"/></g><g></g></svg>",
+    "caption": "前の版の書き出しを埋め込んで確かめる流れ"
+   },
+   "points": [
+    {
+     "id": "export.1",
+     "kind": "normal",
+     "text": "上げる前の木（zip 2.6.1）で、試験の DB に決まった記録を置いて書き出しを 1 回走らせ、そのバイト列・項目ごとの SHA-256・書き出しの id・合言葉を試験に埋め込む。上げた後の版で全部の項目が同じ中身で読め、違う合言葉では読めない。",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "scenarios": [
+       "以前の版で書いた書き出しの zip を、同じ中身で読める",
+       "以前の版で書いた書き出しの zip は、違う合言葉では読めない"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "export.2",
+     "kind": "normal",
+     "text": "置き場に前の版の書き出しがあり、台帳がそれを書いたままと判定すると、上げた後の版で次の書き出しを書き終えたときに前のファイルが消え、1 つだけ残る（今と同じ）。",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "scenarios": [
+       "以前の版で書いた書き出しは、次の書き出しを書き終えると消える"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "export.3",
+     "kind": "normal",
+     "text": "上げた後に新しく書く書き出しの項目は、前の版と同じ AES の形（AES-256・中身は deflate・AE-1 / AE-2 の別も同じ）。形は zip の部品を通さず、バイト列から読んで比べる。",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "scenarios": [
+       "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "export.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "確かめるのは「新しい版が古い書き出しを読める」向きだけ。切り戻した前の版のサーバが、上げた後に書いた書き出しを読めるかは試験しない（形が同じことは見る）。",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "scenarios": [
+       "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "takeout",
+   "title": "Takeout の項目の名前を同じに読む",
+   "summary": "zip 9 は名前の読み方を変えたので、2.6.1 と同じ規則を自前で残す",
+   "tldr": "Takeout の書庫の項目の名前は、上げた後も 2.6.1 と同じ文字列で読む。",
+   "gist": [
+    "名前は記録の inner_path と台帳の照合に残る。読み方が変わると取り込み済みの記録と揃わない。",
+    "UTF-8 の印があれば UTF-8、無ければ CP437 という 2.6.1 の規則を open.rs に置く。"
+   ],
+   "words": [
+    {
+     "term": "UTF-8 の印",
+     "def": "zip の項目が持つ「名前は UTF-8」の 1 bit"
+    },
+    {
+     "term": "CP437",
+     "def": "印の無い名前を読むときの古い文字の表"
+    }
+   ],
+   "no_picture": "下の具体例の表と同じになる",
+   "points": [
+    {
+     "id": "takeout.1",
+     "kind": "normal",
+     "text": "Takeout の書庫を開く所は、項目の名前を 2.6.1 と同じ規則（UTF-8 の印があれば UTF-8、無ければ CP437）で作る。ディスクへ展開せずに読む・ディレクトリを飛ばす・読めない zip を `broken_zip` として残す、は今と同じ。",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "takeout.2",
+     "kind": "exception",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "名前の付け直しの欄（Info-ZIP Unicode Path）の検査値が合わない書庫だけは、2.6.1 では開けず `broken_zip` だったが、上げた後は見出しの名前で読める。読める側に変わるだけで、取り込み済みの記録の名前は変わらない。",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "takeout.3",
+     "kind": "caution",
+     "text": "実物の Takeout の書庫が UTF-8 の印を持つかは確かめていない。2.6.1 と同じ規則で読む限り、どちらでも記録に残る名前は上げる前と同じ。",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "pcupdate",
+   "title": "PC の更新の展開を同じに保つ",
+   "summary": "zip 9 は道の判定を変えたので、2.6.1 と同じ名前の確かめを自前で当てる",
+   "tldr": "PC の更新を展開するとき、断る名前と受け付ける名前は上げた後も 2.6.1 と同じ。",
+   "gist": [
+    "指紋（sha256）を照合してから展開する順は変えない。",
+    "9 の判定は絶対パスを受け付け、装置の名前を断るので、使わずに 2.6.1 の確かめを置く。"
+   ],
+   "no_picture": "下の具体例の表と同じになる",
+   "points": [
+    {
+     "id": "pcupdate.1",
+     "kind": "normal",
+     "text": "更新の配布物は指紋を照合してから自前で展開する（zip の部品の `extract` に置き換えない）。名前に `\\0` がある・前置きか根から始まる・`..` で外へ出る名前は「zip の道が不正」で断る。展開先は今と同じ。",
+     "refs": {
+      "decisions": [
+       "D6",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "pcupdate.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Windows"
+     ],
+     "text": "zip 9 の判定のままだと、2.6.1 が断った `/etc/passwd`・`C:\\x` を相対に直して受け付け、2.6.1 が通した `NUL`・`a.` を Windows で断る。どちらにも揃えず 2.6.1 の結果のとおりにし、名前ごとの結果を Windows と Linux の両方の試験で固定する。",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "pcupdate.3",
+     "kind": "exception",
+     "tags": [
+      "Windows"
+     ],
+     "text": "Unix だけで走る権限の写しは、zip 9 では SUID などの特別な bit が落ちる。PC の収集アプリは Windows で動き、この枝は配る物では走らない。写し方のコードは変えず、差を PR 本文に挙げる。",
+     "refs": {
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "exceptions",
+   "title": "例外の表から zip の行を消す",
+   "summary": "勧告の直った版に上げるので、zip の 7 行を例外の表から消す",
+   "tldr": "例外の表から zip の 7 行（GHSA 3 件と RUSTSEC 4 件）を消す。ほかの行は変えない。",
+   "gist": [
+    "本人が名指ししたのは GHSA 3 件。同じ zip の RUSTSEC 4 件も 9.0.0 で直っている。",
+    "残すと「勧告がもう出ない」行として検査が落ちるので、一緒に消す。"
+   ],
+   "words": [
+    {
+     "term": "例外の表",
+     "def": "既知の勧告を理由と期限つきで検査から外す一覧（osv-scanner.toml）"
+    }
+   ],
+   "no_picture": "消す行の一覧で足り、図にしても同じ量になる",
+   "points": [
+    {
+     "id": "exceptions.1",
+     "kind": "normal",
+     "text": "GHSA-m665-v7pm-7grj・GHSA-q7v9-x93c-xqv3・GHSA-8hxf-qr8p-62x4 と RUSTSEC-2026-0367・0368・0369・0429 の 7 行を消す。PR の脆弱性の検査（新しく持ち込んだ勧告が 0 件・表で足した・変えた行が無し）が通る。",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "exceptions.2",
+     "kind": "caution",
+     "text": "全体の脆弱性の検査は zip と無関係な 3 件（chrono・libsqlite3-sys・rustix）で今も落ちる。この change の範囲の外で、直らない。",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "license",
+   "title": "許す許諾の一覧に 1 つ足す",
+   "summary": "既定の bzip2 が引く部品の許諾 bzip2-1.0.6 を、許諾の検査の一覧に足す",
+   "tldr": "許諾の検査の許す一覧に bzip2-1.0.6 を 1 つ足し、17 の値を 18 にする。",
+   "gist": [
+    "zip 9 の既定の bzip2 は libbz2-rs-sys を引き、その許諾が一覧に無かった。",
+    "ほかの許諾は足さない・外さない。本人が決めた（2026-11-20）。"
+   ],
+   "words": [
+    {
+     "term": "許諾の検査",
+     "def": "配る物に入る依存の許諾が、許す一覧の中にあるかを見る台本（check-licenses.sh）"
+    }
+   ],
+   "no_picture": "一覧に 1 つ足すだけで、図にしても同じ量になる",
+   "points": [
+    {
+     "id": "license.1",
+     "kind": "normal",
+     "text": "許す一覧の末尾に `bzip2-1.0.6` を足す。直すのは台本の既定の一覧と、自己試験が一覧を丸ごと比べる行の 2 か所。正典の一覧も 18 の値に書き直す。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "許可の一覧は、AGPL-3.0-only を外したほかは前と同じ"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "license.2",
+     "kind": "normal",
+     "text": "一覧の Requirement のほかの本文と Scenario は変えない。他人の部品の AGPL を落とす・自分の部品を決めた許諾の式で通す、は今と同じ。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "他人の部品の AGPL の許諾は、許諾の検査が落とす",
+       "自分の部品は、決めた許諾の式で許諾の検査を通る"
+      ]
+     }
+    },
+    {
+     "id": "license.3",
+     "kind": "exception",
+     "text": "上げた後に、`bzip2-1.0.6` のほかに一覧に無い許諾の部品を引いたら、一覧を足さずに人間に返す。",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "zip と無関係な勧告（chrono・libsqlite3-sys・rustix）を直すこと",
+   "refs": {
+    "decisions": [
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "PC の更新の展開を zip の部品の `extract` に置き換えること・権限の写し方を変えること",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "features を絞って依存を減らすこと",
+   "refs": {
+    "decisions": [
+     "D1"
+    ]
+   }
+  },
+  {
+   "text": "npm の 6 件の勧告（画面の試験と組み立てでしか使わず、配る物に入らない）",
+   "refs": {}
+  },
+  {
+   "text": "API・送信の契約・移行・画面・携帯の収集アプリ",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "前の版の書き出しを、別の材料のファイルでなく試験のファイルに囲みの行つきで埋め込むこと",
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "勧告",
+   "def": "部品の版に脆弱性があるという公開の知らせ（GHSA・RUSTSEC）"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "脆弱性の警告を見直す",
+   "trigger": "GitHub の依存の警告が 15 件あり、うち 9 件が zip。例外の表を見ると、理由は「修正版待ち」だが直った版はもう出ている。",
+   "steps": [
+    {
+     "do": "この change の PR で、PR の脆弱性の検査の出力を見る",
+     "see": "「新しく持ち込んだ: 0 件」と、表で足した・変えた行が「なし」"
+    },
+    {
+     "do": "例外の表（osv-scanner.toml）を開く",
+     "see": "zip の 7 行が無く、残る行は zip と無関係なものだけ"
+    }
+   ],
+   "outcome": "例外の表に事実と違う理由の行が残らない。残る例外は、配る物に入らない部品など理由の通るものだけになる",
+   "without": "重大の勧告が「修正版待ち」という事実と違う理由で外されたまま、期限（2027-02-06）まで残る",
+   "refs": {
+    "decisions": [
+     "D3"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "上げた後に前の書き出しを扱う",
+   "trigger": "上げた版のサーバに入れ替えた。置き場には上げる前に書いた書き出しの zip が残っている。",
+   "steps": [
+    {
+     "do": "書き出しをもう 1 回走らせる",
+     "see": "書き終えると前の書き出しのファイルが消え、新しい 1 つだけが残る（今と同じ）"
+    },
+    {
+     "do": "手元に残した前の書き出しを、上げた後の版の試験で読む（試験に埋め込んだ例）",
+     "see": "合言葉で全部の項目が同じ中身で読める"
+    }
+   ],
+   "outcome": "上げても、前に書いた書き出しの扱いが変わらないと分かる",
+   "without": "書くのも読むのも同じ版の試験しか無く、版をまたいで読めるかは確かめられていない",
+   "refs": {
+    "requirements": [
+     "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+    ],
+    "scenarios": [
+     "以前の版で書いた書き出しは、次の書き出しを書き終えると消える",
+     "以前の版で書いた書き出しの zip を、同じ中身で読める"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "Takeout の項目の名前が、上げた後も同じ文字列になる",
+   "feature": "takeout",
+   "scene": "本人が上げた後のサーバで Takeout の書庫を取り込む。書庫には UTF-8 の印のある名前と、印の無い日本語の名前がありうる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "名前の読み方（名前は説明用の値）",
+    "head": [
+     "項目の名前",
+     "2.6.1",
+     "zip 9 の読み方のまま",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "印あり `Takeout/マイ アクティビティ/a.json`",
+      "UTF-8 の文字列",
+      "UTF-8 の文字列",
+      "UTF-8 の文字列（同じ）"
+     ],
+     [
+      "印なし・同じ UTF-8 のバイト",
+      "CP437 の文字列（化けた形）",
+      "UTF-8 の文字列",
+      "CP437 の文字列（2.6.1 と同じ）"
+     ],
+     [
+      "印なし・ASCII だけ `a.json`",
+      "`a.json`",
+      "`a.json`",
+      "`a.json`"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "印のある名前",
+     "outcome": "ok",
+     "result": "どの版でも UTF-8 で読み、取り込み済みの記録の名前と揃う"
+    },
+    {
+     "label": "印の無い日本語の名前を zip 9 の読み方のまま読んだら",
+     "outcome": "problem",
+     "result": "名前が 2.6.1 と違う文字列になり、上げる前に取り込んだ記録の inner_path と揃わない。この change は、これを避けるために 2.6.1 の規則を残す"
+    },
+    {
+     "label": "印の無い日本語の名前を、この change の後に読む",
+     "outcome": "ok",
+     "result": "2.6.1 と同じ CP437 の文字列。取り込み済みの記録と揃う"
+    }
+   ],
+   "why": "zip 9 は名前を UTF-8 の印でなく、バイト列が UTF-8 として正しいかで読む。名前は記録と台帳に残るので、2.6.1 の規則を open.rs に置いて読み方を変えない。",
+   "conditions": {
+    "occurs_when": [
+     "UTF-8 の印の無い、ASCII でない名前の項目がある"
+    ],
+    "not_when": [
+     "名前が ASCII だけ",
+     "UTF-8 の印がある"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。実物の Takeout の書庫が印を持つかは確かめていない",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "decisions": [
+     "D7"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "PC の更新の展開で、断る名前が変わらない",
+   "feature": "pcupdate",
+   "scene": "PC の収集アプリが指紋を照合した更新の配布物を展開する。配る zip の名前は組み立ての台本が決めた ASCII の固定のもの。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "項目の名前ごとの結果（試験 1.4 が並べる名前の一部）",
+    "head": [
+     "名前",
+     "2.6.1",
+     "zip 9 の判定のまま",
+     "この change の後"
+    ],
+    "rows": [
+     [
+      "`ashiato-collector.exe`",
+      "受け付ける",
+      "受け付ける",
+      "受け付ける"
+     ],
+     [
+      "`../x`",
+      "断る",
+      "断る",
+      "断る"
+     ],
+     [
+      "`/etc/passwd`",
+      "断る",
+      "相対に直して受け付ける",
+      "断る"
+     ],
+     [
+      "`NUL`（Windows）",
+      "受け付ける",
+      "断る",
+      "受け付ける"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "配る zip の名前",
+     "outcome": "ok",
+     "result": "どの判定でも受け付け、展開先も今と同じ"
+    },
+    {
+     "label": "zip 9 の判定のまま `/etc/passwd` を読んだら",
+     "outcome": "problem",
+     "result": "2.6.1 が断った名前を受け付けるようになる。この change は 9 の判定を使わず、2.6.1 と同じに断る"
+    },
+    {
+     "label": "この change の後に `/etc/passwd` を読む",
+     "outcome": "ok",
+     "result": "「zip の道が不正」で断る（2.6.1 と同じ）"
+    }
+   ],
+   "why": "zip 9 の `enclosed_name` は絶対パスや前置きを相対に直し、Windows の装置の名前を断る。振る舞いを変えない約束なので、2.6.1 と同じ確かめを自前の関数で当てる。",
+   "conditions": {
+    "occurs_when": [
+     "配る zip の外から作った、絶対パスや装置の名前の項目がある"
+    ],
+    "not_when": [
+     "組み立ての台本が作った配る zip（名前は ASCII の固定）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "Windows での `NUL`・`a.` の結果は、試験 1.4 の Windows 向けの走りで 2.6.1 の値を得て固定する",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ],
+   "decisions": [],
+   "refs": {
+    "decisions": [
+     "D6"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "zip の部品を 2.6.1 から 9 に上げ、例外の表から zip の 7 行を消し、許す許諾の一覧に bzip2-1.0.6 を足す。書き出し・Takeout の取り込み・PC の更新の展開は、9 で変わった読み方と判定を自前で 2.6.1 に揃えるので、試験で固定した範囲では前と同じに振る舞う。できなくなることとして見つけたのは、Linux でだけ走る権限の写しで特別な bit が落ちることと、CRC の合わない名前の欄を持つ書庫が `broken_zip` でなく読めるようになることの 2 つ。",
+  "problem": "例外の表が zip 2.6.1 の重大の勧告を「上げる予定: 互換範囲外の修正版待ち」で外している。直った版はもう出ており、理由が事実と違う。上げると zip を使う所の読み方が変わりうるので、上げても前の書き出しが読め、取り込みと更新の展開が同じに振る舞うことを先に固定したい。",
+  "depth": "full",
+  "depth_why": "許諾の一覧の Requirement を MODIFIED にし、例外の表の行を消す（止める規則と、版の間の互換を持つ）",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "この change は私的データの流れを増減しない。書き出し・Takeout の中身の行き先は変わらない",
+    "why": "zip を読み書きする部品の版を変えるだけで、どこへ送るか・何を残すかに触れない",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "Takeout の項目の名前の読み方は 2.6.1 のまま残す。後で 9 の読み方へ移すと、取り込み済みの記録の名前と揃わなくなる",
+    "why": "名前は記録の inner_path と台帳に残るので、読み方を変えると過去の記録との対応が切れる",
+    "refs": {
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "前の版の書き出しのバイト列は上げる前に埋め込む。上げた後に作り直すと、版の間の互換を見なくなる",
+    "why": "2.6.1 で書いたバイト列は、上げた後の木からは作れない",
+    "refs": {
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "code",
+    "name": "zip の部品の版（サーバと PC の収集アプリ）",
+    "change": "2.6.1 から 9.0.5 以上へ。既定の features のまま",
+    "searched": "`zip = ` で crates/*/Cargo.toml、`ZipArchive`・`ZipWriter` で crates を検索した（使うのは 4 か所と 7 つの試験）",
+    "refs": {
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "data",
+    "name": "書き出しの zip（置き場と本人の手元に残るもの）",
+    "change": "書く部品の版が変わる。形は前と同じにする",
+    "searched": "`ashiato-export` と `is_untouched` で crates/server を検索し、書く所と照合する所を開いた",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "data",
+    "name": "Takeout の項目の名前（記録の inner_path）",
+    "change": "読む部品の版が変わる。名前の読み方は 2.6.1 のまま残す",
+    "searched": "`entry.name()`・`inner_path`・`core.archive_file` で crates と migrations を検索した",
+    "refs": {
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "lifecycle",
+    "name": "PC の収集アプリの更新の展開",
+    "change": "読む部品の版が変わる。断る名前は 2.6.1 のまま残す",
+    "searched": "`enclosed_name`・`extract_zip`・`unix_mode` で crates/collector-windows を検索した",
+    "refs": {
+     "decisions": [
+      "D6",
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "file",
+    "name": "例外の表（osv-scanner.toml）",
+    "change": "zip の 7 行を消す",
+    "searched": "`osv-scanner.toml` を読む台本と走っている change を impact_deps.py で出し、開いた",
+    "refs": {
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "T6",
+    "kind": "file",
+    "name": "許す許諾の一覧（tools/check-licenses.sh）",
+    "change": "bzip2-1.0.6 を足して 18 の値にする",
+    "searched": "`check-licenses.sh` を呼ぶ CI と、一覧を比べる自己試験の行を開いた",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "PR の CI の Windows の job（PC の収集アプリの `--lib`）",
+    "role": "reads",
+    "assumes": "zip の部品が Windows 向けに組み立つ",
+    "holds": "unknown",
+    "affects": "上げた後に Windows で組み立たなければ、PR が通らない",
+    "basis": "unconfirmed",
+    "verify": "tasks 2.1 の Windows 向けの clippy と 2.5 の `--lib` の試験",
+    "evidence": []
+   },
+   {
+    "id": "D2",
+    "target": "T2",
+    "who": "書き出しの台帳の照合（前の書き出しを消すか決める）",
+    "role": "reads",
+    "assumes": "置き場の前の版の書き出しを zip として開き、注記を読める",
+    "holds": "unknown",
+    "affects": "読めなければ前の書き出しを消さず、置き場に 2 つ残る",
+    "basis": "observed",
+    "evidence": [
+     "E1",
+     "E2"
+    ],
+    "verify": "tasks 1.2 の試験（Scenario: 以前の版で書いた書き出しは、次の書き出しを書き終えると消える）"
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "切り戻した前の版のサーバの台帳の照合",
+    "role": "reads",
+    "assumes": "上げた後に書いた書き出しを、2.6.1 で開いて注記を読める",
+    "holds": "yes",
+    "affects": "読めなければ、切り戻した後の次の書き出しで前のファイルを消さず、置き場に残る",
+    "basis": "observed",
+    "evidence": [
+     "E1",
+     "E15"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "書き出しを手元で開く本人（zip の部品の外の道具）",
+    "role": "reads",
+    "assumes": "上げた後に書いた書き出しを、合言葉で外の道具で解ける",
+    "holds": "unknown",
+    "affects": "解けなければ、本人が手元の書き出しを ashiato の外で読めない",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E12"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T3",
+    "who": "Takeout の取り込み（記録の inner_path と台帳の照合）",
+    "role": "reads",
+    "assumes": "同じ書庫の項目は、上げる前と同じ名前の文字列で読まれる",
+    "holds": "yes",
+    "affects": "名前が変わると取り込み済みの記録と揃わない",
+    "basis": "derived",
+    "evidence": [
+     "E3"
+    ],
+    "refs": {
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "D6",
+    "target": "T4",
+    "who": "配布物を作る組み立ての台本",
+    "role": "writes",
+    "assumes": "配る zip の項目の名前は ASCII の固定のもので、展開の確かめに断られない",
+    "holds": "yes",
+    "affects": "断られれば PC の更新が展開できない",
+    "basis": "observed",
+    "evidence": [
+     "E10",
+     "E13",
+     "E14",
+     "E4"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T4",
+    "who": "更新の展開の権限の写し（Unix だけの枝）",
+    "role": "reads",
+    "assumes": "項目の権限を、特別な bit も含めて写す",
+    "holds": "no",
+    "affects": "Linux の試験で展開した項目に SUID などが写らなくなる。配る物（Windows）では走らない",
+    "basis": "derived",
+    "evidence": [
+     "E5"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ],
+    "refs": {
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "D8",
+    "target": "T5",
+    "who": "PR の脆弱性の検査（tools/check-vulns.sh --base）",
+    "role": "reads",
+    "assumes": "表の行に当たる勧告が出る。出ない行は落とす",
+    "holds": "yes",
+    "affects": "zip の行を残したまま上げると、行の検査が落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "D9",
+    "target": "T5",
+    "who": "走っている change ch23-vulns-nightly-issue-fix（毎晩の検査の issue）",
+    "role": "reads",
+    "assumes": "例外の表の中身に触れず、PR の検査の出力の行を変えない",
+    "holds": "yes",
+    "affects": "変えれば tasks 3.1 の出力の照合が落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E9"
+    ]
+   },
+   {
+    "id": "D10",
+    "target": "T6",
+    "who": "CI の許諾の検査（rust・node の節）",
+    "role": "reads",
+    "assumes": "全部の features の部品の許諾が許す一覧の中",
+    "holds": "yes",
+    "affects": "bzip2-1.0.6 を足さなければ必ず落ちる",
+    "basis": "observed",
+    "evidence": [
+     "E6",
+     "E11",
+     "E7"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/server/src/export/ledger.rs:187",
+    "quote": "let Ok(zip) = zip::ZipArchive::new(file) else {"
+   },
+   {
+    "id": "E2",
+    "source": "code",
+    "loc": "crates/server/src/export/job.rs:383",
+    "quote": "ledger::is_untouched_with(r, |p, m| jobs.digest(p, m))"
+   },
+   {
+    "id": "E3",
+    "source": "code",
+    "loc": "crates/server/src/archive/open.rs:93",
+    "quote": "path: entry.name().to_owned(),"
+   },
+   {
+    "id": "E4",
+    "source": "code",
+    "loc": "crates/collector-windows/src/update_apply.rs:235",
+    "quote": "let Some(name) = entry.enclosed_name() else {"
+   },
+   {
+    "id": "E5",
+    "source": "code",
+    "loc": "crates/collector-windows/src/update_apply.rs:248",
+    "quote": "if let Some(mode) = entry.unix_mode() {"
+   },
+   {
+    "id": "E6",
+    "source": "ops",
+    "loc": "tools/check-licenses.sh:170",
+    "quote": "cargo metadata --format-version 1 --all-features"
+   },
+   {
+    "id": "E7",
+    "source": "ops",
+    "loc": "tools/check-licenses.sh:245",
+    "quote": "[[ $ALLOW == \"MIT,MIT-0,Apache-2.0"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": "tools/check-vulns.py:302",
+    "quote": "勧告がもう出ない"
+   },
+   {
+    "id": "E9",
+    "source": "story",
+    "loc": "openspec/changes/ch23-vulns-nightly-issue-fix/proposal.md:41",
+    "quote": "osv-scanner.toml"
+   },
+   {
+    "id": "E10",
+    "source": "ops",
+    "loc": "tools/release/build.sh:218",
+    "quote": "archive_collector \"$out/ashiato-collector-windows-$version-x86_64.zip\""
+   },
+   {
+    "id": "E11",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:290",
+    "quote": "../tools/check-licenses.sh rust node"
+   },
+   {
+    "id": "E12",
+    "source": "code",
+    "loc": "crates/server/src/export/dump.rs:229",
+    "quote": "zip.set_comment(format!(\"ashiato-export {export_id}\"));"
+   },
+   {
+    "id": "E13",
+    "source": "ops",
+    "loc": "tools/release/build.sh:240",
+    "quote": "zip -q -j \"$archive\" \"${files[@]}\""
+   },
+   {
+    "id": "E14",
+    "source": "ops",
+    "loc": "tools/release/build.sh:250",
+    "quote": "Compress-Archive -LiteralPath"
+   },
+   {
+    "id": "E15",
+    "source": "test",
+    "loc": "openspec/changes/ch24-zip-upgrade/review/impact.md:42",
+    "quote": "2.6.1 は注記 `ashiato-export 0193` を読み"
+   }
+  ],
+  "lost": [
+   {
+    "before": "Linux で展開した更新の項目に、zip が持つ SUID などの特別な bit も写った",
+    "after": "zip 9 は特別な bit を落として返すので写らない",
+    "who": "Linux で試験を走らせる開発者だけ（配る PC の収集アプリは Windows で、この枝は走らない）",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D5"
+     ]
+    },
+    "harm": {
+     "when": "Linux で更新の展開の試験を走らせ、権限を見るとき。",
+     "who": "開発者だけ。本人の PC では走らない。",
+     "link": "勧告 RUSTSEC-2026-0367（SUID の保持）の直しそのもの。",
+     "unknown": "SUID を持つ項目を配る zip に入れる予定があるかは確かめていない（今の組み立ての台本は入れない）。"
+    }
+   },
+   {
+    "before": "名前の付け直しの欄の検査値が合わない Takeout の書庫は、開けず `broken_zip` として台帳に残った",
+    "after": "見出しの名前で読め、取り込まれる",
+    "who": "本人（取り込みの結果）",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D7"
+     ]
+    },
+    "harm": {
+     "when": "そういう書庫を取り込んだとき。",
+     "who": "本人だけ。結果は本人の取り込みの画面と記録に出る。",
+     "link": "取り込み済みの記録の名前は変わらない。読める書庫が増えるだけ。",
+     "unknown": "実物の Takeout にそういう書庫があるかは確かめていない。"
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "書き出し・Takeout の取り込み・PC の更新の展開が、前と同じに動く",
+    "cannot": "この分析では見つけていない（Linux でだけ走る権限の写しは上の「失うもの」）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ],
+     "scenarios": [
+      "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "上げた版に入れ替えた後も、置き場の前の版の書き出しを照合して消す（仕様が求め、試験 tasks 1.2 が上げた後の版で確かめる）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "以前の版で書いた書き出しは、次の書き出しを書き終えると消える"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "前の版に戻しても、上げた後に書いた書き出しの注記を読み、合言葉で解ける（使い捨ての crate で確かめた。IMP-02）",
+    "cannot": "この分析では見つけていない",
+    "basis": "observed",
+    "evidence": [
+     "E15"
+    ],
+    "refs": {
+     "scenarios": [
+      "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "前の版で書いた書き出しを同じ中身で読み、取り込み済みの記録の名前も変えない（仕様が求め、試験 tasks 1.1・1.3 が上げた後の版で確かめる）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "以前の版で書いた書き出しの zip を、同じ中身で読める",
+      "以前の版で書いた書き出しの zip は、違う合言葉では読めない"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "古い PC の収集アプリも新しい版も、組み立ての台本が作った同じ配る zip を展開できる",
+    "cannot": "この分析では見つけていない（古い PC の収集アプリは自分の版の部品で、同じ配る zip を展開する）",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "退避の書き出しを上げた後の版で読む（仕様が求め、試験 tasks 1.1 が確かめる）",
+    "cannot": "書き出しを ashiato の外の道具で解けるかは確かめていない（IMP-03）",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "以前の版で書いた書き出しの zip を、同じ中身で読める"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "拒否",
+    "rule": "許諾の検査は、許す一覧の外の許諾の部品があれば落とす",
+    "target": "配る物に入る、AGPL と両立しない許諾の部品",
+    "legit": "zip 9 の既定の bzip2 が引く部品（bzip2-1.0.6）。一覧に足すので止まらない",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ],
+     "scenarios": [
+      "許可の一覧は、AGPL-3.0-only を外したほかは前と同じ",
+      "他人の部品の AGPL の許諾は、許諾の検査が落とす"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "削除",
+    "rule": "台帳が書いたままと判定した前の書き出しは、次の書き出しを書き終えると消す",
+    "target": "古い書き出しが置き場にたまること",
+    "legit": "前の版で書いた書き出しも同じに消える（今と同じ振る舞い）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ],
+     "scenarios": [
+      "以前の版で書いた書き出しは、次の書き出しを書き終えると消える"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "拒否",
+    "rule": "違う合言葉では、前の版で書いた書き出しも読めない",
+    "target": "合言葉を知らない人が書き出しを読むこと",
+    "legit": "なし（合言葉を知っている本人は読める）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ],
+     "scenarios": [
+      "以前の版で書いた書き出しの zip は、違う合言葉では読めない"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "削除",
+    "rule": "例外の表から zip の 7 行を消す",
+    "target": "事実と違う理由で外していた勧告",
+    "legit": "なし（上げた版には勧告が当たらない）",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D3"
+     ]
+    }
+   }
+  ],
+  "scenarios": [],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "low",
+    "status": "open",
+    "title": "Linux の展開で SUID などが写らなくなる",
+    "text": "PC の更新の展開の Unix だけの枝は、zip 9 では特別な bit の落ちた権限を写す。配る物（Windows）では走らない",
+    "basis": "derived",
+    "derived": "zip 9 の unix_mode は特別な bit を落として返し、自前の写しはそれをそのまま使う（D5）",
+    "undefined": "配る zip に特別な bit を持つ項目を入れるときの扱い",
+    "feasibility": "unverified",
+    "unknowns": [
+     "配る zip に特別な bit を持つ項目を入れる予定があるかは確かめていない"
+    ],
+    "deps": [
+     "D7"
+    ],
+    "evidence": [
+     "E5"
+    ],
+    "refs": {
+     "decisions": [
+      "D5"
+     ]
+    },
+    "harm": {
+     "when": "Linux で更新の展開の試験を走らせ、権限を見るとき。",
+     "who": "開発者だけ。本人の PC（Windows）では走らない。",
+     "link": "勧告 RUSTSEC-2026-0367 の直しと同じ向き。",
+     "unknown": "特別な bit を持つ項目を配る予定があるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "low",
+    "status": "dismissed",
+    "dismissed_by": [
+     "E15"
+    ],
+    "resolution": "使い捨ての crate で、zip 9 の既定で書いた AES の zip を 2.6.1 で開き、注記を読み・合言葉で全部の項目を解き・違う合言葉では解けないことを確かめた。切り戻した前の版の照合は前のファイルを書いたままと判定できる",
+    "title": "切り戻した前の版が、上げた後の書き出しを照合できるかは試験しない",
+    "text": "試験は「新しい版が前の版の書き出しを読む」向きだけを見る。前の版に戻したときに、上げた後に書いた書き出しを台帳で照合できるかは見ていない",
+    "basis": "unconfirmed",
+    "derived": "照合に失敗しても、台帳は消さない側に倒れる（ledger の is_untouched_with）。書き出しが失われることはなく、置き場に 2 つ残る",
+    "undefined": "前の版へ戻す手順で、書き出しの置き場をどう扱うか",
+    "feasibility": "verified",
+    "feasibility_evidence": "使い捨ての crate で 2.6.1 が 9 の書いた zip を読んだ（review/impact.md R4）",
+    "unknowns": [
+     "確かめたのは使い捨ての crate の 2 項目の zip で、実際のサーバの書き出しを 2.6.1 で照合してはいない"
+    ],
+    "deps": [
+     "D3"
+    ],
+    "evidence": [
+     "E1"
+    ],
+    "refs": {
+     "scenarios": [
+      "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+     ]
+    },
+    "harm": {
+     "when": "上げた版から前の版のサーバに戻し、次の書き出しを書くとき。",
+     "who": "本人だけ。起きた場合も状態には出ず、置き場を自分で見たときだけ分かる。",
+     "link": "置き場の大きさ。書き出しの中身は失われない。",
+     "unknown": "前の版へ戻す使い方がどれくらいあるかは確かめていない。実際のサーバの書き出しでは試していない。"
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "medium",
+    "status": "open",
+    "title": "上げた後の書き出しを外の道具で解けるかは確かめていない",
+    "text": "試験は AES の形（見出しの値）と、上げた後の版で読めることを見る。7-Zip のような外の道具で合言葉から解けるかは、上げる前も後も確かめていない",
+    "basis": "unconfirmed",
+    "derived": "見出しの AES の形は前の版と同じことを試験が見る（S_AES）。手元には AES の zip を解ける外の道具が無い（premises）",
+    "undefined": "書き出しを外の道具で読めることを、誰がどこで確かめるか",
+    "feasibility": "unverified",
+    "unknowns": [
+     "前の版の書き出しを外の道具で解けるかも確かめていない",
+     "本人が書き出しを外の道具で開く使い方をしているかは確かめていない"
+    ],
+    "options": [
+     {
+      "label": "このまま受け入れる（形の検査と、上げた後の版で読めることで足りる）"
+     },
+     {
+      "label": "確認バッチに、本人の Windows の 7-Zip で上げた後の書き出しを解く項目を足す（手元の WSL には外の道具が無い）"
+     }
+    ],
+    "verify": "確認バッチで、上げた後の試験が CH24_DUMP_DIR に書いた ch24.zip を本人の Windows の 7-Zip で合言葉から解き、項目が開けることを見る（手元には 7z が無い。premises）",
+    "if_accepted": {
+     "residual": "外の道具で解けるかは、上げる前と同じく確かめないまま残る",
+     "scope": "書き出しを ashiato の外の道具で開く使い方だけ。サーバで読む道は試験が見る"
+    },
+    "deps": [
+     "D4"
+    ],
+    "evidence": [
+     "E12"
+    ],
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+     ],
+     "scenarios": [
+      "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+     ]
+    },
+    "harm": {
+     "when": "本人が手元の書き出しを ashiato の外の道具で開こうとしたとき。",
+     "who": "本人だけ。書き出しは本人の手元にある。",
+     "link": "退避として書き出しを持つ使い方。サーバで読む道は試験が見る。",
+     "unknown": "外の道具で解けるかは、上げる前の書き出しも含めて確かめていない。上げる前後の差は、見出しの AES の形が同じことまでしか言えない。"
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "完了の判定 1〜5 が満たされる（`Cargo.lock` の zip が 9.0.5 以上の 1 つ・前の版の書き出しの試験・既存の試験・例外の表と許諾の検査・予定のパス）",
+    "refs": {
+     "requirements": [
+      "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ",
+      "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+     ]
+    }
+   },
+   {
+    "text": "PR の CI の Windows の job の `--lib`（展開の名前の試験を含む）が通っている",
+    "refs": {
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "text": "IMP-03（外の道具で解けるか）を、このまま受け入れるか確かめを足すかを決めている",
+    "refs": {}
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "サーバの書き出し・台帳の照合・Takeout の取り込みと、PC の収集アプリの更新の展開",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "decisions": [
+       "D6",
+       "D7"
+      ]
+     }
+    },
+    {
+     "text": "例外の表の zip の 7 行と、許諾の検査の許す一覧",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "前の版の書き出しの互換を試験で見るのは、2026-11 のサーバ（zip 2.6.1）で書いたものだけ",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "text": "許す一覧に足すのは bzip2-1.0.6 だけ。ほかの許諾を引いたら人間に返す",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "text": "Takeout の名前の読み方と更新の展開の判定は、2.6.1 の結果を試験に固定した名前の範囲で同じと確かめる",
+     "refs": {
+      "decisions": [
+       "D6",
+       "D7"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "zip と無関係な勧告（chrono・libsqlite3-sys・rustix）と npm の 6 件",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "text": "携帯の収集アプリ（zip を使わない）",
+     "refs": {}
+    }
+   ],
+   "residual": [
+    {
+     "text": "上げた後の書き出しを外の道具で解けるか（IMP-03）",
+     "refs": {}
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "zip を使う 4 か所のコード（書き出し・台帳の照合・Takeout を開く所・更新の展開）と、前の版と同じに振る舞わせる D5〜D7",
+     "refs": {
+      "decisions": [
+       "D5",
+       "D6",
+       "D7"
+      ]
+     }
+    },
+    {
+     "text": "書き出しの互換の Requirement と 4 本の Scenario",
+     "refs": {
+      "requirements": [
+       "サーバの版が変わっても、以前の版のサーバが書いた書き出しを同じ中身で読み、新しく書く書き出しは以前と同じ AES の形を持つ"
+      ],
+      "scenarios": [
+       "以前の版で書いた書き出しの zip を、同じ中身で読める",
+       "以前の版で書いた書き出しの zip は、違う合言葉では読めない",
+       "以前の版で書いた書き出しは、次の書き出しを書き終えると消える",
+       "新しく書いた書き出しの zip の項目は、以前の版と同じ AES の形で書かれる"
+      ]
+     }
+    },
+    {
+     "text": "許諾の一覧の Requirement と、CI と自己試験が一覧を読む所",
+     "refs": {
+      "requirements": [
+       "配布物に入る依存の許諾を、携帯の依存も含めて検査する"
+      ],
+      "scenarios": [
+       "許可の一覧は、AGPL-3.0-only を外したほかは前と同じ"
+      ]
+     }
+    },
+    {
+     "text": "例外の表を読む台本と、走っている change（ch19・ch22・ch23）の触れるパス",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "実物の Takeout の書庫の名前の印と、CRC の合わない名前の欄を持つ書庫があるか",
+     "why": "実物の書庫は手元に無い"
+    },
+    {
+     "text": "書き出しを 7-Zip などの外の道具で解けるか",
+     "why": "手元に AES の zip を解ける外の道具が無い"
+    },
+    {
+     "text": "zip 9 が書庫を開くとき（中央ディレクトリの読み込み）に新しく断る形を全部は洗っていない。局所ヘッダとの突き合わせは既定では走らないことだけを確かめた",
+     "why": "9 の読み込みの検査は数が多く、open.rs の読み方に当たる所だけを読んだ"
+    },
+    {
+     "text": "zip 9 の新しい依存（lzma-rust2・ppmd-rust など）の中身と、組み立ての時間・配る物の大きさ",
+     "why": "許諾と勧告は検査が見るが、それ以外は読んでいない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "携帯の収集アプリと画面",
+     "why": "zip の部品を使わない"
+    }
+   ]
+  }
+ },
+ "sections": {
+  "makes": {
+   "tldr": "zip の部品を 2.6.1 から 9 に上げ、例外の表から zip の 7 行を消す。",
+   "gist": [
+    "書き出し・Takeout の取り込み・PC の更新の展開は、前と同じに振る舞わせる。",
+    "既定の bzip2 のため、許す許諾の一覧に bzip2-1.0.6 を 1 つ足す。"
+   ],
+   "words": [
+    {
+     "term": "zip の部品",
+     "def": "zip を読み書きする Rust の部品（crate）。サーバと PC の収集アプリが使う"
+    },
+    {
+     "term": "例外の表",
+     "def": "既知の勧告を理由と期限つきで検査から外す一覧"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 200\" role=\"img\" aria-label=\"zip の部品を 2.6.1 から 9 に上げ、それを使う 3 つの所（書き出し・Takeout の取り込み・PC の更新の展開）は前と同じに振る舞い、例外の表と許諾の一覧だけが変わる\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"80\" width=\"130\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"65\" y=\"99\" text-anchor=\"middle\">zip の部品</text><text x=\"65\" y=\"114\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">2.6.1 → 9</text><rect x=\"200\" y=\"0\" width=\"190\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"295\" y=\"19\" text-anchor=\"middle\">書き出し（サーバ）</text><text x=\"295\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">前の版の書き出しも読める</text><rect x=\"200\" y=\"60\" width=\"190\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"295\" y=\"79\" text-anchor=\"middle\">Takeout の取り込み</text><text x=\"295\" y=\"94\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">名前は 2.6.1 と同じ読み方</text><rect x=\"200\" y=\"120\" width=\"190\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"295\" y=\"139\" text-anchor=\"middle\">PC の更新の展開</text><text x=\"295\" y=\"154\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">断る名前は 2.6.1 と同じ</text><rect x=\"440\" y=\"20\" width=\"160\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"520\" y=\"39\" text-anchor=\"middle\">例外の表</text><text x=\"520\" y=\"54\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">zip の 7 行を消す</text><rect x=\"440\" y=\"100\" width=\"160\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"520\" y=\"119\" text-anchor=\"middle\">許す許諾の一覧</text><text x=\"520\" y=\"134\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">bzip2-1.0.6 を足す</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M132 96 L196 24\"/><path d=\"M132 102 L196 82\"/><path d=\"M132 108 L196 140\"/></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M392 30 L436 40\"/><path d=\"M392 122 L436 122\"/></g><g></g></svg>",
+    "caption": "上げる部品と、前と同じに振る舞う 3 つの所"
+   }
+  },
+  "change": {
+   "tldr": "zip の版と例外の表と許諾の一覧が変わる。zip を使う所の振る舞いは前と同じ。",
+   "gist": [
+    "例外の表から zip の 7 行が消え、許す許諾の一覧が 18 の値になる。",
+    "前の版の書き出しが読めることを、初めて試験で固定する。"
+   ]
+  },
+  "lost": {
+   "tldr": "Linux でだけ走る権限の写しで特別な bit が落ち、壊れた名前の欄の書庫が読めるようになる。",
+   "gist": [
+    "権限の写しは Linux の試験でだけ走り、本人の PC（Windows）では走らない。",
+    "壊れた名前の欄の書庫は読める側に変わるだけで、取り込み済みの記録の名前は変わらない。"
+   ]
+  },
+  "uses": {
+   "tldr": "脆弱性の警告と例外の表に、事実と違う理由の zip の行が残らない。"
+  },
+  "watch": {
+   "tldr": "zip 9 は名前の読み方と道の判定を変えた。どちらも 2.6.1 の規則を自前で残す。"
+  },
+  "findings": {
+   "tldr": "重大な問題は見つけていない。外の道具で書き出しを解けるかは確かめていない（IMP-03）。",
+   "gist": [
+    "外の道具で解けないと、本人が手元の書き出しを ashiato の外で読めない。",
+    "切り戻した前の版でも上げた後の書き出しを読めることは、使い捨ての部品で確かめた（IMP-02）。"
+   ]
+  },
+  "rest": {
+   "tldr": "zip と無関係な勧告は直さない。書き出しの埋め込み方は AI に任せた。"
+  }
+ }
+}

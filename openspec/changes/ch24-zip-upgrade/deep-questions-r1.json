@@ -1,0 +1,87 @@
+{
+  "format": 2,
+  "title": "CH24 の深掘り（gate・第 1 回。仮の決定が確かめで否になった）",
+  "subtitle": "zip の部品を 9 に上げると、bzip2 の部品の許諾が許す一覧に無い",
+  "makes": "Rust の zip の部品を 2.6.1 から 9 に上げ、重大の勧告の例外を外す。Takeout と書き出しの zip を読む・書く振る舞いは今のまま変えない。",
+  "note": [
+    "CH24 は軽い路（人間の深掘りと合意を省く。理由: 振る舞いが変わらない）で計画しました。計画の中で AI が仮に「zip 9 の features（どの圧縮の方式を読めるようにするかの切り替え）は既定のまま」と決め、別の席が確かめたところ「否」でした。",
+    "既定のままだと、bzip2（圧縮の方式の 1 つ）を読む部品が、許諾の検査（tools/check-licenses.sh）の許す一覧に無い許諾になり、検査が必ず落ちます。コードはまだ書いていません。",
+    "選んだら一番下の「回答をコピー」を押してください。"
+  ],
+  "questions": [
+    {
+      "id": "Q-G1",
+      "topic": "zip 9 の bzip2 の部品の許諾",
+      "kind": "irreversible",
+      "loss": "discarded",
+      "question": "zip 9 の bzip2 の部品の許諾をどう扱うか",
+      "decide": "許す許諾を 1 つ増やすか、bzip2 を読むのをやめるか、zip を上げずに例外の理由を直すか。",
+      "points": [
+        "zip 9 は bzip2 を Rust の部品で読み、その許諾（bzip2-1.0.6）は許す一覧に無い。今の 2.6.1 は C の部品（MIT/Apache-2.0）。",
+        "9 の切り替えで C の部品（bzip2-rs）を選んでも、Rust の部品も一緒に引く（2026-11-20 に解いて確かめた）。許諾を変えずに上げる道は無い。",
+        "bzip2 を読むのをやめると、bzip2 で縮めた項目を持つ Takeout は読めなくなる。"
+      ],
+      "figure": {
+        "svg": "<svg viewBox=\"0 0 560 150\" role=\"img\" aria-label=\"3 つの案と、許諾・読める方式・勧告の例外の結果\"><g font-size=\"12\" fill=\"var(--ink)\"><text x=\"0\" y=\"28\">(1) 一覧に足す</text><text x=\"0\" y=\"78\">(2) bzip2 を外す</text><text x=\"0\" y=\"128\">(3) 上げない</text></g><rect x=\"110\" y=\"10\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"120\" y=\"29\" font-size=\"12\" fill=\"var(--pick)\">許す許諾が 1 つ増える・読める方式は今と同じ・例外は消える</text><rect x=\"110\" y=\"60\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"120\" y=\"79\" font-size=\"12\" fill=\"var(--ink-2)\">許諾は今と同じ・bzip2 で縮めた Takeout は読めない</text><rect x=\"110\" y=\"110\" width=\"440\" height=\"28\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"120\" y=\"129\" font-size=\"12\" fill=\"var(--ink-2)\">何も変わらない・重大の勧告の例外が 90 日残る</text></svg>",
+        "caption": "案ごとの許諾・読める方式・勧告の例外"
+      },
+      "why": "design D1 の反転条件（既定が引く部品の許諾が許す一覧に無い）が、条件付きではなく必ず起きる。許す一覧（`tools/check-licenses.sh`）は予定のパスの外で、tasks.md は一覧に触れないと決めている。\n\n読める方式を絞る案は、その方式で縮めた項目を持つ Takeout の書庫を取り込みで断る（捨てる）ので、取り消せない側に入る。",
+      "context": "zip 9.7.3 の features: `bzip2 = [dep:bzip2, bzip2/default]`（bzip2 0.6.1 の既定は Rust の `libbz2-rs-sys` 0.2.7、許諾 `bzip2-1.0.6`）、`bzip2-rs = [dep:bzip2, bzip2/bzip2-sys]`（C の libbz2）。ただし `bzip2-rs` だけを選んでも、cargo は依存と同じ名前の feature `bzip2` も立て、`bzip2/default` から `libbz2-rs-sys` を引く（repo の外の使い捨ての crate で `default-features = false` と 9 の既定の並びから bzip2 を bzip2-rs に替えたものを `cargo metadata --all-features` / `cargo tree` で解いた。2026-11-20。bzip2-rs だけを立てても zip の features に `bzip2` が出る）。provisional-review.md D1 が挙げた「bzip2-rs を置く道」は、この確かめで成り立たなかった。\n\n2.6.1 は `bzip2` 0.5.2 + `bzip2-sys`（`MIT/Apache-2.0`。`Cargo.lock:404-416`）を引く。許諾の検査は `cargo metadata --all-features` の部品を全部見る（`tools/check-licenses.sh:170`）。ほかに既定が引く `lzma-rust2`（Apache-2.0）・`ppmd-rust`（CC0-1.0 OR MIT-0）・`zlib-rs`（Zlib）は許される。\n\n案 (3) は `docs/changes/CH24.md` の「どこまで」にある本人の決定（上げきれないときは、例外の理由を事実「上げる予定: 2 → 9 の上げの作業が残る」に直して期限を 90 日以内に置く）に当たる。",
+      "family": {
+        "name": "zip 9 の既定の features が引く部品の許諾・勧告・組み立て（design D1 の反転条件）",
+        "siblings": [
+          {
+            "case": "bzip2 の部品（libbz2-rs-sys、許諾 bzip2-1.0.6）の許諾。bzip2-rs を選んでも引く",
+            "decided": "未決 Q-G1"
+          },
+          {
+            "case": "lzma・xz（lzma-rust2）・ppmd（ppmd-rust）・deflate（zlib-rs）の許諾",
+            "decided": "許す一覧に入る（provisional-review.md D1 の cargo metadata）"
+          },
+          {
+            "case": "既定が引く部品に勧告が当たる",
+            "decided": "tasks 3.1 の `tools/check-vulns.sh --base` が「新しく持ち込んだ: 0 件」を見る"
+          },
+          {
+            "case": "既定が引く部品で組み立てが通らない",
+            "decided": "Task 2 の組み立てと試験が見る"
+          },
+          {
+            "case": "PC の収集アプリ（crates/collector-windows）の zip の features",
+            "decided": "サーバと同じ `zip = \"2\"`。Q-G1 の答えを両方に当てる"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "premises.md は「zip 9 の既定の features は aes-crypto と deflate を含む」だけを `cargo info` で確かめ、既定が引く部品の許諾を確かめないまま、許諾を design D1 の反転条件（起きたら返す）に回した。上げる前に解決して許諾を当てる手順がどの段にも無かった。",
+        "prevention": "依存を上げる change の premises に「上げる先を repo の外の使い捨ての crate で `cargo metadata` し、`tools/check-licenses.sh` の一覧に当てる」行を必ず置く。反転条件に書く前に、その条件が今の事実で起きるかを確かめる。"
+      },
+      "allow_free": true,
+      "options": [
+        {
+          "label": "zip 9 の既定のまま、許す一覧に bzip2-1.0.6 を足す",
+          "gain": "読める方式は今と同じ（ppmd が増える）で、重大の勧告の例外も消える。",
+          "cost": "許す許諾の方針を 1 つ広げる。一覧は予定のパスの外で、この change は軽い路を外れる。",
+          "recommended": true
+        },
+        {
+          "label": "zip 9 に上げ、bzip2 だけを外して残りの既定を並べる",
+          "gain": "許諾は今と同じで、予定のパス（Cargo.toml）の中で収まる。",
+          "irreversible": "bzip2 で縮めた項目を持つ Takeout の書庫を、取り込みで断る",
+          "harm": {
+            "when": "Takeout の書庫に bzip2 で縮めた項目があり、取り込もうとしたとき。",
+            "who": "だれにも見えない（自分の取り込みが断られる）。",
+            "link": "何とも結びつかない。",
+            "unknown": "Google の Takeout が bzip2 を使うことがあるかは確かめていない。"
+          }
+        },
+        {
+          "label": "zip は 2.6.1 のまま、例外の理由を事実に直す",
+          "gain": "振る舞いも許諾も変わらない（本人が決めた「上げきれないとき」の道）。",
+          "cost": "重大の勧告の例外が、期限（90 日以内）まで残る。"
+        }
+      ]
+    }
+  ]
+}

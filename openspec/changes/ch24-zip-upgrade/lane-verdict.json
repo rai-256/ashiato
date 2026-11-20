@@ -1,0 +1,77 @@
+{
+ "lane": "light",
+ "reason": "same",
+ "declared": {
+  "reason": "same",
+  "paths": [
+   "crates/server/Cargo.toml",
+   "crates/collector-windows/Cargo.toml",
+   "Cargo.lock",
+   "crates/server/src/archive/open.rs",
+   "crates/server/src/export/dump.rs",
+   "crates/server/src/export/ledger.rs",
+   "crates/collector-windows/src/update_apply.rs",
+   "crates/server/src/archive_tests.rs",
+   "crates/server/src/archive_flow_tests.rs",
+   "crates/server/src/media_export_tests.rs",
+   "crates/server/src/export_job_tests.rs",
+   "crates/server/src/export_tests.rs",
+   "crates/server/src/export_file_tests.rs",
+   "crates/collector-windows/tests/st58_pc_update.rs",
+   "osv-scanner.toml",
+   "tools/licenses/**",
+   "docs/changes/CH24.md"
+  ],
+  "why": "依存の zip を 2 から 9 に上げ、使う 4 か所を新しい API に合わせ、osv-scanner.toml の 3 件の例外を外す（上げきれなければ理由を事実に直す）だけ。本人の決定で振る舞いは変えない（書き出しの AES の zip が今と同じに読めることを試験で確かめる）。API・送信の契約・移行には触れない。新しい版が足す依存の許諾文は tools/licenses に置く"
+ },
+ "at": "2026-11-19T15:15:38+00:00",
+ "config": "tools/lanes.json",
+ "entry": {
+  "ok": true,
+  "why": [],
+  "paths": [
+   "crates/server/Cargo.toml",
+   "crates/collector-windows/Cargo.toml",
+   "Cargo.lock",
+   "crates/server/src/archive/open.rs",
+   "crates/server/src/export/dump.rs",
+   "crates/server/src/export/ledger.rs",
+   "crates/collector-windows/src/update_apply.rs",
+   "crates/server/src/archive_tests.rs",
+   "crates/server/src/archive_flow_tests.rs",
+   "crates/server/src/media_export_tests.rs",
+   "crates/server/src/export_job_tests.rs",
+   "crates/server/src/export_tests.rs",
+   "crates/server/src/export_file_tests.rs",
+   "crates/collector-windows/tests/st58_pc_update.rs",
+   "osv-scanner.toml",
+   "tools/licenses/**",
+   "docs/changes/CH24.md"
+  ],
+  "classes": [
+   "collector",
+   "deps",
+   "docs",
+   "server",
+   "tests"
+  ],
+  "code": [
+   "crates/server/Cargo.toml",
+   "crates/collector-windows/Cargo.toml",
+   "Cargo.lock",
+   "crates/server/src/archive/open.rs",
+   "crates/server/src/export/dump.rs",
+   "crates/server/src/export/ledger.rs",
+   "crates/collector-windows/src/update_apply.rs",
+   "osv-scanner.toml",
+   "tools/licenses/**"
+  ]
+ },
+ "promoted": {
+  "stage": "spec",
+  "why": [
+   "仕様の段で A が出た: (未回答)"
+  ],
+  "at": "2026-11-20T01:52:35+00:00"
+ }
+}
