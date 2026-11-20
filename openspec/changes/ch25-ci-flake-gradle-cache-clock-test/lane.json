@@ -1,0 +1,4 @@
+{"reason": "same",
+ "paths": [".github/workflows/ci.yml", ".github/workflows/nightly.yml", ".github/workflows/release.yml",
+           "crates/collector-windows/src/clock.rs", "docs/changes/CH25.md"],
+ "why": "CI の gradle の部品をキャッシュから取る形にする（依存の版・ロックの検査は変えない）のと、clock.rs の #[cfg(test)] の偽のサーバが返す瞬間の時刻にずらしを足すだけ。製品のコード（HttpDateClock::now）・API・送信の契約・移行には触れず、製品の振る舞いは変わらない。nightly / release も tools/release/build.sh apk で gradle を使うので含める"}
