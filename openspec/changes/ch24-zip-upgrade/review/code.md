@@ -115,6 +115,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: `ch24_aes_extra` で +8 の強さと +6..+7 の `AE` も返し、試験で `strength == 3` を新旧の両方に当てる。2.2 の python の確かめにも `0x9901` の強さ `3` を足す
 - 処置: fixed 1.1 / 2.2。`ch24_aes_extra` が AE の印と強さを読み、名前で組にした新旧の全項目で AES-256（強さ 3）・deflate（実の方式 8）を確かめるようにした。2.2 の Python の確かめも同じ AES extra の値を検査する。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R2. PC の更新の展開の名前の試験は、Linux では `/etc/passwd` を断る分岐を観測していない（権限の拒否で Err になるだけ）
 - 成果物: crates/collector-windows/src/update_apply.rs（`ch24_extract_zip_name_rules`）
@@ -127,6 +128,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: 断る名前は Err の文（`format!("{e:#}")`）に `zip の道が不正` を含むことまで見る。または、`enclosed_zip_path` を名前ごとに直に呼ぶ表の試験を足し、外へ書かないで判定を観測する
 - 処置: fixed D6 — 展開を試す表に、書き込みの成否とは別に `enclosed_zip_path` 自体の受理・拒否を同じ名前の期待値で確かめる assert を加えた。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R3. 本人の決定「zip の既定の features のまま・bzip2 も読み続ける」（Q-G1・D1）を固定する試験が無い
 - 成果物: crates/server/Cargo.toml / crates/server/src/archive_tests.rs
@@ -137,6 +139,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: python の `zipfile.ZIP_BZIP2`（部品の外）で縮めた Takeout の項目を持つ zip を埋め込み、`open_archive` が中身を読める試験を `archive_tests.rs` に 1 本足す。lzma・zstd も既定が読む方式として、同じ形で並べてよい
 - 処置: fixed D1 — 外部の `zipfile` で bzip2 圧縮した Takeout を `open_archive` が読める試験を `archive_tests.rs` に加え、既定の features が bzip2 を保つことを固定した。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R4. `ch24_takeout_*` の `// Scenario:` の印が、spec に無い Scenario を指している
 - 成果物: crates/server/src/archive_tests.rs
@@ -148,6 +151,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: 印を `// Scenario:` でない説明の注記（design D7 を指す）に直す。使わない 2 つの定数は囲みの中なので消さず、試験で読む（印の無い 2 項目を `CH24_CP437_NAME` / `CH24_CP437_80_FF` と比べる）か、そのまま残す理由を注記する
 - 処置: fixed D7 — 正典に無い `Scenario` 印を D7 を指す説明へ替え、2.6.1 が書いた deflate fixture の 2 項目を開いて CP437 の期待値まで検査するようにした。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R5. collector の `clock::tests` の 2 本が、windows-gnu の `--lib`（tasks 2.5・CI の Windows の job と同じ）で 1 回落ち、走らせ直すと通った
 - 成果物: crates/collector-windows/src/clock.rs（change の外。ST05）
@@ -189,6 +193,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1 / 2.2。R1 と同じ変更で、強さ・実の圧縮方式を直接に検査し、項目を名前で対応付けた。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R7. UTF-8 の印が立った書庫で、名前に不正な UTF-8 が入っていると、黙って U+FFFD に置き換えて取り込むようになった。以前（zip 2.6.1）は名前を厳密に UTF-8 として読み、失敗すれば `by_index` が落ちて broken_zip として台帳に残っていた。新しい `zip_name` は `from_utf8_lossy` を使う。Fix: 印付きの分岐では `std::str::from_utf8` が失敗したら broken_zip の OpenError を返す（以前の振る舞いを保つ）。
 - 成果物: crates/server/src/archive/open.rs:20
@@ -196,6 +201,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: zip 2.6.1 の `read.rs:1297-1300` は UTF-8 印付きの名前に `String::from_utf8_lossy` を使う。現行の `zip_name` も同じ規則であり、`from_utf8` へ替えると D7 の「2.6.1 と同じ規則」を壊す。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R8. Scenario「印の無い書庫は CP437 で読む」の試験は、2.6.1 の書き手で作った deflate の Takeout の fixture（`CH24_TAKEOUT_UNFLAGGED_ZIP_B64`）と、その期待値（`CH24_CP437_80_FF`）を `let _ =` で捨てている。実際に開いているのは手で組んだ raw の fixture だけになっている。Fix: `CH24_TAKEOUT_UNFLAGGED_ZIP_B64` を開き、2 つ目の項目の名前が `CH24_CP437_80_FF` と一致することも確かめる。
 - 成果物: crates/server/src/archive_tests.rs:506
@@ -203,6 +209,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D7 — 未使用だった `CH24_TAKEOUT_UNFLAGGED_ZIP_B64` と `CH24_CP437_80_FF` を実際の assert へつないだ。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R9. zip 9 には、より厳しい `enclosed_name`（Windows の道の規則を全環境で当て、区切りを含む要素も弾く）がある。それを使わず、2.6.1 の緩い検査を自前で写したので、Windows で問題のある名前が通り続ける。NTFS の代替データストリーム（`ab:c`）や予約名（`NUL`）は受け入れ、試験（`CH24_EXTRACT_EXPECTED_WINDOWS` の true）がその振る舞いを固定している。また `#[cfg(unix)]` の枝は SUID を含む mode をそのまま写す（RUSTSEC-2026-0367 と同じ型。design では「直さない」としている）。Fix: zip 9 の `entry.enclosed_name()` に切り替えるか、`:` を含む要素と予約名を弾く。
 - 成果物: crates/collector-windows/src/update_apply.rs:258
@@ -210,6 +217,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: D6 は 2.6.1 と同じ名前の判定を保つため `enclosed_name()` を使わないと明記し、`ab:c` と `NUL` の Windows の受理も fixture として固定している。提案のより厳しい判定は振る舞いの変更になる。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R10. `ch24_zip64_offset` は、追加の欄の中で最初に現れる `01 00` を zip64 の見出しとみなしている。ところが AES の欄の vendor version（AE-1）も `01 00` なので、AES の欄が先に並ぶと誤った位置を読む。さらに、2 つの大きさがどちらも zip64 側にある前提で `+4+16` を固定している。Fix: 追加の欄を (id, size) の単位で順にたどり、id が `0x0001` の欄だけを読む。
 - 成果物: crates/server/src/export_file_tests.rs:168
@@ -217,6 +225,7 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1 — zip64 の extra field を id・size ごとにたどり、`0x0001` の field だけから、実際に 32 bit 値が飽和した size の後にある offset を読むようにした。AES field が先にあり size が zip64 でない例も試験した。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
 
 ## R11. `zip = "9"` を既定の features のまま取り込んだため、外から届く Takeout の書庫を読むサーバに、新しい展開器（`ppmd-rust`・`lzma-rust2`）と `nix`・`typed-path` が入った。そのうえ、使わない bzip2 のために許諾の許可の一覧へ `bzip2-1.0.6` を足している。書き出しが使うのは deflate と AES だけ。Fix: `default-features = false, features = ["deflate", "aes-crypto", ...]` のように必要なものだけに絞り、収集アプリ側（`crates/collector-windows/Cargo.toml` L28）も同じにする。
 - 成果物: crates/server/Cargo.toml:32
@@ -224,3 +233,4 @@ HEAD dd6c62265（作業ツリーは clean）。base は `git merge-base origin/m
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: openspec/changes/ch24-zip-upgrade/deep.md:21-22 の本人の答え Q-G1 と D1 は、読み取り方式を狭めないため両 crate の zip 9 を既定の features のままにし、bzip2 の許諾を加えると決めている。features を絞る提案はその A の決定と矛盾する。
+- 判定: ADDRESSED（re-review 1 @2112dc044ff0a17aad1b500d7372dc668eb5dcc5）
