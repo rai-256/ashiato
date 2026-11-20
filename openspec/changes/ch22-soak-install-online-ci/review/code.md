@@ -644,8 +644,10 @@ ISO の形（`2026-11-20T00:00:11.1230000Z`・`2026-11-20T00:00:11.123`）も GN
 - 成果物: .superpowers/sdd/ch22-settle/report.md
 - 根拠: .superpowers/sdd/ch22-settle/report.md:1（re-review 8 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 4.1
 
 ## R40. 収集アプリが $work の削除後に終わると、soak_collector_process の status への書き込みが 'No such file' を標準エラーへ出すことがある。害は無い。
 - 成果物: tools/release/soak-install.sh
 - 根拠: tools/release/soak-install.sh:603-607（re-review 8 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 1.1

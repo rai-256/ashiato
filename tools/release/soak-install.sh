@@ -377,7 +377,10 @@ soak_collect_observations() {
 soak_collector_process() {
   local collector="$1" output="$2" status="$3" rc=0
   "$collector" >"$output" 2>&1 || rc=$?
-  printf 'exit=%s\n' "$rc" >"$status"
+  # The parent may have removed its temporary work directory while this
+  # background collector is exiting.  A missing diagnostic is harmless, but
+  # leaking its redirection error into the CI log is not.
+  { printf 'exit=%s\n' "$rc" >"$status"; } 2>/dev/null || :
   return "$rc"
 }
 
