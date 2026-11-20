@@ -15,7 +15,7 @@
 - **実地は公開に何も出さない**（design D18）: `tools/tsukau/real-run.sh` は、使い捨ての木の `origin` を一時の bare repo にし、`gh` を記録する偽物にして走らせる。本物の GitHub の repo へ push しない・issue を作らない
 - **Scenario の印**: 自己試験は、確かめのすぐ上に `# Scenario: <名前>` のコメントを置く（`echo "== Scenario:` は本物で確かめる口だけ）。名前は spec の `#### Scenario:` と一字一句合わせる
 - **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`docker`・`gh`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
-  本物の Sandbox・docker・claude・ネットワークを使わない。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。**偽の席の台本は本物と同じ 2 行を出す**（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `v`・`stop`・`count`・`titles`・`run`・`cleanup` の JSON。`run` は `/home/…` の絶対パス）と、`run` の下に `candidates.jsonl` を書く
+  本物の Sandbox・docker・claude・ネットワークを使わない。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。**偽の席の台本は本物と同じ 2 行を出す**（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `v`・`stop`・`count`・`titles`・`run`・`cleanup` の JSON。`run` は `/home/…` の絶対パス）と、`run` の下に `candidates.jsonl` と、`candidates`（`id`・`title`）を持つ `result.json` を書く
 - **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`docker`・起動の台本・組み立ての台本・`init.py` の場所・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
   `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D16）
 - 定数は台本の頭に置く: 席の時間 10 分・token 200,000、確かめ直し 5 分・100,000（design D8・D16）・SIGTERM までの 1,860 秒と片付けの猶予 360 秒・PC の組み立ての上限 2,400 秒（design D5（仮））・準備の全体の上限 7,140 秒
@@ -69,7 +69,7 @@
   `timeout -k 360 1860 python3 <作業ツリー>/scripts/tsukau.py run --repo <作業ツリー> --scope <範囲> --target <相手> --minutes 10 --tokens 200000 --label verify-<tag>` で呼ぶ。
   PC の範囲があれば、呼ぶ前に `timeout 2400 tools/tsukau/build-pc.sh "$PWD/dist/verify-<tag>/tsukau-pc"` で組み、絶対パスを `ASHIATO_TSUKAU_PC_ZIPS` で渡す。画面の相手には `$PWD/dist/verify-<tag>/ashiato-server` と `$PWD/dist/verify-<tag>/web` を `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` で渡す。
   呼ぶ前と後で、動いている Sandbox（`wsb list`）と `ashiato-tsukau-` の compose project を数え、打ち切った後に増えていれば「片付けに残りがある」。
-  最後の行の JSON から、頭の段落と相手ごとの段落を決まった文言（spec と design D11）で組み、題は `tools/tsukau/public-title.sh` を通して「候補 <n>」と並べ、標準出力に段落だけを出す。
+  最後の行の JSON から、頭の段落と相手ごとの段落を決まった文言（spec と design D11）で組み、番号と題は最後の行の `run` の下の `result.json` の `candidates`（`id`・`title`）から取り、題は `tools/tsukau/public-title.sh` を通して「C<n>」と並べ、標準出力に段落だけを出す。
   目録 `dist/verify-<tag>/tsukau.json`（design D14 の形）と手元の詳細 `dist/verify-<tag>/tsukau.log` を書く。作業ツリーは `trap` で必ず消す。D10 の索引を `<out_root>/verify-index/<鍵>.json` に書く。どの道でも rc=0。`gh` を呼ばない
   `--self-test` に足す印（偽の `tsukau.py`・`init.py`・組み立ての台本・`wsb`・`docker`・`gh` と、`out_root` と打ち切りの秒数を `TSUKAU_TEST_` で渡す）:
   `# Scenario: 範囲のある相手だけを、決まった時間と token で呼ぶ`・
@@ -114,8 +114,9 @@
   `tools/tsukau/verify-batch.sh --self-test` に足す印（`tools/verify-prep.sh` から注釈で挟んだ部分を `sed` で切り出し、`set -euo pipefail` の下で、偽の `tools/tsukau/verify-batch.sh` と中身のある仮の `manifest.md` で走らせる）:
   `# Scenario: 席の呼び出しが落ちても、準備の rc は 0 のまま`（偽物は rc=1・出力なし）・
   `# Scenario: 席の呼び出しが終わらなくても、上限で打ち切って準備を続ける`（偽物は終わらない・上限 2 秒）・
+  `# Scenario: 準備の席の部分の上限は、席の呼び出しの全体の上限と同じ`・
   `# Scenario: 席の段落は、既存の段落の後に足すだけ`（`tools/verify-prep.sh` を読み、挟んだ部分が `cat > "$out/manifest.md"` の行より後にあり、挟んだ部分の `manifest.md` への書き込みが `>>` だけで、`run.sh`・`ashiato-server`・`app-debug.apk`・`web/` を書く行が無い）
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 37'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 38'` rc=0
 
 ## Task 6: 差し込み口と画面の相手
 
@@ -180,7 +181,7 @@
 
 ## Task 10: 処置まで本物で通す（harness2 の処置が入った後）
 
-- [ ] 10.1 `tools/tsukau/real-run.sh` を作る（design D18（仮）・spec の処置の契約と受け入れの Requirement）: 処置の入口（`.harness2/scripts/verify_tsukau.py`。design D15 の 1）が無ければ「確認バッチの処置（harness2）が無い」と 1 行出して rc≠0（飛ばさない）。
+- [ ] 10.1 `tools/tsukau/real-run.sh` を作る（design D18（仮）・spec の処置の契約と受け入れの Requirement）: 処置の入口（`.harness2/scripts/verify_tsukau.py`。design D15 の 1）が無ければ「確認バッチの処置（harness2）が無い」と 1 行出して rc=127（飛ばさない。`verify-run` が BLOCKED_INFRA として止める。design D18）。
   あれば、一時の置き場に bare repo を作り、`origin/main` を押した上に、画面のファイル（`web/src/` の画面の文言 1 つを崩す）と PC のファイル（`crates/server/src/` の注釈 1 行）を変えた偽の `feat/ch99-tsukau-real` と `docs/changes/CH99.md` を置き、
   その bare repo を `origin` に持つ使い捨ての確認バッチの木と、`feat/ch99-tsukau-real` の偽の Story の作業ツリーを作って「verify: #0 feat/ch99-tsukau-real を確認バッチ ch21-real に入れる」の merge で重ね、`tools/verify-prep.sh ch21-real` の席の部分まで（画面の相手が要る `dist/verify-ch21-real/ashiato-server`・`web/` を含む）を本物で走らせる。
   席の結果に、用意した候補を 2 つ足す（崩した文言の「この回が原因」と、main の版でも起きる「前から」。根拠の文は台本が決めた字面）。呼ばれた引数と本文を記録し `pr checks` に緑を返す偽の `gh` を `PATH` の先に置き、処置の台本を push 先・`gh`・Story の作業ツリー・CI の結果を差し替えて走らせる（D15 の 7）。
@@ -188,7 +189,7 @@
   `== Scenario: 本物で、用意した 2 つの候補はどちらも処置の結果を持つ`・
   `== Scenario: 本物で、直した候補は Story のブランチに直しが載り、席で確かめ直される`・
   `== Scenario: 本物の処置で公開の repo に向けて出たものは、題と番号だけ`・
-  `== Scenario: harness2 の処置が無ければ、実地の確かめは落ちる`（処置の入口を見えなくした一時の木で、rc≠0 と 1 行を見る）。
+  `== Scenario: harness2 の処置が無ければ、実地の確かめは落ちる`（処置の入口を見えなくした一時の木で、rc=127 と 1 行を見る）。
   最後に相手ごとの止まり方・件数・処置の内訳・片付けを 1 行ずつ出す（題は出さない）。用意した候補と偽の Story 以外が原因の候補は直さない
   検証: `tools/tsukau/real-run.sh` rc=0
 

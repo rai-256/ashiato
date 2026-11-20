@@ -1,6 +1,6 @@
 # CH21 確認バッチの前に、その回で足した機能を使ってみる席（/tsukau）で確かめ、違和感を直すか人間に回す
 
-change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment`。ADDED の Requirement 12・Scenario 68 本）。
+change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment`。ADDED の Requirement 12・Scenario 69 本）。
 依頼と完了の判定は `docs/changes/CH21.md`。第 3 版（依頼に「見つけた後の処置」が足され、深掘りから立て直した）。
 
 確認バッチを作るたびに、その回に入った Story / change が変えたファイルで相手（画面・PC）を決め、AI が配る形で 10 分・20 万 token ずつ使ってみる（harness2 の `/tsukau`）。

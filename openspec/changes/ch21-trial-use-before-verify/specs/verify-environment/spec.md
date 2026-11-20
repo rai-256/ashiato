@@ -125,7 +125,7 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 
 #### Scenario: 打ち切りの秒数は、立てる上限・席の時間・片付けの和で決まる
 - **WHEN** `tools/tsukau/verify-batch.sh --print-limits` を走らせ、`tools/verify-prep.sh` の席を呼ぶ部分を読む
-- **THEN** SIGTERM までは 1860・待ちは 360・組み立ては 2400・全体は 7140 で、`tools/verify-prep.sh` の席の部分の既定の上限も 7140 である
+- **THEN** SIGTERM までは 1860・待ちは 360・組み立ては 2400・全体は 7140 である
 
 #### Scenario: 打ち切った後でも、最後の行が読めて席が終えていれば結果を写す
 - **GIVEN** SIGTERM を受けると `"stop":"done"`・`"count":1` の最後の行を出して rc=0 で終わる偽の席の台本と、秒数を縮めた自己試験
@@ -136,7 +136,7 @@ THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席�
 
 WHEN `tools/tsukau/verify-batch.sh <tag>` が相手ごとの処理を終えたとき、
 THE SYSTEM SHALL 処置（harness2 の確認バッチ）が読む目録 `dist/verify-<tag>/tsukau.json` を書かせる。形は `{"v": 1, "tag", "targets": [{"target", "state", "scope", "run", "copied_from", "recheck"}]}` で、
-`targets` は `web`・`pc` の 2 つをこの順に持ち、`state` は `ran`（席を呼んだ）・`copied`（前の回の結果を写した）・`skipped`（範囲が空）・`not_run`（組めない・呼べない・打ち切った）のどれか、
+`targets` は `web`・`pc` の 2 つをこの順に持ち、`state` は `ran`（席を呼んだ）・`copied`（前の回の結果を写した）・`skipped`（範囲が空）・`not_run`（組めない・呼べない・打ち切って最後の行が読めないか席が終えていない）のどれか、
 `scope` は範囲に入れたものの `{"id", "title"}` の配列、`run` は結果のある実行のフォルダの絶対パス（無ければ `null`）、`copied_from` は写した前の回の tag（写していなければ `null`）、`recheck` は確かめ直した候補の配列（確かめ直しでなければ空）。
 THE SYSTEM SHALL 候補の本文・根拠・止まり方は目録に写させない（実行のフォルダの `result.json`・`candidates.jsonl` が持つ）。目録は git が無視する場所にだけ置く。
 THE SYSTEM SHALL 席を呼ぶ台本に、確認バッチの作業ツリーのファイルを直させず、`gh` を呼ばせない（直す・本人に聞く・issue にするのは処置の側）。
@@ -161,17 +161,17 @@ THE SYSTEM SHALL 席を呼ぶ台本に、確認バッチの作業ツリーのフ
 
 THE SYSTEM SHALL 確認バッチの準備に、席の結果を `dist/verify-<tag>/manifest.md` の最後に、頭の 1 段落と相手ごとに 1 段落ずつ足させる（手順書の冒頭と verify PR の本文に載る。手順書は段落ごとに 1 つの note になる）。
 頭の段落は「使ってみる席（AI が利用者として使ってみた結果。人間の確認ではない）」、相手の段落は「画面: 」か「PC: 」で始まる。
-写すのは、席の台本の最後の行の JSON の止まり方（`stop`）・件数（`count`）・題（`titles`。公開の題の Requirement の台本を通したもの）と候補の番号（席の台本が振る `id`。`C1` から）、片付けに残りがあるか（`cleanup` が「済み」か）だけで、
+写すのは、席の台本の最後の行の JSON の止まり方（`stop`）・件数（`count`）・片付けに残りがあるか（`cleanup` が「済み」か）と、その実行のフォルダ（最後の行の `run`）の `result.json` の `candidates` の候補ごとの番号（席の台本が振る `id`。`C1` から）と題（公開の題の Requirement の台本を通したもの）だけで、
 1 行目のパス・`run`・`cleanup` の文・候補の本文・根拠・画像・ログは写さない。最後の行が JSON として読めなければ「席を呼べなかった」にする。
 THE SYSTEM SHALL 止まり方ごとに次の決まった文言を書かせる: `done` は「席が自分で終えた」、`time` は「時間を使い切った」、`tokens` は「token を使い切った」に続けて「。違和感の候補 <件数> 件」と候補の番号つきの題の一覧、
 `crashed` は「席が途中で落ちた」、`env_failed` は「相手を立てられなかった」、`interrupted` は「中断した」、席の台本が rc=2 で終わった・最後の行が読めない・台本が無い・harness2 を繋げなかったときは「席を呼べなかった」、
-打ち切ったときは（最後の行の JSON に依らず）「時間の上限で打ち切った」、範囲が空の相手は「回さなかった（この回に<相手>を変えたものが無い）」、PC の配る zip を組めなかったときは「配る zip を組めず、回さなかった」。
+打ち切ったときは、最後の行が読めて `stop` が `done`・`time`・`tokens` ならその文言、そうでなければ「時間の上限で打ち切った」、範囲が空の相手は「回さなかった（この回に<相手>を変えたものが無い）」、PC の配る zip を組めなかったときは「配る zip を組めず、回さなかった」。
 片付けに残りがあれば、その段落に「片付けに残りがある」を足す。
 THE SYSTEM SHALL どの相手をどの範囲で呼び、どの実行のフォルダに結果があるかは、手元の目録と `dist/verify-<tag>/tsukau.log`（どちらも git が無視する）にだけ書かせる。
 導出元: CH21（依頼「落ちても準備は止めず、警告として手順書に書く」「候補の本文を公開の repo に出さない」）。深掘り Q4（第 1 回の推奨: 題と種類とどの Story だけ）・Q12（止まり方ごとの決まった文言だけ）。
 
 #### Scenario: 席が終えた相手は、件数と番号つきの題を手順書に載せる
-- **GIVEN** 1 行目に「使ってみた結果: /home/someone/.local/state/ashiato2/tsukau/20261120-010203-web/RESULT.md」、最後の行に `"stop":"done"`・`"count":2`・`"titles":["更新の確認が赤いまま","設定の言葉が分からない"]`・`"run":"/home/someone/.local/state/ashiato2/tsukau/20261120-010203-web"`・`"cleanup":"済み"` を出す偽の席の台本
+- **GIVEN** 1 行目に「使ってみた結果: /home/someone/.local/state/ashiato2/tsukau/20261120-010203-web/RESULT.md」、最後の行に `"stop":"done"`・`"count":2`・`"titles":["更新の確認が赤いまま","設定の言葉が分からない"]`・`"run":"/home/someone/.local/state/ashiato2/tsukau/20261120-010203-web"`・`"cleanup":"済み"` を出し、その `run` の `result.json` の `candidates` に `id` が `C1`・`C2` の 2 つ（題は上の 2 つ）を書く偽の席の台本
 - **WHEN** `tools/tsukau/verify-batch.sh t1` を走らせる
 - **THEN** 出力は空行で分かれた段落で、頭の段落は「使ってみる席（AI が利用者として使ってみた結果。人間の確認ではない）」で始まり、「画面: 」で始まる段落に「席が自分で終えた。違和感の候補 2 件」と「C1」「C2」に続く 2 つの題がある
 
@@ -247,6 +247,10 @@ THE SYSTEM SHALL 席を呼んでも、確認バッチの準備が作る成果物
 - **GIVEN** 終わらない偽の `tools/tsukau/verify-batch.sh` と、上限を 2 秒に縮めた自己試験
 - **WHEN** 確認バッチの準備の、席を呼ぶ部分を `set -euo pipefail` の下で走らせる
 - **THEN** 10 秒以内に rc=0 で終わり、`manifest.md` に「使ってみる席: 呼べなかった」で始まる段落がある
+
+#### Scenario: 準備の席の部分の上限は、席の呼び出しの全体の上限と同じ
+- **WHEN** `tools/verify-prep.sh` の席を呼ぶ部分と `tools/tsukau/verify-batch.sh --print-limits` を読む
+- **THEN** 席の部分の既定の上限は 7140 で、`--print-limits` の全体の値と同じである
 
 #### Scenario: 席の段落は、既存の段落の後に足すだけ
 - **WHEN** 確認バッチの準備の台本を読む
@@ -430,7 +434,7 @@ THE SYSTEM SHALL 処置（harness2 の確認バッチ。入口は design D15 の
 THE SYSTEM SHALL CH21 の受け入れを、実地の台本 `tools/tsukau/real-run.sh` の 1 回で確かめさせる: 使い捨ての確認バッチの木（push 先は一時の bare repo、`gh` は呼ばれた引数と本文を記録する偽物、偽の Story の作業ツリーと緑を返す CI を持つ）に、
 画面と PC を変えた偽の `feat/ch99-tsukau-real` を重ね、席の候補に、用意した候補を 2 つ足す（その回の画面の文言を崩した「この回が原因」のものと、main の版でも起きる「前から」のもの。根拠の文は自己試験が決めた字面）。
 そのうえで処置を走らせ、用意した 2 つの候補が、どちらも処置の結果（直した・本人に聞く・違和感の issue・誤検知のどれか）を持ち、公開の repo に向けて出たもの（bare repo の commit の本文・手順書の JSON・偽の `gh` の本文）に実行のフォルダのパスと用意した根拠の文が無いことを見る。
-本物の公開の repo には何も出させない。処置の入口が無ければ、確かめは「確認バッチの処置（harness2）が無い」で落ちる（飛ばさない）。
+本物の公開の repo には何も出させない。処置の入口が無ければ、確かめは「確認バッチの処置（harness2）が無い」と出して rc=127 で落ちる（飛ばさない。rc=127 は「要る環境が無い」として証跡に残り、AI の直しの輪に流れない）。
 導出元: CH21（依頼「見つけた後の処置」）。深掘り Q1（第 1 回の推奨）・Q2・Q3（数と「迷えば本人へ」は harness2 への依頼が持つ）・Q4（題と種類とどの Story だけ）・Q13（処置まで実地で通す）。review/deep.md R1。review/spec.md R2・R4・R5・R6。
 
 #### Scenario: 本物で、用意した 2 つの候補はどちらも処置の結果を持つ
@@ -451,4 +455,4 @@ THE SYSTEM SHALL CH21 の受け入れを、実地の台本 `tools/tsukau/real-ru
 #### Scenario: harness2 の処置が無ければ、実地の確かめは落ちる
 - **GIVEN** 処置の入口が無い木
 - **WHEN** `tools/tsukau/real-run.sh` を走らせる
-- **THEN** rc≠0 で、「確認バッチの処置（harness2）が無い」と 1 行出す
+- **THEN** rc=127 で、「確認バッチの処置（harness2）が無い」と 1 行出す
