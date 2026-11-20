@@ -430,6 +430,7 @@ mod tests {
         "a\\..\\..\\x",
         "ab:c",
     ];
+    #[cfg(not(windows))]
     const CH24_EXTRACT_EXPECTED_UNIX: [bool; 12] = [
         false, true, true, true, false, true, true, true, true, true, true, true,
     ];

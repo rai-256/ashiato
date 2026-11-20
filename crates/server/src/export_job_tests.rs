@@ -782,7 +782,7 @@ async fn export_ledger_rows_files_the_system_did_not_write_are_kept() {
 
 fn replace_with_foreign_zip(path: &Path) {
     let mut w = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
-    w.set_comment("ashiato-export someone-else");
+    w.set_comment("ashiato-export someone-else").unwrap();
     w.start_file("a.txt", zip::write::SimpleFileOptions::default())
         .unwrap();
     w.write_all(b"mine").unwrap();
