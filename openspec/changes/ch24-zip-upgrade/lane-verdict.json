@@ -66,5 +66,12 @@
    "osv-scanner.toml",
    "tools/licenses/**"
   ]
+ },
+ "promoted": {
+  "stage": "spec",
+  "why": [
+   "仕様の段で A が出た: (未回答)"
+  ],
+  "at": "2026-11-20T01:52:35+00:00"
  }
 }
