@@ -1,0 +1,38 @@
+{
+  "status": "rejected",
+  "digest": "6afe62860ced6848845eec4bd2608a6961b61fcde65259c1b9e53f2045cef042",
+  "head": "1f9a1f4a804b56490bd9454a1f09b873ad7e5b99",
+  "answers": "deep-answers-1.txt",
+  "picked": "違和感がある",
+  "notes": [
+    "補足: スマホも操作するようにしてください。エミュレータとかで"
+  ],
+  "at": "2026-11-20T14:01:06Z",
+  "impacts": {
+    "IMP-05": {
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "recheck",
+      "risk": {
+        "residual": "席（と、処置の選別の席）が本人の合言葉や確認バッチの DB を読み、モデルへの入力にする余地が残る。CH21 が main に入ると次の確認バッチから席が呼ばれ、呼ぶかどうかを切り替える口は仕様に無い。読み出しを止める手当ては無い。実地の journal を見るのは観察で、以後も読まないことの根拠にはならない",
+        "scope": "確認バッチの準備と手で呼ぶ /tsukau の、席が走る間のホストのファイル"
+      },
+      "recheck": {
+        "owner": "本人",
+        "due": "CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）"
+      }
+    }
+  },
+  "imp_history": [
+    {
+      "at": "2026-11-20T14:01:06Z",
+      "head": "1f9a1f4a804b56490bd9454a1f09b873ad7e5b99",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    }
+  ]
+}
