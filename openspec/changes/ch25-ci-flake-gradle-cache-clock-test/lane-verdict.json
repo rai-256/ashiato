@@ -32,5 +32,35 @@
   "code": [
    "crates/collector-windows/src/clock.rs"
   ]
+ },
+ "diff": {
+  "ok": true,
+  "why": [],
+  "reason": "same",
+  "base": "6642ee7558b70796b8e13922bf72e428ec0dfa7a",
+  "head": "643773febaa5784d70428118a8807768e29861bf",
+  "paths": [
+   ".github/workflows/ci.yml",
+   ".github/workflows/nightly.yml",
+   ".github/workflows/release.yml",
+   "crates/collector-windows/src/clock.rs"
+  ],
+  "classes": [
+   "collector",
+   "tooling"
+  ],
+  "code": [
+   "crates/collector-windows/src/clock.rs"
+  ],
+  "code_tasks": 1,
+  "seats": {
+   "task_review": "常に",
+   "code_review": "常に",
+   "merge_gate": "常に",
+   "code_verify": "本番のコードに触れる（crates/collector-windows/src/clock.rs）",
+   "recording": "collector に触れる"
+  },
+  "grounds": [],
+  "at": "2026-11-20T16:09:27+00:00"
  }
 }
