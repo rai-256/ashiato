@@ -104,10 +104,6 @@ id = "GHSA-8c42-7qj2-3j46"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用"
 [[IgnoredVulns]]
-id = "GHSA-8hxf-qr8p-62x4"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
-[[IgnoredVulns]]
 id = "GHSA-93wv-jw9v-4972"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用"
@@ -168,10 +164,6 @@ id = "GHSA-m4cv-j2px-7723"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用"
 [[IgnoredVulns]]
-id = "GHSA-m665-v7pm-7grj"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
-[[IgnoredVulns]]
 id = "GHSA-mj4r-2hfc-f8p6"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用"
@@ -195,10 +187,6 @@ reason = "届かない: 携帯の組み立ての道具と計測テストの実�
 id = "GHSA-q4f6-jm68-57ww"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の組み立ての道具と計測テストの実行基盤の試験専用"
-[[IgnoredVulns]]
-id = "GHSA-q7v9-x93c-xqv3"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
 [[IgnoredVulns]]
 id = "GHSA-qp49-qgx5-5m26"
 ignoreUntil = "2027-02-06"
@@ -243,22 +231,6 @@ reason = "届かない: 携帯の組み立ての道具と計測テストの実�
 id = "RUSTSEC-2023-0071"
 ignoreUntil = "2027-02-06"
 reason = "上げる予定: 修正版公開後に互換範囲内へ更新"
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0367"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0368"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0369"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0429"
-ignoreUntil = "2027-02-06"
-reason = "上げる予定: 互換範囲外の修正版待ち"
 [[IgnoredVulns]]
 id = "GHSA-5jpm-x58v-624v"
 ignoreUntil = "2027-02-06"

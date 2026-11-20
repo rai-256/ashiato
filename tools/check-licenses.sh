@@ -6,7 +6,7 @@ self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.."
 
 SELF_LICENSE='AGPL-3.0-only WITH AdditionRef-ashiato-play-services'
-ALLOW="${ALLOW_LICENSES:-MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,Apache-2.0 WITH LLVM-exception,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0}"
+ALLOW="${ALLOW_LICENSES:-MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,Apache-2.0 WITH LLVM-exception,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0,bzip2-1.0.6}"
 
 check_section() {
   local section=$1 input=$2
@@ -242,7 +242,7 @@ JSON
   fi
   grep -q "ashiato-server" <<<"$output" || return 1
   echo "== Scenario: 許可の一覧は、AGPL-3.0-only を外したほかは前と同じ"
-  [[ $ALLOW == "MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,Apache-2.0 WITH LLVM-exception,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0" ]] || return 1
+  [[ $ALLOW == "MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,Apache-2.0 WITH LLVM-exception,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0,bzip2-1.0.6" ]] || return 1
   [[ $ALLOW != *AGPL-3.0-only* ]] || return 1
   echo "== Scenario: node_modules が無ければ、画面の節は通さずに落ちる"
   if output=$(ASHIATO_LICENSES_NODE_ROOT="$test_root/missing-node-modules" "$self" node 2>&1); then
