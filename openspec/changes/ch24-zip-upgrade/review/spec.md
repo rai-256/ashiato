@@ -282,3 +282,74 @@ worktree `ashiato2-up-ch24`、HEAD 5116188d7 + 作業ツリーの変更（`git d
 確かめに使った使い捨ての crate（`/tmp` に置き、`cargo build --offline`。9.7.3 は手元に既定の features の依存が無いので `default-features = false`。名前の判定と読み方は features に依らない）は、終わってから消した。
 
 追記の後の `review_triage.py`: 指摘 16 / 仮決め 2。R3 の FAIL は消え、FAIL は R11〜R16 の「処置が無い」6 件（書き手が処置を付ける）。
+
+## 再確認 2（2026-11-20、`spec --answers Q-G1`）
+
+worktree `ashiato2-up-ch24`、HEAD 11e52034f（答えを写す前は 6e1f5dd69）、`origin/main` = 0d55f0645 = merge-base。gate の Q-G1 の答え（`deep-answers-2.txt`）を写した commit を読んだ。成果物は直していない。
+
+機械の検査（この追記の前）:
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate ch24-zip-upgrade --strict` | valid（rc=0） |
+| `python3 scripts/check_chain.py .` | chain: OK（0 件 / 未回収 0 件 / warn 0 件） |
+| `python3 scripts/check_scenarios.py . ch24-zip-upgrade` | rc=1。FAIL はこの change の `data-durability` の 4 本だけ（実装の前で試験がまだ無い。前回と同じ）。足した `specs/distribution` の 14 本はどれも FAIL に無い（名前を変えていないので既存の印に当たる） |
+| `python3 scripts/review_triage.py . ch24-zip-upgrade` | triage: OK（指摘 16 / 仮決め 2 / 要件へ戻すもの 0） |
+| `python3 scripts/spec_overlap.py candidates . ch24-zip-upgrade` | 1 件: `ch22-soak-install-online-ci` / 「更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る」（名指し・相手 MODIFIED）。下の「## 観点 7」 |
+| `python3 .harness2/scripts/evidence.py lint openspec/changes/ch24-zip-upgrade` | `[OK]`。`evidence.declared` は書き直した 3.2・4.1 からも 1 本ずつだけ取り出す |
+
+確かめたこと（指摘にしないもの）:
+
+- **delta が正典を逐語で写しているか**: 正典 `openspec/specs/distribution/spec.md:2183-` の Requirement の節と delta の `### Requirement:` 以下を切り出して `diff` した。差は 3 行だけ（SHALL の一覧の文の末尾・導出元の末尾・Scenario「許可の一覧は…」の THEN）。ほかの本文と 14 の Scenario は逐語で同じ。ほかの Requirement は delta に無い
+- **tasks 3.2 の検証が実物に対して成り立つか**: 書いたままのコマンドを tasks.md から切り出し、使い捨ての worktree（HEAD）で走らせた（`tools/check-licenses.sh` の後ろの 3 本だけ `echo` に替えた）。
+  base の台本の `,CC-BY-4.0,Python-2.0` は 9 行目（`ALLOW` の既定、後ろが `}`）と 245 行目（自己試験の丸ごとの比べ、後ろが `"`）の 2 回で、`count==2` が成り立つ。
+  直す前の木: `AssertionError: 一覧に bzip2-1.0.6 を足すほかの変更がある`・rc=1。2 か所の末尾に `,bzip2-1.0.6` を足した木: rc=0。さらに `ALLOW` に別の値を足した木: rc=1。
+  2 か所を足した木で `tools/check-licenses.sh --self-test` を走らせ、`self-test OK`・rc=0（31 秒。gradle の 2 段を含む）。worktree は消した
+- 「2 か所」: `git grep -l BlueOak-1.0.0` は `tools/check-licenses.sh`・正典と archive と この change の distribution の spec・`web/package-lock.json`（部品の許諾の値）だけで、一覧を持つ台本はほかに無い
+- D1 の事実: `~/.cargo/registry` の `libbz2-rs-sys-0.2.7` は `license = "bzip2-1.0.6"` で `LICENSE` を持つ。zip 9.7.3 の既定は `bzip2`（`bzip2/default`）を含む。9 の既定が引くと見られる部品のうち手元の registry にあるもの（`lzma-rust2`・`ppmd-rust`・`zlib-rs`・`zopfli`・`deflate64`・`typed-path`・`zstd` 系。依存の解決からではなく zip-9.7.3 の Cargo.toml と provisional-review.md D1 から手で選んだ）もどれも許諾のファイルを持つので、`tools/release/notices.sh` の `first_license_file` の枝で写る（notices は PR の CI では走らず nightly / release だけだが、全文の足りない部品は見当たらない）
+- 要件へ戻すもの: `docs/requirements.md` の NFR-26・FR-127 は許可の値を並べていない。deep.md の「要件へ戻すもの: なし」と合う
+- ほかの走っている change（ch19・ch22・ch23）と、上流 / feat のブランチのどれも `tools/check-licenses.sh` に触れない（`git diff origin/main...<branch> -- tools/check-licenses.sh`）
+
+## R17. 足した SHALL が「一覧は…のまま。これに `bzip2-1.0.6` を足す」と変更の経緯の形で、crate の名前を持ち、Scenario の名前「…ほかは前と同じ」とも食い違う。archive の後の正典にそのまま残る
+- 成果物: openspec/changes/ch24-zip-upgrade/specs/distribution/spec.md
+- 根拠:
+  - delta spec.md:11 は「一覧は `MIT`・…・`Python-2.0` のまま。これに `bzip2-1.0.6` を足す（zip の部品が bzip2 を読むのに引く `libbz2-rs-sys` の許諾。…）」。MODIFIED は正典の本文を置き換えるので、archive の後の正典は「17 の値のまま」と「足す」を並べて持ち、いまの一覧が何かを 1 文で言わない。括弧の中は crate の名前（`libbz2-rs-sys`）と「zip の部品」で、R9 が data-durability で外させた実装の名前に当たる。導出元（spec.md:14）にも「zip 9 の既定の features」がある
+  - Scenario の名前（spec.md:64）は「許可の一覧は、AGPL-3.0-only を外したほかは前と同じ」のままで、THEN（spec.md:66）は「17 の値と `bzip2-1.0.6` の 18 の値」。名前が言うこと（前と同じ）と THEN（1 つ足した）が食い違う
+  - 名前を変えると、印（`tools/check-licenses.sh:244` の `== Scenario:` の行）も変える 3 か所目になり、tasks 3.2 の丸ごとの比べ（2 か所の置き換えのほかは同じ）と Global Constraints（2 か所だけ）が許さない。名前を変えずに置いたのは、この理由なら筋が通るが、どこにも書かれていない
+- kind: technical
+- 提案: SHALL を状態の形にする: 「一覧は `MIT`・…・`Python-2.0`・`bzip2-1.0.6` の 18 の値で、ほかの値を足さない」。`libbz2-rs-sys` と zip の部品の話は design D1（と導出元の Q-G1 の参照）に置き、spec からは外す。THEN は「この Requirement に並べた 18 の値とちょうど同じ」にする。
+- 処置: fixed specs/distribution/spec.md — SHALL を「…`Python-2.0`・`bzip2-1.0.6` の 18 の値。」の状態の形にし、部品の話を外した。THEN を「並べた 18 の値とちょうど同じ」に。Scenario の名前は自己試験の印と対なので変えず、その理由を design D1 に書いた
+  Scenario の名前は、変えないなら design D1 に「印を変えないために名前を残す」と 1 行足す。変えるなら印の行も直し、tasks 3.2 の比べと Global Constraints を 3 か所に広げる
+
+## R18. 本人の答えの前半「zip 9 の既定の features のまま」（bzip2 も読み続ける）を、どの検証も Scenario も見ていない。features を絞っても全部の検証が通る
+- 成果物: openspec/changes/ch24-zip-upgrade/tasks.md（2.1）・docs/changes/CH24.md（壊してはいけないもの・完了の判定 1）
+- 根拠:
+  - deep.md の Q-G1 は、案 (2)（bzip2 を外す）を「bzip2 で縮めた項目を持つ Takeout の書庫を読めなくなる」（loss: discarded）として退け、本人は既定のままを選んだ。CH24.md:82 は「読める圧縮の方式を今より狭めない（…bzip2 も読み続ける。Q-G1）」を壊してはいけないものに、CH24.md:90（完了の判定 1）は「zip の既定の features で組み立つ（tasks 2.1）」を挙げる
+  - tasks 2.1 の検証（tasks.md:69）は `Cargo.lock` の zip の版と clippy だけを見る。features には触れない。`grep -rni bzip2 crates/server/src crates/collector-windows/src` は 0 件で、bzip2・lzma・zstd の項目を持つ書庫を読む試験は無い。正典にも圧縮の方式の Scenario は無い（`grep -rn 'bzip\|圧縮の方式' openspec/specs/` が 0 件）
+  - `default-features = false` で aes-crypto と deflate だけにしても、組み立て・書き出しと Takeout の試験（deflate）・3.2（許す一覧に足すだけで、`libbz2-rs-sys` が居なくても通る）のどれも落ちない。答えの前半は、tasks の Global Constraints の文（tasks.md:19「zip の features を絞らない」）にしか無い
+- kind: technical
+- 提案: 2.1 の検証に、`cargo metadata --format-version 1 --offline` の `packages[]` のうち `ashiato-server` と `ashiato-collector-windows` の両方で、`dependencies[]` の zip が `uses_default_features == true` であることの assert を足す（2 つの crate ごとに見る。`resolve.nodes` の zip は workspace で 1 つに合わさる —— いまの木で node は 1 つ —— ので、片方だけが絞っても既定のままの側に合わさって通ってしまう）。
+- 処置: fixed 2.1 — 検証の頭に `cargo metadata --no-deps` で 2 つの crate の zip がどちらも `uses_default_features == true` であることの assert を足した（いまの木で rc=0）
+  あるいは Task 1 に、python3 の `zipfile` で `ZIP_BZIP2` と `ZIP_LZMA` の項目を書いた書庫を囲みつきで `archive_tests.rs` に埋め込み、`open_archive` で中身が読めることを 2.6.1 で固定する試験を足す（予定のパスの中。振る舞いで見るので、次に zip を上げる change にも効く）
+
+## R19. design D6 の「正典に Scenario を置かない」の理由に「`distribution` は ch22 が触っている」が残る。この change がいま `distribution` の delta を持つので、理由として成り立たない
+- 成果物: openspec/changes/ch24-zip-upgrade/design.md（D6。D7 は「理由は D6 と同じ」で引く）
+- 根拠: design.md:81「正典の約束を足さない（`distribution` は `ch22-soak-install-online-ci` が触っている）」。11e52034f で `specs/distribution`（MODIFIED）を足した。着手は capability で止めず、同じ capability の別の Requirement なら archive で 3-way に合わせる（観点 7 の判定も独立）。括弧の理由は答えを写した後に古くなった。主の理由（振る舞いを変えないことを試験で固定するだけ）は残る
+- kind: technical
+- 提案: D6 の括弧（`distribution` は ch22 が触っている）を消す。D6 を `distribution` の Scenario にするかは、主の理由のとおり置かないままでよい
+- 処置: fixed D6 — 括弧（`distribution` は ch22 が触っている）を消した
+
+## 観点ごとの確かめ（再確認 2）
+
+- **観点 1**: Q-G1 の答え（既定のまま・`bzip2-1.0.6` を足す）は、specs（delta の SHALL と Scenario の 18 の値）・design D1（仮でない本人の決定。反転条件は `bzip2-1.0.6` の外の許諾に限った）・tasks（Global Constraints・3.2・4.1）・CH24.md（完了の判定 4・5、壊してはいけないもの）に写っている。数値（18）も Scenario にある。古い決定（一覧に触れない・許諾が足りなければ返す）は design / tasks に残っていない（SHALL の「17 の値のまま。これに足す」という書き方は R17）。前半（既定のまま）の検証の無さは R18。要件へ戻すものはなし
+- **観点 2**: R17。足した THEN は値の並びと数で観測できる。自己試験の 245 行目の丸ごとの比べが担保する
+- **観点 3**: proposal の Capabilities（data-durability・distribution）= specs のディレクトリ = CH24.md の front matter（と、delta を持たない dependency-vulnerability-scan。前回の観点 3 のとおり）。crate の名前は R17。D6 の古い理由は R19
+- **観点 4**: 3.2 は Task 2（上げ）の後で、`check-licenses.sh rust` は上げた後の `Cargo.lock` を見る（依存の順は正しい）。3.2 の検証は上の「確かめたこと」のとおり成り立つ。人間の確認待ちは無い
+- **観点 5（change）**: 完了の判定は空でない。依頼（逐語）の範囲を、許す一覧に 1 つ足す分だけ越えるが、deep.md の Q-G1 に本人の決定がある。「壊してはいけないもの」のうち、許す一覧の外を足さないことは 3.2 が機械で見る。読める圧縮の方式は R18
+- **観点 6**: `review/answers.md`（Q-G1: 写った・答え以外の変更: なし）。`git diff 6e1f5dd69 11e52034f` の塊を 1 つずつ見た: delta の 3 行・design D1・tasks（冒頭の路の文・Global Constraints・3.2・4.1）・proposal（冒頭・What Changes・Capabilities・Impact の予定のパスと依存と ch22 の重なりの文）・CH24.md（front matter・完了の判定 4・5）。どれも Q-G1 の答えか、deep.md の「次の spec に効くこと」（`tools/check-licenses.sh` が触れるパスに入る・D1 と tasks を答えに合わせる）とその帰結（distribution の delta を足したことによる capability と重なりの文）で、ほかの決定を変えた塊は無い
+- **観点 7**: 下の節
+
+## 観点 7: 走っている change との前提関係
+- ch22-soak-install-online-ci / 更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る: 独立（候補はこの change の proposal.md:49 が「触れない」と書くために名を挙げた名指しだけ。こちらが MODIFIED にするのは同じ distribution の別の Requirement「配布物に入る依存の許諾を、携帯の依存も含めて検査する」で、ch22 の delta（origin/main・origin/docs/ch22-upstream とも同じ）はこの Requirement も `tools/check-licenses.sh` も持たず、こちらの Scenario・設計は ch22 の足す振る舞いを当てにしない）
+
+追記の後: tasks 4.1 を書いたまま走らせて rc=0（差分は review の 2 ファイルだけ）。`spec_overlap.py check` は `{"ok": true, "candidates": 1}`。`review_triage.py` は指摘 19 / 仮決め 2、FAIL は R17〜R19 の「処置が無い」3 件（書き手が処置を付ける）。

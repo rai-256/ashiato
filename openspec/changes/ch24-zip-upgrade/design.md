@@ -26,6 +26,8 @@
 9 の `bzip2-rs`（C の libbz2）を選んでも `libbz2-rs-sys` を引くので、許諾を変えずに上げる道は無い（deep.md Q-G1 の事実）。本人の答え（2026-11-20）で、
 許す一覧に `bzip2-1.0.6` を 1 つ足す。直すのは台本の既定の一覧（`ALLOW`）と、自己試験が一覧の文字列を丸ごと比べる行の 2 か所で、ほかの値は足さない・外さない。
 一覧は正典の `distribution`（配布物に入る依存の許諾を、携帯の依存も含めて検査する）が値を並べて固定しているので、その Requirement を MODIFIED で直す（`specs/distribution`）。
+MODIFIED の SHALL は一覧を 18 の値として状態の形で書き、どの部品のための値かはこの D1 にだけ置く。Scenario「許可の一覧は、AGPL-3.0-only を外したほかは前と同じ」の名前は変えない ——
+名前は `tools/check-licenses.sh` の自己試験の印（`== Scenario:` の行）と対で、変えると台本の 3 か所目を直すことになる（直すのは一覧の 2 か所だけ。tasks 3.2）。「ほかは前と同じ」は、`AGPL-3.0-only` を外したほかの値を減らしていないことを言う。
 `libbz2-rs-sys` は crate に `LICENSE` を持つので、配る物の依存の一覧（`tools/release/notices.sh`）はそれを写し、`tools/licenses/texts/` に全文を足す必要は無い。
 
 反転条件: 既定の features が引く依存のうち `bzip2-1.0.6` の外の許諾が許す一覧に無い・その依存に勧告が当たる・組み立てが通らない。
@@ -78,7 +80,7 @@ zip 9 の `enclosed_name` は判定が変わった（review R1・R11。2 つの�
 「zip の道が不正」で断る）を自前の関数で当て、展開する先は 2.6.1 と同じく `destination.join(PathBuf::from(名前))` にする。受け付ける名前と展開先は、どの OS でも 2.6.1 と同じ。
 名前の文字列は 9 の `name()` から取り、Err なら断る。2.6.1 と文字列が違いうるのは UTF-8 の印の無い ASCII でない名前だけで、指紋を照合した配る zip の項目の名前は
 `tools/release/build.sh` が決めた ASCII の固定のもの（`ashiato-collector.exe` など）なので当たらない。
-正典に Scenario を置かない: 振る舞いを変えないことを試験（tasks 1.4）で固定するだけで、正典の約束を足さない（`distribution` は `ch22-soak-install-online-ci` が触っている）。
+正典に Scenario を置かない: 振る舞いを変えないことを試験（tasks 1.4）で固定するだけで、正典の約束を足さない。
 次に zip を上げる change は、この D6 と 1.4 の試験から同じ確かめを引き継ぐ（review R16）。
 
 ### D7（仮）. Takeout の書庫の項目の名前は、2.6.1 と同じ規則で読む
