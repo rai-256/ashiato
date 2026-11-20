@@ -43,5 +43,12 @@
    "tools/release/pgsql.lock",
    "tools/licenses/**"
   ]
+ },
+ "promoted": {
+  "stage": "spec",
+  "why": [
+   "仕様の段で A が出た: - 答え: (未回答)"
+  ],
+  "at": "2026-11-20T23:19:21+00:00"
  }
 }
