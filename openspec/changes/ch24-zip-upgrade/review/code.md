@@ -301,3 +301,23 @@ task 1〜4 の findings の ⚠️ はどれも解消か PR の CI 待ち（T2 �
 - 提案: `.context("zip の道が不正")` などで他の拒否と同じ文脈を付ける。振る舞い（Err になること）は変えない
 - 処置: fixed 2.1 — `entry.name()` の失敗にも `zip の道が不正` の文脈を付け、他の名前拒否と揃えた。
 - 判定: ADDRESSED（re-review 2 @07198092bdf27bb3f30868ee7c3614d049389580）
+
+## final review（65eb1de..8835cd8）
+
+見た: `superpowers:requesting-code-review` の `code-reviewer.md`（whole-branch の 2 回目。review package `.superpowers/sdd/tasks/review-65eb1de27..8835cd8b6.diff`、修正の波 991e0dd..0719809 を重点に）。
+R12〜R17 の直しは正しく、囲み（`CH24-FIXTURE`）にも本番の振る舞いにも触れていない。Critical・Important は無し（reviewer の判定は「merge してよい」）。
+reviewer が HEAD で走らせたもの: `check-fixtures.sh` rc=0・4.1 rc=0・`cargo test -p ashiato-collector-windows --lib ch24_`（Linux と x86_64-pc-windows-gnu）2 passed・`--test st58_pc_update` 16 passed・`cargo test -p ashiato-server --lib ch24_` 8 passed・`cargo clippy --workspace --all-targets -- -D warnings` rc=0（ログ `.superpowers/sdd/logs/20261121-021804-rv1.log` / `-rv2.log`）。
+Task の ⚠️: T3（新しい crate の許諾）と T4（4.1 / 4.2 を最終の木で）は解消。T2 の「CI の Windows の job」は PR の CI 待ちのまま。
+申し送り（`docs/handoff/CH24.md`）は無い。`openspec/changes/ch24-zip-upgrade/correction-review.md` は未追跡で、`review/code.md` の手 7 が指している（グラフの後の段が commit する前例が ch19 にある）。
+
+## R18. PC の更新の名前の試験は、`extract_zip` が判定の関数を通ることまでは見ていない（R15 の残り）
+- 成果物: crates/collector-windows/src/update_apply.rs（`ch24_extract_zip_name_rules`、L481-483 付近）
+- 根拠: R15 の直しで、assert は `enclosed_zip_path(name)` を試験の定数の名前で直に呼ぶようになった。しかし、`extract_zip` の中（L235 付近）で判定を外す退行が起きても、断る名前の `extract_zip(..).is_ok() == false` は Linux では権限の不足（`/etc/passwd`）で満たされ、試験は通る。`../x` は一時ディレクトリの親に書いてから落ちる（R2 の根拠と同じ型）。Windows の CI の job は捕まえる（Minor）
+- kind: technical
+- 提案: 断る名前では、`extract_zip` の Err の文（`format!("{e:#}")`）に `zip の道が不正` が入ることまで見る（R2 の提案の前半）。展開先の外へ書かれうる名前は、判定の assert の後でも展開を走らせない形を保つ
+
+## R19. 修正の波の後の証跡が HEAD に当たっていない（1.4 / 2.4 / 2.5）
+- 成果物: openspec/changes/ch24-zip-upgrade/evidence.jsonl
+- 根拠: 修正の波（07198092b）で記録した 1.3 / 2.2 / 2.1 の証跡の head は、修正の commit 前の f5e59080d（作業ツリーに未 commit の変更がある状態）。`crates/collector-windows/src/update_apply.rs` を変えた後の 1.4 / 2.4 / 2.5 は evidence.jsonl に無い。reviewer が HEAD で 1.4（Linux と windows-gnu）・st58・clippy を走らせ、どれも通った（上の見出しのログ）が、`verify-run` の証跡ではない（Minor）
+- kind: technical
+- 提案: HEAD で `scripts/verify-run 1.4`・2.4・2.5 と、修正の波が触れた 1.3 / 2.1 / 2.2 を走らせ直し、証跡の head を最終の commit に合わせる
