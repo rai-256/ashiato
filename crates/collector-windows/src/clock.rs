@@ -408,8 +408,8 @@ mod tests {
         }
     }
 
-    /// `date` に指定の時刻を入れて返す偽の取り込み口。受けた要求の 1 行目を数える。
-    fn fake_ingest(date: DateTime<Utc>) -> (String, Arc<Mutex<Vec<String>>>) {
+    /// 応答を返す瞬間の時刻にずらしを足して `date` に入れる偽の取り込み口。受けた要求の 1 行目を数える。
+    fn fake_ingest(skew: Duration) -> (String, Arc<Mutex<Vec<String>>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -431,6 +431,7 @@ mod tests {
                     .unwrap_or_default()
                     .to_string();
                 seen.lock().unwrap().push(first);
+                let date = Utc::now() + skew;
                 let reply = format!(
                     "HTTP/1.1 200 OK\r\nDate: {}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
                     date.format("%a, %d %b %Y %H:%M:%S GMT")
@@ -442,8 +443,8 @@ mod tests {
     }
 
     /// 基準を 1 回読んで、PC の差（ミリ秒）と、読む直前と直後の経過時間の幅を返す。
-    fn skew_against(reference: DateTime<Utc>) -> (i64, u64) {
-        let (base, _) = fake_ingest(reference);
+    fn skew_against(skew: Duration) -> (i64, u64) {
+        let (base, _) = fake_ingest(skew);
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         let r = clock.now().unwrap();
         (
@@ -465,7 +466,7 @@ mod tests {
                 1_000
             }
         }
-        let (base, _) = fake_ingest(Utc::now());
+        let (base, _) = fake_ingest(Duration::zero());
         let r = HttpDateClock::new(&base, Arc::new(Coarse)).now().unwrap();
         assert_eq!(r.uptime_before_ms, 5_000);
         assert_eq!(r.uptime_after_ms, 5_999);
@@ -474,7 +475,7 @@ mod tests {
     /// Scenario: PC の時計が進んでいると差が正で残る
     #[test]
     fn clock_reference_pc_ahead_gives_positive_difference() {
-        let (skew, width) = skew_against(Utc::now() - Duration::minutes(5));
+        let (skew, width) = skew_against(Duration::minutes(-5));
         assert!(
             (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
             "skew={skew} width={width}"
@@ -484,7 +485,33 @@ mod tests {
     /// Scenario: PC の時計が遅れていると差が負で残る
     #[test]
     fn clock_reference_pc_behind_gives_negative_difference() {
-        let (skew, width) = skew_against(Utc::now() + Duration::minutes(5));
+        let (skew, width) = skew_against(Duration::minutes(5));
+        assert!(
+            (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
+                .contains(&skew),
+            "skew={skew} width={width}"
+        );
+    }
+
+    #[test]
+    fn clock_reference_setup_time_is_not_in_the_difference() {
+        let (base, _) = fake_ingest(Duration::minutes(-5));
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
+        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
+        let r = clock.now().unwrap();
+        let skew = (r.wall_after - r.time).num_milliseconds();
+        let width = r.uptime_after_ms - r.uptime_before_ms;
+        assert!(
+            (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
+            "skew={skew} width={width}"
+        );
+
+        let (base, _) = fake_ingest(Duration::minutes(5));
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
+        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
+        let r = clock.now().unwrap();
+        let skew = (r.wall_after - r.time).num_milliseconds();
+        let width = r.uptime_after_ms - r.uptime_before_ms;
         assert!(
             (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
                 .contains(&skew),
@@ -495,7 +522,7 @@ mod tests {
     /// 壁時計は応答を受け取った直後に読み、経過時間はその前後を挟む。
     #[test]
     fn clock_reference_reads_wall_between_the_uptime_readings() {
-        let (base, _) = fake_ingest(Utc::now());
+        let (base, _) = fake_ingest(Duration::zero());
         let uptime = Arc::new(ElapsedUptime(Instant::now()));
         let clock = HttpDateClock::new(&base, uptime.clone());
         let (before, started) = (Utc::now(), uptime.millis());
@@ -509,7 +536,7 @@ mod tests {
     /// Scenario: 測るための要求は取り込み口の生存確認の 1 本だけ
     #[test]
     fn clock_reference_asks_the_ingest_health_check_once() {
-        let (base, requests) = fake_ingest(Utc::now());
+        let (base, requests) = fake_ingest(Duration::zero());
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         clock.now().unwrap();
         let seen = requests.lock().unwrap().clone();
