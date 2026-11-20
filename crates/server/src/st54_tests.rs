@@ -147,7 +147,8 @@ async fn st54_lineage_without_mapping_reports_unknown_version() {
         .unwrap();
     assert_eq!(refusal.0, "db_ahead");
     assert!(refusal.1.contains(LINEAGE_OLD));
-    assert!(refusal.1.contains("0.1.0"));
+    // 当てた組み立ては今の版（版を上げても落ちないよう、固定値でなく出所の版で比べる）
+    assert!(refusal.1.contains(env!("CARGO_PKG_VERSION")));
 }
 
 const TOKEN: &str = "st54-test-token-0123456789";
