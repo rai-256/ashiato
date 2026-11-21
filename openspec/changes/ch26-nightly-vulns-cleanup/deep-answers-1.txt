@@ -1,0 +1,2 @@
+=== CH26 の深掘り（spec-review・第 1 回） の回答 ===
+R2 [17.6 から 17.12 への更新と戻しの確かめ方] -> A. PostgreSQL の部分を Linux で確かめ、Windows は本人の PC で見る

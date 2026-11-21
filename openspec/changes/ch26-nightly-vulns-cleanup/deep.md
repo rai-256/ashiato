@@ -13,4 +13,6 @@
 
 - 出所: `review/spec.md` の R2（kind: premise）。軽い路の申告は「minor の更新と戻しの確かめは docs/release.md §PostgreSQL の小さい版を上げる PR の手順で行う」と言ったが、design D5 は Windows の zip どうしの更新と戻しを Linux の PostgreSQL の確かめで代えていた。依頼の「既に入っている PC で…確かめる」を狭めるので本人に問う
 - 選択肢: A. PostgreSQL の部分（置き場の 17.6→17.12→17.6・17.12 の退避を 17.6 で戻す）を Linux で確かめ、Windows は本人の PC で見る（推奨）／ B. Windows でも 17.6 の zip から 17.12 の zip への更新と戻しを通す ／ C. CI で前の lock の zip を組み、毎回の PR で走らせる（通常の路）
-- 答え: (未回答)
+- 答え: A. PostgreSQL の部分を Linux で確かめ、Windows は本人の PC で見る（本人の選択。推奨と同じ・補足なし。`deep-answers-1.txt`）
+- 決まったこと: 17.6 → 17.12 の確かめは、PostgreSQL の置き場の入れ替え（17.6 → 17.12 → 17.6）と「17.12 の退避を 17.6 の pg_restore で戻す」を Linux で機械が走らせる（design D5・tasks 3.1）。Windows の配布物どうし（17.6-1 の zip → 17.12-1 の zip）の更新と戻しはこの PR では走らせず、本人の PC で確認バッチの問い（tasks 5.1）として見る。`docs/release.md` の「前の版を同梱した zip から更新と戻しを通す」手順はこの PR では省く（手順の本文は変えない）。CI は変えない
+- 要件へ戻すもの: なし（要件は変えない change。依頼の「どこまで」の確かめ方を本人が決めた）
