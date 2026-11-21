@@ -38,7 +38,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | `android-instrumented` | `android` | エミュレータ |
 | `build-stamp` | `stamp`（印の作り方を触ったとき。ST49） | `tools/check-build-stamp.sh tool` / `server` / `windows` / `android` |
 | `package-windows` | 配布物の流れ（`package` の run） | Windows の 2 つの配布物（`package-windows-release` / `package-windows-test`）を組む。**前の組み立てを使い回す**（CH17）: 鍵は `tools/release/windows-build-key.sh` が、git の木から「組み立てが読まないパス」（試験の台本 3 つ・`docs/`・`openspec/`・`*.md`。台本の `EXCLUDE_PATHS`）を除いた木の行と、道具の版・走っている run の CI の定義から出す。**PR の run だけ**が前の組み立てを引き、鍵が**完全に一致**したときだけ使う（`restore-keys` は書かない）。引けたら組み立ての step を飛ばして同じ成果物の名前で上げ、引けなければ組んで同じ鍵で保存する。Rust の依存のビルド（`target` など）は、ビルドするときだけキャッシュから戻す。**使い回しを止めたいとき**: キャッシュの `windows-package-` の項目を `gh cache delete` で消す（`EXCLUDE_PATHS` を空にしても止まらない —— 同じ木の Re-run は鍵が完全に一致して引き、自己試験は除くパスが spec の 6 つちょうどでないと落ちる）。鍵の台本の自己試験（`--self-test`）と使い回しの形の検査（`--check-workflow`）は `chain` の job（Linux）で走る。**印の見方**: 使い回した run の `release-package` の Windows の 2 つの zip の印と `SOURCE.txt` は、前の commit（それを組んだ commit）を指す（design D3。手順は `docs/release.md` §11.1） |
-| `install-windows` | 配布物の流れ | `package-windows` の成果物を受け取り、Windows でインストールと更新の Scenario を通す（使い回しの影響は受けない。成果物の名前が同じ） |
+| `install-windows` | 配布物の流れ | `package-windows` の成果物を受け取り、Windows でインストールと更新の Scenario を通す（使い回しの影響は受けない。成果物の名前が同じ）。最後に置く段（配る形を外につながる状態で入れて 5 分置き、起こし直し・止まり・同じ誤りの続き・panic・更新係が配布元に確かめた記録・送り先を設定しない PC の収集アプリの問い合わせ 0 件を見る）を走らせる |
 | `vulns` | `PR` かつ `deps` | `tools/check-vulns.sh --self-test` / `--base` / `allow-ghsas` / dependency-review（依存を変えた PR のみ） |
 | `vulns-nightly.yml`（別の workflow） | 毎晩（UTC 15:30）と手動 | `tools/check-vulns.sh nightly` と `tools/check-pg-minor.sh --findings` が材料を書き、`issues` の job だけが `tools/check-vulns.sh file-issues` で issue（ラベル `脆弱性`）にする。`file-issues` が落ちた夜は同じ job の `tools/check-vulns.sh report-unfiled` が題 `脆弱性: 毎晩の知らせを issue にできなかった` の issue（ラベル無し）で知らせる。公開の流れ（`nightly.yml`）とは独立 |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
@@ -182,10 +182,11 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 - 実機: adb で繋いで `./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787`（同じテスト）
 - `-Pashiato.baseUrl` は平文 HTTP を 127.0.0.1 に許すためだけ
 
-**release の台本**（`tools/release/install-check.sh`・`update-check-install.sh`。Windows の実地の確かめ。CH16）
+**release の台本**（`tools/release/install-check.sh`・`update-check-install.sh`・`update-apply-install.sh`・`tools/release/soak-install.sh`。Windows の実地の確かめ。CH16・CH22）
 
 - 判定は `die` / `die_seen`（`tools/release/check-ng-observations.sh` の部品）で落とす。NG の行に続く観測（サービス・healthz・設定のキー・命令の記録・ログの末尾）は部品が標準エラーに出し、台本は `echo 'NG:` や裸の `exit 1` で落とさない
-- 観測を出さずに NG で終わる道は、`tools/release/check-ng-observations.sh <台本>…` が静的に落とす。2 つの台本の `--self-test` がこれを呼ぶ（CI の `chain`）
+- 観測を出さずに NG で終わる道は、`tools/release/check-ng-observations.sh <台本>…` が静的に落とす。`install-check.sh` と `update-apply-install.sh` の `--self-test`、および `soak-install.sh` の `--self-test` がこれを呼ぶ
+- `soak-install.sh` も観測の部品を使い、`--self-test` は `rust` の job で走らせる
 
 ## 6. tasks の検証コマンドは実在し、rc=0 になる
 

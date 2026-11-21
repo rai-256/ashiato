@@ -1,0 +1,62 @@
+{
+  "format": 2,
+  "title": "CH22 の深掘り（第 1 回・実地 CI の完了判定）",
+  "subtitle": "Windows runner でしか確かめられない置く段を、いつ完了とみなすか",
+  "makes": "配る形を Windows runner で外につながる状態にして置き、止まり・同じ誤り・更新確認を PR CI で捕まえる。",
+  "note": "自己試験で台本の分岐は確かめましたが、実際の Windows の命令とログ形式は PR CI の runner でしか確認できません。CI を走らせずに完了にする選択は、置く段が不具合を捕まえるという依頼を失わせます。",
+  "questions": [
+    {
+      "id": "Q8",
+      "topic": "PR CI 前の完了判定",
+      "kind": "premise",
+      "question": "Windows の実地 CI を通るまで完了にしないか",
+      "decide": "自己試験の後に PR CI の install-windows を最終証跡として待つか。",
+      "points": [
+        "Linux の自己試験では Windows のサービス、CSV、イベント記録の実物を再現できない。",
+        "CI 前に完了にすると、実地で判定が働かない差を見逃す。"
+      ],
+      "figure": {
+        "svg": "<svg viewBox=\"0 0 560 110\" role=\"img\" aria-label=\"PR CI を待つ場合と待たない場合\"><text x=\"10\" y=\"35\" font-size=\"14\">自己試験 → PR CI → 実地の観測を確認 → 完了</text><text x=\"10\" y=\"85\" font-size=\"14\">自己試験 → 完了（Windows 固有の差は未確認）</text></svg>",
+        "caption": "実地の Windows 観測を完了証跡に含めるか"
+      },
+      "why": "Windows 固有のサービス状態、CSV、イベント記録、Git Bash の引数は Linux の自己試験だけでは実証できません。CI 前に完了とすると、実地で判定が働かない差を見逃すおそれがあります。",
+      "context": "同じ族「実機・外部 runner でしか読めない観測」には P8（DB ログの時刻）と P11（wevtutil の実際の Date 形式）があり、いずれも未決のまま最初の CI の観測で確かめる設計です。Q7 は不具合が見つかれば判定を緩めず別 change で直す、と既に決めています。",
+      "family": {
+        "name": "実機・外部 runner でしか読めない観測",
+        "siblings": [
+          {"case": "P8: DB ログの時刻", "decided": "Q8。PR CI の観測を完了証跡にする"},
+          {"case": "P11: wevtutil の Date 形式", "decided": "Q8。PR CI の観測を完了証跡にする"},
+          {"case": "Q7: 最初の実地 CI が赤の場合", "decided": "既決。判定を緩めない"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "deep-review",
+        "why": "premises は Windows 実機での未検証を列挙したが、tasks の終了条件が publish 後の CI に依存することを下流の完了判定へ明示していなかった。",
+        "prevention": "CI 前には実地結果を完了証跡にできないことを deep-review で確認する。"
+      },
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "PR CI を最終条件にする",
+          "gain": "実際の Windows の命令とログ形式で判定が働くことを確かめられる。",
+          "cost": "PR CI の実行を待つ必要がある。",
+          "detail": "re-review 後に publish し、install-windows の置く段が緑で必要な観測を出すまで完了にしない。赤なら Q7 に従い判定を緩めず直す。",
+          "recommended": true
+        },
+        {
+          "label": "自己試験だけで完了にする",
+          "gain": "CI を待たずにこの段階を終えられる。",
+          "irreversible": "Windows 実地で漏れた不具合を、この完了判定では捕まえられない。",
+          "harm": {
+            "when": "Windows runner でしか起きない命令やログ形式の差があるとき。",
+            "who": "PR を利用する人に見える（置く段が不具合を捕まえない）。",
+            "link": "外部の配布元と更新確認の結果に結びつく。",
+            "unknown": "実地 CI が通るか、どの差が残るかはまだ確かめていない。"
+          },
+          "detail": "Windows runner の実地結果を待たずに完了にする。実ログ・実コマンドとの違いで置く段が働かなくても、この change では捕まえられない。"
+        }
+      ]
+    }
+  ]
+}

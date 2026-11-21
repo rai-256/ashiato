@@ -4,6 +4,33 @@
 use std::io::Read as _;
 use std::path::Path;
 
+const CP437: [char; 128] = [
+    'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ', 'Æ',
+    'ô', 'ö', 'ò', 'û', 'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú', 'ñ', 'Ñ',
+    'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡', '«', '»', '░', '▒', '▓', '│', '┤', '╡', '╢', '╖', '╕',
+    '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─', '┼', '╞', '╟', '╚', '╔', '╩', '╦',
+    '╠', '═', '╬', '╧', '╨', '╤', '╥', '╙', '╘', '╒', '╓', '╫', '╪', '┘', '┌', '█', '▄', '▌', '▐',
+    '▀', 'α', 'ß', 'Γ', 'π', 'Σ', 'σ', 'µ', 'τ', 'Φ', 'Θ', 'Ω', 'δ', '∞', 'φ', 'ε', '∩', '≡', '±',
+    '≥', '≤', '⌠', '⌡', '÷', '≈', '°', '∙', '·', '√', 'ⁿ', '²', '■', ' ',
+];
+
+fn zip_name(entry: &zip::read::ZipFile<'_, std::fs::File>) -> String {
+    let raw = entry.name_raw();
+    if entry.flags().as_u16() & 0x0800 != 0 {
+        String::from_utf8_lossy(raw).into_owned()
+    } else {
+        raw.iter()
+            .map(|&byte| {
+                if byte < 0x80 {
+                    byte as char
+                } else {
+                    CP437[(byte - 0x80) as usize]
+                }
+            })
+            .collect()
+    }
+}
+
 /// zip の中の 1 ファイル。パスは書庫内の相対パスだけを持つ。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveFile {
@@ -90,7 +117,7 @@ pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
             source: None,
         })?;
         files.push(ArchiveFile {
-            path: entry.name().to_owned(),
+            path: zip_name(&entry),
             bytes,
         });
     }

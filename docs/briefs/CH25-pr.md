@@ -1,37 +1,42 @@
-# CH25 — CI の偶発的な赤を直す（gradle の部品の取り置き・時計のテストの許容幅）（上流・軽い路）
+# CH25 —— CI の偶発的な赤を直す（gradle の部品の取り置き・時計のテストの許容幅）
 
-軽い路（`reason: same`。製品の振る舞いは変えない）。深掘りと合意は省いてある。仕様・spec-review・Task ごとの実装とレビュー・merge gate・確認バッチは残る。
-change: `openspec/changes/ch25-ci-flake-gradle-cache-clock-test/`（`skip_specs: true`。正典の Scenario は変えない）
+change: `openspec/changes/ch25-ci-flake-gradle-cache-clock-test/`
 
-## 何を直すか
+## deep.md に積んだ未決（A）
 
-- **gradle の部品の取り置き**: gradle を使う 7 つの job（ci.yml の `build-stamp`・`android`・`android-instrumented`・`package-linux`・`chain`、nightly.yml と release.yml の `package-linux`）が、
-  部品を毎回配布元から取り直さず、CI の取り置きから取る。依頼が挙げた `chain` は `draft.sh --self-test` → `build.sh apk` で gradle を呼ぶ（spec-review R1 で分かった）
-- **時計の試験**: 偽の取り込み口が、応答を返す瞬間の時刻にずらし（± 5 分）を足して Date を返す。用意の間に 1.5 秒眠る試験を足し、直す前に必ず落ちることを証跡に残す。
-  製品のコード（`HttpDateClock::now`）・正典の 2 つの Scenario・試験の幅の字面は変えない（`check-ch25.py clock` が見る）
+なし
 
-## 本人が決めたこと（依頼）
+## 仮決め（B）と Ruling
 
-- 依存の版を変えない・ロックの検査が今と同じに効く・時計の試験の幅を弱めない・製品のコードを変えない
-- 取り置きの形（`setup-java` の `cache: gradle` か `setup-gradle`）は「作るときに決める」—— 上流で D1（仮）に仮決めした
+design の（仮）:
+- D1（仮）. 取り置きは、既にある `actions/setup-java` の段の `cache: gradle` で行う
+- D2（仮）. 配る組み立て（nightly.yml・release.yml の `package-linux`）も取り置きを使う
+- D3（仮）. `chain` は、ci.yml で既に使っている `actions/cache` の段で取り置く
 
-## 仮決め（`design.md`）
+全 Task の ledger に `Ruling:` の行は無い。
 
-- **D1（仮）**: setup-java を持つ 6 つの job は `setup-java` に `cache: gradle` と、ロックを鍵に入れる `cache-dependency-path` を足す（新しい外の action が増えない）。
-  反転条件: merge の後も部品を取れずに落ちる・取り寄せが減らないなら `gradle/actions/setup-gradle` に替える
-- **D2（仮）**: 配る組み立て（nightly・release の `package-linux`）も取り置きを使う。main の取り置きを書けるのは main の run だけで、部品の checksum の確かめは今も無い（強さは変わらない）
-- **D3（仮）**: setup-java を持たない `chain` は、ci.yml で既に使っている `actions/cache` で job ごとの鍵で取り置く（JDK を変えない）
+## Task
 
-## 規模
+3 Task のうち、埋めた Task は 3 本。
 
-- capability の前倒し: なし（仕様を持たない change）
-- tasks: 3 Task・8 項目と、人間の確認待ち 1 つ（CI の上でしか見えない取り置きの復元と効き目）
-- spec-review: 指摘 6 件（すべて technical）。6 件とも fixed。A（人間に返す問い）は 0 件
+残した項目:
+- 4.1（人間の確認待ち（確認バッチが持つ））: 4.1 確認バッチで本人に聞く（CI の上でしか見えないもの）:
 
-## 残るもの
+## 通した検証（`evidence.jsonl` の項目とコマンドごとの最新）
 
-- 取り置きは鍵が変わった最初の run と、main が保存する前の PR では効かない
-- setup-java を持つ 6 つの job は同じ鍵を使うので、先に保存した job が使わない部品は取り置きに無い（D1 の代償と反転条件）
-- 走っている `ch22-soak-install-online-ci` も ci.yml を触る（`install-windows`）。job は重ならない
+- 1.2 `scripts/quiet-run clk -- cargo test -p ashiato-collector-windows --lib clock::tests::clock_reference` → rc=0（PASS・head 4d66754）
+- 1.3 `python3 openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py clock` → rc=0（PASS・head 4d66754）
+- 1.4 `bash -c 'set -euo pipefail; bin=$(cargo test -p ashiato-collector-windows --lib --no-run --message-format=json 2>/dev/null | python3 -c "import sys,json;print([j[\"executable\"] for j in map(json.loads,sys.stdin) if j.get(\"reason\")==\"compiler-artifact\" and j.get(\"executable\") and j[\"target\"][\"kind\"]==[\"lib\"]][-1])"); test "$("$bin" clock::tests::clock_reference --skip clock_reference_setup_time --list | grep -c ": test$")" -eq 5; for i in $(seq 3000); do "$bin" clock::tests::clock_reference --skip clock_reference_setup_time -q >/dev/null || { echo "落ちた: $i 回目"; exit 1; }; done; echo "3000 回 PASS"'` → rc=0（PASS・head 4d66754）
+- 2.1 `python3 openspec/changes/ch25-ci-flake-gradle-cache-clock-test/check-ch25.py ci` → rc=0（PASS・head 3ae3a0c）
+- 2.2 `bash -c 'set -e; tools/check-vulns-wiring.sh --self-test; tools/check-vulns-wiring.sh; tools/release/windows-build-key.sh --check-workflow; tools/check-tmp-hygiene.sh --self-test; tools/check-tmp-hygiene.sh; tools/tmp-leak-check.sh --self-test; tools/release/check-guards.sh --self-test; tools/check-adr.sh --self-test; tools/check-adr.sh'` → rc=0（PASS・head 3ae3a0c）
+- 2.3 `scripts/quiet-run locks -- bash -c 'tools/check-gradle-locks.sh --self-test && tools/check-gradle-locks.sh'` → rc=0（PASS・head 3ae3a0c）
+- 3.1 `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(\.github/workflows/(ci|nightly|release)\.yml|crates/collector-windows/src/clock\.rs|docs/changes/CH25\.md|openspec/changes/ch25-ci-flake-gradle-cache-clock-test/|docs/briefs/CH25|\.superpowers/|$)"'` → rc=0（PASS・head 2933653）
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## レビュー（`review/code.md`）
+
+- 指摘 7 件（fixed 4・rejected 3）
+- 処置の re-review: 1 回。最後の判定が NOT ADDRESSED のもの: なし
+
+## 未処置の申し送り
+
+なし

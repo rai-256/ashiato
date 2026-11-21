@@ -19,23 +19,26 @@
   zip を開く命令・`ashiato-collector-windows.exe`・`curl`）を置き場の `bin` に置き、`PATH` の先に足す。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。
   一時の置き場は `mktemp -d "${TMPDIR:-/tmp}/ch22-soak.XXXXXX"` で作って終わりに消す（`/tmp` の固定名に書かない）
 - **実地の口を Linux で走らせる継ぎ目**（`tools/release/update-apply-install.sh:899-916` の形を写す）: 自己試験は `cd "$work"` の中で実地の関数を走らせ、`C:/…` の置き場の字面を作業の置き場の中の相対の道として読ませる。
-  待ちの秒数（掃除の待ち・healthz の 150 秒・PC の収集アプリの 60 秒・置く 300 秒・読む間隔 5 秒）は台本の頭の変数に置き、自己試験の関数の中からだけ `reset_wait_seconds=0` の形で 0 か 1 に縮める。
+  待ちの秒数（掃除の待ち・healthz の 150 秒・PC の収集アプリを止めるまでの 60 秒と起こし直すまでの 180 秒・置く 300 秒・読む間隔 5 秒）は台本の頭の変数に置き、自己試験の関数の中からだけ `reset_wait_seconds=0` の形で 0 か 1 に縮める。
   これは秒数の差し込みで、時刻の差し込みではない
-- **時刻の差し込み**: 判定の関数は「置く段の始まり」「置く間の始まり」「PC の収集アプリを起こし直した時刻」を引数で受け取る（判定の関数は今の時刻を自分で読まない）。
+- **時刻の差し込み**: 判定の関数は「置く段の始まり」「置く間の始まり」「PC の収集アプリを止めた時刻」「PC の収集アプリを起こし直した時刻」を引数で受け取る（判定の関数は今の時刻を自分で読まない）。
   実地の口に、環境変数などで時刻を変える道を作らない
-- 閾値は台本の頭の定数に置く: 同じ誤りの回数 `SOAK_SAME_ERROR_LIMIT=3`（深掘り Q3。design D6（仮））・置く時間 300 秒（D5）・PC の収集アプリの起こし直しまで 60 秒（D7（仮））・読む間隔 5 秒（D4（仮））
+- 閾値は台本の頭の定数に置く: 同じ誤りの回数 `SOAK_SAME_ERROR_LIMIT=3`（深掘り Q3。design D6（仮））・置く時間 300 秒（D5）・PC の収集アプリを止めるまで 60 秒と止めてから起こし直すまで 180 秒（二重起動の防ぎ 150 秒 `SOAK_COLLECTOR_GUARD_SECONDS` より長く。2026-11-21 本人の決定。D7）・読む間隔 5 秒（D4（仮））
 
 ## Task 1: 置く段の判定と、その自己試験
 
-- [ ] 1.1 `tools/release/soak-install.sh` を作り、判定の関数と `--self-test`・`--list` を置く（実地の口は Task 2）。判定の関数（design D4〜D7・D13）:
+- [x] 1.1 `tools/release/soak-install.sh` を作り、判定の関数と `--self-test`・`--list` を置く（実地の口は Task 2）。判定の関数（design D4〜D7・D13）:
   - サービスの読みの列（時刻・サービス・状態・PID）と、システムの記録の 7031/7034 の行（時刻・サービス）と、置く間の始まりの時刻から、サービスごとの起こし直し・止まりの回数を出し、1 以上なら `die`（サービスの名前と回数を観測に）。
     システムの記録を読めたか（読めたなら置く間の件数）を落ちない回にも 1 行出す。読めなければ `::warning::` の行を出し、状態と PID の読みだけで判定する
   - 置き終わりの 3 つのサービスの状態と healthz の番号を見て、実行中でない・200 でないなら `die`
   - 4 つのログ（更新係の `updater.log`・サーバの日付のログ・DB のログ・PC の収集アプリの `collector.log`）から、置く間に書かれた誤りの行を design D6 の規則で抜き出し、日時と DB のプロセスの番号を除いて数え、
     全部を伏せて出し、1 つのログで同じ誤りが `SOAK_SAME_ERROR_LIMIT` 以上なら `die`。サーバのログの panic の行は 1 行で `die`
-  - 更新係の `checks.jsonl` と PC の収集アプリの `update-checks.jsonl` から、置く段の始まり（PC の収集アプリは台本の起こし直し）より後の行を出し、成功の行が無ければ、理由が全部「問い合わせの上限」なら `::warning::` の行を出して通し、
-    それ以外は `die`（記録の行の形は `crates/updater/src/lib.rs` と `crates/collector-windows/src/update_check.rs` の書く側を読んで合わせる）
-  - PC の収集アプリの PID の読みの列と台本が止めた時刻から、台本の 1 回のほかに消えた・変わったなら `die`。`collector.log` に `outage_notice_unavailable` の行があるかを落ちない回にも 1 行出す（design D7）
+  - 更新係の `checks.jsonl` から、置く段の始まりより後の行を出し、成功の行が無ければ、理由が全部「問い合わせの上限」なら `::warning::` の行を出して通し、
+    それ以外は `die`（記録の行の形は `crates/updater/src/lib.rs` の書く側を読んで合わせる）
+  - PC の収集アプリの `update-checks.jsonl` から、置く段の始まりより後の行を出し、宛先なし（`ok:false`・`reason:no_destination`）のほかの行（読めない行を含む）が 1 行でもある、`update-check.json` の `last_ok_at`・`latest` が埋まっている、`settings.json` に空でない `base_url` がある、のどれかなら `die`。
+    問い合わせた行の数と宛先なしの行の数を落ちない回にも 1 行出す（2026-11-21 本人の決定で、PC の収集アプリの「確かめた」の判定から置き換えた。design D7）
+  - 台本が止めた時刻と起こし直した時刻の間が `SOAK_COLLECTOR_GUARD_SECONDS`（150 秒）以下なら `die`。150 秒は自己試験が `crates/collector-windows/src/marker.rs` と `main.rs` から計算し直して比べる
+  - PC の収集アプリの PID の読みの列と台本が止めた時刻・起こし直した時刻から、止めた後の 1 回の消えと起こし直した後の 1 回の現れのほかに消えた・変わった、起こし直した後に現れない・置き終わりにいないなら `die`（起こしたプログラムの出力と終了の状態を観測に）。区切りは読みの列の印の行 `@stop`・`@restart` の位置で決める。`collector.log` に `outage_notice_unavailable` の行があるかを落ちない回にも 1 行出す（design D7）
   `--self-test` に置く印（偽の入力を置き場に書き、判定を部分殻で走らせ、落ちるものは rc≠0 と標準エラーの中身を、通るものは rc=0 と出力の中身を見る）:
   `# Scenario: 置く間に 1 回でも起こし直されたら、サービスの名前と回数を出して落ちる`・
   `# Scenario: 起こし直されずに止まったままのサービスがあれば落ちる`・
@@ -54,7 +57,9 @@
   `# Scenario: 問い合わせの上限の行だけなら、警告を出して通る`・
   `# Scenario: 問い合わせの上限と届かないの行が混ざれば落ちる`・
   `# Scenario: 台本が止めたほかに PC の収集アプリが終われば落ちる`・
-  `# Scenario: 起こし直しより前の確かめた行だけなら、PC の収集アプリの確かめは無いとみなす`・
+  `# Scenario: 起こし直した PC の収集アプリが置き終わりに動いていなければ落ちる`・
+  `# Scenario: 止めてから起こし直すまでが二重起動の防ぎの秒数以下なら落ちる`・
+  `# Scenario: PC の収集アプリの記録に配布元へ問い合わせた行が 1 行でもあれば落ちる`・
   `# Scenario: 置く段の出力に秘密の値が出ない`（状態の置き場の偽の設定の 5 つの秘密と台本の合言葉を、サーバのログと DB のログの誤りの行に混ぜる。標準出力と標準エラーのどこにも値が無く、`***` の行がある）・
   `# Scenario: 置く段の台本は観測を出さずに落ちる道を持たない`（`tools/release/check-ng-observations.sh "$0"` が rc=0）。
   どの「落ちる」Scenario も、落ちる入力から 1 か所だけ直した入力では通ることを並べて見る（判定がいつも落ちる形で緑にならない）。`SOAK_SAME_ERROR_LIMIT` が 3 であることも自己試験で見る
@@ -63,12 +68,12 @@
 
 ## Task 2: 置く段の実地と、CI の配線
 
-- [ ] 2.1 `soak-install.sh <配るサーバの zip> <配る PC の収集アプリの zip>` の実地の口を作る（design D2・D3・D5・D7）: 掃除（D2。消した後に残りが無いことを確かめ、残れば塞ぎの規則に触れずに `die`）→
+- [x] 2.1 `soak-install.sh <配るサーバの zip> <配る PC の収集アプリの zip>` の実地の口を作る（design D2・D3・D5・D7）: 掃除（D2。消した後に残りが無いことを確かめ、残れば塞ぎの規則に触れずに `die`）→
   置く段の始まりの時刻を取る → 塞ぎの規則 `ashiato-update-check-ci-outbound` を消し、`show rule` で無いことを確かめる（残れば入れずに `die`）→ 配る zip を `install-check.sh` と同じ口で入れる →
-  healthz が 200 になるのを 150 秒まで待ち、置く間の始まりの時刻を取る → PC の収集アプリを開いて送り先なしで起こす → 5 秒ごとに 3 つのサービスの `sc.exe queryex` と PC の収集アプリの `tasklist` を読み、60 秒で PC の収集アプリを止めて起こし直す →
+  healthz が 200 になるのを 150 秒まで待ち、置く間の始まりの時刻を取る → PC の収集アプリを開いて送り先なしで起こす → 5 秒ごとに 3 つのサービスの `sc.exe queryex` と PC の収集アプリの `tasklist` を読み、60 秒で PC の収集アプリを止め、止めてから 180 秒（150 秒より長く）空けて起こし直す（2026-11-21 本人の決定）→
   300 秒の後にシステムの記録を読み、Task 1 の判定を全部通す。
   実地の印: `echo "== Scenario: 配る形のサーバを外につながる状態で 5 分置くと、落ちず・止まらず・誤りが続かず、本物の配布元に確かめる"`・
-  `echo "== Scenario: 配る形の PC の収集アプリは、設定せずに起こし直すと本物の配布元に確かめ、動き続ける"`（それぞれの判定の前）。`--list` はこの 2 つを出す。
+  `echo "== Scenario: 配る形の PC の収集アプリは、設定せずに置くと配布元に問い合わせず、起こし直しても動き続ける"`（それぞれの判定の前）。`--list` はこの 2 つを出す。
   自己試験に足す（Global Constraints の継ぎ目で実地の関数そのものを走らせる）:
   `# Scenario: 置く段は、前の段の入れたものと更新係の置き場を消し、塞ぎを外してから配る zip を入れる`（記録した命令の順）・
   `# Scenario: 配る zip を入れる時に、前の段の更新係の置き場が残っていない`（偽のインストーラが呼ばれた時に置き場の有無を書く）・
@@ -76,7 +81,7 @@
   `# Scenario: 塞ぎを外せなければ、配る zip を入れずに落ちる`（`show rule` が規則を返し続ける偽の `netsh.exe`。インストーラの呼び出しが 0 回）。
   加えて、実地の口が Task 1 の判定の関数を全部呼ぶことを `declare -f <実地の関数>` の中の名前で見る（1 つでも欠ければ `die`。実地の印 1 つが判定を束ねるので、呼び忘れを `comm` は捕まえない）
   検証: `tools/release/soak-install.sh --self-test` rc=0 / `bash -c 'test "$(tools/release/soak-install.sh --list | wc -l)" -eq 2'` rc=0
-- [ ] 2.2 `.github/workflows/ci.yml` を直す: `install-windows` の、`update-apply-install.sh` の手順の後に置く段の手順を足し（`timeout-minutes: 15`。D8（仮））、
+- [x] 2.2 `.github/workflows/ci.yml` を直す: `install-windows` の、`update-apply-install.sh` の手順の後に置く段の手順を足し（`timeout-minutes: 15`。D8（仮））、
   `tools/release/soak-install.sh package/package-windows-release/ashiato-server-*.zip package/package-windows-release/ashiato-collector-windows-*.zip | tee "$RUNNER_TEMP/soak.log"` を走らせ、
   `--list` と走った `== Scenario:` の行を `comm -23` で突き合わせて欠けがあれば落とす（ほかの 3 つの台本と同じ形）。`install-windows` の job に `timeout-minutes: 100`（D8（仮））。
   D18 の注記（`ci.yml:607-608`「この規則は job の終わりまで外さない」）を「置く段（`soak-install.sh`）で外すまで外さない」に直す。`rust` の job の `update-apply-install.sh --self-test` の隣に `./tools/release/soak-install.sh --self-test` を足す。
@@ -96,13 +101,13 @@
 
 ## Task 3: 文書
 
-- [ ] 3.1 `docs/testing.md` の CI の job の表の `install-windows` の行に、最後の置く段（配る形を外につながる状態で入れて 5 分置き、起こし直し・止まり・同じ誤りの続き・panic・配布元に確かめた記録を見る）を足し、
+- [x] 3.1 `docs/testing.md` の CI の job の表の `install-windows` の行に、最後の置く段（配る形を外につながる状態で入れて 5 分置き、起こし直し・止まり・同じ誤りの続き・panic・配布元に確かめた記録を見る）を足し、
   「release の台本」の節に `tools/release/soak-install.sh` を足す（観測の部品を使うこと・自己試験は `rust` の job）
   検証: `bash -c 'grep -q "soak-install.sh" docs/testing.md && grep -q "置く段" docs/testing.md'` rc=0
 
 ## Task 4: 全体
 
-- [ ] 4.1 Scenario の印の突き合わせと、台本の検査
+- [x] 4.1 Scenario の印の突き合わせと、台本の検査
   検証: `python3 scripts/check_scenarios.py . ch22-soak-install-online-ci` rc=0 / `tools/release/soak-install.sh --self-test` rc=0 /
   `tools/release/install-check.sh --self-test` rc=0 / `tools/release/update-check-install.sh --self-test` rc=0 / `tools/release/update-apply-install.sh --self-test` rc=0 /
   `bash -c 'git diff --name-only origin/main...HEAD | grep -Ev "^(tools/release/soak-install\.sh|\.github/workflows/ci\.yml|docs/testing\.md|docs/changes/CH22\.md|openspec/changes/ch22-soak-install-online-ci/.*)$" | grep -v "^docs/briefs/" | { ! grep -q .; }'` rc=0（予定のパスの外に触れていない）
