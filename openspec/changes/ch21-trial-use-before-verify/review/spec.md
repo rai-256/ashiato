@@ -488,3 +488,39 @@ R31・R32 の処置の確かめ: 新しい指摘なし
 - 仮でない D32 は本人の補足そのもの（外すこと・`phone.sh` だけ）。仮の D33（外しても見つかれば呼ばない）と D34（仮）（手で呼ぶ道は harness2 の鍵）は、補足が決めていない細部で、外しても失うのは席が回らないことと待つことだけ。この分け方に食い違いは無い
 
 観点 7: 該当なし（spec_overlap.py candidates が 0 件。CH22 は 2026-11-21 に archive 済みで、requires の CH22 は満たされている）
+
+## R33〜R36 の処置の確かめ（2026-11-22、7c2aed0bd と d6c40a4b3 の上）
+
+- 機械の検査:
+  - `openspec validate --strict` → valid
+  - `check_chain.py` → OK
+  - `check_scenarios.py` → `FAIL (担保なし 111 件)`。下流の前なので予定どおり
+  - `review_triage.py` → `triage: OK`
+  - `spec_overlap.py candidates` → `[]`
+  - spec の verify-environment の 111 本と、tasks.md の印の名前が一字一句合う
+  - 下限の数も合う: verify-batch.sh 8 → 41 → 44 → 48、env-hook.sh 11 → 28 → 49
+- R33・R35・R36 の処置は、それぞれ指摘を閉じている。R34 は、本物の `claude -p` で前提を測った結果があり、premises.md の確かさを 5 にしたうえで、Task 4.3 で確かめ直す。却下の理由は成り立つ
+- Task 12.2 の検証は `out="$(…)" && …` の形なので、`check-seat-hide.sh` の rc=127 がそのまま返り、BLOCKED_INFRA の止まり方は保たれる
+
+## R37. Task 4.3 の 2 つ目の検証は、Task の前から通る
+- 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md
+- 根拠: 4.3 の検証の 2 つ目は `bash -c 'grep -E "^\| この PC で \`adb\` と \`emulator\`" …/premises.md | grep -q "| 5 |$"'` である。
+  R34 の処置で、この行はもう確かさ 5 になっている。今の作業ツリーで書いたまま走らせると rc=0 になる。
+  4.3 は「結果を premises.md の…行に書き足す」と言うが、書き足さなくてもこの検証は緑になる。Task 1.2・8.1・10.1 が premises.md を見る検証は、Task の前は落ちる形になっている
+- kind: technical
+- 提案: 2 つ目の検証は、4.3 が書き足す字面を見る形にする。例: 行に `real-check-seat-path` か「`verify-batch.sh` の組む `PATH` で」の字面があることを grep する。
+  そうしないなら、2 つ目の検証を外し、1 つ目（`== Scenario:` の行と rc=0）だけにする
+- 処置: fixed 4.3 —— 2 つ目の検証を、premises.md の行に 4.3 が書き足す `real-check-seat-path` の字面を grep する形に変えた（作業の前は通らない）
+
+## R38. 「`$ANDROID_HOME` が無くても、画面と PC の相手は今のまま立てる」は design と tasks にしか無く、Scenario が無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md
+- 根拠: R35 の処置で、design D32 と Task 9.1 に「`env-hook.sh` が道具を探して断るのは携帯の相手（`android`）だけで、画面と PC の相手は `$ANDROID_HOME` が無くても今のまま立てる」と足された。
+  これは差し込み口の観測できる振る舞いで、`env-hook.sh up <repo> <state> web` の `ready` に `UNAVAILABLE=` が出るか出ないかで見える。
+  ところが spec の画面の相手の Requirement にも PC の相手の Requirement にも、この文も Scenario も無い。
+  足した Scenario「Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ」が呼ぶのは偽の `tsukau.py` で、`env-hook.sh` は走らない。
+  D32 の形は「`env-hook.sh` は頭で道具の置き場を足す」なので、頭で `$ANDROID_HOME` を確かめて断る実装でも、今の Scenario はどれも落ちない。そうなると、SDK の無い PC で画面の相手が立たなくなる。
+  design だけにあるので、archive で正典からも落ちる
+- kind: technical
+- 提案: 画面の相手の Requirement に 1 文と Scenario を足し、Task 6.1 に印を置き、下限を 12 にする。
+  Scenario の例:「Android の SDK が無くても、画面の相手は立つ」（GIVEN `ANDROID_HOME`・`ANDROID_SDK_ROOT` を持たない環境と、偽の起動の台本と偽の `docker`。WHEN `env-hook.sh up <repo> <state> web`。THEN `ready` に `UNAVAILABLE=` が無く、`GUIDE=` がある）
+- 処置: fixed specs/verify-environment/spec.md —— 画面の相手の Requirement に「SDK が無い・道具が無い環境でも立てる（断るのは携帯の相手だけ）」を足し、Scenario「Android の SDK が無くても、画面の相手は立つ」を足した。印は Task 6.1（下限 12・7.1 は 29・9.1 は 50）

@@ -1,6 +1,6 @@
 # CH21 確認バッチの前に、その回で足した機能を使ってみる席（/tsukau）で確かめ、違和感を直すか人間に回す
 
-change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 111 本、`distribution` に MODIFIED 1）。
+change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 112 本、`distribution` に MODIFIED 1）。
 依頼と完了の判定は `docs/changes/CH21.md`。第 3 版（依頼に「見つけた後の処置」が足され、深掘りから立て直した）。**requires: CH22**（下の Q8）。
 
 確認バッチを作るたびに、その回に新しく入った Story / change が変えたファイルで相手（画面・PC・携帯）を決め、AI が 10 分・20 万 token ずつ使ってみる（harness2 の `/tsukau`）。
@@ -66,6 +66,6 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 
 - 深掘り（`review/deep.md`）: 16 件。escalated（問いに入れた）9・fixed 7
 - 仕様（`review/spec.md`）: 第 1 版 19 件・第 2 版（答えと違和感の直し）13 件。第 2 版は fixed 12（うち仮で閉じたもの R22 → D26・R23 → D29・R29 → D27/D28・R32 → D30 ほか）・rejected 1（R25。前提を実物で反証）。
-  第 3 版（IMP-13 の直し）4 件（R33〜R36）: fixed 3・rejected 1（R34。前提を本物の `claude -p` で測って成り立った）。
+  第 3 版（IMP-13 の直し）6 件（R33〜R38）: fixed 5・rejected 1（R34。前提を本物の `claude -p` で測って成り立った）。
   観点 7: 該当なし（CH22 は archive 済み）
 - 答えが写ったか（`review/answers.md`）: Q8・Q11 とも写った。違和感の直しは答え以外の変更として名指し（合意は引き継がず聞き直す）

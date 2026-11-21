@@ -123,8 +123,8 @@
 
 - [ ] 4.3 `tools/tsukau/verify-batch.sh real-check-seat-path` を作る（design D32・review/spec.md R34）: `--print-seat-path` の `PATH` で本物の `claude -p` を起こし（`--permission-mode` は `HARNESS_PERMISSION_MODE` か `auto`。5 分・1 回だけ）、席の Bash で `command -v adb; command -v emulator; command -v git` を走らせてその出力をそのまま最後に返すよう頼み、
   返った出力に `adb` と `emulator` の置き場が無く、`git` の置き場があることを見る。見る前に `echo "== Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない"` を出す。`adb` か `emulator` が見つかれば、design D32 の反転条件に当たったと `review/` に書いて止める（A として人間に返す）。
-  結果を `premises.md` の「この PC で `adb` と `emulator` が名前で見つかるのは…」の行に書き足す（上流の 2026-11-22 の実測で確かさは 5。`verify-batch.sh` の組む `PATH` で確かめ直す）
-  検証: `bash -c 'out="$(tools/tsukau/verify-batch.sh real-check-seat-path)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない"'` rc=0 / `bash -c 'grep -E "^\| この PC で \`adb\` と \`emulator\`" openspec/changes/ch21-trial-use-before-verify/premises.md | grep -q "| 5 |$"'` rc=0
+  結果を `premises.md` の「この PC で `adb` と `emulator` が名前で見つかるのは…」の行の結果の欄に、`real-check-seat-path` の名前と日付を添えて書き足す（上流の 2026-11-22 の実測で確かさは 5。`verify-batch.sh` の組む `PATH` で確かめ直す）
+  検証: `bash -c 'out="$(tools/tsukau/verify-batch.sh real-check-seat-path)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない"'` rc=0 / `bash -c 'grep -E "^\| この PC で \`adb\` と \`emulator\`" openspec/changes/ch21-trial-use-before-verify/premises.md | grep -q "real-check-seat-path"'` rc=0
 
 ## Task 5: 確認バッチの準備から呼ぶ
 
@@ -156,8 +156,9 @@
   `# Scenario: 渡された置き場が無ければ、立てずに断る`・
   `# Scenario: 手で呼んだときは、置き場が渡されなければ別の木で組む`（偽の `cargo`・`npm` を `TSUKAU_TEST_` で渡す）・
   `# Scenario: 画面の案内は、URL と触らないものを書き、立てたコミットを残す`・
-  `# Scenario: 片付けは、その回の project だけを消す`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `python3 scripts/tsukau.py check` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 11'` rc=0
+  `# Scenario: 片付けは、その回の project だけを消す`・
+  `# Scenario: Android の SDK が無くても、画面の相手は立つ`
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `python3 scripts/tsukau.py check` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 12'` rc=0
 
 ## Task 7: PC の相手
 
@@ -191,7 +192,7 @@
   `# Scenario: 片付けは、中のログを写してから自分の Sandbox だけを止める`・
   `# Scenario: 片付けは、自分の Sandbox だけを止める`・
   `# Scenario: 止めた後も自分の Sandbox が動いていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 28'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 29'` rc=0
 
 ## Task 8: 本物の Sandbox で PC の相手を立てて片付ける
 
@@ -236,7 +237,7 @@
   `# Scenario: 携帯の片付けは、ほかのエミュレータに触らない`・
   `# Scenario: 携帯の片付けは、その回の project と木を消す`・
   `# Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 49'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 50'` rc=0
 
 ## Task 10: 本物のエミュレータで携帯の相手を立てて片付ける
 

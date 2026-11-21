@@ -612,7 +612,13 @@ THE SYSTEM SHALL `<state>/tree` に `--repo` の HEAD を detached で取り出�
 THE SYSTEM SHALL サーバと画面の置き場が `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` で渡されたらそれを使い、渡された置き場が無ければ組まずに `UNAVAILABLE=` を置かせる。渡されていなければ（手で呼んだとき）`<state>/tree` で組む。
 THE SYSTEM SHALL 案内に、画面の URL・その回の画面の合言葉・本物のブラウザで画面を開いて写しを撮るコマンド・サーバのログの場所・触らないもの（本人のサーバ・確認バッチの DB・main の checkout の `.env`）を書かせ、`INFO_COMMIT=` に立てたコミットを残させる。
 THE SYSTEM SHALL 片付けでは、その compose project のコンテナと volume だけを消し、`<state>/tree` を消させ、残れば rc≠0 で終わらせる。
-導出元: CH21。review/deep.md R2（本物の合言葉と本人の記録の入った DB を席に渡さない）。深掘り Q8 の context（どの案でも共通の既定）。
+THE SYSTEM SHALL 画面の相手を、Android の SDK（`$ANDROID_HOME`）が無い・その下に道具が無い環境でも立てさせる（SDK の道具を確かめて断るのは携帯の相手だけ）。
+導出元: CH21。review/deep.md R2（本物の合言葉と本人の記録の入った DB を席に渡さない）。深掘り Q8 の context（どの案でも共通の既定）。SDK が無くても立てるのは、席の PATH から Android の道具を外したこと（IMP-13・design D32）に伴う。review/spec.md R38。
+
+#### Scenario: Android の SDK が無くても、画面の相手は立つ
+- **GIVEN** `ANDROID_HOME` と `ANDROID_SDK_ROOT` を持たず、`PATH` に `adb` と `emulator` の無い環境と、偽の `docker` と偽の起動の台本
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> web` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行は無く、`GUIDE=` の行がある
 
 #### Scenario: 画面の相手は、本人の .env を持たない別の木から起動する
 - **GIVEN** `--repo` の作業ツリーに `WEB_PASSWORD=honnin-no-aikotoba` を持つ `.env` と、起こされた場所とその木の根の `.env` の中身を記録する偽の起動の台本（`<state>/tree/tools/stack.sh` の位置に置く）
