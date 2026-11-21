@@ -1,0 +1,1259 @@
+{
+ "format": 2,
+ "purpose": "毎晩赤だった脆弱性の夜間の検査を緑に戻し、次に新しい勧告が出たら赤で気づけるようにする。挙がった 4 件は、上げられるものは上げ、上げられないものは理由と 90 日の期限を付けて例外にする。配布物の PostgreSQL は 17.12 にし、今まで使っていた DB はそのまま使える。",
+ "model": {
+  "kind": "diagram",
+  "caption": "4 件の片付け方",
+  "text": "夜間の検査（毎晩赤）\n  ├─ rustix 1.1.5 ──────→ 1.1.6 以上に上げる（Cargo.lock だけ）\n  ├─ libsqlite3-sys 0.30.1 → 例外の表へ（届かない: 90 日）\n  ├─ chrono 0.4.45 ──────→ 例外の表へ（届かない: 90 日）\n  └─ 同梱の PostgreSQL 17.6 → 17.12（lock の版・URL・指紋）\n                               └─ db\\17 の置き場はそのまま\n→ 夜間の検査は緑。issue #334〜#337 は本人が閉じる",
+  "alt": "crate の 3 件は 1 件を上げ 2 件を期限つきの例外にし、PostgreSQL は小さい版だけを 17.12 に替える。DB の置き場は変わらず、夜間の検査は緑に戻る。"
+ },
+ "before_after": [
+  {
+   "area": "夜間の脆弱性検査",
+   "before": "2026-11-19 から毎晩赤（crate の勧告 3 件）",
+   "after": "緑。例外にした 2 件は 90 日後に期限切れで再び赤になる"
+  },
+  {
+   "area": "Cargo.lock の rustix（試験と組み立てだけが使う）",
+   "before": "1.1.5",
+   "after": "1.1.6 以上の 1.1.x"
+  },
+  {
+   "area": "例外の表（osv-scanner.toml）",
+   "before": "libsqlite3-sys と chrono の行は無い",
+   "after": "2 行（と別名の行）を「届かない:」の理由と 90 日の期限で足す"
+  },
+  {
+   "area": "配布物に同梱の PostgreSQL",
+   "before": "17.6-1",
+   "after": "17.12-1（大きい版 17 と db\\17 の置き場は同じ）"
+  }
+ ],
+ "highlights": [
+  "crate.2",
+  "crate.3",
+  "pgswap.2",
+  "close.2"
+ ],
+ "features": [
+  {
+   "id": "crate",
+   "title": "crate の勧告 3 件を片付ける",
+   "summary": "rustix は上げ、libsqlite3-sys と chrono は例外へ",
+   "tldr": "rustix だけを上げ、上げられない 2 件は理由と 90 日の期限で例外の表に書く。",
+   "gist": [
+    "rustix は試験と組み立ての部品だけが使い、Cargo.lock の 1 項目だけが動く。",
+    "libsqlite3-sys の直る版は rusqlite 0.41 で、今の 0.32 の範囲の外。",
+    "chrono は保守終了の知らせで、直る版が無い。"
+   ],
+   "words": [
+    {
+     "term": "例外の表",
+     "def": "検査で外す勧告の一覧（osv-scanner.toml）。行ごとに理由と期限を持つ"
+    },
+    {
+     "term": "互換の範囲",
+     "def": "Cargo.toml の版の指定のまま上げられる範囲"
+    }
+   ],
+   "no_picture": "上の作るものの図と同じになる",
+   "points": [
+    {
+     "id": "crate.1",
+     "kind": "normal",
+     "text": "rustix は Cargo.lock だけで 1.1.6 以上に上げる。crate を名指しして上げ、ほかの依存の版は 1 つも動かさない。",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+      ],
+      "scenarios": [
+       "上げた後の Cargo.lock は、上げた crate のほかの組を動かさない",
+       "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "crate.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Security",
+      "Windows"
+     ],
+     "text": "libsqlite3-sys の勧告は、PC の収集アプリの使い方に形は当たる（ブラウザの履歴を -wal ごと写して開く）。それでも上げずに「届かない:」で例外にする。理由は「履歴を書ける処理は、収集アプリの記憶をもともと読める」という読みで、この読みは確かめていない（確かさ 1）。",
+     "examples": [
+      {
+       "wrong": "勧告は PC の収集アプリに届かないので直した",
+       "right": "勧告の形は当たる。攻撃しても新しく得るものが無い、と読んで 90 日だけ外す"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+      ],
+      "scenarios": [
+       "足した例外の行は、正典の理由の形を持つ"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "crate.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "chrono は直る版が無いので、例外の行は 90 日で切れて夜間の検査がまた赤になる。置き換える（jiff か time）まで、90 日ごとに本人の前に戻る。",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "crate.4",
+     "kind": "normal",
+     "text": "例外の表の今ある行は中身ごと残す。足すのは新しい行だけ。",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+      ],
+      "scenarios": [
+       "例外の表の既にある行は、中身ごと残る"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "pglock",
+   "title": "同梱の PostgreSQL を 17.12 にそろえる",
+   "summary": "lock の版・URL・指紋を 17.12-1 にし、大きい版は 17 のまま",
+   "tldr": "配布物の PostgreSQL を 17.12-1 に替える。大きい版・実行ファイル・置き場は変えない。",
+   "gist": [
+    "pgsql.lock の version・url・sha256 を 17.12-1 の zip にそろえる。",
+    "同梱する DLL の一覧は、17.12 の zip を調べ直してそろえる。"
+   ],
+   "words": [
+    {
+     "term": "小さい版",
+     "def": "17.6 や 17.12 の「.」の後ろ。データの形は変わらない"
+    }
+   ],
+   "no_picture": "lock の値を替えるだけで、図にすると要点の繰り返しになる",
+   "points": [
+    {
+     "id": "pglock.1",
+     "kind": "normal",
+     "text": "pgsql.lock の version・url・sha256 を 17.12-1 にそろえる。sha256 は実装のときに落とした zip から取る。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ],
+      "scenarios": [
+       "lock の url は lock の version の zip を指す",
+       "同梱の版が最新の minor なら、遅れの検査は通る"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "pglock.2",
+     "kind": "normal",
+     "text": "大きい版（17）・実行ファイルの一覧・許諾の置き場は変えない。インストーラが読むのは大きい版だけなので、DB の置き場 db\\17 も変わらない。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ],
+      "scenarios": [
+       "小さい版を上げても、大きい版と実行ファイルと許諾の置き場は変わらない"
+      ]
+     }
+    },
+    {
+     "id": "pglock.3",
+     "kind": "caution",
+     "tags": [
+      "Windows"
+     ],
+     "text": "同梱する DLL の一覧は 17.6 の zip で調べたもの。17.12 の zip で調べ直し、違えばそろえる。VC の実行時の DLL の取り込みが増えていたら、組み立ての台本の変更が要るので止めて昇格する。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ],
+      "scenarios": [
+       "lock の DLL の一覧は、zip の実行ファイルから辿れる同梱の DLL と一致する"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "pgswap",
+   "title": "今の DB を 17.12 がそのまま使う",
+   "summary": "17.6→17.12→17.6 の入れ替えと、退避を戻すことを Linux で走らせて確かめる",
+   "tldr": "17.6 で使っていた DB を 17.12 がそのまま使い、17.6 に戻しても使えることを機械で確かめる。",
+   "gist": [
+    "確かめるのは PostgreSQL の部分だけで、Linux の Docker で走らせる。",
+    "Windows の配布物どうしの更新は、本人の PC で確認バッチのときに見る（本人の決定）。"
+   ],
+   "words": [
+    {
+     "term": "置き場",
+     "def": "PostgreSQL がデータを置くフォルダ（配布版では db\\17）"
+    },
+    {
+     "term": "退避",
+     "def": "移行の前に pg_dump で取る DB の写し。更新が落ちたら戻す"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 150\" role=\"img\" aria-label=\"同じ置き場を 17.6、17.12、17.6 の順に起こし、17.12 の退避を 17.6 で戻す\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"20\" width=\"120\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"60\" y=\"38\" text-anchor=\"middle\">17.6 で作る</text><text x=\"60\" y=\"53\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">移行と行を入れる</text><rect x=\"200\" y=\"20\" width=\"140\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"270\" y=\"38\" text-anchor=\"middle\">17.12 で起こす</text><text x=\"270\" y=\"53\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">中身が同じ・1 行足す</text><rect x=\"420\" y=\"20\" width=\"140\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"490\" y=\"38\" text-anchor=\"middle\">17.6 に戻す</text><text x=\"490\" y=\"53\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">足した行もある</text><rect x=\"200\" y=\"100\" width=\"140\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"270\" y=\"124\" text-anchor=\"middle\">17.12 の退避</text><rect x=\"420\" y=\"100\" width=\"140\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"490\" y=\"118\" text-anchor=\"middle\">17.6 で戻す</text><text x=\"490\" y=\"133\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">中身が同じ</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M122 40 L196 40\"/><path d=\"M342 40 L416 40\"/><path d=\"M270 62 L270 96\"/><path d=\"M342 120 L416 120\"/></g></svg>",
+    "caption": "機械が走らせる入れ替えと戻し"
+   },
+   "points": [
+    {
+     "id": "pgswap.1",
+     "kind": "normal",
+     "text": "17.6 で置き場を作ってサーバの移行を当て、行を入れる。同じ置き場を 17.12 で起こすと中身が同じで、移行をもう一度当てても足すものが無い。",
+     "refs": {
+      "requirements": [
+       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+      ],
+      "scenarios": [
+       "前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う",
+       "新しい小さい版で移行をもう一度当てても、足す移行は無い"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "pgswap.2",
+     "kind": "caution",
+     "tags": [
+      "変更困難",
+      "DB"
+     ],
+     "text": "更新が落ちたとき、インストーラは 17.12 で取った退避を 17.6 の pg_restore で戻す。この戻しの道が通ることも、同じ台本で確かめる。17.12 で足した行は 17.6 に戻しても残る。",
+     "refs": {
+      "requirements": [
+       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+      ],
+      "scenarios": [
+       "新しい小さい版で足した記録を、前の小さい版に戻しても読める",
+       "新しい小さい版で取った退避を、前の小さい版が戻せる"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "pgswap.3",
+     "kind": "exception",
+     "tags": [
+      "Windows"
+     ],
+     "text": "Windows の配布物どうし（17.6-1 の zip から 17.12-1 の zip）の更新と戻しは、この PR では走らせない。本人の PC に配布版が入っていれば、確認バッチで更新して記録が見えるかを答える。",
+     "refs": {
+      "decisions": [
+       "D5",
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "close",
+   "title": "検査を緑に戻して issue を閉じる",
+   "summary": "merge の後、夜間の検査が緑なのを見て本人が閉じる",
+   "tldr": "merge の後に夜間の検査が緑で走ったら、本人が #334〜#337 を閉じる。",
+   "gist": [
+    "夜間の検査は、勧告が消えても issue を自分では閉じない。",
+    "確認バッチで「緑で走り、閉じたか」を聞く。"
+   ],
+   "no_picture": "手順が 2 つだけで、図にすると要点の繰り返しになる",
+   "points": [
+    {
+     "id": "close.1",
+     "kind": "normal",
+     "text": "merge の後、夜間の検査が緑で走ったのを見て、本人が #334〜#337 を閉じる。確認バッチで「緑で走り、閉じたか」を聞く。",
+     "refs": {
+      "scenarios": [
+       "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+      ]
+     }
+    },
+    {
+     "id": "close.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "この PR が merge されても #334〜#337 は開いたまま残る。夜間の検査は、勧告が消えても issue を自分では閉じない。",
+     "refs": {
+      "scenarios": [
+       "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "chrono を jiff か time に置き換えること（5 つの部品の本体に及ぶ）",
+   "refs": {
+    "decisions": [
+     "D3"
+    ]
+   }
+  },
+  {
+   "text": "rusqlite を 0.41 に上げること（依存の範囲を替え、履歴を読む本体のコードに及ぶ）",
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "CI で前の lock の zip を組み、小さい版の違う配布物の間の更新を毎回走らせる仕組み",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "検査の台本・CI・正典の「届かない」の型を変えること",
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  }
+ ],
+ "open": [
+  {
+   "text": "R2 の答え（A）は deep.md と CH26.md に記録済みだが、design.md の D5 と proposal.md には「本人に問う・答えを待つ」の文が残っている。決まった中身（Linux で確かめ、Windows は本人の PC）は D5 の本文と tasks 3.1・5.1 に既に書いてあり、食い違いは文の古さだけ。この段は仕様を直さない",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "IMP-01 の確かめ（本人の Firefox の profiles.ini に IsRelative=0 の行があるか）は、tasks の確認バッチの項目に無い。D2（仮）の反転条件をだれがいつ見るかが決まっていない",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "本人の PC に配布版が入っていないと、Windows の配布物どうしの 17.6→17.12 の更新はどこでも確かめない（IMP-02）。持ち越し先と期限は仕様に無い",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "確かめの台本 check-ch26.sh を change の中に置き、CI に組み込まない",
+   "refs": {
+    "decisions": [
+     "D6"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "勧告",
+   "def": "依存の部品に見つかった脆弱性や保守終了の知らせ（RUSTSEC の ID を持つ）"
+  },
+  {
+   "term": "届かない:",
+   "def": "例外の表の理由の型の 1 つ。製品に効かない理由を書く"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "夜間の検査の赤を、新しい勧告として読む",
+   "trigger": "ある朝、夜間の脆弱性検査が赤で、issue が 1 件立っている。今は 11-19 から毎晩赤なので、新しいものかどうか見分けられない。",
+   "steps": [
+    {
+     "do": "merge の後の夜間の検査の結果を見る",
+     "see": "緑。#334〜#337 の 4 件はもう挙がらない"
+    },
+    {
+     "do": "#334〜#337 を閉じる",
+     "see": "開いた脆弱性の issue が無くなる"
+    },
+    {
+     "do": "後日、検査が赤になったら issue を開く",
+     "see": "新しい勧告の ID か、例外の行の「期限切れ」"
+    }
+   ],
+   "outcome": "赤は「新しく見つかった」か「例外の期限が来た」のどちらかだと分かり、そのときに上げるか延ばすかを決められる",
+   "without": "毎晩赤のままで、新しい勧告が出ても今の 4 件に埋もれて気づけない",
+   "refs": {
+    "requirements": [
+     "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+    ],
+    "scenarios": [
+     "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "17.6 の配布版が入った PC を、17.12 の配布物で更新する",
+   "feature": "pgswap",
+   "scene": "本人の PC に PostgreSQL 17.6 を同梱した配布版のサーバが入っている。この change の後の配布物（17.12 を同梱）で更新する。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "更新で起きること（版の番号は lock の値。記録の件数は説明用）",
+    "head": [
+     "",
+     "プログラム",
+     "置き場 db\\17",
+     "記録"
+    ],
+    "rows": [
+     [
+      "更新の前",
+      "PostgreSQL 17.6",
+      "17.6 が作った置き場",
+      "滞在 100 件"
+     ],
+     [
+      "更新の後",
+      "PostgreSQL 17.12",
+      "同じ置き場を作り直さずに使う",
+      "滞在 100 件"
+     ],
+     [
+      "移行が落ちて戻した",
+      "PostgreSQL 17.6",
+      "17.12 の退避を 17.6 の pg_restore で戻す",
+      "退避を取ったときと同じ"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "更新がそのまま通る",
+     "outcome": "ok",
+     "result": "17.12 が同じ置き場で起き、今までの記録が画面に見える"
+    },
+    {
+     "label": "更新の途中で移行が落ちる",
+     "outcome": "ok",
+     "result": "インストーラが 17.6 のプログラムに戻し、17.12 で取った退避を 17.6 で戻す。台本はこの戻しが通ることを確かめる"
+    },
+    {
+     "label": "配布版が入っていない・同じ版",
+     "outcome": "neutral",
+     "result": "更新の手順に入らない。確認バッチでは「入っていない」「同じ版」と答える"
+    }
+   ],
+   "why": "PostgreSQL は同じ大きい版の中では、データの形を変えない。インストーラが読むのも大きい版（17）だけなので、置き場の名前も変わらない。",
+   "conditions": {
+    "occurs_when": [
+     "配布版のサーバが 17.6 を同梱した版で入っている"
+    ],
+    "not_when": [
+     "配布版が入っていない",
+     "入っている版と配布物の版が同じ"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "Windows の配布物どうしの更新はこの PR では走らせない。機械が確かめるのは Linux の PostgreSQL の部分だけ（IMP-02）",
+     "refs": {
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "text": "記録の件数は説明用の値。実際の本人の DB の中身は確かめていない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-02"
+   ],
+   "refs": {
+    "requirements": [
+     "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+    ],
+    "scenarios": [
+     "前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う",
+     "新しい小さい版で取った退避を、前の小さい版が戻せる"
+    ],
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "夜間の脆弱性検査が緑に戻り、次の勧告に気づけるようになる。配布物の PostgreSQL は 17.12 になり、今の DB はこの分析と台本の範囲ではそのまま使える。代わりに、libsqlite3-sys と chrono の 2 件は 90 日のあいだ検査で知らされなくなる。Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。",
+  "problem": "夜間の検査が 11-19 から毎晩赤で、立った 4 件の issue が手付かずのまま。新しい勧告が出ても赤に埋もれて気づけない。",
+  "depth": "full",
+  "depth_why": "配布物の PostgreSQL を替え、既に入っている DB の更新と戻しの道に効く（before_after がある）",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "この change は私的データの流れを増減しない。PC の収集アプリがブラウザの履歴の写しを読む流れも今のまま",
+    "why": "変えるのは依存の版・例外の表・同梱の PostgreSQL の小さい版だけで、製品のコードに触れない",
+    "refs": {
+     "requirements": [
+      "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "後から戻せる。例外の行は 90 日で切れ、lock は前の値に戻せ、17.12 で使った置き場は 17.6 でも使える（台本で確かめる）",
+    "why": "小さい版の入れ替えはデータの形を変えないので、配った後でも前の配布物に戻せる",
+    "refs": {
+     "requirements": [
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "file",
+    "name": "Cargo.lock の rustix",
+    "change": "1.1.5 を 1.1.6 以上の 1.1.x にする。ほかの項目は動かさない",
+    "searched": "cargo tree -i rustix@1.1.5 で引く側を見た（premises P3）",
+    "refs": {
+     "requirements": [
+      "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "file",
+    "name": "例外の表（osv-scanner.toml）",
+    "change": "libsqlite3-sys と chrono の行（と別名の行）を 90 日の期限で足す",
+    "searched": "osv-scanner.toml の名前で tools と走っている change を探し、検査の台本と issue の台本を読んだ",
+    "refs": {
+     "requirements": [
+      "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+     ],
+     "decisions": [
+      "D2",
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "file",
+    "name": "tools/release/pgsql.lock",
+    "change": "version・url・sha256 を 17.12-1 にし、dlls を 17.12 の zip にそろえる",
+    "searched": "pgsql.lock の名前で crates・tools・.github を探し、インストーラの build.rs・組み立て・使い回しの鍵を読んだ",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+     ],
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "lifecycle",
+    "name": "既に入っている PC の更新と戻し（db\\17 の置き場と退避）",
+    "change": "更新の後に動く PostgreSQL が 17.6 から 17.12 に替わる。戻しでは 17.12 の退避を 17.6 が戻す",
+    "searched": "pg_dump・pg_restore の名前でインストーラとサーバを探し、退避の取り方と戻し方を読んだ",
+    "refs": {
+     "requirements": [
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "code",
+    "name": "PC の収集アプリの SQLite（libsqlite3-sys 0.30 のまま）",
+    "change": "版は変えず、勧告を例外にして検査から外す",
+    "searched": "Connection::open と profiles.ini の名前で collector-windows を探し、履歴を写して開く処理を読んだ",
+    "refs": {
+     "decisions": [
+      "D2"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "tempfile（試験と組み立ての依存）",
+    "role": "reads",
+    "assumes": "rustix は 1.x の範囲なら何でもよい",
+    "holds": "yes",
+    "affects": "試験と組み立て",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "D2",
+    "target": "T2",
+    "who": "脆弱性の検査（tools/check-vulns.sh）",
+    "role": "reads",
+    "assumes": "例外の行は 90 日以内の期限と「届かない:」か「上げる予定:」で始まる理由を持つ",
+    "holds": "yes",
+    "affects": "全体の検査と夜間の検査の合否",
+    "basis": "observed",
+    "evidence": [
+     "E2"
+    ]
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "夜間の検査の issue の台本（tools/check-vulns-issues.py）",
+    "role": "reads",
+    "assumes": "勧告が消えたら issue も閉じる",
+    "holds": "no",
+    "affects": "merge の後も #334〜#337 が開いたまま残る",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ],
+    "leads_to": [
+     "IMP-04"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "走っている CH24（zip を 9 に上げ、例外の表の zip の行を消す）",
+    "role": "writes",
+    "assumes": "osv-scanner.toml と Cargo.lock を自分だけが変える",
+    "holds": "unknown",
+    "affects": "後から merge する側の rebase で衝突が出る",
+    "basis": "observed",
+    "evidence": [
+     "E10"
+    ],
+    "verify": "後から merge する側が rebase の後に tasks 1.1〜1.3 の検証を取り直す"
+   },
+   {
+    "id": "D5",
+    "target": "T3",
+    "who": "インストーラ（crates/installer/build.rs）",
+    "role": "reads",
+    "assumes": "version= の「.」の前だけを大きい版として読む",
+    "holds": "yes",
+    "affects": "大きい版の判定と db\\17 の置き場の名前",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T3",
+    "who": "配る物の組み立て（tools/release/build.sh）",
+    "role": "reads",
+    "assumes": "dlls= の一覧で同梱の DLL が足りる",
+    "holds": "unknown",
+    "affects": "17.12 の配布物で PostgreSQL が起きない",
+    "basis": "observed",
+    "evidence": [
+     "E9"
+    ],
+    "verify": "tasks 2.1 の check-ch26.sh pg-dlls で 17.12 の zip から辿り直す"
+   },
+   {
+    "id": "D7",
+    "target": "T4",
+    "who": "インストーラの戻し（前の版の pg_restore）",
+    "role": "reads",
+    "assumes": "新しい版の pg_dump で取った退避を、前の版の pg_restore が読める",
+    "holds": "unknown",
+    "affects": "更新が落ちたときの戻しで記録が戻らない",
+    "basis": "observed",
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ],
+    "verify": "tasks 3.1 の check-ch26.sh minor-swap で 17.12 の退避を 17.6 で戻す"
+   },
+   {
+    "id": "D8",
+    "target": "T4",
+    "who": "CI の更新の試験（package-windows・install-windows）",
+    "role": "reads",
+    "assumes": "古い zip と新しい zip は同じ commit から組む",
+    "holds": "yes",
+    "affects": "CI は小さい版の違う配布物の間の更新を走らせない",
+    "basis": "observed",
+    "evidence": [
+     "E7"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ]
+   },
+   {
+    "id": "D9",
+    "target": "T5",
+    "who": "PC の収集アプリの履歴の読み取り（history/read.rs・locate.rs）",
+    "role": "reads",
+    "assumes": "写して開く履歴の DB と -wal を書いたのは、本人の利用者の権限で動くブラウザ",
+    "holds": "unknown",
+    "affects": "Firefox の profile が本人以外も書ける置き場にあると、勧告の攻撃が当たる",
+    "basis": "observed",
+    "evidence": [
+     "E3",
+     "E4",
+     "E11",
+     "E12"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/installer/build.rs:38",
+    "quote": ".and_then(|version| version.split('.').next())"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": "tools/check-vulns.sh:16",
+    "quote": "例外: osv-scanner.toml の [[IgnoredVulns]] に ID、90 日以内の期限、届かない: 理由 または 上げる予定: 見込み。"
+   },
+   {
+    "id": "E3",
+    "source": "code",
+    "loc": "crates/collector-windows/src/history/read.rs:253",
+    "quote": "for suffix in [\"-journal\", \"-wal\"] {"
+   },
+   {
+    "id": "E4",
+    "source": "code",
+    "loc": "crates/collector-windows/src/history/locate.rs:208",
+    "quote": "relative = value != \"0\";"
+   },
+   {
+    "id": "E5",
+    "source": "code",
+    "loc": "crates/server/src/migrate_backup.rs:125",
+    "quote": "\"--format=custom\","
+   },
+   {
+    "id": "E6",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:2115",
+    "quote": "let restore = update_plan::pg_restore_command("
+   },
+   {
+    "id": "E7",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:544",
+    "quote": "更新の試験の zip は、同じ commit から版番号だけを替えて組む"
+   },
+   {
+    "id": "E8",
+    "source": "ops",
+    "loc": "tools/check-vulns-issues.py:166",
+    "quote": "開いた issue は勧告が消えても閉じないので増える一方で、"
+   },
+   {
+    "id": "E9",
+    "source": "ops",
+    "loc": "tools/release/build.sh:145",
+    "quote": "sed -n 's/^dlls=//p' \"$root/tools/release/pgsql.lock\" | tr ',' '\\n'"
+   },
+   {
+    "id": "E10",
+    "source": "story",
+    "loc": "openspec/changes/ch24-zip-upgrade/proposal.md:8",
+    "quote": "例外の表（`osv-scanner.toml`）は zip 2.6.1 の勧告を「上げる予定: 互換範囲外の修正版待ち」の理由で外している。"
+   },
+   {
+    "id": "E11",
+    "source": "code",
+    "loc": "crates/collector-windows/Cargo.toml:26",
+    "quote": "rusqlite = { version = \"0.32\", features = [\"bundled\"] }"
+   },
+   {
+    "id": "E12",
+    "source": "test",
+    "loc": "crates/collector-windows/src/history/locate.rs:378",
+    "quote": ".any(|p| p.path == absolute.join(\"places.sqlite\")));"
+   }
+  ],
+  "lost": [
+   {
+    "before": "libsqlite3-sys と chrono の勧告は、夜間の検査で毎晩知らされていた",
+    "after": "例外の期限（書いた日から 90 日）が来るまで、検査はこの 2 件を出さない",
+    "who": "本人（夜間の検査の結果を見る人）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+     ],
+     "decisions": [
+      "D2",
+      "D3"
+     ]
+    },
+    "harm": {
+     "when": "90 日のあいだに、この 2 件の勧告の中身が重く書き換わったとき（同じ ID のままなら知らされない）。",
+     "who": "夜間の検査の結果と issue を見る人。",
+     "link": "PC の収集アプリがブラウザの履歴を読む処理（IMP-01）。",
+     "unknown": "同じ ID の勧告が後から書き換わることがどれくらいあるか、repo の公開範囲（だれが issue を読めるか）は確かめていない。"
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "夜間の検査と全体の検査が通る。新しい勧告が出れば赤で分かる",
+    "cannot": "例外にした 2 件の勧告を 90 日のあいだ検査で見ること",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "17.6 の配布版が入った PC を 17.12 の配布物で更新し、同じ置き場を使う（仕様の約束。PostgreSQL の部分を tasks 3.1 の台本で確かめる予定で、まだ走らせていない）",
+    "cannot": "この分析では見つけていない。Windows の配布物どうしの更新は機械では確かめない（IMP-02）",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "17.12 で使った置き場を 17.6 に戻しても使い、17.12 で足した記録も残る（仕様の約束。Linux の PostgreSQL で台本が確かめる予定）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "新しい小さい版で足した記録を、前の小さい版に戻しても読める"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "17.6 で移行を当てた DB を、作り直さず・移さずに 17.12 が読む（仕様の約束。台本で確かめる予定）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "新しい小さい版で移行をもう一度当てても、足す移行は無い"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "17.12 の pg_dump で取った退避を、17.6 の pg_restore が戻す（仕様の約束。D7 のとおり未確認で、台本で確かめる予定）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
+    "refs": {
+     "scenarios": [
+      "新しい小さい版で取った退避を、前の小さい版が戻せる"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "更新の途中で移行が落ちたら、インストーラが 17.6 に戻して 17.12 の退避を戻す",
+    "cannot": "この道を Windows の配布物で通すこと（この PR では走らせない。IMP-02）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   }
+  ],
+  "rules": [],
+  "scenarios": [],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "libsqlite3-sys の勧告を外す理由は、確かめていない読みに乗っている",
+    "text": "PC の収集アプリは勧告の当たる形（他の処理が書いた DB を -wal ごと開く）で履歴を読む。外す理由は「書ける処理は収集アプリの記憶をもともと読める」で、Firefox の profile が本人以外も書ける置き場にあれば成り立たない",
+    "basis": "guess",
+    "unknowns": [
+     "同じ利用者の処理が収集アプリの記憶を読めるか（premises P7、確かさ 1）は確かめていない",
+     "本人の Firefox の profile が利用者の置き場の外にあるかは確かめていない",
+     "外の置き場を読むことは E4 の 1 行でなく、locate.rs の試験（E12）が絶対パスの profile を見つけることで言える。実機の profile では確かめていない",
+     "verify（IsRelative=0 の行を見る）は確認バッチの項目に入っていない。だれがいつ見るかは決まっていない（未解決に挙げた）"
+    ],
+    "derived": "収集アプリは Firefox の IsRelative=0 の profile を利用者の置き場の外でも読む（E4）。そこを本人以外が書けるなら、書いた者は勧告の攻撃で問い合わせの結果に古い記憶のバイトを混ぜうる",
+    "undefined": "収集アプリがどの置き場の履歴まで読んでよいか。仕様は定めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "90 日の例外のまま受け入れる（D2（仮）の反転条件に当たれば上げる change を立てる）"
+     },
+     {
+      "label": "rusqlite を 0.41 に上げる change を別に立てる"
+     }
+    ],
+    "verify": "本人の PC の Firefox の profiles.ini に IsRelative=0 の行があるか、あればその置き場を本人以外が書けるかを見る",
+    "deps": [
+     "D9"
+    ],
+    "evidence": [
+     "E3",
+     "E4",
+     "E12"
+    ],
+    "refs": {
+     "decisions": [
+      "D2"
+     ]
+    },
+    "harm": {
+     "when": "Firefox の profile を共有のフォルダや別のドライブに置き、そこを別の利用者も書けるとき。",
+     "who": "本人の PC の収集アプリ。混ざるのは収集アプリの記憶の古いバイトで、それが滞在や履歴の記録に入りうる。",
+     "link": "PC の収集アプリが送るブラウザの履歴の記録。",
+     "unknown": "混ざったバイトが何を含みうるか、本人の profile の置き場は確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "Windows の配布物どうしの 17.6→17.12 の更新は、機械では確かめない",
+    "text": "台本が確かめるのは Linux の PostgreSQL の置き場の入れ替えと、退避を戻すことだけ。インストーラが Windows でプログラムの置き場を入れ替える道は、本人の PC に配布版が入っているときの確認バッチでしか通らない",
+    "basis": "derived",
+    "unknowns": [
+     "本人の PC に 17.6 を同梱した配布版が入っているかは確かめていない",
+     "インストーラに小さい版で分かれる処理が無いことは、コードを読んだだけで走らせていない",
+     "本人の PC に配布版が入っていなければ、確認バッチでも Windows の更新は通らず、持ち越し先と期限は決まっていない（未解決に挙げた）"
+    ],
+    "derived": "CI は古い zip と新しい zip を同じ commit から組む（E7）ので、どちらも 17.12 になる。この PR の後は、小さい版の違う配布物の間の更新を走らせる所が無い",
+    "undefined": "本人の PC に配布版が入っていないとき、Windows の更新をだれがいつ確かめるか",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "本人の決定（R2 の A）のまま受け入れる"
+     },
+     {
+      "label": "CI で base の lock から古い zip を組む change を後から立てる"
+     }
+    ],
+    "verify": "本人の Windows で 17.6-1 の zip から 17.12-1 の zip へ tools/release/update-apply-install.sh を走らせる",
+    "deps": [
+     "D7",
+     "D8"
+    ],
+    "evidence": [
+     "E6",
+     "E7"
+    ],
+    "refs": {
+     "requirements": [
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    },
+    "harm": {
+     "when": "17.6 の配布版が入った PC を更新して、Windows に固有の理由で落ちたとき。",
+     "who": "その PC でサーバを使う本人。インストーラは落ちたら前の版に戻す。",
+     "link": "既に入っている DB の記録（滞在・稼働状況）。",
+     "unknown": "Windows に固有の落ち方があるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "chrono の例外は 90 日ごとに夜間の検査を赤にする",
+    "text": "chrono は直る版が無いので、置き換えるまで例外の期限が来るたびに検査が赤になり、issue が立つ",
+    "basis": "derived",
+    "derived": "期限は書いた日から 90 日以内（正典の形）。直る版が無いので、期限が来れば同じ勧告がまた当たる",
+    "undefined": "期限が来たときに延ばすか置き換えるかの判断の決まり",
+    "feasibility": "unverified",
+    "refs": {
+     "decisions": [
+      "D3"
+     ]
+    },
+    "harm": {
+     "when": "例外を書いた日から 90 日後（2027 年 2 月ごろ）。",
+     "who": "夜間の検査の赤と issue を見る人。",
+     "link": "なし（製品の振る舞いには効かない）。",
+     "unknown": "chrono の保守を引き継ぐ版が出るか、repo の公開範囲は確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "low",
+    "status": "open",
+    "title": "merge しても issue は自動では閉じない",
+    "text": "夜間の検査は勧告が消えても issue を閉じない。#334〜#337 は本人が閉じるまで開いたまま残る",
+    "basis": "observed",
+    "deps": [
+     "D3"
+    ],
+    "evidence": [
+     "E8"
+    ],
+    "derived": "issue の台本は開いた issue を閉じない（E8）ので、緑に戻っても 4 件は残る",
+    "undefined": "閉じ忘れたときにだれが気づくか",
+    "feasibility": "unverified",
+    "refs": {
+     "scenarios": [
+      "全体の検査と毎晩の検査は、片付けた勧告を出さない"
+     ]
+    },
+    "harm": {
+     "when": "閉じ忘れたまま、後で開いた issue の一覧を見たとき。",
+     "who": "開いた issue の一覧を見る人。",
+     "link": "なし。",
+     "unknown": "repo の公開範囲は確かめていない。"
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "12 の Scenario（脆弱性の検査 4・配布 8）と台本の自己試験が通り、cargo test と clippy が今のまま通る",
+    "refs": {
+     "requirements": [
+      "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
+      "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない",
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     ]
+    }
+   },
+   {
+    "text": "触ったファイルが予定のパスの中だけで、軽い路の申告と合う",
+    "refs": {}
+   },
+   {
+    "text": "確認バッチで、本人の PC の更新の結果（か入っていない・同じ版）と、夜間の検査が緑で #334〜#337 を閉じたかに答えている",
+    "refs": {
+     "decisions": [
+      "D5"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "2026-11-19 の夜に挙がった crate の勧告 3 件と、同梱の PostgreSQL の 17.6-1 から 17.12-1 への小さい版の更新",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "上げるのは直った版が Cargo.toml の依存の範囲の中にあるときだけで、そのとき動かすのは Cargo.lock のその crate だけ。範囲の外か直った版が無いときは例外の行にする",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない"
+      ]
+     }
+    },
+    {
+     "text": "置き場をそのまま使えるのは、同じ大きい版（17）の中で小さい版だけを替えるとき",
+     "refs": {
+      "requirements": [
+       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える",
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "大きい版の更新（18 など）。Windows の配布物どうしの更新を機械で走らせること",
+     "refs": {
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "libsqlite3-sys の勧告は PC の収集アプリに残る（IMP-01）。chrono は 90 日ごとに赤に戻る（IMP-03）",
+     "refs": {
+      "decisions": [
+       "D2",
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "3 つの Requirement と 12 の Scenario、premises の P1〜P18、インストーラが lock を読む所、退避と戻しの処理、履歴を写して開く処理、検査と issue の台本",
+     "refs": {
+      "requirements": [
+       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
+       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない",
+       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+      ]
+     }
+    },
+    {
+     "text": "同じファイルを触る走っている change: ch24-zip-upgrade（Cargo.lock・osv-scanner.toml。D4）、ch22-soak-install-online-ci（update-apply-install.sh。CH26 は触らない）、ch25-ci-flake-gradle-cache-clock-test（tools/** の glob が重なるだけで、同じファイルは触らない）",
+     "refs": {}
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "17.12-1 の zip の DLL の取り込み",
+     "why": "zip は実装のときに落とす（tasks 2.1）"
+    },
+    {
+     "text": "Windows の配布物どうしの更新と戻し",
+     "why": "走らせる Windows がこの流れの中に無い。本人の決定で本人の PC に回した"
+    },
+    {
+     "text": "同じ利用者の処理が別の処理の記憶を読めるか（P7）",
+     "why": "Windows の実機で確かめる手段をこの流れが持たない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "携帯の収集アプリと画面",
+     "why": "触る依存・lock のどれも使わない"
+    }
+   ]
+  }
+ },
+ "sections": {
+  "makes": {
+   "tldr": "夜間の脆弱性検査を緑に戻し、同梱の PostgreSQL を 17.12 にする。製品の振る舞いは変えない。",
+   "gist": [
+    "crate の 3 件は、1 件を上げ、2 件を理由と 90 日の期限で例外にする。",
+    "PostgreSQL は小さい版だけを替え、今の DB をそのまま使う。"
+   ],
+   "words": [
+    {
+     "term": "夜間の検査",
+     "def": "毎晩、依存の部品に既知の脆弱性が無いかを調べる CI の検査"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 170\" role=\"img\" aria-label=\"夜間の検査が挙げた 4 件のうち、rustix は上げ、2 件は例外にし、PostgreSQL は 17.12 にして検査が緑に戻る\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"65\" width=\"110\" height=\"40\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"55\" y=\"82\" text-anchor=\"middle\" fill=\"var(--warn)\">夜間の検査</text><text x=\"55\" y=\"97\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--warn)\">毎晩赤・4 件</text><rect x=\"170\" y=\"5\" width=\"200\" height=\"34\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"270\" y=\"27\" text-anchor=\"middle\">rustix を 1.1.6 以上へ</text><rect x=\"170\" y=\"47\" width=\"200\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"270\" y=\"69\" text-anchor=\"middle\">libsqlite3-sys を例外へ</text><rect x=\"170\" y=\"89\" width=\"200\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"270\" y=\"111\" text-anchor=\"middle\">chrono を例外へ</text><rect x=\"170\" y=\"131\" width=\"200\" height=\"34\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"270\" y=\"153\" text-anchor=\"middle\">PostgreSQL を 17.12 へ</text><rect x=\"430\" y=\"65\" width=\"130\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"495\" y=\"82\" text-anchor=\"middle\">検査は緑</text><text x=\"495\" y=\"97\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">例外は 90 日で切れる</text></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M112 78 L166 24\"/><path d=\"M112 82 L166 64\"/><path d=\"M112 88 L166 106\"/><path d=\"M112 92 L166 146\"/></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M372 22 L426 78\"/><path d=\"M372 64 L426 82\"/><path d=\"M372 106 L426 88\"/><path d=\"M372 148 L426 92\"/></g></svg>",
+    "caption": "4 件の片付け方",
+    "note": "版の番号は lock と Cargo.lock の値"
+   }
+  },
+  "change": {
+   "tldr": "夜間の検査が緑に戻り、配布物の PostgreSQL が 17.6 から 17.12 になる。"
+  },
+  "lost": {
+   "tldr": "例外にした 2 件は 90 日のあいだ夜間の検査で知らされなくなる。"
+  },
+  "uses": {
+   "tldr": "次に検査が赤になったら、それは新しい勧告か例外の期限切れだと分かる。"
+  },
+  "watch": {
+   "tldr": "Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。"
+  },
+  "findings": {
+   "tldr": "重大な問題は見つけていない。中くらいの 2 件（例外の理由の確かさ・Windows の更新）を残す。"
+  },
+  "rest": {
+   "tldr": "chrono の置き換えと rusqlite 0.41 への上げはしない。issue は本人が閉じる。"
+  }
+ }
+}

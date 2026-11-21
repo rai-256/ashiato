@@ -1,0 +1,16 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 63,
+ "applied": [
+  "sections.lost.tldr",
+  "points[crate.4].text",
+  "features[pgswap].summary",
+  "points[pgswap.2].text",
+  "impact.findings[IMP-02].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
