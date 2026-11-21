@@ -84,7 +84,7 @@ ashiato2 は席を呼ぶまでと、処置が読む手元の目録・公開に�
 - **塞げなければ網を切る側に倒す**（Q8 の選んだ案の「確かめていないこと」）: 私設網か手元の網に届いたら、外を通す規則も外して外向きを全部塞ぎ、確かめ直す。それでも届けば、何も入れずに `UNAVAILABLE=`（回ごとに倒す。設計を戻すかは反転条件）。外にだけ届かなかった回は続け、案内に書く
 - 守りの範囲: 確かめで当てるのはこの PC の宛先だけ。ほかの私設網の機器（本人の携帯など）への守りは、範囲の組み立て（自己試験で固定）と規則まで
 - 字面: 私設網や手元の網の IPv4 の範囲を、台本・試験・文書に字面で書かない（`tools/check-private.sh` が commit で止める）。範囲は数から組むか名前で書く
-- 外へ出るもの（Q8 の選んだ案の代償。本人が受け入れた）: PC を変えた回の確認バッチのたびに、更新係と PC の収集アプリの問い合わせ（この PC の網の IP と時刻）と、席が範囲の中で開いた外のサイトへの接続が残る。正典 distribution の「自動の試験が本物の配布元へ繋ぐのは名指しのものだけ」（CH22 が 2 つに書き直した Requirement）に 3 つ目として使ってみる席の PC の相手を MODIFIED で足す。CH22 の delta の Requirement を写すので、requires に CH22 を足す（CH22 の spec が変われば merge gate が「依存の spec:」で落とす）
+- 外へ出るもの（Q8 の選んだ案の代償。本人が受け入れた）: PC を変えた回の確認バッチのたびに、更新係と PC の収集アプリの問い合わせ（この PC の網の IP と時刻）と、席が範囲の中で開いた外のサイトへの接続が残る。正典 distribution の「自動の試験が本物の配布元へ繋ぐのは名指しのものだけ」（CH22 が 2 つに書き直した Requirement）に 3 つ目として使ってみる席の PC の相手を MODIFIED で足す。requires に CH22 がある。CH22 は 2026-11-21 に archive され、その Requirement は正典に入った（CH21 の MODIFIED は正典の全文に (3) を足した形。2026-11-22 に突き合わせた）
 - 守りの限界: Sandbox の中の管理者（インストーラ・席が走らせるコマンド）は規則を外せる。守りは「確かめてから渡す」と、案内の「ファイアウォールの規則に触らない」まで
 - 反転条件: 本物の Sandbox（Task 8）で、塞いだ後に名前が引けない・外の HTTPS が通らない・インストールが通らない・私設網か手元の網に届くと分かったとき（A として人間に返す）。全部塞ぐ回が続くとき（塞ぎ方を直す）
 
@@ -158,7 +158,7 @@ ashiato2 は席を呼ぶまでと、処置が読む手元の目録・公開に�
 
 ### D14. 処置の境界: 席を呼ぶまでと手元の目録は ashiato2、処置は harness2 の確認バッチ（深掘り Q1 の推奨）
 
-- ashiato2 が持つもの: 差し込み口（D1）・範囲と相手（D2）・呼び方（D8・D9）・手順書の段落（D11）・公開の題（D12）・新しく入ったものだけの範囲（D10）・確かめ直しの口（D27）・3 つの相手の立て方（D3〜D7・D22・D25・D30・D31）、それに**処置へ渡す手元の目録**
+- ashiato2 が持つもの: 差し込み口（D1）・範囲と相手（D2）・呼び方（D8・D9）・手順書の段落（D11）・公開の題（D12）・新しく入ったものだけの範囲（D10）・確かめ直しの口（D27）・3 つの相手の立て方（D3〜D7・D22・D25・D30・D31）・席に渡す `PATH`（D32・D33（仮））、それに**処置へ渡す手元の目録**
 - 目録 `dist/verify-<tag>/tsukau.json`（`dist/` は git が無視する。手元だけ）は薄く持つ: `{"v": 1, "tag", "targets": [{"target", "state", "scope": [{"id", "title"}], "run", "earlier": [{"id", "tag", "run"}], "recheck"}]}`。`targets` は `web`・`pc`・`android` の順。
   `state` は `ran`（席を呼んだ）・`skipped`（範囲が空か、新しく入ったものが無い。D10）・`not_run`（組めない・呼べない・打ち切って最後の行が読めないか席が終えていない）。`run` は実行のフォルダの絶対パス（候補・根拠・止まり方は harness2 の `result.json`・`candidates.jsonl` が持つ。写さない）。
   `earlier` は前の回で試したので範囲から外したもの（D10）で、処置はその `run` の判定を引き継ぐ（D15 の 8）
@@ -200,6 +200,7 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 
 - 手で呼ぶ `/tsukau` は同じ差し込み口（D1）と同じ置き場を使い、目録（D14）も処置も作らない。本人が `RESULT.md` を読んで `/iwakan` か `/hanasu` に回す
 - 依頼の「見つけて書くだけで終えず」を、手で呼んだときには当てない（直す先の Story が決まらない）
+- 手で呼んだ席の環境から `adb` を外すこと（IMP-13）だけは、手で呼ぶときにも当てる（D34（仮）。harness2 の差し込み口の鍵）。席の中身と、結果を残すだけの振る舞いは変えない
 
 ### D18（仮）. 完了は、harness2 の処置が入った後に、使い捨ての確認バッチの木で処置まで本物で通す。公開には何も出さない（深掘り Q13 の推奨）
 
@@ -225,7 +226,7 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 - AVD は `ashiato-tsukau-api35`（無ければ `tools/android-emulator.sh` と同じ image で `avdmanager` で作る）。計測テストの `ashiato-api35` と本人が使うエミュレータと分ける。同じ AVD が動いていれば待たずに `UNAVAILABLE=`。
   動いているかは、エミュレータのプロセスの引数（`ps -eo pid,args` で `-avd ashiato-tsukau-api35` を語として含むもの）で見る。ほかの端末に `adb -s` で AVD の名前を問わない（`emu_reject_existing_avd` は全部の端末に問うので使わない。review/spec.md R20）
 - `tools/emulator-start.sh` の `emu_check_kvm`・`emu_start`・`emu_wait_boot`・`emu_stop_own` を使う。引数は `-avd ashiato-tsukau-api35 -port <空いている偶数の port> -no-window -wipe-data -no-snapshot-save -no-boot-anim`。serial `emulator-<port>` と PID を `<state>` に残す
-- `adb` は全部 `-s <serial>`。`adb devices` だけは名指ししない（自分の serial が残っているかを見る）。実機・ほかのエミュレータに入れない・止めない（ST53 D14 の「実機には入れない」と同じ向き）
+- `adb` は全部 `-s <serial>`。`adb devices` だけは名指ししない（自分の serial が残っているかを見る）。実機・ほかのエミュレータに入れない・止めない（ST53 D14 の「実機には入れない」と同じ向き）。席の `PATH` には `adb` を置かず、席が端末に届く口は `phone.sh` だけ（D32）
 - 画面を出さない: 席は `adb exec-out screencap` で写しを撮るので窓は要らない。Sandbox（Q9）と違い、本人のデスクトップに窓が出ない
 - 片付け: `logcat -d` を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから `emu kill`、残れば `emu_stop_own`。止めた後もその serial が `adb devices` に残れば rc≠0
 - 確認バッチの準備の `install_on_emulators`（そのとき繋がっているエミュレータ全部に本人のサーバ向けの APK を入れる）は席より前に走るので、席のエミュレータには入らない。手で呼んだ席のエミュレータが動いている間に別の確認バッチの準備が走ると入りうる（Risks）
@@ -275,16 +276,55 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 - 費用: 範囲を組む数十行と自己試験
 - 反転条件: Windows のファイアウォールが範囲の数を受け付けない・遅いと分かったとき（Task 8。範囲をまとめ直す）
 
-### D25. 席は携帯を `tools/tsukau/phone.sh` で触る（仕様への違和感）
+### D25. 席は携帯を `tools/tsukau/phone.sh` で触る（仕様への違和感。IMP-13 の本人の答えで、席が端末に届く口をこれだけにした）
 
 - `phone.sh shell <命令>`（`adb -s <serial> shell`。出力をそのまま返す）・`phone.sh shot <置き場>`（`adb -s <serial> exec-out screencap -p` を `$TSUKAU_EVIDENCE` へ）・`phone.sh ui`（`uiautomator dump` の XML を返す。押す場所を探す）。serial は `<state>` から読む
 - 押す・打つは `phone.sh shell 'input tap <x> <y>'`・`input text`・`input keyevent`。案内に、`ui` で探して `input tap` で押す例を載せる
+- `phone.sh` は `adb` を名前で探さず、`$ANDROID_HOME/platform-tools/adb` で呼ぶ（席の `PATH` には `adb` が無い。D32）。`$ANDROID_HOME` が無いか、そこに `adb` が無ければ rc≠0 で「携帯の道具が見つからない」と 1 行出す。
+  serial は `<state>` に残したものだけを `-s` に渡し、引数で serial を受けない（席がほかの端末を名指す口を作らない）
 - 反転条件: 席が `input` で操作できない画面が続くとき（口を足す）
+
+### D32. 席を起こす `PATH` から Android の道具の置き場を外し、端末に届く口を `phone.sh` だけにする（IMP-13 の本人の答え）
+
+本人の答え（第 2 回の合意、IMP-13「仕様を直す」の補足）: 「席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする」。
+
+- **どこで外すか**: harness2 の `scripts/tsukau.py` は、席（`claude -p`）にも差し込み口（`env-hook.sh`）にも、呼んだ側の環境をそのまま渡す（`.harness2/scripts/tsukau.py` の 447〜449 行・493〜495 行）。差し込み口の設定の鍵は閉じていて（94 行・231〜232 行）、この repo から席だけの環境を足す口は無い。
+  そこで、確認バッチの準備から呼ぶ道は `verify-batch.sh` が `tsukau.py` を呼ぶときの `PATH` から外す（この repo。下流の Task 4）。手で呼ぶ `/tsukau` は harness2 への別の依頼（`harness2-request-seat-path.json`。D34（仮））で、席の環境だけから外す口を足してもらう
+- **何を外すか**: 渡す `PATH` から、`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下にある置き場を全部外す（`platform-tools`・`emulator`・`cmdline-tools/latest/bin`。今の `tools/android-env.sh` の 7 行が足すもの）。ほかの置き場の並びは変えない。
+  外した後の判定は、置き場の名前でなく結果で見る: 渡す `PATH` で `adb` と `emulator` が名前で見つからないこと（`command -v` が空）。見つかるときの扱いは D33（仮）
+- **全部の相手で外す**: 席はどの相手でもこの PC のホストで動き、同じ `adb` を持つ（IMP-13）。画面と PC の相手の席からも外す
+- **差し込み口は自分で道具を見つける**: 外した `PATH` は `env-hook.sh` にも渡る。`env-hook.sh` は頭で、自分のプロセスの `PATH` の先に `$ANDROID_HOME/platform-tools`・`$ANDROID_HOME/emulator`・`$ANDROID_HOME/cmdline-tools/latest/bin` を足してから `tools/emulator-start.sh` を読み込む（`emulator-start.sh` は 117〜143 行で `adb` を名前で呼ぶ。触れないもの）。
+  自分のプロセスの中だけで、席の `PATH` は変えない。`$ANDROID_HOME` が無いか、そこに `adb` か `emulator` が無ければ、今の「SDK が無ければ断る」と同じく `UNAVAILABLE=`。`phone.sh` は D25
+- **案内**: 携帯の相手の案内に、「この席の `PATH` に `adb` は無い。端末は `tools/tsukau/phone.sh` だけで触る」を書く
+- 失わない側: 席が `adb` を名前で呼んで、本人の実機（`adb devices` に出る全部）に届く道を閉じる。差し込み口と `phone.sh` は今と同じ `adb` を使う
+- 費用: 渡す `PATH` を組む十数行と自己試験。席が gradle や `adb` を自分で走らせて確かめることはできない（席の役目でない）
+- 残るもの（IMP-13 の残り。名前で見つからなくするだけ）: 席は `$ANDROID_HOME` を持つので、絶対パスで `adb` を呼べば届く。`adb` の待ち受け（ホストの 5037 番）に直に話しかけても届く。止めるのは席の規範（harness2 の `skills/tsukau/SKILL.md` の 85 行「案内が『触らない』としたもの（実データ・本人の環境・ほかのサービス）に触らない」）と案内の「触らない」まで
+- 反転条件: 席が絶対パスや待ち受けで `adb` に届いた跡が `logs/claude.jsonl` に出たとき（席を別の利用者か作業箱で動かす形を本人に聞く。A）
+
+### D33（仮）. 外した後も `adb` か `emulator` が名前で見つかれば、どの相手の席も呼ばない（IMP-13 の答えの細部）
+
+- `$ANDROID_HOME` の外（`apt` で入れた `/usr/bin/adb` など）に `adb` があると、置き場を外しても名前で見つかる。その置き場ごと外すと、ほかの命令（`git`・`docker` など）も消えて席が動かない。
+  そこで、外した後も見つかれば、その回はどの相手の席も呼ばず、段落は既存の決まった文言「席を呼べなかった」、目録は `state: not_run` にする（理由「席の PATH から adb を外せない」は `dist/verify-<tag>/tsukau.log` にだけ書く。D11 の文言を足さない）。準備は止めない（rc=0）
+- 失わない側: 本人の実機に届く席を起こさない。今の PC では `adb` は `$ANDROID_HOME/platform-tools` の 1 つだけ（premises.md）
+- 費用: `$ANDROID_HOME` の外に `adb` を入れると、確認バッチで席が回らない
+- 反転条件: 本人が `$ANDROID_HOME` の外に `adb` を入れて、席が回らない回が続くとき（その置き場から `adb` だけを隠す形を本人に聞く）
+
+### D34（仮）. 手で呼ぶ `/tsukau` の席の環境から外す口は、harness2 に差し込み口の鍵として依頼し、入ったら `tsukau.json` に足す（IMP-13 の答えの細部）
+
+- 依頼（`harness2-request-seat-path.json`。処置の依頼 D15 と別の 1 件）: `tools/tsukau/tsukau.json` に任意の鍵 `seat_hide`（命令の名前の配列）を足す。
+  `tsukau.py` は、席（`claude -p`）に渡す環境の `PATH` から、その名前の実行できるファイルを持つ置き場を外す。差し込み口（`env_hook`）に渡す環境は変えない。外した後もその名前が見つかれば、席を起こさずに `env_failed` で終える
+- 処置の依頼と分ける: 処置（確認バッチの段）と、席の起こし方（`tsukau.py`）は触る所も確かめ方も違う。1 件にまとめると、どちらかが断られたときに切り分けられない
+- CH21 は、依頼が入った後に `tsukau.json` に `"seat_hide": ["adb", "emulator"]` を足す（下流の Task 12。入る前に足すと、`tsukau.py check` が知らない鍵で落とす）。入るまでは、手で呼んだ席には `adb` が見える。CH21 は D18 で harness2 の処置を待って main に入らないので、手で呼ぶ席がこの repo の差し込み口で回るのも同じく依頼が入った後になる
+- `verify-batch.sh` の外し方（D32）は、依頼が入った後も残す（準備の道を harness2 の版に依らずに自己試験で固定する）
+- 失わない側: 手で呼ぶ道も同じ形で閉じる。依頼が断られても、確認バッチの道は D32 で閉じている
+- 費用: harness2 に 1 件の依頼。CH21 の終わりがそれも待つ
+- 反転条件: harness2 の改良グラフが断ったとき（手で呼ぶ席の `adb` の扱いを本人に返す）。`seat_hide` と違う形で入ったとき（入った形に合わせて Task 12 を直す）
 
 ## Risks / Trade-offs
 
 - **CH21 は harness2 の処置が入るまで終わらない**（Q13 の推奨）。CH21 の実装（下流のブランチ）は、最後の Task（処置まで本物で通す）が harness2 の処置が入るまで通らないので、それまで main に入らない。**その間、確認バッチで席は回らない**（review/spec.md R7。Q1・Q13 の代償の文もこれに直した）。早く席を回したいなら、Q13 の「席を呼んで結果を載せる実地 1 回まで」を選び、処置まで通す確かめを別の change に分ける
-- **CH22 を待つ**（Q8 の答え）: 正典 distribution の「名指しの接続」は CH22 が書き直した Requirement で、CH21 はそれを MODIFIED で足すので requires に CH22 がある。CH22 の下流が merge gate を通るまで、CH21 の上流の merge も下流の着手も待つ
+- **CH22 の上に積む**（Q8 の答え）: 正典 distribution の「名指しの接続」は CH22 が書き直した Requirement で、CH21 はそれを MODIFIED で足すので requires に CH22 がある。CH22 は 2026-11-21 に archive 済みで、CH21 の MODIFIED は今の正典の全文に (3) を足したもの。正典がまた変われば、archive の 3-way で突き合わせる
+- **席は名前でなければ `adb` に届きうる**（IMP-13 の残り。D32）: 席の `PATH` から外しても、`$ANDROID_HOME` からの絶対パスや `adb` の待ち受け（ホストの 5037 番）に直に話しかければ、本人の実機に届く。手で呼ぶ `/tsukau` は、harness2 の鍵が入るまで `adb` が見える（D34（仮））
 - **外に残るもの**（Q8 の選んだ案の代償）: PC を変えた回の確認バッチのたびに、この PC の網の IP と時刻が GitHub と、席が範囲の中で開いたサイトに残る。更新係の問い合わせは認証が無く、IP ごとに 1 時間 60 回の上限を、本人の PC と本人のサーバの更新係と分け合う（1 回の席で数回）
 - **私設網と手元の網の塞ぎは Sandbox の中の規則**（D6）: 中の管理者は外せる。守りは「確かめてから渡す」と案内の規範まで
 - **作り直しで前に試した機能は試し直さない**（Q11 の答えの代償）: 前に試した機能と新しく入った機能を一緒に使ったときの引っかかりは見ない。PR のコミットが進んだものは試し直す（D21（仮））

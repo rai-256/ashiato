@@ -123,4 +123,10 @@
 - IMP-13: 仕様を直す（差し戻し）
 - IMP-13 の補足（逐語）: 席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする
   → 対応（proposal まで。2026-11-21 の `spec --until proposal`）: proposal の What Changes に「席から adb を隠す」を足した。席を起こす `PATH` から `platform-tools` と `emulator` の置き場を外し、`phone.sh` と `env-hook.sh` は `$ANDROID_HOME` からの絶対パスで `adb` を呼ぶ。準備からの呼び方はこの repo、手で呼ぶ `/tsukau` は harness2 への依頼に足す見込み（Impact）。
-    **未対応（次の spec の段がやる）**: specs（携帯の相手の Requirement に、席の環境に adb が無いことの Scenario）・design（D の追加と、手で呼ぶときの形の決定。D22（仮）・D25 の直し）・tasks（自己試験で席の PATH に adb が無いことを確かめる項目）・harness2-request.json・`docs/changes/CH21.md`。go.json の IMP-13 を `reflected` にするのは、それらを写した後の reading の段
+  → 対応（2026-11-22 の spec の段。CH22 は archive 済み）: 仕様に写した。
+    - Requirement「確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ」に、どの相手の席も `PATH` から `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼び、`adb` と `emulator` が名前で見つからないことを確かめる、を足した。Scenario「席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない」「Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない」を足した
+    - Requirement「携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける」に、差し込み口と `phone.sh` が道具を `$ANDROID_HOME` の下から見つけること・`phone.sh` は残した serial のほかを名指さないこと・案内の「`phone.sh` だけ」を足した。Scenario「受けた PATH に adb が無くても、差し込み口は SDK の置き場の道具で携帯の相手を立てる」「phone.sh は serial を引数で受けず、ほかの端末を名指さない」を足し、「端末の中のコマンドは、自分の serial で走り、出力が返る」（`adb` の置き場を持たない `PATH`）と「携帯の案内は、口と網と触らないものを書く」（「`phone.sh` だけ」）を直した
+    - design: D32（席を起こす `PATH` から Android の道具の置き場を外し、端末に届く口を `phone.sh` だけにする）を足し、D33（仮）（外しても名前で見つかれば、どの相手の席も呼ばない）・D34（仮）（手で呼ぶ `/tsukau` は harness2 の差し込み口の鍵 `seat_hide` を別の依頼で頼み、入った後に `tsukau.json` に足す）を足した。D25（`phone.sh` は `$ANDROID_HOME` の下の `adb`・serial を引数で受けない）・D22（仮）・D14・D17・Risks を直した
+    - tasks: Global Constraints（偽の `adb`・`emulator`・`avdmanager` は偽の `$ANDROID_HOME` で渡す・席の `PATH` に `adb` を置かない）・4.1・9.1・11.2・11.3（2 つの依頼）・12.2（`seat_hide` を足す）
+    - `harness2-request-seat-path.json` を足した（処置の依頼とは別の 1 件）。`docs/changes/CH21.md` の価値・壊してはいけないもの・完了の判定、premises.md（3 行）
+    - 直さなかったもの: 席が絶対パスや `adb` の待ち受け（ホストの 5037 番）で `adb` に届くことは止めていない（本人の答えは「PATH から外す」。名前で見つからなくするだけ）。残りとして design D32 と Risks に書いた。GO 資料の IMP-13 の残りに書き直すのは次の reading の段

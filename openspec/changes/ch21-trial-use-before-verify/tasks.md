@@ -17,8 +17,9 @@
 - **Scenario の印**: 自己試験は、確かめのすぐ上に `# Scenario: <名前>` のコメントを置く（`echo "== Scenario:` は本物で確かめる口だけ）。名前は spec の `#### Scenario:` と一字一句合わせる
 - **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`tailscale`・`powershell.exe`（Windows 側の一時の待ち受け）・`docker`・`gh`・`adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
   本物の Sandbox・エミュレータ・docker・claude・ネットワークを使わない。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。**偽の席の台本は本物と同じ 2 行を出す**（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `v`・`stop`・`count`・`titles`・`run`・`cleanup` の JSON。`run` は `/home/…` の絶対パス）と、`run` の下に `candidates.jsonl` と、`candidates`（`id`・`title`）を持つ `result.json` を書く
-- **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`tailscale`・`powershell.exe`・`docker`・`adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・`java`・起動の台本・組み立ての台本・`init.py` の場所・`/dev/kvm` の代わりの置き場・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
-  `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D27）
+- **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`tailscale`・`powershell.exe`・`docker`・`gradlew`・`ps`・`java`・起動の台本・組み立ての台本・`init.py` の場所・`/dev/kvm` の代わりの置き場・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
+  `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D27）。偽の `adb`・`emulator`・`avdmanager` は `TSUKAU_TEST_` でなく、一時の置き場に作った偽の `$ANDROID_HOME`（`platform-tools/adb`・`emulator/emulator`・`cmdline-tools/latest/bin/avdmanager`）に置いて `ANDROID_HOME` で渡す（席の `PATH` に `adb` が無いときに、差し込み口と `phone.sh` が本番と同じ道で道具を見つけることを試験で再現する。design D32）
+- **席の `PATH` に `adb` を置かない**（IMP-13 の本人の答え・design D32・D33（仮））: `verify-batch.sh` は `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した `PATH` で `tsukau.py` を呼ぶ。`env-hook.sh` と `phone.sh` は `adb`・`emulator`・`avdmanager` を `$ANDROID_HOME` の下から見つける（`env-hook.sh` は自分のプロセスの `PATH` の先に足してから `tools/emulator-start.sh` を読み込む。`emulator-start.sh` は `adb` を名前で呼ぶ）
 - 定数は台本の頭に置く: 席の時間 10 分・token 200,000、確かめ直し 5 分・100,000（design D8・D27）・SIGTERM までの 1,860 秒と片付けの猶予 360 秒・PC の組み立ての上限 2,400 秒（design D5（仮））・準備の全体の上限 9,360 秒（3 つの相手）
 - Sandbox は起こす前に動いているものを確かめ、止めるのは自分の id だけ（design D3）。本物の Sandbox を使う確かめ（Task 8・12）は、録画と本人が Sandbox を使っていないときに走らせる。本物のエミュレータを使う確かめ（Task 10）は `/dev/kvm` が要る（開けなければ `scripts/verify-run` が BLOCKED_INFRA にする）
 - Windows に渡す `.ps1` は UTF-8 の BOM 付きで書く（Windows PowerShell 5.1 は BOM が無いと日本語の注釈で構文エラーになる）。`cmd.exe` はフルパス `/mnt/c/Windows/System32/cmd.exe` で呼ぶ
@@ -71,14 +72,17 @@
 - [ ] 4.1 `tools/tsukau/verify-batch.sh <tag>` の本体を書く（design D8〜D11・D14・D21（仮）・spec の呼び方・目録・写すもの・新しく入ったものだけの Requirement）: 相手（`web`・`pc`・`android` の順）ごとに、範囲のものを D10 の試した記録（`<out_root>/verify-index/tried.jsonl`）と相手・ID・PR のいちばん新しいコミットの組で突き合わせ、席が終えた記録のあるものを外し、残りがあれば使い捨ての作業ツリー（D9）を作って harness2 を繋ぎ、
   `timeout -k 360 1860 python3 <作業ツリー>/scripts/tsukau.py run --repo <作業ツリー> --scope <範囲> --target <相手> --minutes 10 --tokens 200000 --label verify-<tag>` で呼ぶ。
   PC の範囲があれば、呼ぶ前に `timeout 2400 tools/tsukau/build-pc.sh "$PWD/dist/verify-<tag>/tsukau-pc"` で組み、絶対パスを `ASHIATO_TSUKAU_PC_ZIPS` で渡す。画面と携帯の相手には `$PWD/dist/verify-<tag>/ashiato-server` と `$PWD/dist/verify-<tag>/web` を `ASHIATO_TSUKAU_SERVER_BIN`・`ASHIATO_TSUKAU_WEB_DIST` で渡す。
+  `tsukau.py` は、`PATH` から `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼ぶ（ほかの置き場の並びは変えない。design D32）。外した `PATH` で `command -v adb` か `command -v emulator` が見つかれば、どの相手も呼ばず、段落は「席を呼べなかった」・目録は `not_run`・理由は `tsukau.log` にだけ（design D33（仮））。
   呼ぶ前と後で、動いている Sandbox（`wsb list`）・専用の AVD `ashiato-tsukau-api35` のエミュレータ（エミュレータのプロセスの引数。`adb` でほかの端末に問わない。design D22（仮））・`ashiato-tsukau-` の compose project を数え、打ち切った後に増えていれば「片付けに残りがある」。
   席が終えたら（`done`・`time`・`tokens`）、席に渡した範囲のものの組を試した記録へ追記する。外したものは段落の「前の回で試した: <ID>（<tag>）」と目録の `earlier` に書く。
   最後の行の JSON から、頭の段落と相手ごとの段落を決まった文言（spec と design D11）で組み、番号と題は最後の行の `run` の下の `result.json` の `candidates`（`id`・`title`）から取り、題は `tools/tsukau/public-title.sh` を通して「C<n>」と並べ、標準出力に段落だけを出す。
   目録 `dist/verify-<tag>/tsukau.json`（design D14 の形。`earlier` を持ち、`copied` は持たない）と手元の詳細 `dist/verify-<tag>/tsukau.log` を書く。作業ツリーは `trap` で必ず消す。どの道でも rc=0。`gh` を呼ばない
-  `--self-test` に足す印（偽の `tsukau.py`・`init.py`・組み立ての台本・`wsb`・`docker`・`ps`・`adb`・`gh` と、`out_root` と打ち切りの秒数を `TSUKAU_TEST_` で渡す）:
+  `--self-test` に足す印（偽の `tsukau.py`・`init.py`・組み立ての台本・`wsb`・`docker`・`ps`・`gh` と、`out_root` と打ち切りの秒数を `TSUKAU_TEST_` で渡す。偽の `adb`・`emulator` は偽の `$ANDROID_HOME` に置き、その置き場を `PATH` の先にも足して渡す）:
   `# Scenario: 範囲のある相手だけを、決まった時間と token で呼ぶ`・
   `# Scenario: 席を呼ぶ作業ツリーは確認バッチの作業ツリーと別で、harness2 が繋がり、.env が無い`・
   `# Scenario: 席が作業ツリーを書き換えても、確認バッチの作業ツリーは変わらず、使い捨ての作業ツリーは消える`・
+  `# Scenario: 席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない`・
+  `# Scenario: Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない`・
   `# Scenario: 画面の相手には、準備が組んだ置き場を絶対パスで渡す`・
   `# Scenario: 携帯の相手にも、準備が組んだサーバと画面の置き場を絶対パスで渡す`・
   `# Scenario: PC の相手には、組んだ配る zip の置き場を絶対パスで渡す`・
@@ -105,14 +109,14 @@
   `# Scenario: PR のコミットが変われば、新しく入ったものとして呼び直す`・
   `# Scenario: 前の回が落ちていたら、試していないものとして呼び直す`。
   「書く」Scenario は、それぞれ段落に `/home/`・`RESULT.md`・`.local/state`・`logs/env-down.log` が無いことを並べて見る
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 36'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 38'` rc=0
 - [ ] 4.2 確かめ直しの口を書く（design D27（仮）・spec の確かめ直しの Requirement）: `TSUKAU_RECHECK` のファイルがあれば、相手ごとに項目の候補の題（`run` の下の `result.json` の `candidates` から `id`（`C<n>`）で引く）を「直した違和感が直ったか: <題>」で範囲にし、
   `--minutes 5 --tokens 100000` で呼ぶ。確かめ直しの範囲のほかは呼ばず、試した記録を読まず足さない（design D21（仮））。目録の `recheck` に項目を書き、段落に「直した候補を確かめ直した」を足す。項目の無い相手は呼ばず「回さなかった（直した候補が無い）」・`state: skipped`。
   `--self-test` に足す印:
   `# Scenario: 確かめ直しは、直した候補の題だけを範囲に、5 分と 10 万で呼ぶ`・
   `# Scenario: 確かめ直しは、試した記録で外さず足しもせず、目録に直した候補を書く`・
   `# Scenario: 確かめ直しで項目の無い相手は、回さなかったと書く`
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 39'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 41'` rc=0
 
 ## Task 5: 確認バッチの準備から呼ぶ
 
@@ -124,7 +128,7 @@
   `# Scenario: 席の呼び出しが終わらなくても、上限で打ち切って準備を続ける`（偽物は終わらない・上限 2 秒）・
   `# Scenario: 準備の席の部分の上限は、席の呼び出しの全体の上限と同じ`・
   `# Scenario: 席の段落は、既存の段落の後に足すだけ`（`tools/verify-prep.sh` を読み、挟んだ部分が `cat > "$out/manifest.md"` の行より後にあり、挟んだ部分の `manifest.md` への書き込みが `>>` だけで、`run.sh`・`ashiato-server`・`app-debug.apk`・`web/` を書く行が無い）
-  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 43'` rc=0
+  検証: `tools/tsukau/verify-batch.sh --self-test` rc=0 / `bash -n tools/verify-prep.sh` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/verify-batch.sh)" -ge 45'` rc=0
 
 ## Task 6: 差し込み口と画面の相手
 
@@ -191,16 +195,18 @@
 
 ## Task 9: 携帯の相手
 
-- [ ] 9.1 `tools/tsukau/env-hook.sh` に携帯の相手（design D22（仮）・D30（仮）・D31（仮）・D25・spec の携帯の Requirement）と `tools/tsukau/phone.sh`（`shell` / `shot` / `ui`）を書く。`up` の順:
+- [ ] 9.1 `tools/tsukau/env-hook.sh` に携帯の相手（design D22（仮）・D30（仮）・D31（仮）・D25・D32・spec の携帯の Requirement）と `tools/tsukau/phone.sh`（`shell` / `shot` / `ui`）を書く。
+  `env-hook.sh` は頭で、自分のプロセスの `PATH` の先に `$ANDROID_HOME/platform-tools`・`$ANDROID_HOME/emulator`・`$ANDROID_HOME/cmdline-tools/latest/bin` を足してから `tools/emulator-start.sh` を読み込む（受けた `PATH` には `adb` が無い。design D32）。
+  `phone.sh` は `adb` を `$ANDROID_HOME/platform-tools/adb` で呼び（無ければ「携帯の道具が見つからない」で rc≠0）、serial は `<state>` から読んで `-s` に渡し、引数でも `ANDROID_SERIAL` でも受けない（design D25）。`up` の順:
   `tools/emulator-start.sh` を読み込み `emu_check_kvm`（開けなければ `UNAVAILABLE=`。何も起こさない）→ SDK の `emulator`・`adb`・JDK が無ければ `UNAVAILABLE=` →
   エミュレータのプロセスの引数（`ps -eo pid,args` で `-avd ashiato-tsukau-api35` を語として含むもの）があれば `UNAVAILABLE=`（ほかの端末に `adb -s` で問わない。`emu_reject_existing_avd` は使わない）→
   画面の相手と同じ形で `<state>/tree` にその回の専用の環境を立てる（Task 6 の部品を使う）→ その木で `-Pashiato.baseUrl=http://127.0.0.1:18787 -Pashiato.apiToken=<その回の API_TOKEN> -Pashiato.userId=<その回の利用者 id>` で `:app:assembleDebug`（design D30（仮）。`--repo` の `.env` と `~/.gradle/gradle.properties` の値を使わない）→
   AVD が無ければ `avdmanager` で作る（`tools/android-emulator.sh` と同じ image）→ 空いている偶数の port で `emu_start ashiato-tsukau-api35 -port <port> -no-window -wipe-data -no-snapshot-save -no-boot-anim`・serial と PID を `<state>` へ → `emu_wait_boot` →
   切る前の確かめ（端末の中から、ホストの loopback の別名の宛先（字面で書かず数から組む）のその回のサーバの port に届く。届かなければ `UNAVAILABLE=`）→ `adb -s <serial> shell svc wifi disable`・`svc data disable` →
   切った後の確かめ（既定のネットワークが無い（`dumpsys connectivity` の「Active default network」が `none`。`ip route` は使わない）・同じ宛先に届かない。外へは問わない。外れれば `UNAVAILABLE=`。何も入れない。design D31（仮）・D26（仮））→ `adb -s <serial> reverse tcp:18787 tcp:<その回の API の port>` →
-  `install` → `am start` で起こす → 案内（`phone.sh shell`・`phone.sh shot`・`phone.sh ui`・`ui` で探して `input tap` で押す例・その回の画面の URL と合言葉・サーバのログの場所・網は切ってある・触らないもの）を書いて `ready`（`GUIDE=`・`LOG_SERVER=`・`INFO_COMMIT=`）。
+  `install` → `am start` で起こす → 案内（`phone.sh shell`・`phone.sh shot`・`phone.sh ui`・席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること・`ui` で探して `input tap` で押す例・その回の画面の URL と合言葉・サーバのログの場所・網は切ってある・触らないもの）を書いて `ready`（`GUIDE=`・`LOG_SERVER=`・`INFO_COMMIT=`）。
   `down`: `adb -s <serial> logcat -d` を `$TSUKAU_EVIDENCE/phone-logs/` へ → `adb -s <serial> emu kill`（残れば `emu_stop_own`）→ その回の compose project を `down -v` → `<state>/tree` を消す → serial が `adb devices` に残れば rc≠0。
-  `--self-test` に足す印（偽の `adb`・`emulator`・`avdmanager`・`gradlew`・`ps`・`java`・`docker` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡す。偽の `adb` は受けた引数を全部記録し、`devices` と網の確かめに試験が決めた答えを返す）:
+  `--self-test` に足す印（偽の `gradlew`・`ps`・`java`・`docker` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡し、偽の `adb`・`emulator`・`avdmanager` は偽の `$ANDROID_HOME` に置いて、`PATH` には置かない。偽の `adb` は受けた引数を全部記録し、`devices` と網の確かめに試験が決めた答えを返す）:
   `# Scenario: KVM を開けなければ、何も起こさずに断る`・
   `# Scenario: エミュレータか SDK か JDK が無ければ、何も起こさずに断る`・
   `# Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る`・
@@ -214,12 +220,14 @@
   `# Scenario: 切った後もホストに届けば、APK を入れずに断る`・
   `# Scenario: 切る前に届かなければ、確かめられないとして APK を入れずに断る`・
   `# Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る`・
+  `# Scenario: 受けた PATH に adb が無くても、差し込み口は SDK の置き場の道具で携帯の相手を立てる`・
+  `# Scenario: phone.sh は serial を引数で受けず、ほかの端末を名指さない`・
   `# Scenario: 携帯の案内は、口と網と触らないものを書く`・
   `# Scenario: 片付けは、端末のログを写してから自分のエミュレータを止める`・
   `# Scenario: 携帯の片付けは、ほかのエミュレータに触らない`・
   `# Scenario: 携帯の片付けは、その回の project と木を消す`・
   `# Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 46'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 48'` rc=0
 
 ## Task 10: 本物のエミュレータで携帯の相手を立てて片付ける
 
@@ -234,11 +242,11 @@
 
 - [ ] 11.1 `.github/workflows/ci.yml` の `rust` の job の `- run: ./tools/check-private.sh --self-test` の行の後に `- run: ./tools/tsukau/public-title.sh --self-test`・`- run: ./tools/tsukau/verify-batch.sh --self-test`・`- run: ./tools/tsukau/env-hook.sh --self-test` を足す（design D13。CH22 が足す位置と離す）
   検証: `bash -c 'grep -A3 "tools/check-private.sh --self-test" .github/workflows/ci.yml | grep -q "tools/tsukau/public-title.sh --self-test" && grep -q "tools/tsukau/verify-batch.sh --self-test" .github/workflows/ci.yml && grep -q "tools/tsukau/env-hook.sh --self-test" .github/workflows/ci.yml'` rc=0
-- [ ] 11.2 `docs/testing.md` に、使ってみる席の差し込み口（`tools/tsukau/`。何を立てるか・PC は私設網と手元の網を塞いで外にはつないだ Sandbox・携帯は網を切った専用の AVD `ashiato-tsukau-api35` のエミュレータ・確認バッチの準備から呼ぶこと・目録 `dist/verify-<tag>/tsukau.json` と処置は harness2 の確認バッチ・手で呼ぶときの `tools/tsukau/build-pc.sh` → `/tsukau`・結果の置き場・公開に出るものは止まり方と件数と `public-title.sh` を通した題だけ）を 1 節で書く
-  検証: `bash -c 'grep -q "tools/tsukau" docs/testing.md && grep -q "build-pc.sh" docs/testing.md && grep -q "public-title.sh" docs/testing.md && grep -q "ashiato-tsukau-api35" docs/testing.md'` rc=0
-- [ ] 11.3 harness2 へ処置の依頼を置く（design D15）: 合意した `openspec/changes/ch21-trial-use-before-verify/harness2-request.json` を書き換えずに `python3 scripts/intake.py save openspec/changes/ch21-trial-use-before-verify/harness2-request.json` で置き、
-  標準出力の JSON（`number`・`url`）を `openspec/changes/ch21-trial-use-before-verify/harness2-request.placed.json` に書く。同じ題の開いた依頼が harness2 にもうあれば、新しく置かずにその番号と URL を書く
-  検証: `bash -c 'python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert isinstance(d[\"number\"], int) and d[\"url\"].rstrip(\"/\").endswith(\"/issues/%d\" % d[\"number\"])" openspec/changes/ch21-trial-use-before-verify/harness2-request.placed.json'` rc=0
+- [ ] 11.2 `docs/testing.md` に、使ってみる席の差し込み口（`tools/tsukau/`。何を立てるか・PC は私設網と手元の網を塞いで外にはつないだ Sandbox・携帯は網を切った専用の AVD `ashiato-tsukau-api35` のエミュレータ・確認バッチの準備から呼ぶこと・目録 `dist/verify-<tag>/tsukau.json` と処置は harness2 の確認バッチ・手で呼ぶときの `tools/tsukau/build-pc.sh` → `/tsukau`・席の `PATH` に `adb` を置かず携帯は `phone.sh` だけで触ること（design D32）・結果の置き場・公開に出るものは止まり方と件数と `public-title.sh` を通した題だけ）を 1 節で書く
+  検証: `bash -c 'grep -q "tools/tsukau" docs/testing.md && grep -q "build-pc.sh" docs/testing.md && grep -q "public-title.sh" docs/testing.md && grep -q "ashiato-tsukau-api35" docs/testing.md && grep -q "phone.sh" docs/testing.md'` rc=0
+- [ ] 11.3 harness2 へ 2 つの依頼を置く: 処置（design D15）の `openspec/changes/ch21-trial-use-before-verify/harness2-request.json` と、席の環境から命令を隠す差し込み口の鍵（design D34（仮））の `openspec/changes/ch21-trial-use-before-verify/harness2-request-seat-path.json`。
+  合意したものを書き換えずに、それぞれ `python3 scripts/intake.py save <ファイル>` で置き、標準出力の JSON（`number`・`url`）を `harness2-request.placed.json`・`harness2-request-seat-path.placed.json` に書く。同じ題の開いた依頼が harness2 にもうあれば、新しく置かずにその番号と URL を書く
+  検証: `bash -c 'for f in harness2-request harness2-request-seat-path; do python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert isinstance(d[\"number\"], int) and d[\"url\"].rstrip(\"/\").endswith(\"/issues/%d\" % d[\"number\"])" openspec/changes/ch21-trial-use-before-verify/$f.placed.json || exit 1; done'` rc=0
 
 ## Task 12: 処置まで本物で通す（harness2 の処置が入った後）
 
@@ -253,6 +261,10 @@
   `== Scenario: harness2 の処置が無ければ、実地の確かめは落ちる`（処置の入口を見えなくした一時の木で、rc=127 と 1 行を見る）。
   最後に相手ごとの止まり方・件数・処置の内訳・片付けを 1 行ずつ出す（題は出さない）。用意した候補と偽の Story 以外が原因の候補は直さない
   検証: `tools/tsukau/real-run.sh` rc=0
+
+- [ ] 12.2 harness2 の席の `PATH` の口（design D34（仮）。`tsukau.py` の差し込み口の鍵 `seat_hide`）が入った後に、`tools/tsukau/tsukau.json` に `"seat_hide": ["adb", "emulator"]` を足す。入る前は足さない（`tsukau.py check` が知らない鍵で落とす）。
+  鍵が入っていなければ（`.harness2/scripts/tsukau.py` に `seat_hide` が無ければ）「席の PATH の口（harness2）が無い」と 1 行出して rc=127（`verify-run` が BLOCKED_INFRA として止める）。harness2 が別の形で入れたら、その形に合わせてこの項目と design D34（仮）を直す
+  検証: `bash -c 'grep -q seat_hide .harness2/scripts/tsukau.py || { echo "席の PATH の口（harness2）が無い"; exit 127; }; python3 -c "import json; assert json.load(open(\"tools/tsukau/tsukau.json\"))[\"seat_hide\"] == [\"adb\", \"emulator\"]" && python3 scripts/tsukau.py check'` rc=0
 
 ## Task 13: 全体
 

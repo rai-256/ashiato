@@ -1,0 +1,14 @@
+{
+ "title": "使ってみる席の環境から、差し込み口が名指した命令を隠す",
+ "state": "ready",
+ "route": "harness2",
+ "claim": "良くする",
+ "capability": [],
+ "requires": [],
+ "sources": [],
+ "words": "席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする（2026-11-21、ashiato2 CH21 の第 2 回の合意で IMP-13「席はホストの adb で本人の実機に届きうる」に本人が答えた補足）。",
+ "what": "使ってみる席（scripts/tsukau.py）の差し込み口の契約 tools/tsukau/tsukau.json に、任意の鍵 seat_hide（命令の名前の配列。例 [\"adb\", \"emulator\"]）を足す。tsukau.py は、席（claude -p）に渡す環境の PATH から、その名前の実行できるファイルを持つ置き場を外す。差し込み口（env_hook の up / down）に渡す環境は変えない。外した後もその名前が席の PATH で見つかれば、席を起こさずに env_failed で終える（理由は result.json と RESULT.md に。公開の public.json は今の形のまま）。鍵が無ければ今のまま。tsukau.py check は鍵の形（文字列の配列）を見る。",
+ "why": "tsukau.py は、席にも差し込み口にも、呼んだ側の環境をそのまま渡す（scripts/tsukau.py の hook_env と session）。差し込み口の鍵は閉じていて（CONF_KEYS）、プロジェクトから席だけの環境を変える口が無い。ashiato2 は携帯の相手をエミュレータで立てるため、呼ぶ側の PATH に adb があり、ホストで動く席は adb で本人の実機（adb devices に出る全部）に届きうる。確認バッチの準備から呼ぶ道は ashiato2 の tools/tsukau/verify-batch.sh が PATH を組んで外す（ashiato2 CH21 design D32）が、人間が手で呼ぶ /tsukau はこの repo から外せない。",
+ "scope": "席の環境の PATH だけを変える。名前で見つからなくするだけで、絶対パスや adb の待ち受けに直に話しかけることは止めない（ashiato2 CH21 の IMP-13 の残りとして本人に見せる）。差し込み口の環境・席の中身（触り方・候補の書き方）・結果の形・手で呼んだ席が結果を残すだけの振る舞いは変えない。PATH から置き場ごと外すので、同じ置き場の別の命令も席から見えなくなる（外した後に席が要る命令が消えるかは確かめない。プロジェクトが鍵に書く名前を選ぶ）。",
+ "thoughts": "ashiato2 CH21 design D32〜D34 で決めた。処置の依頼（確認バッチで候補を選別し、直すか本人に聞くか依頼にする）とは触る所も確かめ方も違うので別の 1 件にした。入った後、ashiato2 CH21 の Task 12.2 が tsukau.json に seat_hide を足す。"
+}
