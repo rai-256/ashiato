@@ -265,6 +265,8 @@ mod st56_tests;
 mod st57_tests;
 #[cfg(test)]
 mod st58_tests;
+#[cfg(test)]
+mod st59_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -556,10 +558,8 @@ pub struct App {
     /// 00:00〜09:00 JST の 9 時間以外はテストが通ってしまう（review/code.md R4）。
     #[cfg(test)]
     now: Option<chrono::DateTime<chrono::Utc>>,
-    /// 共有の合言葉。**loopback に閉じているだけでは足りない** ——
-    /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
-    /// 素通しで読み書きできてしまう。
-    token: String,
+    /// 照らす値・印の材料・共有の値を一組で差し替える置き場（D1）。
+    secrets: std::sync::Arc<std::sync::RwLock<web_session::SharedSecrets>>,
     /// 画面のログインの設定と失敗の数（ST28 / design D3 / D17 / D18）。
     login: web_session::WebLogin,
     /// 読み出しの記録を書く口（ST28 / design D8）。
@@ -611,12 +611,20 @@ impl App {
         login: web_session::WebLogin,
         channel: Channel,
     ) -> Self {
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(
+            login
+                .secrets
+                .read()
+                .expect("secret store poisoned")
+                .with_api_token(token),
+        ));
+        let login = login.with_shared_secrets(secrets.clone());
         Self {
             channel,
             login,
             access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
-            token,
+            secrets,
             stays: StayRebuilder::real(),
             #[cfg(test)]
             now: None,
@@ -691,20 +699,37 @@ impl App {
     /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
     #[cfg(test)]
     pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
-        let mut login = web_session::WebLogin::new(
+        let current = self.secrets_snapshot();
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(
+            web_session::SharedSecrets::from_password(
+                current.api_token().to_owned(),
+                self.login.session_key_for_test(),
+                web_password,
+            ),
+        ));
+        let mut login = web_session::WebLogin::with_secrets(
+            secrets.clone(),
             self.login.session_key_for_test(),
-            web_password,
             session_max_age_days,
         );
         login.failure_delay = self.login.failure_delay;
-        Self { login, ..self }
+        Self {
+            login,
+            secrets,
+            ..self
+        }
     }
 
     /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
     pub(crate) fn with_session_key(self, session_key: &str) -> Self {
         let login = self.login.with_session_key_for_test(session_key);
-        Self { login, ..self }
+        let secrets = login.secrets.clone();
+        Self {
+            login,
+            secrets,
+            ..self
+        }
     }
 
     #[cfg(test)]
@@ -712,8 +737,21 @@ impl App {
         self.login.password_for_test()
     }
 
-    pub(crate) fn collector_token(&self) -> &str {
-        &self.token
+    pub(crate) fn secrets_snapshot(&self) -> web_session::SharedSecrets {
+        self.secrets.read().expect("secret store poisoned").clone()
+    }
+
+    pub(crate) fn replace_secrets(&self, secrets: web_session::SharedSecrets) {
+        *self.secrets.write().expect("secret store poisoned") = secrets;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_secrets_for_test(&self, token: &str, web_password: &str) {
+        self.replace_secrets(web_session::SharedSecrets::from_password(
+            token.to_owned(),
+            self.login.session_key_for_test(),
+            web_password,
+        ));
     }
 
     /// いまの時刻。試験は `at()` で差し込める。
@@ -835,6 +873,7 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
 async fn authorize_quiet(
     app: &App,
     headers: &HeaderMap,
+    secrets: &web_session::SharedSecrets,
 ) -> Result<Option<web_session::Caller>, sqlx::Error> {
     let given = headers
         .get("authorization")
@@ -861,10 +900,10 @@ async fn authorize_quiet(
             }),
         );
     }
-    if token_matches(given, &app.token) {
+    if token_matches(given, secrets.api_token()) {
         return Ok(Some(web_session::Caller::ApiToken));
     }
-    if web_session::session_valid(app, headers).await? {
+    if web_session::session_valid_with_secrets(app, headers, secrets).await? {
         return Ok(Some(web_session::Caller::WebSession));
     }
     Ok(None)
@@ -890,7 +929,16 @@ tokio::task_local! {
 
 /// 判定を下す。DB の失敗は操作名つきでログに出し、`LookupFailed` にする。
 pub(crate) async fn decide(app: &App, headers: &HeaderMap) -> Authn {
-    match authorize_quiet(app, headers).await {
+    let secrets = app.secrets_snapshot();
+    decide_with_secrets(app, headers, &secrets).await
+}
+
+pub(crate) async fn decide_with_secrets(
+    app: &App,
+    headers: &HeaderMap,
+    secrets: &web_session::SharedSecrets,
+) -> Authn {
+    match authorize_quiet(app, headers, secrets).await {
         Ok(c) => Authn::Decided(c),
         Err(e) => {
             internal_at("session.lookup", e);

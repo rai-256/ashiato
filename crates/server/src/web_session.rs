@@ -59,6 +59,57 @@ pub enum Caller {
     },
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SharedSecrets {
+    api_token: String,
+    web_password: WebPassword,
+    tag: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+enum WebPassword {
+    Plain(String),
+    Verifier(String),
+}
+
+impl SharedSecrets {
+    pub(crate) fn from_password(api_token: String, session_key: &str, web_password: &str) -> Self {
+        Self {
+            api_token,
+            web_password: WebPassword::Plain(web_password.to_owned()),
+            tag: secret_tag(session_key, web_password),
+        }
+    }
+
+    pub(crate) fn from_verifier(api_token: String, session_key: &str, verifier: &str) -> Self {
+        Self {
+            api_token,
+            web_password: WebPassword::Verifier(verifier.to_owned()),
+            tag: secret_tag_for_verifier(session_key, verifier),
+        }
+    }
+
+    pub(crate) fn api_token(&self) -> &str {
+        &self.api_token
+    }
+    pub(crate) fn tag(&self) -> &[u8] {
+        &self.tag
+    }
+    pub(crate) fn with_api_token(&self, api_token: String) -> Self {
+        let mut next = self.clone();
+        next.api_token = api_token;
+        next
+    }
+    fn accepts(&self, password: &str) -> bool {
+        match &self.web_password {
+            WebPassword::Plain(expected) => {
+                !password.is_empty() && token_matches(password, expected)
+            }
+            WebPassword::Verifier(verifier) => verify_password_verifier(verifier, password),
+        }
+    }
+}
+
 impl Caller {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -321,10 +372,11 @@ async fn login_check_permit() -> LoginCheckPermit {
 /// ログインの設定と状態。`App` が持つ。
 #[derive(Clone, Debug)]
 pub struct WebLogin {
-    #[cfg(test)]
+    pub(crate) secrets: std::sync::Arc<std::sync::RwLock<SharedSecrets>>,
     session_key: String,
+    #[cfg(test)]
     password: String,
-    verifier: Option<String>,
+    #[cfg(test)]
     tag: Vec<u8>,
     /// 0 = 期限なし（D18）。
     max_age_days: u32,
@@ -334,45 +386,73 @@ pub struct WebLogin {
     /// 照合が 1 つずつの印を待ち始めた合図（試験が照合の途中で取り消すため。review/code.md R11・R12）。
     #[cfg(test)]
     check_waiting: Arc<tokio::sync::Notify>,
+    #[cfg(test)]
+    check_succeeded: Arc<tokio::sync::Notify>,
 }
 
 impl WebLogin {
     pub fn new(session_key: &str, web_password: &str, max_age_days: u32) -> Self {
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(SharedSecrets::from_password(
+            String::new(),
+            session_key,
+            web_password,
+        )));
+        Self::with_secrets(secrets, session_key, max_age_days)
+    }
+
+    pub(crate) fn with_secrets(
+        secrets: std::sync::Arc<std::sync::RwLock<SharedSecrets>>,
+        session_key: &str,
+        max_age_days: u32,
+    ) -> Self {
+        #[cfg(test)]
+        let (password, tag) = {
+            let shared = secrets.read().expect("secret store poisoned");
+            let password = match &shared.web_password {
+                WebPassword::Plain(password) => password.clone(),
+                WebPassword::Verifier(_) => String::new(),
+            };
+            (password, shared.tag.clone())
+        };
         Self {
-            #[cfg(test)]
+            secrets,
             session_key: session_key.to_owned(),
-            password: web_password.to_owned(),
-            verifier: None,
-            tag: secret_tag(session_key, web_password),
+            #[cfg(test)]
+            password,
+            #[cfg(test)]
+            tag,
             max_age_days,
             failure_delay: Duration::from_secs(1),
             limiter: Arc::default(),
             #[cfg(test)]
             check_waiting: Arc::default(),
+            #[cfg(test)]
+            check_succeeded: Arc::default(),
         }
+    }
+
+    pub(crate) fn with_shared_secrets(
+        &self,
+        secrets: std::sync::Arc<std::sync::RwLock<SharedSecrets>>,
+    ) -> Self {
+        let mut next = Self::with_secrets(secrets, &self.session_key, self.max_age_days);
+        next.failure_delay = self.failure_delay;
+        #[cfg(test)]
+        {
+            next.check_waiting = self.check_waiting.clone();
+            next.check_succeeded = self.check_succeeded.clone();
+        }
+        next
     }
 
     /// 照らす形のログイン状態を作る。元の合言葉は保持しない。
     pub fn new_with_verifier(session_key: &str, verifier: &str, max_age_days: u32) -> Self {
-        Self {
-            #[cfg(test)]
-            session_key: session_key.to_owned(),
-            password: String::new(),
-            verifier: Some(verifier.to_owned()),
-            tag: secret_tag_for_verifier(session_key, verifier),
-            max_age_days,
-            failure_delay: Duration::from_secs(1),
-            limiter: Arc::default(),
-            #[cfg(test)]
-            check_waiting: Arc::default(),
-        }
-    }
-
-    fn accepts(&self, password: &str) -> bool {
-        self.verifier.as_deref().map_or_else(
-            || !password.is_empty() && token_matches(password, &self.password),
-            |verifier| verify_password_verifier(verifier, password),
-        )
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(SharedSecrets::from_verifier(
+            String::new(),
+            session_key,
+            verifier,
+        )));
+        Self::with_secrets(secrets, session_key, max_age_days)
     }
 
     /// この login の照合が 1 つずつの印を待ち始めた合図を待つ（並走する他の試験の照合とは混ざらない）。
@@ -380,6 +460,11 @@ impl WebLogin {
     #[cfg(test)]
     pub(crate) fn check_waiting_for_test(&self) -> tokio::sync::futures::Notified<'_> {
         self.check_waiting.notified()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_succeeded_for_test(&self) -> tokio::sync::futures::Notified<'_> {
+        self.check_succeeded.notified()
     }
 
     #[cfg(test)]
@@ -395,11 +480,23 @@ impl WebLogin {
     /// 鍵だけを差し替えた複製。合言葉・期限・失敗の待ちは保つ（鍵を変えて起動し直したときと同じ）。
     #[cfg(test)]
     pub(crate) fn with_session_key_for_test(&self, session_key: &str) -> Self {
-        let mut login = self.verifier.as_deref().map_or_else(
-            || Self::new(session_key, &self.password, self.max_age_days),
-            |verifier| Self::new_with_verifier(session_key, verifier, self.max_age_days),
+        let secrets = self.secrets.read().expect("secret store poisoned");
+        let shared = match &secrets.web_password {
+            WebPassword::Plain(password) => {
+                SharedSecrets::from_password(secrets.api_token.clone(), session_key, password)
+            }
+            WebPassword::Verifier(verifier) => {
+                SharedSecrets::from_verifier(secrets.api_token.clone(), session_key, verifier)
+            }
+        };
+        let mut login = Self::with_secrets(
+            std::sync::Arc::new(std::sync::RwLock::new(shared)),
+            session_key,
+            self.max_age_days,
         );
         login.failure_delay = self.failure_delay;
+        login.check_waiting = self.check_waiting.clone();
+        login.check_succeeded = self.check_succeeded.clone();
         login
     }
 
@@ -440,6 +537,15 @@ fn set_cookie(value: &str, max_age: u64, channel: Channel) -> HeaderValue {
 
 /// 印が有効か（D3 の有効の条件）。
 pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool, sqlx::Error> {
+    let secrets = app.secrets_snapshot();
+    session_valid_with_secrets(app, headers, &secrets).await
+}
+
+pub(crate) async fn session_valid_with_secrets(
+    app: &App,
+    headers: &HeaderMap,
+    secrets: &SharedSecrets,
+) -> Result<bool, sqlx::Error> {
     let Some(token) = cookie_token(headers, app.channel) else {
         return Ok(false);
     };
@@ -448,7 +554,7 @@ pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool
           WHERE token_sha256 = $1 AND revoked_at IS NULL AND secret_tag = $2",
     )
     .bind(sha256(token))
-    .bind(&app.login.tag)
+    .bind(secrets.tag())
     .fetch_optional(&app.pool)
     .await?;
     Ok(issued.is_some_and(|at| {
@@ -463,12 +569,14 @@ pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool
 /// `Set-Cookie` を持っているとき（ログイン・ログアウト）は付けない —— 2 本並ぶとブラウザは
 /// 後のほう（古い印）を採る（final review R2）。
 pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) -> Response {
+    let secrets = app.secrets_snapshot();
     let token = cookie_token(req.headers(), app.channel).map(str::to_owned);
-    let authn = crate::decide(&app, req.headers()).await;
+    let authn = crate::decide_with_secrets(&app, req.headers(), &secrets).await;
     let mut res = crate::AUTHN.scope(authn, next.run(req)).await;
     if let Some(token) = token {
         if authn == crate::Authn::Decided(Some(Caller::WebSession))
             && res.status() != StatusCode::UNAUTHORIZED
+            && app.secrets_snapshot().tag() == secrets.tag()
             && !res.headers().contains_key(header::SET_COOKIE)
         {
             res.headers_mut().append(
@@ -563,7 +671,8 @@ pub async fn collector_setup_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let caller = match crate::decided(&app, &headers).await {
+    let secrets = app.secrets_snapshot();
+    let caller = match crate::decide_with_secrets(&app, &headers, &secrets).await {
         crate::Authn::Decided(caller) => caller,
         crate::Authn::LookupFailed => {
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
@@ -606,7 +715,7 @@ pub async fn collector_setup_post(
             "unsupported media type".into(),
         ));
     }
-    run_to_completion(collector_setup_checked(app, headers, caller, body)).await
+    run_to_completion(collector_setup_checked(app, headers, caller, body, secrets)).await
 }
 
 /// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。
@@ -631,8 +740,9 @@ async fn collector_setup_checked(
     headers: HeaderMap,
     caller: Caller,
     body: Bytes,
+    secrets: SharedSecrets,
 ) -> Result<Response, (StatusCode, String)> {
-    let check = check_given_password(&app, body).await;
+    let check = check_given_password_with_secrets(&app, body, &secrets).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(collector_setup_entry(
@@ -671,7 +781,7 @@ async fn collector_setup_checked(
         ))
         .await?;
     Ok(Json(CollectorSetupResponse {
-        token: app.collector_token().to_owned(),
+        token: secrets.api_token().to_owned(),
     })
     .into_response())
 }
@@ -700,6 +810,15 @@ fn given_password(body: &[u8]) -> String {
 /// 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
 /// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
 pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordCheck {
+    let secrets = app.secrets_snapshot();
+    check_given_password_with_secrets(app, body, &secrets).await
+}
+
+pub(crate) async fn check_given_password_with_secrets(
+    app: &App,
+    body: Bytes,
+    secrets: &SharedSecrets,
+) -> PasswordCheck {
     // 断られている間は、1 つずつの印を待たず・本文も読まずに断る（review/code.md R4・R5）
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
@@ -710,7 +829,7 @@ pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordChec
     #[cfg(test)]
     app.login.check_waiting.notify_waiters();
     let permit = login_check_permit().await;
-    check_with_permit(app, given, permit).await
+    check_with_permit_using_secrets(app, given, permit, secrets).await
 }
 
 /// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
@@ -718,6 +837,16 @@ pub(crate) async fn check_with_permit(
     app: &App,
     given: String,
     permit: LoginCheckPermit,
+) -> PasswordCheck {
+    let secrets = app.secrets_snapshot();
+    check_with_permit_using_secrets(app, given, permit, &secrets).await
+}
+
+async fn check_with_permit_using_secrets(
+    app: &App,
+    given: String,
+    permit: LoginCheckPermit,
+    secrets: &SharedSecrets,
 ) -> PasswordCheck {
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
@@ -730,11 +859,12 @@ pub(crate) async fn check_with_permit(
     }
     // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
     // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡し、照合が終わって数え上げるまで次の照合を始めない（review R78）
-    let login = app.login.clone();
+    let secrets = secrets.clone();
+    let limiter = app.login.limiter.clone();
     let accepted = tokio::task::spawn_blocking(move || {
-        let accepted = login.accepts(&given);
+        let accepted = secrets.accepts(&given);
         if !accepted {
-            login.limiter.record_failure();
+            limiter.record_failure();
         }
         drop(permit);
         accepted
@@ -745,6 +875,8 @@ pub(crate) async fn check_with_permit(
         false
     });
     if accepted {
+        #[cfg(test)]
+        app.login.check_succeeded.notify_waiters();
         PasswordCheck::Match
     } else {
         PasswordCheck::Mismatch
@@ -783,7 +915,8 @@ async fn session_post_checked(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let check = check_given_password(&app, body).await;
+    let secrets = app.secrets_snapshot();
+    let check = check_given_password_with_secrets(&app, body, &secrets).await;
     if check == PasswordCheck::Throttled {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access
@@ -818,7 +951,7 @@ async fn session_post_checked(
         "INSERT INTO core.web_session (token_sha256, secret_tag, issued_at) VALUES ($1, $2, $3)",
     )
     .bind(sha256(&token))
-    .bind(&app.login.tag)
+    .bind(secrets.tag())
     .bind(app.now())
     .execute(&app.pool)
     .await;
