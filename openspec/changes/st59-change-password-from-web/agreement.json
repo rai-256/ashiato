@@ -1,0 +1,58 @@
+{
+  "status": "accepted",
+  "digest": "239dfb2bd44812feb3117325e67eb2e65b0c6a4efeb9b7037c41c4d6701c833e",
+  "head": "aff48571485d56a9e24a78736ea74fe9824f2e0a",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-21T23:27:28Z",
+  "impacts": {
+    "IMP-04": {
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "recheck",
+      "risk": {
+        "residual": "password の入力待ちの間に画面で収集アプリの値を変えると、落とした携帯の値が有効に戻る",
+        "scope": "PC の管理者がインストーラの password を走らせている最中に、本人が画面で収集アプリの値を変えたときだけ"
+      },
+      "recheck": {
+        "owner": "本人",
+        "due": "ST58 の上流の合意まで"
+      }
+    }
+  },
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "本人のサーバが .env の開発の形なら、この Story の後も画面からは締め出せない"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "拾った人が合言葉を試し続ける間、本人も変えられず、ログインもできない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "画面で変えた後に、インストーラの password で決め直せるかは CI で確かめるまで分からない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "試験のサーバの待ち受けが、ほかの台本と同じ番号を使う"
+    }
+  ],
+  "imp_history": [
+    {
+      "at": "2026-11-21T23:27:28Z",
+      "head": "aff48571485d56a9e24a78736ea74fe9824f2e0a",
+      "id": "IMP-04",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    }
+  ]
+}
