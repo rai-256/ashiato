@@ -4,12 +4,14 @@
 
 依頼（`docs/changes/CH26.md`）は「互換の範囲で上げる。上げられないものは例外の表に `届かない:` か `上げる予定:` と 90 日以内の期限で書き、勧告が実際に当たる使い方かも確かめて理由に書く」と決めている。
 同梱の PostgreSQL は「minor を 17.12 に上げ、major は変えない。既に入っている PC で minor の更新が既存の DB をそのまま使えることを確かめる」。
-外の事実は `premises.md`（P1〜P15）。
+外の事実は `premises.md`（P1〜P21）。
+
+> 第 1 回の合意で本人が R2 の答えを A から C に変えた（`deep.md` の「仕様への違和感（第 1 回の合意）」）。D5 を書き直し、CI の決め方を D7（仮）〜D9（仮）に足した。
 
 ## Goals / Non-Goals
 
-- Goals: `tools/check-vulns.sh`（全体）・`tools/check-vulns.sh nightly`・`tools/check-pg-minor.sh` が通る。#334〜#337 を閉じられる状態にする
-- Non-Goals: chrono の置き換え（jiff / time）・rusqlite 0.41 への上げ（どちらも本体のコードに及び、互換の範囲の外）・CI で小さい版の違う zip の間の更新を走らせる仕組み・検査の台本の変更
+- Goals: `tools/check-vulns.sh`（全体）・`tools/check-vulns.sh nightly`・`tools/check-pg-minor.sh` が通る。#334〜#337 を閉じられる状態にする。`pgsql.lock` を変える PR では、CI が前の lock の zip から今の lock の zip への更新と戻しを Windows で通す（この PR が最初の 1 回）
+- Non-Goals: chrono の置き換え（jiff / time）・rusqlite 0.41 への上げ（どちらも本体のコードに及び、互換の範囲の外）・検査の台本（`tools/check-*.sh`）の変更・大きい版を上げる道（`pg_upgrade`）・本人の PC に入っている配布版の移行（ST64）
 
 ## Decisions
 
@@ -60,34 +62,70 @@ ICU の版（`icuuc67.dll` など）が変わっていれば一覧の名前も�
 
 大きい版は 17 のまま（`crates/installer/build.rs` は `version=` の `.` の前だけを読む。P12）。実行ファイルの一覧・`license=` の置き場は変えない（17.12 の zip にその置き場が無ければ、`tools/release/pgsql.sh slim` が落ちる。そのときは置き場を 17.12 に合わせる）。
 
-### D5（仮）. 小さい版の入れ替えは、PostgreSQL の置き場の入れ替えと退避の戻しを Linux で走らせて確かめる（Windows の配布物どうしの更新と戻しの扱いは本人に問う）
+### D5. 小さい版の入れ替えは、PostgreSQL の置き場の入れ替えを Linux で、配布物どうしの更新と戻しを lock を変える PR の CI の Windows で確かめる（本人の決定 R2 = C）
 
 依頼は「既に入っている PC で minor の更新が既存の DB をそのまま使えることを確かめる」。`docs/release.md` の手順は「変更前の小さい版を同梱した zip から更新と戻しの両方を通す」。
+今の CI は古い zip と新しい zip を同じ commit・同じ lock から組むので、小さい版の違う zip の間の更新を走らせない（P14）。本人は「手で確かめる手間を最低限にしたい」として、これを CI で機械が行う形を選んだ（`deep.md` の R2、第 1 回の合意で A → C）。
 
-CI は古い zip と新しい zip を同じ commit から組むので、小さい版の違う zip の間の更新を走らせない（P14）。CI を変えるのは予定のパスの外（`.github/**`）で、軽い路を外れる。
-`tools/release/update-apply-install.sh` は zip を引数で取るので、base の lock で組んだ 17.6-1 の zip と 17.12-1 の zip を Windows で走らせれば repo のファイルに触れずに手順を通せるが、走らせる Windows（管理者でサービスを入れ替える使い捨ての機械）がこの流れの中に無い（spec-review R2）。
+確かめは 2 つ:
 
-インストーラが小さい版の入れ替えで触るのは、プログラムの置き場の入れ替えと、その後に同じ `db\17` で PostgreSQL を起こすこと、移行が落ちたときに前の版のプログラムの置き場へ戻して、新しい版の `pg_dump` で取った退避を前の版の `pg_restore` で戻すこと（P12・P17）。小さい版の数字で分かれる処理は無い。
-だから機械で確かめるのは、PostgreSQL の側の 3 つの約束にする:
+1. **Linux（この change の台本）**: `check-ch26.sh minor-swap`（Docker の `postgres:17.6` / `postgres:17.12`。initdb はインストーラと同じ引数。P18）。
+   17.6 で置き場を作り、サーバの移行を当てて行を入れる → 同じ置き場を 17.12 で起こし、中身が同じ・移行をもう一度当てても足すものが無い → 17.12 で 1 行足す → 同じ置き場を 17.6 で起こし、中身が同じ → 17.12 の `pg_dump --format=custom` の退避を 17.6 の `pg_restore` で空の DB に戻し、中身が同じ。
+   「中身が同じ」は、同じ `pg_dump`（17.12 の像の中のもの。平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて一致することをいう。
+   Windows の runner より先に、手元で PostgreSQL の側の約束が崩れていないかを見る（崩れていれば Windows を待たずに止まる）
+2. **Windows（CI）**: `pgsql.lock` を変える PR では、`package-windows` が更新の試験の古い側の zip（`package-windows-test-old`。版 `0.4.0`）だけを **PR の base の lock** で組み、新しい側（`package-windows-test-new`。版 `0.5.0`）は今の lock で組む。
+   `install-windows` は今のまま `tools/release/update-apply-install.sh` に 2 つを渡すので、17.6-1 の zip を入れた上で 17.12-1 の zip で更新し、移行を落として 17.6-1 へ戻す Scenario 群が Windows で走る。lock を変えない PR・main への push の組み立てと試験は今のまま（両方とも今の lock）
 
-- 台本 `check-ch26.sh minor-swap`（Docker の `postgres:17.6` / `postgres:17.12`。initdb はインストーラと同じ引数。P18）:
-  17.6 で置き場を作り、サーバの移行を当てて行を入れる → 同じ置き場を 17.12 で起こし、中身が同じ・移行をもう一度当てても足すものが無い → 17.12 で 1 行足す → 同じ置き場を 17.6 で起こし、中身が同じ → 17.12 の `pg_dump --format=custom` の退避を 17.6 の `pg_restore` で空の DB に戻し、中身が同じ
-- 「中身が同じ」は、同じ `pg_dump`（17.12 の像の中のもの。平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて一致することをいう
-- Windows の zip どうしの更新と戻しのうち、同じ commit の 2 つの zip（どちらも 17.12）の Scenario 群は CI の `install-windows` が毎回走らせる
+lock は `tools/release/pgsql.sh`（`PGSQL_LOCK_FILE` を読む）のほかに、`tools/release/build.sh`（許諾の文の版と DLL の一覧）と `crates/installer/build.rs`（大きい版）が `tools/release/pgsql.lock` を直に読む（P19）。だから古い側を組む間だけ、作業木の `tools/release/pgsql.lock` を前の lock で置き換えて組み、組んだら戻す（`Cargo.toml` の版を替えて組んで戻す今の形と同じ）。組み立ての台本は変えない。
 
-**Windows の配布物どうしで、17.6-1 の zip から 17.12-1 の zip への更新と戻しを通すかは、依頼の「どこまで」と `docs/release.md` の手順に関わるので本人に問う**（`deep.md` の R2。答えるまでこの D5 は決まらない）。
+この change では Windows の配布物どうしの更新と戻しを本人の PC で見ない（前の tasks 5.1「本人の PC で更新して記録が見えるか」を削った）。本人の PC に入っている配布版の移行は ST64 が扱う。
 
-- 失わない側: 何も捨てない。Windows の配布物どうしの確かめが要るなら、本人の Windows で `update-apply-install.sh` を走らせるか、CI で base の lock から古い zip を組む change を後から立てられる
-- **反転条件**: 台本のどこかで中身が変わる・起きない・戻せない（→ この change を止めて A として本人に返す）／確認バッチで本人の PC の更新が落ちた／インストーラに小さい版で分かれる処理が入った（→ CI に小さい版の違う zip の間の更新を足す change を立てる）
+- **反転条件**: `minor-swap` のどこかで中身が変わる・起きない・戻せない／lock を変えたこの PR の `install-windows` の更新と戻しが、小さい版の違いが原因で落ちる（→ どちらもこの change を止めて A として本人に返す）／インストーラに小さい版で分かれる処理が入った（→ CI の確かめの範囲を見直す）
 
 ### D6. 確かめの台本は change の中に置く
 
 Scenario の印を持つ試験は、予定のパスの外（`tools/**`）に置かない。`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh` に置き、サブコマンドごとに `echo "== Scenario: <名前>"` を出す（`scripts/check_scenarios.py` は `git ls-files` の全体から印を拾う）。
 archive の後は `openspec/changes/archive/…` へ一緒に移る。この台本は CI に組み込まない（一度きりの更新の確かめ。夜間の検査と `check-pg-minor.sh` が以後の遅れを見張る）。
 
+### D7（仮）. 「前の lock」は PR の base の commit の lock で、入れ替えるのは中身が違い大きい版が同じときの古い側の 1 つだけ
+
+- 前の lock: `github.event.pull_request.base.sha` の `tools/release/pgsql.lock`（浅く fetch して `git show` で取る。`package-windows` の鍵の step が merge の commit を取るのと同じ渡し方）。merge-base ではなく base の先端にするのは、今 main が配っている lock から上げる道を見るため
+- 入れ替える条件: 前の lock と今の lock の中身が違い、`version` の `.` の前（大きい版）が同じ。中身が同じなら入れ替えない（今のまま）
+- 大きい版が違う: 入れ替えずに CI を落とす（「大きい版を上げる道は大きい版を上げる Story が扱う」。正典の `同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる`。黙って今の lock で組むと、大きい版を上げる PR で古い側の確かめが空で通る）
+- PR でない run（main への push・手動）と base の lock が取れない run は入れ替えない。取れないときは warning を出す（lock を変える PR で取れないなら、下の D8 の確かめが落とす）
+- 入れ替えるのは `package-windows-test-old` だけ。`dev-old`・`compat-old` は今の lock のまま（本人の補足が名指ししたのは test-old。開発版・互換の組の Scenario は版番号の違いを見るもので、PostgreSQL の版を見ない）
+
+- 失わない側: 何も捨てない。CI の定義の中の決め方で、変えれば次の run から効く
+- **反転条件**: base の先端と merge-base の lock が違う PR が出て、どちらから上げる道を見るかが問題になった／開発版・互換の組でも小さい版の違いを見る必要が出た／大きい版を上げる Story が始まった（そこで大きい版の違う前の lock の扱いを決め直す）
+
+### D8（仮）. 判定と確かめは台本 `tools/release/pgsql-prev-lock.sh` に置き、ci.yml はそれを呼ぶだけ
+
+ci.yml の中の bash は Windows の runner でしか走らず、手元で落ちるかを確かめられない。だから「前の lock と今の lock から、入れ替えるか・同じか・落とすかを決める」と「組んだサーバの zip が同梱する PostgreSQL の版を読む」を台本に置き、`--self-test` を Linux（`chain` の job）で走らせる:
+
+- `pgsql-prev-lock.sh decide <前の lock> <今の lock>`: `swap`（中身が違い大きい版が同じ）か `same`（中身が同じ）を出して rc=0、大きい版が違う・lock の形が壊れている（`version` が無いなど）と rc≠0
+- `pgsql-prev-lock.sh zip-version <サーバの zip>`: zip の `THIRD-PARTY-NOTICES.txt` の PostgreSQL の節の `version: ` の値を出す（`build.sh` が組んだときの lock から書く。P19）
+- `pgsql-prev-lock.sh check-workflow [<ci.yml>]`: ci.yml の `package-windows` が上の形（`decide` の step が鍵の step より前・鍵に `prev-pgsql=`・`old` を組む間だけ置き換えて戻す・版の確かめが使い回しのときも走る）を持つことを見る（`windows-build-key.sh --check-workflow` と同じく python3 と yaml で読む。あちらの検査は変えない）。自己試験は形を 1 つずつ崩した写しで落ちることを見る
+- `package-windows` は組んだ後（使い回したときも）、古い側の zip の版が「入れ替えたなら前の lock の版、でなければ今の lock の版」で、新しい側の zip の版が今の lock の版であることを `zip-version` で確かめ、違えば落とす。版の組（例: `17.6-1 → 17.12-1`）を出力に出す
+  （入れ替えが黙って効かないと、17.12 → 17.12 の更新で緑になる。これを機械で落とす）
+
+`docs/release.md` の「PostgreSQL の小さい版を上げる PR」の節は、手で通す手順から「CI が通す。PR では `install-windows` が緑で、`package-windows` の出力に前と今の版の組があることを見る」に書き換える（本人の補足「docs/release.md の手順を CI で機械が行う」）。
+
+- 失わない側: 何も捨てない。台本は CI の確かめの道具で、配る物に入らない
+- **反転条件**: 組み立てが許諾の文の版の行を書かなくなった（`zip-version` の読み先を替える）
+
+### D9（仮）. Windows の組み立ての使い回しの鍵に、前の lock を入れる
+
+使い回しの鍵（`tools/release/windows-build-key.sh`）は HEAD の木（`pgsql.lock` を含む）と道具の版から出す（P21）。前の lock は木の外から来る入力なので、鍵に入れないと、main の lock が後から変わったときに、前の push の古い側の zip（古い前の lock で組んだもの）を引きうる。
+鍵の step の `WINDOWS_BUILD_KEY_TOOLS` に `prev-pgsql=<入れ替えたなら前の lock の sha256、でなければ none>` を足す。鍵の step・restore・保存の形は `--check-workflow` が見ているので、その検査が通る形で足す（通らない形にしか足せなければ、検査の側を同じ PR で直す）。
+
+- 失わない側: 何も捨てない。鍵が変わると組み直すだけ（約 25 分の Windows の組み立て）
+- **反転条件**: 使い回しの鍵の作り方を変える change が、木の外の入力を別の形で扱うようになった
+
 ## Risks / Trade-offs
 
 - **D2 は P7（確かさ 1）に乗っている**。Firefox の `IsRelative=0` の profile が本人以外にも書ける置き場にあれば成り立たない（P16）。Windows で同じ利用者の処理が別の処理の記憶を読めないように絞った環境（保護された処理など）では、勧告の攻撃が新しく何かを得うる。収集アプリは保護された処理として動かない（そういう設定をこの repo は持たない）が、確かめていない
 - 例外の 2 行は 90 日で切れ、chrono は置き換えるまで 90 日ごとに夜間の検査を赤にする。それ自体が本人への知らせになる（D3）
-- Windows の配布物の間の小さい版の更新と戻しを機械で走らせるかは本人の答え待ち（D5・R2）。PostgreSQL の置き場の互換と退避の戻しは機械で走らせる
+- lock を変える PR の CI は、古い側の zip を前の lock で組むので、PostgreSQL の zip を 2 つ落とす（約 370 MB ずつ。`pgsql.sh fetch` は版ごとの名前で置き場に置き、キャッシュに 2 つ残る。P20）。lock を変えない PR は今のまま
+- Windows の更新と戻しの確かめは CI の run にあり、Task の手元の検証では走らせられない。手元で見るのは台本の自己試験と `--check-workflow`、Windows の結果は PR の CI（merge gate が緑を要る）と完了の判定 8 が見る
+- 走っている CH22（`install-windows` に置く段を足す）・CH25（gradle の job）も `.github/workflows/ci.yml` を触る。CH26 は `package-windows` の古い側の組み立てと鍵の step と `chain` の 1 行に限る。後から merge する側が rebase で合わせる
 - CH24 と `Cargo.lock`・`osv-scanner.toml` が重なる。後から merge する側が rebase で合わせる（proposal の Impact）

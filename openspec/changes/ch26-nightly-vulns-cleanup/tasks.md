@@ -1,13 +1,15 @@
 # CH26 実装タスク — 夜間の脆弱性検査の 4 件を片付ける
 
-読む順: `proposal.md` → `design.md`（D1〜D6）→ `premises.md`（P1〜P16）→ このファイル → `docs/changes/CH26.md`（依頼の逐語・壊してはいけないもの・完了の判定）→ `tools/release/pgsql.lock` → `osv-scanner.toml` の頭の注記。
+読む順: `proposal.md` → `design.md`（D1〜D9）→ `premises.md`（P1〜P21）→ このファイル → `docs/changes/CH26.md`（依頼の逐語・壊してはいけないもの・完了の判定）→ `tools/release/pgsql.lock` → `osv-scanner.toml` の頭の注記。
 
-軽い路（`lane.json` の `reason: same`）。実装の後に、実際の diff が予定のパスの中にあることを機械が見る（外れると通常の路へ昇格する）。
+軽い路で始め、spec の段で通常の路へ昇格した（`lane-verdict.json` の `promoted`）。第 1 回の合意で本人が R2 を C に変えた（`deep.md`）ので、lock を変える PR の CI の形（Task 4）を足し、本人の PC で見る確認（前の 5.1）を削った。
 
 ## Global Constraints
 
-- **触ってよいのは `Cargo.lock`・`osv-scanner.toml`・`tools/release/pgsql.lock`・`docs/changes/CH26.md`・`openspec/changes/ch26-nightly-vulns-cleanup/**` だけ**（`lane.json` の予定のパスのうち、使う見込みのもの。`Cargo.toml`・`crates/*/Cargo.toml`・`tools/licenses/**`・`docs/release.md` は予定に入っているが、触る理由が出たら手を止め、その理由を ledger に書いてから触る）。
-  製品のコード（`crates/**/src`・`collector-android/**`・`web/**`）・`migrations/`・`.github/**`・`tools/*.sh`・`openspec/specs/`・`.harness2` に触れない
+- **触ってよいのは `Cargo.lock`・`osv-scanner.toml`・`tools/release/pgsql.lock`・`tools/release/pgsql-prev-lock.sh`（新しい）・`.github/workflows/ci.yml`・`docs/release.md`・`docs/changes/CH26.md`・`openspec/changes/ch26-nightly-vulns-cleanup/**` だけ**（Task 5 の 5.4 が機械で見る）。
+  製品のコード（`crates/**/src`・`collector-android/**`・`web/**`）・`migrations/`・ほかの workflow・`tools/check-*.sh`・組み立ての台本（`tools/release/build.sh`・`package.sh`・`pgsql.sh`・`update-apply-install.sh`・`windows-build-key.sh`）・`openspec/specs/`・`.harness2` に触れない。
+  `Cargo.toml`・`crates/*/Cargo.toml`・`tools/licenses/**` は触る理由が出たら手を止め、理由を ledger に書く。`windows-build-key.sh --check-workflow` が ci.yml の変更で落ち、ci.yml の書き方では避けられないときだけ、その検査を同じ PR で直してよい（design D9（仮）。理由を ledger に書く）
+- **`.github/workflows/ci.yml` で変えるのは `package-windows`（前の lock を取る・鍵に入れる・古い側の組み立て・版の確かめ）と `chain`（台本の自己試験と形の検査）だけ**。lock を変えない PR の組み立てと試験は今のまま（design D5・D7（仮））
 - **`cargo update` は crate を名指しして走らせる**（`cargo update -p rustix@1.1.5 --precise …`）。名指しせずに全体を上げない（design D1）
 - **例外の表の形は今のまま**: 頭の注記の形（`id` / `ignoreUntil` / `reason`）に合わせ、既にある行を動かさない・変えない・消さない。`ignoreUntil` は書いた日から 90 日以内（`tools/check-vulns.sh` が見る）。`reason` は `届かない: ` で始める（design D2（仮）・D3（仮））
 - **`pgsql.lock` の sha256 は、落とした実物から取る**（推測や spec の値を書かない）
@@ -68,22 +70,38 @@
   - 容器と置き場は `trap` で消す
   どこかで中身が変わる・起きない・戻せないときは、直そうとせずに止め、design D5 の反転条件として A で人間に返す。
   検証: `scripts/quiet-run ch26-swap -- bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh minor-swap` rc=0
-- [ ] 3.2 `check_scenarios` で、この change の 8 つの Scenario に印があることを見る。
+## Task 4: lock を変える PR では、前の lock の zip から今の lock の zip への更新と戻しを CI の Windows で通す（本人の決定 R2 = C）
+
+- [ ] 4.1 `tools/release/pgsql-prev-lock.sh` を作る（design D7（仮）・D8（仮））。サブコマンド:
+  `decide <前の lock> <今の lock>`（中身が同じなら `same`、違い大きい版が同じなら `swap` を出して rc=0。大きい版が違えば 2 つの大きい版を出して rc≠0。`version=` が無い・`<大>.<小>-<n>` の形でない lock も rc≠0）、
+  `zip-version <サーバの zip>`（zip の `THIRD-PARTY-NOTICES.txt` の `== PostgreSQL` の節の `version: ` の値を出す。節か値が無ければ rc≠0。P19）。
+  `--self-test` に、`specs/distribution/spec.md` の Scenario「lock の中身が違い大きい版が同じなら、古い側を前の lock で組む」「lock の中身が同じなら、今のまま組む」「前の lock と大きい版が違えば、古い側を組まずに落ちる」「組んだ zip の同梱の版を、許諾の文から読む」を印つきで置く（使い捨ての lock と zip は `"$TMPDIR"` の下か `mktemp -d`）。
+  検証: `tools/release/pgsql-prev-lock.sh --self-test` rc=0
+  検証: `bash -c 'base=$(git merge-base origin/main HEAD) && d=$(mktemp -d) && trap "rm -rf \"$d\"" EXIT && git show "$base:tools/release/pgsql.lock" > "$d/prev.lock" && test "$(tools/release/pgsql-prev-lock.sh decide "$d/prev.lock" tools/release/pgsql.lock)" = swap'` rc=0
+- [ ] 4.2 `.github/workflows/ci.yml` の `package-windows` を design D5・D7（仮）〜D9（仮）のとおりにし、`pgsql-prev-lock.sh` に `check-workflow [<ci.yml>]` を足す:
+  - 鍵の step より前に、PR の run なら `github.event.pull_request.base.sha` を浅く fetch して `tools/release/pgsql.lock` を `"$RUNNER_TEMP"` の下へ取り出し、`decide` で `swap` / `same` を決めて出力に置く step（取れなければ warning を出して `same`。`decide` が rc≠0 なら落とす）
+  - 鍵の step の `WINDOWS_BUILD_KEY_TOOLS` に `prev-pgsql=<swap なら前の lock の sha256、でなければ none>` を足す
+  - 試験の zip を組む step で、`swap` のときだけ `old` を組む前に前の lock を `tools/release/pgsql.lock` に写し、組んだ後に `git checkout -- tools/release/pgsql.lock` で戻す（今の `git checkout -- Cargo.toml Cargo.lock` と同じ形。`dev-old`・`compat-old` は置き換えない）
+  - 組んだ後（使い回したときも走る。`if:` に `cache-hit` を書かない）に、`zip-version` で `package-windows-test-old` の zip が「`swap` なら前の lock の版、でなければ今の lock の版」、`package-windows-test-new` の zip が今の lock の版であることを確かめ、違えば落とす。`古い側 <版> → 新しい側 <版>` を出力に出す。この step に `# Scenario: lock を変えた PR では、前の lock の版の zip から今の lock の版の zip へ更新し、戻しも通る` の印を置く（Windows の実地の確かめは `install-windows` の今の `update-apply-install.sh` の step がする）
+  - `check-workflow` は上の形（`decide` の step が鍵の step より前・鍵の `prev-pgsql=`・`old` だけを置き換えて戻す・版の確かめの step が `cache-hit` に依らない）を python3 と yaml で読んで見る。`--self-test` に、Scenario「CI の定義は、古い側だけを前の lock で組み、版を確かめ、前の lock を鍵に入れる」（今の ci.yml で rc=0）と「CI の定義の形が崩れると、確かめは落ちる」（4 通りに崩した写しで rc≠0）を印つきで足す
+  - `chain` の job に `./tools/release/pgsql-prev-lock.sh --self-test` と `./tools/release/pgsql-prev-lock.sh check-workflow` を足す（`windows-build-key.sh --check-workflow` の隣）
+  検証: `tools/release/pgsql-prev-lock.sh check-workflow` rc=0
+  検証: `tools/release/pgsql-prev-lock.sh --self-test` rc=0
+  検証: `tools/release/windows-build-key.sh --check-workflow` rc=0
+  検証: `scripts/quiet-run wbk -- tools/release/windows-build-key.sh --self-test` rc=0
+  検証: `python3 -c 'import yaml,sys; d=yaml.safe_load(open(".github/workflows/ci.yml",encoding="utf-8")); r=[s.get("run","") for s in d["jobs"]["chain"]["steps"]]; sys.exit(0 if any("pgsql-prev-lock.sh --self-test" in x for x in r) and any("pgsql-prev-lock.sh check-workflow" in x for x in r) else 1)'` rc=0
+- [ ] 4.3 `docs/release.md` の「### PostgreSQL の小さい版を上げる PR」の節を、手で通す手順から「`pgsql.lock` を変える PR では、CI の `package-windows` が更新の試験の古い側の zip を PR の base の lock で組み、`install-windows` が古い側から新しい側への更新と戻しを Windows で通す。PR では `install-windows` が緑で、`package-windows` の出力に `古い側 <前の版> → 新しい側 <今の版>` があることを見る。大きい版が違う lock では CI が落ちる」に書き換える（design D8（仮））。ほかの節は変えない。
+  検証: `python3 -c 'import re,sys;t=open("docs/release.md",encoding="utf-8").read();m=re.search(r"^### PostgreSQL の小さい版を上げる PR\n(.*?)(?=^#{1,3} )",t,re.S|re.M);s=m.group(1) if m else "";sys.exit(0 if all(k in s for k in ("package-windows","install-windows","base")) and "結果を PR に残してから" not in s else 1)'` rc=0
+
+## Task 5: 壊していないことを確かめ、文書をそろえ、触ったのが予定のパスだけであることを確かめる
+
+- [ ] 5.1 `check_scenarios` で、この change の 19 の Scenario（dependency-vulnerability-scan 4・distribution 15）に印があることを見る（Task 1〜4 の後）。
   検証: `python3 scripts/check_scenarios.py . ch26-nightly-vulns-cleanup` rc=0
 
-## Task 4: 壊していないことを確かめ、文書をそろえ、触ったのが予定のパスだけであることを確かめる
-
-- [ ] 4.1 Rust の試験と clippy が今のまま通ることを見る（壊してはいけないもの 1。rustix 1.x は試験と組み立ての `tempfile` だけが使う。P3）。
+- [ ] 5.2 Rust の試験と clippy が今のまま通ることを見る（壊してはいけないもの 1。rustix 1.x は試験と組み立ての `tempfile` だけが使う。P3）。
   検証: `scripts/quiet-run rust -- cargo test --workspace` rc=0
   検証: `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0
-- [ ] 4.2 `docs/changes/CH26.md` の「## 完了の判定」の節に、1.2 で例外の行を書いた日と期限（`ignoreUntil`）を書き足す（「例外の行を書いた日: YYYY-MM-DD、期限: YYYY-MM-DD」の 1 行。ほかの節と依頼の逐語は変えない）。2.1 で `dlls=` を変えたなら、変えたことも同じ節に 1 行で書く。
+- [ ] 5.3 `docs/changes/CH26.md` の「## 完了の判定」の節に、1.2 で例外の行を書いた日と期限（`ignoreUntil`）を書き足す（「例外の行を書いた日: YYYY-MM-DD、期限: YYYY-MM-DD」の 1 行。ほかの節と依頼の逐語は変えない）。2.1 で `dlls=` を変えたなら、変えたことも同じ節に 1 行で書く。
   検証: `python3 -c 'import re,sys;t=open("docs/changes/CH26.md",encoding="utf-8").read();m=re.search(r"^## 完了の判定\n(.*?)(?=^## |\Z)",t,re.S|re.M);sys.exit(0 if m and re.search(r"例外の行を書いた日: \d{4}-\d{2}-\d{2}、期限: \d{4}-\d{2}-\d{2}",m.group(1)) and t.count("\n## 完了の判定\n")==1 else 1)'` rc=0
-- [ ] 4.3 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 5）。
-  検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(Cargo\.lock|osv-scanner\.toml|tools/release/pgsql\.lock|docs/changes/CH26\.md|openspec/changes/ch26-nightly-vulns-cleanup/|docs/briefs/CH26|\.superpowers/|$)"'` rc=0
-
-## 人間の確認待ち
-
-- [ ] 5.1 確認バッチで本人に聞く: 本人の PC（か、本人がサーバを入れている Windows の PC）に配布版のサーバが入っているか。入っていれば、入っている版と、この change の後の配布物（PostgreSQL 17.12 を同梱）の版を書き、
-  版が違えば更新して、更新の後に画面で今までの記録（滞在・稼働状況の格子）が見えるかを答える。版が同じなら更新の手順に入らない（正典の「同じ版で走らせ直すと、更新の手順に入らない」）ので「同じ版で、更新の手順に入らなかった」と答える。入っていなければ「入っていない」と答える（どちらも「見えなかった」と区別する。design D5 の反転条件には当てない）。
-  更新が落ちて前の版に戻った・記録が見えないときは、design D5 の反転条件に当たる。
-  > 物理: realdata（本人の PC に入っている配布版と、その DB の記録は、機械から見えない）
+- [ ] 5.4 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 5）。
+  検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(Cargo\.lock|osv-scanner\.toml|tools/release/pgsql\.lock|tools/release/pgsql-prev-lock\.sh|\.github/workflows/ci\.yml|docs/release\.md|docs/changes/CH26\.md|openspec/changes/ch26-nightly-vulns-cleanup/|docs/briefs/CH26|\.superpowers/|$)"'` rc=0

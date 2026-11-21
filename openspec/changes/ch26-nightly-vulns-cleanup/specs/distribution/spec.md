@@ -46,3 +46,40 @@ WHEN 新しい小さい版の `pg_dump` で取った退避を、前の小さい�
 #### Scenario: 新しい小さい版で取った退避を、前の小さい版が戻せる
 - **WHEN** 確かめの台本が、新しい小さい版の `pg_dump` で（インストーラの退避と同じ形式で）退避を取り、前の小さい版の空の DB に前の小さい版の `pg_restore` で戻す
 - **THEN** `pg_restore` は rc=0 で終わり、戻した DB の中身は退避を取ったときと同じである
+
+### Requirement: 同梱の PostgreSQL の lock を変える PR では、前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す
+
+WHEN PR が `tools/release/pgsql.lock` の中身を変え、PR の base の lock と大きい版が同じとき、THE SYSTEM SHALL CI の Windows の組み立てで、更新の試験の古い側の zip（`package-windows-test-old`）だけを base の lock で組み、新しい側の zip は PR の lock で組み、Windows の runner で古い側から新しい側への更新と、移行が落ちたときの古い側への戻しを通す。
+IF PR の base の lock と PR の lock の大きい版が違う THEN THE SYSTEM SHALL 古い側を組まずに CI を落とす（大きい版を上げる道は大きい版を上げる Story が扱う）。
+WHEN PR が lock を変えないか、PR でない run のとき、THE SYSTEM SHALL 試験の zip を今のまま全部 PR の lock で組む。
+THE SYSTEM SHALL 組んだ後に、試験の zip が同梱する PostgreSQL の版が上の決め方どおりであることを確かめ、違えば CI を落とす。
+THE SYSTEM SHALL Windows の組み立ての使い回しの鍵に、古い側を組んだ lock を入れる（前の lock が変われば組み直す）。
+導出元: CH26（本人の決定 R2 = C）
+
+#### Scenario: lock の中身が違い大きい版が同じなら、古い側を前の lock で組む
+- **WHEN** 確かめの台本が、版 `17.6-1` の前の lock と版 `17.12-1` の今の lock で `tools/release/pgsql-prev-lock.sh decide` を走らせる
+- **THEN** rc=0 で `swap` を出す
+
+#### Scenario: lock の中身が同じなら、今のまま組む
+- **WHEN** 確かめの台本が、同じ中身の 2 つの lock で `tools/release/pgsql-prev-lock.sh decide` を走らせる
+- **THEN** rc=0 で `same` を出す
+
+#### Scenario: 前の lock と大きい版が違えば、古い側を組まずに落ちる
+- **WHEN** 確かめの台本が、版 `16.4-1` の前の lock と版 `17.12-1` の今の lock で `tools/release/pgsql-prev-lock.sh decide` を走らせる
+- **THEN** rc≠0 で、出力に `16` と `17` がある
+
+#### Scenario: 組んだ zip の同梱の版を、許諾の文から読む
+- **WHEN** 確かめの台本が、`THIRD-PARTY-NOTICES.txt` の PostgreSQL の節に `version: 17.6-1` を持つ使い捨てのサーバの zip で `tools/release/pgsql-prev-lock.sh zip-version` を走らせる
+- **THEN** rc=0 で `17.6-1` を出し、その節が無い zip では rc≠0 で終わる
+
+#### Scenario: lock を変えた PR では、前の lock の版の zip から今の lock の版の zip へ更新し、戻しも通る
+- **WHEN** `tools/release/pgsql.lock` を `17.6-1` から `17.12-1` へ変える PR の CI が走る
+- **THEN** `package-windows` は古い側の zip の版 `17.6-1` と新しい側の zip の版 `17.12-1` を確かめて出力に出し、`install-windows` の `tools/release/update-apply-install.sh` はその 2 つの zip で全部の Scenario を通す
+
+#### Scenario: CI の定義は、古い側だけを前の lock で組み、版を確かめ、前の lock を鍵に入れる
+- **WHEN** 確かめの台本が `tools/release/pgsql-prev-lock.sh check-workflow` で `.github/workflows/ci.yml` の `package-windows` を読む
+- **THEN** rc=0 で、`decide` を呼ぶ step が鍵の step より前にあり、鍵の step の `WINDOWS_BUILD_KEY_TOOLS` が `prev-pgsql=` の項を持ち、試験の zip を組む step は `old` を組む間だけ `tools/release/pgsql.lock` を置き換えて組んだ後に戻し、`zip-version` で版を確かめる step は使い回したときも走る（`if:` に `cache-hit` を持たない）
+
+#### Scenario: CI の定義の形が崩れると、確かめは落ちる
+- **WHEN** 確かめの台本が、上の形のどれか 1 つを崩した `ci.yml` の写し（鍵の step から `prev-pgsql=` を消す・`old` 以外も置き換える・置き換えを戻さない・版の確かめに `cache-hit` の条件を付ける）で `tools/release/pgsql-prev-lock.sh check-workflow` を走らせる
+- **THEN** どの写しでも rc≠0 で終わる
