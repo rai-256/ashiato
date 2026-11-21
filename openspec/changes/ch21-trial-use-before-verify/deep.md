@@ -150,3 +150,23 @@
 
 - QA の答え: 合意する（ただし IMP-05 が未回答なので、合意は差し戻し）
 - IMP-05: IMP-05 に答えが無い（未回答。読んだだけでは閉じない）
+
+## 影響の判断（第 3 回の合意の聞き直し。`deep-answers-4.txt`）
+
+第 3 回の 1 枚で IMP-05 が未回答だったので、同じ問い（`deep-questions-agree-3.json`）をもう一度聞いた。
+
+### IMP-05（席はホストで動き、本人の .env に届きうる）
+
+- 答え: 受け入れて進める（リリースの前に判断し直す）
+- 補足: なし
+- 判断し直す: 本人・CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）。残るリスクは「席（と、処置の選別の席）が本人の合言葉や確認バッチの DB を読み、モデルへの入力にする余地が残る」（go.json の `if_accepted`）。記録は `agreement.json` の `impacts`（`closed: true`・`release: recheck`）
+
+### IMP-13（席はホストの adb で本人の実機に届きうる）
+
+- 答え: 直した・確かめた結果に同意する
+- 補足: なし
+- 第 3 回と同じ答え（`closed: true`・`release: ok`）
+
+### 仕様への合意
+
+- QA の答え: 合意する（違和感なし。IMP-05・IMP-13 とも閉じたので、合意は成立。`agreement.json` の `status: accepted`）

@@ -1,22 +1,27 @@
 {
-  "status": "rejected",
+  "status": "accepted",
   "digest": "0bf98aaa95ea6e2363950ef0be9e059ce02250742742b12c8deca7ab0410047e",
-  "head": "401646b32a64619e8e31b1b99172a5d5769a365d",
-  "answers": "deep-answers-3.txt",
+  "head": "724016cedbf0648e01a06e4199360251803bf261",
+  "answers": "deep-answers-4.txt",
   "picked": "合意する",
-  "notes": [
-    "IMP-05: 未回答（読んだだけでは閉じない）"
-  ],
-  "at": "2026-11-21T23:31:01Z",
+  "notes": [],
+  "at": "2026-11-21T23:51:19Z",
   "impacts": {
     "IMP-05": {
-      "answer": "(未回答)",
-      "closed": false,
-      "recognized": false,
-      "accepted": false,
-      "proceed": false,
-      "release": null,
-      "why": "未回答（読んだだけでは閉じない）"
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "recheck",
+      "risk": {
+        "residual": "席（と、処置の選別の席）が本人の合言葉や確認バッチの DB を読み、モデルへの入力にする余地が残る。CH21 が main に入ると次の確認バッチから席が呼ばれ、呼ぶかどうかを切り替える口は仕様に無い。読み出しを止める手当ては無い。実地の journal を見るのは観察で、以後も読まないことの根拠にはならない",
+        "scope": "確認バッチの準備と手で呼ぶ /tsukau の、席が走る間のホストのファイル"
+      },
+      "recheck": {
+        "owner": "本人",
+        "due": "CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）"
+      }
     },
     "IMP-13": {
       "answer": "直した・確かめた結果に同意する",
@@ -276,6 +281,48 @@
       }
     }
   },
+  "minor_accepted": [
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "塞いだ Sandbox で配る形が入り、外に届くかは未確認"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "準備が延び、その間は記録と fix が待つ"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "残った Sandbox が以後の PC の席と録画を止める"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "私的でない題も伏せられることがある"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "medium",
+      "title": "Sandbox の窓が本人のライフログに入りうる"
+    },
+    {
+      "id": "IMP-08",
+      "severity": "medium",
+      "title": "審査を通った PR に、本人が見る前に直した変更が載る"
+    },
+    {
+      "id": "IMP-09",
+      "severity": "medium",
+      "title": "選別を誤ると、要らない直しが載るか本物が流れる"
+    },
+    {
+      "id": "IMP-12",
+      "severity": "medium",
+      "title": "携帯の席はエミュレータの残りと取り合いで止まりうる"
+    }
+  ],
   "imp_history": [
     {
       "at": "2026-11-20T14:01:06Z",
@@ -308,6 +355,20 @@
     {
       "at": "2026-11-21T23:31:01Z",
       "head": "401646b32a64619e8e31b1b99172a5d5769a365d",
+      "id": "IMP-13",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-21T23:51:19Z",
+      "head": "724016cedbf0648e01a06e4199360251803bf261",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-21T23:51:19Z",
+      "head": "724016cedbf0648e01a06e4199360251803bf261",
       "id": "IMP-13",
       "answer": "直した・確かめた結果に同意する",
       "closed": true
