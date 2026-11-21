@@ -2188,10 +2188,10 @@ IF 依存の POM を取り寄せられない（ネットワークにも gradle �
 THE SYSTEM SHALL オープンソースの許諾でない部品のうち、追加の許可の正本の `Listed libraries:` に名指しされた部品だけを通す。名指しの一覧は正本のファイルから読み、検査の中に写しを持たない。
 IF 携帯の依存に、名指しの外のオープンソースでない部品・許諾を読めない部品・対応表に無い許諾の名前の部品のどれかがある THEN THE SYSTEM SHALL 検査を落とし、その部品の座標と許諾の名前を示す。
 THE SYSTEM SHALL 許可の一覧から `AGPL-3.0-only` を外す。自分の部品（workspace の crate と画面の根）は、名前と決めた許諾の式の組で通す。他人の部品の GPL / AGPL の許諾は、どれも検査が落とす。
-THE SYSTEM SHALL ほかの許可の一覧は減らさない。一覧は `MIT`・`MIT-0`・`Apache-2.0`・`BSD-2-Clause`・`BSD-3-Clause`・`ISC`・`Unicode-3.0`・`Unicode-DFS-2016`・`Zlib`・`CC0-1.0`・`MPL-2.0`・`0BSD`・`Apache-2.0 WITH LLVM-exception`・`CDLA-Permissive-2.0`・`BlueOak-1.0.0`・`CC-BY-4.0`・`Python-2.0` のまま。
+THE SYSTEM SHALL ほかの許可の一覧は減らさない。一覧は `MIT`・`MIT-0`・`Apache-2.0`・`BSD-2-Clause`・`BSD-3-Clause`・`ISC`・`Unicode-3.0`・`Unicode-DFS-2016`・`Zlib`・`CC0-1.0`・`MPL-2.0`・`0BSD`・`Apache-2.0 WITH LLVM-exception`・`CDLA-Permissive-2.0`・`BlueOak-1.0.0`・`CC-BY-4.0`・`Python-2.0`・`bzip2-1.0.6` の 18 の値。
 IF ある節の検査する対象が見つからない（`web/node_modules` が無い・gradle が依存を解決できない） THEN THE SYSTEM SHALL その節を通さず、対象が無いことを示して検査を落とす。
 
-導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7。深掘り Q12（第 2 回）。
+導出元: NFR-26 ★ 2026-10-25（C-01 を含めて機械で確かめる。許可の外のプロプライエタリな依存が入ったら止める）。FR-127。深掘り Q2（第 1 回の推奨）。premises P1・P2・P3。review/deep.md R8 の C。review/spec.md R6・R7・R11・R16。D6（仮）・D7。深掘り Q12（第 2 回）。CH24 の深掘り Q-G1（本人の答え 2026-11-20: zip 9 の既定の features のまま、許可の一覧に `bzip2-1.0.6` を足す）。
 壊してはいけないもの: 依存の許諾の検査の既存の許可一覧（`AGPL-3.0-only` を外すのは、自分の部品を名前で通す形に替えるためで、今の依存は 1 つも落ちない。P3）。
 
 #### Scenario: 今の携帯の依存は、許諾の検査を通る
@@ -2243,7 +2243,7 @@ IF ある節の検査する対象が見つからない（`web/node_modules` が�
 
 #### Scenario: 許可の一覧は、AGPL-3.0-only を外したほかは前と同じ
 - **WHEN** 依存の許諾の検査の許可の一覧を読む
-- **THEN** 一覧はこの Requirement に並べた 17 の値とちょうど同じで、`AGPL-3.0-only` を持たない
+- **THEN** 一覧はこの Requirement に並べた 18 の値とちょうど同じで、`AGPL-3.0-only` を持たない
 
 #### Scenario: POM を取り寄せられない部品があれば、許諾の検査が落ちる
 - **GIVEN** 使い捨ての maven の置き場に、`.module` と jar はあるが `.pom` が無い部品を 1 つ足した依存（依存の解決は通る）を、ネットワークを使わずに解決する環境
