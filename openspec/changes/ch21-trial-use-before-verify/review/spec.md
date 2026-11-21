@@ -524,3 +524,5 @@ R31・R32 の処置の確かめ: 新しい指摘なし
 - 提案: 画面の相手の Requirement に 1 文と Scenario を足し、Task 6.1 に印を置き、下限を 12 にする。
   Scenario の例:「Android の SDK が無くても、画面の相手は立つ」（GIVEN `ANDROID_HOME`・`ANDROID_SDK_ROOT` を持たない環境と、偽の起動の台本と偽の `docker`。WHEN `env-hook.sh up <repo> <state> web`。THEN `ready` に `UNAVAILABLE=` が無く、`GUIDE=` がある）
 - 処置: fixed specs/verify-environment/spec.md —— 画面の相手の Requirement に「SDK が無い・道具が無い環境でも立てる（断るのは携帯の相手だけ）」を足し、Scenario「Android の SDK が無くても、画面の相手は立つ」を足した。印は Task 6.1（下限 12・7.1 は 29・9.1 は 50）
+
+R37・R38 の処置の確かめ: 新しい指摘なし（382482a8d の上。validate valid・chain OK・triage OK・candidates []・spec の 112 本と tasks の印の名前が一字一句合い、下限 env-hook.sh 12 → 29 → 50 も合う。4.3 の 2 つ目の検証は今は rc=1 で、作業の前は通らない）
