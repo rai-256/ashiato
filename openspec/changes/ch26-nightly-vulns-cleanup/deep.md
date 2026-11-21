@@ -16,3 +16,10 @@
 - 答え: A. PostgreSQL の部分を Linux で確かめ、Windows は本人の PC で見る（本人の選択。推奨と同じ・補足なし。`deep-answers-1.txt`）
 - 決まったこと: 17.6 → 17.12 の確かめは、PostgreSQL の置き場の入れ替え（17.6 → 17.12 → 17.6）と「17.12 の退避を 17.6 の pg_restore で戻す」を Linux で機械が走らせる（design D5・tasks 3.1）。Windows の配布物どうし（17.6-1 の zip → 17.12-1 の zip）の更新と戻しはこの PR では走らせず、本人の PC で確認バッチの問い（tasks 5.1）として見る。`docs/release.md` の「前の版を同梱した zip から更新と戻しを通す」手順はこの PR では省く（手順の本文は変えない）。CI は変えない
 - 要件へ戻すもの: なし（要件は変えない change。依頼の「どこまで」の確かめ方を本人が決めた）
+- 答えの変更（第 1 回の合意で本人が変えた。`deep-answers-2.txt`）: **A → C**。lock を変える PR だけ、前の lock（今回は 17.6-1）で古い側の試験用の Windows の zip を組み、`tools/release/update-apply-install.sh` で 17.6 → 17.12 の更新と戻しを Windows の runner で機械が通す。tasks 5.1（本人の PC で見る）は削る。上の「決まったこと」のうち、Windows を本人の PC で見る・CI は変えない・release.md の手順を省く、は覆った（下の「仕様への違和感（第 1 回の合意）」）
+
+## 仕様への違和感（第 1 回の合意）
+
+`deep-answers-2.txt` の QA（答え: 違和感がある）の補足を逐語で:
+
+- R2 の答えを A から C に変える。手で確かめる手間を最低限にしたい。pgsql.lock を変える PR だけ、古い側の試験用の Windows の zip（package-windows-test-old）を変更前の lock（今回は 17.6-1）で組み、既存の tools/release/update-apply-install.sh で 17.6 → 17.12 の更新と戻しを Windows の runner で通す（docs/release.md「PostgreSQL の小さい版を上げる PR」の手順を CI で機械が行う）。lock を変えない PR の組み立てと試験は今のまま。tasks 5.1（本人の PC で更新して記録が見えるかを答える）は削る。5.1 の「本人の PC の配布版と記録は機械から見えない」は誤りで、WSL から読み取り専用で読める。本人の PC の移行は ST64 で扱う

@@ -1,0 +1,3 @@
+=== CH26 の仕様への合意 の回答 ===
+QA [仕様への合意] -> 違和感がある
+  補足: R2 の答えを A から C に変える。手で確かめる手間を最低限にしたい。pgsql.lock を変える PR だけ、古い側の試験用の Windows の zip（package-windows-test-old）を変更前の lock（今回は 17.6-1）で組み、既存の tools/release/update-apply-install.sh で 17.6 → 17.12 の更新と戻しを Windows の runner で通す（docs/release.md「PostgreSQL の小さい版を上げる PR」の手順を CI で機械が行う）。lock を変えない PR の組み立てと試験は今のまま。tasks 5.1（本人の PC で更新して記録が見えるかを答える）は削る。5.1 の「本人の PC の配布版と記録は機械から見えない」は誤りで、WSL から読み取り専用で読める。本人の PC の移行は ST64 で扱う
