@@ -1,6 +1,6 @@
 # CH21 確認バッチの前に、その回で足した機能を使ってみる席（/tsukau）で確かめ、違和感を直すか人間に回す
 
-change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 101 本、`distribution` に MODIFIED 1）。
+change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 111 本、`distribution` に MODIFIED 1）。
 依頼と完了の判定は `docs/changes/CH21.md`。第 3 版（依頼に「見つけた後の処置」が足され、深掘りから立て直した）。**requires: CH22**（下の Q8）。
 
 確認バッチを作るたびに、その回に新しく入った Story / change が変えたファイルで相手（画面・PC・携帯）を決め、AI が 10 分・20 万 token ずつ使ってみる（harness2 の `/tsukau`）。
@@ -18,9 +18,10 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 - Q5〜Q7・Q9・Q10・Q12・Q13 —— 推奨のまま
 - **Q8 Sandbox の網（A）** —— **外にはつなぎ、私設網と手元の網を塞ぐ**（推奨は「網を切る」）。
   何かを入れる前に Sandbox の中のファイアウォールで塞ぎ、塞ぐ前と後の対で確かめてから入れる。届けば外も塞ぎ、それでも届けば立てない（design D6・D26（仮）・D29（仮））。
-  正典 distribution の「自動の試験が本物の配布元へ繋ぐのは名指しのものだけ」（CH22 が 2 つに書き直した Requirement）に、3 つ目として使ってみる席の PC の相手を MODIFIED で足した。そのため **requires に CH22**（CH22 の下流 #349 が merge gate を通るまで待つ）
+  正典 distribution の「自動の試験が本物の配布元へ繋ぐのは名指しのものだけ」（CH22 が 2 つに書き直した Requirement）に、3 つ目として使ってみる席の PC の相手を MODIFIED で足した。そのため **requires に CH22**（CH22 は 2026-11-21 に archive 済み。CH21 の MODIFIED は今の正典の全文に 3 つ目を足したもの）
 - **Q11 作り直しのとき** —— **新しく入ったものだけを範囲にする**（推奨は「同じ中身なら前の結果を写す」）。相手・ID・PR のいちばん新しいコミットの組で、席が終えた記録のあるものは外す（design D10・D21（仮））
-- IMP-05（席はホストで動き、本人の `.env` に届きうる）—— 受け入れて進める（merge の前に判断し直す）
+- IMP-05（席はホストで動き、本人の `.env` に届きうる）—— 受け入れて進める（merge の前に判断し直す）。第 2 回の合意でも同じ
+- **IMP-13（席はホストの adb で本人の実機に届きうる）** —— 第 2 回の合意で**仕様を直す**（補足: 席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする）
 
 ## 仕様への違和感（第 1 回の合意）への対応
 
@@ -28,9 +29,17 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 網を切り（`adb reverse` の道だけ）、その回の専用の環境に送る debug の APK を入れる。自分の serial だけを操作し、実機と本人・計測テストのエミュレータには触らない（design D22・D30・D31（仮）・D25）。
 `svc` で網が切れること・`adb reverse` が通ること・画面なしで写しと UI の木が取れること・起動 52 秒は、spec の段に使い捨ての AVD で実測した（premises.md）。準備の全体の上限は 9,360 秒に延びた。
 
+## IMP-13 の直し（第 2 回の合意）
+
+- 確認バッチの準備から呼ぶ席は、どの相手も `PATH` から `$ANDROID_HOME`・`$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼び、`adb` と `emulator` が名前で見つからないことを確かめる（design D32）。外しても見つかれば、その回は席を呼ばない（D33（仮））
+- 携帯に届く口は `tools/tsukau/phone.sh` だけ。`phone.sh` と差し込み口は `$ANDROID_HOME` の下の `adb` を使い、`phone.sh` は残した serial のほかを名指さない（D25・D32）
+- 手で呼ぶ `/tsukau` は、harness2 に差し込み口の鍵 `seat_hide` を別の依頼（`harness2-request-seat-path.json`）で頼み、入った後に `tsukau.json` に足す（D34（仮）・Task 12.2）
+- 本物の席（`claude -p`）の Bash が渡された `PATH` を引き継ぎ、`adb` が見つからないことは spec の段に実測した（premises.md）。下流の Task 4.3 が本物で確かめ直す
+- 残るもの: 名前で見つからなくするだけで、絶対パスや `adb` の待ち受け（5037 番）に直に話しかければ届く（D32・Risks）
+
 ## 仮決め（B）
 
-台帳（`provisional.jsonl`）で仮のもの: D1・D3・D5・D7・D9・D12・D15・D18・D20・D21・D22・D30・D31・D26・D27・D28・D29。
+台帳（`provisional.jsonl`）で仮のもの: D1・D3・D5・D7・D9・D12・D15・D18・D20・D21・D22・D30・D31・D26・D27・D28・D29・D33・D34。
 （D10 は Q11 の答えで仮でなくなり、D16・D19 は Q11 の答えで古くなって D27・D28 に、D23・D24 はレビューの処置で中身が変わって D30・D31 に立て直した）
 
 - D21（仮）「新しく入った」は相手・ID・PR のいちばん新しいコミットの組で、席が終えた記録が無いもの（試し直す側）
@@ -41,6 +50,8 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 - D27（仮）直した後の確かめ直しは、直した候補だけを 5 分・10 万で呼ぶ（旧 D16）
 - D28（仮）公開の題は、検査できなければ全部伏せる（旧 D19）
 - D29（仮）Sandbox で通す外の範囲は bash で数から組み、自己試験で私設網と手元の網を含まないことを固定する
+- D33（仮）席の PATH から外しても `adb` か `emulator` が名前で見つかれば、どの相手の席も呼ばない
+- D34（仮）手で呼ぶ席の環境から外す口は harness2 の差し込み口の鍵 `seat_hide`（処置とは別の依頼）
 - D1・D3・D5・D7・D9・D12・D15・D18・D20 は第 1 回の先読みのまま
 
 ## capability
@@ -49,11 +60,12 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 
 ## tasks
 
-13 Task。製品のコードと harness2 のファイルは変えない。Task 9（携帯の自己試験）・Task 10（本物のエミュレータ）を足した。Task 12（処置まで本物で通す）は harness2 の処置が入るまで「無い」で落ちる（飛ばさない）。
+13 Task。製品のコードと harness2 のファイルは変えない。IMP-13 で 4.3（本物の席の PATH）・12.2（`seat_hide`）を足し、4.1・9.1・11.3（依頼を 2 つ）を直した。Task 9（携帯の自己試験）・Task 10（本物のエミュレータ）を足した。Task 12（処置まで本物で通す）は harness2 の処置が入るまで「無い」で落ちる（飛ばさない）。
 
 ## レビュー
 
 - 深掘り（`review/deep.md`）: 16 件。escalated（問いに入れた）9・fixed 7
 - 仕様（`review/spec.md`）: 第 1 版 19 件・第 2 版（答えと違和感の直し）13 件。第 2 版は fixed 12（うち仮で閉じたもの R22 → D26・R23 → D29・R29 → D27/D28・R32 → D30 ほか）・rejected 1（R25。前提を実物で反証）。
-  観点 7: CH22 の 2 つの Requirement は前提（requires に CH22）
+  第 3 版（IMP-13 の直し）4 件（R33〜R36）: fixed 3・rejected 1（R34。前提を本物の `claude -p` で測って成り立った）。
+  観点 7: 該当なし（CH22 は archive 済み）
 - 答えが写ったか（`review/answers.md`）: Q8・Q11 とも写った。違和感の直しは答え以外の変更として名指し（合意は引き継がず聞き直す）
