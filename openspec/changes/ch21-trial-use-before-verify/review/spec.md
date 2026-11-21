@@ -416,3 +416,75 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
 
 
 R31・R32 の処置の確かめ: 新しい指摘なし
+
+## 第 3 版（spec --answers Q8,Q11 と IMP-13 の直し。2026-11-22）
+
+### 機械の検査（2026-11-22、docs/ch21-upstream の fa1e390a3 の上）
+
+- `openspec validate ch21-trial-use-before-verify --strict` → `Change 'ch21-trial-use-before-verify' is valid`
+- `python3 scripts/check_chain.py .` → `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（change なので観点 8 は無い）
+- `python3 scripts/check_scenarios.py . ch21-trial-use-before-verify` → `scenarios: FAIL (担保なし 105 件 / 名無しの確認待ち 0 件)`。下流の前なので、担保が無いのは予定どおり。
+  105 件は全部 verify-environment。distribution の 11 本は CH22 の archive で入った印が担保している。
+  tasks.md の `# Scenario:`・`== Scenario:` の名前は、python で抜き出して突き合わせると、verify-environment の 105 本と一字一句合う。下限の数も合う: verify-batch.sh 8 → 38 → 41 → 45（4.1 の印は 30 本）、env-hook.sh 11 → 28 → 48（9.1 の印は 20 本）
+- `python3 scripts/review_triage.py . ch21-trial-use-before-verify` → 書く前は `triage: OK`（指摘 48 件 / 仮決め 12 件）。R33 以降は処置が無いので落ちる（予定どおり）
+- `python3 scripts/spec_overlap.py candidates . ch21-trial-use-before-verify` → `[]`
+- Task 12.2 の検証コマンドを、書いたままこの作業ツリーで走らせた → 「席の PATH の口（harness2）が無い」の 1 行と rc=127（鍵が入る前の止まり方のとおり）。鍵と `tsukau.json` を置いた一時の木で走らせると rc=0。引用符はそのまま通る
+- 正典の distribution（origin/main a5aee6d2b。CH22 は archive 済み）の「更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る」と CH21 の MODIFIED の差は、10 行目の「2 つ」→「3 つ」と (3) の追加（文字単位で突き合わせ、ほかの字の差は無い）と、(3) を足した導出元の 1 行だけ（python の difflib で突き合わせた）
+
+## R33. spec と Task 6.1 の自己試験は差し込み口の鍵を「4 つだけ」と固定しているのに、Task 12.2 と完了の判定は `seat_hide` を足す。手で呼ぶ席から adb を外すことは、specs のどこにも無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md・design.md・docs/changes/CH21.md
+- 根拠: spec.md:6 は「鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` の 4 つだけにする」と書く。Scenario「差し込み口の形が席の台本の契約に合う」（spec.md:10-12）の THEN も「鍵は…の 4 つだけ」で、Task 6.1 がこの印を `env-hook.sh --self-test` に置く（tasks.md:141）。
+  一方で Task 12.2（tasks.md:265-267）は `tools/tsukau/tsukau.json` に `"seat_hide": ["adb", "emulator"]` を足し、docs/changes/CH21.md の完了の判定もそれを求める。
+  12.2 の検証は `env-hook.sh --self-test` を走らせないので 12.2 は緑になる。ところがその後の Task 13.1（tasks.md:272）が `env-hook.sh --self-test` を走らせ、5 つ目の鍵でこの Scenario が落ちる。直さずに archive すると、正典にも「4 つだけ」が残る。
+  また、手で呼ぶ `/tsukau` の席からも `adb` を外すこと（design D17 の足した行・D34（仮）。CH21.md の「壊してはいけないもの」も「手で呼ぶときにも当てる」と書く）は、観測できる振る舞い（`tsukau.json` の鍵と、手で呼んだ席の `PATH`）なのに、Requirement にも Scenario にも無い。design にしか無いので、archive で正典から落ちる
+- kind: technical
+- 提案: spec.md:6 と Scenario「差し込み口の形が席の台本の契約に合う」を「4 つ。harness2 の `seat_hide` が入った後は、それに `seat_hide`（`["adb", "emulator"]`）を足した 5 つ」と書き直す。Task 6.1 の自己試験は、鍵が入る前と後のどちらの形でも通るように書く。
+  `seat_hide` について、Scenario を 1 本足す（例:「harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す」。WHEN は `tools/tsukau/tsukau.json` を読む、THEN は `seat_hide` がちょうど `["adb", "emulator"]`）。印は Task 12.2 に置く。
+  鍵が入る前に Task 13.1 が走る順にならないよう、12.2 と 13.1 の順と止まり方（BLOCKED_INFRA）を揃える
+- 処置: fixed specs/verify-environment/spec.md —— 差し込み口の Requirement の鍵を「4 つと、harness2 の鍵が入った後は `seat_hide`」に直し、手で呼ぶ席にも `seat_hide` で `adb` と `emulator` を見つけさせないことを本文に足した。Scenario「差し込み口の形が席の台本の契約に合う」の THEN を「あれば `seat_hide` だけ」にし（Task 6.1 は 12.2 の前と後のどちらでも通る）、Scenario「harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す」を足した（印は Task 12.2 の `tools/tsukau/check-seat-hide.sh`。rc=127 で BLOCKED_INFRA）。13.1 は 12.2 の後に走らせると書いた。design D34（仮）から Scenario を指した
+
+## R34. 「席の Bash は、呼ばれた環境の PATH を引き継ぐ」という前提は確かさ 3 のままで、上げる Task が無い。偽の席では、IMP-13 の本体が本物で効くかが分からない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/premises.md・tasks.md・design.md
+- 根拠: premises.md:50 の結果の欄は「席の Bash が呼ばれた環境の `PATH` を引き継ぐかは、本物の席では確かめていない」で、確かさは 3。
+  spec の Scenario「席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない」が見るのは、偽の席の台本が受けた `PATH` と、その中の `command -v` だけ。つまり、`tsukau.py` に渡した環境までしか見ていない。
+  本物の席（`claude -p`）は、Bash の道具を呼ぶたびに利用者のシェルの初期化から作った写し（`~/.claude/shell-snapshots/` の `export PATH=…`）を読み込む。席の `PATH` が外した形のまま席の Bash に届くかは、このシェルの初期化と Claude Code の版に依る。
+  ほかの確かさの低い前提には、上げる Task がある（1.2・8.1・10.1 が premises.md の行を書き換える）。この行には無い。本物の席を呼ぶ Task 12.1（real-run.sh）も、席の中で `command -v adb` を見ない。design D32 の反転条件（logs/claude.jsonl に絶対パスや待ち受けの跡）は、席が名前で `adb` を呼べた場合を拾わない
+- kind: premise
+- 提案: Task 12.1 か新しい項目で、本物の席の Bash に `command -v adb; command -v emulator` を走らせて、両方とも空なことを確かめる。たとえば real-run.sh で準備の席の部分を本物で走らせるとき、席の案内に頼むか、`logs/claude.jsonl` の Bash の出力を読む。
+  `echo "== Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない"` を出し、spec に同じ名前の Scenario を足す。結果を premises.md:50 に書き、確かさを 5 にする。
+  あわせて、D32 の反転条件に「本物の席の Bash で名前で見つかったとき」を足す
+- 処置: rejected: 前提は成り立つ。2026-11-22 に `$ANDROID_HOME` の下を外した `PATH` で本物の `claude -p` を起こし、席の Bash で `command -v adb`・`command -v emulator` が rc=1（見つからない）、`command -v git` が `/usr/bin/git` だった（premises.md の行を実物・5 にした）。指摘の提案は取り入れた: 下流の Task 4.3 `verify-batch.sh real-check-seat-path` が `verify-batch.sh` の組む `PATH` で同じことを本物で確かめ直し、spec に Scenario「本物の席の Bash で、adb と emulator が名前で見つからない」、design D32 に本物で確かめることと反転条件（見つかれば A）を足した
+
+## R35. 「席の PATH から外す」Requirement の本文が言うことのうち、`$ANDROID_SDK_ROOT`・`emulator` の見つけ方・`tsukau.log` の理由・`$ANDROID_HOME` が無いときを、どの Scenario も見ていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md・tasks.md
+- 根拠: spec の呼び方の Requirement に足した本文（spec.md:84）は、外す置き場を「`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下」、確かめるものを「`adb` と `emulator` が名前で見つからない」、見つかったときの理由の置き場を「`dist/verify-<tag>/tsukau.log` にだけ」と書く。
+  足した 2 本の Scenario は、`$ANDROID_HOME` だけを偽に向ける（`$ANDROID_SDK_ROOT` が別の置き場を指す場合を見ない）。外に置くのも偽の `adb` だけ（外の `emulator` で呼ばない場合を見ない）。`tsukau.log` に理由があり、段落と目録に理由の字面が無いことも見ない。
+  次の 2 つは spec にも design にも決まりが無い:
+  - `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` が無いか空の環境で、`verify-batch.sh` がどう外すか。「`$ANDROID_HOME` の下」を前置きの一致で書くと、空の値は `/` の下、つまり全部の置き場に当たる。そうなると、Android の SDK を持たない PC で、画面と PC の席が `claude` も `git` も見つけられなくなる。携帯の範囲が無い回でも同じ
+  - design D32 は `env-hook.sh` が「頭で」道具の置き場を足し、`$ANDROID_HOME` か道具が無ければ「今の『SDK が無ければ断る』と同じく `UNAVAILABLE=`」と書く。`env-hook.sh` は 3 つの相手を 1 本で持つので、この断りが携帯の相手だけに掛かるのか、画面と PC にも掛かるのかが読めない
+  あわせて、自己試験は偽の `$ANDROID_HOME` だけを渡す（tasks.md:21・:80）。走らせる環境の `$ANDROID_SDK_ROOT` と `PATH` の扱いは書いていない。ホストの `PATH` に `$ANDROID_SDK_ROOT` の外の `adb` があると（`ANDROID_SDK_ROOT` が無く、本物の `platform-tools` だけが `PATH` にある場合など）、D33（仮）が効く。そのため、席を呼ぶほかの Scenario が環境次第で落ちる
+- kind: technical
+- 提案: Scenario を足すか、今の Scenario の GIVEN を広げる:「`$ANDROID_SDK_ROOT` だけが指す置き場の道具も外す」「外に `emulator` だけがあっても呼ばない」「外せなかった回の理由は `tsukau.log` にあり、段落と目録に無い」「`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` が無くても、画面の席は今の `PATH` のまま呼ぶ」。
+  design D32 に、`env-hook.sh` が道具を探して断るのは携帯の相手だけだと書く。tasks の Global Constraints に、自己試験は `ANDROID_SDK_ROOT` も偽に向けるか消し、`PATH` を試験が組んだ置き場だけにする、と書く
+- 処置: fixed D32 —— Requirement に「値が無いか空の変数は外す置き場に数えない」を足し、design D32 に理由と「道具を探して断るのは携帯の相手だけ」を書いた。Scenario「Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない」「ANDROID_SDK_ROOT だけが指す置き場の道具も、席の PATH から外す」「Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ」を足し、「外にも adb があれば」の THEN に `tsukau.log` の理由と段落・目録に無いことを足した（4.1 の下限 41・4.2 は 44・5.1 は 48）。Global Constraints に、自己試験は `ANDROID_HOME`・`ANDROID_SDK_ROOT` を偽に向けるか消し、席に渡る `PATH` を試験が組んだ置き場だけにする、を足した。9.1 に携帯の相手だけが断ることを書いた
+
+## R36. 「phone.sh は serial を引数で受けず」の Scenario は、serial を引数で渡す場合を試していない。`phone.sh` の道具が無いときの止まり方は design にしか無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md
+- 根拠: Scenario「phone.sh は serial を引数で受けず、ほかの端末を名指さない」の WHEN は、`ANDROID_SERIAL=emulator-5554` で呼ぶ場合と、引数に serial を含まない `shell`・`shot`・`ui` だけ。題の「引数で受けず」を試す呼び方（たとえば `phone.sh -s emulator-5554 shell …`）が無い。
+  `adb` は `-s` を明示すれば `ANDROID_SERIAL` を見ないので、この WHEN は `-s` を付ける実装なら必ず通り、引数を読む実装も落とせない。引数で serial を渡されたときの振る舞い（断るのか、無視するのか）も決まっていない。
+  design D25（足した行）の「`$ANDROID_HOME` が無いか、そこに `adb` が無ければ rc≠0 で『携帯の道具が見つからない』と 1 行出す」は、観測できる振る舞いなのに Requirement にも Scenario にも無い。tasks.md:200 も、文言は持つが印を持たない。
+  細部: design D32 は、外す置き場を「`platform-tools`・`emulator`・`cmdline-tools/latest/bin`。今の `tools/android-env.sh` の 7 行が足すもの」と書く。ところが tools/android-env.sh:7 が足すのは `$JAVA_HOME/bin`・`cmdline-tools/latest/bin`・`platform-tools` で、`emulator` は足さない（premises.md:50 の「名前の `emulator` は無い」と合う）。外す範囲は「`$ANDROID_HOME` の下を全部」なので振る舞いは変わらないが、根拠の文が実物と違う
+- kind: technical
+- 提案: WHEN に serial を引数で渡す呼び方を足し、THEN に rc≠0（か、`-s emulator-5600` のまま）を決めて書く。
+  Scenario「携帯の道具が見つからなければ、phone.sh は 1 行で断る」を足す（偽の `$ANDROID_HOME` に `adb` を置かず、rc≠0 と「携帯の道具が見つからない」を見る）。印を Task 9.1 に足し、下限を 49 に上げる。
+  D32 の括弧の文は、android-env.sh:7 の実物に合わせて直す
+- 処置: fixed D25 —— Requirement に「最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0」「`$ANDROID_HOME` の下に `adb` が無ければ『携帯の道具が見つからない』で rc≠0」を足し、Scenario「phone.sh は serial を引数で受けず…」の WHEN に `phone.sh -s emulator-5554 shell …`（rc≠0・`adb` を呼ばない）を足した。Scenario「携帯の道具が見つからなければ、phone.sh は 1 行で断る」を足した（9.1 の下限 49）。design D25 に引数の扱いを書き、D32 の括弧の文を `tools/android-env.sh:7` の実物に合わせた
+
+### 第 3 版で確かめて指摘にしなかったもの
+
+- IMP-13 の本人の補足（逐語「席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする」）は、呼び方の Requirement と携帯の Requirement の本文・Scenario 4 本（足した 2 本と直した 2 本）・design D32・D25・tasks の Global Constraints・4.1・9.1・11.2 に写っている。「`phone.sh` だけ」は案内の Scenario の THEN にある
+- `tools/emulator-start.sh` は `adb` を名前で呼ぶ（:117・:119・:141・:143）。`emulator` は `$ANDROID_HOME/emulator/emulator`（:64）で呼ぶ。design D32 の「`env-hook.sh` は自分のプロセスの `PATH` の先に足してから読み込む」は、これと合う。携帯の相手の Scenario「受けた PATH に adb が無くても…」が、そのことを固定している
+- `tsukau.py` は、席（:493-495）にも差し込み口（:447-449 の `hook_env`）にも `os.environ` を渡す。そのため `verify-batch.sh` で外した `PATH` は差し込み口にも届き、差し込み口が自分で足し戻す設計が要る。design D32 はそのとおりに書いている。D34（仮）の依頼（harness2-request-seat-path.json）は「差し込み口に渡す環境は変えない」と書き、これと合う
+- 仮でない D32 は本人の補足そのもの（外すこと・`phone.sh` だけ）。仮の D33（外しても見つかれば呼ばない）と D34（仮）（手で呼ぶ道は harness2 の鍵）は、補足が決めていない細部で、外しても失うのは席が回らないことと待つことだけ。この分け方に食い違いは無い
+
+観点 7: 該当なし（spec_overlap.py candidates が 0 件。CH22 は 2026-11-21 に archive 済みで、requires の CH22 は満たされている）

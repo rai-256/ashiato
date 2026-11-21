@@ -280,7 +280,7 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 
 - `phone.sh shell <命令>`（`adb -s <serial> shell`。出力をそのまま返す）・`phone.sh shot <置き場>`（`adb -s <serial> exec-out screencap -p` を `$TSUKAU_EVIDENCE` へ）・`phone.sh ui`（`uiautomator dump` の XML を返す。押す場所を探す）。serial は `<state>` から読む
 - 押す・打つは `phone.sh shell 'input tap <x> <y>'`・`input text`・`input keyevent`。案内に、`ui` で探して `input tap` で押す例を載せる
-- `phone.sh` は `adb` を名前で探さず、`$ANDROID_HOME/platform-tools/adb` で呼ぶ（席の `PATH` には `adb` が無い。D32）。`$ANDROID_HOME` が無いか、そこに `adb` が無ければ rc≠0 で「携帯の道具が見つからない」と 1 行出す。
+- `phone.sh` は `adb` を名前で探さず、`$ANDROID_HOME/platform-tools/adb` で呼ぶ（席の `PATH` には `adb` が無い。D32）。`$ANDROID_HOME` が無いか、そこに `adb` が無ければ rc≠0 で「携帯の道具が見つからない」と 1 行出す。最初の引数が `shell`・`shot`・`ui` でなければ（`-s <serial>` から始めたときを含む）`adb` を呼ばずに rc≠0。
   serial は `<state>` に残したものだけを `-s` に渡し、引数で serial を受けない（席がほかの端末を名指す口を作らない）
 - 反転条件: 席が `input` で操作できない画面が続くとき（口を足す）
 
@@ -290,16 +290,17 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 
 - **どこで外すか**: harness2 の `scripts/tsukau.py` は、席（`claude -p`）にも差し込み口（`env-hook.sh`）にも、呼んだ側の環境をそのまま渡す（`.harness2/scripts/tsukau.py` の 447〜449 行・493〜495 行）。差し込み口の設定の鍵は閉じていて（94 行・231〜232 行）、この repo から席だけの環境を足す口は無い。
   そこで、確認バッチの準備から呼ぶ道は `verify-batch.sh` が `tsukau.py` を呼ぶときの `PATH` から外す（この repo。下流の Task 4）。手で呼ぶ `/tsukau` は harness2 への別の依頼（`harness2-request-seat-path.json`。D34（仮））で、席の環境だけから外す口を足してもらう
-- **何を外すか**: 渡す `PATH` から、`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下にある置き場を全部外す（`platform-tools`・`emulator`・`cmdline-tools/latest/bin`。今の `tools/android-env.sh` の 7 行が足すもの）。ほかの置き場の並びは変えない。
+- **何を外すか**: 渡す `PATH` から、`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下にある置き場を全部外す（`$ANDROID_HOME` の下を全部。今の `tools/android-env.sh` の 7 行が足すのは `cmdline-tools/latest/bin` と `platform-tools`）。ほかの置き場の並びは変えない。値が無いか空の変数は外す置き場に数えない（前置きの一致で空の値が全部の置き場に当たり、SDK の無い PC で画面と PC の席が `git` も見つけられなくなるのを防ぐ。review/spec.md R35）。
   外した後の判定は、置き場の名前でなく結果で見る: 渡す `PATH` で `adb` と `emulator` が名前で見つからないこと（`command -v` が空）。見つかるときの扱いは D33（仮）
 - **全部の相手で外す**: 席はどの相手でもこの PC のホストで動き、同じ `adb` を持つ（IMP-13）。画面と PC の相手の席からも外す
 - **差し込み口は自分で道具を見つける**: 外した `PATH` は `env-hook.sh` にも渡る。`env-hook.sh` は頭で、自分のプロセスの `PATH` の先に `$ANDROID_HOME/platform-tools`・`$ANDROID_HOME/emulator`・`$ANDROID_HOME/cmdline-tools/latest/bin` を足してから `tools/emulator-start.sh` を読み込む（`emulator-start.sh` は 117〜143 行で `adb` を名前で呼ぶ。触れないもの）。
-  自分のプロセスの中だけで、席の `PATH` は変えない。`$ANDROID_HOME` が無いか、そこに `adb` か `emulator` が無ければ、今の「SDK が無ければ断る」と同じく `UNAVAILABLE=`。`phone.sh` は D25
+  自分のプロセスの中だけで、席の `PATH` は変えない。`$ANDROID_HOME` が無いか、そこに `adb` か `emulator` が無ければ、今の「SDK が無ければ断る」と同じく `UNAVAILABLE=`。道具を探して断るのは携帯の相手だけで、画面と PC の相手は今のまま立てる。`phone.sh` は D25
 - **案内**: 携帯の相手の案内に、「この席の `PATH` に `adb` は無い。端末は `tools/tsukau/phone.sh` だけで触る」を書く
 - 失わない側: 席が `adb` を名前で呼んで、本人の実機（`adb devices` に出る全部）に届く道を閉じる。差し込み口と `phone.sh` は今と同じ `adb` を使う
 - 費用: 渡す `PATH` を組む十数行と自己試験。席が gradle や `adb` を自分で走らせて確かめることはできない（席の役目でない）
 - 残るもの（IMP-13 の残り。名前で見つからなくするだけ）: 席は `$ANDROID_HOME` を持つので、絶対パスで `adb` を呼べば届く。`adb` の待ち受け（ホストの 5037 番）に直に話しかけても届く。止めるのは席の規範（harness2 の `skills/tsukau/SKILL.md` の 85 行「案内が『触らない』としたもの（実データ・本人の環境・ほかのサービス）に触らない」）と案内の「触らない」まで
-- 反転条件: 席が絶対パスや待ち受けで `adb` に届いた跡が `logs/claude.jsonl` に出たとき（席を別の利用者か作業箱で動かす形を本人に聞く。A）
+- **本物の席で確かめる**: 席（Claude Code）の Bash が、渡された `PATH` を引き継ぐかは偽の席では見えない。下流の Task 4.3 が、`verify-batch.sh` の渡す `PATH` で本物の `claude -p` を起こし、席の Bash で `adb` と `emulator` が名前で見つからないことを見る（review/spec.md R34）
+- 反転条件: 本物の席の Bash で `adb` か `emulator` が名前で見つかったとき（Task 4.3。席の Bash が `PATH` を足し戻す道を調べ、外し方を本人に聞く。A）・席が絶対パスや待ち受けで `adb` に届いた跡が `logs/claude.jsonl` に出たとき（席を別の利用者か作業箱で動かす形を本人に聞く。A）
 
 ### D33（仮）. 外した後も `adb` か `emulator` が名前で見つかれば、どの相手の席も呼ばない（IMP-13 の答えの細部）
 
@@ -314,7 +315,7 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 - 依頼（`harness2-request-seat-path.json`。処置の依頼 D15 と別の 1 件）: `tools/tsukau/tsukau.json` に任意の鍵 `seat_hide`（命令の名前の配列）を足す。
   `tsukau.py` は、席（`claude -p`）に渡す環境の `PATH` から、その名前の実行できるファイルを持つ置き場を外す。差し込み口（`env_hook`）に渡す環境は変えない。外した後もその名前が見つかれば、席を起こさずに `env_failed` で終える
 - 処置の依頼と分ける: 処置（確認バッチの段）と、席の起こし方（`tsukau.py`）は触る所も確かめ方も違う。1 件にまとめると、どちらかが断られたときに切り分けられない
-- CH21 は、依頼が入った後に `tsukau.json` に `"seat_hide": ["adb", "emulator"]` を足す（下流の Task 12。入る前に足すと、`tsukau.py check` が知らない鍵で落とす）。入るまでは、手で呼んだ席には `adb` が見える。CH21 は D18 で harness2 の処置を待って main に入らないので、手で呼ぶ席がこの repo の差し込み口で回るのも同じく依頼が入った後になる
+- CH21 は、依頼が入った後に `tsukau.json` に `"seat_hide": ["adb", "emulator"]` を足す（spec の差し込み口の Requirement と Scenario「harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す」。下流の Task 12。入る前に足すと、`tsukau.py check` が知らない鍵で落とす）。入るまでは、手で呼んだ席には `adb` が見える。CH21 は D18 で harness2 の処置を待って main に入らないので、手で呼ぶ席がこの repo の差し込み口で回るのも同じく依頼が入った後になる
 - `verify-batch.sh` の外し方（D32）は、依頼が入った後も残す（準備の道を harness2 の版に依らずに自己試験で固定する）
 - 失わない側: 手で呼ぶ道も同じ形で閉じる。依頼が断られても、確認バッチの道は D32 で閉じている
 - 費用: harness2 に 1 件の依頼。CH21 の終わりがそれも待つ

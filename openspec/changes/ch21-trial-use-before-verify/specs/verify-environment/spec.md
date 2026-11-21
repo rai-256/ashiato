@@ -3,13 +3,19 @@
 ### Requirement: 使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す
 
 THE SYSTEM SHALL harness2 の使ってみる席（`scripts/tsukau.py`）が読む差し込み口 `tools/tsukau/tsukau.json` を持たせる。
-鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）・`pc`（PC）・`android`（携帯のエミュレータ）の 3 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つだけにする。
+鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）・`pc`（PC）・`android`（携帯のエミュレータ）の 3 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つと、harness2 の席の台本が席の環境から命令を隠す鍵を持った後は `seat_hide`（`["adb", "emulator"]`。席に渡す `PATH` から `adb` と `emulator` の置き場を外させる）だけにする。
+THE SYSTEM SHALL 手で呼ぶ `/tsukau` の席にも、`seat_hide` で `adb` と `emulator` を名前で見つけさせない（harness2 がその鍵を持った後。それまでは確認バッチの準備から呼ぶ席だけが外す）。
 THE SYSTEM SHALL 手で呼ぶ `/tsukau` も、確認バッチの準備から呼ぶ席も、この差し込み口と同じ `out_root` を使わせる。手で呼んだ席には処置へ渡す目録を作らせない（結果を手元に残すだけ）。
-導出元: CH21（依頼の「どこまで」。携帯は依頼では「外」だったが、仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」で相手に足した）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。
+導出元: CH21（依頼の「どこまで」。携帯は依頼では「外」だったが、仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」で相手に足した）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。`seat_hide` は IMP-13 の本人の答え（第 2 回の合意。design D32・D34（仮））。
 
 #### Scenario: 差し込み口の形が席の台本の契約に合う
 - **WHEN** `tools/tsukau/tsukau.json` を読む
-- **THEN** 鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` の 4 つだけで、`env_hook` の台本は実行でき、`ready_timeout_s` は 900、`out_root` は `~/.local/state/ashiato2/tsukau` である
+- **THEN** 鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` と、あれば `seat_hide` だけで、`env_hook` の台本は実行でき、`ready_timeout_s` は 900、`out_root` は `~/.local/state/ashiato2/tsukau` である
+
+#### Scenario: harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す
+- **GIVEN** 席の台本（`.harness2/scripts/tsukau.py`）が鍵 `seat_hide` を持つ木
+- **WHEN** `tools/tsukau/tsukau.json` を読み、`python3 scripts/tsukau.py check` を走らせる
+- **THEN** `seat_hide` はちょうど `["adb", "emulator"]` で、`check` は rc=0 で終わる
 
 #### Scenario: 相手は画面と PC と携帯の 3 つである
 - **WHEN** `tools/tsukau/tsukau.json` の `targets` を読む
@@ -81,7 +87,7 @@ THE SYSTEM SHALL 画面の相手と携帯の相手には、確認バッチの準
 THE SYSTEM SHALL PC の範囲があれば、席を呼ぶ前に確認バッチの木から配る zip を組ませ（`tools/tsukau/build-pc.sh`。上限 2,400 秒）、その置き場を絶対パスで渡させる（`ASHIATO_TSUKAU_PC_ZIPS`）。組めなければ PC の席を呼ばない（画面の席は呼ぶ）。
 THE SYSTEM SHALL 1 回の呼び出しに、立てる上限・席の時間・席の台本の片付けの上限に 1 分を足した 1,860 秒（900 + 600 + 300 + 60）で SIGTERM を送り、席の台本の片付けを 360 秒まで待ってから止めさせる（合わせて 2,220 秒）。打ち切った後でも、最後の行が読めて `stop` が `done`・`time`・`tokens` なら、席を呼んだ回として件数と題を写させる。
 打ち切った後、呼ぶ前に無かった Sandbox・専用の AVD（`ashiato-tsukau-api35`）のエミュレータ・`ashiato-tsukau-` で始まる compose project のどれかが残っていれば、片付けに残りがあるとみなす。
-THE SYSTEM SHALL どの相手の席も、`PATH` から `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼ばせ（ほかの置き場の並びは変えない）、その `PATH` で `adb` と `emulator` が名前で見つからないことを確かめさせる。見つかれば、その回はどの相手の席も呼ばず、段落を「席を呼べなかった」、目録の `state` を `not_run` にさせる（理由は `dist/verify-<tag>/tsukau.log` にだけ書く）。
+THE SYSTEM SHALL どの相手の席も、`PATH` から `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼ばせ（ほかの置き場の並びは変えない。値が無いか空の変数は外す置き場に数えない）、その `PATH` で `adb` と `emulator` が名前で見つからないことを確かめさせる。見つかれば、その回はどの相手の席も呼ばず、段落を「席を呼べなかった」、目録の `state` を `not_run` にさせる（理由は `dist/verify-<tag>/tsukau.log` にだけ書く）。
 導出元: CH21（依頼「小さい時間と token で毎回呼ぶ」）。深掘り Q7（第 1 回の推奨: 準備の中で、確認バッチの木から手元で組む）・Q10（10 分・20 万）。review/deep.md R2・R11。携帯の相手は仕様への違和感（第 1 回の合意）で足した。席の `PATH` から Android の道具を外すのは IMP-13 の本人の答え（第 2 回の合意「席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする」。design D32・D33（仮））。
 
 #### Scenario: 範囲のある相手だけを、決まった時間と token で呼ぶ
@@ -107,7 +113,26 @@ THE SYSTEM SHALL どの相手の席も、`PATH` から `$ANDROID_HOME` と `$AND
 #### Scenario: Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない
 - **GIVEN** 上の準備の環境に、`$ANDROID_HOME` の外の置き場に置いた偽の `adb` を `PATH` に足したものと、受けた引数を記録する偽の席の台本
 - **WHEN** 画面と携帯の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる
-- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」と「携帯: 」の段落は「席を呼べなかった」で始まり、目録の `web` と `android` の `state` は `not_run` である
+- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」と「携帯: 」の段落は「席を呼べなかった」で始まり、目録の `web` と `android` の `state` は `not_run` で、`dist/verify-t1/tsukau.log` に「席の PATH から adb を外せない」があり、段落と目録には無い
+
+#### Scenario: Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない
+- **GIVEN** `$ANDROID_HOME` の置き場を `PATH` に持つ準備の環境に、`$ANDROID_HOME` の外の置き場に置いた偽の `emulator` を `PATH` に足したものと、受けた引数を記録する偽の席の台本
+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」の段落は「席を呼べなかった」で始まる
+
+#### Scenario: ANDROID_SDK_ROOT だけが指す置き場の道具も、席の PATH から外す
+- **GIVEN** `$ANDROID_HOME` と別の偽の置き場を `$ANDROID_SDK_ROOT` に向け、その `platform-tools` に偽の `adb` を置いて `PATH` に持つ準備の環境と、受けた `PATH` と `command -v adb` の結果を記録する偽の席の台本
+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** 偽の席の台本は 1 回呼ばれ、記録した `PATH` に `$ANDROID_SDK_ROOT` の下の置き場は無く、`command -v adb` は空である
+
+#### Scenario: Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ
+- **GIVEN** `ANDROID_HOME` と `ANDROID_SDK_ROOT` を持たず、`PATH` に `adb` と `emulator` の無い準備の環境と、受けた `PATH` を記録する偽の席の台本
+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる
+- **THEN** 偽の席の台本は 1 回呼ばれ、記録した `PATH` は準備の環境の `PATH` と同じである
+
+#### Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない
+- **WHEN** この PC で、`tools/tsukau/verify-batch.sh` が席に渡す `PATH` で本物の `claude -p` を起こし、席の Bash で `command -v adb` と `command -v emulator` を走らせる
+- **THEN** どちらも何も出さず、同じ席の Bash で `command -v git` は見つかる
 
 #### Scenario: 画面の相手には、準備が組んだ置き場を絶対パスで渡す
 - **GIVEN** 受けた環境変数を記録する偽の席の台本
@@ -461,7 +486,7 @@ THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>
 接続先と資格情報は組み立ての引数（`-P`）で渡し、`~/.gradle/gradle.properties` の値に負けないようにする。`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先と資格情報・配る APK の署名の鍵は使わない。
 THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた、のどちらかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
 THE SYSTEM SHALL `adb` の操作を、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
-THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には `<state>` に残した serial のほかを名指させない。
+THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には `<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。
 案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）と、席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
 THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
 導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31（仮）・D25・D26（仮）。review/spec.md R20〜R27。`$ANDROID_HOME` から道具を見つけるのと案内の「`phone.sh` だけ」は IMP-13 の本人の答え（第 2 回の合意。design D32）。
@@ -538,8 +563,13 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 
 #### Scenario: phone.sh は serial を引数で受けず、ほかの端末を名指さない
 - **GIVEN** `<state>` に serial `emulator-5600` が残り、受けた引数を記録する偽の `adb`
-- **WHEN** `ANDROID_SERIAL=emulator-5554 tools/tsukau/phone.sh shell 'echo hello'` と `tools/tsukau/phone.sh shot <置き場>` と `tools/tsukau/phone.sh ui` を走らせる
-- **THEN** 偽の `adb` の呼び出しはどれも最初の 2 つの引数が `-s emulator-5600` である
+- **WHEN** `tools/tsukau/phone.sh -s emulator-5554 shell 'echo hello'` と、`ANDROID_SERIAL=emulator-5554 tools/tsukau/phone.sh shell 'echo hello'` と `tools/tsukau/phone.sh shot <置き場>` と `tools/tsukau/phone.sh ui` を走らせる
+- **THEN** `-s emulator-5554` から始めた呼び出しは rc≠0 で、偽の `adb` を呼ばず、ほかの 3 つの呼び出しで偽の `adb` が受けた呼び出しはどれも最初の 2 つの引数が `-s emulator-5600` である
+
+#### Scenario: 携帯の道具が見つからなければ、phone.sh は 1 行で断る
+- **GIVEN** `<state>` に serial `emulator-5600` が残り、`platform-tools` に `adb` を置かない偽の `$ANDROID_HOME`
+- **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
+- **THEN** rc≠0 で、出力に「携帯の道具が見つからない」がある
 
 #### Scenario: 携帯の案内は、口と網と触らないものを書く
 - **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届かない」と答える偽の `adb` と偽の `emulator`
