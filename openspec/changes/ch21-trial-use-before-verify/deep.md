@@ -131,3 +131,22 @@
     - `harness2-request-seat-path.json` を足した（処置の依頼とは別の 1 件）。`docs/changes/CH21.md` の価値・壊してはいけないもの・完了の判定、premises.md（3 行）
     - 仕様のレビュー R33〜R36 の処置で足したもの: 差し込み口の Requirement の鍵に `seat_hide`（harness2 の鍵が入った後）と、手で呼ぶ席にも当てること。Scenario「harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す」「Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない」「ANDROID_SDK_ROOT だけが指す置き場の道具も、席の PATH から外す」「Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ」「本物の席の Bash で、adb と emulator が名前で見つからない」「携帯の道具が見つからなければ、phone.sh は 1 行で断る」と、R38 の「Android の SDK が無くても、画面の相手は立つ」（画面の相手の Requirement に 1 文）。tasks 4.3（本物の席で確かめ直す）・12.2 の `check-seat-hide.sh`。本物の席の Bash が渡された `PATH` を引き継ぐことは 2026-11-22 に実測した（premises.md）
     - 直さなかったもの: 席が絶対パスや `adb` の待ち受け（ホストの 5037 番）で `adb` に届くことは止めていない（本人の答えは「PATH から外す」。名前で見つからなくするだけ）。残りとして design D32 と Risks に書いた。GO 資料の IMP-13 の残りに書き直すのは次の reading の段
+
+## 影響の判断（第 3 回の合意）
+
+### IMP-05（席はホストで動き、本人の .env に届きうる）
+
+- 答え: (未回答)
+- 補足: なし
+- 第 1 回・第 2 回は「受け入れて進める（リリースの前に判断し直す）」だったが、第 3 回の 1 枚では答えが無い。読んだだけでは閉じない（`agreement.json` の `impacts` は `closed: false`）
+
+### IMP-13（席はホストの adb で本人の実機に届きうる）
+
+- 答え: 直した・確かめた結果に同意する
+- 補足: なし
+- 第 2 回の「仕様を直す」の直し（席の `PATH` から Android の道具の置き場を外す。design D32・D33（仮）・D34（仮））に同意した。`agreement.json` の `impacts` は `closed: true`・`release: ok`
+
+## 仕様への違和感（第 3 回の合意）
+
+- QA の答え: 合意する（ただし IMP-05 が未回答なので、合意は差し戻し）
+- IMP-05: IMP-05 に答えが無い（未回答。読んだだけでは閉じない）
