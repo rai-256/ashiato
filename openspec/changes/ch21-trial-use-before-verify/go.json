@@ -44,7 +44,7 @@
   "phone.4",
   "handoff.3",
   "handoff.7",
-  "call.4"
+  "call.6"
  ],
  "features": [
   {
@@ -108,6 +108,26 @@
       "decisions": [
        "Q5",
        "D17"
+      ]
+     }
+    },
+    {
+     "id": "hook.4",
+     "kind": "exception",
+     "tags": [
+      "Security"
+     ],
+     "text": "手で呼ぶ /tsukau の席からも adb と emulator を隠す。harness2 に席の環境から命令を隠す鍵（seat_hide）を依頼し、入った後に tsukau.json に足す。入るまでは手で呼んだ席に adb が見えるが、CH21 は harness2 の処置を待って main に入らない",
+     "refs": {
+      "requirements": [
+       "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す"
+      ],
+      "scenarios": [
+       "harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す",
+       "差し込み口の形が席の台本の契約に合う"
+      ],
+      "decisions": [
+       "D34"
       ]
      }
     }
@@ -210,7 +230,7 @@
    "tldr": "準備の最後に、範囲のある相手ごとに 10 分・20 万 token で席を 1 回呼ぶ。落ちても準備は止めない。",
    "gist": [
     "席は確認バッチの木を写した使い捨ての作業ツリーで走り、本人の .env を持たない。",
-    "準備は最大 9,360 秒延び、その間は確認バッチの作業ツリーの錠を握る。"
+    "席の PATH から adb と emulator を外す。準備は最大 9,360 秒延び、その間は確認バッチの作業ツリーの錠を握る。"
    ],
    "words": [
     {
@@ -316,6 +336,38 @@
       ],
       "decisions": [
        "Q13"
+      ]
+     }
+    },
+    {
+     "id": "call.6",
+     "kind": "caution",
+     "tags": [
+      "Android",
+      "Security"
+     ],
+     "text": "どの相手の席も PATH から Android の道具の置き場を外して呼ぶ。席は adb と emulator を名前で呼べず、端末に届く口は phone.sh だけ。外しても名前で見つかれば、その回はどの相手の席も呼ばず「席を呼べなかった」と書く",
+     "examples": [
+      {
+       "wrong": "apt で入れた /usr/bin/adb があっても、画面の席だけは回る",
+       "right": "外した後に adb か emulator が名前で見つかれば、画面と PC の席も呼ばない"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ"
+      ],
+      "scenarios": [
+       "席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない",
+       "Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+       "Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない",
+       "ANDROID_SDK_ROOT だけが指す置き場の道具も、席の PATH から外す",
+       "Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ",
+       "本物の席の Bash で、adb と emulator が名前で見つからない"
+      ],
+      "decisions": [
+       "D32",
+       "D33"
       ]
      }
     }
@@ -885,7 +937,7 @@
    "summary": "専用のエミュレータを網を切って起こし、その回のサーバ向けの APK を入れて触らせる",
    "tldr": "携帯は専用のエミュレータを画面なし・網なしで起こし、その回のサーバ向けの APK を入れて席に触らせる。",
    "gist": [
-    "本人の携帯（実機）と、本人・計測テストのエミュレータには触らない。自分の serial だけを名指す。",
+    "本人の携帯（実機）と、本人・計測テストのエミュレータには触らない。席が端末に届く口は phone.sh だけ。",
     "網を切るので、外とつないで初めて出る携帯の不具合はこの席では見えない。"
    ],
    "words": [
@@ -922,7 +974,7 @@
     {
      "id": "phone.2",
      "kind": "normal",
-     "text": "席は tools/tsukau/phone.sh の shell・shot・ui で端末を触る。押す・打つは shell から input で行う",
+     "text": "席が端末に届く口は tools/tsukau/phone.sh の shell・shot・ui だけ。押す・打つは shell から input で行う。phone.sh は残した serial のほかを名指さず、引数で serial を受けない。道具は $ANDROID_HOME の下から自分で見つけ、無ければ 1 行で断る",
      "refs": {
       "requirements": [
        "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける"
@@ -930,10 +982,14 @@
       "scenarios": [
        "端末の中のコマンドは、自分の serial で走り、出力が返る",
        "携帯の案内は、口と網と触らないものを書く",
-       "本物のエミュレータで、席の口で端末を操作できる"
+       "本物のエミュレータで、席の口で端末を操作できる",
+       "phone.sh は serial を引数で受けず、ほかの端末を名指さない",
+       "携帯の道具が見つからなければ、phone.sh は 1 行で断る",
+       "受けた PATH に adb が無くても、差し込み口は SDK の置き場の道具で携帯の相手を立てる"
       ],
       "decisions": [
-       "D25"
+       "D25",
+       "D32"
       ]
      }
     },
@@ -1051,6 +1107,24 @@
        "D22"
       ]
      }
+    },
+    {
+     "id": "phone.9",
+     "kind": "caution",
+     "tags": [
+      "Android",
+      "Security"
+     ],
+     "text": "席が名前で adb を呼ぶ道は閉じたが、$ANDROID_HOME からの絶対パスや adb の待ち受け（ホストの 5037 番）に直に話しかければ、本人の実機にまだ届く。Windows 側に adb.exe を入れれば、それも名前で見える。止めているのは席の規範と案内の「触らない」まで（IMP-13 の残り）",
+     "refs": {
+      "requirements": [
+       "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+       "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ"
+      ],
+      "decisions": [
+       "D32"
+      ]
+     }
     }
    ]
   },
@@ -1096,7 +1170,8 @@
        "渡された置き場が無ければ、立てずに断る",
        "手で呼んだときは、置き場が渡されなければ別の木で組む",
        "画面の案内は、URL と触らないものを書き、立てたコミットを残す",
-       "片付けは、その回の project だけを消す"
+       "片付けは、その回の project だけを消す",
+       "Android の SDK が無くても、画面の相手は立つ"
       ],
       "decisions": [
        "D7"
@@ -1159,7 +1234,7 @@
  ],
  "open": [
   {
-   "text": "tasks 11.2 が docs/testing.md に足す節の位置を決めていない。CH22・CH23 も同じファイルに書き足すので、位置によっては merge で衝突する",
+   "text": "tasks 11.2 が docs/testing.md に足す節の位置を決めていない。CH22・CH23 は archive 済みで main に入ったので、今の main の上に足す",
    "tags": [
     "未解決"
    ],
@@ -1177,105 +1252,82 @@
   {
    "id": "since.1",
    "kind": "normal",
-   "text": "携帯（エミュレータ）の相手を足した（合意への違和感「スマホも操作するようにしてください。エミュレータとかで」）。専用の AVD を画面なし・網なしで起こし、その回のサーバ向けの debug の APK を入れる。本人の携帯とほかのエミュレータには触らない",
+   "text": "IMP-13 の「仕様を直す」（席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする）を写した。準備はどの相手の席も、PATH から $ANDROID_HOME と $ANDROID_SDK_ROOT の下を外して呼び、adb と emulator が名前で見つからないことを確かめる",
    "refs": {
     "requirements": [
-     "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す",
-     "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける"
+     "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ"
     ],
     "scenarios": [
-     "相手は画面と PC と携帯の 3 つである"
+     "席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない",
+     "本物の席の Bash で、adb と emulator が名前で見つからない"
     ],
     "decisions": [
-     "D22",
-     "D25",
-     "D30",
-     "D31"
+     "D32"
     ]
    }
   },
   {
    "id": "since.2",
    "kind": "normal",
-   "text": "PC の Sandbox は網を切らず、外にはつなぎ、私設網と手元の網を塞いで、この PC の 2 つの宛先に届かないと確かめてから入れる（Q8 の答え）。正典 distribution の「本物の配布元へ繋ぐ自動の試験」に 3 つ目として足し、CH22 を requires に足した",
+   "text": "差し込み口と phone.sh は $ANDROID_HOME の下の adb を自分で見つけて使う。phone.sh は serial を引数で受けず、道具が無ければ 1 行で断る。SDK が無い PC でも画面と PC の相手は今のまま立つ",
    "refs": {
     "requirements": [
-     "PC の相手は、私設網と手元の網を塞いで外にはつないだまっさらな Windows Sandbox に配る形を入れて立て、自分が起こした Sandbox だけを、中のログを写してから片付ける",
-     "更新を確かめる問い合わせは、版の一覧を取る決まった形だけを配布元へ送る"
+     "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+     "画面の相手は専用の環境で立て、本人の合言葉と確認バッチの DB を使わない"
     ],
     "scenarios": [
-     "何かを入れる前に、塞いで確かめる"
+     "受けた PATH に adb が無くても、差し込み口は SDK の置き場の道具で携帯の相手を立てる",
+     "phone.sh は serial を引数で受けず、ほかの端末を名指さない",
+     "Android の SDK が無くても、画面の相手は立つ"
     ],
     "decisions": [
-     "Q8",
-     "D6",
-     "D26",
-     "D29"
+     "D25",
+     "D32"
     ]
    }
   },
   {
    "id": "since.3",
-   "kind": "normal",
-   "text": "作り直した回は、同じ中身なら前の結果を写す形をやめ、前の回で試していない新しく入ったものだけを範囲にする（Q11 の答え）",
+   "kind": "caution",
+   "text": "外しても adb か emulator が名前で見つかる PC では、その回はどの相手の席も呼ばない（AI の仮）。手で呼ぶ /tsukau は harness2 に席から命令を隠す鍵（seat_hide）を別に依頼し、入った後に足す（AI の仮）",
    "refs": {
     "requirements": [
-     "確認バッチを作り直したときは、前の回で試していない新しく入ったものだけを範囲にする"
+     "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
+     "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す"
     ],
     "scenarios": [
-     "前の回で試したものは外し、新しく入ったものだけを範囲にする"
+     "Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+     "harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す"
     ],
     "decisions": [
-     "Q11",
-     "D10",
-     "D21"
+     "D33",
+     "D34"
     ]
    }
   },
   {
    "id": "since.4",
-   "kind": "normal",
-   "text": "準備の全体の上限は、携帯の相手を足して 7,140 秒から 9,360 秒に延びた。手順書の段落に「携帯: 」が足される",
+   "kind": "caution",
+   "text": "直さなかったもの: 席が絶対パスや adb の待ち受け（5037 番）で adb に話しかける道は止めていない。本人の答えは「PATH から外す」で、名前で見つからなくするだけ。IMP-13 の残りに書いた",
    "refs": {
     "requirements": [
-     "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
-     "席の結果は、止まり方と件数と伏せた題だけを決まった文言で手順書に写す"
-    ],
-    "scenarios": [
-     "携帯の段落は「携帯: 」で始まり、画面・PC・携帯の順に並ぶ"
+     "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける"
     ],
     "decisions": [
-     "D8",
-     "D11"
+     "D32"
     ]
    }
   },
   {
    "id": "since.5",
    "kind": "normal",
-   "text": "公開の題の網（D28）と確かめ直し（D27）は、写す道が無くなったので番号を振り直した。中身は「検査できなければ全部伏せる」「直した候補だけを半分の大きさで」のまま",
+   "text": "答えでも違和感でもない直し: CH22 が 2026-11-21 に archive されたので、「CH22 を待つ」を「正典に入った」に書き換えた",
    "refs": {
     "requirements": [
-     "公開の repo に出す題は、1 つの台本で私的な形と commit を止める形を伏せ、1 行に整える",
-     "直した後の確かめ直しは、直した候補だけを範囲に、半分の大きさで呼ぶ"
+     "PC の相手は、私設網と手元の網を塞いで外にはつないだまっさらな Windows Sandbox に配る形を入れて立て、自分が起こした Sandbox だけを、中のログを写してから片付ける"
     ],
     "decisions": [
-     "D27",
-     "D28"
-    ]
-   }
-  },
-  {
-   "id": "since.6",
-   "kind": "caution",
-   "text": "携帯の相手を足したことで、席がホストの adb で本人の実機に届きうることが分かった（IMP-13。重大）。前回の IMP-05 の答えはこれに及ばないので、改めて聞く",
-   "refs": {
-    "requirements": [
-     "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける"
-    ],
-    "decisions": [
-     "D22",
-     "D25"
+     "D6"
     ]
    }
   }
@@ -2153,7 +2205,7 @@
    {
     "id": "D5",
     "target": "T5",
-    "who": "CH22（同じ rust の job に update-apply-install.sh の隣へ行を足す）",
+    "who": "CH22（2026-11-21 に archive 済み。同じ rust の job に update-apply-install.sh の隣へ行を足した）",
     "role": "writes",
     "assumes": "rust の job の update-apply-install.sh --self-test の直後に自分の行を足す",
     "holds": "yes",
@@ -2167,26 +2219,26 @@
    {
     "id": "D10",
     "target": "T5",
-    "who": "CH22（docs/testing.md の CI の表の install-windows の行に置く段を書き足す）と CH23（vulns-nightly.yml の行に書き足す）",
+    "who": "CH22（2026-11-21 に archive 済み。docs/testing.md の CI の表の install-windows の行に置く段を書き足した）と CH23（2026-11-20 に archive 済み。vulns-nightly.yml の行に書き足した）",
     "role": "writes",
     "assumes": "docs/testing.md の自分の行だけを書き足す",
     "holds": "unknown",
-    "affects": "CH22・CH23 は決まった行の中に書き足す。CH21 の tasks 9.2 は「1 節で書く」とだけ言い、位置を決めていないので、末尾に足せば merge で衝突しうる",
+    "affects": "CH22・CH23 は決まった行の中に書き足して main に入った。CH21 の tasks は節の位置を決めていないが、今の main の上に足すので、衝突は main への載せ直しで見える",
     "basis": "observed",
     "evidence": [
      "E11",
      "E12"
     ],
-    "verify": "下流で節を足す前に、CH22・CH23 の書き足す行と離れた位置かを git merge-tree で確かめる"
+    "verify": "下流で節を足すとき、今の main の docs/testing.md の上に足し、CI の check-shared-appends.sh が通ることを見る"
    },
    {
     "id": "D6",
     "target": "T9",
-    "who": "CH22（同じ Requirement を名指しの 2 つに書き直す走っている change）",
+    "who": "CH22（2026-11-21 に archive 済み。同じ Requirement を名指しの 2 つに書き直し、正典に入った）",
     "role": "writes",
     "assumes": "CH21 の MODIFIED は、CH22 が書き直した文に 3 つ目を足しただけ",
     "holds": "yes",
-    "affects": "CH22 の spec が変われば、merge gate が「依存の spec:」で落とし、CH21 の写しを直す（requires に CH22）",
+    "affects": "CH22 の書き直しは正典に入ったので、CH21 の MODIFIED はその正典の文に 3 つ目を足す",
     "basis": "observed",
     "evidence": [
      "E7"
@@ -2373,25 +2425,31 @@
     "target": "T8",
     "who": "使ってみる席（harness2 tsukau.py が起こす claude）がホストで使える adb",
     "role": "writes",
-    "assumes": "席は phone.sh を通して自分の serial だけを触る（PATH に adb はある）",
+    "assumes": "席の PATH に adb と emulator は無く、席が端末に届く口は phone.sh だけ（D32）。絶対パスや adb の待ち受けへの直の呼び出しは止めていない",
     "holds": "unknown",
     "affects": "案内に反して adb を直に使えば、繋がっている実機に届きうる",
-    "basis": "derived",
-    "verify": "実地の 1 回の journal に、phone.sh を通らない adb の呼び出しが無いかを見る",
+    "basis": "observed",
+    "verify": "実地の 1 回の journal に、phone.sh を通らない adb の呼び出し（絶対パス・待ち受け）が無いかを見る",
     "leads_to": [
      "IMP-13"
     ],
     "evidence": [
      "E20",
-     "E21"
+     "E21",
+     "E22",
+     "E23"
     ],
     "refs": {
      "requirements": [
-      "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける"
+      "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+      "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ"
      ],
      "decisions": [
       "D22",
-      "D25"
+      "D25",
+      "D32",
+      "D33",
+      "D34"
      ]
     }
    }
@@ -2439,13 +2497,13 @@
    {
     "id": "E6",
     "source": "story",
-    "loc": "openspec/changes/ch22-soak-install-online-ci/tasks.md:82",
+    "loc": "openspec/changes/archive/2026-11-21-ch22-soak-install-online-ci/tasks.md:87",
     "quote": "`rust` の job の `update-apply-install.sh --self-test` の隣に `./tools/release/soak-install.sh --self-test` を足す"
    },
    {
     "id": "E7",
     "source": "story",
-    "loc": "openspec/changes/ch22-soak-install-online-ci/specs/distribution/spec.md:253",
+    "loc": "openspec/changes/archive/2026-11-21-ch22-soak-install-online-ci/specs/distribution/spec.md:273",
     "quote": "THE SYSTEM SHALL 自動の試験が本物の配布元（`api.github.com`）へ繋ぐのを、次の 2 つに限る"
    },
    {
@@ -2469,13 +2527,13 @@
    {
     "id": "E11",
     "source": "story",
-    "loc": "openspec/changes/ch22-soak-install-online-ci/tasks.md:99",
+    "loc": "openspec/changes/archive/2026-11-21-ch22-soak-install-online-ci/tasks.md:104",
     "quote": "`docs/testing.md` の CI の job の表の `install-windows` の行に"
    },
    {
     "id": "E12",
     "source": "story",
-    "loc": "openspec/changes/ch23-vulns-nightly-issue-fix/tasks.md:60",
+    "loc": "openspec/changes/archive/2026-11-20-ch23-vulns-nightly-issue-fix/tasks.md:60",
     "quote": "`docs/testing.md` の `vulns-nightly.yml` の行に"
    },
    {
@@ -2517,7 +2575,7 @@
    {
     "id": "E19",
     "source": "ops",
-    "loc": "tools/android-emulator.sh:20",
+    "loc": "tools/android-emulator.sh:38",
     "quote": "AVD=\"${AVD:-ashiato-api35}\""
    },
    {
@@ -2531,6 +2589,18 @@
     "source": "ops",
     "loc": "tools/verify-prep.sh:52",
     "quote": ". ./tools/android-env.sh"
+   },
+   {
+    "id": "E22",
+    "source": "design",
+    "loc": "openspec/changes/ch21-trial-use-before-verify/design.md:301",
+    "quote": "席は `$ANDROID_HOME` を持つので、絶対パスで `adb` を呼べば届く"
+   },
+   {
+    "id": "E23",
+    "source": "design",
+    "loc": "openspec/changes/ch21-trial-use-before-verify/premises.md:50",
+    "quote": "本物の席の Bash は渡された `PATH` を引き継ぎ、`adb` と `emulator` は見つからず（rc=1）"
    }
   ],
   "lost": [
@@ -3082,6 +3152,30 @@
       "D31"
      ]
     }
+   },
+   {
+    "id": "R17",
+    "kind": "停止",
+    "rule": "席の PATH から Android の道具の置き場を外した後も adb か emulator が名前で見つかれば、その回はどの相手の席も呼ばない",
+    "target": "席が名前で adb を呼び、本人の実機に届くこと",
+    "legit": "本人が $ANDROID_HOME の外（apt など）に adb を入れた PC では、画面と PC の席も毎回回らない。いまの PC の adb は $ANDROID_HOME の下の 1 つだけ。止まるのは確認バッチの準備から呼ぶ席だけで、手で呼ぶ /tsukau は対象外（harness2 の鍵 seat_hide が入った後は、外せなければ席を起こさずに終える）",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
+      "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す"
+     ],
+     "scenarios": [
+      "Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+      "Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない"
+     ],
+     "decisions": [
+      "D32",
+      "D33",
+      "D34"
+     ]
+    }
    }
   ],
   "scenarios": [
@@ -3362,6 +3456,36 @@
      ],
      "decisions": [
       "D22"
+     ]
+    }
+   },
+   {
+    "id": "S10",
+    "rule": "R17",
+    "goal": "画面を変えた回で、AI に先に触らせたい",
+    "initial": "本人が別の用で apt から adb を入れ、/usr/bin/adb がある",
+    "action": "次の確認バッチを作る",
+    "trigger": "席の PATH から Android の置き場を外しても adb が名前で見つかる",
+    "result": "画面・PC・携帯のどの席も呼ばれず、段落は「席を呼べなかった」。理由は手元の tsukau.log にだけ書かれる",
+    "lost": "その PC で /usr/bin/adb を消すまで、毎回の使ってみる席",
+    "decision": "その置き場から adb だけを隠す形を本人に聞くか（D33 の反転条件）",
+    "occurs_when": [
+     "$ANDROID_HOME の外に adb か emulator がある"
+    ],
+    "not_when": [
+     "adb が $ANDROID_HOME の下にしか無い（いまの PC）",
+     "Android の SDK が無い PC（外すものが無く、画面と PC の席は呼ぶ）"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ"
+     ],
+     "scenarios": [
+      "Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない"
+     ],
+     "decisions": [
+      "D33"
      ]
     }
    }
@@ -3823,18 +3947,19 @@
    {
     "id": "IMP-13",
     "severity": "high",
-    "status": "open",
+    "status": "reflected",
     "title": "席はホストの adb で本人の実機に届きうる",
-    "text": "差し込み口の adb は自分の serial だけを名指すが、席（claude）はホストの WSL で許しの形 auto で走る。確認バッチの準備は Android の道具を PATH に足してから席を呼び（E21・E20）、席の台本は環境をそのまま渡すので、席は adb を直に使える。WSL の adb に本人の携帯（実機）が見える構成（無線のデバッグ・USB を WSL へ渡す設定）で繋がっていれば、席が案内に反して実機に入れる・消す・止めることを機械では止めていない。止めているのは案内の「触らないもの」だけ（IMP-05 と同じ根だが、IMP-05 の答えは携帯の相手を足す前のもので、これには及ばない）。WSL の adb に実機が見えない構成なら、この IMP は起きない",
+    "text": "直す前は、確認バッチの準備が Android の道具を PATH に足してから席を呼び（E21・E20）、席の台本は環境をそのまま渡すので、席（ホストの WSL で許しの形 auto で走る claude）は adb を名前で直に使えた。WSL の adb に本人の携帯が見える構成なら、案内に反して実機に入れる・消す・止めることを機械では止めていなかった。本人の答えで、準備は席の PATH から Android の道具の置き場を外して呼ぶようにした（D32）。いまは名前では届かず、$ANDROID_HOME からの絶対パスと adb の待ち受け（5037 番）に直に話しかける道が残る。WSL の adb に実機が見えない構成なら、この IMP は起きない",
     "basis": "derived",
     "unknowns": [
      "この PC の WSL の adb に本人の実機が見える構成か（WSL2 は既定では USB の携帯を見ない。無線のデバッグなら見えうる）",
-     "席が案内に反して実機を操作するか",
+     "席が案内に反して、絶対パスや adb の待ち受けで実機を操作するか",
      "この PC に本人の実機がデバッグで繋がっている時間がどれだけあるか",
-     "手で呼ぶ /tsukau の環境に adb があるか（呼ぶ人の環境による）"
+     "harness2 が seat_hide の鍵を入れるか（断られたら、手で呼ぶ席の adb は本人に返す）",
+     "Windows 側に adb.exe を入れたとき。外す判定は adb と emulator の名前だけを見るので、WSL が引き継ぐ Windows の PATH の adb.exe は見逃す（いまのこの PC に adb.exe は無い。premises.md）"
     ],
-    "derived": "準備は android-env.sh を source して PATH に platform-tools を足す（E21・E20）。席の台本は claude を auto で起こす（E10）。仕様が adb を名指しに限るのは差し込み口の台本だけ",
-    "undefined": "席から実機を隠す網（PATH から adb を外す・adb の server を分ける など）",
+    "derived": "直す前: 準備は android-env.sh を source して PATH に platform-tools を足し（E21・E20）、席の台本は claude を auto で起こす（E10）。直した後: 準備の渡す PATH から $ANDROID_HOME と $ANDROID_SDK_ROOT の下を外し、adb と emulator が名前で見つかれば席を呼ばない（D32・D33）。外すのは名前だけで、絶対パスと待ち受けは閉じない（E22）",
+    "undefined": "絶対パスや adb の待ち受けからも実機を隠す網（席を別の利用者か作業箱で動かす・adb の server を分ける など）。Windows 側の adb.exe を外す名前に入れるか",
     "feasibility": "unverified",
     "options": [
      {
@@ -3851,7 +3976,9 @@
     "evidence": [
      "E10",
      "E20",
-     "E21"
+     "E21",
+     "E22",
+     "E23"
     ],
     "refs": {
      "requirements": [
@@ -3868,19 +3995,40 @@
      ]
     },
     "harm": {
-     "when": "WSL の adb に本人の携帯が見える構成で繋がったまま、席が動いているとき。",
+     "when": "WSL の adb に本人の携帯が見える構成で繋がったまま、席が絶対パスか待ち受けで adb に届いたとき。",
      "who": "本人。実機の収集アプリを消されると、送る前の記録が失われうる。",
      "link": "本人の携帯の収集アプリと、その中のまだ送っていない記録。",
-     "unknown": "WSL の adb に実機が見える構成か・席が実機に触るか・繋がっている時間は確かめていない。"
+     "unknown": "WSL の adb に実機が見える構成か・席が絶対パスで adb に触るか・繋がっている時間は確かめていない。"
     },
     "if_accepted": {
-     "residual": "本人の携帯がデバッグで繋がっている間、席が adb で実機の収集アプリを消す・止める・データを消す余地が残る。消えた未送信の記録は戻らず、本人は実機を見ないと気づけない。手当ては案内だけ",
+     "residual": "席の PATH から adb を外したので、名前で呼んで実機に届く道は閉じた。ただし、席が $ANDROID_HOME からの絶対パスか adb の待ち受け（5037 番）で直に話しかければ、本人の携帯がデバッグで繋がっている間は収集アプリを消す・止める余地が残る。Windows 側に adb.exe を入れれば、それも名前で見える。止めるのは席の規範と案内だけ。手で呼ぶ /tsukau は、ハーネスが Android の置き場を足した環境から呼んだとき、harness2 の鍵が入るまで adb が名前で見える（本人のふつうのシェルは Android の置き場を足さない）",
      "scope": "確認バッチの準備と手で呼ぶ /tsukau で席が走る間、この PC にデバッグで繋がっている本人の実機",
      "recheck": {
       "owner": "本人",
       "due": "CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）"
      }
-    }
+    },
+    "reflected_in": {
+     "requirements": [
+      "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
+      "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+      "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す"
+     ],
+     "scenarios": [
+      "席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない",
+      "Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+      "本物の席の Bash で、adb と emulator が名前で見つからない",
+      "phone.sh は serial を引数で受けず、ほかの端末を名指さない",
+      "harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す"
+     ],
+     "decisions": [
+      "D32",
+      "D33",
+      "D34",
+      "D25"
+     ]
+    },
+    "resolution": "本人の答えのとおり、確認バッチの準備はどの相手の席も PATH から $ANDROID_HOME と $ANDROID_SDK_ROOT の下を外して呼び、adb と emulator が名前で見つかれば席を呼ばない。差し込み口と phone.sh は $ANDROID_HOME の下の adb を自分で使うので、席が名前で見つけられる端末への口は phone.sh だけになる。席の Bash が渡された PATH を引き継ぐことは、手で組んだ同じ形の PATH と本物の claude -p で 2026-11-22 に確かめた（E23）。verify-batch.sh が組む PATH で同じになるかは下流の Task 4.3 が確かめる。手で呼ぶ /tsukau は harness2 の鍵 seat_hide が入った後に同じにする。止めていないのは、絶対パスか adb の待ち受け（5037 番）に直に話しかける道（E22）"
    }
   ],
   "acceptance": [
@@ -4314,6 +4462,21 @@
        "D31"
       ]
      }
+    },
+    {
+     "text": "席の PATH から adb を外す: harness2 の tsukau.py が席と差し込み口に呼んだ側の環境をそのまま渡すこと、emulator-start.sh が adb を名前で呼ぶこと、この PC の adb が $ANDROID_HOME の下の 1 つだけであることを読み、本物の claude -p の Bash で adb が名前で見つからないことを走らせて確かめた（premises.md）",
+     "refs": {
+      "requirements": [
+       "確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
+       "携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+       "使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す"
+      ],
+      "decisions": [
+       "D32",
+       "D33",
+       "D34"
+      ]
+     }
     }
    ],
    "not_examined": [
@@ -4338,8 +4501,8 @@
      "why": "エミュレータの起動だけを測った（52 秒）。残りは下流の Task 10"
     },
     {
-     "text": "席を起こす環境の PATH に adb があるか",
-     "why": "席の台本（harness2）が起こす環境を走らせて見ていない"
+     "text": "席が絶対パスか adb の待ち受け（5037 番）で adb に届くかの実地",
+     "why": "止めていない道で、実地の 1 回の journal を見るまで分からない"
     }
    ],
    "excluded": [
@@ -4386,7 +4549,7 @@
    "tldr": "PC を変えた回は窓が開き外につなぐ。作り直しでは新しく入ったものだけを試す。処置が入るまで席は回らない。"
   },
   "findings": {
-   "tldr": "重大は 2 件。席が本人の .env に届きうる（前回答え済み）と、実機に届きうる（新しく聞く）。中くらいが 7 件。"
+   "tldr": "重大は 2 件。.env に届きうる（前回受け入れ）と、実機に届きうる（PATH から外して直した。残りあり）。"
   },
   "rest": {
    "tldr": "席の中身・手で呼んだときの処置・携帯を外につなぐことは作らない。置き場と試験の名前の書き方は AI に任せた。"

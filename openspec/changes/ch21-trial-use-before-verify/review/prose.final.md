@@ -177,7 +177,7 @@ ST12 は範囲に無いので、組み合わせの引っかかりは狙って見
 PC を変えた回は窓が開き外につなぐ。作り直しでは新しく入ったものだけを試す。処置が入るまで席は回らない。
 
 <!-- prose sections.findings.tldr -->
-重大は 2 件。席が本人の .env に届きうる（前回答え済み）と、実機に届きうる（新しく聞く）。中くらいが 7 件。
+重大は 2 件。.env に届きうる（前回受け入れ）と、実機に届きうる（PATH から外して直した。残りあり）。
 
 <!-- prose sections.rest.tldr -->
 席の中身・手で呼んだときの処置・携帯を外につなぐことは作らない。置き場と試験の名前の書き方は AI に任せた。
@@ -196,6 +196,9 @@ PC を変えた回は窓が開き外につなぐ。作り直しでは新しく�
 
 <!-- prose points[hook.3].text -->
 手で呼んだ /tsukau は結果を残すだけ。処置へ渡す目録を作らず、本人が RESULT.md を読んで /iwakan か /hanasu に回す
+
+<!-- prose points[hook.4].text -->
+手で呼ぶ /tsukau の席からも adb と emulator を隠す。harness2 に席の環境から命令を隠す鍵（seat_hide）を依頼し、入った後に tsukau.json に足す。入るまでは手で呼んだ席に adb が見えるが、CH21 は harness2 の処置を待って main に入らない
 
 <!-- prose features[scope].summary -->
 入れた PR が変えたファイルで相手を決め、表題と価値を渡す
@@ -235,6 +238,9 @@ PC の範囲があれば、席を呼ぶ前に確認バッチの木から配る z
 
 <!-- prose points[call.5].text -->
 席がどう終わっても準備は rc=0 のまま続き、手順書に「使ってみる席: 呼べなかった」の 1 段落が足される。既存の段落の後に足すだけ
+
+<!-- prose points[call.6].text -->
+どの相手の席も PATH から Android の道具の置き場を外して呼ぶ。席は adb と emulator を名前で呼べず、端末に届く口は phone.sh だけ。外しても名前で見つかれば、その回はどの相手の席も呼ばず「席を呼べなかった」と書く
 
 <!-- prose features[report].summary -->
 公開に出るのは止まり方・件数・番号つきの伏せた題だけ
@@ -342,7 +348,7 @@ PC を変えた回ごとに、Sandbox の窓が本人のデスクトップに開
 画面の相手と同じ形でその回の専用の環境を立て、その木で接続先を端末の中の 127.0.0.1:18787 にした debug の APK を組む。専用の AVD のエミュレータを画面なし・前のデータを消して起こし、APK を入れて起こしてから席に渡す
 
 <!-- prose points[phone.2].text -->
-席は tools/tsukau/phone.sh の shell・shot・ui で端末を触る。押す・打つは shell から input で行う
+席が端末に届く口は tools/tsukau/phone.sh の shell・shot・ui だけ。押す・打つは shell から input で行う。phone.sh は残した serial のほかを名指さず、引数で serial を受けない。道具は $ANDROID_HOME の下から自分で見つけ、無ければ 1 行で断る
 
 <!-- prose points[phone.3].text -->
 片付けは端末のログを写してから自分のエミュレータだけを止め、その回の project と木（組むときの合言葉を含む）を消す。止まらなければ非 0 で終わる
@@ -361,6 +367,9 @@ APK の資格情報はその回の乱数を組み立ての引数で渡し、本�
 
 <!-- prose points[phone.8].text -->
 KVM を開けない・エミュレータか SDK か JDK が無い・専用の AVD のエミュレータがもう動いているときは、何も起こさずに断る（待たない）
+
+<!-- prose points[phone.9].text -->
+席が名前で adb を呼ぶ道は閉じたが、$ANDROID_HOME からの絶対パスや adb の待ち受け（ホストの 5037 番）に直に話しかければ、本人の実機にまだ届く。Windows 側に adb.exe を入れれば、それも名前で見える。止めているのは席の規範と案内の「触らない」まで（IMP-13 の残り）
 
 <!-- prose features[web].summary -->
 録画と同じく専用の環境で立て、本人の合言葉と確認バッチの DB を使わない
@@ -428,6 +437,12 @@ PC の段落は「相手を立てられなかった」
 <!-- prose impact.scenarios[S9].lost -->
 残ったエミュレータを本人が止めるまで、携帯の席
 
+<!-- prose impact.scenarios[S10].result -->
+画面・PC・携帯のどの席も呼ばれず、段落は「席を呼べなかった」。理由は手元の tsukau.log にだけ書かれる
+
+<!-- prose impact.scenarios[S10].lost -->
+その PC で /usr/bin/adb を消すまで、毎回の使ってみる席
+
 <!-- prose impact.rules[R1].legit -->
 本人が自分の Sandbox を使っている回・前の回の席が残した Sandbox がある回も、PC の席が回らない
 
@@ -475,6 +490,9 @@ tailscale が止まっている・Windows 側で一時の待ち受けを立て�
 
 <!-- prose impact.rules[R16].legit -->
 KVM が消えた日や、前の回か手で呼んだ席のエミュレータが残っている間は、携帯の席が回らない
+
+<!-- prose impact.rules[R17].legit -->
+本人が $ANDROID_HOME の外（apt など）に adb を入れた PC では、画面と PC の席も毎回回らない。いまの PC の adb は $ANDROID_HOME の下の 1 つだけ。止まるのは確認バッチの準備から呼ぶ席だけで、手で呼ぶ /tsukau は対象外（harness2 の鍵 seat_hide が入った後は、外せなければ席を起こさずに終える）
 
 <!-- prose impact.findings[IMP-02].title -->
 塞いだ Sandbox で配る形が入り、外に届くかは未確認
@@ -534,7 +552,7 @@ PC を変えた回は Sandbox の窓が本人のデスクトップに開く。�
 席はホストの adb で本人の実機に届きうる
 
 <!-- prose impact.findings[IMP-13].text -->
-差し込み口の adb は自分の serial だけを名指すが、席（claude）はホストの WSL で許しの形 auto で走る。確認バッチの準備は Android の道具を PATH に足してから席を呼び（E21・E20）、席の台本は環境をそのまま渡すので、席は adb を直に使える。WSL の adb に本人の携帯（実機）が見える構成（無線のデバッグ・USB を WSL へ渡す設定）で繋がっていれば、席が案内に反して実機に入れる・消す・止めることを機械では止めていない。止めているのは案内の「触らないもの」だけ（IMP-05 と同じ根だが、IMP-05 の答えは携帯の相手を足す前のもので、これには及ばない）。WSL の adb に実機が見えない構成なら、この IMP は起きない
+直す前は、確認バッチの準備が Android の道具を PATH に足してから席を呼び（E21・E20）、席の台本は環境をそのまま渡すので、席（ホストの WSL で許しの形 auto で走る claude）は adb を名前で直に使えた。WSL の adb に本人の携帯が見える構成なら、案内に反して実機に入れる・消す・止めることを機械では止めていなかった。本人の答えで、準備は席の PATH から Android の道具の置き場を外して呼ぶようにした（D32）。いまは名前では届かず、$ANDROID_HOME からの絶対パスと adb の待ち受け（5037 番）に直に話しかける道が残る。WSL の adb に実機が見えない構成なら、この IMP は起きない
 
 <!-- prose impact.scope.covers[0].text -->
 確認バッチの準備から呼ぶ席と、手で呼ぶ /tsukau の、画面・PC・携帯の相手の立て方
