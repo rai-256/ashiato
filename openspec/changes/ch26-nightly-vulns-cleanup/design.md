@@ -73,7 +73,7 @@ ICU の版（`icuuc67.dll` など）が変わっていれば一覧の名前も�
    17.6 で置き場を作り、サーバの移行を当てて行を入れる → 同じ置き場を 17.12 で起こし、中身が同じ・移行をもう一度当てても足すものが無い → 17.12 で 1 行足す → 同じ置き場を 17.6 で起こし、中身が同じ → 17.12 の `pg_dump --format=custom` の退避を 17.6 の `pg_restore` で空の DB に戻し、中身が同じ。
    「中身が同じ」は、同じ `pg_dump`（17.12 の像の中のもの。平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて一致することをいう。
    Windows の runner より先に、手元で PostgreSQL の側の約束が崩れていないかを見る（崩れていれば Windows を待たずに止まる）
-2. **Windows（CI）**: `pgsql.lock` を変える PR では、`package-windows` が更新の試験の古い側の zip（`package-windows-test-old`。版 `0.4.0`）だけを **PR の base の lock** で組み、新しい側（`package-windows-test-new`。版 `0.5.0`）は今の lock で組む。
+2. **Windows（CI）**: `pgsql.lock` を変える PR では、`package-windows` が更新の試験の古い側の zip（`package-windows-test-old`。版 `0.4.0`）だけを **PR が変える前の lock（base との分岐点の lock）** で組み、新しい側（`package-windows-test-new`。版 `0.5.0`）は今の lock で組む。
    `install-windows` は今のまま `tools/release/update-apply-install.sh` に 2 つを渡すので、17.6-1 の zip を入れた上で 17.12-1 の zip で更新し、移行を落として 17.6-1 へ戻す Scenario 群が Windows で走る。lock を変えない PR・main への push の組み立てと試験は今のまま（両方とも今の lock）
 
 lock は `tools/release/pgsql.sh`（`PGSQL_LOCK_FILE` を読む）のほかに、`tools/release/build.sh`（許諾の文の版と DLL の一覧）と `crates/installer/build.rs`（大きい版）が `tools/release/pgsql.lock` を直に読む（P19）。だから古い側を組む間だけ、作業木の `tools/release/pgsql.lock` を前の lock で置き換えて組み、組んだら戻す（`Cargo.toml` の版を替えて組んで戻す今の形と同じ）。組み立ての台本は変えない。

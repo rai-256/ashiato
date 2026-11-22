@@ -79,7 +79,7 @@
   検証: `tools/release/pgsql-prev-lock.sh --self-test` rc=0
   検証: `bash -c 'base=$(git merge-base origin/main HEAD) && d=$(mktemp -d) && trap "rm -rf \"$d\"" EXIT && git show "$base:tools/release/pgsql.lock" > "$d/prev.lock" && test "$(tools/release/pgsql-prev-lock.sh decide "$d/prev.lock" tools/release/pgsql.lock)" = swap && tools/release/pgsql-prev-lock.sh changed origin/main HEAD | grep -q "^true "'` rc=0
 - [ ] 4.2 `.github/workflows/ci.yml` を design D7（仮）〜D9（仮）のとおりにし、`pgsql-prev-lock.sh` に `check-workflow [<ci.yml>]` を足す:
-  - `changes` の job: PR の run でだけ `tools/release/pgsql-prev-lock.sh changed "<base.sha>" "<head.sha>"` を呼び、出力 `pgsql`（`true` / `false`）と `pgsql_from`（分岐点の commit）を置く。PR でない run は `pgsql=false`。台本が落ちたら（分岐点が取れないなど）`pgsql=true`・`pgsql_from` を空にする（`package-windows` が落とす）
+  - `changes` の job: PR の run でだけ `tools/release/pgsql-prev-lock.sh changed "<base.sha>" "<head.sha>"` を呼び、出力 `pgsql`（`true` / `false`）と `pgsql_from`（分岐点の commit）を置く。PR でない run は `pgsql=false`。台本が落ちたら（分岐点が取れないなど）`pgsql=true`・`pgsql_from` を空にする（`package-windows` が落とす）。今の「base が引けないので全部走らせる」で早く抜ける道を含め、PR の run ではどの出口でも `pgsql` を必ず書く（書かないと空 = 変えていないと読まれ、17.12 → 17.12 で緑になる）
   - `package-windows`: 鍵の step より前に、`needs.changes.outputs.pgsql == 'true'` のときだけ走る前の lock の step を置く（`pgsql_from` を浅く fetch して `tools/release/pgsql.lock` を `"$RUNNER_TEMP"` の下へ取り出し、`decide` が `swap` を出さなければ・取れなければ落とす。前の lock の sha256 を出力に置く）
   - 鍵の step の `WINDOWS_BUILD_KEY_TOOLS` の末尾に `|prev-pgsql=<前の lock の step の sha256、無ければ none>` を足す
   - 試験の zip を組む step: 前の lock があるときだけ、`old` を組む前に前の lock を `tools/release/pgsql.lock` に写し、組んだ後に `git checkout -- tools/release/pgsql.lock` で戻す（`dev-old`・`compat-old` は置き換えない）。loop の後、前の lock があれば同じ step の中で `check-zips` を `package-windows-test-old` と `package-windows-test-new` の zip に呼ぶ（保存の前）
@@ -91,8 +91,8 @@
   検証: `tools/release/windows-build-key.sh --check-workflow` rc=0
   検証: `scripts/quiet-run wbk -- tools/release/windows-build-key.sh --self-test` rc=0
   検証: `python3 -c 'import yaml,sys; d=yaml.safe_load(open(".github/workflows/ci.yml",encoding="utf-8")); r=[s.get("run","") for s in d["jobs"]["chain"]["steps"]]; sys.exit(0 if any("pgsql-prev-lock.sh --self-test" in x for x in r) and any("pgsql-prev-lock.sh check-workflow" in x for x in r) else 1)'` rc=0
-- [ ] 4.3 `docs/release.md` の「### PostgreSQL の小さい版を上げる PR」の節を、手で通す手順から「`pgsql.lock` を変える PR では、CI の `package-windows` が更新の試験の古い側の zip を PR の base の lock で組み、`install-windows` が古い側から新しい側への更新と戻しを Windows で通す。PR では `install-windows` が緑で、`package-windows` の出力に `古い側 <前の版> → 新しい側 <今の版>` があることを見る。大きい版が違う lock では CI が落ちる」に書き換える（design D8（仮））。ほかの節は変えない。main では §8（この小節を含む）の頭に「置き換え中」の ★ の注記がある（`docs/release.md:7`）—— 注記は残し、この小節だけを書き換える。
-  検証: `python3 -c 'import re,sys;t=open("docs/release.md",encoding="utf-8").read();m=re.search(r"^### PostgreSQL の小さい版を上げる PR\n(.*?)(?=^#{1,3} )",t,re.S|re.M);s=m.group(1) if m else "";sys.exit(0 if all(k in s for k in ("package-windows","install-windows","base")) and "結果を PR に残してから" not in s else 1)'` rc=0
+- [ ] 4.3 `docs/release.md` の「### PostgreSQL の小さい版を上げる PR」の節を、手で通す手順から「`pgsql.lock` を変える PR では、CI の `package-windows` が更新の試験の古い側の zip を PR が変える前の lock（base との分岐点の lock）で組み、`install-windows` が古い側から新しい側への更新と戻しを Windows で通す。PR では `install-windows` が緑で、`package-windows` の出力に `古い側 <前の版> → 新しい側 <今の版>` があることを見る。大きい版が違う lock では CI が落ちる」に書き換える（design D8（仮））。ほかの節は変えない。main では §8（この小節を含む）の頭に「置き換え中」の ★ の注記がある（`docs/release.md:7`）—— 注記は残し、この小節だけを書き換える。
+  検証: `python3 -c 'import re,sys;t=open("docs/release.md",encoding="utf-8").read();m=re.search(r"^### PostgreSQL の小さい版を上げる PR\n(.*?)(?=^#{1,3} )",t,re.S|re.M);s=m.group(1) if m else "";sys.exit(0 if all(k in s for k in ("package-windows","install-windows","分岐点")) and "結果を PR に残してから" not in s else 1)'` rc=0
 
 ## Task 5: 壊していないことを確かめ、文書をそろえ、触ったのが予定のパスだけであることを確かめる
 
