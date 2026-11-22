@@ -147,3 +147,49 @@
 - 提案: `Bearer <収集アプリの値>` と衛星の資格情報の求めに、**正しい今の合言葉**を載せる。状態 403 で、本文が `wrong_password` でないこと、`server.json` が変わらないことを見る。上の変異で落ちることを確かめる
 
 範囲外: `access_log::middleware` の素通しの一覧（`access_log.rs:166`）と `collector_scope::credential_exempt` は、別々の一覧を手で揃えている。今回も 2 か所に同じ口を足した（既存の形。R 番号は振らない）
+
+## /code-review（56fd1c5..12530a6）
+
+見た: Claude Code の組み込みの `/code-review`（7 件）。写しは scripts/code_review_record.py
+
+## R7. The install check fails at the collector-token step with a 401. The step reuses `$changed_cookie` after the earlier `/web-password` POST, but that change gives the session a new secret tag, so the old cookie is no longer valid. The server sends the replacement cookie in `Set-Cookie`, and the curl call never saves it. Fix: save the new `ashiato_session` from the `/web-password` response (`-c`/`-D`), or log in again with `$PW3` before POSTing `/collector-token`.
+- 成果物: tools/release/install-check.sh:1150
+- 根拠: Windows install-check: the `/web-password` call returns 204 and replaces `secrets` with a new tag. The `/collector-token` call then sends the old cookie, `session_valid_with_secrets` finds no row with the new tag, and the server answers 401. The script stops at `die '収集アプリの値の変更に答えない'`.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. Login and `/collector-setup` can still accept the old secrets after a change has finished. Both take their secrets snapshot before they wait for the `LOGIN_CHECK` permit: `session_post_checked` reads `app.secrets_snapshot()` early, and `collector_setup_post` uses the snapshot taken in `refresh_cookie`. A request queued behind a `/web-password` or `/collector-token` change is therefore checked against the old password, and its answer is built from the old values. Fix: take the snapshot after the permit is acquired, inside `check_given_password_with_secrets` or right after it, and use that snapshot for the tag and the token.
+- 成果物: crates/server/src/web_session.rs:1372
+- 根拠: Request A is changing the password and holds the permit. Request B logs in with the old password, takes its snapshot, and waits. A finishes and swaps the secrets. B is then accepted with the old password and gets a 204 and a cookie carrying the old tag, which every later request rejects with 401. The same thing happens with `/collector-setup` during a token change: the phone receives the old API token, which is already invalid.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. When saving fails, the access log still records a successful change. `web_password_post_inner` writes the `ok` row and inserts a new `core.web_session` row before it calls `replace_setting`. If the save then fails, the log holds both `ok`/204 and a 500 row, and the session row stays behind with a tag that never becomes valid. `collector_token_post_checked` (around line 1146) writes its `ok` row before `replace_setting` in the same way. Fix: write the `ok` row, insert the session, and set the cookie only after `replace_setting` succeeds, or delete the session row when the save fails.
+- 成果物: crates/server/src/web_session.rs:837
+- 根拠: `server.json.writing` cannot be created (the e2e test makes it a directory). The response is 500 `not_saved`, but the access log contains a `/web-password` `ok` 204 entry, so an audit reports a password change that never happened.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. Argon2id hashing and verification now run on the async worker. `password_verifier` hashes inline in `web_password_post_inner`, and in `collector_token_post_checked`, `generate_collector_token` runs `check_web_password_verifier` and `check_web_session_key_verifier` (two Argon2 verifies) inline, plus a hash in the Plain case. `replace_setting` also does synchronous file I/O and `sync_all` there. All of this happens while the global `LOGIN_CHECK` permit is held. This breaks the rule from review R23 that Argon2 work runs on the blocking side. Fix: wrap the hashing, the token generation and `replace_setting` in `spawn_blocking`.
+- 成果物: crates/server/src/web_session.rs:818
+- 根拠: A password or token change keeps a tokio worker busy for tens of milliseconds or more, and the fsync adds more. Every other request on that worker stalls, and every login waits behind the permit.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R11. Rewriting `server.json` can loosen its file permissions and leaves a secrets-bearing temp file behind on failure. `replace_setting_at` opens `server.json.writing` with the default mode (0666 minus the process umask, so 0644) and renames it over `server.json`. The original file was created 0600 (`umask 077` in `settings-server.sh`). If `write_all`, `sync_all` or `rename` fails, the half-written file with every secret stays on disk. Fix: on Unix, copy the original file's permissions to the temp file (or create it 0600), and remove the temp file on every error path.
+- 成果物: crates/server/src/service.rs:298
+- 根拠: On Linux the service-mode server (`tools/settings-server.sh up`) changes the token. `server.json` goes from 0600 to 0644, so any local user can read `API_TOKEN`, `WEB_SESSION_KEY` and `DATABASE_URL`.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R12. The permit is no longer released only after a failure has been counted. Before this change the permit was moved into `spawn_blocking` and dropped after `limiter.record_failure()` (review R78). `check_with_permit_using_secrets` now only borrows it (`let _ = permit`), and the caller's future owns it. If that future is dropped while it awaits `spawn_blocking`, the permit is released before the failure is counted. `run_to_completion` hides this today, but the guarantee is gone, and `check_with_permit` called directly (as in the tests) shows it. Fix: pass an owned permit into the blocking closure again, for example `Arc` or the owned guard.
+- 成果物: crates/server/src/web_session.rs:1305
+- 根拠: A caller that is not wrapped in `run_to_completion` is cancelled during the Argon2 verify. The next check takes the permit and reads the limiter before the previous failure is recorded, so it gets past the 10-failure limit.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R13. While login is throttled, the new endpoints still queue on the global permit before refusing. `check_given_password_with_secrets` checks `limiter.throttled()` before it waits for the permit and before it reads the body (reviews R4 and R5). `web_password_post_inner` and `collector_token_post_checked` call `login_check_permit().await` directly, so they skip that early check. Fix: check `app.login.limiter.throttled()` before acquiring the permit, as `check_given_password_with_secrets` does.
+- 成果物: crates/server/src/web_session.rs:773
+- 根拠: During throttling, many `/web-password` or `/collector-token` requests line up behind the permit and delay ordinary login answers, instead of getting an immediate 429.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
