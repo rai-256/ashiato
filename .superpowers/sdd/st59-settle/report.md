@@ -63,3 +63,41 @@
 - `cargo test -p ashiato-server st59_`: 39 passed。`ch15`: 9 passed。`web_session`: 37 passed。
 - `cargo test -p ashiato-server`（全体）: 2035 passed・1 failed。落ちたのは `ch15_verifier_cancelled_requests_still_leave_a_row`（5 秒の待ちの切れ。load average 28 の下）。単独で 3 回走らせて 3 回とも ok。同じ試験は今日 08:43（この変更の前）のログ `20261122-084339-web-session.log` でも落ちており、既存の負荷による揺れ。
 - `cargo fmt -p ashiato-server` を当てた。`cargo clippy -p ashiato-server --all-targets -- -D warnings` は `request_secrets`（lib.rs:1000）と `check_given_password_with_secrets`（web_session.rs:1414）の dead_code で落ちる。どちらもこの回の diff が触れていない関数で、この回の処置の範囲外（報告だけ）。
+
+## settle（final review の後）: R22〜R27
+
+### R22（fixed 9.1）
+- `crates/server/src/lib.rs`: 読み手の無い `request_secrets` と task_local の `REQUEST_SECRETS` を消した。`replace_secrets` の要らなくなった `#[allow(dead_code)]` を外した
+- `crates/server/src/web_session.rs`: `refresh_cookie` の `REQUEST_SECRETS.scope(...)` を外し（読み手が無い）、呼び手の無い `check_given_password_with_secrets` を消した
+- `cargo clippy -p ashiato-server --all-targets -- -D warnings` → rc=0（Finished。警告なし）。9.1 の全体は `scripts/verify-run 9.1`（結果は下の「検証」）
+
+### R23（escalated。コードは仕様の順に戻した）
+- 指摘は kind=premise・loss=uncaptured。`review_triage.py` は premise を `fixed` で閉じさせない（仮の D13 を足して試したが「kind=premise は人間に返すもの」で FAIL）。そこで `deep.md` 第 2 回 Q4（未回答）・`deep-questions-r2.json`・`docs/briefs/ST59-deep-r2.html` で本人に返した
+- コードは推奨の側（仕様の本文・design D1/D9 の順）にした: `/web-password` は 照合 → ハッシュ → 衝突の検査 → 新しい tag の印の行 → `ok`/204 の行 → 書き戻し → 差し替え → `Set-Cookie`。`/collector-token` は 照合 → 値を作る → `ok`/200 の行 → 書き戻し → 差し替え。印の行か `ok` の行を書けなければ何も変えずに 500。書き戻しに落ちたら差し替えず、`forbidden`/500 の打ち消しの行を足して 500 `not_saved`
+- 書き戻しは一時のファイルからの名前の付け替え（D2）なので、巻き戻しは要らなくなった。`restore_setting_after_failed_change`・`service::replace_setting_with_previous`・`service::restore_setting` を消した（R15・R16・R20 の巻き戻しの道はもう無い）
+- 試験 `st59_both_write_failure_returns_not_saved`（印「書き戻しに落ちた求めは、変えた行と打ち消しの行の 2 行で残る」）: `ok` の行も `old + 1` を見るように戻し、口ごとに `ok` の行の `max(at)` ≤ 打ち消しの行の `max(at)`（打ち消しが後に並ぶ）を足した
+- 試験 `st59_both_access_log_failure_returns_500_without_changes`: `ok` の行を書けない場合は書き戻しが起きないので、`server.json` の比べを JSON からバイトに戻した（R17 の緩めを戻した）
+- 本人が「後に書く」を選んだら、答えの後の見直しで順と spec を直す
+
+### R24（fixed 6.1）
+- `web/src/messages.ts` の `secretChange.setupLead` を spec の案内の全文「全部の収集アプリ（携帯と PC）にこの文字列を貼り直してください。携帯に入れる文字列は、携帯から開いた画面で『収集アプリの設定』から出してください」にした
+- `web/e2e/st59-change-secrets.spec.ts`: 案内を全文の `getByText(..., { exact: true })` で見るようにした（部分一致をやめた）
+
+### R25（fixed 9.1）
+- `crates/server/src/st55_tests.rs`: `env_lock()` を `pub(crate)` にした（鍵は `ENV_LOCK` の 1 つ）
+- `crates/server/src/st59_tests.rs`: `ST59_SETTINGS_LOCK` を消し、`st59_service_environment` と開発の形の 2 本の試験は `super::st55_tests::env_lock()` を取る。手で環境変数を戻していた 3 か所を、drop で戻す guard `EnvRemoved::remove(&SERVICE_ENV)` にした（assert が落ちても戻る）
+
+### R26（fixed D1）
+- `web_password_post_inner`・`collector_token_post_checked`: 照合の後の印を `permit` に受け、`Throttled`・`Mismatch` の枝の最初で `drop(permit)` してから行を書き、失敗の遅れを待つ（ログインの口と同じ。失敗は blocking task の中で数え終えている）。通った枝は今どおり差し替えの後まで印を持つ（D1）
+
+### R27（fixed D9）
+- 変える 2 つの口の照合の後の 500 の道（ハッシュ・衝突の検査・印の行の INSERT・値を作る task・書き戻し。JoinError も含む）は、どれも `tracing::warn!(op = …, reason = %…)`（理由は秘密を含まない語。`SettingsWriteError` の Display・JoinError・`collides`）を出し、`forbidden`/500 の行を書いてから返す。印の行の INSERT は今どおり `internal_at` が sqlstate を出す
+- 試験 `st59_both_write_failure_returns_not_saved` にログの取り込みを足し、`web_password.save`・`collector_token.save` と `settings_write_failed` が 2 回出ることを見る
+
+### 検証
+- `cargo fmt -p ashiato-server`・`cargo clippy -p ashiato-server --all-targets -- -D warnings` → rc=0
+- `cargo test -p ashiato-server --lib st59_ -- --list` → 39 本。`scripts/quiet-run st59 -- cargo test -p ashiato-server st59_` → rc=0（`39 passed; 0 failed`、67s）
+- `scripts/quiet-run st55 -- cargo test -p ashiato-server --lib st55_` → rc=0（`43 passed; 0 failed`）
+- `scripts/verify-run 6.1` → PASS（e2e `st59-change-secrets.spec.ts` 9 passed・210s / `tsc && vitest && lint` rc=0・42s）
+- `scripts/verify-run 9.1` → PASS（fmt・clippy の linux と windows-gnu・`cargo test --workspace` rc=0・648s / `check-openapi.sh`・`check-log-private.sh`・`check-secrets.sh`・`check_scenarios.py` rc=0・72s）。R22 の「HEAD で 9.1 の全体を取り直す」はこれ
+- `python3 scripts/review_triage.py . st59-change-password-from-web --no-verdict` → `triage: OK` rc=0
