@@ -1,0 +1,50 @@
+{
+  "status": "accepted",
+  "digest": "1b3e173149d2fc8c4fd7e672ff965684e92c50f9b968a62785fd51f046d9eb58",
+  "head": "8ee21190466cddd383c16561bd01c036d4047bab",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-22T15:44:54Z",
+  "risk": {
+    "automatic": "high",
+    "decision": "kept"
+  },
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "PR の携帯の APK は、本人の携帯に上書きで入らない"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "PR のサーバの組み立ては、入れ替わらないか、版を下げる更新に入る"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "番号付けの順番待ちが取り消されると、番号が遅れる"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "手元で番号の形を渡すと、同じ番号で別の中身を組める"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "番号の印 build-* は消せる・動かせる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "配った版にだけ急ぎの直しを当てる手順を、ST62 まで仕様は定めていない"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "low",
+      "title": "約 4 年で真ん中の上限に届き、番号付けが止まる"
+    }
+  ]
+}
