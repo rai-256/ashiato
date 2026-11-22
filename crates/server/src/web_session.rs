@@ -814,6 +814,7 @@ fn given_password(body: &[u8]) -> String {
 /// 入れられた合言葉を、2 つの口で同じ道に通して照合する（CH15 design D1）。
 /// 断る数の判定から失敗の数え上げまでを 1 つずつ通す。照合を blocking の側へ逃がしても、
 /// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
+#[allow(dead_code)]
 pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordCheck {
     let secrets = app.secrets_snapshot();
     check_given_password_with_secrets(app, body, &secrets).await
@@ -838,6 +839,7 @@ pub(crate) async fn check_given_password_with_secrets(
 }
 
 /// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
+#[allow(dead_code)]
 pub(crate) async fn check_with_permit(
     app: &App,
     given: String,

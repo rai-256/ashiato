@@ -698,6 +698,7 @@ impl App {
 
     /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
     #[cfg(test)]
+    #[allow(clippy::inconsistent_struct_constructor)]
     pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
         let current = self.secrets_snapshot();
         let secrets = std::sync::Arc::new(std::sync::RwLock::new(
@@ -722,6 +723,7 @@ impl App {
 
     /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
+    #[allow(clippy::inconsistent_struct_constructor)]
     pub(crate) fn with_session_key(self, session_key: &str) -> Self {
         let login = self.login.with_session_key_for_test(session_key);
         let secrets = login.secrets.clone();
@@ -741,6 +743,7 @@ impl App {
         self.secrets.read().expect("secret store poisoned").clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn replace_secrets(&self, secrets: web_session::SharedSecrets) {
         *self.secrets.write().expect("secret store poisoned") = secrets;
     }

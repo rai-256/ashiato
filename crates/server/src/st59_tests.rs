@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use super::access_log::{AccessEntry, AccessFuture, AccessSink};
 use super::testdb;
 use super::web_session::{self, SharedSecrets};
@@ -9,6 +11,8 @@ use std::sync::{
     Arc,
 };
 use tower::ServiceExt as _;
+
+static SETTINGS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn st59_swap_bundle_contains_the_three_shared_values() {
@@ -115,6 +119,99 @@ async fn st59_swap_replacement_keeps_limiter_and_replaces_api_token() {
     assert_eq!(
         super::decided(&app, &new).await,
         Authn::Decided(Some(web_session::Caller::ApiToken))
+    );
+}
+
+#[test]
+fn st59_settings_replaces_one_key_and_preserves_the_other_entries() {
+    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server.json");
+    std::fs::write(
+        &path,
+        br#"{"API_TOKEN":"old-api-token","WEB_PASSWORD_VERIFIER":"old-verifier","BIND":"127.0.0.1:18700"}"#,
+    )
+    .unwrap();
+    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
+
+    super::service::replace_setting("API_TOKEN", "new-api-token").unwrap();
+
+    let settings = super::service::load_settings(&path).unwrap();
+    assert_eq!(
+        settings.0.get("API_TOKEN"),
+        Some(&"new-api-token".to_owned())
+    );
+    assert_eq!(
+        settings.0.get("WEB_PASSWORD_VERIFIER"),
+        Some(&"old-verifier".to_owned())
+    );
+    assert_eq!(settings.0.get("BIND"), Some(&"127.0.0.1:18700".to_owned()));
+}
+
+#[test]
+fn st59_settings_writes_a_file_loadable_by_load_settings() {
+    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server.json");
+    std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
+    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
+
+    super::service::replace_setting("WEB_PASSWORD_VERIFIER", "new-verifier").unwrap();
+
+    let settings = super::service::load_settings(&path).unwrap();
+    assert_eq!(
+        settings.0.get("WEB_PASSWORD_VERIFIER"),
+        Some(&"new-verifier".to_owned())
+    );
+}
+
+#[test]
+fn st59_settings_keeps_the_original_when_writing_file_cannot_be_created() {
+    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server.json");
+    std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
+    std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
+    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
+
+    assert!(super::service::replace_setting("API_TOKEN", "new-api-token").is_err());
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        br#"{"API_TOKEN":"old-api-token"}"#
+    );
+}
+
+#[test]
+fn st59_settings_does_not_write_when_original_json_is_malformed() {
+    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server.json");
+    std::fs::write(&path, br#"{"API_TOKEN":}"#).unwrap();
+    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
+
+    assert!(super::service::replace_setting("API_TOKEN", "new-api-token").is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), br#"{"API_TOKEN":}"#);
+}
+
+#[test]
+fn st59_settings_overwrites_a_stale_writing_file() {
+    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server.json");
+    let writing = path.with_file_name("server.json.writing");
+    std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
+    std::fs::write(&writing, b"stale").unwrap();
+    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
+
+    super::service::replace_setting("API_TOKEN", "new-api-token").unwrap();
+
+    assert!(!writing.exists());
+    assert_eq!(
+        super::service::load_settings(&path)
+            .unwrap()
+            .0
+            .get("API_TOKEN"),
+        Some(&"new-api-token".to_owned())
     );
 }
 
