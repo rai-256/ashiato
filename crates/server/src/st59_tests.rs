@@ -197,7 +197,9 @@ fn collector_setup_request(cookie: &str, password: &str) -> Request<Body> {
         .method("POST")
         .uri("/collector-setup")
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(serde_json::json!({"password": password}).to_string()))
+        .body(Body::from(
+            serde_json::json!({"password": password}).to_string(),
+        ))
         .unwrap();
     request.headers_mut().insert(
         header::COOKIE,
@@ -232,10 +234,7 @@ async fn st59_collector_token_changes_the_token() {
         super::decided(&app, &bearer(new_token)).await,
         Authn::Decided(Some(web_session::Caller::ApiToken))
     );
-    let new_response = router(app)
-        .oneshot(events_bearer(new_token))
-        .await
-        .unwrap();
+    let new_response = router(app).oneshot(events_bearer(new_token)).await.unwrap();
     assert_eq!(new_response.status(), StatusCode::OK);
 }
 
@@ -281,7 +280,8 @@ async fn st59_collector_token_wrong_password_keeps_old_token() {
 async fn st59_collector_token_rejects_non_web_callers() {
     let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
     let app = st59_app().await;
-    let settings_path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let settings_path =
+        std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
     let before_settings = std::fs::read(&settings_path).unwrap();
     assert_eq!(
         router(app.clone())
@@ -323,7 +323,11 @@ async fn st59_collector_token_rejects_non_web_callers() {
         format!("Bearer {satellite_token}").parse().unwrap(),
     );
     assert_eq!(
-        router(app).oneshot(satellite_request).await.unwrap().status(),
+        router(app)
+            .oneshot(satellite_request)
+            .await
+            .unwrap()
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(std::fs::read(settings_path).unwrap(), before_settings);
@@ -399,10 +403,7 @@ async fn st59_collector_token_uses_new_token_after_rebuilding_app() {
     let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
     let settings = super::service::load_settings(&path).unwrap();
     assert_eq!(settings.0.get("API_TOKEN").unwrap(), &new_token);
-    let rebuilt = App::for_test(
-        testdb::pool().await,
-        settings.0.get("API_TOKEN").unwrap(),
-    );
+    let rebuilt = App::for_test(testdb::pool().await, settings.0.get("API_TOKEN").unwrap());
     assert_eq!(
         super::decided(&rebuilt, &bearer(&new_token)).await,
         Authn::Decided(Some(web_session::Caller::ApiToken))
@@ -415,10 +416,25 @@ async fn st59_both_failure_limiter_throttles_collector_token() {
     let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
     let app = st59_app().await;
     let cookie = login(&app, app.web_password_for_test()).await;
-    let settings_path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let settings_path =
+        std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
     let before_settings = std::fs::read(&settings_path).unwrap();
-    assert_eq!(router(app.clone()).oneshot(login_request("wrong-login-0123456789")).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(router(app.clone()).oneshot(collector_setup_request(&cookie, "wrong-setup-0123456789")).await.unwrap().status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        router(app.clone())
+            .oneshot(login_request("wrong-login-0123456789"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        router(app.clone())
+            .oneshot(collector_setup_request(&cookie, "wrong-setup-0123456789"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
     for _ in 0..4 {
         assert_eq!(
             router(app.clone())
@@ -529,7 +545,10 @@ async fn st59_both_rejection_statuses_are_recorded() {
         (
             "/collector-token",
             router(app.clone())
-                .oneshot(collector_token_change_request(None, "old-web-password-012345"))
+                .oneshot(collector_token_change_request(
+                    None,
+                    "old-web-password-012345",
+                ))
                 .await
                 .unwrap(),
         ),
@@ -560,8 +579,12 @@ async fn st59_both_rejection_statuses_are_recorded() {
     ] {
         assert_eq!(response.status(), StatusCode::CONFLICT);
     }
-    if let Some(value) = old_mode { std::env::set_var("ASHIATO_SERVICE_MODE", value); }
-    if let Some(value) = old_path { std::env::set_var("ASHIATO_SETTINGS_PATH", value); }
+    if let Some(value) = old_mode {
+        std::env::set_var("ASHIATO_SERVICE_MODE", value);
+    }
+    if let Some(value) = old_path {
+        std::env::set_var("ASHIATO_SETTINGS_PATH", value);
+    }
     let response = router(app.clone())
         .oneshot(web_password_request(
             Some(&cookie),
@@ -645,14 +668,24 @@ async fn st59_both_write_failure_returns_not_saved() {
             .unwrap(),
     ] {
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(response_body_json(response).await, serde_json::json!({"error":"not_saved"}));
+        assert_eq!(
+            response_body_json(response).await,
+            serde_json::json!({"error":"not_saved"})
+        );
     }
     assert_eq!(std::fs::read(&path).unwrap(), before);
     let writing = path.with_file_name("server.json.writing");
     assert!(writing.is_dir());
     std::fs::remove_dir(&writing).unwrap();
     assert!(!writing.exists());
-    assert_eq!(router(app.clone()).oneshot(events_bearer("old-api-token-012345")).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(
+        router(app.clone())
+            .oneshot(events_bearer("old-api-token-012345"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
     assert!(login(&app, "old-web-password-012345").await.len() > 10);
 }
 
@@ -757,6 +790,7 @@ async fn st59_both_access_log_failure_returns_500_without_changes() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 // Scenario: 開発の形のサーバでは、画面から変えられないと出る
 async fn st59_both_development_mode_is_not_changeable() {
     let _lock = ST59_SETTINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -806,18 +840,61 @@ async fn st59_both_changes_are_access_logged() {
             .bind(route).bind(outcome).bind(status as i16).fetch_one(&query_pool).await.unwrap()
         }
     })).await;
-    assert_eq!(router(app.clone()).oneshot(web_password_request(Some(&cookie), "wrong-web-password-012345", "new-web-password-012345", "new-web-password-012345")).await.unwrap().status(), StatusCode::FORBIDDEN);
-    assert_eq!(router(app.clone()).oneshot(collector_token_change_request(Some(&cookie), "wrong-web-password-012345")).await.unwrap().status(), StatusCode::FORBIDDEN);
-    let web_response = router(app.clone()).oneshot(web_password_request(Some(&cookie), "old-web-password-012345", "new-web-password-012345", "new-web-password-012345")).await.unwrap();
+    assert_eq!(
+        router(app.clone())
+            .oneshot(web_password_request(
+                Some(&cookie),
+                "wrong-web-password-012345",
+                "new-web-password-012345",
+                "new-web-password-012345"
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        router(app.clone())
+            .oneshot(collector_token_change_request(
+                Some(&cookie),
+                "wrong-web-password-012345"
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let web_response = router(app.clone())
+        .oneshot(web_password_request(
+            Some(&cookie),
+            "old-web-password-012345",
+            "new-web-password-012345",
+            "new-web-password-012345",
+        ))
+        .await
+        .unwrap();
     assert_eq!(web_response.status(), StatusCode::NO_CONTENT);
     let new_cookie = cookie_value(&web_response);
-    assert_eq!(router(app).oneshot(collector_token_change_request(Some(&new_cookie), "new-web-password-012345")).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(
+        router(app)
+            .oneshot(collector_token_change_request(
+                Some(&new_cookie),
+                "new-web-password-012345"
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
     for ((route, outcome, status), old) in [
         ("/web-password", "forbidden", 403),
         ("/web-password", "ok", 204),
         ("/collector-token", "forbidden", 403),
         ("/collector-token", "ok", 200),
-    ].into_iter().zip(before) {
+    ]
+    .into_iter()
+    .zip(before)
+    {
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.access_log WHERE route = $1 AND outcome = $2 AND status = $3")
             .bind(route).bind(outcome).bind(status as i16).fetch_one(&pool).await.unwrap();
         assert_eq!(count, old + 1, "{route} {outcome} {status}");
@@ -856,10 +933,7 @@ async fn st59_web_password_handler_applies_all_five_validation_rules() {
         StatusCode::BAD_REQUEST
     );
     assert_eq!(std::fs::read(path).unwrap(), before);
-    assert_eq!(
-        login(&app, app.web_password_for_test()).await.len() > 10,
-        true
-    );
+    assert!(login(&app, app.web_password_for_test()).await.len() > 10);
 }
 
 #[tokio::test]
@@ -1011,6 +1085,7 @@ async fn st59_web_password_handler_preserves_failure_limiter() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn st59_web_password_handler_rejects_development_mode() {
     let _lock = ST59_SETTINGS_LOCK
         .lock()

@@ -721,15 +721,6 @@ impl App {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_api_token_for_test(self, api_token: &str) -> Self {
-        let current = self.secrets_snapshot();
-        let secrets = std::sync::Arc::new(std::sync::RwLock::new(
-            current.with_api_token(api_token.to_owned()),
-        ));
-        Self { secrets, ..self }
-    }
-
     /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
     #[allow(clippy::inconsistent_struct_constructor)]
