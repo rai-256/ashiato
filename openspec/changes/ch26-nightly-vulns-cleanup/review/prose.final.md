@@ -3,10 +3,10 @@
 `<!-- prose … -->` の行は変えない・消さない・並べ替えない。各行の下の文だけを推敲する。
 
 <!-- prose purpose -->
-毎晩赤だった脆弱性の夜間の検査を緑に戻し、次に新しい勧告が出たら赤で気づけるようにする。挙がった 4 件は、上げられるものは上げ、上げられないものは理由と 90 日の期限を付けて例外にする。配布物の PostgreSQL は 17.12 にし、今まで使っていた DB はそのまま使える。
+毎晩赤だった脆弱性の夜間の検査を緑に戻し、次に新しい勧告が出たら赤で気づけるようにする。挙がった 4 件は、上げられるものは上げ、上げられないものは理由と 90 日の期限を付けて例外にする。配布物の PostgreSQL は 17.12 にし、今まで使っていた DB はそのまま使える。PostgreSQL の版を上げる PR では、前の版の配布物から新しい版への更新と戻しを CI が Windows で通すので、本人が手で確かめなくてよい。
 
 <!-- prose impact.overview -->
-夜間の脆弱性検査が緑に戻り、次の勧告に気づけるようになる。配布物の PostgreSQL は 17.12 になり、今の DB はこの分析と台本の範囲ではそのまま使える。代わりに、libsqlite3-sys と chrono の 2 件は 90 日のあいだ検査で知らされなくなる。Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。
+夜間の脆弱性検査が緑に戻り、次の勧告に気づけるようになる。配布物の PostgreSQL は 17.12 になり、今の DB をそのまま使うことを台本と CI で確かめる（まだ走らせていない）。lock を変える PR では、CI が前の版の配布物から今の版への更新と戻しを Windows で通す。代わりに、libsqlite3-sys と chrono の 2 件は 90 日のあいだ検査で知らされなくなり、lock を変えた PR で前の lock が取れない・大きい版が違うと CI が落ちる。
 
 <!-- prose impact.problem -->
 夜間の検査が 11-19 から毎晩赤で、立った 4 件の issue が手付かずのまま。新しい勧告が出ても赤に埋もれて気づけない。
@@ -41,32 +41,89 @@ merge の後の夜間の検査の結果を見る
 <!-- prose uses[U1].steps[2].see -->
 新しい勧告の ID か、例外の行の「期限切れ」
 
+<!-- prose uses[U2].title -->
+次に PostgreSQL の小さい版を上げる PR で、手を動かさずに更新を確かめる
+
+<!-- prose uses[U2].trigger -->
+EDB が 17.13 を出し、遅れの検査が赤になった。pgsql.lock を 17.13-1 に上げる PR を作る。前は前の版の zip を手で組んで更新と戻しを通す手順だった。
+
+<!-- prose uses[U2].outcome -->
+前の版の配布物から新しい版への更新と戻しが Windows で通ったと、PR の CI だけで分かる
+
+<!-- prose uses[U2].without -->
+前の版の zip を手で組み、Windows で更新と戻しを通して結果を PR に残す手間がかかる（docs/release.md の今の手順）
+
+<!-- prose uses[U2].steps[0].do -->
+pgsql.lock を 17.13-1 にした PR を出す
+
+<!-- prose uses[U2].steps[0].see -->
+CI の package-windows が古い側の試験の zip を分岐点の lock（17.12-1）で組む
+
+<!-- prose uses[U2].steps[1].do -->
+package-windows の出力を見る
+
+<!-- prose uses[U2].steps[1].see -->
+「古い側 17.12-1 → 新しい側 17.13-1」
+
+<!-- prose uses[U2].steps[2].do -->
+install-windows の結果を見る
+
+<!-- prose uses[U2].steps[2].see -->
+緑。更新と、移行が落ちたときの戻しの Scenario 群が通った
+
 <!-- prose walkthroughs[W1].title -->
-17.6 の配布版が入った PC を、17.12 の配布物で更新する
+この PR の CI が、17.6 の配布物を 17.12 の配布物で更新する
 
 <!-- prose walkthroughs[W1].scene -->
-本人の PC に PostgreSQL 17.6 を同梱した配布版のサーバが入っている。この change の後の配布物（17.12 を同梱）で更新する。
+この change の PR（pgsql.lock を 17.6-1 から 17.12-1 に変える）の CI が、17.6 を同梱した配布物を入れた Windows を 17.12 の配布物で更新する。
 
 <!-- prose walkthroughs[W1].why -->
 PostgreSQL は同じ大きい版の中では、データの形を変えない。インストーラが読むのも大きい版（17）だけなので、置き場の名前も変わらない。
 
 <!-- prose walkthroughs[W1].figure.caption -->
-更新で起きること（版の番号は lock の値。記録の件数は説明用）
+CI の Windows で起きること（版の番号は lock の値。記録の件数は説明用）
 
 <!-- prose walkthroughs[W1].cases[0].result -->
-17.12 が同じ置き場で起き、今までの記録が画面に見える
+17.12 が同じ置き場で起き、update-apply-install.sh の Scenario 群が通る
 
 <!-- prose walkthroughs[W1].cases[1].result -->
-インストーラが 17.6 のプログラムに戻し、17.12 で取った退避を 17.6 で戻す。台本はこの戻しが通ることを確かめる
+インストーラが 17.6 のプログラムに戻し、17.12 で取った退避を 17.6 で戻す。CI の戻しの Scenario がこれを通す
 
 <!-- prose walkthroughs[W1].cases[2].result -->
-更新の手順に入らない。確認バッチでは「入っていない」「同じ版」と答える
+17.12 → 17.12 の更新になり、小さい版の違いを確かめない。この PR は version を変えるので、zip の版を確かめる処理がこれを見つけて CI を落とす（version を変えない lock の PR では見つけない）
 
 <!-- prose walkthroughs[W1].exceptions[0].text -->
-Windows の配布物どうしの更新はこの PR では走らせない。機械が確かめるのは Linux の PostgreSQL の部分だけ（IMP-02）
+CI は更新の後に動いている PostgreSQL の版は見ない。入れ替え損ねれば、直したはずの脆弱性がその PC に残っても気づけない（D10（仮）・IMP-05）
 
 <!-- prose walkthroughs[W1].exceptions[1].text -->
-記録の件数は説明用の値。実際の本人の DB の中身は確かめていない
+本人の PC に入っている配布版の移行はこの change で扱わない（ST64）
+
+<!-- prose walkthroughs[W1].exceptions[2].text -->
+記録の件数は説明用の値。CI の試験の記録の中身はここでは確かめていない
+
+<!-- prose walkthroughs[W2].title -->
+PR ごとに、CI が古い側の試験の zip をどの lock で組むか
+
+<!-- prose walkthroughs[W2].scene -->
+いろいろな PR が CI を走らせる。CI は PR の差分を見て、更新の試験の古い側をどの lock で組むかを決める。
+
+<!-- prose walkthroughs[W2].why -->
+変えたかを PR 自身の差分で決めるので、base の側だけが進んだ古い枝が版を下げる向きの更新を走らせない。取れないときに今の lock へ倒すと 17.12 → 17.12 で緑になるので、落とす。
+
+<!-- prose walkthroughs[W2].figure.caption -->
+PR の差分ごとの組み方（版の番号は説明用。17.6-1・17.12-1 はこの change の値）
+
+<!-- prose walkthroughs[W2].cases[0].result -->
+前の版から今の版への更新と戻しが Windows で走る
+
+<!-- prose walkthroughs[W2].cases[1].result -->
+今のまま組み、前の lock を取らない
+
+<!-- prose walkthroughs[W2].cases[2].result -->
+CI が落ち、PR は緑にならない。大きい版を上げる道は大きい版を上げる Story が作る
+
+<!-- prose walkthroughs[W2].exceptions[0].text -->
+開発版・互換の組（dev-old・compat-old）は前の lock に替えない
 
 <!-- prose model.caption -->
 4 件の片付け方
@@ -75,22 +132,22 @@ Windows の配布物どうしの更新はこの PR では走らせない。機�
 夜間の脆弱性検査を緑に戻し、同梱の PostgreSQL を 17.12 にする。製品の振る舞いは変えない。
 
 <!-- prose sections.change.tldr -->
-夜間の検査が緑に戻り、配布物の PostgreSQL が 17.6 から 17.12 になる。
+検査が緑に戻り、PostgreSQL が 17.12 になり、lock を変える PR の CI が更新を確かめる。
 
 <!-- prose sections.lost.tldr -->
 例外にした 2 件は 90 日のあいだ夜間の検査で知らされなくなる。
 
 <!-- prose sections.uses.tldr -->
-次に検査が赤になったら、それは新しい勧告か例外の期限切れだと分かる。
+次に検査が赤になったら、まず新しい勧告か例外の期限切れを疑える。
 
 <!-- prose sections.watch.tldr -->
-Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。
+CI は 2 つの zip の版を見るが、更新の後に動いている版は見ない。
 
 <!-- prose sections.findings.tldr -->
-重大な問題は見つけていない。中くらいの 2 件（例外の理由の確かさ・Windows の更新）を残す。
+重大な問題は見つけていない。中くらいの 2 件（例外の理由の確かさ・動いている版を見ない）を残す。
 
 <!-- prose sections.rest.tldr -->
-chrono の置き換えと rusqlite 0.41 への上げはしない。issue は本人が閉じる。
+chrono と rusqlite の上げ・本人の PC の移行はしない。issue は本人が閉じる。
 
 <!-- prose features[crate].summary -->
 rustix は上げ、libsqlite3-sys と chrono は例外へ
@@ -138,7 +195,34 @@ pgsql.lock の version・url・sha256 を 17.12-1 にそろえる。sha256 は�
 更新が落ちたとき、インストーラは 17.12 で取った退避を 17.6 の pg_restore で戻す。この戻しの道が通ることも、同じ台本で確かめる。17.12 で足した行は 17.6 に戻しても残る。
 
 <!-- prose points[pgswap.3].text -->
-Windows の配布物どうし（17.6-1 の zip から 17.12-1 の zip）の更新と戻しは、この PR では走らせない。本人の PC に配布版が入っていれば、確認バッチで更新して記録が見えるかを答える。
+Windows の配布物どうし（17.6-1 の zip から 17.12-1 の zip）の更新と、移行が落ちたときの戻しは、この PR の CI が Windows で通す（下の「lock を変える PR の CI」）。本人の PC では確かめない。本人の PC に入っている配布版の移行は ST64 が扱う。
+
+<!-- prose features[ci].summary -->
+lock を変えた PR だけ、古い側の試験の zip を前の lock で組む
+
+<!-- prose features[ci].tldr -->
+pgsql.lock を変えた PR だけ、CI が前の版の zip から今の版の zip への更新と戻しを Windows で通す。
+
+<!-- prose points[ci.1].text -->
+pgsql.lock を変えた PR では、更新の試験の古い側の zip（package-windows-test-old）だけを PR が変える前の lock で組み、新しい側とほかの試験の zip は PR の lock で組む。install-windows は今の台本（update-apply-install.sh）で、古い側を入れた上での更新と、移行が落ちたときの戻しを走らせる。
+
+<!-- prose points[ci.2].text -->
+変えたかは PR の分岐点から head までの差分で決める。base の側だけが lock を上げた後の古い枝は「変えていない」になり、今のまま組む（小さい版を下げる向きの更新は走らせない）。lock を変えない PR・main への push・手動の run も今のまま。
+
+<!-- prose points[ci.3].text -->
+lock を変えた PR で、分岐点の lock が取れない・大きい版が違う・中身が同じ（改行だけを変えた）・組んだ zip の同梱の版が前と今の lock の版でない、のどれかなら、CI を緑にせず落とす。今の lock に倒すと 17.12 → 17.12 の更新で緑になり、確かめたつもりで何も確かめないため。大きい版を上げる PR（17 → 18）もここで落ちる。
+
+<!-- prose points[ci.4].text -->
+判定と、zip の版を確かめる処理は台本 tools/release/pgsql-prev-lock.sh に置き、ci.yml は呼ぶだけにする。版は組んだ zip の許諾の文（THIRD-PARTY-NOTICES.txt）から読み、保存の前と、前の組み立てを使い回した run の両方で確かめる。出力に「古い側 17.6-1 → 新しい側 17.12-1」の形で版の組を出す。台本の自己試験と、ci.yml の形を確かめる処理は Linux の CI（chain）で毎回走る。
+
+<!-- prose points[ci.5].text -->
+CI は、更新した後・戻した後に動いている PostgreSQL の版は見ない。インストーラがプログラムの置き場ごと入れ替える前提で、2 つの zip の同梱の版だけを確かめる。もしインストーラが pgsql の置き場だけを入れ替え損ねても、CI は緑になりうる（IMP-05）。
+
+<!-- prose points[ci.6].text -->
+Windows の組み立ての使い回しの鍵に、古い側を組んだ前の lock の指紋（取らない run では none）を足す。前の lock だけが違う組み立てを誤って使い回さない。正典の鍵の Requirement を書き換える。
+
+<!-- prose points[ci.7].text -->
+lock を変える PR の CI は PostgreSQL の zip を 2 つ（約 370 MB ずつ）落とす。lock を変えない PR は今のまま。docs/release.md の小節は、手で通す手順から CI の結果の見方に書き換える。
 
 <!-- prose features[close].summary -->
 merge の後、夜間の検査が緑なのを見て本人が閉じる
@@ -151,6 +235,18 @@ merge の後、夜間の検査が緑で走ったのを見て、本人が #334〜
 
 <!-- prose points[close.2].text -->
 この PR が merge されても #334〜#337 は開いたまま残る。夜間の検査は、勧告が消えても issue を自分では閉じない。
+
+<!-- prose impact.scenarios[S1].result -->
+package-windows が古い側を組まずに落ち、PR の CI は緑にならない
+
+<!-- prose impact.scenarios[S1].lost -->
+大きい版を上げる PR を、今の CI のまま緑にすること
+
+<!-- prose impact.rules[R1].legit -->
+大きい版を上げる PR（17 → 18）は、大きい版を上げる Story が道を作るまで CI が緑にならない。改行だけを lock に入れた PR・分岐点を浅く fetch できない run（ネットワークの失敗など）も落ちる
+
+<!-- prose impact.rules[R2].legit -->
+この分析では、正当な PR を止める道を見つけていない。鍵に前の lock の指紋を足すと、lock を変えた PR は使い回せずに組み直す（約 25 分）だけ
 
 <!-- prose impact.findings[IMP-01].title -->
 libsqlite3-sys の勧告を外す理由は、確かめていない読みに乗っている
@@ -176,8 +272,29 @@ merge しても issue は自動では閉じない
 <!-- prose impact.findings[IMP-04].text -->
 夜間の検査は勧告が消えても issue を閉じない。#334〜#337 は本人が閉じるまで開いたまま残る
 
+<!-- prose impact.findings[IMP-05].title -->
+CI は、更新の後に動いている PostgreSQL の版を見ない
+
+<!-- prose impact.findings[IMP-05].text -->
+CI は 2 つの zip の同梱の版を確かめ、更新と戻しの Scenario 群を通すが、更新した後に起きている postgres.exe の版は読まない。インストーラが pgsql の置き場だけを入れ替え損ねても CI は緑になりうる
+
+<!-- prose impact.findings[IMP-06].title -->
+大きい版を上げる PR は、今の CI では緑にならない
+
+<!-- prose impact.findings[IMP-06].text -->
+lock の大きい版を変えた PR は、前の lock で古い側を組めず CI が落ちる。大きい版を上げる Story が道を作るまで、その PR は通らない
+
+<!-- prose impact.findings[IMP-07].title -->
+この上流の枝は main より古く、依存の表の元が CH24 の後の形でない
+
+<!-- prose impact.findings[IMP-07].text -->
+Cargo.lock と osv-scanner.toml は main（CH24 merge 済み）と違う。実装をこの枝の形の上で始めると、CH24 の変更を戻すか、元の版と比べた結果が食い違う
+
 <!-- prose impact.scope.covers[0].text -->
 2026-11-19 の夜に挙がった crate の勧告 3 件と、同梱の PostgreSQL の 17.6-1 から 17.12-1 への小さい版の更新
+
+<!-- prose impact.scope.covers[1].text -->
+pgsql.lock を変える PR の CI で、古い側の試験の zip だけを分岐点の lock で組み、Windows で更新と戻しを通すこと
 
 <!-- prose impact.scope.preconditions[0].text -->
 上げるのは直った版が Cargo.toml の依存の範囲の中にあるときだけで、そのとき動かすのは Cargo.lock のその crate だけ。範囲の外か直った版が無いときは例外の行にする
@@ -185,9 +302,15 @@ merge しても issue は自動では閉じない
 <!-- prose impact.scope.preconditions[1].text -->
 置き場をそのまま使えるのは、同じ大きい版（17）の中で小さい版だけを替えるとき
 
+<!-- prose impact.scope.preconditions[2].text -->
+CI が前の lock で古い側を組むのは、PR の run で、分岐点から head までの差分が lock を変え、大きい版が同じときだけ。lock を変えない PR・PR でない run は今のまま
+
+<!-- prose impact.scope.preconditions[3].text -->
+前の組み立てを使い回すのは、PR の run で鍵が完全に一致したときだけ。鍵に入れないのは名指しした試験の台本と文書だけで、前の lock の指紋は lock を変えた run だけ（ほかは none）
+
 <!-- prose impact.scope.excludes[0].text -->
-大きい版の更新（18 など）。Windows の配布物どうしの更新を機械で走らせること
+大きい版の更新（18 など。lock を変える PR の CI は落ちる）。本人の PC に入っている配布版の移行（ST64）。開発版・互換の組の古い側を前の lock で組むこと
 
 <!-- prose impact.scope.residual[0].text -->
-libsqlite3-sys の勧告は PC の収集アプリに残る（IMP-01）。chrono は 90 日ごとに赤に戻る（IMP-03）
+libsqlite3-sys の勧告は PC の収集アプリに残る（IMP-01）。chrono は 90 日ごとに赤に戻る（IMP-03）。CI は動いている PostgreSQL の版を見ない（IMP-05）
 

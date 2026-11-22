@@ -2,13 +2,12 @@
  "tool": "yomiyasu",
  "version": "2.4.0",
  "source": "prose.final.md",
- "fields": 63,
+ "fields": 104,
  "applied": [
-  "sections.lost.tldr",
-  "points[crate.4].text",
-  "features[pgswap].summary",
-  "points[pgswap.2].text",
-  "impact.findings[IMP-02].text"
+  "walkthroughs[W1].cases[2].result",
+  "points[ci.2].text",
+  "points[ci.4].text",
+  "impact.findings[IMP-07].text"
  ],
  "kept": [],
  "missing": [],

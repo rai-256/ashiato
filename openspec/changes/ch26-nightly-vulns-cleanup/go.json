@@ -1,11 +1,11 @@
 {
  "format": 2,
- "purpose": "毎晩赤だった脆弱性の夜間の検査を緑に戻し、次に新しい勧告が出たら赤で気づけるようにする。挙がった 4 件は、上げられるものは上げ、上げられないものは理由と 90 日の期限を付けて例外にする。配布物の PostgreSQL は 17.12 にし、今まで使っていた DB はそのまま使える。",
+ "purpose": "毎晩赤だった脆弱性の夜間の検査を緑に戻し、次に新しい勧告が出たら赤で気づけるようにする。挙がった 4 件は、上げられるものは上げ、上げられないものは理由と 90 日の期限を付けて例外にする。配布物の PostgreSQL は 17.12 にし、今まで使っていた DB はそのまま使える。PostgreSQL の版を上げる PR では、前の版の配布物から新しい版への更新と戻しを CI が Windows で通すので、本人が手で確かめなくてよい。",
  "model": {
   "kind": "diagram",
   "caption": "4 件の片付け方",
-  "text": "夜間の検査（毎晩赤）\n  ├─ rustix 1.1.5 ──────→ 1.1.6 以上に上げる（Cargo.lock だけ）\n  ├─ libsqlite3-sys 0.30.1 → 例外の表へ（届かない: 90 日）\n  ├─ chrono 0.4.45 ──────→ 例外の表へ（届かない: 90 日）\n  └─ 同梱の PostgreSQL 17.6 → 17.12（lock の版・URL・指紋）\n                               └─ db\\17 の置き場はそのまま\n→ 夜間の検査は緑。issue #334〜#337 は本人が閉じる",
-  "alt": "crate の 3 件は 1 件を上げ 2 件を期限つきの例外にし、PostgreSQL は小さい版だけを 17.12 に替える。DB の置き場は変わらず、夜間の検査は緑に戻る。"
+  "text": "夜間の検査（毎晩赤）\n  ├─ rustix 1.1.5 ──────→ 1.1.6 以上に上げる（Cargo.lock だけ）\n  ├─ libsqlite3-sys 0.30.1 → 例外の表へ（届かない: 90 日）\n  ├─ chrono 0.4.45 ──────→ 例外の表へ（届かない: 90 日）\n  └─ 同梱の PostgreSQL 17.6 → 17.12（lock の版・URL・指紋）\n        ├─ db\\17 の置き場はそのまま（Linux の台本で確かめる）\n        └─ lock を変える PR の CI: 古い側の試験の zip を前の lock（17.6-1）で組み、\n           Windows で 17.6-1 → 17.12-1 の更新と戻しを通す\n→ 夜間の検査は緑。issue #334〜#337 は本人が閉じる",
+  "alt": "crate の 3 件は 1 件を上げ 2 件を期限つきの例外にし、PostgreSQL は小さい版だけを 17.12 に替える。DB の置き場は変わらず、lock を変える PR では CI が前の版からの更新と戻しを Windows で通す。夜間の検査は緑に戻る。"
  },
  "before_after": [
   {
@@ -27,12 +27,34 @@
    "area": "配布物に同梱の PostgreSQL",
    "before": "17.6-1",
    "after": "17.12-1（大きい版 17 と db\\17 の置き場は同じ）"
+  },
+  {
+   "area": "pgsql.lock を変える PR の CI",
+   "before": "更新の試験の古い側も新しい側も、同じ commit・同じ lock から組む（どちらも同じ PostgreSQL）",
+   "after": "古い側の試験の zip だけを、PR が変える前の lock で組む。Windows で前の版から今の版への更新と戻しが走る"
+  },
+  {
+   "area": "lock を変えない PR・main への push の CI",
+   "before": "今の形",
+   "after": "変わらない（前の lock を取らず、台本も呼ばない）"
+  },
+  {
+   "area": "Windows の組み立ての使い回しの鍵",
+   "before": "木の中身と道具の版から作る",
+   "after": "前の lock の指紋（取らない run では none）も入る"
+  },
+  {
+   "area": "docs/release.md「PostgreSQL の小さい版を上げる PR」",
+   "before": "手で、前の版の zip から更新と戻しを通す手順",
+   "after": "CI が通す。PR では install-windows の緑と、package-windows の出力の版の組を見る"
   }
  ],
  "highlights": [
   "crate.2",
   "crate.3",
-  "pgswap.2",
+  "ci.1",
+  "ci.3",
+  "ci.5",
   "close.2"
  ],
  "features": [
@@ -207,8 +229,8 @@
    "summary": "17.6→17.12→17.6 の入れ替えと、退避を戻すことを Linux で走らせて確かめる",
    "tldr": "17.6 で使っていた DB を 17.12 がそのまま使い、17.6 に戻しても使えることを機械で確かめる。",
    "gist": [
-    "確かめるのは PostgreSQL の部分だけで、Linux の Docker で走らせる。",
-    "Windows の配布物どうしの更新は、本人の PC で確認バッチのときに見る（本人の決定）。"
+    "PostgreSQL の部分は、Linux の Docker で走らせて確かめる。",
+    "Windows の配布物どうしの更新と戻しは、この PR の CI が通す（本人の決定）。"
    ],
    "words": [
     {
@@ -265,15 +287,192 @@
     },
     {
      "id": "pgswap.3",
-     "kind": "exception",
+     "kind": "normal",
      "tags": [
       "Windows"
      ],
-     "text": "Windows の配布物どうし（17.6-1 の zip から 17.12-1 の zip）の更新と戻しは、この PR では走らせない。本人の PC に配布版が入っていれば、確認バッチで更新して記録が見えるかを答える。",
+     "text": "Windows の配布物どうし（17.6-1 の zip から 17.12-1 の zip）の更新と、移行が落ちたときの戻しは、この PR の CI が Windows で通す（下の「lock を変える PR の CI」）。本人の PC では確かめない。本人の PC に入っている配布版の移行は ST64 が扱う。",
      "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
       "decisions": [
        "D5",
        "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "ci",
+   "title": "lock を変える PR では、CI が Windows で更新と戻しを通す",
+   "summary": "lock を変えた PR だけ、古い側の試験の zip を前の lock で組む",
+   "tldr": "pgsql.lock を変えた PR だけ、CI が前の版の zip から今の版の zip への更新と戻しを Windows で通す。",
+   "gist": [
+    "変えたかは PR 自身の差分（分岐点から head まで）で決め、前の lock は分岐点の lock。",
+    "前の版で組めない・版が食い違うときは、緑にせず CI を落とす。",
+    "lock を変えない PR と main への push は今のまま。"
+   ],
+   "words": [
+    {
+     "term": "分岐点",
+     "def": "PR の枝が main から分かれた commit（git merge-base）"
+    },
+    {
+     "term": "古い側の試験の zip",
+     "def": "更新の試験で先に入れる配布物（package-windows-test-old。版 0.4.0）"
+    },
+    {
+     "term": "使い回しの鍵",
+     "def": "前に組んだ Windows の配布物を使い回してよいかを決める指紋"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 190\" role=\"img\" aria-label=\"lock を変えた PR では、古い側の試験の zip を分岐点の lock で、新しい側を PR の lock で組み、版を確かめてから Windows で更新と戻しを走らせる\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"75\" width=\"120\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"60\" y=\"93\" text-anchor=\"middle\">PR の差分</text><text x=\"60\" y=\"108\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">lock を変えたか</text><rect x=\"170\" y=\"10\" width=\"170\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"255\" y=\"28\" text-anchor=\"middle\">古い側を分岐点の lock で</text><text x=\"255\" y=\"43\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">17.6-1</text><rect x=\"170\" y=\"60\" width=\"170\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"255\" y=\"78\" text-anchor=\"middle\">新しい側を PR の lock で</text><text x=\"255\" y=\"93\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">17.12-1</text><rect x=\"170\" y=\"140\" width=\"170\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"255\" y=\"158\" text-anchor=\"middle\">変えていない</text><text x=\"255\" y=\"173\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">今のまま全部 PR の lock</text><rect x=\"390\" y=\"35\" width=\"170\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"475\" y=\"53\" text-anchor=\"middle\">zip の版を確かめる</text><text x=\"475\" y=\"68\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--warn)\">違えば CI を落とす</text><rect x=\"390\" y=\"105\" width=\"170\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"475\" y=\"123\" text-anchor=\"middle\">Windows で更新と戻し</text><text x=\"475\" y=\"138\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">update-apply-install.sh</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M122 88 L166 32\"/><path d=\"M122 95 L166 80\"/><path d=\"M342 30 L386 50\"/><path d=\"M342 80 L386 60\"/><path d=\"M475 77 L475 101\"/></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M122 102 L166 156\"/></g></svg>",
+    "caption": "lock を変えた PR の CI の組み方",
+    "note": "版の番号はこの change の lock の値"
+   },
+   "points": [
+    {
+     "id": "ci.1",
+     "kind": "normal",
+     "tags": [
+      "Windows"
+     ],
+     "text": "pgsql.lock を変えた PR では、更新の試験の古い側の zip（package-windows-test-old）だけを PR が変える前の lock で組み、新しい側とほかの試験の zip は PR の lock で組む。install-windows は今の台本（update-apply-install.sh）で、古い側を入れた上での更新と、移行が落ちたときの戻しを走らせる。",
+     "examples": [
+      {
+       "wrong": "CI の古い側と新しい側は、同じ PostgreSQL のまま版番号だけが違う",
+       "right": "lock を変えた PR では、古い側が 17.6-1・新しい側が 17.12-1 を同梱し、小さい版の違う配布物の間の更新が走る"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "scenarios": [
+       "中身が違い大きい版が同じ前の lock なら、古い側を前の lock で組むと判定する",
+       "CI の定義は、lock を変えた PR でだけ前の lock を取り、古い側だけを置き換えて組んで戻す"
+      ],
+      "decisions": [
+       "D5",
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "ci.2",
+     "kind": "exception",
+     "text": "変えたかは PR の分岐点から head までの差分で決める。base の側だけが lock を上げた後の古い枝は「変えていない」になり、今のまま組む（小さい版を下げる向きの更新は走らせない）。lock を変えない PR・main への push・手動の run も今のまま。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "scenarios": [
+       "PR の差分が lock を変えたら、変えたと判定して分岐点を示す",
+       "base の側だけが lock を変えた古い枝は、変えたと判定しない",
+       "改行だけが違う 2 つの lock は、同じ中身と判定する"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "ci.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "lock を変えた PR で、分岐点の lock が取れない・大きい版が違う・中身が同じ（改行だけを変えた）・組んだ zip の同梱の版が前と今の lock の版でない、のどれかなら、CI を緑にせず落とす。今の lock に倒すと 17.12 → 17.12 の更新で緑になり、確かめたつもりで何も確かめないため。大きい版を上げる PR（17 → 18）もここで落ちる。",
+     "examples": [
+      {
+       "wrong": "前の lock が取れなければ、今の lock で組んで先に進む",
+       "right": "取れなければ CI が落ちる。PR の作者が原因を直すまで緑にならない"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "scenarios": [
+       "前の lock と大きい版が違えば、古い側を組まずに落ちる",
+       "古い側の zip が前の lock の版でなければ、確かめは落ちる",
+       "許諾の文に PostgreSQL の版が無い zip では、版を読めずに落ちる",
+       "改行だけが違う 2 つの lock は、同じ中身と判定する"
+      ],
+      "decisions": [
+       "D7",
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "ci.4",
+     "kind": "normal",
+     "text": "判定と、zip の版を確かめる処理は台本 tools/release/pgsql-prev-lock.sh に置き、ci.yml は呼ぶだけにする。版は組んだ zip の許諾の文（THIRD-PARTY-NOTICES.txt）から読み、保存の前と、前の組み立てを使い回した run の両方で確かめる。出力に「古い側 17.6-1 → 新しい側 17.12-1」の形で版の組を出す。台本の自己試験と、ci.yml の形を確かめる処理は Linux の CI（chain）で毎回走る。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "scenarios": [
+       "組んだ zip の同梱の版を、許諾の文から読む",
+       "古い側と新しい側の zip が前と今の lock の版なら、確かめは通って版の組を出す",
+       "CI の定義は、試験の zip の版を、保存の前と使い回した run の両方で確かめる",
+       "CI の定義の形が 1 つでも崩れると、形の確かめは落ちる"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "ci.5",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Windows"
+     ],
+     "text": "CI は、更新した後・戻した後に動いている PostgreSQL の版は見ない。インストーラがプログラムの置き場ごと入れ替える前提で、2 つの zip の同梱の版だけを確かめる。もしインストーラが pgsql の置き場だけを入れ替え損ねても、CI は緑になりうる（IMP-05）。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     }
+    },
+    {
+     "id": "ci.6",
+     "kind": "normal",
+     "tags": [
+      "API"
+     ],
+     "text": "Windows の組み立ての使い回しの鍵に、古い側を組んだ前の lock の指紋（取らない run では none）を足す。前の lock だけが違う組み立てを誤って使い回さない。正典の鍵の Requirement を書き換える。",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "scenarios": [
+       "鍵を出す手順は、古い側を組んだ前の lock の指紋を鍵に入れる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "ci.7",
+     "kind": "caution",
+     "text": "lock を変える PR の CI は PostgreSQL の zip を 2 つ（約 370 MB ずつ）落とす。lock を変えない PR は今のまま。docs/release.md の小節は、手で通す手順から CI の結果の見方に書き換える。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ],
+      "decisions": [
+       "D8"
       ]
      }
     }
@@ -286,7 +485,7 @@
    "tldr": "merge の後に夜間の検査が緑で走ったら、本人が #334〜#337 を閉じる。",
    "gist": [
     "夜間の検査は、勧告が消えても issue を自分では閉じない。",
-    "確認バッチで「緑で走り、閉じたか」を聞く。"
+    "確認バッチで「緑で走り、閉じたか」を聞く。本人の PC の更新は聞かない。"
    ],
    "no_picture": "手順が 2 つだけで、図にすると要点の繰り返しになる",
    "points": [
@@ -334,7 +533,7 @@
    }
   },
   {
-   "text": "CI で前の lock の zip を組み、小さい版の違う配布物の間の更新を毎回走らせる仕組み",
+   "text": "本人の PC に入っている配布版の移行（ST64 が扱う）",
    "refs": {
     "decisions": [
      "D5"
@@ -342,26 +541,31 @@
    }
   },
   {
-   "text": "検査の台本・CI・正典の「届かない」の型を変えること",
+   "text": "検査の台本（tools/check-*.sh）と正典の「届かない」の型を変えること",
    "refs": {
     "decisions": [
      "D2"
     ]
    }
-  }
- ],
- "open": [
+  },
   {
-   "text": "R2 の答え（A）は deep.md と CH26.md に記録済みだが、design.md の D5 と proposal.md には「本人に問う・答えを待つ」の文が残っている。決まった中身（Linux で確かめ、Windows は本人の PC）は D5 の本文と tasks 3.1・5.1 に既に書いてあり、食い違いは文の古さだけ。この段は仕様を直さない",
-   "tags": [
-    "未解決"
-   ],
+   "text": "大きい版を上げる道（17 → 18。lock を変える PR の CI は落ちる）",
    "refs": {
     "decisions": [
-     "D5"
+     "D7"
     ]
    }
   },
+  {
+   "text": "更新の後に動いている PostgreSQL の版を CI で見ること",
+   "refs": {
+    "decisions": [
+     "D10"
+    ]
+   }
+  }
+ ],
+ "open": [
   {
    "text": "IMP-01 の確かめ（本人の Firefox の profiles.ini に IsRelative=0 の行があるか）は、tasks の確認バッチの項目に無い。D2（仮）の反転条件をだれがいつ見るかが決まっていない",
    "tags": [
@@ -372,12 +576,44 @@
      "D2"
     ]
    }
+  }
+ ],
+ "since_last": [
+  {
+   "text": "第 1 回の合意で本人が R2 の答えを A から C に変えた。Windows の配布物どうしの 17.6-1 → 17.12-1 の更新と戻しは、本人の PC でなく、lock を変える PR の CI が Windows で通す（D5 を書き直し、新しい Requirement と 12 の Scenario を足した）。",
+   "refs": {
+    "requirements": [
+     "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+    ],
+    "decisions": [
+     "D5"
+    ]
+   }
   },
   {
-   "text": "本人の PC に配布版が入っていないと、Windows の配布物どうしの 17.6→17.12 の更新はどこでも確かめない（IMP-02）。持ち越し先と期限は仕様に無い",
-   "tags": [
-    "未解決"
-   ],
+   "text": "CI の決め方を仮の決定に足した: 変えたかは PR の差分で決め、前の lock は分岐点の lock、取れない・版が違えば落とす（D7（仮））／判定と版の確かめは台本に置き、保存の前と使い回しのときに確かめる（D8（仮））／使い回しの鍵に前の lock を入れる（D9（仮）。正典の鍵の Requirement を書き換える）／動いている PostgreSQL の版は見ない（D10（仮））。",
+   "refs": {
+    "requirements": [
+     "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+    ],
+    "decisions": [
+     "D7",
+     "D8",
+     "D9",
+     "D10"
+    ]
+   }
+  },
+  {
+   "text": "本人の PC で更新して記録が見えるかを答える確認（前の tasks 5.1）と「人間の確認待ち」の節を削った。完了の判定 6 を置き換え、8（この PR の CI の Windows の更新と戻しが緑）を足した。",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  },
+  {
+   "text": "前回の未解決のうち、design と proposal に残っていた古い文（D5 が答えを待つ）と、Windows の更新を確かめる所が無い件（IMP-02）は、上の直しで閉じた。",
    "refs": {
     "decisions": [
      "D5"
@@ -385,7 +621,6 @@
    }
   }
  ],
- "since_last": [],
  "delegated": [
   {
    "text": "確かめの台本 check-ch26.sh を change の中に置き、CI に組み込まない",
@@ -435,19 +670,51 @@
      "全体の検査と毎晩の検査は、片付けた勧告を出さない"
     ]
    }
+  },
+  {
+   "id": "U2",
+   "title": "次に PostgreSQL の小さい版を上げる PR で、手を動かさずに更新を確かめる",
+   "trigger": "EDB が 17.13 を出し、遅れの検査が赤になった。pgsql.lock を 17.13-1 に上げる PR を作る。前は前の版の zip を手で組んで更新と戻しを通す手順だった。",
+   "steps": [
+    {
+     "do": "pgsql.lock を 17.13-1 にした PR を出す",
+     "see": "CI の package-windows が古い側の試験の zip を分岐点の lock（17.12-1）で組む"
+    },
+    {
+     "do": "package-windows の出力を見る",
+     "see": "「古い側 17.12-1 → 新しい側 17.13-1」"
+    },
+    {
+     "do": "install-windows の結果を見る",
+     "see": "緑。更新と、移行が落ちたときの戻しの Scenario 群が通った"
+    }
+   ],
+   "outcome": "前の版の配布物から新しい版への更新と戻しが Windows で通ったと、PR の CI だけで分かる",
+   "without": "前の版の zip を手で組み、Windows で更新と戻しを通して結果を PR に残す手間がかかる（docs/release.md の今の手順）",
+   "refs": {
+    "requirements": [
+     "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+    ],
+    "scenarios": [
+     "古い側と新しい側の zip が前と今の lock の版なら、確かめは通って版の組を出す"
+    ],
+    "decisions": [
+     "D8"
+    ]
+   }
   }
  ],
  "walkthroughs": [
   {
    "id": "W1",
-   "title": "17.6 の配布版が入った PC を、17.12 の配布物で更新する",
+   "title": "この PR の CI が、17.6 の配布物を 17.12 の配布物で更新する",
    "feature": "pgswap",
-   "scene": "本人の PC に PostgreSQL 17.6 を同梱した配布版のサーバが入っている。この change の後の配布物（17.12 を同梱）で更新する。",
+   "scene": "この change の PR（pgsql.lock を 17.6-1 から 17.12-1 に変える）の CI が、17.6 を同梱した配布物を入れた Windows を 17.12 の配布物で更新する。",
    "values": "illustrative",
    "figure": {
     "kind": "table",
     "form": "sequence",
-    "caption": "更新で起きること（版の番号は lock の値。記録の件数は説明用）",
+    "caption": "CI の Windows で起きること（版の番号は lock の値。記録の件数は説明用）",
     "head": [
      "",
      "プログラム",
@@ -456,20 +723,20 @@
     ],
     "rows": [
      [
-      "更新の前",
-      "PostgreSQL 17.6",
+      "古い側を入れた",
+      "PostgreSQL 17.6-1",
       "17.6 が作った置き場",
-      "滞在 100 件"
+      "試験の記録"
      ],
      [
-      "更新の後",
-      "PostgreSQL 17.12",
+      "新しい側で更新",
+      "PostgreSQL 17.12-1",
       "同じ置き場を作り直さずに使う",
-      "滞在 100 件"
+      "試験の記録"
      ],
      [
       "移行が落ちて戻した",
-      "PostgreSQL 17.6",
+      "PostgreSQL 17.6-1",
       "17.12 の退避を 17.6 の pg_restore で戻す",
       "退避を取ったときと同じ"
      ]
@@ -479,32 +746,39 @@
     {
      "label": "更新がそのまま通る",
      "outcome": "ok",
-     "result": "17.12 が同じ置き場で起き、今までの記録が画面に見える"
+     "result": "17.12 が同じ置き場で起き、update-apply-install.sh の Scenario 群が通る"
     },
     {
      "label": "更新の途中で移行が落ちる",
      "outcome": "ok",
-     "result": "インストーラが 17.6 のプログラムに戻し、17.12 で取った退避を 17.6 で戻す。台本はこの戻しが通ることを確かめる"
+     "result": "インストーラが 17.6 のプログラムに戻し、17.12 で取った退避を 17.6 で戻す。CI の戻しの Scenario がこれを通す"
     },
     {
-     "label": "配布版が入っていない・同じ版",
-     "outcome": "neutral",
-     "result": "更新の手順に入らない。確認バッチでは「入っていない」「同じ版」と答える"
+     "label": "古い側が今の lock（17.12-1）で組まれてしまった",
+     "outcome": "problem",
+     "result": "17.12 → 17.12 の更新になり、小さい版の違いを確かめない。この PR は version を変えるので、zip の版を確かめる処理がこれを見つけて CI を落とす（version を変えない lock の PR では見つけない）"
     }
    ],
    "why": "PostgreSQL は同じ大きい版の中では、データの形を変えない。インストーラが読むのも大きい版（17）だけなので、置き場の名前も変わらない。",
    "conditions": {
     "occurs_when": [
-     "配布版のサーバが 17.6 を同梱した版で入っている"
+     "PR の差分が pgsql.lock を変え、分岐点の lock と大きい版が同じ"
     ],
     "not_when": [
-     "配布版が入っていない",
-     "入っている版と配布物の版が同じ"
+     "lock を変えない PR・main への push（古い側も新しい側も今の lock）"
     ]
    },
    "exceptions": [
     {
-     "text": "Windows の配布物どうしの更新はこの PR では走らせない。機械が確かめるのは Linux の PostgreSQL の部分だけ（IMP-02）",
+     "text": "CI は更新の後に動いている PostgreSQL の版は見ない。入れ替え損ねれば、直したはずの脆弱性がその PC に残っても気づけない（D10（仮）・IMP-05）",
+     "refs": {
+      "decisions": [
+       "D10"
+      ]
+     }
+    },
+    {
+     "text": "本人の PC に入っている配布版の移行はこの change で扱わない（ST64）",
      "refs": {
       "decisions": [
        "D5"
@@ -512,32 +786,142 @@
      }
     },
     {
-     "text": "記録の件数は説明用の値。実際の本人の DB の中身は確かめていない",
+     "text": "記録の件数は説明用の値。CI の試験の記録の中身はここでは確かめていない",
      "refs": {}
     }
    ],
    "decisions": [
-    "IMP-02"
+    "IMP-05"
    ],
    "refs": {
     "requirements": [
-     "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+     "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える",
+     "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
     ],
     "scenarios": [
      "前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う",
      "新しい小さい版で取った退避を、前の小さい版が戻せる"
     ],
     "decisions": [
-     "D5"
+     "D5",
+     "D7"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "PR ごとに、CI が古い側の試験の zip をどの lock で組むか",
+   "feature": "ci",
+   "scene": "いろいろな PR が CI を走らせる。CI は PR の差分を見て、更新の試験の古い側をどの lock で組むかを決める。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "PR の差分ごとの組み方（版の番号は説明用。17.6-1・17.12-1 はこの change の値）",
+    "head": [
+     "PR の差分",
+     "古い側の試験の zip",
+     "新しい側",
+     "CI"
+    ],
+    "rows": [
+     [
+      "lock を 17.6-1 → 17.12-1 に変えた（この PR）",
+      "17.6-1（分岐点の lock）",
+      "17.12-1",
+      "更新と戻しを走らせる"
+     ],
+     [
+      "lock を変えていない",
+      "PR の lock",
+      "PR の lock",
+      "今のまま"
+     ],
+     [
+      "base の側だけが lock を上げた古い枝",
+      "PR の lock",
+      "PR の lock",
+      "今のまま"
+     ],
+     [
+      "改行だけ変えた（LF と CRLF）",
+      "組まない",
+      "——",
+      "落ちる（変えたのに中身が同じ）"
+     ],
+     [
+      "lock を 17 → 18 に変えた",
+      "組まない",
+      "——",
+      "落ちる"
+     ],
+     [
+      "分岐点が取れない",
+      "組まない",
+      "——",
+      "落ちる"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "小さい版を上げた PR",
+     "outcome": "ok",
+     "result": "前の版から今の版への更新と戻しが Windows で走る"
+    },
+    {
+     "label": "lock を変えていない PR",
+     "outcome": "ok",
+     "result": "今のまま組み、前の lock を取らない"
+    },
+    {
+     "label": "大きい版を上げた PR・分岐点が取れない PR・改行だけを変えた PR",
+     "outcome": "problem",
+     "result": "CI が落ち、PR は緑にならない。大きい版を上げる道は大きい版を上げる Story が作る"
+    }
+   ],
+   "why": "変えたかを PR 自身の差分で決めるので、base の側だけが進んだ古い枝が版を下げる向きの更新を走らせない。取れないときに今の lock へ倒すと 17.12 → 17.12 で緑になるので、落とす。",
+   "conditions": {
+    "occurs_when": [
+     "PR の run で、分岐点から head までの差分に pgsql.lock がある"
+    ],
+    "not_when": [
+     "PR でない run（main への push・手動）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "開発版・互換の組（dev-old・compat-old）は前の lock に替えない",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-06"
+   ],
+   "refs": {
+    "requirements": [
+     "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+    ],
+    "scenarios": [
+     "PR の差分が lock を変えたら、変えたと判定して分岐点を示す",
+     "base の側だけが lock を変えた古い枝は、変えたと判定しない",
+     "前の lock と大きい版が違えば、古い側を組まずに落ちる"
+    ],
+    "decisions": [
+     "D7"
     ]
    }
   }
  ],
  "impact": {
-  "overview": "夜間の脆弱性検査が緑に戻り、次の勧告に気づけるようになる。配布物の PostgreSQL は 17.12 になり、今の DB はこの分析と台本の範囲ではそのまま使える。代わりに、libsqlite3-sys と chrono の 2 件は 90 日のあいだ検査で知らされなくなる。Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。",
+  "overview": "夜間の脆弱性検査が緑に戻り、次の勧告に気づけるようになる。配布物の PostgreSQL は 17.12 になり、今の DB をそのまま使うことを台本と CI で確かめる（まだ走らせていない）。lock を変える PR では、CI が前の版の配布物から今の版への更新と戻しを Windows で通す。代わりに、libsqlite3-sys と chrono の 2 件は 90 日のあいだ検査で知らされなくなり、lock を変えた PR で前の lock が取れない・大きい版が違うと CI が落ちる。",
   "problem": "夜間の検査が 11-19 から毎晩赤で、立った 4 件の issue が手付かずのまま。新しい勧告が出ても赤に埋もれて気づけない。",
   "depth": "full",
-  "depth_why": "配布物の PostgreSQL を替え、既に入っている DB の更新と戻しの道に効く（before_after がある）",
+  "depth_why": "配布物の PostgreSQL を替え、既に入っている DB の更新と戻しの道に効く。CI に止める規則を足し、正典の鍵の Requirement を書き換える（MODIFIED）",
   "memory": [
    {
     "kind": "data_flow",
@@ -551,7 +935,7 @@
    },
    {
     "kind": "one_way_door",
-    "text": "後から戻せる。例外の行は 90 日で切れ、lock は前の値に戻せ、17.12 で使った置き場は 17.6 でも使える（台本で確かめる）",
+    "text": "後から戻せる見込み。例外の行は 90 日で切れ、lock は前の値に戻せる。17.12 で使った置き場を 17.6 でも使えることは、台本と CI で確かめる予定で、まだ走らせていない",
     "why": "小さい版の入れ替えはデータの形を変えないので、配った後でも前の配布物に戻せる",
     "refs": {
      "requirements": [
@@ -636,6 +1020,37 @@
       "D2"
      ]
     }
+   },
+   {
+    "id": "T6",
+    "kind": "lifecycle",
+    "name": "CI の Windows の組み立てと更新の試験（package-windows・install-windows）",
+    "change": "lock を変えた PR だけ、古い側の試験の zip を分岐点の lock で組み、2 つの zip の版を確かめる。取れない・版が違えば落とす",
+    "searched": "package-windows-test-old と pgsql.lock の名前で ci.yml・tools/release を探し、組み立ての loop・lock を直に読む台本・使い回しの形の検査を読んだ",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D7",
+      "D8"
+     ]
+    }
+   },
+   {
+    "id": "T7",
+    "kind": "data",
+    "name": "Windows の組み立ての使い回しの鍵",
+    "change": "道具の版の文字列の末尾に前の lock の指紋（無ければ none）を足す",
+    "searched": "WINDOWS_BUILD_KEY_TOOLS の名前で ci.yml と windows-build-key.sh を探し、鍵の形の検査を読んだ",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
    }
   ],
   "dependencies": [
@@ -686,16 +1101,19 @@
    {
     "id": "D4",
     "target": "T2",
-    "who": "走っている CH24（zip を 9 に上げ、例外の表の zip の行を消す）",
+    "who": "main に merge 済みの CH24（zip を 9 に上げ、例外の表の zip の行を消した）",
     "role": "writes",
-    "assumes": "osv-scanner.toml と Cargo.lock を自分だけが変える",
+    "assumes": "この change の Cargo.lock と osv-scanner.toml は、main（CH24 の後）の形を元にする",
     "holds": "unknown",
-    "affects": "後から merge する側の rebase で衝突が出る",
+    "affects": "この上流の枝は main より古く、Cargo.lock と osv-scanner.toml が main と違う。実装は main の上で取り直さないと、CH24 の変更を戻しうる",
     "basis": "observed",
     "evidence": [
      "E10"
     ],
-    "verify": "後から merge する側が rebase の後に tasks 1.1〜1.3 の検証を取り直す"
+    "verify": "実装は main の上で始め、tasks 1.1〜1.3 の検証（Cargo.lock で動いた組が rustix だけ・例外の表の既にある行が中身ごと残る）を main の形に対して取る",
+    "leads_to": [
+     "IMP-07"
+    ]
    },
    {
     "id": "D5",
@@ -747,9 +1165,9 @@
     "target": "T4",
     "who": "CI の更新の試験（package-windows・install-windows）",
     "role": "reads",
-    "assumes": "古い zip と新しい zip は同じ commit から組む",
-    "holds": "yes",
-    "affects": "CI は小さい版の違う配布物の間の更新を走らせない",
+    "assumes": "古い zip と新しい zip は同じ commit・同じ lock から組む",
+    "holds": "no",
+    "affects": "lock を変えた PR では古い側だけが前の lock で組まれる。CI の Windows で小さい版の違う配布物の間の更新が走る",
     "basis": "observed",
     "evidence": [
      "E7"
@@ -775,6 +1193,69 @@
     ],
     "leads_to": [
      "IMP-01"
+    ]
+   },
+   {
+    "id": "D10",
+    "target": "T6",
+    "who": "配る物の組み立て（tools/release/build.sh）",
+    "role": "reads",
+    "assumes": "作業木の tools/release/pgsql.lock を直に読み、許諾の文の版と DLL の一覧を書く",
+    "holds": "yes",
+    "affects": "古い側を組む間だけ作業木の lock を置き換えれば、古い側の zip に前の版が書かれる",
+    "basis": "observed",
+    "evidence": [
+     "E13"
+    ]
+   },
+   {
+    "id": "D11",
+    "target": "T6",
+    "who": "更新の試験の台本（tools/release/update-apply-install.sh）",
+    "role": "reads",
+    "assumes": "更新した後に動く PostgreSQL は新しい側の zip の版",
+    "holds": "unknown",
+    "affects": "インストーラが pgsql の置き場を入れ替え損ねても CI は緑になりうる",
+    "basis": "derived",
+    "refs": {
+     "decisions": [
+      "D10"
+     ]
+    },
+    "leads_to": [
+     "IMP-05"
+    ],
+    "verify": "update-apply-install.sh の更新の後に pgsql\\bin\\postgres.exe -V を読む所を足す change で確かめる"
+   },
+   {
+    "id": "D12",
+    "target": "T7",
+    "who": "使い回しの形の検査（windows-build-key.sh --check-workflow）",
+    "role": "reads",
+    "assumes": "鍵の step は WINDOWS_BUILD_KEY_TOOLS を渡す行を 1 本だけ持ち、決まった道具の版の語を持つ",
+    "holds": "yes",
+    "affects": "末尾に prev-pgsql を足しても形の検査は通る（design D9 の実測）",
+    "basis": "observed",
+    "evidence": [
+     "E14"
+    ]
+   },
+   {
+    "id": "D13",
+    "target": "T6",
+    "who": "PR の作者（大きい版を上げる PR・分岐点が取れない run）",
+    "role": "reads",
+    "assumes": "lock を変えた PR は前の lock で古い側を組める",
+    "holds": "no",
+    "affects": "大きい版を上げる PR と分岐点を取れない run は CI が落ちる",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ]
+    },
+    "leads_to": [
+     "S1"
     ]
    }
   ],
@@ -850,6 +1331,30 @@
     "source": "test",
     "loc": "crates/collector-windows/src/history/locate.rs:378",
     "quote": ".any(|p| p.path == absolute.join(\"places.sqlite\")));"
+   },
+   {
+    "id": "E13",
+    "source": "code",
+    "loc": "tools/release/build.sh:141",
+    "quote": "\"version: $(sed -n 's/^version=//p' \"$root/tools/release/pgsql.lock\")\""
+   },
+   {
+    "id": "E14",
+    "source": "ops",
+    "loc": "tools/release/windows-build-key.sh:225",
+    "quote": "WINDOWS_BUILD_KEY_TOOLS を渡す行が %d 本ある（1 本のはず）"
+   },
+   {
+    "id": "E15",
+    "source": "test",
+    "loc": "crates/installer/src/main.rs:3288",
+    "quote": "assert_eq!(st58_read(program.join(\"pgsql/bin/psql.exe\")), \"old\");"
+   },
+   {
+    "id": "E16",
+    "source": "ops",
+    "loc": "tools/check-pg-minor.sh:9",
+    "quote": "lock_file=\"${PGSQL_LOCK_FILE:-$root/tools/release/pgsql.lock}\""
    }
   ],
   "lost": [
@@ -892,10 +1397,13 @@
    {
     "id": "update",
     "applies": true,
-    "can": "17.6 の配布版が入った PC を 17.12 の配布物で更新し、同じ置き場を使う（仕様の約束。PostgreSQL の部分を tasks 3.1 の台本で確かめる予定で、まだ走らせていない）",
-    "cannot": "この分析では見つけていない。Windows の配布物どうしの更新は機械では確かめない（IMP-02）",
+    "can": "17.6 の配布版が入った PC を 17.12 の配布物で更新し、同じ置き場を使う（仕様の約束。PostgreSQL の部分は tasks 3.1 の台本、Windows の配布物どうしは tasks 4 の CI で確かめる予定で、まだ走らせていない）",
+    "cannot": "この分析では見つけていない。CI は更新の後に動いている PostgreSQL の版は見ない（IMP-05）",
     "basis": "spec",
     "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
      "scenarios": [
       "前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う"
      ],
@@ -943,21 +1451,103 @@
    {
     "id": "recovery",
     "applies": true,
-    "can": "更新の途中で移行が落ちたら、インストーラが 17.6 に戻して 17.12 の退避を戻す",
-    "cannot": "この道を Windows の配布物で通すこと（この PR では走らせない。IMP-02）",
-    "basis": "derived",
+    "can": "更新の途中で移行が落ちたら、インストーラが 17.6 に戻して 17.12 の退避を戻す（lock を変える PR の CI が Windows で通す予定）",
+    "cannot": "この分析では見つけていない",
+    "basis": "spec",
     "refs": {
      "requirements": [
-      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える",
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
      ],
      "decisions": [
       "D5"
      ]
     }
+   },
+   {
+    "id": "next_minor",
+    "name": "次に小さい版を上げる PR",
+    "applies": true,
+    "can": "lock を変えた PR を出すだけで、CI が前の版からの更新と戻しを Windows で通す",
+    "cannot": "大きい版を上げる PR（17 → 18）は CI が落ちる。分岐点を取れない run も落ちる",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
    }
   ],
-  "rules": [],
-  "scenarios": [],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "停止",
+    "rule": "lock を変えた PR で、分岐点の lock が取れない・大きい版が違う・改行のほかに中身が同じ・組んだ zip の版が前と今の lock の版でないなら CI を落とす",
+    "target": "古い側が今の lock で組まれ、17.12 → 17.12 の更新で緑になること",
+    "legit": "大きい版を上げる PR（17 → 18）は、大きい版を上げる Story が道を作るまで CI が緑にならない。改行だけを lock に入れた PR・分岐点を浅く fetch できない run（ネットワークの失敗など）も落ちる",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D7",
+      "D8"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "使い回した run でも、インストールと更新の Scenario が 1 つでも走らなければ CI を落とす。前の組み立ては鍵が完全に一致したときだけ使う",
+    "target": "使い回した配布物で試験の一部が黙って抜けること・入力の違う組み立てを使い回すこと",
+    "legit": "この分析では、正当な PR を止める道を見つけていない。鍵に前の lock の指紋を足すと、lock を変えた PR は使い回せずに組み直す（約 25 分）だけ",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R1",
+    "goal": "同梱の PostgreSQL を 18 に上げる",
+    "initial": "main の pgsql.lock は 17.12-1",
+    "action": "pgsql.lock を 18.x に変えた PR を出す",
+    "trigger": "分岐点の lock と大きい版が違う",
+    "result": "package-windows が古い側を組まずに落ち、PR の CI は緑にならない",
+    "lost": "大きい版を上げる PR を、今の CI のまま緑にすること",
+    "decision": "大きい版を上げる Story が、大きい版の違う前の lock の扱い（pg_upgrade の道）を決める（IMP-06）",
+    "occurs_when": [
+     "PR の差分が lock の大きい版を変える"
+    ],
+    "not_when": [
+     "小さい版だけを変える",
+     "lock を変えない"
+    ],
+    "basis": "derived",
+    "imp": "IMP-06",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    }
+   }
+  ],
   "findings": [
    {
     "id": "IMP-01",
@@ -1007,27 +1597,25 @@
    {
     "id": "IMP-02",
     "severity": "medium",
-    "status": "open",
+    "status": "reflected",
     "title": "Windows の配布物どうしの 17.6→17.12 の更新は、機械では確かめない",
     "text": "台本が確かめるのは Linux の PostgreSQL の置き場の入れ替えと、退避を戻すことだけ。インストーラが Windows でプログラムの置き場を入れ替える道は、本人の PC に配布版が入っているときの確認バッチでしか通らない",
     "basis": "derived",
     "unknowns": [
-     "本人の PC に 17.6 を同梱した配布版が入っているかは確かめていない",
-     "インストーラに小さい版で分かれる処理が無いことは、コードを読んだだけで走らせていない",
-     "本人の PC に配布版が入っていなければ、確認バッチでも Windows の更新は通らず、持ち越し先と期限は決まっていない（未解決に挙げた）"
+     "Windows に固有の落ち方は、実装の後に CI の run で初めて分かる（まだ走らせていない）",
+     "CI は更新の後に動いている PostgreSQL の版は見ない（IMP-05）",
+     "version を変えず dlls や url だけを変える lock の PR では、古い側も新しい側も同じ版で、版の確かめは 17.12 → 17.12 で通る。そのとき小さい版の違う更新は走らない",
+     "17.12 の pg_dump の退避を 17.6 の pg_restore が読めるか（D7）は、台本と CI をまだ走らせていない"
     ],
     "derived": "CI は古い zip と新しい zip を同じ commit から組む（E7）ので、どちらも 17.12 になる。この PR の後は、小さい版の違う配布物の間の更新を走らせる所が無い",
-    "undefined": "本人の PC に配布版が入っていないとき、Windows の更新をだれがいつ確かめるか",
+    "undefined": "なし（本人の決定 R2 = C で、だれがいつ確かめるかは CI に決まった）",
     "feasibility": "unverified",
     "options": [
      {
-      "label": "本人の決定（R2 の A）のまま受け入れる"
-     },
-     {
-      "label": "CI で base の lock から古い zip を組む change を後から立てる"
+      "label": "本人の決定（R2 の C）のとおり CI で通す"
      }
     ],
-    "verify": "本人の Windows で 17.6-1 の zip から 17.12-1 の zip へ tools/release/update-apply-install.sh を走らせる",
+    "verify": "この PR の install-windows が緑で、package-windows の出力に「古い側 17.6-1 → 新しい側 17.12-1」がある",
     "deps": [
      "D7",
      "D8"
@@ -1045,11 +1633,22 @@
      ]
     },
     "harm": {
-     "when": "17.6 の配布版が入った PC を更新して、Windows に固有の理由で落ちたとき。",
+     "when": "17.6 の配布版が入った PC を更新して、Windows に固有の理由で落ちたとき。この PR の CI が同じ道を先に通す。",
      "who": "その PC でサーバを使う本人。インストーラは落ちたら前の版に戻す。",
      "link": "既に入っている DB の記録（滞在・稼働状況）。",
-     "unknown": "Windows に固有の落ち方があるかは確かめていない。"
-    }
+     "unknown": "CI の runner と本人の PC の違い（ウイルス対策・権限など）で落ち方が変わるかは確かめていない。"
+    },
+    "reflected_in": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D5",
+      "D7",
+      "D8"
+     ]
+    },
+    "resolution": "lock を変える PR では、CI が古い側の試験の zip を分岐点の lock（17.6-1）で組み、Windows で 17.6-1 → 17.12-1 の更新と戻しを update-apply-install.sh で通す。2 つの zip の版が前と今の lock の版でなければ CI が落ちるので、この PR（version を変える）の緑は小さい版の違う配布物の間の更新が通ったことを含む。17.12 の退避を 17.6 の pg_restore が戻せることは、Linux の台本（tasks 3.1）と CI の戻しの Scenario の両方が通す"
    },
    {
     "id": "IMP-03",
@@ -1100,28 +1699,149 @@
      "link": "なし。",
      "unknown": "repo の公開範囲は確かめていない。"
     }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "medium",
+    "status": "open",
+    "title": "CI は、更新の後に動いている PostgreSQL の版を見ない",
+    "text": "CI は 2 つの zip の同梱の版を確かめ、更新と戻しの Scenario 群を通すが、更新した後に起きている postgres.exe の版は読まない。インストーラが pgsql の置き場だけを入れ替え損ねても CI は緑になりうる",
+    "basis": "derived",
+    "derived": "update-apply-install.sh は動いている postgres.exe の版を読まない（design D10）。同じ大きい版なので古い PostgreSQL でも DB は読め、Scenario 群は通る",
+    "undefined": "更新の後に古い小さい版のまま動いていることを、だれがどう気づくか",
+    "feasibility": "unverified",
+    "unknowns": [
+     "インストーラが pgsql の置き場だけを入れ替え損ねる道が実際にあるかは確かめていない（戻しの試験はプログラムの置き場ごと、pgsql を含めて前の版に戻すことを見る。E15）",
+     "遅れの検査（check-pg-minor.sh）は lock を読み（E16）、配った PC で動いている版を見ないので、入れ替え損ねても気づかない"
+    ],
+    "options": [
+     {
+      "label": "D10（仮）のまま受け入れる（確認バッチの仮の一覧で本人が見る）"
+     },
+     {
+      "label": "update-apply-install.sh に動いている版を読む所を足す change を後で立てる"
+     }
+    ],
+    "verify": "更新の後に pgsql\\bin\\postgres.exe -V を読み、新しい側の lock の版と比べる",
+    "deps": [
+     "D11"
+    ],
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    },
+    "harm": {
+     "when": "インストーラが pgsql の置き場だけを入れ替え損ね、更新の後も古い小さい版の PostgreSQL が動くとき。",
+     "who": "更新した PC でサーバを使う本人。見た目の振る舞いは変わらない。",
+     "link": "直したはずの PostgreSQL の脆弱性が、その PC に残る。",
+     "unknown": "入れ替え損ねる道が実際にあるか、気づく手段が他にあるかは確かめていない。"
+    },
+    "evidence": [
+     "E15",
+     "E16"
+    ]
+   },
+   {
+    "id": "IMP-06",
+    "severity": "low",
+    "status": "open",
+    "title": "大きい版を上げる PR は、今の CI では緑にならない",
+    "text": "lock の大きい版を変えた PR は、前の lock で古い側を組めず CI が落ちる。大きい版を上げる Story が道を作るまで、その PR は通らない",
+    "basis": "derived",
+    "derived": "Requirement の IF 節（大きい版が違えば古い側を組まずに CI を落とす）から言える",
+    "undefined": "大きい版を上げるときに、CI で何を古い側にするか",
+    "feasibility": "unverified",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "scenarios": [
+      "前の lock と大きい版が違えば、古い側を組まずに落ちる"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    },
+    "harm": {
+     "when": "同梱の PostgreSQL を 18 に上げる PR を出したとき。",
+     "who": "その PR を作る人。",
+     "link": "なし（配る物には効かない）。",
+     "unknown": "大きい版を上げる Story がいつ来るかは決まっていない。"
+    }
+   },
+   {
+    "id": "IMP-07",
+    "severity": "low",
+    "status": "open",
+    "title": "この上流の枝は main より古く、依存の表の元が CH24 の後の形でない",
+    "text": "Cargo.lock と osv-scanner.toml は main（CH24 merge 済み）と違う。実装をこの枝の形の上で始めると、CH24 の変更を戻すか、元の版と比べた結果が食い違う",
+    "basis": "observed",
+    "evidence": [
+     "E10"
+    ],
+    "deps": [
+     "D4"
+    ],
+    "derived": "tasks 1.1・1.3 の比べは「元の版と今」を比べる。元が main でなければ、動いた組に CH24 の分が混ざる",
+    "undefined": "なし（design が「実装は main の上で始める」と書いている）",
+    "feasibility": "unverified",
+    "refs": {
+     "decisions": [
+      "D1",
+      "D2"
+     ]
+    },
+    "harm": {
+     "when": "実装を main の上で始めなかったとき。",
+     "who": "実装と検証をする席。",
+     "link": "なし（検証が落ちて気づく）。",
+     "unknown": "下流の入口が main をどこで取り込むかは確かめていない。"
+    }
    }
   ],
   "acceptance": [
    {
-    "text": "12 の Scenario（脆弱性の検査 4・配布 8）と台本の自己試験が通り、cargo test と clippy が今のまま通る",
+    "text": "この change の Scenario（脆弱性の検査 4・配布の新しい 20 と書き換えた鍵の Requirement の Scenario）と台本の自己試験が通り、cargo test と clippy が今のまま通る",
     "refs": {
      "requirements": [
       "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
       "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない",
-      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+      "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える",
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す",
+      "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
      ]
     }
    },
    {
-    "text": "触ったファイルが予定のパスの中だけで、軽い路の申告と合う",
+    "text": "この PR の CI が緑で、package-windows の出力に「古い側 17.6-1 → 新しい側 17.12-1」がある（install-windows の更新と戻しが小さい版の違う組で通った）",
+    "refs": {
+     "requirements": [
+      "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+     ],
+     "decisions": [
+      "D7",
+      "D8"
+     ]
+    }
+   },
+   {
+    "text": "触ったファイルが予定のパスの中だけ",
     "refs": {}
    },
    {
-    "text": "確認バッチで、本人の PC の更新の結果（か入っていない・同じ版）と、夜間の検査が緑で #334〜#337 を閉じたかに答えている",
+    "text": "確認バッチで、夜間の検査が緑で #334〜#337 を閉じたかに答え、仮の決定（D2・D3・D7〜D10）の一覧を見ている",
     "refs": {
      "decisions": [
-      "D5"
+      "D2",
+      "D3",
+      "D7",
+      "D8",
+      "D9",
+      "D10"
      ]
     }
    }
@@ -1134,6 +1854,15 @@
       "requirements": [
        "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
        "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
+      ]
+     }
+    },
+    {
+     "text": "pgsql.lock を変える PR の CI で、古い側の試験の zip だけを分岐点の lock で組み、Windows で更新と戻しを通すこと",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す",
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
       ]
      }
     }
@@ -1155,25 +1884,43 @@
        "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない"
       ]
      }
+    },
+    {
+     "text": "CI が前の lock で古い側を組むのは、PR の run で、分岐点から head までの差分が lock を変え、大きい版が同じときだけ。lock を変えない PR・PR でない run は今のまま",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
+      ]
+     }
+    },
+    {
+     "text": "前の組み立てを使い回すのは、PR の run で鍵が完全に一致したときだけ。鍵に入れないのは名指しした試験の台本と文書だけで、前の lock の指紋は lock を変えた run だけ（ほかは none）",
+     "refs": {
+      "requirements": [
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ]
+     }
     }
    ],
    "excludes": [
     {
-     "text": "大きい版の更新（18 など）。Windows の配布物どうしの更新を機械で走らせること",
+     "text": "大きい版の更新（18 など。lock を変える PR の CI は落ちる）。本人の PC に入っている配布版の移行（ST64）。開発版・互換の組の古い側を前の lock で組むこと",
      "refs": {
       "decisions": [
-       "D5"
+       "D5",
+       "D7"
       ]
      }
     }
    ],
    "residual": [
     {
-     "text": "libsqlite3-sys の勧告は PC の収集アプリに残る（IMP-01）。chrono は 90 日ごとに赤に戻る（IMP-03）",
+     "text": "libsqlite3-sys の勧告は PC の収集アプリに残る（IMP-01）。chrono は 90 日ごとに赤に戻る（IMP-03）。CI は動いている PostgreSQL の版を見ない（IMP-05）",
      "refs": {
       "decisions": [
        "D2",
-       "D3"
+       "D3",
+       "D10"
       ]
      }
     }
@@ -1182,17 +1929,19 @@
   "coverage": {
    "examined": [
     {
-     "text": "3 つの Requirement と 12 の Scenario、premises の P1〜P18、インストーラが lock を読む所、退避と戻しの処理、履歴を写して開く処理、検査と issue の台本",
+     "text": "5 つの Requirement（新しい 4 と書き換えた鍵の 1）と Scenario、premises の P1〜P21、インストーラが lock を読む所、退避と戻しの処理、履歴を写して開く処理、検査と issue の台本、ci.yml の試験の zip の組み立てと使い回しの形の検査",
      "refs": {
       "requirements": [
        "夜間の検査が挙げた crate の勧告は、直った版へ上げるか、正典の形の例外の行で片付け、ほかの依存と例外の行を動かさない",
        "同梱の PostgreSQL の小さい版を上げるときは、lock の版・URL・指紋をそろえ、大きい版と置き場は変えない",
-       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える"
+       "小さい版を上げる前に使っていた DB の置き場を、上げた版がそのまま使い、前の版に戻しても使える",
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す",
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
       ]
      }
     },
     {
-     "text": "同じファイルを触る走っている change: ch24-zip-upgrade（Cargo.lock・osv-scanner.toml。D4）、ch22-soak-install-online-ci（update-apply-install.sh。CH26 は触らない）、ch25-ci-flake-gradle-cache-clock-test（tools/** の glob が重なるだけで、同じファイルは触らない）",
+     "text": "同じファイルを触る change: CH22・CH24・CH25 は 2026-11-21 に main へ merge 済み（ci.yml・Cargo.lock・osv-scanner.toml）。実装は main の上で取り直す（design の Risks）。この上流の枝の ci.yml は main より古い",
      "refs": {}
     }
    ],
@@ -1202,12 +1951,16 @@
      "why": "zip は実装のときに落とす（tasks 2.1）"
     },
     {
-     "text": "Windows の配布物どうしの更新と戻し",
-     "why": "走らせる Windows がこの流れの中に無い。本人の決定で本人の PC に回した"
-    },
-    {
      "text": "同じ利用者の処理が別の処理の記憶を読めるか（P7）",
      "why": "Windows の実機で確かめる手段をこの流れが持たない"
+    },
+    {
+     "text": "Windows の runner で前の lock の zip を組んで更新と戻しを走らせた結果",
+     "why": "CI の run は実装の後。上流では走らせられない"
+    },
+    {
+     "text": "main に merge 済みの CH22 の ci.yml（install-windows の段）と、この change の ci.yml の変更の組み合わせ",
+     "why": "この上流の枝は main より古く、ci.yml の形を実装のときに main で取り直す"
     }
    ],
    "excluded": [
@@ -1223,7 +1976,8 @@
    "tldr": "夜間の脆弱性検査を緑に戻し、同梱の PostgreSQL を 17.12 にする。製品の振る舞いは変えない。",
    "gist": [
     "crate の 3 件は、1 件を上げ、2 件を理由と 90 日の期限で例外にする。",
-    "PostgreSQL は小さい版だけを替え、今の DB をそのまま使う。"
+    "PostgreSQL は小さい版だけを替え、今の DB をそのまま使う。",
+    "lock を変える PR では、前の版からの更新と戻しを CI が Windows で通す。"
    ],
    "words": [
     {
@@ -1238,22 +1992,22 @@
    }
   },
   "change": {
-   "tldr": "夜間の検査が緑に戻り、配布物の PostgreSQL が 17.6 から 17.12 になる。"
+   "tldr": "検査が緑に戻り、PostgreSQL が 17.12 になり、lock を変える PR の CI が更新を確かめる。"
   },
   "lost": {
    "tldr": "例外にした 2 件は 90 日のあいだ夜間の検査で知らされなくなる。"
   },
   "uses": {
-   "tldr": "次に検査が赤になったら、それは新しい勧告か例外の期限切れだと分かる。"
+   "tldr": "次に検査が赤になったら、まず新しい勧告か例外の期限切れを疑える。"
   },
   "watch": {
-   "tldr": "Windows の配布物どうしの更新は機械では確かめず、本人の PC で見る。"
+   "tldr": "CI は 2 つの zip の版を見るが、更新の後に動いている版は見ない。"
   },
   "findings": {
-   "tldr": "重大な問題は見つけていない。中くらいの 2 件（例外の理由の確かさ・Windows の更新）を残す。"
+   "tldr": "重大な問題は見つけていない。中くらいの 2 件（例外の理由の確かさ・動いている版を見ない）を残す。"
   },
   "rest": {
-   "tldr": "chrono の置き換えと rusqlite 0.41 への上げはしない。issue は本人が閉じる。"
+   "tldr": "chrono と rusqlite の上げ・本人の PC の移行はしない。issue は本人が閉じる。"
   }
  }
 }
