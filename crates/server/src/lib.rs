@@ -721,6 +721,31 @@ impl App {
         }
     }
 
+    /// 保存した照らす値から、起動し直した形のログイン状態を作る。
+    #[cfg(test)]
+    #[allow(clippy::inconsistent_struct_constructor)]
+    pub(crate) fn with_web_login_verifier(self, verifier: &str, session_max_age_days: u32) -> Self {
+        let current = self.secrets_snapshot();
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(
+            web_session::SharedSecrets::from_verifier(
+                current.api_token().to_owned(),
+                self.login.session_key_for_test(),
+                verifier,
+            ),
+        ));
+        let mut login = web_session::WebLogin::with_secrets(
+            secrets.clone(),
+            self.login.session_key_for_test(),
+            session_max_age_days,
+        );
+        login.failure_delay = self.login.failure_delay;
+        Self {
+            login,
+            secrets,
+            ..self
+        }
+    }
+
     /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
     #[allow(clippy::inconsistent_struct_constructor)]

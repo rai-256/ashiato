@@ -13,6 +13,26 @@ use std::sync::{
 };
 use tower::ServiceExt as _;
 
+#[derive(Clone, Default)]
+struct CapturedLog(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedLog {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
 #[test]
 fn st59_web_password_verifier_is_argon2id() {
     let verifier = web_session::password_verifier_for_test("new-web-password-012345").unwrap();
@@ -131,6 +151,20 @@ fn web_password_request(
 async fn response_body_json(response: axum::response::Response<Body>) -> serde_json::Value {
     use http_body_util::BodyExt as _;
     serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
+}
+
+async fn response_body_string(response: axum::response::Response<Body>) -> String {
+    use http_body_util::BodyExt as _;
+    String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -742,6 +776,13 @@ async fn st59_both_change_values_are_not_logged() {
     let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
     let app = st59_app().await;
     let cookie = login(&app, app.web_password_for_test()).await;
+    let captured = CapturedLog::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
     let wrong = router(app.clone())
         .oneshot(web_password_request(
             Some(&cookie),
@@ -802,6 +843,17 @@ async fn st59_both_change_values_are_not_logged() {
         assert!(!row.contains("old-api-token-012345"));
         assert!(!row.contains(&token));
         assert!(row.contains("/web-password") || row.contains("/collector-token"));
+    }
+    drop(guard);
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    for secret in [
+        "old-web-password-012345",
+        "wrong-web-password-012345",
+        "new-web-password-012345",
+        "old-api-token-012345",
+        token.as_str(),
+    ] {
+        assert!(!log.contains(secret), "秘密が tracing に出た: {log}");
     }
 }
 
@@ -958,14 +1010,18 @@ async fn st59_web_password_handler_applies_all_five_validation_rules() {
     let cookie = login(&app, app.web_password_for_test()).await;
     let path = std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap();
     let before = std::fs::read(&path).unwrap();
-    for value in [
-        "short",
-        "change-me-web-password-012345",
-        "api-token-0123456789",
-        "test-session-key-0123456789",
+    for (value, reason) in [
+        ("123456789012345", "too_short"),
+        ("change-me-web-password-012345", "placeholder"),
+        ("api-token-0123456789", "same_as_api_token"),
+        ("test-session-key-0123456789", "same_as_session_key"),
     ] {
         let response = st59_change(&app, Some(&cookie), app.web_password_for_test(), value).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response_body_json(response).await,
+            serde_json::json!({"error": reason})
+        );
     }
     let mismatch = web_password_request(
         Some(&cookie),
@@ -973,16 +1029,25 @@ async fn st59_web_password_handler_applies_all_five_validation_rules() {
         "new-web-password-012345",
         "different-web-password-012345",
     );
+    let mismatch = router(app.clone()).oneshot(mismatch).await.unwrap();
+    assert_eq!(mismatch.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
-        router(app.clone())
-            .oneshot(mismatch)
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::BAD_REQUEST
+        response_body_json(mismatch).await,
+        serde_json::json!({"error":"mismatch"})
     );
     assert_eq!(std::fs::read(path).unwrap(), before);
-    assert!(login(&app, app.web_password_for_test()).await.len() > 10);
+    let accepted = st59_change(
+        &app,
+        Some(&cookie),
+        app.web_password_for_test(),
+        "1234567890123456",
+    )
+    .await;
+    assert_eq!(
+        accepted.status(),
+        StatusCode::NO_CONTENT,
+        "16 文字は短すぎではない"
+    );
 }
 
 #[tokio::test]
@@ -1000,7 +1065,7 @@ async fn st59_web_password_handler_rejects_non_web_callers() {
     assert_eq!(no_cookie.status(), StatusCode::UNAUTHORIZED);
     let mut api_request = web_password_request(
         None,
-        "old-web-password-012345",
+        app.web_password_for_test(),
         "new-web-password-012345",
         "new-web-password-012345",
     );
@@ -1008,10 +1073,31 @@ async fn st59_web_password_handler_rejects_non_web_callers() {
         header::AUTHORIZATION,
         "Bearer api-token-0123456789".parse().unwrap(),
     );
-    assert_eq!(
-        router(app).oneshot(api_request).await.unwrap().status(),
-        StatusCode::FORBIDDEN
+    let api = router(app.clone()).oneshot(api_request).await.unwrap();
+    assert_eq!(api.status(), StatusCode::FORBIDDEN);
+    assert_ne!(response_body_string(api).await, "wrong_password");
+    let (satellite, identifier) =
+        crate::satellite_authn_tests::seed_satellite(&testdb::pool().await).await;
+    let (_, credential) = crate::satellite_authn_tests::seed_credential(
+        &testdb::pool().await,
+        satellite,
+        &identifier,
+        chrono::Utc::now(),
+    )
+    .await;
+    let mut satellite_request = web_password_request(
+        None,
+        app.web_password_for_test(),
+        "new-web-password-012345",
+        "new-web-password-012345",
     );
+    satellite_request.headers_mut().insert(
+        header::AUTHORIZATION,
+        format!("Bearer {credential}").parse().unwrap(),
+    );
+    let satellite = router(app).oneshot(satellite_request).await.unwrap();
+    assert_eq!(satellite.status(), StatusCode::FORBIDDEN);
+    assert_ne!(response_body_string(satellite).await, "wrong_password");
 }
 
 #[tokio::test]
@@ -1204,7 +1290,11 @@ async fn st59_web_password_handler_uses_new_password_after_rebuilding_app() {
         .status(),
         StatusCode::NO_CONTENT
     );
-    let rebuilt = app.with_web_login("new-web-password-012345", 0);
+    let settings_path =
+        std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let settings = super::service::load_settings(&settings_path).unwrap();
+    let verifier = settings.0.get("WEB_PASSWORD_VERIFIER").unwrap();
+    let rebuilt = app.with_web_login_verifier(verifier, 0);
     assert_eq!(
         router(rebuilt.clone())
             .oneshot(login_request("old-web-password-012345"))

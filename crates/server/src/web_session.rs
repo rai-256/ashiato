@@ -783,7 +783,7 @@ async fn web_password_post_inner(
     }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
-    let check =
+    let (check, _permit) =
         check_with_permit_using_secrets(&app, request.password.clone(), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
         app.access
@@ -848,43 +848,48 @@ async fn web_password_post_inner(
     .then_some(())
     .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
 
-    let settings_path = std::env::var_os("ASHIATO_SETTINGS_PATH").map(std::path::PathBuf::from);
-    let settings_before = settings_path
-        .as_ref()
-        .and_then(|path| std::fs::read(path).ok());
     let verifier_for_write = verifier.clone();
     let saved = tokio::task::spawn_blocking(move || {
-        crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier_for_write)
+        crate::service::replace_setting_with_previous("WEB_PASSWORD_VERIFIER", &verifier_for_write)
     })
     .await;
-    if !matches!(saved, Ok(Ok(()))) {
-        app.access
-            .write(web_password_entry(
-                &headers,
-                Some(caller),
-                "forbidden",
+    let previous = match saved {
+        Ok(Ok(previous)) => previous,
+        _ => {
+            app.access
+                .write(web_password_entry(
+                    &headers,
+                    Some(caller),
+                    "forbidden",
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ))
+                .await?;
+            return Ok(web_password_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-            .await?;
-        return Ok(web_password_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "not_saved",
-        ));
-    }
+                "not_saved",
+            ));
+        }
+    };
 
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
     let next = SharedSecrets::from_verifier(api_token, &session_key, &verifier);
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO core.web_session (token_sha256, secret_tag, issued_at) VALUES ($1, $2, $3)",
     )
     .bind(sha256(&token))
     .bind(next.tag())
     .bind(app.now())
     .execute(&app.pool)
-    .await
-    .map_err(|e| internal_at("web_password.session_insert", e))?;
+    .await;
+    if let Err(error) = inserted {
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::service::restore_setting("WEB_PASSWORD_VERIFIER", &previous)
+        })
+        .await;
+        return Err(internal_at("web_password.session_insert", error));
+    }
     if let Err(error) = app
         .access
         .write(web_password_entry(
@@ -895,9 +900,10 @@ async fn web_password_post_inner(
         ))
         .await
     {
-        if let (Some(path), Some(bytes)) = (settings_path, settings_before) {
-            let _ = tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await;
-        }
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::service::restore_setting("WEB_PASSWORD_VERIFIER", &previous)
+        })
+        .await;
         return Err(error);
     }
     app.replace_secrets(next);
@@ -1152,7 +1158,7 @@ async fn collector_token_post_checked(
     }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
-    let check =
+    let (check, _permit) =
         check_with_permit_using_secrets(&app, given_password(&body), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
         app.access
@@ -1211,30 +1217,29 @@ async fn collector_token_post_checked(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
-    let settings_path = std::env::var_os("ASHIATO_SETTINGS_PATH").map(std::path::PathBuf::from);
-    let settings_before = settings_path
-        .as_ref()
-        .and_then(|path| std::fs::read(path).ok());
     let token_for_write = token.clone();
     let saved = tokio::task::spawn_blocking(move || {
-        crate::service::replace_setting("API_TOKEN", &token_for_write)
+        crate::service::replace_setting_with_previous("API_TOKEN", &token_for_write)
     })
     .await;
-    if !matches!(saved, Ok(Ok(()))) {
-        app.access
-            .write(collector_token_entry(
-                &headers,
-                Some(caller),
-                "forbidden",
+    let previous = match saved {
+        Ok(Ok(previous)) => previous,
+        _ => {
+            app.access
+                .write(collector_token_entry(
+                    &headers,
+                    Some(caller),
+                    "forbidden",
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ))
+                .await?;
+            return Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-            .await?;
-        return Ok((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(CollectorTokenChangeError { error: "not_saved" }),
-        )
-            .into_response());
-    }
+                Json(CollectorTokenChangeError { error: "not_saved" }),
+            )
+                .into_response());
+        }
+    };
     if let Err(error) = app
         .access
         .write(collector_token_entry(
@@ -1245,9 +1250,10 @@ async fn collector_token_post_checked(
         ))
         .await
     {
-        if let (Some(path), Some(bytes)) = (settings_path, settings_before) {
-            let _ = tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await;
-        }
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::service::restore_setting("API_TOKEN", &previous)
+        })
+        .await;
         return Err(error);
     }
     app.replace_secrets(secrets.with_api_token(token.clone()));
@@ -1362,7 +1368,7 @@ async fn check_given_password_with_current_secrets(
     app.login.check_waiting.notify_waiters();
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
-    let check = check_with_permit_using_secrets(app, given, permit, &secrets).await;
+    let (check, _permit) = check_with_permit_using_secrets(app, given, permit, &secrets).await;
     (check, secrets)
 }
 
@@ -1382,7 +1388,9 @@ pub(crate) async fn check_with_permit(
     permit: LoginCheckPermit,
 ) -> PasswordCheck {
     let secrets = app.secrets_snapshot();
-    check_with_permit_using_secrets(app, given, permit, &secrets).await
+    check_with_permit_using_secrets(app, given, permit, &secrets)
+        .await
+        .0
 }
 
 async fn check_with_permit_using_secrets(
@@ -1390,39 +1398,36 @@ async fn check_with_permit_using_secrets(
     given: String,
     permit: LoginCheckPermit,
     secrets: &SharedSecrets,
-) -> PasswordCheck {
+) -> (PasswordCheck, LoginCheckPermit) {
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
-        return PasswordCheck::Throttled;
+        return (PasswordCheck::Throttled, permit);
     }
     // 空は照合せず失敗に数える（照らす形の `accepts` は空を自分では断らず、Argon2id を回してしまう）
     if given.is_empty() {
         app.login.limiter.record_failure();
-        return PasswordCheck::Mismatch;
+        return (PasswordCheck::Mismatch, permit);
     }
     // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
     // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡し、照合が終わって数え上げるまで次の照合を始めない（review R78）
     let secrets = secrets.clone();
     let limiter = app.login.limiter.clone();
-    let accepted = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
+    let (accepted, permit) = tokio::task::spawn_blocking(move || {
+        let permit = permit;
         let accepted = secrets.accepts(&given);
         if !accepted {
             limiter.record_failure();
         }
-        accepted
+        (accepted, permit)
     })
     .await
-    .unwrap_or_else(|_| {
-        app.login.limiter.record_failure();
-        false
-    });
+    .expect("照合の blocking task は panic しない");
     if accepted {
         #[cfg(test)]
         app.login.check_succeeded.notify_waiters();
-        PasswordCheck::Match
+        (PasswordCheck::Match, permit)
     } else {
-        PasswordCheck::Mismatch
+        (PasswordCheck::Mismatch, permit)
     }
 }
 

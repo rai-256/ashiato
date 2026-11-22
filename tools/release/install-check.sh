@@ -1139,7 +1139,11 @@ check_release_zip() {
     -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
     --data "{\"password\":\"$PW2\",\"new_password\":\"$PW3\",\"confirmation\":\"$PW3\"}" "$URL/web-password" || true)"
   [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
-  changed_cookie="$(PY -c 'import sys; print(next((line.split("\\t")[6] for line in open(sys.argv[1], encoding="utf-8") if line and not line.startswith("#") and line.rstrip().endswith("ashiato_session")), ""))' "$WORK/web-password-change.cookie")"
+  changed_cookie="$(PY -c 'import sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    fields=line.removeprefix("#HttpOnly_").rstrip("\\n").split("\t")
+    if len(fields) >= 7 and fields[5] == "ashiato_session":
+        print(fields[6]); break' "$WORK/web-password-change.cookie")"
   [[ -n "$changed_cookie" ]] || die '画面の合言葉の変更後のログインの印を受け取れない'
   [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '画面の合言葉の鍵が変わらない'
   [[ "$(setting API_TOKEN)" == "$changed_api" ]] || die '画面の合言葉の変更で収集アプリの値が変わった'

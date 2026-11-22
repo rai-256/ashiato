@@ -226,18 +226,22 @@
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:155（re-review 1 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D1
 
 ## R15. web_password の core.web_session INSERT が replace_setting の後なので、INSERT の失敗で server.json だけ新しい値に変わり、メモリの組は旧いまま残る。ok 行の失敗には巻き戻しがあるが、INSERT の失敗には無い。
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:236（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D4
 
 ## R16. settings_before の同期 std::fs::read が async 側にある。巻き戻しの std::fs::write は非原子的。
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:208（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D4
 
 ## R17. access-log 失敗の試験を、server.json のバイト比較から JSON 比較へ緩めた。理由は報告に無い。
 - 成果物: crates/server/src/st59_tests.rs
 - 根拠: crates/server/src/st59_tests.rs:826（re-review 1 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 4.2
