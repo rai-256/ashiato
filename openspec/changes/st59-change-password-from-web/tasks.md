@@ -103,7 +103,7 @@
 
 ## Task 7: Windows の CI の通し（D5）
 
-- [ ] 7.1 `tools/release/install-check.sh` の `scenario_names` に ST59 の 3 本を足し、インストールした形の通しの中（ST55 の `password` の確かめの後）に関数を足す:
+- [x] 7.1 `tools/release/install-check.sh` の `scenario_names` に ST59 の 3 本を足し、インストールした形の通しの中（ST55 の `password` の確かめの後）に関数を足す:
   ログインして `POST /web-password` と `POST /collector-token` で 2 つの値を変える → `server.json` の 2 つの鍵が変わり、ほかの鍵と ACL（`icacls`）が変える前と同じ →
   `== Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない`・`== Scenario: 変えた後に起動し直しても、新しい収集アプリの値で動く`（サーバのサービスを止めて起こし、前と新しい合言葉でログイン・前と新しい値で記録を送る）→
   `== Scenario: 画面で変えた後も、インストーラで決め直せる`（`ashiato-setup.exe password` で決め直し、決め直した合言葉でログインでき、画面で変えた合言葉ではできず、`API_TOKEN` は画面で変えた値のまま）。
