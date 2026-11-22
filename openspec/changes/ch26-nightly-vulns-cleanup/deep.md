@@ -33,7 +33,8 @@
 ### Q1. 判定と zip の版の確かめを、台本に置くか ci.yml に直接書くか（D8 を返した）
 
 - 問い: lock を変える PR かの判定と、組んだ 2 つの zip の同梱の版の確かめを、台本 `tools/release/pgsql-prev-lock.sh` に置いて ci.yml から呼ぶか、ci.yml の step の中に直接書くか
-- 答え: (未回答)
+- 答え: 台本に置き、ci.yml は呼ぶだけ（D8 のまま）（本人の選択。推奨と同じ・補足なし。`deep-answers-4.txt`）
+- 決まったこと: design D8 の本文のまま、本人の決定にする（仮でない）。判定と版の確かめは `tools/release/pgsql-prev-lock.sh`、版の確かめは保存の前と使い回しのときの 2 か所、`docs/release.md` の小節を CI の通し方に書き換える
 - kind: premise（失うものは無い。土台の D7 が仮のまま、台帳に依存が無かった）
 - 出所: `provisional-review.md` D8・design D8
 - 推奨: 台本に置き、ci.yml は呼ぶだけ。版の確かめは保存の前と save の後の 2 か所。`docs/release.md` の小節を CI の通し方に書き換える（design D8 の本文のまま）
@@ -42,7 +43,8 @@
 ### Q2. Windows の組み立ての使い回しの鍵に、前の lock を入れるか（D9 を返した）
 
 - 問い: 使い回しの鍵に、木の外から来る前の lock の指紋（`prev-pgsql=<sha256|none>`）を足し、正典の鍵の Requirement を `## MODIFIED` で書き換えるか
-- 答え: (未回答)
+- 答え: 入れる（D9 のまま）（本人の選択。推奨と同じ・補足なし。`deep-answers-4.txt`）
+- 決まったこと: design D9 の本文のまま、本人の決定にする（仮でない）。鍵に `prev-pgsql=<sha256|none>` を足し、正典の鍵の Requirement を MODIFIED で書き換える
 - kind: premise（失うものは無い。鍵の値と `none` の意味が D7 から来るのに、台帳に依存が無かった）
 - 出所: `provisional-review.md` D9・design D9
 - 推奨: 入れる（design D9 の本文のまま）
@@ -51,8 +53,15 @@
 ### Q3. CI で、更新した後・戻した後に動いている PostgreSQL の版を見るか（D10 を返した）
 
 - 問い: CI の Windows の更新と戻しの試験で、動いている `postgres.exe` の版まで読むか、zip の同梱の版と `update-apply-install.sh` の Scenario 群が通ることだけを見るか
-- 答え: (未回答)
+- 答え: 見ない（D10 のまま）（本人の選択。推奨と同じ・補足なし。`deep-answers-4.txt`）
+- 決まったこと: design D10 の本文のまま、本人の決定にする（仮でない）。CI は更新の後・戻した後に動いている PostgreSQL の版を読まず、zip の同梱の版の確かめ（D8）と `update-apply-install.sh` の Scenario 群が通ることで見る。`update-apply-install.sh` は変えない
 - kind: premise（失うものは無い。費用の見積もりが D8 の版の確かめの上に立つのに、台帳に依存が無かった）
 - 出所: `provisional-review.md` D10・design D10・`review/spec.md` R22。第 1 回の合意で本人は IMP-05（CI は更新の後に動いている PostgreSQL の版を見ない）を受けている
 - 推奨: 見ない（design D10 の本文のまま。見るには、この change が変えないとした `update-apply-install.sh` に手を入れることになる）
 - 族: Q1 と同じ
+
+### 第 2 回のまとめ
+
+- 3 問とも本人が推奨の側（いまの仕様のまま）を選んだ。D8・D9・D10 は本人の決定になり、仮の台帳には戻さない（第 2 回の差し戻しで `provisional.py resolve` 済み）。土台の D7 はまだ仮のまま（別の席は確かとした）
+- 要件へ戻すもの: なし（要件は変えない change。CI の決め方を本人が決めた）
+- 仕様（design D8〜D10・`docs/changes/CH26.md` の完了の判定 6 の「D7（仮）〜D9（仮）」「D10（仮）」の書き方）へ写すのは、この後の `spec --answers Q1,Q2,Q3`
