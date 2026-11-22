@@ -640,12 +640,7 @@ pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) ->
     let secrets = app.secrets_snapshot();
     let token = cookie_token(req.headers(), app.channel).map(str::to_owned);
     let authn = crate::decide_with_secrets(&app, req.headers(), &secrets).await;
-    let mut res = crate::AUTHN
-        .scope(
-            authn,
-            crate::REQUEST_SECRETS.scope(secrets.clone(), next.run(req)),
-        )
-        .await;
+    let mut res = crate::AUTHN.scope(authn, next.run(req)).await;
     if let Some(token) = token {
         if authn == crate::Authn::Decided(Some(Caller::WebSession))
             && res.status() != StatusCode::UNAUTHORIZED
@@ -817,9 +812,10 @@ async fn web_password_post_inner(
     }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
-    let (check, _permit) =
+    let (check, permit) =
         check_with_permit_using_secrets(&app, request.password.clone(), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
+        drop(permit);
         app.access
             .write(web_password_entry(
                 &headers,
@@ -831,6 +827,8 @@ async fn web_password_post_inner(
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
     }
     if check == PasswordCheck::Mismatch {
+        // 失敗は数え終えている。ほかのログインを止めないよう、印を放してから失敗の遅れを待つ（review/code.md R26）
+        drop(permit);
         app.access
             .write(web_password_entry(
                 &headers,
@@ -860,15 +858,33 @@ async fn web_password_post_inner(
             .await?;
         return Ok(web_password_error(StatusCode::BAD_REQUEST, error));
     }
+    // ここから 500 で断る道は、どれも理由をログに出し、`forbidden`/500 の行を残す（review/code.md R27）
+    let failed = || {
+        web_password_entry(
+            &headers,
+            Some(caller),
+            "forbidden",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    };
     let password = request.new_password.clone();
-    let verifier = tokio::task::spawn_blocking(move || password_verifier(&password))
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    let verifier = match tokio::task::spawn_blocking(move || password_verifier(&password)).await {
+        Ok(Ok(verifier)) => verifier,
+        Ok(Err(error)) => {
+            tracing::warn!(op = "web_password.hash", reason = %error, "合言葉を変える求めを 500 で断る");
+            app.access.write(failed()).await?;
+            return Err(internal_error());
+        }
+        Err(error) => {
+            tracing::warn!(op = "web_password.hash", reason = %error, "合言葉を変える求めを 500 で断る");
+            app.access.write(failed()).await?;
+            return Err(internal_error());
+        }
+    };
     let verifier_for_check = verifier.clone();
     let api_token_for_check = api_token.clone();
     let session_key_for_check = session_key.clone();
-    tokio::task::spawn_blocking(move || {
+    let checked = tokio::task::spawn_blocking(move || {
         check_web_password_verifier(Some(&verifier_for_check), &api_token_for_check).is_ok()
             && check_web_session_key_verifier(
                 Some(&session_key_for_check),
@@ -877,34 +893,28 @@ async fn web_password_post_inner(
             )
             .is_ok()
     })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
-    .then_some(())
-    .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
-
-    let verifier_for_write = verifier.clone();
-    let saved = tokio::task::spawn_blocking(move || {
-        crate::service::replace_setting_with_previous("WEB_PASSWORD_VERIFIER", &verifier_for_write)
-    })
     .await;
-    let previous = match saved {
-        Ok(Ok(previous)) => previous,
-        _ => {
-            app.access
-                .write(web_password_entry(
-                    &headers,
-                    Some(caller),
-                    "forbidden",
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                ))
-                .await?;
-            return Ok(web_password_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "not_saved",
-            ));
+    match checked {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                op = "web_password.collision_check",
+                reason = "collides",
+                "合言葉を変える求めを 500 で断る"
+            );
+            app.access.write(failed()).await?;
+            return Err(internal_error());
         }
-    };
+        Err(error) => {
+            tracing::warn!(op = "web_password.collision_check", reason = %error, "合言葉を変える求めを 500 で断る");
+            app.access.write(failed()).await?;
+            return Err(internal_error());
+        }
+    }
 
+    // 順は design D1・data-sensitivity の定めのとおり: 新しい tag で印の行 → `ok` の行 → 書き戻し → 差し替え。
+    // 印の行か `ok` の行を書けなければ、何も変えずに 500。書き戻しに落ちたら、差し替えず、打ち消しの行を足して 500
+    // （書いた印の行は、使われない tag を持つので通らない）。`ok` の行が無いまま変更が効く期間を作らない（深掘り C5）。
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
@@ -918,21 +928,29 @@ async fn web_password_post_inner(
     .execute(&app.pool)
     .await;
     if let Err(error) = inserted {
-        restore_setting_after_failed_change("WEB_PASSWORD_VERIFIER", previous).await;
-        return Err(internal_at("web_password.session_insert", error));
+        let err = internal_at("web_password.session_insert", error);
+        app.access.write(failed()).await?;
+        return Err(err);
     }
-    if let Err(error) = app
-        .access
+    app.access
         .write(web_password_entry(
             &headers,
             Some(caller),
             "ok",
             StatusCode::NO_CONTENT,
         ))
-        .await
-    {
-        restore_setting_after_failed_change("WEB_PASSWORD_VERIFIER", previous).await;
-        return Err(error);
+        .await?;
+    let saved = tokio::task::spawn_blocking(move || {
+        crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier)
+    })
+    .await;
+    if let Some(reason) = not_saved_reason(saved) {
+        tracing::warn!(op = "web_password.save", reason = %reason, "合言葉を書き戻せなかった");
+        app.access.write(failed()).await?;
+        return Ok(web_password_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "not_saved",
+        ));
     }
     app.replace_secrets(next);
     let mut response = StatusCode::NO_CONTENT.into_response();
@@ -941,6 +959,21 @@ async fn web_password_post_inner(
         set_cookie(&token, COOKIE_MAX_AGE_SECS, app.channel),
     );
     Ok(response)
+}
+
+fn internal_error() -> (StatusCode, String) {
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+}
+
+/// 書き戻しの結果から、落ちた理由（秘密を含まない）を取り出す。書けたら `None`。
+fn not_saved_reason(
+    saved: Result<Result<(), crate::service::SettingsWriteError>, tokio::task::JoinError>,
+) -> Option<String> {
+    match saved {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(error.to_string()),
+        Err(error) => Some(error.to_string()),
+    }
 }
 
 /// `/session` の求めの 1 行。ログインの結果はハンドラが判定した場で書く（D8）。
@@ -1186,9 +1219,10 @@ async fn collector_token_post_checked(
     }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
-    let (check, _permit) =
+    let (check, permit) =
         check_with_permit_using_secrets(&app, given_password(&body), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
+        drop(permit);
         app.access
             .write(collector_token_entry(
                 &headers,
@@ -1200,6 +1234,8 @@ async fn collector_token_post_checked(
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
     }
     if check == PasswordCheck::Mismatch {
+        // 失敗は数え終えている。ほかのログインを止めないよう、印を放してから失敗の遅れを待つ（review/code.md R26）
+        drop(permit);
         app.access
             .write(collector_token_entry(
                 &headers,
@@ -1225,7 +1261,16 @@ async fn collector_token_post_checked(
         WebPassword::Plain(password) => password.clone(),
     };
     let plain = matches!(&secrets.web_password, WebPassword::Plain(_));
-    let token = tokio::task::spawn_blocking(move || {
+    // ここから 500 で断る道は、どれも理由をログに出し、`forbidden`/500 の行を残す（review/code.md R27）
+    let failed = || {
+        collector_token_entry(
+            &headers,
+            Some(caller),
+            "forbidden",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    };
+    let generated = tokio::task::spawn_blocking(move || {
         let verifier = if plain {
             password_verifier(&password)
         } else {
@@ -1242,61 +1287,46 @@ async fn collector_token_post_checked(
             },
         ))
     })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
-    let token_for_write = token.clone();
-    let saved = tokio::task::spawn_blocking(move || {
-        crate::service::replace_setting_with_previous("API_TOKEN", &token_for_write)
-    })
     .await;
-    let previous = match saved {
-        Ok(Ok(previous)) => previous,
-        _ => {
-            app.access
-                .write(collector_token_entry(
-                    &headers,
-                    Some(caller),
-                    "forbidden",
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                ))
-                .await?;
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(CollectorTokenChangeError { error: "not_saved" }),
-            )
-                .into_response());
+    let token = match generated {
+        Ok(Ok(token)) => token,
+        Ok(Err(error)) => {
+            tracing::warn!(op = "collector_token.generate", reason = %error, "収集アプリの値を変える求めを 500 で断る");
+            app.access.write(failed()).await?;
+            return Err(internal_error());
+        }
+        Err(error) => {
+            tracing::warn!(op = "collector_token.generate", reason = %error, "収集アプリの値を変える求めを 500 で断る");
+            app.access.write(failed()).await?;
+            return Err(internal_error());
         }
     };
-    if let Err(error) = app
-        .access
+    // 順は design D1・data-sensitivity の定めのとおり: `ok` の行 → 書き戻し → 差し替え。
+    // `ok` の行を書けなければ、何も変えずに 500。書き戻しに落ちたら、差し替えず、打ち消しの行を足して 500（深掘り C5）。
+    app.access
         .write(collector_token_entry(
             &headers,
             Some(caller),
             "ok",
             StatusCode::OK,
         ))
-        .await
-    {
-        restore_setting_after_failed_change("API_TOKEN", previous).await;
-        return Err(error);
+        .await?;
+    let token_for_write = token.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        crate::service::replace_setting("API_TOKEN", &token_for_write)
+    })
+    .await;
+    if let Some(reason) = not_saved_reason(saved) {
+        tracing::warn!(op = "collector_token.save", reason = %reason, "収集アプリの値を書き戻せなかった");
+        app.access.write(failed()).await?;
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CollectorTokenChangeError { error: "not_saved" }),
+        )
+            .into_response());
     }
     app.replace_secrets(secrets.with_api_token(token.clone()));
     Ok(Json(CollectorSetupResponse { token }).into_response())
-}
-
-/// 書き戻した設定を後続の失敗で戻す。戻せなければ秘密を含まない理由を必ず残す。
-async fn restore_setting_after_failed_change(key: &'static str, previous: String) {
-    match tokio::task::spawn_blocking(move || crate::service::restore_setting(key, &previous)).await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            tracing::error!(field = key, reason = %error, "設定の巻き戻しに失敗した");
-        }
-        Err(error) => {
-            tracing::error!(field = key, reason = %error, "設定の巻き戻しの task に失敗した");
-        }
-    }
 }
 
 /// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。
@@ -1409,14 +1439,6 @@ async fn check_given_password_with_current_secrets(
     let secrets = app.secrets_snapshot();
     let (check, _permit) = check_with_permit_using_secrets(app, given, permit, &secrets).await;
     (check, secrets)
-}
-
-pub(crate) async fn check_given_password_with_secrets(
-    app: &App,
-    body: Bytes,
-    _secrets: &SharedSecrets,
-) -> PasswordCheck {
-    check_given_password_with_current_secrets(app, body).await.0
 }
 
 /// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。

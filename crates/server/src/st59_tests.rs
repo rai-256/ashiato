@@ -64,7 +64,34 @@ fn st59_collector_token_generation_retries_secret_collisions() {
     .is_ok());
 }
 
-static ST59_SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// 指した環境変数を外し、drop で元に戻す（assert が落ちても戻る。review/code.md R25）。
+struct EnvRemoved(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl EnvRemoved {
+    fn remove(keys: &[&'static str]) -> Self {
+        let saved = keys
+            .iter()
+            .map(|&key| (key, std::env::var_os(key)))
+            .collect();
+        for key in keys {
+            std::env::remove_var(key);
+        }
+        Self(saved)
+    }
+}
+
+impl Drop for EnvRemoved {
+    fn drop(&mut self) {
+        for (key, value) in self.0.drain(..) {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+const SERVICE_ENV: [&str; 2] = ["ASHIATO_SERVICE_MODE", "ASHIATO_SETTINGS_PATH"];
 
 struct St59ServiceEnvironment {
     _lock: std::sync::MutexGuard<'static, ()>,
@@ -87,9 +114,8 @@ impl Drop for St59ServiceEnvironment {
 }
 
 fn st59_service_environment(api_token: &str, password: &str) -> St59ServiceEnvironment {
-    let lock = ST59_SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // ST55 の試験と同じ鍵（同じ環境変数を取り合う。review/code.md R25）
+    let lock = super::st55_tests::env_lock();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     let verifier = web_session::password_verifier_for_test(password).unwrap();
@@ -588,10 +614,7 @@ async fn st59_both_rejection_statuses_are_recorded() {
     ] {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{route}");
     }
-    let old_mode = std::env::var_os("ASHIATO_SERVICE_MODE");
-    let old_path = std::env::var_os("ASHIATO_SETTINGS_PATH");
-    std::env::remove_var("ASHIATO_SERVICE_MODE");
-    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    let development = EnvRemoved::remove(&SERVICE_ENV);
     for response in [
         router(app.clone())
             .oneshot(web_password_request(
@@ -612,12 +635,7 @@ async fn st59_both_rejection_statuses_are_recorded() {
     ] {
         assert_eq!(response.status(), StatusCode::CONFLICT);
     }
-    if let Some(value) = old_mode {
-        std::env::set_var("ASHIATO_SERVICE_MODE", value);
-    }
-    if let Some(value) = old_path {
-        std::env::set_var("ASHIATO_SETTINGS_PATH", value);
-    }
+    drop(development);
     let response = router(app.clone())
         .oneshot(web_password_request(
             Some(&cookie),
@@ -708,6 +726,13 @@ async fn st59_both_write_failure_returns_not_saved() {
     let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
     let before = std::fs::read(&path).unwrap();
     std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
+    let captured = CapturedLog::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
     for response in [
         router(app.clone())
             .oneshot(web_password_request(
@@ -732,6 +757,13 @@ async fn st59_both_write_failure_returns_not_saved() {
             serde_json::json!({"error":"not_saved"})
         );
     }
+    drop(guard);
+    // 書き戻せなかった理由（秘密を含まない語）がログに残る（review/code.md R27）
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    for op in ["web_password.save", "collector_token.save"] {
+        assert!(log.contains(op), "{op}: {log}");
+    }
+    assert_eq!(log.matches("settings_write_failed").count(), 2, "{log}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
     let writing = path.with_file_name("server.json.writing");
     assert!(writing.is_dir());
@@ -764,8 +796,25 @@ async fn st59_both_write_failure_returns_not_saved() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let expected = if outcome == "ok" { old } else { old + 1 };
-        assert_eq!(count, expected, "{route} {outcome} {status}");
+        // 変えた行（`ok`）と打ち消しの行（`forbidden`/500）が、口ごとに 1 行ずつ増える（R23）
+        assert_eq!(count, old + 1, "{route} {outcome} {status}");
+    }
+    // 打ち消しの行は変えた行の後に並ぶ（`ok` を先に書いてから書き戻す。data-sensitivity・design D1）
+    for (route, ok_status) in [("/web-password", 204i16), ("/collector-token", 200)] {
+        let (ok_at, refused_at): (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) =
+            sqlx::query_as(
+                "SELECT (SELECT max(at) FROM core.access_log WHERE route = $1 AND outcome = 'ok' AND status = $2),
+                        (SELECT max(at) FROM core.access_log WHERE route = $1 AND outcome = 'forbidden' AND status = 500)",
+            )
+            .bind(route)
+            .bind(ok_status)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(
+            ok_at <= refused_at,
+            "{route}: ok {ok_at} / forbidden {refused_at}"
+        );
     }
 }
 
@@ -884,20 +933,16 @@ async fn st59_both_access_log_failure_returns_500_without_changes() {
     ] {
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let after: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    let before: serde_json::Value = serde_json::from_slice(&before).unwrap();
-    assert_eq!(after, before);
+    // `ok` の行を書く前に断るので、書き戻しも巻き戻しも起きず、ファイルはバイトのまま変わらない（R23）
+    assert_eq!(std::fs::read(path).unwrap(), before);
 }
 
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
 // Scenario: 開発の形のサーバでは、画面から変えられないと出る
 async fn st59_both_development_mode_is_not_changeable() {
-    let _lock = ST59_SETTINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let old_mode = std::env::var_os("ASHIATO_SERVICE_MODE");
-    let old_path = std::env::var_os("ASHIATO_SETTINGS_PATH");
-    std::env::remove_var("ASHIATO_SERVICE_MODE");
-    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    let _lock = super::st55_tests::env_lock();
+    let _development = EnvRemoved::remove(&SERVICE_ENV);
     let app = st59_app().await;
     let cookie = login(&app, app.web_password_for_test()).await;
     assert_eq!(
@@ -911,14 +956,6 @@ async fn st59_both_development_mode_is_not_changeable() {
             .status(),
         StatusCode::CONFLICT
     );
-    match old_mode {
-        Some(v) => std::env::set_var("ASHIATO_SERVICE_MODE", v),
-        None => std::env::remove_var("ASHIATO_SERVICE_MODE"),
-    }
-    match old_path {
-        Some(v) => std::env::set_var("ASHIATO_SETTINGS_PATH", v),
-        None => std::env::remove_var("ASHIATO_SETTINGS_PATH"),
-    }
 }
 
 #[tokio::test]
@@ -1221,13 +1258,8 @@ async fn st59_web_password_handler_preserves_failure_limiter() {
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
 async fn st59_web_password_handler_rejects_development_mode() {
-    let _lock = ST59_SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let old_mode = std::env::var_os("ASHIATO_SERVICE_MODE");
-    let old_path = std::env::var_os("ASHIATO_SETTINGS_PATH");
-    std::env::remove_var("ASHIATO_SERVICE_MODE");
-    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    let _lock = super::st55_tests::env_lock();
+    let _development = EnvRemoved::remove(&SERVICE_ENV);
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let cookie = login(&app, app.web_password_for_test()).await;
     let response = st59_change(
@@ -1242,14 +1274,6 @@ async fn st59_web_password_handler_rejects_development_mode() {
         response_body_json(response).await,
         serde_json::json!({"error": "not_changeable"})
     );
-    match old_mode {
-        Some(v) => std::env::set_var("ASHIATO_SERVICE_MODE", v),
-        None => std::env::remove_var("ASHIATO_SERVICE_MODE"),
-    }
-    match old_path {
-        Some(v) => std::env::set_var("ASHIATO_SETTINGS_PATH", v),
-        None => std::env::remove_var("ASHIATO_SETTINGS_PATH"),
-    }
 }
 
 #[tokio::test]

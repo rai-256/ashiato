@@ -270,29 +270,6 @@ pub fn replace_setting(key: &str, value: &str) -> Result<(), SettingsWriteError>
     replace_setting_at(&path, key, value)
 }
 
-/// 1 つの設定を原子的に置き換え、失敗時に戻すための前の値を返す。
-///
-/// 読み出しと書き戻しを同じ blocking 側で行う呼び出しに使う。戻す場合も
-/// `replace_setting_at` を通すため、途中の内容を直接書き戻さない。
-pub fn replace_setting_with_previous(key: &str, value: &str) -> Result<String, SettingsWriteError> {
-    let path = std::env::var_os("ASHIATO_SETTINGS_PATH")
-        .map(std::path::PathBuf::from)
-        .ok_or(SettingsWriteError::PathMissing)?;
-    let previous = load_settings(&path)
-        .map_err(SettingsWriteError::Read)?
-        .0
-        .get(key)
-        .cloned()
-        .ok_or(SettingsWriteError::InvalidKey)?;
-    replace_setting_at(&path, key, value)?;
-    Ok(previous)
-}
-
-/// `replace_setting_with_previous` の後で、同じ鍵だけを原子的に戻す。
-pub fn restore_setting(key: &str, value: &str) -> Result<(), SettingsWriteError> {
-    replace_setting(key, value)
-}
-
 /// 指定した `server.json` の 1 つの秘密だけを書き戻す。
 pub fn replace_setting_at(path: &Path, key: &str, value: &str) -> Result<(), SettingsWriteError> {
     if !matches!(key, "WEB_PASSWORD_VERIFIER" | "API_TOKEN") {

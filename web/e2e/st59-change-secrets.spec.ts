@@ -90,7 +90,7 @@ test("合言葉を変えると、ほかのブラウザのログインは切れ�
 // Scenario: 今の合言葉を入れ直すと、新しい値の設定の文字列とコピーのボタンが出る
 test("今の合言葉を入れ直すと、新しい値の設定の文字列とコピーのボタンが出る", async ({ page }) => {
   await login(page, password); await openSettings(page); const section = page.getByTestId("collector-token-change-section"); const before = readSettings().API_TOKEN; await section.getByLabel("今の合言葉").fill(password); await section.getByRole("button", { name: "変える" }).click();
-  const parsed = parseSetupString(await section.getByTestId("collector-token-change-value").inputValue()); expect(parsed?.url).toBe(`http://127.0.0.1:${settingsPort}/api`); expect(parsed?.token).toBeTruthy(); expect(parsed?.token).not.toBe(before); expect(parsed?.token).toBe(readSettings().API_TOKEN); await expect(section.getByRole("button", { name: "値をコピー" })).toBeVisible(); await expect(section.getByText("携帯に入れる文字列は、携帯から開いた画面で『収集アプリの設定』から出してください")).toBeVisible(); await expect(section.getByLabel("利用者")).toHaveCount(0);
+  const parsed = parseSetupString(await section.getByTestId("collector-token-change-value").inputValue()); expect(parsed?.url).toBe(`http://127.0.0.1:${settingsPort}/api`); expect(parsed?.token).toBeTruthy(); expect(parsed?.token).not.toBe(before); expect(parsed?.token).toBe(readSettings().API_TOKEN); await expect(section.getByRole("button", { name: "値をコピー" })).toBeVisible(); await expect(section.getByText("全部の収集アプリ（携帯と PC）にこの文字列を貼り直してください。携帯に入れる文字列は、携帯から開いた画面で『収集アプリの設定』から出してください", { exact: true })).toBeVisible(); await expect(section.getByLabel("利用者")).toHaveCount(0);
 });
 
 // Scenario: 別の画面へ移って戻ると、新しい値の設定の文字列は消える

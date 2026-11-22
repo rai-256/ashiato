@@ -780,7 +780,6 @@ impl App {
         self.secrets.read().expect("secret store poisoned").clone()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn replace_secrets(&self, secrets: web_session::SharedSecrets) {
         *self.secrets.write().expect("secret store poisoned") = secrets;
     }
@@ -965,8 +964,6 @@ pub(crate) enum Authn {
 tokio::task_local! {
     /// この求めの判定。`router()` を通らない呼び出し（ハンドラを直に呼ぶ試験）では無い。
     pub(crate) static AUTHN: Authn;
-    /// この求めの認可判定に使った共有の値の組。内側の handler が同じ組を読むために使う。
-    pub(crate) static REQUEST_SECRETS: web_session::SharedSecrets;
 }
 
 /// 判定を下す。DB の失敗は操作名つきでログに出し、`LookupFailed` にする。
@@ -995,12 +992,6 @@ pub(crate) async fn decided(app: &App, headers: &HeaderMap) -> Authn {
         Ok(a) => a,
         Err(_) => decide(app, headers).await,
     }
-}
-
-pub(crate) fn request_secrets(app: &App) -> web_session::SharedSecrets {
-    REQUEST_SECRETS
-        .try_with(Clone::clone)
-        .unwrap_or_else(|_| app.secrets_snapshot())
 }
 
 /// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
