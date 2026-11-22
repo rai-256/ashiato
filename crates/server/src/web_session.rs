@@ -765,8 +765,8 @@ async fn web_password_post_inner(
             confirmation: String::new(),
         },
     };
-    let secrets = crate::request_secrets(&app);
     let permit = login_check_permit().await;
+    let secrets = app.secrets_snapshot();
     let check =
         check_with_permit_using_secrets(&app, request.password.clone(), &permit, &secrets).await;
     if check == PasswordCheck::Throttled {
