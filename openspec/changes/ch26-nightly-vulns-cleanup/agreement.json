@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "88817b4198702c8adde02438ee7e0a6b920de4d997a4a3318de052ecb7cfbdf7",
+  "digest": "7ea0674558841b0a7278d1190f56b9749bee9b6e3f99767e99f88f2fea6ab06a",
   "head": "95bf4837ae9e1143abe7f75fb417fa6e1cb0b476",
   "answers": "deep-answers-3.txt",
   "picked": "合意する",
@@ -41,6 +41,17 @@
       "id": "IMP-07",
       "severity": "low",
       "title": "この上流の枝は main より古く、依存の表の元が CH24 の後の形でない"
+    }
+  ],
+  "carried": [
+    {
+      "from": "88817b4198702c8adde02438ee7e0a6b920de4d997a4a3318de052ecb7cfbdf7",
+      "because": [
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "at": "2026-11-22T07:29:07Z"
     }
   ]
 }
