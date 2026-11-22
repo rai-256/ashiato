@@ -651,6 +651,11 @@ pub struct CollectorSetupError {
     pub error: &'static str,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CollectorTokenChangeError {
+    pub error: &'static str,
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct WebPasswordChangeRequest {
     pub password: String,
@@ -899,6 +904,22 @@ fn collector_setup_entry(
     )
 }
 
+fn collector_token_entry(
+    headers: &HeaderMap,
+    caller: Option<Caller>,
+    outcome: &'static str,
+    status: StatusCode,
+) -> AccessEntry {
+    AccessEntry::for_caller(
+        caller,
+        via_of(headers),
+        "/collector-token".into(),
+        "POST".into(),
+        outcome,
+        status.as_u16(),
+    )
+}
+
 /// 本文が JSON と名乗っているか（ログインと収集アプリの設定の口）。
 fn is_json(headers: &HeaderMap) -> bool {
     headers
@@ -965,6 +986,151 @@ pub async fn collector_setup_post(
     }
     let secrets = crate::request_secrets(&app);
     run_to_completion(collector_setup_checked(app, headers, caller, body, secrets)).await
+}
+
+/// 収集アプリの共有の値を差し替える。画面のログインの印はそのまま使える。
+#[utoipa::path(post, path = "/collector-token", request_body = LoginRequest,
+    responses((status = 200, body = CollectorSetupResponse),
+              (status = 401), (status = 403, body = CollectorTokenChangeError),
+              (status = 409, body = CollectorTokenChangeError), (status = 415),
+              (status = 429), (status = 500, body = CollectorTokenChangeError)))]
+pub async fn collector_token_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let caller = match crate::decided(&app, &headers).await {
+        crate::Authn::Decided(caller) => caller,
+        crate::Authn::LookupFailed => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
+    };
+    let Some(caller) = caller else {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                None,
+                "unauthorized",
+                StatusCode::UNAUTHORIZED,
+            ))
+            .await?;
+        return Err(unauthorized());
+    };
+    if caller != Caller::WebSession {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+    }
+    if !is_json(&headers) {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ))
+            .await?;
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported media type".into(),
+        ));
+    }
+    if std::env::var_os("ASHIATO_SERVICE_MODE").is_none()
+        || std::env::var_os("ASHIATO_SETTINGS_PATH").is_none()
+    {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::CONFLICT,
+            ))
+            .await?;
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(CollectorTokenChangeError {
+                error: "not_changeable",
+            }),
+        )
+            .into_response());
+    }
+    run_to_completion(collector_token_post_checked(app, headers, caller, body)).await
+}
+
+async fn collector_token_post_checked(
+    app: App,
+    headers: HeaderMap,
+    caller: Caller,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let permit = login_check_permit().await;
+    let secrets = app.secrets_snapshot();
+    let check =
+        check_with_permit_using_secrets(&app, given_password(&body), &permit, &secrets).await;
+    if check == PasswordCheck::Throttled {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
+    }
+    if check == PasswordCheck::Mismatch {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        tokio::time::sleep(app.login.failure_delay).await;
+        return Ok((
+            StatusCode::FORBIDDEN,
+            Json(CollectorTokenChangeError {
+                error: "wrong_password",
+            }),
+        )
+            .into_response());
+    }
+
+    let mut raw = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut raw);
+    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
+    app.access
+        .write(collector_token_entry(
+            &headers,
+            Some(caller),
+            "ok",
+            StatusCode::OK,
+        ))
+        .await?;
+    if crate::service::replace_setting("API_TOKEN", &token).is_err() {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+            .await?;
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CollectorTokenChangeError { error: "not_saved" }),
+        )
+            .into_response());
+    }
+    app.replace_secrets(secrets.with_api_token(token.clone()));
+    Ok(Json(CollectorSetupResponse { token }).into_response())
 }
 
 /// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。

@@ -234,6 +234,76 @@
         }
       }
     },
+    "/collector-token": {
+      "post": {
+        "tags": [
+          "web_session"
+        ],
+        "summary": "収集アプリの共有の値を差し替える。画面のログインの印はそのまま使える。",
+        "operationId": "collector_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorSetupResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorTokenChangeError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorTokenChangeError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": ""
+          },
+          "429": {
+            "description": ""
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorTokenChangeError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/contract": {
       "get": {
         "tags": [
@@ -2665,6 +2735,17 @@
         ],
         "properties": {
           "token": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectorTokenChangeError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
             "type": "string"
           }
         }

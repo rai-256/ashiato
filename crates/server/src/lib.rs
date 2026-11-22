@@ -721,6 +721,15 @@ impl App {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_api_token_for_test(self, api_token: &str) -> Self {
+        let current = self.secrets_snapshot();
+        let secrets = std::sync::Arc::new(std::sync::RwLock::new(
+            current.with_api_token(api_token.to_owned()),
+        ));
+        Self { secrets, ..self }
+    }
+
     /// ログインの印の鍵だけを差し替えた複製（試験が「鍵を変えて起動し直す」ため）。合言葉・期限・失敗の待ちは保つ。
     #[cfg(test)]
     #[allow(clippy::inconsistent_struct_constructor)]
@@ -4570,6 +4579,7 @@ fn api_router(app: App) -> Router {
                 .get(web_session::session_get),
         )
         .route("/collector-setup", post(web_session::collector_setup_post))
+        .route("/collector-token", post(web_session::collector_token_post))
         .route("/web-password", post(web_session::web_password_post))
         .route("/update-status", get(update_status::get))
         // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
@@ -4952,6 +4962,7 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         web_session::session_delete,
         web_session::session_get,
         web_session::collector_setup_post,
+        web_session::collector_token_post,
         web_session::web_password_post,
         satellite_admin::satellites_get,
         satellite_admin::satellites_post,

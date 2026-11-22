@@ -147,6 +147,347 @@ async fn st59_change(
         .unwrap()
 }
 
+fn collector_token_change_request(cookie: Option<&str>, password: &str) -> Request<Body> {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/collector-token")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({ "password": password }).to_string(),
+        ))
+        .unwrap();
+    if let Some(cookie) = cookie {
+        request.headers_mut().insert(
+            header::COOKIE,
+            format!("ashiato_session={cookie}").parse().unwrap(),
+        );
+    }
+    request
+}
+
+#[tokio::test]
+// Scenario: 変えた後は、前の値の記録は断られ、新しい値の記録は取り込まれる
+async fn st59_collector_token_changes_the_token() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            app.web_password_for_test(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_body_json(response).await;
+    assert!(body["token"].as_str().is_some());
+}
+
+async fn st59_change_collector(app: &App, cookie: &str) -> (StatusCode, serde_json::Value) {
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(cookie),
+            app.web_password_for_test(),
+        ))
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response_body_json(response).await;
+    (status, body)
+}
+
+#[tokio::test]
+// Scenario: 今の合言葉が違えば、収集アプリの値は変わらない
+async fn st59_collector_token_wrong_password_keeps_old_token() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            "wrong-web-password-012345",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_body_json(response).await,
+        serde_json::json!({"error":"wrong_password"})
+    );
+    assert_eq!(
+        super::decided(&app, &bearer("old-api-token-012345")).await,
+        Authn::Decided(Some(web_session::Caller::ApiToken))
+    );
+}
+
+#[tokio::test]
+// Scenario: ログインの印が無い・収集アプリの値・衛星の資格情報では、収集アプリの値を変えられない
+async fn st59_collector_token_rejects_non_web_callers() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    assert_eq!(
+        router(app.clone())
+            .oneshot(collector_token_change_request(
+                None,
+                app.web_password_for_test()
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        router(app.clone())
+            .oneshot({
+                let mut r = collector_token_change_request(None, app.web_password_for_test());
+                r.headers_mut().insert(
+                    header::AUTHORIZATION,
+                    "Bearer old-api-token-012345".parse().unwrap(),
+                );
+                r
+            })
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+// Scenario: 収集アプリの値を変えても、画面のログインは切れない
+async fn st59_collector_token_keeps_web_login() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    assert_eq!(st59_change_collector(&app, &cookie).await.0, StatusCode::OK);
+    assert_eq!(read_events(&app, &cookie).await.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+// Scenario: 新しい値はサーバが作り、変えるたびに違う
+async fn st59_collector_token_generates_distinct_values() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let first = st59_change_collector(&app, &cookie).await.1["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let second = st59_change_collector(&app, &cookie).await.1["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(first, second);
+    assert!(first.len() >= 16 && second.len() >= 16);
+}
+
+#[tokio::test]
+// Scenario: 収集アプリの値を変えると、設定のファイルは収集アプリの値だけが変わる
+async fn st59_collector_token_updates_only_api_token() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let before: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(st59_change_collector(&app, &cookie).await.0, StatusCode::OK);
+    let after: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        before["WEB_PASSWORD_VERIFIER"],
+        after["WEB_PASSWORD_VERIFIER"]
+    );
+    assert_eq!(before["BIND"], after["BIND"]);
+    assert_ne!(before["API_TOKEN"], after["API_TOKEN"]);
+}
+
+#[tokio::test]
+// Scenario: 変えた後に起動し直しても、新しい収集アプリの値で動く
+async fn st59_collector_token_uses_new_token_after_rebuilding_app() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let new_token = st59_change_collector(&app, &cookie).await.1["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let rebuilt = app.with_api_token_for_test(&new_token);
+    assert_eq!(
+        super::decided(&rebuilt, &bearer(&new_token)).await,
+        Authn::Decided(Some(web_session::Caller::ApiToken))
+    );
+}
+
+#[tokio::test]
+// Scenario: 失敗が回数の制限を超えると、正しい合言葉でも変えられない
+async fn st59_both_failure_limiter_throttles_collector_token() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    for _ in 0..10 {
+        assert_eq!(
+            router(app.clone())
+                .oneshot(collector_token_change_request(
+                    Some(&cookie),
+                    "wrong-web-password-012345"
+                ))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        router(app)
+            .oneshot(collector_token_change_request(
+                Some(&cookie),
+                "old-web-password-012345"
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+}
+
+#[tokio::test]
+// Scenario: 本文が JSON でない求めでは、何も変わらない
+async fn st59_both_non_json_is_rejected() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let mut request = collector_token_change_request(Some(&cookie), app.web_password_for_test());
+    request
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "text/plain".parse().unwrap());
+    assert_eq!(
+        router(app).oneshot(request).await.unwrap().status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
+}
+
+#[tokio::test]
+// Scenario: 合言葉と収集アプリの値を変える求めの断りは、返した状態のとおりに残る
+async fn st59_both_rejection_statuses_are_recorded() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            "wrong-web-password-012345",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.access_log WHERE route = '/collector-token' AND status = 403",
+    )
+    .fetch_one(&testdb::pool().await)
+    .await
+    .unwrap();
+    assert!(count >= 1);
+}
+
+#[tokio::test]
+// Scenario: 書き戻しに落ちた求めは、変えた行と打ち消しの行の 2 行で残る
+async fn st59_both_write_failure_returns_not_saved() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            app.web_password_for_test(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+// Scenario: 合言葉と収集アプリの値を変える求めの値は、記録にもログにも応答の見出しにも残らない
+async fn st59_both_change_values_are_not_logged() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            app.web_password_for_test(),
+        ))
+        .await
+        .unwrap();
+    let body = response_body_json(response).await;
+    assert!(body["token"].as_str().is_some());
+}
+
+#[tokio::test]
+// Scenario: 設定のファイルに書けなければ、何も変わらない
+async fn st59_both_settings_write_failure_is_not_saved() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
+    let response = router(app.clone())
+        .oneshot(collector_token_change_request(
+            Some(&cookie),
+            app.web_password_for_test(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+// Scenario: 開発の形のサーバでは、画面から変えられないと出る
+async fn st59_both_development_mode_is_not_changeable() {
+    let _lock = ST59_SETTINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let old_mode = std::env::var_os("ASHIATO_SERVICE_MODE");
+    let old_path = std::env::var_os("ASHIATO_SETTINGS_PATH");
+    std::env::remove_var("ASHIATO_SERVICE_MODE");
+    std::env::remove_var("ASHIATO_SETTINGS_PATH");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    assert_eq!(
+        router(app)
+            .oneshot(collector_token_change_request(
+                Some(&cookie),
+                "old-web-password-012345"
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    match old_mode {
+        Some(v) => std::env::set_var("ASHIATO_SERVICE_MODE", v),
+        None => std::env::remove_var("ASHIATO_SERVICE_MODE"),
+    }
+    match old_path {
+        Some(v) => std::env::set_var("ASHIATO_SETTINGS_PATH", v),
+        None => std::env::remove_var("ASHIATO_SETTINGS_PATH"),
+    }
+}
+
+#[tokio::test]
+// Scenario: 合言葉と収集アプリの値を変える求めは、変えたものも断ったものも残る
+async fn st59_both_changes_are_access_logged() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = App::for_test(testdb::pool().await, "old-api-token-012345");
+    let cookie = login(&app, app.web_password_for_test()).await;
+    assert_eq!(st59_change_collector(&app, &cookie).await.0, StatusCode::OK);
+    let pool = testdb::pool().await;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.access_log WHERE route = '/collector-token' AND outcome = 'ok'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(count >= 1);
+}
+
 #[tokio::test]
 // Scenario: 新しい合言葉が検査に当たれば、何も変わらない
 async fn st59_web_password_handler_applies_all_five_validation_rules() {
@@ -170,9 +511,19 @@ async fn st59_web_password_handler_applies_all_five_validation_rules() {
         "new-web-password-012345",
         "different-web-password-012345",
     );
-    assert_eq!(router(app.clone()).oneshot(mismatch).await.unwrap().status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        router(app.clone())
+            .oneshot(mismatch)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     assert_eq!(std::fs::read(path).unwrap(), before);
-    assert_eq!(login(&app, app.web_password_for_test()).await.len() > 10, true);
+    assert_eq!(
+        login(&app, app.web_password_for_test()).await.len() > 10,
+        true
+    );
 }
 
 #[tokio::test]
@@ -180,11 +531,28 @@ async fn st59_web_password_handler_applies_all_five_validation_rules() {
 async fn st59_web_password_handler_rejects_non_web_callers() {
     let _environment = st59_service_environment("api-token-0123456789", "old-web-password-012345");
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
-    let no_cookie = st59_change(&app, None, "old-web-password-012345", "new-web-password-012345").await;
+    let no_cookie = st59_change(
+        &app,
+        None,
+        "old-web-password-012345",
+        "new-web-password-012345",
+    )
+    .await;
     assert_eq!(no_cookie.status(), StatusCode::UNAUTHORIZED);
-    let mut api_request = web_password_request(None, "old-web-password-012345", "new-web-password-012345", "new-web-password-012345");
-    api_request.headers_mut().insert(header::AUTHORIZATION, "Bearer api-token-0123456789".parse().unwrap());
-    assert_eq!(router(app).oneshot(api_request).await.unwrap().status(), StatusCode::FORBIDDEN);
+    let mut api_request = web_password_request(
+        None,
+        "old-web-password-012345",
+        "new-web-password-012345",
+        "new-web-password-012345",
+    );
+    api_request.headers_mut().insert(
+        header::AUTHORIZATION,
+        "Bearer api-token-0123456789".parse().unwrap(),
+    );
+    assert_eq!(
+        router(app).oneshot(api_request).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
 }
 
 #[tokio::test]
@@ -195,13 +563,25 @@ async fn st59_web_password_handler_updates_only_the_verifier_key() {
     let cookie = login(&app, app.web_password_for_test()).await;
     let path = std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap();
     let before: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let response = st59_change(&app, Some(&cookie), app.web_password_for_test(), "new-web-password-012345").await;
+    let response = st59_change(
+        &app,
+        Some(&cookie),
+        app.web_password_for_test(),
+        "new-web-password-012345",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let after: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(before["API_TOKEN"], after["API_TOKEN"]);
     assert_eq!(before["BIND"], after["BIND"]);
-    assert_ne!(before["WEB_PASSWORD_VERIFIER"], after["WEB_PASSWORD_VERIFIER"]);
-    assert!(web_session::verify_password_verifier(after["WEB_PASSWORD_VERIFIER"].as_str().unwrap(), "new-web-password-012345"));
+    assert_ne!(
+        before["WEB_PASSWORD_VERIFIER"],
+        after["WEB_PASSWORD_VERIFIER"]
+    );
+    assert!(web_session::verify_password_verifier(
+        after["WEB_PASSWORD_VERIFIER"].as_str().unwrap(),
+        "new-web-password-012345"
+    ));
 }
 
 #[tokio::test]
@@ -212,12 +592,24 @@ async fn st59_web_password_handler_revokes_other_cookies_and_returns_new_one() {
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let first = login(&app, app.web_password_for_test()).await;
     let second = login(&app, app.web_password_for_test()).await;
-    let response = st59_change(&app, Some(&first), app.web_password_for_test(), "new-web-password-012345").await;
+    let response = st59_change(
+        &app,
+        Some(&first),
+        app.web_password_for_test(),
+        "new-web-password-012345",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let returned = cookie_value(&response);
-    assert_eq!(read_events(&app, &second).await.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        read_events(&app, &second).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
     assert_eq!(read_events(&app, &returned).await.status(), StatusCode::OK);
-    assert_eq!(read_events(&app, &first).await.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        read_events(&app, &first).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]
@@ -228,7 +620,10 @@ async fn st59_web_password_handler_checks_old_password_before_new_rules() {
     let cookie = login(&app, app.web_password_for_test()).await;
     let response = st59_change(&app, Some(&cookie), "wrong-web-password-012345", "short").await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(response_body_json(response).await, serde_json::json!({"error": "wrong_password"}));
+    assert_eq!(
+        response_body_json(response).await,
+        serde_json::json!({"error": "wrong_password"})
+    );
 }
 
 #[tokio::test]
@@ -238,11 +633,45 @@ async fn st59_web_password_handler_preserves_failure_limiter() {
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let cookie = login(&app, app.web_password_for_test()).await;
     for _ in 0..9 {
-        assert_eq!(st59_change(&app, Some(&cookie), "wrong-web-password-012345", "new-web-password-012345").await.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            st59_change(
+                &app,
+                Some(&cookie),
+                "wrong-web-password-012345",
+                "new-web-password-012345"
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
     }
-    assert_eq!(st59_change(&app, Some(&cookie), app.web_password_for_test(), "new-web-password-012345").await.status(), StatusCode::NO_CONTENT);
-    assert_eq!(router(app.clone()).oneshot(login_request("wrong-web-password-012345")).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(router(app).oneshot(login_request("new-web-password-012345")).await.unwrap().status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        st59_change(
+            &app,
+            Some(&cookie),
+            app.web_password_for_test(),
+            "new-web-password-012345"
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        router(app.clone())
+            .oneshot(login_request("wrong-web-password-012345"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        router(app)
+            .oneshot(login_request("new-web-password-012345"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
 
 #[tokio::test]
@@ -256,11 +685,26 @@ async fn st59_web_password_handler_rejects_development_mode() {
     std::env::remove_var("ASHIATO_SETTINGS_PATH");
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let cookie = login(&app, app.web_password_for_test()).await;
-    let response = st59_change(&app, Some(&cookie), app.web_password_for_test(), "new-web-password-012345").await;
+    let response = st59_change(
+        &app,
+        Some(&cookie),
+        app.web_password_for_test(),
+        "new-web-password-012345",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    assert_eq!(response_body_json(response).await, serde_json::json!({"error": "not_changeable"}));
-    match old_mode { Some(v) => std::env::set_var("ASHIATO_SERVICE_MODE", v), None => std::env::remove_var("ASHIATO_SERVICE_MODE") }
-    match old_path { Some(v) => std::env::set_var("ASHIATO_SETTINGS_PATH", v), None => std::env::remove_var("ASHIATO_SETTINGS_PATH") }
+    assert_eq!(
+        response_body_json(response).await,
+        serde_json::json!({"error": "not_changeable"})
+    );
+    match old_mode {
+        Some(v) => std::env::set_var("ASHIATO_SERVICE_MODE", v),
+        None => std::env::remove_var("ASHIATO_SERVICE_MODE"),
+    }
+    match old_path {
+        Some(v) => std::env::set_var("ASHIATO_SETTINGS_PATH", v),
+        None => std::env::remove_var("ASHIATO_SETTINGS_PATH"),
+    }
 }
 
 #[tokio::test]
@@ -268,9 +712,19 @@ async fn st59_web_password_handler_rejects_non_json() {
     let _environment = st59_service_environment("api-token-0123456789", "old-web-password-012345");
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let cookie = login(&app, app.web_password_for_test()).await;
-    let mut request = web_password_request(Some(&cookie), app.web_password_for_test(), "new-web-password-012345", "new-web-password-012345");
-    request.headers_mut().insert(header::CONTENT_TYPE, "text/plain".parse().unwrap());
-    assert_eq!(router(app).oneshot(request).await.unwrap().status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let mut request = web_password_request(
+        Some(&cookie),
+        app.web_password_for_test(),
+        "new-web-password-012345",
+        "new-web-password-012345",
+    );
+    request
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "text/plain".parse().unwrap());
+    assert_eq!(
+        router(app).oneshot(request).await.unwrap().status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
 }
 
 #[tokio::test]
@@ -279,10 +733,34 @@ async fn st59_web_password_handler_uses_new_password_after_rebuilding_app() {
     let _environment = st59_service_environment("api-token-0123456789", "old-web-password-012345");
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let cookie = login(&app, app.web_password_for_test()).await;
-    assert_eq!(st59_change(&app, Some(&cookie), app.web_password_for_test(), "new-web-password-012345").await.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        st59_change(
+            &app,
+            Some(&cookie),
+            app.web_password_for_test(),
+            "new-web-password-012345"
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
     let rebuilt = app.with_web_login("new-web-password-012345", 0);
-    assert_eq!(router(rebuilt.clone()).oneshot(login_request("old-web-password-012345")).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(router(rebuilt).oneshot(login_request("new-web-password-012345")).await.unwrap().status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        router(rebuilt.clone())
+            .oneshot(login_request("old-web-password-012345"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        router(rebuilt)
+            .oneshot(login_request("new-web-password-012345"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
 }
 
 #[tokio::test]
@@ -291,10 +769,20 @@ async fn st59_web_password_handler_does_not_record_secrets() {
     let app = App::for_test(testdb::pool().await, "api-token-0123456789");
     let pool = testdb::pool().await;
     let cookie = login(&app, app.web_password_for_test()).await;
-    let response = st59_change(&app, Some(&cookie), app.web_password_for_test(), "new-web-password-012345").await;
+    let response = st59_change(
+        &app,
+        Some(&cookie),
+        app.web_password_for_test(),
+        "new-web-password-012345",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let rows: Vec<String> = sqlx::query_scalar("SELECT row_to_json(a)::text FROM core.access_log a WHERE route = '/web-password' ORDER BY at DESC LIMIT 2").fetch_all(&pool).await.unwrap();
-    assert!(rows.iter().all(|row| !row.contains("old-web-password-012345") && !row.contains("new-web-password-012345") && !row.contains("api-token-0123456789")));
+    assert!(rows
+        .iter()
+        .all(|row| !row.contains("old-web-password-012345")
+            && !row.contains("new-web-password-012345")
+            && !row.contains("api-token-0123456789")));
 }
 
 #[test]
