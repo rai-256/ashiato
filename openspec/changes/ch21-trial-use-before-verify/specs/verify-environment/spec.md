@@ -319,7 +319,7 @@ THE SYSTEM SHALL 範囲に入ったものごとに、相手・ID・その PR の
 `origin/main` が進んだだけでは、試したものを範囲に戻さない。PR のいちばん新しいコミットが変わったものは、新しく入ったものとして範囲に入れる。
 THE SYSTEM SHALL 席が終えたら（最後の行の `stop` が `done`・`time`・`tokens`）、席に渡した範囲のものの組を、回の tag と実行のフォルダとともに試した記録に足させる。それ以外の止まり方・最後の行が読めない打ち切りでは足さない（次の回に試し直す）。
 THE SYSTEM SHALL 範囲から外したものを、その相手の段落に「前の回で試した: <ID>（<前の tag>）」の形で並べさせ、目録のその相手の `earlier` に `{"id", "tag", "run"}` を書かせる。外した後の範囲が空の相手は、段落を「回さなかった（この回に新しく入った<相手>のものが無い）」で始め、目録の `state` を `skipped` にする。
-導出元: CH21（依頼「毎回」）。深掘り Q11（本人の答え: 新しく入ったものだけを範囲にする）。design D10・D21（仮）。
+導出元: CH21（依頼「毎回」）。深掘り Q11（本人の答え: 新しく入ったものだけを範囲にする）。design D10・D21。
 
 #### Scenario: 前の回で試したものは外し、新しく入ったものだけを範囲にする
 - **GIVEN** 確認バッチ `t1` で画面の範囲 ST12 の席が `done` で終わった後、同じ PR のコミットの ST12 と、新しい `web/src/B.tsx` を変えた `feat/st13-b` を重ねた確認バッチ `t2`
@@ -356,7 +356,7 @@ THE SYSTEM SHALL 範囲から外したものを、その相手の段落に「前
 WHEN 処置が `TSUKAU_RECHECK=<ファイル>`（`{"items": [{"target", "run", "id"}]}`。`id` は席の台本が振る `C<n>`）を渡して確認バッチの準備を走らせたとき、
 THE SYSTEM SHALL 相手ごとに、その相手の項目の候補の題（`run` の下の `result.json` の `candidates` から `id` で引き、公開の題の台本は通さない —— 範囲は手元にだけある）を「直した違和感が直ったか: <題>」の行で並べたものだけを範囲にして、`--minutes 5 --tokens 100000` で席を呼ばせる。項目の無い相手は呼ばず、段落を「回さなかった（直した候補が無い）」、目録の `state` を `skipped` にする。
 THE SYSTEM SHALL 確かめ直しでは試した記録を読ませず（範囲から外さない）、足させもせず（直しで進んだ PR のコミットは、次のふだんの回に新しく入ったものとして試す）、確かめ直しの範囲のほかは呼ばせない。目録のその相手の `recheck` に項目（前の `run` と番号）を書かせ、段落に「直した候補を確かめ直した」を足させる。
-導出元: CH21（依頼「直した後に席でもう一度確かめる」）。深掘り Q10（第 1 回の推奨: 直した候補だけを範囲に上限の半分で）・Q11（本人の答え: 新しく入ったものだけを範囲にする）。review/deep.md R5。design D21（仮）。
+導出元: CH21（依頼「直した後に席でもう一度確かめる」）。深掘り Q10（第 1 回の推奨: 直した候補だけを範囲に上限の半分で）・Q11（本人の答え: 新しく入ったものだけを範囲にする）。review/deep.md R5。design D21。
 
 #### Scenario: 確かめ直しは、直した候補の題だけを範囲に、5 分と 10 万で呼ぶ
 - **GIVEN** 前の実行のフォルダの `candidates.jsonl` が、壊れた 1 行の後に `id` が `C1`（題「設定の言葉が分からない」）と `C2`（題「並びがおかしい」）の 2 行を持ち、`result.json` の `candidates` もその 2 つで、`{"items":[{"target":"web","run":<そのフォルダ>,"id":"C2"}]}` を書いた `TSUKAU_RECHECK` のファイルと、受けた引数を記録する偽の席の台本
@@ -484,12 +484,13 @@ WHEN 差し込み口が携帯の相手を立てるとき（`env-hook.sh up <repo
 THE SYSTEM SHALL `/dev/kvm` を読み書きで開けない・エミュレータか SDK か JDK が無い・専用の AVD（`ashiato-tsukau-api35`）のエミュレータがもう動いている（エミュレータのプロセスの引数で見る。ほかの端末に `adb` で問わない）、のどれかなら、何も起こさずに `UNAVAILABLE=` を置かせる（待たない）。
 THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、資格情報（`ashiato.apiToken`・`ashiato.userId`）をその回の環境のものにした debug の APK を組ませる。
 接続先と資格情報は組み立ての引数（`-P`）で渡し、`~/.gradle/gradle.properties` の値に負けないようにする。`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先と資格情報・配る APK の署名の鍵は使わない。
-THE SYSTEM SHALL 専用の AVD のエミュレータを、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた、のどちらかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
-THE SYSTEM SHALL `adb` の操作を、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
-THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には `<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。
+THE SYSTEM SHALL エミュレータを起こす前に、この PC の網を持たない箱（利用者と網の名前空間を分けたもの。中の網は loopback だけ）を作り、その中に loopback のほかの網が無いことを確かめさせる。箱を作れない・loopback のほかの網があれば、何も起こさずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL 専用の AVD のエミュレータと、それを扱う adb のサーバを、起動の時からその箱の中で動かし、箱の外のその回のサーバへは `<state>` に置いた橋（Unix のソケット）でだけ届かせる。エミュレータは、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた、のどちらかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL `adb` の操作を、箱の中の adb のサーバに対して、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
+THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には、箱の中の adb のサーバに対して操作させ、`<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。
 案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）と、席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
-THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
-導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31（仮）・D25・D26（仮）。review/spec.md R20〜R27。`$ANDROID_HOME` から道具を見つけるのと案内の「`phone.sh` だけ」は IMP-13 の本人の答え（第 2 回の合意。design D32）。
+THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、橋と箱を止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
+導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31・D25・D26（仮）。起動の時から網を持たせない箱は Q-G2 の本人の答え（起動の時から網を持たせない道を確かめて使う。道が無ければ携帯の相手を回さず本人に返す。design D31・D35（仮））。review/spec.md R20〜R27。`$ANDROID_HOME` から道具を見つけるのと案内の「`phone.sh` だけ」は IMP-13 の本人の答え（第 2 回の合意。design D32）。
 
 #### Scenario: KVM を開けなければ、何も起こさずに断る
 - **GIVEN** 読み書きで開けない置き場を `/dev/kvm` の代わりに向けた自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本
@@ -500,6 +501,21 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **GIVEN** `emulator`・`adb`・`java` のどれか 1 つを無い場所に向けた自己試験（3 通り）と、受けた引数を記録する起動の台本
 - **WHEN** それぞれで `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
 - **THEN** 3 通りとも `<state>/ready` に `UNAVAILABLE=` の行があり、起動の台本は呼ばれない
+
+#### Scenario: 網を持たない箱を作れなければ、何も起こさずに断る
+- **GIVEN** 箱を作る命令（`unshare`）が rc≠0 で終わる自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と起動の台本は呼ばれない
+
+#### Scenario: 箱に loopback のほかの網があれば、エミュレータを起こさずに断る
+- **GIVEN** 箱の中の網の一覧（`ip -o link`）に loopback と `eth0` を返す自己試験と、受けた引数を記録する偽の `emulator`・`adb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれない
+
+#### Scenario: エミュレータと adb は、網を持たない箱の中で動く
+- **GIVEN** 利用者と網の名前空間を分ける引数を受けたときだけ印の環境変数を付けて残りを走らせる偽の `unshare` と `nsenter`、受けた引数と印を記録する偽の `emulator`・`adb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` と `down` を走らせ、その間に `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
+- **THEN** 偽の `emulator` の呼び出しと、偽の `adb` の呼び出しのどれもが印を持つ
 
 #### Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る
 - **GIVEN** `-avd ashiato-tsukau-api35` を引数に持つエミュレータのプロセスを返す偽の `ps` と、受けた引数を記録する偽の `adb`・`emulator`
@@ -598,7 +614,7 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 
 #### Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない
 - **WHEN** この PC で `tools/tsukau/env-hook.sh up` と `down` を携帯の相手で本物のエミュレータに対して走らせる
-- **THEN** `ready` に `UNAVAILABLE=` が無く、端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に端末から届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
+- **THEN** `ready` に `UNAVAILABLE=` が無く、エミュレータの動く箱の中の網は loopback だけで、端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に端末から届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
 
 #### Scenario: 本物のエミュレータで、席の口で端末を操作できる
 - **WHEN** この PC で携帯の相手を本物のエミュレータに立て、`tools/tsukau/phone.sh shot`・`phone.sh ui`・`phone.sh shell 'input keyevent KEYCODE_HOME'` を走らせてから片付ける

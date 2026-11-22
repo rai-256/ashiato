@@ -22,7 +22,7 @@
 - 提案: Scenario を足す:「検査を走らせられなければ、全部の題を伏せる」（差し込みで gitleaks の場所を無い所に向け、出力が全部「（題は手元の結果に）」）・「確認バッチの作業ツリーの .env の値と利用者名を含む題は伏せる」（`.env` は自己試験が作る）。
   写した回の Scenario の題に `/home/someone/x` を足し、写した段落でも伏せられていることを見る。
   tasks.md:44 の「秘密の形の題だけを外す」を消し、gitleaks が無い木では自己試験そのものを落とす（CI の `rust` の job は取れる）。`.env` を読む場所は「`--env <ファイル>` か cwd」と台本の口で決め、処置にも渡させる（D15 の 6）
-- 処置: fixed D28 仮 —— （旧 D19。Q11 の答えで写す道が無くなり D28 に立て直した）伏せる側に倒した。spec に Scenario「利用者名と .env の値を含む題は伏せる」「検査を走らせられなければ、全部の題を伏せる」を足し、`/mnt/`・`/Users/`・`\\` を「私的な形を含む題は伏せる」に入れた。Task 2.1 は gitleaks を飛ばさない（CI は取れる）。写した題も通し直す（D10・Scenario「写した題も、公開の題の台本を通し直す」）
+- 処置: escalated —— merge gate（2026-11-22）で D12 の一部として Q-G1 に入れて本人に返し、本人が「いまの中身のまま本人の決定にしてから送る」を選んだ（deep.md Q-G1。D28 は仮でなくした）。前の処置（fixed D28 仮）: （旧 D19。Q11 の答えで写す道が無くなり D28 に立て直した）伏せる側に倒した。spec に Scenario「利用者名と .env の値を含む題は伏せる」「検査を走らせられなければ、全部の題を伏せる」を足し、`/mnt/`・`/Users/`・`\\` を「私的な形を含む題は伏せる」に入れた。Task 2.1 は gitleaks を飛ばさない（CI は取れる）。写した題も通し直す（D10・Scenario「写した題も、公開の題の台本を通し直す」）
 
 ## R2. Q4 の推奨が名指す「足す試験の名前」が、D15・harness2 への依頼・spec のどこにも無く、処置の Scenario は根拠とログが公開に出ないことを見ていない
 - 成果物: openspec/changes/ch21-trial-use-before-verify/design.md・harness2-request.json・specs/verify-environment/spec.md
@@ -32,7 +32,7 @@
 - kind: irreversible
 - loss: exported
 - 提案: D15 の 6・harness2-request.json の scope・spec.md:348 に「足す試験の名前と、試験の中の文字列」と「Story の issue へのコメント」を足す。spec.md:365 の THEN に「用意した候補の根拠の文（自己試験が決めた字面）がどこにも無い」を足す
-- 処置: fixed D20 仮 —— Q4 の推奨（公開に出すものを減らす側）のまま、D12 の処置の題の規則に「足す試験の名前と試験の中の文字列」を足し、D15 の 6・harness2-request.json の scope に「足す試験の名前と試験の中の文字列」を足した。受け入れの Scenario は用意した根拠の文がどこにも無いことを見る
+- 処置: escalated —— merge gate（2026-11-22）で Q-G1 に入れて本人に返し、本人が「いまの中身のまま本人の決定にしてから送る」を選んだ（deep.md Q-G1。D20 は仮でなくした）。前の処置（fixed D20 仮）: Q4 の推奨（公開に出すものを減らす側）のまま、D12 の処置の題の規則に「足す試験の名前と試験の中の文字列」を足し、D15 の 6・harness2-request.json の scope に「足す試験の名前と試験の中の文字列」を足した。受け入れの Scenario は用意した根拠の文がどこにも無いことを見る
 
 ## R3. Q12 の推奨の「選別や直しが落ちた回も 1 行書く」が、harness2 への依頼に写っていない
 - 成果物: openspec/changes/ch21-trial-use-before-verify/design.md・harness2-request.json
@@ -191,7 +191,7 @@
   design.md:154（D15 の 9）と harness2-request.json の what は「本人の「通らなかった」の後の fix の後にも、席の結果の段落を手順書に差し替える（今は録画などだけを差し替える）」で、CH21 の依頼で fix の後の手順書が変わる
 - kind: conflict
 - 提案: CH21.md の 2 つ目を「fix で直す道と、違和感の問いを issue にする道は残す（CH21 の依頼は fix の後に席の段落を差し替えることだけを足す。D15 の 9）」に直す
-- 処置: fixed D15 仮 —— docs/changes/CH21.md を 「fix の道と違和感の issue の道は残す。依頼が足すのは fix の後に席の段落を差し替えることだけ（D15 の 9）」に直した
+- 処置: escalated —— merge gate（2026-11-22）で別の席が D15 を否とし、Q-G1 で本人に返した（deep.md Q-G1。D15 は仮でなくし、乗る D も本人の決定にした）。前の処置（fixed D15 仮）: docs/changes/CH21.md を 「fix の道と違和感の issue の道は残す。依頼が足すのは fix の後に席の段落を差し替えることだけ（D15 の 9）」に直した
 
 ## 観点ごとの該当なし・確かめた範囲
 
