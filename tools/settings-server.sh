@@ -7,7 +7,8 @@ ROOT="$PWD"
 PID_FILE="${ASHIATO_SETTINGS_SERVER_PID_FILE:-$ROOT/.settings-server.pid}"
 
 usage() {
-  echo "使い方: $0 make <置き場> | $0 up <設定のファイル> | $0 down [設定のファイル] | $0 --self-test" >&2
+  echo "使い方: $0 make <置き場> | $0 up <設定のファイル> | $0 down | $0 --self-test" >&2
+  echo "  up は /healthz を待っても前景で待ち続ける（Ctrl-C で止める）。down は別の端末で実行する。" >&2
   exit 2
 }
 
@@ -20,23 +21,16 @@ load_dotenv() {
   fi
 }
 
-settings_pid_file() {
-  if [[ -n "${2:-}" ]]; then
-    printf '%s.pid' "$2"
-  else
-    printf '%s' "$PID_FILE"
-  fi
-}
-
 make_settings() {
   local place="${1:?置き場が必要です}" settings password_file
+  load_dotenv
   place="$(cd "$place" 2>/dev/null && pwd || { mkdir -p "$place"; cd "$place"; pwd; })"
   settings="$place/settings/server.json"
   password_file="$place/web-password"
   mkdir -p "${settings%/*}"
 
   . tools/ports.sh
-  local database_url="${DATABASE_URL:-postgres://ashiato_app:st59-test-db@127.0.0.1:${ASHIATO_DB_PORT}/ashiato}"
+  local database_url="${DATABASE_URL:?DATABASE_URL が .env に無い}"
   database_url="$(ashiato_db_url "$database_url")"
   local bind="127.0.0.1:$((ASHIATO_HTTP_PORT + 1))"
   local api_token='st59-fake-api-token-012345'
@@ -86,13 +80,22 @@ up_server() {
   apply_settings_to_environment "$settings"
   server="$(build_server_if_needed)"
   bind="$BIND"
-  pid_file="$(settings_pid_file up "$settings")"
+  pid_file="$PID_FILE"
   [[ ! -e "$pid_file" ]] || { echo "error: settings-server は既に起動している" >&2; return 1; }
   # D8: 元の合言葉は親環境からもサーバへ渡さない。
   env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL -u WEB_PASSWORD \
     "$server" >"${pid_file}.log" 2>&1 &
   echo $! >"$pid_file"
-  trap '[[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true' EXIT INT TERM
+  cleanup_server() {
+    local status=$?
+    trap - EXIT INT TERM
+    if [[ -f "$pid_file" ]]; then
+      kill "$(cat "$pid_file")" 2>/dev/null || true
+      rm -f "$pid_file"
+    fi
+    exit "$status"
+  }
+  trap cleanup_server EXIT INT TERM
   for _ in $(seq 1 30); do
     curl -sf "http://$bind/healthz" >/dev/null && break
     sleep 1
@@ -104,7 +107,7 @@ up_server() {
 
 down_server() {
   local pid_file pid
-  pid_file="$(settings_pid_file down "${1:-}")"
+  pid_file="$PID_FILE"
   [[ -f "$pid_file" ]] || { echo "サーバは起動していない"; return 0; }
   pid="$(cat "$pid_file")"
   kill "$pid" 2>/dev/null || true
@@ -117,6 +120,10 @@ self_test() {
   local settings keys names
   self_test_tmp="$(mktemp -d)"
   trap 'rm -rf "${self_test_tmp:-}"' EXIT
+  if (load_dotenv() { :; }; unset DATABASE_URL; make_settings "$self_test_tmp/missing-db" >/dev/null 2>&1); then
+    echo "self-test: DATABASE_URL が無い make を許している" >&2
+    return 1
+  fi
   make_settings "$self_test_tmp" >/dev/null
   settings="$self_test_tmp/settings/server.json"
   keys="$(jq -r 'keys | join(" ")' "$settings")"
@@ -125,10 +132,14 @@ self_test() {
   load_dotenv
   . tools/ports.sh
   apply_settings_to_environment "$settings"
-  names="$(env -0 | tr '\0' '\n' | cut -d= -f1)"
+  names="$(env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL -u WEB_PASSWORD \
+    env -0 | tr '\0' '\n' | cut -d= -f1)"
   grep -qxF ASHIATO_SERVICE_MODE <<<"$names"
   grep -qxF ASHIATO_SETTINGS_PATH <<<"$names"
-  ! grep -qxF WEB_PASSWORD <<<"$names"
+  if grep -qxF WEB_PASSWORD <<<"$names"; then
+    echo "self-test: WEB_PASSWORD が起動環境に残っている" >&2
+    return 1
+  fi
   echo "self-test 通過（設定の鍵と起動環境の名前を確認した）"
 }
 

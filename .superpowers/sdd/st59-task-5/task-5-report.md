@@ -45,3 +45,35 @@ self-test 通過（設定の鍵と起動環境の名前を確認した）
 設定値や合言葉は標準出力・起動ログへ出さず、サーバ子プロセスには元の `WEB_PASSWORD` と管理者・所有者用の秘密を渡さないことを確認した。Task 5 に Scenario の名指しは無いため、Scenario 印の追加はない。
 
 懸念はない。
+
+## Fix round 1
+
+レビュー指摘 F1〜F4 を修正した。
+
+- F1: `make_settings` が `.env` を読み込み、`DATABASE_URL` が無い場合は失敗するようにした。架空の既定 URL は削除した。
+- F2: self-test が `up` と同じ `env -u` の環境名を確認し、`WEB_PASSWORD` があれば明示的に失敗するようにした。
+- F3: `up` と `down` が共有するリポジトリ直下の PID file に統一し、終了時に子サーバを止めて PID file を削除する trap を追加した。
+- F4: usage に `up` が `/healthz` 後も前景で待機し、別端末の `down` で止めることを明記した。
+
+### TDD Evidence
+
+RED:
+
+```text
+tools/settings-server.sh --self-test
+self-test: DATABASE_URL が無い make を許している
+rc=1
+```
+
+GREEN:
+
+```text
+scripts/verify-run 5.1
+[evidence] 5.1 PASS  rc=0  `tools/settings-server.sh --self-test`
+[evidence] 5.1 PASS  rc=0  `tools/check-secrets.sh`
+```
+
+追加確認:
+
+- `bash -n tools/settings-server.sh` — PASS
+- `git diff --check` — PASS
