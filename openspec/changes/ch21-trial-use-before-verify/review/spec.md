@@ -770,3 +770,15 @@ R37・R38 の処置の確かめ: 新しい指摘なし（382482a8d の上。vali
   - :573 の THEN の順を「…`reverse tcp:18787`・18787 への問い・`install`・`am start`」にする
 - 処置: fixed 9.1 —— APK が入る側の 3 本の GIVEN に「渡した後の 127.0.0.1:18787 への問いに『応える』」を足し、順の THEN に端末の中からの 18787 への問いを入れた
 
+
+R50〜R52 の処置の確かめ（2026-11-22、c8df64b5e の上）: 新しい指摘はない。
+- 機械の検査:
+  - `openspec validate --strict` → valid
+  - `review_triage.py` → triage OK
+  - `spec_overlap.py candidates` → `[]`
+  - `provisional.py check` → D35 だけ FAIL（グラフが provisional-review.md を書く段なので想定どおり）
+- 印と下限: spec の verify-environment は 121 本で、tasks.md の印の名前と一字一句合う。env-hook.sh の下限は 6.1 が 12、7.1 が 29、9.1 が 59 で、印の数（12・17・30）と合う
+- R50: 閉じた。片付けの Requirement（spec.md:492）に「箱に入れなければ adb を呼ばずに PID で止め、この PC の adb のサーバへは落とさない」が入った。Scenario「箱が止まっていれば、片付けは adb を呼ばずに自分のエミュレータを止める」と、Task 9.1 の印（下限 59）も入った
+- R51: 閉じた。残りを偽の `ps` で作る GIVEN になり、正しい実装でも rc≠0 を満たせる
+- R52: 閉じた。APK が入る側の 3 本の GIVEN に 18787 への答えが入り、順の THEN にも問いが入った
+- design.md:270 の句点も直っている
