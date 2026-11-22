@@ -53,7 +53,7 @@
 
 ## Task 3: 画面の合言葉を変える口（D4・D9・D10・D12）
 
-- [ ] 3.1 `POST /web-password` を足す（`web_session.rs`。middleware を素通しする口に足す。API の合言葉の許可の一覧に入れない）。順は D4: ログインの印（無ければ 401）→ 呼び出し元が画面のログインか（API の合言葉・衛星は 403）→ JSON か（415）→
+- [x] 3.1 `POST /web-password` を足す（`web_session.rs`。middleware を素通しする口に足す。API の合言葉の許可の一覧に入れない）。順は D4: ログインの印（無ければ 401）→ 呼び出し元が画面のログインか（API の合言葉・衛星は 403）→ JSON か（415）→
   開発の形か（`ASHIATO_SERVICE_MODE` と `ASHIATO_SETTINGS_PATH` が無ければ 409 `not_changeable`）→ `LOGIN_CHECK` を取ったまま失敗の数え（429）と今の合言葉の照合（403 `wrong_password`。失敗の遅れ）→
   新しい合言葉の 5 つの検査（400）→ 照らす値を作り起動の 2 つの検査を通す → 新しい `tag` で印の行を書く → 読み出しの記録に `ok` の行 → Task 2 で書き戻す（落ちたら打ち消しの行と 500 `not_saved`）→ 組を差し替える → `Set-Cookie` → 204（D1・D9）。
   どの結果も読み出しの記録に 1 行（D9（仮）の結果の語と状態）。`run_to_completion` で通す（求めが取り消されても行を書き切る）。`utoipa` の注釈を付ける
