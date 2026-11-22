@@ -323,3 +323,44 @@
 - kind: technical
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+
+## final review（56fd1c5..2b27dc1）
+
+whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.superpowers/sdd/tasks/review-56fd1c5a8..2b27dc18b.diff`）の指摘。R1〜R21 と重なるものは除いた。Task ごとの ⚠️ の確かめ: `replace_setting` の原子性・失敗の数えの共有（4 つの口が同じ `app.login.limiter`）・ポートの一致・PHC の値・e2e の PASS は問題なし。Windows の rename と新しい `server.json` の ACL（T2 ⚠️・T7 ⚠️）は未検証のままで、PR の CI の `install-windows` の緑で確かめる。
+
+## R22. HEAD で `cargo clippy -p ashiato-server --all-targets -- -D warnings` が落ちる（rc=101。settle の直しで呼び手の無くなった関数が 2 つ残る）
+- 成果物: `crates/server/src/lib.rs`（`:1000` の `request_secrets`、`:783` の `replace_secrets` の要らなくなった `#[allow(dead_code)]`）/ `crates/server/src/web_session.rs`（`:1414` の `check_given_password_with_secrets`）
+- 根拠: final reviewer が HEAD で走らせて `error: function ... is never used`（lib と lib test の両方。`ci.yml` の rust job は `-D warnings`）。`grep -rn 'request_secrets\b\|check_given_password_with_secrets' crates/server/src` は定義の 2 行だけを返す。evidence.jsonl で 9.1 の最後の PASS は `1303a7c9d` で、その後の settle の 4 commit の後に 9.1 の全体を取った証跡が無い
+- kind: technical
+- 提案: 2 つの関数を消す（`REQUEST_SECRETS` の scope も読み手が無ければ外す）。HEAD で 9.1 の全体（fmt・clippy の linux と windows-gnu・`cargo test --workspace`・`check-openapi.sh` ほか）を `scripts/verify-run 9.1` で取り直す
+
+## R23. R9 の処置で、変える口の読み出しの記録の順が spec と design の定めと逆になった。Scenario の印の先の試験も、印と逆の主張を見ている
+- 成果物: `crates/server/src/web_session.rs`（`:885-906` の `/web-password`、`:1249-1270` の `/collector-token`）/ `crates/server/src/st59_tests.rs`（`:677-772`）
+- 根拠: `openspec/changes/st59-change-password-from-web/specs/data-sensitivity/spec.md:67`「変えたものの行は値を書き戻す前に…書き、書けなければ何も変えずに 500 で断る。行を書いた後に値を書き戻せなかったときは…2 行とし…打ち消しの行を足す」、同 `:144-148` の Scenario、`design.md:40-41`。実装は書き戻しの**後**に `ok` を書き、書けなければファイルを巻き戻す。試験は `let expected = if outcome == "ok" { old } else { old + 1 }` で `ok` の行が増えないことを確かめているのに、印は「書き戻しに落ちた求めは、変えた行と打ち消しの行の 2 行で残る」のまま（`check_scenarios.py` は素通りする）。今の順では、`ok` を書けず巻き戻しも落ちると（R20 はエラーを出すだけ）、`ok` の行が無いまま起動し直しで変更が効く。spec の順は「監査の行が先に必ずある」（深掘り C5、loss: uncaptured）を守るためのもの
+- kind: premise
+- loss: uncaptured —— 変更が効いたのに読み出しの記録に `ok` の行が無い期間ができうる
+- 提案: spec の順（`ok` → 書き戻し → 失敗なら打ち消しの `forbidden`/500 の行）に戻し、試験を印の主張（2 行で残る）に合わせる。R9 の順を採るなら、spec の Requirement と Scenario を正規の経路で直してから印を付け直す
+
+## R24. 申し送りの「値を変えた後」の案内のうち、「全部の収集アプリに貼り直す」の 1 文が画面に無い
+- 成果物: `web/src/messages.ts`（`secretChange.setupLead`）/ `web/src/CollectorTokenChangePanel.tsx`（`:36`）/ `web/e2e/st59-change-secrets.spec.ts`（collector-token の試験）
+- 根拠: 申し送り「st56-collector-connection-setup R2（review/spec.md）・D8 — 合言葉の入れ直しの口と、値を変えた後の知らせは ST56 が作る（2026-11-04、ST56 の上流 spec。第 1 回の推奨で先に書いた版）」（`docs/handoff/ST59.md:8`「変える画面は、変えた後に…全部の収集アプリに貼り直す、と案内する」）と `specs/**/spec.md:273` の案内「全部の収集アプリ（携帯と PC）にこの文字列を貼り直してください。携帯に入れる文字列は、携帯から開いた画面で『収集アプリの設定』から出してください」。`grep -rn 貼り直 web/src` は 0 件で、実装は 2 文目だけを持つ。e2e は 2 文目の部分一致しか見ないので通る。申し送りの前半（照合の関数・失敗の遅れ・回数の制限をログインとそろえる）は守られている（`web_session.rs:820-821`・`:1189-1190`・`:1410`、`app.login.limiter` を共有）
+- kind: technical
+- 提案: 1 文目を足し、e2e で案内の全文を見る
+
+## R25. ST59 の試験と ST55 の試験が、別の鍵で同じ環境変数（`ASHIATO_SETTINGS_PATH`・`ASHIATO_SERVICE_MODE`）を書き換える。並列に走ると時々落ちる
+- 成果物: `crates/server/src/st59_tests.rs`（`:67` の `ST59_SETTINGS_LOCK`、手で戻している `:593-620`・`:899-920`・`:1229-1251`）/ `crates/server/src/st55_tests.rs`（`:14` の `ENV_LOCK`、`:607-619`）
+- 根拠: handler は求めのたびにこの 2 つをプロセスの環境から読む。別の鍵なので、並列に走ると ST59 の handler が 409 を返すか、ST55 の一時ファイルに書く。Task 2 F1 と同じ種類で、Task 3 F12・Task 4 F14・Task 9 F3（手で環境を戻すので assert が落ちると戻らない）の残り
+- kind: technical
+- 提案: 鍵を 1 つにする（`ENV_LOCK` を `pub(crate)` にして共有する）。手で戻している所を drop で戻す guard にそろえる
+
+## R26. 今の合言葉が違ったとき、変える 2 つの口は照合の印（`LOGIN_CHECK`）を持ったまま失敗の遅れを待つ。その間ほかの全部のログインが止まる（Minor）
+- 成果物: `crates/server/src/web_session.rs`（`:833-843`、`:1202-1218`）
+- 根拠: ログインの口は印を放してから待つ（`:1523`→`:1548`）。遅れの長さは同じだが、変える口で 1 回間違えるたびに全部のログインが 1 秒止まる（回数の制限があるので上限はある）
+- kind: technical
+- 提案: 印を放してから `failure_delay` を待つ
+
+## R27. 変える口の 500 の一部で、原因がログにも読み出しの記録にも残らない（Minor）
+- 成果物: `crates/server/src/web_session.rs`（`:890-906`・`:1253-1269` の `not_saved` の `_ =>`、`:920` の印の行の INSERT の失敗、`:864-883` の衝突の検査の失敗、spawn_blocking の JoinError）
+- 根拠: `not_saved` は理由を捨てる（Task 3 F7・Task 4 F13 の残り。`SettingsWriteError` の Display は秘密を含まない）。`/web-password` の上の失敗は 500 を返すのに読み出しの記録の行を残さない（ログインの口は残す。spec「状態を実際に返した応答のとおりに書く」）
+- kind: technical
+- 提案: `tracing::warn!(reason = %e)` を出し、500 で返す道でも `forbidden`/500 の行を書く
