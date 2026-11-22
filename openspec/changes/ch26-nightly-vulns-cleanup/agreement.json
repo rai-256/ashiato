@@ -1,0 +1,57 @@
+{
+  "status": "accepted",
+  "digest": "7ea0674558841b0a7278d1190f56b9749bee9b6e3f99767e99f88f2fea6ab06a",
+  "head": "95bf4837ae9e1143abe7f75fb417fa6e1cb0b476",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-22T00:25:07Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "libsqlite3-sys の勧告を外す理由は、確かめていない読みに乗っている"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "Windows の配布物どうしの 17.6→17.12 の更新は、機械では確かめない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "chrono の例外は 90 日ごとに夜間の検査を赤にする"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "merge しても issue は自動では閉じない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "CI は、更新の後に動いている PostgreSQL の版を見ない"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "大きい版を上げる PR は、今の CI では緑にならない"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "low",
+      "title": "この上流の枝は main より古く、依存の表の元が CH24 の後の形でない"
+    }
+  ],
+  "carried": [
+    {
+      "from": "88817b4198702c8adde02438ee7e0a6b920de4d997a4a3318de052ecb7cfbdf7",
+      "because": [
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "at": "2026-11-22T07:29:07Z"
+    }
+  ]
+}

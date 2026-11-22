@@ -1,0 +1,12 @@
+{"reason": "same",
+ "paths": [
+  "Cargo.toml",
+  "Cargo.lock",
+  "crates/*/Cargo.toml",
+  "osv-scanner.toml",
+  "tools/release/pgsql.lock",
+  "tools/licenses/**",
+  "docs/release.md",
+  "docs/changes/CH26.md"
+ ],
+ "why": "夜間の脆弱性検査が挙げた 4 件を互換の範囲で上げるだけ。chrono・libsqlite3-sys（rusqlite 経由）・rustix は Cargo.toml / Cargo.lock の版を上げ、上げられないものは AGENTS.md の規則どおり osv-scanner.toml の例外の表に理由と 90 日以内の期限で書く。同梱の PostgreSQL は pgsql.lock の version・url・sha256 を 17.12 にそろえるだけで major（17）は変えない（installer の build.rs が読むのは major だけ）。何を・なぜ・どこまでは依頼が決めてあり、要件は変えない。API・送信の契約・移行には触れない。新しい版が足す依存の許諾文が要れば tools/licenses に置く。minor の更新と戻しの確かめは docs/release.md §PostgreSQL の小さい版を上げる PR の手順で行う。走っている CH24 も Cargo.lock と osv-scanner.toml を触るので、後から merge する側が rebase で合わせる"}
