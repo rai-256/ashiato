@@ -1,11 +1,46 @@
 {
-  "status": "rejected",
-  "digest": "ecf2f1b398a1de18043b069b180ec28623362456cf41de49b70e3a04f4473282",
-  "head": "05a29b6814dd9381bb8cb770425a21e6ed386fa3",
-  "answers": "deep-answers-2.txt",
-  "picked": "違和感がある",
-  "notes": [
-    "補足: R2 の答えを A から C に変える。手で確かめる手間を最低限にしたい。pgsql.lock を変える PR だけ、古い側の試験用の Windows の zip（package-windows-test-old）を変更前の lock（今回は 17.6-1）で組み、既存の tools/release/update-apply-install.sh で 17.6 → 17.12 の更新と戻しを Windows の runner で通す（docs/release.md「PostgreSQL の小さい版を上げる PR」の手順を CI で機械が行う）。lock を変えない PR の組み立てと試験は今のまま。tasks 5.1（本人の PC で更新して記録が見えるかを答える）は削る。5.1 の「本人の PC の配布版と記録は機械から見えない」は誤りで、WSL から読み取り専用で読める。本人の PC の移行は ST64 で扱う"
-  ],
-  "at": "2026-11-21T23:35:40Z"
+  "status": "accepted",
+  "digest": "88817b4198702c8adde02438ee7e0a6b920de4d997a4a3318de052ecb7cfbdf7",
+  "head": "95bf4837ae9e1143abe7f75fb417fa6e1cb0b476",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-22T00:25:07Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "libsqlite3-sys の勧告を外す理由は、確かめていない読みに乗っている"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "Windows の配布物どうしの 17.6→17.12 の更新は、機械では確かめない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "chrono の例外は 90 日ごとに夜間の検査を赤にする"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "low",
+      "title": "merge しても issue は自動では閉じない"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "CI は、更新の後に動いている PostgreSQL の版を見ない"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "大きい版を上げる PR は、今の CI では緑にならない"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "low",
+      "title": "この上流の枝は main より古く、依存の表の元が CH24 の後の形でない"
+    }
+  ]
 }
