@@ -12,8 +12,6 @@ use std::sync::{
 };
 use tower::ServiceExt as _;
 
-static SETTINGS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 #[test]
 fn st59_swap_bundle_contains_the_three_shared_values() {
     let bundle = SharedSecrets::from_password(
@@ -124,7 +122,6 @@ async fn st59_swap_replacement_keeps_limiter_and_replaces_api_token() {
 
 #[test]
 fn st59_settings_replaces_one_key_and_preserves_the_other_entries() {
-    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     std::fs::write(
@@ -132,9 +129,7 @@ fn st59_settings_replaces_one_key_and_preserves_the_other_entries() {
         br#"{"API_TOKEN":"old-api-token","WEB_PASSWORD_VERIFIER":"old-verifier","BIND":"127.0.0.1:18700"}"#,
     )
     .unwrap();
-    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
-
-    super::service::replace_setting("API_TOKEN", "new-api-token").unwrap();
+    super::service::replace_setting_at(&path, "API_TOKEN", "new-api-token").unwrap();
 
     let settings = super::service::load_settings(&path).unwrap();
     assert_eq!(
@@ -150,13 +145,11 @@ fn st59_settings_replaces_one_key_and_preserves_the_other_entries() {
 
 #[test]
 fn st59_settings_writes_a_file_loadable_by_load_settings() {
-    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
-    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
 
-    super::service::replace_setting("WEB_PASSWORD_VERIFIER", "new-verifier").unwrap();
+    super::service::replace_setting_at(&path, "WEB_PASSWORD_VERIFIER", "new-verifier").unwrap();
 
     let settings = super::service::load_settings(&path).unwrap();
     assert_eq!(
@@ -167,14 +160,11 @@ fn st59_settings_writes_a_file_loadable_by_load_settings() {
 
 #[test]
 fn st59_settings_keeps_the_original_when_writing_file_cannot_be_created() {
-    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
     std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
-    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
-
-    assert!(super::service::replace_setting("API_TOKEN", "new-api-token").is_err());
+    assert!(super::service::replace_setting_at(&path, "API_TOKEN", "new-api-token").is_err());
     assert_eq!(
         std::fs::read(&path).unwrap(),
         br#"{"API_TOKEN":"old-api-token"}"#
@@ -183,27 +173,21 @@ fn st59_settings_keeps_the_original_when_writing_file_cannot_be_created() {
 
 #[test]
 fn st59_settings_does_not_write_when_original_json_is_malformed() {
-    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     std::fs::write(&path, br#"{"API_TOKEN":}"#).unwrap();
-    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
-
-    assert!(super::service::replace_setting("API_TOKEN", "new-api-token").is_err());
+    assert!(super::service::replace_setting_at(&path, "API_TOKEN", "new-api-token").is_err());
     assert_eq!(std::fs::read(&path).unwrap(), br#"{"API_TOKEN":}"#);
 }
 
 #[test]
 fn st59_settings_overwrites_a_stale_writing_file() {
-    let _lock = SETTINGS_ENV_LOCK.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server.json");
     let writing = path.with_file_name("server.json.writing");
     std::fs::write(&path, br#"{"API_TOKEN":"old-api-token"}"#).unwrap();
     std::fs::write(&writing, b"stale").unwrap();
-    std::env::set_var("ASHIATO_SETTINGS_PATH", &path);
-
-    super::service::replace_setting("API_TOKEN", "new-api-token").unwrap();
+    super::service::replace_setting_at(&path, "API_TOKEN", "new-api-token").unwrap();
 
     assert!(!writing.exists());
     assert_eq!(

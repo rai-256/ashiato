@@ -264,13 +264,18 @@ impl std::error::Error for SettingsWriteError {}
 /// 現在のファイルを読み直してから書きかけのファイルを同期し、最後に名前を替える。
 /// そのため、書き込みや名前変更に失敗した場合も本来のファイルは変更しない。
 pub fn replace_setting(key: &str, value: &str) -> Result<(), SettingsWriteError> {
-    if !matches!(key, "WEB_PASSWORD_VERIFIER" | "API_TOKEN") {
-        return Err(SettingsWriteError::InvalidKey);
-    }
     let path = std::env::var_os("ASHIATO_SETTINGS_PATH")
         .map(std::path::PathBuf::from)
         .ok_or(SettingsWriteError::PathMissing)?;
-    let mut settings = load_settings(&path).map_err(SettingsWriteError::Read)?;
+    replace_setting_at(&path, key, value)
+}
+
+/// 指定した `server.json` の 1 つの秘密だけを書き戻す。
+pub fn replace_setting_at(path: &Path, key: &str, value: &str) -> Result<(), SettingsWriteError> {
+    if !matches!(key, "WEB_PASSWORD_VERIFIER" | "API_TOKEN") {
+        return Err(SettingsWriteError::InvalidKey);
+    }
+    let mut settings = load_settings(path).map_err(SettingsWriteError::Read)?;
     settings.0.insert(key.to_owned(), value.to_owned());
     let temporary = path.with_file_name("server.json.writing");
     let bytes = serde_json::to_vec_pretty(&settings.0).map_err(|_| SettingsWriteError::Write)?;
@@ -283,7 +288,7 @@ pub fn replace_setting(key: &str, value: &str) -> Result<(), SettingsWriteError>
     file.write_all(&bytes)
         .and_then(|()| file.sync_all())
         .map_err(|_| SettingsWriteError::Write)?;
-    std::fs::rename(&temporary, &path).map_err(|_| SettingsWriteError::Rename)
+    std::fs::rename(&temporary, path).map_err(|_| SettingsWriteError::Rename)
 }
 
 /// 設定をこのプロセスの環境へ反映する。親プロセスやログへ値を返さない。
