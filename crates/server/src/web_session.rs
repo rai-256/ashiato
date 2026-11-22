@@ -1432,35 +1432,60 @@ pub(crate) async fn check_with_permit(
         .0
 }
 
+/// 照合する。返す印は、照合が通ったときに呼び出し元が差し替えの終わりまで持つためのもの（R14）。
+/// blocking task が走らずに終わった（ランタイムの終わりで取り消された）ときは印が既に放されているので `None`。
 async fn check_with_permit_using_secrets(
     app: &App,
     given: String,
     permit: LoginCheckPermit,
     secrets: &SharedSecrets,
-) -> (PasswordCheck, LoginCheckPermit) {
+) -> (PasswordCheck, Option<LoginCheckPermit>) {
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
-        return (PasswordCheck::Throttled, permit);
+        return (PasswordCheck::Throttled, Some(permit));
     }
     // 空は照合せず失敗に数える（照らす形の `accepts` は空を自分では断らず、Argon2id を回してしまう）
     if given.is_empty() {
         app.login.limiter.record_failure();
-        return (PasswordCheck::Mismatch, permit);
+        return (PasswordCheck::Mismatch, Some(permit));
     }
     // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
-    // 印は外側で持ち続け、blocking task が失敗しても失敗を数えるまで次の照合を始めない（review R78）。
+    // 印と数え上げは blocking task に所有ごと渡し、失敗を数えてから印を返す（review R78・ST59 R12・R21）。
+    // 呼び出し元の future が await の途中で捨てられても、task は最後まで走り、数えた後で印を放す。
+    // 照合の panic も task の中で失敗に数える（R19）。
     let secrets = secrets.clone();
-    let accepted = tokio::task::spawn_blocking(move || secrets.accepts(&given))
-        .await
-        .unwrap_or(false);
-    if !accepted {
-        app.login.limiter.record_failure();
+    let limiter = app.login.limiter.clone();
+    let joined = tokio::task::spawn_blocking(move || {
+        let accepted =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| secrets.accepts(&given)))
+                .unwrap_or(false);
+        if !accepted {
+            limiter.record_failure();
+        }
+        (accepted, permit)
+    })
+    .await;
+    match joined {
+        Ok((true, permit)) => (PasswordCheck::Match, Some(permit)),
+        Ok((false, permit)) => (PasswordCheck::Mismatch, Some(permit)),
+        // task が走らずに取り消された（ランタイムの終わり）。照合していないので失敗に数える
+        Err(_) => {
+            app.login.limiter.record_failure();
+            (PasswordCheck::Mismatch, None)
+        }
     }
-    if accepted {
-        (PasswordCheck::Match, permit)
-    } else {
-        (PasswordCheck::Mismatch, permit)
-    }
+}
+
+/// 試験が数え上げの数を読む口（R21: 照合の future を捨てても、印が放される前に数えたことを確かめる）。
+#[cfg(test)]
+pub(crate) fn recorded_failures_for_test(app: &App) -> usize {
+    let mut q = app
+        .login
+        .limiter
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    LoginLimiter::recent(&mut q, Instant::now())
 }
 
 /// ログイン。**画面の合言葉そのものを資格情報として要求する**（`authorize()` は通さない）。

@@ -48,3 +48,18 @@
 - 現在の木: `cargo test -p ashiato-server st59_swap_login_cookie_uses_the_checked_tag_and_is_revoked_after_swap` rc=0（1 passed）
 - 変異（web_session.rs:1535 `.bind(secrets.tag())` → `.bind(app.secrets_snapshot().tag().to_vec())`）: 同じ試験が rc=101、`st59_tests.rs:1372` で `assertion left == right failed  left: 200 right: 401`。変異は戻した（`git checkout`）
 - `cargo test -p ashiato-server st59_` rc=0（38 passed）
+
+## settle（re-review 3 の後）: R12・R21
+
+### 何を変えたか
+- `crates/server/src/web_session.rs` の `check_with_permit_using_secrets`: 印（`LoginCheckPermit`）と `Arc<LoginLimiter>` を `spawn_blocking` の closure に所有ごと渡し直した。closure の中で照合し（`catch_unwind` で照合の panic も失敗に数える。R19）、失敗なら `record_failure()` してから印を返す。呼び出し元の future が await の途中で捨てられても、task は最後まで走り、数えた後で印を放す（review R78 の保証を戻した）。
+- 返す印は `Option<LoginCheckPermit>`。照合が通ったときは呼び出し元が差し替えの終わりまで持つ（R14 の形は保つ）。`JoinError`（task が走らずにランタイムの終わりで取り消された）のときは外側で `record_failure()` し `(Mismatch, None)`。
+- 試験の口 `recorded_failures_for_test(app)`（`#[cfg(test)]`）を足した。
+
+### 試験
+- 新しい試験 `web_session_tests::ch15::st59_dropped_check_counts_failure_before_releasing_permit`: 印を取って `check_with_permit` を 1 回 poll（blocking の照合が始まる）→ future を捨てる → 次の印を取れた時点で失敗が 1 件数えられていることを確かめる。
+- 変異: 印を外側の future に置く旧い形（re-review 3 が指した 1447 行の形）に戻すと、この試験は `left: 0 right: 1` で落ちた（`.superpowers/sdd/logs/*-mut.log`）。戻して通る。
+- `cargo test -p ashiato-server st59_dropped_check`: 1 passed（`-- --list` 相当で 1 本あることをログで確認）。
+- `cargo test -p ashiato-server st59_`: 39 passed。`ch15`: 9 passed。`web_session`: 37 passed。
+- `cargo test -p ashiato-server`（全体）: 2035 passed・1 failed。落ちたのは `ch15_verifier_cancelled_requests_still_leave_a_row`（5 秒の待ちの切れ。load average 28 の下）。単独で 3 回走らせて 3 回とも ok。同じ試験は今日 08:43（この変更の前）のログ `20261122-084339-web-session.log` でも落ちており、既存の負荷による揺れ。
+- `cargo fmt -p ashiato-server` を当てた。`cargo clippy -p ashiato-server --all-targets -- -D warnings` は `request_secrets`（lib.rs:1000）と `check_given_password_with_secrets`（web_session.rs:1414）の dead_code で落ちる。どちらもこの回の diff が触れていない関数で、この回の処置の範囲外（報告だけ）。

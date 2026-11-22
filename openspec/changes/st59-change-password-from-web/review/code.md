@@ -309,3 +309,4 @@
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:1447（re-review 3 の New Breakage。Important）
 - kind: technical
+- 処置: fixed D1
