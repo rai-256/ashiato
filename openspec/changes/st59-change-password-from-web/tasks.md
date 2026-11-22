@@ -44,7 +44,7 @@
 
 ## Task 2: 設定のファイルへの書き戻し（D2・D3）
 
-- [ ] 2.1 `crates/server/src/service.rs` に、`ASHIATO_SETTINGS_PATH` の `server.json` を読み直し、1 つの鍵（`WEB_PASSWORD_VERIFIER` か `API_TOKEN`）だけを置き換えて、同じフォルダの `server.json.writing` に書いて `sync_all` し、`server.json` へ名前を付け替える関数を足す。
+- [x] 2.1 `crates/server/src/service.rs` に、`ASHIATO_SETTINGS_PATH` の `server.json` を読み直し、1 つの鍵（`WEB_PASSWORD_VERIFIER` か `API_TOKEN`）だけを置き換えて、同じフォルダの `server.json.writing` に書いて `sync_all` し、`server.json` へ名前を付け替える関数を足す。
   読めない・JSON でない・書けない・付け替えられないときは型の付いた誤りを返し、`server.json` を変えない。値は誤りにもログにも載せない
   試験（`crates/server/src/st59_tests.rs`。DB を使わない）: 置き換えた 1 つの鍵のほかは鍵も値も同じ・書いたファイルを `load_settings` で読める・`server.json.writing` の名前でフォルダを先に置いて書けなくすると（読みだけの権限は root で効かないので使わない）誤りで `server.json` が前の中身のまま・
   JSON でない `server.json` には書かない・残った `server.json.writing` があっても上書きして終わる
