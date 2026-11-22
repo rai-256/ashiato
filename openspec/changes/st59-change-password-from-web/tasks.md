@@ -114,10 +114,10 @@
 
 ## Task 8: 手順書と申し送り
 
-- [ ] 8.1 `docs/network.md` §4（電話を落としたとき）を書き直す: 配る形では、画面の設定で「画面の合言葉を変える」と「収集アプリの値を変える」の両方を押し、新しい設定の文字列を全部の収集アプリに貼り直す。開発の形は今どおり `.env` を書き換えて起動し直す。衛星の資格情報は変わらないことを書く。
+- [x] 8.1 `docs/network.md` §4（電話を落としたとき）を書き直す: 配る形では、画面の設定で「画面の合言葉を変える」と「収集アプリの値を変える」の両方を押し、新しい設定の文字列を全部の収集アプリに貼り直す。開発の形は今どおり `.env` を書き換えて起動し直す。衛星の資格情報は変わらないことを書く。
   `docs/install.md` の「合言葉を忘れたら」の近くに、覚えているうちは画面の設定から変えられること・忘れたら今どおり `password` を書く。`docs/collector-setup.md` の「資格情報を変えた後の設定し直し」に、画面で値を変えた後の手順を足す
   検証: `bash -c 'grep -q "画面の合言葉を変える" docs/network.md && grep -q "収集アプリの値を変える" docs/network.md && grep -q "画面の合言葉を変える" docs/install.md && grep -q "収集アプリの値を変える" docs/collector-setup.md'` rc=0
-- [ ] 8.2 申し送り: `docs/handoff/ST60.md` に 1 節足す（Linux の配る形でも、設定のファイルから起こす形にすれば画面から変えられる。`ASHIATO_SERVICE_MODE` と `ASHIATO_SETTINGS_PATH` の判定・`tools/settings-server.sh` を口に替える反転条件（ST59 D8（仮））。
+- [x] 8.2 申し送り: `docs/handoff/ST60.md` に 1 節足す（Linux の配る形でも、設定のファイルから起こす形にすれば画面から変えられる。`ASHIATO_SERVICE_MODE` と `ASHIATO_SETTINGS_PATH` の判定・`tools/settings-server.sh` を口に替える反転条件（ST59 D8（仮））。
   あわせて、正典 `distribution` の「秘密はインストーラが自動で作り…人に見せない」が、共有の値を本人の画面に出す口（ST56 の `/collector-setup`・ST59 の `/collector-token`）と食い違っていること、`distribution` を次に MODIFIED する Story が「共有の値は、ログインして合言葉を入れ直した本人の画面にだけ出す」例外を足すことを書く（review/spec.md R13）
   検証: `bash -c 'grep -q "st59-change-password-from-web" docs/handoff/ST60.md && grep -q "settings-server.sh" docs/handoff/ST60.md && grep -q "collector-token" docs/handoff/ST60.md'` rc=0
 
