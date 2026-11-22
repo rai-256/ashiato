@@ -29,16 +29,16 @@
 
 ## Task 1: 照らす値・印の材料・共有の値を、差し替えられる 1 つの組にする（D1）
 
-- [ ] 1.1 `web_session::WebLogin` と `App.token` を、照らす値（開発の形では元の合言葉）・印の材料 `tag`・共有の値の 3 つを持つ 1 つの組にまとめ、差し替えられる共有の置き場に置く。期限・失敗の遅れ・`limiter` は組の外に置く（差し替えで数え直さない）。
+- [x] 1.1 `web_session::WebLogin` と `App.token` を、照らす値（開発の形では元の合言葉）・印の材料 `tag`・共有の値の 3 つを持つ 1 つの組にまとめ、差し替えられる共有の置き場に置く。期限・失敗の遅れ・`limiter` は組の外に置く（差し替えで数え直さない）。
   1 つの求めは組を最初に 1 回だけ取る: `decide` の共有の値の照合・`session_valid` の `tag`・ログインの口の照合と印の行の `secret_tag`・`collector_setup_checked` が返す値。
   組を差し替える関数（Task 3・4 が使う）と、試験が照合の途中で差し替えを割り込ませる口（`#[cfg(test)]`。既存の `hold_login_check_for_test` と同じ形）を足す。振る舞いは変えない
   試験（`crates/server/src/st59_tests.rs`）: `変えている最中に前の合言葉で照合が通ったログインの印は、変えた後は使えない`（前の合言葉のログインの照合が通った後・印の行を書く前に組を差し替え、ログインが受け取った印で記録の読み出しが 401）・
   差し替えた後は新しい共有の値だけが `ApiToken` になる・差し替えても `limiter` の数えが残る
   寿命の出し直し（`refresh_cookie`）は、応答を返す時点の組の `tag` に合う印にだけ付ける（D1）。試験: `変える前に始まった求めの応答は、変えた画面の新しい印を上書きしない`（読み出しの途中で組を差し替え、その応答に `Set-Cookie` が無い）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st59_swap_ && test "$(cargo test -p ashiato-server st59_swap_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'` rc=0
-- [ ] 1.2 既存の試験が変わらず通る（ログイン・ST44 の印の鍵・ST55 の照らす形・ST56 の「収集アプリの設定」・CH15）。本数は 2026-11-11 の数（`web_session` 16・`st55_` 47・`st56_` 7・`ch15_` 8）を下限にする
+- [x] 1.2 既存の試験が変わらず通る（ログイン・ST44 の印の鍵・ST55 の照らす形・ST56 の「収集アプリの設定」・CH15）。本数は 2026-11-11 の数（`web_session` 16・`st55_` 47・`st56_` 7・`ch15_` 8）を下限にする
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; for p in web_session:16 st55_:47 st56_:7 ch15_:8; do n=${p%%:*}; m=${p##*:}; scripts/quiet-run ct -- cargo test -p ashiato-server "$n" || exit 1; test "$(cargo test -p ashiato-server "$n" -- --list 2>/dev/null | grep -c ": test$")" -ge "$m" || exit 1; done'` rc=0
-- [ ] 1.3 完了の判定「古い値の収集アプリは送れなくなり、記録を捨てずに設定し直しを促される」の収集アプリの側（ST56 が作り、ST59 は変えない）を走らせ、premises 4 行目を確かさ 4 に上げる（premises.md の 4 行目の確かさと出所を書き直す）
+- [x] 1.3 完了の判定「古い値の収集アプリは送れなくなり、記録を捨てずに設定し直しを促される」の収集アプリの側（ST56 が作り、ST59 は変えない）を走らせ、premises 4 行目を確かさ 4 に上げる（premises.md の 4 行目の確かさと出所を書き直す）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-collector-windows st56_runtime_unauthorized_keeps_pending_records && test "$(cargo test -p ashiato-collector-windows st56_runtime_unauthorized_keeps_pending_records -- --list 2>/dev/null | grep -c ": test$")" -ge 1'` rc=0 /
   `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '*St56SetupNotifierTest*'` rc=0
 
