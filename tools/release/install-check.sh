@@ -72,6 +72,9 @@ scenario_names=(
   '決め直した合言葉でログインでき、前の合言葉ではできない'
   '決め直すと、それまでのログインは切れる'
   '決め直しても、ほかの秘密と記録は変わらない'
+  '変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない'
+  '変えた後に起動し直しても、新しい収集アプリの値で動く'
+  '画面で変えた後も、インストーラで決め直せる'
   '管理者に上がらなければ決め直せない'
   'ダウンロードに置いた Takeout が、インストールした形で取り込まれる'
   '取り込み待ちは本人のプロファイルの直下にでき、サーバが読み書きできる'
@@ -364,6 +367,7 @@ OWNER_SETTINGS="$STATE/settings/owner.json"
 URL='http://127.0.0.1:18700'
 PW1='install-check-password-0123'
 PW2='install-check-reset-0123456'
+PW3='install-check-web-change-0123'
 # 書き出しに渡す合言葉。観測で伏せる値にも同じ変数を使う（写しを持たない）
 EXPORT_PASSWORD='install-check-export-0123'
 OTHER_USER='ashiato-ci-other'
@@ -399,7 +403,7 @@ secret_values() {
 # 設定のファイルが無ければ rc=0、あるのに読めない・形が読めないときだけ rc≠0（部品は記録とファイルの末尾を出さない）。
 # 設定の秘密は部品の読み手（ng_settings_secrets。キーの一覧も部品が持つ）で読む
 ng_secret_values() {
-  printf '%s\n' "$PW1" "$PW2" "$EXPORT_PASSWORD" "${OTHER_PASSWORD:-}" "${ADMIN_B_PASSWORD:-}" "${ADMIN_NONASCII_PASSWORD:-}"
+  printf '%s\n' "$PW1" "$PW2" "$PW3" "$EXPORT_PASSWORD" "${OTHER_PASSWORD:-}" "${ADMIN_B_PASSWORD:-}" "${ADMIN_NONASCII_PASSWORD:-}"
   ng_settings_secrets "$SETTINGS" "$OWNER_SETTINGS"
 }
 # 判定が落ちたときの観測の入力（design D3）。命令の記録と伏せる値は $WORK の中だけに置く
@@ -1118,6 +1122,55 @@ check_release_zip() {
   [[ "$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("WEB_PASSWORD_VERIFIER"); print(json.dumps(s, sort_keys=True))' "$SETTINGS")" == "$before_other" ]] ||
     die '決め直しでほかの設定が変わった'
   [[ "$(app_sql 'select count(*) from core.source')" == "$records" ]] || die '決め直しで記録が変わった'
+
+  # ST59 の画面からの 2 つの変更を、インストールした形で続けて確かめる。
+  # 値そのものは出さず、設定の鍵・鍵以外・ACL の差だけを判定する。
+  local changed_api changed_web before_changed_other before_changed_acl web_change_code token_change_code
+  changed_api="$(setting API_TOKEN)"
+  changed_web="$(setting WEB_PASSWORD_VERIFIER)"
+  before_changed_other="$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("API_TOKEN",None); s.pop("WEB_PASSWORD_VERIFIER",None); print(json.dumps(s, sort_keys=True))' "$SETTINGS")"
+  before_changed_acl="$(acl_of "$STATE/settings")"
+  local changed_cookie
+  changed_cookie="$(login "$PW2")"
+  [[ -n "$changed_cookie" ]] || die '画面から変える前にログインできない'
+
+  echo '== Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない'
+  web_change_code="$(curl -s -o "$WORK/web-password-change.out" -w '%{http_code}' -X POST \
+    -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
+    --data "{\"password\":\"$PW2\",\"new_password\":\"$PW3\",\"confirmation\":\"$PW3\"}" "$URL/web-password" || true)"
+  [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
+  [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '画面の合言葉の鍵が変わらない'
+  [[ "$(setting API_TOKEN)" == "$changed_api" ]] || die '画面の合言葉の変更で収集アプリの値が変わった'
+  [[ "$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("API_TOKEN",None); s.pop("WEB_PASSWORD_VERIFIER",None); print(json.dumps(s, sort_keys=True))' "$SETTINGS")" == "$before_changed_other" ]] ||
+    die '画面の合言葉の変更でほかの設定が変わった'
+  [[ "$(acl_of "$STATE/settings")" == "$before_changed_acl" ]] || die '画面の合言葉の変更で ACL が変わった'
+
+  echo '== Scenario: 変えた後に起動し直しても、新しい収集アプリの値で動く'
+  token_change_code="$(curl -s -o "$WORK/collector-token-change.json" -w '%{http_code}' -X POST \
+    -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
+    --data "{\"password\":\"$PW3\"}" "$URL/collector-token" || true)"
+  [[ "$token_change_code" == 200 ]] || die '収集アプリの値の変更に答えない'
+  local changed_token
+  changed_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["token"])' "$WORK/collector-token-change.json")"
+  [[ "$changed_token" != "$changed_api" && "$(setting API_TOKEN)" == "$changed_token" ]] || die '収集アプリの値の鍵が変わらない'
+  [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '収集アプリの値の変更で画面の合言葉の鍵が戻った'
+  [[ "$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("API_TOKEN",None); s.pop("WEB_PASSWORD_VERIFIER",None); print(json.dumps(s, sort_keys=True))' "$SETTINGS")" == "$before_changed_other" ]] ||
+    die '収集アプリの値の変更でほかの設定が変わった'
+  [[ "$(acl_of "$STATE/settings")" == "$before_changed_acl" ]] || die '収集アプリの値の変更で ACL が変わった'
+
+  stop_service ashiato-server
+  start_service ashiato-server
+  wait_healthz 150
+  [[ -n "$(login "$PW3")" && -z "$(login "$PW2")" ]] || die '起動し直した後の画面の合言葉が切り替わらない'
+  local ingest_body='[{"id":"59000000-0000-4000-8000-000000000007","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location","external_id":null,"device_id":"st59-install-check","origin":"collected","event_time":"2026-11-22T00:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{\\"st59\\":7}","payload":{"st59":7}}]'
+  [[ "$(http_code -X POST -H "Authorization: Bearer $changed_api" -H 'Content-Type: application/json' --data-binary "$ingest_body" "$URL/ingest")" == 401 ]] || die '起動し直した後も前の収集アプリの値が通る'
+  [[ "$(http_code -X POST -H "Authorization: Bearer $changed_token" -H 'Content-Type: application/json' --data-binary "$ingest_body" "$URL/ingest")" == 200 ]] || die '起動し直した後に新しい収集アプリの値で記録を送れない'
+
+  echo '== Scenario: 画面で変えた後も、インストーラで決め直せる'
+  printf '%s\n%s\n' "$PW3" "$PW2" | "$SETUP" password >"$WORK/password-reset-after-web.out" 2>&1 || die '画面で変えた後にインストーラで決め直せない'
+  wait_healthz 150
+  [[ -n "$(login "$PW2")" && -z "$(login "$PW3")" ]] || die 'インストーラで決め直した合言葉が使えない'
+  [[ "$(setting API_TOKEN)" == "$changed_token" ]] || die 'インストーラの決め直しで収集アプリの値が変わった'
 
   # 窓の節（design D6）。窓の試験が化けを見分けられることを先に確かめる（陰性の対照）。
   # CI の install-windows は、インストールの前に独立の step（--probe-console。tasks 3.3）でも同じ対照を走らせる。
