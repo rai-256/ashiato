@@ -82,7 +82,7 @@
 
 ## Task 5: 設定のファイルを指してサーバを起こす台本（D8（仮））
 
-- [ ] 5.1 `tools/settings-server.sh` を足す: `up <設定のファイル>` は鍵を環境へ入れ、`WEB_PASSWORD` を環境から外し（D8。照らす形は `raw_password_present` で断る）、`ASHIATO_SERVICE_MODE=1`・`ASHIATO_SETTINGS_PATH` を付けて `target/release/ashiato-server`（無ければ `tools/stack.sh` と同じく画面を組み込んで build）を `tools/ports.sh` の `ASHIATO_HTTP_PORT + 1` で起こし、`/healthz` を待つ。
+- [x] 5.1 `tools/settings-server.sh` を足す: `up <設定のファイル>` は鍵を環境へ入れ、`WEB_PASSWORD` を環境から外し（D8。照らす形は `raw_password_present` で断る）、`ASHIATO_SERVICE_MODE=1`・`ASHIATO_SETTINGS_PATH` を付けて `target/release/ashiato-server`（無ければ `tools/stack.sh` と同じく画面を組み込んで build）を `tools/ports.sh` の `ASHIATO_HTTP_PORT + 1` で起こし、`/healthz` を待つ。
   `down` は止める。`make <置き場>` は試験用の設定のファイル（`.env` の DB の URL・偽の `API_TOKEN` と `WEB_SESSION_KEY`・試験用の固定の合言葉の照らす値・`BIND`）を `<置き場>/settings/server.json` に作る。
   照らす値の元の合言葉と偽の値は台本に持ち、標準出力に出さない（e2e は台本が書いた別のファイルから読む）。`--self-test` は DB を使わずに、`make` の JSON の鍵の一覧と、`up` が組む環境（値でなく名前。`WEB_PASSWORD` が無いこと）を確かめる。`tools/check-secrets.sh` が拾うなら許可の表に足す
   検証: `tools/settings-server.sh --self-test` rc=0 / `tools/check-secrets.sh` rc=0
