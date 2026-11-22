@@ -89,7 +89,7 @@
 
 ## Task 6: 画面の 2 つの節と e2e（D11（仮））
 
-- [ ] 6.1 `web/src/WebPasswordChangePanel.tsx`・`web/src/CollectorTokenChangePanel.tsx` を足し、`SettingsView.tsx` の「収集アプリの設定」のすぐ下に、「携帯を落としたときは両方を変える」の 1 行と 2 つの節を置く。文言は `messages.ts`（D11 の文）。
+- [x] 6.1 `web/src/WebPasswordChangePanel.tsx`・`web/src/CollectorTokenChangePanel.tsx` を足し、`SettingsView.tsx` の「収集アプリの設定」のすぐ下に、「携帯を落としたときは両方を変える」の 1 行と 2 つの節を置く。文言は `messages.ts`（D11 の文）。
   収集アプリの値の節は、成功したら `buildSetupString(window.location.origin + "/api", token)` の設定の文字列・コピーのボタン・貼り直しの案内を出し、別の画面へ移る・読み込み直すと消す（ST56 の部品と同じ持ち方）。合言葉の節は、成功したら入力欄を空にして「合言葉を変えました。ほかの端末のログインは切れました」を出す
   e2e（`web/e2e/st59-change-secrets.spec.ts`、本物のブラウザ。印は `// Scenario: …`。Task 5 の台本で試験ごとに設定のファイルを作ってサーバを起こし、その組み込みの画面を開く。最後に止める）:
   `今の合言葉を入れ直すと画面の合言葉が変わり、前の合言葉ではログインできない`・`今の合言葉が違えば、画面の合言葉は変わらない`・`合言葉を変えると、ほかのブラウザのログインは切れ、変えた画面はログインしたまま`（2 つの browser context）・
@@ -98,7 +98,7 @@
   `設定のファイルに書けないと、画面は合言葉が変わっていないと出す`（台本で作った設定のファイルの隣に `server.json.writing` の名前でフォルダを置いてから押す）。
   `開発の形のサーバでは、画面から変えられないと出る` は共有の stack のサーバ（`tools/stack.sh` の開発の形）で、2 つの節を押して文が出ることと、その後も `.env` の合言葉でログインでき `.env` の `API_TOKEN` で記録を送ると取り込まれることを見る
   検証: `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e -- st59-change-secrets.spec.ts'` rc=0 / `bash -c 'cd web && npx tsc --noEmit && npx vitest run && npm run lint'` rc=0
-- [ ] 6.2 既存の e2e が変わらず通る（共有の stack のサーバの合言葉と値を変えていないこと）
+- [x] 6.2 既存の e2e が変わらず通る（共有の stack のサーバの合言葉と値を変えていないこと）
   検証: `scripts/quiet-run e2e -- bash -c 'cd web && npm run test:e2e'` rc=0
 
 ## Task 7: Windows の CI の通し（D5）
