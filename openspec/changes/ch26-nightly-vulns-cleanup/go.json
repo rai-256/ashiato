@@ -475,6 +475,26 @@
        "D8"
       ]
      }
+    },
+    {
+     "id": "ci.8",
+     "kind": "normal",
+     "text": "判定と確かめを台本に置くこと（ci.4）・使い回しの鍵に前の lock を入れること（ci.6）・動いている PostgreSQL の版を見ないこと（ci.5）の 3 つは、第 2 回の深掘りで本人が今の形のまま決めた（仮でない）。3 つとも、前の lock の決め方（D7。まだ仮）の上に立つ。D7 が覆れば 3 つも見直す。",
+     "refs": {
+      "requirements": [
+       "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す",
+       "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
+      ],
+      "decisions": [
+       "Q1",
+       "Q2",
+       "Q3",
+       "D7",
+       "D8",
+       "D9",
+       "D10"
+      ]
+     }
     }
    ]
   },
@@ -580,23 +600,12 @@
  ],
  "since_last": [
   {
-   "text": "第 1 回の合意で本人が R2 の答えを A から C に変えた。Windows の配布物どうしの 17.6-1 → 17.12-1 の更新と戻しは、本人の PC でなく、lock を変える PR の CI が Windows で通す（D5 を書き直し、新しい Requirement と 12 の Scenario を足した）。",
+   "text": "第 2 回の深掘り（Q1〜Q3）で、本人が D8（判定と版の確かめを台本に置く）・D9（使い回しの鍵に前の lock を入れる）・D10（動いている PostgreSQL の版は見ない）を、今の形のまま決めた。仮の決定から本人の決定に変わっただけで、仕様の中身は変わらない。3 つの土台の D7 はまだ仮。",
    "refs": {
-    "requirements": [
-     "同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す"
-    ],
     "decisions": [
-     "D5"
-    ]
-   }
-  },
-  {
-   "text": "CI の決め方を仮の決定に足した: 変えたかは PR の差分で決め、前の lock は分岐点の lock、取れない・版が違えば落とす（D7（仮））／判定と版の確かめは台本に置き、保存の前と使い回しのときに確かめる（D8（仮））／使い回しの鍵に前の lock を入れる（D9（仮）。正典の鍵の Requirement を書き換える）／動いている PostgreSQL の版は見ない（D10（仮））。",
-   "refs": {
-    "requirements": [
-     "PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる"
-    ],
-    "decisions": [
+     "Q1",
+     "Q2",
+     "Q3",
      "D7",
      "D8",
      "D9",
@@ -605,20 +614,20 @@
    }
   },
   {
-   "text": "本人の PC で更新して記録が見えるかを答える確認（前の tasks 5.1）と「人間の確認待ち」の節を削った。完了の判定 6 を置き換え、8（この PR の CI の Windows の更新と戻しが緑）を足した。",
+   "text": "要点に ci.8（3 つが本人の決定になったこと）を足し、受け入れ条件の仮の決定の一覧を D2・D3・D7 にした。IMP-05 の選択肢の文「D10（仮）のまま受け入れる」は、合意したときの文のまま残している（いまは D10 は本人の決定）。",
    "refs": {
     "decisions": [
-     "D5"
+     "Q3",
+     "D2",
+     "D3",
+     "D7",
+     "D10"
     ]
    }
   },
   {
-   "text": "前回の未解決のうち、design と proposal に残っていた古い文（D5 が答えを待つ）と、Windows の更新を確かめる所が無い件（IMP-02）は、上の直しで閉じた。",
-   "refs": {
-    "decisions": [
-     "D5"
-    ]
-   }
+   "text": "main の変化に合わせて、読んだ実物の場所を直した（ci.yml の行番号・archive へ移った CH24 の proposal）。走り始めた ST59 との重なりを検討した範囲に足した。仕様は変えていない。",
+   "refs": {}
   }
  ],
  "delegated": [
@@ -770,9 +779,10 @@
    },
    "exceptions": [
     {
-     "text": "CI は更新の後に動いている PostgreSQL の版は見ない。入れ替え損ねれば、直したはずの脆弱性がその PC に残っても気づけない（D10（仮）・IMP-05）",
+     "text": "CI は更新の後に動いている PostgreSQL の版は見ない。入れ替え損ねれば、直したはずの脆弱性がその PC に残っても気づけない（D10。第 2 回 Q3 で本人が決めた。IMP-05）",
      "refs": {
       "decisions": [
+       "Q3",
        "D10"
       ]
      }
@@ -1299,7 +1309,7 @@
    {
     "id": "E7",
     "source": "ops",
-    "loc": ".github/workflows/ci.yml:544",
+    "loc": ".github/workflows/ci.yml:573",
     "quote": "更新の試験の zip は、同じ commit から版番号だけを替えて組む"
    },
    {
@@ -1317,7 +1327,7 @@
    {
     "id": "E10",
     "source": "story",
-    "loc": "openspec/changes/ch24-zip-upgrade/proposal.md:8",
+    "loc": "openspec/changes/archive/2026-11-21-ch24-zip-upgrade/proposal.md:8",
     "quote": "例外の表（`osv-scanner.toml`）は zip 2.6.1 の勧告を「上げる予定: 互換範囲外の修正版待ち」の理由で外している。"
    },
    {
@@ -1833,15 +1843,12 @@
     "refs": {}
    },
    {
-    "text": "確認バッチで、夜間の検査が緑で #334〜#337 を閉じたかに答え、仮の決定（D2・D3・D7〜D10）の一覧を見ている",
+    "text": "確認バッチで、夜間の検査が緑で #334〜#337 を閉じたかに答え、仮の決定（D2・D3・D7）の一覧を見ている",
     "refs": {
      "decisions": [
       "D2",
       "D3",
-      "D7",
-      "D8",
-      "D9",
-      "D10"
+      "D7"
      ]
     }
    }
@@ -1967,6 +1974,10 @@
     {
      "text": "携帯の収集アプリと画面",
      "why": "触る依存・lock のどれも使わない"
+    },
+    {
+     "text": "走っている st59-change-password-from-web（crates/server/src/lib.rs・migrations/ORDER・tools/release/install-check.sh などを触る）",
+     "why": "CH26 はこれらのファイルを変えない（proposal の「変えないもの」）。名前の一致は、CH26 が「触れない」と挙げた範囲に当たったもの。install-check.sh が変われば使い回しの鍵が変わって組み直すだけで、前の lock の判定と入れ替えには関わらない（組み合わせの実際の CI は確かめていない）"
     }
    ]
   }
