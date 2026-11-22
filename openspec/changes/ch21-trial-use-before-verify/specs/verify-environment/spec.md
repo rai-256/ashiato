@@ -482,14 +482,14 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> pc`）では、San
 
 WHEN 差し込み口が携帯の相手を立てるとき（`env-hook.sh up <repo> <state> android`）、
 THE SYSTEM SHALL `/dev/kvm` を読み書きで開けない・エミュレータか SDK か JDK が無い・専用の AVD（`ashiato-tsukau-api35`）のエミュレータがもう動いている（エミュレータのプロセスの引数で見る。ほかの端末に `adb` で問わない）、のどれかなら、何も起こさずに `UNAVAILABLE=` を置かせる（待たない）。
-THE SYSTEM SHALL そうでなければ、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、資格情報（`ashiato.apiToken`・`ashiato.userId`）をその回の環境のものにした debug の APK を組ませる。
+THE SYSTEM SHALL そうでなければ、その回の専用の環境を立てる前に、この PC の網を持たない箱（利用者と網の名前空間を分けたもの。中の網は loopback だけ）を作り、その中に loopback のほかの網が無いことを確かめさせる。箱を作れない・loopback のほかの網がある・箱の外のサーバへ橋を渡す道具が無い、のどれかなら、その回の環境も APK も作らず、何も起こさずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL 箱ができたら、画面の相手と同じ形で `<state>/tree` にその回の専用の環境（`ashiato-tsukau-` で始まる compose project・空いている port・乱数の合言葉・偽データ）を立て、その木で、接続先を端末の中の `http://127.0.0.1:18787`、資格情報（`ashiato.apiToken`・`ashiato.userId`）をその回の環境のものにした debug の APK を組ませる。
 接続先と資格情報は組み立ての引数（`-P`）で渡し、`~/.gradle/gradle.properties` の値に負けないようにする。`--repo` の作業ツリーの `.env`・`~/.gradle/gradle.properties` の接続先と資格情報・配る APK の署名の鍵は使わない。
-THE SYSTEM SHALL エミュレータを起こす前に、この PC の網を持たない箱（利用者と網の名前空間を分けたもの。中の網は loopback だけ）を作り、その中に loopback のほかの網が無いことを確かめさせる。箱を作れない・loopback のほかの網があれば、何も起こさずに `UNAVAILABLE=` を置かせる。
-THE SYSTEM SHALL 専用の AVD のエミュレータと、それを扱う adb のサーバを、起動の時からその箱の中で動かし、箱の外のその回のサーバへは `<state>` に置いた橋（Unix のソケット）でだけ届かせる。エミュレータは、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、APK を入れて起こしてから、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた、のどちらかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
+THE SYSTEM SHALL 専用の AVD のエミュレータと、それを扱う adb のサーバを、起動の時からその箱の中で動かし、箱の外のその回のサーバへは `<state>` に置いた橋（Unix のソケット）でだけ届かせる。エミュレータは、空いている port で、画面を出さず、前のデータを消して 1 つ起こし、その serial を `<state>` に残させる。起動を待ってから、端末の中から、エミュレータがホストの loopback に付ける別名の宛先のその回のサーバの port に届くことを見て（対照。外へは出ない）、端末の網（Wi-Fi と携帯の回線）を切り、端末に既定のネットワークが無いこと（`dumpsys connectivity` の「Active default network」が `none`。外へは問わない）と、同じ別名の宛先に届かないことを確かめ、`adb reverse` で端末の中の 18787 をその回のサーバの API の port へ渡し、端末の中から `http://127.0.0.1:18787` に問うてその回のサーバが応えることを見てから、APK を入れて起こし、案内を置いた `ready` を置かせる。切る前に届かなかった・切った後も届いた・渡した後の 18787 にサーバが応えない、のどれかなら、確かめられないとして APK を入れずに `UNAVAILABLE=` を置かせる。
 THE SYSTEM SHALL `adb` の操作を、箱の中の adb のサーバに対して、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。
-THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には、箱の中の adb のサーバに対して操作させ、`<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。
+THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には、箱の中の adb のサーバに対して操作させ（`<state>` に残した箱に入れなければ、`adb` を呼ばずに rc≠0 で終わらせ、この PC の adb のサーバへは落とさない）、`<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。
 案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）と、席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。
-THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、橋と箱を止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。
+THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、橋と箱を止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後も `<state>` に残したエミュレータのプロセスか、専用の AVD のエミュレータのプロセスが残っていれば rc≠0 で終わらせる。
 導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31・D25・D26（仮）。起動の時から網を持たせない箱は Q-G2 の本人の答え（起動の時から網を持たせない道を確かめて使う。道が無ければ携帯の相手を回さず本人に返す。design D31・D35（仮））。review/spec.md R20〜R27。`$ANDROID_HOME` から道具を見つけるのと案内の「`phone.sh` だけ」は IMP-13 の本人の答え（第 2 回の合意。design D32）。
 
 #### Scenario: KVM を開けなければ、何も起こさずに断る
@@ -503,19 +503,39 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **THEN** 3 通りとも `<state>/ready` に `UNAVAILABLE=` の行があり、起動の台本は呼ばれない
 
 #### Scenario: 網を持たない箱を作れなければ、何も起こさずに断る
-- **GIVEN** 箱を作る命令（`unshare`）が rc≠0 で終わる自己試験と、受けた引数を記録する偽の `emulator`・`adb`・起動の台本
+- **GIVEN** 箱を作る命令（`unshare`）が rc≠0 で終わる自己試験と、受けた引数を記録する偽の `emulator`・`adb`・`docker`・`gradlew`・起動の台本
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と起動の台本は呼ばれない
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と起動の台本は呼ばれず、偽の `docker` の `compose up` と偽の `gradlew` も呼ばれない
 
 #### Scenario: 箱に loopback のほかの網があれば、エミュレータを起こさずに断る
-- **GIVEN** 箱の中の網の一覧（`ip -o link`）に loopback と `eth0` を返す自己試験と、受けた引数を記録する偽の `emulator`・`adb`
+- **GIVEN** 箱の中の網の一覧（`ip -o link`）に loopback と `eth0` を返す自己試験と、受けた引数を記録する偽の `emulator`・`adb`・`docker`・`gradlew`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
-- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれない
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` は呼ばれず、偽の `docker` の `compose up` と偽の `gradlew` も呼ばれない
+
+#### Scenario: 橋を渡す道具が無ければ、何も起こさずに断る
+- **GIVEN** 橋を渡す道具（`socat`）を無い場所に向けた自己試験と、受けた引数を記録する偽の `emulator`・`docker`・`gradlew`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、偽の `emulator` と、偽の `docker` の `compose up` と偽の `gradlew` は呼ばれない
+
+#### Scenario: 箱の外のサーバへの道は、<state> のソケットの橋だけである
+- **GIVEN** 受けた引数を記録する偽の `socat` と、網の確かめとサーバの問いに試験が決めた答えを返す偽の `adb`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** 偽の `socat` は 2 回呼ばれ、どちらも片方の引数が `<state>` の下の `UNIX-` で始まり、箱の外の 1 回のもう片方の引数がその回のサーバの API の port を指す
+
+#### Scenario: reverse の後に端末の中の 18787 でサーバが応えなければ、APK を入れずに断る
+- **GIVEN** 切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届かない」、渡した後の `127.0.0.1:18787` への問いに「応えない」と答える偽の `adb` と偽の `emulator`
+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる
+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
 
 #### Scenario: エミュレータと adb は、網を持たない箱の中で動く
 - **GIVEN** 利用者と網の名前空間を分ける引数を受けたときだけ印の環境変数を付けて残りを走らせる偽の `unshare` と `nsenter`、受けた引数と印を記録する偽の `emulator`・`adb`
 - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` と `down` を走らせ、その間に `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
 - **THEN** 偽の `emulator` の呼び出しと、偽の `adb` の呼び出しのどれもが印を持つ
+
+#### Scenario: 箱が無いか止まっていれば、phone.sh は adb を呼ばずに断る
+- **GIVEN** `<state>` に serial `emulator-5600` が残り、箱の PID が残っていない（2 通り目は、残した PID のプロセスが生きていない）自己試験と、受けた引数を記録する偽の `adb`
+- **WHEN** それぞれで `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
+- **THEN** 2 通りとも rc≠0 で、偽の `adb` は呼ばれない
 
 #### Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る
 - **GIVEN** `-avd ashiato-tsukau-api35` を引数に持つエミュレータのプロセスを返す偽の `ps` と、受けた引数を記録する偽の `adb`・`emulator`
@@ -568,7 +588,7 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行があり、`install` は呼ばれない
 
 #### Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る
-- **GIVEN** `<state>` に serial `emulator-5600` が残り、偽の `$ANDROID_HOME` の `platform-tools` に置いた、`shell` で「hello」を返す偽の `adb` と、`adb` の置き場を持たない `PATH`
+- **GIVEN** `<state>` に serial `emulator-5600` と生きている箱の PID が残り、箱の印を付けて残りを走らせる偽の `nsenter` と、偽の `$ANDROID_HOME` の `platform-tools` に置いた、`shell` で「hello」を返す偽の `adb` と、`adb` の置き場を持たない `PATH`
 - **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
 - **THEN** 偽の `adb` は `-s emulator-5600 shell` で呼ばれ、`phone.sh` の標準出力は「hello」である
 
@@ -578,12 +598,12 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **THEN** `<state>/ready` に `UNAVAILABLE=` の行は無く、偽の `adb` に `install` の呼び出しがある
 
 #### Scenario: phone.sh は serial を引数で受けず、ほかの端末を名指さない
-- **GIVEN** `<state>` に serial `emulator-5600` が残り、受けた引数を記録する偽の `adb`
+- **GIVEN** `<state>` に serial `emulator-5600` と生きている箱の PID が残り、箱の印を付けて残りを走らせる偽の `nsenter` と、受けた引数を記録する偽の `adb`
 - **WHEN** `tools/tsukau/phone.sh -s emulator-5554 shell 'echo hello'` と、`ANDROID_SERIAL=emulator-5554 tools/tsukau/phone.sh shell 'echo hello'` と `tools/tsukau/phone.sh shot <置き場>` と `tools/tsukau/phone.sh ui` を走らせる
 - **THEN** `-s emulator-5554` から始めた呼び出しは rc≠0 で、偽の `adb` を呼ばず、ほかの 3 つの呼び出しで偽の `adb` が受けた呼び出しはどれも最初の 2 つの引数が `-s emulator-5600` である
 
 #### Scenario: 携帯の道具が見つからなければ、phone.sh は 1 行で断る
-- **GIVEN** `<state>` に serial `emulator-5600` が残り、`platform-tools` に `adb` を置かない偽の `$ANDROID_HOME`
+- **GIVEN** `<state>` に serial `emulator-5600` と生きている箱の PID が残り、偽の `nsenter` と、`platform-tools` に `adb` を置かない偽の `$ANDROID_HOME`
 - **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる
 - **THEN** rc≠0 で、出力に「携帯の道具が見つからない」がある
 
@@ -593,7 +613,7 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/phone.sh shell`・`tools/tsukau/phone.sh shot`・`tools/tsukau/phone.sh ui`・「`phone.sh` だけ」・`http://127.0.0.1:` で始まる画面の URL・「網は切って」・`.env`・「触らない」がある
 
 #### Scenario: 片付けは、端末のログを写してから自分のエミュレータを止める
-- **GIVEN** `<state>` に serial `emulator-5600` が残り、動いている端末として `emulator-5600` と `emulator-5554` を返す偽の `adb`
+- **GIVEN** `<state>` に serial `emulator-5600` とエミュレータの PID と生きている箱の PID が残り、箱の印を付けて残りを走らせる偽の `nsenter` と、動いている端末として `emulator-5600` と `emulator-5554` を返す偽の `adb`
 - **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
 - **THEN** `-s emulator-5600 logcat -d` が `-s emulator-5600 emu kill` より先に呼ばれ、`$TSUKAU_EVIDENCE/phone-logs/` に写したファイルがある
 
@@ -607,14 +627,19 @@ THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では�
 - **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
 - **THEN** `docker compose` の `down -v` は立てた回の project にだけ呼ばれ、`<state>/tree` は無い
 
+#### Scenario: 携帯の片付けは、橋と箱を持つプロセスを止め、ソケットを消す
+- **GIVEN** 上と同じ `<state>` と偽の `nsenter`・`adb`、`up` が起こした偽の `socat` の 2 つのプロセスと箱を持つプロセス
+- **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
+- **THEN** 偽の `socat` の 2 つのプロセスと箱を持つプロセスは生きておらず、`<state>` の下にソケットのファイルは無い
+
 #### Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる
-- **GIVEN** `emu kill` の後も `emulator-5600` を返す偽の `adb`
+- **GIVEN** 上と同じ `<state>` と偽の `nsenter`、`emu kill` の後も `<state>` に残したエミュレータの PID のプロセスが生きている自己試験
 - **WHEN** `tools/tsukau/env-hook.sh down <repo> <state> android` を走らせる
 - **THEN** rc≠0 で終わる
 
 #### Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない
 - **WHEN** この PC で `tools/tsukau/env-hook.sh up` と `down` を携帯の相手で本物のエミュレータに対して走らせる
-- **THEN** `ready` に `UNAVAILABLE=` が無く、エミュレータの動く箱の中の網は loopback だけで、端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に端末から届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
+- **THEN** `ready` に `UNAVAILABLE=` が無く、エミュレータのプロセス（`<state>` の PID）の網の名前空間が箱を持つプロセスと同じで（`/proc/<PID>/ns/net` のリンク先が一致する）、その中の網は loopback だけで、端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に端末から届かず、端末の中の `http://127.0.0.1:18787` でその回のサーバが応え、携帯の収集アプリのプロセスがあり、`down` は rc=0 で、終わった後に専用の AVD のエミュレータは無い
 
 #### Scenario: 本物のエミュレータで、席の口で端末を操作できる
 - **WHEN** この PC で携帯の相手を本物のエミュレータに立て、`tools/tsukau/phone.sh shot`・`phone.sh ui`・`phone.sh shell 'input keyevent KEYCODE_HOME'` を走らせてから片付ける

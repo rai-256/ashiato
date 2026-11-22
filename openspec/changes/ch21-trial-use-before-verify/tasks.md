@@ -15,7 +15,7 @@
 - **携帯のエミュレータは起動の時から網を持たない箱の中で動かし、網を切り、自分の serial だけを操作する**（深掘り Q-G2 の本人の答え・design D22（仮）・D31・D35（仮））: エミュレータと adb のサーバは `unshare` の箱（中は loopback だけ）の中で起こし、`adb` は `nsenter` で箱に入って呼ぶ。箱を作れない・箱に loopback のほかの網があればエミュレータを起こさずに `UNAVAILABLE=`。エミュレータの網の引数（`restrict=on`）に頼らない。`adb` は `devices` のほかは全部 `-s <自分の serial>`。実機と、ほかのエミュレータ（本人・計測テスト）に入れない・止めない。網を切れたと確かめられなければ `UNAVAILABLE=`
 - **実地は公開に何も出さない**（design D18）: `tools/tsukau/real-run.sh` は、使い捨ての木の `origin` を一時の bare repo にし、`gh` を記録する偽物にして走らせる。本物の GitHub の repo へ push しない・issue を作らない
 - **Scenario の印**: 自己試験は、確かめのすぐ上に `# Scenario: <名前>` のコメントを置く（`echo "== Scenario:` は本物で確かめる口だけ）。名前は spec の `#### Scenario:` と一字一句合わせる
-- **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`tailscale`・`powershell.exe`（Windows 側の一時の待ち受け）・`docker`・`gh`・`adb`・`emulator`・`avdmanager`・`unshare`・`nsenter`・`socat`・`gradlew`・`ps`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
+- **自己試験は Linux で走る**（CI の `rust` の job）: 偽の `scripts/tsukau.py`・`wsb`・`tailscale`・`powershell.exe`（Windows 側の一時の待ち受け）・`docker`・`gh`・`adb`・`emulator`・`avdmanager`・`unshare`・`nsenter`・`ip`・`socat`・`gradlew`・`ps`・起動の台本・組み立ての台本・`git` の木は、`mktemp -d "${TMPDIR:-/tmp}/ch21-tsukau.XXXXXX"` の一時の置き場に作って終わりに消す（`/tmp` の固定名に書かない）。
   本物の Sandbox・エミュレータ・docker・claude・ネットワークを使わない。偽の命令は受けた引数を呼ばれた順に 1 行ずつ記録のファイルへ書く。**偽の席の台本は本物と同じ 2 行を出す**（1 行目「使ってみた結果: <絶対パス>/RESULT.md」、最後の行に `v`・`stop`・`count`・`titles`・`run`・`cleanup` の JSON。`run` は `/home/…` の絶対パス）と、`run` の下に `candidates.jsonl` と、`candidates`（`id`・`title`）を持つ `result.json` を書く
 - **差し込み（試験のための口）は環境変数で、名前は `TSUKAU_TEST_` で始める**（偽の `tsukau.py`・`wsb`・`tailscale`・`powershell.exe`・`docker`・`gradlew`・`ps`・`java`・起動の台本・組み立ての台本・`init.py` の場所・`/dev/kvm` の代わりの置き場・打ち切りの秒数・`out_root`）。自己試験の関数の中からだけ渡し、本番の呼び出し（`verify-prep.sh`・`tsukau.json`）は渡さない。
   `TSUKAU_RECHECK` は試験の口でなく処置との契約（design D27）。偽の `adb`・`emulator`・`avdmanager` は `TSUKAU_TEST_` でなく、一時の置き場に作った偽の `$ANDROID_HOME`（`platform-tools/adb`・`emulator/emulator`・`cmdline-tools/latest/bin/avdmanager`）に置いて `ANDROID_HOME` で渡す（席の `PATH` に `adb` が無いときに、差し込み口と `phone.sh` が本番と同じ道で道具を見つけることを試験で再現する。design D32）。自己試験は、走らせる環境の `ANDROID_HOME`・`ANDROID_SDK_ROOT` を偽の置き場に向けるか消し、席に渡る `PATH` を試験が組んだ置き場（偽の命令の置き場と `/usr/bin`・`/bin`）だけにする（ホストの `platform-tools` の `adb` で D33（仮）が効き、ほかの Scenario が環境次第で落ちるのを防ぐ。review/spec.md R35）
@@ -206,24 +206,28 @@
 
 - [ ] 9.1 `tools/tsukau/env-hook.sh` に携帯の相手（design D22（仮）・D30（仮）・D31・D35（仮）・D25・D32・spec の携帯の Requirement）と `tools/tsukau/phone.sh`（`shell` / `shot` / `ui`）を書く。
   `env-hook.sh` は頭で、自分のプロセスの `PATH` の先に `$ANDROID_HOME/platform-tools`・`$ANDROID_HOME/emulator`・`$ANDROID_HOME/cmdline-tools/latest/bin` を足してから `tools/emulator-start.sh` を読み込む（受けた `PATH` には `adb` が無い。design D32）。
-  `phone.sh` は `adb` を `$ANDROID_HOME/platform-tools/adb` で、`<state>` に残した箱の PID に `nsenter --preserve-credentials --user --net --target <PID>` で入って呼び（無ければ「携帯の道具が見つからない」で rc≠0）、serial は `<state>` から読んで `-s` に渡し、引数でも `ANDROID_SERIAL` でも受けない。最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0（design D25）。`env-hook.sh` が道具を探して断るのは携帯の相手（`android`）だけで、画面と PC の相手は `$ANDROID_HOME` が無くても今のまま立てる（design D32）。`up` の順:
+  `phone.sh` は `adb` を `$ANDROID_HOME/platform-tools/adb` で、`<state>` に残した箱の PID に `nsenter --preserve-credentials --user --net --target <PID>` で入って呼び（無ければ「携帯の道具が見つからない」で rc≠0。箱の PID が無い・生きていなければ `adb` を呼ばずに rc≠0 で、この PC の adb のサーバへ落とさない）、serial は `<state>` から読んで `-s` に渡し、引数でも `ANDROID_SERIAL` でも受けない。最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0（design D25）。`env-hook.sh` が道具を探して断るのは携帯の相手（`android`）だけで、画面と PC の相手は `$ANDROID_HOME` が無くても今のまま立てる（design D32）。`up` の順:
   `tools/emulator-start.sh` を読み込み `emu_check_kvm`（開けなければ `UNAVAILABLE=`。何も起こさない）→ SDK の `emulator`・`adb`・JDK が無ければ `UNAVAILABLE=` →
   エミュレータのプロセスの引数（`ps -eo pid,args` で `-avd ashiato-tsukau-api35` を語として含むもの）があれば `UNAVAILABLE=`（ほかの端末に `adb -s` で問わない。`emu_reject_existing_avd` は使わない）→
+  網を持たない箱を作る（`unshare --user --map-root-user --net` で箱を持つプロセスを起こし、PID を `<state>` へ。箱の中で loopback を上げ、`ip -o link` に loopback のほかが無いことを見る（`/sys/class/net` は箱の外の網を見せるので使わない）。作れない・ほかの網がある・`socat` が無ければ `UNAVAILABLE=`。その回の環境も APK も作らない。箱の中の段は `nsenter … bash` で起こして `tools/emulator-start.sh` を読み込み、`EMU_PID` を `<state>` に書く。design D35（仮））→
   画面の相手と同じ形で `<state>/tree` にその回の専用の環境を立てる（Task 6 の部品を使う）→ その木で `-Pashiato.baseUrl=http://127.0.0.1:18787 -Pashiato.apiToken=<その回の API_TOKEN> -Pashiato.userId=<その回の利用者 id>` で `:app:assembleDebug`（design D30（仮）。`--repo` の `.env` と `~/.gradle/gradle.properties` の値を使わない）→
   AVD が無ければ `avdmanager` で作る（`tools/android-emulator.sh` と同じ image）→
-  網を持たない箱を作る（`unshare --user --map-root-user --net` で箱を持つプロセスを起こし、PID を `<state>` へ。箱の中で loopback を上げ、`ip -o link` に loopback のほかが無いことを見る（`/sys/class/net` は箱の外の網を見せるので使わない）。作れない・ほかの網があれば `UNAVAILABLE=`。エミュレータを起こさない。design D35（仮））→
   橋を渡す（箱の外で `<state>` の Unix のソケットからその回のサーバの API の port へ、箱の中で loopback のその port からソケットへ。`socat`）→
   箱の中で（以下の `adb`・`emulator` はどれも `nsenter` で箱に入って呼ぶ）空いている偶数の port で `emu_start ashiato-tsukau-api35 -port <port> -no-window -wipe-data -no-snapshot-save -no-boot-anim`・serial と PID を `<state>` へ → `emu_wait_boot` →
   切る前の確かめ（端末の中から、ホストの loopback の別名の宛先（字面で書かず数から組む）のその回のサーバの port に届く。届かなければ `UNAVAILABLE=`）→ `adb -s <serial> shell svc wifi disable`・`svc data disable` →
-  切った後の確かめ（既定のネットワークが無い（`dumpsys connectivity` の「Active default network」が `none`。`ip route` は使わない）・同じ宛先に届かない。外へは問わない。外れれば `UNAVAILABLE=`。何も入れない。design D31・D26（仮））→ `adb -s <serial> reverse tcp:18787 tcp:<その回の API の port>` →
+  切った後の確かめ（既定のネットワークが無い（`dumpsys connectivity` の「Active default network」が `none`。`ip route` は使わない）・同じ宛先に届かない。外へは問わない。外れれば `UNAVAILABLE=`。何も入れない。design D31・D26（仮））→ `adb -s <serial> reverse tcp:18787 tcp:<その回の API の port>` → 端末の中から `http://127.0.0.1:18787` に問い、その回のサーバが応えなければ `UNAVAILABLE=`（何も入れない。design D35（仮））→
   `install` → `am start` で起こす → 案内（`phone.sh shell`・`phone.sh shot`・`phone.sh ui`・席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること・`ui` で探して `input tap` で押す例・その回の画面の URL と合言葉・サーバのログの場所・網は切ってある・触らないもの）を書いて `ready`（`GUIDE=`・`LOG_SERVER=`・`INFO_COMMIT=`）。
-  `down`: `adb -s <serial> logcat -d` を `$TSUKAU_EVIDENCE/phone-logs/` へ → `adb -s <serial> emu kill`（残れば `emu_stop_own`）→ serial が箱の中の `adb devices` に残れば rc≠0 → 橋と箱を持つプロセスを止め、ソケットを消す → その回の compose project を `down -v` → `<state>/tree` を消す。
-  `--self-test` に足す印（偽の `gradlew`・`ps`・`java`・`docker`・`unshare`・`nsenter`・`socat` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡し（偽の `unshare` と `nsenter` は、箱の印の環境変数を付けて残りを走らせ、箱の中の `ip -o link` に試験が決めた答えを返す）、偽の `adb`・`emulator`・`avdmanager` は偽の `$ANDROID_HOME` に置いて、`PATH` には置かない。偽の `adb` は受けた引数を全部記録し、`devices` と網の確かめに試験が決めた答えを返す）:
+  `down`: `adb -s <serial> logcat -d` を `$TSUKAU_EVIDENCE/phone-logs/` へ → `adb -s <serial> emu kill`（残れば `emu_stop_own`）（箱に入れなければ箱の中の `adb` を呼ばずに `<state>` の `EMU_PID` を止める）→ 橋と箱を持つプロセスを止め、ソケットを消す → `<state>` の `EMU_PID` か `-avd ashiato-tsukau-api35` を引数に持つプロセスが残れば rc≠0 → その回の compose project を `down -v` → `<state>/tree` を消す。
+  `--self-test` に足す印（偽の `gradlew`・`ps`・`java`・`docker`・`unshare`・`nsenter`・`socat` と `/dev/kvm` の代わりの置き場を `TSUKAU_TEST_` で渡し（偽の `unshare` と `nsenter` は、箱の印の環境変数を付けて残りを走らせる。箱の中の `ip`（loopback を上げる・`ip -o link`）は偽の `ip` が受けて試験が決めた答えを返し、本物の `ip` は走らせない）、偽の `adb`・`emulator`・`avdmanager` は偽の `$ANDROID_HOME` に置いて、`PATH` には置かない。偽の `adb` は受けた引数を全部記録し、`devices` と網の確かめに試験が決めた答えを返す）:
   `# Scenario: KVM を開けなければ、何も起こさずに断る`・
   `# Scenario: エミュレータか SDK か JDK が無ければ、何も起こさずに断る`・
   `# Scenario: 網を持たない箱を作れなければ、何も起こさずに断る`・
   `# Scenario: 箱に loopback のほかの網があれば、エミュレータを起こさずに断る`・
+  `# Scenario: 橋を渡す道具が無ければ、何も起こさずに断る`・
+  `# Scenario: 箱の外のサーバへの道は、<state> のソケットの橋だけである`・
+  `# Scenario: reverse の後に端末の中の 18787 でサーバが応えなければ、APK を入れずに断る`・
   `# Scenario: エミュレータと adb は、網を持たない箱の中で動く`・
+  `# Scenario: 箱が無いか止まっていれば、phone.sh は adb を呼ばずに断る`・
   `# Scenario: 専用の AVD のエミュレータが動いていれば、立てずに断る`・
   `# Scenario: 携帯の相手の APK は、<state>/tree で組む`・
   `# Scenario: 携帯の相手の APK の接続先は、端末の中のその回のサーバである`・
@@ -242,17 +246,18 @@
   `# Scenario: 片付けは、端末のログを写してから自分のエミュレータを止める`・
   `# Scenario: 携帯の片付けは、ほかのエミュレータに触らない`・
   `# Scenario: 携帯の片付けは、その回の project と木を消す`・
+  `# Scenario: 携帯の片付けは、橋と箱を持つプロセスを止め、ソケットを消す`・
   `# Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 53'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 58'` rc=0
 
 ## Task 10: 本物のエミュレータで携帯の相手を立てて片付ける
 
-- [ ] 10.1 `tools/tsukau/env-hook.sh real-check-android` を作る: 一時の `<state>` と `$TSUKAU_EVIDENCE` で `up <repo> <state> android` を走らせ（サーバと画面は `<state>/tree` で組む）、
-  `ready` に `UNAVAILABLE=` が無いこと・エミュレータの動く箱の中の網が loopback だけであること（`nsenter` で箱に入って `ip -o link`）・端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に届かないこと（`phone.sh shell` で）・端末の中の `http://127.0.0.1:18787` でその回のサーバが応えること・携帯の収集アプリのプロセスがあること（`pidof`）を見て、`down` を走らせ、rc=0 と、終わった後に AVD `ashiato-tsukau-api35` のエミュレータが無いことを見る。
+- [ ] 10.1 `tools/tsukau/env-hook.sh real-check-android` を作る: 一時の `<state>` と `$TSUKAU_EVIDENCE` で `up <repo> <state> android` を走らせ（サーバと画面は `<state>/tree` で組む。`up` から `down` までを 3 回続けて走らせ、3 回とも下を見る。design D35（仮））、
+  `ready` に `UNAVAILABLE=` が無いこと・エミュレータのプロセス（`<state>` の `EMU_PID`）の `/proc/<PID>/ns/net` のリンク先が箱を持つプロセスと同じで、その中の網が loopback だけであること（`nsenter` で箱に入って `ip -o link`）・端末に既定のネットワークが無く、切る前には届いたホストの loopback の別名の宛先に届かないこと（`phone.sh shell` で）・端末の中の `http://127.0.0.1:18787` でその回のサーバが応えること・携帯の収集アプリのプロセスがあること（`pidof`）を見て、`down` を走らせ、rc=0 と、終わった後に AVD `ashiato-tsukau-api35` のエミュレータが無いことを見る。
   続けて、同じく立てた端末で `tools/tsukau/phone.sh shot`（PNG が 1 枚置かれる）・`phone.sh ui`（携帯の収集アプリのパッケージ名を含む XML）・`phone.sh shell 'input keyevent KEYCODE_HOME'`（rc=0）を走らせてから片付ける。
-  見る前にそれぞれ `echo "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない"` と `echo "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"` を出す。箱の中で `adb reverse` か橋の道が通らない（端末の中の `http://127.0.0.1:18787` でその回のサーバが応えない）・網を切れない・900 秒の中で立たない、のどれかなら、design D22（仮）・D31・D35（仮）の反転条件に当たったと `review/` に書いて止める（A として本人に返す。Q-G2 の答え: 道が無ければ携帯の相手を回さない）。
-  結果を `premises.md` の「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」「`svc wifi disable` と `svc data disable` で…」「携帯の相手は…900 秒の中で立つ」（かかった秒数）「画面を出さない（`-no-window`）エミュレータで…」「網を持たない箱の中で、adb reverse の道で…」の 5 行に書き、確かさを 5 にする（箱の中で確かめた結果で書く。橋の行も結果を書く）
-  検証: `bash -c 'out="$(tools/tsukau/env-hook.sh real-check-android)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"'` rc=0 / `bash -c 'test "$(grep -E "^\| (網を切ったエミュレータで|\`svc wifi disable\`|携帯の相手は、その回の環境|画面を出さない|網を持たない箱の中で、adb reverse)" openspec/changes/ch21-trial-use-before-verify/premises.md | grep -c "| 5 |$")" -eq 5'` rc=0
+  見る前にそれぞれ `echo "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない"` と `echo "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"` を出す。箱の中で `adb reverse` か橋の道が通らない（端末の中の `http://127.0.0.1:18787` でその回のサーバが応えない）・網を切れない・900 秒の中で立たない、のどれかなら、spec の本文（箱・Unix のソケットの橋・箱の中の adb のサーバ）を変えない範囲（`socat` の書き方・待ち受けの番地・reverse の port の取り方）で直して通らなければ、design D22（仮）・D31・D35（仮）の反転条件に当たったとして、`deep.md` に `(未回答)` の A として積み、`deep-questions-r<n>.json` を置いて終える（`.harness2/skills/story/task.md` の「A が残ったら」。Q-G2 の答え: 道が無ければ携帯の相手を回さない）。
+  結果を `premises.md` の「網を切ったエミュレータで、adb reverse の道だけでサーバに届く」「`svc wifi disable` と `svc data disable` で…」「携帯の相手は…900 秒の中で立つ」（かかった秒数）「画面を出さない（`-no-window`）エミュレータで…」「網を持たない箱の中で、adb reverse の道で…」の 5 行と、「この PC の WSL で、利用者と網の名前空間を分けた箱…」「箱の中の loopback の port から…」の 2 行（計 7 行）に、箱の中で確かめた結果を、確かめ方の欄に `real-check-android`（3 回）の字面を入れて書き、確かさを 5 にする
+  検証: `bash -c 'out="$(tools/tsukau/env-hook.sh real-check-android)" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、網を切ったまま APK が入ってサーバに届き、片付けで残らない" && printf "%s\n" "$out" | grep -q "== Scenario: 本物のエミュレータで、席の口で端末を操作できる"'` rc=0 / `bash -c 'test "$(grep -E "^\| (網を切ったエミュレータで|\`svc wifi disable\`|携帯の相手は、その回の環境|画面を出さない|網を持たない箱の中で、adb reverse|この PC の WSL で、利用者と網の名前空間|箱の中の loopback の port から)" openspec/changes/ch21-trial-use-before-verify/premises.md | grep "real-check-android" | grep -c "| 5 |$")" -eq 7'` rc=0
 
 ## Task 11: CI・文書・harness2 への依頼
 

@@ -62,7 +62,7 @@
 - 提案: 最後の Requirement を「ashiato2 は処置との契約（目録・公開の題の台本・`TSUKAU_RECHECK`）を守り、処置まで通ることを実地の台本 1 本で受け入れる」に絞り、選別・直し・問い・issue の SHALL は harness2-request.json（と harness2 の試験）に置く。
   台本の名前は「harness2 の確認バッチの処置の入口（依頼 D15 の 1）」と書き、名前は real-run.sh の頭の 1 か所に持つ。spec.md:357-360 を「判断が要る候補は問いになる」と「前からの候補は issue になる」の 2 本に分け、どちらも用意した候補（選別の席に渡る前に種類が決まっている形）で必ず 1 件ずつ起こす。
   直す側にも「席が崩した文言を見つけなければ、用意した候補を足す」を tasks.md:168 に書く
-- 処置: fixed D18 仮 —— 最後の Requirement を「処置との契約を守り、処置まで通ることを実地の 1 回で受け入れる」に絞った。台本の名前は spec から外し（design D15 の 1 と tasks だけ）、用意した候補を 2 つ足して条件つきの THEN を無くした
+- 処置: escalated —— merge gate（2026-11-22）で Q-G1 に入れて本人に返し、本人が「いまの中身のまま本人の決定にしてから送る」を選んだ（deep.md Q-G1。D18 は仮でなくした）。前の処置（fixed D18 仮）: 最後の Requirement を「処置との契約を守り、処置まで通ることを実地の 1 回で受け入れる」に絞った。台本の名前は spec から外し（design D15 の 1 と tasks だけ）、用意した候補を 2 つ足して条件つきの THEN を無くした
 
 ## R6. 実地の確かめで「直す」の道は、偽の feat/ch99 に Story の作業ツリーも PR の CI も無いので、依頼の 7（remote と gh の差し替え）だけでは通らない
 - 成果物: openspec/changes/ch21-trial-use-before-verify/design.md・harness2-request.json・tasks.md
@@ -85,7 +85,7 @@
 - kind: conflict
 - 提案: 本人が答える前に形を決める。(a) Task 10 を CH21 から外し、harness2 の処置が入った後に始める別の change（CH21 を requires に持つ）に移す。CH21 の完了の判定は Task 8・9.3 まで。Q13 の推奨の言い方（「処置まで実地で通す」）が変わるので、Q13 の推奨の detail を直してから本人に見せる。
   (b) CH21 のまま待つなら、Q1・Q13 の代償に「harness2 の処置が入るまで、席は確認バッチで回らない（CH21 の PR が main に入らない）」を書き、proposal.md:45・design.md:137・:182 を直す
-- 処置: fixed D18 仮 —— (b) にした（Q13 の推奨は「待つ」のまま）。代償を「harness2 の処置が入るまで CH21 は main に入らず、その間は確認バッチで席が回らない」に直し、proposal・design D14・Risks・deep-questions.json の Q1 と Q13 の代償（と Q13 の 2 つ目の案の得）も同じに直した。本人は正しい代償で Q13 を選べる
+- 処置: escalated —— merge gate（2026-11-22）で Q-G1 に入れて本人に返し、本人が「いまの中身のまま本人の決定にしてから送る」を選んだ（deep.md Q-G1。D18 は仮でなくした）。前の処置（fixed D18 仮）: (b) にした（Q13 の推奨は「待つ」のまま）。代償を「harness2 の処置が入るまで CH21 は main に入らず、その間は確認バッチで席が回らない」に直し、proposal・design D14・Risks・deep-questions.json の Q1 と Q13 の代償（と Q13 の 2 つ目の案の得）も同じに直した。本人は正しい代償で Q13 を選べる
 
 ## R8. 候補の番号が 3 通りある（手順書は題の並び、`TSUKAU_RECHECK` は candidates.jsonl の行目、席の台本は `id` の C<n>）
 - 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md
@@ -287,7 +287,7 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
 - kind: technical
 - 提案: 確かめに、ホストの loopback の別名の宛先を足す（字面は数から組む）。当てるのはその回の専用環境の port で、塞ぐ前と後の対にする（R22 と同じ）。
   Scenario「網の確かめで、ホストに届くと答えれば、APK を入れずに断る」を足す。premises.md に「`svc wifi disable`・`svc data disable` で、外とホストの loopback への道が切れる」を確かさ 1 で足す（確かめるのは Task 10）
-- 処置: fixed D31 仮 —— （旧 D24。R32 で立て直した）携帯の確かめを、切る前にホストの loopback の別名の宛先のその回のサーバの port に届くこと（対照）・切った後に届かないことと既定の経路が無いことの対にした。外へは問わない（問うこと自体が外へ出る）。Scenario「切った後もホストに届けば…」「切った後も外への経路があれば…」「切る前に届かなければ…」を足し、premises.md に `svc` で道が切れるかを確かさ 1 で足した
+- 処置: fixed D31 —— D31 は別の席の否と Q-G2 の本人の答えで仮でなくした（deep.md Q-G2）。前の処置（fixed D31 仮）: （旧 D24。R32 で立て直した）携帯の確かめを、切る前にホストの loopback の別名の宛先のその回のサーバの port に届くこと（対照）・切った後に届かないことと既定の経路が無いことの対にした。外へは問わない（問うこと自体が外へ出る）。Scenario「切った後もホストに届けば…」「切った後も外への経路があれば…」「切る前に届かなければ…」を足し、premises.md に `svc` で道が切れるかを確かさ 1 で足した
 
 ## R25. premises.md に、携帯の相手が寄りかかる確かめていない前提の行が無く、Task 10.1 が指す行の名前が premises.md に無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/premises.md・tasks.md
@@ -350,7 +350,7 @@ requires は `docs/changes/CH21.md` に `[CH22]` があるので、R は立て�
   なお、deep.md:76 の「D10（仮。木で比べる）」は、第 1 回の時点のレビューの対応の記録なので、指摘にしていない
 - kind: technical
 - 提案: `provisional.py` で D16 と D19 を今の中身で立て直す（D16 の keeps は「確かめ直しの後も、ふだんの回は新しく入ったものを試す（D21）」、D19 は写す側を外す）。design.md:138 の見出しから「写した題も通し直す」を外す
-- 処置: fixed D27 仮 —— provisional.py で D16 と D19 を resolve し、今の中身で D27（確かめ直し）・D28（検査できなければ全部伏せる）として立て直した。design の見出しと参照（proposal・tasks・harness2-request.json）も D27・D28 に直した
+- 処置: fixed D27 —— D27 は Q-G1 の本人の答えで仮でなくした（deep.md Q-G1）。前の処置（fixed D27 仮）: provisional.py で D16 と D19 を resolve し、今の中身で D27（確かめ直し）・D28（検査できなければ全部伏せる）として立て直した。design の見出しと参照（proposal・tasks・harness2-request.json）も D27・D28 に直した
 
 ## R30. tasks.md に古い Task 番号が残り、読む順に distribution の delta が無い
 - 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md
@@ -526,3 +526,180 @@ R31・R32 の処置の確かめ: 新しい指摘なし
 - 処置: fixed specs/verify-environment/spec.md —— 画面の相手の Requirement に「SDK が無い・道具が無い環境でも立てる（断るのは携帯の相手だけ）」を足し、Scenario「Android の SDK が無くても、画面の相手は立つ」を足した。印は Task 6.1（下限 12・7.1 は 29・9.1 は 50）
 
 R37・R38 の処置の確かめ: 新しい指摘なし（382482a8d の上。validate valid・chain OK・triage OK・candidates []・spec の 112 本と tasks の印の名前が一字一句合い、下限 env-hook.sh 12 → 29 → 50 も合う。4.3 の 2 つ目の検証は今は rc=1 で、作業の前は通らない）
+
+## 第 4 版（spec --answers Q8,Q11,Q-G1,Q-G2。2026-11-22、1b4584941 の上）
+
+- 機械の検査:
+  - `openspec validate ch21-trial-use-before-verify --strict` → valid
+  - `check_chain.py` → `chain: OK`
+  - `check_scenarios.py` → `FAIL (担保なし 115 件)`。下流の前なので予定どおり
+  - `review_triage.py` → `triage: OK`（指摘 54 件 / 仮決め 10 件）。仮決めの 10 件には、もう仮でない D18・D27・D31 を指すものが入っている（R46）
+  - `spec_overlap.py candidates` → `[]`
+  - `evidence.py lint` → `[OK]`
+  - `provisional.py check` → D35 だけ FAIL（`provisional-review.md` に D35 の節が無い）。グラフの provisional_review が書く段なので想定どおり
+  - `deep_draft.py status` → `diverged`（Q8・Q11）。answers.md を書く前の値
+- 差分の範囲: 合意の時点（b34677e41）から HEAD までの proposal / design / tasks / specs。`harness2-request*.json` は変わっていない
+- spec の verify-environment は 115 本で、tasks.md の印の名前と一字一句合う。env-hook.sh の下限も 6.1 の 12 → 7.1 の 29 → 9.1 の 53 で合う（9.1 の印は 24 本）
+
+## R39. `adb reverse` の後、端末の中の 18787 にその回のサーバが応えるかを、`up` は確かめずに APK を入れて `ready` を置く。箱の中の reverse は、試しでは 3 回のうち 0〜1 回しか届いていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠: spec.md:488 の順は「切った後の確かめ → `adb reverse` → APK を入れて起こす → `ready`」。tasks.md:218-219 も同じ順で、reverse の後に確かめが無い。
+  切る前の確かめ（spec.md:488）は、別名の宛先と橋の道を通る。reverse の道は通らない。
+  premises.md:50 では、箱の中の reverse は端末の中の待ち受けにつながるものの、待ち受けに届いたのは 3 回のうち 0 回（IPv4）と 1 回（両方）で、応答は端末に返っていない。
+  Task 10.1 の本物の確かめは 1 回走らせて通れば緑になる。その後、reverse が届かない回があっても、席はサーバに届かないアプリを触る。
+  そうなると「送れない」「同期しない」の候補をその回が原因として書き、処置（D15 の 3）がそれを Story のブランチで直そうとしうる
+- kind: technical
+- 提案: Requirement に 1 文足す。reverse の後、APK を入れる前に、端末の中から `127.0.0.1:18787` に HTTP で問い、その回のサーバが応えなければ APK を入れずに `UNAVAILABLE=` を置く。
+  Scenario「reverse の後に端末の中の 18787 でサーバが応えなければ、APK を入れずに断る」を足す（偽の `adb` がその問いに「応えない」と答え、`install` は呼ばれない）。
+  印を Task 9.1 に足し、下限を 54 にする。
+  Task 10.1 は `up`/`down` を 3 回続けて走らせ、3 回とも応えることを見る（試しの 0〜1/3 を上回ると言える回数にする）。
+  この確かめは D35（仮）の節（箱の道の中身）に書く。仮でない D31 に書くと、答え以外の変更が仮でない決定に当たり、合意の聞き直しになる
+- 処置: fixed 9.1 —— Requirement に「渡した後の 18787 にサーバが応えなければ APK を入れずに断る」を足し、Scenario「reverse の後に端末の中の 18787 でサーバが応えなければ、APK を入れずに断る」を足した。design D35（仮）に書き、Task 9.1 の段と印（下限 58）、Task 10.1 は up・down を 3 回続ける
+
+## R40. 「箱の外のサーバへは橋（Unix のソケット）でだけ届かせる」「片付けで橋と箱を止める」は Requirement の本文にしか無く、どの Scenario も見ていない。片付けの残りの判定は、design D35 と spec・tasks で食い違う
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・design.md・tasks.md
+- 根拠: spec.md:488 は「`<state>` に置いた橋（Unix のソケット）でだけ届かせる」、spec.md:492 は「橋と箱を止め」と言う。
+  足した 3 本（spec.md:505-518）は箱を作ることと印しか見ていない。片付けの 4 本（spec.md:595-613）は、どれも橋・箱を持つプロセス・ソケットに触れていない。
+  切る前の確かめでは、偽の `adb` が「ホストに届く」と答える（spec.md:551）。そのため、橋を作らない実装でも自己試験は全部通る。
+  片付けで箱を持つプロセスと `socat` を止めない実装も、全部通る（その回ごとに手元にプロセスが残り続ける）。
+  `socat` が無いときの止まり方も、Requirement に無い（D35 は「要る」と書くだけ）。
+  残りの判定は、design.md:271（D35）が「エミュレータの PID か、引数に `-avd ashiato-tsukau-api35` を持つプロセス」で見る。
+  一方 spec.md:492・Scenario spec.md:610 と tasks.md:220 は「その serial が（箱の中の）`adb devices` に残れば」で見る。箱を止めた後は、箱の中の `adb devices` を問えない
+- kind: technical
+- 提案: Scenario を 2 本足す。「箱の外のサーバへの道は、`<state>` のソケットの橋だけである」（偽の `socat` が受けた引数の片方が `<state>` の下の `UNIX-` で、もう片方がその回のサーバの port）と、
+  「携帯の片付けは、橋と箱を持つプロセスを止め、ソケットを消す」（`down` の後に、偽の `socat` と箱を持つプロセスの PID が生きておらず、ソケットのファイルが無い）。
+  `socat` が無ければ、エミュレータを起こさずに `UNAVAILABLE=` を置く、と Requirement の断る条件に足す。
+  残りの判定は D35 の形（PID と `-avd` の引数）に寄せ、spec.md:492・Scenario「止めた後も自分のエミュレータが残っていれば…」・tasks.md:220 を揃える。印を Task 9.1 に足し、下限を上げる
+- 処置: fixed 9.1 —— Scenario「橋を渡す道具が無ければ、何も起こさずに断る」「箱の外のサーバへの道は、<state> のソケットの橋だけである」「携帯の片付けは、橋と箱を持つプロセスを止め、ソケットを消す」を足し、Requirement の断る条件に橋の道具を足した。残りの判定は D35（仮）の形（PID と -avd の引数）に揃え、Requirement・Scenario「止めた後も…」の GIVEN・Task 9.1 の down を直した
+
+## R41. 「箱を作れない・ほかの網があれば何も起こさずに断る」と、Task 9.1 の順（その回の環境と APK を先に立てて組む）が合わない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠: spec.md:487 は「箱を作れない・loopback のほかの網があれば、何も起こさずに `UNAVAILABLE=`」と言う。
+  ところが tasks.md:212-214 の `up` の順は、その回の compose project を立てる → APK を組む → AVD を作る → 箱を作る、である。
+  箱で断る時には、環境はもう立ち、APK も組まれている。
+  Scenario（spec.md:505-513）の THEN は「偽の `emulator` と起動の台本は呼ばれない」だけを見る。このため、Requirement の「何も起こさずに」（環境を立てない）を落とす実装も通る。
+  design.md:254（D31）は「エミュレータを起こさずに」で、spec と言い方が違う
+- kind: technical
+- 提案: 9.1 の順で、箱を作って確かめる段を `ps` の確かめの直後（環境を立てる前）に移す。橋は、サーバの port が決まった後のまま置く。
+  足した 2 本の THEN に「偽の `docker` の `compose up` と偽の `gradlew` は呼ばれない」を足す。
+  順を変えないのなら、spec.md:487 を D31 と同じ「エミュレータを起こさずに」に直し、その回の環境を `down` が消すことを Scenario で見る。
+  順は D35（仮）か D22（仮）の節に書く（仮でない D31 の本文を変えると、合意の聞き直しになる）
+- 処置: fixed 9.1 —— 箱を作って確かめる段を、同じ AVD の確かめの直後（その回の環境を立てる前）に移した（Requirement の文の順と Task 9.1・D35（仮）の「順」）。箱で断る 2 本と橋の道具の 1 本の THEN に、compose up と gradlew が呼ばれないことを足した
+
+## R42. `phone.sh` と `down` の今の Scenario は、`<state>` に箱の PID を持たない GIVEN のまま。箱が無い・止まっているときに `phone.sh` が何をするかが決まっておらず、ホストの adb のサーバへ落ちる実装を落とせない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠: spec.md:490 は、`phone.sh` に「箱の中の adb のサーバに対して」操作させると言う。tasks.md:209 は、`<state>` の箱の PID に `nsenter` で入って呼ぶと言う。
+  一方、Scenario「端末の中のコマンドは、自分の serial で走り、出力が返る」（spec.md:570-573）の GIVEN は、`<state>` に serial しか置かず、偽の `nsenter` も無い。
+  そのまま読むと、正しい実装（箱の PID が無ければ入れない）はこの THEN（偽の `adb` に `-s emulator-5600 shell`・出力「hello」）を満たせない。満たすのは、PID が無ければ箱に入らずに `adb` を呼ぶ実装である。
+  「phone.sh は serial を引数で受けず…」（:580）と、片付けの 4 本（:595-613）の GIVEN も同じ。
+  箱の中は port が全部空いているので、席のエミュレータの serial は、ホストの計測テストのエミュレータと同じ `emulator-5554` になりうる（`tools/android-emulator.sh:59` は既定の serial を `emulator-5554` としている）。
+  ホストの adb のサーバへ落ちる実装は、`-s` で名指していても、本人や計測テストのエミュレータに `shell`・`emu kill` を送りうる
+- kind: technical
+- 提案: この 6 本の GIVEN に「`<state>` に箱の PID と、偽の `nsenter`」を足す。
+  Scenario「箱が無いか止まっていれば、phone.sh は adb を呼ばずに断る」を足す（`<state>` に箱の PID が無い・生きていないとき、rc≠0 で、偽の `adb` は呼ばれない）。`down` にも同じ扱いを書く。
+  design D35 に「箱に入れなければ、ホストの adb のサーバへは決して落とさない」を 1 行足す。印を Task 9.1 に足し、下限を上げる
+- 処置: fixed 9.1 —— phone.sh と down の Scenario の GIVEN に生きている箱の PID と偽の nsenter を足し、Scenario「箱が無いか止まっていれば、phone.sh は adb を呼ばずに断る」を足した。Requirement と D35（仮）に「箱に入れなければこの PC の adb のサーバへ落とさない」を書いた
+
+## R43. 本物の Scenario の「エミュレータの動く箱の中の網は loopback だけ」は、箱を持つプロセスの網しか見ない。エミュレータがその箱で動いていることは見ていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md・tasks.md
+- 根拠: spec.md:617 の THEN と tasks.md:251 は「`nsenter` で箱に入って `ip -o link`」で見る。これは `<state>` の箱を持つプロセスの網の名前空間を見る。
+  エミュレータのプロセスがその名前空間にいるかは見ていない。
+  たとえば、本物の道でだけ通る分岐（箱を作った後、エミュレータを `nsenter` を通さずに起こす）があっても、本物の確かめは通る。Q-G2 の答えの本体（起動の時から網を持たない）を、本物では一度も見ないことになる。
+  自己試験の印（spec.md:515-518）は偽の命令の上でしか見ない
+- kind: technical
+- 提案: THEN を「エミュレータのプロセス（`<state>` の PID）の網の名前空間が箱を持つプロセスと同じで（`/proc/<PID>/ns/net` のリンク先が一致する）、その中の網は loopback だけ」にする。
+  Task 10.1 の確かめも同じ形にする
+- 処置: fixed 10.1 —— 本物の Scenario の THEN と Task 10.1 を、エミュレータの PID の /proc/<PID>/ns/net が箱を持つプロセスと同じで、その中が loopback だけ、に直した
+
+## R44. 箱の道が通らないときの止まり方が、D35 の反転条件と D31・Task 10.1 で食い違う。Task 10.1 の「`review/` に書いて止める」は、下流の A の返し方（deep.md と deep-questions-r<n>.json）と違う
+- 成果物: openspec/changes/ch21-trial-use-before-verify/design.md・tasks.md
+- 根拠: design.md:275（D35 の反転条件）は「箱の中で `adb reverse` か橋が通らないとき（ほかの道を探し、無ければ A として本人に返す）」と言う。
+  一方、design.md:259・262（D31）と design.md:272（D35 の「確かめていないこと」）、tasks.md:253 は「通らなければ A として本人に返す」で、ほかの道を探す段が無い。
+  下流がほかの道を探すと、合意した spec の本文（spec.md:487-490 の箱・Unix のソケットの橋・箱の中の adb のサーバ）と、Scenario の印を書き換えることになる。
+  また、Task 10.1 の検証が落ちると、`verify-run` は FAIL を返し、下流は直しの輪に入る（同じ指紋が 3 回で BLOCKED）。
+  `.harness2/skills/story/task.md` の「A が残ったら」は、`deep.md` に `(未回答)` で積み、`deep-questions-r<n>.json` を作って終える手順で、`review/` に書く道ではない。
+  Task 1.2 も同じ書き方をしている
+- kind: technical
+- 提案: D35 の反転条件を D31・Task 10.1 に揃える。ほかの道を探すのは、spec の本文（箱・橋）を変えない範囲（たとえば `socat` の書き方・reverse の port の取り方）に限る。
+  それを越えるなら A にする。
+  Task 10.1 の「`review/` に書いて止める」を「`deep.md` に `(未回答)` の A として積み、`deep-questions-r<n>.json` を置いて終える（`.harness2/skills/story/task.md` の『A が残ったら』）」に直す
+- 処置: fixed 10.1 —— D35（仮）の反転条件を「spec の本文（箱・橋・箱の中の adb のサーバ）を変えない範囲だけ探し、越えるなら A」に揃え、Task 10.1 の返し方を deep.md の (未回答) と deep-questions-r<n>.json（task.md の「A が残ったら」）に直した。Task 1.2 の同じ書き方は今回の答えに関わらないので触らない
+
+## R45. Task 10.1 の premises の検証は、5 行のうち 3 行が箱の外の実測でもう確かさ 5 なので、箱の中で確かめ直さなくても通る。「橋の行も結果を書く」は検証に入っていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md
+- 根拠: tasks.md:255 の 2 つ目の検証を今の木で走らせると、数は 3（premises.md:42・45・47 は 2026-11-20 に箱の外で測って 5）。
+  Task 10.1 は「箱の中で確かめた結果で書く」と言うが、:46 と :50 の 2 行を 5 にすれば緑になる。
+  橋の行（premises.md:51、確かさ 1）は grep の対象外で、書かなくても通る。
+  箱の中は loopback だけの行（premises.md:48）も対象外である（spec の段の試しの台本は消えている）。
+  R37 で 4.3 に当てた直し（作業の前は通らない形にする）と同じ型
+- kind: technical
+- 提案: 検証を、Task 10.1 が書き足す字面で見る形にする。例: 5 行と橋の行・:48 の行のそれぞれに `real-check-android` の字面があり、確かさが 5。
+  作業の前は rc=1 になることを確かめる
+- 処置: fixed 10.1 —— 検証を 7 行（5 行と、箱の中は loopback だけの行・橋の行）がそれぞれ real-check-android の字面を持ち確かさ 5、の形にした。今の木で rc=1 になることを確かめた
+
+## R46. review/spec.md の R5・R7（`fixed D18 仮`）・R24（`fixed D31 仮`）・R29（`fixed D27 仮`）が、仮でなくなった D を仮決めとして指したまま。triage は design の「仮でなくした」の「仮」に当たって通っている
+- 成果物: openspec/changes/ch21-trial-use-before-verify/review/spec.md
+- 根拠: review/spec.md:65（R5）・:88（R7）は `fixed D18 仮`、:290（R24）は `fixed D31 仮`、:353（R29）は `fixed D27 仮`。commit 1b4584941 が直したのは R1・R2・R19 だけ。
+  D18・D27 は Q-G1 で、D31 は Q-G2（と gate の否）で仮でなくなった（provisional.jsonl の resolved、design.md:193・206・250 の見出し）。
+  `review_triage.py` は「design.md の D<n> を含む行に『仮』がある」で印を確かめる（scripts/review_triage.py:580-583）。D18・D27 の見出しの「Q-G1 の本人の答えで仮でなくした」と、D31 を名指すほかの行の「（仮）」に当たって通る。
+  仮決めの数は 10 件のまま。PR 本文の「仮決め」の一覧はここから引くので、本人が決めた D18・D27・D31 が、確認バッチで覆しうる仮として出る
+- kind: technical
+- 提案: R5・R7 は `escalated`（Q-G1 で本人に返し、本人が今の中身で決めた）に直す。R24 は `fixed D31`、R29 は `fixed D27`（どちらも technical なので仮の印は要らない）に直し、前の処置は R1 と同じ形で後ろに残す。
+  triage が「仮でなくした」に当たって通る件は、harness2 への followup にする（見出しの（仮）の印か、台帳の resolved で見る）
+- 処置: fixed review/spec.md —— R5・R7 を escalated（Q-G1）、R24 を fixed D31、R29 を fixed D27 に直し、前の処置を後ろに残した。triage が「仮でなくした」の字に当たって通る件は harness2 側の検査の話で、この change の外
+
+## R47. CH21.md の「壊してはいけないもの」と D31 の見出しは「サーバへは `adb reverse` の道だけ」と言う。切る前の確かめでは、端末は別名の宛先と橋を通ってその回のサーバに届く
+- 成果物: docs/changes/CH21.md・openspec/changes/ch21-trial-use-before-verify/design.md
+- 根拠: docs/changes/CH21.md:58 は「携帯を試すエミュレータは、起動から片付けまでどこへもつながない（サーバへは `adb reverse` の道だけ…）」と言う。design.md:250 の見出しも「（`adb reverse` の道だけ）」。
+  ところが spec.md:488・design.md:255・267 の切る前の確かめでは、端末から別名の宛先（箱の loopback）→ 橋 → その回のサーバの port に届く。
+  archive の判定は「壊してはいけないもの」を読むので、本文と実際の道がずれる
+- kind: technical
+- 提案: CH21.md:58 を「起動から片付けまで、その回のサーバのほかにはつながない（サーバへは、切る前の確かめで別名の宛先と橋、切った後は `adb reverse` の道だけ）」に直す。D31 の見出しの括弧も同じ向きにする
+- 処置: fixed D35 —— 道の中身（切る前の確かめは別名の宛先と箱の橋）は D35（仮）が持つ。それに合わせて docs/changes/CH21.md の「壊してはいけないもの」を「その回のサーバのほかにはつながない（切る前の確かめは別名の宛先と箱の橋、切った後は adb reverse の道だけ）」に直した。D31 の見出しは、仮でない決定の本文を答え以外で変えないために残す（括弧は APK がサーバに届く道を言っている）
+
+## R48. 仮の台帳の D26（仮）の `rests_on` は古い D24 のまま。携帯の対照が D35（仮）の橋に乗るようになったのに、D35 が無い
+- 成果物: openspec/changes/ch21-trial-use-before-verify/provisional.jsonl
+- 根拠: provisional.jsonl:22（D26）は `"rests_on": ["Q8", "D6", "D24"]`。D24 は R32 で D31 に立て直されていて、もう無い。
+  design.md:283 の D26 の携帯の行は、今回「箱の中の橋の待ち受けがある。D35（仮）」になった。
+  そのため、確認バッチで D35 を覆したときに、一緒に見直す D26 が台帳から辿れない。
+  （D35 の `follows` が空なのは指摘にしない。`provisional.py` の `--follows` は `Q\d+` しか受け付けず（scripts/provisional.py:202）、`Q-G2` は書けない。
+  そのうえ D35 の道は、Q-G2 の context が本人に見せた道（網の引数）と違う。同じ向きとして確かめを緩める扱いにはしない）
+- kind: technical
+- 提案: D26 の `rests_on` を `["Q8", "D6", "D31", "D35"]` に直す（`provisional.py` で行を足し直すか、resolve して add し直す）
+- 処置: fixed provisional.jsonl —— D26 の rests_on を Q8・D6・D31・D35 に直した
+
+## R49. 自己試験で、箱の中の `ip`（loopback を上げる・網の一覧）を誰が受けるかが決まっていない。`tools/emulator-start.sh` の関数を箱の中で呼ぶ形も書かれていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/tasks.md・design.md
+- 根拠: tasks.md:18 の偽の命令の一覧に `ip` が無い。tasks.md:221 は、偽の `nsenter` が「箱の印の環境変数を付けて残りを走らせ、箱の中の `ip -o link` に試験が決めた答えを返す」と言う。
+  `ip link set lo up`（tasks.md:214・design.md:266）を偽の `nsenter`（か `unshare`）が「残りを走らせる」と、CI の runner では本物の `ip` が名前空間なしで走る。権限が無ければ落ち、`ip -o link` なら runner の `eth0` が見える。
+  `tools/emulator-start.sh` の `emu_start` は `"$ANDROID_HOME/emulator/emulator" … &` を直に起こし、`EMU_PID=$!` をそのシェルに置く（tools/emulator-start.sh:58-66）。`emu_wait_boot` は `adb` を名前で呼ぶ。
+  design.md:229 は「どれも網を持たない箱の中で」と言うだけで、関数をどう箱の中で走らせ、`EMU_PID` を `<state>` と `emu_stop_own` へどう戻すかを書いていない（proposal は `emulator-start.sh` を「呼ぶだけ」にしている）
+- kind: technical
+- 提案: 偽の命令の一覧（tasks.md:18）に `ip` を足し、箱の中の `ip` は偽の `ip` が受けると 9.1 に書く。
+  design D35 に、箱の中で走らせる形を 1 行足す。例: `env-hook.sh` の箱の中の段を `nsenter … bash` で起こし、その中で `emulator-start.sh` を読み込む。`EMU_PID` は `<state>` に書いて外の片付けが読む
+- 処置: fixed 9.1 —— 偽の命令の一覧に ip を足し、箱の中の ip は偽の ip が受けると 9.1 に書いた。D35（仮）に、箱の中の段を nsenter … bash で起こして emulator-start.sh を読み込み、EMU_PID を <state> に書くことを足した
+
+### 第 4 版で確かめて指摘にしなかったもの
+
+- **観点 1（Q-G1）**: D12・D18・D20・D21・D27・D28 の見出しから（仮）が外れ、provisional.jsonl に resolved（理由は Q-G1）がある。
+  proposal・tasks・spec の導出元から `D21（仮）`・`D12（仮）`・`D27（仮）`・`D18（仮）` が消えている。D15 に「送った後に確認バッチで覆ることはない」の 1 文がある。`harness2-request*.json` は変わっていない（答えは「今の中身のまま送る」）。
+  CH21.md・docs/briefs/CH21-pr.md の仮の一覧（D1・D3・D5・D7・D9・D22・D30・D26・D29・D33・D34・D35）は台帳と一致する。残る食い違いは review/spec.md の処置の行だけ（R46）
+- **観点 1（Q-G2）**: 答えの前半（起動の時から網を持たせない）は、D31・D35（仮）、spec.md:487-488、足した Scenario 3 本、本物の Scenario の THEN、tasks の Global Constraints・9.1・10.1、CH21.md の完了の判定・壊してはいけないもの、proposal の「外へ出るもの」に写っている。
+  後半（道が無ければ携帯の相手を回さず本人に返す）は、D31・Task 10.1・CH21.md:65 に写っている（返し方の字面は R44）
+- **「CH21 は Task 10 を通るまで main に入らない」は成り立つ**: 下流のブランチの PR は全部の Task の後に draft でなくなる。確認バッチが取り込むのはその後で、Task 12.1 の実地の木（偽の ch99）は画面と PC のファイルしか変えない（tasks.md:271）。
+  確認バッチが取り込むのは「open で draft でない feat/st* / feat/ch* の PR」だけで、gate を通した PR が要る（.harness2/scripts/verify_batch.sh:5・:92）。
+  CH21 の下流の PR は、全部の Task と gate の後でなければ draft のまま残る。
+  確かめる前に、席がこの repo の携帯の相手で回る道は無い。Task 10 は Task 11.3（依頼を置く）より前にある
+- **D35 は P の条件を満たす**: 箱は外へ出ない側（失わない側）である。代償は、数十行と `unshare`・`nsenter`・`socat`（この PC には /usr/bin に 3 つともある）、それに利用者の名前空間を禁じた環境では回らないことだけ。CH21 の範囲の中で、要件も変えない。
+  通らなかったときの代償（携帯の相手が回らず本人に返る）は、Q-G2 で本人が選んだ案の cost と context に書いてある。
+  問いの context は道を「エミュレータの網の引数」と見込んでいたが、選んだ案の札は道を決めていない。引数は試しで外の役の口に届いた（premises.md:49）。A として返す指摘は立てない。台帳の結び付きだけ R48
+- **premises.md の新しい 4 行は、実測の主張を越えていない**: :48 は 1 つの外の宛先（`8.8.8.8:53`）と `ip -o link` の結果を、箱の網が loopback だけという構造と合わせて確かさ 5 にしている。
+  :49 は「この書き方で効かなかった」と、引数が受け付けられたかを見ていないことを書いて 4 にしている。:50 は未確定で 2、:51 は知識で 1。
+  試しの台本は消えているが、:48 の主張は Task 10.1 の本物の THEN（箱の中は loopback だけ。R43 の形なら、エミュレータがその箱にいることも）で確かめ直される
+- **観点 3**: specs に足した文は振る舞い（箱の中は loopback だけ・断る条件・箱の中の adb のサーバ・橋でだけ届く）を言っている。D35 の実装の名前（`unshare`・`nsenter`・`socat`）は、Requirement の本文には出ず、自己試験の GIVEN にだけ出る（今までの偽の命令の書き方と同じ）。
+  capability は verify-environment と distribution のまま変わらず、proposal と合う
+- **観点 5**: CH21.md の完了の判定（:65）は、Q-G2 の答え（箱の中で起こし、届かなければ回さず本人に返す）と Task 10 に合う。壊してはいけないもの（:58）は、道の字面だけ R47。
+  依頼（逐語）の範囲は越えていない（携帯は第 1 回の合意の違和感で入ったもので、今回はその網の扱いだけ）
+- 足した Scenario 3 本は、偽の `unshare`・`nsenter`・`emulator`・`adb` で検証できる（R41・R42・R49 の直しを前提に）。tasks の印と名前は一字一句合い、9.1 の印は 21 → 24・下限 50 → 53 で合う
+
+観点 7: 該当なし（spec_overlap.py candidates が 0 件）

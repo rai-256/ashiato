@@ -263,16 +263,19 @@ harness2 は非公開の repo なので、依頼の本文に CH21 の決定を�
 
 ### D35（仮）. 起動の時から網を持たせない道は、利用者と網の名前空間を分けた箱（`unshare`）にし、エミュレータの網の引数には頼らない（Q-G2 の答えの細部）
 
+- 順: KVM・SDK・JDK・同じ AVD の確かめの直後、その回の環境を立てる前に箱を作って確かめる（箱で断る回に環境も APK も作らない。review/spec.md R41）。`socat` が無ければ同じく何も作らずに断る。橋はその回のサーバの port が決まった後に渡す
 - 箱: `unshare --user --map-root-user --net`（特権なし。網の名前空間の中は loopback だけ）で、箱を持つプロセスを 1 つ起こし、その PID を `<state>` に残す。箱の中で loopback を上げ、`ip -o link` で loopback のほかの網が無いことを見てから、箱の中で専用の adb のサーバとエミュレータを起こす（`/sys/class/net` は箱の外の網の名前を見せるので使わない。premises.md）
 - 箱の外のその回のサーバへは、`<state>` に置く Unix のソケットで橋を渡す（箱の中で loopback のサーバの port を待ち受けてソケットへ、箱の外でソケットから loopback のサーバの port へ。`socat`）。端末の中の 18787 は `adb reverse` で箱の中のその port へ、別名の宛先（D31 の対照）も箱の中のその port に当たる
-- 差し込み口と `phone.sh` の `adb` は、箱を持つプロセスの網と利用者の名前空間に入って（`nsenter --preserve-credentials --user --net --target <PID>`）呼ぶ。箱の中の adb のサーバはこの PC の adb のサーバと別なので、箱の中の `adb devices` には席のエミュレータだけが出て、本人の実機とほかのエミュレータは見えない。
+- 箱の中の段は `nsenter … bash` で起こし、その中で `tools/emulator-start.sh` を読み込んで `emu_start`・`emu_wait_boot` を呼ぶ。`EMU_PID` は `<state>` に書き、箱の外の片付けがそれを読む（review/spec.md R49）
+- 差し込み口と `phone.sh` の `adb` は、箱を持つプロセスの網と利用者の名前空間に入って（`nsenter --preserve-credentials --user --net --target <PID>`）呼ぶ。**箱に入れなければ（PID が無い・生きていない）、この PC の adb のサーバへは決して落とさない**: `phone.sh` は `adb` を呼ばずに rc≠0、`down` は箱の中の `adb` を呼ばずに PID でエミュレータを止める（箱の中の serial は空いた port で `emulator-5554` になりうり、計測テストのエミュレータと重なる。review/spec.md R42）箱の中の adb のサーバはこの PC の adb のサーバと別なので、箱の中の `adb devices` には席のエミュレータだけが出て、本人の実機とほかのエミュレータは見えない。
   逆に、この PC の adb（確認バッチの準備の `install_on_emulators` を含む）からも席のエミュレータは見えない
 - エミュレータの網の引数（`-wifi-user-mode-options restrict=on`・`-network-user-mode-options restrict=on`）には頼らない: 2026-11-22 に箱の中で両方を付けて起こしたところ、端末から箱の中の外の宛先の役の口に HTTP で届いた（引数が受け付けられたかは見ていない。premises.md）
-- 片付け: 箱の中で `logcat -d` を写して `emu kill`、残れば箱の中のエミュレータの PID を止め、橋と箱を持つプロセスを止め、ソケットを消す。止めた後もエミュレータの PID か、引数に `-avd ashiato-tsukau-api35` を持つプロセスが残れば rc≠0
-- 確かめていないこと: 箱の中の `adb reverse` の道（2026-11-22 の試しでは、端末の中の待ち受けにはつながったが、箱の中のサーバに届いたのは 3 回のうち 0〜1 回で、応答は端末に返らなかった。premises.md）と、橋の道。どちらも下流の Task 10 が本物で確かめ、通らなければ D31 の反転条件（A として本人に返す）
+- `adb reverse` の後、APK を入れる前に、端末の中から `http://127.0.0.1:18787` に問い、その回のサーバが応えなければ `UNAVAILABLE=`（箱の中の reverse は試しで届かない回があった。席がサーバに届かないアプリを触って偽の候補を書くのを防ぐ。review/spec.md R39）
+- 片付け: 箱の中で `logcat -d` を写して `emu kill`、残れば箱の中のエミュレータの PID を止め、橋と箱を持つプロセスを止め、ソケットを消す。止めた後もエミュレータの PID か、引数に `-avd ashiato-tsukau-api35` を持つプロセスが残れば rc≠0（箱を止めた後は箱の中の `adb devices` を問えないので、残りはプロセスで見る。review/spec.md R40）
+- 確かめていないこと: 箱の中の `adb reverse` の道（2026-11-22 の試しでは、端末の中の待ち受けにはつながったが、箱の中のサーバに届いたのは 3 回のうち 0〜1 回で、応答は端末に返らなかった。premises.md）と、橋の道。どちらも下流の Task 10 が本物で、`up`・`down` を 3 回続けて確かめ、通らなければ D31 の反転条件（A として本人に返す）
 - 失わない側: 箱の中には外への道が無いので、起動の間も外へ出ない。箱を作れなければ何も起こさない
 - 費用: 箱・橋・`nsenter` の数十行と自己試験。`unshare`・`nsenter`（util-linux）と `socat` が要る
-- 反転条件: 箱の中で `adb reverse` か橋が通らないとき（ほかの道を探し、無ければ A として本人に返す）・エミュレータの網の引数で外へ出ないと本物で確かめられたとき（箱をやめて引数にする）
+- 反転条件: 箱の中で `adb reverse` か橋が通らないとき（下流で探してよいのは spec の本文（箱・Unix のソケットの橋・箱の中の adb のサーバ）を変えない範囲 —— `socat` の書き方・待ち受けの番地（IPv4 と IPv6）・reverse の port の取り方 —— だけ。越えるなら A として本人に返す。review/spec.md R44）・エミュレータの網の引数で外へ出ないと本物で確かめられたとき（箱をやめて引数にする）
 
 ### D26（仮）. 網の確かめは、塞ぐ前に届くことと塞いだ後に届かないことの対で見る（review/spec.md R22・R24）
 
