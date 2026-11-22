@@ -182,6 +182,31 @@ pub fn check_web_password(
     }
 }
 
+/// 画面から差し替える新しい合言葉を、インストーラと同じ順序で検査する。
+pub(crate) fn validate_new_web_password(
+    new_password: &str,
+    confirmation: &str,
+    api_token: &str,
+    session_key: &str,
+) -> Result<(), &'static str> {
+    if new_password.chars().count() < MIN_WEB_PASSWORD_LEN {
+        return Err("too_short");
+    }
+    if new_password.starts_with(PLACEHOLDER_PREFIX) {
+        return Err("placeholder");
+    }
+    if token_matches(new_password, api_token) {
+        return Err("same_as_api_token");
+    }
+    if token_matches(new_password, session_key) {
+        return Err("same_as_session_key");
+    }
+    if new_password != confirmation {
+        return Err("mismatch");
+    }
+    Ok(())
+}
+
 /// 照らす形の設定にある PHC 文字列を検査し、API の合言葉との一致も拒む。
 pub fn check_web_password_verifier(
     verifier: Option<&str>,
@@ -218,6 +243,15 @@ pub fn verify_password_verifier(verifier: &str, password: &str) -> bool {
             .verify_password(password.as_bytes(), &hash)
             .is_ok()
     })
+}
+
+pub(crate) fn password_verifier(password: &str) -> Result<String, argon2::password_hash::Error> {
+    use argon2::password_hash::{rand_core::OsRng, SaltString};
+    use argon2::PasswordHasher as _;
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
 }
 
 pub fn check_verifier_against_api(
@@ -617,6 +651,216 @@ pub struct CollectorSetupError {
     pub error: &'static str,
 }
 
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct WebPasswordChangeRequest {
+    pub password: String,
+    pub new_password: String,
+    pub confirmation: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct WebPasswordChangeError {
+    pub error: &'static str,
+}
+
+fn web_password_entry(
+    headers: &HeaderMap,
+    caller: Option<Caller>,
+    outcome: &'static str,
+    status: StatusCode,
+) -> AccessEntry {
+    AccessEntry::for_caller(
+        caller,
+        via_of(headers),
+        "/web-password".into(),
+        "POST".into(),
+        outcome,
+        status.as_u16(),
+    )
+}
+
+fn web_password_error(status: StatusCode, error: &'static str) -> Response {
+    (status, Json(WebPasswordChangeError { error })).into_response()
+}
+
+/// 画面の合言葉を差し替える。認証と設定の書き戻しを一つの `LOGIN_CHECK` の印で直列化する。
+#[utoipa::path(post, path = "/web-password", request_body = WebPasswordChangeRequest,
+    responses((status = 204), (status = 400, body = WebPasswordChangeError),
+              (status = 401), (status = 403, body = WebPasswordChangeError),
+              (status = 409, body = WebPasswordChangeError), (status = 415),
+              (status = 429), (status = 500, body = WebPasswordChangeError)))]
+pub async fn web_password_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    run_to_completion(web_password_post_inner(app, headers, body)).await
+}
+
+async fn web_password_post_inner(
+    app: App,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let caller = match crate::decided(&app, &headers).await {
+        crate::Authn::Decided(caller) => caller,
+        crate::Authn::LookupFailed => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
+    };
+    let Some(caller) = caller else {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                None,
+                "unauthorized",
+                StatusCode::UNAUTHORIZED,
+            ))
+            .await?;
+        return Err(unauthorized());
+    };
+    if caller != Caller::WebSession {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+    }
+    if !is_json(&headers) {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ))
+            .await?;
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported media type".into(),
+        ));
+    }
+    if std::env::var_os("ASHIATO_SERVICE_MODE").is_none()
+        || std::env::var_os("ASHIATO_SETTINGS_PATH").is_none()
+    {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::CONFLICT,
+            ))
+            .await?;
+        return Ok(web_password_error(StatusCode::CONFLICT, "not_changeable"));
+    }
+    let request: WebPasswordChangeRequest = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => WebPasswordChangeRequest {
+            password: String::new(),
+            new_password: String::new(),
+            confirmation: String::new(),
+        },
+    };
+    let secrets = crate::request_secrets(&app);
+    let permit = login_check_permit().await;
+    let check =
+        check_with_permit_using_secrets(&app, request.password.clone(), &permit, &secrets).await;
+    if check == PasswordCheck::Throttled {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
+    }
+    if check == PasswordCheck::Mismatch {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::FORBIDDEN,
+            ))
+            .await?;
+        tokio::time::sleep(app.login.failure_delay).await;
+        return Ok(web_password_error(StatusCode::FORBIDDEN, "wrong_password"));
+    }
+    let api_token = secrets.api_token().to_owned();
+    let session_key = app.login.session_key.clone();
+    if let Err(error) = validate_new_web_password(
+        &request.new_password,
+        &request.confirmation,
+        &api_token,
+        &session_key,
+    ) {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::BAD_REQUEST,
+            ))
+            .await?;
+        return Ok(web_password_error(StatusCode::BAD_REQUEST, error));
+    }
+    let verifier = password_verifier(&request.new_password)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    check_web_password_verifier(Some(&verifier), &api_token)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    check_web_session_key_verifier(Some(&session_key), &api_token, &verifier)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+
+    let mut raw = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut raw);
+    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
+    let next = SharedSecrets::from_verifier(api_token, &session_key, &verifier);
+    sqlx::query(
+        "INSERT INTO core.web_session (token_sha256, secret_tag, issued_at) VALUES ($1, $2, $3)",
+    )
+    .bind(sha256(&token))
+    .bind(next.tag())
+    .bind(app.now())
+    .execute(&app.pool)
+    .await
+    .map_err(|e| internal_at("web_password.session_insert", e))?;
+    app.access
+        .write(web_password_entry(
+            &headers,
+            Some(caller),
+            "ok",
+            StatusCode::NO_CONTENT,
+        ))
+        .await?;
+    if crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier).is_err() {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+            .await?;
+        return Ok(web_password_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "not_saved",
+        ));
+    }
+    app.replace_secrets(next);
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        set_cookie(&token, COOKIE_MAX_AGE_SECS, app.channel),
+    );
+    Ok(response)
+}
+
 /// `/session` の求めの 1 行。ログインの結果はハンドラが判定した場で書く（D8）。
 fn session_entry(
     headers: &HeaderMap,
@@ -835,7 +1079,7 @@ pub(crate) async fn check_given_password_with_secrets(
     #[cfg(test)]
     app.login.check_waiting.notify_waiters();
     let permit = login_check_permit().await;
-    check_with_permit_using_secrets(app, given, permit, secrets).await
+    check_with_permit_using_secrets(app, given, &permit, secrets).await
 }
 
 /// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
@@ -846,15 +1090,16 @@ pub(crate) async fn check_with_permit(
     permit: LoginCheckPermit,
 ) -> PasswordCheck {
     let secrets = app.secrets_snapshot();
-    check_with_permit_using_secrets(app, given, permit, &secrets).await
+    check_with_permit_using_secrets(app, given, &permit, &secrets).await
 }
 
 async fn check_with_permit_using_secrets(
     app: &App,
     given: String,
-    permit: LoginCheckPermit,
+    permit: &LoginCheckPermit,
     secrets: &SharedSecrets,
 ) -> PasswordCheck {
+    let _ = permit;
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
@@ -873,7 +1118,6 @@ async fn check_with_permit_using_secrets(
         if !accepted {
             limiter.record_failure();
         }
-        drop(permit);
         accepted
     })
     .await

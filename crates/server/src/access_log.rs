@@ -163,7 +163,10 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
         .get::<MatchedPath>()
         .map(|m| m.as_str().to_owned())
         .unwrap_or_default();
-    if matches!(route.as_str(), "/healthz" | "/session" | "/collector-setup") {
+    if matches!(
+        route.as_str(),
+        "/healthz" | "/session" | "/collector-setup" | "/web-password"
+    ) {
         return next.run(req).await;
     }
     // 判定は外側の層が 1 回だけ下したもの（final review R3）。ハンドラも同じ判定を読む

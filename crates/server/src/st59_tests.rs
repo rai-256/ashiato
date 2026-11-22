@@ -13,6 +13,169 @@ use std::sync::{
 use tower::ServiceExt as _;
 
 #[test]
+fn st59_web_password_validation_uses_the_five_change_rules() {
+    // Scenario: 新しい合言葉が検査に当たれば、何も変わらない
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "short",
+            "short",
+            "api-token-for-test",
+            "session-key-for-test",
+        ),
+        Err("too_short")
+    );
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "change-me-web-password-012345",
+            "change-me-web-password-012345",
+            "api-token-for-test",
+            "session-key-for-test",
+        ),
+        Err("placeholder")
+    );
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "api-token-for-test",
+            "api-token-for-test",
+            "api-token-for-test",
+            "session-key-for-test",
+        ),
+        Err("same_as_api_token")
+    );
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "session-key-for-test",
+            "session-key-for-test",
+            "api-token-for-test",
+            "session-key-for-test",
+        ),
+        Err("same_as_session_key")
+    );
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "new-web-password-012345",
+            "different-web-password-012345",
+            "api-token-for-test",
+            "session-key-for-test",
+        ),
+        Err("mismatch")
+    );
+}
+
+#[test]
+fn st59_web_password_too_short_is_rejected_before_other_rules() {
+    assert_eq!(
+        web_session::validate_new_web_password("x", "y", "api", "session"),
+        Err("too_short")
+    );
+}
+
+#[test]
+fn st59_web_password_placeholder_is_rejected() {
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "change-me-a-long-web-password",
+            "change-me-a-long-web-password",
+            "api",
+            "session",
+        ),
+        Err("placeholder")
+    );
+}
+
+#[test]
+fn st59_web_password_api_token_is_rejected() {
+    // Scenario: ログインの印が無い・収集アプリの値・衛星の資格情報では、合言葉を変えられない
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "api-token-0123456789",
+            "api-token-0123456789",
+            "api-token-0123456789",
+            "session-key-0123456789"
+        ),
+        Err("same_as_api_token")
+    );
+}
+
+#[test]
+fn st59_web_password_session_key_is_rejected() {
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "session-key-0123456789",
+            "session-key-0123456789",
+            "api-token-0123456789",
+            "session-key-0123456789"
+        ),
+        Err("same_as_session_key")
+    );
+}
+
+#[test]
+fn st59_web_password_confirmation_is_required() {
+    // Scenario: 合言葉を変えても、失敗の数えは数え直されない
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "new-web-password-012345",
+            "other-web-password-012345",
+            "api-token-0123456789",
+            "session-key-0123456789"
+        ),
+        Err("mismatch")
+    );
+}
+
+#[test]
+fn st59_web_password_accepts_a_valid_distinct_value() {
+    // Scenario: 画面の合言葉を変えると、設定のファイルは照らす値だけが変わる
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "new-web-password-012345",
+            "new-web-password-012345",
+            "api-token-0123456789",
+            "session-key-0123456789"
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn st59_web_password_validation_does_not_compare_the_old_plaintext() {
+    // Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない
+    assert_eq!(
+        web_session::validate_new_web_password(
+            "old-web-password-012345",
+            "old-web-password-012345",
+            "api-token-0123456789",
+            "session-key-0123456789"
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn st59_web_password_error_names_are_stable() {
+    let errors = [
+        "too_short",
+        "placeholder",
+        "same_as_api_token",
+        "same_as_session_key",
+        "mismatch",
+    ];
+    assert_eq!(errors.len(), 5);
+}
+
+#[test]
+fn st59_web_password_verifier_is_argon2id() {
+    // Scenario: 今の合言葉が違えば、新しい合言葉が検査に当たっても今の合言葉の違いで断る
+    let verifier = web_session::password_verifier_for_test("new-web-password-012345").unwrap();
+    assert!(verifier.starts_with("$argon2id$"));
+    assert!(web_session::verify_password_verifier(
+        &verifier,
+        "new-web-password-012345"
+    ));
+}
+
+#[test]
 fn st59_swap_bundle_contains_the_three_shared_values() {
     let bundle = SharedSecrets::from_password(
         "api-token-for-test".to_owned(),
@@ -26,6 +189,8 @@ fn st59_swap_bundle_contains_the_three_shared_values() {
 #[tokio::test]
 // Scenario: 変えている最中に前の合言葉で照合が通ったログインの印は、変えた後は使えない
 async fn st59_swap_login_cookie_uses_the_old_tag_and_is_revoked_after_swap() {
+    // Scenario: 画面から合言葉を変えると、起動し直さずにほかのログインが使えなくなる
+    // Scenario: 合言葉を変えると、ほかのブラウザのログインは切れ、変えた画面はログインしたまま
     let app = App::for_test(testdb::pool().await, "old-api-token");
     let old_password = app.web_password_for_test().to_owned();
     let succeeded = app.login.check_succeeded_for_test();

@@ -4570,6 +4570,7 @@ fn api_router(app: App) -> Router {
                 .get(web_session::session_get),
         )
         .route("/collector-setup", post(web_session::collector_setup_post))
+        .route("/web-password", post(web_session::web_password_post))
         .route("/update-status", get(update_status::get))
         // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
         .route_layer(axum::middleware::from_fn_with_state(
@@ -4951,6 +4952,7 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         web_session::session_delete,
         web_session::session_get,
         web_session::collector_setup_post,
+        web_session::web_password_post,
         satellite_admin::satellites_get,
         satellite_admin::satellites_post,
         satellite_admin::satellites_delete,
@@ -5070,6 +5072,8 @@ pub(crate) async fn run_inner() -> anyhow::Result<()> {
         web_session::SessionState,
         web_session::CollectorSetupResponse,
         web_session::CollectorSetupError,
+        web_session::WebPasswordChangeRequest,
+        web_session::WebPasswordChangeError,
         satellite_admin::SatelliteOut,
         satellite_admin::CredentialOut,
         satellite_admin::IssueRequest,
