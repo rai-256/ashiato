@@ -37,3 +37,14 @@
 - `cargo test -p ashiato-server st59_web_password_handler_uses_new_password_after_rebuilding_app` rc=0
 - `cargo test -p ashiato-server st59_both_change_values_are_not_logged` rc=0
 - `tools/release/install-check.sh --self-test` rc=0
+
+# settle 再々々処置（2026-11-22）
+
+- R2: re-review 2 は 8e0614028 を見ていた。その後の 390bdc385 で、Scenario の印つき・`multi_thread` の `st59_swap_login_cookie_uses_the_checked_tag_and_is_revoked_after_swap`（st59_tests.rs:1348）を足し、ログインを差し込み口 `wait_before_cookie_insert_for_test`（web_session.rs:1530。照合の後・`core.web_session` の INSERT の前）で止めて、本物の `POST /web-password` を通している（旧名の単一 thread の試験は置き換え済み）。この回はコードを変えず、根拠の変異で落ちることを確かめた。
+
+検証:
+
+- `cargo test -p ashiato-server st59_swap_login_cookie -- --list` → 1 本
+- 現在の木: `cargo test -p ashiato-server st59_swap_login_cookie_uses_the_checked_tag_and_is_revoked_after_swap` rc=0（1 passed）
+- 変異（web_session.rs:1535 `.bind(secrets.tag())` → `.bind(app.secrets_snapshot().tag().to_vec())`）: 同じ試験が rc=101、`st59_tests.rs:1372` で `assertion left == right failed  left: 200 right: 401`。変異は戻した（`git checkout`）
+- `cargo test -p ashiato-server st59_` rc=0（38 passed）
