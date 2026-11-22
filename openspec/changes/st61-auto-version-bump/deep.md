@@ -44,3 +44,4 @@ FR-134 の未決（NEEDS CLARIFICATION と 2026-11-21 の補足の 3 つの「�
 
 - FR-134: 本文を「CI が通り、前の番号から製品が変わった main の commit に」へ ★ 2026-11-23 訂正（Q1）。未決の 3 つ —— NEEDS CLARIFICATION「真ん中の数字をいつ上げるか」（Q3: 確認バッチが入ったら）・補足の「式を変えるか」（Q2: 桁を広げる）・「文書だけの merge でも番号を進めるか」（Q1: 進めない）—— を同じ ★ で閉じた。Q4 は本文と食い違わない（本物に使わない 0.0.x を名乗る）ので本文は変えず、★ に実装の形だけを記した
 - Story ST61: `docs/stories/stories.json` の題と完了の判定 1 つ目を Q1 に合わせて直し（3 つ目の「1 年分の merge の番号でも落ちない」は Q2・Q3 の答えでも成り立つので変えない）、`make_story.py` で `ST61.md` を貼り直した
+- 整合の確認 `docs/audit/2026-11-23-st61-fr134-consistency.md`（C6・K1。行き先はすべて記入済み）: 要件 §5 の方針の行・ST61 の価値と judged・INDEX.md の題・`docs/release.md`・`docs/production-prep.md` の「merge ごとに」を改訂後の FR-134 に合わせ、FR-134 に「0.x の間に真ん中の上限に届けば、左を上げずに式を見直す」を ★ で足した

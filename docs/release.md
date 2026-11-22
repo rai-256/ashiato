@@ -4,11 +4,11 @@
 
 ## 1. 版番号と準備
 
-> ★ 2026-11-21: **この手順書の §1・§6・§8 は置き換え中。** 要件の改訂（依頼 #352。`docs/requirements.md` FR-104・FR-105・FR-134〜FR-137）で、版番号は main の merge ごとに機械が進め、正式版・ベータ版・開発版は番号を指す札になった。改訂を受ける Story が書き直すまで、§1・§6・§8 の手順で `Cargo.toml` の版を上げたり印 `v*` を打ったりしない（打つと旧い形の正式版ができる）。整合の確認 `docs/audit/2026-11-21-version-labels-consistency.md` の C10。
+> ★ 2026-11-21: **この手順書の §1・§6・§8 は置き換え中。** 要件の改訂（依頼 #352。`docs/requirements.md` FR-104・FR-105・FR-134〜FR-137）で、版番号は CI が通り製品が変わった main の commit に機械が付け（★ 2026-11-23 訂正。ST61 の深掘り Q1。整合の確認 `docs/audit/2026-11-23-st61-fr134-consistency.md` の C4）、正式版・ベータ版・開発版は番号を指す札になった。改訂を受ける Story が書き直すまで、§1・§6・§8 の手順で `Cargo.toml` の版を上げたり印 `v*` を打ったりしない（打つと旧い形の正式版ができる）。整合の確認 `docs/audit/2026-11-21-version-labels-consistency.md` の C10。
 
 版番号の出所は `Cargo.toml` の workspace の `version` だけとする。`tools/release/version.sh source` で読み、他のファイルに版番号を手書きしない。ベータ版は `v<出所>-beta.N` の印、開発版は出所に日付を足した `<出所>-dev.YYYYMMDD` とする。
 
-コードを変更した PR では、CI の `package` job が同じ版番号の Linux / Windows のサーバ、PC の収集アプリ、携帯の APK を組み立てる。配布物は `tools/release/check-artifacts.sh` で確認し、1つでも欠けたら公開しない。
+コードを変更した PR では、CI の `package-linux`・`package-windows`・`package-artifacts` の job が同じ版番号の Linux / Windows のサーバ、PC の収集アプリ、携帯の APK を組み立てる。配布物は `tools/release/check-artifacts.sh` で確認し、1つでも欠けたら公開しない。
 
 正式版を公開した後は、次の開発を始める前に `Cargo.toml` の workspace の `version` を次の版へ上げて commit する。これにより、開発版が直前に公開した正式版より古く見えないようにする。
 
