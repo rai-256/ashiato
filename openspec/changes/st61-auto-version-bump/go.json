@@ -1,0 +1,2558 @@
+{
+ "format": 2,
+ "purpose": "本人が版を上げる操作をしなくても、main に入った製品の変更ごとに、前と違う番号のサーバ・PC・携帯の組み立てが残る。同じ番号で中身の違う組み立ては作られず、直した版をインストーラが別の版として入れられる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "この Story が回すもの",
+  "text": "main の merge → CI（前に成功した run からの差分で試す）\n              ↓ 成功\n         番号付け（1 本ずつ）── 文書だけなら付けない\n              ↓ 番号を決める（左はファイル・確認バッチで真ん中）\n         印 build-<番号> → 組む → 配布元の下書き（消さない）\n              ↓\n   印 v<番号>（移る間の正式版・ベータ版）・開発版はこの番号の commit から"
+ },
+ "before_after": [
+  {
+   "area": "版番号の決め方",
+   "before": "本人が Cargo.toml の版を手で上げる（上げ忘れると同じ 0.1.x）",
+   "after": "番号付けが 0.2.0 から決める。本人は左の数字のファイルだけ"
+  },
+  {
+   "area": "番号の組み立て",
+   "before": "CI の成果物に 90 日だけ残る",
+   "after": "番号ごとに配布元の下書きに残り、消さない"
+  },
+  {
+   "area": "PR・手元の組み立ての版",
+   "before": "出所の版 0.1.1",
+   "after": "0.0.1（本物の番号を名乗らない）"
+  },
+  {
+   "area": "携帯の versionCode",
+   "before": "左×100万＋真ん中×1万＋右×100＋末尾（真ん中と右は 99 まで）",
+   "after": "左×1千万＋真ん中×1万＋右（真ん中 999・右 9,999 まで）"
+  },
+  {
+   "area": "正式版の印・開発版",
+   "before": "出所の版の印を main か修正の枝に付ける。開発版は main の HEAD",
+   "after": "番号の commit にだけ印。開発版は最新の番号の commit"
+  }
+ ],
+ "highlights": [
+  "when.3",
+  "nonum.5",
+  "transition.2",
+  "how.4",
+  "android.4"
+ ],
+ "features": [
+  {
+   "id": "when",
+   "title": "番号が付く commit",
+   "summary": "CI が通り、前の番号から製品が変わった main の commit にだけ付く",
+   "tldr": "CI が成功し、前の番号から製品が変わった main の commit に番号が付く。",
+   "gist": [
+    "文書だけの merge には付けない。道具・CI・試験だけの merge には付ける。",
+    "CI が取り消された merge の中身は、後で番号が付く commit に入る。"
+   ],
+   "words": [
+    {
+     "term": "製品",
+     "def": "docs/・openspec/・.md 以外のファイル。道具・CI・試験も含む"
+    },
+    {
+     "term": "番号付け",
+     "def": "CI が終わった後に走り、番号を決めて組む別の流れ"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 150\" role=\"img\" aria-label=\"製品に触れる merge の CI が取り消されても、後の文書だけの merge の CI が成功すると、その commit に番号が付き、取り消された merge の中身も入る\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"10\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"60.0\" y=\"29.0\" text-anchor=\"middle\">merge A</text><text x=\"60.0\" y=\"44.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">製品・CI 取り消し</text><rect x=\"160\" y=\"10\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"220.0\" y=\"29.0\" text-anchor=\"middle\">merge B</text><text x=\"220.0\" y=\"44.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">文書だけ・CI 成功</text><rect x=\"320\" y=\"10\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"380.0\" y=\"29.0\" text-anchor=\"middle\">0.2.1</text><text x=\"380.0\" y=\"44.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">B に付く。A を含む</text><rect x=\"0\" y=\"96\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"60.0\" y=\"115.0\" text-anchor=\"middle\">merge C</text><text x=\"60.0\" y=\"130.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">文書だけ・CI 成功</text><rect x=\"160\" y=\"96\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"220.0\" y=\"115.0\" text-anchor=\"middle\">付けない</text><text x=\"220.0\" y=\"130.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">製品が変わらない</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M122 32 L156 32\"/><path d=\"M282 32 L316 32\"/><path d=\"M122 118 L156 118\"/></g><g></g></svg>",
+    "caption": "取り消された merge の中身の行き先",
+    "note": "merge の名前は説明用です"
+   },
+   "points": [
+    {
+     "id": "when.1",
+     "kind": "normal",
+     "text": "main への push の CI が成功で終わると、番号付けが走る。前に番号を付けた commit からの差分が製品に触れていれば、その commit に次の番号を 1 つ付ける。main に commit は積まない。",
+     "refs": {
+      "requirements": [
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける"
+      ],
+      "scenarios": [
+       "製品に触れた merge の commit の run が成功すると、次の番号が付く",
+       "番号を付けても main の commit は増えない",
+       "main の push の成功した run だけが番号付けを起こす"
+      ],
+      "decisions": [
+       "Q1",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "when.2",
+     "kind": "normal",
+     "text": "番号付けは CI と別の流れで、1 本ずつ流れ、取り消されない。終わった run の commit を全部の履歴で取り出して組む（main の HEAD は組まない）。",
+     "refs": {
+      "requirements": [
+       "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+      ],
+      "scenarios": [
+       "番号付けは、CI と別の、取り消さない 1 本ずつの流れにある",
+       "番号付けを起こさない run は、待っている番号付けを取り消さない",
+       "番号付けは、終わった run の commit を全部の履歴で取り出す"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     }
+    },
+    {
+     "id": "when.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "merge 1 つに番号 1 つではない。CI が次の merge に取り消された merge には番号が付かず、その中身は後の commit の番号に入る。文書だけの merge でも、その前に取り消された製品の merge があれば番号が付く。",
+     "examples": [
+      {
+       "wrong": "製品の merge A に 0.2.1、文書の merge B は番号なし",
+       "right": "A の CI が取り消されたら、A は番号なし\nB の CI が成功して B に 0.2.1（A の中身を含む）"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける"
+      ],
+      "scenarios": [
+       "取り消された merge の中身は、後の文書だけの merge の番号に入る",
+       "文書だけの merge の commit には番号を付けない",
+       "道具だけの merge の commit にも番号が付く"
+      ],
+      "decisions": [
+       "Q1",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "when.4",
+     "kind": "normal",
+     "text": "そのため main への push の CI は、直前の push からでなく、前に成功した main の run の commit からの差分で重い job を出し分ける。取り消された merge のコードも、番号が付く前に試される。見つからなければ全部走らせる。",
+     "refs": {
+      "requirements": [
+       "main への push の CI は、前に成功した main の run からの差分で出し分ける"
+      ],
+      "scenarios": [
+       "取り消された run の後の文書だけの merge でも、コードの job が走る",
+       "前に成功した main の run が見つからなければ、全部走らせる"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "when.5",
+     "kind": "exception",
+     "text": "PR・fork・main 以外の枝の run では番号を付けない。番号を付けた commit より前の commit は、後から run が成功しても番号を付けない。同じ commit を走らせ直すと、付けた番号のまま返す。",
+     "refs": {
+      "requirements": [
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける"
+      ],
+      "scenarios": [
+       "番号を付けた commit の祖先の run が後から成功しても、番号を付けない",
+       "同じ commit の run を走らせ直しても、番号は変わらない",
+       "欠番の commit を走らせ直すと、後の番号が付いていても、その番号を返す",
+       "番号の印が無い木では、文書だけの merge に番号を付けない"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "how",
+   "title": "番号の決め方",
+   "summary": "左は本人のファイル、真ん中は確認バッチ、右はそれ以外で 1 つ進む",
+   "tldr": "左の数字は本人がファイルで決め、真ん中と右は機械が決める。最初は 0.2.0。",
+   "gist": [
+    "間に確認バッチの merge があれば真ん中を上げ、右を 0 に戻す。無ければ右を 1 上げる。",
+    "左を下げる・上限を超えるときは、番号を付けずに止まって理由を出す。"
+   ],
+   "words": [
+    {
+     "term": "確認バッチの merge",
+     "def": "Story をまとめて main に入れる verify/<日付> の枝の merge"
+    },
+    {
+     "term": "左の数字のファイル",
+     "def": "tools/release/MAJOR。数字 1 つ。本人が PR で変える"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 130\" role=\"img\" aria-label=\"確認バッチの merge が間にあれば真ん中の数字が上がり右が 0 に戻る。無ければ右が 1 上がる。左は本人がファイルで決める\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"40\" width=\"100\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"50.0\" y=\"59.0\" text-anchor=\"middle\">0.2.4</text><text x=\"50.0\" y=\"74.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">前の番号</text><rect x=\"170\" y=\"0\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"255.0\" y=\"19.0\" text-anchor=\"middle\">0.3.0</text><text x=\"255.0\" y=\"34.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">間に確認バッチの merge</text><rect x=\"170\" y=\"84\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"255.0\" y=\"103.0\" text-anchor=\"middle\">0.2.5</text><text x=\"255.0\" y=\"118.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">確認バッチが無い</text><rect x=\"410\" y=\"40\" width=\"190\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"505.0\" y=\"59.0\" text-anchor=\"middle\">1.0.0</text><text x=\"505.0\" y=\"74.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">本人が左のファイルを 1 に</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M102 56 L166 24\"/><path d=\"M102 68 L166 104\"/></g><g></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M342 22 L406 56\"/></g><g></g></svg>",
+    "caption": "前の番号 0.2.4 から次の番号への進み方",
+    "note": "番号は説明用です"
+   },
+   "points": [
+    {
+     "id": "how.1",
+     "kind": "normal",
+     "text": "最初の番号は 0.2.0。今の形で使った 0.1.0・0.1.1 より大きいので、本人の PC と携帯の 0.1.x より新しいと比べられる。",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ],
+      "scenarios": [
+       "最初の番号は 0.2.0"
+      ],
+      "decisions": [
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "how.2",
+     "kind": "normal",
+     "text": "前の番号から番号を付ける commit までの間に確認バッチの merge が 1 つでもあれば、真ん中を 1 上げて右を 0 にする。無ければ右を 1 上げる。確認バッチの merge は merge の題（verify/ の枝）で見分ける。",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ],
+      "scenarios": [
+       "間に確認バッチの merge が無ければ、右の数字が 1 上がる",
+       "間に確認バッチの merge があれば、真ん中が上がり右が 0 に戻る",
+       "確認バッチの merge 自身の番号は、真ん中が上がる",
+       "前の番号の commit が確認バッチの merge でも、次は右が上がる"
+      ],
+      "decisions": [
+       "Q3",
+       "D5",
+       "D15"
+      ]
+     }
+    },
+    {
+     "id": "how.3",
+     "kind": "normal",
+     "text": "左の数字は tools/release/MAJOR（今は 0）。本人が PR で 1 に変えると、その後の最初の番号が 1.0.0 になる。",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ],
+      "scenarios": [
+       "左の数字のファイルを上げると、真ん中と右が 0 になる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "how.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "確認バッチは 30 日で約 21 回入るので、真ん中は年に 250 ほど進む（0.250.x）。真ん中の上限 999 に約 4 年で届き、届くと番号付けが止まる。届く前に左を上げるか式を見直す。",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ],
+      "scenarios": [
+       "真ん中か左が上限を超える番号は付けない",
+       "携帯の versionCode に収まらない番号は付けない"
+      ],
+      "decisions": [
+       "D5",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "how.5",
+     "kind": "exception",
+     "text": "左のファイルを下げた・数字 1 つでない・履歴が浅い木では、番号を付けずに止まる。組み立てが落ちた番号は次の commit に回さず、欠番になる。",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ],
+      "scenarios": [
+       "左の数字のファイルを下げると、番号を付けずに止まる",
+       "左の数字のファイルが数字 1 つでなければ、番号を付けずに止まる",
+       "組み立てが落ちた番号は、次の commit に回さない",
+       "浅い木では、番号付けの判定は通らない"
+      ],
+      "decisions": [
+       "D7",
+       "D14"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "keep",
+   "title": "番号の組み立てを残す",
+   "summary": "番号ごとに印と下書きのリリースを 1 つ作り、消さない",
+   "tldr": "番号ごとに印 build-<番号> を作り、組み立てを配布元の下書きに残す。消さない。",
+   "gist": [
+    "下書きは公開されず、更新の確認にも数えられない。",
+    "同じ番号を走らせ直すと、欠けた配布物だけを足す。置いた物は上書きしない。"
+   ],
+   "words": [
+    {
+     "term": "番号の印",
+     "def": "build-<番号> の名前の git の印。番号の記録になる"
+    },
+    {
+     "term": "下書きのリリース",
+     "def": "配布元（GitHub）の公開しないリリース。push できる人にだけ見える"
+    }
+   ],
+   "no_picture": "上の作るものの図と同じになる",
+   "points": [
+    {
+     "id": "keep.1",
+     "kind": "normal",
+     "text": "番号を決めたら、組む前に印 build-<番号> を作る。その後でサーバ（Windows・Linux）・PC の収集アプリ・携帯の APK を組み、検査を通してから、同じ名前の下書きのリリース 1 つに置く。説明文に番号と commit を書く。",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ],
+      "scenarios": [
+       "番号の印を作る手順は、印を作る要求だけを出す",
+       "番号を付けると、下書き 1 つに配布物を置く要求だけを出す",
+       "番号を付けた配布物の印は、番号と commit を持つ",
+       "配布物の検査に落ちた置き場では、配布元へ何も書かない"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "keep.2",
+     "kind": "normal",
+     "text": "番号の組み立ては全部残し、消さない（月に約 1.7 GB）。どの番号にも後から組み直さずに正式版などの札を付けられる。消し方は札を作る ST62 で決める。",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "keep.3",
+     "kind": "exception",
+     "text": "同じ番号の下書きに配布物が揃っていれば何もしない。欠けていればそれだけを足す。印か下書きの説明文が別の commit を指していれば、何も置かずに止まる。",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ],
+      "scenarios": [
+       "同じ番号の下書きに配布物が揃っていれば、置き直さない",
+       "下書きに欠けた配布物があれば、それだけを足す",
+       "番号の印が別の commit を指していれば、何も置かずに止まる",
+       "下書きの説明文の commit が違えば、何も置かずに止まる"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "keep.4",
+     "kind": "caution",
+     "tags": [
+      "Security"
+     ],
+     "text": "配布元へ書く権限は番号付けの job にだけ持たせ、その job は公開と印 v* の操作をしない。番号の組み立ては CI のキャッシュを使わず、保存もしない（PR の組み立てが番号の組み立てを引かない）。",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ],
+      "scenarios": [
+       "番号付けの workflow は、前の組み立てを使い回さず、書く権限をその job にだけ持つ"
+      ],
+      "decisions": [
+       "D12"
+      ]
+     }
+    },
+    {
+     "id": "keep.5",
+     "kind": "normal",
+     "text": "番号の印 build-* は配った印（v*）にも開発版の印にも数えない。配った移行の検査と送信契約の検査は、今のまま v* だけを数える。",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ],
+      "scenarios": [
+       "番号の印は、配った印に数えない"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "nonum",
+   "title": "番号を持たない組み立て",
+   "summary": "PR・手元・CI の試験の組み立ては、本物に使わない 0.0.x を名乗る",
+   "tldr": "PR と手元と CI の試験の組み立ては 0.0.x を名乗り、本物の番号を名乗らない。",
+   "gist": [
+    "根の Cargo.toml の版を 0.0.1 にし、番号を持たない組み立ての版にする。",
+    "CI の更新の試験は 0.0.2〜0.0.5 で組む。0.0.0 は使わない。"
+   ],
+   "words": [
+    {
+     "term": "出所の版",
+     "def": "根の Cargo.toml の版。番号を渡さない組み立てが名乗る"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 130\" role=\"img\" aria-label=\"PR と手元と CI の試験の組み立ては 0.0.x を名乗り、番号付けだけが 0.2.0 以上の番号を名乗る\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"0\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"85.0\" y=\"19.0\" text-anchor=\"middle\">PR・手元・main の CI</text><text x=\"85.0\" y=\"34.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">0.0.1</text><rect x=\"0\" y=\"52\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"85.0\" y=\"71.0\" text-anchor=\"middle\">CI の更新の試験</text><text x=\"85.0\" y=\"86.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">0.0.2〜0.0.5</text><rect x=\"260\" y=\"26\" width=\"150\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"335.0\" y=\"45.0\" text-anchor=\"middle\">番号付けだけ</text><text x=\"335.0\" y=\"60.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">0.2.0 から</text><rect x=\"450\" y=\"26\" width=\"150\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"525.0\" y=\"45.0\" text-anchor=\"middle\">使わない</text><text x=\"525.0\" y=\"60.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">0.0.0（互換の値）</text></g></svg>",
+    "caption": "組み立てごとの版番号"
+   },
+   "points": [
+    {
+     "id": "nonum.1",
+     "kind": "normal",
+     "text": "版番号を渡さずに組むと、4 つの部品（サーバ・画面・携帯・PC）が出所の版 0.0.1 を名乗る。番号を渡すのは番号付けの流れだけで、CI の配る形の組み立ての job は番号を渡さない。",
+     "refs": {
+      "requirements": [
+       "番号を持たない組み立ては、0.0.x を名乗る",
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+      ],
+      "scenarios": [
+       "版番号を渡さずに組んだ部品の版番号は 0.0.1",
+       "配る形の組み立ての job は、番号を版番号に渡さない",
+       "版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ"
+      ],
+      "decisions": [
+       "Q4",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "nonum.2",
+     "kind": "normal",
+     "text": "渡せる版番号は 2 つの系だけ。出所の版の形（0.0.1 とその -beta・-dev）か、左が左の数字のファイルと同じ番号の形。それ以外は、どの部品の組み立ても落ちる。4 か所（bash・Rust・gradle・画面）が同じ表で確かめる。",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+      ],
+      "scenarios": [
+       "渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する",
+       "出所の版と違う 0.0.x を渡すと、組み立てが失敗する",
+       "決めた形でない版番号を渡すと、組み立てが失敗する",
+       "出所の版が 0.0.x でないと、版の検査が落ちる",
+       "出所の版が MAJOR.MINOR.PATCH の形でないと、版の検査が落ちる",
+       "左の数字のファイルが数字 1 つでないと、版の検査が落ちる",
+       "携帯の組み立ての設定に版番号を手で書くと、版の検査が落ちる",
+       "画面の package.json に版番号を書くと、版の検査が落ちる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "nonum.3",
+     "kind": "normal",
+     "text": "渡した番号は 4 つの部品の組み立ての印・サーバの版の記録・更新の履歴に同じ値で入る。API の契約の版は渡した番号に依らず 0.0.1 のまま（変えると main に commit を積むことになる）。",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+      ],
+      "scenarios": [
+       "渡した版番号は、4 つの部品の印に同じ値で入り、印は .dirty を持たない",
+       "渡した版番号で組んだサーバの版の記録は、渡した版番号を持つ",
+       "渡した版番号で組んだサーバが知らない版で止まると、self の行は渡した版番号を持つ",
+       "渡した版番号で組んだサーバの更新の履歴の今の版は、渡した版番号で始まる",
+       "API の契約の版は、渡した版番号に依らず出所の版"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "nonum.4",
+     "kind": "normal",
+     "text": "CI のインストーラの更新の試験は組み立ての版を 0.4.0・0.5.0 などから 0.0.2〜0.0.5 に替えるだけ。更新・戻し・記録の振る舞いは変えない。",
+     "refs": {
+      "requirements": [
+       "サーバのインストーラは、入っている版と違う版で走らせると、サーバを止めてから更新の手順を進める",
+       "更新の移行が落ち、この回の退避があれば、退避から DB を戻して前の版で起こし直す",
+       "この回の退避が無いとき・移行の失敗でない終わり方では、DB を戻さずに前の版で起こし直す",
+       "更新や戻しが途中で止まっても、サーバは半端な DB で起きず、走らせ直すと前の版へ戻し終えてからやり直す",
+       "更新が入らなかったことを、インストーラの窓と状態の置き場の更新の記録に残す",
+       "戻したことを、更新の履歴に「落ちた試みの結果」と「戻した」の 2 行で残す",
+       "同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる",
+       "切った更新の確認は、更新でも戻しでも切ったままで、戻した後も新しい版を「更新あり」に出す",
+       "番号を持たない組み立ては、0.0.x を名乗る"
+      ],
+      "scenarios": [
+       "CI の更新の試験の組み立ては、0.0.x だけを名乗る"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "nonum.5",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Android"
+     ],
+     "text": "携帯の PR の APK は versionCode が 1 になり、本人の携帯の 0.1.x（10,199）にも番号の APK にも上書きで入らない。試すには、未送信を送り切ってから消して入れ直すか、番号の APK を使う。",
+     "refs": {
+      "requirements": [
+       "番号を持たない組み立ては、0.0.x を名乗る",
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "nonum.7",
+     "kind": "normal",
+     "text": "旧い「3 つの部品の版番号は、1 つの出所から決まる」は外し、上の番号か出所の版から決まる形に置き換える（旧い本文は、出所の版と違う版番号を渡すと落ちた）。",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、1 つの出所から決まる",
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "nonum.6",
+     "kind": "normal",
+     "text": "手で起こす確かめの組み立ては、PR の組み立ての版 0.0.1 から 0.0.1-beta.1 を名乗る下書きにする。下書きの印の名前は build- で始めない（番号の記録に混ぜない）。",
+     "refs": {
+      "requirements": [
+       "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない"
+      ],
+      "scenarios": [
+       "確かめの組み立ては、印を作らずに下書きのリリースになる",
+       "確かめの組み立ても、配布物が欠ければ下書きを作らない",
+       "開発版の確かめの組み立ては、開発版の鍵で署名した下書きになり、印を作らない"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "android",
+   "title": "携帯の上書きの番号",
+   "summary": "versionCode の式の桁を広げ、1 年分の番号でも組み立てが落ちない",
+   "tldr": "携帯の versionCode の式を左×1千万＋真ん中×1万＋右に変え、桁を広げる。",
+   "gist": [
+    "今の式は真ん中と右が 99 までで、番号を自動で進めると数か月で落ちる。",
+    "配った APK はまだ無いので、式を変えても入れ直しになる APK は無い。"
+   ],
+   "words": [
+    {
+     "term": "versionCode",
+     "def": "Android が上書きの可否を決める数。小さい数の上書きは断られる"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 110\" role=\"img\" aria-label=\"0.1.1 は前の式で 10,199。最初の番号 0.2.0 は新しい式で 20,000 で、上書きで入る。PR の 0.0.1 は 1 で、上書きで入らない\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"30\" width=\"160\" height=\"48\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"80.0\" y=\"51.0\" text-anchor=\"middle\">0.1.1（本人の携帯）</text><text x=\"80.0\" y=\"66.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">10,199</text><rect x=\"220\" y=\"0\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"305.0\" y=\"19.0\" text-anchor=\"middle\">0.2.0（番号）</text><text x=\"305.0\" y=\"34.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">20,000。上書きで入る</text><rect x=\"220\" y=\"62\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"305.0\" y=\"81.0\" text-anchor=\"middle\">0.0.1（PR）</text><text x=\"305.0\" y=\"96.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">1。上書きで入らない</text></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M392 22 L430 22\"/></g><g><rect x=\"430\" y=\"0\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"515.0\" y=\"19.0\" text-anchor=\"middle\">0.3.12</text><text x=\"515.0\" y=\"34.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">30,012</text></g></svg>",
+    "caption": "版番号と versionCode",
+    "note": "0.3.12 は説明用の番号です"
+   },
+   "points": [
+    {
+     "id": "android.1",
+     "kind": "normal",
+     "text": "versionCode は 左×10,000,000 + 真ん中×10,000 + 右。後ろの -beta・-dev は値に入れない（同じ番号は同じ値）。手で付けない。",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "scenarios": [
+       "versionCode は版番号の 3 つの数字から決まる",
+       "後ろに -beta や -dev が付いても、同じ番号は同じ versionCode になる",
+       "組み立てた APK の versionCode は、渡した版番号から計算した値"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "android.2",
+     "kind": "normal",
+     "text": "最初の番号 0.2.0 は 20,000 で、前の式の 0.1.0・0.1.1（10,099・10,199）より大きい。",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "scenarios": [
+       "最初の番号は、前の式の 0.1.x の APK より大きい"
+      ],
+      "decisions": [
+       "D3",
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "android.3",
+     "kind": "exception",
+     "text": "真ん中 999・右 9,999・左 209 を超える版番号では、計算も携帯の組み立ても落ちる（Android の上限 2,100,000,000 の内側に収める）。",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "scenarios": [
+       "桁を超える版番号では、versionCode の計算が失敗する",
+       "桁を超える版番号では、携帯の組み立てが失敗する"
+      ],
+      "decisions": [
+       "D3",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "android.5",
+     "kind": "normal",
+     "text": "旧い「携帯の versionCode は版番号から計算する」（左×1,000,000 + 真ん中×10,000 + 右×100 + 末尾）は外し、上の式に置き換える。",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は版番号から計算する",
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "android.4",
+     "kind": "caution",
+     "tags": [
+      "変更困難",
+      "Android"
+     ],
+     "text": "この式は一度 APK を配ったら版をまたいで変えない。Android は小さい versionCode の上書きを断るので、配った値より小さくなる式には戻れない。",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "transition",
+   "title": "札ができるまでの正式版と開発版",
+   "summary": "印 v* は番号の commit にだけ。開発版は最新の番号の commit から組む",
+   "tldr": "札（ST62・ST63）ができるまで、印 v* は番号を付けた commit にだけ付け、開発版はその commit から組む。",
+   "gist": [
+    "印 v<番号> は、その commit の番号と同じ数字のときだけ公開する。",
+    "修正の枝 release/* からは出せなくなる。直すときは main で直して次の番号を出す。"
+   ],
+   "words": [
+    {
+     "term": "札",
+     "def": "正式版・ベータ版・開発版を番号へ付ける印。ST62・ST63 が作る"
+    }
+   ],
+   "no_picture": "印の判定は条件の表で足り、図にすると文の繰り返しになる",
+   "points": [
+    {
+     "id": "transition.1",
+     "kind": "normal",
+     "text": "印 v<番号>（と -beta.<N>）は、印の commit に番号の印 build-<番号> があり、3 つの数字が同じときだけ公開する。番号の無い commit・番号の違う印・main の祖先でない commit の印は公開しない。",
+     "refs": {
+      "requirements": [
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+      ],
+      "scenarios": [
+       "正式版の印は、通常のリリースと判定される",
+       "ベータ版の印で、先行公開のリリースになる",
+       "印の版とその commit の番号が違えば公開しない",
+       "番号の無い commit の印は公開しない",
+       "main の祖先でない commit の印は公開しない",
+       "修正の枝の印も、main の祖先でなければ公開しない"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "transition.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "緊急の修正の枝 release/* の例外を外す。番号は main にだけ付くので、枝の上の commit は番号を持てない。急ぎの直しも main で直して次の番号を出す（別の道は ST62 が決める）。",
+     "refs": {
+      "requirements": [
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+      ],
+      "scenarios": [
+       "修正の枝の印も、main の祖先でなければ公開しない"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "transition.3",
+     "kind": "normal",
+     "text": "1 つのリリースの配布物は今のまま 4 つで同じ版番号。配布物の名前、浅い木で通さないこと、決めた形でない印は配らないことも今のまま。",
+     "refs": {
+      "requirements": [
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+      ],
+      "scenarios": [
+       "浅い木では、印の判定は通らない",
+       "1 つのリリースの配布物は、決めた名前の 4 つで、同じ版番号を持つ",
+       "開発版のリリースの配布物は、開発版の APK を含む 4 つで、同じ版番号を持つ",
+       "開発版の置き場に携帯の APK が無ければ、検査は落ちる",
+       "開発版の置き場に正式版の名前の APK があれば、検査は落ちてその名前を示す",
+       "配布物が 1 つでも欠ければ公開しない",
+       "決めた形でない印は、どのチャンネルにも配らない",
+       "開発版の印は、配った印に数えない"
+      ]
+     }
+    },
+    {
+     "id": "transition.6",
+     "kind": "normal",
+     "text": "旧い「印の名前で 3 つのチャンネルに分けて配り…」と「開発版は、幹にその日の変更があった日だけ…」は、番号の形に合わせた名前の Requirement に書き直す（振る舞いの違いは上の 2 点）。",
+     "refs": {
+      "requirements": [
+       "印（タグ）の名前で、3 つのチャンネルに分けて配り、どのチャンネルも 4 つの配布物を並べる",
+       "開発版は、幹にその日の変更があった日だけ、携帯の APK を含めて作り直す",
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+       "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "transition.7",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "「緊急の修正の枝は、配った版から切り…」を正典から外す。配った版はまだ無いので、移す枝も印も無い。",
+     "refs": {
+      "requirements": [
+       "緊急の修正の枝は、配った版から切り、移行と封筒の形を変えない"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "transition.4",
+     "kind": "normal",
+     "text": "開発版の作り直しは main の HEAD でなく、最も大きい番号の commit を <番号>-dev.<日付> で組む。印 nightly がその commit を指していれば組まない。番号がまだ無ければ組まない。",
+     "refs": {
+      "requirements": [
+       "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+      ],
+      "scenarios": [
+       "nightly が最新の番号の commit を指していれば、開発版を作らない",
+       "nightly より新しい番号があれば、その番号の commit で開発版を作り直す",
+       "番号がまだ無ければ、開発版を組まない",
+       "印 nightly がまだ無ければ、作り直す",
+       "予定の実行が落ちた次の回に、同じ変更を拾う",
+       "開発版の作り直しの workflow は、判定が返した commit を組む"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "transition.5",
+     "kind": "normal",
+     "text": "開発版の公開の設定が入っていない間は、予定の実行は組まず、手で起こしても公開しない。日本時間 0:00 に起きること、開発版の鍵での署名は公開の job の中だけであることは今のまま。",
+     "refs": {
+      "requirements": [
+       "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+      ],
+      "scenarios": [
+       "浅い木では、開発版の作り直しの判定は通らない",
+       "公開の設定が入っていなければ、予定の実行は組まずに終える",
+       "公開の設定が入っていなければ、手で起こした作り直しも公開しない",
+       "公開の設定が無ければ、印 nightly を動かす手順は走らない",
+       "開発版の作り直しの workflow は、携帯の APK を組み、公開の job の中でだけ開発版の鍵で署名する",
+       "開発版の作り直しは、日本時間の 0:00 に起きる"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "札（正式版・ベータ版・開発版）を番号へ動かす操作・公開・正式な鍵の署名（ST62）",
+   "refs": {}
+  },
+  {
+   "text": "開発版の札と更新の確認の追う相手（ST63）",
+   "refs": {}
+  },
+  {
+   "text": "札の無い組み立てを入れない守りと、本人の PC と携帯の 0.1.x からの移行（ST64）",
+   "refs": {}
+  },
+  {
+   "text": "番号の組み立ての消し方（ST62）",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "番号ごとに、署名していない携帯の APK も一緒に残す（正式な鍵をいつ足すかは ST62 の未決）",
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "first-parent",
+   "def": "main の merge の並びだけを辿る履歴の見方"
+  },
+  {
+   "term": "欠番",
+   "def": "印はあるが組み立てが落ちて下書きの無い番号"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "直したサーバを確実に入れる",
+   "trigger": "サーバの不具合を直す Story が確認バッチで main に入った。11-19 のように、直したのに同じ版で入らないのは困る。",
+   "steps": [
+    {
+     "do": "確認バッチの PR を merge する",
+     "see": "main の commit は増えない。CI が通った後、配布元に印 build-0.3.0 と同じ名前の下書きができる"
+    },
+    {
+     "do": "配布元の下書き build-0.3.0 から、サーバの Windows 向けの zip を取る",
+     "see": "説明文に番号 0.3.0 と commit の 40 桁"
+    },
+    {
+     "do": "サーバの PC でインストーラを走らせる",
+     "see": "入っている 0.2.4 と違う版なので、更新の手順に入る"
+    }
+   ],
+   "outcome": "直した中身が 0.3.0 として入り、記録の部品の版でも直した後の記録だと見分けられる",
+   "without": "同じ 0.1.x のまま組まれ、インストーラが走らせ直しとみなして、直した版が入らない",
+   "refs": {
+    "requirements": [
+     "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+     "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない",
+     "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+    ],
+    "scenarios": [
+     "製品に触れた merge の commit の run が成功すると、次の番号が付く",
+     "番号を付けると、下書き 1 つに配布物を置く要求だけを出す"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "merge が続いた 1 日の番号",
+   "feature": "when",
+   "scene": "前の番号 0.2.4 の後、1 日に 5 つの merge が続けて main に入る。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "merge ごとの CI と番号（番号と merge の並びは説明用）",
+    "head": [
+     "merge",
+     "触れたもの",
+     "CI",
+     "番号"
+    ],
+    "rows": [
+     [
+      "A",
+      "サーバのコード",
+      "次の merge に取り消し",
+      "付かない"
+     ],
+     [
+      "B",
+      "文書だけ",
+      "成功",
+      "0.2.5（A を含む）"
+     ],
+     [
+      "C 確認バッチ",
+      "コード",
+      "次の merge に取り消し",
+      "付かない"
+     ],
+     [
+      "D archive",
+      "文書だけ",
+      "成功",
+      "0.3.0（C を含む）"
+     ],
+     [
+      "E",
+      "文書だけ",
+      "成功",
+      "付かない"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "B（文書だけ）の CI が成功",
+     "outcome": "ok",
+     "result": "前の番号から A の製品の変更があるので 0.2.5 が付き、A の中身が入る"
+    },
+    {
+     "label": "E（文書だけ）の CI が成功",
+     "outcome": "neutral",
+     "result": "前の番号 0.3.0 から製品が変わっていないので付かない"
+    },
+    {
+     "label": "A の中身だけの組み立てが欲しい",
+     "outcome": "problem",
+     "result": "A には番号が無い。A だけの組み立ては残らない（A の中身は 0.2.5 に入る）"
+    }
+   ],
+   "why": "番号は CI が成功した commit に付き、前の番号からの差分で製品の変更を見る。取り消された run の commit には付けない。main の CI は前に成功した run からの差分で試すので、B の run が A のコードも試す。",
+   "conditions": {
+    "occurs_when": [
+     "製品の merge の CI が次の merge に取り消される"
+    ],
+    "not_when": [
+     "merge の間が空き、どの CI も完走する"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "説明用の値。実際の 1 日の merge の並びは確かめていない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-03"
+   ],
+   "refs": {
+    "requirements": [
+     "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+     "main への push の CI は、前に成功した main の run からの差分で出し分ける",
+     "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+    ],
+    "scenarios": [
+     "取り消された merge の中身は、後の文書だけの merge の番号に入る",
+     "間に確認バッチの merge があれば、真ん中が上がり右が 0 に戻る",
+     "取り消された run の後の文書だけの merge でも、コードの job が走る"
+    ],
+    "decisions": [
+     "Q1",
+     "Q3",
+     "D4",
+     "D5",
+     "D8"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "PR の組み立てを試す",
+   "feature": "nonum",
+   "scene": "本人が、直した PR の組み立てをサーバの PC と携帯で試そうとする。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "入っている物と入れる物ごとの結果",
+    "head": [
+     "入っている物",
+     "入れる物",
+     "サーバの PC",
+     "携帯"
+    ],
+    "rows": [
+     [
+      "0.1.1",
+      "PR の 0.0.1",
+      "違う版なので更新に入る",
+      "versionCode 1 < 10,199 で断られる"
+     ],
+     [
+      "PR の 0.0.1",
+      "別の PR の 0.0.1",
+      "同じ版の走らせ直しで入れ替わらない",
+      "同じ値の上書きとして入る（署名が同じなら）"
+     ],
+     [
+      "0.2.4",
+      "番号 0.3.0",
+      "更新に入る",
+      "30,000 > 20,004 で入る"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "番号の組み立てを入れる",
+     "outcome": "ok",
+     "result": "サーバも携帯も新しい版として入る"
+    },
+    {
+     "label": "PR の組み立て同士を入れ替える（サーバ）",
+     "outcome": "problem",
+     "result": "インストーラが走らせ直しとみなし、古いプログラムのまま（IMP-02）"
+    },
+    {
+     "label": "PR の APK を 0.1.1 の携帯に入れる",
+     "outcome": "problem",
+     "result": "上書きを断られる。消して入れ直すと未送信が消えうる（IMP-01）"
+    }
+   ],
+   "why": "番号を持たない組み立ては、本物の番号と重ならないよう 0.0.x を名乗る。インストーラは版が同じなら走らせ直しにし、Android は小さい versionCode を断る。",
+   "conditions": {
+    "occurs_when": [
+     "PR の組み立てを本人の PC か携帯に入れる"
+    ],
+    "not_when": [
+     "番号の組み立てを使う"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "署名の鍵が組み立てごとに同じかは確かめていない（ST64）",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-01",
+    "IMP-02"
+   ],
+   "refs": {
+    "requirements": [
+     "番号を持たない組み立ては、0.0.x を名乗る",
+     "携帯の versionCode は、番号の 3 つの数字から計算する"
+    ],
+    "scenarios": [
+     "版番号を渡さずに組んだ部品の版番号は 0.0.1"
+    ],
+    "decisions": [
+     "Q4",
+     "D6"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "main に入った変更のうち、CI が通り製品が変わった commit に機械が番号を付け、番号ごとにサーバ・PC・携帯の組み立てを配布元の下書きに残す。番号付けが下書きに置く組み立ての間では、印や説明文が別の commit を指す物を置かないので、同じ番号で中身の違う物は並ばない（手元で番号を名乗らせる道 IMP-04 と、組み直しの再現性は残る）。代わりに、修正の枝から正式版を出す道と、PR の携帯の APK を本人の携帯へ上書きで入れる道は無くなる。",
+  "problem": "2026-11-19、版を手で上げないまま同じ 0.1.x で中身の違う組み立てができ、本人が直した版をサーバの PC に入れようとしても、インストーラが同じ版の走らせ直しとみなして入らなかった。",
+  "depth": "full",
+  "depth_why": "止める規則（番号を付けない・公開しない・組み立てを落とす）と、REMOVED・MODIFIED の Requirement を持つ",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "配布元の下書きへ出るのは組み立て（プログラム）と組み立ての印だけ。本人の記録は流れない",
+    "why": "番号付けは CI の木から組むだけで、本人の DB にも端末にも触れない",
+    "refs": {
+     "requirements": [
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ]
+    }
+   },
+   {
+    "kind": "data_flow",
+    "text": "番号は、組み立ての印として、その組み立てが書く記録ごとの部品の版と更新の履歴に入る",
+    "why": "後で、どの記録がどの組み立てで書かれたかを番号と commit で辿るため",
+    "refs": {
+     "requirements": [
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "携帯の versionCode の式は、最初の APK を配った後は小さくなる向きに変えられない",
+    "why": "Android は小さい versionCode の上書きを断り、利用者全員の入れ直しになる",
+    "refs": {
+     "requirements": [
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ],
+     "decisions": [
+      "Q2",
+      "D3"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "付けた番号は別の commit に付け直さない。最初の番号 0.2.0 より下には戻らない",
+    "why": "同じ番号で中身の違う組み立てを作らないため（11-19 の事故の根）",
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "decisions": [
+      "D7",
+      "D13"
+     ]
+    }
+   }
+  ],
+  "verification": [
+   {
+    "scene": "番号付けの判定（付ける・付けない・真ん中・欠番・上限）",
+    "layer": "使い捨ての git の木に当てる台本の自己試験（version.sh number）",
+    "independent": "code-verify の席が固定値を再計算し、判定をわざと壊して落ちるかを見る"
+   },
+   {
+    "scene": "版の規則のそろい（bash・Rust・gradle・画面）",
+    "layer": "同じ表 version-check-table.tsv を 4 か所の単体試験が読む",
+    "independent": "code-verify の席"
+   },
+   {
+    "scene": "番号付けの workflow の順番待ちと権限",
+    "layer": "workflow の形を見る検査と、main に入った後の本物の 1 回（確認バッチ 12.5）",
+    "independent": "security-review の席（書く権限）と、確認バッチの本人"
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "data",
+    "name": "版番号（出所の版と番号）",
+    "change": "出所の版を 0.1.1 から 0.0.1 にし、本物の版番号は番号付けが 0.2.0 から渡す",
+    "searched": "`ASHIATO_BUILD_VERSION`・`version_action`・`isNewer`・`is_newer_version` で crates・collector-android・web を検索し、版を比べる側を開いた",
+    "refs": {
+     "requirements": [
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+      "番号を持たない組み立ては、0.0.x を名乗る"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "lifecycle",
+    "name": "番号付けの流れ（新しい workflow）",
+    "change": "main の CI が成功した後に走り、印を作って組み、下書きに置く",
+    "searched": "`concurrency`・`workflow_run`・`cancel-in-progress` で .github/workflows を読んだ",
+    "refs": {
+     "requirements": [
+      "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+      "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "data",
+    "name": "携帯の versionCode の式",
+    "change": "左×1,000,000 + 真ん中×10,000 + 右×100 + 末尾 から 左×10,000,000 + 真ん中×10,000 + 右 に",
+    "searched": "versionCode の計算（version.sh・build.gradle.kts）と、上書きを前提にする台本と申し送りを読んだ",
+    "refs": {
+     "requirements": [
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "lifecycle",
+    "name": "印 v* の公開の判定と開発版の作り直し",
+    "change": "番号の commit にだけ公開し、修正の枝の例外を外す。開発版は最新の番号の commit から組む",
+    "searched": "version.sh の plan と nightly_plan、release/* を数える箇所を読んだ",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+      "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "lifecycle",
+    "name": "main の CI の出し分けの基準",
+    "change": "直前の push から、前に成功した main の run の commit へ",
+    "searched": "ci.yml の changes の job の BASE を読んだ",
+    "refs": {
+     "requirements": [
+      "main への push の CI は、前に成功した main の run からの差分で出し分ける"
+     ]
+    }
+   },
+   {
+    "id": "T6",
+    "kind": "data",
+    "name": "配布元の印 build-* と下書き",
+    "change": "新しく作る。番号の記録と組み立ての置き場になる",
+    "searched": "`v[0-9]*` で印を数える検査と、後続の Story の申し送りを読んだ",
+    "refs": {
+     "requirements": [
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "サーバのインストーラの版の比べ（update_plan.rs の version_action）",
+    "role": "reads",
+    "assumes": "入っている版と同じ版なら中身も同じ（走らせ直しとして扱い、プログラムを入れ替えない）",
+    "holds": "no",
+    "affects": "PR の組み立て同士（どれも 0.0.1）を入れると、新しい方のプログラムが入らない",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ],
+    "leads_to": [
+     "IMP-02"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T3",
+    "who": "本人の携帯に入っている 0.1.x の APK（Android の上書き）",
+    "role": "reads",
+    "assumes": "新しく組んだ APK は、入っている APK より versionCode が大きい",
+    "holds": "no",
+    "affects": "PR の APK（versionCode 1）は上書きで入らない。番号の APK（20,000〜）は値では入る",
+    "basis": "derived",
+    "evidence": [
+     "E9"
+    ],
+    "leads_to": [
+     "IMP-01"
+    ],
+    "refs": {
+     "requirements": [
+      "携帯の versionCode は、番号の 3 つの数字から計算する",
+      "番号を持たない組み立ては、0.0.x を名乗る"
+     ],
+     "decisions": [
+      "D3",
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "D3",
+    "target": "T1",
+    "who": "携帯の更新の確認（UpdateCheck.isNewer）",
+    "role": "reads",
+    "assumes": "入っている版と配布元の版を 3 つの数字で比べられる",
+    "holds": "yes",
+    "affects": "0.2.x は 0.1.x より新しいと比べられる。0.0.1 の組み立てはどの番号も新しいと見る",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T2",
+    "who": "number.yml の判定の job の同時実行の組（ci.yml は次の push が前の run を取り消す）",
+    "role": "reads",
+    "assumes": "番号付けの順番待ちは、取り消された CI の run に起こされても席を取らない（P18）",
+    "holds": "unknown",
+    "affects": "外れると番号付けが取り消され、番号が次の成功まで遅れる",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E2",
+     "E11"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T5",
+    "who": "番号付けの判定（CI の成功を「試した」とみなす）",
+    "role": "reads",
+    "assumes": "番号を付ける commit のコードは、その commit の run で試されている",
+    "holds": "yes",
+    "affects": "今の基準は直前の push（E3）で、取り消された merge のコードを試さない。この Story が基準を前に成功した run に変えるので、成り立つ",
+    "basis": "derived",
+    "evidence": [
+     "E3"
+    ],
+    "refs": {
+     "requirements": [
+      "main への push の CI は、前に成功した main の run からの差分で出し分ける"
+     ],
+     "decisions": [
+      "D8"
+     ]
+    }
+   },
+   {
+    "id": "D6",
+    "target": "T4",
+    "who": "印の判定の修正の枝の例外（version.sh plan）",
+    "role": "reads",
+    "assumes": "配った版から切った枝 release/* の印も公開できる",
+    "holds": "no",
+    "affects": "修正の枝からは正式版を出せなくなる",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ],
+    "leads_to": [
+     "IMP-06"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T6",
+    "who": "配った移行の検査（check-released-migrations.sh）",
+    "role": "reads",
+    "assumes": "配った印は v[0-9]* だけ",
+    "holds": "yes",
+    "affects": "build-* は数えないので、番号を付けても移行が凍結されない",
+    "basis": "observed",
+    "evidence": [
+     "E6"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T6",
+    "who": "札を作る ST62（番号の印を札の前提にする）",
+    "role": "reads",
+    "assumes": "番号の印 build-* は動かず、番号と中身の対応が保たれる",
+    "holds": "unknown",
+    "affects": "印を消す・動かすと、番号と中身の対応が崩れる",
+    "basis": "observed",
+    "evidence": [
+     "E10"
+    ],
+    "leads_to": [
+     "IMP-05"
+    ]
+   },
+   {
+    "id": "D9",
+    "target": "T1",
+    "who": "手元の組み立て（ASHIATO_BUILD_VERSION を渡す人）",
+    "role": "writes",
+    "assumes": "番号の形の版番号は番号付けだけが渡す",
+    "holds": "no",
+    "affects": "手元で番号の形を渡せば、同じ番号で別の中身を組める",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ],
+    "leads_to": [
+     "IMP-04"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/installer/src/update_plan.rs:22",
+    "quote": "} else if installed == candidate {"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:8",
+    "quote": "cancel-in-progress: true"
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:35",
+    "quote": "github.event.before"
+   },
+   {
+    "id": "E4",
+    "source": "code",
+    "loc": "collector-android/app/src/main/kotlin/dev/ashiato/collector/UpdateCheck.kt:127",
+    "quote": "return candidate > own"
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": "tools/release/version.sh:104",
+    "quote": "refs/remotes/origin/release/*"
+   },
+   {
+    "id": "E6",
+    "source": "ops",
+    "loc": "tools/check-released-migrations.sh:34",
+    "quote": "--list 'v[0-9]*'"
+   },
+   {
+    "id": "E7",
+    "source": "ops",
+    "loc": "tools/release/version.sh:38",
+    "quote": "MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + tail"
+   },
+   {
+    "id": "E8",
+    "source": "story",
+    "loc": "docs/handoff/ST64.md:6",
+    "quote": "ASHIATO_BUILD_VERSION=0.2.5"
+   },
+   {
+    "id": "E9",
+    "source": "story",
+    "loc": "docs/handoff/ST64.md:9",
+    "quote": "versionCode 1"
+   },
+   {
+    "id": "E10",
+    "source": "story",
+    "loc": "docs/handoff/ST62.md:8",
+    "quote": "印を消すか動かすと、番号と中身の対応が崩れる"
+   },
+   {
+    "id": "E12",
+    "source": "code",
+    "loc": "crates/installer/src/main.rs:2373",
+    "quote": "VersionAction::Update => return update_install"
+   },
+   {
+    "id": "E13",
+    "source": "spec",
+    "loc": "openspec/specs/distribution/spec.md:1728",
+    "quote": "足りないもの（サービス・置き場・権限・プログラム）だけを足す"
+   },
+   {
+    "id": "E11",
+    "source": "design",
+    "loc": "openspec/changes/st61-auto-version-bump/premises.md:29",
+    "quote": "順番待ちの席を取らない"
+   }
+  ],
+  "lost": [
+   {
+    "before": "配った版から修正の枝 release/* を切り、その枝の印で正式版を出せた",
+    "after": "出せない。main で直して次の番号を出す（別の道は ST62 が決める）",
+    "who": "本人（配る人）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+     ],
+     "scenarios": [
+      "修正の枝の印も、main の祖先でなければ公開しない"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "harm": {
+     "when": "配った正式版に急ぎの直しが要り、main に未確認の変更が入っているとき。",
+     "who": "本人だけ。配った版はまだ無い。",
+     "link": "IMP-06。急ぎの直しの出し方は FR-105 の未決として ST62 に残る。",
+     "unknown": "main に未確認の変更が溜まる頻度は確かめていない。"
+    }
+   },
+   {
+    "before": "main のどの commit にも、出所の版の印 v<版> を付けて正式版を出せた",
+    "after": "番号を付けた commit にだけ印を付けられる。文書だけの commit には付けられない",
+    "who": "本人（配る人）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+     ],
+     "scenarios": [
+      "番号の無い commit の印は公開しない"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "harm": {
+     "when": "番号の付いていない commit を配りたいとき。文書だけの差なら、前の番号の commit で中身は同じ。",
+     "who": "本人だけ。",
+     "link": "なし。",
+     "unknown": "なし。"
+    }
+   },
+   {
+    "before": "PR の携帯の APK（0.1.1・10,199）は、versionCode では本人の携帯の 0.1.x の上に入った",
+    "after": "PR の APK は versionCode 1 で、どの 0.1.x と番号の APK の上にも入らない",
+    "who": "本人（携帯で試す人）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ],
+     "decisions": [
+      "Q4",
+      "D6"
+     ]
+    },
+    "harm": {
+     "when": "直した PR の携帯の APK を、本人の携帯で試したいとき。",
+     "who": "本人だけ。",
+     "link": "入れ直すと手元の未送信が消えうる（IMP-01）。",
+     "unknown": "今まで PR の APK が署名の鍵の違いで既に上書きできなかったかは確かめていない。"
+    }
+   },
+   {
+    "before": "開発版は main の HEAD から組まれた",
+    "after": "最新の番号の commit から組まれる。番号が付くまでの変更は入らない",
+    "who": "開発版を使う人（本人）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+     ],
+     "scenarios": [
+      "番号がまだ無ければ、開発版を組まない"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "harm": {
+     "when": "番号の付いていない変更を、開発版で試したいとき。製品の変更は CI が通れば番号が付く。",
+     "who": "本人だけ。開発版の公開の設定はまだ入っていない。",
+     "link": "なし。",
+     "unknown": "なし。"
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "main に製品の merge が入り CI が通ると、番号の組み立てが下書きに並ぶ。本人は下書きからサーバ・PC・携帯を取れる",
+    "cannot": "merge 1 つずつに番号は付かない（取り消された merge は後の番号に入る）。PR の組み立ては番号を持たない",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ],
+     "scenarios": [
+      "製品に触れた merge の commit の run が成功すると、次の番号が付く",
+      "取り消された merge の中身は、後の文書だけの merge の番号に入る"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "サーバの PC は 0.1.x から番号の版へ、インストーラが違う版として更新の手順に入る。携帯は 0.2.0（20,000）が 0.1.x（10,199）より値では大きい（署名の鍵が同じかは確かめていない）",
+    "cannot": "PR の組み立て同士の入れ替え（どちらも 0.0.1。IMP-02）・PR の APK の上書き（IMP-01）。番号の版の上に PR のサーバを入れると、版を下げる更新になる",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ],
+    "refs": {
+     "requirements": [
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ],
+     "scenarios": [
+      "最初の番号は、前の式の 0.1.x の APK より大きい"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "サーバは前の番号のインストーラを走らせると、違う版として更新の手順に入る（インストーラは版の大小を見ない）",
+    "cannot": "携帯は前の番号の APK を上書きで入れられない（今と同じ。小さい versionCode は断られる）",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ],
+    "refs": {
+     "requirements": [
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "0.1.x の組み立てが書いた記録と更新の履歴はそのまま残り、0.2.0 以後の番号はそれより大きく比べられる",
+    "cannot": "この分析では見つけていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "scenarios": [
+      "最初の番号は 0.2.0"
+     ],
+     "decisions": [
+      "D13"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "番号の組み立てどうし、番号と 0.1.x の組み合わせは、3 つの数字で新しさを比べられる",
+    "cannot": "PR の組み立て（0.0.1）を混ぜると、携帯の更新の確認はどの番号も「新しい」と見る。サーバのインストーラは大小を見ず、番号の版の上の 0.0.1 も更新として入れる。PR の組み立てどうしは版で見分けられず、組み立ての印の commit で見分ける",
+    "basis": "observed",
+    "evidence": [
+     "E4",
+     "E1"
+    ],
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る"
+     ],
+     "scenarios": [
+      "版番号を渡さずに組んだ部品の版番号は 0.0.1"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "組み立てが落ちた番号は、番号付けを走らせ直すと同じ番号の続きを置く。走らせ直さなければ欠番になり、中身は次の番号に入る",
+    "cannot": "印 build-* を消して別の commit に作り直すと、番号付けは止まる（IMP-05）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない",
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "scenarios": [
+      "下書きに欠けた配布物があれば、それだけを足す",
+      "組み立てが落ちた番号は、次の commit に回さない"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "停止",
+    "rule": "文書だけの差分の commit・取り消された run の commit・PR の run には番号を付けない",
+    "target": "中身の同じ物に別の番号を付けること・試していない commit に番号を付けること",
+    "legit": "なし（文書は組み立てに入らず、取り消された中身は後の番号に入る）",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+      "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む",
+      "main への push の CI は、前に成功した main の run からの差分で出し分ける"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "左を下げた・左のファイルが数字でない・上限を超える・浅い木では番号を付けずに止まる",
+    "target": "番号が 1 列に並ばなくなること・携帯で組めない番号",
+    "legit": "確認バッチが約 4 年続くと真ん中の上限 999 に届き、本人が左を上げるまで番号が付かない",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "scenarios": [
+      "真ん中か左が上限を超える番号は付けない"
+     ],
+     "decisions": [
+      "D5",
+      "D14"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "停止",
+    "rule": "印や下書きの説明文が別の commit を指せば何も置かない。揃った配布物は上書きしない",
+    "target": "同じ番号で中身の違う配布物",
+    "legit": "なし（印を作り直したときだけ止まる）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "拒否",
+    "rule": "渡す版番号が出所の版の形か、左がファイルと同じ番号の形でなければ組み立てを落とす。出所の版は 0.0.x に限る",
+    "target": "手書きの版・左の違う番号",
+    "legit": "PR と手元の組み立ては番号を名乗れない（0.0.1）",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "3 つの部品の版番号は、1 つの出所から決まる"
+     ],
+     "decisions": [
+      "D6",
+      "D9"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "拒否",
+    "rule": "versionCode の桁を超える版番号では携帯の組み立てを落とす",
+    "target": "versionCode があふれて順が崩れること",
+    "legit": "R2 と同じく、上限に届いたときだけ",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "携帯の versionCode は、番号の 3 つの数字から計算する",
+      "携帯の versionCode は版番号から計算する"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "停止",
+    "rule": "印 v* は番号を付けた main の commit にだけ公開する。修正の枝の例外を外す",
+    "target": "番号と中身の食い違う正式版",
+    "legit": "配った版にだけ急ぎの直しを当てる道が無くなる",
+    "blocks_legit": true,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+      "印（タグ）の名前で、3 つのチャンネルに分けて配り、どのチャンネルも 4 つの配布物を並べる",
+      "緊急の修正の枝は、配った版から切り、移行と封筒の形を変えない"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "R7",
+    "kind": "停止",
+    "rule": "開発版は、番号がまだ無い・nightly が最新の番号を指す・公開の設定が無いときは組まない（か公開しない）",
+    "target": "番号の無い開発版・同じ物の作り直し",
+    "legit": "この Story が main に入ってから最初の番号が付くまで、開発版が作られない（公開の設定はまだ入っていない）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す",
+      "開発版は、幹にその日の変更があった日だけ、携帯の APK を含めて作り直す"
+     ]
+    }
+   },
+   {
+    "id": "R8",
+    "kind": "拒否",
+    "rule": "確かめの下書きを build-* の印の名前で作らない",
+    "target": "確かめの組み立てが番号の記録に混ざること",
+    "legit": "なし",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない"
+     ]
+    }
+   },
+   {
+    "id": "R9",
+    "kind": "停止",
+    "rule": "インストーラの更新・戻し・止まり方は変えない（CI の試験の版の値だけを 0.0.x にする）",
+    "target": "—（振る舞いは変えない）",
+    "legit": "なし",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "サーバのインストーラは、入っている版と違う版で走らせると、サーバを止めてから更新の手順を進める",
+      "更新の移行が落ち、この回の退避があれば、退避から DB を戻して前の版で起こし直す",
+      "この回の退避が無いとき・移行の失敗でない終わり方では、DB を戻さずに前の版で起こし直す",
+      "更新や戻しが途中で止まっても、サーバは半端な DB で起きず、走らせ直すと前の版へ戻し終えてからやり直す",
+      "更新が入らなかったことを、インストーラの窓と状態の置き場の更新の記録に残す",
+      "戻したことを、更新の履歴に「落ちた試みの結果」と「戻した」の 2 行で残す",
+      "同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる",
+      "切った更新の確認は、更新でも戻しでも切ったままで、戻した後も新しい版を「更新あり」に出す"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R4",
+    "goal": "直した PR の携帯の収集アプリを、本人の携帯で試す",
+    "initial": "本人の携帯に 0.1.1（versionCode 10,199）が入っている",
+    "action": "PR の組み立ての APK（0.0.1）を入れる",
+    "trigger": "番号を持たない組み立ては 0.0.1 を名乗り、versionCode は 1",
+    "result": "Android が小さい versionCode の上書きを断る",
+    "lost": "入れたままで試すこと。消して入れ直すと手元の未送信が消えうる",
+    "decision": "PR の APK を試す道をどうするか（IMP-01）",
+    "occurs_when": [
+     "PR の APK を、0.1.x か番号の APK の入った携帯に入れる"
+    ],
+    "not_when": [
+     "番号の APK（0.2.0 以後）を使う",
+     "未送信を送り切ってから消して入れ直す"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R4",
+    "goal": "直した PR のサーバを、本人のサーバの PC で試す",
+    "initial": "サーバの PC に前の PR の組み立て（0.0.1）が入っている",
+    "action": "直した PR の組み立て（これも 0.0.1）のインストーラを走らせる",
+    "trigger": "PR の組み立てはどれも 0.0.1 を名乗る",
+    "result": "インストーラは同じ版の走らせ直しとみなし、プログラムを入れ替えない",
+    "lost": "直した中身がサーバに入ること（11-19 の事故と同じ形）",
+    "decision": "PR の組み立てで試すときの入れ方（IMP-02）",
+    "occurs_when": [
+     "0.0.1 の組み立てが入った PC に、別の 0.0.1 の組み立てを入れる",
+     "番号の版か 0.1.x の PC に 0.0.1 を入れる（入れ替わるが、版を下げる更新になる）"
+    ],
+    "not_when": [
+     "番号の組み立てを入れる（番号ごとに版が違う）"
+    ],
+    "basis": "derived",
+    "evidence": [
+     "E1",
+     "E13"
+    ],
+    "imp": "IMP-02",
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "S3",
+    "rule": "R6",
+    "goal": "配った正式版の不具合だけを急いで直して出す",
+    "initial": "正式版 v0.3.0 を配った後、main に確認前の変更が入っている",
+    "action": "v0.3.0 から枝を切って直し、v0.3.1 の印を付ける",
+    "trigger": "印 v* は番号を付けた main の commit にだけ公開する",
+    "result": "枝の印は公開されない。main で直すと、次の番号は確認前の変更も含む",
+    "lost": "配った版に直しだけを当てて出すこと",
+    "decision": "急ぎの直しの道（FR-105 の未決。ST62）",
+    "occurs_when": [
+     "配った正式版があり、main に配りたくない変更がある"
+    ],
+    "not_when": [
+     "配った版がまだ無い（今。P9）",
+     "main の変更をそのまま配ってよい"
+    ],
+    "basis": "derived",
+    "imp": "IMP-06",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    }
+   },
+   {
+    "id": "S4",
+    "rule": "R2",
+    "goal": "確認バッチを入れ続け、番号の組み立てを得る",
+    "initial": "番号が 0.999.x に届いている（確認バッチ約 4 年分）",
+    "action": "次の確認バッチを merge する",
+    "trigger": "真ん中が 999 を超える番号は付けない",
+    "result": "番号付けが止まり、理由が出る",
+    "lost": "本人が左を上げるまで、番号の組み立てができない",
+    "decision": "届く前に左を上げるか式を見直す（D14）",
+    "occurs_when": [
+     "真ん中が 999 の番号の後に確認バッチの merge"
+    ],
+    "not_when": [
+     "届く前に左を上げる"
+    ],
+    "basis": "derived",
+    "imp": "IMP-07",
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "scenarios": [
+      "真ん中か左が上限を超える番号は付けない"
+     ],
+     "decisions": [
+      "D5",
+      "D14"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "PR の携帯の APK は、本人の携帯に上書きで入らない",
+    "text": "番号を持たない組み立ての APK は versionCode 1 になり、0.1.x と番号の APK の上に入らない。PR の携帯の変更を本人の携帯で試すには、消して入れ直すか番号の APK を待つ",
+    "basis": "derived",
+    "unknowns": [
+     "今まで PR の APK が、署名の鍵の違いで既に上書きできなかったかは確かめていない",
+     "adb install -r -d で版を下げて入れられるかは確かめていない",
+     "消して入れ直すと手元の未送信が消えるかは確かめていない（推測）"
+    ],
+    "derived": "PR の組み立ては 0.0.1（Q4・D6）で、式から versionCode は 1。Android は小さい値の上書きを断る（P6）",
+    "undefined": "PR の APK を携帯で試すときの手順（未送信の扱いを含む）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "debug の APK を adb install -r -d で版を下げて入れられるか確かめ、手順書に書く"
+     },
+     {
+      "label": "番号の APK で試す（PR は CI の試験とエミュレータで確かめる）"
+     },
+     {
+      "label": "未送信を送り切ってから消して入れ直す手順を手順書に書く"
+     },
+     {
+      "label": "開発版と同じく別の識別子の PR 用アプリを作る（別の Story）"
+     }
+    ],
+    "verify": "エミュレータに 10,199 の APK を入れ、versionCode 1 の APK の adb install -r が断られること・-r -d で入るか・消して入れ直すと未送信が残るかを見る",
+    "deps": [
+     "D2"
+    ],
+    "evidence": [
+     "E9"
+    ],
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "携帯の versionCode は、番号の 3 つの数字から計算する"
+     ],
+     "decisions": [
+      "Q4",
+      "D6"
+     ]
+    },
+    "harm": {
+     "when": "PR で直した携帯の収集アプリを、本人の携帯ですぐ試したいとき。",
+     "who": "本人だけ。",
+     "link": "消して入れ直すと、手元の未送信の記録が消えうる（推測）。",
+     "unknown": "本人が PR の APK を携帯に入れる頻度と、消すと未送信が消えるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "PR のサーバの組み立ては、入れ替わらないか、版を下げる更新に入る",
+    "text": "PR の組み立てはどれも 0.0.1 なので、0.0.1 が入った PC に別の PR の組み立てを入れると、インストーラは走らせ直しとみなしてプログラムを入れ替えない。11-19 と同じ形が PR の組み立てには残る。逆に、番号の版（0.2.x）の PC に PR の組み立てを入れると、インストーラは版の大小を見ないので、版を下げる更新に入る",
+    "basis": "derived",
+    "unknowns": [
+     "本人が PR の組み立てをサーバの PC に入れる運用があるかは確かめていない",
+     "走らせ直しのとき窓に何が出るかは確かめていない",
+     "版を下げる更新で、DB が先に進んでいるときに db_ahead がどの段で止めるかは確かめていない"
+    ],
+    "derived": "インストーラは版が同じなら走らせ直し、違えば大小を問わず更新（E1・E12）。走らせ直しは足りないものだけを足す（正典 E13）",
+    "undefined": "PR の組み立てを入れ替えて試す手順",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "試すのは番号の組み立てにする（手順書に書く）"
+     },
+     {
+      "label": "インストーラが組み立ての印の commit も比べる（別の Story）"
+     }
+    ],
+    "verify": "0.0.1 の組み立てを入れた PC で、別の commit の 0.0.1 のインストーラを走らせ、プログラムの置き場の組み立ての印が変わらないことを見る",
+    "deps": [
+     "D1"
+    ],
+    "evidence": [
+     "E1",
+     "E12",
+     "E13"
+    ],
+    "refs": {
+     "requirements": [
+      "番号を持たない組み立ては、0.0.x を名乗る",
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    },
+    "harm": {
+     "when": "PR の組み立てを本人のサーバの PC に入れたとき（0.0.1 の上に別の 0.0.1、または番号の版の上に 0.0.1）。",
+     "who": "本人だけ。",
+     "link": "古いプログラムのまま動く。または更新の履歴に 0.2.x → 0.0.1 の更新が残る。",
+     "unknown": "窓の表示で本人が気づけるか、版を下げる更新がどこで止まるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "番号付けの順番待ちが取り消されると、番号が遅れる",
+    "text": "判定の job の同時実行の組が、条件を満たさない run（取り消された CI の run など）に席を取られないこと（P18）を確かめていない。外れると待っていた番号付けが取り消され、番号は次の成功まで付かない",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "job の if が偽で飛ぶ run が、同時実行の組の席を取るかは確かめていない（P18）",
+     "同じ名前の印の 2 つ目の push が断られることも走らせていない（P19。外れると同じ番号が 2 つの commit に付きうる）"
+    ],
+    "derived": "外れても、同じ番号の印の 2 つ目の push が断られれば（P19。走らせていない）、同じ番号は 2 つの commit に付かない（D10）",
+    "undefined": "外れたときに取り消された番号付けを拾い直す手順",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "main に入った後の本物の 1 回で見る（tasks 12.5）"
+     },
+     {
+      "label": "外れたら、予定の実行で最新の成功の run を拾う形に移す（D10 の反転条件）"
+     }
+    ],
+    "verify": "main に入った後、取り消された CI の run の直後に成功した run があった回で、番号の印と下書きができたかを見る（tasks 12.5）",
+    "deps": [
+     "D4"
+    ],
+    "evidence": [
+     "E2",
+     "E11"
+    ],
+    "refs": {
+     "requirements": [
+      "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+     ],
+     "scenarios": [
+      "番号付けを起こさない run は、待っている番号付けを取り消さない"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    },
+    "harm": {
+     "when": "merge が続き、CI の run が取り消された直後。",
+     "who": "本人だけ。番号の組み立てが遅れて並ぶ。",
+     "link": "なし（中身は次の番号に入る）。",
+     "unknown": "どれくらいの頻度で起きるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "手元で番号の形を渡すと、同じ番号で別の中身を組める",
+    "text": "版の検査は左の数字が合えば番号の形を受け取り、番号の印を見ない。手元で ASHIATO_BUILD_VERSION=0.2.5 を渡せば、0.2.5 を名乗る別の中身を組める",
+    "basis": "derived",
+    "unknowns": [
+     "本人が手元で番号を渡して組む場面があるかは確かめていない"
+    ],
+    "derived": "新しい版の規則（D9）は左の数字と形だけを見る。CI の配る形の job が番号を渡さないことは検査で固定する（D6）",
+    "undefined": "手元で組んだ番号の組み立てを、入れる側が見分ける守り",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "入れる側の守りは ST64 で（申し送り済み）"
+     },
+     {
+      "label": "組み立てが番号の印を確かめる（浅い木で組めなくなる）"
+     }
+    ],
+    "verify": "手元で番号の形を渡して組み、組み立ての印に .dirty も build-* の確かめも無いことを見る",
+    "deps": [
+     "D9"
+    ],
+    "evidence": [
+     "E8"
+    ],
+    "refs": {
+     "requirements": [
+      "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる"
+     ],
+     "decisions": [
+      "D6",
+      "D9"
+     ]
+    },
+    "harm": {
+     "when": "手元で番号の形を渡して組んだ物を、本人の PC や携帯に入れたとき。",
+     "who": "本人だけ。",
+     "link": "記録ごとの部品の版が、番号の組み立てと見分けにくくなる（印の commit で見分ける）。",
+     "unknown": "手元の組み立ての印の commit で本人が見分けられるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "low",
+    "status": "open",
+    "title": "番号の印 build-* は消せる・動かせる",
+    "text": "配った印 v* の守り（消せず動かせない）は build-* に掛かっていない。push できる人が印を動かすと、番号と中身の対応が崩れる。番号付けは「印が別の commit を指せば止まる」で気づくだけ",
+    "basis": "observed",
+    "unknowns": [
+     "配布元の印の守りの規則で build-* を守れるかは確かめていない"
+    ],
+    "derived": "番号の記録は印（D7）で、守りの規則は v* だけに掛かる",
+    "undefined": "build-* の守り（ST62 が札の規則と一緒に決める）",
+    "feasibility": "unverified",
+    "deps": [
+     "D8"
+    ],
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ],
+     "decisions": [
+      "D7"
+     ]
+    },
+    "harm": {
+     "when": "本人か push できる人が、手で印を消すか動かしたとき。",
+     "who": "本人だけ。",
+     "link": "札（ST62）がその番号を指していれば、札の中身も食い違う。",
+     "unknown": "なし。"
+    }
+   },
+   {
+    "id": "IMP-06",
+    "severity": "low",
+    "status": "open",
+    "title": "配った版にだけ急ぎの直しを当てる手順を、ST62 まで仕様は定めていない",
+    "text": "修正の枝の例外を外したので、仕様に書いてある急ぎの直しの手順は、main で直して次の番号を出すことだけ。main に配りたくない変更があると、直しと一緒に出る",
+    "basis": "derived",
+    "unknowns": [
+     "配った版はまだ無い（P9）。ST62 がいつ道を決めるかは決まっていない",
+     "main の外で直しを出す運用が成り立つかは確かめていない"
+    ],
+    "derived": "印 v* は番号の main の commit にだけ公開し、番号は main にだけ付く",
+    "undefined": "急ぎの直しの出し方（FR-105 の未決。ST62）",
+    "feasibility": "unverified",
+    "deps": [
+     "D6"
+    ],
+    "evidence": [
+     "E5"
+    ],
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "harm": {
+     "when": "正式版を配った後に急ぎの直しが要り、main に確認前の変更があるとき。",
+     "who": "配った版の利用者（今は本人だけ）。",
+     "link": "なし。",
+     "unknown": "なし。"
+    }
+   },
+   {
+    "id": "IMP-07",
+    "severity": "low",
+    "status": "open",
+    "title": "約 4 年で真ん中の上限に届き、番号付けが止まる",
+    "text": "確認バッチごとに真ん中が上がると年に約 250 進み、上限 999 に約 4 年で届く。届くと番号付けが止まり、本人が左を上げるか式を見直すまで番号が付かない",
+    "basis": "derived",
+    "unknowns": [
+     "確認バッチの頻度が今のまま続くかは確かめていない"
+    ],
+    "derived": "P3 の 30 日 21 回と D5・D14 から",
+    "undefined": "届く前に知らせる仕組み",
+    "feasibility": "unverified",
+    "deps": [],
+    "evidence": [],
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+     ],
+     "scenarios": [
+      "真ん中か左が上限を超える番号は付けない"
+     ],
+     "decisions": [
+      "D5",
+      "D14"
+     ]
+    },
+    "harm": {
+     "when": "約 4 年後、真ん中が 999 に届いたとき。",
+     "who": "本人だけ。番号付けの run が落ちる。",
+     "link": "なし。",
+     "unknown": "なし。"
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "spec の Scenario が全部通る（番号の判定は使い捨ての git の木で）",
+    "refs": {}
+   },
+   {
+    "text": "main に入った後、最初の製品の merge で印 build-0.2.0 と下書きに 5 つの配布物が並び、main の commit が増えていない（tasks 12.2）",
+    "refs": {
+     "requirements": [
+      "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+      "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+     ]
+    }
+   },
+   {
+    "text": "確認バッチの後の番号で真ん中が上がり、番号付けの順番待ちが取り消されずに印を作った回がある（tasks 12.3・12.5）",
+    "refs": {
+     "requirements": [
+      "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める",
+      "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+     ]
+    }
+   },
+   {
+    "text": "今の正式版・開発版の組み立てと CI が、新しい版の規則で緑のまま",
+    "refs": {
+     "requirements": [
+      "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+      "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "main の push の CI が成功した、この repo の main の commit の番号付けと、その組み立て",
+     "refs": {
+      "requirements": [
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない",
+       "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+      ]
+     }
+    },
+    {
+     "text": "4 つの部品の版番号の出所と、携帯の versionCode の式",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "番号は、CI が成功し、前の番号から製品（docs/・openspec/・*.md 以外）が変わった commit にだけ付く",
+     "refs": {
+      "requirements": [
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける"
+      ]
+     }
+    },
+    {
+     "text": "番号付けは 1 本ずつ流れ、条件を満たした run だけが順番待ちに入る（P18 は未確認）",
+     "refs": {
+      "requirements": [
+       "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む"
+      ]
+     }
+    },
+    {
+     "text": "main の CI の出し分けの基準は main への push のときだけ変わる。PR は今のまま",
+     "refs": {
+      "requirements": [
+       "main への push の CI は、前に成功した main の run からの差分で出し分ける"
+      ]
+     }
+    },
+    {
+     "text": "渡せる版番号は出所の版の形と、左がファイルと同じ番号の形だけ。0.0.0 は使わない",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+       "番号を持たない組み立ては、0.0.x を名乗る"
+      ]
+     }
+    },
+    {
+     "text": "印 v* は番号の main の commit にだけ。開発版は番号がある間だけ組む",
+     "refs": {
+      "requirements": [
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+       "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す"
+      ]
+     }
+    },
+    {
+     "text": "確かめの下書きは下書きにだけ置き、印を作らない",
+     "refs": {
+      "requirements": [
+       "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない"
+      ]
+     }
+    },
+    {
+     "text": "インストーラの更新の手順は Windows のサーバだけ。この Story は試験の版の値だけを直す",
+     "refs": {
+      "requirements": [
+       "サーバのインストーラは、入っている版と違う版で走らせると、サーバを止めてから更新の手順を進める",
+       "更新の移行が落ち、この回の退避があれば、退避から DB を戻して前の版で起こし直す",
+       "この回の退避が無いとき・移行の失敗でない終わり方では、DB を戻さずに前の版で起こし直す",
+       "更新や戻しが途中で止まっても、サーバは半端な DB で起きず、走らせ直すと前の版へ戻し終えてからやり直す",
+       "更新が入らなかったことを、インストーラの窓と状態の置き場の更新の記録に残す",
+       "戻したことを、更新の履歴に「落ちた試みの結果」と「戻した」の 2 行で残す",
+       "同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる",
+       "切った更新の確認は、更新でも戻しでも切ったままで、戻した後も新しい版を「更新あり」に出す"
+      ]
+     }
+    },
+    {
+     "text": "真ん中を上げるかは、前の番号の commit を除き、番号を付ける commit までの確認バッチの merge で決める",
+     "refs": {
+      "requirements": [
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める"
+      ]
+     }
+    },
+    {
+     "text": "配布元へ書く権限は番号付けの job だけ。下書きは公開せず、印 v* を作らない",
+     "refs": {
+      "requirements": [
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない"
+      ]
+     }
+    },
+    {
+     "text": "versionCode は真ん中 999・右 9,999・左 209 まで",
+     "refs": {
+      "requirements": [
+       "携帯の versionCode は、番号の 3 つの数字から計算する"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "札（正式版・ベータ版・開発版）を番号へ動かす操作と公開・正式な鍵の署名（ST62・ST63）",
+     "refs": {}
+    },
+    {
+     "text": "本人の PC と携帯の 0.1.x からの移行と、札の無い組み立てを入れない守り（ST64）",
+     "refs": {}
+    },
+    {
+     "text": "番号の組み立ての消し方（ST62）",
+     "refs": {}
+    }
+   ],
+   "residual": [
+    {
+     "text": "PR の組み立ては、携帯には上書きで入らず、サーバには入れ替わらないか版を下げる更新に入る（IMP-01・IMP-02）",
+     "refs": {}
+    },
+    {
+     "text": "手元で番号を名乗る組み立てを作れる（IMP-04。ST64）",
+     "refs": {}
+    },
+    {
+     "text": "番号付けの順番待ちと印の push の前提が未確認（IMP-03）",
+     "refs": {}
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "change の全 Requirement（ADDED 10・MODIFIED 9）と design の D1〜D15",
+     "refs": {
+      "requirements": [
+       "3 つの部品の版番号は、1 つの出所から決まる",
+       "携帯の versionCode は版番号から計算する",
+       "印（タグ）の名前で、3 つのチャンネルに分けて配り、どのチャンネルも 4 つの配布物を並べる",
+       "開発版は、幹にその日の変更があった日だけ、携帯の APK を含めて作り直す",
+       "緊急の修正の枝は、配った版から切り、移行と封筒の形を変えない",
+       "main の commit には、CI が通り、前の番号から製品が変わったときだけ次の番号を付ける",
+       "番号は、左の数字を本人のファイルから読み、真ん中と右の数字を機械が決める",
+       "番号を付けた組み立ては、番号の印と配布元の下書きのリリースに残し、上書きしない",
+       "番号付けは取り消されずに 1 本ずつ流れ、走らせた run の commit を組む",
+       "main への push の CI は、前に成功した main の run からの差分で出し分ける",
+       "番号を持たない組み立ては、0.0.x を名乗る",
+       "携帯の versionCode は、番号の 3 つの数字から計算する",
+       "印（タグ）の名前で 3 つのチャンネルに分けて配り、印は番号を付けた commit にだけ付ける",
+       "開発版は、最新の番号の commit が印 nightly と違うときだけ、その commit から携帯の APK を含めて作り直す",
+       "3 つの部品の版番号は、番号か、番号を持たない出所の版から決まる",
+       "手で起こした確かめの組み立ては、下書きのリリースにだけ置き、印を作らない",
+       "サーバのインストーラは、入っている版と違う版で走らせると、サーバを止めてから更新の手順を進める",
+       "更新の移行が落ち、この回の退避があれば、退避から DB を戻して前の版で起こし直す",
+       "この回の退避が無いとき・移行の失敗でない終わり方では、DB を戻さずに前の版で起こし直す",
+       "更新や戻しが途中で止まっても、サーバは半端な DB で起きず、走らせ直すと前の版へ戻し終えてからやり直す",
+       "更新が入らなかったことを、インストーラの窓と状態の置き場の更新の記録に残す",
+       "戻したことを、更新の履歴に「落ちた試みの結果」と「戻した」の 2 行で残す",
+       "同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる",
+       "切った更新の確認は、更新でも戻しでも切ったままで、戻した後も新しい版を「更新あり」に出す"
+      ],
+      "decisions": [
+       "D1",
+       "D2",
+       "D3",
+       "D4",
+       "D5",
+       "D6",
+       "D7",
+       "D8",
+       "D9",
+       "D10",
+       "D11",
+       "D12",
+       "D13",
+       "D14",
+       "D15"
+      ]
+     }
+    },
+    {
+     "text": "版を比べる側（インストーラ・携帯の更新の確認）と印を数える検査、ci.yml の同時実行と出し分け、ST62・ST64 への申し送り",
+     "refs": {}
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "CI の debug の鍵が組み立てごとに同じか（番号の APK が本人の携帯の上に署名で入るか）",
+     "why": "鍵と移行は ST64 の担当で、この分析では CI の鍵を確かめていない"
+    },
+    {
+     "text": "番号付けの組み立てが Actions の時間をどれだけ使うか",
+     "why": "番号ごとの組み立ての時間を測っていない（月に約 27 回の見込みだけ）"
+    },
+    {
+     "text": "下書きのリリースの容量の上限（P11）と認証なしの一覧での見え方（P5）",
+     "why": "P11 は確かめておらず、P5 は公式文書だけ（確かめは tasks 12.1）"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "更新の試験の 8 つの Requirement の手順そのもの",
+     "why": "試験の版の値を替えるだけで、手順の振る舞いを変えない"
+    }
+   ]
+  }
+ },
+ "sections": {
+  "makes": {
+   "tldr": "main の CI が通った製品の変更に機械が番号を付け、番号ごとにサーバ・PC・携帯を組んで残す。",
+   "gist": [
+    "番号は 0.2.0 から。左は本人のファイル、真ん中は確認バッチ、右はそれ以外で進む。",
+    "番号の組み立ては配布元の下書きに残す。PR の組み立ては 0.0.x を名乗る。"
+   ],
+   "words": [
+    {
+     "term": "番号",
+     "def": "機械が付ける版番号（例 0.2.1）。どの組み立てかだけを表す"
+    },
+    {
+     "term": "組み立て",
+     "def": "ソースから作ったサーバ・PC・携帯の配布物"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 600 170\" role=\"img\" aria-label=\"main に merge された commit の CI が成功すると、番号付けが前の番号から製品が変わったかを見て番号を決め、印 build-番号 を作ってからサーバ・PC・携帯を組み、配布元の下書きに置く。main の commit は増えない\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"60\" width=\"110\" height=\"46\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"55.0\" y=\"80.0\" text-anchor=\"middle\">main の commit</text><text x=\"55.0\" y=\"95.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">CI が成功</text><rect x=\"150\" y=\"60\" width=\"120\" height=\"46\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"210.0\" y=\"80.0\" text-anchor=\"middle\">番号付け</text><text x=\"210.0\" y=\"95.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">製品が変わった？</text><rect x=\"310\" y=\"0\" width=\"130\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"375.0\" y=\"17.0\" text-anchor=\"middle\">印 build-0.2.1</text><text x=\"375.0\" y=\"32.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">その commit を指す</text><rect x=\"310\" y=\"64\" width=\"130\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"375.0\" y=\"81.0\" text-anchor=\"middle\">組む</text><text x=\"375.0\" y=\"96.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">サーバ・PC・携帯</text><rect x=\"470\" y=\"64\" width=\"130\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"535.0\" y=\"81.0\" text-anchor=\"middle\">配布元の下書き</text><text x=\"535.0\" y=\"96.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">番号ごとに 1 つ</text><rect x=\"150\" y=\"130\" width=\"120\" height=\"36\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"210.0\" y=\"145.0\" text-anchor=\"middle\">付けない</text><text x=\"210.0\" y=\"160.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">文書だけ</text></g><g stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"><path d=\"M112 83 L146 83\"/><path d=\"M272 74 L306 22\"/><path d=\"M272 86 L306 84\"/><path d=\"M442 84 L466 84\"/></g><g></g><g stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"><path d=\"M210 108 L210 126\"/></g><g></g></svg>",
+    "caption": "番号が付いて組み立てが残るまで",
+    "note": "0.2.1 は説明用の番号です"
+   }
+  },
+  "change": {
+   "tldr": "版を手で上げる代わりに、番号付けが番号を決める。携帯の versionCode の式も変わる。",
+   "gist": [
+    "根の Cargo.toml の版は 0.0.1 に固定し、番号を持たない組み立ての版にする。",
+    "印 v* は番号の commit にだけ付く。開発版は最新の番号の commit から組む。"
+   ]
+  },
+  "lost": {
+   "tldr": "修正の枝からの正式版と、PR の携帯の APK を本人の携帯へ上書きで入れる道が無くなる。",
+   "gist": [
+    "配った版はまだ無いので、今すぐ困る場面はこの分析では見つけていない。",
+    "PR の APK を試すには、未送信を送ってから入れ直すか番号の APK を使う。"
+   ]
+  },
+  "uses": {
+   "tldr": "直した版を入れたいとき、番号の組み立てを取れば、前の版と違う版として確実に入る。"
+  },
+  "watch": {
+   "tldr": "merge 1 つに番号 1 つではない。PR の組み立てはどれも 0.0.1 を名乗る。"
+  },
+  "findings": {
+   "tldr": "重大な問題は見つけていない。PR の組み立ての入れ方など中程度が 3 件。",
+   "gist": [
+    "PR の組み立ては携帯にもサーバにも入れ替えにくい（IMP-01・IMP-02）。",
+    "順番待ちの前提は、main に入った後の本物の 1 回で確かめる（IMP-03）。"
+   ]
+  },
+  "rest": {
+   "tldr": "札・公開・移行は作らない（ST62〜ST64）。署名していない APK も残すことは AI に任せた。"
+  }
+ }
+}
