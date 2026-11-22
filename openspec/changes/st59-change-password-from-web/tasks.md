@@ -123,7 +123,7 @@
 
 ## Task 9: 全体
 
-- [ ] 9.1 `cargo fmt --all -- --check`・`cargo clippy --workspace --all-targets -- -D warnings`・Windows の 2 crate の `--target x86_64-pc-windows-gnu` の clippy・`cargo test --workspace`・`tools/check-openapi.sh`・`tools/check-log-private.sh`・`tools/check-secrets.sh`・Scenario の突き合わせ
+- [x] 9.1 `cargo fmt --all -- --check`・`cargo clippy --workspace --all-targets -- -D warnings`・Windows の 2 crate の `--target x86_64-pc-windows-gnu` の clippy・`cargo test --workspace`・`tools/check-openapi.sh`・`tools/check-log-private.sh`・`tools/check-secrets.sh`・Scenario の突き合わせ
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo clippy -p ashiato-setup -p ashiato-server --all-targets --target x86_64-pc-windows-gnu -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` rc=0 /
   `bash -c 'tools/check-openapi.sh && tools/check-log-private.sh && tools/check-secrets.sh && python3 scripts/check_scenarios.py . st59-change-password-from-web'` rc=0
 
