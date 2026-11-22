@@ -920,6 +920,34 @@ fn collector_token_entry(
     )
 }
 
+fn generate_collector_token(
+    api_token: &str,
+    session_key: &str,
+    web_password_verifier: &str,
+    mut next: impl FnMut() -> [u8; 32],
+) -> String {
+    loop {
+        let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(next());
+        if check_web_password_verifier(Some(web_password_verifier), &token).is_ok()
+            && check_web_session_key_verifier(Some(&token), api_token, web_password_verifier)
+                .is_ok()
+            && !token_matches(&token, session_key)
+        {
+            return token;
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn generate_collector_token_for_test(
+    api_token: &str,
+    session_key: &str,
+    web_password_verifier: &str,
+    next: impl FnMut() -> [u8; 32],
+) -> String {
+    generate_collector_token(api_token, session_key, web_password_verifier, next)
+}
+
 /// 本文が JSON と名乗っているか（ログインと収集アプリの設定の口）。
 fn is_json(headers: &HeaderMap) -> bool {
     headers
@@ -1103,9 +1131,18 @@ async fn collector_token_post_checked(
             .into_response());
     }
 
-    let mut raw = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut raw);
-    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
+    let api_token = secrets.api_token().to_owned();
+    let session_key = app.login.session_key.clone();
+    let web_password_verifier = match &secrets.web_password {
+        WebPassword::Verifier(verifier) => verifier.clone(),
+        WebPassword::Plain(password) => password_verifier(password)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?,
+    };
+    let token = generate_collector_token(&api_token, &session_key, &web_password_verifier, || {
+        let mut raw = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut raw);
+        raw
+    });
     app.access
         .write(collector_token_entry(
             &headers,

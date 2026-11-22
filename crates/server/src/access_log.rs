@@ -165,7 +165,7 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
         .unwrap_or_default();
     if matches!(
         route.as_str(),
-        "/healthz" | "/session" | "/collector-setup" | "/web-password"
+        "/healthz" | "/session" | "/collector-setup" | "/web-password" | "/collector-token"
     ) {
         return next.run(req).await;
     }
