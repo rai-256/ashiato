@@ -140,6 +140,7 @@ debug の鍵で署名した APK（本人が試しに入れる用）と、署名�
 - 判定の job: run の `head_sha` を `fetch-depth: 0` で取り出し、`tools/release/version.sh number <commit>` で「付けない／番号」を出す。付けるなら印 `build-<番号>` を push する（この job だけが `contents: write`）
 - 組み立ての job: 判定の番号を `ASHIATO_BUILD_VERSION` に渡し、run の `head_sha` から Linux（サーバ・携帯の APK 2 つ）と Windows（サーバ・PC の収集アプリ）を組む。CI のキャッシュの前の組み立てを使わない（D12）
 - 置く job: 配布物の検査（`check-artifacts.sh --allow-debug-key --expect-version <番号>`）を通し、下書きに置く（`contents: write`）。公開しない・印 `v*` を作らない
+- 前提 P18（飛ぶ job は順番待ちの席を取らない。確かさ 1）が外れても、2 つの判定が同時に走るだけで、同じ番号の印の 2 つ目の push は断られる（P19）。起きるのは片方の番号付けが落ちて番号が次の成功まで遅れることで、同じ番号が 2 つの commit に付くことは無い。外れたと分かったら（tasks 12.5）、判定を `workflow_run` の外の 1 本の流れ（予定の実行で最新の成功の run を拾う）に移す
 - 組み直しの費用: 番号ごとに Linux と Windows の組み立てが 1 回ずつ走る（月に約 27 回）。CI の run の成果物を使えば組み直さずに済むが、CI の組み立ては番号の決まる前に走るので、番号を焼き込めない（同じ番号を 2 つの run が焼く道ができる）
 - 反転条件: 組み直しの時間が問題になる → CI の main の run の組み立てを外し、番号付けの組み立てだけにする
 

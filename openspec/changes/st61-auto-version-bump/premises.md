@@ -26,6 +26,11 @@
 | P15 | インストーラは、入っている版が `0.0.0` なら「版を読めない古いサーバ」の互換値とみなし、系統の検査を飛ばして更新する | Q4（番号を持たない組み立てに 0.0.0 は使えない） | `crates/installer/src/update_plan.rs:14-25`（deep-review R5） | そのとおり。版の大小は見ず、違えば更新・同じなら走らせ直し | 実物（repo） | 2 |
 | P16 | main と PR の組み立ての携帯の APK は debug の鍵で署名して残る。正式な鍵の署名（`sign-apk.sh`）の試験は署名していない APK だけを入力にする | C6（番号ごとに残す APK に、後で組み直さずに正式な鍵を足せるか） | `tools/release/package.sh:16-17`・`collector-android/app/build.gradle.kts:256-259`・`tools/release/sign-apk.sh` の自己試験（deep-review R7） | そのとおり。debug の鍵で署名済みの APK を署名し直す道は試していない | 実物（repo） | 2 |
 | P17 | CI の更新の試験の組み立ては、同じ commit から 0.4.0・0.5.0・0.6.0 などを名乗って組む（main の run でも） | Q4（本物の番号がそこに届くと、同じ番号で中身の違う物ができる） | `.github/workflows/ci.yml:576-600` | そのとおり | 実物（repo） | 2 |
+| P18 | job の単位の `concurrency` は、その job の `if` が偽で飛ぶ run では順番待ちの席を取らない | D10（取り消された・落ちた CI の run が、待っている番号付けを取り消さない） | 確かめていない（公式文書 https://docs.github.com/en/actions/using-jobs/using-concurrency は job の単位の組を言うが、飛ぶ job の扱いを書いていない）。最初の本物の番号付けで見る（tasks 12.5） | —— | 知識 | 1 |
+| P19 | workflow の `GITHUB_TOKEN`（`contents: write`）で、印 `build-*` を push でき、同じ名前の印が別の commit を指していれば push は断られる | D7（番号の取り合いを印の push が断る） | 公式文書 https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication（`contents: write` で push できる）。断られる側は git の振る舞い（既にある印の付け替えは `--force` が要る） | push できる・付け替えは断られる | 公式文書 / 知識 | 2 |
+| P20 | 既にある印の名前で下書きのリリースを作れる（`gh release create <印> --draft --target <commit>`） | D1・D7（印 `build-<番号>` の下書き） | 公式文書 https://docs.github.com/en/rest/releases/releases#create-a-release（`tag_name` が既にあればその印を使う） | 作れる | 公式文書 | 2 |
+| P21 | Actions の API `GET /repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success` は、新しい run から順に返す | D8（前に成功した main の run の commit） | 公式文書 https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow | 新しい順（読み。走らせていない） | 公式文書 | 2 |
+| P22 | Android は、入っている APK と同じ versionCode の APK を上書きで入れる（下げるのだけを断る） | D3（同じ番号のベータ版と正式版が同じ値） | 公式文書 https://developer.android.com/studio/publish/versioning の読み。走らせていない | 入れる | 公式文書 | 2 |
 
 ### Q2 の前提を 4 に上げる
 
@@ -42,10 +47,10 @@ spec の段で design に置く D 番号（review/deep.md の処置と provision
 | # | 決めること | 既定（扉を開けたままにする側） | なぜ聞かないか | 反転条件 |
 |---|---|---|---|---|
 | C1 | 番号を付けた組み立てをいつまで残すか | **全部残す**。番号ごとに配布元の下書きのリリースに置く（携帯・PC・サーバの配布物と、組み立ての印） | 失わない側が安い（月に約 1.7 GB・公開のリポジトリで置き場の代金が無い —— R3）。消し方は、最初に消す必要が出る前に、札を作る ST62 で決められる | 置き場の容量の上限に当たる（P11）・下書きが認証なしの一覧に出る（P5 が外れる） |
-| C2 | 番号の記録 | 付けたときに記録し（下書きの名前と、その commit）、後から数え直さない。次の番号は記録の最大から決める | 台帳は追記のみ。規則（Q3）を後で変えても過去の番号は動かない | —— |
+| C2 | 番号の記録 | 付けたときに記録し（★ spec の段で、印 `build-<番号>` に変えた。下書きの一覧は push できる人にしか見えないので、判定を git だけで閉じる —— design D7）、後から数え直さない。次の番号は記録の最大から決める | 台帳は追記のみ。規則（Q3）を後で変えても過去の番号は動かない | —— |
 | C3 | 最初の番号 | **0.2.0**（Q3 の推奨なら最初の確認バッチで 0.2.0 になる） | どちらも 0.1.1 より大きく、失うものが無い（R10）。0.1.2 だと versionCode が今の APK より小さくなりうる | —— |
 | C4 | 左の数字の置き場 | repo のファイル 1 つ（本人が PR で変える）。API の契約の `info.version` は版番号にしない（main に commit を積まないため） | 置き場は後で移せる | —— |
 | C5 | 番号付けの job | 深い checkout（P14）・main の first-parent の順・同じ commit の再実行は同じ番号で、置いた組み立てを上書きしない | 同じ番号で中身の違う物を作らない（FR-134）の実装 | —— |
 | C6 | 番号ごとに残す携帯の APK の署名 | **署名していない APK も一緒に残す**（debug の鍵のものは本人が試しに入れる用） | 正式な鍵をいつ足すかは ST62 の未決（FR-135）。署名していないものを残せば、どちらに決めても組み直さずに済む（R7） | ST62 が main の組み立てで正式な鍵を付けると決めたら、残すのは署名済みだけでよい |
 | C7 | ST62・ST63 までの移る間の印 `v*` と開発版 | 印 `v<番号>`（と `-beta.N`）は、**その番号を付けた commit を指すときだけ**組んで公開する。開発版の作り直しは、HEAD でなく**最新の番号を付けた commit** を `<番号>-dev.<日付>` で組む | 今の正式版・開発版の組み立てを緑のまま保つ（壊してはいけないもの）。番号と中身がずれない（R8） | —— |
-| C8 | Windows の組み立ての使い回し | 使い回しの鍵に版番号を含める | 番号の違う組み立てを取り違えない（R6） | —— |
+| C8 | Windows の組み立ての使い回し | 使い回しの鍵に版番号を含める（★ spec の段で、番号の組み立てはキャッシュを引かず保存もしない形に変えた。鍵は変えない —— design D12） | 番号の違う組み立てを取り違えない（R6） | —— |

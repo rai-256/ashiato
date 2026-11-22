@@ -12,7 +12,7 @@
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント、bash は `echo "== Scenario: …"`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせる。印の名前は spec の `#### Scenario:` と一字一句合わせる
 - **この change の Scenario は 128 本**（すべて `distribution`）。新しい名前の Scenario は下の Task が全部名指しする。残りは今の台本・試験が印を持つ。そのうち中身（GIVEN の版・期待する値）を変えた Scenario は、印の場所の試験の値を直す（Task が名指しする）。印を消さない
 - **本人の決定（第 1 回は推奨で書いた。答えが違えば上流が写し直してから下流へ渡す）**: Q1 番号は CI が通り前の番号から製品が変わった commit に付ける（D4（仮））/ Q2 versionCode は `左×10,000,000 + 真ん中×10,000 + 右`（D3（仮））/ Q3 間に確認バッチの merge があれば真ん中を上げる（D5）/ Q4 番号を持たない組み立ては 0.0.x（D6）。
-  仮: D1（番号の組み立ては全部、下書きのリリースに残す）・D2（署名していない APK も残す）。D3・D4・D6 も（仮）で、第 1 回の答えで record の段が本人の決定に替える
+  仮: D1（番号の組み立ては全部、下書きのリリースに残す）・D2（署名していない APK も残す）。D3・D4・D6 も（仮）で、第 1 回の答えが推奨と違えば `spec --answers` の段が design を直す
 - **名前は統一する**: 左の数字のファイル `tools/release/MAJOR`・番号の印 `build-<番号>`・下書きの説明文の行 `ashiato-build: <番号> <commit の 40 桁>`・署名していない APK `ashiato-collector-<番号>-unsigned.apk`・番号付けの workflow `.github/workflows/number.yml`・
   台本の口 `tools/release/version.sh number <commit>`（番号の判定）・`tools/release/number.sh`（印を作り下書きに置く）。環境変数は今の `ASHIATO_BUILD_VERSION`・`ASHIATO_APK_UNSIGNED`・`ASHIATO_RELEASE`
 - **workflow の YAML に判定の論理を書かない**（ST52 D8 の型）。判定は `tools/release/*.sh` に置き、`--self-test` が使い捨ての git の木・偽の `gh`（`PATH` の先に置く台本）で確かめる。workflow の形は `tools/release/check-guards.sh workflows` が読む
@@ -105,7 +105,7 @@
 - [ ] 8.1 `tools/release/version.sh plan <印>` を D11 にする: 印の commit に `build-<番号>` の印があり、印の 3 つの数字がその番号と同じときだけ通す。番号の無い commit は「印の commit に番号が無い」で落ちる。
   修正の枝 `release/*` の例外を消す（main の祖先でなければ落ちる）。`--self-test` の 4 つの修正の枝の Scenario（REMOVED）を消し、印 `印の版とその commit の番号が違えば公開しない`・`番号の無い commit の印は公開しない`・`修正の枝の印も、main の祖先でなければ公開しない` を足し、
   `浅い木では、印の判定は通らない`・`正式版の印は、通常のリリースと判定される`・`ベータ版の印で、先行公開のリリースになる`・`main の祖先でない commit の印は公開しない` の木に番号の印を足す。`docs/release.md` の修正の枝の節を消し、壊れた版は main で直して次の番号に印を付ける手順にする
-  検証: `tools/release/version.sh --self-test` rc=0 / `bash -c '! grep -n "修正の枝" tools/release/version.sh'` rc=0
+  検証: `tools/release/version.sh --self-test` rc=0 / `bash -c '! grep -nF "release/" tools/release/version.sh'` rc=0（修正の枝の分岐 `refs/remotes/origin/release/*` を消した）
 
 ## Task 9: 開発版の作り直しを最新の番号の commit から組む（移る間）
 
@@ -126,7 +126,7 @@
 
 - [ ] 11.1 `docs/release.md` に「番号」の節（番号の付き方 D4・D5・左の数字を本人が変える手順 D9・番号の組み立ての置き場と欠番 D1・D7・番号付けが止まったとき（左を下げた・上限に届いた D14）の直し方）を足す。
   `docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「番号は main の番号付けが付け、左の数字は `tools/release/MAJOR`。`Cargo.toml` は番号を持たない組み立ての `0.0.1`（ST61）」と書く。
-  `docs/handoff/ST62.md` に `## st61-auto-version-bump R3` の節（番号の組み立ての消し方・`build-*` の印の守り・FR-105 の「急ぎの直し」の未決は開いたまま —— review/spec.md R12）、`docs/handoff/ST64.md` に `## st61-auto-version-bump R9` の節（版の検査は番号の形を誰からでも受け取る。入れる側で札の無い組み立てを止める）を足す
+  `docs/handoff/ST62.md`（`## st61-auto-version-bump R3`）と `docs/handoff/ST64.md`（`## st61-auto-version-bump R9`）は上流が書いた。実装で台本や印の名前が変わったら、その節を直す
   検証: `bash -c 'for h in "tools/release/MAJOR" "build-" "欠番" "左の数字"; do grep -q "$h" docs/release.md || exit 1; done && grep -q "ST61" docs/production-prep.md && grep -q "st61-auto-version-bump R3" docs/handoff/ST62.md && grep -q "st61-auto-version-bump R9" docs/handoff/ST64.md'` rc=0 / `python3 scripts/check_scenarios.py . st61-auto-version-bump` rc=0
 
 ## 人間の確認待ち（確認バッチ。PR が main に入った後）
@@ -137,3 +137,4 @@
 - [ ] 12.2 **最初の番号**: この Story が main に入った後、最初に製品に触れる merge の CI が通ると、印 `build-0.2.0` と下書き `build-0.2.0` に 5 つの配布物が並び、main の commit が増えていないこと（完了の判定の 1 つ目）
 - [ ] 12.3 **確認バッチの merge**: 次の確認バッチの merge の後の番号の真ん中が 1 上がり、右が 0 になること（D5）
 - [ ] 12.4 **main の差分の基準**（D8・review/spec.md R16）: main に入った後の最初の文書だけの merge の run の `changes` の job の出力に、基準の commit（前に成功した main の push の run の `head_sha`）が出て、全部走らせるに落ちていないこと
+- [ ] 12.5 **番号付けの順番待ち**（P18・P19・P20・D10）: main に入った後、取り消された CI の run の直後に成功した run があった回で、番号付けの判定の job が取り消されずに番号の印を作ったこと（印 `build-*` の push と、その印の下書きができたこと）。外れたら D10 の反転条件で上流へ返す
