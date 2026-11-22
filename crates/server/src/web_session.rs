@@ -572,7 +572,12 @@ pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) ->
     let secrets = app.secrets_snapshot();
     let token = cookie_token(req.headers(), app.channel).map(str::to_owned);
     let authn = crate::decide_with_secrets(&app, req.headers(), &secrets).await;
-    let mut res = crate::AUTHN.scope(authn, next.run(req)).await;
+    let mut res = crate::AUTHN
+        .scope(
+            authn,
+            crate::REQUEST_SECRETS.scope(secrets.clone(), next.run(req)),
+        )
+        .await;
     if let Some(token) = token {
         if authn == crate::Authn::Decided(Some(Caller::WebSession))
             && res.status() != StatusCode::UNAUTHORIZED
@@ -671,8 +676,7 @@ pub async fn collector_setup_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let secrets = app.secrets_snapshot();
-    let caller = match crate::decide_with_secrets(&app, &headers, &secrets).await {
+    let caller = match crate::decided(&app, &headers).await {
         crate::Authn::Decided(caller) => caller,
         crate::Authn::LookupFailed => {
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
@@ -715,6 +719,7 @@ pub async fn collector_setup_post(
             "unsupported media type".into(),
         ));
     }
+    let secrets = crate::request_secrets(&app);
     run_to_completion(collector_setup_checked(app, headers, caller, body, secrets)).await
 }
 
