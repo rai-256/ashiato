@@ -6,7 +6,7 @@
 同梱の PostgreSQL は「minor を 17.12 に上げ、major は変えない。既に入っている PC で minor の更新が既存の DB をそのまま使えることを確かめる」。
 外の事実は `premises.md`（P1〜P21）。CH22・CH24・CH25 は 2026-11-21 に main へ merge 済み（archive 済み）。実装は main の上で始める（`ci.yml`・`Cargo.lock`・`osv-scanner.toml` は main の形が元）。
 
-> 第 1 回の合意で本人が R2 の答えを A から C に変えた（`deep.md` の「仕様への違和感（第 1 回の合意）」）。D5 を書き直し、CI の決め方を D7（仮）〜D10（仮）に足した。
+> 第 1 回の合意で本人が R2 の答えを A から C に変えた（`deep.md` の「仕様への違和感（第 1 回の合意）」）。D5 を書き直し、CI の決め方を D7（仮）〜D10 に足した。D8・D9・D10 は第 2 回の深掘りで本人が今の本文のまま決めた（`deep.md` 第 2 回 Q1〜Q3）。
 
 ## Goals / Non-Goals
 
@@ -101,6 +101,8 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 
 ### D8. 判定と確かめは台本 `tools/release/pgsql-prev-lock.sh` に置き、ci.yml は呼ぶだけ
 
+> 本人の決定（第 2 回 Q1「台本に置き、ci.yml は呼ぶだけ」）。仮の D7 の上に立つ —— D7 が覆れば `changed`・`decide`・`check-workflow` を見直す。
+
 ci.yml の中の bash は Windows の runner でしか走らず、手元で落ちるかを確かめられない。check_scenarios も ci.yml の印を拾わない（`.yml` は試験の拡張子に無い。spec-review R17）。だから判定と確かめを台本に置き、Scenario の印も台本に置き、`--self-test` を Linux（`chain` の job）で走らせる:
 
 - `changed <base> <head>`: 分岐点から head までの差分が lock を変えたら `true <分岐点>`、変えていなければ `false` を出す（`changes` の job の Linux で走る）
@@ -120,6 +122,8 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 
 ### D9. Windows の組み立ての使い回しの鍵に、前の lock を入れる（正典の鍵の Requirement を MODIFIED で書き換える）
 
+> 本人の決定（第 2 回 Q2「入れる」）。`prev-pgsql` の値と `none` の意味は仮の D7 から来る —— D7 が覆れば値を見直す。
+
 使い回しの鍵（`tools/release/windows-build-key.sh`）は HEAD の木（`pgsql.lock` を含む）と道具の版から出す（P21）。前の lock は木の外から来る入力なので、鍵に入れないと、同じ head で前の lock だけが違う組み立て（分岐点を動かした後の push など）を引きうる。
 鍵の step の `WINDOWS_BUILD_KEY_TOOLS` の末尾に `|prev-pgsql=<前の lock の sha256、取らなければ none>` を足す（前の lock を取る step の出力から）。鍵の step・restore・保存の形は今の `--check-workflow` のまま通る（実測。spec-review の第 2 回の「実物で確かめたこと」）。
 正典の Requirement「PR の CI は、組み立ての入力が同じ Windows の配布物を使い回し、インストールの試験は全部走らせる」は鍵の入力を列挙しているので、`## MODIFIED` で入力に前の lock を足し、Scenario「鍵を出す手順は、古い側を組んだ前の lock の指紋を鍵に入れる」を足す（印は `pgsql-prev-lock.sh` の `check-workflow`。spec-review R20）。
@@ -129,12 +133,14 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 
 ### D10. CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない
 
+> 本人の決定（第 2 回 Q3「見ない」）。費用の見積もりは D8 の zip の版の確かめがある前提。
+
 `install-windows` は `update-apply-install.sh` の Scenario 群を古い側（17.6-1）と新しい側（17.12-1）の zip で通し、`package-windows` は 2 つの zip の同梱の版を確かめる。インストーラが更新でプログラムの置き場（`pgsql` を含む）を入れ替え、戻しで前の版の置き場に戻すことは正典の Requirement（「同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる」の 2 文目）が言うが、その一文を見る Scenario は無く、`update-apply-install.sh` も動いている `postgres.exe` の版を読まない（spec-review R22）。
 この change では見ない。見るには `update-apply-install.sh` の判定（組み立ての台本で、この change の「変えないもの」）に `pgsql\bin\postgres.exe -V` を読む所を足すことになり、本人の補足の範囲（「既存の update-apply-install.sh で通す」）を越える。
 
 - 失わない側: 何も捨てない。インストーラはアプリのプログラムの置き場ごと入れ替える（P12・P17）ので、版の観測を後から足す change をいつでも立てられる
 - 費用: 見ない間は、インストーラが `pgsql` の置き場だけを入れ替え損ねても CI は緑になりうる（そのとき新しいサーバは古い PostgreSQL で動く。同じ大きい版なので DB は読める）
-- **反転条件**: インストーラのプログラムの置き場の入れ替え方が変わった（`pgsql` を別に扱うようになった）／本人が確認バッチの仮の一覧で「見る」と決めた（`update-apply-install.sh` に版の観測を足す change を立てる）
+- **反転条件**: インストーラのプログラムの置き場の入れ替え方が変わった（`pgsql` を別に扱うようになった）／本人が「見る」に変えた（`update-apply-install.sh` に版の観測を足す change を立てる）
 
 ## Risks / Trade-offs
 
@@ -142,6 +148,6 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 - 例外の 2 行は 90 日で切れ、chrono は置き換えるまで 90 日ごとに夜間の検査を赤にする。それ自体が本人への知らせになる（D3）
 - lock を変える PR の CI は、古い側の zip を前の lock で組むので、PostgreSQL の zip を 2 つ落とす（約 370 MB ずつ。`pgsql.sh fetch` は版ごとの名前で置き場に置き、キャッシュに 2 つ残る。P20）。lock を変えない PR は今のまま
 - Windows の更新と戻しの確かめは CI の run にあり、Task の手元の検証では走らせられない。手元で見るのは台本の自己試験と 2 つの `check-workflow`。lock を変えた PR では、版の組が違えば `package-windows` が落ちる（D7・D8）ので、CI が緑であることが `17.6-1 → 17.12-1` の組で更新と戻しが通ったことを含む（完了の判定 8。merge gate は CI の緑を要る）
-- CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない（D10（仮））
+- CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない（D10。本人の決定）
 - CH22（`install-windows` に置く段）・CH25（gradle のキャッシュ・`chain` の頭）は main に merge 済みで、`ci.yml` の別の行を変えた。CH26 は `changes`（出力を 2 つ足す）・`package-windows`（前の lock・鍵・古い側の組み立て・版の確かめ）・`chain`（2 行）だけを変える
 - CH24（merge 済み）が main で `Cargo.lock`・`osv-scanner.toml` を変えた。実装は main の上で取り直す（proposal の Impact）
