@@ -4,6 +4,20 @@
 - R7: install-check が合言葉変更応答の Cookie jar を保存するよう変更した。
 - R9/R10/R13: 成功監査行を設定保存後にし、CPU/ファイル操作を blocking 側へ移し、throttle の早期判定を追加した。`cargo test -p ashiato-server st59_both_`: 8 passed。
 - R11: 一時ファイルへ元の Unix mode を引き継ぎ、失敗時に削除するよう変更した。`cargo check -p ashiato-server`: rc=0。
+# settle 再々処置（2026-11-22）
+
+- R2: ログイン照合後・core.web_session の INSERT 直前を止める test-only の同期点を追加した。multi-thread の Scenario 試験で、ここに実際の POST /web-password を割り込ませ、照合時の古い tag の cookie が変更後に 401 となることを確認する。
+- R18: Netscape cookie jar の行末は Python の改行文字だけを除く rstrip に直し、値末尾の n やバックスラッシュを削らないようにした。
+- R19: blocking 照合の JoinError を panic にせず不一致として失敗数へ反映し、permit は失敗数を記録するまで外側で保持するようにした。
+- R20: 設定の巻き戻し失敗を捨てず、秘密やパスを含まない key・理由を error log に残す共通処理にした。
+
+検証:
+
+- cargo fmt --all -- --check rc=0
+- cargo test -p ashiato-server st59_swap_login_cookie_uses_the_checked_tag_and_is_revoked_after_swap rc=0（1 passed）
+- cargo test -p ashiato-server st59_ rc=0（38 passed）
+- tools/release/install-check.sh --self-test rc=0
+
 # settle 再処置（2026-11-22）
 
 - R2 / R14: `LOGIN_CHECK` を照合後も 2 つの変更口が `replace_secrets` まで保持するようにし、照合用の blocking task は guard を返す形にした。旧い組で通ったログインや変更どうしが差し替えの間に割り込まない。

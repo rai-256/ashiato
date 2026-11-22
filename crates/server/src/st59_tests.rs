@@ -168,7 +168,6 @@ async fn response_body_string(response: axum::response::Response<Body>) -> Strin
 }
 
 #[tokio::test]
-// Scenario: 変えている最中に前の合言葉で照合が通ったログインの印は、変えた後は使えない
 async fn st59_web_password_rechecks_secrets_after_serialization_permit() {
     let _environment = st59_service_environment("old-api-token", "old-web-password-012345");
     let app = App::for_test(testdb::pool().await, "old-api-token");
@@ -1346,14 +1345,27 @@ fn st59_swap_bundle_contains_the_three_shared_values() {
     assert!(!bundle.tag().is_empty());
 }
 
-#[tokio::test]
-async fn st59_swap_login_cookie_uses_the_old_tag_and_is_revoked_after_swap() {
-    let app = App::for_test(testdb::pool().await, "old-api-token");
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// Scenario: 変えている最中に前の合言葉で照合が通ったログインの印は、変えた後は使えない
+async fn st59_swap_login_cookie_uses_the_checked_tag_and_is_revoked_after_swap() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let app = st59_app().await;
+    let change_cookie = login(&app, app.web_password_for_test()).await;
     let old_password = app.web_password_for_test().to_owned();
-    let succeeded = app.login.check_succeeded_for_test();
+    let before_cookie_insert = app.arm_login_cookie_insert_hold_for_test();
     let request = tokio::spawn(router(app.clone()).oneshot(login_request(&old_password)));
-    succeeded.await;
-    app.replace_secrets_for_test("new-api-token", "new-web-password-012345");
+    before_cookie_insert.await;
+    let changed = router(app.clone())
+        .oneshot(web_password_request(
+            Some(&change_cookie),
+            &old_password,
+            "new-web-password-012345",
+            "new-web-password-012345",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed.status(), StatusCode::NO_CONTENT);
+    app.release_login_cookie_insert_hold_for_test();
     let response = request.await.unwrap().unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let old_cookie = cookie_value(&response);

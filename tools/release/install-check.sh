@@ -1141,7 +1141,7 @@ check_release_zip() {
   [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
   changed_cookie="$(PY -c 'import sys
 for line in open(sys.argv[1], encoding="utf-8"):
-    fields=line.removeprefix("#HttpOnly_").rstrip("\\n").split("\t")
+    fields=line.removeprefix("#HttpOnly_").rstrip("\n").split("\t")
     if len(fields) >= 7 and fields[5] == "ashiato_session":
         print(fields[6]); break' "$WORK/web-password-change.cookie")"
   [[ -n "$changed_cookie" ]] || die '画面の合言葉の変更後のログインの印を受け取れない'

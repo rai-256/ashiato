@@ -420,8 +420,13 @@ pub struct WebLogin {
     /// 照合が 1 つずつの印を待ち始めた合図（試験が照合の途中で取り消すため。review/code.md R11・R12）。
     #[cfg(test)]
     check_waiting: Arc<tokio::sync::Notify>,
+    /// ログインの照合の後、印の行を書く直前を試験が止める口（ST59 R2）。
     #[cfg(test)]
-    check_succeeded: Arc<tokio::sync::Notify>,
+    cookie_insert_hold: Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(test)]
+    cookie_insert_waiting: Arc<tokio::sync::Notify>,
+    #[cfg(test)]
+    cookie_insert_release: Arc<tokio::sync::Notify>,
 }
 
 impl WebLogin {
@@ -461,7 +466,11 @@ impl WebLogin {
             #[cfg(test)]
             check_waiting: Arc::default(),
             #[cfg(test)]
-            check_succeeded: Arc::default(),
+            cookie_insert_hold: Arc::default(),
+            #[cfg(test)]
+            cookie_insert_waiting: Arc::default(),
+            #[cfg(test)]
+            cookie_insert_release: Arc::default(),
         }
     }
 
@@ -474,7 +483,9 @@ impl WebLogin {
         #[cfg(test)]
         {
             next.check_waiting = self.check_waiting.clone();
-            next.check_succeeded = self.check_succeeded.clone();
+            next.cookie_insert_hold = self.cookie_insert_hold.clone();
+            next.cookie_insert_waiting = self.cookie_insert_waiting.clone();
+            next.cookie_insert_release = self.cookie_insert_release.clone();
         }
         next
     }
@@ -496,9 +507,30 @@ impl WebLogin {
         self.check_waiting.notified()
     }
 
+    /// ログインの照合後・印の行の直前を止める。待ち手を先に作ってから求めを出す。
     #[cfg(test)]
-    pub(crate) fn check_succeeded_for_test(&self) -> tokio::sync::futures::Notified<'_> {
-        self.check_succeeded.notified()
+    pub(crate) fn arm_cookie_insert_hold_for_test(&self) -> tokio::sync::futures::Notified<'_> {
+        self.cookie_insert_hold
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.cookie_insert_waiting.notified()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn release_cookie_insert_hold_for_test(&self) {
+        self.cookie_insert_hold
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.cookie_insert_release.notify_waiters();
+    }
+
+    #[cfg(test)]
+    async fn wait_before_cookie_insert_for_test(&self) {
+        if self
+            .cookie_insert_hold
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            self.cookie_insert_waiting.notify_waiters();
+            self.cookie_insert_release.notified().await;
+        }
     }
 
     #[cfg(test)]
@@ -530,7 +562,9 @@ impl WebLogin {
         );
         login.failure_delay = self.failure_delay;
         login.check_waiting = self.check_waiting.clone();
-        login.check_succeeded = self.check_succeeded.clone();
+        login.cookie_insert_hold = self.cookie_insert_hold.clone();
+        login.cookie_insert_waiting = self.cookie_insert_waiting.clone();
+        login.cookie_insert_release = self.cookie_insert_release.clone();
         login
     }
 
@@ -884,10 +918,7 @@ async fn web_password_post_inner(
     .execute(&app.pool)
     .await;
     if let Err(error) = inserted {
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::service::restore_setting("WEB_PASSWORD_VERIFIER", &previous)
-        })
-        .await;
+        restore_setting_after_failed_change("WEB_PASSWORD_VERIFIER", previous).await;
         return Err(internal_at("web_password.session_insert", error));
     }
     if let Err(error) = app
@@ -900,10 +931,7 @@ async fn web_password_post_inner(
         ))
         .await
     {
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::service::restore_setting("WEB_PASSWORD_VERIFIER", &previous)
-        })
-        .await;
+        restore_setting_after_failed_change("WEB_PASSWORD_VERIFIER", previous).await;
         return Err(error);
     }
     app.replace_secrets(next);
@@ -1250,14 +1278,25 @@ async fn collector_token_post_checked(
         ))
         .await
     {
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::service::restore_setting("API_TOKEN", &previous)
-        })
-        .await;
+        restore_setting_after_failed_change("API_TOKEN", previous).await;
         return Err(error);
     }
     app.replace_secrets(secrets.with_api_token(token.clone()));
     Ok(Json(CollectorSetupResponse { token }).into_response())
+}
+
+/// 書き戻した設定を後続の失敗で戻す。戻せなければ秘密を含まない理由を必ず残す。
+async fn restore_setting_after_failed_change(key: &'static str, previous: String) {
+    match tokio::task::spawn_blocking(move || crate::service::restore_setting(key, &previous)).await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::error!(field = key, reason = %error, "設定の巻き戻しに失敗した");
+        }
+        Err(error) => {
+            tracing::error!(field = key, reason = %error, "設定の巻き戻しの task に失敗した");
+        }
+    }
 }
 
 /// 照合が要る求めを、照合から行を書いて答えるまで、求めが取り消されても走り切る task で通す（review/code.md R1）。
@@ -1409,22 +1448,15 @@ async fn check_with_permit_using_secrets(
         return (PasswordCheck::Mismatch, permit);
     }
     // Argon2id の照合は CPU を数十ミリ秒使うので、async の worker を塞がないよう blocking の側で行う（ST55 review R23）。
-    // 1 つずつの印（permit）と失敗の数え上げも blocking の側へ渡し、照合が終わって数え上げるまで次の照合を始めない（review R78）
+    // 印は外側で持ち続け、blocking task が失敗しても失敗を数えるまで次の照合を始めない（review R78）。
     let secrets = secrets.clone();
-    let limiter = app.login.limiter.clone();
-    let (accepted, permit) = tokio::task::spawn_blocking(move || {
-        let permit = permit;
-        let accepted = secrets.accepts(&given);
-        if !accepted {
-            limiter.record_failure();
-        }
-        (accepted, permit)
-    })
-    .await
-    .expect("照合の blocking task は panic しない");
+    let accepted = tokio::task::spawn_blocking(move || secrets.accepts(&given))
+        .await
+        .unwrap_or(false);
+    if !accepted {
+        app.login.limiter.record_failure();
+    }
     if accepted {
-        #[cfg(test)]
-        app.login.check_succeeded.notify_waiters();
         (PasswordCheck::Match, permit)
     } else {
         (PasswordCheck::Mismatch, permit)
@@ -1494,6 +1526,8 @@ async fn session_post_checked(
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
+    #[cfg(test)]
+    app.login.wait_before_cookie_insert_for_test().await;
     let inserted = sqlx::query(
         "INSERT INTO core.web_session (token_sha256, secret_tag, issued_at) VALUES ($1, $2, $3)",
     )

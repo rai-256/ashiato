@@ -764,6 +764,18 @@ impl App {
         self.login.password_for_test()
     }
 
+    #[cfg(test)]
+    pub(crate) fn arm_login_cookie_insert_hold_for_test(
+        &self,
+    ) -> tokio::sync::futures::Notified<'_> {
+        self.login.arm_cookie_insert_hold_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn release_login_cookie_insert_hold_for_test(&self) {
+        self.login.release_cookie_insert_hold_for_test();
+    }
+
     pub(crate) fn secrets_snapshot(&self) -> web_session::SharedSecrets {
         self.secrets.read().expect("secret store poisoned").clone()
     }
