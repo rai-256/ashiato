@@ -1,0 +1,36 @@
+{
+  "title": "ST61 の仕様への合意",
+  "questions": [
+    {
+      "id": "QR",
+      "topic": "高リスクの印",
+      "kind": "risk",
+      "question": "この Story は高リスクの予定パスに触れます。印を残しますか。",
+      "context": "機械の分類: `risky`（tools/release/**）",
+      "options": [
+        {
+          "label": "高リスクのままにする",
+          "recommended": true
+        },
+        {
+          "label": "高リスクの印を外す"
+        }
+      ]
+    },
+    {
+      "id": "QA",
+      "topic": "仕様への合意",
+      "kind": "agreement",
+      "doc": "docs/briefs/ST61-spec.html",
+      "question": "この GO 資料と GO 用 proto のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。",
+      "options": [
+        {
+          "label": "合意する"
+        },
+        {
+          "label": "違和感がある"
+        }
+      ]
+    }
+  ]
+}

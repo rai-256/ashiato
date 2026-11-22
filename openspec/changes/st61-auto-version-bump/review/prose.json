@@ -1,0 +1,18 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 132,
+ "applied": [
+  "points[how.2].text",
+  "points[keep.2].text",
+  "points[keep.5].text",
+  "points[nonum.3].text",
+  "points[nonum.4].text",
+  "points[android.4].text",
+  "points[transition.4].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
