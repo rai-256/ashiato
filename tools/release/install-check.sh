@@ -1167,7 +1167,7 @@ check_release_zip() {
   [[ "$(http_code -X POST -H "Authorization: Bearer $changed_token" -H 'Content-Type: application/json' --data-binary "$ingest_body" "$URL/ingest")" == 200 ]] || die '起動し直した後に新しい収集アプリの値で記録を送れない'
 
   echo '== Scenario: 画面で変えた後も、インストーラで決め直せる'
-  printf '%s\n%s\n' "$PW3" "$PW2" | "$SETUP" password >"$WORK/password-reset-after-web.out" 2>&1 || die '画面で変えた後にインストーラで決め直せない'
+  printf '%s\n%s\n' "$PW2" "$PW2" | "$SETUP" password >"$WORK/password-reset-after-web.out" 2>&1 || die '画面で変えた後にインストーラで決め直せない'
   wait_healthz 150
   [[ -n "$(login "$PW2")" && -z "$(login "$PW3")" ]] || die 'インストーラで決め直した合言葉が使えない'
   [[ "$(setting API_TOKEN)" == "$changed_token" ]] || die 'インストーラの決め直しで収集アプリの値が変わった'

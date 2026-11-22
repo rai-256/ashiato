@@ -41,3 +41,10 @@
 - Scenario 名は `--list` に各 1 本あり、実地本体の印も各 1 本あることを確認した。
 - self-test の秘密観測検査に新しい試験用合言葉を追加し、失敗時の観測に値が出ない経路を維持した。
 - Windows 実機の install-windows はこの環境では実行していない。Task の指定どおり PR CI が担当する。
+
+## Fix report（review 1 / F1）
+
+- 修正: `tools/release/install-check.sh` の「画面で変えた後も、インストーラで決め直せる」で、`ashiato-setup.exe password` に渡す 2 行を `PW3` と `PW2` から `PW2` と `PW2` に変更した。`password` の非対話入力は新しい合言葉と確認入力だけを読むため、これで一致した合言葉を渡す。
+- 検証: `scripts/verify-run 7.1`
+- 結果: `tools/release/install-check.sh --self-test` が PASS（rc=0）、Scenario 3 本の `--list` 照合が PASS（rc=0）。証跡は `openspec/changes/st59-change-password-from-web/evidence.jsonl` に追記された。
+- 実地の Windows `install-windows` は Task の指定どおり PR CI で確認する。
