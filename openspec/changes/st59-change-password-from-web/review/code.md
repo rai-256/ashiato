@@ -104,6 +104,7 @@
 - 処置: fixed 1.1
 - 判定: NOT ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）: st59_tests.rs の差分は 724 行付近と 826 行付近の 2 か所だけ。ログインの印を見る試験（multi_thread・差し込み口）が無い
 - 判定: NOT ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）: st59_tests.rs に multi_thread・差し込み口を使うログインの印の試験が足されていない。st59_swap_login_cookie_uses_the_old_tag_and_is_revoked_after_swap（st59_tests.rs:1350）は印の無い単一 thread のまま。tag を書く時点の組にする変異を落とす試験が無い
+- 処置: fixed 1.1
 
 ## R3. Scenario「新しい合言葉が検査に当たれば、何も変わらない」の理由の文字列と 15 文字の境界は、サーバの単体のどれも見ていない
 - 成果物: `crates/server/src/st59_tests.rs:950-983`（`st59_web_password_handler_applies_all_five_validation_rules` は状態の 400 だけを見て本文を読まない。短すぎの入力は `"short"`（5 文字））/ `web_session.rs` の `validate_new_web_password` / spec「どれも 400 で、本文の理由はそれぞれ `too_short`・`placeholder`・…」「15 文字の合言葉」
@@ -269,13 +270,16 @@
 - 成果物: tools/release/install-check.sh
 - 根拠: tools/release/install-check.sh:1138（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 7.1
 
 ## R19. unwrap_or_else(record_failure) を expect("照合の blocking task は panic しない") に変えた。blocking task が cancel されたとき（ランタイム終了など）、失敗に数えずに panic する。
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:check_with_permit_using_secrets（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D1
 
 ## R20. 巻き戻しの restore_setting の失敗を let _ で捨てている。巻き戻しが失敗すると、server.json だけ新しい値のまま無言で残る。
 - 成果物: crates/server/src/web_session.rs
 - 根拠: crates/server/src/web_session.rs:web_password_post_inner（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed D4
