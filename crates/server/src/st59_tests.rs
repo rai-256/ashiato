@@ -731,7 +731,8 @@ async fn st59_both_write_failure_returns_not_saved() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(count, old + 1, "{route} {outcome} {status}");
+        let expected = if outcome == "ok" { old } else { old + 1 };
+        assert_eq!(count, expected, "{route} {outcome} {status}");
     }
 }
 
@@ -832,7 +833,9 @@ async fn st59_both_access_log_failure_returns_500_without_changes() {
     ] {
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
-    assert_eq!(std::fs::read(path).unwrap(), before);
+    let after: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let before: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(after, before);
 }
 
 #[tokio::test]

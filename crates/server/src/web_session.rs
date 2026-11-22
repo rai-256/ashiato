@@ -770,10 +770,21 @@ async fn web_password_post_inner(
             confirmation: String::new(),
         },
     };
+    if app.login.limiter.throttled() {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
+    }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
     let check =
-        check_with_permit_using_secrets(&app, request.password.clone(), &permit, &secrets).await;
+        check_with_permit_using_secrets(&app, request.password.clone(), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(web_password_entry(
@@ -815,12 +826,51 @@ async fn web_password_post_inner(
             .await?;
         return Ok(web_password_error(StatusCode::BAD_REQUEST, error));
     }
-    let verifier = password_verifier(&request.new_password)
+    let password = request.new_password.clone();
+    let verifier = tokio::task::spawn_blocking(move || password_verifier(&password))
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
-    check_web_password_verifier(Some(&verifier), &api_token)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
-    check_web_session_key_verifier(Some(&session_key), &api_token, &verifier)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    let verifier_for_check = verifier.clone();
+    let api_token_for_check = api_token.clone();
+    let session_key_for_check = session_key.clone();
+    tokio::task::spawn_blocking(move || {
+        check_web_password_verifier(Some(&verifier_for_check), &api_token_for_check).is_ok()
+            && check_web_session_key_verifier(
+                Some(&session_key_for_check),
+                &api_token_for_check,
+                &verifier_for_check,
+            )
+            .is_ok()
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
+    .then_some(())
+    .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+
+    let settings_path = std::env::var_os("ASHIATO_SETTINGS_PATH").map(std::path::PathBuf::from);
+    let settings_before = settings_path
+        .as_ref()
+        .and_then(|path| std::fs::read(path).ok());
+    let verifier_for_write = verifier.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier_for_write)
+    })
+    .await;
+    if !matches!(saved, Ok(Ok(()))) {
+        app.access
+            .write(web_password_entry(
+                &headers,
+                Some(caller),
+                "forbidden",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+            .await?;
+        return Ok(web_password_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "not_saved",
+        ));
+    }
 
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
@@ -835,27 +885,20 @@ async fn web_password_post_inner(
     .execute(&app.pool)
     .await
     .map_err(|e| internal_at("web_password.session_insert", e))?;
-    app.access
+    if let Err(error) = app
+        .access
         .write(web_password_entry(
             &headers,
             Some(caller),
             "ok",
             StatusCode::NO_CONTENT,
         ))
-        .await?;
-    if crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier).is_err() {
-        app.access
-            .write(web_password_entry(
-                &headers,
-                Some(caller),
-                "forbidden",
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-            .await?;
-        return Ok(web_password_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "not_saved",
-        ));
+        .await
+    {
+        if let (Some(path), Some(bytes)) = (settings_path, settings_before) {
+            let _ = tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await;
+        }
+        return Err(error);
     }
     app.replace_secrets(next);
     let mut response = StatusCode::NO_CONTENT.into_response();
@@ -1012,8 +1055,7 @@ pub async fn collector_setup_post(
             "unsupported media type".into(),
         ));
     }
-    let secrets = crate::request_secrets(&app);
-    run_to_completion(collector_setup_checked(app, headers, caller, body, secrets)).await
+    run_to_completion(collector_setup_checked(app, headers, caller, body)).await
 }
 
 /// 収集アプリの共有の値を差し替える。画面のログインの印はそのまま使える。
@@ -1097,10 +1139,21 @@ async fn collector_token_post_checked(
     caller: Caller,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
+    if app.login.limiter.throttled() {
+        app.access
+            .write(collector_token_entry(
+                &headers,
+                Some(caller),
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
+    }
     let permit = login_check_permit().await;
     let secrets = app.secrets_snapshot();
     let check =
-        check_with_permit_using_secrets(&app, given_password(&body), &permit, &secrets).await;
+        check_with_permit_using_secrets(&app, given_password(&body), permit, &secrets).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(collector_token_entry(
@@ -1133,25 +1186,41 @@ async fn collector_token_post_checked(
 
     let api_token = secrets.api_token().to_owned();
     let session_key = app.login.session_key.clone();
-    let web_password_verifier = match &secrets.web_password {
+    let password = match &secrets.web_password {
         WebPassword::Verifier(verifier) => verifier.clone(),
-        WebPassword::Plain(password) => password_verifier(password)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?,
+        WebPassword::Plain(password) => password.clone(),
     };
-    let token = generate_collector_token(&api_token, &session_key, &web_password_verifier, || {
-        let mut raw = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut raw);
-        raw
-    });
-    app.access
-        .write(collector_token_entry(
-            &headers,
-            Some(caller),
-            "ok",
-            StatusCode::OK,
+    let plain = matches!(&secrets.web_password, WebPassword::Plain(_));
+    let token = tokio::task::spawn_blocking(move || {
+        let verifier = if plain {
+            password_verifier(&password)
+        } else {
+            Ok(password)
+        }?;
+        Ok::<_, argon2::password_hash::Error>(generate_collector_token(
+            &api_token,
+            &session_key,
+            &verifier,
+            || {
+                let mut raw = [0u8; 32];
+                rand::rngs::OsRng.fill_bytes(&mut raw);
+                raw
+            },
         ))
-        .await?;
-    if crate::service::replace_setting("API_TOKEN", &token).is_err() {
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    let settings_path = std::env::var_os("ASHIATO_SETTINGS_PATH").map(std::path::PathBuf::from);
+    let settings_before = settings_path
+        .as_ref()
+        .and_then(|path| std::fs::read(path).ok());
+    let token_for_write = token.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        crate::service::replace_setting("API_TOKEN", &token_for_write)
+    })
+    .await;
+    if !matches!(saved, Ok(Ok(()))) {
         app.access
             .write(collector_token_entry(
                 &headers,
@@ -1165,6 +1234,21 @@ async fn collector_token_post_checked(
             Json(CollectorTokenChangeError { error: "not_saved" }),
         )
             .into_response());
+    }
+    if let Err(error) = app
+        .access
+        .write(collector_token_entry(
+            &headers,
+            Some(caller),
+            "ok",
+            StatusCode::OK,
+        ))
+        .await
+    {
+        if let (Some(path), Some(bytes)) = (settings_path, settings_before) {
+            let _ = tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await;
+        }
+        return Err(error);
     }
     app.replace_secrets(secrets.with_api_token(token.clone()));
     Ok(Json(CollectorSetupResponse { token }).into_response())
@@ -1192,9 +1276,8 @@ async fn collector_setup_checked(
     headers: HeaderMap,
     caller: Caller,
     body: Bytes,
-    secrets: SharedSecrets,
 ) -> Result<Response, (StatusCode, String)> {
-    let check = check_given_password_with_secrets(&app, body, &secrets).await;
+    let (check, secrets) = check_given_password_with_current_secrets(&app, body).await;
     if check == PasswordCheck::Throttled {
         app.access
             .write(collector_setup_entry(
@@ -1263,26 +1346,32 @@ fn given_password(body: &[u8]) -> String {
 /// 数え上げより先に照合が並んで上限をすり抜けないように（review R23）。
 #[allow(dead_code)]
 pub(crate) async fn check_given_password(app: &App, body: Bytes) -> PasswordCheck {
-    let secrets = app.secrets_snapshot();
-    check_given_password_with_secrets(app, body, &secrets).await
+    check_given_password_with_current_secrets(app, body).await.0
 }
 
-pub(crate) async fn check_given_password_with_secrets(
+async fn check_given_password_with_current_secrets(
     app: &App,
     body: Bytes,
-    secrets: &SharedSecrets,
-) -> PasswordCheck {
-    // 断られている間は、1 つずつの印を待たず・本文も読まずに断る（review/code.md R4・R5）
+) -> (PasswordCheck, SharedSecrets) {
     if app.login.limiter.throttled() {
-        return PasswordCheck::Throttled;
+        return (PasswordCheck::Throttled, app.secrets_snapshot());
     }
-    // 合言葉を取り出したら本文は捨てる。印の待ちと失敗の遅れの間、本文を task に持たない（review/code.md R16）
     let given = given_password(&body);
     drop(body);
     #[cfg(test)]
     app.login.check_waiting.notify_waiters();
     let permit = login_check_permit().await;
-    check_with_permit_using_secrets(app, given, &permit, secrets).await
+    let secrets = app.secrets_snapshot();
+    let check = check_with_permit_using_secrets(app, given, permit, &secrets).await;
+    (check, secrets)
+}
+
+pub(crate) async fn check_given_password_with_secrets(
+    app: &App,
+    body: Bytes,
+    _secrets: &SharedSecrets,
+) -> PasswordCheck {
+    check_given_password_with_current_secrets(app, body).await.0
 }
 
 /// 1 つずつの印を持った後の照合（`check_given_password` から。試験は印を先に取ってから直に呼ぶ。review/code.md R17）。
@@ -1293,16 +1382,15 @@ pub(crate) async fn check_with_permit(
     permit: LoginCheckPermit,
 ) -> PasswordCheck {
     let secrets = app.secrets_snapshot();
-    check_with_permit_using_secrets(app, given, &permit, &secrets).await
+    check_with_permit_using_secrets(app, given, permit, &secrets).await
 }
 
 async fn check_with_permit_using_secrets(
     app: &App,
     given: String,
-    permit: &LoginCheckPermit,
+    permit: LoginCheckPermit,
     secrets: &SharedSecrets,
 ) -> PasswordCheck {
-    let _ = permit;
     // 印を待つ間に上限に届いたかもしれないので、印を持ってから数え直す
     if app.login.limiter.throttled() {
         return PasswordCheck::Throttled;
@@ -1317,6 +1405,7 @@ async fn check_with_permit_using_secrets(
     let secrets = secrets.clone();
     let limiter = app.login.limiter.clone();
     let accepted = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let accepted = secrets.accepts(&given);
         if !accepted {
             limiter.record_failure();
@@ -1369,8 +1458,7 @@ async fn session_post_checked(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let secrets = app.secrets_snapshot();
-    let check = check_given_password_with_secrets(&app, body, &secrets).await;
+    let (check, secrets) = check_given_password_with_current_secrets(&app, body).await;
     if check == PasswordCheck::Throttled {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
         app.access

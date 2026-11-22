@@ -1135,10 +1135,12 @@ check_release_zip() {
   [[ -n "$changed_cookie" ]] || die '画面から変える前にログインできない'
 
   echo '== Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない'
-  web_change_code="$(curl -s -o "$WORK/web-password-change.out" -w '%{http_code}' -X POST \
+  web_change_code="$(curl -s -c "$WORK/web-password-change.cookie" -o "$WORK/web-password-change.out" -w '%{http_code}' -X POST \
     -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
     --data "{\"password\":\"$PW2\",\"new_password\":\"$PW3\",\"confirmation\":\"$PW3\"}" "$URL/web-password" || true)"
   [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
+  changed_cookie="$(PY -c 'import sys; print(next((line.split("\\t")[6] for line in open(sys.argv[1], encoding="utf-8") if line and not line.startswith("#") and line.rstrip().endswith("ashiato_session")), ""))' "$WORK/web-password-change.cookie")"
+  [[ -n "$changed_cookie" ]] || die '画面の合言葉の変更後のログインの印を受け取れない'
   [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '画面の合言葉の鍵が変わらない'
   [[ "$(setting API_TOKEN)" == "$changed_api" ]] || die '画面の合言葉の変更で収集アプリの値が変わった'
   [[ "$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("API_TOKEN",None); s.pop("WEB_PASSWORD_VERIFIER",None); print(json.dumps(s, sort_keys=True))' "$SETTINGS")" == "$before_changed_other" ]] ||
