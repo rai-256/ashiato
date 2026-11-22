@@ -1,0 +1,7 @@
+spec-digest: 48f0fa749b3ca59e196136f5698e8cf8ae3c1b3385443705d91f0b5234b52e52
+- Q8: 写った
+- Q11: 写った
+- Q-G1: 写った
+- Q-G2: 写った
+答え以外の変更: あり（Q-G2 の道の中身を仮の D35 に置いた: 利用者と網の名前空間を分けた箱（unshare）でエミュレータと専用の adb のサーバを起こし、サーバへは Unix のソケットの橋（socat）、adb は nsenter で箱に入って呼び、エミュレータの網の引数（restrict=on）には頼らない —— spec の携帯の Requirement の「箱の中の adb のサーバ」「<state> に置いた橋（Unix のソケット）でだけ」「片付けで橋と箱を止める」、Scenario「エミュレータと adb は、網を持たない箱の中で動く」の偽の unshare・nsenter、tasks の Global Constraints（偽の unshare・nsenter・socat・ip）・9.1 の箱・橋・nsenter の段と片付け・10.1 の nsenter での確かめ、proposal の携帯の相手の行。レビュー R39〜R52 の処置で D35（仮）に足したもの: 箱を環境と APK より先に作る順と、橋の道具（socat）が無ければ何も作らずに断ること、reverse の後に端末の中の 18787 でサーバが応えなければ断ること、箱に入れなければこの PC の adb のサーバへ落とさないこと（phone.sh は断り、片付けは adb を呼ばずに PID で止める）、片付けの残りを EMU_PID と専用の AVD の引数のプロセスで見ること、箱の中の段を nsenter … bash で起こし EMU_PID を <state> に書くこと、反転条件で下流が探してよい範囲 —— spec の携帯の Requirement の断る条件と順・reverse の後の確かめ・phone.sh と片付けの箱に入れないときの文・片付けの残りの文、Scenario 6 本（橋を渡す道具が無ければ・橋だけ・reverse の後・箱が無いか止まっていれば phone.sh・橋と箱を止める・箱が止まっていれば片付けは adb を呼ばない）と既存の Scenario の GIVEN と THEN（箱で断る 2 本に compose up と gradlew・phone.sh と片付けの GIVEN に箱の PID と偽の nsenter・止めた後の残りを偽の ps で・APK が入る 3 本に 18787 の答えと順の THEN の問い・本物の THEN の名前空間の一致）、tasks 9.1（順・印・下限 59）と 10.1（3 回・名前空間の一致・A の返し方・premises の 7 行）。D22（仮）の emulator-start.sh の関数と adb を箱の中で使う文と、install_on_emulators が席のエミュレータに入らない文（Risks の「手で呼んだ席のエミュレータ」を消した）。D26（仮）の携帯の対照の行（箱の中の橋の待ち受け）と、台帳の rests_on を Q8・D6・D31・D35 に直したこと。Risks の「携帯の相手は箱の中の adb reverse が通るまで回らない」）
+答え以外の変更の決定: D22 D26 D35

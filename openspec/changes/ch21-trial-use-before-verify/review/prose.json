@@ -1,0 +1,12 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 207,
+ "applied": [
+  "points[call.6].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}

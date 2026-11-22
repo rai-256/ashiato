@@ -1,0 +1,392 @@
+{
+  "status": "accepted",
+  "digest": "22eff2ad227f980a2a22150908b90410e2c371b4581cbe78ecde4c20f67a4de4",
+  "head": "724016cedbf0648e01a06e4199360251803bf261",
+  "answers": "deep-answers-4.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-21T23:51:19Z",
+  "impacts": {
+    "IMP-05": {
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true,
+      "recognized": true,
+      "accepted": true,
+      "proceed": true,
+      "release": "recheck",
+      "risk": {
+        "residual": "席（と、処置の選別の席）が本人の合言葉や確認バッチの DB を読み、モデルへの入力にする余地が残る。CH21 が main に入ると次の確認バッチから席が呼ばれ、呼ぶかどうかを切り替える口は仕様に無い。読み出しを止める手当ては無い。実地の journal を見るのは観察で、以後も読まないことの根拠にはならない",
+        "scope": "確認バッチの準備と手で呼ぶ /tsukau の、席が走る間のホストのファイル"
+      },
+      "recheck": {
+        "owner": "本人",
+        "due": "CH21 の merge の前（下流の実地の 1 回 real-run の journal を見たとき）"
+      }
+    },
+    "IMP-13": {
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true,
+      "recognized": true,
+      "accepted": false,
+      "proceed": true,
+      "release": "ok",
+      "resolution": {
+        "ok": true,
+        "base": "dc816fc76f396c70f93e9d184af50776347f56fe",
+        "changed": [
+          {
+            "item": "Requirement: 確認バッチの準備は、範囲のある相手ごとに 1 回、使い捨ての作業ツリーで、決まった時間と token で席を呼ぶ",
+            "before": "69ebe978e423",
+            "after": "32db06d709c8",
+            "diff": [
+              "@@ -9,3 +9,4 @@",
+              " 打ち切った後、呼ぶ前に無かった Sandbox・専用の AVD（`ashiato-tsukau-api35`）のエミュレータ・`ashiato-tsukau-` で始まる compose project のどれかが残っていれば、片付けに残りがあるとみなす。",
+              "-導出元: CH21（依頼「小さい時間と token で毎回呼ぶ」）。深掘り Q7（第 1 回の推奨: 準備の中で、確認バッチの木から手元で組む）・Q10（10 分・20 万）。review/deep.md R2・R11。携帯の相手は仕様への違和感（第 1 回の合意）で足した。",
+              "+THE SYSTEM SHALL どの相手の席も、`PATH` から `$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下の置き場を外した環境で呼ばせ（ほかの置き場の並びは変えない。値が無いか空の変数は外す置き場に数えない）、その `PATH` で `adb` と `emulator` が名前で見つからないことを確かめさせる。見つかれば、その回はどの相手の席も呼ばず、段落を「席を呼べなかった」、目録の `state` を `not_run` にさせる（理由は `dist/verify-<tag>/tsukau.log` にだけ書く）。",
+              "+導出元: CH21（依頼「小さい時間と token で毎回呼ぶ」）。深掘り Q7（第 1 回の推奨: 準備の中で、確認バッチの木から手元で組む）・Q10（10 分・20 万）。review/deep.md R2・R11。携帯の相手は仕様への違和感（第 1 回の合意）で足した。席の `PATH` から Android の道具を外すのは IMP-13 の本人の答え（第 2 回の合意「席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする」。design D32・D33（仮））。",
+              " ",
+              "@@ -25,2 +26,31 @@",
+              " - **THEN** 確認バッチの作業ツリーの `git status --porcelain` は呼ぶ前と同じで、`--repo` のパスは無く、`git worktree list` にも無い",
+              "+",
+              "+#### Scenario: 席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない",
+              "+- **GIVEN** 偽の `$ANDROID_HOME` の `platform-tools`・`emulator`・`cmdline-tools/latest/bin` に偽の `adb`・`emulator`・`avdmanager` を置き、その 3 つの置き場を `PATH` の先に持つ準備の環境と、受けた `PATH` と `command -v adb`・`command -v emulator` の結果を記録する偽の席の台本",
+              "+- **WHEN** 画面・PC・携帯の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** 偽の席の台本は 3 回呼ばれ、どの回も記録した `PATH` に `$ANDROID_HOME` の下の置き場は無く、`command -v adb` と `command -v emulator` は空で、準備の環境の `PATH` のほかの置き場は同じ順で残っている",
+              "+",
+              "+#### Scenario: Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+              "+- **GIVEN** 上の準備の環境に、`$ANDROID_HOME` の外の置き場に置いた偽の `adb` を `PATH` に足したものと、受けた引数を記録する偽の席の台本",
+              "+- **WHEN** 画面と携帯の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」と「携帯: 」の段落は「席を呼べなかった」で始まり、目録の `web` と `android` の `state` は `not_run` で、`dist/verify-t1/tsukau.log` に「席の PATH から adb を外せない」があり、段落と目録には無い",
+              "+",
+              "+#### Scenario: Android の道具の置き場の外に emulator だけがあっても、どの相手の席も呼ばない",
+              "+- **GIVEN** `$ANDROID_HOME` の置き場を `PATH` に持つ準備の環境に、`$ANDROID_HOME` の外の置き場に置いた偽の `emulator` を `PATH` に足したものと、受けた引数を記録する偽の席の台本",
+              "+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」の段落は「席を呼べなかった」で始まる",
+              "+",
+              "+#### Scenario: ANDROID_SDK_ROOT だけが指す置き場の道具も、席の PATH から外す",
+              "+- **GIVEN** `$ANDROID_HOME` と別の偽の置き場を `$ANDROID_SDK_ROOT` に向け、その `platform-tools` に偽の `adb` を置いて `PATH` に持つ準備の環境と、受けた `PATH` と `command -v adb` の結果を記録する偽の席の台本",
+              "+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** 偽の席の台本は 1 回呼ばれ、記録した `PATH` に `$ANDROID_SDK_ROOT` の下の置き場は無く、`command -v adb` は空である",
+              "+",
+              "+#### Scenario: Android の SDK が無い環境では、席の PATH を変えずに画面の席を呼ぶ",
+              "+- **GIVEN** `ANDROID_HOME` と `ANDROID_SDK_ROOT` を持たず、`PATH` に `adb` と `emulator` の無い準備の環境と、受けた `PATH` を記録する偽の席の台本",
+              "+- **WHEN** 画面の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** 偽の席の台本は 1 回呼ばれ、記録した `PATH` は準備の環境の `PATH` と同じである",
+              "+",
+              "+#### Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない",
+              "+- **WHEN** この PC で、`tools/tsukau/verify-batch.sh` が席に渡す `PATH` で本物の `claude -p` を起こし、席の Bash で `command -v adb` と `command -v emulator` を走らせる",
+              "+- **THEN** どちらも何も出さず、同じ席の Bash で `command -v git` は見つかる",
+              " "
+            ]
+          },
+          {
+            "item": "Requirement: 携帯の相手は、専用のエミュレータを網を切って起こし、その回のサーバ向けに組んだ APK を入れて立て、自分が起こしたエミュレータだけを、中のログを写してから片付ける",
+            "before": "14f40052f490",
+            "after": "b4053700b3ad",
+            "diff": [
+              "@@ -7,5 +7,6 @@",
+              " THE SYSTEM SHALL `adb` の操作を、端末の一覧（`adb devices`）のほかはどれも残した serial の名指し（`-s`）で行わせ、実機と、ほかのエミュレータ（本人のもの・計測テストのもの）には問いも入れも止めもさせない。",
+              "-案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。",
+              "+THE SYSTEM SHALL 差し込み口と `tools/tsukau/phone.sh` に、`adb`・`emulator`・`avdmanager` を `PATH` の名前でなく `$ANDROID_HOME` の下の置き場から見つけさせ、受けた `PATH` に `adb` が無くても端末を操作させる（席の `PATH` には `adb` が無い）。`phone.sh` には `<state>` に残した serial のほかを名指させず、最初の引数が `shell`・`shot`・`ui` でなければ `adb` を呼ばずに rc≠0 で終わらせ、`$ANDROID_HOME` の下に `adb` が無ければ「携帯の道具が見つからない」と 1 行出して rc≠0 で終わらせる。",
+              "+案内には、端末を操作する口（`tools/tsukau/phone.sh` の `shell`・`shot`・`ui`）と、席の `PATH` に `adb` は無く端末は `phone.sh` だけで触ること、その回の画面の URL と合言葉、サーバのログの場所、網の様子（端末の網は切ってあり、サーバへは `adb reverse` の道だけで届く）、触らないもの（本人の携帯・本人のサーバ・確認バッチの DB・main の checkout の `.env`・ほかのエミュレータ・端末の網の設定）を書く。",
+              " THE SYSTEM SHALL 片付け（`env-hook.sh down <repo> <state> android`）では、端末のログ（`logcat`）を `$TSUKAU_EVIDENCE/phone-logs/` へ写してから、残した serial のエミュレータだけを止め、その回の compose project と `<state>/tree`（APK を組むときに書いた合言葉を含む）を消させる。止めた後もその serial のエミュレータが残っていれば rc≠0 で終わらせる。",
+              "-導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31（仮）・D25・D26（仮）。review/spec.md R20〜R27。",
+              "+導出元: CH21（仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」）。design D22（仮）・D30（仮）・D31（仮）・D25・D26（仮）。review/spec.md R20〜R27。`$ANDROID_HOME` から道具を見つけるのと案内の「`phone.sh` だけ」は IMP-13 の本人の答え（第 2 回の合意。design D32）。",
+              " ",
+              "@@ -72,5 +73,20 @@",
+              " #### Scenario: 端末の中のコマンドは、自分の serial で走り、出力が返る",
+              "-- **GIVEN** `<state>` に serial `emulator-5600` が残り、`shell` で「hello」を返す偽の `adb`",
+              "+- **GIVEN** `<state>` に serial `emulator-5600` が残り、偽の `$ANDROID_HOME` の `platform-tools` に置いた、`shell` で「hello」を返す偽の `adb` と、`adb` の置き場を持たない `PATH`",
+              " - **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる",
+              " - **THEN** 偽の `adb` は `-s emulator-5600 shell` で呼ばれ、`phone.sh` の標準出力は「hello」である",
+              "+",
+              "+#### Scenario: 受けた PATH に adb が無くても、差し込み口は SDK の置き場の道具で携帯の相手を立てる",
+              "+- **GIVEN** 偽の `$ANDROID_HOME` に置いた偽の `adb`・`emulator`・`avdmanager`（切る前の確かめに「ホストに届く」、切った後の確かめに「既定のネットワークが無い・ホストに届かない」と答える）と、`adb`・`emulator`・`avdmanager` の置き場を持たない `PATH`",
+              "+- **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる",
+              "+- **THEN** `<state>/ready` に `UNAVAILABLE=` の行は無く、偽の `adb` に `install` の呼び出しがある",
+              "+",
+              "+#### Scenario: phone.sh は serial を引数で受けず、ほかの端末を名指さない",
+              "+- **GIVEN** `<state>` に serial `emulator-5600` が残り、受けた引数を記録する偽の `adb`",
+              "+- **WHEN** `tools/tsukau/phone.sh -s emulator-5554 shell 'echo hello'` と、`ANDROID_SERIAL=emulator-5554 tools/tsukau/phone.sh shell 'echo hello'` と `tools/tsukau/phone.sh shot <置き場>` と `tools/tsukau/phone.sh ui` を走らせる",
+              "+- **THEN** `-s emulator-5554` から始めた呼び出しは rc≠0 で、偽の `adb` を呼ばず、ほかの 3 つの呼び出しで偽の `adb` が受けた呼び出しはどれも最初の 2 つの引数が `-s emulator-5600` である",
+              "+",
+              "+#### Scenario: 携帯の道具が見つからなければ、phone.sh は 1 行で断る",
+              "+- **GIVEN** `<state>` に serial `emulator-5600` が残り、`platform-tools` に `adb` を置かない偽の `$ANDROID_HOME`",
+              "+- **WHEN** `tools/tsukau/phone.sh shell 'echo hello'` を走らせる",
+              "+- **THEN** rc≠0 で、出力に「携帯の道具が見つからない」がある",
+              " ",
+              "@@ -79,3 +95,3 @@",
+              " - **WHEN** `tools/tsukau/env-hook.sh up <repo> <state> android` を走らせる",
+              "-- **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/phone.sh shell`・`tools/tsukau/phone.sh shot`・`tools/tsukau/phone.sh ui`・`http://127.0.0.1:` で始まる画面の URL・「網は切って」・`.env`・「触らない」がある",
+              "+- **THEN** `ready` の `GUIDE=` の案内に `tools/tsukau/phone.sh shell`・`tools/tsukau/phone.sh shot`・`tools/tsukau/phone.sh ui`・「`phone.sh` だけ」・`http://127.0.0.1:` で始まる画面の URL・「網は切って」・`.env`・「触らない」がある",
+              " "
+            ]
+          },
+          {
+            "item": "Requirement: 使ってみる席の差し込み口は、画面と PC と携帯の相手を持ち、手で呼んでも確認バッチから呼んでも同じ置き場に結果を残す",
+            "before": "e0a7c66a0ac5",
+            "after": "807105ed8e2f",
+            "diff": [
+              "@@ -2,5 +2,6 @@",
+              " THE SYSTEM SHALL harness2 の使ってみる席（`scripts/tsukau.py`）が読む差し込み口 `tools/tsukau/tsukau.json` を持たせる。",
+              "-鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）・`pc`（PC）・`android`（携帯のエミュレータ）の 3 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つだけにする。",
+              "+鍵は `env_hook`（`tools/tsukau/env-hook.sh`。実行できる）・`targets`（`web`（画面）・`pc`（PC）・`android`（携帯のエミュレータ）の 3 つ）・`out_root`（repo の外の `~/.local/state/ashiato2/tsukau`）・`ready_timeout_s`（900）の 4 つと、harness2 の席の台本が席の環境から命令を隠す鍵を持った後は `seat_hide`（`[\"adb\", \"emulator\"]`。席に渡す `PATH` から `adb` と `emulator` の置き場を外させる）だけにする。",
+              "+THE SYSTEM SHALL 手で呼ぶ `/tsukau` の席にも、`seat_hide` で `adb` と `emulator` を名前で見つけさせない（harness2 がその鍵を持った後。それまでは確認バッチの準備から呼ぶ席だけが外す）。",
+              " THE SYSTEM SHALL 手で呼ぶ `/tsukau` も、確認バッチの準備から呼ぶ席も、この差し込み口と同じ `out_root` を使わせる。手で呼んだ席には処置へ渡す目録を作らせない（結果を手元に残すだけ）。",
+              "-導出元: CH21（依頼の「どこまで」。携帯は依頼では「外」だったが、仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」で相手に足した）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。",
+              "+導出元: CH21（依頼の「どこまで」。携帯は依頼では「外」だったが、仕様への違和感（第 1 回の合意）「スマホも操作するようにしてください。エミュレータとかで」で相手に足した）。深掘り Q5（第 1 回の推奨: 結果を残すだけ）・Q10（立てる上限 15 分）。`seat_hide` は IMP-13 の本人の答え（第 2 回の合意。design D32・D34（仮））。",
+              " ",
+              "@@ -8,3 +9,8 @@",
+              " - **WHEN** `tools/tsukau/tsukau.json` を読む",
+              "-- **THEN** 鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` の 4 つだけで、`env_hook` の台本は実行でき、`ready_timeout_s` は 900、`out_root` は `~/.local/state/ashiato2/tsukau` である",
+              "+- **THEN** 鍵は `env_hook`・`targets`・`out_root`・`ready_timeout_s` と、あれば `seat_hide` だけで、`env_hook` の台本は実行でき、`ready_timeout_s` は 900、`out_root` は `~/.local/state/ashiato2/tsukau` である",
+              "+",
+              "+#### Scenario: harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す",
+              "+- **GIVEN** 席の台本（`.harness2/scripts/tsukau.py`）が鍵 `seat_hide` を持つ木",
+              "+- **WHEN** `tools/tsukau/tsukau.json` を読み、`python3 scripts/tsukau.py check` を走らせる",
+              "+- **THEN** `seat_hide` はちょうど `[\"adb\", \"emulator\"]` で、`check` は rc=0 で終わる",
+              " "
+            ]
+          },
+          {
+            "item": "Scenario: 席を呼ぶ PATH には Android の道具の置き場が無く、adb が名前で見つからない",
+            "before": "74234e98afe7",
+            "after": "28b3a6c4f799",
+            "diff": [
+              "@@ -0,0 +1,3 @@",
+              "+- **GIVEN** 偽の `$ANDROID_HOME` の `platform-tools`・`emulator`・`cmdline-tools/latest/bin` に偽の `adb`・`emulator`・`avdmanager` を置き、その 3 つの置き場を `PATH` の先に持つ準備の環境と、受けた `PATH` と `command -v adb`・`command -v emulator` の結果を記録する偽の席の台本",
+              "+- **WHEN** 画面・PC・携帯の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** 偽の席の台本は 3 回呼ばれ、どの回も記録した `PATH` に `$ANDROID_HOME` の下の置き場は無く、`command -v adb` と `command -v emulator` は空で、準備の環境の `PATH` のほかの置き場は同じ順で残っている"
+            ]
+          },
+          {
+            "item": "Scenario: Android の道具の置き場の外にも adb があれば、どの相手の席も呼ばない",
+            "before": "74234e98afe7",
+            "after": "c1e31c427690",
+            "diff": [
+              "@@ -0,0 +1,3 @@",
+              "+- **GIVEN** 上の準備の環境に、`$ANDROID_HOME` の外の置き場に置いた偽の `adb` を `PATH` に足したものと、受けた引数を記録する偽の席の台本",
+              "+- **WHEN** 画面と携帯の範囲がある確認バッチの木 `t1` で `tools/tsukau/verify-batch.sh t1` を走らせる",
+              "+- **THEN** rc=0 で、偽の席の台本は呼ばれず、「画面: 」と「携帯: 」の段落は「席を呼べなかった」で始まり、目録の `web` と `android` の `state` は `not_run` で、`dist/verify-t1/tsukau.log` に「席の PATH から adb を外せない」があり、段落と目録には無い"
+            ]
+          },
+          {
+            "item": "Scenario: 本物の席の Bash で、adb と emulator が名前で見つからない",
+            "before": "74234e98afe7",
+            "after": "6201e295c10d",
+            "diff": [
+              "@@ -0,0 +1,2 @@",
+              "+- **WHEN** この PC で、`tools/tsukau/verify-batch.sh` が席に渡す `PATH` で本物の `claude -p` を起こし、席の Bash で `command -v adb` と `command -v emulator` を走らせる",
+              "+- **THEN** どちらも何も出さず、同じ席の Bash で `command -v git` は見つかる"
+            ]
+          },
+          {
+            "item": "Scenario: phone.sh は serial を引数で受けず、ほかの端末を名指さない",
+            "before": "74234e98afe7",
+            "after": "851eda561e01",
+            "diff": [
+              "@@ -0,0 +1,3 @@",
+              "+- **GIVEN** `<state>` に serial `emulator-5600` が残り、受けた引数を記録する偽の `adb`",
+              "+- **WHEN** `tools/tsukau/phone.sh -s emulator-5554 shell 'echo hello'` と、`ANDROID_SERIAL=emulator-5554 tools/tsukau/phone.sh shell 'echo hello'` と `tools/tsukau/phone.sh shot <置き場>` と `tools/tsukau/phone.sh ui` を走らせる",
+              "+- **THEN** `-s emulator-5554` から始めた呼び出しは rc≠0 で、偽の `adb` を呼ばず、ほかの 3 つの呼び出しで偽の `adb` が受けた呼び出しはどれも最初の 2 つの引数が `-s emulator-5600` である"
+            ]
+          },
+          {
+            "item": "Scenario: harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す",
+            "before": "74234e98afe7",
+            "after": "cc414e11e232",
+            "diff": [
+              "@@ -0,0 +1,3 @@",
+              "+- **GIVEN** 席の台本（`.harness2/scripts/tsukau.py`）が鍵 `seat_hide` を持つ木",
+              "+- **WHEN** `tools/tsukau/tsukau.json` を読み、`python3 scripts/tsukau.py check` を走らせる",
+              "+- **THEN** `seat_hide` はちょうど `[\"adb\", \"emulator\"]` で、`check` は rc=0 で終わる"
+            ]
+          },
+          {
+            "item": "決定 D32",
+            "before": "74234e98afe7",
+            "after": "e51470b6c186",
+            "diff": [
+              "@@ -0,0 +1,17 @@",
+              "+D32. 席を起こす `PATH` から Android の道具の置き場を外し、端末に届く口を `phone.sh` だけにする（IMP-13 の本人の答え）",
+              "+",
+              "+本人の答え（第 2 回の合意、IMP-13「仕様を直す」の補足）: 「席を呼ぶ間は adb を席の PATH から外し、phone.sh だけが使えるようにする」。",
+              "+",
+              "+- **どこで外すか**: harness2 の `scripts/tsukau.py` は、席（`claude -p`）にも差し込み口（`env-hook.sh`）にも、呼んだ側の環境をそのまま渡す（`.harness2/scripts/tsukau.py` の 447〜449 行・493〜495 行）。差し込み口の設定の鍵は閉じていて（94 行・231〜232 行）、この repo から席だけの環境を足す口は無い。",
+              "+  そこで、確認バッチの準備から呼ぶ道は `verify-batch.sh` が `tsukau.py` を呼ぶときの `PATH` から外す（この repo。下流の Task 4）。手で呼ぶ `/tsukau` は harness2 への別の依頼（`harness2-request-seat-path.json`。D34（仮））で、席の環境だけから外す口を足してもらう",
+              "+- **何を外すか**: 渡す `PATH` から、`$ANDROID_HOME` と `$ANDROID_SDK_ROOT` の下にある置き場を全部外す（`$ANDROID_HOME` の下を全部。今の `tools/android-env.sh` の 7 行が足すのは `cmdline-tools/latest/bin` と `platform-tools`）。ほかの置き場の並びは変えない。値が無いか空の変数は外す置き場に数えない（前置きの一致で空の値が全部の置き場に当たり、SDK の無い PC で画面と PC の席が `git` も見つけられなくなるのを防ぐ。review/spec.md R35）。",
+              "+  外した後の判定は、置き場の名前でなく結果で見る: 渡す `PATH` で `adb` と `emulator` が名前で見つからないこと（`command -v` が空）。見つかるときの扱いは D33（仮）",
+              "+- **全部の相手で外す**: 席はどの相手でもこの PC のホストで動き、同じ `adb` を持つ（IMP-13）。画面と PC の相手の席からも外す",
+              "+- **差し込み口は自分で道具を見つける**: 外した `PATH` は `env-hook.sh` にも渡る。`env-hook.sh` は頭で、自分のプロセスの `PATH` の先に `$ANDROID_HOME/platform-tools`・`$ANDROID_HOME/emulator`・`$ANDROID_HOME/cmdline-tools/latest/bin` を足してから `tools/emulator-start.sh` を読み込む（`emulator-start.sh` は 117〜143 行で `adb` を名前で呼ぶ。触れないもの）。",
+              "+  自分のプロセスの中だけで、席の `PATH` は変えない。`$ANDROID_HOME` が無いか、そこに `adb` か `emulator` が無ければ、今の「SDK が無ければ断る」と同じく `UNAVAILABLE=`。道具を探して断るのは携帯の相手だけで、画面と PC の相手は今のまま立てる。`phone.sh` は D25",
+              "+- **案内**: 携帯の相手の案内に、「この席の `PATH` に `adb` は無い。端末は `tools/tsukau/phone.sh` だけで触る」を書く",
+              "+- 失わない側: 席が `adb` を名前で呼んで、本人の実機（`adb devices` に出る全部）に届く道を閉じる。差し込み口と `phone.sh` は今と同じ `adb` を使う",
+              "+- 費用: 渡す `PATH` を組む十数行と自己試験。席が gradle や `adb` を自分で走らせて確かめることはできない（席の役目でない）",
+              "+- 残るもの（IMP-13 の残り。名前で見つからなくするだけ）: 席は `$ANDROID_HOME` を持つので、絶対パスで `adb` を呼べば届く。`adb` の待ち受け（ホストの 5037 番）に直に話しかけても届く。止めるのは席の規範（harness2 の `skills/tsukau/SKILL.md` の 85 行「案内が『触らない』としたもの（実データ・本人の環境・ほかのサービス）に触らない」）と案内の「触らない」まで",
+              "+- **本物の席で確かめる**: 席（Claude Code）の Bash が、渡された `PATH` を引き継ぐかは偽の席では見えない。下流の Task 4.3 が、`verify-batch.sh` の渡す `PATH` で本物の `claude -p` を起こし、席の Bash で `adb` と `emulator` が名前で見つからないことを見る（review/spec.md R34）",
+              "+- 反転条件: 本物の席の Bash で `adb` か `emulator` が名前で見つかったとき（Task 4.3。席の Bash が `PATH` を足し戻す道を調べ、外し方を本人に聞く。A）・席が絶対パスや待ち受けで `adb` に届いた跡が `logs/claude.jsonl` に出たとき（席を別の利用者か作業箱で動かす形を本人に聞く。A）"
+            ]
+          },
+          {
+            "item": "決定 D33",
+            "before": "74234e98afe7",
+            "after": "e8e9fff51c18",
+            "diff": [
+              "@@ -0,0 +1,7 @@",
+              "+D33（仮）. 外した後も `adb` か `emulator` が名前で見つかれば、どの相手の席も呼ばない（IMP-13 の答えの細部）",
+              "+",
+              "+- `$ANDROID_HOME` の外（`apt` で入れた `/usr/bin/adb` など）に `adb` があると、置き場を外しても名前で見つかる。その置き場ごと外すと、ほかの命令（`git`・`docker` など）も消えて席が動かない。",
+              "+  そこで、外した後も見つかれば、その回はどの相手の席も呼ばず、段落は既存の決まった文言「席を呼べなかった」、目録は `state: not_run` にする（理由「席の PATH から adb を外せない」は `dist/verify-<tag>/tsukau.log` にだけ書く。D11 の文言を足さない）。準備は止めない（rc=0）",
+              "+- 失わない側: 本人の実機に届く席を起こさない。今の PC では `adb` は `$ANDROID_HOME/platform-tools` の 1 つだけ（premises.md）",
+              "+- 費用: `$ANDROID_HOME` の外に `adb` を入れると、確認バッチで席が回らない",
+              "+- 反転条件: 本人が `$ANDROID_HOME` の外に `adb` を入れて、席が回らない回が続くとき（その置き場から `adb` だけを隠す形を本人に聞く）"
+            ]
+          },
+          {
+            "item": "決定 D34",
+            "before": "74234e98afe7",
+            "after": "b26154593da3",
+            "diff": [
+              "@@ -0,0 +1,10 @@",
+              "+D34（仮）. 手で呼ぶ `/tsukau` の席の環境から外す口は、harness2 に差し込み口の鍵として依頼し、入ったら `tsukau.json` に足す（IMP-13 の答えの細部）",
+              "+",
+              "+- 依頼（`harness2-request-seat-path.json`。処置の依頼 D15 と別の 1 件）: `tools/tsukau/tsukau.json` に任意の鍵 `seat_hide`（命令の名前の配列）を足す。",
+              "+  `tsukau.py` は、席（`claude -p`）に渡す環境の `PATH` から、その名前の実行できるファイルを持つ置き場を外す。差し込み口（`env_hook`）に渡す環境は変えない。外した後もその名前が見つかれば、席を起こさずに `env_failed` で終える",
+              "+- 処置の依頼と分ける: 処置（確認バッチの段）と、席の起こし方（`tsukau.py`）は触る所も確かめ方も違う。1 件にまとめると、どちらかが断られたときに切り分けられない",
+              "+- CH21 は、依頼が入った後に `tsukau.json` に `\"seat_hide\": [\"adb\", \"emulator\"]` を足す（spec の差し込み口の Requirement と Scenario「harness2 の鍵が入った後は、差し込み口は席から adb と emulator を隠すよう名指す」。下流の Task 12。入る前に足すと、`tsukau.py check` が知らない鍵で落とす）。入るまでは、手で呼んだ席には `adb` が見える。CH21 は D18 で harness2 の処置を待って main に入らないので、手で呼ぶ席がこの repo の差し込み口で回るのも同じく依頼が入った後になる",
+              "+- `verify-batch.sh` の外し方（D32）は、依頼が入った後も残す（準備の道を harness2 の版に依らずに自己試験で固定する）",
+              "+- 失わない側: 手で呼ぶ道も同じ形で閉じる。依頼が断られても、確認バッチの道は D32 で閉じている",
+              "+- 費用: harness2 に 1 件の依頼。CH21 の終わりがそれも待つ",
+              "+- 反転条件: harness2 の改良グラフが断ったとき（手で呼ぶ席の `adb` の扱いを本人に返す）。`seat_hide` と違う形で入ったとき（入った形に合わせて Task 12 を直す）"
+            ]
+          },
+          {
+            "item": "決定 D25",
+            "before": "3bc3e881da3b",
+            "after": "9b88746eed0d",
+            "diff": [
+              "@@ -1,2 +1,2 @@",
+              "-D25. 席は携帯を `tools/tsukau/phone.sh` で触る（仕様への違和感）",
+              "+D25. 席は携帯を `tools/tsukau/phone.sh` で触る（仕様への違和感。IMP-13 の本人の答えで、席が端末に届く口をこれだけにした）",
+              " ",
+              "@@ -4,2 +4,4 @@",
+              " - 押す・打つは `phone.sh shell 'input tap <x> <y>'`・`input text`・`input keyevent`。案内に、`ui` で探して `input tap` で押す例を載せる",
+              "+- `phone.sh` は `adb` を名前で探さず、`$ANDROID_HOME/platform-tools/adb` で呼ぶ（席の `PATH` には `adb` が無い。D32）。`$ANDROID_HOME` が無いか、そこに `adb` が無ければ rc≠0 で「携帯の道具が見つからない」と 1 行出す。最初の引数が `shell`・`shot`・`ui` でなければ（`-s <serial>` から始めたときを含む）`adb` を呼ばずに rc≠0。",
+              "+  serial は `<state>` に残したものだけを `-s` に渡し、引数で serial を受けない（席がほかの端末を名指す口を作らない）",
+              " - 反転条件: 席が `input` で操作できない画面が続くとき（口を足す）"
+            ]
+          }
+        ],
+        "text": "本人の答えのとおり、確認バッチの準備はどの相手の席も PATH から $ANDROID_HOME と $ANDROID_SDK_ROOT の下を外して呼び、adb と emulator が名前で見つかれば席を呼ばない。差し込み口と phone.sh は $ANDROID_HOME の下の adb を自分で使うので、席が名前で見つけられる端末への口は phone.sh だけになる。席の Bash が渡された PATH を引き継ぐことは、手で組んだ同じ形の PATH と本物の claude -p で 2026-11-22 に確かめた（E23）。verify-batch.sh が組む PATH で同じになるかは下流の Task 4.3 が確かめる。手で呼ぶ /tsukau は harness2 の鍵 seat_hide が入った後に同じにする。止めていないのは、絶対パスか adb の待ち受け（5037 番）に直に話しかける道（E22）"
+      }
+    }
+  },
+  "minor_accepted": [
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "塞いだ Sandbox で配る形が入り、外に届くかは未確認"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "準備が延び、その間は記録と fix が待つ"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "残った Sandbox が以後の PC の席と録画を止める"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "low",
+      "title": "私的でない題も伏せられることがある"
+    },
+    {
+      "id": "IMP-07",
+      "severity": "medium",
+      "title": "Sandbox の窓が本人のライフログに入りうる"
+    },
+    {
+      "id": "IMP-08",
+      "severity": "medium",
+      "title": "審査を通った PR に、本人が見る前に直した変更が載る"
+    },
+    {
+      "id": "IMP-09",
+      "severity": "medium",
+      "title": "選別を誤ると、要らない直しが載るか本物が流れる"
+    },
+    {
+      "id": "IMP-12",
+      "severity": "medium",
+      "title": "携帯の席はエミュレータの残りと取り合いで止まりうる"
+    }
+  ],
+  "imp_history": [
+    {
+      "at": "2026-11-20T14:01:06Z",
+      "head": "1f9a1f4a804b56490bd9454a1f09b873ad7e5b99",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-20T16:49:09Z",
+      "head": "dc816fc76f396c70f93e9d184af50776347f56fe",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-20T16:49:09Z",
+      "head": "dc816fc76f396c70f93e9d184af50776347f56fe",
+      "id": "IMP-13",
+      "answer": "仕様を直す",
+      "closed": false
+    },
+    {
+      "at": "2026-11-21T23:31:01Z",
+      "head": "401646b32a64619e8e31b1b99172a5d5769a365d",
+      "id": "IMP-05",
+      "answer": "(未回答)",
+      "closed": false
+    },
+    {
+      "at": "2026-11-21T23:31:01Z",
+      "head": "401646b32a64619e8e31b1b99172a5d5769a365d",
+      "id": "IMP-13",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    },
+    {
+      "at": "2026-11-21T23:51:19Z",
+      "head": "724016cedbf0648e01a06e4199360251803bf261",
+      "id": "IMP-05",
+      "answer": "受け入れて進める（リリースの前に判断し直す）",
+      "closed": true
+    },
+    {
+      "at": "2026-11-21T23:51:19Z",
+      "head": "724016cedbf0648e01a06e4199360251803bf261",
+      "id": "IMP-13",
+      "answer": "直した・確かめた結果に同意する",
+      "closed": true
+    }
+  ],
+  "carried": [
+    {
+      "from": "0bf98aaa95ea6e2363950ef0be9e059ce02250742742b12c8deca7ab0410047e",
+      "because": [
+        "D22",
+        "D26",
+        "D35",
+        "Q-G1",
+        "Q-G2",
+        "Q11",
+        "Q8"
+      ],
+      "at": "2026-11-22T08:19:42Z"
+    }
+  ]
+}
