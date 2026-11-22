@@ -24,3 +24,35 @@
 
 - R2 の答えを A から C に変える。手で確かめる手間を最低限にしたい。pgsql.lock を変える PR だけ、古い側の試験用の Windows の zip（package-windows-test-old）を変更前の lock（今回は 17.6-1）で組み、既存の tools/release/update-apply-install.sh で 17.6 → 17.12 の更新と戻しを Windows の runner で通す（docs/release.md「PostgreSQL の小さい版を上げる PR」の手順を CI で機械が行う）。lock を変えない PR の組み立てと試験は今のまま。tasks 5.1（本人の PC で更新して記録が見えるかを答える）は削る。5.1 の「本人の PC の配布版と記録は機械から見えない」は誤りで、WSL から読み取り専用で読める。本人の PC の移行は ST64 で扱う
   → 対応: 直した。design D5 を本人の決定 R2 = C に書き直し（Linux の置き場の入れ替えは残し、Windows の配布物どうしの 17.6-1 → 17.12-1 の更新と戻しは lock を変える PR の CI が通す）、CI の決め方を D7（仮）（変えたかは PR 自身の差分で決め、前の lock は分岐点の lock・入れ替えるのは test-old だけ・前の lock が取れない／大きい版が違えば落とす・lock を変えない PR と PR でない run は今のまま）・D8（仮）（判定と版の確かめは `tools/release/pgsql-prev-lock.sh`、版の確かめは保存の前と使い回しのときの 2 か所、`docs/release.md` の小節を CI の通し方に書き換える）・D9（仮）（前の lock を使い回しの鍵に入れる。正典の鍵の Requirement を MODIFIED）・D10（仮）（更新の後に動いている PostgreSQL の版は見ない）に足した。specs/distribution に Requirement「同梱の PostgreSQL の lock を変える PR では、変える前の lock で組んだ試験の zip から今の lock の zip への更新と戻しを Windows で通す」と 12 の Scenario を足し、tasks に Task 4（4.1〜4.3）を足した。本人の PC で見る前の tasks 5.1 と「人間の確認待ち」の節は削り、CH26.md の完了の判定 6 を置き換え、8（この PR の CI の Windows の更新と戻しが緑）を足した。古い側の zip が黙って今の lock で組まれて 17.12 → 17.12 で緑になる穴は、組んだ zip の同梱の版を確かめる step（使い回しのときも走る）で落とす。本人の PC の移行は ST64 に任せ、この change では扱わない
+
+# 深掘り（第 2 回）
+
+> merge gate（PR #369）で、仮で進めた D8・D9・D10 について、別の席が「失わない」を否とした（`provisional-review.md`。3 つとも条件 4）。どれも、まだ仮の D7（D10 は D8 も）の上に立っているのに、台帳の `rests_on` は本人の決定の D5 だけを挙げていた。D7 が確認バッチで覆っても、台帳からこの 3 つの見直しに辿れない。仮のままにできないので A として本人に返す。台帳から外し（`provisional.py resolve`）、design の見出しの（仮）も外した。問いは `deep-questions-r2.json`・`docs/briefs/CH26-deep-r2.html`。
+> 3 つとも、選んだ側で記録や配る物を失うことは無い（別の席の判定の (1)・(2) は通っている）。返すのは「土台の D7 と一緒に本人が決める」ため。
+
+### Q1. 判定と zip の版の確かめを、台本に置くか ci.yml に直接書くか（D8 を返した）
+
+- 問い: lock を変える PR かの判定と、組んだ 2 つの zip の同梱の版の確かめを、台本 `tools/release/pgsql-prev-lock.sh` に置いて ci.yml から呼ぶか、ci.yml の step の中に直接書くか
+- 答え: (未回答)
+- kind: premise（失うものは無い。土台の D7 が仮のまま、台帳に依存が無かった）
+- 出所: `provisional-review.md` D8・design D8
+- 推奨: 台本に置き、ci.yml は呼ぶだけ。版の確かめは保存の前と save の後の 2 か所。`docs/release.md` の小節を CI の通し方に書き換える（design D8 の本文のまま）
+- 族「仮の D7（前の lock の決め方）の上に立つ CI の決め方」: 前の lock の取り方 → D7（仮。別の席は確か）／判定と確かめの置き場 → Q1／使い回しの鍵 → Q2／動いている版を見るか → Q3／確かめ方そのもの → 第 1 回 R2 = C（本人の決定）
+
+### Q2. Windows の組み立ての使い回しの鍵に、前の lock を入れるか（D9 を返した）
+
+- 問い: 使い回しの鍵に、木の外から来る前の lock の指紋（`prev-pgsql=<sha256|none>`）を足し、正典の鍵の Requirement を `## MODIFIED` で書き換えるか
+- 答え: (未回答)
+- kind: premise（失うものは無い。鍵の値と `none` の意味が D7 から来るのに、台帳に依存が無かった）
+- 出所: `provisional-review.md` D9・design D9
+- 推奨: 入れる（design D9 の本文のまま）
+- 族: Q1 と同じ
+
+### Q3. CI で、更新した後・戻した後に動いている PostgreSQL の版を見るか（D10 を返した）
+
+- 問い: CI の Windows の更新と戻しの試験で、動いている `postgres.exe` の版まで読むか、zip の同梱の版と `update-apply-install.sh` の Scenario 群が通ることだけを見るか
+- 答え: (未回答)
+- kind: premise（失うものは無い。費用の見積もりが D8 の版の確かめの上に立つのに、台帳に依存が無かった）
+- 出所: `provisional-review.md` D10・design D10・`review/spec.md` R22。第 1 回の合意で本人は IMP-05（CI は更新の後に動いている PostgreSQL の版を見ない）を受けている
+- 推奨: 見ない（design D10 の本文のまま。見るには、この change が変えないとした `update-apply-install.sh` に手を入れることになる）
+- 族: Q1 と同じ

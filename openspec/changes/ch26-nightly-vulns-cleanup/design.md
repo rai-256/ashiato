@@ -99,7 +99,7 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 - 失わない側: 何も捨てない。CI の定義の中の決め方で、変えれば次の run から効く
 - **反転条件**: 分岐点の後に main も lock を変えた PR が出て、どちらから上げる道を見るかが問題になった／開発版・互換の組でも小さい版の違いを見る必要が出た／大きい版を上げる Story が始まった（そこで大きい版の違う前の lock の扱いを決め直す）
 
-### D8（仮）. 判定と確かめは台本 `tools/release/pgsql-prev-lock.sh` に置き、ci.yml は呼ぶだけ
+### D8. 判定と確かめは台本 `tools/release/pgsql-prev-lock.sh` に置き、ci.yml は呼ぶだけ
 
 ci.yml の中の bash は Windows の runner でしか走らず、手元で落ちるかを確かめられない。check_scenarios も ci.yml の印を拾わない（`.yml` は試験の拡張子に無い。spec-review R17）。だから判定と確かめを台本に置き、Scenario の印も台本に置き、`--self-test` を Linux（`chain` の job）で走らせる:
 
@@ -118,7 +118,7 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 - 失わない側: 何も捨てない。台本は CI の確かめの道具で、配る物に入らない
 - **反転条件**: 組み立てが許諾の文の版の行を書かなくなった（`zip-version` の読み先を替える）／`windows-build-key.sh --check-workflow` の形の検査が変わり、2 か所のどちらかに置けなくなった
 
-### D9（仮）. Windows の組み立ての使い回しの鍵に、前の lock を入れる（正典の鍵の Requirement を MODIFIED で書き換える）
+### D9. Windows の組み立ての使い回しの鍵に、前の lock を入れる（正典の鍵の Requirement を MODIFIED で書き換える）
 
 使い回しの鍵（`tools/release/windows-build-key.sh`）は HEAD の木（`pgsql.lock` を含む）と道具の版から出す（P21）。前の lock は木の外から来る入力なので、鍵に入れないと、同じ head で前の lock だけが違う組み立て（分岐点を動かした後の push など）を引きうる。
 鍵の step の `WINDOWS_BUILD_KEY_TOOLS` の末尾に `|prev-pgsql=<前の lock の sha256、取らなければ none>` を足す（前の lock を取る step の出力から）。鍵の step・restore・保存の形は今の `--check-workflow` のまま通る（実測。spec-review の第 2 回の「実物で確かめたこと」）。
@@ -127,7 +127,7 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 - 失わない側: 何も捨てない。鍵が変わると組み直すだけ（約 25 分の Windows の組み立て）
 - **反転条件**: 使い回しの鍵の作り方を変える change が、木の外の入力を別の形で扱うようになった
 
-### D10（仮）. CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない
+### D10. CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない
 
 `install-windows` は `update-apply-install.sh` の Scenario 群を古い側（17.6-1）と新しい側（17.12-1）の zip で通し、`package-windows` は 2 つの zip の同梱の版を確かめる。インストーラが更新でプログラムの置き場（`pgsql` を含む）を入れ替え、戻しで前の版の置き場に戻すことは正典の Requirement（「同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる」の 2 文目）が言うが、その一文を見る Scenario は無く、`update-apply-install.sh` も動いている `postgres.exe` の版を読まない（spec-review R22）。
 この change では見ない。見るには `update-apply-install.sh` の判定（組み立ての台本で、この change の「変えないもの」）に `pgsql\bin\postgres.exe -V` を読む所を足すことになり、本人の補足の範囲（「既存の update-apply-install.sh で通す」）を越える。

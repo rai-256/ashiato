@@ -1,0 +1,192 @@
+{
+  "format": 2,
+  "title": "CH26 の深掘り 第 2 回",
+  "subtitle": "仮で進めた CI の決め方 3 つを、まだ仮の D7 と一緒に決める（3 問）",
+  "makes": "夜間の脆弱性検査の 4 件を片付け、配る zip の PostgreSQL を 17.6 から 17.12 に上げる。lock を変える PR では、前の lock で組んだ古い側の zip から更新と戻しを Windows の CI で通す。",
+  "note": [
+    "第 1 回の合意の後、AI が仮で決めて進めた D8・D9・D10 を別の席が確かめました。どれも失うものは無いのですが、まだ仮の D7 の上に立っていることが台帳に書かれていなかったので、仮のままにせず聞きます。推奨はどれも、いまの仕様のままの側です。",
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。"
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "判定と zip の版の確かめの置き場（D8）",
+      "kind": "premise",
+      "question": "lock を変える PR かの判定と、組んだ zip の同梱の版の確かめを、台本に置くか ci.yml に直接書くか",
+      "decide": "判定と版の確かめを、新しい台本 `pgsql-prev-lock.sh` に置いて呼ぶか、ci.yml の step に直接書くか。",
+      "points": [
+        "ci.yml の中の bash は Windows の runner でしか走らず、手元では試せない。台本なら自己試験を Linux の CI で走らせられる。",
+        "版の確かめは保存の前と使い回した run の 2 か所。古い側の zip が今の lock で組まれ、17.12 → 17.12 で緑になる穴を塞ぐ。",
+        "どちらでも、記録や配る物は失わない。台本は配る zip に入らない。"
+      ],
+      "figure": {
+        "svg": "<svg viewBox=\"0 0 560 150\" role=\"img\" aria-label=\"本人の決定 R2=C の上に仮の D7 があり、その上に D8・D9 が、D8 の上に D10 が立つ\"><g font-size=\"12\"><rect x=\"0\" y=\"60\" width=\"110\" height=\"30\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"10\" y=\"80\" fill=\"var(--ink)\">R2 = C（本人）</text><rect x=\"140\" y=\"60\" width=\"120\" height=\"30\" rx=\"6\" fill=\"var(--sunk)\"/><text x=\"150\" y=\"80\" fill=\"var(--ink)\">D7（仮・前の lock）</text><rect x=\"300\" y=\"20\" width=\"110\" height=\"30\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"310\" y=\"40\" fill=\"var(--pick)\">Q1 台本（D8）</text><rect x=\"300\" y=\"100\" width=\"110\" height=\"30\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"310\" y=\"120\" fill=\"var(--pick)\">Q2 鍵（D9）</text><rect x=\"440\" y=\"20\" width=\"115\" height=\"30\" rx=\"6\" fill=\"var(--pick-soft)\"/><text x=\"448\" y=\"40\" fill=\"var(--pick)\">Q3 版を見ない（D10）</text></g><g stroke=\"var(--ink-2)\" fill=\"none\"><path d=\"M110 75 H140\"/><path d=\"M260 70 L300 35\"/><path d=\"M260 80 L300 115\"/><path d=\"M410 35 H440\"/></g></svg>",
+        "caption": "3 つの問いは、まだ仮の D7 の上に立っている（右へ行くほど上に積まれている）"
+      },
+      "why": "AI が仮で決めて進めた決定は、別の席が「失わない」を確かめます。この決定は、選んでも記録や配る物を失いません。ただ、まだ仮の D7（前の lock を分岐点から取り、lock を変えた PR でだけ古い側の zip を入れ替える）の上に立っているのに、台帳にはその依存が書かれていませんでした。D7 が確認バッチで覆っても、この決定を見直す筋が辿れません。だから仮のままにせず、本人に聞きます。\n\nD8 の台本の判定（changed・decide）と ci.yml の形の検査（check-workflow）は、D7 の決め方をそのまま実装しています。D7 が覆れば作り直しになります。",
+      "context": "docs/release.md の「PostgreSQL の小さい版を上げる PR」の小節は、手で通す手順から「CI が通す。PR では install-windows が緑で、package-windows の出力に `古い側 <前の版> → 新しい側 <今の版>` があることを見る」に書き換える（第 1 回の補足「docs/release.md の手順を CI で機械が行う」）。",
+      "allow_free": true,
+      "family": {
+        "name": "仮の D7（前の lock の決め方）の上に立つ CI の決め方",
+        "siblings": [
+          {
+            "case": "前の lock をどこから取り、どの zip を入れ替えるか",
+            "decided": "design D7（仮。別の席は確かとした）"
+          },
+          {
+            "case": "判定と zip の版の確かめの置き場",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "使い回しの鍵に前の lock を入れるか",
+            "decided": "未決 Q2"
+          },
+          {
+            "case": "更新の後に動いている PostgreSQL の版を見るか",
+            "decided": "未決 Q3"
+          },
+          {
+            "case": "17.6 → 17.12 の更新と戻しをどこで確かめるか",
+            "decided": "deep.md 第 1 回 R2 = C（本人の決定）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "第 1 回の合意の違和感（R2 を C に）を写すとき、D7〜D10 を一度に仮で足し、rests_on には本人の決定 D5 だけを挙げた。同じ時に足した仮の D7・D8 の上に立つことを台帳に書かなかった",
+        "prevention": "仮の決定を同じ回に 2 つ以上足すときは、design の本文が他の仮の D<n> の出力・決め方を使っていないかを見て、使っていれば rests_on に挙げる（provisional.py add が本文の D<n> の名指しと rests_on を突き合わせて警告すると機械で拾える）"
+      },
+      "options": [
+        {
+          "label": "台本に置き、ci.yml は呼ぶだけ（D8 のまま）",
+          "gain": "判定と版の確かめを Linux で自己試験でき、Scenario の印も台本に置ける。",
+          "cost": "台本 1 本と、chain の job の 2 行が増える。",
+          "recommended": true
+        },
+        {
+          "label": "ci.yml の step の中に直接書く",
+          "gain": "ファイルが増えない。",
+          "cost": "Windows の runner でしか試せず、壊れていても PR を出すまで分からない。ci.yml の印は拾われないので、Scenario の試験の置き場が別に要る。"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "使い回しの鍵に前の lock を入れるか（D9）",
+      "kind": "premise",
+      "question": "Windows の組み立ての使い回しの鍵に、前の lock の指紋を入れるか",
+      "decide": "鍵の材料に `prev-pgsql=<前の lock の sha256、取らなければ none>` を足し、正典の鍵の Requirement を書き換えるか。",
+      "points": [
+        "鍵はいま、head の木（今の lock を含む）と道具の版から作る。前の lock は木の外（分岐点）から来るので、入れないと、前の lock だけが違う組み立てを使い回しうる。",
+        "鍵が変わっても、起きるのは組み直し（Windows で約 25 分）だけ。古い組み立てを部分一致で引くことは無い。",
+        "正典の Requirement が鍵の材料を列挙しているので、`## MODIFIED` で 1 つ足す。"
+      ],
+      "no_figure": "鍵の材料に 1 つ足すかどうかで、図にすると要点の繰り返しになる",
+      "why": "AI が仮で決めて進めた決定は、別の席が「失わない」を確かめます。この決定は、選んでも記録や配る物を失いません。ただ、まだ仮の D7（前の lock を分岐点から取り、lock を変えた PR でだけ古い側の zip を入れ替える）の上に立っているのに、台帳にはその依存が書かれていませんでした。D7 が確認バッチで覆っても、この決定を見直す筋が辿れません。だから仮のままにせず、本人に聞きます。\n\n足す値と「取らなければ none」の意味は、D7 の「PR の run で lock を変えたときだけ分岐点の lock を取る」から来ます。D7 が覆れば、要らなくなるか、入れる値が変わります。",
+      "context": "入れない場合でも、save の後の版の確かめ（Q1）が食い違いを見つけて CI を落とす。ただ、そのときは同じ鍵の組み立てが残っているので、手で使い回しを外すまで落ち続ける。",
+      "allow_free": true,
+      "family": {
+        "name": "仮の D7（前の lock の決め方）の上に立つ CI の決め方",
+        "siblings": [
+          {
+            "case": "前の lock をどこから取り、どの zip を入れ替えるか",
+            "decided": "design D7（仮。別の席は確かとした）"
+          },
+          {
+            "case": "判定と zip の版の確かめの置き場",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "使い回しの鍵に前の lock を入れるか",
+            "decided": "未決 Q2"
+          },
+          {
+            "case": "更新の後に動いている PostgreSQL の版を見るか",
+            "decided": "未決 Q3"
+          },
+          {
+            "case": "17.6 → 17.12 の更新と戻しをどこで確かめるか",
+            "decided": "deep.md 第 1 回 R2 = C（本人の決定）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "第 1 回の合意の違和感（R2 を C に）を写すとき、D7〜D10 を一度に仮で足し、rests_on には本人の決定 D5 だけを挙げた。同じ時に足した仮の D7・D8 の上に立つことを台帳に書かなかった",
+        "prevention": "仮の決定を同じ回に 2 つ以上足すときは、design の本文が他の仮の D<n> の出力・決め方を使っていないかを見て、使っていれば rests_on に挙げる（provisional.py add が本文の D<n> の名指しと rests_on を突き合わせて警告すると機械で拾える）"
+      },
+      "options": [
+        {
+          "label": "入れる（D9 のまま）",
+          "gain": "前の lock が違えば必ず組み直し、食い違った組み立てを使い回さない。",
+          "cost": "前の lock が変わるたび、Windows の組み立てが 1 回（約 25 分）増える。正典の Requirement を 1 つ書き換える。",
+          "recommended": true
+        },
+        {
+          "label": "入れない",
+          "gain": "鍵も正典も今のまま。",
+          "cost": "前の lock だけが違う run で古い組み立てを引き、版の確かめで落ちる。直すには手で使い回しを外す。"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "更新の後に動いている PostgreSQL の版を見るか（D10）",
+      "kind": "premise",
+      "question": "CI の Windows の更新と戻しで、動いている PostgreSQL の版まで見るか",
+      "decide": "試験の台本に `postgres.exe -V` の読みを足すか、zip の同梱の版と既存の Scenario 群だけを見るか。",
+      "points": [
+        "第 1 回の合意で、IMP-05「CI は、更新の後に動いている PostgreSQL の版を見ない」は受けてもらっている。",
+        "見ないと、インストーラが pgsql の置き場だけを入れ替え損ねても CI は緑になりうる。そのときも同じ大きい版なので DB は読める。",
+        "見るには、この change が「変えない」とした `update-apply-install.sh` に手を入れることになる。"
+      ],
+      "no_figure": "見る・見ないの 2 択で、図にすると要点の繰り返しになる",
+      "why": "AI が仮で決めて進めた決定は、別の席が「失わない」を確かめます。この決定は、選んでも記録や配る物を失いません。ただ、まだ仮の D7（前の lock を分岐点から取り、lock を変えた PR でだけ古い側の zip を入れ替える）の上に立っているのに、台帳にはその依存が書かれていませんでした。D7 が確認バッチで覆っても、この決定を見直す筋が辿れません。だから仮のままにせず、本人に聞きます。\n\nD10 の費用の見積もり（「置き場だけ入れ替え損ねても緑になりうる」）は、D8 の zip の版の確かめがある前提で言っています。Q1 で版の確かめを持たない側を選ぶと、「古い側の zip がそもそも前の版でない」も緑で通りうるので、費用はそれより広がります。",
+      "context": "インストーラはアプリのプログラムの置き場ごと入れ替える（premises.md P12・P17）。版の観測は、後から別の change で足せる。",
+      "allow_free": true,
+      "family": {
+        "name": "仮の D7（前の lock の決め方）の上に立つ CI の決め方",
+        "siblings": [
+          {
+            "case": "前の lock をどこから取り、どの zip を入れ替えるか",
+            "decided": "design D7（仮。別の席は確かとした）"
+          },
+          {
+            "case": "判定と zip の版の確かめの置き場",
+            "decided": "未決 Q1"
+          },
+          {
+            "case": "使い回しの鍵に前の lock を入れるか",
+            "decided": "未決 Q2"
+          },
+          {
+            "case": "更新の後に動いている PostgreSQL の版を見るか",
+            "decided": "未決 Q3"
+          },
+          {
+            "case": "17.6 → 17.12 の更新と戻しをどこで確かめるか",
+            "decided": "deep.md 第 1 回 R2 = C（本人の決定）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "第 1 回の合意の違和感（R2 を C に）を写すとき、D7〜D10 を一度に仮で足し、rests_on には本人の決定 D5 だけを挙げた。同じ時に足した仮の D7・D8 の上に立つことを台帳に書かなかった",
+        "prevention": "仮の決定を同じ回に 2 つ以上足すときは、design の本文が他の仮の D<n> の出力・決め方を使っていないかを見て、使っていれば rests_on に挙げる（provisional.py add が本文の D<n> の名指しと rests_on を突き合わせて警告すると機械で拾える）"
+      },
+      "options": [
+        {
+          "label": "見ない（D10 のまま）",
+          "gain": "`update-apply-install.sh` を変えずに済み、第 1 回の補足「既存の update-apply-install.sh で通す」の範囲に収まる。",
+          "cost": "pgsql の置き場だけの入れ替え損ねは CI で見つからない。",
+          "recommended": true
+        },
+        {
+          "label": "見る（update-apply-install.sh に版の読みを足す）",
+          "gain": "更新の後に 17.12、戻した後に 17.6 で動いていることまで CI が確かめる。",
+          "cost": "組み立ての台本に手を入れ、この change の範囲が広がる。その台本の試験も足す。"
+        }
+      ]
+    }
+  ]
+}
