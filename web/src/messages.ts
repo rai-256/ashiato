@@ -163,6 +163,34 @@ const ja = {
     failed: "設定の文字列を表示できませんでした。",
   },
 
+  /** S-7 設定の秘密変更（ST59 / design D11）。 */
+  secretChange: {
+    warning: "携帯を落としたときは両方を変える（画面の合言葉 → 収集アプリの値の順）",
+    webTitle: "画面の合言葉を変える",
+    tokenTitle: "収集アプリの値を変える",
+    currentPassword: "今の合言葉",
+    newPassword: "新しい合言葉",
+    newPasswordAgain: "新しい合言葉（もう一度）",
+    change: "変える",
+    changedPassword: "合言葉を変えました。ほかの端末のログインは切れました",
+    wrongPassword: "合言葉が違います",
+    tooShort: "16 文字以上にしてください",
+    placeholder: "change-me で始めないでください",
+    sameAsApiToken: "収集アプリの値と同じにしないでください",
+    sameAsSessionKey: "ログインの印の鍵と同じにしないでください",
+    mismatch: "2 つの新しい合言葉が一致しません",
+    notChangeable: "この形のサーバでは画面から変えられません。.env を書き換えて起動し直してください",
+    notSavedPassword: "保存できませんでした。合言葉は変わっていません",
+    notSavedToken: "保存できませんでした。値は変わっていません",
+    throttled: "失敗が続いたので、しばらく待ってから試してください",
+    failed: "変えられませんでした",
+    setupLead: "携帯に入れる文字列は、携帯から開いた画面で『収集アプリの設定』から出してください",
+    valueLabel: "設定の文字列",
+    copy: "値をコピー",
+    copied: "コピーしました。",
+    copyFailed: "コピーできませんでした。値を選んでコピーしてください。",
+  },
+
   /** S-7 設定の「衛星と資格情報」の節（SatellitesPanel.tsx。ST29 / design D12）。拒む種別は `satellites.ts` の `REFUSAL_KINDS` 全部 */
   satellites: {
     sectionTitle: "衛星と資格情報",
