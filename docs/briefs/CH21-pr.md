@@ -1,6 +1,6 @@
 # CH21 確認バッチの前に、その回で足した機能を使ってみる席（/tsukau）で確かめ、違和感を直すか人間に回す
 
-change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 120 本、`distribution` に MODIFIED 1）。
+change: `openspec/changes/ch21-trial-use-before-verify/`（capability `verify-environment` に ADDED の Requirement 13・Scenario 121 本、`distribution` に MODIFIED 1）。
 依頼と完了の判定は `docs/changes/CH21.md`。第 3 版（依頼に「見つけた後の処置」が足され、深掘りから立て直した）。**requires: CH22**（下の Q8）。
 
 確認バッチを作るたびに、その回に新しく入った Story / change が変えたファイルで相手（画面・PC・携帯）を決め、AI が 10 分・20 万 token ずつ使ってみる（harness2 の `/tsukau`）。
@@ -28,7 +28,7 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 別の席の確かめ（`provisional-review.md`）が D15・D31 を否とし、本人に返した。どちらも推奨の案を本人が選んだ（`deep-answers-5.txt`）。
 
 - **Q-G1 harness2 への依頼のうち仮の決定に乗る項目（A）** —— 5 つの仮の決定をいま確かめて本人の決定にしてから送る。D12（と D28）・D18・D20・D21・D27 は**いまの中身のまま**仮でなくし、台帳から外した（`provisional.py resolve`）。依頼（`harness2-request.json`）の中身は変えない
-- **Q-G2 携帯のエミュレータの起動から網を切るまで（A）** —— 起動の時から網を持たせない道を確かめて使う（道が無ければ携帯の相手を回さず本人に返す）。道は、利用者と網の名前空間を分けた箱（`unshare`。中は loopback だけ）の中でエミュレータと専用の adb のサーバを起こし、サーバへは Unix のソケットの橋、`adb` は `nsenter` で箱に入って呼ぶ形にした（D31・D35（仮））。spec の段に、箱の中は loopback だけで外へ届かず、エミュレータが起動することを実測した。エミュレータの網の引数（`restrict=on`）は外の役の口に届いたので使わない。箱の中の `adb reverse` と橋は確かめきれていない（premises.md）ので、下流の Task 10 が本物で確かめ、通らなければ携帯の相手を回さずに本人に返す。Scenario を 8 本足した（箱を作れない・箱に loopback のほかの網がある・橋の道具が無い・サーバへの道は橋だけ・reverse の後にサーバが応えない・エミュレータと adb が箱の中で動く・箱が無ければ phone.sh は断る・片付けで橋と箱を止める）
+- **Q-G2 携帯のエミュレータの起動から網を切るまで（A）** —— 起動の時から網を持たせない道を確かめて使う（道が無ければ携帯の相手を回さず本人に返す）。道は、利用者と網の名前空間を分けた箱（`unshare`。中は loopback だけ）の中でエミュレータと専用の adb のサーバを起こし、サーバへは Unix のソケットの橋、`adb` は `nsenter` で箱に入って呼ぶ形にした（D31・D35（仮））。spec の段に、箱の中は loopback だけで外へ届かず、エミュレータが起動することを実測した。エミュレータの網の引数（`restrict=on`）は外の役の口に届いたので使わない。箱の中の `adb reverse` と橋は確かめきれていない（premises.md）ので、下流の Task 10 が本物で確かめ、通らなければ携帯の相手を回さずに本人に返す。Scenario を 9 本足した（箱が止まっていれば片付けは adb を呼ばない・箱を作れない・箱に loopback のほかの網がある・橋の道具が無い・サーバへの道は橋だけ・reverse の後にサーバが応えない・エミュレータと adb が箱の中で動く・箱が無ければ phone.sh は断る・片付けで橋と箱を止める）
 
 ## 仕様への違和感（第 1 回の合意）への対応
 
@@ -71,6 +71,6 @@ ashiato2 は、席が本物を立てる差し込み口（`tools/tsukau/`。画�
 - 深掘り（`review/deep.md`）: 16 件。escalated（問いに入れた）9・fixed 7
 - 仕様（`review/spec.md`）: 第 1 版 19 件・第 2 版（答えと違和感の直し）13 件。第 2 版は fixed 12（うち仮で閉じたもの R22 → D26・R23 → D29・R29 → D27/D28・R32 → D30 ほか）・rejected 1（R25。前提を実物で反証）。
   第 3 版（IMP-13 の直し）6 件（R33〜R38）: fixed 5・rejected 1（R34。前提を本物の `claude -p` で測って成り立った）。
-  第 4 版（Q-G1・Q-G2 の写し）11 件（R39〜R49。どれも technical）: fixed 11（D35（仮）の中身・Scenario 5 本の追加・Task 9.1/10.1・review の処置の行・台帳の D26）。
+  第 4 版（Q-G1・Q-G2 の写し）14 件（R39〜R52。どれも technical）: fixed 14（D35（仮）の中身・Scenario 5 本の追加・Task 9.1/10.1・review の処置の行・台帳の D26）。
   観点 7: 該当なし（CH22 は archive 済み）
 - 答えが写ったか（`review/answers.md`）: Q8・Q11 とも写った。違和感の直しは答え以外の変更として名指し（合意は引き継がず聞き直す）

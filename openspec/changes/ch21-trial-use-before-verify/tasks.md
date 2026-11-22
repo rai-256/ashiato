@@ -247,8 +247,9 @@
   `# Scenario: 携帯の片付けは、ほかのエミュレータに触らない`・
   `# Scenario: 携帯の片付けは、その回の project と木を消す`・
   `# Scenario: 携帯の片付けは、橋と箱を持つプロセスを止め、ソケットを消す`・
+  `# Scenario: 箱が止まっていれば、片付けは adb を呼ばずに自分のエミュレータを止める`・
   `# Scenario: 止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる`
-  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 58'` rc=0
+  検証: `tools/tsukau/env-hook.sh --self-test` rc=0 / `bash -c 'test "$(grep -c "^ *# Scenario: " tools/tsukau/env-hook.sh)" -ge 59'` rc=0
 
 ## Task 10: 本物のエミュレータで携帯の相手を立てて片付ける
 

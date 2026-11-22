@@ -703,3 +703,70 @@ R37・R38 の処置の確かめ: 新しい指摘なし（382482a8d の上。vali
 - 足した Scenario 3 本は、偽の `unshare`・`nsenter`・`emulator`・`adb` で検証できる（R41・R42・R49 の直しを前提に）。tasks の印と名前は一字一句合い、9.1 の印は 21 → 24・下限 50 → 53 で合う
 
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）
+
+## R39〜R49 の処置の確かめ（2026-11-22、20aac3e4e の上）
+
+- 機械の検査:
+  - `openspec validate --strict` → valid
+  - `review_triage.py` → `triage: OK`（指摘 65 件 / 仮決め 16 件）
+    - 仮決めの数が 10 から 16 に増えた。triage は処置の行のどこかに「仮」の字があれば仮決めに数える（scripts/review_triage.py:551）。前の処置を後ろに残した R24・R29 と、本文で「D35（仮）」を名指した R39〜R49 の一部が数えられている。
+    - PR 本文の「仮決め」は design の見出しの（仮）から引く（scripts/pr_body.py:78）。だから PR には効かず、指摘にしない
+  - `provisional.py check` → D35 だけ FAIL（provisional-review.md に節が無い。グラフが書く段なので想定どおり）
+  - `spec_overlap.py candidates` → `[]`
+  - `evidence.py lint` → OK
+- spec の verify-environment は 120 本で、tasks.md の印の名前と一字一句合う。env-hook.sh の下限は 6.1 が 12、7.1 が 29、9.1 が 58 で、印の数（12・17・29）と合う
+- 処置が閉じているもの:
+  - R40: 橋の Scenario 2 本と、道具が無いときの断りが入った
+  - R41: 箱を環境より先に作る順になり、THEN に compose up と gradlew が呼ばれないことが入った
+  - R43: 名前空間の一致を見るようになった
+  - R44: D35 の反転条件と Task 10.1 の返し方が揃った
+  - R45: 7 行に real-check-android の字面を求めるようにした。作業の前は 0 行で落ちる
+  - R46・R48・R49
+  - R47: CH21.md:58 は直った。D31 の見出しを残す判断は成り立つ。見出しの括弧は APK がサーバに届く道（design.md:256「サーバへの道は `adb reverse`」）を言っていると読める。切る前の確かめの道は D35（仮）の節と spec.md:488 にあり、仮でない D31 の本文を答え以外で変えないことと合う
+- 閉じていないもの:
+  - R39 は Scenario の GIVEN が足りない（R52）
+  - R42 は片付けの側が Requirement に無い（R50）
+  - R40 の「止めた後も残れば」の Scenario は、正しい実装で THEN を満たせない（R51）
+- 細部（指摘にしない）: design.md:270 の D35 の行は「…review/spec.md R42）箱の中の adb のサーバは…」と、句点が抜けて 2 つの文がつながっている
+
+## R50. 箱に入れないときに片付けがホストの adb のサーバへ落ちないことは、design と tasks にしか無い。Requirement と Scenario は phone.sh の側しか言っていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md
+- 根拠:
+  - design.md:270（D35）は「`down` は箱の中の `adb` を呼ばずに PID でエミュレータを止める」と言う。tasks.md:220 も「箱に入れなければ箱の中の `adb` を呼ばずに `<state>` の `EMU_PID` を止める」と言う。
+  - spec.md:490 の「この PC の adb のサーバへは落とさない」は `phone.sh` の文で、片付けの文（spec.md:492）には無い。Scenario も `phone.sh` の 1 本（spec.md:535）だけである。
+  - 片付けは `logcat -d` と、エミュレータを止める命令を `-s <serial>` で送る。箱の中の serial は `emulator-5554` になりうる（R42）。箱が先に落ちた回に、ホストの adb のサーバへ落ちる実装があると、計測テストか本人のエミュレータに止める命令が届く。今の Scenario はどれもそれを落とせない。
+  - design にしか無いので、archive で正典からも落ちる
+- kind: technical
+- 提案:
+  - spec.md:492 に 1 文足す:「`<state>` に残した箱に入れなければ、`adb` を呼ばずに、`<state>` に残したエミュレータのプロセスを止める（この PC の adb のサーバへは落とさない）」。
+  - Scenario「箱が無いか止まっていれば、片付けは adb を呼ばずに自分のエミュレータのプロセスを止める」を足す（GIVEN: `<state>` の箱の PID が生きておらず、エミュレータの PID のプロセスは生きている。THEN: 偽の `adb` は呼ばれず、その PID のプロセスは生きていない）。
+  - 印を Task 9.1 に足し、下限を 59 にする。D35（仮）の中身として書く
+- 処置: fixed 9.1 —— Requirement の片付けに「箱に入れなければ adb を呼ばずに残した PID で止め、この PC の adb のサーバへ落とさない」を足し、Scenario「箱が止まっていれば、片付けは adb を呼ばずに自分のエミュレータを止める」を足した（印を 9.1 に、下限 59）
+
+## R51. Scenario「止めた後も自分のエミュレータが残っていれば、片付けは非 0 で終わる」の GIVEN では、正しい実装が rc≠0 にならない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md
+- 根拠:
+  - spec.md:636 の GIVEN は「エミュレータを止める命令の後も、`<state>` に残したエミュレータの PID のプロセスが生きている」である。
+  - 片付けは、残れば `emu_stop_own` で止める（tasks.md:220、design.md:271）。`emu_stop_own` は TERM の 5 秒後に KILL を送る（tools/emulator-start.sh:69-80）。
+  - 同じ利用者の試験のプロセスは KILL で止まる。そのため、正しい実装は残りを消して rc=0 で終わり、THEN の rc≠0 を満たせない。満たせるのは、`emu_stop_own` を呼ばない実装だけになる。
+  - 前の版は、偽の `adb devices` が serial を返し続けることで「残り」を作っていた。R40 の処置で残りの見方をプロセスに変えたとき、試験の側で残りを作る手段が無くなった
+- kind: technical
+- 提案: 残りは偽の `ps` で作る。GIVEN を「片付けの後も、専用の AVD の名前を引数に持つエミュレータのプロセスを一覧に返し続ける偽の `ps`（`TSUKAU_TEST_` で渡す）」にし、THEN は rc≠0 のままにする。残りの判定は、Requirement（spec.md:492）と同じく、`<state>` の PID か AVD の名前の引数で見る
+- 処置: fixed 9.1 —— Scenario「止めた後も自分のエミュレータが残っていれば…」の GIVEN を、止めた後も `-avd ashiato-tsukau-api35` を持つプロセスを返す偽の `ps` に直した
+
+## R52. reverse の後の確かめを足したのに、APK が入る側の Scenario 3 本の GIVEN は、偽の `adb` が 18787 への問いにどう答えるかを言っていない
+- 成果物: openspec/changes/ch21-trial-use-before-verify/specs/verify-environment/spec.md
+- 根拠:
+  - R39 の処置で、spec.md:488 は「渡した後の 18787 にサーバが応えない」なら `UNAVAILABLE=` を置く、とした。
+  - ところが、APK が入って `ready` が置かれることを見る次の 3 本の GIVEN は、どれも偽の `adb` に切る前と後の答えしか決めていない。
+    - 「網を切って確かめてから、サーバへの道を渡し、APK を入れて案内を置く」（spec.md:571）
+    - 「受けた PATH に adb が無くても…」（:596）
+    - 「携帯の案内は…」（:611）
+  - 書いたままの偽物では 18787 への問いに答えが無く、正しい実装は断る。その結果、`install`・`ready`・`GUIDE=` の THEN が落ちる。
+  - 順の Scenario の THEN（:573）にも、`reverse` と `install` の間の確かめが無い
+- kind: technical
+- 提案:
+  - 3 本の GIVEN に「渡した後の `127.0.0.1:18787` への問いに『応える』」を足す。
+  - :573 の THEN の順を「…`reverse tcp:18787`・18787 への問い・`install`・`am start`」にする
+- 処置: fixed 9.1 —— APK が入る側の 3 本の GIVEN に「渡した後の 127.0.0.1:18787 への問いに『応える』」を足し、順の THEN に端末の中からの 18787 への問いを入れた
+
