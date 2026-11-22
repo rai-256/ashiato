@@ -120,3 +120,30 @@
   tasks 3.1 の本文「入れた合言葉と照らす値がサーバのログと読み出しの記録に無い」も、ログの側は確かめていない
 - kind: technical
 - 提案: 試験の中で `tracing` の出力を集め（既存の試験にログを捕まえる部品があればそれを使う）、2 つの口を成功・失敗で通した後に、今の合言葉・新しい合言葉・新しい照らす値・新旧の収集アプリの値が無いことを見る
+
+## security review（56fd1c5..8dddaff）
+
+見た経路:
+- `POST /api/web-password` → `refresh_cookie`（`decide_with_secrets`）→ `access_log::middleware` は素通し（`access_log.rs:166-169` に今回足した）→ `web_password_post_inner` の `caller != Caller::WebSession` で 403（`web_session.rs:727`）→ 今の合言葉の照合（`LOGIN_CHECK` の印と失敗の数え上げはログインと共有）→ `validate_new_web_password` → Argon2id の照らす値 → `service::replace_setting("WEB_PASSWORD_VERIFIER")` → `replace_secrets`（2）
+- `POST /api/collector-token` → 同じ素通し → `collector_token_post` の `caller != Caller::WebSession`（`web_session.rs:1047`）→ 今の合言葉の照合 → `OsRng` の 32 バイト → `replace_setting("API_TOKEN")` → 本文に新しい値（2）
+- 認証なし → 401、収集アプリの値 → 403、衛星の資格情報 → 403（`/collector-token`）を、`cargo test -p ashiato-server --lib rejects_non_web_callers` で確かめた → 2 passed（4）
+- `collector_scope::credential_exempt` に足した `/collector-token` は、`bin/openapi.rs:36` だけが読む（契約の 403 の有無）。実行時の判定には使われない（`grep -rn credential_exempt crates/server/src` で確かめた）（3）
+- 設定の書き戻し: `replace_setting_at` は鍵を `WEB_PASSWORD_VERIFIER` / `API_TOKEN` に限る。パスは環境の `ASHIATO_SETTINGS_PATH` だけから取り、求めの値は入らない。一時ファイルの名前は `server.json.writing` で決まっている（`service.rs:268-291`）（3）
+- Windows の ACL: `server.json` に明示の ACL は無く、状態の置き場の根から継承している（`commands.rs:468-483`。サーバのサービスに M、本人に RX）。同じ `settings\` に作る `server.json.writing` も同じ ACL を継承するので、名前を替えた後も読める主体は増えない。`owner.json` は明示の ACL で、書き戻しは触れない（3）
+- 秘密がログ・記録に出る経路: 2 つのハンドラに `tracing::` は無い（`web_session.rs:640-1260` を grep した）。`SettingsWriteError` の `Display` は理由の名前だけを出す。読み出しの記録は口の名前と結果だけ。`SharedSecrets` の `#[derive(Debug)]` を `{:?}` で出す箇所は無い（前の `WebLogin` にも、同じ形で合言葉が入っていた）（3）
+- 画面: 2 つの部品は送った後に入力欄を空にする。新しい値は `readOnly` の入力欄とクリップボードにだけ出す。e2e は値を console に出さない（2）
+- `tools/settings-server.sh` は試験用の固定値（`st59-fake-…`）で、`umask 077` で書く。待ち受けは `127.0.0.1`（2）
+
+安全の決め手: 2 つの新しい口は `access_log::middleware` の「収集アプリの値は許可の一覧の口だけ・衛星は全部 403」（`access_log.rs:182-186`）を通らない。呼び出し元を断るのは、ハンドラの `caller != Caller::WebSession`（`web_session.rs:727` / `:1047`）だけになる —— 確かさ 4（`/collector-token` の側）。
+台本: `web_session.rs` の 3 か所の `if caller != Caller::WebSession {` を `if false && …` に変えて `cargo test -p ashiato-server --lib rejects_non_web_callers` → `st59_collector_token_rejects_non_web_callers` が `left: 200 / right: 403`（st59_tests.rs:297）で落ちた。戻した後は `cmp` と `git diff --quiet` で元と同じことを確かめた。
+`/web-password` の側は、同じ変異で試験が**通った**（R6）。決め手は `file:line` で示せるだけで、試験としては担保がない（確かさ 2）
+
+## R6. `/web-password` の「収集アプリの値・衛星では変えられない」の試験は、呼び出し元の判定を外しても通る（新しい口は middleware の収集アプリの値の判定を外したので、ここが唯一の判定）
+- 成果物: `crates/server/src/st59_tests.rs:987-1013`（`st59_web_password_handler_rejects_non_web_callers`）/ `crates/server/src/access_log.rs:166-169` / `crates/server/src/web_session.rs:727`
+- 根拠: ハンドラの `if caller != Caller::WebSession {` を `if false && caller != Caller::WebSession {` に変える変異 → `cargo test -p ashiato-server --lib rejects_non_web_callers` で、`st59_web_password_handler_rejects_non_web_callers` は **ok**（`/collector-token` の側は 200≠403 で落ちた）。
+  試験の組み立ては `App::for_test(…, "api-token-0123456789")` で、合言葉は `test-web-password-0123456789`（`lib.rs:690`）。それなのに `Bearer` の求めに `"old-web-password-012345"` を載せている。そのため、判定を外しても照合で `403 wrong_password` になり、期待の 403 と区別できない。衛星の資格情報の場合はこの試験に無い（Scenario の名前は「衛星の資格情報では、合言葉を変えられない」を含む）。
+  `access_log.rs:166-169` が `/web-password` を middleware の判定（`:182` の `collector_allows`・`:186` の衛星は 403）から外したので、ハンドラの 1 行が消えると、携帯に入っている収集アプリの値（落とした端末に残るもの）で画面の合言葉を変えられる。ただし今の合言葉は要る。今の実装にはこの 1 行があるので、穴ではない。この 1 行を守る試験が無い（確かさ 4）
+- kind: technical
+- 提案: `Bearer <収集アプリの値>` と衛星の資格情報の求めに、**正しい今の合言葉**を載せる。状態 403 で、本文が `wrong_password` でないこと、`server.json` が変わらないことを見る。上の変異で落ちることを確かめる
+
+範囲外: `access_log::middleware` の素通しの一覧（`access_log.rs:166`）と `collector_scope::credential_exempt` は、別々の一覧を手で揃えている。今回も 2 か所に同じ口を足した（既存の形。R 番号は振らない）
