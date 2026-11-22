@@ -35,3 +35,16 @@
 ## 懸念
 
 Scenario 検査は既存ツール由来の「spec に無い Scenario」警告を一部出すが、検査結果は `scenarios: OK` であり、今回の担保不足はない。
+
+## Fix report（review 1）
+
+- F1: e2e の `設定のファイルに書けなければ、何も変わらない` の印を削除し、実際に設定ファイル・両 API の応答・旧値での動作・書きかけの不在を検証する Rust テストへ移した。
+- F2: `st59_both_write_failure_returns_not_saved` で、両 API について `ok`（204/200）と `forbidden`（500）の access_log 件数がそれぞれ 1 件増えることを、要求前後の DB 件数比較で検証するようにした。
+
+### Fix verification
+
+- `scripts/quiet-run st59-write-failure-lib -- cargo test -p ashiato-server --lib st59_both_write_failure_returns_not_saved`: 1 passed, 0 failed。
+- `scripts/verify-run 9.1`: 2 系統とも PASS（rc=0）。全体 cargo 検証と Scenario 突き合わせ（`scenarios: OK`）を実行。
+- `scripts/quiet-run st59-e2e -- npm --prefix web run test:e2e -- e2e/st59-change-secrets.spec.ts`: 9 passed, 0 failed。
+
+自己レビューでは、レビュー指摘の F1/F2 以外のコード変更は行っておらず、検証後のコード変更もない。

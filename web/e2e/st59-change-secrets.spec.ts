@@ -108,7 +108,6 @@ test("設定に 2 つの節が並び、落としたときは両方を変える�
   await login(page, password); await openSettings(page); await expect(page.getByText("携帯を落としたときは両方を変える")).toBeVisible(); await expect(page.getByRole("heading", { name: "画面の合言葉を変える" })).toBeVisible(); await expect(page.getByRole("heading", { name: "収集アプリの値を変える" })).toBeVisible();
 });
 
-// Scenario: 設定のファイルに書けなければ、何も変わらない
 // Scenario: 設定のファイルに書けないと、画面は合言葉が変わっていないと出す
 test("設定のファイルに書けないと、画面は合言葉が変わっていないと出す", async ({ browser, page }) => {
   if (server === undefined) throw new Error("設定サーバが無い"); mkdirSync(`${server.settings}.writing`);

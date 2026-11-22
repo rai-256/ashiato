@@ -642,10 +642,36 @@ async fn st59_both_rejection_statuses_are_recorded() {
 
 #[tokio::test]
 // Scenario: 書き戻しに落ちた求めは、変えた行と打ち消しの行の 2 行で残る
+// Scenario: 設定のファイルに書けなければ、何も変わらない
 async fn st59_both_write_failure_returns_not_saved() {
     let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
     let app = st59_app().await;
     let cookie = login(&app, app.web_password_for_test()).await;
+    let pool = testdb::pool().await;
+    let before_logs: Vec<i64> = futures_util::future::join_all(
+        [
+            ("/web-password", "ok", 204),
+            ("/web-password", "forbidden", 500),
+            ("/collector-token", "ok", 200),
+            ("/collector-token", "forbidden", 500),
+        ]
+        .into_iter()
+        .map(|(route, outcome, status)| {
+            let query_pool = pool.clone();
+            async move {
+                sqlx::query_scalar(
+                    "SELECT count(*) FROM core.access_log WHERE route = $1 AND outcome = $2 AND status = $3",
+                )
+                .bind(route)
+                .bind(outcome)
+                .bind(status as i16)
+                .fetch_one(&query_pool)
+                .await
+                .unwrap()
+            }
+        }),
+    )
+    .await;
     let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
     let before = std::fs::read(&path).unwrap();
     std::fs::create_dir(path.with_file_name("server.json.writing")).unwrap();
@@ -687,6 +713,26 @@ async fn st59_both_write_failure_returns_not_saved() {
         StatusCode::OK
     );
     assert!(login(&app, "old-web-password-012345").await.len() > 10);
+    for ((route, outcome, status), old) in [
+        ("/web-password", "ok", 204),
+        ("/web-password", "forbidden", 500),
+        ("/collector-token", "ok", 200),
+        ("/collector-token", "forbidden", 500),
+    ]
+    .into_iter()
+    .zip(before_logs)
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.access_log WHERE route = $1 AND outcome = $2 AND status = $3",
+        )
+        .bind(route)
+        .bind(outcome)
+        .bind(status as i16)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, old + 1, "{route} {outcome} {status}");
+    }
 }
 
 #[tokio::test]
