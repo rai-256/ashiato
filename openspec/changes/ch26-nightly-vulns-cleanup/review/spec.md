@@ -174,6 +174,9 @@ R1（最優先。ブリーフでは完了の判定と壊してはいけないも
 
 観点 7: 該当なし（spec_overlap.py candidates が 0 件）。CH24（`ch24-zip-upgrade`）は `Cargo.lock` と `osv-scanner.toml` を触るが、ファイルの重なりで Requirement の重なりは無い。CH24 の `feat` の `Cargo.lock` は rustix 1.1.5 / tempfile 3.27.0 のままで、zip の 7 行は表の途中（`osv-scanner.toml:171-262` の範囲）、CH26 の 2 行は末尾。どちらの順でも git の 3-way で衝突しない見込み。
 
+2026-11-23 追記: ST61（`st61-auto-version-bump`、上流の枝 `origin/docs/st61-upstream`）の上流が走り始めて、`spec_overlap.py candidates` の候補が 1 件になった（名指し・相手 MODIFIED・capability distribution）。
+- st61-auto-version-bump / 同梱の PostgreSQL の大きい版が違う配布物では、何も替えずに止まる: 独立（ST61 の MODIFIED は Requirement の本文 2 文を変えず、★ の注記を足して Scenario の WHEN の版 `0.4.0` を `0.0.2` に替えるだけ（st61 の specs/distribution/spec.md:868-881 と正典 openspec/specs/distribution/spec.md:3979-3992 の diff）。CH26 が依るのは本文の 2 文目「小さい版は置き場と一緒に入れ替え・戻す」（design.md:140）と、CI の古い側・新しい側の 2 つの zip が在ることだけで、版の値 `0.4.0`/`0.5.0` は design.md:78 の括弧の中にあるだけで specs/tasks の Scenario・検証は持たない（`grep -n "0\.4\.0\|0\.5\.0" specs tasks.md` が 0 件）ので、どちらの順で入っても意味が変わらない。）
+
 ## 第 2 回（合意の違和感の直し、2026-11-22）
 
 第 1 回の合意で本人が R2 を A → C に変えた違和感の直し（`git diff 2d410fee0 91d7d8b17`）を、書いた者の意図を知らない席から見た。成果物には触れていない。通常の路へ昇格済み（`lane-verdict.json` の `promoted`）なので、軽い路の約束（予定のパス・ADDED のみ）では見ていない。
