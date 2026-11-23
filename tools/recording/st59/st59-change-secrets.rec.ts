@@ -43,9 +43,22 @@ test("ST59 録画: 設定の 2 つの節と、開発の形のサーバでの断�
     });
   }
 
-  await test.step("4. 断られた後も、元の合言葉のまま画面を使える", async () => {
-    await page.goto("/#/coverage");
-    await expect(page.getByTestId("coverage-view")).toBeVisible();
-    await page.waitForTimeout(HOLD);
+  await test.step("4. 断られた後も、元の合言葉でログインでき、元の収集アプリの値で記録を送れる", async () => {
+    const base = process.env.REC_BASE_URL ?? "";
+    const token = process.env.API_TOKEN;
+    if (!token) throw new Error("API_TOKEN が無い");
+    const context = await page.context().browser()!.newContext({ baseURL: base, storageState: { cookies: [], origins: [] } });
+    const fresh = await context.newPage();
+    await fresh.goto("/#/coverage");
+    await fresh.getByLabel("合言葉").fill(password);
+    await fresh.getByRole("button", { name: "ログイン" }).click();
+    await expect(fresh.getByRole("link", { name: "設定" })).toBeVisible();
+    await expect(fresh.getByTestId("coverage-view")).toBeVisible();
+    const item = { id: crypto.randomUUID(), user_id: "00000000-0000-0000-0000-000000000000", logical_source: "c01-location", external_id: null, device_id: "st59-rec", origin: "collected", event_time: "1900-01-01T00:00:00Z", tz_offset_min: 540, tz_id: "Asia/Tokyo", schema_version: 1, raw: JSON.stringify({ lat: 35.6812, lon: 139.7671, acc_m: 10 }), payload: { lat: 35.6812, lon: 139.7671, acc_m: 10 } };
+    const ingest = await fresh.request.post("/api/ingest", { headers: { Authorization: `Bearer ${token}` }, data: [item] });
+    expect(ingest.status()).toBe(200);
+    expect((await ingest.json() as { accepted: boolean }[]).every((row) => row.accepted)).toBe(true);
+    await fresh.waitForTimeout(HOLD);
+    await context.close();
   });
 });
