@@ -412,14 +412,19 @@ self_test() {
   grep -q 'main の参照が無い' <<<"$out" || return 1
 
   echo "== Scenario: 修正の枝の印も、main の祖先でなければ公開しない"
-  git -C "$t" tag v0.3.0 "$base"; git -C "$t" checkout -q -b hotfix-0.3 v0.3.0
+  git -C "$t" tag v0.3.0 "$base"; git -C "$t" checkout -q -b release/0.3 v0.3.0
   echo fix > "$t/fix"; git -C "$t" add fix; git -C "$t" commit -q -m hotfix; git -C "$t" tag v0.3.1
   if out=$(cd "$t" && tools/release/version.sh plan v0.3.1 2>&1); then return 1; fi
   grep -q '祖先でない' <<<"$out" || return 1
+  # CI と同じ形: clone した側で refs/remotes/origin/release/0.3 の先を印で取る
+  git clone -q "file://$t" "$work/hotfix-clone"; git -C "$work/hotfix-clone" checkout -q --detach v0.3.1
+  if out=$(cd "$work/hotfix-clone" && tools/release/version.sh plan v0.3.1 2>&1); then return 1; fi
+  grep -q '祖先でない' <<<"$out" || return 1
   git -C "$t" checkout -q main
   echo "== Scenario: 番号の無い commit の印は公開しない"
-  echo z > "$t/z"; git -C "$t" add z; git -C "$t" commit -q -m no-number; git -C "$t" tag v0.4.0-beta.5
-  if out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.5 2>&1); then return 1; fi
+  echo z > "$t/z"; git -C "$t" add z; git -C "$t" commit -q -m no-number
+  git -C "$t" tag -d v0.4.0 >/dev/null; git -C "$t" tag v0.4.0
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.0 2>&1); then return 1; fi
   grep -q '印の commit に番号が無い' <<<"$out" || return 1
 
   git -C "$t" tag -d v0.4.0 >/dev/null
