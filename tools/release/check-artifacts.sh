@@ -249,6 +249,23 @@ check_collector_windows_contents() {
   return 0
 }
 
+# 署名していない APK（D2（仮））: 署名した APK と同じ組み立ての印を持ち、署名を持たない
+check_unsigned_apk() {
+  local unsigned="$1" signed="$2" version="$3" name signer entries signed_stamp
+  name="$(basename "$unsigned")"
+  ARTIFACT_STAMP="$(artifact_stamp "$unsigned" "$version")" || exit 1
+  signed_stamp="$(artifact_stamp "$signed" "$version")" || exit 1
+  [[ "$ARTIFACT_STAMP" == "$signed_stamp" ]] || die "$name の組み立ての印が署名した APK と違う: $ARTIFACT_STAMP（署名した APK $signed_stamp）"
+  check_artifact_files "$unsigned" "$name"
+  check_apk_fields "$unsigned"
+  # 一覧を先に取る（grep -q が早く閉じると unzip が SIGPIPE で落ち、pipefail が拾う）
+  entries="$(/usr/bin/unzip -Z1 "$unsigned")" || die "$name を読めない"
+  if grep -Eiq '^META-INF/.*\.(SF|RSA|DSA|EC)$' <<<"$entries"; then die "$name が署名を持つ"; fi
+  signer="$(android_tool apksigner)" || die "apksigner が無い"
+  if "$signer" verify "$unsigned" >/dev/null 2>&1; then die "$name が署名を持つ"; fi
+  return 0
+}
+
 check_artifacts() {
   local dir="$1" channel=release allow_debug=0 expected_version="" expected_license="" expected cert apk name
   shift
@@ -267,6 +284,7 @@ check_artifacts() {
   [[ -d "$dir" ]] || die "配布物の置き場が無い: $dir"
   if [[ -z "$expected_version" ]]; then
     expected_version="$(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sed -nE \
+      -e '/-unsigned\.apk$/d' \
       -e 's/^ashiato-server-(.*)-linux-x86_64\.tar\.gz$/\1/p' \
       -e 's/^ashiato-server-(.*)-windows-x86_64\.zip$/\1/p' \
       -e 's/^ashiato-collector-windows-(.*)-x86_64\.zip$/\1/p' \
@@ -340,6 +358,11 @@ check_artifacts() {
       cert="$(apk_cert_sha256 "$signer" "$apk")"
       [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
     fi
+  fi
+  # 番号の置き場（D2（仮））: 署名していない APK があれば、debug の鍵の APK と同じ組み立てで、署名を持たないことを見る
+  local unsigned="$dir/ashiato-collector-${expected_version}-unsigned.apk"
+  if [[ "$channel" != nightly && -f "$unsigned" ]]; then
+    check_unsigned_apk "$unsigned" "$dir/ashiato-collector-${expected_version}.apk" "$expected_version"
   fi
   echo "OK: $channel の配布物を検査した（版 $expected_version）"
 }
@@ -785,6 +808,38 @@ self_test() {
     echo "$output"
     return 1
   fi
+  # 番号 0.2.1 で組んだ 4 つ + 署名していない APK の 5 つ（番号の置き場。D2（仮））。携帯の 2 つは実物、残りは同じ印を持つ偽物
+  local n=0.2.1 num="$work/numbered" nstamp ncommit
+  mkdir -p "$num"
+  ASHIATO_BUILD_VERSION="$n" ASHIATO_APK_ALSO_UNSIGNED=1 "$root/tools/release/build.sh" apk "$num"
+  nstamp="$(artifact_stamp "$num/ashiato-collector-$n.apk" "$n")"
+  ncommit="${nstamp#*+}"
+  printf '%s' "$nstamp" >"$work/stamp"
+  printf 'Commit: %s\n' "$ncommit" >"$work/SOURCE.txt"
+  tar -czf "$num/ashiato-server-$n-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  win_fixture "$work/windows-numbered" "$work/stamp" "$num/ashiato-server-$n-windows-x86_64.zip"
+  (cd "$work" && zip -q "$num/ashiato-collector-windows-$n-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  echo "== Scenario: 番号を付けた配布物の印は、番号と commit を持つ"
+  check_artifacts "$num" --allow-debug-key --expect-version "$n" >/dev/null
+  [[ "$(find "$num" -maxdepth 1 -type f | wc -l)" == 5 ]] || die '番号の置き場が 5 つでない'
+  for name in "ashiato-server-$n-linux-x86_64.tar.gz" "ashiato-server-$n-windows-x86_64.zip" \
+    "ashiato-collector-windows-$n-x86_64.zip" "ashiato-collector-$n.apk"; do
+    [[ "$(artifact_stamp "$num/$name" "$n")" == "$n+$ncommit" ]] || die "$name の印が $n+<commit> でない"
+  done
+  [[ "$ncommit" =~ ^[0-9a-f]{40}$ ]] || die "印の commit が 40 桁でない: $ncommit"
+  echo "== Scenario: 署名していない APK は、debug の鍵の APK と同じ組み立て"
+  local unsigned="$num/ashiato-collector-$n-unsigned.apk" signed="$num/ashiato-collector-$n.apk" badging
+  [[ "$(artifact_stamp "$unsigned" "$n")" == "$(artifact_stamp "$signed" "$n")" ]] || die '署名していない APK の印が違う'
+  for name in "$signed" "$unsigned"; do
+    badging="$(apk_dump "$name")"
+    grep -Fq "versionCode='20001' versionName='$n'" <<<"$badging" || die "$(basename "$name") の versionCode が 20001 でない"
+  done
+  if "$(android_tool apksigner)" verify "$unsigned" >/dev/null 2>&1; then die '署名していない APK が署名を持つ'; fi
+  "$(android_tool apksigner)" verify "$signed" >/dev/null || die 'debug の鍵の APK の署名が読めない'
+  # 署名した APK を「署名していない」名前で置くと落ちる
+  cp "$signed" "$unsigned"
+  if output=$(check_artifacts "$num" --allow-debug-key --expect-version "$n" 2>&1); then return 1; fi
+  grep -Fq '署名を持つ' <<<"$output" || { echo "$output"; return 1; }
   echo "OK: 実物の release、欠落、印、資格情報、名前、チャンネルを検査した"
 }
 

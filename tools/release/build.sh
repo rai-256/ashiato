@@ -291,25 +291,36 @@ windows_target() {
   fi
 }
 
-build_apk() {
-  mkdir -p "$out"
-  make_license_bundle apk
+# gradle で APK を組み、<名前> の APK として出力の置き場へ写す。署名の有無は ASHIATO_APK_UNSIGNED（gradle が読む）で決まる
+assemble_apk() {
+  local dest_name="$1" unsigned="$2" kotlin_daemon_dir apk
   # Kotlin の daemon の置き場は組み立てごとに作り、終わったら消す（固定名で $TMPDIR に残さない）
-  local kotlin_daemon_dir; kotlin_daemon_dir="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-kotlin-daemon.XXXXXX")"
+  kotlin_daemon_dir="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-kotlin-daemon.XXXXXX")"
   # Kotlin の増分の組み立ては BuildConfig の定数を埋め込んだ古い class を組み直さないことがあり、
   # 前の commit の印が APK に残る（実測 2026-11-02: LocationService.class に前の commit の印）。配る APK は増分にしない
   (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ASHIATO_RELEASE=1 \
+    ASHIATO_APK_UNSIGNED="$unsigned" \
     GRADLE_OPTS="${GRADLE_OPTS:-} -Dkotlin.daemon.storageDir=$kotlin_daemon_dir -Dkotlin.compiler.execution.strategy=in-process" \
     ./gradlew --no-daemon --no-build-cache --no-configuration-cache -Pkotlin.incremental=false -q \
       -Pashiato.baseUrl= -Pashiato.apiToken= -Pashiato.userId= \
       "-Pashiato.licenseAssets=$license_bundle" :app:assembleRelease) || { rm -rf "$kotlin_daemon_dir"; die "APK の組み立てに失敗した"; }
   rm -rf "$kotlin_daemon_dir"
-  local apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
-  if [[ "${ASHIATO_APK_UNSIGNED:-}" == 1 ]]; then
+  apk="$root/collector-android/app/build/outputs/apk/release/app-release.apk"
+  if [[ "$unsigned" == 1 ]]; then
     apk="$root/collector-android/app/build/outputs/apk/release/app-release-unsigned.apk"
   fi
   [[ -f "$apk" ]] || die "APK が無い: $apk"
-  cp "$apk" "$out/ashiato-collector-$version.apk"
+  cp "$apk" "$out/$dest_name"
+}
+
+build_apk() {
+  mkdir -p "$out"
+  make_license_bundle apk
+  assemble_apk "ashiato-collector-$version.apk" "${ASHIATO_APK_UNSIGNED:-}"
+  # 番号付けの組み立てだけが立てる（D2（仮））。署名していない APK を同じ置き場に足す。署名していない組み立てだけを頼んだときは足さない
+  if [[ "${ASHIATO_APK_ALSO_UNSIGNED:-}" == 1 && "${ASHIATO_APK_UNSIGNED:-}" != 1 ]]; then
+    assemble_apk "ashiato-collector-$version-unsigned.apk" 1
+  fi
   cleanup_license_bundle
 }
 
