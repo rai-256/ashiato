@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() { echo "NG: $*" >&2; exit 1; }
 usage() {
-  echo "使い方: $0 source [<Cargo.toml>]|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|--self-test" >&2
+  echo "使い方: $0 source [<Cargo.toml>]|major|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|--self-test" >&2
   exit 2
 }
 
@@ -26,28 +26,41 @@ parse_version() {
   return 1
 }
 
+# 左の数字（tools/release/MAJOR）。数字 1 つでなければ落ちる（D9）
+major_file() {
+  [[ -z "${1:-}" ]] && set -- "$ROOT/tools/release/MAJOR"
+  local value
+  value=$(cat "${1:-$ROOT/tools/release/MAJOR}" 2>/dev/null) || die "左の数字のファイルが読めない: ${1:-$ROOT/tools/release/MAJOR}"
+  [[ "$value" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${value:-<空>}"
+  echo $((10#$value))
+}
+
+# D3: 左×10,000,000 + 真ん中×10,000 + 右。後ろの -beta・-dev は値に入れない
 version_code() {
   local value="$1"
   parse_version "$value" || die "版番号の形が違う: $value"
-  (( MINOR <= 99 )) || die "MINOR が上限を超えた: $MINOR"
-  (( PATCH <= 99 )) || die "PATCH が上限を超えた: $PATCH"
-  local tail=99
-  [[ "$SUFFIX" == -dev.* ]] && tail=0
-  [[ "$SUFFIX" == -beta.* ]] && tail=$BETA
-  (( tail <= 99 )) || die "beta 番号が上限を超えた: $tail"
-  echo $((MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + tail))
+  (( MAJOR <= 209 )) || die "左の数字が上限 209 を超えた: $MAJOR（超えた部分 $((MAJOR - 209))）"
+  (( MINOR <= 999 )) || die "真ん中の数字が上限 999 を超えた: $MINOR（超えた部分 $((MINOR - 999))）"
+  (( PATCH <= 9999 )) || die "右の数字が上限 9999 を超えた: $PATCH（超えた部分 $((PATCH - 9999))）"
+  echo $((MAJOR * 10000000 + MINOR * 10000 + PATCH))
+}
+
+# D9: 番号を持たない版（3 つの数字が出所の版と同じ）か、番号（左が MAJOR と同じで <左>.<真ん中> が 0.0 でない）
+check_rule() {
+  local value="$1" expected="$2" major="$3" value_major value_minor value_patch
+  parse_version "$value" || die "版番号の形が違う: $value"
+  value_major=$MAJOR; value_minor=$MINOR; value_patch=$PATCH
+  parse_version "$expected" && [[ -z "$SUFFIX" ]] || die "出所の版番号が不正: $expected"
+  if [[ "$value_major.$value_minor.$value_patch" != "$MAJOR.$MINOR.$PATCH" ]]; then
+    (( value_major == major )) || die "左の数字が MAJOR（$major）と違う: $value"
+    (( value_major != 0 || value_minor != 0 )) || die "番号の <左>.<真ん中> が 0.0: $value"
+  fi
+  version_code "$value" >/dev/null
+  echo "$value"
 }
 
 check_version() {
-  local value="$1" expected value_major value_minor value_patch
-  parse_version "$value" || die "版番号の形が違う: $value"
-  value_major=$MAJOR; value_minor=$MINOR; value_patch=$PATCH
-  expected="$(source_version)"
-  parse_version "$expected" || die "Cargo.toml の出所の版番号が不正: $expected"
-  [[ "$value_major.$value_minor.$value_patch" == "$MAJOR.$MINOR.$PATCH" ]] ||
-    die "版番号の出所が一致しない: $value（出所 $expected）"
-  version_code "$value" >/dev/null
-  echo "$value"
+  check_rule "$1" "$(source_version)" "$(major_file)"
 }
 
 version_sort_key() {
@@ -94,6 +107,8 @@ plan() {
   commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null) || die "印が無い: $tag"
   version=${tag#v}
   check_version "$version" >/dev/null
+  # 今の印の配り方は、出所の版と同じ 3 つの数字の印だけ（番号の印は後の Task で足す）
+  [[ "${version%%-*}" == "$(source_version)" ]] || die "版番号の出所が一致しない: $version（出所 $(source_version)）"
   main=$(main_ref)
   if ! git merge-base --is-ancestor "$commit" "$main"; then
     # CI の clone には手元の枝が無く、修正の枝は refs/remotes/origin/release/* にだけある（final review R3）
@@ -151,7 +166,7 @@ nightly_plan() {
 }
 
 self_test() {
-  local table="$ROOT/tools/release/version-table.tsv" line version expected
+  local table="$ROOT/tools/release/version-table.tsv" line version expected source left verdict got
   while IFS=$'\t' read -r version expected; do
     [[ -z "$version" || "$version" == \#* ]] && continue
     if [[ "$expected" == - ]]; then
@@ -160,16 +175,27 @@ self_test() {
     fi
     [[ "$(version_code "$version")" == "$expected" ]] || die "version-table.tsv: $version"
   done < "$table"
-  echo "== Scenario: versionCode は版番号から決まり、ベータ < 正式 < 次の版の順になる"
-  [[ "$(version_code 0.3.0-beta.2)" == 30002 && "$(version_code 0.3.0)" == 30099 && "$(version_code 0.3.1)" == 30199 && "$(version_code 1.0.0)" == 1000099 && "$(version_code 0.4.0-dev.20261101)" == 40000 ]] || return 1
-  echo "== Scenario: 同じ版の開発版は、毎日同じ versionCode になる"
-  [[ "$(version_code 0.4.0-dev.20261101)" == "$(version_code 0.4.0-dev.20261102)" ]] || return 1
+  # D9: 受ける・断る版番号の表を check の規則に全行当てる（gradle・Rust・TypeScript の試験も同じ表を読む）
+  while IFS=$'\t' read -r version source left verdict; do
+    [[ -z "$version" || "$version" == \#* ]] && continue
+    if (check_rule "$version" "$source" "$left" >/dev/null 2>&1); then got=ok; else got=ng; fi
+    [[ "$got" == "$verdict" ]] || die "version-check-table.tsv: $version（出所 $source・左 $left）は $verdict のはずが $got"
+  done < "$ROOT/tools/release/version-check-table.tsv"
+  [[ "$(major_file)" =~ ^[0-9]+$ ]] || return 1
+  echo "== Scenario: versionCode は版番号の 3 つの数字から決まる"
+  [[ "$(version_code 0.0.1)" == 1 && "$(version_code 0.2.0)" == 20000 && "$(version_code 0.2.7)" == 20007 && "$(version_code 0.3.0)" == 30000 && "$(version_code 0.250.9999)" == 2509999 && "$(version_code 1.0.0)" == 10000000 ]] || return 1
+  echo "== Scenario: 後ろに -beta や -dev が付いても、同じ番号は同じ versionCode になる"
+  for version in 0.4.0 0.4.0-beta.2 0.4.0-dev.20261101 0.4.0-dev.20261102; do [[ "$(version_code "$version")" == 40000 ]] || return 1; done
+  echo "== Scenario: 最初の番号は、前の式の 0.1.x の APK より大きい"
+  (( $(version_code 0.2.0) == 20000 && $(version_code 0.2.0) > 10199 )) || return 1
   echo "== Scenario: 桁を超える版番号では、versionCode の計算が失敗する"
-  if (version_code 0.100.0 >/dev/null 2>&1); then return 1; fi
-  if (version_code 0.1.100 >/dev/null 2>&1); then return 1; fi
+  for version in 0.1000.0 0.1.10000 210.0.0; do
+    if got=$(version_code "$version" 2>&1); then return 1; fi
+    grep -q '超えた' <<<"$got" || return 1
+  done
   if (version_code 0.4.0-beta.99 >/dev/null 2>&1); then return 1; fi
   # 先頭の 0 は 10 進数で読む（gradle・Rust と同じ値。/code-review R36）
-  [[ "$(version_code 0.010.0)" == 100099 && "$(version_code 0.08.0)" == 80099 ]] || return 1
+  [[ "$(version_code 0.010.0)" == 100000 && "$(version_code 0.08.0)" == 80000 ]] || return 1
   [[ "$(version_sort_key 0.08.0)" == "$(version_sort_key 0.8.0)" ]] || return 1
 
   local work t base out rc release_base formal_base
@@ -178,6 +204,7 @@ self_test() {
   t="$work/tree"; mkdir -p "$t/tools/release" "$t/migrations" "$t/docs/contract"
   cp "$ROOT/tools/release/version.sh" "$t/tools/release/version.sh"
   cp "$ROOT/tools/release/version-table.tsv" "$t/tools/release/version-table.tsv"
+  cp "$ROOT/tools/release/MAJOR" "$t/tools/release/MAJOR"
   printf '[workspace.package]\nversion = "0.4.0"\n' > "$t/Cargo.toml"
   : > "$t/migrations/ORDER"; echo '{}' > "$t/docs/contract/envelope.json"
   echo 'CREATE TABLE init();' > "$t/migrations/202601010000_init.sql"
@@ -186,7 +213,7 @@ self_test() {
   git -C "$t" tag v0.4.0
   echo "== Scenario: 正式版の印は、通常のリリースと判定される"; out=$(cd "$t" && tools/release/version.sh plan v0.4.0); grep -q 'channel=release' <<<"$out"; grep -q 'version=0.4.0' <<<"$out"
   echo "== Scenario: ベータ版の印で、先行公開のリリースになる"; git -C "$t" tag v0.4.0-beta.2; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.2); grep -q 'channel=beta' <<<"$out"
-  git -C "$t" tag v0.4.0-beta.98; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.98); grep -q 'version_code=40098' <<<"$out"
+  git -C "$t" tag v0.4.0-beta.98; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.98); grep -q 'version_code=40000' <<<"$out"
   echo "== Scenario: 印の版と出所の版が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1
   if (cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 >/dev/null 2>&1); then return 1; fi
   echo "== Scenario: main の祖先でない commit の印は公開しない"; git -C "$t" checkout -qb other; echo x > "$t/x"; git -C "$t" add x; git -C "$t" commit -q -m other; git -C "$t" tag v0.4.0-beta.3
@@ -274,6 +301,7 @@ self_test() {
 
 case "${1:-}" in
   source) [[ $# -le 2 ]] || usage; source_version "${2:-}" ;;
+  major) [[ $# -le 2 ]] || usage; major_file "${2:-}" ;;
   check) [[ $# == 2 ]] || usage; check_version "$2" ;;
   code) [[ $# == 2 ]] || usage; version_code "$2" ;;
   order) order_versions ;;

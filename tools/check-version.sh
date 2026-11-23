@@ -7,8 +7,12 @@ die() { echo "NG: $*" >&2; exit 1; }
 check_tree() {
   local tree="$1" cargo gradle package
   cargo="$("$root/tools/release/version.sh" source "$tree/Cargo.toml")"
-  if [[ ! "$cargo" =~ ^0\.[0-9]+\.[0-9]+$ ]]; then
-    echo "NG: 出所の版番号が 0.MAJOR.PATCH の形でない: ${cargo:-<なし>}" >&2
+  if [[ ! "$cargo" =~ ^0\.0\.([0-9]+)$ || "${BASH_REMATCH[1]}" =~ ^0+$ ]]; then
+    echo "NG: 出所の版番号が 0.0.<1 以上> の形でない: ${cargo:-<なし>}" >&2
+    return 1
+  fi
+  if ! "$root/tools/release/version.sh" major "$tree/tools/release/MAJOR" >/dev/null 2>&1; then
+    echo "NG: 左の数字のファイル tools/release/MAJOR が数字 1 つでない" >&2
     return 1
   fi
   if grep -nE '^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"|^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*[0-9]+' "$tree/collector-android/app/build.gradle.kts"; then
@@ -27,7 +31,7 @@ self_test() {
   trap 'rm -rf "$work"' RETURN
   tree="$work/tree"
   mkdir -p "$tree/collector-android/app" "$tree/web"
-  printf '[workspace.package]\nversion = "0.4.0"\n' > "$tree/Cargo.toml"
+  printf '[workspace.package]\nversion = "0.0.1"\n' > "$tree/Cargo.toml"
   printf 'android {\n  versionCode = resolvedVersionCode\n  versionName = resolvedBuildVersion\n}\n' > "$tree/collector-android/app/build.gradle.kts"
   printf '{"name":"ashiato-web","private":true}\n' > "$tree/web/package.json"
 
@@ -41,12 +45,27 @@ self_test() {
   if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
   sed -i 's/,"version":"0.1.0"//' "$tree/web/package.json"
 
-  echo "== Scenario: 出所の版の MAJOR が 0 でないと、版の検査が落ちる"
-  sed -i 's/version = "0.4.0"/version = "1.0.0"/' "$tree/Cargo.toml"
-  if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
+  mkdir -p "$tree/tools/release"
+  printf '0\n' > "$tree/tools/release/MAJOR"
+  printf '[workspace.package]\nversion = "0.0.1"\n' > "$tree/Cargo.toml"
+  check_tree "$tree" >/dev/null 2>&1 || return 1
+
+  echo "== Scenario: 出所の版が 0.0.x でないと、版の検査が落ちる"
+  for version in 0.1.0 1.0.0 0.0.0; do
+    sed -i "s/^version = .*/version = \"$version\"/" "$tree/Cargo.toml"
+    if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
+  done
+  printf '[workspace.package]\nversion = "0.0.1"\n' > "$tree/Cargo.toml"
+
+  echo "== Scenario: 左の数字のファイルが数字 1 つでないと、版の検査が落ちる"
+  for content in 0.1 ''; do
+    printf '%s' "$content" > "$tree/tools/release/MAJOR"
+    if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
+  done
+  printf '0\n' > "$tree/tools/release/MAJOR"
 
   echo "== Scenario: 出所の版が MAJOR.MINOR.PATCH の形でないと、版の検査が落ちる"
-  sed -i 's/version = "1.0.0"/version = "0.4.0-beta.1"/' "$tree/Cargo.toml"
+  sed -i 's/^version = .*/version = "0.0.1-beta.1"/' "$tree/Cargo.toml"
   if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
 }
 
