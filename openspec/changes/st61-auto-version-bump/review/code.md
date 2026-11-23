@@ -119,3 +119,37 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 見ていない範囲: 配布元（GitHub）での実際の動き（`workflow_run` の `branches` の絞りと `head_repository` の値、下書きの release の見える範囲、job の単位の concurrency）は走らせていない。`build.sh` の中身（差分は版番号の受け渡しだけ）は辿っていない
 
 指摘なし
+
+## /code-review（e721251..481b4cf）
+
+見た: Claude Code の組み込みの `/code-review`（5 件）。写しは scripts/code_review_record.py
+
+## R6. On Windows runners, any build that is given a version number will likely fail with 「左の数字のファイルが数字 1 つでない」. `major_file` reads `tools/release/MAJOR` with `$(cat …)`, which strips only the trailing `\n`. A CRLF checkout leaves `0\r`, and `^[0-9]+$` rejects it. `build.sh resolve_version` calls `version.sh check`, which now always calls `major_file`; the Rust, TS and gradle versions all trim the value. Fix: strip `\r` and surrounding whitespace before the regex, or add `tools/release/MAJOR text eol=lf` to `.gitattributes`.
+- 成果物: tools/release/version.sh:33
+- 根拠: windows-latest checks out with core.autocrlf (build.sh:46 already notes the Windows checkout can be CRLF), so MAJOR becomes "0\r\n". Then number.yml build-windows runs `build.sh server-windows` with ASHIATO_BUILD_VERSION=0.2.1, and resolve_version runs `version.sh check`, which dies. The same happens in nightly package-windows (0.x.y-dev.*) and in the ci.yml package-windows loop (ASHIATO_BUILD_VERSION=$v). No Windows artifacts are produced.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. On a main push, the CI diff base can be a commit that is not an ancestor of HEAD, so code jobs get skipped. `base()` only checks that PREV_SUCCESS_SHA exists in the tree, not that it is an ancestor of HEAD. Fix: in base(), also require `git merge-base --is-ancestor "$sha" HEAD`, and fall back to `all` when that fails.
+- 成果物: tools/release/changes.sh:24
+- 根拠: C1 (a code change) fails on main and C2 (docs only) succeeds. Re-running C1's run picks the newest successful run, C2, as BASE. `git diff C2 C1` then lists only the docs, so code=false and the Rust, e2e and Windows jobs are skipped. C1's run turns success even though C1's own code was not tested here, and number.yml then fires for C1. The same thing happens when the newest success points at a commit that was force-pushed away.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R8. The bash `check_rule` does not enforce the same rule as Rust, TS and gradle, even though the comments say all four apply the same rule and the same table pins it. bash only checks that the source version has no suffix. The other three reject any source version that is not `0.0.<N≥1>`. Every row of version-check-table.tsv uses source 0.0.1, so the table cannot catch the difference. Fix: add the `0.0.<N≥1>` check to check_rule, and add table rows whose source is not 0.0.x (for example 0.4.0 with 0.4.0 → ng).
+- 成果物: tools/release/version.sh:111
+- 根拠: With source 0.4.0 and given version 0.4.0, `version.sh check` returns ok, while build-stamp, build-stamp.ts and gradle all fail. version.sh's own self-test passes only because of this gap: its tree's Cargo.toml is 0.4.0 and `plan v0.4.0` depends on it.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R9. Only Rust accepts a MAJOR file containing `+0`. `text.trim().parse::<u64>()` allows a leading `+` (u64::from_str does), while bash, TS and gradle all require `^\d+$`. That is the same trap that parse_version guards against by checking for digits only (final review R12). Fix: check that the value is ASCII digits only before parsing.
+- 成果物: crates/build-stamp/src/lib.rs:68
+- 根拠: If tools/release/MAJOR contains "+0", version.sh, the web stamp and gradle all fail, but the Rust server and collector build with major=0. The four implementations then disagree about whether the build is valid.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R10. The branch has a commit whose message is just `wip`. CLAUDE.md (git section) says: 「コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」」. Fix: reword the commit to the project's format, or squash it into a neighbouring commit.
+- 成果物: openspec/changes/st61-auto-version-bump/tasks.md:1
+- 根拠: `git log origin/HEAD..HEAD --format=%s` includes a subject that is exactly "wip". It has no type prefix, no Japanese one-line summary and no body explaining why, which breaks the /home/yosis/dev/ashiato2-st61/CLAUDE.md commit rule.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
