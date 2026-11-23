@@ -94,7 +94,7 @@
 
 ## Task 7: 更新の試験の組み立てを 0.0.x にする
 
-- [ ] 7.1 `ci.yml` の `package-windows` の更新の試験の組み立ての版を `0.0.2:old 0.0.3:new 0.0.2-dev.20261115:dev-old 0.0.3-dev.20261116:dev-new 0.0.4:compat-old 0.0.5:compat-new` にし（D6）、`tools/release/update-apply-install.sh` の版の値（前 `0.0.2`・新 `0.0.3`・互換 `0.0.4`→`0.0.5`・開発版、窓と記録の文の期待値）を同じに直す。
+- [x] 7.1 `ci.yml` の `package-windows` の更新の試験の組み立ての版を `0.0.2:old 0.0.3:new 0.0.2-dev.20261115:dev-old 0.0.3-dev.20261116:dev-new 0.0.4:compat-old 0.0.5:compat-new` にし（D6）、`tools/release/update-apply-install.sh` の版の値（前 `0.0.2`・新 `0.0.3`・互換 `0.0.4`→`0.0.5`・開発版、窓と記録の文の期待値）を同じに直す。
   `tools/release/install-check.sh`・`update-check-install.sh`・`soak-install.sh` に 0.4.0 などの版の値が無いことを確かめる。`check-guards.sh workflows` に、更新の試験の組み立ての版が `0.0.` で始まることを見る検査と、印 `CI の更新の試験の組み立ては、0.0.x だけを名乗る`（`0.4.0` を足した偽の ci.yml で rc≠0）、配る形の組み立ての job が番号を渡さないことを見る検査と印 `配る形の組み立ての job は、番号を版番号に渡さない`（`ASHIATO_BUILD_VERSION: 0.2.0` を足した偽の ci.yml で rc≠0。D6・review/spec.md R9）を足す。
   Scenario「DB に新しい版の知らない版があると、戻さずに前の版のまま起きる」は互換の組（`0.0.4` のインストールに `0.0.5` のインストーラ）で走らせる（spec の版に合わせる）。
   MODIFIED の 8 つの Requirement の Scenario（版を `0.0.x` にしたもの）は `update-apply-install.sh` の今の印のまま
