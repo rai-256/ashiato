@@ -32,18 +32,12 @@ jobs:
           tools/release/version.sh number "${{ github.event.workflow_run.head_sha }}" | tee number.txt
           number="$(sed -n 's/^number=//p' number.txt)"
           echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "reuse=$(sed -n 's/^reuse=//p' number.txt)" >> "$GITHUB_OUTPUT"
           if [[ -n "$number" ]]; then tools/release/number.sh tag "$number" "${{ github.event.workflow_run.head_sha }}"; fi
-      # 印が既にあり、下書きに配布物が揃っていれば、組み立てと置く job を飛ばす
+      # 印が既にあり（reuse=yes）、下書きに配布物が名前で揃っていれば、組み立てと置く job を飛ばす。揃ったかは number.sh complete が答える
       - id: complete
-        if: steps.decide.outputs.number != ''
-        run: |
-          number="${{ steps.decide.outputs.number }}"
-          complete=no
-          if view="$(gh release view "build-$number" --json isDraft,body,assets 2>/dev/null)" \
-            && [[ "$(jq -r '.isDraft' <<<"$view")" == true ]] \
-            && jq -r '.body' <<<"$view" | grep -qxF "ashiato-build: $number ${{ github.event.workflow_run.head_sha }}" \
-            && [[ "$(jq -r '.assets | length' <<<"$view")" -ge 5 ]]; then complete=yes; fi
-          echo "complete=$complete" >> "$GITHUB_OUTPUT"
+        if: steps.decide.outputs.reuse == 'yes'
+        run: tools/release/number.sh complete "${{ steps.decide.outputs.number }}" "${{ github.event.workflow_run.head_sha }}" | tee -a "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
   build-linux:

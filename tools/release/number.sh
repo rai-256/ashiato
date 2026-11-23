@@ -9,7 +9,7 @@ REMOTE="${ASHIATO_NUMBER_REMOTE:-origin}"
 
 die() { echo "NG: $*" >&2; exit 1; }
 usage() {
-  echo "使い方: $0 tag <番号> <commit>|place <番号> <commit> <置き場>|--self-test" >&2
+  echo "使い方: $0 tag <番号> <commit>|place <番号> <commit> <置き場>|complete <番号> <commit>|--self-test" >&2
   exit 2
 }
 
@@ -106,6 +106,22 @@ place() {
   done
   (( ${#missing[@]} == 0 )) && return 0
   gh release upload "build-$number" "${missing[@]}" >/dev/null
+}
+
+# 下書きに配布物が名前で全部揃っているか。揃っていれば complete=yes、そうでなければ complete=no を出す（読むだけ）。
+# 下書きでない・説明文の commit が違う・読めない、はどれも no（組み立てと置く手順を飛ばさず、place に止めさせる）
+complete() {
+  local number="$1" commit view name have
+  check_number "$number"
+  commit=$(full_commit "$2")
+  view=$(gh release view "build-$number" --json body,isDraft,assets 2>/dev/null) || { echo "complete=no"; return 0; }
+  [[ "$(jq -r '.isDraft' <<<"$view")" == true ]] || { echo "complete=no"; return 0; }
+  jq -r '.body // ""' <<<"$view" | grep -qxF "ashiato-build: $number $commit" || { echo "complete=no"; return 0; }
+  have=$(jq -r '.assets[].name' <<<"$view")
+  while IFS= read -r name; do
+    grep -qxF "$name" <<<"$have" || { echo "complete=no"; return 0; }
+  done < <(expected_names "$number")
+  echo "complete=yes"
 }
 
 self_test() {
@@ -235,6 +251,18 @@ EOF
   run_gh "$ns" place "$number" "$c_b" "$good" >/dev/null 2>&1 || return 1
   no_writes || return 1
 
+  echo "== 下書きに配布物が名前で揃っているかを、読むだけで答える"
+  : >"$calls"
+  [[ "$(run_gh "$ns" complete "$number" "$c_b")" == complete=yes ]] || { echo "揃っているのに yes でない"; return 1; }
+  no_writes || return 1
+  # 件数が 5 でも名前が違えば揃っていない
+  jq '.assets[0].name = "other.bin"' "$state/release.json" >"$state/r.new"
+  cp "$state/release.json" "$state/r.keep"; mv "$state/r.new" "$state/release.json"
+  [[ "$(run_gh "$ns" complete "$number" "$c_b")" == complete=no ]] || { echo "名前違いを揃っていると読んだ"; return 1; }
+  [[ "$(run_gh "$ns" complete "$number" "$c_a")" == complete=no ]] || { echo "別の commit を揃っていると読んだ"; return 1; }
+  mv "$state/r.keep" "$state/release.json"
+  no_writes || return 1
+
   echo "== Scenario: 下書きに欠けた配布物があれば、それだけを足す"
   : >"$calls"
   jq --arg n "ashiato-collector-windows-$number-x86_64.zip" '.assets |= map(select(.name != $n))' "$state/release.json" >"$state/r.new"
@@ -274,5 +302,6 @@ case "${1:-}" in
   --self-test) self_test ;;
   tag) [[ $# == 3 ]] || usage; tag "$2" "$3" ;;
   place) [[ $# == 4 ]] || usage; place "$2" "$3" "$4" ;;
+  complete) [[ $# == 3 ]] || usage; complete "$2" "$3" ;;
   *) usage ;;
 esac
