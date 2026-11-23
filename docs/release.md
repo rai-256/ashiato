@@ -105,35 +105,9 @@ gh api --method DELETE repos/rai-256/ashiato/actions/artifacts/<artifact-id>
 
 サーバを移した後、収集アプリの送り先や資格情報を設定し直すときは [収集アプリの設定手順](collector-setup.md) に従う。携帯と PC の両方に新しい設定の文字列を貼り、未送信の記録がある場合は送り先を変えた後に内容を確認してから送信する。
 
-## 8. 壊れた版と修正の枝
+## 8. 壊れた版
 
-壊れた正式版は削除・付け替えせず、次の版で修正する。緊急修正が必要なときは正式版から `release/<MAJOR>.<MINOR>` の修正の枝を切り、移行 (`migrations/ORDER`) と封筒 (`docs/contract/envelope.json`) を元の正式版から変更しない。`tools/release/version.sh plan` でその条件を確認してから正式版の印を打つ。修正の枝からベータ版は出さない。
-
-修正の枝の例:
-
-```bash
-git switch -c release/0.1 <正式版の印>
-# Cargo.toml の workspace version を 0.1.1 に上げて commit
-# （版番号を上げた commit を修正の枝に先に置く）
-<エディタで Cargo.toml の workspace version を 0.1.1 に変更>
-git add Cargo.toml
-git commit -m "chore: 次の版番号へ上げる"
-# 修正、テスト、commit
-git add <修正したファイル>
-git commit -m "fix: 正式版の不具合を修正"
-git push -u origin release/0.1
-git tag v0.1.1
-tools/release/version.sh plan v0.1.1
-git push origin v0.1.1
-# release workflow の完了と配布物を確認してから枝を消す
-run_id="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh run watch "$run_id" --exit-status
-git switch main
-git branch -d release/0.1
-git push origin --delete release/0.1
-```
-
-実際の版番号と commit は対象のリリースに置き換える。削除前に修正が正式版へ取り込まれていることを確認し、印そのものは削除しない。
+壊れた正式版は削除・付け替えせず、次の番号で直す。修正は main に入れ、CI が通って付いた次の番号（`build-<番号>`）の commit に印 `v<番号>` を付ける。修正の枝（`release/*`）は切らない。印は main の祖先で、印の commit に番号の印があり、印の 3 つの数字がその番号と同じときだけ公開される（`tools/release/version.sh plan v<番号>` で確かめる）。
 
 ### PostgreSQL の小さい版を上げる PR
 

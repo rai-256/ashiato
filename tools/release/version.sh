@@ -103,31 +103,21 @@ main_ref() {
 }
 
 plan() {
-  local tag=${1:-} commit main version base want ref found=
+  local tag=${1:-} commit main version numbers name
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-8][0-9]|9[0-8]))?$ ]] || die "印の形が違う: $tag"
   require_full_history
   commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null) || die "印が無い: $tag"
   version=${tag#v}
   check_version "$version" >/dev/null
-  # 今の印の配り方は、出所の版と同じ 3 つの数字の印だけ（番号の印は後の Task で足す）
-  [[ "${version%%-*}" == "$(source_version)" ]] || die "版番号の出所が一致しない: $version（出所 $(source_version)）"
   main=$(main_ref)
-  if ! git merge-base --is-ancestor "$commit" "$main"; then
-    # CI の clone には手元の枝が無く、修正の枝は refs/remotes/origin/release/* にだけある（final review R3）
-    want="release/${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1)"
-    while IFS= read -r ref; do
-      ref=${ref#refs/heads/}; ref=${ref#refs/remotes/origin/}
-      [[ "$ref" == "$want" ]] && found=1
-    done < <(git for-each-ref --format='%(refname)' --contains "$commit" 'refs/heads/release/*' 'refs/remotes/origin/release/*')
-    [[ -n "$found" ]] || die "印の commit が main の祖先でない"
-    [[ "$version" != *-beta.* ]] || die "ベータ版の修正の枝は許さない"
-    base=$(git describe --tags --abbrev=0 --exclude '*-*' --match "v${version%%.*}.$(printf '%s' "${version#*.}" | cut -d. -f1).*" "${commit}^" 2>/dev/null || true)
-    [[ -n "$base" ]] || die "修正の枝の元の印が無い"
-    git diff --quiet "$base" "$commit" -- migrations/ORDER || die "修正の枝で migrations/ORDER が元の印と違う"
-    # 配った移行の中身も変えない（ORDER が同じでも、当てた DB の移行は当て直されない。code_verify R24）
-    git diff --quiet "$base" "$commit" -- migrations/ || die "修正の枝で migrations/ の中身が元の印と違う"
-    git diff --quiet "$base" "$commit" -- docs/contract/envelope.json || die "修正の枝で docs/contract/envelope.json が元の印と違う"
-  fi
+  git merge-base --is-ancestor "$commit" "$main" || die "印の commit が main の祖先でない"
+  # 移る間（ST62・ST63 まで）の D11: 印の commit に番号の印 build-<番号> があり、印の 3 つの数字が同じときだけ通す
+  numbers=
+  while IFS= read -r name; do
+    [[ "$name" =~ ^build-[0-9]+\.[0-9]+\.[0-9]+$ ]] && numbers+=" ${name#build-}"
+  done < <(git tag --points-at "$commit" --list 'build-*')
+  [[ -n "$numbers" ]] || die "印の commit に番号が無い: $tag"
+  [[ " $numbers " == *" ${version%%-*} "* ]] || die "印の版とその commit の番号が違う: $version（番号${numbers}）"
   local channel=release prerelease=false
   [[ "$version" == *-beta.* ]] && { channel=beta; prerelease=true; }
   echo "channel=$channel"
@@ -397,13 +387,14 @@ self_test() {
   : > "$t/migrations/ORDER"; echo '{}' > "$t/docs/contract/envelope.json"
   echo 'CREATE TABLE init();' > "$t/migrations/202601010000_init.sql"
   git -C "$t" init -q; git -C "$t" config user.email t@example.com; git -C "$t" config user.name t
-  git -C "$t" add .; git -C "$t" commit -q -m base; base=$(git -C "$t" rev-parse HEAD); git -C "$t" branch main
+  git -C "$t" add .; git -C "$t" commit -q -m base; base=$(git -C "$t" rev-parse HEAD); git -C "$t" branch main; git -C "$t" tag build-0.4.0
   git -C "$t" tag v0.4.0
   echo "== Scenario: 正式版の印は、通常のリリースと判定される"; out=$(cd "$t" && tools/release/version.sh plan v0.4.0); grep -q 'channel=release' <<<"$out"; grep -q 'version=0.4.0' <<<"$out"
   echo "== Scenario: ベータ版の印で、先行公開のリリースになる"; git -C "$t" tag v0.4.0-beta.2; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.2); grep -q 'channel=beta' <<<"$out"
   git -C "$t" tag v0.4.0-beta.98; out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.98); grep -q 'version_code=40000' <<<"$out"
-  echo "== Scenario: 印の版と出所の版が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1
-  if (cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 >/dev/null 2>&1); then return 1; fi
+  echo "== Scenario: 印の版とその commit の番号が違えば公開しない"; git -C "$t" tag v0.5.0-beta.1
+  if out=$(cd "$t" && tools/release/version.sh plan v0.5.0-beta.1 2>&1); then return 1; fi
+  grep -q '番号が違う' <<<"$out" || return 1
   echo "== Scenario: main の祖先でない commit の印は公開しない"; git -C "$t" checkout -qb other; echo x > "$t/x"; git -C "$t" add x; git -C "$t" commit -q -m other; git -C "$t" tag v0.4.0-beta.3
   if out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.3 2>&1); then return 1; fi
   grep -q '祖先でない' <<<"$out" || return 1
@@ -420,53 +411,16 @@ self_test() {
   if out=$(cd "$work/no-main" && tools/release/version.sh plan v0.4.0 2>&1); then return 1; fi
   grep -q 'main の参照が無い' <<<"$out" || return 1
 
-  git -C "$t" checkout -q -b release/0.4 v0.4.0
-  release_base=$(git -C "$t" rev-parse HEAD)
-  echo '{"version":2}' > "$t/docs/contract/envelope.json"
-  git -C "$t" add docs/contract/envelope.json; git -C "$t" commit -q -m beta-base; git -C "$t" tag v0.4.1-beta.1
-  printf '[workspace.package]\nversion = "0.4.1"\n' > "$t/Cargo.toml"
-  echo '{}' > "$t/docs/contract/envelope.json"
-  git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m hotfix; git -C "$t" tag v0.4.1
-  formal_base=$(git -C "$t" rev-parse HEAD)
-  echo "== Scenario: 修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる"
-  out=$(cd "$t" && tools/release/version.sh plan v0.4.1); grep -q 'channel=release' <<<"$out"; grep -q 'prerelease=false' <<<"$out"
-  # CI と同じ形の clone（手元の枝は無く、修正の枝は refs/remotes/origin/release/* だけ。印を detached で checkout）でも通る
-  git clone -q "file://$t" "$work/ci-clone"; git -C "$work/ci-clone" checkout -q --detach v0.4.1
-  git -C "$work/ci-clone" for-each-ref --format='%(refname)' refs/heads | while IFS= read -r ref; do git -C "$work/ci-clone" update-ref -d "$ref"; done
-  [[ -z "$(git -C "$work/ci-clone" for-each-ref refs/heads)" ]] || return 1
-  out=$(cd "$work/ci-clone" && tools/release/version.sh plan v0.4.1) || { echo "$out"; return 1; }
-  grep -q 'channel=release' <<<"$out" || return 1
-  echo "== Scenario: 修正の枝で移行を足した印は公開しない"
-  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
-  git -C "$t" add Cargo.toml; git -C "$t" commit -q -m migration-version
-  printf '202611020001_fix.sql\n' >> "$t/migrations/ORDER"
-  git -C "$t" add migrations/ORDER; git -C "$t" commit -q -m migration; git -C "$t" tag v0.4.2
-  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
-  grep -q 'migrations/ORDER' <<<"$out" || return 1
-  git -C "$t" reset -q --hard "$formal_base"
-  git -C "$t" tag -d v0.4.2 >/dev/null
-  # ORDER は同じで、配った移行の中身だけを書き換えた印も公開しない（code_verify R24）
-  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
-  echo 'ALTER TABLE init ADD COLUMN x int;' >> "$t/migrations/202601010000_init.sql"
-  git -C "$t" add Cargo.toml migrations; git -C "$t" commit -q -m migration-content; git -C "$t" tag v0.4.2
-  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
-  grep -q 'migrations/ の中身' <<<"$out" || return 1
-  git -C "$t" reset -q --hard "$formal_base"
-  git -C "$t" tag -d v0.4.2 >/dev/null
-  printf '[workspace.package]\nversion = "0.4.2"\n' > "$t/Cargo.toml"
-  echo '{"version":2,"extra":true}' > "$t/docs/contract/envelope.json"
-  git -C "$t" add Cargo.toml docs/contract/envelope.json; git -C "$t" commit -q -m envelope; git -C "$t" tag v0.4.2
-  echo "== Scenario: 修正の枝で封筒の形を変えた印は公開しない"
-  if out=$(cd "$t" && tools/release/version.sh plan v0.4.2 2>&1); then return 1; fi
-  grep -q 'docs/contract/envelope.json' <<<"$out" || return 1
-  echo "== Scenario: 修正の枝からベータ版は出さない"
-  git -C "$t" reset -q --hard "$formal_base"
-  git -C "$t" tag -d v0.4.2 >/dev/null
-  printf '[workspace.package]\nversion = "0.4.3"\n' > "$t/Cargo.toml"
-  git -C "$t" add Cargo.toml; git -C "$t" commit -q -m beta-version
-  git -C "$t" tag v0.4.3-beta.1
-  if out=$(cd "$t" && tools/release/version.sh plan v0.4.3-beta.1 2>&1); then return 1; fi
+  echo "== Scenario: 修正の枝の印も、main の祖先でなければ公開しない"
+  git -C "$t" tag v0.3.0 "$base"; git -C "$t" checkout -q -b hotfix-0.3 v0.3.0
+  echo fix > "$t/fix"; git -C "$t" add fix; git -C "$t" commit -q -m hotfix; git -C "$t" tag v0.3.1
+  if out=$(cd "$t" && tools/release/version.sh plan v0.3.1 2>&1); then return 1; fi
+  grep -q '祖先でない' <<<"$out" || return 1
   git -C "$t" checkout -q main
+  echo "== Scenario: 番号の無い commit の印は公開しない"
+  echo z > "$t/z"; git -C "$t" add z; git -C "$t" commit -q -m no-number; git -C "$t" tag v0.4.0-beta.5
+  if out=$(cd "$t" && tools/release/version.sh plan v0.4.0-beta.5 2>&1); then return 1; fi
+  grep -q '印の commit に番号が無い' <<<"$out" || return 1
 
   git -C "$t" tag -d v0.4.0 >/dev/null
   git -C "$t" tag nightly; echo "== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
