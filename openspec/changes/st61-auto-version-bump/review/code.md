@@ -101,3 +101,21 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 結論: 申告と実測は不一致（5 件。R1・R2・R3・R4・R5）。18 項目の検証コマンドは全部実在し rc=0 だったが、ci.yml の差分の基準の配線（R1）・番号付けの workflow の公開と `v*` の禁止（R2）・versionCode の上限（R3）・APK の版の検証（R4）・置き場の下書きの守りなど 4 つ（R5）は、壊しても検査が落ちない
 - 確かめた範囲: tasks 1.1〜11.1 の検証コマンドを全部実行した。対応表 2 つと前の式の値を python で独立に計算した。version.sh・number.sh・number.yml・ci.yml・build-stamp.ts の守りを 70 か所ほど複製で壊して rc を見た。本物の main の履歴の写しで番号の判定を走らせた。check_scenarios と印の先を突き合わせた。handoff/ST62 の受け渡しを確かめた。手 7 は 8.1 を作業ツリーで壊して戻した
 - 見ていない範囲: number.yml を壊して `workflows` が rc=0 だった 6 個（環境変数・`complete`・印の呼び出し・`place` の `needs`）を、実行時に `place` が拾うか。MODIFIED のうち `update-apply-install.sh` に印の無い 9 件の印の先。配布元（GitHub）での実際の動き（P18〜P20、job の単位の concurrency・`gh api` の run の並び・GITHUB_TOKEN での印の push。12.1〜12.5）。Windows でしか走らない更新の試験（MODIFIED の 8 つの Requirement の `update-apply-install.sh` の本体。`--list` の本数だけを見た）。Rust と gradle の判定を壊す試験（表の行を grep しただけ）。`check-guards.sh --self-test` の 1 回目の rc=1 の原因
+
+## security review（e721251..ca09d0e）
+
+見た経路:
+- main への push の CI 成功 → `number.yml`（`workflow_run`）の `if`（`event == 'push'`・`conclusion == 'success'`・`head_repository == github.repository`。number.yml:14）→ `contents: write` は `number` と `place` の job だけ、組み立ての job は workflow の `contents: read` のまま・`persist-credentials: false`（2）
+- `version.sh number <head_sha>` → main の first-parent の上に無い commit は `number=`（version.sh:193）→ `number.sh tag` が番号の形（`^[0-9]+\.[0-9]+\.[0-9]+$`）と 40 桁の commit を確かめてから `git push refs/tags/build-<番号>`（number.sh:16-25）（4）
+- `${{ … outputs.number }}`・`head_sha` の `run:` への埋め込み → 番号は `build_numbers` の正規表現を通った印の名前か計算した数字だけ、head_sha は GitHub の hex（3）
+- 印 `build-*` の push → 起動する workflow は無い（`release.yml` は `tags: ['v*']`、GITHUB_TOKEN の push はそもそも workflow を起こさない）（2）
+- `number.sh place` → 下書き（`--draft`）にだけ置き、下書きでなければ止まる（number.sh:95）。署名していない・debug の鍵の APK は下書きにだけ載り、公開は人の手（2）
+- nightly の `plan` → `commit=` は main の first-parent の上の `build-*` の印の commit だけ（version.sh:145）→ 署名の鍵（secrets）を持つ `publish` の job はその commit を checkout し、`publish-nightly.sh` が 40 桁の hex でなければ落ちる（4）
+- ci.yml の `changes` → `gh api` の前に成功した main の push の run の `head_sha` → `changes.sh base` が `git cat-file -e` で木にあるときだけ返す → `BASE`。`actions: read` を足しただけで書く権限は無い（3）
+- ci.yml の更新の試験の組み立て → GITHUB_TOKEN の extraheader の組み直しは書き方の変更だけで、出力・ログへの経路は前と同じ（2）
+- `build-stamp`（Rust・web・gradle）→ 読むのは `tools/release/MAJOR`・`Cargo.toml`・`ASHIATO_BUILD_VERSION` だけで、記録の中身・端末の値は入らない（2）
+
+安全の決め手: 書く権限か署名の鍵を持つ job が checkout して走らせる commit は、main の first-parent の上の commit に限られる（number は version.sh:193、nightly は version.sh:145）—— 確かさ 4。使い捨ての木で、main の外の commit に大きな番号の印 `build-9.9.9` を置いても `nightly-plan` は main の上の `build-0.2.0` の commit を返し、main の外の commit に `version.sh number` は `number=`（付けない）を返した。`number.sh tag '1.2.3;id' HEAD` は「番号の形が違う」、`number.sh tag 1.2.3 'HEAD;id'` は「commit が無い」で rc=1
+見ていない範囲: 配布元（GitHub）での実際の動き（`workflow_run` の `branches` の絞りと `head_repository` の値、下書きの release の見える範囲、job の単位の concurrency）は走らせていない。`build.sh` の中身（差分は版番号の受け渡しだけ）は辿っていない
+
+指摘なし
