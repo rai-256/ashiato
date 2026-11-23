@@ -110,11 +110,11 @@
   （訂正 2026-11-23: 検証の入口を「bash -c '! grep -nF "release/" tools/release/version.sh'」から上の入口に。受け入れ条件は変えない。理由: version.sh は tools/release/ のパスを 48 か所で正当に持つので grep -F release/ は原理的に通らない。消すのは修正の枝の分岐（release/<数字>・origin 上の release/）で、それだけを見る台本に置き換える 実証: evidence.jsonl 2026-11-23T03:37:24+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-23T03:37:33+00:00 PASS。記録: plan-corrections.md）
 ## Task 9: 開発版の作り直しを最新の番号の commit から組む（移る間）
 
-- [ ] 9.1 `tools/release/version.sh nightly-plan` を D11 にする: 最新の番号の commit を選び `commit=<40 桁>` の行を足して出す。番号が無ければ `build=no` と「番号がまだ無い」。版番号は `<番号>-dev.<日本時間の YYYYMMDD>`。出所の版の正式版の判定を消す。
+- [x] 9.1 `tools/release/version.sh nightly-plan` を D11 にする: 最新の番号の commit を選び `commit=<40 桁>` の行を足して出す。番号が無ければ `build=no` と「番号がまだ無い」。版番号は `<番号>-dev.<日本時間の YYYYMMDD>`。出所の版の正式版の判定を消す。
   `--self-test` の印: `nightly が最新の番号の commit を指していれば、開発版を作らない`・`nightly より新しい番号があれば、その番号の commit で開発版を作り直す`・`番号がまだ無ければ、開発版を組まない` を足し、
   `浅い木では、開発版の作り直しの判定は通らない`・`予定の実行が落ちた次の回に、同じ変更を拾う`・`印 nightly がまだ無ければ、作り直す`・`公開の設定が入っていなければ、予定の実行は組まずに終える`・`公開の設定が入っていなければ、手で起こした作り直しも公開しない` の木に番号の印を足す。旧い 3 つ（REMOVED の Requirement の名前）の印を消す
   検証: `tools/release/version.sh --self-test` rc=0
-- [ ] 9.2 `nightly.yml`: 組み立ての job と公開の job が `plan` の `commit` を `ref:` に取り出し、`publish-nightly.sh` が印 `nightly` をその commit へ動かす（`publish-nightly.sh` に commit を渡す口を足し、`--self-test` で偽の `gh` が受けた `nightly` の先がその commit であることを見る）。
+- [x] 9.2 `nightly.yml`: 組み立ての job と公開の job が `plan` の `commit` を `ref:` に取り出し、`publish-nightly.sh` が印 `nightly` をその commit へ動かす（`publish-nightly.sh` に commit を渡す口を足し、`--self-test` で偽の `gh` が受けた `nightly` の先がその commit であることを見る）。
   `check-guards.sh workflows` と `--self-test` に印 `開発版の作り直しの workflow は、判定が返した commit を組む`（`ref:` を外した偽の nightly.yml で rc≠0）を足す
   検証: `tools/release/publish-nightly.sh --self-test` rc=0 / `tools/release/check-guards.sh --self-test` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/nightly.yml` rc=0
 
