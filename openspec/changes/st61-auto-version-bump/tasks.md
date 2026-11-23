@@ -36,18 +36,18 @@
 
 ## Task 2: 版の規則を Rust・gradle・画面にそろえる
 
-- [ ] 2.1 `crates/build-stamp/src/lib.rs` の `version(source)` を D9 の規則にする（左の数字は `tools/release/MAJOR` から読む。読む道は `CARGO_MANIFEST_DIR` からの根。`cargo:rerun-if-changed` に足す）。誤りの文に、左の数字のファイルの値・出所の版・渡した版番号を含める。
+- [x] 2.1 `crates/build-stamp/src/lib.rs` の `version(source)` を D9 の規則にする（左の数字は `tools/release/MAJOR` から読む。読む道は `CARGO_MANIFEST_DIR` からの根。`cargo:rerun-if-changed` に足す）。誤りの文に、左の数字のファイルの値・出所の版・渡した版番号を含める。
   試験（`#[cfg(test)]`、名前は `st61_`）に `// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する`（`1.4.0`）・`// Scenario: 出所の版と違う 0.0.x を渡すと、組み立てが失敗する`（出所 `0.0.1` に `0.0.2`。旧い印 `出所の版と違う版番号を渡すと…` を、`check-build-stamp.sh` のものも含めてこの名前に替える）と、値を足した `// Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する`（`0.0.0` を足した 5 つ）。`version-check-table.tsv` の全行を当てる試験も足す
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-build-stamp st61_ && test "$(cargo test -p ashiato-build-stamp st61_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
-- [ ] 2.2 `collector-android/app/build.gradle.kts`: 版の規則を D9 に、versionCode を D3 の式にする（`tools/release/MAJOR` を `providers.fileContents` で読む）。`verifyVersionCodeTable` は Task 1 の表をそのまま当てる。
+- [x] 2.2 `collector-android/app/build.gradle.kts`: 版の規則を D9 に、versionCode を D3 の式にする（`tools/release/MAJOR` を `providers.fileContents` で読む）。`verifyVersionCodeTable` は Task 1 の表をそのまま当てる。
   `tools/release/check-artifacts.sh --self-test-gradle-range` を、出所 `0.0.1` の写しの木に `ASHIATO_BUILD_VERSION=0.1000.0` を渡す形に直す（`// Scenario: 桁を超える版番号では、携帯の組み立てが失敗する`）。
   `組み立てた APK の versionCode は、渡した版番号から計算した値` の期待値を 40000 にする。`version-check-table.tsv` の全行を当てる task `verifyVersionCheckTable` を足し、`// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する` の印を置く
   検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable :app:verifyVersionCheckTable && test "$(grep -vc "^#" tools/release/version-table.tsv)" -ge 10'` rc=0 /
   `tools/release/check-artifacts.sh --self-test-gradle-range` rc=0 /
   `bash -c 'ASHIATO_BUILD_VERSION=0.4.0-beta.2 scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'` rc=0
-- [ ] 2.3 `web/build-stamp.ts`: 版の規則を D9 にする（`tools/release/MAJOR` を読む）。`web/src/__tests__/build-stamp.test.ts` に `version-check-table.tsv` の全行を当てる試験を足し、`// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する` の印を置く
+- [x] 2.3 `web/build-stamp.ts`: 版の規則を D9 にする（`tools/release/MAJOR` を読む）。`web/src/__tests__/build-stamp.test.ts` に `version-check-table.tsv` の全行を当てる試験を足し、`// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する` の印を置く
   検証: `bash -c 'cd web && npx vitest run src/__tests__/build-stamp.test.ts'` rc=0 / `bash -c 'cd web && npm run build'` rc=0
-- [ ] 2.4 `docs/openapi.json` を作り直す（`info.version` が `0.0.1`）。`tools/check-openapi.sh` はそのまま通る（`// Scenario: API の契約の版は、渡した版番号に依らず出所の版`）。
+- [x] 2.4 `docs/openapi.json` を作り直す（`info.version` が `0.0.1`）。`tools/check-openapi.sh` はそのまま通る（`// Scenario: API の契約の版は、渡した版番号に依らず出所の版`）。
   `tools/check-build-stamp.sh` の `release` の節を、出所 `0.0.1`・`MAJOR` `0` の写しの木で `0.4.0-beta.2` を渡す形に直し、`版番号を渡さない組み立てでは、4 つの部品の版番号が出所の版と同じ` と ADDED の `版番号を渡さずに組んだ部品の版番号は 0.0.1`（この repo の木で渡さずに組む）の印を置く
   検証: `tools/check-openapi.sh` rc=0 / `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh release'` rc=0 / `bash -c 'scripts/quiet-run stamp -- tools/check-build-stamp.sh android'` rc=0
 
