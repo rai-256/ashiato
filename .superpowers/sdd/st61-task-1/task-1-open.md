@@ -1,4 +1,0 @@
-- [Important] F1（review 1） tools/check-version.sh:37 — tools/check-version.sh:37 — self-test の最初の 2 つの Scenario（gradle の版番号・package.json の版番号）は、MAJOR のファイルがまだ無いことで落ちていて、何も確かめずに通っている。MAJOR の作成が :46-47 にあり、check_tree はそれより先に MAJOR を見る（:14-17）。直し方: MAJOR の作成を木の準備へ移し、各 Scenario の前に健全な木が通ることを確かめる。
-- [Important] F2（review 1） tools/release/version.sh:63 — tools/release/version.sh:63 — check_version の引数の中の $(major_file) の失敗は set -e に拾われず、空の major は (( value_major == major )) で 0 と評価される。実測: MAJOR が 'x' の写しの木で `version.sh check 0.2.0` は NG の文を出しながら rc=0 で受けた。直し方: 先に代入して失敗を伝え（local major; major=$(major_file) || exit 1）、MAJOR が壊れていれば check が落ちる試験を足す。
-- [⚠️ Task の中では確かめない。final review が見る]（review 1）⚠️ Cannot verify from diff: 表を変えたので、gradle の verifyVersionCodeTable は Task 2.2 まで落ちる見込み。Task 2 の後に、gradle・Rust・TS の 3 つがこの表で通ることを確かめる。
-- [⚠️ Task の中では確かめない。final review が見る]（review 1）⚠️ Cannot verify from diff: 実装者は RED（実装の前に試験が落ちること）を取っていないと自分で書いている。試験を先に書いた証跡が無い。
