@@ -96,13 +96,13 @@
 
 ## Task 5: 壊していないことを確かめ、文書をそろえ、触ったのが予定のパスだけであることを確かめる
 
-- [ ] 5.1 `check_scenarios` で、この change の Scenario の全部（MODIFIED の Requirement の既にある Scenario を含む）に印があることを見る（Task 1〜4 の後）。
+- [x] 5.1 `check_scenarios` で、この change の Scenario の全部（MODIFIED の Requirement の既にある Scenario を含む）に印があることを見る（Task 1〜4 の後）。
   検証: `python3 scripts/check_scenarios.py . ch26-nightly-vulns-cleanup` rc=0
 
-- [ ] 5.2 Rust の試験と clippy が今のまま通ることを見る（壊してはいけないもの 1。rustix 1.x は試験と組み立ての `tempfile` だけが使う。P3）。
+- [x] 5.2 Rust の試験と clippy が今のまま通ることを見る（壊してはいけないもの 1。rustix 1.x は試験と組み立ての `tempfile` だけが使う。P3）。
   検証: `scripts/quiet-run rust -- cargo test --workspace` rc=0
   検証: `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0
-- [ ] 5.3 `docs/changes/CH26.md` の「## 完了の判定」の節に、1.2 で例外の行を書いた日と期限（`ignoreUntil`）を書き足す（「例外の行を書いた日: YYYY-MM-DD、期限: YYYY-MM-DD」の 1 行。ほかの節と依頼の逐語は変えない）。2.1 で `dlls=` を変えたなら、変えたことも同じ節に 1 行で書く。
+- [x] 5.3 `docs/changes/CH26.md` の「## 完了の判定」の節に、1.2 で例外の行を書いた日と期限（`ignoreUntil`）を書き足す（「例外の行を書いた日: YYYY-MM-DD、期限: YYYY-MM-DD」の 1 行。ほかの節と依頼の逐語は変えない）。2.1 で `dlls=` を変えたなら、変えたことも同じ節に 1 行で書く。
   検証: `python3 -c 'import re,sys;t=open("docs/changes/CH26.md",encoding="utf-8").read();m=re.search(r"^## 完了の判定\n(.*?)(?=^## |\Z)",t,re.S|re.M);sys.exit(0 if m and re.search(r"例外の行を書いた日: \d{4}-\d{2}-\d{2}、期限: \d{4}-\d{2}-\d{2}",m.group(1)) and t.count("\n## 完了の判定\n")==1 else 1)'` rc=0
-- [ ] 5.4 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 5）。
+- [x] 5.4 この change が触ったファイルが予定のパスの中だけであることを確かめる（作業ツリーの変更と未追跡のファイルも見る。完了の判定 5）。
   検証: `bash -c 'set -o pipefail; base=$(git merge-base origin/main HEAD) || exit 1; files=$( { git diff --name-only "$base" -- . && git ls-files -o --exclude-standard; } ) || exit 1; ! printf "%s\n" "$files" | grep -vE "^(Cargo\.lock|osv-scanner\.toml|tools/release/pgsql\.lock|tools/release/pgsql-prev-lock\.sh|\.github/workflows/ci\.yml|docs/release\.md|docs/changes/CH26\.md|openspec/changes/ch26-nightly-vulns-cleanup/|docs/briefs/CH26|\.superpowers/|$)"'` rc=0
