@@ -341,7 +341,7 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: premise
 - loss: uncaptured —— 変更が効いたのに読み出しの記録に `ok` の行が無い期間ができうる
 - 提案: spec の順（`ok` → 書き戻し → 失敗なら打ち消しの `forbidden`/500 の行）に戻し、試験を印の主張（2 行で残る）に合わせる。R9 の順を採るなら、spec の Requirement と Scenario を正規の経路で直してから印を付け直す
-- 処置: escalated
+- 処置: escalated —— 答え済み（deep.md 第 2 回 Q4。`deep-answers-3.txt`）: 本人が「変えた」（`ok`）の行を先に書き、書き戻しに落ちたら打ち消しの `forbidden`/500 の行を足す順（仕様の本文・design D9 どおり。推奨の側）を選んだ。コードと試験は 04cfe42dd でこの順に戻してあり（`/web-password`・`/collector-token` とも 印の行 → `ok` の行 → 書き戻し → 差し替え。試験 `st59_both_write_failure_returns_not_saved` は `ok` の行も `old + 1` と打ち消しが後に並ぶことを見る）、spec・design の直しは無い。HEAD で `cargo test -p ashiato-server st59_both_` 8 passed
 
 ## R24. 申し送りの「値を変えた後」の案内のうち、「全部の収集アプリに貼り直す」の 1 文が画面に無い
 - 成果物: `web/src/messages.ts`（`secretChange.setupLead`）/ `web/src/CollectorTokenChangePanel.tsx`（`:36`）/ `web/e2e/st59-change-secrets.spec.ts`（collector-token の試験）

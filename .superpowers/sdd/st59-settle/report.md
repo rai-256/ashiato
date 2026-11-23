@@ -101,3 +101,11 @@
 - `scripts/verify-run 6.1` → PASS（e2e `st59-change-secrets.spec.ts` 9 passed・210s / `tsc && vitest && lint` rc=0・42s）
 - `scripts/verify-run 9.1` → PASS（fmt・clippy の linux と windows-gnu・`cargo test --workspace` rc=0・648s / `check-openapi.sh`・`check-log-private.sh`・`check-secrets.sh`・`check_scenarios.py` rc=0・72s）。R22 の「HEAD で 9.1 の全体を取り直す」はこれ
 - `python3 scripts/review_triage.py . st59-change-password-from-web --no-verdict` → `triage: OK` rc=0
+
+## 答えの後の見直し（2026-11-23）
+
+### R23（escalated のまま。答えに沿って処置の行を書き直した）
+- deep.md 第 2 回 Q4 の答え（`deep-answers-3.txt`）: 本人が仕様どおりの順（`ok` の行 → 書き戻し → 落ちたら打ち消しの `forbidden`/500 の行）を選んだ。推奨の側と同じ
+- コードは前の回（04cfe42dd）でこの順に戻してある。`git diff --stat 04cfe42dd HEAD -- crates web` は空（その後の commit は文書だけ）。spec・design D9 もこの順のままで、直すものは無い
+- `review_triage.py` は kind=premise・loss=uncaptured を `escalated` 以外で閉じさせないので、動詞は `escalated` のまま、処置の行に答えと効く先を書いた
+- 検証: `cargo test -p ashiato-server st59_both_ -- --list` で 8 本（`st59_both_write_failure_returns_not_saved`・`st59_both_access_log_failure_returns_500_without_changes` を含む）。`scripts/quiet-run st59-r23 -- cargo test -p ashiato-server st59_both_` → rc=0、`test result: ok. 8 passed; 0 failed`（`.superpowers/sdd/logs/20261123-183328-st59-r23.log`）
