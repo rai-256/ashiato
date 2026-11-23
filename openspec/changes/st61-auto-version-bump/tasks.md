@@ -102,7 +102,7 @@
 
 ## Task 8: 印 v* の判定を番号の commit に限る（移る間）
 
-- [ ] 8.1 `tools/release/version.sh plan <印>` を D11 にする: 印の commit に `build-<番号>` の印があり、印の 3 つの数字がその番号と同じときだけ通す。番号の無い commit は「印の commit に番号が無い」で落ちる。
+- [x] 8.1 `tools/release/version.sh plan <印>` を D11 にする: 印の commit に `build-<番号>` の印があり、印の 3 つの数字がその番号と同じときだけ通す。番号の無い commit は「印の commit に番号が無い」で落ちる。
   修正の枝 `release/*` の例外を消す（main の祖先でなければ落ちる）。`--self-test` の 4 つの修正の枝の Scenario（REMOVED）を消し、印 `印の版とその commit の番号が違えば公開しない`・`番号の無い commit の印は公開しない`・`修正の枝の印も、main の祖先でなければ公開しない` を足し、
   `浅い木では、印の判定は通らない`・`正式版の印は、通常のリリースと判定される`・`ベータ版の印で、先行公開のリリースになる`・`main の祖先でない commit の印は公開しない` の木に番号の印を足す。`docs/release.md` の修正の枝の節を消し、壊れた版は main で直して次の番号に印を付ける手順にする
   検証: `tools/release/version.sh --self-test` rc=0 / `tools/release/check-no-release-branch.sh` rc=0（修正の枝の分岐 `refs/remotes/origin/release/*` を消した）
