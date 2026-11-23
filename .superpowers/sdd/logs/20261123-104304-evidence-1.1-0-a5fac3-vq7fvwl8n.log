@@ -1,0 +1,37 @@
+$ tools/verify-env.sh
+env-init: /home/yosis/dev/ashiato2-st61/.env を作った（合言葉は乱数）
+verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））
+ Network ashiato2-st61_default Creating 
+ Network ashiato2-st61_default Creating 
+ Network ashiato2-st61_default Created 
+ Network ashiato2-st61_default Created 
+ Container ashiato2-st61-db-1 Creating 
+ Container ashiato2-st61-db-1 Created 
+ Container ashiato2-st61-db-1 Starting 
+ Container ashiato2-st61-db-1 Started 
+ Container ashiato2-st61-db-1 Waiting 
+ Container ashiato2-st61-db-1 Healthy 
+HARNESS_RESET: testdb
+$ (cd . && tools/release/version.sh --self-test)
+== Scenario: versionCode は版番号の 3 つの数字から決まる
+== Scenario: 後ろに -beta や -dev が付いても、同じ番号は同じ versionCode になる
+== Scenario: 最初の番号は、前の式の 0.1.x の APK より大きい
+== Scenario: 桁を超える版番号では、versionCode の計算が失敗する
+== Scenario: 正式版の印は、通常のリリースと判定される
+== Scenario: ベータ版の印で、先行公開のリリースになる
+== Scenario: 印の版と出所の版が違えば公開しない
+== Scenario: main の祖先でない commit の印は公開しない
+== Scenario: 決めた形でない印は、どのチャンネルにも配らない
+== Scenario: 浅い木では、印の判定は通らない
+== Scenario: 修正の枝の正式版の印は、移行と封筒の形が元の印と同じなら公開できる
+== Scenario: 修正の枝で移行を足した印は公開しない
+== Scenario: 修正の枝で封筒の形を変えた印は公開しない
+== Scenario: 修正の枝からベータ版は出さない
+== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない
+== Scenario: main が進んだ日は、開発版を作り直す
+== Scenario: 予定の実行が落ちた次の回に、同じ変更を拾う
+== Scenario: 印 nightly がまだ無ければ、作り直す
+== Scenario: 公開の設定が入っていなければ、予定の実行は組まずに終える
+== Scenario: 公開の設定が入っていなければ、手で起こした作り直しも公開しない
+== Scenario: 出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない
+== Scenario: 浅い木では、開発版の作り直しの判定は通らない
