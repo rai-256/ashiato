@@ -75,3 +75,12 @@
 - 答え: ①（本人の選択。推奨と同じ）
 - 決まったこと: design D11。spec の Scenario「上げた後の Cargo.lock は…」の THEN を rustix・url・form_urlencoded の 3 組に、「全体の検査と毎晩の検査は…」に `RUSTSEC-2026-0592` を足した。完了の判定 1・2・7 も合わせた
 - 要件へ戻すもの: なし
+
+## Task 3 の実装の途中で出た問い（2026-11-23）
+
+### Q-impl-2. 「中身が同じ」の比べ方に、退避の戻しで必ず出る表記の違いを許すか（未回答）
+
+- 経緯: `check-ch26.sh minor-swap` の Scenario 1〜3（17.6→17.12→17.6 の置き場の入れ替え）は PASS。Scenario 4（17.12 の `pg_dump --format=custom` を 17.6 の `pg_restore` で空の DB に戻す）だけ、平文の `pg_dump` の比べで 2 行違う（CHECK 制約 `event_end_values`・`event_version_end_values` の括弧の入れ子が `((a AND b) AND c)` → `(a AND b AND c)` に平らになる）
+- 実測: **17.12 の退避を 17.12 の空の DB に戻しても同じ 2 行が違う**。小さい版の違いでなく、`pg_restore` が式を読み直す表記の正規化（意味は同じ）
+- 問い: design D5 の「中身が同じ」（版の行と鍵の行だけを除いた平文の一致）を、この表記の正規化を許す形に変えてよいか（変えるなら D5 の定義を人間が決める）
+- 台本の状態: 上のまま commit 済み・`minor-swap` は rc≠0（Scenario 4）。台本は直していない

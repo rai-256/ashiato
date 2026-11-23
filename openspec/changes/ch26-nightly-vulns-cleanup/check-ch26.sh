@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # CH26 の確かめの台本（勧告の片付け。Task 1・2）。
-# 使い方: check-ch26.sh lock | toml | vulns | pg-dlls | pg-lock | --self-test
+# 使い方: check-ch26.sh lock | toml | vulns | pg-dlls | pg-lock | minor-swap | --self-test
 #   lock  : Cargo.lock の組の差が「rustix 1.1.5 → 1.1.6 以上の 1.1.x・url 2.5.8 → 2.5.9 以上の 2.5.x・form_urlencoded 1.2.2 → 1.2.3 以上の 1.2.x」だけであること
 #   toml  : 例外の表（osv-scanner.toml）の既にある行が残り、足した行が正典の理由の形を持つこと
 #   vulns : toml に加え、全体の検査と毎晩の検査が片付けた勧告を出さないこと
 #   pg-dlls : pgsql.lock の zip を落として展開し、executables から辿れる同梱の DLL が lock の dlls と一致すること（CH26_PG_CACHE に zip の置き場を渡せる）
 #   pg-lock : lock の url が version の zip を指し、小さい版を上げても大きい版・executables・許諾の置き場が元と同じで、遅れの検査が通ること
+#   minor-swap : 前の小さい版（postgres:17.6）で作ってサーバの移行を当てた DB の置き場を、新しい小さい版（postgres:17.12）が同じ中身で使い・戻しても使え・17.12 の退避を 17.6 が戻せること（Docker が要る）
 # 比べる元の版は CH26_BASE（無ければ `git merge-base origin/main HEAD`）、読む木は CH26_ROOT（無ければ repo の根）。
 set -u
 set -o pipefail
@@ -183,6 +184,144 @@ cmd_pg_lock() {
     "$REPO/tools/check-pg-minor.sh"
 }
 
+# ---- minor-swap（Task 3。design D5 の 1）----
+readonly PG_OLD="postgres:17.6"
+readonly PG_NEW="postgres:17.12"
+# initdb の引数はインストーラと同じ。crates/installer/src/db.rs の initdb_args から写した（-U ashiato、
+# --locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums。-A と --pwfile は
+# 像の入口が POSTGRES_PASSWORD から付ける）
+readonly INITDB_ARGS="--locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums"
+readonly SW_ADMIN="ashiato"
+readonly SW_DB="ashiato"
+
+SW_CONTAINERS=()
+SW_VOLUMES=()
+sw_cleanup() {
+  local c v
+  for c in "${SW_CONTAINERS[@]:-}"; do [[ -n "$c" ]] && docker rm -f "$c" >/dev/null 2>&1; done
+  for v in "${SW_VOLUMES[@]:-}"; do [[ -n "$v" ]] && docker volume rm -f "$v" >/dev/null 2>&1; done
+  [[ -n "${SW_TMP:-}" ]] && rm -rf -- "$SW_TMP"
+  return 0
+}
+
+# 置き場（名前に乱数を含む volume）で <像> を起こし、空いている port を docker に選ばせる
+sw_start() { # <container> <volume> <image>
+  docker run -d --name "$1" -v "$2:/var/lib/postgresql/data" -p 127.0.0.1::5432 \
+    -e POSTGRES_USER="$SW_ADMIN" -e POSTGRES_DB="$SW_DB" -e POSTGRES_PASSWORD="$SW_ADMIN_PW" \
+    -e POSTGRES_INITDB_ARGS="$INITDB_ARGS" "$3" >/dev/null || return 1
+  local i
+  for i in $(seq 1 60); do
+    # 入口の一時サーバ（TCP を聞かない）ではなく、本番の起動を待つ: TCP 越しに入れること
+    if docker exec -e PGPASSWORD="$SW_ADMIN_PW" "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc 'select 1' >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  echo "error: $3 が起きなかった" >&2; docker logs "$1" 2>&1 | tail -20 >&2; return 1
+}
+sw_port() { docker port "$1" 5432/tcp | head -1 | sed 's/.*://'; }
+sw_stop() { docker stop -t 120 "$1" >/dev/null && docker rm "$1" >/dev/null; }
+
+# tools/db-roles.sh と同じ SQL（tools/db-roles.sql）を、同じ環境変数の渡し方（stack.sh の db-roles.sh）で当てる
+sw_roles() { # <container>
+  docker exec -i -e ADMIN_PW="$SW_ADMIN_PW" -e OWNER_PW="$SW_OWNER_PW" -e APP_PW="$SW_APP_PW" "$1" \
+    psql -X -q -v ON_ERROR_STOP=1 -v "admin=$SW_ADMIN" -v "dbname=$SW_DB" -U "$SW_ADMIN" -d "$SW_DB" \
+    < "$REPO/tools/db-roles.sql" >/dev/null
+}
+
+# stack.sh と同じ形: 所有者の接続（DATABASE_OWNER_URL）で `ashiato-server migrate`。使い捨てなので退避しない
+sw_migrate() { # <container>
+  DATABASE_OWNER_URL="postgres://ashiato_owner:$SW_OWNER_PW@127.0.0.1:$(sw_port "$1")/$SW_DB" \
+    MIGRATE_BACKUP=off "$SW_SERVER" migrate
+}
+
+sw_sql() { # <container> <sql>
+  docker exec -e PGPASSWORD="$SW_ADMIN_PW" "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc "$2"
+}
+
+# 「中身」: 17.12 の像の中の pg_dump（平文）から、版の行と毎回変わる鍵の行を除いたもの
+sw_content() { # <container> <out>
+  docker run --rm --network "container:$1" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_NEW" \
+    pg_dump --no-password -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" \
+    | grep -v -e '^-- Dumped from' -e '^-- Dumped by' -e '^\\restrict' -e '^\\unrestrict' > "$2" || return 1
+  [[ -s "$2" ]] || { echo "error: pg_dump の出力が空" >&2; return 1; }
+}
+
+sw_same() { # <a> <b> <what>
+  if ! diff -u "$1" "$2" >"$SW_TMP/diff.txt"; then
+    echo "error: 中身が違う（$3）:" >&2; head -40 "$SW_TMP/diff.txt" >&2; return 1
+  fi
+  echo "中身は同じ（$3。$(wc -l < "$1") 行）"
+}
+
+cmd_minor_swap() {
+  command -v docker >/dev/null || { echo "error: docker が無い" >&2; return 2; }
+  SW_TMP="$(make_tmp)" || return 2
+  trap sw_cleanup EXIT
+  local rnd; rnd="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  SW_ADMIN_PW="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  SW_OWNER_PW="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  SW_APP_PW="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  local vol="ch26-swap-$rnd" c_old="ch26-swap-old-$rnd" c_new="ch26-swap-new-$rnd" c_back="ch26-swap-back-$rnd"
+  local vol2="ch26-swap2-$rnd" c_rest="ch26-swap-rest-$rnd"
+  SW_VOLUMES=("$vol" "$vol2"); SW_CONTAINERS=("$c_old" "$c_new" "$c_back" "$c_rest")
+  docker volume create "$vol" >/dev/null && docker volume create "$vol2" >/dev/null || return 2
+  docker image inspect "$PG_OLD" >/dev/null 2>&1 || docker pull -q "$PG_OLD" >/dev/null || return 2
+  docker image inspect "$PG_NEW" >/dev/null 2>&1 || docker pull -q "$PG_NEW" >/dev/null || return 2
+
+  SW_SERVER="$REPO/target/debug/ashiato-server"
+  (cd "$REPO" && cargo build -q -p ashiato-server --bin ashiato-server) || { echo "error: ashiato-server を build できない" >&2; return 2; }
+  [[ -x "$SW_SERVER" ]] || { echo "error: $SW_SERVER が無い" >&2; return 2; }
+
+  local t="$SW_TMP"
+  # 17.6 で置き場を作り、役割 → 移行 → 行（core.source は NOT NULL の列が logical_source・display_name・
+  # expected_gap_sec の 3 つで、残りは既定値か移行の trigger が埋める単純な表）
+  sw_start "$c_old" "$vol" "$PG_OLD" || return 1
+  sw_roles "$c_old" || return 1
+  sw_migrate "$c_old" || { echo "error: 17.6 で移行を当てられない" >&2; return 1; }
+  sw_sql "$c_old" "INSERT INTO core.source (logical_source, display_name, expected_gap_sec) VALUES ('ch26-swap-a', '17.6 で入れた行', 60)" || return 1
+  local n0; n0="$(sw_sql "$c_old" 'SELECT count(*) FROM migration_ledger.applied')"
+  [[ "${n0:-0}" -gt 0 ]] || { echo "error: 当てた移行が 0" >&2; return 1; }
+  sw_content "$c_old" "$t/old.sql" || return 1
+  sw_stop "$c_old" || return 1
+
+  echo "== Scenario: 前の小さい版で移行を当てた置き場を、新しい小さい版が同じ中身で使う"
+  sw_start "$c_new" "$vol" "$PG_NEW" || return 1
+  sw_content "$c_new" "$t/new.sql" || return 1
+  sw_same "$t/old.sql" "$t/new.sql" "17.6 で起きていたときと 17.12 で起こしたとき" || return 1
+  [[ "$(sw_sql "$c_new" "SELECT count(*) FROM core.source WHERE logical_source='ch26-swap-a'")" = 1 ]] \
+    || { echo "error: 17.6 で入れた行が 17.12 で読めない" >&2; return 1; }
+
+  echo "== Scenario: 新しい小さい版で移行をもう一度当てても、足す移行は無い"
+  sw_migrate "$c_new" || { echo "error: 17.12 で移行をもう一度当てたら rc≠0" >&2; return 1; }
+  local n1; n1="$(sw_sql "$c_new" 'SELECT count(*) FROM migration_ledger.applied')"
+  [[ "$n1" = "$n0" ]] || { echo "error: 当てた移行の数が変わった: $n0 → $n1" >&2; return 1; }
+  echo "当てた移行の数は $n1 のまま"
+
+  echo "== Scenario: 新しい小さい版で足した記録を、前の小さい版に戻しても読める"
+  sw_sql "$c_new" "INSERT INTO core.source (logical_source, display_name, expected_gap_sec) VALUES ('ch26-swap-b', '17.12 で足した行', 60)" || return 1
+  sw_content "$c_new" "$t/new2.sql" || return 1
+  # 退避（Scenario 4）は、行を足した後の 17.12 で起きている DB から、サーバの移行の前の退避と同じ形式（--format=custom）で取る
+  docker run --rm --network "container:$c_new" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_NEW" \
+    pg_dump --no-password --format=custom -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" > "$t/backup.dump" || { echo "error: 17.12 の pg_dump が失敗" >&2; return 1; }
+  [[ -s "$t/backup.dump" ]] || { echo "error: 退避が空" >&2; return 1; }
+  sw_stop "$c_new" || return 1
+  sw_start "$c_back" "$vol" "$PG_OLD" || return 1
+  sw_content "$c_back" "$t/back.sql" || return 1
+  sw_same "$t/new2.sql" "$t/back.sql" "17.12 で行を足した後と 17.6 へ戻したとき" || return 1
+  [[ "$(sw_sql "$c_back" "SELECT count(*) FROM core.source WHERE logical_source IN ('ch26-swap-a','ch26-swap-b')")" = 2 ]] \
+    || { echo "error: 足した行が 17.6 で読めない" >&2; return 1; }
+  sw_stop "$c_back" || return 1
+
+  echo "== Scenario: 新しい小さい版で取った退避を、前の小さい版が戻せる"
+  sw_start "$c_rest" "$vol2" "$PG_OLD" || return 1
+  sw_roles "$c_rest" || return 1   # 戻す先に所有者と実行時の役割がある（インストーラの戻しの道と同じ）
+  docker run --rm -i --network "container:$c_rest" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_OLD" \
+    pg_restore --no-password --exit-on-error -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" < "$t/backup.dump" \
+    || { echo "error: 17.6 の pg_restore が rc≠0" >&2; return 1; }
+  echo "pg_restore は rc=0"
+  sw_content "$c_rest" "$t/restored.sql" || return 1
+  sw_same "$t/new2.sql" "$t/restored.sql" "17.12 の退避を取ったときと 17.6 に戻したとき" || return 1
+}
+
 self_test() {
   local t; t="$(make_tmp)" || return 2
   trap "rm -rf -- '$t'" RETURN
@@ -256,6 +395,7 @@ case "${1:-}" in
   vulns) cmd_vulns ;;
   pg-dlls) cmd_pg_dlls ;;
   pg-lock) cmd_pg_lock ;;
+  minor-swap) cmd_minor_swap ;;
   --self-test) self_test ;;
-  *) echo "使い方: $0 lock | toml | vulns | pg-dlls | pg-lock | --self-test" >&2; exit 64 ;;
+  *) echo "使い方: $0 lock | toml | vulns | pg-dlls | pg-lock | minor-swap | --self-test" >&2; exit 64 ;;
 esac
