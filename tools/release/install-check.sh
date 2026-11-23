@@ -1135,7 +1135,7 @@ check_release_zip() {
   [[ -n "$changed_cookie" ]] || die '画面から変える前にログインできない'
 
   echo '== Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない'
-  web_change_code="$(curl -s -c "$WORK/web-password-change.cookie" -o "$WORK/web-password-change.out" -w '%{http_code}' -X POST \
+  web_change_code="$(curl -s -c "$(pypath "$WORK/web-password-change.cookie")" -o "$(pypath "$WORK/web-password-change.out")" -w '%{http_code}' -X POST \
     -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
     --data "{\"password\":\"$PW2\",\"new_password\":\"$PW3\",\"confirmation\":\"$PW3\"}" "$URL/web-password" || true)"
   [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
@@ -1143,7 +1143,7 @@ check_release_zip() {
 for line in open(sys.argv[1], encoding="utf-8"):
     fields=line.removeprefix("#HttpOnly_").rstrip("\n").split("\t")
     if len(fields) >= 7 and fields[5] == "ashiato_session":
-        print(fields[6]); break' "$WORK/web-password-change.cookie")"
+        print(fields[6]); break' "$(pypath "$WORK/web-password-change.cookie")")"
   [[ -n "$changed_cookie" ]] || die '画面の合言葉の変更後のログインの印を受け取れない'
   [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '画面の合言葉の鍵が変わらない'
   [[ "$(setting API_TOKEN)" == "$changed_api" ]] || die '画面の合言葉の変更で収集アプリの値が変わった'
@@ -1152,12 +1152,12 @@ for line in open(sys.argv[1], encoding="utf-8"):
   [[ "$(acl_of "$STATE/settings")" == "$before_changed_acl" ]] || die '画面の合言葉の変更で ACL が変わった'
 
   echo '== Scenario: 変えた後に起動し直しても、新しい収集アプリの値で動く'
-  token_change_code="$(curl -s -o "$WORK/collector-token-change.json" -w '%{http_code}' -X POST \
+  token_change_code="$(curl -s -o "$(pypath "$WORK/collector-token-change.json")" -w '%{http_code}' -X POST \
     -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
     --data "{\"password\":\"$PW3\"}" "$URL/collector-token" || true)"
   [[ "$token_change_code" == 200 ]] || die '収集アプリの値の変更に答えない'
   local changed_token
-  changed_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["token"])' "$WORK/collector-token-change.json")"
+  changed_token="$(PY -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["token"])' "$(pypath "$WORK/collector-token-change.json")")"
   [[ "$changed_token" != "$changed_api" && "$(setting API_TOKEN)" == "$changed_token" ]] || die '収集アプリの値の鍵が変わらない'
   [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '収集アプリの値の変更で画面の合言葉の鍵が戻った'
   [[ "$(PY -c 'import json,sys; s=json.load(open(sys.argv[1],encoding="utf-8")); s.pop("API_TOKEN",None); s.pop("WEB_PASSWORD_VERIFIER",None); print(json.dumps(s, sort_keys=True))' "$SETTINGS")" == "$before_changed_other" ]] ||

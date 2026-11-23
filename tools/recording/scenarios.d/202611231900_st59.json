@@ -1,0 +1,19 @@
+{
+  "scenarios": [
+    {
+      "id": "ST59-web-change-secrets",
+      "story": "ST59",
+      "spec": "tools/recording/st59/st59-change-secrets.rec.ts",
+      "requires": [
+        "web/e2e/st59-change-secrets.spec.ts",
+        "tools/recording/st59/st59-change-secrets.rec.ts",
+        "web/e2e/global-setup.ts",
+        "web/src/SettingsView.tsx"
+      ],
+      "note": "ST59（Web）: 設定を開くと「画面の合言葉を変える」「収集アプリの値を変える」の 2 つの節と、携帯を落としたときは両方を変えるという注意が並ぶ → 録画のサーバは .env の合言葉で立てた開発の形なので、どちらの節で変えようとしても「この形のサーバでは画面から変えられません。.env を書き換えて起動し直してください」と断られる → 断られた後も元の合言葉のまま画面を使える。"
+    }
+  ],
+  "waive": {
+    "ST59": "変えられる流れ（画面の合言葉を変えると前の合言葉とほかのブラウザのログインが切れる・収集アプリの値を変えると新しい設定の文字列とコピーのボタンが出て開き直すと消える・設定のファイルに書けないと変わっていないと出る）は録画で撮らない。変えられるのは設定のファイルを指して起こしたサーバだけ（deep.md Q3）で、録画の環境（tools/record-env.sh）は .env の開発の形のサーバしか立てず、Playwright は Windows 側で web/ の写しだけを持つので tools/settings-server.sh を起こせない。web で見せられる面（2 つの節と開発の形での断り）は上のシナリオで撮る。変えられる流れは次の試験が見る: web/e2e/st59-change-secrets.spec.ts（設定ファイル型のサーバを起こす 9 本）、crates/server/src/st59_tests.rs、tools/release/install-check.sh の ST59 の節（インストールした形で画面から 2 つを変え、起動し直しても新しい値で動く。CI の install-windows）。"
+  }
+}
