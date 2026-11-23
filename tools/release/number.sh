@@ -225,7 +225,9 @@ EOF
   [[ "$(grep -c '^release upload' "$calls")" == 1 ]] || { cat "$calls"; return 1; }
   [[ "$(jq '.assets | length' "$state/release.json")" == 5 ]] || return 1
   jq -e --arg w "ashiato-build: $number $c_b" '.body == $w' "$state/release.json" >/dev/null || return 1
-  ! grep -Eq 'clobber|release edit|release delete|v[0-9]|tag|push' "$calls" || { cat "$calls"; return 1; }
+  # 置き場の絶対パス（TMPDIR 由来で v<数字> などを含みうる）は見ず、要求の頭の 3 語（release <動詞> <印>）だけを見る
+  ! cut -d' ' -f1-3 "$calls" | grep -Eq 'clobber|release edit|release delete|v[0-9]|tag|push' || { cat "$calls"; return 1; }
+  ! grep -Eq -- '--clobber' "$calls" || { cat "$calls"; return 1; }
   [[ ! -s "$pushes" ]] || return 1
 
   echo "== Scenario: 同じ番号の下書きに配布物が揃っていれば、置き直さない"
