@@ -136,9 +136,46 @@ for i, st in enumerate(steps, 1):
 print(approval, sign)'
 }
 
+# 番号付けの workflow（ST61 D10・D12）。条件・権限・順番待ち・取り出しを字面でなく job の単位で見る
+number_workflow() {
+  local file="$1" job block
+  [[ -f "$file" ]] || { die 'number.yml が無い'; return 1; }
+  grep -qE '^  workflow_run:' "$file" || { die 'number.yml が workflow_run で起きない'; return 1; }
+  grep -qE '^    workflows: \[ci\]' "$file" || { die 'number.yml が CI の workflow の終わりで起きない'; return 1; }
+  grep -qE '^    types: \[completed\]' "$file" || { die 'number.yml が終わった run だけで起きない'; return 1; }
+  grep -qE '^    branches: \[main\]' "$file" || { die 'number.yml が main の run だけで起きない'; return 1; }
+  block="$(job_block "$file" number)"
+  grep -q "^    if: .*github.event.workflow_run.event == 'push'" <<<"$block" || { die '番号付けが push の run だけで起きない'; return 1; }
+  grep -q "^    if: .*github.event.workflow_run.conclusion == 'success'" <<<"$block" || { die '番号付けが成功した run だけで起きない'; return 1; }
+  grep -q "^    if: .*github.event.workflow_run.head_repository.full_name == github.repository" <<<"$block" || { die '番号付けがこの repo の枝の run だけで起きない'; return 1; }
+  # 組は判定の job にだけ置き、workflow の単位には置かない。取り消す設定は持たない
+  if grep -qE '^concurrency:' "$file"; then die '同時に走らせない組が workflow の単位にある'; return 1; fi
+  { grep -qE '^    concurrency:' <<<"$block" && grep -qE '^      group: number$' <<<"$block"; } || { die '判定の job に同時に走らせない組が無い'; return 1; }
+  grep -qE '^      cancel-in-progress: false$' <<<"$block" || { die '判定の job が走っているものを取り消さないと書いていない'; return 1; }
+  if grep -q 'cancel-in-progress: true' "$file"; then die '番号付けが走っているものを取り消す'; return 1; fi
+  # 書く権限は印を作る job と置く job だけ。workflow の既定は読むだけ
+  awk '/^permissions:$/{getline; print; exit}' "$file" | grep -qE '^  contents: read$' || { die 'number.yml の既定の権限が読むだけでない'; return 1; }
+  [[ "$(grep -c 'contents: write' "$file")" == 2 ]] || { die '書く権限が 2 つの job だけにない'; return 1; }
+  grep -q 'contents: write' <<<"$block" || { die '印を作る job に書く権限が無い'; return 1; }
+  job_block "$file" place | grep -q 'contents: write' || { die '置く job に書く権限が無い'; return 1; }
+  if grep -qE 'actions/cache|^[[:space:]]+cache:|restore-keys|cache-dependency-path' "$file"; then die '番号付けが CI のキャッシュを使う'; return 1; fi
+  if grep -qE 'gh release (edit|delete)|--draft=false|--clobber|publish-nightly|refs/tags/v|sign-apk' "$file"; then die '番号付けが公開・上書き・印 v* の手順を持つ'; return 1; fi
+  # 組み立ては印を作る job の後。終わった run の commit を履歴を全部持つ形で取り出す
+  for job in build-linux build-windows; do
+    block="$(job_block "$file" "$job")"
+    grep -qE '^    needs: number$' <<<"$block" || { die "$job が印を作る job の後にない"; return 1; }
+    grep -q 'ref: \${{ github.event.workflow_run.head_sha }}' <<<"$block" || { die "$job が終わった run の commit を取り出さない"; return 1; }
+    grep -q 'fetch-depth: 0' <<<"$block" || { die "$job が履歴を全部持つ形で取り出さない"; return 1; }
+  done
+  block="$(job_block "$file" number)"
+  { grep -q 'ref: \${{ github.event.workflow_run.head_sha }}' <<<"$block" && grep -q 'fetch-depth: 0' <<<"$block"; } || { die '判定の job が終わった run の commit を全部の履歴で取り出さない'; return 1; }
+  grep -q 'ASHIATO_APK_ALSO_UNSIGNED' <<<"$(job_block "$file" build-linux)" || { die '番号付けの APK に署名していない APK が足されない'; return 1; }
+}
+
 workflow() {
   local ci="$root/.github/workflows/ci.yml" release="$root/.github/workflows/release.yml" nightly="$root/.github/workflows/nightly.yml"
   [[ -f "$ci" && -f "$release" && -f "$nightly" ]] || die 'workflow が不足している'
+  number_workflow "$root/.github/workflows/number.yml" || return 1
   grep -q 'tools/release/changes.sh code' "$ci" || die 'ci が共有の code 判定を使っていない'
   job_block "$ci" package-linux | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Linux package が code=true でない'
   job_block "$ci" package-windows | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Windows package が code=true でない'
@@ -287,7 +324,7 @@ EOF
   export GH_ENV_RELEASE_JSON="$work/release-env.json"
   local fake_root="$work/tree"
   mkdir -p "$fake_root/.github/workflows"
-  cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
+  cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$root/.github/workflows/number.yml" "$fake_root/.github/workflows/"
   sed '/tools\/release\/build.sh apk/d' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'APK の無い偽 nightly を通した'; fi
   sed '/tools\/release\/build.sh apk/a\      - run: tools/release/sign-apk.sh' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
@@ -361,6 +398,42 @@ EOF
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed 's#version.sh source built/Cargo.toml#version.sh source#' "$ci_saved" >"$work/ci-missing-version.yml" && cp "$work/ci-missing-version.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built 版番号欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  # 番号付けの workflow（ST61 D10・D12）。条件を 1 つ外した偽の number.yml は workflows の検査が落とす
+  local nf="$fake_root/.github/workflows/number.yml" nreal="$root/.github/workflows/number.yml"
+  number_mutant() { # <名前> <sed の式>…（元と同じなら偽の作り損ね）
+    local name="$1"; shift
+    sed "$@" "$nreal" >"$nf"
+    ! cmp -s "$nreal" "$nf" || die "偽の number.yml（$name）が元と同じ"
+    if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "偽の number.yml（$name）を通した"; fi
+    cp "$nreal" "$nf"
+  }
+  CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null || die '本物の number.yml を落とした'
+  echo "== Scenario: main の push の成功した run だけが番号付けを起こす"
+  number_mutant no-push -e "s/github.event.workflow_run.event == 'push' && //"
+  number_mutant no-success -e "s/github.event.workflow_run.conclusion == 'success' && //"
+  number_mutant no-same-repo -e "s/ && github.event.workflow_run.head_repository.full_name == github.repository//"
+  number_mutant no-main -e '/^    branches: \[main\]/d'
+  number_mutant not-ci -e 's/^    workflows: \[ci\]/    workflows: [nightly]/'
+  echo "== Scenario: 番号付けの workflow は、前の組み立てを使い回さず、書く権限をその job にだけ持つ"
+  number_mutant write-in-build -e '/^  build-linux:/,/^  build-windows:/s/^    runs-on: ubuntu-24.04/    runs-on: ubuntu-24.04\n    permissions:\n      contents: write/'
+  number_mutant no-write-in-place -e '/^  place:/,$s/contents: write/contents: read/'
+  number_mutant cache-restore -e 's#^      - uses: actions/setup-node@\(.*\)v6$#      - uses: actions/cache@x\n      - uses: actions/setup-node@\1v6#'
+  number_mutant gradle-cache -e 's/^          java-version: "21"/          java-version: "21"\n          cache: gradle/'
+  number_mutant publish-step -e 's#^      - run: tools/release/number.sh place.*#&\n      - run: gh release edit --draft=false#'
+  number_mutant build-before-number -e '/^  build-windows:/,/^  place:/s/^    needs: number$/    needs: []/'
+  echo "== Scenario: 番号付けは、CI と別の、取り消さない 1 本ずつの流れにある"
+  number_mutant no-concurrency -e '/^    concurrency:/,/^      cancel-in-progress: false/d'
+  number_mutant cancel -e 's/cancel-in-progress: false/cancel-in-progress: true/'
+  echo "== Scenario: 番号付けは、終わった run の commit を全部の履歴で取り出す"
+  number_mutant shallow-number -e '/^  number:/,/^  build-linux:/s/fetch-depth: 0/fetch-depth: 1/'
+  number_mutant shallow-build -e '/^  build-windows:/,/^  place:/s/fetch-depth: 0/fetch-depth: 1/'
+  number_mutant main-head -e '/^  build-linux:/,/^  build-windows:/{/^          ref: /d}'
+  echo "== Scenario: 番号付けを起こさない run は、待っている番号付けを取り消さない"
+  # 組を workflow の単位に置いた偽の number.yml（job の組は外す）
+  awk '/^    concurrency:/{skip=3} skip>0{skip--; next} /^permissions:$/{print "concurrency:\n  group: number\n  cancel-in-progress: false"} {print}' "$nreal" >"$nf"
+  ! cmp -s "$nreal" "$nf" || die '組を workflow の単位に置いた偽の number.yml が元と同じ'
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '組を workflow の単位に置いた偽の number.yml を通した'; fi
+  cp "$nreal" "$nf"
   workflow
   echo "OK: rules・Environment・workflow の守りを検査した"
 }

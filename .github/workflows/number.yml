@@ -1,0 +1,119 @@
+name: number
+# main の push で CI が成功した run の commit に番号の印 build-<番号> を付け、番号で組んだ配布物を下書きのリリースへ置く（ST61 D10・D12）。
+# 判定は tools/release/version.sh number、印と置くのは tools/release/number.sh。YAML には論理を書かない。
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  number:
+    # 同時に走らせない組はこの job に置く（workflow に置くと、条件で飛ばす run が待ちの席を取る。review/spec.md R1）
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    concurrency:
+      group: number
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      number: ${{ steps.decide.outputs.number }}
+      complete: ${{ steps.complete.outputs.complete }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - id: decide
+        run: |
+          tools/release/version.sh number "${{ github.event.workflow_run.head_sha }}" | tee number.txt
+          number="$(sed -n 's/^number=//p' number.txt)"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          if [[ -n "$number" ]]; then tools/release/number.sh tag "$number" "${{ github.event.workflow_run.head_sha }}"; fi
+      # 印が既にあり、下書きに配布物が揃っていれば、組み立てと置く job を飛ばす
+      - id: complete
+        if: steps.decide.outputs.number != ''
+        run: |
+          number="${{ steps.decide.outputs.number }}"
+          complete=no
+          if view="$(gh release view "build-$number" --json isDraft,body,assets 2>/dev/null)" \
+            && [[ "$(jq -r '.isDraft' <<<"$view")" == true ]] \
+            && jq -r '.body' <<<"$view" | grep -qxF "ashiato-build: $number ${{ github.event.workflow_run.head_sha }}" \
+            && [[ "$(jq -r '.assets | length' <<<"$view")" -ge 5 ]]; then complete=yes; fi
+          echo "complete=$complete" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+  build-linux:
+    needs: number
+    if: needs.number.outputs.number != '' && needs.number.outputs.complete != 'yes'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      - run: tools/release/build.sh server-linux "$RUNNER_TEMP/number"
+        env:
+          ASHIATO_RELEASE: "1"
+          ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
+      - run: tools/release/build.sh apk "$RUNNER_TEMP/number"
+        env:
+          ASHIATO_RELEASE: "1"
+          ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
+          ASHIATO_APK_ALSO_UNSIGNED: "1"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: number-linux, path: "${{ runner.temp }}/number" }
+  build-windows:
+    needs: number
+    if: needs.number.outputs.number != '' && needs.number.outputs.complete != 'yes'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: "24" }
+      - run: tools/release/build.sh server-windows "$RUNNER_TEMP/number"
+        shell: bash
+        env:
+          ASHIATO_RELEASE: "1"
+          ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
+      - run: tools/release/build.sh collector-windows "$RUNNER_TEMP/number"
+        shell: bash
+        env:
+          ASHIATO_RELEASE: "1"
+          ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: number-windows, path: "${{ runner.temp }}/number" }
+  place:
+    needs: [number, build-linux, build-windows]
+    if: needs.number.outputs.number != '' && needs.number.outputs.complete != 'yes'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { pattern: number-*, path: number }
+      - run: mkdir -p number/all && find number/number-linux number/number-windows -maxdepth 1 -type f -exec cp {} number/all/ \;
+      - run: tools/release/number.sh place "${{ needs.number.outputs.number }}" "${{ github.event.workflow_run.head_sha }}" number/all
+        env:
+          GH_TOKEN: ${{ github.token }}
