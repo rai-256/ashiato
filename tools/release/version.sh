@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() { echo "NG: $*" >&2; exit 1; }
 usage() {
-  echo "使い方: $0 source [<Cargo.toml>]|major|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|--self-test" >&2
+  echo "使い方: $0 source [<Cargo.toml>]|major|check <版番号>|code <版番号>|order|plan <印>|nightly-plan|number <commit>|--self-test" >&2
   exit 2
 }
 
@@ -167,6 +167,171 @@ nightly_plan() {
   echo "version=$source-dev.$date"
 }
 
+# 番号の印 build-<番号> の一覧を、番号の小さい順に並べる（D7）
+build_numbers() {
+  local name key
+  while IFS= read -r name; do
+    [[ "$name" =~ ^build-[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    key=$(version_sort_key "${name#build-}") || continue
+    printf '%s\t%s\n' "$key" "${name#build-}"
+  done < <(git tag --list 'build-*') | sort -k1,1 | cut -f2
+}
+
+# D4・D5・D7・D13・D14・D15: commit に付ける番号を決める。印は作らない（作るのは number.sh）
+number() {
+  local arg=${1:-} changed first_parent commit main prev prev_commit known="" tagged="" name
+  local left prev_left prev_minor prev_patch minor patch subject parents
+  require_full_history
+  commit=$(git rev-parse --verify "$arg^{commit}" 2>/dev/null) || die "commit が無い: $arg"
+  # 4. 印が既にある commit は、最新の番号でなくても、その番号を返す
+  while IFS= read -r name; do
+    [[ "$name" =~ ^build-[0-9]+\.[0-9]+\.[0-9]+$ ]] && tagged=${name#build-}
+  done < <(git tag --points-at "$commit" --list 'build-*' | sort -V)
+  if [[ -n "$tagged" ]]; then
+    echo "number=$tagged"; echo "reuse=yes"
+    return 0
+  fi
+  main=$(main_ref)
+  # grep -q で早く閉じると rev-list が SIGPIPE で落ち、pipefail が拾うので、一覧を先に取る
+  first_parent=$(git rev-list --first-parent "$main")
+  grep -qx "$commit" <<<"$first_parent" || { echo "number="; echo "main の first-parent の上に無い commit には番号を付けない"; return 0; }
+  prev=$(build_numbers | tail -n1)
+  if [[ -n "$prev" ]]; then
+    prev_commit=$(git rev-parse --verify "refs/tags/build-$prev^{commit}") || die "前の番号の印が読めない: build-$prev"
+    if [[ "$prev_commit" == "$commit" ]] || ! git merge-base --is-ancestor "$prev_commit" "$commit"; then
+      echo "number="; echo "前の番号（$prev）の commit の子孫でない commit には番号を付けない"; return 0
+    fi
+    known=$prev_commit
+  else
+    known=$(git rev-parse --verify "$commit^1" 2>/dev/null) || known=$(git hash-object -t tree /dev/null)
+  fi
+  # 3. 差分が製品に触れるか（判定は PR の CI と同じ changes.sh）
+  # 差分を先に取る（changes.sh が早く閉じると git diff が SIGPIPE で落ち、pipefail が「文書だけ」と誤読する）
+  changed=$(git diff --name-only "$known" "$commit")
+  if ! "$ROOT/tools/release/changes.sh" code <<<"$changed"; then
+    echo "number="; echo "前の番号から製品が変わっていない（docs/・openspec/・*.md だけ）"; return 0
+  fi
+  # 左の数字は、その commit の中のファイルから読む
+  left=$(git show "$commit:tools/release/MAJOR" 2>/dev/null) || die "左の数字のファイルが読めない: $commit"
+  [[ "$left" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${left:-<空>}"
+  left=$((10#$left))
+  if [[ -z "$prev" ]]; then
+    (( left == 0 )) && { minor=2; patch=0; } || { minor=0; patch=0; }
+  else
+    parse_version "$prev"; prev_left=$MAJOR; prev_minor=$MINOR; prev_patch=$PATCH
+    if (( left < prev_left )); then
+      die "左の数字（$left）が前の番号（$prev）より小さい"
+    elif (( left > prev_left )); then
+      minor=0; patch=0
+    else
+      # D5・D15: 前の番号の commit を除く first-parent に確認バッチの merge があれば真ん中を上げる
+      minor=$prev_minor; patch=$((prev_patch + 1))
+      while IFS= read -r subject; do
+        if [[ "$subject" =~ ^Merge\ pull\ request\ \#[0-9]+\ from\ [^/]+/verify/ ]]; then minor=$((prev_minor + 1)); patch=0; break; fi
+      done < <(git log --first-parent --merges --format=%s "$prev_commit..$commit")
+    fi
+  fi
+  # D14: 上限を超える番号は付けない（version_code が超えた数字を示して落ちる）
+  version_code "$left.$minor.$patch" >/dev/null
+  echo "number=$left.$minor.$patch"
+  echo "reuse=no"
+}
+
+number_self_test() {
+  local work d out rc n=0
+  work=$(mktemp -d "${TMPDIR:-/tmp}/version-number-test.XXXXXX")
+  trap 'rm -rf "${work:-}"' RETURN
+  # d <名前>: 使い捨ての木（main・番号の印なし・左は 0）
+  nt_new() {
+    d="$work/$1"; mkdir -p "$d/tools/release" "$d/crates/server/src" "$d/docs"
+    cp "$ROOT/tools/release/version.sh" "$ROOT/tools/release/changes.sh" "$d/tools/release/"
+    echo 0 > "$d/tools/release/MAJOR"; echo 'fn main() {}' > "$d/crates/server/src/lib.rs"; echo doc > "$d/docs/a.txt"
+    git -C "$d" init -q -b main; git -C "$d" config user.email t@example.com; git -C "$d" config user.name t
+    git -C "$d" add .; git -C "$d" commit -q -m base
+  }
+  # nt_merge <枝> <ファイル> [中身]: --no-ff の merge（題は配布元の形）を main に足す
+  nt_merge() {
+    n=$((n + 1))
+    git -C "$d" checkout -q -b "$1"
+    mkdir -p "$(dirname "$d/$2")"
+    if [[ $# -ge 3 ]]; then printf '%s\n' "$3" > "$d/$2"; else echo "$n" >> "$d/$2"; fi
+    git -C "$d" add -A; git -C "$d" commit -q -m "change $n"
+    git -C "$d" checkout -q main
+    git -C "$d" merge -q --no-ff -m "Merge pull request #$n from o/$1" "$1"
+  }
+  nt_tag() { git -C "$d" tag "build-$1" "${2:-HEAD}"; }
+  nt_number() { (cd "$d" && tools/release/version.sh number "${1:-HEAD}" 2>&1); }
+  nt_expect() { # 期待する番号の行
+    out=$(nt_number "${2:-HEAD}") || { echo "$out"; return 1; }
+    grep -qx "number=$1" <<<"$out" || { echo "$out"; return 1; }
+  }
+  nt_refuse() { # 0 でない終了コード・理由・番号なし
+    if out=$(nt_number); then echo "$out"; return 1; fi
+    grep -q "$1" <<<"$out" && ! grep -q '^number=[0-9]' <<<"$out" || { echo "$out"; return 1; }
+  }
+
+  echo "== Scenario: 製品に触れた merge の commit の run が成功すると、次の番号が付く"
+  nt_new product; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  nt_expect 0.2.1 || return 1; grep -qx 'reuse=no' <<<"$out" || return 1
+  echo "== Scenario: 文書だけの merge の commit には番号を付けない"
+  nt_new docs; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge docs/x docs/b.md; nt_merge docs/y openspec/c.md
+  nt_expect '' || return 1
+  echo "== Scenario: 道具だけの merge の commit にも番号が付く"
+  nt_new tool; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge chore/t tools/lanes.json
+  nt_expect 0.2.1 || return 1
+  echo "== Scenario: 取り消された merge の中身は、後の文書だけの merge の番号に入る"
+  nt_new cancelled; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  [[ -z "$(git -C "$d" tag --list 'build-*' --points-at HEAD)" ]] || return 1
+  nt_merge docs/x docs/b.md; nt_expect 0.2.1 || return 1
+  echo "== Scenario: 番号を付けた commit の祖先の run が後から成功しても、番号を付けない"
+  nt_new ancestor; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  local a; a=$(git -C "$d" rev-parse HEAD); nt_merge feat/c crates/server/src/lib.rs; nt_tag 0.2.1
+  nt_expect '' "$a" || return 1
+  echo "== Scenario: 同じ commit の run を走らせ直しても、番号は変わらない"
+  nt_expect 0.2.1 || return 1; grep -qx 'reuse=yes' <<<"$out" || return 1
+  echo "== Scenario: 欠番の commit を走らせ直すと、後の番号が付いていても、その番号を返す"
+  nt_new gap; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs; a=$(git -C "$d" rev-parse HEAD); nt_tag 0.2.1
+  nt_merge feat/c crates/server/src/lib.rs; nt_tag 0.2.2
+  nt_expect 0.2.1 "$a" || return 1; grep -qx 'reuse=yes' <<<"$out" || return 1
+  echo "== Scenario: 番号の印が無い木では、文書だけの merge に番号を付けない"
+  nt_new notag; nt_merge docs/x docs/b.md; nt_expect '' || return 1
+  echo "== Scenario: 最初の番号は 0.2.0"
+  nt_new first; nt_merge feat/a crates/server/src/lib.rs; nt_expect 0.2.0 || return 1
+  echo "== Scenario: 間に確認バッチの merge が無ければ、右の数字が 1 上がる"
+  nt_new patch; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.3; nt_merge fix/x crates/server/src/lib.rs; nt_expect 0.2.4 || return 1
+  echo "== Scenario: 間に確認バッチの merge があれば、真ん中が上がり右が 0 に戻る"
+  nt_new verify-then-docs; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.3
+  nt_merge verify/2026-11-23 crates/server/src/lib.rs; nt_merge docs/x docs/b.md; nt_expect 0.3.0 || return 1
+  echo "== Scenario: 確認バッチの merge 自身の番号は、真ん中が上がる"
+  nt_new verify-self; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.3
+  nt_merge verify/2026-11-23 crates/server/src/lib.rs; nt_expect 0.3.0 || return 1
+  echo "== Scenario: 前の番号の commit が確認バッチの merge でも、次は右が上がる"
+  nt_tag 0.3.0; nt_merge chore/t tools/lanes.json; nt_expect 0.3.1 || return 1
+  echo "== Scenario: 左の数字のファイルを上げると、真ん中と右が 0 になる"
+  nt_new major-up; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.7.12; nt_merge chore/major tools/release/MAJOR 1
+  nt_expect 1.0.0 || return 1
+  echo "== Scenario: 左の数字のファイルを下げると、番号を付けずに止まる"
+  nt_new major-down; nt_merge chore/major tools/release/MAJOR 1; nt_tag 1.0.3; nt_merge chore/major2 tools/release/MAJOR 0
+  nt_refuse '左の数字.*小さい' || return 1
+  echo "== Scenario: 左の数字のファイルが数字 1 つでなければ、番号を付けずに止まる"
+  nt_new major-bad; nt_merge chore/major tools/release/MAJOR 0.1; nt_refuse '数字 1 つでない' || return 1
+  echo "== Scenario: 真ん中か左が上限を超える番号は付けない"
+  nt_new minor-cap; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.999.4; nt_merge verify/2026-11-23 crates/server/src/lib.rs
+  nt_refuse '真ん中の数字が上限 999 を超えた' || return 1
+  nt_new major-cap; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge chore/major tools/release/MAJOR 210
+  nt_refuse '左の数字が上限 209 を超えた' || return 1
+  echo "== Scenario: 携帯の versionCode に収まらない番号は付けない"
+  nt_new patch-cap; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.9999; nt_merge feat/b crates/server/src/lib.rs
+  nt_refuse '右の数字が上限 9999 を超えた' || return 1
+  echo "== Scenario: 組み立てが落ちた番号は、次の commit に回さない"
+  nt_new failed-build; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs; nt_tag 0.2.1
+  nt_merge feat/c crates/server/src/lib.rs; nt_expect 0.2.2 || return 1
+  echo "== Scenario: 浅い木では、番号付けの判定は通らない"
+  git clone -q --depth=1 "file://$d" "$work/shallow-number"
+  if out=$(cd "$work/shallow-number" && tools/release/version.sh number HEAD 2>&1); then return 1; fi
+  grep -q '履歴が浅い' <<<"$out" && ! grep -q '^number=' <<<"$out" || return 1
+}
+
 self_test() {
   local table="$ROOT/tools/release/version-table.tsv" line version expected source left verdict got
   while IFS=$'\t' read -r version expected; do
@@ -208,6 +373,8 @@ self_test() {
   # 先頭の 0 は 10 進数で読む（gradle・Rust と同じ値。/code-review R36）
   [[ "$(version_code 0.010.0)" == 100000 && "$(version_code 0.08.0)" == 80000 ]] || return 1
   [[ "$(version_sort_key 0.08.0)" == "$(version_sort_key 0.8.0)" ]] || return 1
+
+  number_self_test || return 1
 
   local work t base out rc release_base formal_base
   work=$(mktemp -d "${TMPDIR:-/tmp}/version-self-test.XXXXXX")
@@ -318,6 +485,7 @@ case "${1:-}" in
   order) order_versions ;;
   plan) [[ $# == 2 ]] || usage; plan "$2" ;;
   nightly-plan) nightly_plan ;;
+  number) [[ $# == 2 ]] || usage; number "$2" ;;
   --self-test) self_test ;;
   *) usage ;;
 esac
