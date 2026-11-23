@@ -21,6 +21,7 @@ jobs:
   # **比較できないときは全部走らせる**（黙って飛ばさない）。
   changes:
     runs-on: ubuntu-24.04
+    permissions: { contents: read, actions: read }
     outputs:
       code: ${{ steps.f.outputs.code }}
       android: ${{ steps.f.outputs.android }}
@@ -30,9 +31,21 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
+      # main への push は、直前の push でなく「前に成功した main の push の run」の commit を基準にする（design D8）。
+      # 取り消された merge のコードを、文書だけの merge の run が試してから番号が付く。見つからなければ all（全部走らせる）。
+      - id: prev
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PREV_SUCCESS_SHA="$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' || true)"
+          export PREV_SUCCESS_SHA
+          echo "base=$(tools/release/changes.sh base)" >> "$GITHUB_OUTPUT"
       - id: f
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || steps.prev.outputs.base }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -519,13 +532,14 @@ jobs:
           src=""
           if [ "$RUN_SHA" = "$(git rev-parse HEAD)" ]; then
             src=HEAD
-          elif (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader \
-                  GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          elif (auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+                export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader GIT_CONFIG_VALUE_0="$auth"
                 git fetch --quiet --depth=1 origin "$RUN_SHA"); then
             src=FETCH_HEAD
           fi
           if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
-            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
+            WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
+            export WINDOWS_BUILD_KEY_TOOLS
             key="$(tools/release/windows-build-key.sh HEAD)" || key=""
           fi
           [ -n "$key" ] || echo "::warning::組み立ての鍵を出せないので、前の組み立てを引かずにビルドする"
