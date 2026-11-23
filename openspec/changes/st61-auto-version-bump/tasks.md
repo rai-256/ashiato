@@ -64,16 +64,16 @@
 
 ## Task 4: 番号の印と下書きへの置き場（`tools/release/number.sh`）
 
-- [ ] 4.1 `tools/release/number.sh tag <番号> <commit>`（印 `build-<番号>` を作る。同じ commit を指していれば何もしない、別の commit なら落ちる）と `tools/release/number.sh place <番号> <commit> <置き場>`
+- [x] 4.1 `tools/release/number.sh tag <番号> <commit>`（印 `build-<番号>` を作る。同じ commit を指していれば何もしない、別の commit なら落ちる）と `tools/release/number.sh place <番号> <commit> <置き場>`
   （`check-artifacts.sh <置き場> --allow-debug-key --expect-version <番号>` を通し、`gh release view build-<番号>` で今の配布物を読み、無ければ `gh release create build-<番号> --draft --title <番号> --target <commit> --notes "ashiato-build: <番号> <commit>"`、欠けた配布物だけを `gh release upload` で足す。上書き（`--clobber`）・公開・`v*` の操作をしない）を作る（D1（仮）・D2（仮）・D7）。
   `place` は下書きの説明文の `ashiato-build:` の commit が渡した commit と違えば何も書かずに落ち、置く前の `check-artifacts.sh` が落ちれば何も書かない（review/spec.md R3・R10）。
   `--self-test` は偽の `gh` と使い捨ての git の木で次の印を走らせる: `番号の印を作る手順は、印を作る要求だけを出す`・`番号を付けると、下書き 1 つに配布物を置く要求だけを出す`・`配布物の検査に落ちた置き場では、配布元へ何も書かない`・`下書きの説明文の commit が違えば、何も置かずに止まる`・`同じ番号の下書きに配布物が揃っていれば、置き直さない`・`下書きに欠けた配布物があれば、それだけを足す`・
   `番号の印が別の commit を指していれば、何も置かずに止まる`・`番号を付けても main の commit は増えない`（台本の前後で `main` の commit が同じ）
   検証: `tools/release/number.sh --self-test` rc=0
-- [ ] 4.2 `tools/release/build.sh apk` に、署名していない APK を `ashiato-collector-<版番号>-unsigned.apk` の名前で同じ置き場に足す口（環境変数 `ASHIATO_APK_ALSO_UNSIGNED=1`。番号付けの組み立てだけが立てる）を足し、`check-artifacts.sh` が番号の置き場で 5 つ（4 つ + 署名していない APK）を受けるようにする（D2（仮））。
+- [x] 4.2 `tools/release/build.sh apk` に、署名していない APK を `ashiato-collector-<版番号>-unsigned.apk` の名前で同じ置き場に足す口（環境変数 `ASHIATO_APK_ALSO_UNSIGNED=1`。番号付けの組み立てだけが立てる）を足し、`check-artifacts.sh` が番号の置き場で 5 つ（4 つ + 署名していない APK）を受けるようにする（D2（仮））。
   `check-artifacts.sh --self-test` に `番号を付けた配布物の印は、番号と commit を持つ`（番号 `0.2.1` を渡して組んだ 4 つの印が `0.2.1+<commit>` で `.dirty` を持たない）と `署名していない APK は、debug の鍵の APK と同じ組み立て`（2 つの APK の印と versionCode 20001 が同じで、署名していない方は署名を持たない）を足す
   検証: `bash -c 'scripts/quiet-run pkg -- tools/release/check-artifacts.sh --self-test'` rc=0
-- [ ] 4.3 `tools/check-released-migrations.sh` と `tools/check-contract-version.sh` の自己試験に、番号の印 `build-0.2.0`・`build-0.2.1` だけがある木で配った印が 0 個として通る `番号の印は、配った印に数えない` を足す（今の「配った印は `v[0-9]*`」の数え方のままで通ることを固定する）
+- [x] 4.3 `tools/check-released-migrations.sh` と `tools/check-contract-version.sh` の自己試験に、番号の印 `build-0.2.0`・`build-0.2.1` だけがある木で配った印が 0 個として通る `番号の印は、配った印に数えない` を足す（今の「配った印は `v[0-9]*`」の数え方のままで通ることを固定する）
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-contract-version.sh --self-test` rc=0
 
 ## Task 5: 番号付けの workflow（`number.yml`）
