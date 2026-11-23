@@ -192,6 +192,18 @@ workflow() {
   job_block "$nightly" publish | grep -qE '^[[:space:]]+name: nightly[[:space:]]*$' || die 'nightly の公開 job に Environment が無い'
   job_block "$nightly" publish | grep -q 'ASHIATO_EXPECT_DEV_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}' || die 'nightly の開発版指紋が Environment 変数から渡らない'
   if grep -qE 'sign-apk.sh' "$nightly"; then die 'nightly の workflow に署名の論理がある'; return 1; fi
+  # 番号を持たない組み立ては 0.0.x だけを名乗る（D6）。更新の試験の版と、配る形の job に渡す版番号を見る
+  local spec_line spec_versions spec_v
+  spec_line="$(job_block "$ci" package-windows | grep -E 'for spec in ' || true)"
+  spec_versions="$(grep -oE '[0-9][0-9A-Za-z.+-]*:(old|new|dev-old|dev-new|compat-old|compat-new)' <<<"$spec_line" | cut -d: -f1)"
+  [[ -n "$spec_versions" ]] || die '更新の試験の組み立ての版が読めない'
+  for spec_v in $spec_versions; do
+    [[ "$spec_v" == 0.0.* ]] || die "CI の更新の試験の組み立てが 0.0.x でない版を名乗る: $spec_v"
+  done
+  local given_v
+  while IFS= read -r given_v; do
+    [[ "$given_v" == 0.0.* ]] || die "配る形の組み立ての job が番号の形の版番号を渡す: $given_v"
+  done < <(grep -oE 'ASHIATO_BUILD_VERSION:[[:space:]]*"?[^"[:space:],}]*' "$ci" | sed -E 's/^ASHIATO_BUILD_VERSION:[[:space:]]*"?//')
   local head_ref='ref: \${{ github.event.pull_request.head.sha || github.sha }}'
   for job in package-linux package-windows; do
     job_block "$ci" "$job" | grep -q "^[[:space:]]*$head_ref" || die "ci の $job が配布物を組む commit を checkout しない"
@@ -337,6 +349,14 @@ EOF
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
+  echo "== Scenario: CI の更新の試験の組み立ては、0.0.x だけを名乗る"
+  CHECK_GUARDS_ROOT="$root" "$0" workflows >/dev/null 2>&1 || die '本物の ci.yml が 0.0.x の検査を通らない'
+  if sed 's/0\.0\.2:old/0.4.0:old/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '0.4.0 の更新の試験の組み立てを通した'; fi
+  ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（0.4.0）が元と同じ'
+  echo "== Scenario: 配る形の組み立ての job は、番号を版番号に渡さない"
+  if sed '/^  package-linux:$/,/^    steps:$/ s/^    steps:$/    env: { ASHIATO_BUILD_VERSION: 0.2.0 }\n    steps:/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '番号の形の版番号を渡す偽の ci.yml を通した'; fi
+  grep -q 'ASHIATO_BUILD_VERSION: 0.2.0' "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（0.2.0）に版番号が入っていない'
+  cp "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml"
   echo "== Scenario: 公開の job は、署名の前に承認者を確かめる"
   # approvals の行が無いときは、理由（NG の文）を出して落ちる（pipefail で黙って落ちない。final review R7）
   local no_approvals_output

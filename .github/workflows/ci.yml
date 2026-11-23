@@ -570,13 +570,13 @@ jobs:
         run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.4.0 と 0.5.0 など）。
+      # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.0.2 と 0.0.3 など）。
       # 版番号の出所の一致（version.sh・build-stamp）は配る組み立てを守るので緩めず、この runner の木の
       # Cargo.toml の出所の版だけを組むたびに替え、終わったら戻す
       - if: steps.reuse.outputs.cache-hit != 'true'
         run: |
           set_source() { sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"$1\"/" Cargo.toml; }
-          for spec in 0.4.0:old 0.5.0:new 0.4.0-dev.20261115:dev-old 0.5.0-dev.20261116:dev-new 0.4.1:compat-old 0.6.0:compat-new; do
+          for spec in 0.0.2:old 0.0.3:new 0.0.2-dev.20261115:dev-old 0.0.3-dev.20261116:dev-new 0.0.4:compat-old 0.0.5:compat-new; do
             v="${spec%%:*}"; name="${spec#*:}"
             set_source "${v%%-*}"
             [ "$(tools/release/version.sh source)" = "${v%%-*}" ] || { echo "出所の版を ${v%%-*} に替えられない"; exit 1; }
