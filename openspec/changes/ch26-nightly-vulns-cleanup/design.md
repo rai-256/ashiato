@@ -72,6 +72,9 @@ ICU の版（`icuuc67.dll` など）が変わっていれば一覧の名前も�
 1. **Linux（この change の台本）**: `check-ch26.sh minor-swap`（Docker の `postgres:17.6` / `postgres:17.12`。initdb はインストーラと同じ引数。P18）。
    17.6 で置き場を作り、サーバの移行を当てて行を入れる → 同じ置き場を 17.12 で起こし、中身が同じ・移行をもう一度当てても足すものが無い → 17.12 で 1 行足す → 同じ置き場を 17.6 で起こし、中身が同じ → 17.12 の `pg_dump --format=custom` の退避を 17.6 の `pg_restore` で空の DB に戻し、中身が同じ。
    「中身が同じ」は、同じ `pg_dump`（17.12 の像の中のもの。平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて一致することをいう。
+   **退避の戻し（`pg_restore` を通る道。Scenario 4）に限り**、両方の平文の CHECK 制約の行（` CHECK (` を含む行）で、同じ `AND` の連なりの中に入れ子になった `AND` の括弧を平らにしてから比べる（`((a AND b) AND c)` と `(a AND b AND c)` を同じとみなす。本人の決定 Q-impl-2。2026-11-23）。
+   理由: `pg_restore` は式を読み直して `AND` の入れ子を平らに書き直す。17.12 の退避を 17.12 に戻しても同じ 2 行（`event_end_values`・`event_version_end_values`）が違い、小さい版の違いではない（`deep.md` Q-impl-2 の実測）。
+   揃えるのはこの括弧の入れ子だけ: `AND` と `OR` が混ざる組み替え（`(a AND b) OR c` と `a AND (b OR c)`）・式の中の値や演算子・CHECK の外の行の違いは、揃えずに違いとして落とす。置き場の入れ替え（Scenario 1〜3）は揃えずに完全に一致で比べる
    Windows の runner より先に、手元で PostgreSQL の側の約束が崩れていないかを見る（崩れていれば Windows を待たずに止まる）
 2. **Windows（CI）**: `pgsql.lock` を変える PR では、`package-windows` が更新の試験の古い側の zip（`package-windows-test-old`。版 `0.4.0`）だけを **PR が変える前の lock（base との分岐点の lock）** で組み、新しい側（`package-windows-test-new`。版 `0.5.0`）は今の lock で組む。
    `install-windows` は今のまま `tools/release/update-apply-install.sh` に 2 つを渡すので、17.6-1 の zip を入れた上で 17.12-1 の zip で更新し、移行を落として 17.6-1 へ戻す Scenario 群が Windows で走る。lock を変えない PR・main への push の組み立てと試験は今のまま（両方とも今の lock）
@@ -80,7 +83,7 @@ lock は `tools/release/pgsql.sh`（`PGSQL_LOCK_FILE` を読む）のほかに�
 
 この change では Windows の配布物どうしの更新と戻しを本人の PC で見ない（前の tasks 5.1「本人の PC で更新して記録が見えるか」を削った）。本人の PC に入っている配布版の移行は ST64 が扱う。
 
-- **反転条件**: `minor-swap` のどこかで中身が変わる・起きない・戻せない／lock を変えたこの PR の `install-windows` の更新と戻しが、小さい版の違いが原因で落ちる（→ どちらもこの change を止めて A として本人に返す）／インストーラに小さい版で分かれる処理が入った（→ CI の確かめの範囲を見直す）
+- **反転条件**: `minor-swap` のどこかで中身が変わる（退避の戻しで上の括弧の入れ子だけが違うのは、変わったと数えない。それ以外の表記の違いは変わったと数える）・起きない・戻せない／lock を変えたこの PR の `install-windows` の更新と戻しが、小さい版の違いが原因で落ちる（→ どちらもこの change を止めて A として本人に返す）／インストーラに小さい版で分かれる処理が入った（→ CI の確かめの範囲を見直す）
 
 ### D6. 確かめの台本は change の中に置く
 

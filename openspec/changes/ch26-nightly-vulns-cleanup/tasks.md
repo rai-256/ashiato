@@ -67,11 +67,16 @@
     initdb はインストーラと同じ引数で作る（`POSTGRES_INITDB_ARGS` に `--locale-provider=builtin --builtin-locale=C.UTF-8 --encoding=UTF8 --data-checksums`。`crates/installer/src/db.rs` の `initdb_args` から写したと台本の注記に書く）
   - 移行は `cargo build -p ashiato-server` した `ashiato-server migrate` を、`tools/stack.sh` と同じ形でこの DB に向ける: 先に `tools/db-roles.sh` と同じ役割を作り（`tools/stack.sh:101` の渡し方）、`MIGRATE_BACKUP=off`（使い捨て）で走らせる
   - 移行で作られた表の 1 つに行を入れる（NOT NULL の列を埋められる単純な表を移行の SQL から選び、台本の注記に書く）
-  - 「中身が同じ」は、`postgres:17.12` の像の中の `pg_dump`（平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて比べる（design D5）
+  - 「中身が同じ」は、`postgres:17.12` の像の中の `pg_dump`（平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて比べる（design D5）。
+    退避の Scenario（4 つ目）の比べだけは、両方の平文の CHECK 制約の行（` CHECK (` を含む行）で、同じ `AND` の連なりの中の `AND` の括弧の入れ子を平らにしてから比べる（`((a AND b) AND c)` → `(a AND b AND c)`。design D5、本人の決定 Q-impl-2）。`AND` と `OR` が混ざる括弧・CHECK の外の行は揃えない。Scenario 1〜3 は揃えずに比べる
   - 退避の Scenario は、17.12 で起きている DB を 17.12 の `pg_dump --format=custom`（サーバの移行の前の退避と同じ形式。`crates/server/src/migrate_backup.rs`）で取り、`postgres:17.6` の別の容器の空の DB に 17.6 の `pg_restore` で戻して比べる
   - 容器と置き場は `trap` で消す
-  どこかで中身が変わる・起きない・戻せないときは、直そうとせずに止め、design D5 の反転条件として A で人間に返す。
+  どこかで中身が変わる（退避の戻しで上の括弧の入れ子だけが違うのは、変わったと数えない）・起きない・戻せないときは、直そうとせずに止め、design D5 の反転条件として A で人間に返す。
   検証: `scripts/quiet-run ch26-swap -- bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh minor-swap` rc=0
+- [ ] 3.2 退避の戻しの比べ（3.1 の括弧の入れ子を平らにする揃え）を Docker を使わない関数に分け、`check-ch26.sh --self-test` に Scenario「退避の戻しの比べは、括弧の入れ子のほかの違いを同じとみなさない」を印つきで足す（design D5、本人の決定 Q-impl-2）。
+  材料は台本の中に書いた平文の写し（`"$TMPDIR"` の下か `mktemp -d`）で、`deep.md` Q-impl-2 の 2 行の形（`event_end_values` の `((… AND …) AND …)` と、`pg_restore` が平らにした形）を同じと判定し、次の 4 通りをどれも違うと判定する: CHECK の式の値を 1 つ変えた・CHECK の式の演算子を 1 つ変えた（`>=` → `>`）・`AND` と `OR` の組み替え（`(a AND b) OR c` と `a AND (b OR c)`）・CHECK 制約の外の行を 1 行変えた。
+  検証: `bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh --self-test` rc=0
+  検証: `python3 scripts/check_scenarios.py . ch26-nightly-vulns-cleanup` rc=0
 ## Task 4: lock を変える PR では、前の lock の zip から今の lock の zip への更新と戻しを CI の Windows で通す（本人の決定 R2 = C）
 
 - [x] 4.1 `tools/release/pgsql-prev-lock.sh` を作る（design D7（仮）・D8）。サブコマンド `changed <base> <head>`・`decide <前の lock> <今の lock>`・`zip-version <サーバの zip>`・`check-zips <前の lock> <今の lock> <古い側の zip> <新しい側の zip>` を design D8 の形で書く（中身の比べは行末の CR を落として）。
