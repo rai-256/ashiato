@@ -95,6 +95,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R2. Scenario「変えている最中に前の合言葉で照合が通ったログインの印は、変えた後は使えない」の担保が無い（印の先は別の主張を見ている。印の無い試験も含め、サーバの単体は壊した実装で全部通る）
 - 成果物: `crates/server/src/st59_tests.rs:137-158`（印の先 `st59_web_password_rechecks_secrets_after_serialization_permit` は、変える口の照合の間に共有の値を差し替えて 400 `same_as_api_token` を見る。ログインの印は見ていない）/ `:1256-1282`（印の無い `st59_swap_login_cookie_uses_the_old_tag_and_is_revoked_after_swap`）/ tasks 1.1・3.1
@@ -108,6 +109,7 @@
 - 判定: NOT ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）: st59_tests.rs に multi_thread・差し込み口を使うログインの印の試験が足されていない。st59_swap_login_cookie_uses_the_old_tag_and_is_revoked_after_swap（st59_tests.rs:1350）は印の無い単一 thread のまま。tag を書く時点の組にする変異を落とす試験が無い
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R3. Scenario「新しい合言葉が検査に当たれば、何も変わらない」の理由の文字列と 15 文字の境界は、サーバの単体のどれも見ていない
 - 成果物: `crates/server/src/st59_tests.rs:950-983`（`st59_web_password_handler_applies_all_five_validation_rules` は状態の 400 だけを見て本文を読まない。短すぎの入力は `"short"`（5 文字））/ `web_session.rs` の `validate_new_web_password` / spec「どれも 400 で、本文の理由はそれぞれ `too_short`・`placeholder`・…」「15 文字の合言葉」
@@ -119,6 +121,7 @@
 - 判定: NOT ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）: 理由の文字列（too_short など）と 15 文字の境界を固定する試験が差分に無い
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R4. Scenario「変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない」の試験は、設定のファイルを読まずに新しい合言葉を直接渡して組み立てている
 - 成果物: `crates/server/src/st59_tests.rs:1187-1221`（`let rebuilt = app.with_web_login("new-web-password-012345", 0);`）/ tasks 3.1「書き直した `server.json` から組み立て直した `App` で」
@@ -131,6 +134,7 @@
 - 判定: NOT ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）: st59_tests.rs の起動し直しの試験は未変更で、with_web_login で直に渡している。load_settings で server.json を読み直していない
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R5. Scenario「…値は、記録にもログにも応答の見出しにも残らない」の「ログ」は、サーバの単体も `check-log-private.sh` も見ていない
 - 成果物: `crates/server/src/st59_tests.rs:738-805`（`st59_both_change_values_are_not_logged` は読み出しの記録の行と応答の見出しだけを見る。`:1223-1243` も読み出しの記録だけ）/ `tools/check-log-private.sh`
@@ -142,6 +146,7 @@
 - 判定: NOT ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）: tracing の出力を集めて値が無いことを見る試験が差分に無い
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## security review（56fd1c5..8dddaff）
 
@@ -174,6 +179,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## /code-review（56fd1c5..12530a6）
 
@@ -199,6 +205,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R9. When saving fails, the access log still records a successful change. `web_password_post_inner` writes the `ok` row and inserts a new `core.web_session` row before it calls `replace_setting`. If the save then fails, the log holds both `ok`/204 and a 500 row, and the session row stays behind with a tag that never becomes valid. `collector_token_post_checked` (around line 1146) writes its `ok` row before `replace_setting` in the same way. Fix: write the `ok` row, insert the session, and set the cookie only after `replace_setting` succeeds, or delete the session row when the save fails.
 - 成果物: crates/server/src/web_session.rs:837
@@ -210,6 +217,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R10. Argon2id hashing and verification now run on the async worker. `password_verifier` hashes inline in `web_password_post_inner`, and in `collector_token_post_checked`, `generate_collector_token` runs `check_web_password_verifier` and `check_web_session_key_verifier` (two Argon2 verifies) inline, plus a hash in the Plain case. `replace_setting` also does synchronous file I/O and `sync_all` there. All of this happens while the global `LOGIN_CHECK` permit is held. This breaks the rule from review R23 that Argon2 work runs on the blocking side. Fix: wrap the hashing, the token generation and `replace_setting` in `spawn_blocking`.
 - 成果物: crates/server/src/web_session.rs:818
@@ -221,6 +229,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R11. Rewriting `server.json` can loosen its file permissions and leaves a secrets-bearing temp file behind on failure. `replace_setting_at` opens `server.json.writing` with the default mode (0666 minus the process umask, so 0644) and renames it over `server.json`. The original file was created 0600 (`umask 077` in `settings-server.sh`). If `write_all`, `sync_all` or `rename` fails, the half-written file with every secret stays on disk. Fix: on Unix, copy the original file's permissions to the temp file (or create it 0600), and remove the temp file on every error path.
 - 成果物: crates/server/src/service.rs:298
@@ -230,6 +239,7 @@
 - 処置: fixed 2.1
 - 判定: ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R12. The permit is no longer released only after a failure has been counted. Before this change the permit was moved into `spawn_blocking` and dropped after `limiter.record_failure()` (review R78). `check_with_permit_using_secrets` now only borrows it (`let _ = permit`), and the caller's future owns it. If that future is dropped while it awaits `spawn_blocking`, the permit is released before the failure is counted. `run_to_completion` hides this today, but the guarantee is gone, and `check_with_permit` called directly (as in the tests) shows it. Fix: pass an owned permit into the blocking closure again, for example `Arc` or the owned guard.
 - 成果物: crates/server/src/web_session.rs:1305
@@ -241,6 +251,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: NOT ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）: web_session.rs:1447-1452 runs the blocking check without the permit or limiter, and record_failure() runs afterwards in the caller's future. If that future is dropped during the await, the permit is released before the failure is counted, or the failure is never counted. The R19 change reintroduced the original defect.
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R13. While login is throttled, the new endpoints still queue on the global permit before refusing. `check_given_password_with_secrets` checks `limiter.throttled()` before it waits for the permit and before it reads the body (reviews R4 and R5). `web_password_post_inner` and `collector_token_post_checked` call `login_check_permit().await` directly, so they skip that early check. Fix: check `app.login.limiter.throttled()` before acquiring the permit, as `check_given_password_with_secrets` does.
 - 成果物: crates/server/src/web_session.rs:773
@@ -252,6 +263,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## settle_review（re-review 1 @30859ae）: 処置の直しが新しく壊したもの
 
@@ -263,6 +275,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R15. web_password の core.web_session INSERT が replace_setting の後なので、INSERT の失敗で server.json だけ新しい値に変わり、メモリの組は旧いまま残る。ok 行の失敗には巻き戻しがあるが、INSERT の失敗には無い。
 - 成果物: crates/server/src/web_session.rs
@@ -272,6 +285,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R16. settings_before の同期 std::fs::read が async 側にある。巻き戻しの std::fs::write は非原子的。
 - 成果物: crates/server/src/web_session.rs
@@ -281,6 +295,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R17. access-log 失敗の試験を、server.json のバイト比較から JSON 比較へ緩めた。理由は報告に無い。
 - 成果物: crates/server/src/st59_tests.rs
@@ -289,6 +304,7 @@
 - 処置: fixed 4.2
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## settle_review（re-review 2 @8e06140）: 処置の直しが新しく壊したもの
 
@@ -306,6 +322,7 @@
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R20. 巻き戻しの restore_setting の失敗を let _ で捨てている。巻き戻しが失敗すると、server.json だけ新しい値のまま無言で残る。
 - 成果物: crates/server/src/web_session.rs
@@ -314,6 +331,7 @@
 - 処置: fixed D4
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## settle_review（re-review 3 @fa28ee9）: 処置の直しが新しく壊したもの
 
@@ -323,6 +341,7 @@
 - kind: technical
 - 処置: fixed D1
 - 判定: ADDRESSED（re-review 4 @ee677eb666b27ffaff72da4fdae6281d3ead1981）
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## final review（56fd1c5..2b27dc1）
 
@@ -334,6 +353,7 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: technical
 - 提案: 2 つの関数を消す（`REQUEST_SECRETS` の scope も読み手が無ければ外す）。HEAD で 9.1 の全体（fmt・clippy の linux と windows-gnu・`cargo test --workspace`・`check-openapi.sh` ほか）を `scripts/verify-run 9.1` で取り直す
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R23. R9 の処置で、変える口の読み出しの記録の順が spec と design の定めと逆になった。Scenario の印の先の試験も、印と逆の主張を見ている
 - 成果物: `crates/server/src/web_session.rs`（`:885-906` の `/web-password`、`:1249-1270` の `/collector-token`）/ `crates/server/src/st59_tests.rs`（`:677-772`）
@@ -349,6 +369,7 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: technical
 - 提案: 1 文目を足し、e2e で案内の全文を見る
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R25. ST59 の試験と ST55 の試験が、別の鍵で同じ環境変数（`ASHIATO_SETTINGS_PATH`・`ASHIATO_SERVICE_MODE`）を書き換える。並列に走ると時々落ちる
 - 成果物: `crates/server/src/st59_tests.rs`（`:67` の `ST59_SETTINGS_LOCK`、手で戻している `:593-620`・`:899-920`・`:1229-1251`）/ `crates/server/src/st55_tests.rs`（`:14` の `ENV_LOCK`、`:607-619`）
@@ -356,6 +377,7 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: technical
 - 提案: 鍵を 1 つにする（`ENV_LOCK` を `pub(crate)` にして共有する）。手で戻している所を drop で戻す guard にそろえる
 - 処置: fixed 9.1
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R26. 今の合言葉が違ったとき、変える 2 つの口は照合の印（`LOGIN_CHECK`）を持ったまま失敗の遅れを待つ。その間ほかの全部のログインが止まる（Minor）
 - 成果物: `crates/server/src/web_session.rs`（`:833-843`、`:1202-1218`）
@@ -363,6 +385,7 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: technical
 - 提案: 印を放してから `failure_delay` を待つ
 - 処置: fixed D1
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
 
 ## R27. 変える口の 500 の一部で、原因がログにも読み出しの記録にも残らない（Minor）
 - 成果物: `crates/server/src/web_session.rs`（`:890-906`・`:1253-1269` の `not_saved` の `_ =>`、`:920` の印の行の INSERT の失敗、`:864-883` の衝突の検査の失敗、spawn_blocking の JoinError）
@@ -370,3 +393,4 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - kind: technical
 - 提案: `tracing::warn!(reason = %e)` を出し、500 で返す道でも `forbidden`/500 の行を書く
 - 処置: fixed D9
+- 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
