@@ -197,6 +197,8 @@ workflow() {
   for nightly_job in package-linux package-windows publish; do
     job_block "$nightly" "$nightly_job" | grep -q 'ref: "\${{ needs.plan.outputs.commit }}"' || die "nightly の $nightly_job が判定の commit を取り出さない"
   done
+  job_block "$nightly" plan | grep -q 'commit: \${{ steps.plan.outputs.commit }}' || die 'nightly の判定 job が commit を outputs に出さない'
+  job_block "$nightly" plan | grep -qF "grep -E '^(build|publish|version|commit)='" || die 'nightly の判定 job が commit を出力へ写さない'
   job_block "$nightly" publish | grep -q 'publish-nightly.sh .*needs.plan.outputs.commit' || die 'nightly の公開が印 nightly を判定の commit へ動かさない'
   # 番号を持たない組み立ては 0.0.x だけを名乗る（D6）。更新の試験の版と、配る形の job に渡す版番号を見る
   local spec_line spec_versions spec_v
@@ -357,6 +359,10 @@ EOF
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'ref の無い偽 nightly を通した'; fi
   sed 's/ "\${{ needs.plan.outputs.commit }}"$//' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '印 nightly の先に commit を渡さない偽 nightly を通した'; fi
+  sed '/^      commit: /d' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'commit を outputs に出さない偽 nightly を通した'; fi
+  sed 's/|version|commit)=/|version)=/' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'commit を出力へ写さない偽 nightly を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
