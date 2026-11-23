@@ -15,6 +15,8 @@ import {
 import { msg } from "./messages";
 import { SatellitesPanel } from "./SatellitesPanel";
 import { CollectorSetupPanel } from "./CollectorSetupPanel";
+import { CollectorTokenChangePanel } from "./CollectorTokenChangePanel";
+import { WebPasswordChangePanel } from "./WebPasswordChangePanel";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
 import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
@@ -168,6 +170,9 @@ export function SettingsView(): React.ReactElement {
       </header>
 
       <CollectorSetupPanel colors={c} />
+      <p style={{ margin: "8px 0" }}>{msg("secretChange").warning}</p>
+      <WebPasswordChangePanel colors={c} />
+      <CollectorTokenChangePanel colors={c} />
       <SatellitesPanel colors={c} />
 
       <section data-testid="update-section" aria-labelledby="update-title" style={sectionStyle(c, c.surface1)}>

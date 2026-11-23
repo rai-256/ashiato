@@ -616,8 +616,8 @@ pub fn take_updater_ownership_command(layout: &Layout) -> SetupCommand {
     icacls([layout.updater_dir, "/setowner", "*S-1-5-32-544", "/T", "/C"])
 }
 
-/// インストーラ（上がった利用者）が書く段の間だけ書きを足す置き場（D21）。どちらもインストーラだけが
-/// 書く置き場で、中のファイルの持ち主もインストーラなので、ACL の変更が中へ届く。
+/// インストーラ（上がった利用者）が書く段の間だけ書きを足す置き場（D21）。設定はサーバも
+/// `server.json` を安全な一時ファイル経由で書くが、移行の前の退避はインストーラだけが書く。
 /// サービスが書く置き場（根の `logs\server`・`db\17` など）へは一時の書きを足さない
 /// （持ち主がサービスのアカウントのファイルへは ACL の変更が届かない）。
 pub fn temporary_write_paths(layout: &Layout) -> [String; 2] {

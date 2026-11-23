@@ -9,11 +9,12 @@ use chrono::NaiveDate;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// 環境変数（書き出し・原本の置き場・設定のファイルの場所）を触る試験を 1 本ずつ走らせる。
-/// 並ぶと、ほかの試験が置いた `ASHIATO_EXPORT_DIR` を読んでしまう。
+/// 環境変数（書き出し・原本の置き場・設定のファイルの場所・サービスの形）を触る試験を 1 本ずつ走らせる。
+/// 並ぶと、ほかの試験が置いた `ASHIATO_EXPORT_DIR` を読んでしまう。ST59 の試験も同じ鍵を使う
+/// （`ASHIATO_SETTINGS_PATH`・`ASHIATO_SERVICE_MODE` を取り合う。ST59 review/code.md R25）。
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
