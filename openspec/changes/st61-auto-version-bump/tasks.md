@@ -105,8 +105,9 @@
 - [ ] 8.1 `tools/release/version.sh plan <印>` を D11 にする: 印の commit に `build-<番号>` の印があり、印の 3 つの数字がその番号と同じときだけ通す。番号の無い commit は「印の commit に番号が無い」で落ちる。
   修正の枝 `release/*` の例外を消す（main の祖先でなければ落ちる）。`--self-test` の 4 つの修正の枝の Scenario（REMOVED）を消し、印 `印の版とその commit の番号が違えば公開しない`・`番号の無い commit の印は公開しない`・`修正の枝の印も、main の祖先でなければ公開しない` を足し、
   `浅い木では、印の判定は通らない`・`正式版の印は、通常のリリースと判定される`・`ベータ版の印で、先行公開のリリースになる`・`main の祖先でない commit の印は公開しない` の木に番号の印を足す。`docs/release.md` の修正の枝の節を消し、壊れた版は main で直して次の番号に印を付ける手順にする
-  検証: `tools/release/version.sh --self-test` rc=0 / `bash -c '! grep -nF "release/" tools/release/version.sh'` rc=0（修正の枝の分岐 `refs/remotes/origin/release/*` を消した）
+  検証: `tools/release/version.sh --self-test` rc=0 / `tools/release/check-no-release-branch.sh` rc=0（修正の枝の分岐 `refs/remotes/origin/release/*` を消した）
 
+  （訂正 2026-11-23: 検証の入口を「bash -c '! grep -nF "release/" tools/release/version.sh'」から上の入口に。受け入れ条件は変えない。理由: version.sh は tools/release/ のパスを 48 か所で正当に持つので grep -F release/ は原理的に通らない。消すのは修正の枝の分岐（release/<数字>・origin 上の release/）で、それだけを見る台本に置き換える 実証: evidence.jsonl 2026-11-23T03:37:24+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-23T03:37:33+00:00 PASS。記録: plan-corrections.md）
 ## Task 9: 開発版の作り直しを最新の番号の commit から組む（移る間）
 
 - [ ] 9.1 `tools/release/version.sh nightly-plan` を D11 にする: 最新の番号の commit を選び `commit=<40 桁>` の行を足して出す。番号が無ければ `build=no` と「番号がまだ無い」。版番号は `<番号>-dev.<日本時間の YYYYMMDD>`。出所の版の正式版の判定を消す。
