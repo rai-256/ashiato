@@ -621,6 +621,29 @@ mod ch15 {
         assert_eq!(check.await, web_session::PasswordCheck::Mismatch);
     }
 
+    /// 照合の future を blocking の照合の途中で捨てても、失敗を数えてから印を放す（ST59 review/code.md R12・R21。review R78 の保証）。
+    /// 印が future の側にあると、捨てた時点で印が放され、次の照合は数える前の数で上限をすり抜ける。
+    #[tokio::test]
+    async fn st59_dropped_check_counts_failure_before_releasing_permit() {
+        let app = verifier_app().await;
+        let permit = web_session::hold_login_check_for_test().await;
+        let mut check = Box::pin(web_session::check_with_permit(
+            &app,
+            "wrong-password-0123456789".to_owned(),
+            permit,
+        ));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        // 1 回 poll して blocking の照合を始め、その await の途中で future を捨てる
+        assert!(std::future::Future::poll(check.as_mut(), &mut cx).is_pending());
+        drop(check);
+        let _next = web_session::hold_login_check_for_test().await;
+        assert_eq!(
+            web_session::recorded_failures_for_test(&app),
+            1,
+            "次の照合が印を取れた時点で、捨てた照合の失敗は数え終わっている"
+        );
+    }
+
     /// 取り消された求めの照合も、行を残してから終わる（data-sensitivity「1 件ごとに 1 行」。review/code.md R1）。
     #[tokio::test]
     async fn ch15_verifier_cancelled_requests_still_leave_a_row() {

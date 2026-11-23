@@ -234,6 +234,79 @@ pub fn load_settings(path: &Path) -> Result<Settings, SettingsError> {
     Ok(Settings(values))
 }
 
+/// 設定の書き戻しに失敗した理由。秘密の値やパスは含めない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsWriteError {
+    PathMissing,
+    InvalidKey,
+    Read(SettingsError),
+    Write,
+    Rename,
+}
+
+impl std::fmt::Display for SettingsWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reason = match self {
+            Self::PathMissing => "settings_path_missing",
+            Self::InvalidKey => "settings_key_invalid",
+            Self::Read(_) => "settings_read_failed",
+            Self::Write => "settings_write_failed",
+            Self::Rename => "settings_rename_failed",
+        };
+        f.write_str(reason)
+    }
+}
+
+impl std::error::Error for SettingsWriteError {}
+
+/// ASHIATO_SETTINGS_PATH の server.json の 1 つの秘密だけを書き戻す。
+///
+/// 現在のファイルを読み直してから書きかけのファイルを同期し、最後に名前を替える。
+/// そのため、書き込みや名前変更に失敗した場合も本来のファイルは変更しない。
+pub fn replace_setting(key: &str, value: &str) -> Result<(), SettingsWriteError> {
+    let path = std::env::var_os("ASHIATO_SETTINGS_PATH")
+        .map(std::path::PathBuf::from)
+        .ok_or(SettingsWriteError::PathMissing)?;
+    replace_setting_at(&path, key, value)
+}
+
+/// 指定した `server.json` の 1 つの秘密だけを書き戻す。
+pub fn replace_setting_at(path: &Path, key: &str, value: &str) -> Result<(), SettingsWriteError> {
+    if !matches!(key, "WEB_PASSWORD_VERIFIER" | "API_TOKEN") {
+        return Err(SettingsWriteError::InvalidKey);
+    }
+    let mut settings = load_settings(path).map_err(SettingsWriteError::Read)?;
+    settings.0.insert(key.to_owned(), value.to_owned());
+    let temporary = path.with_file_name("server.json.writing");
+    let bytes = serde_json::to_vec_pretty(&settings.0).map_err(|_| SettingsWriteError::Write)?;
+    let write_result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|_| SettingsWriteError::Write)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path)
+                .map_err(|_| SettingsWriteError::Write)?
+                .permissions()
+                .mode();
+            file.set_permissions(std::fs::Permissions::from_mode(mode))
+                .map_err(|_| SettingsWriteError::Write)?;
+        }
+        file.write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| SettingsWriteError::Write)?;
+        std::fs::rename(&temporary, path).map_err(|_| SettingsWriteError::Rename)
+    })();
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    write_result
+}
+
 /// 設定をこのプロセスの環境へ反映する。親プロセスやログへ値を返さない。
 pub fn apply_settings(settings: &Settings) {
     for (key, value) in &settings.0 {
