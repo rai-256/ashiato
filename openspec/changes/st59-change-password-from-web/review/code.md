@@ -394,3 +394,25 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - 提案: `tracing::warn!(reason = %e)` を出し、500 で返す道でも `forbidden`/500 の行を書く
 - 処置: fixed D9
 - 判定: ADDRESSED（re-review 5 @a5aade2581f7fc59877526a3af4625e7e94ef23f）
+
+## final review（56fd1c5..c05e580）
+
+2 回目の whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.superpowers/sdd/tasks/review-56fd1c5a8..c05e580c9.diff`）の指摘。R22〜R27 の直し（2b27dc1..HEAD）で新しく壊れたもの・ADDRESSED の再発は無い（記録の順・`LOGIN_CHECK` の持ち方・失敗の数え・試験の環境の鍵を確かめた）。Critical・Important は無く、Minor 3 件。Task の ⚠️: task-9「R24 の後に e2e を走らせていない」は解消（6.1 の e2e を取った tree の `messages.ts`・`st59-change-secrets.spec.ts`・`web_session.rs` は HEAD と同じ blob）。Windows の rename と `server.json` の ACL（T2・T7）は未検証のまま、PR の CI の `install-windows` で確かめる。
+
+## R28. 書き戻しに落ちた後、打ち消しの行の INSERT も落ちると、`not_saved` でなく本文 `internal error` の 500 になり、理由もログに出ない（Minor）
+- 成果物: `crates/server/src/web_session.rs`（`:949` の `/web-password`、`:1321` の `/collector-token` の `app.access.write(failed()).await?`）
+- 根拠: 書き戻しの失敗の後は `?` で抜けるので、記録には `ok` の行だけが残り（値は変わっていない）、画面には「値は変わっていません」が出ない。spec（data-sensitivity「行を書いた後に値を書き戻せなかったとき」）はこの二重の失敗を定めていない。行が多い側への誤りで、害は小さい
+- kind: technical
+- 提案: 打ち消しの行の書き込みに落ちたときも理由を warn に出し、`not_saved` の 500 を返す。spec は直さない
+
+## R29. R27 の試験は書き戻しの失敗の道だけを見ている。ほかの 500 の道で `forbidden`/500 の行と warn が出ることは確かめていない（Minor）
+- 成果物: `crates/server/src/st59_tests.rs` / `crates/server/src/web_session.rs`（`:866-934`・`:1290-1302` の hash の失敗・衝突の検査・印の行の INSERT の失敗）
+- 根拠: final reviewer の読み。差し込み口が無いので起こしにくい。衝突の検査の `Ok(false)` は `validate_new_web_password` が先に同じ値を断るので通らない守りの道
+- kind: technical
+- 提案: 起こせる道（例: 印の行の INSERT の失敗）だけでも試験を足すか、起こせない理由を試験の近くに書く
+
+## R30. `Ok(Err)` と `Err(JoinError)` の分岐で、warn・行・500 の同じ 3 行が 2 つの口で計 4 回繰り返されている（Minor・nit）
+- 成果物: `crates/server/src/web_session.rs`（`:873-882`・`:903-912`・`:1293-1302`）
+- 根拠: final reviewer の読み。`not_saved_reason`（`:974`）と同じ形で理由を `String` にまとめられる
+- kind: technical
+- 提案: 理由を `String` にする小さな関数にまとめ、分岐を 1 つにする
