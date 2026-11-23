@@ -8,7 +8,7 @@ quiet_build() {
   "$@" >"$log" 2>&1 || { tail -n 40 "$log" >&2; return 1; }
 }
 . "$root/tools/release/android-tools.sh"
-usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] [--expect-license <ファイル>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
+usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] [--expect-license <ファイル>] | check <置き場> [...] | apk-version --expect-version <版番号> <apk...> | apk-build <版番号> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
 
 apk_dump() {
   local apk="$1"; [ -f "$apk" ] || die "APK が無い: $apk"
@@ -73,17 +73,33 @@ apk_version() {
   [ -n "$line" ] || die "APK の版番号が読めない: $apk"
   version_code="${line#versionCode=\'}"; version_code="${version_code%%\'*}"
   version_name="${line#*versionName=\'}"; version_name="${version_name%\'}"
-  expected_code="$("$root/tools/release/version.sh" code "$version_name")" || die "APK の versionName が不正: $version_name"
   echo "== Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値"
-  if [ -n "$want" ]; then
-    # 渡した版番号と比べる（APK 自身の versionName から計算するだけでは、渡した値を無視しても通る。code_verify R25）
-    [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
-    expected_code="$("$root/tools/release/version.sh" code "$want")"
-  fi
+  # 渡した版番号と必ず比べる（APK 自身の versionName から計算するだけでは、渡した値を無視した APK や、
+  # 置き場に残った別の組み立ての APK でも通る。code_verify R25・code-verify R4）
+  [ -n "$want" ] || die "比べる版番号（--expect-version）が無い: $apk"
+  [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
+  expected_code="$("$root/tools/release/version.sh" code "$want")" || die "渡した版番号が不正: $want"
   [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
   # 式を通さない固定の値でも見る（D3: 0.4.0-beta.2 は 左 0・真ん中 4・右 0 で 40000）
   [ "$version_name" != 0.4.0-beta.2 ] || [ "$version_code" = 40000 ] || die "0.4.0-beta.2 の APK の versionCode が 40000 でない: $line"
   echo "OK: $line"
+}
+
+# 渡した版番号で携帯の release を組み、組んだ APK の版を渡した版番号と比べる（tasks 2.2）。
+# 前の組み立ての APK を拾わないよう、組む前に置き場を空にする（code-verify R4）
+apk_build() {
+  local v="$1" out="$root/collector-android/app/build/outputs/apk/release" apk n=0 log
+  "$root/tools/release/version.sh" check "$v" >/dev/null
+  rm -rf "$out"
+  log="$(mktemp "${TMPDIR:-/tmp}/apk-build.XXXXXX")"
+  quiet_build "$log" env ASHIATO_BUILD_VERSION="$v" "$root/collector-android/gradlew" -p "$root/collector-android" :app:assembleRelease \
+    || { rm -f "$log"; die "携帯の release を組めない（版番号 $v）"; }
+  rm -f "$log"
+  for apk in "$out"/*.apk; do
+    [ -f "$apk" ] || continue
+    apk_version "$apk" "$v"; n=$((n + 1))
+  done
+  [ "$n" -ge 1 ] || die "組んだ APK が無い: $out"
 }
 
 artifact_stamp() {
@@ -771,6 +787,10 @@ self_test() {
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
   grep -Fq '渡した版番号と違う' <<<"$output" || { echo "$output"; return 1; }
+  # 比べる版番号を渡さなければ、APK 自身の版だけで通さない（code-verify R4）
+  if output=$("$0" apk-version "$real/ashiato-collector-$v.apk" 2>&1); then return 1; fi
+  if output=$( (apk_version "$real/ashiato-collector-$v.apk" "") 2>&1); then return 1; fi
+  grep -Fq -- '--expect-version' <<<"$output" || { echo "$output"; return 1; }
   local nightly="$work/nightly"; mkdir -p "$nightly"
   local nightly_version="$v-dev.20261102"
   echo "== Scenario: 開発版のリリースの配布物は、開発版の APK を含む 4 つで、同じ版番号を持つ"
@@ -844,9 +864,11 @@ self_test() {
 }
 
 case "${1:-}" in
-  apk-version) shift; want=
-    if [ "${1:-}" = --expect-version ]; then [ "$#" -ge 2 ] || usage; want="$2"; shift 2; fi
+  apk-version) shift
+    [ "${1:-}" = --expect-version ] && [ "$#" -ge 2 ] || usage
+    want="$2"; shift 2
     [ "$#" -ge 1 ] || die "APK が無い"; for apk in "$@"; do apk_version "$apk" "$want"; done ;;
+  apk-build) [ "$#" = 2 ] || usage; apk_build "$2" ;;
   --self-test) self_test ;;
   --self-test-android) self_test_android ;;
   apk-label) [ "$#" = 2 ] || usage; apk_label "$2" ;;

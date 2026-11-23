@@ -279,6 +279,29 @@ EOF
   expect_fail '説明文' -- run_gh "$ns" place "$number" "$c_b" "$good" || return 1
   no_writes || return 1
 
+  echo "== 下書きでない（公開済みの）release には、配布物が欠けていても何も置かない"
+  # 人が下書きを公開した後に番号付けが走り直したとき（code-verify R5）。揃い方も揃っていないと答える
+  reset_gh
+  jq -n --arg b "ashiato-build: $number $c_b" '{isDraft: false, body: $b, assets: []}' >"$state/release.json"
+  expect_fail '下書きでない' -- run_gh "$ns" place "$number" "$c_b" "$good" || return 1
+  no_writes || return 1
+  jq -n --arg b "ashiato-build: $number $c_b" '{isDraft: false, body: $b, assets: []}' >"$state/release.json"
+  while IFS= read -r name; do
+    jq --arg n "$name" '.assets += [{name: $n}]' "$state/release.json" >"$state/r.new"; mv "$state/r.new" "$state/release.json"
+  done < <(expected_names "$number")
+  [[ "$(run_gh "$ns" complete "$number" "$c_b")" == complete=no ]] || { echo "公開済みの release を揃っていると読んだ"; return 1; }
+  jq '.isDraft = true' "$state/release.json" >"$state/r.new"; mv "$state/r.new" "$state/release.json"
+  [[ "$(run_gh "$ns" complete "$number" "$c_b")" == complete=yes ]] || { echo "下書きに戻すと揃っていると読まない"; return 1; }
+  no_writes || return 1
+
+  echo "== 手元の印が別の commit を指していれば、配布元へ push せずに止まる"
+  : >"$pushes"
+  git -C "$d" tag build-0.2.9 "$c_a"
+  expect_fail '手元の印' -- "$ns" tag 0.2.9 "$c_b" || return 1
+  [[ ! -s "$pushes" ]] || { echo "配布元へ push した"; cat "$pushes"; return 1; }
+  [[ -z "$(git -C "$bare" tag --list build-0.2.9)" ]] || return 1
+  git -C "$d" tag -d build-0.2.9 >/dev/null
+
   echo "== Scenario: 番号を付けても main の commit は増えない"
   # 製品に触れる merge を足した木で、判定（version.sh number）→ 印 → 置くを走らせ、main は前と同じ
   git -C "$d" checkout -q -b feat/p

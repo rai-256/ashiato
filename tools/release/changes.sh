@@ -20,10 +20,14 @@ deps() {
 }
 
 # main への push の差分の基準（design D8）。前に成功した main の push の run の commit（workflow が
-# 環境変数 PREV_SUCCESS_SHA に渡す）が、この木にあればその commit を、空・木に無ければ all を返す。
+# 環境変数 PREV_SUCCESS_SHA に渡す）が、この木にあり HEAD の祖先（HEAD 自身を除く）ならその commit を、
+# 空・木に無い・祖先でなければ all を返す。祖先でない commit（後の commit の run が先に成功した・走らせ直した・
+# force-push で消えた）を基準にすると、差分が HEAD の変更を写さず、コードの job を飛ばす（/code-review R7）。
 base() {
-  local sha="${PREV_SUCCESS_SHA:-}"
-  if [[ -n "$sha" ]] && git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+  local sha="${PREV_SUCCESS_SHA:-}" commit head
+  if [[ -n "$sha" ]] && commit=$(git rev-parse --verify -q "${sha}^{commit}") \
+    && head=$(git rev-parse --verify -q 'HEAD^{commit}') && [[ "$commit" != "$head" ]] \
+    && git merge-base --is-ancestor "$commit" "$head"; then
     echo "$sha"
   else
     echo all
@@ -63,6 +67,21 @@ self_test() {
     [[ "$got" == all ]] || { echo "NG: 未設定で all でない: $got" >&2; exit 1; }
     got="$(PREV_SUCCESS_SHA=0123456789012345678901234567890123456789 "$self" base)"
     [[ "$got" == all ]] || { echo "NG: 木に無い commit で all でない: $got" >&2; exit 1; }
+
+    echo "== 前に成功した run の commit が HEAD の祖先でなければ、全部走らせる"
+    # 製品に触れた C1 の run を、後の C2（文書だけ）の run が成功した後に走らせ直す（/code-review R7）
+    local c1 c2; c1="$(git rev-parse HEAD~1)"; c2="$(git rev-parse HEAD)"
+    git checkout -q "$c1"
+    got="$(PREV_SUCCESS_SHA="$c2" "$self" base)"
+    [[ "$got" == all ]] || { echo "NG: 子孫の commit を基準にした: $got" >&2; exit 1; }
+    # 同じ commit（走らせ直し）も差分が空になるので基準にしない
+    got="$(PREV_SUCCESS_SHA="$c1" "$self" base)"
+    [[ "$got" == all ]] || { echo "NG: HEAD 自身を基準にした: $got" >&2; exit 1; }
+    # 枝分かれした commit（force-push で消えた側）も基準にしない
+    git checkout -q -b gone "$good"; echo 4 >crates/x/a.rs; git commit -qam gone; local gone; gone="$(git rev-parse HEAD)"
+    git checkout -q "$c2"
+    got="$(PREV_SUCCESS_SHA="$gone" "$self" base)"
+    [[ "$got" == all ]] || { echo "NG: 祖先でない commit を基準にした: $got" >&2; exit 1; }
   )
   echo "changes.sh self-test: OK"
 }

@@ -66,13 +66,22 @@ pub fn version(source: &str) -> Result<String, String> {
             path.display()
         )
     })?;
-    let major = text.trim().parse::<u64>().map_err(|_| {
+    let major = parse_major(&text).ok_or_else(|| {
         format!(
             "左の数字のファイルが数字 1 つでない: {:?}、出所 {source}、渡した版番号 {given}",
             text.trim()
         )
     })?;
     check_version(source, &given, major)
+}
+
+/// 左の数字のファイルの中身を読む。前後の空白を落とし、残りが ASCII の数字だけのときだけ値を返す
+/// （`parse` は `+0` も通す。bash・gradle・画面の `^\d+$` と同じにする。/code-review R9）。
+fn parse_major(text: &str) -> Option<u64> {
+    let value = text.trim();
+    (!value.is_empty() && value.chars().all(|c| c.is_ascii_digit()))
+        .then(|| value.parse::<u64>().ok())
+        .flatten()
 }
 
 /// 左の数字・真ん中・右の上限（versionCode の式 D3 の内側）。
@@ -451,6 +460,17 @@ mod tests {
             assert!(error.contains(given), "{given}: {error}");
         }
         std::env::remove_var(VERSION_ENV);
+    }
+
+    #[test]
+    fn st61_major_file_accepts_only_digits() {
+        // 左の数字のファイルは数字 1 つだけ。符号・中の空白・空は断り、前後の空白（CRLF）は落とす（/code-review R9）
+        for text in ["+0", "-0", "0 0", "", " ", "0.1", "x"] {
+            assert_eq!(parse_major(text), None, "{text:?}");
+        }
+        for (text, want) in [("0", 0), ("0\r\n", 0), (" 1 \n", 1), ("209", 209)] {
+            assert_eq!(parse_major(text), Some(want), "{text:?}");
+        }
     }
 
     #[test]

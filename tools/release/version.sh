@@ -26,11 +26,19 @@ parse_version() {
   return 1
 }
 
+# 前後の空白（CRLF の取り出しの \r を含む）を落とす。Rust・gradle・画面の trim と同じ（/code-review R6）
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  printf '%s' "${value%"${value##*[![:space:]]}"}"
+}
+
 # 左の数字（tools/release/MAJOR）。数字 1 つでなければ落ちる（D9）
 major_file() {
   [[ -z "${1:-}" ]] && set -- "$ROOT/tools/release/MAJOR"
   local value
   value=$(cat "${1:-$ROOT/tools/release/MAJOR}" 2>/dev/null) || die "左の数字のファイルが読めない: ${1:-$ROOT/tools/release/MAJOR}"
+  value=$(trim "$value")
   [[ "$value" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${value:-<空>}"
   echo $((10#$value))
 }
@@ -50,7 +58,9 @@ check_rule() {
   local value="$1" expected="$2" major="$3" value_major value_minor value_patch
   parse_version "$value" || die "版番号の形が違う: $value"
   value_major=$MAJOR; value_minor=$MINOR; value_patch=$PATCH
-  parse_version "$expected" && [[ -z "$SUFFIX" ]] || die "出所の版番号が不正: $expected"
+  # 出所の版は 0.0.<N>（N は 1 以上）だけ（spec。Rust・gradle・画面と同じ。/code-review R8）
+  parse_version "$expected" && [[ -z "$SUFFIX" ]] && (( MAJOR == 0 && MINOR == 0 && PATCH >= 1 )) \
+    || die "出所の版が 0.0.<N>（N は 1 以上）の形でない: $expected"
   if [[ "$value_major.$value_minor.$value_patch" != "$MAJOR.$MINOR.$PATCH" ]]; then
     (( value_major == major )) || die "左の数字が MAJOR（$major）と違う: $value"
     (( value_major != 0 || value_minor != 0 )) || die "番号の <左>.<真ん中> が 0.0: $value"
@@ -209,6 +219,7 @@ number() {
   fi
   # 左の数字は、その commit の中のファイルから読む
   left=$(git show "$commit:tools/release/MAJOR" 2>/dev/null) || die "左の数字のファイルが読めない: $commit"
+  left=$(trim "$left")
   [[ "$left" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${left:-<空>}"
   left=$((10#$left))
   if [[ -z "$prev" ]]; then
@@ -293,6 +304,14 @@ number_self_test() {
   nt_new ancestor; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
   local a; a=$(git -C "$d" rev-parse HEAD); nt_merge feat/c crates/server/src/lib.rs; nt_tag 0.2.1
   nt_expect '' "$a" || return 1
+  echo "== main の first-parent の上に無い commit（merge した枝の中の commit）には番号を付けない"
+  # 前の番号の子孫で、製品に触れていても、main の first-parent の上に無ければ付けない（design D4 の 2.。code-verify R5）
+  nt_new side; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  out=$(nt_number feat/b) || { echo "$out"; return 1; }
+  grep -qx 'number=' <<<"$out" && grep -q 'first-parent の上に無い' <<<"$out" || { echo "$out"; return 1; }
+  nt_expect 0.2.1 || return 1
+  nt_new ancestor2; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  a=$(git -C "$d" rev-parse HEAD); nt_merge feat/c crates/server/src/lib.rs; nt_tag 0.2.1
   echo "== Scenario: 同じ commit の run を走らせ直しても、番号は変わらない"
   nt_expect 0.2.1 || return 1; grep -qx 'reuse=yes' <<<"$out" || return 1
   echo "== Scenario: 欠番の commit を走らせ直すと、後の番号が付いていても、その番号を返す"
@@ -359,9 +378,14 @@ self_test() {
   local broken; broken=$(mktemp -d "${TMPDIR:-/tmp}/version-major.XXXXXX")
   mkdir -p "$broken/tools/release"; cp "$ROOT/tools/release/version.sh" "$ROOT/tools/release/version-check-table.tsv" "$broken/tools/release/"
   printf '[workspace.package]\nversion = "0.0.1"\n' > "$broken/Cargo.toml"
-  for content in x ''; do
+  for content in x '' '+0' '0 0' '-0'; do
     printf '%s' "$content" > "$broken/tools/release/MAJOR"
     if "$broken/tools/release/version.sh" check 0.2.0 >/dev/null 2>&1; then rm -rf "$broken"; return 1; fi
+  done
+  # Windows の取り出し（CRLF）と前後の空白は落とさない（Rust・gradle・画面と同じ。/code-review R6）
+  for content in $'0\r\n' $' 0 \n' $'0\n'; do
+    printf '%s' "$content" > "$broken/tools/release/MAJOR"
+    "$broken/tools/release/version.sh" check 0.2.0 >/dev/null 2>&1 || { echo "MAJOR の前後の空白で check が落ちた: $(od -c "$broken/tools/release/MAJOR" | head -n1)"; rm -rf "$broken"; return 1; }
   done
   rm -rf "$broken"
   echo "== Scenario: versionCode は版番号の 3 つの数字から決まる"
@@ -389,7 +413,7 @@ self_test() {
   cp "$ROOT/tools/release/version.sh" "$t/tools/release/version.sh"
   cp "$ROOT/tools/release/version-table.tsv" "$t/tools/release/version-table.tsv"
   cp "$ROOT/tools/release/MAJOR" "$t/tools/release/MAJOR"
-  printf '[workspace.package]\nversion = "0.4.0"\n' > "$t/Cargo.toml"
+  printf '[workspace.package]\nversion = "0.0.1"\n' > "$t/Cargo.toml"
   : > "$t/migrations/ORDER"; echo '{}' > "$t/docs/contract/envelope.json"
   echo 'CREATE TABLE init();' > "$t/migrations/202601010000_init.sql"
   git -C "$t" init -q; git -C "$t" config user.email t@example.com; git -C "$t" config user.name t

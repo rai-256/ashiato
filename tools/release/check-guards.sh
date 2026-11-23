@@ -136,6 +136,92 @@ for i, st in enumerate(steps, 1):
 print(approval, sign)'
 }
 
+# 番号付けの workflow の手順を許す形に限る（spec: 公開する手順と印 v* を作る手順を持たない。code-verify R2）。
+# 禁止の並びでなく、使ってよい action と、run の各コマンドの先頭の語を許す一覧で見る。
+# gh・git などは run に直に書かない（印は number.sh tag、置くのは number.sh place だけが作る）
+number_steps() {
+  python3 - "$1" <<'PY'
+import re, sys
+ALLOWED_USES = {"actions/checkout", "actions/upload-artifact", "actions/download-artifact",
+                "actions/setup-java", "actions/setup-node", "dtolnay/rust-toolchain"}
+ALLOWED_CMDS = {"tools/release/version.sh", "tools/release/number.sh", "tools/release/build.sh",
+                "echo", "sed", "tee", "mkdir", "find", "[["}
+FORBIDDEN = re.compile(r"(?<![\w./-])(gh|git|curl|wget|eval|exec|source|xargs|bash|sh|python3?|node|npx|jq)(?![\w./-])")
+ASSIGN = re.compile(r"""^[A-Za-z_][A-Za-z0-9_]*=("[^"]*"?|'[^']*'?|\S*)\s*""")
+SPLIT = re.compile(r"\|\||&&|;|\||`|\b(?:then|if|else|elif|fi|do|done|while|for)\b")
+bad = []
+def check_cmd(text, where):
+    subs = []
+    def take(m):
+        subs.append(m.group(1)); return "X"
+    prev = None
+    while prev != text:
+        prev, text = text, re.sub(r"\$\(([^()]*)\)", take, text)
+    for inner in subs:
+        check_cmd(inner, where)
+    if FORBIDDEN.search(text):
+        bad.append(f"{where}: 直に呼んではいけないコマンド: {text.strip()}")
+    for seg in SPLIT.split(text):
+        seg = seg.strip().lstrip("!").strip()
+        while (m := ASSIGN.match(seg)):
+            seg = seg[m.end():]
+        if not seg or re.fullmatch(r"[\s\"'\\]*", seg) or seg.startswith("]]"):
+            continue
+        word = seg.split()[0]
+        if word not in ALLOWED_CMDS:
+            bad.append(f"{where}: 許していないコマンド {word!r}: {text.strip()}")
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+i = 0
+while i < len(lines):
+    line = lines[i]
+    m = re.match(r"^(\s*)(- )?(uses|run|shell):\s*(.*)$", line)
+    if not m or line.lstrip().startswith("#"):
+        i += 1; continue
+    indent = len(m.group(1)) + (2 if m.group(2) else 0)
+    key, value = m.group(3), m.group(4).strip()
+    where = f"number.yml:{i + 1}"
+    if key == "uses":
+        name = re.sub(r"\s+#.*$", "", value).split("@")[0]
+        if name not in ALLOWED_USES:
+            bad.append(f"{where}: 許していない action: {value}")
+    elif key == "shell":
+        if value != "bash":
+            bad.append(f"{where}: shell が bash でない: {value}")
+    else:
+        body = []
+        if value in ("|", ">", "|-", ">-", "|+", ">+"):
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
+                body.append(lines[j]); j += 1
+        else:
+            body = [value]
+        for k, text in enumerate(body):
+            if text.strip() and not text.strip().startswith("#"):
+                check_cmd(text, where)
+    i += 1
+for b in bad:
+    print(b)
+sys.exit(1 if bad else 0)
+PY
+}
+
+# main への push の CI の差分の基準（ST61 D8）。changes の job が、前に成功した main の push の run の commit を
+# changes.sh base で確かめて BASE に使うことを、手順の単位で見る（code-verify R1）
+ci_changes_base() {
+  local ci="$1" block prev
+  block="$(job_block "$ci" changes)"
+  grep -qxF '    permissions: { contents: read, actions: read }' <<<"$block" || { die 'ci の changes の job が run を読む権限（actions: read）を持たない'; return 1; }
+  prev="$(awk '/^      - id: prev$/{f=1; print; next} f && /^      - /{exit} f{print}' <<<"$block")"
+  [[ -n "$prev" ]] || { die 'ci の changes の job に前に成功した run を探す手順（id: prev）が無い'; return 1; }
+  grep -qxF "        if: github.event_name == 'push'" <<<"$prev" || { die 'ci の前に成功した run を探す手順が main への push で走らない'; return 1; }
+  if grep -qE '^        (continue-on-error|if):' <<<"$(grep -vxF "        if: github.event_name == 'push'" <<<"$prev")"; then die 'ci の前に成功した run を探す手順に別の条件がある'; return 1; fi
+  grep -qE '^          PREV_SUCCESS_SHA="\$\(gh api "repos/\$\{REPO\}/actions/workflows/ci\.yml/runs\?branch=main&event=push&status=success&' <<<"$prev" \
+    || { die 'ci が main の push の成功した run だけを探さない'; return 1; }
+  grep -qxF '          export PREV_SUCCESS_SHA' <<<"$prev" || { die 'ci が前に成功した run の commit を changes.sh base に渡さない'; return 1; }
+  grep -qxF '          echo "base=$(tools/release/changes.sh base)" >> "$GITHUB_OUTPUT"' <<<"$prev" || { die 'ci が差分の基準を changes.sh base で決めない'; return 1; }
+  grep -qxF '          BASE: ${{ github.event.pull_request.base.sha || steps.prev.outputs.base }}' <<<"$block" || { die 'ci の差分の基準が、前に成功した run の commit でない'; return 1; }
+}
+
 # 番号付けの workflow（ST61 D10・D12）。条件・権限・順番待ち・取り出しを字面でなく job の単位で見る
 number_workflow() {
   local file="$1" job block
@@ -160,6 +246,8 @@ number_workflow() {
   job_block "$file" place | grep -q 'contents: write' || { die '置く job に書く権限が無い'; return 1; }
   if grep -qE 'actions/cache|^[[:space:]]+cache:|restore-keys|cache-dependency-path' "$file"; then die '番号付けが CI のキャッシュを使う'; return 1; fi
   if grep -qE 'gh release (edit|delete)|--draft=false|--clobber|publish-nightly|refs/tags/v|sign-apk' "$file"; then die '番号付けが公開・上書き・印 v* の手順を持つ'; return 1; fi
+  local not_allowed
+  not_allowed="$(number_steps "$file")" || { die "番号付けの手順が許す形でない（公開・印 v* を作れる）: $not_allowed"; return 1; }
   # 組み立ては印を作る job の後。終わった run の commit を履歴を全部持つ形で取り出す
   for job in build-linux build-windows; do
     block="$(job_block "$file" "$job")"
@@ -177,6 +265,7 @@ workflow() {
   [[ -f "$ci" && -f "$release" && -f "$nightly" ]] || die 'workflow が不足している'
   number_workflow "$root/.github/workflows/number.yml" || return 1
   grep -q 'tools/release/changes.sh code' "$ci" || die 'ci が共有の code 判定を使っていない'
+  ci_changes_base "$ci" || return 1
   job_block "$ci" package-linux | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Linux package が code=true でない'
   job_block "$ci" package-windows | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Windows package が code=true でない'
   job_block "$ci" package-artifacts | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'artifact package が code=true でない'
@@ -441,6 +530,23 @@ EOF
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
   if sed 's#version.sh source built/Cargo.toml#version.sh source#' "$ci_saved" >"$work/ci-missing-version.yml" && cp "$work/ci-missing-version.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'built 版番号欠落を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$ci_saved"
+  echo "== Scenario: 取り消された run の後の文書だけの merge でも、コードの job が走る"
+  # ci.yml の差分の基準の配線（ST61 D8）を 1 つずつ外した偽の ci.yml は、workflows の検査が落とす（code-verify R1）
+  local ci_variant
+  for ci_variant in before no-actions-read no-success if-false continue-on-error commented-export base-all; do
+    case "$ci_variant" in
+      before) sed 's/steps\.prev\.outputs\.base }}/github.event.before }}/' ;;
+      no-actions-read) sed 's/^    permissions: { contents: read, actions: read }$/    permissions: { contents: read }/' ;;
+      no-success) sed 's/&status=success//' ;;
+      if-false) sed "s/^        if: github.event_name == 'push'\$/        if: false/" ;;
+      continue-on-error) sed "s/^        if: github.event_name == 'push'\$/&\n        continue-on-error: true/" ;;
+      commented-export) sed 's/^          export PREV_SUCCESS_SHA$/          # export PREV_SUCCESS_SHA/' ;;
+      base-all) sed 's#echo "base=$(tools/release/changes.sh base)"#echo "base=all"#' ;;
+    esac <"$root/.github/workflows/ci.yml" >"$ci_saved"
+    ! cmp -s "$root/.github/workflows/ci.yml" "$ci_saved" || die "偽の ci.yml（$ci_variant）が元と同じ"
+    if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "差分の基準の配線を外した偽の ci.yml（$ci_variant）を通した"; fi
+  done
+  cp "$root/.github/workflows/ci.yml" "$ci_saved"
   # 番号付けの workflow（ST61 D10・D12）。条件を 1 つ外した偽の number.yml は workflows の検査が落とす
   local nf="$fake_root/.github/workflows/number.yml" nreal="$root/.github/workflows/number.yml"
   number_mutant() { # <名前> <sed の式>…（元と同じなら偽の作り損ね）
@@ -464,6 +570,14 @@ EOF
   number_mutant gradle-cache -e 's/^          java-version: "21"/          java-version: "21"\n          cache: gradle/'
   number_mutant publish-step -e 's#^      - run: tools/release/number.sh place.*#&\n      - run: gh release edit --draft=false#'
   number_mutant build-before-number -e '/^  build-windows:/,/^  place:/s/^    needs: number$/    needs: []/'
+  # 禁止の並びに当たらない公開・印 v* の手順も、許す形の外なので落とす（code-verify R2）
+  number_mutant gh-release-create -e 's#^      - run: tools/release/number.sh place.*#&\n      - run: gh release create "v${{ needs.number.outputs.number }}" --target "${{ github.event.workflow_run.head_sha }}" number/all/*#'
+  number_mutant git-tag-push -e 's#^      - run: tools/release/number.sh place.*#&\n      - run: git tag "v${{ needs.number.outputs.number }}" \&\& git push origin "v${{ needs.number.outputs.number }}"#'
+  number_mutant git-in-block -e 's#^          if \[\[ -n "$number" \]\]; then tools/release/number.sh tag#          git tag v9 \&\& git push origin v9\n&#'
+  number_mutant gh-in-subst -e 's#^          echo "number=$number" >> "$GITHUB_OUTPUT"#          echo "x=$(gh release create v1)" >> "$GITHUB_OUTPUT"\n&#'
+  number_mutant find-exec-gh -e 's#-exec cp {} number/all/#-exec gh release upload v1 {} #'
+  number_mutant gh-release-action -e 's#^      - uses: actions/download-artifact@\(.*\)#      - uses: softprops/action-gh-release@v2\n&#'
+  number_mutant shell-python -e '0,/^        shell: bash$/s//        shell: python {0}/'
   echo "== Scenario: 番号付けは、CI と別の、取り消さない 1 本ずつの流れにある"
   number_mutant no-concurrency -e '/^    concurrency:/,/^      cancel-in-progress: false/d'
   number_mutant cancel -e 's/cancel-in-progress: false/cancel-in-progress: true/'
