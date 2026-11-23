@@ -2,6 +2,37 @@
 
 本物の作業は ST53 が main に入った後に本人が行う。ST53 の確認バッチでは下書きだけを確認し、本物の印や正式な鍵は扱わない。
 
+## 0. 番号（ST61）
+
+番号は main の番号付け（`.github/workflows/number.yml`）が付ける。人間が `Cargo.toml` を上げたり印を打ったりしない。
+
+### 番号の付き方（D4・D5）
+
+- 付く commit: main への push の CI が成功し、前の番号の commit の子孫（first-parent の上）で、前の番号から `tools/release/changes.sh code` が真（`docs/`・`openspec/`・`*.md` 以外に触れた）で、まだ番号が無いもの。判定は `tools/release/version.sh number <commit>`
+- 番号が既にある commit は、走らせ直してもその番号を返し、下書きに欠けた配布物だけを足す
+- 右の数字は 1 つずつ進む。前の番号の commit から間に確認バッチの merge（題が `Merge pull request #<数字> from <owner>/verify/` で始まる first-parent の merge。D15）があれば、真ん中を上げて右を 0 にする
+- 番号を持たない組み立て（PR の CI・手元）は `Cargo.toml` の `0.0.1`（D6）。番号と取り違えない
+
+### 左の数字を本人が変える（D9）
+
+左の数字は `tools/release/MAJOR`（数字 1 つ。今は `0`）。本人が PR で変える（0.x → 1.0 など）。その PR が main に入って最初に付く番号が `<左>.0.0`。
+`Cargo.toml` の版は `0.0.1` のままにする（番号にすると main に commit を積むことになる）。左は上げるだけで、下げない。
+
+### 番号の組み立ての置き場と欠番（D1・D7）
+
+- 番号を決めたら組む前に、その commit を指す印 `build-<番号>` を配布元へ push する（`tools/release/number.sh tag`）。同じ名前の印があれば断られる。配った印 `v*` ・開発版の印には数えない
+- 組み立てた配布物は、同じ名前の下書きのリリースに全部残す（`number.sh place`。署名していない携帯の APK `ashiato-collector-<番号>-unsigned.apk` も）。説明文の行は `ashiato-build: <番号> <commit の 40 桁>`。消さない
+- 組み立てが落ちた番号は、番号付けの run を走らせ直せば同じ番号の続きを置く。走らせ直さずに次の番号が付けば、落ちた番号は欠番になる（中身は次の番号の組み立てに入っている）。欠番を別の commit に作り直さない。印を消さず動かさない
+- 下書きの説明文の commit が渡した commit と違うとき、`number.sh` は何も置かずに止まる（印を消して別の commit に作り直した形）
+
+### 番号付けが止まったとき（D9・D14）
+
+止まると番号付けの run が落ち、理由が出る。
+
+- 左の数字を下げた（`MAJOR` が前の番号の左より小さい）: 番号は下がらない。`MAJOR` を前の番号の左以上に戻す PR を出す
+- 上限に届いた（真ん中 999・右 9,999・左 209 を超える。versionCode の式が組めない）: 左の数字を上げるか、式（`tools/release/version-table.tsv` と 4 か所の版の検査）を見直す。真ん中は年に 250 ほど進むので約 4 年で届く
+- どちらも直したら、落ちた run を走らせ直す
+
 ## 1. 版番号と準備
 
 > ★ 2026-11-21: **この手順書の §1・§6・§8 は置き換え中。** 要件の改訂（依頼 #352。`docs/requirements.md` FR-104・FR-105・FR-134〜FR-137）で、版番号は CI が通り製品が変わった main の commit に機械が付け（★ 2026-11-23 訂正。ST61 の深掘り Q1。整合の確認 `docs/audit/2026-11-23-st61-fr134-consistency.md` の C4）、正式版・ベータ版・開発版は番号を指す札になった。改訂を受ける Story が書き直すまで、§1・§6・§8 の手順で `Cargo.toml` の版を上げたり印 `v*` を打ったりしない（打つと旧い形の正式版ができる）。整合の確認 `docs/audit/2026-11-21-version-labels-consistency.md` の C10。
