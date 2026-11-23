@@ -279,6 +279,16 @@ number_self_test() {
   echo "== Scenario: 道具だけの merge の commit にも番号が付く"
   nt_new tool; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge chore/t tools/lanes.json
   nt_expect 0.2.1 || return 1
+  echo "== Scenario: 大きな差分（数千のファイル名）でも、製品に触れていれば番号が付く"
+  # 2 本の grep をつなぐと SIGPIPE で rc=1（文書だけ）に誤読した。数千の名前で確かめる
+  nt_new bigdiff; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0
+  git -C "$d" checkout -q -b feat/big
+  mkdir -p "$d/docs/big"; (cd "$d/docs/big" && seq 1 4000 | sed 's/^/n/;s/$/.txt/' | xargs touch)
+  mkdir -p "$d/crates/server/src"; echo big >> "$d/crates/server/src/lib.rs"
+  git -C "$d" add -A; git -C "$d" commit -q -m big; git -C "$d" checkout -q main
+  git -C "$d" merge -q --no-ff -m "Merge pull request #99 from o/feat/big" feat/big
+  nt_expect 0.2.1 || return 1
+  out=$(seq 1 20000 | sed 's/^/crates\/f/'); "$d/tools/release/changes.sh" code <<<"$out" || { echo "changes.sh code が大きな一覧で rc!=0"; return 1; }
   echo "== Scenario: 取り消された merge の中身は、後の文書だけの merge の番号に入る"
   nt_new cancelled; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
   [[ -z "$(git -C "$d" tag --list 'build-*' --points-at HEAD)" ]] || return 1

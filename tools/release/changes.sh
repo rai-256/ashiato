@@ -4,7 +4,8 @@ set -euo pipefail
 usage() { echo "使い方: $0 code|deps" >&2; exit 2; }
 
 code() {
-  if grep -vE '^(docs/|openspec/)|\.md$' | grep -q .; then
+  # grep 1 本で済ます（2 本つなぐと、先の grep が SIGPIPE で落ち、pipefail が「文書だけ」と誤読する。大きな一覧で起きる）
+  if grep -qvE '^(docs/|openspec/)|\.md$'; then
     exit 0
   fi
   exit 1
