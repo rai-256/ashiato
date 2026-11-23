@@ -27,6 +27,8 @@ jobs:
       windows: ${{ steps.f.outputs.windows }}
       stamp: ${{ steps.f.outputs.stamp }}
       deps: ${{ steps.f.outputs.deps }}
+      pgsql: ${{ steps.f.outputs.pgsql }}
+      pgsql_from: ${{ steps.f.outputs.pgsql_from }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
@@ -34,9 +36,24 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           all() { for k in code android windows stamp deps; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
+          # CH26 D7: lock を変える PR か（PR の run でだけ。分岐点から head までの差分で決める）。
+          # どの出口でも pgsql を必ず書く（書かないと空 = 変えていないと読まれる）。台本が落ちたら true・分岐点は空（package-windows が落とす）
+          pgsql_out() { echo "pgsql=$1" >> "$GITHUB_OUTPUT"; echo "pgsql_from=$2" >> "$GITHUB_OUTPUT"; }
+          if [ "$EVENT" = pull_request ]; then
+            if r="$(tools/release/pgsql-prev-lock.sh changed "$PR_BASE" "$PR_HEAD")"; then
+              pgsql_out "${r%% *}" "$(printf '%s' "$r" | cut -s -d' ' -f2)"
+            else
+              pgsql_out true ""
+            fi
+          else
+            pgsql_out false ""
+          fi
           if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             echo "base が引けないので全部走らせる（BASE='${BASE:-}'）"; all; exit 0
           fi
@@ -505,6 +522,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
+      # CH26 D7・D8: lock を変える PR だけ、分岐点の lock（PR が変える前の lock）を取り出す。取れない・同じ中身・大きい版が違うなら落とす
+      # （今の lock へ倒すと 17.12 → 17.12 で緑になる）。鍵の step より前に置き、指紋を鍵に入れる（D9）
+      - id: prevlock
+        if: needs.changes.outputs.pgsql == 'true'
+        shell: bash
+        env:
+          PGSQL_FROM: ${{ needs.changes.outputs.pgsql_from }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ -n "$PGSQL_FROM" ] || { echo "::error::分岐点の commit を取れない（lock を変える PR の古い側を組めない）"; exit 1; }
+          (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader \
+             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+           git fetch --quiet --depth=1 origin "$PGSQL_FROM")
+          prev="$RUNNER_TEMP/prev-pgsql.lock"
+          git show "$PGSQL_FROM:tools/release/pgsql.lock" > "$prev"
+          r="$(tools/release/pgsql-prev-lock.sh decide "$prev" tools/release/pgsql.lock)" || { echo "::error::前の lock と今の lock を比べて落ちた: $r"; exit 1; }
+          [ "$r" = swap ] || { echo "::error::前の lock と今の lock の中身が同じ（$r）。lock を変える PR なのに古い側を替えられない"; exit 1; }
+          echo "path=$prev" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$prev" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       # CH17 D1・D2: 組み立ての鍵を出す。道具の版と、走っている run の CI の定義（github.sha の ci.yml の blob の id）を渡す。
       # run の commit が checkout した HEAD と同じ（main への push）なら fetch しない。PR の run は merge commit を浅く fetch する
       # （token は引数に置かず GIT_CONFIG_* の環境変数で渡す）。fetch か台本が落ちたら鍵を空にして続ける（引かずにビルドする）
@@ -513,6 +550,7 @@ jobs:
         env:
           RUN_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
+          PREV_PGSQL: ${{ steps.prevlock.outputs.sha256 || 'none' }}
         run: |
           echo "rustc=$(printf '%s' "$(rustc -V)" | tr -cs 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
           key=""
@@ -525,7 +563,7 @@ jobs:
             src=FETCH_HEAD
           fi
           if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
-            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
+            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob|prev-pgsql=$PREV_PGSQL"
             key="$(tools/release/windows-build-key.sh HEAD)" || key=""
           fi
           [ -n "$key" ] || echo "::warning::組み立ての鍵を出せないので、前の組み立てを引かずにビルドする"
@@ -573,6 +611,9 @@ jobs:
       # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.4.0 と 0.5.0 など）。
       # 版番号の出所の一致（version.sh・build-stamp）は配る組み立てを守るので緩めず、この runner の木の
       # Cargo.toml の出所の版だけを組むたびに替え、終わったら戻す
+      #
+      # CH26 D7・D8: lock を変える PR では、古い側（old）だけを分岐点の lock で組む（組む間だけ lock を置き換え、終わったら戻す。
+      # dev-old・compat-old は今の lock のまま）。組んだ後、保存の前に、2 つの zip の同梱の版を確かめる
       - if: steps.reuse.outputs.cache-hit != 'true'
         run: |
           set_source() { sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"$1\"/" Cargo.toml; }
@@ -580,11 +621,19 @@ jobs:
             v="${spec%%:*}"; name="${spec#*:}"
             set_source "${v%%-*}"
             [ "$(tools/release/version.sh source)" = "${v%%-*}" ] || { echo "出所の版を ${v%%-*} に替えられない"; exit 1; }
+            if [ "$name" = old ] && [ -n "$PREV_LOCK" ]; then cp "$PREV_LOCK" tools/release/pgsql.lock; fi
             ASHIATO_BUILD_VERSION="$v" tools/release/package.sh windows "$RUNNER_TEMP/package-windows-test-$name" --test-build
+            if [ "$name" = old ] && [ -n "$PREV_LOCK" ]; then git checkout -- tools/release/pgsql.lock; fi
           done
           git checkout -- Cargo.toml Cargo.lock
+          if [ -n "$PREV_LOCK" ]; then
+            tools/release/pgsql-prev-lock.sh check-zips "$PREV_LOCK" tools/release/pgsql.lock \
+              "$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip "$RUNNER_TEMP"/package-windows-test-new/ashiato-server-*.zip
+          fi
         shell: bash
-        env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
+        env:
+          PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache"
+          PREV_LOCK: ${{ steps.prevlock.outputs.path }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: package-windows-release, path: "${{ runner.temp }}/package-windows" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -623,6 +672,13 @@ jobs:
             ${{ runner.temp }}/package-windows-test-compat-old
             ${{ runner.temp }}/package-windows-test-compat-new
           key: windows-package-${{ steps.wbk.outputs.key }}
+      # CH26 D8: 使い回した run でも、試験の zip の版を確かめる（引けたかどうかに依らず、lock を変える PR の run で走る）
+      - if: needs.changes.outputs.pgsql == 'true'
+        shell: bash
+        env: { PREV_LOCK: "${{ steps.prevlock.outputs.path }}" }
+        run: |
+          tools/release/pgsql-prev-lock.sh check-zips "$PREV_LOCK" tools/release/pgsql.lock \
+            "$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip "$RUNNER_TEMP"/package-windows-test-new/ashiato-server-*.zip
 
   install-windows:
     timeout-minutes: 100
@@ -781,6 +837,9 @@ jobs:
       # CH17 深掘り第 2 回 Q3: Windows の組み立ての鍵の自己試験と、package-windows の使い回しの形（--check-workflow。python3 と yaml が無ければ落ちる）
       - run: ./tools/release/windows-build-key.sh --self-test
       - run: ./tools/release/windows-build-key.sh --check-workflow
+      # CH26 D8: lock を変える PR の古い側を前の lock で組む判定と確かめ（自己試験）と、CI の定義の形
+      - run: ./tools/release/pgsql-prev-lock.sh --self-test
+      - run: ./tools/release/pgsql-prev-lock.sh check-workflow
       # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
       - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
