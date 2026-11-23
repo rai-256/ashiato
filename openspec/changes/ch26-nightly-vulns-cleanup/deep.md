@@ -65,3 +65,13 @@
 - 3 問とも本人が推奨の側（いまの仕様のまま）を選んだ。D8・D9・D10 は本人の決定になり、仮の台帳には戻さない（第 2 回の差し戻しで `provisional.py resolve` 済み）。土台の D7 はまだ仮のまま（別の席は確かとした）
 - 要件へ戻すもの: なし（要件は変えない change。CI の決め方を本人が決めた）
 - 仕様（design D8〜D10・`docs/changes/CH26.md` の完了の判定 6 の「D7（仮）〜D9（仮）」「D10（仮）」の書き方）へ写すのは、この後の `spec --answers Q1,Q2,Q3`
+
+## 実装の途中の本人の決定（2026-11-23）
+
+### Q-impl-1. 実装の途中で挙がった url の勧告（`RUSTSEC-2026-0592`、#374）をどう扱うか
+
+- 経緯: Task 1.2 の検証で `tools/check-vulns.sh` が url 2.5.8 の新しい勧告で落ち、実装の席が A で返した（診断 `.git/hx/doctor/CH26-202611221920.md`）
+- 選択肢: ① CH26 で 2.5.9 に上げ、lock の Scenario と `check-ch26.sh lock` を直す ② 例外の表に足す ③ url だけ別の change にする
+- 答え: ①（本人の選択。推奨と同じ）
+- 決まったこと: design D11。spec の Scenario「上げた後の Cargo.lock は…」の THEN を rustix・url・form_urlencoded の 3 組に、「全体の検査と毎晩の検査は…」に `RUSTSEC-2026-0592` を足した。完了の判定 1・2・7 も合わせた
+- 要件へ戻すもの: なし

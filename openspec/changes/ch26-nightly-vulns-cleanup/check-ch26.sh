@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CH26 の確かめの台本（勧告の片付け。Task 1）。
 # 使い方: check-ch26.sh lock | toml | vulns | --self-test
-#   lock  : Cargo.lock の組の差が「rustix 1.1.5 → 1.1.6 以上の 1.1.x」だけであること
+#   lock  : Cargo.lock の組の差が「rustix 1.1.5 → 1.1.6 以上の 1.1.x・url 2.5.8 → 2.5.9 以上の 2.5.x・form_urlencoded 1.2.2 → 1.2.3 以上の 1.2.x」だけであること
 #   toml  : 例外の表（osv-scanner.toml）の既にある行が残り、足した行が正典の理由の形を持つこと
 #   vulns : toml に加え、全体の検査と毎晩の検査が片付けた勧告を出さないこと
 # 比べる元の版は CH26_BASE（無ければ `git merge-base origin/main HEAD`）、読む木は CH26_ROOT（無ければ repo の根）。
@@ -11,7 +11,7 @@ set -o pipefail
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO="$(cd "$HERE/../../.." && pwd)"
 readonly ROOT="${CH26_ROOT:-$REPO}"
-readonly IDS="RUSTSEC-2026-0486 RUSTSEC-2026-0459 RUSTSEC-2026-0543"
+readonly IDS="RUSTSEC-2026-0486 RUSTSEC-2026-0459 RUSTSEC-2026-0543 RUSTSEC-2026-0592"
 
 base_commit() {
   if [[ -n "${CH26_BASE:-}" ]]; then printf '%s\n' "$CH26_BASE"; return; fi
@@ -43,10 +43,17 @@ old, new = pairs(sys.argv[1]), pairs(sys.argv[2])
 removed, added = sorted(old - new), sorted(new - old)
 print("消えた組:", removed)
 print("足された組:", added)
-ok = (removed == [("rustix", "1.1.5")] and len(added) == 1 and added[0][0] == "rustix"
-      and re.fullmatch(r"1\.1\.(\d+)", added[0][1]) and int(added[0][1].split(".")[2]) >= 6)
+# 上げてよい組: (名前, 元の版, 新しい版の系列, 系列の中の下限)。url は RUSTSEC-2026-0592（design D11）、
+# form_urlencoded は url 2.5.9 が要る版（P22）
+ALLOWED = [("rustix", "1.1.5", "1.1", 6), ("url", "2.5.8", "2.5", 9), ("form_urlencoded", "1.2.2", "1.2", 3)]
+def ok_pair(name, old_v, series, low):
+    adds = [v for (n, v) in added if n == name]
+    return (len(adds) == 1 and re.fullmatch(re.escape(series) + r"\.(\d+)", adds[0])
+            and int(adds[0].rsplit(".", 1)[1]) >= low)
+ok = (removed == sorted((n, v) for (n, v, _, _) in ALLOWED) and len(added) == len(ALLOWED)
+      and all(ok_pair(*a) for a in ALLOWED))
 if not ok:
-    print("error: 違う組が rustix 1.1.5 → 1.1.6 以上の 1.1.x の 1 つだけではない", file=sys.stderr)
+    print("error: 違う組が rustix 1.1.5 → 1.1.6 以上・url 2.5.8 → 2.5.9 以上・form_urlencoded 1.2.2 → 1.2.3 以上の 3 つだけではない", file=sys.stderr)
     sys.exit(1)
 PY
 }
@@ -139,6 +146,16 @@ assert s != s2
 open(p, "w").write(s2)
 PY
   expect_fail "別の項目の version を書き換えた lock" lock
+  # (b2) url 2.5.x を 2.5.8 に戻す
+  fresh
+  python3 -I - "$t/r/Cargo.lock" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+s2 = re.sub(r'(name = "url"\nversion = ")2\.5\.\d+(")', r'\g<1>2.5.8\2', s)
+assert s != s2
+open(p, "w").write(s2)
+PY
+  expect_fail "url を 2.5.8 に戻した lock" lock
   # (c) 既にある行の reason を書き換える
   fresh
   sed -i '0,/reason = "届かない: 携帯の組み立ての道具専用"/s//reason = "書き換えた"/' "$t/r/osv-scanner.toml"
