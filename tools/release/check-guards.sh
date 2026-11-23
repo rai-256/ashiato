@@ -202,8 +202,8 @@ workflow() {
   done
   local given_v
   while IFS= read -r given_v; do
-    [[ "$given_v" == 0.0.* ]] || die "配る形の組み立ての job が番号の形の版番号を渡す: $given_v"
-  done < <(grep -oE 'ASHIATO_BUILD_VERSION:[[:space:]]*"?[^"[:space:],}]*' "$ci" | sed -E 's/^ASHIATO_BUILD_VERSION:[[:space:]]*"?//')
+    [[ "$given_v" == 0.0.* || "$given_v" == '$v' ]] || die "配る形の組み立ての job が番号の形の版番号を渡す: $given_v"
+  done < <(grep -oE 'ASHIATO_BUILD_VERSION(:[[:space:]]*|=)"?[^"[:space:],}]*' "$ci" | sed -E 's/^ASHIATO_BUILD_VERSION(:[[:space:]]*|=)"?//')
   local head_ref='ref: \${{ github.event.pull_request.head.sha || github.sha }}'
   for job in package-linux package-windows; do
     job_block "$ci" "$job" | grep -q "^[[:space:]]*$head_ref" || die "ci の $job が配布物を組む commit を checkout しない"
@@ -356,6 +356,12 @@ EOF
   echo "== Scenario: 配る形の組み立ての job は、番号を版番号に渡さない"
   if sed '/^  package-linux:$/,/^    steps:$/ s/^    steps:$/    env: { ASHIATO_BUILD_VERSION: 0.2.0 }\n    steps:/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '番号の形の版番号を渡す偽の ci.yml を通した'; fi
   grep -q 'ASHIATO_BUILD_VERSION: 0.2.0' "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（0.2.0）に版番号が入っていない'
+  cp "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml"
+  # シェルの形（VAR=値 の前置きと $GITHUB_ENV への書き込み）でも番号を渡せない
+  if sed 's|ASHIATO_BUILD_VERSION="\$v" tools/release/package.sh|ASHIATO_BUILD_VERSION=0.2.0 tools/release/package.sh|' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '= の形で番号の版番号を渡す偽の ci.yml を通した'; fi
+  grep -q 'ASHIATO_BUILD_VERSION=0.2.0' "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（= の形）に版番号が入っていない'
+  if sed '/^  package-linux:$/,/^    steps:$/ s/^    steps:$/    steps:\n      - run: echo ASHIATO_BUILD_VERSION=0.2.0 >> "$GITHUB_ENV"/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'GITHUB_ENV へ番号の版番号を書く偽の ci.yml を通した'; fi
+  grep -q 'ASHIATO_BUILD_VERSION=0.2.0 >> ' "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（GITHUB_ENV）に版番号が入っていない'
   cp "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml"
   echo "== Scenario: 公開の job は、署名の前に承認者を確かめる"
   # approvals の行が無いときは、理由（NG の文）を出して落ちる（pipefail で黙って落ちない。final review R7）
