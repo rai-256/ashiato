@@ -201,6 +201,7 @@
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 7 @ec54105c2783480fd63039d77bfff4b202de3a7c）
+- 判定: ADDRESSED（re-review 8 @5ae732f641b34fa86fd637d897ba614b3e019e41）
 
 ## R8. Login and `/collector-setup` can still accept the old secrets after a change has finished. Both take their secrets snapshot before they wait for the `LOGIN_CHECK` permit: `session_post_checked` reads `app.secrets_snapshot()` early, and `collector_setup_post` uses the snapshot taken in `refresh_cookie`. A request queued behind a `/web-password` or `/collector-token` change is therefore checked against the old password, and its answer is built from the old values. Fix: take the snapshot after the permit is acquired, inside `check_given_password_with_secrets` or right after it, and use that snapshot for the tag and the token.
 - 成果物: crates/server/src/web_session.rs:1372
@@ -331,6 +332,7 @@
 - 処置: fixed 7.1
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
 - 判定: ADDRESSED（re-review 7 @ec54105c2783480fd63039d77bfff4b202de3a7c）
+- 判定: ADDRESSED（re-review 8 @5ae732f641b34fa86fd637d897ba614b3e019e41）
 
 ## R19. unwrap_or_else(record_failure) を expect("照合の blocking task は panic しない") に変えた。blocking task が cancel されたとき（ランタイム終了など）、失敗に数えずに panic する。
 - 成果物: crates/server/src/web_session.rs
@@ -454,3 +456,4 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - 根拠: tools/release/install-check.sh:1138（re-review 7 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 7.1
+- 判定: ADDRESSED（re-review 8 @5ae732f641b34fa86fd637d897ba614b3e019e41）
