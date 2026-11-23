@@ -230,8 +230,11 @@ def check(path):
             m.append("鍵の step が前の lock の指紋（無ければ none）を PREV_PGSQL に受け取らない: %r" % e)
         return m
 
+    # Scenario: CI の定義は、lock を変えた PR でだけ前の lock を取り、古い側だけを置き換えて組んで戻す
     scenario("CI の定義は、lock を変えた PR でだけ前の lock を取り、古い側だけを置き換えて組んで戻す", s_take)
+    # Scenario: CI の定義は、試験の zip の版を、保存の前と使い回した run の両方で確かめる
     scenario("CI の定義は、試験の zip の版を、保存の前と使い回した run の両方で確かめる", s_check_places)
+    # Scenario: 鍵を出す手順は、古い側を組んだ前の lock の指紋を鍵に入れる
     scenario("鍵を出す手順は、古い側を組んだ前の lock の指紋を鍵に入れる", s_key)
     sys.exit(1 if fails else 0)
 
