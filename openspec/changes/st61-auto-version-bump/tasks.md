@@ -53,7 +53,7 @@
 
 ## Task 3: 番号の判定（`version.sh number`）
 
-- [ ] 3.1 `tools/release/version.sh number <commit>` を足す（D4・D5・D7・D13・D14・D15）。出力は `number=<番号>`・`reuse=yes|no`（その commit に既に印があれば yes）か `number=`（付けない）と理由の行。
+- [x] 3.1 `tools/release/version.sh number <commit>` を足す（D4・D5・D7・D13・D14・D15）。出力は `number=<番号>`・`reuse=yes|no`（その commit に既に印があれば yes）か `number=`（付けない）と理由の行。
   浅い木は「履歴が浅い」で落ちる。commit が前の番号の commit の子孫で main の first-parent の上に無ければ付けない。差分の判定は `tools/release/changes.sh code` を呼ぶ（判定を写さない）。
   `--self-test` は使い捨ての git の木（`main`・`--no-ff` の merge・題 `Merge pull request #<n> from o/verify/<日付>`・印 `build-*`）で次の印を走らせる:
   `製品に触れた merge の commit の run が成功すると、次の番号が付く`・`文書だけの merge の commit には番号を付けない`・`道具だけの merge の commit にも番号が付く`・`取り消された merge の中身は、後の文書だけの merge の番号に入る`・
