@@ -87,7 +87,7 @@
 
 ## Task 6: main への push の CI の差分の基準
 
-- [ ] 6.1 `tools/release/changes.sh base`（D8）: 環境変数で渡した「前に成功した main の push の run の commit」（`gh api` の `actions/workflows/ci.yml/runs?branch=main&event=push&status=success` の最初の `head_sha`。読み出しは workflow が渡す）を、木に無い・空なら `all` を返し、あればその commit を返す。
+- [x] 6.1 `tools/release/changes.sh base`（D8）: 環境変数で渡した「前に成功した main の push の run の commit」（`gh api` の `actions/workflows/ci.yml/runs?branch=main&event=push&status=success` の最初の `head_sha`。読み出しは workflow が渡す）を、木に無い・空なら `all` を返し、あればその commit を返す。
   `ci.yml` の `changes` の job で、push のときだけその commit を `BASE` にする（PR は今のまま）。`changes` の job に `permissions: { contents: read, actions: read }`。
   `changes.sh --self-test` に印 `取り消された run の後の文書だけの merge でも、コードの job が走る`（使い捨ての木で、基準からの差分が製品に触れて `code=true`）・`前に成功した main の run が見つからなければ、全部走らせる`（空・木に無い commit で `all`）
   検証: `tools/release/changes.sh --self-test` rc=0 / `tools/release/check-guards.sh workflows` rc=0 / `bash -c 'f="$1"; actionlint "$f" || docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 "$f"' _ .github/workflows/ci.yml` rc=0
