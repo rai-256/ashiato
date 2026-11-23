@@ -30,24 +30,26 @@ self_test() {
   work="$(mktemp -d "${TMPDIR:-/tmp}/check-version.XXXXXX")"
   trap 'rm -rf "$work"' RETURN
   tree="$work/tree"
-  mkdir -p "$tree/collector-android/app" "$tree/web"
+  mkdir -p "$tree/collector-android/app" "$tree/web" "$tree/tools/release"
+  printf '0\n' > "$tree/tools/release/MAJOR"
   printf '[workspace.package]\nversion = "0.0.1"\n' > "$tree/Cargo.toml"
   printf 'android {\n  versionCode = resolvedVersionCode\n  versionName = resolvedBuildVersion\n}\n' > "$tree/collector-android/app/build.gradle.kts"
   printf '{"name":"ashiato-web","private":true}\n' > "$tree/web/package.json"
+
+  # 各 Scenario の前に健全な木が通る（MAJOR 欠けなど別の理由で落ちて通ったことにしない）
+  check_tree "$tree" >/dev/null 2>&1 || return 1
 
   echo "== Scenario: 携帯の組み立ての設定に版番号を手で書くと、版の検査が落ちる"
   sed -i 's/versionCode = resolvedVersionCode/versionName = "0.1.0"/' "$tree/collector-android/app/build.gradle.kts"
   if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
   sed -i '/versionName = "0.1.0"/d' "$tree/collector-android/app/build.gradle.kts"
+  printf 'android {\n  versionCode = resolvedVersionCode\n  versionName = resolvedBuildVersion\n}\n' > "$tree/collector-android/app/build.gradle.kts"
+  check_tree "$tree" >/dev/null 2>&1 || return 1
 
   echo "== Scenario: 画面の package.json に版番号を書くと、版の検査が落ちる"
   sed -i 's/"private":true/"private":true,"version":"0.1.0"/' "$tree/web/package.json"
   if check_tree "$tree" >/dev/null 2>&1; then return 1; fi
   sed -i 's/,"version":"0.1.0"//' "$tree/web/package.json"
-
-  mkdir -p "$tree/tools/release"
-  printf '0\n' > "$tree/tools/release/MAJOR"
-  printf '[workspace.package]\nversion = "0.0.1"\n' > "$tree/Cargo.toml"
   check_tree "$tree" >/dev/null 2>&1 || return 1
 
   echo "== Scenario: 出所の版が 0.0.x でないと、版の検査が落ちる"

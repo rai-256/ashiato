@@ -60,7 +60,9 @@ check_rule() {
 }
 
 check_version() {
-  check_rule "$1" "$(source_version)" "$(major_file)"
+  local major
+  major=$(major_file) || exit 1
+  check_rule "$1" "$(source_version)" "$major"
 }
 
 version_sort_key() {
@@ -182,6 +184,15 @@ self_test() {
     [[ "$got" == "$verdict" ]] || die "version-check-table.tsv: $version（出所 $source・左 $left）は $verdict のはずが $got"
   done < "$ROOT/tools/release/version-check-table.tsv"
   [[ "$(major_file)" =~ ^[0-9]+$ ]] || return 1
+  # MAJOR が壊れていれば check は落ちる（NG の文だけ出して rc=0 で受けない）
+  local broken; broken=$(mktemp -d "${TMPDIR:-/tmp}/version-major.XXXXXX")
+  mkdir -p "$broken/tools/release"; cp "$ROOT/tools/release/version.sh" "$ROOT/tools/release/version-check-table.tsv" "$broken/tools/release/"
+  printf '[workspace.package]\nversion = "0.0.1"\n' > "$broken/Cargo.toml"
+  for content in x ''; do
+    printf '%s' "$content" > "$broken/tools/release/MAJOR"
+    if "$broken/tools/release/version.sh" check 0.2.0 >/dev/null 2>&1; then rm -rf "$broken"; return 1; fi
+  done
+  rm -rf "$broken"
   echo "== Scenario: versionCode は版番号の 3 つの数字から決まる"
   [[ "$(version_code 0.0.1)" == 1 && "$(version_code 0.2.0)" == 20000 && "$(version_code 0.2.7)" == 20007 && "$(version_code 0.3.0)" == 30000 && "$(version_code 0.250.9999)" == 2509999 && "$(version_code 1.0.0)" == 10000000 ]] || return 1
   echo "== Scenario: 後ろに -beta や -dev が付いても、同じ番号は同じ versionCode になる"
