@@ -26,3 +26,7 @@ plan() は今の印の配り方を保つため、3 つの数字が出所と同�
 - F1・F2 は 108252b69 で直し済み（check-version.sh:34 で MAJOR を木の準備に作り各 Scenario の前に健全な木を確認／version.sh の `major=$(major_file) || exit 1`）。コードの変更なし。
 - 再確認: `tools/check-version.sh --self-test`・`tools/release/version.sh --self-test`・`tools/check-version.sh` 全て rc=0。`scripts/verify-run 1.1`・`1.2` を現在の木で走らせ直し記録済み。
 - 未 commit だった記録（runs-st61.jsonl・evidence.jsonl）を commit した。⚠️ 2 件は Task の中では確かめない。
+
+## Fix report（round 5）
+- F1・F2 は 108252b69 で直し済み。コードの変更なし。現在の木で `tools/check-version.sh --self-test`・`tools/release/version.sh --self-test`・`tools/check-version.sh` が全て rc=0。`scripts/verify-run 1.1`・`1.2` を走らせ直した。
+- 未 commit は記録（runs-st61.jsonl・evidence）のみで、commit した。⚠️ 2 件（Task 2 での表の確認・RED の証跡）は Task の中では確かめない。
