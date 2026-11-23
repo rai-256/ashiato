@@ -1168,7 +1168,9 @@ for line in open(sys.argv[1], encoding="utf-8"):
   start_service ashiato-server
   wait_healthz 150
   [[ -n "$(login "$PW3")" && -z "$(login "$PW2")" ]] || die '起動し直した後の画面の合言葉が切り替わらない'
-  local ingest_body='[{"id":"59000000-0000-4000-8000-000000000007","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location","external_id":null,"device_id":"st59-install-check","origin":"collected","event_time":"2026-11-22T00:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{\\"st59\\":7}","payload":{"st59":7}}]'
+  local ingest_body='[{"id":"59000000-0000-4000-8000-000000000007","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location","external_id":null,"device_id":"st59-install-check","origin":"collected","event_time":"2026-11-22T00:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{\"st59\":7}","payload":{"st59":7}}]'
+  # 本文が JSON として読めないと、資格情報の検査の後で 400 になり「新しい値で送れない」に見える（CI run 45159266508）
+  PY -c 'import json,sys; json.loads(sys.argv[1])' "$ingest_body" || die '取り込みの試しの本文が JSON として読めない（台本の誤り）'
   [[ "$(http_code -X POST -H "Authorization: Bearer $changed_api" -H 'Content-Type: application/json' --data-binary "$ingest_body" "$URL/ingest")" == 401 ]] || die '起動し直した後も前の収集アプリの値が通る'
   [[ "$(http_code -X POST -H "Authorization: Bearer $changed_token" -H 'Content-Type: application/json' --data-binary "$ingest_body" "$URL/ingest")" == 200 ]] || die '起動し直した後に新しい収集アプリの値で記録を送れない'
 
