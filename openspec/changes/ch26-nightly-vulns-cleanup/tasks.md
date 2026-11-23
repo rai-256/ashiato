@@ -45,7 +45,7 @@
 
 ## Task 2: 同梱の PostgreSQL を 17.12-1 にそろえる
 
-- [ ] 2.1 `tools/release/pgsql.lock` を design D4 のとおりにする: `version=17.12-1`・`url=https://get.enterprisedb.com/postgresql/postgresql-17.12-1-windows-x64-binaries.zip`・`sha256` は落とした zip の値（先に `sha256sum` で取ってから書き、その後 `tools/release/pgsql.sh fetch` が通ることで照合する）。
+- [x] 2.1 `tools/release/pgsql.lock` を design D4 のとおりにする: `version=17.12-1`・`url=https://get.enterprisedb.com/postgresql/postgresql-17.12-1-windows-x64-binaries.zip`・`sha256` は落とした zip の値（先に `sha256sum` で取ってから書き、その後 `tools/release/pgsql.sh fetch` が通ることで照合する）。
   `check-ch26.sh` にサブコマンド `pg-dlls` を足し、Scenario「lock の DLL の一覧は、zip の実行ファイルから辿れる同梱の DLL と一致する」を印つきで書く（`pgsql.sh fetch` で落として展開し、`executables` から `x86_64-w64-mingw32-objdump -p` の `DLL Name:` を、zip の `bin` にある DLL に当たるかぎり辿る。大文字小文字を区別せずに比べる。Windows の DLL と `VCRUNTIME140*.dll`・`MSVCP140*.dll` は数えない）。
   `pg-dlls` が落ちたら `dlls=` を辿った集まりにそろえる。あわせて、VC の実行時の DLL（`VCRUNTIME140.dll`・`MSVCP140.dll`・`VCRUNTIME140_1.dll`）をどれが取り込むかを同じ手順で調べ、lock の注記を 17.12-1 の zip について調べた日と結果に書き換える（同じなら日付と対象の zip だけ）。
   `VCRUNTIME140_1.dll` を本体の実行ファイルか一覧の DLL が取り込むようになっていたら、`tools/release/build.sh` の変更が要る —— 組み立ての台本はこの change の「変えないもの」なので手を止め、理由を ledger に書いて A で返す。
@@ -53,7 +53,7 @@
   検証: `scripts/quiet-run pg-dlls -- bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh pg-dlls` rc=0
   検証: `tools/release/pgsql.sh --self-test` rc=0
   検証: `tools/check-pg-major.sh` rc=0
-- [ ] 2.2 `check-ch26.sh` にサブコマンド `pg-lock` を足し、`specs/distribution/spec.md` の 3 つの Scenario（lock の url は lock の version の zip を指す・小さい版を上げても、大きい版と実行ファイルと許諾の置き場は変わらない・同梱の版が最新の minor なら、遅れの検査は通る）を印つきで書く。
+- [x] 2.2 `check-ch26.sh` にサブコマンド `pg-lock` を足し、`specs/distribution/spec.md` の 3 つの Scenario（lock の url は lock の version の zip を指す・小さい版を上げても、大きい版と実行ファイルと許諾の置き場は変わらない・同梱の版が最新の minor なら、遅れの検査は通る）を印つきで書く。
   遅れの検査は、`https://www.postgresql.org/versions.json` の 17 の行と同じ形で `latestMinor` を lock の小さい版にした写しを `PG_VERSIONS_URL=file://…` で、lock の版の zip の名前の空のファイルを置いた写しを `PG_EDB_URL_BASE=file://…/postgresql-` で渡し、今の lock に対して走らせて rc=0 を見る（網に出ない。`tools/check-pg-minor.sh` の自己試験と同じ渡し方）。
   `--self-test` に、写しの lock の `url` を別の版の zip にすると落ちる・`executables` から 1 つ消すと落ちる、を置く。
   検証: `bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh pg-lock` rc=0
