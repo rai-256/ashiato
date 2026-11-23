@@ -22,12 +22,12 @@
 
 ## Task 1: crate の勧告 3 件を片付ける（rustix を上げ、libsqlite3-sys と chrono を例外の表へ）
 
-- [ ] 1.1 rustix を上げる（design D1）: `cargo update -p rustix@1.1.5 --precise 1.1.6`（その時点で 1.1.x の最新が 1.1.6 より新しければ、その版でよい）。url も上げる（design D11。本人の決定 2026-11-23）: `cargo update -p url@2.5.8 --precise 2.5.9`（form_urlencoded 1.2.3 も動く）。
+- [x] 1.1 rustix を上げる（design D1）: `cargo update -p rustix@1.1.5 --precise 1.1.6`（その時点で 1.1.x の最新が 1.1.6 より新しければ、その版でよい）。url も上げる（design D11。本人の決定 2026-11-23）: `cargo update -p url@2.5.8 --precise 2.5.9`（form_urlencoded 1.2.3 も動く）。
   `check-ch26.sh` を作り、サブコマンド `lock` に `specs/dependency-vulnerability-scan/spec.md` の Scenario「上げた後の Cargo.lock は、上げた crate のほかの組を動かさない」を印つきで書く（元の版と今の `Cargo.lock` を `python3` の `tomllib` で読み、`[[package]]` の `(name, version)` の組の差が「rustix 1.1.5 → 1.1.6 以上の 1.1.x・url 2.5.8 → 2.5.9 以上の 2.5.x・form_urlencoded 1.2.2 → 1.2.3 以上の 1.2.x」だけであることを見る）。
   `--self-test` に、`CH26_ROOT` の使い捨ての写しで (a) 写しの `Cargo.lock` の rustix 1.1.x を `1.1.5` に戻すと落ちる・(b) 写しの別の項目の `version` を 1 つ書き換えると落ちる・(b2) 写しの url を `2.5.8` に戻すと落ちる、を置く。
   検証: `bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh lock` rc=0
   検証: `bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh --self-test` rc=0
-- [ ] 1.2 例外の表に 2 行を足す（design D2（仮）・D3（仮））。足す前に、勧告が当たる使い方を確かめる（design D2 の理由が成り立つか）:
+- [x] 1.2 例外の表に 2 行を足す（design D2（仮）・D3（仮））。足す前に、勧告が当たる使い方を確かめる（design D2 の理由が成り立つか）:
   (a) `grep -rn "Connection::open" crates/` の試験の外の出現を全部読み、開くのがブラウザの履歴の写し（`read.rs` の `copy_and_read` を通るもの）だけであること。
   (b) 写しの元の置き場がどこから来るか（`crates/collector-windows/src/history/locate.rs`。Firefox の `profiles.ini` の `IsRelative=0` の `Path=` は利用者の置き場の外を指しうる。`:208`）を読み、利用者の置き場の外の profile も読むことを D2 の理由の前提として確かめる（P16）。
   (a) で、ブラウザの履歴の写しのほかに本人以外が書ける場所の SQLite を開く所が見つかったら、手を止めて D2 の反転条件として A で人間に返す（(b) は D2 が既に反転条件に挙げているので、見つけただけでは止めない）。
@@ -37,7 +37,7 @@
   検証: `scripts/quiet-run vulns -- tools/check-vulns.sh` rc=0
   検証: `scripts/quiet-run vulns-nightly -- bash -c 'd=$(mktemp -d); trap "rm -rf \"$d\"" EXIT; tools/check-vulns.sh nightly "$d/f" && test -z "$(ls -A "$d/f" 2>/dev/null)"'` rc=0
   検証: `scripts/quiet-run vulns-base -- bash -c 'out=$(tools/check-vulns.sh --base "$(git merge-base origin/main HEAD)" 2>&1); printf "%s\n" "$out" | grep -qF "RUSTSEC-2026-0459" && printf "%s\n" "$out" | grep -qF "RUSTSEC-2026-0543"'` rc=0
-- [ ] 1.3 `check-ch26.sh` にサブコマンド `vulns` を足し、`specs/dependency-vulnerability-scan/spec.md` の残りの 3 つの Scenario（例外の表の既にある行は、中身ごと残る・足した例外の行は、正典の理由の形を持つ・全体の検査と毎晩の検査は、片付けた勧告を出さない）を印つきで書く。
+- [x] 1.3 `check-ch26.sh` にサブコマンド `vulns` を足し、`specs/dependency-vulnerability-scan/spec.md` の残りの 3 つの Scenario（例外の表の既にある行は、中身ごと残る・足した例外の行は、正典の理由の形を持つ・全体の検査と毎晩の検査は、片付けた勧告を出さない）を印つきで書く。
   例外の表は元の版と今を `tomllib` で読んで比べる。全体の検査と毎晩の検査は、どちらも rc が 2 でないことと、出力と材料のファイルに 4 つの ID（`RUSTSEC-2026-0592` を含む。design D11）の文字が無いことを見る（rc=1 は許す。後で別の勧告が出ても、この 3 件の確かめは崩れない）。
   `--self-test` に、写しの `osv-scanner.toml` で (a) 既にある行の `reason` を書き換えると落ちる・(b) 足した行の `reason` を `問題ない` にすると落ちる、を置く。
   検証: `scripts/quiet-run ch26-vulns -- bash openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh vulns` rc=0
