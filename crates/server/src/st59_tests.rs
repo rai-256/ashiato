@@ -938,6 +938,101 @@ async fn st59_both_access_log_failure_returns_500_without_changes() {
 }
 
 #[tokio::test]
+// 書き戻しに落ちた後、打ち消しの行も書けなくても、`not_saved` を返す（review/code.md R28）
+async fn st59_both_write_failure_returns_not_saved_even_if_refusal_row_fails() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let base = st59_app().await;
+    let cookie = login(&base, base.web_password_for_test()).await;
+    let app = base.with_access_sink(FailingRefusalSink);
+    let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let before = std::fs::read(&path).unwrap();
+    let writing = path.with_file_name("server.json.writing");
+    std::fs::create_dir(&writing).unwrap();
+    for response in [
+        router(app.clone())
+            .oneshot(web_password_request(
+                Some(&cookie),
+                "old-web-password-012345",
+                "new-web-password-012345",
+                "new-web-password-012345",
+            ))
+            .await
+            .unwrap(),
+        router(app.clone())
+            .oneshot(collector_token_change_request(
+                Some(&cookie),
+                "old-web-password-012345",
+            ))
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response_body_json(response).await,
+            serde_json::json!({"error":"not_saved"})
+        );
+    }
+    std::fs::remove_dir(&writing).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[tokio::test]
+// 書き戻しより前の 500 の道のうち、起こせるもの（印の行の INSERT の失敗）でも、理由がログに出て
+// `forbidden`/500 の行が残り、`ok` の行は残らない（review/code.md R27・R29）。
+// 起こせない道: hash（argon2 の失敗）と収集アプリの値の生成は、差し込み口の無い純粋な計算。衝突の検査の
+// `Ok(false)` は `validate_new_web_password` が先に同じ値を断るので通らない守りの道。どれも同じ
+// `refuse_internal` を通る（R30）ので、行とログの形はこの試験の道と同じになる。
+async fn st59_web_password_session_insert_failure_is_logged_and_recorded() {
+    let _environment = st59_service_environment("old-api-token-012345", "old-web-password-012345");
+    let db = testdb::isolated_with_app().await;
+    let app = App::for_test(db.owner.clone(), "old-api-token-012345")
+        .with_web_login("old-web-password-012345", 0);
+    let cookie = login(&app, app.web_password_for_test()).await;
+    for statement in [
+        "CREATE FUNCTION public.st59_refuse_session() RETURNS trigger LANGUAGE plpgsql
+           AS $$ BEGIN RAISE EXCEPTION 'st59 refuses'; END $$",
+        "CREATE TRIGGER st59_refuse_session BEFORE INSERT ON core.web_session
+           FOR EACH ROW EXECUTE FUNCTION public.st59_refuse_session()",
+    ] {
+        sqlx::query(statement).execute(&db.owner).await.unwrap();
+    }
+    let path = std::path::PathBuf::from(std::env::var_os("ASHIATO_SETTINGS_PATH").unwrap());
+    let before = std::fs::read(&path).unwrap();
+    let captured = CapturedLog::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let response = router(app.clone())
+        .oneshot(web_password_request(
+            Some(&cookie),
+            "old-web-password-012345",
+            "new-web-password-012345",
+            "new-web-password-012345",
+        ))
+        .await
+        .unwrap();
+    drop(guard);
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("web_password.session_insert"), "{log}");
+    for (outcome, status, expected) in [("forbidden", 500i16, 1i64), ("ok", 204, 0)] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.access_log WHERE route = '/web-password' AND outcome = $1 AND status = $2",
+        )
+        .bind(outcome)
+        .bind(status)
+        .fetch_one(&db.owner)
+        .await
+        .unwrap();
+        assert_eq!(count, expected, "{outcome} {status}");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[tokio::test]
 #[allow(clippy::await_holding_lock)]
 // Scenario: 開発の形のサーバでは、画面から変えられないと出る
 async fn st59_both_development_mode_is_not_changeable() {
@@ -1630,6 +1725,19 @@ struct BlockingEvents {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
     armed: Arc<AtomicBool>,
+}
+
+/// 打ち消しの行（`forbidden`/500）だけを書けない記録の口（review/code.md R28）。
+struct FailingRefusalSink;
+
+impl AccessSink for FailingRefusalSink {
+    fn record(&self, entry: AccessEntry) -> AccessFuture {
+        if entry.outcome == "forbidden" && entry.status == 500 {
+            Box::pin(async { Err(sqlx::Error::RowNotFound) })
+        } else {
+            Box::pin(async { Ok(()) })
+        }
+    }
 }
 
 struct FailingAccessSink;

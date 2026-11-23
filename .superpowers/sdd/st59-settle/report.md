@@ -109,3 +109,21 @@
 - コードは前の回（04cfe42dd）でこの順に戻してある。`git diff --stat 04cfe42dd HEAD -- crates web` は空（その後の commit は文書だけ）。spec・design D9 もこの順のままで、直すものは無い
 - `review_triage.py` は kind=premise・loss=uncaptured を `escalated` 以外で閉じさせないので、動詞は `escalated` のまま、処置の行に答えと効く先を書いた
 - 検証: `cargo test -p ashiato-server st59_both_ -- --list` で 8 本（`st59_both_write_failure_returns_not_saved`・`st59_both_access_log_failure_returns_500_without_changes` を含む）。`scripts/quiet-run st59-r23 -- cargo test -p ashiato-server st59_both_` → rc=0、`test result: ok. 8 passed; 0 failed`（`.superpowers/sdd/logs/20261123-183328-st59-r23.log`）
+
+## final review 2 回目の指摘（2026-11-23）
+
+### R28（fixed D9）
+- `web_session.rs` の 2 つの口の書き戻しの失敗の道で、打ち消しの行の書き込みを `app.access.write(failed()).await?` から `let _ = app.access.write(failed()).await;` にした。行を書けなくても `not_saved` の 500 を返す。書けなかった理由は `AccessLog::write` の `internal_at("access_log.insert", …)` が sqlstate つきで error のログに出す（新しい warn は足していない）。書き戻しの理由の warn（`*.save`）は今どおり先に出る
+- 試験 `st59_both_write_failure_returns_not_saved_even_if_refusal_row_fails`（`FailingRefusalSink`: `forbidden`/500 の行だけ書けない記録の口 + `server.json.writing` の dir で書き戻しを落とす）。2 つの口とも 500・本文 `{"error":"not_saved"}`、設定のファイルはバイトのまま
+- 壊して確かめた: `/web-password` 側を `?` に戻すと、この試験が `response_body_json` で落ちる（`test result: FAILED. 0 passed; 1 failed`）。戻して通る
+
+### R29（fixed D9）
+- 起こせる道（印の行の INSERT の失敗）の試験 `st59_web_password_session_insert_failure_is_logged_and_recorded` を足した。使い捨ての DB（`testdb::isolated_with_app()`）でログインした後に `core.web_session` へ BEFORE INSERT で例外を投げる trigger を張り、`/web-password` が 500・ログに `web_password.session_insert`・記録に `forbidden`/500 が 1 行・`ok`/204 が 0 行・設定のファイルは変わらない、を見る
+- 起こせない道（argon2 の hash・収集アプリの値の生成・衝突の検査の `Ok(false)`）は、理由を試験の頭のコメントに書いた。どれも R30 の `refuse_internal` を通るので、行とログの形は同じ
+
+### R30（fixed D9）
+- `joined()`（`spawn_blocking` の `Result<Result<T,E>,JoinError>` → `Result<T,String>`）と `refuse_internal()`（warn・`forbidden`/500 の行・500 を 1 か所で）を足し、hash・衝突の検査・値の生成の 4 つの分岐を 1 つずつにした。`not_saved_reason` は `joined` に置き換えて消した。warn の文言は 2 つの口で共通の「変える求めを 500 で断る」に、口は `op` で分かれる
+
+### 検証
+- `cargo fmt -p ashiato-server --check` rc=0・`scripts/quiet-run st59-clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
+- `scripts/quiet-run st59 -- cargo test -p ashiato-server st59_` → rc=0、`test result: ok. 41 passed; 0 failed`（新しい 2 本を含む。`.superpowers/sdd/logs/20261123-184155-st59.log`）

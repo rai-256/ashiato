@@ -404,15 +404,18 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - 根拠: 書き戻しの失敗の後は `?` で抜けるので、記録には `ok` の行だけが残り（値は変わっていない）、画面には「値は変わっていません」が出ない。spec（data-sensitivity「行を書いた後に値を書き戻せなかったとき」）はこの二重の失敗を定めていない。行が多い側への誤りで、害は小さい
 - kind: technical
 - 提案: 打ち消しの行の書き込みに落ちたときも理由を warn に出し、`not_saved` の 500 を返す。spec は直さない
+- 処置: fixed D9
 
 ## R29. R27 の試験は書き戻しの失敗の道だけを見ている。ほかの 500 の道で `forbidden`/500 の行と warn が出ることは確かめていない（Minor）
 - 成果物: `crates/server/src/st59_tests.rs` / `crates/server/src/web_session.rs`（`:866-934`・`:1290-1302` の hash の失敗・衝突の検査・印の行の INSERT の失敗）
 - 根拠: final reviewer の読み。差し込み口が無いので起こしにくい。衝突の検査の `Ok(false)` は `validate_new_web_password` が先に同じ値を断るので通らない守りの道
 - kind: technical
 - 提案: 起こせる道（例: 印の行の INSERT の失敗）だけでも試験を足すか、起こせない理由を試験の近くに書く
+- 処置: fixed D9
 
 ## R30. `Ok(Err)` と `Err(JoinError)` の分岐で、warn・行・500 の同じ 3 行が 2 つの口で計 4 回繰り返されている（Minor・nit）
 - 成果物: `crates/server/src/web_session.rs`（`:873-882`・`:903-912`・`:1293-1302`）
 - 根拠: final reviewer の読み。`not_saved_reason`（`:974`）と同じ形で理由を `String` にまとめられる
 - kind: technical
 - 提案: 理由を `String` にする小さな関数にまとめ、分岐を 1 つにする
+- 処置: fixed D9

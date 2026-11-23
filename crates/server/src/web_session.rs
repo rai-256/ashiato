@@ -868,19 +868,13 @@ async fn web_password_post_inner(
         )
     };
     let password = request.new_password.clone();
-    let verifier = match tokio::task::spawn_blocking(move || password_verifier(&password)).await {
-        Ok(Ok(verifier)) => verifier,
-        Ok(Err(error)) => {
-            tracing::warn!(op = "web_password.hash", reason = %error, "合言葉を変える求めを 500 で断る");
-            app.access.write(failed()).await?;
-            return Err(internal_error());
-        }
-        Err(error) => {
-            tracing::warn!(op = "web_password.hash", reason = %error, "合言葉を変える求めを 500 で断る");
-            app.access.write(failed()).await?;
-            return Err(internal_error());
-        }
-    };
+    let verifier =
+        match joined(tokio::task::spawn_blocking(move || password_verifier(&password)).await) {
+            Ok(verifier) => verifier,
+            Err(reason) => {
+                return Err(refuse_internal(&app, failed(), "web_password.hash", &reason).await)
+            }
+        };
     let verifier_for_check = verifier.clone();
     let api_token_for_check = api_token.clone();
     let session_key_for_check = session_key.clone();
@@ -894,22 +888,13 @@ async fn web_password_post_inner(
             .is_ok()
     })
     .await;
-    match checked {
-        Ok(true) => {}
-        Ok(false) => {
-            tracing::warn!(
-                op = "web_password.collision_check",
-                reason = "collides",
-                "合言葉を変える求めを 500 で断る"
-            );
-            app.access.write(failed()).await?;
-            return Err(internal_error());
-        }
-        Err(error) => {
-            tracing::warn!(op = "web_password.collision_check", reason = %error, "合言葉を変える求めを 500 で断る");
-            app.access.write(failed()).await?;
-            return Err(internal_error());
-        }
+    let collision = match checked {
+        Ok(true) => None,
+        Ok(false) => Some("collides".to_owned()),
+        Err(error) => Some(error.to_string()),
+    };
+    if let Some(reason) = collision {
+        return Err(refuse_internal(&app, failed(), "web_password.collision_check", &reason).await);
     }
 
     // 順は design D1・data-sensitivity の定めのとおり: 新しい tag で印の行 → `ok` の行 → 書き戻し → 差し替え。
@@ -944,9 +929,10 @@ async fn web_password_post_inner(
         crate::service::replace_setting("WEB_PASSWORD_VERIFIER", &verifier)
     })
     .await;
-    if let Some(reason) = not_saved_reason(saved) {
+    if let Err(reason) = joined(saved) {
         tracing::warn!(op = "web_password.save", reason = %reason, "合言葉を書き戻せなかった");
-        app.access.write(failed()).await?;
+        // 打ち消しの行も書けなくても、値は変わっていないことを返す（理由は `write` がログに出す。review/code.md R28）
+        let _ = app.access.write(failed()).await;
         return Ok(web_password_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "not_saved",
@@ -965,14 +951,29 @@ fn internal_error() -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
-/// 書き戻しの結果から、落ちた理由（秘密を含まない）を取り出す。書けたら `None`。
-fn not_saved_reason(
-    saved: Result<Result<(), crate::service::SettingsWriteError>, tokio::task::JoinError>,
-) -> Option<String> {
-    match saved {
-        Ok(Ok(())) => None,
-        Ok(Err(error)) => Some(error.to_string()),
-        Err(error) => Some(error.to_string()),
+/// `spawn_blocking` の結果から、値か、落ちた理由（秘密を含まない語）を取り出す（review/code.md R30）。
+fn joined<T, E: std::fmt::Display>(
+    result: Result<Result<T, E>, tokio::task::JoinError>,
+) -> Result<T, String> {
+    match result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// 変える口を 500 で断る。理由をログに出し、`forbidden`/500 の行を残す（review/code.md R27・R30）。
+/// 行を書けなければ、その失敗（`write` がログに出す）を返す。
+async fn refuse_internal(
+    app: &App,
+    entry: AccessEntry,
+    op: &'static str,
+    reason: &str,
+) -> (StatusCode, String) {
+    tracing::warn!(op, reason, "変える求めを 500 で断る");
+    match app.access.write(entry).await {
+        Ok(()) => internal_error(),
+        Err(error) => error,
     }
 }
 
@@ -1288,17 +1289,10 @@ async fn collector_token_post_checked(
         ))
     })
     .await;
-    let token = match generated {
-        Ok(Ok(token)) => token,
-        Ok(Err(error)) => {
-            tracing::warn!(op = "collector_token.generate", reason = %error, "収集アプリの値を変える求めを 500 で断る");
-            app.access.write(failed()).await?;
-            return Err(internal_error());
-        }
-        Err(error) => {
-            tracing::warn!(op = "collector_token.generate", reason = %error, "収集アプリの値を変える求めを 500 で断る");
-            app.access.write(failed()).await?;
-            return Err(internal_error());
+    let token = match joined(generated) {
+        Ok(token) => token,
+        Err(reason) => {
+            return Err(refuse_internal(&app, failed(), "collector_token.generate", &reason).await)
         }
     };
     // 順は design D1・data-sensitivity の定めのとおり: `ok` の行 → 書き戻し → 差し替え。
@@ -1316,9 +1310,10 @@ async fn collector_token_post_checked(
         crate::service::replace_setting("API_TOKEN", &token_for_write)
     })
     .await;
-    if let Some(reason) = not_saved_reason(saved) {
+    if let Err(reason) = joined(saved) {
         tracing::warn!(op = "collector_token.save", reason = %reason, "収集アプリの値を書き戻せなかった");
-        app.access.write(failed()).await?;
+        // 打ち消しの行も書けなくても、値は変わっていないことを返す（理由は `write` がログに出す。review/code.md R28）
+        let _ = app.access.write(failed()).await;
         return Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(CollectorTokenChangeError { error: "not_saved" }),
