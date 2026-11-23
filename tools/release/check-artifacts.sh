@@ -81,6 +81,8 @@ apk_version() {
     expected_code="$("$root/tools/release/version.sh" code "$want")"
   fi
   [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
+  # 式を通さない固定の値でも見る（D3: 0.4.0-beta.2 は 左 0・真ん中 4・右 0 で 40000）
+  [ "$version_name" != 0.4.0-beta.2 ] || [ "$version_code" = 40000 ] || die "0.4.0-beta.2 の APK の versionCode が 40000 でない: $line"
   echo "OK: $line"
 }
 
@@ -349,12 +351,14 @@ range_self_test() {
   clone="$work/clone"
   git clone -q --local --no-hardlinks "$root" "$clone"
   echo "== Scenario: 桁を超える版番号では、携帯の組み立てが失敗する"
-  sed -i 's/^version = "[^"]*"/version = "0.100.0"/' "$clone/Cargo.toml"
+  # 出所 0.0.1・左の数字のファイル 0 の写しの木に、真ん中の数字が上限 999 を超える番号（左は MAJOR と同じ）を渡す
+  sed -i 's/^version = "[^"]*"/version = "0.0.1"/' "$clone/Cargo.toml"
+  printf '0\n' >"$clone/tools/release/MAJOR"
   local output
-  if output=$(cd "$clone/collector-android" && ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug 2>&1); then
+  if output=$(cd "$clone/collector-android" && ASHIATO_BUILD_VERSION=0.1000.0 ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug 2>&1); then
     die "桁を超えた版番号の検査が成功した"
   fi
-  grep -Fq 'MINOR が上限を超えた' <<<"$output" || die "Gradle が MINOR 超過以外の理由で失敗した: $output"
+  grep -Fq '真ん中の数字が上限 999 を超えた' <<<"$output" || die "Gradle が真ん中の数字の超過以外の理由で失敗した: $output"
   echo "OK: 桁を超えた版番号を Gradle の版検査が拒否した"
 }
 

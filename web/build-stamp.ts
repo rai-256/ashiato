@@ -26,6 +26,8 @@ export const execGit: Git = (args) =>
 export interface StampInput {
   /** 根の Cargo.toml の内容。未指定時はリポジトリのファイルを読む。 */
   cargoToml?: string;
+  /** `tools/release/MAJOR` の内容（左の数字）。未指定時はリポジトリのファイルを読む。渡した版番号があるときだけ読む。 */
+  major?: string;
   /** `vite build`（production）だけ `.debug` を付けない */
   production: boolean;
   git?: Git;
@@ -39,20 +41,60 @@ export function sourceVersion(cargoToml: string): string {
   return match[1];
 }
 
-function versionShape(value: string): { base: string } | undefined {
-  const match = /^(\d+\.\d+\.\d+)(?:-beta\.([1-9]|[1-8]\d|9[0-8])|-dev\.\d{8})?$/.exec(value);
-  return match ? { base: match[1] } : undefined;
+interface VersionShape {
+  numbers: [number, number, number];
+  suffixFree: boolean;
 }
 
-function resolvedVersion(source: string, env: Record<string, string | undefined>): string {
+/** 数字 3 つと後ろの形（`-beta.<1〜98>`・`-dev.<YYYYMMDD>`）。決めた形でなければ undefined。 */
+function versionShape(value: string): VersionShape | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.([1-9]|[1-8]\d|9[0-8])|-dev\.\d{8})?$/.exec(value);
+  if (!match) return undefined;
+  const numbers = [Number(match[1]), Number(match[2]), Number(match[3])] as [number, number, number];
+  if (!numbers.every(Number.isSafeInteger)) return undefined;
+  return { numbers, suffixFree: !value.includes("-") };
+}
+
+/** 左の数字・真ん中・右の上限（versionCode の式 D3 の内側）。 */
+const LIMITS: [number, number, number] = [209, 999, 9999];
+
+/** 左の数字のファイル（`tools/release/MAJOR`）の内容を数字にする。数字 1 つでなければ投げる。 */
+export function parseMajor(text: string): number {
+  const value = text.trim();
+  if (!/^\d+$/.test(value)) throw new Error(`tools/release/MAJOR が数字 1 つでない: ${JSON.stringify(value)}`);
+  return Number(value);
+}
+
+/**
+ * 版の規則（design D9。bash・Rust・gradle と同じ）。渡した版の 3 つの数字が出所の版と同じなら「番号を持たない版」、
+ * 左が `tools/release/MAJOR` の値で `<左>.<真ん中>` が `0.0` でなければ「番号」。
+ */
+export function checkVersion(source: string, given: string, major: number): string {
+  const context = `左の数字のファイル ${major}、出所 ${source}、渡した版番号 ${given}`;
   const sourceParsed = versionShape(source);
-  if (!sourceParsed) throw new Error(`Cargo.toml の版番号が不正: ${source}`);
-  const given = env.ASHIATO_BUILD_VERSION?.trim();
-  if (!given) return source;
+  if (!sourceParsed || !sourceParsed.suffixFree || sourceParsed.numbers[0] !== 0 || sourceParsed.numbers[1] !== 0 || sourceParsed.numbers[2] < 1) {
+    throw new Error(`版番号の出所が 0.0.<N>（N は 1 以上）の形でない: ${context}`);
+  }
   const givenParsed = versionShape(given);
-  if (!givenParsed) throw new Error(`ASHIATO_BUILD_VERSION の形が不正: ${given}`);
-  if (givenParsed.base !== sourceParsed.base) throw new Error(`版番号の出所が一致しない: 出所 ${source}、渡した版番号 ${given}`);
+  if (!givenParsed) throw new Error(`ASHIATO_BUILD_VERSION の形が不正: ${context}`);
+  if (givenParsed.numbers.join(".") !== sourceParsed.numbers.join(".")) {
+    const [left, middle] = givenParsed.numbers;
+    if (left !== major) throw new Error(`左の数字が左の数字のファイルと違う: ${context}`);
+    if (left === 0 && middle === 0) throw new Error(`出所の版と違う 0.0.x は番号ではない: ${context}`);
+  }
+  if (givenParsed.numbers.some((n, i) => n > LIMITS[i])) {
+    throw new Error(`数字が上限（左 ${LIMITS[0]}・真ん中 ${LIMITS[1]}・右 ${LIMITS[2]}）を超えた: ${context}`);
+  }
   return given;
+}
+
+function resolvedVersion(source: string, readMajor: () => string, env: Record<string, string | undefined>): string {
+  const given = env.ASHIATO_BUILD_VERSION?.trim();
+  if (!given) {
+    if (!versionShape(source)) throw new Error(`Cargo.toml の版番号が不正: ${source}`);
+    return source;
+  }
+  return checkVersion(source, given, parseMajor(readMajor()));
 }
 
 /** commit の出所は環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`。 */
@@ -75,9 +117,10 @@ function isDirty(git: Git): boolean {
   }
 }
 
-export function webBuildStamp({ cargoToml, production, git = execGit, env = process.env }: StampInput): string {
+export function webBuildStamp({ cargoToml, major, production, git = execGit, env = process.env }: StampInput): string {
   const source = cargoToml ?? readFileSync(new URL("../Cargo.toml", import.meta.url), "utf8");
-  const version = resolvedVersion(sourceVersion(source), env);
+  const readMajor = () => major ?? readFileSync(new URL("../tools/release/MAJOR", import.meta.url), "utf8");
+  const version = resolvedVersion(sourceVersion(source), readMajor, env);
   const commit = commitOf(git, env);
   return `${version}+${commit}${isDirty(git) ? ".dirty" : ""}${production ? "" : ".debug"}`;
 }
