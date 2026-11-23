@@ -453,3 +453,4 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - 成果物: tools/release/install-check.sh
 - 根拠: tools/release/install-check.sh:1138（re-review 7 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 7.1

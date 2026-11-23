@@ -1135,15 +1135,12 @@ check_release_zip() {
   [[ -n "$changed_cookie" ]] || die '画面から変える前にログインできない'
 
   echo '== Scenario: 変えた後に起動し直しても、新しい合言葉でログインでき、前の合言葉ではできない'
-  web_change_code="$(curl -s -c "$(pypath "$WORK/web-password-change.cookie")" -o "$(pypath "$WORK/web-password-change.out")" -w '%{http_code}' -X POST \
+  # 印は応答の見出しから読む（login と同じ。cookie jar は http の Secure な印を保存するかが curl の版で変わる。review R31）
+  web_change_code="$(curl -s -D "$(pypath "$WORK/web-password-change.headers")" -o "$(pypath "$WORK/web-password-change.out")" -w '%{http_code}' -X POST \
     -H "Cookie: ashiato_session=$changed_cookie" -H 'Content-Type: application/json' \
     --data "{\"password\":\"$PW2\",\"new_password\":\"$PW3\",\"confirmation\":\"$PW3\"}" "$URL/web-password" || true)"
   [[ "$web_change_code" == 204 ]] || die '画面の合言葉を変えられない'
-  changed_cookie="$(PY -c 'import sys
-for line in open(sys.argv[1], encoding="utf-8"):
-    fields=line.removeprefix("#HttpOnly_").rstrip("\n").split("\t")
-    if len(fields) >= 7 and fields[5] == "ashiato_session":
-        print(fields[6]); break' "$(pypath "$WORK/web-password-change.cookie")")"
+  changed_cookie="$(session_cookie_from_headers "$(cat "$WORK/web-password-change.headers")")"
   [[ -n "$changed_cookie" ]] || die '画面の合言葉の変更後のログインの印を受け取れない'
   [[ "$(setting WEB_PASSWORD_VERIFIER)" != "$changed_web" ]] || die '画面の合言葉の鍵が変わらない'
   [[ "$(setting API_TOKEN)" == "$changed_api" ]] || die '画面の合言葉の変更で収集アプリの値が変わった'
