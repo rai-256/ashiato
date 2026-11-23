@@ -44,7 +44,8 @@
   `組み立てた APK の versionCode は、渡した版番号から計算した値` の期待値を 40000 にする。`version-check-table.tsv` の全行を当てる task `verifyVersionCheckTable` を足し、`// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する` の印を置く
   検証: `bash -c 'scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:verifyVersionCodeTable :app:verifyVersionCheckTable && test "$(grep -vc "^#" tools/release/version-table.tsv)" -ge 10'` rc=0 /
   `tools/release/check-artifacts.sh --self-test-gradle-range` rc=0 /
-  `bash -c 'ASHIATO_BUILD_VERSION=0.4.0-beta.2 scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'` rc=0
+  `tools/release/check-artifacts.sh apk-build 0.4.0-beta.2` rc=0
+  （訂正 2026-11-23: 検証の入口を「bash -c 'ASHIATO_BUILD_VERSION=0.4.0-beta.2 scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'」から上の入口に。受け入れ条件は変えない。理由: apk-version は比べる版番号を渡さないと APK 自身の versionName でしか比べず、版を無視した APK や置き場に残った別の組み立ての APK でも rc=0 だった（code-verify R4）。apk-version に --expect-version を必須にしたので旧コマンドは成立しない。新しい入口は置き場を空にしてから渡した版番号で組み、組んだ APK を渡した版番号と比べる 実証: evidence.jsonl 2026-11-23T13:44:58+00:00 FAIL。承認: machine: evidence.jsonl 2026-11-23T13:46:06+00:00 PASS。記録: plan-corrections.md）
 - [x] 2.3 `web/build-stamp.ts`: 版の規則を D9 にする（`tools/release/MAJOR` を読む）。`web/src/__tests__/build-stamp.test.ts` に `version-check-table.tsv` の全行を当てる試験を足し、`// Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する` の印を置く
   検証: `bash -c 'cd web && npx vitest run src/__tests__/build-stamp.test.ts'` rc=0 / `bash -c 'cd web && npm run build'` rc=0
 - [x] 2.4 `docs/openapi.json` を作り直す（`info.version` が `0.0.1`）。`tools/check-openapi.sh` はそのまま通る（`// Scenario: API の契約の版は、渡した版番号に依らず出所の版`）。

@@ -59,6 +59,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   Scenario `取り消された run の後の文書だけの merge でも、コードの job が走る`（spec 242 行。THEN は「コードの job と配る形の組み立ての job は走る」）の印は `changes.sh:52` にあり、観測しているのは `changes.sh base` が渡した commit を返すことだけ。ci.yml がそれを `BASE` に使うかは見ていない
 - kind: technical
 - 提案: `check-guards.sh workflows` に、ci.yml の `changes` の job が push で `changes.sh base` の出力を `BASE` に使うこと・`actions: read` を持つこと・問い合わせが `status=success` を持つことの検査を足し、`--self-test` で 1 つずつ外した偽の ci.yml が rc≠0 になることを見る。12.4（人間の確認）は main に入った後でしか働かない
+- 処置: fixed 6.1
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -67,6 +68,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   検査は `gh release (edit|delete)|--draft=false|--clobber|publish-nightly|refs/tags/v|sign-apk` の grep だけ（162 行）。Scenario `番号付けの workflow は、前の組み立てを使い回さず、書く権限をその job にだけ持つ` の THEN は「公開する手順と印 `v*` を作る手順を持たない」
 - kind: technical
 - 提案: 禁止の並びを足すより、`contents: write` の 2 つの job の `run:` を許す形（`tools/release/version.sh number`・`number.sh tag|complete|place`・決まった `echo`/`sed`/`tee`）に限る。`gh` と `git tag`/`git push` を直に呼ぶ step があれば落とす
+- 処置: fixed 5.1
 
 ## R3. versionCode の上限（真ん中 999・左 209）は、狭めても試験が 1 本も落ちない。受ける側の境目の行が、どの表にも無い
 - 成果物: tools/release/version-table.tsv / tools/release/version-check-table.tsv / tools/release/version.sh:42-43 / web/build-stamp.ts:59 / crates/build-stamp/src/lib.rs:79-81 / collector-android/app/build.gradle.kts:44-45
@@ -77,6 +79,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   上限が狭まると、番号付けは届く前に「上限を超える番号は付けない」で止まる（D14）
 - kind: technical
 - 提案: `version-table.tsv` に `0.999.9999`→9999999 と `209.999.9999`→2099999999 を、`version-check-table.tsv` に `0.999.9999`（左 0）ok と `209.0.0`（左 209）ok を足す。4 か所が同じ表を読むので、1 か所の変更で済む
+- 処置: fixed 1.1
 
 ## R4. 2.2 の 3 本目の検証は、組んだ APK が渡した版番号かを見ていない。版を無視した APK でも rc=0 になる（実測 2 回）
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md 2.2 の 3 本目 / tools/release/check-artifacts.sh:65-87（`apk-version`）
@@ -85,6 +88,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   `apk-version` は `--expect-version` が無ければ APK 自身の versionName から計算した値と比べるだけ（78-83 行）。85 行の 40000 の検査は versionName が `0.4.0-beta.2` のときしか働かない。この型は code_verify R25 で一度直した弱さと同じ（79 行の注記）
 - kind: technical
 - 提案: 2.2 の 3 本目を `tools/release/check-artifacts.sh apk-version --expect-version 0.4.0-beta.2 collector-android/app/build/outputs/apk/release/*.apk` に直す（受け入れ条件は変えない。`plan_fix.py` の訂正の形）。あわせて、組む前に `app/build/outputs/apk/release/` を空にして、ほかの組み立ての残りを拾わないようにする
+- 処置: fixed 2.2
 
 ## R5. 置き場と番号の判定の守り 4 つに、試験が無い。消しても自己試験は通る
 - 成果物: tools/release/number.sh:95・:118・:49 / tools/release/version.sh:193
@@ -96,6 +100,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   - 見立て（走らせていない）: 本物の CI では、49 行と 193 行に当たる状態はほぼ起きない（新しい checkout・main の push の run だけ）。95 行と 118 行は、人が下書きを公開した後に番号付けが走り直したときに当たる
 - kind: technical
 - 提案: `number.sh --self-test` の偽の `gh` に `isDraft:false` の release を返させ、`place` が rc≠0 で書く要求 0 件・`complete` が `complete=no` になることを見る。`version.sh` の自己試験に、前の番号の子孫で main の first-parent の上に無い commit（merge された枝の中の commit）を足す
+- 処置: fixed 4.1
 
 ## code-verify の結論
 - 結論: 申告と実測は不一致（5 件。R1・R2・R3・R4・R5）。18 項目の検証コマンドは全部実在し rc=0 だったが、ci.yml の差分の基準の配線（R1）・番号付けの workflow の公開と `v*` の禁止（R2）・versionCode の上限（R3）・APK の版の検証（R4）・置き場の下書きの守りなど 4 つ（R5）は、壊しても検査が落ちない
@@ -129,27 +134,32 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 根拠: windows-latest checks out with core.autocrlf (build.sh:46 already notes the Windows checkout can be CRLF), so MAJOR becomes "0\r\n". Then number.yml build-windows runs `build.sh server-windows` with ASHIATO_BUILD_VERSION=0.2.1, and resolve_version runs `version.sh check`, which dies. The same happens in nightly package-windows (0.x.y-dev.*) and in the ci.yml package-windows loop (ASHIATO_BUILD_VERSION=$v). No Windows artifacts are produced.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R7. On a main push, the CI diff base can be a commit that is not an ancestor of HEAD, so code jobs get skipped. `base()` only checks that PREV_SUCCESS_SHA exists in the tree, not that it is an ancestor of HEAD. Fix: in base(), also require `git merge-base --is-ancestor "$sha" HEAD`, and fall back to `all` when that fails.
 - 成果物: tools/release/changes.sh:24
 - 根拠: C1 (a code change) fails on main and C2 (docs only) succeeds. Re-running C1's run picks the newest successful run, C2, as BASE. `git diff C2 C1` then lists only the docs, so code=false and the Rust, e2e and Windows jobs are skipped. C1's run turns success even though C1's own code was not tested here, and number.yml then fires for C1. The same thing happens when the newest success points at a commit that was force-pushed away.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 6.1
 
 ## R8. The bash `check_rule` does not enforce the same rule as Rust, TS and gradle, even though the comments say all four apply the same rule and the same table pins it. bash only checks that the source version has no suffix. The other three reject any source version that is not `0.0.<N≥1>`. Every row of version-check-table.tsv uses source 0.0.1, so the table cannot catch the difference. Fix: add the `0.0.<N≥1>` check to check_rule, and add table rows whose source is not 0.0.x (for example 0.4.0 with 0.4.0 → ng).
 - 成果物: tools/release/version.sh:111
 - 根拠: With source 0.4.0 and given version 0.4.0, `version.sh check` returns ok, while build-stamp, build-stamp.ts and gradle all fail. version.sh's own self-test passes only because of this gap: its tree's Cargo.toml is 0.4.0 and `plan v0.4.0` depends on it.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R9. Only Rust accepts a MAJOR file containing `+0`. `text.trim().parse::<u64>()` allows a leading `+` (u64::from_str does), while bash, TS and gradle all require `^\d+$`. That is the same trap that parse_version guards against by checking for digits only (final review R12). Fix: check that the value is ASCII digits only before parsing.
 - 成果物: crates/build-stamp/src/lib.rs:68
 - 根拠: If tools/release/MAJOR contains "+0", version.sh, the web stamp and gradle all fail, but the Rust server and collector build with major=0. The four implementations then disagree about whether the build is valid.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 2.1
 
 ## R10. The branch has a commit whose message is just `wip`. CLAUDE.md (git section) says: 「コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」」. Fix: reword the commit to the project's format, or squash it into a neighbouring commit.
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md:1
 - 根拠: `git log origin/HEAD..HEAD --format=%s` includes a subject that is exactly "wip". It has no type prefix, no Japanese one-line summary and no body explaining why, which breaks the /home/yosis/dev/ashiato2-st61/CLAUDE.md commit rule.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: escalated

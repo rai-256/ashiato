@@ -45,3 +45,16 @@ FR-134 の未決（NEEDS CLARIFICATION と 2026-11-21 の補足の 3 つの「�
 - FR-134: 本文を「CI が通り、前の番号から製品が変わった main の commit に」へ ★ 2026-11-23 訂正（Q1）。未決の 3 つ —— NEEDS CLARIFICATION「真ん中の数字をいつ上げるか」（Q3: 確認バッチが入ったら）・補足の「式を変えるか」（Q2: 桁を広げる）・「文書だけの merge でも番号を進めるか」（Q1: 進めない）—— を同じ ★ で閉じた。Q4 は本文と食い違わない（本物に使わない 0.0.x を名乗る）ので本文は変えず、★ に実装の形だけを記した
 - Story ST61: `docs/stories/stories.json` の題と完了の判定 1 つ目を Q1 に合わせて直し（3 つ目の「1 年分の merge の番号でも落ちない」は Q2・Q3 の答えでも成り立つので変えない）、`make_story.py` で `ST61.md` を貼り直した
 - 整合の確認 `docs/audit/2026-11-23-st61-fr134-consistency.md`（C6・K1。行き先はすべて記入済み）: 要件 §5 の方針の行・ST61 の価値と judged・INDEX.md の題・`docs/release.md`・`docs/production-prep.md` の「merge ごとに」を改訂後の FR-134 に合わせ、FR-134 に「0.x の間に真ん中の上限に届けば、左を上げずに式を見直す」を ★ で足した
+
+# 深掘り（第 2 回）
+
+> /code-review の R10（review/code.md）: 枝の commit 58f7a4d8c の題が「wip」で、CLAUDE.md の commit の規則（`feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」）に合わない。直すには履歴を書き換える（後の commit の番号が全部変わる）ので、settle の席は直さず本人に返す。問いは `deep-questions-r2.json`・`docs/briefs/ST61-deep-r2.html`。
+
+### Q5. 題が「wip」の commit を、merge の前に書き直すか（R10）
+
+- 問い: 枝の途中の commit 58f7a4d8c（番号の印と置き場の台本の途中の作業。本文なし）の題を規則の形に書き直すか、そのまま merge するか。
+- 答え: (未回答)
+- loss: discarded
+- 出所: review/code.md R10・CLAUDE.md「git」
+- 推奨: そのまま merge する（書き直さない）。中身とその理由は直後の 53a74e0ce の題で読め、書き直すと枝の commit の番号が全部変わってグラフの記録とずれる
+- 族「規則の形に合わない commit の題が main に入る」: Task agent の題「wip」→ 未決 Q5／グラフが付ける題（`chore(ST61): Task N を完了にする`）→ グラフ（harness2）の決め・範囲の外／これからの題を commit-msg の hook で止める → 範囲の外（ハーネスの改良の依頼）
