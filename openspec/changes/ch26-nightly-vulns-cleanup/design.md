@@ -163,3 +163,6 @@ url を引くのは sqlx（DB の接続文字列の解釈）だけで、この r
 - CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない（D10。本人の決定）
 - CH22（`install-windows` に置く段）・CH25（gradle のキャッシュ・`chain` の頭）は main に merge 済みで、`ci.yml` の別の行を変えた。CH26 は `changes`（出力を 2 つ足す）・`package-windows`（前の lock・鍵・古い側の組み立て・版の確かめ）・`chain`（2 行）だけを変える
 - CH24（merge 済み）が main で `Cargo.lock`・`osv-scanner.toml` を変えた。実装は main の上で取り直す（proposal の Impact）
+
+### D1 の補足（review 1 の F1）. rustix を上げると windows-sys の辺が動く
+`cargo update -p rustix --precise 1.1.6` は、rustix 1.1.6 が `windows-sys 0.59` を求めるため、範囲が重なる errno・rustls-platform-verifier・tempfile の辺も lock にある `windows-sys 0.59.0` へ寄せる（`0.52.0` の参照は 6 → 2）。`(name, version)` の組は増えも減りもしない（`check-ch26.sh lock` が見るのはこの組）。url の更新（P22）が動かすのは url と form_urlencoded だけで、辺の付け替えは rustix の段で起きた。Windows でだけ効く辺なので、確かめるのは PR の CI（Windows の runner）。
