@@ -161,6 +161,11 @@ echo "Scenario: 修正の枝の上では、枝の祖先の印を数える"; expe
 new_tree; git -C "$T" tag nightly
 echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit-after-nightly
 echo "Scenario: 開発版の印は、配った印に数えない"; expect 0
+# 番号の印 build-<番号> も配った印に数えない（今の数え方は v[0-9]*）。数えれば、後から変えた移行で落ちる
+new_tree; git -C "$T" tag build-0.2.0
+echo next >"$T/next"; commit_all numbered; git -C "$T" tag build-0.2.1
+echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit-after-numbers
+echo "Scenario: 番号の印は、配った印に数えない"; expect 0
 
 # タグだけを取り寄せた浅い木は、印が見えても検査を続けない
 new_tree; tag_v1; echo next >"$T/next"; commit_all next
