@@ -192,6 +192,12 @@ workflow() {
   job_block "$nightly" publish | grep -qE '^[[:space:]]+name: nightly[[:space:]]*$' || die 'nightly の公開 job に Environment が無い'
   job_block "$nightly" publish | grep -q 'ASHIATO_EXPECT_DEV_CERT_SHA256: \${{ vars.ASHIATO_CERT_SHA256 }}' || die 'nightly の開発版指紋が Environment 変数から渡らない'
   if grep -qE 'sign-apk.sh' "$nightly"; then die 'nightly の workflow に署名の論理がある'; return 1; fi
+  # D11: 組み立てと公開の job は、判定が返した最新の番号の commit を取り出し、印 nightly もその commit へ動かす
+  local nightly_job
+  for nightly_job in package-linux package-windows publish; do
+    job_block "$nightly" "$nightly_job" | grep -q 'ref: "\${{ needs.plan.outputs.commit }}"' || die "nightly の $nightly_job が判定の commit を取り出さない"
+  done
+  job_block "$nightly" publish | grep -q 'publish-nightly.sh .*needs.plan.outputs.commit' || die 'nightly の公開が印 nightly を判定の commit へ動かさない'
   # 番号を持たない組み立ては 0.0.x だけを名乗る（D6）。更新の試験の版と、配る形の job に渡す版番号を見る
   local spec_line spec_versions spec_v
   spec_line="$(job_block "$ci" package-windows | grep -E 'for spec in ' || true)"
@@ -346,6 +352,11 @@ EOF
   # Environment の名前が違えば、environments の検査（nightly の branch 規則）の外で走る（code-verify R28）
   sed 's/^\([[:space:]][[:space:]]*\)name: nightly$/\1name: nightly-open/' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Environment の名前が違う偽 nightly を通した'; fi
+  echo "== Scenario: 開発版の作り直しの workflow は、判定が返した commit を組む"
+  sed 's/ref: "\${{ needs.plan.outputs.commit }}", //' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'ref の無い偽 nightly を通した'; fi
+  sed 's/ "\${{ needs.plan.outputs.commit }}"$//' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '印 nightly の先に commit を渡さない偽 nightly を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"

@@ -126,11 +126,11 @@ plan() {
   echo "prerelease=$prerelease"
 }
 
+# D11（移る間。ST62・ST63 まで）: main の HEAD でなく、main の first-parent の上で最も大きい番号の commit を組む
 nightly_plan() {
-  local main nightly source tag event now date
+  local main nightly tag event now date first_parent number commit latest="" latest_commit="" build
   require_full_history
   main=$(main_ref)
-  source=$(source_version)
   event=${GITHUB_EVENT_NAME:-schedule}
   now=${ASHIATO_NOW:-}
   if [[ -n "$now" ]]; then date=$(TZ=Asia/Tokyo date -d "$now" +%Y%m%d); else date=$(TZ=Asia/Tokyo date +%Y%m%d); fi
@@ -139,22 +139,28 @@ nightly_plan() {
   else
     nightly=
   fi
-  if tag=$(git rev-parse --verify "refs/tags/v$source^{commit}" 2>/dev/null) && git merge-base --is-ancestor "$tag" "$main"; then
+  first_parent=$(git rev-list --first-parent "$main")
+  while IFS= read -r number; do
+    commit=$(git rev-parse --verify "refs/tags/build-$number^{commit}" 2>/dev/null) || continue
+    grep -qx "$commit" <<<"$first_parent" || continue
+    latest=$number; latest_commit=$commit
+  done < <(build_numbers)
+  if [[ "${ASHIATO_NIGHTLY_PUBLISH:-}" == on ]]; then echo "publish=yes"; else echo "publish=no"; fi
+  if [[ -z "$latest" ]]; then
     echo "build=no"
-    echo "publish=no"
-    echo "version=$source-dev.$date"
-    echo "出所の版を上げる必要がある"
+    echo "番号がまだ無い"
     return 0
   fi
-  if [[ -n "$nightly" && "$nightly" == "$main" ]]; then
-    echo "build=no"
+  if [[ -n "$nightly" && "$nightly" == "$latest_commit" ]]; then
+    build=no
   elif [[ "$event" == schedule && "${ASHIATO_NIGHTLY_PUBLISH:-}" != on ]]; then
-    echo "build=no"
+    build=no
   else
-    echo "build=yes"
+    build=yes
   fi
-  if [[ "${ASHIATO_NIGHTLY_PUBLISH:-}" == on ]]; then echo "publish=yes"; else echo "publish=no"; fi
-  echo "version=$source-dev.$date"
+  echo "build=$build"
+  echo "version=$latest-dev.$date"
+  echo "commit=$latest_commit"
 }
 
 # 番号の印 build-<番号> の一覧を、番号の小さい順に並べる（D7）
@@ -376,7 +382,7 @@ self_test() {
 
   number_self_test || return 1
 
-  local work t base out rc release_base formal_base
+  local work t base out rc release_base formal_base numbered
   work=$(mktemp -d "${TMPDIR:-/tmp}/version-self-test.XXXXXX")
   trap 'rm -rf "$work"' RETURN
   t="$work/tree"; mkdir -p "$t/tools/release" "$t/migrations" "$t/docs/contract"
@@ -428,18 +434,23 @@ self_test() {
   grep -q '印の commit に番号が無い' <<<"$out" || return 1
 
   git -C "$t" tag -d v0.4.0 >/dev/null
-  git -C "$t" tag nightly; echo "== Scenario: nightly と main の HEAD が同じ日は、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
+  # 開発版の判定は、番号の印を持つ commit だけを見る。基の番号は 0.3.9 に付け替える
+  git -C "$t" tag -d build-0.4.0 >/dev/null; git -C "$t" tag build-0.3.9 "$base"
+  git -C "$t" tag nightly "$base"; echo "== Scenario: nightly が最新の番号の commit を指していれば、開発版を作らない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"
   # 注釈つきの印でも commit で比べる（final review R18）
-  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag -a -m nightly nightly
+  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag -a -m nightly nightly "$base"
   out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out" || return 1
-  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag nightly
-  git -C "$t" checkout -q main; echo y > "$t/y"; git -C "$t" add y; git -C "$t" commit -q -m advance; echo "== Scenario: main が進んだ日は、開発版を作り直す"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on ASHIATO_NOW=2026-11-01T15:00:00Z tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"; grep -q 'version=0.4.0-dev.20261102' <<<"$out"
+  git -C "$t" tag -d nightly >/dev/null; git -C "$t" tag nightly "$base"
+  git -C "$t" checkout -q main; echo y > "$t/y"; git -C "$t" add y; git -C "$t" commit -q -m numbered; git -C "$t" tag build-0.4.0
+  numbered=$(git -C "$t" rev-parse HEAD)
+  echo w > "$t/w"; git -C "$t" add w; git -C "$t" commit -q -m no-number-after
+  echo "== Scenario: nightly より新しい番号があれば、その番号の commit で開発版を作り直す"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on ASHIATO_NOW=2026-11-01T15:00:00Z tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"; grep -q 'version=0.4.0-dev.20261102' <<<"$out"; grep -qx "commit=$numbered" <<<"$out"
   echo "== Scenario: 予定の実行が落ちた次の回に、同じ変更を拾う"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on GITHUB_EVENT_NAME=schedule tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"
   git -C "$t" tag -d nightly >/dev/null; echo "== Scenario: 印 nightly がまだ無ければ、作り直す"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"
   echo "== Scenario: 公開の設定が入っていなければ、予定の実行は組まずに終える"; out=$(cd "$t" && unset ASHIATO_NIGHTLY_PUBLISH && GITHUB_EVENT_NAME=schedule tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"; grep -q 'publish=no' <<<"$out"
   echo "== Scenario: 公開の設定が入っていなければ、手で起こした作り直しも公開しない"; out=$(cd "$t" && unset ASHIATO_NIGHTLY_PUBLISH && GITHUB_EVENT_NAME=workflow_dispatch tools/release/version.sh nightly-plan); grep -q 'build=yes' <<<"$out"; grep -q 'publish=no' <<<"$out"
-  git -C "$t" tag v0.4.0
-  echo "== Scenario: 出所の版の正式版を出した後は、出所の版を上げるまで開発版を組まない"; out=$(cd "$t" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan); grep -q '出所の版を上げる必要' <<<"$out"
+  git clone -q "file://$t" "$work/no-number"; git -C "$work/no-number" tag -l 'build-*' | xargs git -C "$work/no-number" tag -d >/dev/null
+  echo "== Scenario: 番号がまだ無ければ、開発版を組まない"; out=$(cd "$work/no-number" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan); grep -q 'build=no' <<<"$out"; grep -q '番号がまだ無い' <<<"$out"
   git clone -q --depth=1 "file://$t" "$work/nightly-shallow"; echo "== Scenario: 浅い木では、開発版の作り直しの判定は通らない"
   if out=$(cd "$work/nightly-shallow" && ASHIATO_NIGHTLY_PUBLISH=on tools/release/version.sh nightly-plan 2>&1); then return 1; fi
   grep -q '履歴が浅い' <<<"$out" || return 1
