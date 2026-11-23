@@ -1,0 +1,25 @@
+{
+  "tag": "20261123-2247",
+  "run_id": "20261123-224932-3d22c8c",
+  "commit": "3d22c8cbff3b000a656f061a6cd912378be6b5f1",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261123-224932-3d22c8c",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261123-224932-3d22c8c",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST59-web-change-secrets",
+      "story": "ST59",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST59-web-change-secrets/video.webm",
+      "trace": "scenarios/ST59-web-change-secrets/trace.zip"
+    }
+  ],
+  "uncovered_stories": []
+}
