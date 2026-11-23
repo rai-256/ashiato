@@ -200,6 +200,7 @@
 - 判定: NOT ADDRESSED（re-review 1 @30859ae9541d696554aba2fee5e380d5a77e59e8）: install-check.sh 新 1138 行。#HttpOnly_ 行を startswith('#') で捨てる。単引用符内の "\\t" は 2 文字の \t でタブにならず IndexError。changed_cookie が空になり die で止まる。サーバは HttpOnly を付ける（web_session.rs:566）
 - 判定: ADDRESSED（re-review 2 @8e061402877bccf1c689740a37d8471631ab56c3）
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 7 @ec54105c2783480fd63039d77bfff4b202de3a7c）
 
 ## R8. Login and `/collector-setup` can still accept the old secrets after a change has finished. Both take their secrets snapshot before they wait for the `LOGIN_CHECK` permit: `session_post_checked` reads `app.secrets_snapshot()` early, and `collector_setup_post` uses the snapshot taken in `refresh_cookie`. A request queued behind a `/web-password` or `/collector-token` change is therefore checked against the old password, and its answer is built from the old values. Fix: take the snapshot after the permit is acquired, inside `check_given_password_with_secrets` or right after it, and use that snapshot for the tag and the token.
 - 成果物: crates/server/src/web_session.rs:1372
@@ -329,6 +330,7 @@
 - kind: technical
 - 処置: fixed 7.1
 - 判定: ADDRESSED（re-review 3 @fa28ee998fa5fd727c682ff8a9b666dc67bb1978）
+- 判定: ADDRESSED（re-review 7 @ec54105c2783480fd63039d77bfff4b202de3a7c）
 
 ## R19. unwrap_or_else(record_failure) を expect("照合の blocking task は panic しない") に変えた。blocking task が cancel されたとき（ランタイム終了など）、失敗に数えずに panic する。
 - 成果物: crates/server/src/web_session.rs
@@ -444,3 +446,10 @@ whole-branch の final reviewer（SDD の `code-reviewer.md`。package は `.sup
 - 提案: 理由を `String` にする小さな関数にまとめ、分岐を 1 つにする
 - 処置: fixed D9
 - 判定: ADDRESSED（re-review 6 @440e6d137e71fa79fd58c4414d1e5a1600e10d8a）
+
+## settle_review（re-review 7 @ec54105）: 処置の直しが新しく壊したもの
+
+## R31. cookie jar（-c）経由なので、curl が http://127.0.0.1 への応答の Secure な Set-Cookie を保存することに依存している。保存されない curl では jar が空になり、:1147 の die で止まる。既存の session_cookie_from_headers（-D と sed。:347）に揃えれば curl の版に依存しない。Windows の実走では未確認。
+- 成果物: tools/release/install-check.sh
+- 根拠: tools/release/install-check.sh:1138（re-review 7 の New Breakage。Minor）
+- kind: technical
