@@ -78,7 +78,7 @@
 
 ## Task 5: 番号付けの workflow（`number.yml`）
 
-- [ ] 5.1 `.github/workflows/number.yml` を足す（D10・D12）: `on: workflow_run`（`workflows: [ci]`・`types: [completed]`・`branches: [main]`）、既定の `permissions: contents: read`。`concurrency: { group: number, cancel-in-progress: false }` は workflow でなく判定の job に置く（review/spec.md R1）。
+- [x] 5.1 `.github/workflows/number.yml` を足す（D10・D12）: `on: workflow_run`（`workflows: [ci]`・`types: [completed]`・`branches: [main]`）、既定の `permissions: contents: read`。`concurrency: { group: number, cancel-in-progress: false }` は workflow でなく判定の job に置く（review/spec.md R1）。
   判定の job（条件: `github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository`。`head_sha` を `fetch-depth: 0` で取り出し `version.sh number` → `number.sh tag`。この job は `contents: write`）、
   組み立ての 2 つの job（判定の job の後 `needs`。Linux: `build.sh server-linux` と `apk`（`ASHIATO_APK_ALSO_UNSIGNED=1`）、Windows: `build.sh server-windows` と `collector-windows`。`ASHIATO_RELEASE=1`・`ASHIATO_BUILD_VERSION=<番号>`。`head_sha` を取り出す。`actions/cache` で前の組み立てを引かず、保存もしない）、
   置く job（`number.sh place`。`contents: write`）。`reuse=yes` で下書きが揃っていれば組み立ての job を飛ばす
