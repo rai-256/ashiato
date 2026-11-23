@@ -14,7 +14,8 @@ design の（仮）:
 - D10（仮）. 口と本文の形
 - D11（仮）. 画面の節と文言
 
-全 Task の ledger に `Ruling:` の行は無い。
+全 Task の ledger の `Ruling:`（逐語）:
+- 全 Task の ledger に `Ruling:` の行は無い。
 
 ## Task
 
@@ -48,8 +49,8 @@ design の（仮）:
 
 ## レビュー（`review/code.md`）
 
-- 指摘 30 件（escalated 1・fixed 29）
-- 処置の re-review: 6 回。最後の判定が NOT ADDRESSED のもの: なし
+- 指摘 31 件（escalated 1・fixed 30）
+- 処置の re-review: 8 回。最後の判定が NOT ADDRESSED のもの: なし
 
 ## 未処置の申し送り
 
