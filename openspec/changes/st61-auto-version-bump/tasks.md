@@ -125,7 +125,7 @@
 
 ## Task 11: 手順書と申し送り
 
-- [ ] 11.1 `docs/release.md` に「番号」の節（番号の付き方 D4・D5・左の数字を本人が変える手順 D9・番号の組み立ての置き場と欠番 D1・D7・番号付けが止まったとき（左を下げた・上限に届いた D14）の直し方）を足す。
+- [x] 11.1 `docs/release.md` に「番号」の節（番号の付き方 D4・D5・左の数字を本人が変える手順 D9・番号の組み立ての置き場と欠番 D1・D7・番号付けが止まったとき（左を下げた・上限に届いた D14）の直し方）を足す。
   `docs/production-prep.md` の「バージョンの単一情報源」の行に ★ で「番号は main の番号付けが付け、左の数字は `tools/release/MAJOR`。`Cargo.toml` は番号を持たない組み立ての `0.0.1`（ST61）」と書く。
   `docs/handoff/ST62.md`（`## st61-auto-version-bump R3`）と `docs/handoff/ST64.md`（`## st61-auto-version-bump R9`）は上流が書いた。実装で台本や印の名前が変わったら、その節を直す
   検証: `bash -c 'for h in "tools/release/MAJOR" "build-" "欠番" "左の数字"; do grep -q "$h" docs/release.md || exit 1; done && grep -q "ST61" docs/production-prep.md && grep -q "st61-auto-version-bump R3" docs/handoff/ST62.md && grep -q "st61-auto-version-bump R9" docs/handoff/ST64.md'` rc=0 / `python3 scripts/check_scenarios.py . st61-auto-version-bump` rc=0
