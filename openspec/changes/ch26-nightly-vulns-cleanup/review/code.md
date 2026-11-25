@@ -173,3 +173,31 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D8 —— 再現した: 分岐点の lock を CRLF にしただけの head では、直す前の `changed` が `true <分岐点>` を出した（直す前の `changed` を新しい自己試験に差し込んだ写しで `NG: 'true 512b4146…'（false のはず）`）。`changed` は、名前の差分があるときに、分岐点と head の lock の中身を行末の CR を落として比べ（`lock_at`。`decide` と同じ比べ方）、同じなら `false` を出す。spec の「lock の改行の違い（LF と CRLF）だけでは中身が違うと判定しない」のとおり。自己試験に「改行だけを変えた PR の差分は、lock を変えたと判定しない」を足し、rc=0。D8 に書き足した
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+
+## final review（274aabf..1c09ab0）
+
+見た: `superpowers:requesting-code-review` の `code-reviewer.md`（whole-branch。review package `.superpowers/sdd/tasks/review-274aabf7b..1c09ab021.diff`）。Critical・Important は無し。Task の ⚠️ のうち Connection::open の出現（`read.rs` の写しの読み取り専用だけ・`cargo tree -i libsqlite3-sys` は収集アプリだけ）、VC の実行時の DLL（17.12-1 の zip を objdump）、Windows の Git Bash の unzip（`build.sh:194` に前例）は確かめて一致。`$RUNNER_TEMP` の glob と install-windows の 17.6-1 → 17.12-1 の更新と戻しは、PR の run がまだ無いので確かめられない（完了の判定 8 は最初の PR の run で見る）
+
+## R8. settle（17cbb9482）が `pgsql-prev-lock.sh`・`check-ch26.sh`・`ci.yml` を変えた後、3.2・4.x・5.x の証跡が取り直されていない
+- 成果物: openspec/changes/ch26-nightly-vulns-cleanup/evidence.jsonl
+- 根拠: `evidence.jsonl` の Task 3〜5 の検証の行の最後の head は `70f8e10f1`。その後の `17cbb9482`（settle R1〜R7）は `tools/release/pgsql-prev-lock.sh`・`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh`・`.github/workflows/ci.yml` を変えた。settle の report の手の rc=0 と final reviewer の手元の実行（`--self-test`・`check-workflow`・`check-ch26.sh lock/toml/pg-lock/pg-dlls`）は緑だが、HEAD の証跡としては残っていない。merge gate が HEAD の証跡を見るなら古い木の PASS を数えることになる
+- kind: technical
+- 提案: `scripts/verify-run --change ch26-nightly-vulns-cleanup` で、settle が触ったファイルを使う tasks の項目（3.2・4.x・5.x）を HEAD で取り直す
+
+## R9. `zip-version` が unzip の失敗を握りつぶし、原因を「許諾の文に版が無い」と取り違えて報告する
+- 成果物: tools/release/pgsql-prev-lock.sh:63
+- 根拠: `unzip -p "$1" THIRD-PARTY-NOTICES.txt 2>/dev/null | … || true` は、unzip が無い・zip が壊れている・中に THIRD-PARTY-NOTICES.txt が無い、のどれでも stderr を捨てて空を返し、`の許諾の文に PostgreSQL の版が無い` で落ちる。落ちる向きは正しいが、Windows の runner で初めて落ちたときに原因が読めない（task-4 の Minor F2 が HEAD でも開いている）
+- kind: technical
+- 提案: unzip の stderr を捨てずに残す（または unzip の rc を見て「zip を読めない」と別に報告する）
+
+## R10. check-zips に渡す zip の glob が Windows の `$RUNNER_TEMP`（バックスラッシュの道）の下で、前例が無い
+- 成果物: .github/workflows/ci.yml:633
+- 根拠: `.github/workflows/ci.yml:633` と `:683` の `"$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip`。この job の既存の glob（`:707`・`:708` の `package/package-windows-test-new/ashiato-server-*.zip`）は相対の道だけで、`D:\a\_temp` の下を Git Bash で glob する前例が repo に無い。外れると `check-zips` の `[ -f ]` で落ちる（黙って通りはしない）が、lock を変える PR の CI が原因の分かりにくい形で止まる（task-4 の Minor F1・⚠️ が HEAD でも開いている）
+- kind: technical
+- 提案: `cygpath -u "$RUNNER_TEMP"` を通した道で glob する（または `cd "$RUNNER_TEMP"` して相対で当てる）
+
+## R11. Task の Minor で HEAD でも開いている小さいもの（まとめて）
+- 成果物: openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh
+- 根拠: final reviewer が HEAD で開いていると確かめた Task の Minor。`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh` —— 頭の注記が「Task 1・2」のまま（task-3 F4）・`target/debug` の決め打ちで `CARGO_TARGET_DIR` を見ない（task-3 F2）・`sw_start`・`sw_roles` が使い捨ての合言葉を `-e NAME=値` で渡し `ps` に見える（task-3 F1）・足した行の検査が `上げる予定: ` も通す（task-1 F4。完了の判定 2 は `届かない: ` を求める）・url の確かめが末尾の glob だけ（task-2 F1）。`tools/release/pgsql-prev-lock.sh:46` の `cmd_decide` の `for v` が local でない（task-4 F4）。どれも誤った緑にはならない
+- kind: technical
+- 提案: 注記を Task 1〜3 に直し、足した行の検査は `届かない: ` だけを通す。ほかは settle が要否を決める
