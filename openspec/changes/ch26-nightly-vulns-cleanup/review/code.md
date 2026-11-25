@@ -183,21 +183,25 @@
 - 根拠: `evidence.jsonl` の Task 3〜5 の検証の行の最後の head は `70f8e10f1`。その後の `17cbb9482`（settle R1〜R7）は `tools/release/pgsql-prev-lock.sh`・`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh`・`.github/workflows/ci.yml` を変えた。settle の report の手の rc=0 と final reviewer の手元の実行（`--self-test`・`check-workflow`・`check-ch26.sh lock/toml/pg-lock/pg-dlls`）は緑だが、HEAD の証跡としては残っていない。merge gate が HEAD の証跡を見るなら古い木の PASS を数えることになる
 - kind: technical
 - 提案: `scripts/verify-run --change ch26-nightly-vulns-cleanup` で、settle が触ったファイルを使う tasks の項目（3.2・4.x・5.x）を HEAD で取り直す
+- 処置: fixed 3.2 —— この回の直し（R9〜R11。`check-ch26.sh`・`pgsql-prev-lock.sh`・`ci.yml` をまた変えた）を commit した後の HEAD で、`scripts/verify-run --change ch26-nightly-vulns-cleanup` を 1.1〜5.4 の全項目について走らせ直し、`evidence.jsonl` に HEAD の行を足した（3.2・4.x・5.x のほか、同じ台本を使う 1.x・2.x・3.1 も）。各項目の rc は report に載せた
 
 ## R9. `zip-version` が unzip の失敗を握りつぶし、原因を「許諾の文に版が無い」と取り違えて報告する
 - 成果物: tools/release/pgsql-prev-lock.sh:63
 - 根拠: `unzip -p "$1" THIRD-PARTY-NOTICES.txt 2>/dev/null | … || true` は、unzip が無い・zip が壊れている・中に THIRD-PARTY-NOTICES.txt が無い、のどれでも stderr を捨てて空を返し、`の許諾の文に PostgreSQL の版が無い` で落ちる。落ちる向きは正しいが、Windows の runner で初めて落ちたときに原因が読めない（task-4 の Minor F2 が HEAD でも開いている）
 - kind: technical
 - 提案: unzip の stderr を捨てずに残す（または unzip の rc を見て「zip を読めない」と別に報告する）
+- 処置: fixed 4.1 —— 再現した: 中身が zip でないファイルを `zip-version` に渡すと、直す前は `…の許諾の文に PostgreSQL の版が無い` で落ちた。`cmd_zip_version` は `unzip -p` を別に走らせ、失敗したら stderr を捨てずに `<zip> から THIRD-PARTY-NOTICES.txt を読めない（unzip の rc=<n>）` で落ちる。版が無いという報告は、読めたのに版の行が無いときだけ出す。`--self-test` に、壊れた zip と許諾の文を含まない zip で「読めない」と報告し「版が無い」と言わないことを見る節を足した（直す前の台本では grep が外れて NG になる）
 
 ## R10. check-zips に渡す zip の glob が Windows の `$RUNNER_TEMP`（バックスラッシュの道）の下で、前例が無い
 - 成果物: .github/workflows/ci.yml:633
 - 根拠: `.github/workflows/ci.yml:633` と `:683` の `"$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip`。この job の既存の glob（`:707`・`:708` の `package/package-windows-test-new/ashiato-server-*.zip`）は相対の道だけで、`D:\a\_temp` の下を Git Bash で glob する前例が repo に無い。外れると `check-zips` の `[ -f ]` で落ちる（黙って通りはしない）が、lock を変える PR の CI が原因の分かりにくい形で止まる（task-4 の Minor F1・⚠️ が HEAD でも開いている）
 - kind: technical
 - 提案: `cygpath -u "$RUNNER_TEMP"` を通した道で glob する（または `cd "$RUNNER_TEMP"` して相対で当てる）
+- 処置: fixed 4.2 —— 2 か所の `check-zips` の呼び出しの前で `rt="$(cygpath -u "$RUNNER_TEMP")"` とし、`"$rt"/package-windows-test-{old,new}/ashiato-server-*.zip` で glob する。同じ Windows の Git Bash で `cygpath -u` を使う前例は `tools/release/update-check-install.sh:36`（`install-windows` の job で走る）。`pgsql-prev-lock.sh check-workflow` と `--self-test`（崩した写し 12 通り）は rc=0。本物の Windows の runner では見ていない（PR の run はグラフの publish の後）
 
 ## R11. Task の Minor で HEAD でも開いている小さいもの（まとめて）
 - 成果物: openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh
 - 根拠: final reviewer が HEAD で開いていると確かめた Task の Minor。`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh` —— 頭の注記が「Task 1・2」のまま（task-3 F4）・`target/debug` の決め打ちで `CARGO_TARGET_DIR` を見ない（task-3 F2）・`sw_start`・`sw_roles` が使い捨ての合言葉を `-e NAME=値` で渡し `ps` に見える（task-3 F1）・足した行の検査が `上げる予定: ` も通す（task-1 F4。完了の判定 2 は `届かない: ` を求める）・url の確かめが末尾の glob だけ（task-2 F1）。`tools/release/pgsql-prev-lock.sh:46` の `cmd_decide` の `for v` が local でない（task-4 F4）。どれも誤った緑にはならない
 - kind: technical
 - 提案: 注記を Task 1〜3 に直し、足した行の検査は `届かない: ` だけを通す。ほかは settle が要否を決める
+- 処置: fixed 1.2 —— 全部直した。`check-ch26.sh`: 頭の注記を「Task 1〜3」に（F4）。足した行の reason は `届かない: ` だけを通す（完了の判定 2。task-1 F4）—— `--self-test` に `上げる予定: ` に替えた写しが落ちる節を足した。url は末尾に加え、元の lock の url の版の所だけを今の版に替えたものと一致することを見る（task-2 F1）—— 配布元を `example.invalid` に替えた写しが落ちる節を足した。合言葉は `-e NAME=値` をやめ、命令の前の環境の代入と `-e NAME` で docker に渡す（argv に出ない。task-3 F1）。`ashiato-server` の置き場は `CARGO_TARGET_DIR`（相対なら repo の根から）に従う（task-3 F2）。`tools/release/pgsql-prev-lock.sh` の `cmd_decide` の `v` を local にした（task-4 F4）
