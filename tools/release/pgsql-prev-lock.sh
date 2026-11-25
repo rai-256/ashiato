@@ -40,7 +40,7 @@ lock_at() { # <commit>: その commit の lock の中身（行末の CR を落�
 
 cmd_decide() {
   [ "$#" -eq 2 ] || die 'decide <前の lock> <今の lock>'
-  local pv cv pm cm
+  local pv cv pm cm v
   [ -f "$1" ] && [ -f "$2" ] || { echo "pgsql-prev-lock: lock が読めない" >&2; return 1; }
   pv="$(lock_version "$1")"; cv="$(lock_version "$2")"
   for v in "$pv" "$cv"; do
@@ -58,9 +58,12 @@ cmd_decide() {
 
 cmd_zip_version() {
   [ "$#" -eq 1 ] || die 'zip-version <サーバの zip>'
-  local v
+  local v txt
   [ -f "$1" ] || { echo "pgsql-prev-lock: zip が無い: $1" >&2; return 1; }
-  v="$(unzip -p "$1" THIRD-PARTY-NOTICES.txt 2>/dev/null | tr -d '\r' \
+  # unzip の失敗（unzip が無い・zip が壊れている・中に許諾の文が無い）は版が無いのと分けて報告する。stderr は捨てない（review R9）
+  txt="$(unzip -p "$1" THIRD-PARTY-NOTICES.txt)" \
+    || { echo "pgsql-prev-lock: $1 から THIRD-PARTY-NOTICES.txt を読めない（unzip の rc=$?）" >&2; return 1; }
+  v="$(printf '%s\n' "$txt" | tr -d '\r' \
     | awk '/^== PostgreSQL[[:space:]]*$/ {f=1; next} /^== / {f=0} f && /^version: / {sub(/^version: /, ""); print; exit}')" || true
   [ -n "$v" ] || { echo "pgsql-prev-lock: $1 の許諾の文に PostgreSQL の版が無い" >&2; return 1; }
   printf '%s\n' "$v"
@@ -431,6 +434,16 @@ self_test() {
   rc=0; "$script" zip-version "$work/none.zip" >/dev/null 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || { echo "NG: 落ちなかった"; return 1; }
   echo "ok: rc=$rc"
+
+  echo "-- zip を読めない（壊れている・許諾の文が無い）ときは、版が無いとは言わずに読めないと報告する（review R9）"
+  printf 'not a zip\n' >"$work/broken.zip"
+  rc=0; out="$("$script" zip-version "$work/broken.zip" 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '読めない' && ! printf '%s' "$out" | grep -q '版が無い' \
+    || { echo "NG: rc=$rc out='$out'"; return 1; }
+  mkzip "$work/nonotice.zip"
+  rc=0; out="$("$script" zip-version "$work/nonotice.zip" 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '読めない' || { echo "NG: rc=$rc out='$out'"; return 1; }
+  echo "ok: 読めないと報告した"
 
   echo "== Scenario: 古い側と新しい側の zip が前と今の lock の版なら、確かめは通って版の組を出す"
   mkzip "$work/s1712.zip" "$(notices 17.12-1)"

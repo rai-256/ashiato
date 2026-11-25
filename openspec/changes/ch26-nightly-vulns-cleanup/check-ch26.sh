@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CH26 の確かめの台本（勧告の片付け。Task 1・2）。
+# CH26 の確かめの台本（勧告の片付け。Task 1〜3）。
 # 使い方: check-ch26.sh lock | toml | vulns | pg-dlls | pg-lock | minor-swap | --self-test
 #   lock  : Cargo.lock の組の差が「rustix 1.1.5 → 1.1.6 以上の 1.1.x・url 2.5.8 → 2.5.9 以上の 2.5.x・form_urlencoded 1.2.2 → 1.2.3 以上の 1.2.x」だけであること
 #   toml  : 例外の表（osv-scanner.toml）の既にある行が残り、足した行が正典の理由の形を持つこと
@@ -87,7 +87,8 @@ if not {"RUSTSEC-2026-0459", "RUSTSEC-2026-0543"} <= {a.get("id") for a in added
 for a in added:
     if a.get("id") not in allowed:
         print("error: 足してはいけない id:", a.get("id"), file=sys.stderr); bad = 1
-    if not str(a.get("reason", "")).startswith(("届かない: ", "上げる予定: ")):
+    # 完了の判定 2: 足した行は `届かない: ` の理由を持つ（`上げる予定: ` は上げる change が無いので事実と違う。design D2・D3）
+    if not str(a.get("reason", "")).startswith("届かない: "):
         print("error: reason の形が正典と違う:", a.get("id"), file=sys.stderr); bad = 1
 sys.exit(bad)
 PY
@@ -159,12 +160,15 @@ cmd_pg_lock() {
   trap "rm -rf -- '$t'" RETURN
   local lock="$ROOT/tools/release/pgsql.lock" version url
   version="$(lock_val "$lock" version)"; url="$(lock_val "$lock" url)"
+  base_file tools/release/pgsql.lock "$t/base.lock" || return 2
   echo "== Scenario: lock の url は lock の version の zip を指す"
-  if [[ -z "$version" || "$url" != *"postgresql-$version-windows-x64-binaries.zip" ]]; then
-    echo "error: url が version の zip で終わらない: version=$version url=$url" >&2; return 1
+  # 末尾だけでなく、配布元と道も元の lock の url と同じこと（元の url の版の所だけを今の版に替えたもの。task-2 F1）
+  local bv bu
+  bv="$(lock_val "$t/base.lock" version)"; bu="$(lock_val "$t/base.lock" url)"
+  if [[ -z "$version" || "$url" != *"postgresql-$version-windows-x64-binaries.zip" || -z "$bv" || "$url" != "${bu//"$bv"/"$version"}" ]]; then
+    echo "error: url が元の url の版だけを替えた version の zip でない: version=$version url=$url（元: $bu）" >&2; return 1
   fi
   echo "== Scenario: 小さい版を上げても、大きい版と実行ファイルと許諾の置き場は変わらない"
-  base_file tools/release/pgsql.lock "$t/base.lock" || return 2
   local k
   if [[ "${version%%.*}" != "$(lock_val "$t/base.lock" version | sed 's/\..*//')" ]]; then
     echo "error: 大きい版が元と違う" >&2; return 1
@@ -206,13 +210,14 @@ sw_cleanup() {
 
 # 置き場（名前に乱数を含む volume）で <像> を起こし、空いている port を docker に選ばせる
 sw_start() { # <container> <volume> <image>
-  docker run -d --name "$1" -v "$2:/var/lib/postgresql/data" -p 127.0.0.1::5432 \
-    -e POSTGRES_USER="$SW_ADMIN" -e POSTGRES_DB="$SW_DB" -e POSTGRES_PASSWORD="$SW_ADMIN_PW" \
+  # 合言葉は argv（ps に見える）に置かず、docker の環境から -e NAME で渡す（task-3 F1）
+  POSTGRES_PASSWORD="$SW_ADMIN_PW" docker run -d --name "$1" -v "$2:/var/lib/postgresql/data" -p 127.0.0.1::5432 \
+    -e POSTGRES_USER="$SW_ADMIN" -e POSTGRES_DB="$SW_DB" -e POSTGRES_PASSWORD \
     -e POSTGRES_INITDB_ARGS="$INITDB_ARGS" "$3" >/dev/null || return 1
   local i
   for i in $(seq 1 60); do
     # 入口の一時サーバ（TCP を聞かない）ではなく、本番の起動を待つ: TCP 越しに入れること
-    if docker exec -e PGPASSWORD="$SW_ADMIN_PW" "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc 'select 1' >/dev/null 2>&1; then return 0; fi
+    if PGPASSWORD="$SW_ADMIN_PW" docker exec -e PGPASSWORD "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc 'select 1' >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
   echo "error: $3 が起きなかった" >&2; docker logs "$1" 2>&1 | tail -20 >&2; return 1
@@ -222,7 +227,7 @@ sw_stop() { docker stop -t 120 "$1" >/dev/null && docker rm "$1" >/dev/null; }
 
 # tools/db-roles.sh と同じ SQL（tools/db-roles.sql）を、同じ環境変数の渡し方（stack.sh の db-roles.sh）で当てる
 sw_roles() { # <container>
-  docker exec -i -e ADMIN_PW="$SW_ADMIN_PW" -e OWNER_PW="$SW_OWNER_PW" -e APP_PW="$SW_APP_PW" "$1" \
+  ADMIN_PW="$SW_ADMIN_PW" OWNER_PW="$SW_OWNER_PW" APP_PW="$SW_APP_PW" docker exec -i -e ADMIN_PW -e OWNER_PW -e APP_PW "$1" \
     psql -X -q -v ON_ERROR_STOP=1 -v "admin=$SW_ADMIN" -v "dbname=$SW_DB" -U "$SW_ADMIN" -d "$SW_DB" \
     < "$REPO/tools/db-roles.sql" >/dev/null
 }
@@ -234,12 +239,12 @@ sw_migrate() { # <container>
 }
 
 sw_sql() { # <container> <sql>
-  docker exec -e PGPASSWORD="$SW_ADMIN_PW" "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc "$2"
+  PGPASSWORD="$SW_ADMIN_PW" docker exec -e PGPASSWORD "$1" psql -X -q -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" -Atc "$2"
 }
 
 # 「中身」: 17.12 の像の中の pg_dump（平文）から、版の行と毎回変わる鍵の行を除いたもの
 sw_content() { # <container> <out>
-  docker run --rm --network "container:$1" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_NEW" \
+  PGPASSWORD="$SW_ADMIN_PW" docker run --rm --network "container:$1" -e PGPASSWORD "$PG_NEW" \
     pg_dump --no-password -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" \
     | grep -v -e '^-- Dumped from' -e '^-- Dumped by' -e '^\\restrict' -e '^\\unrestrict' > "$2" || return 1
   [[ -s "$2" ]] || { echo "error: pg_dump の出力が空" >&2; return 1; }
@@ -335,7 +340,8 @@ cmd_minor_swap() {
   docker image inspect "$PG_OLD" >/dev/null 2>&1 || docker pull -q "$PG_OLD" >/dev/null || return 2
   docker image inspect "$PG_NEW" >/dev/null 2>&1 || docker pull -q "$PG_NEW" >/dev/null || return 2
 
-  SW_SERVER="$REPO/target/debug/ashiato-server"
+  local td="${CARGO_TARGET_DIR:-target}"; [[ "$td" = /* ]] || td="$REPO/$td"   # cargo の置き場に従う（task-3 F2）
+  SW_SERVER="$td/debug/ashiato-server"
   (cd "$REPO" && cargo build -q -p ashiato-server --bin ashiato-server) || { echo "error: ashiato-server を build できない" >&2; return 2; }
   [[ -x "$SW_SERVER" ]] || { echo "error: $SW_SERVER が無い" >&2; return 2; }
 
@@ -368,7 +374,7 @@ cmd_minor_swap() {
   sw_sql "$c_new" "INSERT INTO core.source (logical_source, display_name, expected_gap_sec) VALUES ('ch26-swap-b', '17.12 で足した行', 60)" || return 1
   sw_content "$c_new" "$t/new2.sql" || return 1
   # 退避（Scenario 4）は、行を足した後の 17.12 で起きている DB から、サーバの移行の前の退避と同じ形式（--format=custom）で取る
-  docker run --rm --network "container:$c_new" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_NEW" \
+  PGPASSWORD="$SW_ADMIN_PW" docker run --rm --network "container:$c_new" -e PGPASSWORD "$PG_NEW" \
     pg_dump --no-password --format=custom -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" > "$t/backup.dump" || { echo "error: 17.12 の pg_dump が失敗" >&2; return 1; }
   [[ -s "$t/backup.dump" ]] || { echo "error: 退避が空" >&2; return 1; }
   sw_stop "$c_new" || return 1
@@ -382,7 +388,7 @@ cmd_minor_swap() {
   echo "== Scenario: 新しい小さい版で取った退避を、前の小さい版が戻せる"
   sw_start "$c_rest" "$vol2" "$PG_OLD" || return 1
   sw_roles "$c_rest" || return 1   # 戻す先に所有者と実行時の役割がある（インストーラの戻しの道と同じ）
-  docker run --rm -i --network "container:$c_rest" -e PGPASSWORD="$SW_ADMIN_PW" "$PG_OLD" \
+  PGPASSWORD="$SW_ADMIN_PW" docker run --rm -i --network "container:$c_rest" -e PGPASSWORD "$PG_OLD" \
     pg_restore --no-password --exit-on-error -h 127.0.0.1 -U "$SW_ADMIN" -d "$SW_DB" < "$t/backup.dump" \
     || { echo "error: 17.6 の pg_restore が rc≠0" >&2; return 1; }
   echo "pg_restore は rc=0"
@@ -443,6 +449,11 @@ PY
   fresh
   sed -i 's/^reason = "届かない: 保守終了の知らせで.*/reason = "問題ない"/' "$t/r/osv-scanner.toml"
   expect_fail "足した行の reason を 問題ない にした表" toml
+  # (d2) 足した行の reason を 上げる予定: にしても落ちる（完了の判定 2 は 届かない: を求める）
+  fresh
+  sed -i 's/^reason = "届かない: 保守終了の知らせで/reason = "上げる予定: 保守終了の知らせで/' "$t/r/osv-scanner.toml"
+  grep -q '^reason = "上げる予定: 保守終了の知らせで' "$t/r/osv-scanner.toml" || { echo "self-test NG: 上げる予定 の写しを作れない" >&2; fails=1; }
+  expect_fail "足した行の reason を 上げる予定: にした表" toml
   # (e) pg-lock: 写しの lock の url を別の版の zip にすると落ちる・executables から 1 つ消すと落ちる
   mkdir -p "$t/r/tools/release"
   pglock() { cp "$ROOT/tools/release/pgsql.lock" "$t/r/tools/release/pgsql.lock"; }
@@ -451,6 +462,10 @@ PY
   pglock
   sed -i 's#^url=.*#url=https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64-binaries.zip#' "$t/r/tools/release/pgsql.lock"
   expect_fail "url を別の版の zip にした lock" pg-lock
+  pglock
+  sed -i 's#^url=https://get\.enterprisedb\.com/#url=https://example.invalid/#' "$t/r/tools/release/pgsql.lock"
+  grep -q '^url=https://example.invalid/' "$t/r/tools/release/pgsql.lock" || { echo "self-test NG: 配布元を替えた写しを作れない" >&2; fails=1; }
+  expect_fail "url の配布元を替えた lock（末尾は version の zip のまま）" pg-lock
   pglock
   sed -i '/^executables=/s/,pg_isready\.exe//' "$t/r/tools/release/pgsql.lock"
   expect_fail "executables から 1 つ消した lock" pg-lock

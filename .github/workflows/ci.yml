@@ -629,8 +629,10 @@ jobs:
           done
           git checkout -- Cargo.toml Cargo.lock
           if [ -n "$PREV_LOCK" ]; then
+            # RUNNER_TEMP は Windows の道（D:\a\_temp）。glob は Git Bash の道に直してから当てる（CH26 review R10）
+            rt="$(cygpath -u "$RUNNER_TEMP")"
             tools/release/pgsql-prev-lock.sh check-zips "$PREV_LOCK" tools/release/pgsql.lock \
-              "$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip "$RUNNER_TEMP"/package-windows-test-new/ashiato-server-*.zip
+              "$rt"/package-windows-test-old/ashiato-server-*.zip "$rt"/package-windows-test-new/ashiato-server-*.zip
           fi
         shell: bash
         env:
@@ -679,8 +681,9 @@ jobs:
         shell: bash
         env: { PREV_LOCK: "${{ steps.prevlock.outputs.path }}" }
         run: |
+          rt="$(cygpath -u "$RUNNER_TEMP")"   # 上の組み立ての step と同じく、Git Bash の道で glob する（CH26 review R10）
           tools/release/pgsql-prev-lock.sh check-zips "$PREV_LOCK" tools/release/pgsql.lock \
-            "$RUNNER_TEMP"/package-windows-test-old/ashiato-server-*.zip "$RUNNER_TEMP"/package-windows-test-new/ashiato-server-*.zip
+            "$rt"/package-windows-test-old/ashiato-server-*.zip "$rt"/package-windows-test-new/ashiato-server-*.zip
 
   install-windows:
     timeout-minutes: 100
