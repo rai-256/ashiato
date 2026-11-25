@@ -107,3 +107,21 @@
 - 結論: 不一致（2 件。R1・R2）。検証コマンドの rc は 14/14 項目で申告と一致。ずれは検査の外側（CI の形の検査が `changed` の引数を見ていない・Q-impl-2 の片側が固定されていない）
 - 確かめた範囲: tasks の全検証コマンドを再実行した（※1 の 3 つは rm の trap を外した同じ中身）。lock の sha256 と 3 つの crate の checksum を hashlib で計算し直し、本物の CI の成果物に zip-version を当て、17.12 の zip の VC の実行時 DLL を objdump で引き直した。check-vulns と check-workflow は壊した写しで走らせた。Q-impl-2 の片側は作業ツリーで壊して戻した。PostgreSQL 17.7〜17.12 のリリースノートを移行の SQL と突き合わせた
 - 見ていない範囲: Windows の runner の上の CI（`changes` が書く pgsql の値・`prevlock` の浅い fetch・Git Bash の上の `unzip` と `check-zips`・`install-windows` の 17.6-1 → 17.12-1 の更新と戻し）。この branch の PR の run がまだ 1 度も無いので観測していない。ほかに、`windows-build-key.sh` の MODIFIED の 12 Scenario の本文と、merge の後の夜間の検査が緑か（完了の判定 7）も見ていない
+
+## security review（274aabf..5c0a5ed）
+
+見た経路:
+- PR の run → `changes` の step が `pgsql-prev-lock.sh changed "$PR_BASE" "$PR_HEAD"`（引数は env 経由で引用付き。出力は `git merge-base` の SHA）→ `pgsql_from` を出力 → `package-windows` の `prevlock` が env の `PGSQL_FROM` を引用付きで `git fetch`・`git show` に渡す（`.github/workflows/ci.yml:36-56`・`:527-544`）。式の値を `run:` に直に展開する箇所は無い（3）
+- `prevlock` の token は既存の鍵の step と同じ形（subshell の中の `GIT_CONFIG_*`、引数にも出力にも出ない。`set -x` 無し）。workflow は `pull_request` だけで `pull_request_target` は無く、`permissions: contents: read`（`ci.yml:1-10`）（2）
+- 前の lock は分岐点（base 側の commit）から取る → `cp` で old を組む間だけ置き換え → `pgsql.sh fetch` が lock の版・url の形・sha256 を照合してから使う（`tools/release/pgsql.sh:14-45`。キャッシュの zip も照合し、合わなければ捨てて取り直す）。PR が lock を書き換えて差し込めるものは、今の lock を書き換えるのと同じ範囲で、新しく増えない（4）
+- 配る zip（`package-windows-release`）は置き換えの step より前の step で今の lock のまま組む（`ci.yml:604-606`）。置き換えは `--test-build` の old だけで、main への push の run は `pgsql=false` で置き換えに入らない（3）
+- 組み立ての使い回しの鍵に前の lock の指紋（無ければ `none`）が入る → 前の lock で組んだ old の zip を、lock を変えない run が引くことは無い（`ci.yml:553`・`:566`）（2）
+- `tools/release/pgsql.lock` の 17.12-1 は https の EDB の url と sha256 の固定（sha256 は code-verify が hashlib で計算し直して一致）。dlls の入れ替え（libwinpthread-1 → zlib1）は objdump で引き直した結果（code-verify 手 6）（2）
+- 依存: `rustix` 1.1.5 → 1.1.6・`url` 2.5.8 → 2.5.9・`form_urlencoded` 1.2.2 → 1.2.3・`windows-sys` 0.52 → 0.59（既存の版への寄せ）。どれも crates.io の既存の名前の patch 上げで、新しい crate は無い（`Cargo.lock` の差分）（2）
+- 例外 `RUSTSEC-2026-0459`（libsqlite3-sys）: 製品で SQLite を開くのは `crates/collector-windows/src/history/read.rs:121`・`:164`・`:283` の読み取り専用の写しだけ（`collect.rs:840` は `#[cfg(test)]` の中）。この差分は経路を足しておらず、新しく届く入力は無い。届かない理由の前提（P7）と反転条件は design D2 にあり、仮の決定として確認バッチに出る（2）
+- 例外 `RUSTSEC-2026-0543`（chrono の保守終了）: 欠陥の勧告ではなく、届く入力は変わらない（1）
+
+安全の決め手: 「同梱する PostgreSQL の zip は、どの lock から組むときも `pgsql.sh fetch` が lock の sha256 と照合してから使い、配る zip は置き換えの前に今の lock で組む」—— 確かさ 4。`tools/release/pgsql.sh --self-test` が rc=0（「同梱する PostgreSQL の指紋が違えば組まない」「壊れた PostgreSQL のキャッシュは捨てて取り直す」が通る）。`tools/release/pgsql-prev-lock.sh --self-test` も rc=0（置き換えが old だけ・戻す・鍵に指紋、を崩した写し 7 通りが全部落ちる）
+見ていない範囲: Windows の runner の上の本物の PR の run（`prevlock` の fetch と token の扱いを実地で観測していない。この branch の PR の run がまだ無い）。17.12-1 の zip の中身そのもの（EDB の出したものを信じる前提は 17.6-1 と同じ）
+
+指摘なし
