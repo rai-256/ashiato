@@ -94,6 +94,7 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 
 - **変えたか**: 変更の判定の job（`changes`。履歴を全部持つ）が、PR の run でだけ、PR の base と head の分岐点（`git merge-base`）から head までの差分に `tools/release/pgsql.lock` があるかを `pgsql-prev-lock.sh changed <base> <head>` で決め、`pgsql`（`true` / `false`）と分岐点の commit を出力に置く。
   base の先端と head の 2 点で比べると、base の側だけが lock を上げた後の古い枝が「変えた」になり、小さい版を下げる向きで更新を走らせる（spec-review R19）。分岐点からの差分なら、その枝は「変えていない」で今のまま組む
+  PR の base の commit が引けない（base を force-push した）ときは、merge commit の第 1 親（base の先端）を base にする。それでも分岐点が取れなければ `pgsql=true`・分岐点は空で `package-windows` を落とす（review R3）
 - **前の lock**: 分岐点の commit の lock（PR が変える前の lock）。`package-windows` は `pgsql == true` の run でだけ分岐点を浅く fetch して取り出す
 - **落とす**: `pgsql == true` なのに分岐点の lock が取れない・`decide` が「同じ中身」と言う・大きい版が違う、のどれかなら `package-windows` を落とす（取れないときに今の lock へ倒すと、17.12 → 17.12 で緑になる。spec-review R16）
 - **今のまま**: `pgsql == false`・PR でない run（main への push・手動）では、前の lock を取らず、台本も呼ばない（CH26 より前の head の枝でも、lock を変えていなければ今のまま組める。spec-review R19）
@@ -108,11 +109,11 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 
 ci.yml の中の bash は Windows の runner でしか走らず、手元で落ちるかを確かめられない。check_scenarios も ci.yml の印を拾わない（`.yml` は試験の拡張子に無い。spec-review R17）。だから判定と確かめを台本に置き、Scenario の印も台本に置き、`--self-test` を Linux（`chain` の job）で走らせる:
 
-- `changed <base> <head>`: 分岐点から head までの差分が lock を変えたら `true <分岐点>`、変えていなければ `false` を出す（`changes` の job の Linux で走る）
+- `changed <base> <head>`: 分岐点から head までの差分が lock を変えたら `true <分岐点>`、変えていなければ `false` を出す（`changes` の job の Linux で走る）。`decide` と同じく行末の CR を落として比べ、改行だけを変えた差分は「変えていない」とする（spec の「改行の違いだけでは中身が違うと判定しない」。review R7）
 - `decide <前の lock> <今の lock>`: 中身が違い大きい版が同じなら `swap`、同じなら `same` を出して rc=0。大きい版が違えば 2 つの大きい版を出して rc≠0。`version=` が無い・`<大>.<小>-<n>` の形でない lock も rc≠0。中身は行末の CR を落として比べる（Windows の checkout は `core.autocrlf` で作業木を CRLF にしうる。`build.sh:46`。spec-review R26）
 - `zip-version <サーバの zip>`: zip の `THIRD-PARTY-NOTICES.txt` の `== PostgreSQL` の節の `version: ` の値を出す（`build.sh` が組んだときの作業木の lock から書く。P19）。節か値が無ければ rc≠0
-- `check-zips <前の lock> <今の lock> <古い側の zip> <新しい側の zip>`: 古い側の版が前の lock の版、新しい側の版が今の lock の版なら `古い側 <版> → 新しい側 <版>` を出して rc=0、違えば rc≠0
-- `check-workflow [<ci.yml>]`: ci.yml の形を python3 と yaml で読んで見る（Linux の `chain` でだけ走る。`windows-build-key.sh --check-workflow` と同じ）: `changes` の job が `changed` を PR の run でだけ呼んで出力を持つ／`package-windows` の前の lock を取る step が `pgsql == 'true'` を条件に持ち鍵の step より前にある／鍵の step の道具の版の文字列が前の lock の指紋（取らなければ `none`）を持つ／試験の zip を組む step が `old` を組む間だけ lock を置き換えて組んだ後に戻し、同じ step の中で `check-zips` を呼ぶ／save の step の後に、`cache-hit` を条件に持たず `pgsql == 'true'` を条件に持つ `check-zips` の step がある。自己試験は、形を 1 つずつ崩した写し（spec の Scenario の 7 通り）で落ちることを見る
+- `check-zips <前の lock> <今の lock> <古い側の zip> <新しい側の zip>`: 古い側の版が前の lock の版、新しい側の版が今の lock の版なら `古い側 <版> → 新しい側 <版>` を出して rc=0、違えば rc≠0。前と今の lock の版が同じ（版を変えずに注記・`dlls=`・`url=` だけを変えた PR）なら、通した上で「小さい版の更新を試していない」の `::warning::` を出す（review R4）
+- `check-workflow [<ci.yml>]`: ci.yml の形を python3 と yaml で読んで見る（Linux の `chain` でだけ走る。`windows-build-key.sh --check-workflow` と同じ）: `changes` の job が `changed` を PR の run でだけ呼んで出力を持つ／`package-windows` の前の lock を取る step が `pgsql == 'true'` を条件に持ち鍵の step より前にある／鍵の step の道具の版の文字列が前の lock の指紋（取らなければ `none`）を持つ／試験の zip を組む step が `old` を組む間だけ lock を置き換えて組んだ後に戻し、同じ step の中で `check-zips` を呼ぶ／save の step の後に、`cache-hit` を条件に持たず `pgsql == 'true'` を条件に持つ `check-zips` の step がある。自己試験は、形を 1 つずつ崩した写し（spec の Scenario の 7 通り）で落ちることを見る。あわせて、`changed` の引数が `"$PR_BASE" "$PR_HEAD"` でその env が PR の base と head の sha であること（書き換えてよいのは R3 の代わりの道の 1 行だけ）・2 か所の `check-zips` の失敗を `||` や `continue-on-error` で飲み込んでいないことを見て、それを崩した写し 5 通りでも落ちることを見る（review R1）
 - `changed`・`decide`・`zip-version`・`check-zips` は Windows の Git Bash でも動くよう bash・git・unzip・sha256sum・awk/sed だけで書く（python を使わない。`windows-build-key.sh:11` と同じ制約。spec-review R26）
 
 **版の確かめの置き場**（spec-review R18）: (1) 試験の zip を組む step の中（`cache-hit != 'true'` の中。保存の前）で、`old` と `new` を組んだ後に `check-zips` を呼ぶ —— 食い違った組み立てを保存させない。(2) save の step の後に、引けたかどうかに依らず走る `check-zips` の step を置く —— 使い回した run でも確かめる。

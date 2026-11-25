@@ -467,7 +467,16 @@ PY
     && { echo "self-test NG: AND と OR の組み替えを同じと判定した" >&2; fails=1; }
   printf '%s\nCREATE TABLE x ();\n' "$A" > "$t/fa"; printf '%s\nCREATE TABLE y ();\n' "$B" > "$t/fb"
   sw_same_flat "$t/fa" "$t/fb" self >/dev/null 2>&1 && { echo "self-test NG: CHECK の外の行の違いを同じと判定した" >&2; fails=1; }
-  [[ $fails -eq 0 ]] && echo "self-test ok: 括弧の入れ子だけを同じとみなす"
+  # 本人の決定 Q-impl-2 の片側: 置き場の入れ替え（Scenario 1〜3）の比べは揃えない（review R2）。
+  # minor-swap の比べの呼び出しが、順に sw_same・sw_same・sw_same_flat（退避の戻しだけ）であることと、
+  # 揃えない比べが括弧の入れ子だけの違いも違うと判定することを見る
+  local calls
+  calls="$(declare -f cmd_minor_swap | grep -oE '\bsw_same(_flat)?\b' | tr '\n' ' ')"
+  [[ "$calls" == "sw_same sw_same sw_same_flat " ]] \
+    || { echo "self-test NG: minor-swap の比べが 入れ替え 2 つは揃えない・退避の戻しだけ揃える になっていない: $calls" >&2; fails=1; }
+  printf '%s\nCREATE TABLE x ();\n' "$A" > "$t/fa"; printf '%s\nCREATE TABLE x ();\n' "$B" > "$t/fb"
+  sw_same "$t/fa" "$t/fb" self >/dev/null 2>&1 && { echo "self-test NG: 揃えない比べが括弧の入れ子だけの違いを同じと判定した" >&2; fails=1; }
+  [[ $fails -eq 0 ]] && echo "self-test ok: 括弧の入れ子だけを同じとみなす（退避の戻しだけ。置き場の入れ替えは揃えない）"
   return $fails
 }
 

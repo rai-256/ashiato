@@ -46,6 +46,8 @@ jobs:
           # どの出口でも pgsql を必ず書く（書かないと空 = 変えていないと読まれる）。台本が落ちたら true・分岐点は空（package-windows が落とす）
           pgsql_out() { echo "pgsql=$1" >> "$GITHUB_OUTPUT"; echo "pgsql_from=$2" >> "$GITHUB_OUTPUT"; }
           if [ "$EVENT" = pull_request ]; then
+            # base.sha が引けない（base を force-push した）ときは、merge commit の第 1 親（base の先端）から分岐点を取る（review R3）
+            git cat-file -e "${PR_BASE}^{commit}" 2>/dev/null || PR_BASE="$(git rev-parse -q --verify 'HEAD^1^{commit}' || true)"
             if r="$(tools/release/pgsql-prev-lock.sh changed "$PR_BASE" "$PR_HEAD")"; then
               pgsql_out "${r%% *}" "$(printf '%s' "$r" | cut -s -d' ' -f2)"
             else

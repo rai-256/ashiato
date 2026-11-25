@@ -3,6 +3,7 @@
 # 使い方:
 #   pgsql-prev-lock.sh changed <base> <head>
 #       base と head の分岐点から head までの差分が tools/release/pgsql.lock を変えたら `true <分岐点>`、変えていなければ `false`
+#       （行末の CR を落として比べる。改行だけを変えた差分は変えていないと読む）
 #   pgsql-prev-lock.sh decide <前の lock> <今の lock>
 #       中身（行末の CR を落として比べる）が違い大きい版が同じなら `swap`、同じなら `same`（rc=0）。
 #       大きい版が違う・version= が読めないなら rc≠0
@@ -30,7 +31,11 @@ cmd_changed() {
   local mb diff
   mb="$(git merge-base "$1" "$2")" || { echo "pgsql-prev-lock: $1 と $2 の分岐点を取れない" >&2; return 1; }
   diff="$(git diff --name-only "$mb" "$2" -- "$LOCK_PATH")" || return 1
-  if [ -n "$diff" ]; then echo "true $mb"; else echo false; fi
+  if [ -n "$diff" ] && [ "$(lock_at "$mb")" != "$(lock_at "$2")" ]; then echo "true $mb"; else echo false; fi
+}
+
+lock_at() { # <commit>: その commit の lock の中身（行末の CR を落とす）。無ければ印。decide と同じ比べ方（review R7）
+  git show "$1:$LOCK_PATH" 2>/dev/null | tr -d '\r' || printf '<lock が無い>'
 }
 
 cmd_decide() {
@@ -70,6 +75,8 @@ cmd_check_zips() {
   nv="$(cmd_zip_version "$4")" || return 1
   if [ "$ov" = "$pv" ] && [ "$nv" = "$cv" ]; then
     echo "古い側 $ov → 新しい側 $nv（$ov → $nv）"
+    # 版を変えずに lock の別の行（注記・dlls=・url=）だけを変えた PR は、小さい版の更新を試していない（review R4）
+    [ "$pv" != "$cv" ] || echo "::warning::前の lock と今の lock の版が同じ（$pv）。この run は小さい版の更新を試していない"
     return 0
   fi
   echo "pgsql-prev-lock: 版が食い違う: 古い側 $ov（前の lock は $pv）・新しい側 $nv（今の lock は $cv）" >&2
@@ -95,6 +102,29 @@ PGSQL_TRUE = "needs.changes.outputs.pgsql == \x27true\x27"
 OLD_GUARD = "[ \"$name\" = old ]"
 CP = "cp \"$PREV_LOCK\" tools/release/pgsql.lock"
 CO = "git checkout -- tools/release/pgsql.lock"
+CHANGED_CALL = r"pgsql-prev-lock\.sh changed \"\$\{?PR_BASE\}?\" \"\$\{?PR_HEAD\}?\""
+PR_ENV = {"PR_BASE": "${{ github.event.pull_request.base.sha }}", "PR_HEAD": "${{ github.event.pull_request.head.sha }}"}
+# base.sha が引けないとき（base を force-push した）だけ、merge commit の第 1 親（base の先端）へ替えてよい（review R3）
+PR_BASE_FALLBACK = "PR_BASE=\"$(git rev-parse -q --verify \x27HEAD^1^{commit}\x27 || true)\""
+
+def check_zips_cmds(run):
+    """run の中の check-zips の呼び出しを、行の継ぎ（行末の \\）をつないだ 1 つの命令ずつ返す"""
+    lines = run.splitlines()
+    out = []
+    for i, l in enumerate(lines):
+        if "pgsql-prev-lock.sh check-zips" not in l:
+            continue
+        cmd = l
+        j = i
+        while cmd.rstrip().endswith("\\") and j + 1 < len(lines):
+            j += 1
+            cmd = cmd.rstrip()[:-1] + " " + lines[j]
+        out.append(cmd)
+    return out
+
+def swallowed(cmd):
+    """check-zips の失敗を呼び出しの後ろで飲み込んでいるか（|| true・|| :・|| exit 0 など）"""
+    return "||" in cmd[cmd.index("check-zips"):]
 
 def check(path):
     doc = load(path)
@@ -147,6 +177,16 @@ def check(path):
             m.append("changed の呼び出しが PR の run の分岐の中にない")
         if "github.event_name" not in str(fs[0].get("env", {}).get("EVENT", "")):
             m.append("changed を呼ぶ step の EVENT が run の種類（github.event_name）を持たない")
+        # changed に渡すのは PR の base と head（review R1。入れ替えると lock を変えた PR を「変えていない」と読む）
+        if not re.search(CHANGED_CALL, r):
+            m.append("changed の引数が \"$PR_BASE\" \"$PR_HEAD\" でない")
+        env = fs[0].get("env", {})
+        for k, v in PR_ENV.items():
+            if str(env.get(k, "")).strip() != v:
+                m.append("changed を呼ぶ step の %s が %s でない: %r" % (k, v, env.get(k)))
+        for a in re.findall(r"\bPR_(?:BASE|HEAD)=[^\n;]*", r):
+            if a.strip() != PR_BASE_FALLBACK:
+                m.append("changed に渡す PR_BASE・PR_HEAD を書き換えている: %r" % a)
         early = r.find("全部走らせる")
         if early != -1 and early < c:
             m.append("base が引けないときの早い出口が、pgsql を書く前にある")
@@ -201,6 +241,8 @@ def check(path):
             m.append("試験の zip を組む step の中に、old と new の zip への check-zips が無い")
         elif zc < zr.rfind("done"):
             m.append("組み立ての step の check-zips が loop（組み立て）の後にない")
+        if any(swallowed(c) for c in check_zips_cmds(zr)):
+            m.append("組み立ての step の check-zips の失敗を || で飲み込んでいる")
         if zi > first_up:
             m.append("試験の zip を組む step が upload の後にある")
         if "cache-hit" not in str(z.get("if", "")):
@@ -216,6 +258,8 @@ def check(path):
             ar = run_of(a)
             if "package-windows-test-old" not in ar or "package-windows-test-new" not in ar:
                 m.append("save の後の check-zips が old と new の zip を渡していない")
+            if any(swallowed(c) for c in check_zips_cmds(ar)) or a.get("continue-on-error"):
+                m.append("save の後の check-zips の失敗を飲み込んでいる")
         return m
 
     def s_key():
@@ -241,6 +285,8 @@ def check(path):
 def mutate(name, src, dst):
     doc = load(src)
     pw = doc["jobs"]["package-windows"]["steps"]
+    chs = doc["jobs"]["changes"]["steps"]
+    cf = [i for i, s in enumerate(chs) if "pgsql-prev-lock.sh changed" in run_of(s)][0]
     def find(pred):
         return [i for i, s in enumerate(pw) if pred(s)][0]
     p = find(lambda s: "decide" in run_of(s) and "pgsql-prev-lock.sh" in run_of(s))
@@ -262,6 +308,16 @@ def mutate(name, src, dst):
         pw[after]["if"] = PGSQL_TRUE + " && steps.reuse.outputs.cache-hit != \x27true\x27"
     elif name == "no-prev-key":
         pw[k]["run"] = pw[k]["run"].replace("|prev-pgsql=$PREV_PGSQL", "")
+    elif name == "changed-head-head":     # review R1 の m1
+        chs[cf]["run"] = chs[cf]["run"].replace("changed \"$PR_BASE\" \"$PR_HEAD\"", "changed \"$PR_HEAD\" \"$PR_HEAD\"")
+    elif name == "changed-base-is-head":  # 引数は同じで、変数の中身を head にする
+        chs[cf]["run"] = chs[cf]["run"].replace(PR_BASE_FALLBACK, "PR_BASE=\"$PR_HEAD\"")
+    elif name == "changed-env-swapped":
+        chs[cf]["env"]["PR_BASE"] = PR_ENV["PR_HEAD"]
+    elif name == "check-zips-swallowed-in-build":  # review R1 の m3
+        pw[z]["run"] = re.sub(r"(ashiato-server-\*\.zip)\n(\s*fi)", r"\1 || true\n\2", pw[z]["run"], count=1)
+    elif name == "check-zips-swallowed-after":     # review R1 の m4
+        pw[after]["run"] = pw[after]["run"].rstrip("\n") + " || :\n"
     else:
         raise SystemExit("unknown mutation " + name)
     if yaml.safe_dump(doc) == yaml.safe_dump(load(src)):
@@ -336,6 +392,14 @@ self_test() {
   [ "$out" = false ] || { echo "NG: '$out'（false のはず）"; return 1; }
   echo "ok: $out"
 
+  echo "-- 改行だけを変えた PR の差分は、lock を変えたと判定しない（review R7。decide の比べ方と揃える）"
+  git -C "$g" checkout -q -b crlf-only "$fork"
+  mklock "$g/$LOCK_PATH" 17.6-1 crlf; git -C "$g" commit -q -am "lock の改行だけを CRLF にする"
+  git -C "$g" diff --quiet "$fork" crlf-only -- "$LOCK_PATH" && { echo "NG: 前提（分岐点と head の lock のバイト列が違う）が崩れている"; return 1; }
+  out="$(cd "$g" && "$script" changed main crlf-only)" || { echo "NG: changed が落ちた"; return 1; }
+  [ "$out" = false ] || { echo "NG: '$out'（false のはず）"; return 1; }
+  echo "ok: $out"
+
   mklock "$work/p176.lock" 17.6-1; mklock "$work/c1712.lock" 17.12-1
   echo "== Scenario: 中身が違い大きい版が同じ前の lock なら、古い側を前の lock で組むと判定する"
   out="$("$script" decide "$work/p176.lock" "$work/c1712.lock")" || { echo "NG: decide が落ちた"; return 1; }
@@ -372,7 +436,13 @@ self_test() {
   mkzip "$work/s1712.zip" "$(notices 17.12-1)"
   out="$("$script" check-zips "$work/p176.lock" "$work/c1712.lock" "$work/s176.zip" "$work/s1712.zip")" || { echo "NG: check-zips が落ちた"; return 1; }
   printf '%s' "$out" | grep -q '17.6-1 → 17.12-1' || { echo "NG: '$out'"; return 1; }
+  printf '%s' "$out" | grep -q '試していない' && { echo "NG: 版が違うのに、更新を試していないと出た: '$out'"; return 1; }
   echo "ok: $out"
+
+  echo "-- 前と今の lock の版が同じなら、確かめは通るが、小さい版の更新を試していないと出す（review R4）"
+  out="$("$script" check-zips "$work/c1712.lock" "$work/c1712.lock" "$work/s1712.zip" "$work/s1712.zip")" || { echo "NG: check-zips が落ちた"; return 1; }
+  printf '%s' "$out" | grep -q '::warning::.*小さい版の更新を試していない' || { echo "NG: '$out'"; return 1; }
+  echo "ok: 警告を出した"
 
   echo "== Scenario: 古い側の zip が前の lock の版でなければ、確かめは落ちる"
   rc=0; "$script" check-zips "$work/p176.lock" "$work/c1712.lock" "$work/s1712.zip" "$work/s1712.zip" >/dev/null 2>&1 || rc=$?
@@ -388,12 +458,16 @@ self_test() {
   fi
   cmd_check_workflow "$ci" || { echo "NG: 今の ci.yml が check-workflow を通らない"; return 1; }
   echo "== Scenario: CI の定義の形が 1 つでも崩れると、形の確かめは落ちる"
-  for m in move-prev-after-key prev-always replace-all no-restore no-check-before-save check-only-on-miss no-prev-key; do
+  # spec の 7 通り＋ changed の引数・check-zips の失敗の飲み込み（review R1）
+  local n=0
+  for m in move-prev-after-key prev-always replace-all no-restore no-check-before-save check-only-on-miss no-prev-key \
+      changed-head-head changed-base-is-head changed-env-swapped check-zips-swallowed-in-build check-zips-swallowed-after; do
     python3 -I -c "$CHECK_PY" mutate "$m" "$ci" "$work/mut-$m.yml" || { echo "NG: 崩した写し ($m) を作れない"; return 1; }
     rc=0; cmd_check_workflow "$work/mut-$m.yml" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "NG: 崩した写し ($m) でも check-workflow が通った"; return 1; }
+    n=$((n + 1))
   done
-  echo "ok: 崩した写し 7 通りは全部落ちる"
+  echo "ok: 崩した写し $n 通りは全部落ちる"
   echo "pgsql-prev-lock: 自己試験 ok"
 }
 
