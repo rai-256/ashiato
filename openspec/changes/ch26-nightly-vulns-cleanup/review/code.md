@@ -125,3 +125,37 @@
 見ていない範囲: Windows の runner の上の本物の PR の run（`prevlock` の fetch と token の扱いを実地で観測していない。この branch の PR の run がまだ無い）。17.12-1 の zip の中身そのもの（EDB の出したものを信じる前提は 17.6-1 と同じ）
 
 指摘なし
+
+## /code-review（274aabf..139f543）
+
+見た: Claude Code の組み込みの `/code-review`（5 件）。写しは scripts/code_review_record.py
+
+## R3. A PR that never touches pgsql.lock can still fail package-windows whenever the `changed` script fails. In the `changes` job, every failure of `pgsql-prev-lock.sh changed` is turned into `pgsql=true` with an empty `pgsql_from`, and the `prevlock` step then exits 1 when `PGSQL_FROM` is empty. The job already plans for an unreachable base (the `base が引けないので全部走らせる` fallback right below), so this case is expected to happen. Fix: if `PR_BASE` is not a reachable commit, compute the fork point from the merge commit's first parent (`git merge-base HEAD^1 "$PR_HEAD"`). Otherwise, fail only when the lock actually differs between base and head.
+- 成果物: .github/workflows/ci.yml:47
+- 根拠: The base branch is force-pushed, or `pull_request.base.sha` was not fetched. `git merge-base` then fails, `changes` writes pgsql=true with an empty pgsql_from, and the prevlock step prints `分岐点の commit を取れない` and fails package-windows (and therefore install-windows) on a PR that only edits Rust code.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R4. `decide` returns `swap` whenever the bytes differ, even when the PostgreSQL version is the same. A lock change that only edits comments, dlls= or url= therefore passes as an upgrade test whose old and new sides run the same version. The guard is meant to stop a 17.12 → 17.12 run from going green (see the ci.yml comment), but this case slips past it, and check-zips also passes because pv == cv. Fix: in `decide` (or check-zips), treat equal `version=` values as `same` and fail, or at least warn that no minor upgrade is being tested.
+- 成果物: tools/release/pgsql-prev-lock.sh:51
+- 根拠: A PR only updates the `# Visual C++ runtime imports (checked ...)` comment in pgsql.lock. `changed` says true and `decide` says swap. Both zips bundle 17.12-1, check-zips prints `古い側 17.12-1 → 新しい側 17.12-1`, and install-windows goes green without any minor-version upgrade being exercised.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R5. Dependency names were added to project docs, which a project rule forbids. The new row names `url 2.5.8` and `form_urlencoded`, and the 'must not break' item adds errno, rustix, rustls-platform-verifier, tempfile and `windows-sys 0.52.0/0.59.0`. design.md D11 also names url, sqlx, axum and serde_urlencoded. Fix: refer to these by advisory ID or issue number (#374) only, and point readers to `tools/check-vulns.sh` for the list.
+- 成果物: docs/changes/CH26.md:23
+- 根拠: Rule broken: AGENTS.md (imported by /home/yosis/dev/ashiato2-ch26/CLAUDE.md), section 依存の脆弱性: 「文書には依存の名前を書かず、一覧が必要なときは毎回 `tools/check-vulns.sh` で出し直す。」 The lines `| #374 url 2.5.8（実装の途中で挙がった） | ... form_urlencoded も 1.2.3 に動く` and design.md `### D11. url は Cargo.lock だけで 2.5.9 以上に上げる` put dependency names into docs.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R6. On a run that actually builds, check-zips runs twice on the same zips. The build step already calls check-zips when `PREV_LOCK` is set, and the step after cache/save runs it again whenever `pgsql == 'true'`, whether or not the cache was hit. This costs time and doubles the `古い側 … → 新しい側 …` lines the docs ask reviewers to look for. Fix: run the post-save check only on a cache hit (check-workflow would need updating, since it currently forbids that), or drop the in-build check and keep only the one before upload.
+- 成果物: .github/workflows/ci.yml:676
+- 根拠: A lock-changing PR misses the cache. The build step prints `古い側 17.6-1 → 新しい側 17.12-1` and the post-save step prints it again. No wrong result, just a redundant step and duplicated evidence lines.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R7. `changed` treats any byte change to the lock between the fork point and head as an upgrade PR, including one whose net effect is only a newline change (CRLF vs LF). `decide` strips CR and returns `same`, and the prevlock step then hard-fails with `中身が同じ`. Such a PR cannot pass CI even though the lock's meaning did not change. Fix: in `changed`, compare the two lock contents with CRs stripped (or call `decide`) before reporting true.
+- 成果物: tools/release/pgsql-prev-lock.sh:32
+- 根拠: A commit re-saves pgsql.lock with CRLF line endings (no .gitattributes rule protects it). `changed` reports `true <fork>`, `decide` reports `same`, and package-windows fails with `前の lock と今の lock の中身が同じ（same）`, blocking the PR.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
