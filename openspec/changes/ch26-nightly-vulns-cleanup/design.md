@@ -72,6 +72,9 @@ ICU の版（`icuuc67.dll` など）が変わっていれば一覧の名前も�
 1. **Linux（この change の台本）**: `check-ch26.sh minor-swap`（Docker の `postgres:17.6` / `postgres:17.12`。initdb はインストーラと同じ引数。P18）。
    17.6 で置き場を作り、サーバの移行を当てて行を入れる → 同じ置き場を 17.12 で起こし、中身が同じ・移行をもう一度当てても足すものが無い → 17.12 で 1 行足す → 同じ置き場を 17.6 で起こし、中身が同じ → 17.12 の `pg_dump --format=custom` の退避を 17.6 の `pg_restore` で空の DB に戻し、中身が同じ。
    「中身が同じ」は、同じ `pg_dump`（17.12 の像の中のもの。平文）の出力から、版の行（`-- Dumped from` / `-- Dumped by` で始まる行）と毎回変わる鍵の行（`\restrict` / `\unrestrict` で始まる行）を除いて一致することをいう。
+   **退避の戻し（`pg_restore` を通る道。Scenario 4）に限り**、両方の平文の CHECK 制約の行（` CHECK (` を含む行）で、同じ `AND` の連なりの中に入れ子になった `AND` の括弧を平らにしてから比べる（`((a AND b) AND c)` と `(a AND b AND c)` を同じとみなす。本人の決定 Q-impl-2。2026-11-23）。
+   理由: `pg_restore` は式を読み直して `AND` の入れ子を平らに書き直す。17.12 の退避を 17.12 に戻しても同じ 2 行（`event_end_values`・`event_version_end_values`）が違い、小さい版の違いではない（`deep.md` Q-impl-2 の実測）。
+   揃えるのはこの括弧の入れ子だけ: `AND` と `OR` が混ざる組み替え（`(a AND b) OR c` と `a AND (b OR c)`）・式の中の値や演算子・CHECK の外の行の違いは、揃えずに違いとして落とす。置き場の入れ替え（Scenario 1〜3）は揃えずに完全に一致で比べる
    Windows の runner より先に、手元で PostgreSQL の側の約束が崩れていないかを見る（崩れていれば Windows を待たずに止まる）
 2. **Windows（CI）**: `pgsql.lock` を変える PR では、`package-windows` が更新の試験の古い側の zip（`package-windows-test-old`。版 `0.4.0`）だけを **PR が変える前の lock（base との分岐点の lock）** で組み、新しい側（`package-windows-test-new`。版 `0.5.0`）は今の lock で組む。
    `install-windows` は今のまま `tools/release/update-apply-install.sh` に 2 つを渡すので、17.6-1 の zip を入れた上で 17.12-1 の zip で更新し、移行を落として 17.6-1 へ戻す Scenario 群が Windows で走る。lock を変えない PR・main への push の組み立てと試験は今のまま（両方とも今の lock）
@@ -80,7 +83,7 @@ lock は `tools/release/pgsql.sh`（`PGSQL_LOCK_FILE` を読む）のほかに�
 
 この change では Windows の配布物どうしの更新と戻しを本人の PC で見ない（前の tasks 5.1「本人の PC で更新して記録が見えるか」を削った）。本人の PC に入っている配布版の移行は ST64 が扱う。
 
-- **反転条件**: `minor-swap` のどこかで中身が変わる・起きない・戻せない／lock を変えたこの PR の `install-windows` の更新と戻しが、小さい版の違いが原因で落ちる（→ どちらもこの change を止めて A として本人に返す）／インストーラに小さい版で分かれる処理が入った（→ CI の確かめの範囲を見直す）
+- **反転条件**: `minor-swap` のどこかで中身が変わる（退避の戻しで上の括弧の入れ子だけが違うのは、変わったと数えない。それ以外の表記の違いは変わったと数える）・起きない・戻せない／lock を変えたこの PR の `install-windows` の更新と戻しが、小さい版の違いが原因で落ちる（→ どちらもこの change を止めて A として本人に返す）／インストーラに小さい版で分かれる処理が入った（→ CI の確かめの範囲を見直す）
 
 ### D6. 確かめの台本は change の中に置く
 
@@ -91,6 +94,7 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 
 - **変えたか**: 変更の判定の job（`changes`。履歴を全部持つ）が、PR の run でだけ、PR の base と head の分岐点（`git merge-base`）から head までの差分に `tools/release/pgsql.lock` があるかを `pgsql-prev-lock.sh changed <base> <head>` で決め、`pgsql`（`true` / `false`）と分岐点の commit を出力に置く。
   base の先端と head の 2 点で比べると、base の側だけが lock を上げた後の古い枝が「変えた」になり、小さい版を下げる向きで更新を走らせる（spec-review R19）。分岐点からの差分なら、その枝は「変えていない」で今のまま組む
+  PR の base の commit が引けない（base を force-push した）ときは、merge commit の第 1 親（base の先端）を base にする。それでも分岐点が取れなければ `pgsql=true`・分岐点は空で `package-windows` を落とす（review R3）
 - **前の lock**: 分岐点の commit の lock（PR が変える前の lock）。`package-windows` は `pgsql == true` の run でだけ分岐点を浅く fetch して取り出す
 - **落とす**: `pgsql == true` なのに分岐点の lock が取れない・`decide` が「同じ中身」と言う・大きい版が違う、のどれかなら `package-windows` を落とす（取れないときに今の lock へ倒すと、17.12 → 17.12 で緑になる。spec-review R16）
 - **今のまま**: `pgsql == false`・PR でない run（main への push・手動）では、前の lock を取らず、台本も呼ばない（CH26 より前の head の枝でも、lock を変えていなければ今のまま組める。spec-review R19）
@@ -105,11 +109,11 @@ archive の後は `openspec/changes/archive/…` へ一緒に移る。この台�
 
 ci.yml の中の bash は Windows の runner でしか走らず、手元で落ちるかを確かめられない。check_scenarios も ci.yml の印を拾わない（`.yml` は試験の拡張子に無い。spec-review R17）。だから判定と確かめを台本に置き、Scenario の印も台本に置き、`--self-test` を Linux（`chain` の job）で走らせる:
 
-- `changed <base> <head>`: 分岐点から head までの差分が lock を変えたら `true <分岐点>`、変えていなければ `false` を出す（`changes` の job の Linux で走る）
+- `changed <base> <head>`: 分岐点から head までの差分が lock を変えたら `true <分岐点>`、変えていなければ `false` を出す（`changes` の job の Linux で走る）。`decide` と同じく行末の CR を落として比べ、改行だけを変えた差分は「変えていない」とする（spec の「改行の違いだけでは中身が違うと判定しない」。review R7）
 - `decide <前の lock> <今の lock>`: 中身が違い大きい版が同じなら `swap`、同じなら `same` を出して rc=0。大きい版が違えば 2 つの大きい版を出して rc≠0。`version=` が無い・`<大>.<小>-<n>` の形でない lock も rc≠0。中身は行末の CR を落として比べる（Windows の checkout は `core.autocrlf` で作業木を CRLF にしうる。`build.sh:46`。spec-review R26）
 - `zip-version <サーバの zip>`: zip の `THIRD-PARTY-NOTICES.txt` の `== PostgreSQL` の節の `version: ` の値を出す（`build.sh` が組んだときの作業木の lock から書く。P19）。節か値が無ければ rc≠0
-- `check-zips <前の lock> <今の lock> <古い側の zip> <新しい側の zip>`: 古い側の版が前の lock の版、新しい側の版が今の lock の版なら `古い側 <版> → 新しい側 <版>` を出して rc=0、違えば rc≠0
-- `check-workflow [<ci.yml>]`: ci.yml の形を python3 と yaml で読んで見る（Linux の `chain` でだけ走る。`windows-build-key.sh --check-workflow` と同じ）: `changes` の job が `changed` を PR の run でだけ呼んで出力を持つ／`package-windows` の前の lock を取る step が `pgsql == 'true'` を条件に持ち鍵の step より前にある／鍵の step の道具の版の文字列が前の lock の指紋（取らなければ `none`）を持つ／試験の zip を組む step が `old` を組む間だけ lock を置き換えて組んだ後に戻し、同じ step の中で `check-zips` を呼ぶ／save の step の後に、`cache-hit` を条件に持たず `pgsql == 'true'` を条件に持つ `check-zips` の step がある。自己試験は、形を 1 つずつ崩した写し（spec の Scenario の 7 通り）で落ちることを見る
+- `check-zips <前の lock> <今の lock> <古い側の zip> <新しい側の zip>`: 古い側の版が前の lock の版、新しい側の版が今の lock の版なら `古い側 <版> → 新しい側 <版>` を出して rc=0、違えば rc≠0。前と今の lock の版が同じ（版を変えずに注記・`dlls=`・`url=` だけを変えた PR）なら、通した上で「小さい版の更新を試していない」の `::warning::` を出す（review R4）
+- `check-workflow [<ci.yml>]`: ci.yml の形を python3 と yaml で読んで見る（Linux の `chain` でだけ走る。`windows-build-key.sh --check-workflow` と同じ）: `changes` の job が `changed` を PR の run でだけ呼んで出力を持つ／`package-windows` の前の lock を取る step が `pgsql == 'true'` を条件に持ち鍵の step より前にある／鍵の step の道具の版の文字列が前の lock の指紋（取らなければ `none`）を持つ／試験の zip を組む step が `old` を組む間だけ lock を置き換えて組んだ後に戻し、同じ step の中で `check-zips` を呼ぶ／save の step の後に、`cache-hit` を条件に持たず `pgsql == 'true'` を条件に持つ `check-zips` の step がある。自己試験は、形を 1 つずつ崩した写し（spec の Scenario の 7 通り）で落ちることを見る。あわせて、`changed` の引数が `"$PR_BASE" "$PR_HEAD"` でその env が PR の base と head の sha であること（書き換えてよいのは R3 の代わりの道の 1 行だけ）・2 か所の `check-zips` の失敗を `||` や `continue-on-error` で飲み込んでいないことを見て、それを崩した写し 5 通りでも落ちることを見る（review R1）
 - `changed`・`decide`・`zip-version`・`check-zips` は Windows の Git Bash でも動くよう bash・git・unzip・sha256sum・awk/sed だけで書く（python を使わない。`windows-build-key.sh:11` と同じ制約。spec-review R26）
 
 **版の確かめの置き場**（spec-review R18）: (1) 試験の zip を組む step の中（`cache-hit != 'true'` の中。保存の前）で、`old` と `new` を組んだ後に `check-zips` を呼ぶ —— 食い違った組み立てを保存させない。(2) save の step の後に、引けたかどうかに依らず走る `check-zips` の step を置く —— 使い回した run でも確かめる。
@@ -142,6 +146,18 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 - 費用: 見ない間は、インストーラが `pgsql` の置き場だけを入れ替え損ねても CI は緑になりうる（そのとき新しいサーバは古い PostgreSQL で動く。同じ大きい版なので DB は読める）
 - **反転条件**: インストーラのプログラムの置き場の入れ替え方が変わった（`pgsql` を別に扱うようになった）／本人が「見る」に変えた（`update-apply-install.sh` に版の観測を足す change を立てる）
 
+### D11. url は `Cargo.lock` だけで 2.5.9 以上に上げる（本人の決定。2026-11-23）
+
+> 実装の途中（Task 1.2）で、計画に無い勧告 `RUSTSEC-2026-0592`（url 2.5.8。入れ子の blob: URL で `Url::origin()` がスタックあふれ。2.5.9 で直る）を夜間の検査が挙げた（2026-11-22。#374）。
+> 実装の席は範囲が変わるので A で返し、本人が「CH26 で上げる」（例外にする・別の change にする、ではなく）を選んだ。直る版が互換の範囲にあるので、`AGENTS.md` の「互換の範囲で上げる」に当たり、例外にする理由が無い。別の change にしても CH26 の完了の判定 1（検査が rc=0）が url で落ちる。
+
+`cargo update -p url@2.5.8 --precise 2.5.9`。url 2.5.9 は form_urlencoded 1.2.3 を要るので、これも 1.2.2 → 1.2.3 に動く（P22）。`Cargo.toml` は変えない。
+url を引くのは sqlx（DB の接続文字列の解釈）だけで、この repo のコードは `Url::origin()` を呼ばない。form_urlencoded は axum・serde_urlencoded も使う（パッチ版の上げ）。
+`check-ch26.sh lock` は、動いてよい組を rustix・url・form_urlencoded の 3 つにする。`vulns` は `RUSTSEC-2026-0592` も出ないことを見る。
+
+- 失わない側: 何も捨てない。パッチ版の上げで、戻すのも lock の 2 行
+- **反転条件**: url 2.5.9 で sqlx の接続文字列の解釈が変わり、試験（tasks 5.2）が落ちた → 上げをやめ、例外の行（`上げる予定:`）にして本人に返す
+
 ## Risks / Trade-offs
 
 - **D2 は P7（確かさ 1）に乗っている**。Firefox の `IsRelative=0` の profile が本人以外にも書ける置き場にあれば成り立たない（P16）。Windows で同じ利用者の処理が別の処理の記憶を読めないように絞った環境（保護された処理など）では、勧告の攻撃が新しく何かを得うる。収集アプリは保護された処理として動かない（そういう設定をこの repo は持たない）が、確かめていない
@@ -151,3 +167,6 @@ ci.yml の中の bash は Windows の runner でしか走らず、手元で落�
 - CI は、更新した後・戻した後に動いている PostgreSQL の版を見ない（D10。本人の決定）
 - CH22（`install-windows` に置く段）・CH25（gradle のキャッシュ・`chain` の頭）は main に merge 済みで、`ci.yml` の別の行を変えた。CH26 は `changes`（出力を 2 つ足す）・`package-windows`（前の lock・鍵・古い側の組み立て・版の確かめ）・`chain`（2 行）だけを変える
 - CH24（merge 済み）が main で `Cargo.lock`・`osv-scanner.toml` を変えた。実装は main の上で取り直す（proposal の Impact）
+
+### D1 の補足（review 1 の F1）. rustix を上げると windows-sys の辺が動く
+`cargo update -p rustix --precise 1.1.6` は、rustix 1.1.6 が `windows-sys 0.59` を求めるため、範囲が重なる errno・rustls-platform-verifier・tempfile の辺も lock にある `windows-sys 0.59.0` へ寄せる（`0.52.0` の参照は 6 → 2）。`(name, version)` の組は増えも減りもしない（`check-ch26.sh lock` が見るのはこの組）。url の更新（P22）が動かすのは url と form_urlencoded だけで、辺の付け替えは rustix の段で起きた。Windows でだけ効く辺なので、確かめるのは PR の CI（Windows の runner）。
