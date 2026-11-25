@@ -60,6 +60,7 @@
 - 提案: `s_take` で、`changed` の引数が `"$PR_BASE" "$PR_HEAD"` であることと、その env が `github.event.pull_request.base.sha`・`head.sha` であることを照合し、m1 を `mutate` に足す。あわせて、2 か所の `check-zips` に `|| true` / `|| :` が付いていないことも見る（m3・m4）。merge gate では、この PR の `package-windows` のログに `古い側 17.6-1 → 新しい側 17.12-1` があることを確かめる（docs/release.md の新しい小節のとおり）
 - 処置: fixed D8 —— `tools/release/pgsql-prev-lock.sh` の `s_take` が、`changed` の引数が `"$PR_BASE" "$PR_HEAD"` であること・その env が `github.event.pull_request.base.sha`／`head.sha` であること・`PR_BASE`／`PR_HEAD` を書き換えるのは R3 の代わりの道の 1 行だけであることを見る。`s_check_places` は、2 か所の `check-zips` の失敗を `||` や `continue-on-error` で飲み込んでいないことを見る。自己試験の崩した写しに m1（`changed-head-head`）・`changed-base-is-head`・`changed-env-swapped`・m3（`check-zips-swallowed-in-build`）・m4（`check-zips-swallowed-after`）を足して 12 通りにし、全部落ちる（それぞれの NG の文は report に載せた）。merge gate で PR の `package-windows` のログに `古い側 17.6-1 → 新しい側 17.12-1` があるかを見る部分は、この段では観測できない（PR の run はグラフの publish の後）
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## 手 3: Scenario と test を突き合わせる
 
@@ -90,6 +91,7 @@
 - 提案: `--self-test` に、`cmd_minor_swap` の Scenario 1〜3 の比べが `sw_same`（揃えない比べ）であることを見る 1 行を足す（たとえば台本の本文を grep する）。比べ方を引数で選ぶ関数にして、括弧の入れ子だけが違う 2 つの平文を「入れ替えの比べ」が違うと判定することを見るのでもよい
 - 処置: fixed 3.2 —— `check-ch26.sh --self-test` に 2 つの確かめを足した。1 つは、`declare -f cmd_minor_swap` の比べの呼び出しが順に `sw_same sw_same sw_same_flat` であること。もう 1 つは、揃えない比べ（`sw_same`）が括弧の入れ子だけの違いを「違う」と判定すること。`:357` を `sw_same_flat` に変えた写しでは `--self-test` が rc=1 で落ちた（NG: `sw_same_flat sw_same sw_same_flat`）。今の台本では rc=0
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## 手 5: tasks の `[x]` と実体
 
@@ -141,6 +143,7 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D7 —— `.github/workflows/ci.yml` の `changes` の step で、`PR_BASE` の commit が引けないときは merge commit の第 1 親（`git rev-parse -q --verify 'HEAD^1^{commit}'`）を base にしてから `changed` を呼ぶ。使い捨ての木（merge commit の上で、`PR_BASE` を存在しない sha にした）で、この 1 行と `changed` を走らせると、base は第 1 親になり `false`・rc=0 を返す。それでも分岐点が取れないときは、今までどおり `pgsql=true`・分岐点は空で落とす（D7 の「取れないときに今の lock へ倒すと 17.12 → 17.12 で緑になる」を守る）。D7 に書き足し、`check-workflow` はこの 1 行だけを書き換えとして許す（R1）
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R4. `decide` returns `swap` whenever the bytes differ, even when the PostgreSQL version is the same. A lock change that only edits comments, dlls= or url= therefore passes as an upgrade test whose old and new sides run the same version. The guard is meant to stop a 17.12 → 17.12 run from going green (see the ci.yml comment), but this case slips past it, and check-zips also passes because pv == cv. Fix: in `decide` (or check-zips), treat equal `version=` values as `same` and fail, or at least warn that no minor upgrade is being tested.
 - 成果物: tools/release/pgsql-prev-lock.sh:51
@@ -149,6 +152,7 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D8 —— 再現した: `check-zips <17.12 の lock> <17.12 の lock> <17.12 の zip> <17.12 の zip>` は rc=0 で `古い側 17.12-1 → 新しい側 17.12-1` を出す。版を変えずに注記・`dlls=`・`url=` だけを変える PR を落とすと、lock を整える正当な PR が CI を通れなくなる。spec も「PR の差分が lock を変えた」ときに古い側を前の lock で組むと言う。そこで落とさずに、`check-zips` が版が同じときに `::warning::前の lock と今の lock の版が同じ（…）。この run は小さい版の更新を試していない` を出すようにした（提案の「少なくとも警告」）。自己試験で、版が同じなら警告が出て、17.6-1 → 17.12-1 では出ないことを見る。D8 に書き足した
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R5. Dependency names were added to project docs, which a project rule forbids. The new row names `url 2.5.8` and `form_urlencoded`, and the 'must not break' item adds errno, rustix, rustls-platform-verifier, tempfile and `windows-sys 0.52.0/0.59.0`. design.md D11 also names url, sqlx, axum and serde_urlencoded. Fix: refer to these by advisory ID or issue number (#374) only, and point readers to `tools/check-vulns.sh` for the list.
 - 成果物: docs/changes/CH26.md:23
@@ -165,6 +169,7 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 2 か所は spec と本人の決定が名指しした形で、提案の直し方はどちらも spec と食い違う。spec の Scenario「CI の定義は、試験の zip の版を、保存の前と使い回した run の両方で確かめる」の THEN は「組み立ての手順の中（保存の前）と、保存の手順の後の、**引けたかどうかに依らず走る**手順の 2 か所」で、design D8 の「版の確かめの置き場」（spec-review R18）が理由を書く。提案の「post-save を cache hit のときだけ」は、spec の崩し方 `check-only-on-miss` と同じ向きの書き換え（引けたかで分ける）。「組み立ての中の確かめを消す」は崩し方 `no-check-before-save` そのもので、`tools/release/pgsql-prev-lock.sh --self-test` の崩した写しの検査で落ちる。費用は `check-zips` が 2 つの zip から `unzip -p … THIRD-PARTY-NOTICES.txt` で 1 つずつ読むだけ（`tools/release/pgsql-prev-lock.sh` の `cmd_zip_version`）。出力の 2 行は、どちらも同じ版の組を出す
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R7. `changed` treats any byte change to the lock between the fork point and head as an upgrade PR, including one whose net effect is only a newline change (CRLF vs LF). `decide` strips CR and returns `same`, and the prevlock step then hard-fails with `中身が同じ`. Such a PR cannot pass CI even though the lock's meaning did not change. Fix: in `changed`, compare the two lock contents with CRs stripped (or call `decide`) before reporting true.
 - 成果物: tools/release/pgsql-prev-lock.sh:32
@@ -173,6 +178,7 @@
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed D8 —— 再現した: 分岐点の lock を CRLF にしただけの head では、直す前の `changed` が `true <分岐点>` を出した（直す前の `changed` を新しい自己試験に差し込んだ写しで `NG: 'true 512b4146…'（false のはず）`）。`changed` は、名前の差分があるときに、分岐点と head の lock の中身を行末の CR を落として比べ（`lock_at`。`decide` と同じ比べ方）、同じなら `false` を出す。spec の「lock の改行の違い（LF と CRLF）だけでは中身が違うと判定しない」のとおり。自己試験に「改行だけを変えた PR の差分は、lock を変えたと判定しない」を足し、rc=0。D8 に書き足した
 - 判定: ADDRESSED（re-review 1 @17cbb948211da06c6c10dc1d344f3311d8ef144e）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## final review（274aabf..1c09ab0）
 
@@ -184,6 +190,7 @@
 - kind: technical
 - 提案: `scripts/verify-run --change ch26-nightly-vulns-cleanup` で、settle が触ったファイルを使う tasks の項目（3.2・4.x・5.x）を HEAD で取り直す
 - 処置: fixed 3.2 —— この回の直し（R9〜R11。`check-ch26.sh`・`pgsql-prev-lock.sh`・`ci.yml` をまた変えた）を commit した後の HEAD で、`scripts/verify-run --change ch26-nightly-vulns-cleanup` を 1.1〜5.4 の全項目について走らせ直し、`evidence.jsonl` に HEAD の行を足した（3.2・4.x・5.x のほか、同じ台本を使う 1.x・2.x・3.1 も）。各項目の rc は report に載せた
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R9. `zip-version` が unzip の失敗を握りつぶし、原因を「許諾の文に版が無い」と取り違えて報告する
 - 成果物: tools/release/pgsql-prev-lock.sh:63
@@ -191,6 +198,7 @@
 - kind: technical
 - 提案: unzip の stderr を捨てずに残す（または unzip の rc を見て「zip を読めない」と別に報告する）
 - 処置: fixed 4.1 —— 再現した: 中身が zip でないファイルを `zip-version` に渡すと、直す前は `…の許諾の文に PostgreSQL の版が無い` で落ちた。`cmd_zip_version` は `unzip -p` を別に走らせ、失敗したら stderr を捨てずに `<zip> から THIRD-PARTY-NOTICES.txt を読めない（unzip の rc=<n>）` で落ちる。版が無いという報告は、読めたのに版の行が無いときだけ出す。`--self-test` に、壊れた zip と許諾の文を含まない zip で「読めない」と報告し「版が無い」と言わないことを見る節を足した（直す前の台本では grep が外れて NG になる）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R10. check-zips に渡す zip の glob が Windows の `$RUNNER_TEMP`（バックスラッシュの道）の下で、前例が無い
 - 成果物: .github/workflows/ci.yml:633
@@ -198,6 +206,7 @@
 - kind: technical
 - 提案: `cygpath -u "$RUNNER_TEMP"` を通した道で glob する（または `cd "$RUNNER_TEMP"` して相対で当てる）
 - 処置: fixed 4.2 —— 2 か所の `check-zips` の呼び出しの前で `rt="$(cygpath -u "$RUNNER_TEMP")"` とし、`"$rt"/package-windows-test-{old,new}/ashiato-server-*.zip` で glob する。同じ Windows の Git Bash で `cygpath -u` を使う前例は `tools/release/update-check-install.sh:36`（`install-windows` の job で走る）。`pgsql-prev-lock.sh check-workflow` と `--self-test`（崩した写し 12 通り）は rc=0。本物の Windows の runner では見ていない（PR の run はグラフの publish の後）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
 
 ## R11. Task の Minor で HEAD でも開いている小さいもの（まとめて）
 - 成果物: openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh
@@ -205,3 +214,4 @@
 - kind: technical
 - 提案: 注記を Task 1〜3 に直し、足した行の検査は `届かない: ` だけを通す。ほかは settle が要否を決める
 - 処置: fixed 1.2 —— 全部直した。`check-ch26.sh`: 頭の注記を「Task 1〜3」に（F4）。足した行の reason は `届かない: ` だけを通す（完了の判定 2。task-1 F4）—— `--self-test` に `上げる予定: ` に替えた写しが落ちる節を足した。url は末尾に加え、元の lock の url の版の所だけを今の版に替えたものと一致することを見る（task-2 F1）—— 配布元を `example.invalid` に替えた写しが落ちる節を足した。合言葉は `-e NAME=値` をやめ、命令の前の環境の代入と `-e NAME` で docker に渡す（argv に出ない。task-3 F1）。`ashiato-server` の置き場は `CARGO_TARGET_DIR`（相対なら repo の根から）に従う（task-3 F2）。`tools/release/pgsql-prev-lock.sh` の `cmd_decide` の `v` を local にした（task-4 F4）
+- 判定: ADDRESSED（re-review 2 @af993c19a2f02b74b74f2a5d677dac01523e2d01）
