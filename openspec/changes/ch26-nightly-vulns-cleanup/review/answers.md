@@ -1,5 +1,3 @@
-spec-digest: d758abaf8a04079a7991a048cb1c5866d644322bc55abe05adea04a35fd93f9a
-- Q1: 写った
-- Q2: 写った
-- Q3: 写った
+spec-digest: 8e996164be414f3feed63899ba4757384b9eb37ad7e1dac665fbc9c7ec6fb83e
+- Q-impl-2: 写った
 答え以外の変更: なし

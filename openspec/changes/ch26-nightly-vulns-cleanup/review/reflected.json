@@ -12,5 +12,17 @@
     "reask": "",
     "visual": [],
     "at": "2026-11-22T07:27:01Z"
+  },
+  {
+    "answers": "deep-answers-5.txt",
+    "ids": [
+      "Q-impl-2"
+    ],
+    "spec_digest": "8e996164be414f3feed63899ba4757384b9eb37ad7e1dac665fbc9c7ec6fb83e",
+    "other": "",
+    "other_decisions": [],
+    "reask": "",
+    "visual": [],
+    "at": "2026-11-25T13:21:01Z"
   }
 ]
