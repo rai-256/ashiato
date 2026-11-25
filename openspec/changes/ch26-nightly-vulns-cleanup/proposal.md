@@ -15,14 +15,15 @@
 | #336 | rustix 1.1.5（`RUSTSEC-2026-0486`） | 1.1.6（P2） | `Cargo.lock` だけで 1.1.6 以上に上げる（D1） |
 | #335 | libsqlite3-sys 0.30.1（`RUSTSEC-2026-0459`、6.8） | 0.39.0 = rusqlite 0.41。`rusqlite = "0.32"` の互換の範囲（0.32 の系列）には無い（P4） | 互換の範囲で上げられない。例外の表に `届かない:` の理由と 90 日以内の期限で書く（D2（仮）） |
 | #334 | chrono 0.4.45（`RUSTSEC-2026-0543`。保守終了） | 無い（P8） | 上げる版が無い。例外の表に書く（D3（仮））。期限が来れば検査がまた落ちる |
+| #374 | url 2.5.8（`RUSTSEC-2026-0592`。実装の途中の 2026-11-22 に挙がった） | 2.5.9（P22） | `Cargo.lock` だけで 2.5.9 以上に上げる。form_urlencoded も 1.2.3 に動く（D11。本人の決定） |
 | #337 | 同梱の PostgreSQL 17.6-1 | 17.12-1（EDB の zip あり。P10） | `tools/release/pgsql.lock` の版・URL・sha256 を 17.12-1 にそろえ、DLL の一覧を 17.12 の zip で調べ直す（D4）。17.6 の DB の置き場を 17.12 が使い、17.6 に戻しても使えることを Linux で走らせ、17.6-1 の zip から 17.12-1 の zip への更新と戻しを CI が Windows で通す（D5・D7（仮）・D8〜D10） |
 
 ## What Changes
 
-- `Cargo.lock`: rustix 1.1.5 を 1.1.6 以上へ（`cargo update -p rustix@1.1.5 --precise <1.1.6 以上>`。`Cargo.toml` は変えない）。rustix 0.38.44 は当たらないので触らない
+- `Cargo.lock`: rustix 1.1.5 を 1.1.6 以上へ（`cargo update -p rustix@1.1.5 --precise <1.1.6 以上>`。`Cargo.toml` は変えない）。rustix 0.38.44 は当たらないので触らない。url 2.5.8 を 2.5.9 以上へ（`cargo update -p url@2.5.8 --precise 2.5.9`。form_urlencoded も 1.2.3 に動く。D11）
 - `osv-scanner.toml`: `RUSTSEC-2026-0459`（libsqlite3-sys）と `RUSTSEC-2026-0543`（chrono）の 2 行を、`届かない: <理由>` と書いた日から 90 日以内の期限で足す。理由は勧告が実際に当たる使い方かを確かめた結果（design D2・D3）
 - `tools/release/pgsql.lock`: `version=17.12-1`・その版の EDB の URL・落とした zip の sha256。`dlls=` と VC の実行時の DLL の注記は、17.12-1 の zip を `objdump -p` で調べ直した結果にそろえる（変わらなければ注記の日付と zip を書き換えるだけ）。大きい版（17）・実行ファイルの一覧は変えない
-- 確かめの台本を change の中に置く（`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh`。Scenario の印を持つ）: `Cargo.lock` で動いたのが rustix だけ・例外の表の既にある行が残る・lock の形（版と URL の一致・大きい版と実行ファイルと許諾の置き場が同じ・DLL の一覧が 17.12 の zip と一致）・17.6 で移行を当てて行を入れた DB の置き場を 17.12 が同じ中身で使い、17.6 に戻しても使え、17.12 の退避を 17.6 が戻せること（Docker の `postgres:17.6` / `postgres:17.12`）
+- 確かめの台本を change の中に置く（`openspec/changes/ch26-nightly-vulns-cleanup/check-ch26.sh`。Scenario の印を持つ）: `Cargo.lock` で動いたのが rustix・url・form_urlencoded だけ・例外の表の既にある行が残る・lock の形（版と URL の一致・大きい版と実行ファイルと許諾の置き場が同じ・DLL の一覧が 17.12 の zip と一致）・17.6 で移行を当てて行を入れた DB の置き場を 17.12 が同じ中身で使い、17.6 に戻しても使え、17.12 の退避を 17.6 が戻せること（Docker の `postgres:17.6` / `postgres:17.12`）
 - `docs/changes/CH26.md`: 価値・壊してはいけないもの・完了の判定と front matter の capability
 - `.github/workflows/ci.yml`（`changes`・`package-windows`・`chain`）: `changes` が PR 自身の差分（分岐点から head）で `pgsql.lock` を変えたかを出し、変えた PR では `package-windows` が更新の試験の古い側の zip（`package-windows-test-old`）だけを分岐点の lock で組み、組んだ zip の同梱の版を保存の前と使い回しのときに確かめ、前の lock を使い回しの鍵に入れる。`chain` で新しい台本の自己試験と CI の形の検査を走らせる（design D5・D7（仮）・D8・D9。本人の決定 R2 = C、D8・D9 は第 2 回の深掘りで本人が決めた）。lock を変えない PR・PR でない run の組み立てと試験は今のまま
 - `tools/release/pgsql-prev-lock.sh`（新しい）: PR の差分が lock を変えたか（`changed`）・前の lock と今の lock から入れ替えるか（`decide`）・サーバの zip の同梱の版（`zip-version`）・2 つの試験の zip の版の組（`check-zips`）・ci.yml の形（`check-workflow`）・`--self-test`（design D8）
