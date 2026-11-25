@@ -252,6 +252,74 @@ sw_same() { # <a> <b> <what>
   echo "中身は同じ（$3。$(wc -l < "$1") 行）"
 }
 
+# 退避の戻し（pg_restore を通る道）の比べだけが使う揃え（design D5、本人の決定 Q-impl-2）。
+# 平文の CHECK 制約の行（` CHECK (` を含む行）で、同じ AND の連なりの中の AND の括弧の入れ子を平らにする:
+# `((a AND b) AND c)` → `(a AND b AND c)`。AND と OR が混ざる括弧・CHECK の外の行は揃えない。Docker を使わない。
+sw_flatten_checks() { # <in> <out>
+  python3 -I - "$1" "$2" <<'PY'
+import sys
+
+def whole(t):  # t 全体が 1 組の括弧で包まれているか
+    if not (t.startswith("(") and t.endswith(")")):
+        return False
+    depth = 0
+    for i, ch in enumerate(t):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0 and i < len(t) - 1:
+            return False
+    return depth == 0
+
+def top_split(t, word):  # 括弧の外の ` word ` で分ける（引用符の中は見ない: 制約の式には出ない）
+    parts, depth, cur, i = [], 0, "", 0
+    while i < len(t):
+        if t[i] == "(":
+            depth += 1
+        elif t[i] == ")":
+            depth -= 1
+        if depth == 0 and t.startswith(word, i):
+            parts.append(cur); cur = ""; i += len(word); continue
+        cur += t[i]; i += 1
+    parts.append(cur)
+    return parts
+
+def conjuncts(t):
+    """t が AND だけの連なり（括弧の入れ子は何重でも）ならその項の一覧、そうでなければ None"""
+    while whole(t):
+        inner = t[1:-1]
+        if len(top_split(inner, " OR ")) > 1:
+            return None
+        parts = top_split(inner, " AND ")
+        if len(parts) > 1:
+            out = []
+            for part in parts:
+                sub = conjuncts(part)
+                out += sub if sub is not None else [part]
+            return out
+        t = inner
+    return None
+
+def flat(line):
+    key = " CHECK "
+    i = line.find(key + "(")
+    if i < 0:
+        return line
+    head, rest = line[: i + len(key)], line[i + len(key):]
+    end = rest.rfind(")") + 1  # CHECK の式の閉じ括弧（後ろは NOT VALID; など）
+    expr, tail = rest[:end], rest[end:]
+    c = conjuncts(expr)
+    return head + ("(" + " AND ".join(c) + ")" if c else expr) + tail
+
+with open(sys.argv[1]) as f, open(sys.argv[2], "w") as g:
+    for line in f:
+        g.write(flat(line.rstrip("\n")) + "\n")
+PY
+}
+
+sw_same_flat() { # <a> <b> <what>   退避の戻しの比べ（括弧の入れ子を揃えてから）
+  sw_flatten_checks "$1" "$SW_TMP/flat-a.sql" && sw_flatten_checks "$2" "$SW_TMP/flat-b.sql" || return 1
+  sw_same "$SW_TMP/flat-a.sql" "$SW_TMP/flat-b.sql" "$3（CHECK の括弧の入れ子を平らにして）"
+}
+
 cmd_minor_swap() {
   command -v docker >/dev/null || { echo "error: docker が無い" >&2; return 2; }
   SW_TMP="$(make_tmp)" || return 2
@@ -319,7 +387,7 @@ cmd_minor_swap() {
     || { echo "error: 17.6 の pg_restore が rc≠0" >&2; return 1; }
   echo "pg_restore は rc=0"
   sw_content "$c_rest" "$t/restored.sql" || return 1
-  sw_same "$t/new2.sql" "$t/restored.sql" "17.12 の退避を取ったときと 17.6 に戻したとき" || return 1
+  sw_same_flat "$t/new2.sql" "$t/restored.sql" "17.12 の退避を取ったときと 17.6 に戻したとき" || return 1
 }
 
 self_test() {
@@ -386,6 +454,20 @@ PY
   pglock
   sed -i '/^executables=/s/,pg_isready\.exe//' "$t/r/tools/release/pgsql.lock"
   expect_fail "executables から 1 つ消した lock" pg-lock
+  # 退避の戻しの比べ（Docker を使わない）
+  echo "== Scenario: 退避の戻しの比べは、括弧の入れ子のほかの違いを同じとみなさない"
+  SW_TMP="$t"
+  local A="    ADD CONSTRAINT event_end_values CHECK ((((end_tz_offset_min >= '-1439'::integer) AND (end_tz_offset_min <= 1439)) AND (end_tz_id <> ''::text))) NOT VALID;"
+  local B="    ADD CONSTRAINT event_end_values CHECK (((end_tz_offset_min >= '-1439'::integer) AND (end_tz_offset_min <= 1439) AND (end_tz_id <> ''::text))) NOT VALID;"
+  flat_eq() { printf '%s\nCREATE TABLE x ();\n' "$1" > "$t/fa"; printf '%s\nCREATE TABLE x ();\n' "$2" > "$t/fb"; sw_same_flat "$t/fa" "$t/fb" self >/dev/null 2>&1; }
+  flat_eq "$A" "$B" || { echo "self-test NG: 括弧の入れ子だけの違いを同じと判定しない" >&2; fails=1; }
+  flat_eq "$A" "${B/<= 1439/<= 1440}" && { echo "self-test NG: 式の値の違いを同じと判定した" >&2; fails=1; }
+  flat_eq "$A" "${B/>= \'-1439\'/> \'-1439\'}" && { echo "self-test NG: 演算子の違いを同じと判定した" >&2; fails=1; }
+  flat_eq "ALTER x CHECK (((a > 1) AND (b > 2)) OR (c > 3));" "ALTER x CHECK (((a > 1) AND ((b > 2) OR (c > 3))));" \
+    && { echo "self-test NG: AND と OR の組み替えを同じと判定した" >&2; fails=1; }
+  printf '%s\nCREATE TABLE x ();\n' "$A" > "$t/fa"; printf '%s\nCREATE TABLE y ();\n' "$B" > "$t/fb"
+  sw_same_flat "$t/fa" "$t/fb" self >/dev/null 2>&1 && { echo "self-test NG: CHECK の外の行の違いを同じと判定した" >&2; fails=1; }
+  [[ $fails -eq 0 ]] && echo "self-test ok: 括弧の入れ子だけを同じとみなす"
   return $fails
 }
 
