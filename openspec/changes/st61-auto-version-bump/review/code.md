@@ -190,3 +190,4 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 成果物: tools/release/check-guards.sh
 - 根拠: tools/release/check-guards.sh:211（re-review 2 の New Breakage。Minor）
 - kind: technical
+- 処置: fixed 5.1

@@ -186,9 +186,33 @@ except yaml.YAMLError as e:
 jobs = doc.get("jobs") if isinstance(doc, dict) else None
 if not isinstance(jobs, dict):
     print("number.yml に jobs が無い"); sys.exit(1)
+# shell と env は step のほか job・workflow の単位にも置ける（defaults.run.shell・env）。どの単位でも同じ規則で見る（code.md R12）
+def check_shell(shell, where):
+    if shell != "bash":
+        bad.append(f"{where}: shell が bash でない: {shell}")
+def check_env(env, where):
+    if env is None:
+        return
+    if not isinstance(env, dict):
+        bad.append(f"{where}: env が対応表でない"); return
+    for key in env:
+        if key in ("BASH_ENV", "ENV"):
+            bad.append(f"{where}: 殻が先に読むファイルを指す env {key}")
+def check_defaults(defaults, where):
+    if defaults is None:
+        return
+    if not isinstance(defaults, dict) or not isinstance(defaults.get("run", {}), dict):
+        bad.append(f"{where}: defaults が対応表でない"); return
+    run = defaults.get("run") or {}
+    if "shell" in run:
+        check_shell(run["shell"], f"{where} の defaults.run")
+check_defaults(doc.get("defaults"), "number.yml の workflow")
+check_env(doc.get("env"), "number.yml の workflow")
 for jname, job in jobs.items():
     if not isinstance(job, dict):
         bad.append(f"{jname}: job が対応表でない"); continue
+    check_defaults(job.get("defaults"), f"number.yml {jname} の job")
+    check_env(job.get("env"), f"number.yml {jname} の job")
     if "uses" in job:
         bad.append(f"{jname}: 別の workflow を呼ぶ job: {job['uses']}")
     steps = job.get("steps") or []
@@ -201,15 +225,13 @@ for jname, job in jobs.items():
         for key in step:
             if key not in ALLOWED_STEP_KEYS:
                 bad.append(f"{where}: 許していない鍵 {key!r}")
-        for key in (step.get("env") or {}):
-            if key in ("BASH_ENV", "ENV"):
-                bad.append(f"{where}: 殻が先に読むファイルを指す env {key}")
+        check_env(step.get("env"), where)
         if "uses" in step:
             name = str(step["uses"]).split("@")[0]
             if name not in ALLOWED_USES:
                 bad.append(f"{where}: 許していない action: {step['uses']}")
-        if "shell" in step and step["shell"] != "bash":
-            bad.append(f"{where}: shell が bash でない: {step['shell']}")
+        if "shell" in step:
+            check_shell(step["shell"], where)
         if "run" in step:
             for line in str(step["run"]).splitlines():
                 if line.strip() and not line.strip().startswith("#"):
@@ -598,6 +620,11 @@ EOF
   number_mutant find-exec-abs -e '$a\      - run: find . -maxdepth 0 -exec /usr/bin/gh release create v1 \\;'
   number_mutant gh-release-action -e 's#^      - uses: actions/download-artifact@\(.*\)#      - uses: softprops/action-gh-release@v2\n&#'
   number_mutant shell-python -e '0,/^        shell: bash$/s//        shell: python {0}/'
+  # shell と env を workflow・job の単位に置いた偽の number.yml（code.md R12）
+  number_mutant defaults-workflow -e 's/^jobs:$/defaults: { run: { shell: "python {0}" } }\n&/'
+  number_mutant defaults-job -e '/^  place:$/a\    defaults:\n      run:\n        shell: "gh release create v1 {0}"'
+  number_mutant env-workflow -e 's/^jobs:$/env: { BASH_ENV: .\/evil }\n&/'
+  number_mutant env-job -e '/^  place:$/a\    env:\n      ENV: ./evil'
   echo "== Scenario: 番号付けは、CI と別の、取り消さない 1 本ずつの流れにある"
   number_mutant no-concurrency -e '/^    concurrency:/,/^      cancel-in-progress: false/d'
   number_mutant cancel -e 's/cancel-in-progress: false/cancel-in-progress: true/'
