@@ -53,8 +53,13 @@ FR-134 の未決（NEEDS CLARIFICATION と 2026-11-21 の補足の 3 つの「�
 ### Q5. 題が「wip」の commit を、merge の前に書き直すか（R10）
 
 - 問い: 枝の途中の commit 58f7a4d8c（番号の印と置き場の台本の途中の作業。本文なし）の題を規則の形に書き直すか、そのまま merge するか。
-- 答え: (未回答)
+- 答え: そのまま merge する（書き直さない）（本人の選択。第 2 回 `deep-answers-2.txt`。推奨と同じ・補足なし）
 - loss: discarded
 - 出所: review/code.md R10・CLAUDE.md「git」
 - 推奨: そのまま merge する（書き直さない）。中身とその理由は直後の 53a74e0ce の題で読め、書き直すと枝の commit の番号が全部変わってグラフの記録とずれる
 - 族「規則の形に合わない commit の題が main に入る」: Task agent の題「wip」→ 未決 Q5／グラフが付ける題（`chore(ST61): Task N を完了にする`）→ グラフ（harness2）の決め・範囲の外／これからの題を commit-msg の hook で止める → 範囲の外（ハーネスの改良の依頼）
+
+### 第 2 回の答えで戻したもの（2026-11-27）
+
+- 要件・Story へ戻すものは無い（commit の題の扱いで、FR-134 や ST61 の判定に効かない）。枝の commit は書き直さず、58f7a4d8c の題「wip」は main に残す（本人が受け入れた）
+- 族の兄弟（これからの題を commit-msg の hook で止める）はこの Story の範囲の外のまま
