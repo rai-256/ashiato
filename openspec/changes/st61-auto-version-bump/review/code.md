@@ -62,6 +62,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
+- 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -73,6 +74,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
+- 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
 
 ## R3. versionCode の上限（真ん中 999・左 209）は、狭めても試験が 1 本も落ちない。受ける側の境目の行が、どの表にも無い
 - 成果物: tools/release/version-table.tsv / tools/release/version-check-table.tsv / tools/release/version.sh:42-43 / web/build-stamp.ts:59 / crates/build-stamp/src/lib.rs:79-81 / collector-android/app/build.gradle.kts:44-45
@@ -183,6 +185,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
+- 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
 
 ## settle_review（re-review 2 @e8c8db1）: 処置の直しが新しく壊したもの
 
@@ -191,3 +194,4 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 根拠: tools/release/check-guards.sh:211（re-review 2 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
