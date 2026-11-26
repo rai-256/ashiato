@@ -61,6 +61,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: `check-guards.sh workflows` に、ci.yml の `changes` の job が push で `changes.sh base` の出力を `BASE` に使うこと・`actions: read` を持つこと・問い合わせが `status=success` を持つことの検査を足し、`--self-test` で 1 つずつ外した偽の ci.yml が rc≠0 になることを見る。12.4（人間の確認）は main に入った後でしか働かない
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -71,6 +72,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: 禁止の並びを足すより、`contents: write` の 2 つの job の `run:` を許す形（`tools/release/version.sh number`・`number.sh tag|complete|place`・決まった `echo`/`sed`/`tee`）に限る。`gh` と `git tag`/`git push` を直に呼ぶ step があれば落とす
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
 
 ## R3. versionCode の上限（真ん中 999・左 209）は、狭めても試験が 1 本も落ちない。受ける側の境目の行が、どの表にも無い
 - 成果物: tools/release/version-table.tsv / tools/release/version-check-table.tsv / tools/release/version.sh:42-43 / web/build-stamp.ts:59 / crates/build-stamp/src/lib.rs:79-81 / collector-android/app/build.gradle.kts:44-45
@@ -180,3 +182,11 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 根拠: tools/release/check-guards.sh:149（re-review 1 の New Breakage。Minor）
 - kind: technical
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
+
+## settle_review（re-review 2 @e8c8db1）: 処置の直しが新しく壊したもの
+
+## R12. shell を step の鍵でしか見なくなり、workflow・job の単位の `defaults.run.shell` を通す。直す前は字面の `shell:` の行を全部見ていた。複製の number.yml に `defaults: { run: { shell: "python {0}" } }`（workflow の単位）か `shell: "gh release create v1 {0}"`（place の job の defaults.run）を足すと、7054109 の版は rc=1、現在の版は rc=0。現在の number.yml に defaults は無い。同じ形で BASH_ENV/ENV の拒否（:204）も step の env だけで、job・workflow の env に置くと rc=0（こちらは直す前も rc=0）。
+- 成果物: tools/release/check-guards.sh
+- 根拠: tools/release/check-guards.sh:211（re-review 2 の New Breakage。Minor）
+- kind: technical
