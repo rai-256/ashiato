@@ -60,6 +60,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: `check-guards.sh workflows` に、ci.yml の `changes` の job が push で `changes.sh base` の出力を `BASE` に使うこと・`actions: read` を持つこと・問い合わせが `status=success` を持つことの検査を足し、`--self-test` で 1 つずつ外した偽の ci.yml が rc≠0 になることを見る。12.4（人間の確認）は main に入った後でしか働かない
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -69,6 +70,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: 禁止の並びを足すより、`contents: write` の 2 つの job の `run:` を許す形（`tools/release/version.sh number`・`number.sh tag|complete|place`・決まった `echo`/`sed`/`tee`）に限る。`gh` と `git tag`/`git push` を直に呼ぶ step があれば落とす
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R3. versionCode の上限（真ん中 999・左 209）は、狭めても試験が 1 本も落ちない。受ける側の境目の行が、どの表にも無い
 - 成果物: tools/release/version-table.tsv / tools/release/version-check-table.tsv / tools/release/version.sh:42-43 / web/build-stamp.ts:59 / crates/build-stamp/src/lib.rs:79-81 / collector-android/app/build.gradle.kts:44-45
@@ -80,6 +82,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: `version-table.tsv` に `0.999.9999`→9999999 と `209.999.9999`→2099999999 を、`version-check-table.tsv` に `0.999.9999`（左 0）ok と `209.0.0`（左 209）ok を足す。4 か所が同じ表を読むので、1 か所の変更で済む
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R4. 2.2 の 3 本目の検証は、組んだ APK が渡した版番号かを見ていない。版を無視した APK でも rc=0 になる（実測 2 回）
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md 2.2 の 3 本目 / tools/release/check-artifacts.sh:65-87（`apk-version`）
@@ -89,6 +92,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: 2.2 の 3 本目を `tools/release/check-artifacts.sh apk-version --expect-version 0.4.0-beta.2 collector-android/app/build/outputs/apk/release/*.apk` に直す（受け入れ条件は変えない。`plan_fix.py` の訂正の形）。あわせて、組む前に `app/build/outputs/apk/release/` を空にして、ほかの組み立ての残りを拾わないようにする
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R5. 置き場と番号の判定の守り 4 つに、試験が無い。消しても自己試験は通る
 - 成果物: tools/release/number.sh:95・:118・:49 / tools/release/version.sh:193
@@ -101,6 +105,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: `number.sh --self-test` の偽の `gh` に `isDraft:false` の release を返させ、`place` が rc≠0 で書く要求 0 件・`complete` が `complete=no` になることを見る。`version.sh` の自己試験に、前の番号の子孫で main の first-parent の上に無い commit（merge された枝の中の commit）を足す
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## code-verify の結論
 - 結論: 申告と実測は不一致（5 件。R1・R2・R3・R4・R5）。18 項目の検証コマンドは全部実在し rc=0 だったが、ci.yml の差分の基準の配線（R1）・番号付けの workflow の公開と `v*` の禁止（R2）・versionCode の上限（R3）・APK の版の検証（R4）・置き場の下書きの守りなど 4 つ（R5）は、壊しても検査が落ちない
@@ -135,6 +140,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R7. On a main push, the CI diff base can be a commit that is not an ancestor of HEAD, so code jobs get skipped. `base()` only checks that PREV_SUCCESS_SHA exists in the tree, not that it is an ancestor of HEAD. Fix: in base(), also require `git merge-base --is-ancestor "$sha" HEAD`, and fall back to `all` when that fails.
 - 成果物: tools/release/changes.sh:24
@@ -142,6 +148,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 6.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R8. The bash `check_rule` does not enforce the same rule as Rust, TS and gradle, even though the comments say all four apply the same rule and the same table pins it. bash only checks that the source version has no suffix. The other three reject any source version that is not `0.0.<N≥1>`. Every row of version-check-table.tsv uses source 0.0.1, so the table cannot catch the difference. Fix: add the `0.0.<N≥1>` check to check_rule, and add table rows whose source is not 0.0.x (for example 0.4.0 with 0.4.0 → ng).
 - 成果物: tools/release/version.sh:111
@@ -149,6 +156,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R9. Only Rust accepts a MAJOR file containing `+0`. `text.trim().parse::<u64>()` allows a leading `+` (u64::from_str does), while bash, TS and gradle all require `^\d+$`. That is the same trap that parse_version guards against by checking for digits only (final review R12). Fix: check that the value is ASCII digits only before parsing.
 - 成果物: crates/build-stamp/src/lib.rs:68
@@ -156,6 +164,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 
 ## R10. The branch has a commit whose message is just `wip`. CLAUDE.md (git section) says: 「コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」」. Fix: reword the commit to the project's format, or squash it into a neighbouring commit.
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md:1
@@ -163,3 +172,10 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: escalated — `deep.md` 第 2 回 Q5（loss: discarded）。問いは `deep-questions-r2.json` / `docs/briefs/ST61-deep-r2.html`。**答え（2026-11-27）**: 推奨のまま「そのまま merge する（書き直さない）」→ 58f7a4d8c の題「wip」は main に残す。履歴は書き換えず、成果物も変えない（中身は直後の 53a74e0ce の題で読める）。これからの題を commit-msg の hook で止めるのはこの Story の範囲の外
+
+## settle_review（re-review 1 @7054109）: 処置の直しが新しく壊したもの
+
+## R11. 新しい number_steps は書き方によって公開の step を通す。number.yml の写しに 1 つずつ足して python 部分を走らせると、flow 形式の `- { run: "gh release create v1" }`、複数行の plain scalar の 2 行目の `&& gh release create v1`、`echo a & /usr/bin/gh release create v1`、`find . -maxdepth 0 -exec /usr/bin/gh release create v1 \;` はすべて rc=0（素の `gh release create` は rc=1）。現在の number.yml にはどれも無い。
+- 成果物: tools/release/check-guards.sh
+- 根拠: tools/release/check-guards.sh:149（re-review 1 の New Breakage。Minor）
+- kind: technical
