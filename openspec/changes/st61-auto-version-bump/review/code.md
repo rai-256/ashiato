@@ -162,4 +162,4 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 根拠: `git log origin/HEAD..HEAD --format=%s` includes a subject that is exactly "wip". It has no type prefix, no Japanese one-line summary and no body explaining why, which breaks the /home/yosis/dev/ashiato2-st61/CLAUDE.md commit rule.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
-- 処置: escalated
+- 処置: escalated — `deep.md` 第 2 回 Q5（loss: discarded）。問いは `deep-questions-r2.json` / `docs/briefs/ST61-deep-r2.html`。**答え（2026-11-27）**: 推奨のまま「そのまま merge する（書き直さない）」→ 58f7a4d8c の題「wip」は main に残す。履歴は書き換えず、成果物も変えない（中身は直後の 53a74e0ce の題で読める）。これからの題を commit-msg の hook で止めるのはこの Story の範囲の外
