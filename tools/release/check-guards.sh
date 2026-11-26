@@ -142,13 +142,20 @@ print(approval, sign)'
 number_steps() {
   python3 - "$1" <<'PY'
 import re, sys
+try:
+    import yaml
+except ImportError:
+    print("number.yml を読むのに python3 の yaml が要る"); sys.exit(1)
 ALLOWED_USES = {"actions/checkout", "actions/upload-artifact", "actions/download-artifact",
                 "actions/setup-java", "actions/setup-node", "dtolnay/rust-toolchain"}
 ALLOWED_CMDS = {"tools/release/version.sh", "tools/release/number.sh", "tools/release/build.sh",
-                "echo", "sed", "tee", "mkdir", "find", "[["}
-FORBIDDEN = re.compile(r"(?<![\w./-])(gh|git|curl|wget|eval|exec|source|xargs|bash|sh|python3?|node|npx|jq)(?![\w./-])")
+                "echo", "sed", "tee", "mkdir", "find", "cp", "[["}
+ALLOWED_STEP_KEYS = {"id", "name", "if", "uses", "with", "run", "shell", "env"}
+# 前が / でも拾う（/usr/bin/gh）。前が . や英数字なら別の語（number.sh の sh）
+FORBIDDEN = re.compile(r"(?<![\w.-])(gh|git|curl|wget|eval|exec|source|xargs|bash|sh|python3?|node|npx|jq)(?![\w./-])")
 ASSIGN = re.compile(r"""^[A-Za-z_][A-Za-z0-9_]*=("[^"]*"?|'[^']*'?|\S*)\s*""")
-SPLIT = re.compile(r"\|\||&&|;|\||`|\b(?:then|if|else|elif|fi|do|done|while|for)\b")
+# & の 1 つ（裏で走らせる）・改行・find の -exec の後も、次のコマンドの先頭とみなす（code.md R11）
+SPLIT = re.compile(r"\|\||&&|(?<![<>])&(?!>)|;|\||`|\n|(?<!\S)-(?:exec|execdir|ok|okdir)(?!\S)|\b(?:then|if|else|elif|fi|do|done|while|for)\b")
 bad = []
 def check_cmd(text, where):
     subs = []
@@ -165,40 +172,48 @@ def check_cmd(text, where):
         seg = seg.strip().lstrip("!").strip()
         while (m := ASSIGN.match(seg)):
             seg = seg[m.end():]
-        if not seg or re.fullmatch(r"[\s\"'\\]*", seg) or seg.startswith("]]"):
+        if not seg or re.fullmatch(r"[\s\"'\\]*", seg) or seg.startswith("]]") or seg.startswith("#"):
             continue
         word = seg.split()[0]
         if word not in ALLOWED_CMDS:
             bad.append(f"{where}: 許していないコマンド {word!r}: {text.strip()}")
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-i = 0
-while i < len(lines):
-    line = lines[i]
-    m = re.match(r"^(\s*)(- )?(uses|run|shell):\s*(.*)$", line)
-    if not m or line.lstrip().startswith("#"):
-        i += 1; continue
-    indent = len(m.group(1)) + (2 if m.group(2) else 0)
-    key, value = m.group(3), m.group(4).strip()
-    where = f"number.yml:{i + 1}"
-    if key == "uses":
-        name = re.sub(r"\s+#.*$", "", value).split("@")[0]
-        if name not in ALLOWED_USES:
-            bad.append(f"{where}: 許していない action: {value}")
-    elif key == "shell":
-        if value != "bash":
-            bad.append(f"{where}: shell が bash でない: {value}")
-    else:
-        body = []
-        if value in ("|", ">", "|-", ">-", "|+", ">+"):
-            j = i + 1
-            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
-                body.append(lines[j]); j += 1
-        else:
-            body = [value]
-        for k, text in enumerate(body):
-            if text.strip() and not text.strip().startswith("#"):
-                check_cmd(text, where)
-    i += 1
+# 字面の行でなく YAML として読む（flow 形式の step・複数行の plain scalar も同じ文字列になる。code.md R11）
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        doc = yaml.safe_load(f)
+except yaml.YAMLError as e:
+    print(f"number.yml を YAML として読めない: {e}"); sys.exit(1)
+jobs = doc.get("jobs") if isinstance(doc, dict) else None
+if not isinstance(jobs, dict):
+    print("number.yml に jobs が無い"); sys.exit(1)
+for jname, job in jobs.items():
+    if not isinstance(job, dict):
+        bad.append(f"{jname}: job が対応表でない"); continue
+    if "uses" in job:
+        bad.append(f"{jname}: 別の workflow を呼ぶ job: {job['uses']}")
+    steps = job.get("steps") or []
+    if not isinstance(steps, list):
+        bad.append(f"{jname}: steps が並びでない"); continue
+    for n, step in enumerate(steps, 1):
+        where = f"number.yml {jname} の {n} 番目の step"
+        if not isinstance(step, dict):
+            bad.append(f"{where}: step が対応表でない"); continue
+        for key in step:
+            if key not in ALLOWED_STEP_KEYS:
+                bad.append(f"{where}: 許していない鍵 {key!r}")
+        for key in (step.get("env") or {}):
+            if key in ("BASH_ENV", "ENV"):
+                bad.append(f"{where}: 殻が先に読むファイルを指す env {key}")
+        if "uses" in step:
+            name = str(step["uses"]).split("@")[0]
+            if name not in ALLOWED_USES:
+                bad.append(f"{where}: 許していない action: {step['uses']}")
+        if "shell" in step and step["shell"] != "bash":
+            bad.append(f"{where}: shell が bash でない: {step['shell']}")
+        if "run" in step:
+            for line in str(step["run"]).splitlines():
+                if line.strip() and not line.strip().startswith("#"):
+                    check_cmd(line, where)
 for b in bad:
     print(b)
 sys.exit(1 if bad else 0)
@@ -576,6 +591,11 @@ EOF
   number_mutant git-in-block -e 's#^          if \[\[ -n "$number" \]\]; then tools/release/number.sh tag#          git tag v9 \&\& git push origin v9\n&#'
   number_mutant gh-in-subst -e 's#^          echo "number=$number" >> "$GITHUB_OUTPUT"#          echo "x=$(gh release create v1)" >> "$GITHUB_OUTPUT"\n&#'
   number_mutant find-exec-gh -e 's#-exec cp {} number/all/#-exec gh release upload v1 {} #'
+  # 書き方を変えた公開の step（code.md R11。末尾の place の job に足す）: flow 形式・複数行の plain scalar・& の後・find -exec の絶対パス
+  number_mutant flow-step -e '$a\      - { run: "gh release create v1" }'
+  number_mutant plain-multiline -e '$a\      - run: echo a' -e '$a\          && gh release create v1'
+  number_mutant background-abs -e '$a\      - run: echo a & /usr/bin/gh release create v1'
+  number_mutant find-exec-abs -e '$a\      - run: find . -maxdepth 0 -exec /usr/bin/gh release create v1 \\;'
   number_mutant gh-release-action -e 's#^      - uses: actions/download-artifact@\(.*\)#      - uses: softprops/action-gh-release@v2\n&#'
   number_mutant shell-python -e '0,/^        shell: bash$/s//        shell: python {0}/'
   echo "== Scenario: 番号付けは、CI と別の、取り消さない 1 本ずつの流れにある"
