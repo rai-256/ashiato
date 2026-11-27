@@ -143,7 +143,7 @@
 
 ## Task 13: 前の番号と差分が空の commit に番号を付けない（deep.md Q6）
 
-- [ ] 13.1 `tools/release/version.sh number` で、前の番号の commit（印が無ければ first-parent の親）からの差分 `changed` が空なら、`changes.sh code` を呼ばずに `number=` と「前の番号から製品が変わっていない（差分が空）」を返す（D4 の 3.。review/code.md R24）。
+- [x] 13.1 `tools/release/version.sh number` で、前の番号の commit（印が無ければ first-parent の親）からの差分 `changed` が空なら、`changes.sh code` を呼ばずに `number=` と「前の番号から製品が変わっていない（差分が空）」を返す（D4 の 3.。review/code.md R24）。
   PR の CI の側（`ci.yml` の空の差分で code=true）は「迷ったら走らせる」の安全側なので変えない。
   `--self-test` に印 `前の番号の commit と差分が空の commit には番号を付けない` を足す（使い捨ての木で、`0.2.1` の後に `crates/server/src/lib.rs` に触れる merge B と、B を戻す revert の merge C を足し、C で `number=` になる。空の差分の扱いを外すと `0.2.2` が付いて落ちる）
   検証: `tools/release/version.sh --self-test` rc=0 / `bash -c 'out=$(tools/release/version.sh --self-test 2>&1); grep -qxF "== Scenario: 前の番号の commit と差分が空の commit には番号を付けない" <<<"$out"'` rc=0
