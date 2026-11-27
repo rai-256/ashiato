@@ -184,8 +184,8 @@ service_state_code() { windows_sc query "$1" | awk -F ':' 'toupper($1) ~ /STATE/
 
 # 各 Scenario の「前の版の初回インストール」の前に、PC を何も入っていない形へ戻す。
 # 同じ job の前の段（install-check・update-check-install）と前の Scenario が新しい版（0.0.3）を残すと、
-# 前の版（0.0.2）の初回インストールが「0.0.3 から 0.0.2 への更新」になって落ちる（2026-11-16 の CI。
-# 「更新 0.0.2 は移行が落ちたので、0.0.3 に戻しました」）。正式版と開発版の両方を消す。
+# 前の版（0.0.2）の初回インストールが「0.0.3 から 0.0.2 への更新」になって落ちる（2026-11-16 の CI で、
+# 新しい版が残ったまま前の版を入れ、前の版への更新として落ちた）。正式版と開発版の両方を消す。
 reset_wait_seconds=120
 reset_machine() {
   local service until

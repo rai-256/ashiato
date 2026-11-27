@@ -63,3 +63,16 @@ FR-134 の未決（NEEDS CLARIFICATION と 2026-11-21 の補足の 3 つの「�
 
 - 要件・Story へ戻すものは無い（commit の題の扱いで、FR-134 や ST61 の判定に効かない）。枝の commit は書き直さず、58f7a4d8c の題「wip」は main に残す（本人が受け入れた）
 - 族の兄弟（これからの題を commit-msg の hook で止める）はこの Story の範囲の外のまま
+
+# 深掘り（第 3 回）
+
+> final review 2 の R24（review/code.md）: 前の番号の commit と差分が空の commit（revert で戻った commit など）にも番号が付く。仮の決定 D4 の解釈に関わる premise なので、settle の席は直さず本人に返す。問いは `deep-questions-r3.json`・`docs/briefs/ST61-deep-r3.html`。
+
+### Q6. 前の番号の commit と差分が空の commit に、番号を付けるか（R24）
+
+- 問い: 0.2.1 の後に製品に触れる merge B が入って run が取り消され、B を戻す revert C が続いたとき、差分が空の C に 0.2.2 を付けるか、付けないか。
+- 答え: (未回答)
+- loss: exported
+- 出所: review/code.md R24・design.md D4（仮）
+- 推奨: 付けない（差分が空なら「変わっていない」とする）。D4 の文言「前の番号から製品が変わった commit に付ける」どおりになり、中身が同じで番号が違う版ができない。いまの実装は空の差分で `changes.sh code` に空行が 1 行渡り、「製品に触れた」と読む（実測: `changes.sh code <<<""` は rc=0、`printf '' | changes.sh code` は rc=1）
+- 族「前の番号の commit と製品が変わらない commit に番号が付く」: 文書だけの merge → Q1・D4（付けない）／差分が空の commit → 未決 Q6／前の番号の commit の走らせ直し → D4 の 4.・D7（同じ番号）／祖先の run が後から成功 → D4 の 2.（付けない）

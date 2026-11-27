@@ -114,7 +114,11 @@ describe("web build stamp version rule (design D9)", () => {
     const rows = versionCheckTable.split("\n").filter((line) => line !== "" && !line.startsWith("#"));
     expect(rows.length).toBeGreaterThanOrEqual(10);
     for (const row of rows) {
-      const [given, source, major, verdict] = row.split("\t");
+      const columns = row.split("\t");
+      expect(columns, row).toHaveLength(4);
+      const [given, source, major, verdict] = columns;
+      // 3 列目（左の数字）の形は断る検査の外で確かめる（壊れた ng の行が「断った」として通らない。code.md R23）
+      expect(major, `3 列目が数字でない: ${row}`).toMatch(/^\d+$/);
       if (verdict === "ok") expect(stampWith(source, given, major), row).toBe(`${given}+${HEAD}`);
       else if (verdict === "ng") expect(() => stampWith(source, given, major), row).toThrow();
       else throw new Error(`ok|ng でない: ${row}`);

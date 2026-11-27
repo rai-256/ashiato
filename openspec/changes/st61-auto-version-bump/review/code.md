@@ -289,20 +289,24 @@ final reviewer（whole-branch の 2 回目。`code-reviewer.md`）の指摘。�
 - 成果物: web/src/__tests__/build-stamp.test.ts, tools/release/version.sh
 - 根拠: web/src/__tests__/build-stamp.test.ts:117-119、tools/release/version.sh（表の試験。:380-386 付近）（final review 2。Minor）
 - kind: technical
+- 処置: fixed 2.3
 
 ## R24. 前の番号と木が同じ commit にも番号が付く。`changed` が空のとき `changes.sh code <<<"$changed"` には空行が 1 行渡り、`grep -qvE` がその空行を拾って rc=0（製品に触れた）になる。実測では `changes.sh code <<<""` は rc=0、`printf '' | changes.sh code` は rc=1。0.2.1 の後に、製品に触れる merge B（run は取り消された）と、その revert C が続くとする。A..C の差分は空なのに、C に 0.2.2 が付く。中身が同じで番号が違う版が 2 つできる。D4（仮）の「前の番号から製品が変わった commit に付ける」とずれる（ブランチの中に前からある形。直しの波が作ったものではない）。CI の側（ci.yml:60 も同じく空の差分で code=true）は「迷ったら走らせる」の安全側なので、直すのは番号付けの側だけでよい。直し: version.sh の number で `[[ -z "$changed" ]]` を「変わっていない」と扱う。自己試験に、空の差分（revert）の Scenario を足す。仮の決定 D4 の解釈に関わるので、直すか残すかは処置の表で決める。
 - 成果物: tools/release/version.sh
 - 根拠: tools/release/version.sh:216-219、design.md D4（final review 2。Minor）
 - kind: premise
+- 処置: escalated
 
 ## R25. nightly.yml の `id: plan` は、R13 と同じ形（`shell:` が無いまま `version.sh nightly-plan | tee plan.txt`）が残っている。今は害が無い。`nightly-plan` が落ちる道（require_full_history・main_ref・rev-list）はどれも出力より前にあり、出力が空なら後ろの `grep` が rc=1 になって step が落ちる。出力の後に落ちる道を足すと、step は緑のまま通る。直し: `shell: bash` を書き、number.yml とそろえる。
 - 成果物: .github/workflows/nightly.yml
 - 根拠: .github/workflows/nightly.yml:19-20（final review 2。Minor）
 - kind: technical
+- 処置: fixed 9.2
 
 ## R26. 注釈が、実際には出ていない CI の文を記録として引いている。注釈には「2026-11-16 の CI。『更新 0.0.2 は移行が落ちたので、0.0.3 に戻しました』」とあるが、元の文は 0.4.0・0.5.0 だった（Task 7 F4。code.md の R にも「残りの害の小さいもの」にも入っていない）。直し: 引用を外し、起きたことだけを書く。
 - 成果物: tools/release/update-apply-install.sh
 - 根拠: tools/release/update-apply-install.sh:187-188（final review 2。Minor）
 - kind: technical
+- 処置: fixed 7.1
 
 残りの害の小さいもの（R にしない）: Task 3 F7（number_self_test の RETURN trap が関数の後も残る。今は害が無い）。

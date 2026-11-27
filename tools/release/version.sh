@@ -381,6 +381,9 @@ self_test() {
   # D9: 受ける・断る版番号の表を check の規則に全行当てる（gradle・Rust・TypeScript の試験も同じ表を読む）
   while IFS=$'\t' read -r version source left verdict; do
     [[ -z "$version" || "$version" == \#* ]] && continue
+    # 3 列目（左の数字）の形は断る検査の外で確かめる（壊れた ng の行が「断った」として通らない。code.md R23）
+    [[ "$left" =~ ^[0-9]+$ ]] || die "version-check-table.tsv の 3 列目が数字でない: $version（左 ${left:-<空>}）"
+    [[ "$verdict" == ok || "$verdict" == ng ]] || die "version-check-table.tsv の 4 列目が ok|ng でない: $version"
     if (check_rule "$version" "$source" "$left" >/dev/null 2>&1); then got=ok; else got=ng; fi
     [[ "$got" == "$verdict" ]] || die "version-check-table.tsv: $version（出所 $source・左 $left）は $verdict のはずが $got"
   done < "$ROOT/tools/release/version-check-table.tsv"

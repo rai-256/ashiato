@@ -102,3 +102,23 @@
 - `scripts/verify-run 5.1`（check-guards --self-test・workflows・actionlint）・`1.1`・`3.1`・`4.1`・`7.1`: すべて PASS（evidence.jsonl、head 1771c6f2f）
 - `tools/release/check-artifacts.sh --self-test`（quiet-run、commit 後）rc=0。`scripts/verify-run 2.2`・`4.2` の結果は下に追記
 - `scripts/verify-run 2.2`・`4.2`: rc=0、各コマンド PASS（evidence.jsonl、head 1771c6f2f）
+
+## settle（final review 2: R23〜R26）
+
+### R23（fixed 2.3）
+- `web/src/__tests__/build-stamp.test.ts`: 表の全行の試験で、列が 4 つか・3 列目が `/^\d+$/` かを `stampWith` の外で確かめる。
+- `tools/release/version.sh` の self_test: version-check-table.tsv を読むループで 3 列目が数字か・4 列目が ok|ng かを確かめ、違えば die。
+- 壊した表（末尾に `0.2.0	0.0.1	x	ng` を足した一時の版）で実測: `version.sh --self-test` rc=1（`NG: version-check-table.tsv の 3 列目が数字でない: 0.2.0（左 x）`）、vitest `1 failed | 13 passed (14)`。表を戻して: self-test rc=0、vitest `14 passed (14)`。
+- `scripts/verify-run 1.1` PASS・`scripts/verify-run 2.3` PASS（evidence.jsonl）。
+
+### R24（escalated）
+- 再現: `tools/release/changes.sh code <<<""` rc=0、`printf '' | tools/release/changes.sh code` rc=1。指摘どおり、差分が空でも「製品に触れた」と読む。
+- kind=premise（仮の決定 D4 の解釈）なので直さず、deep.md の第 3 回 Q6（`(未回答)`）・`deep-questions-r3.json`・`docs/briefs/ST61-deep-r3.html` で本人に返した。推奨は「付けない」。
+
+### R25（fixed 9.2）
+- `.github/workflows/nightly.yml` の `id: plan` に `shell: bash` と理由の注釈（number.yml とそろえる）。
+- `scripts/verify-run 9.2` PASS（actionlint は手元に無く docker の rhysd/actionlint:1.7.7 で通った）。
+
+### R26（fixed 7.1）
+- `tools/release/update-apply-install.sh` の注釈から、実際には出ていない CI の文の引用を外し、「新しい版が残ったまま前の版を入れ、前の版への更新として落ちた」と起きたことだけを書いた。
+- `scripts/verify-run 7.1` PASS。

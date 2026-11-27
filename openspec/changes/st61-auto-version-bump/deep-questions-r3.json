@@ -1,0 +1,78 @@
+{
+  "format": 2,
+  "title": "ST61 の深掘り（第 3 回）",
+  "subtitle": "版番号を自動で上げる —— 差分が空の commit の番号",
+  "makes": "前の番号の commit と中身（木）がまったく同じ commit に、新しい番号を付けるかどうかを決める。",
+  "note": "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q6",
+      "topic": "前の番号と中身が同じ commit（review/code.md R24）",
+      "kind": "premise",
+      "loss": "exported",
+      "question": "前の番号の commit と差分が空の commit に、番号を付けるか",
+      "decide": "前の番号の commit と中身が同じ commit（revert で戻った commit など）に、新しい番号を付けるか付けないか。",
+      "points": [
+        "いまの実装は付ける。差分が空だと判定の台本（changes.sh code）に空行が 1 行渡り、「製品に触れた」と読む。",
+        "決めた D4（仮）は「前の番号から製品が変わった commit に付ける」。差分が空なら製品は変わっていないので、いまの実装は D4 の文言とずれている。",
+        "付けないに直すのは version.sh の 1 か所と自己試験の Scenario 1 本。PR の CI の側は安全側なので変えない。"
+      ],
+      "no_figure": "commit 3 つの並びで、図にすると要点の繰り返しになる",
+      "why": "番号は印 `build-<番号>` として配布元に残り、組み立てが下書きに置かれる。**一度付いた番号は取り消さない**ので、中身が同じで番号が違う版が残る。",
+      "context": "例: 0.2.1 の後に製品に触れる merge B が入って run が取り消され、B を戻す revert C が続くと、差分が空の C に 0.2.2 が付く。実測で `changes.sh code <<<\"\"` は rc=0、`printf '' | changes.sh code` は rc=1。D4 は仮（Q1 の答えで推奨のまま）。ふだんの merge では起きない。",
+      "multi": false,
+      "allow_free": true,
+      "family": {
+        "name": "前の番号の commit と製品が変わらない commit に番号が付く",
+        "siblings": [
+          {
+            "case": "文書だけの merge（docs/・openspec/・*.md）",
+            "decided": "deep.md Q1・D4（付けない）"
+          },
+          {
+            "case": "差分が空の commit（revert で戻った・空の merge）",
+            "decided": "未決 Q6"
+          },
+          {
+            "case": "前の番号の commit そのものを走らせ直す",
+            "decided": "D4 の 4.・D7（同じ番号を返す）"
+          },
+          {
+            "case": "前の番号の commit の祖先の run が後から成功する",
+            "decided": "D4 の 2.（付けない）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "D4 の 3. を「changes.sh code が真」と台本の結果で書き、差分が空のときに台本が何を返すかを見なかった",
+        "prevention": "判定を台本に預ける決めでは、入力が空のときの結果を Scenario に書く"
+      },
+      "options": [
+        {
+          "label": "付けない（差分が空なら「変わっていない」とする）",
+          "gain": "D4 の文言どおりになる。中身が同じで番号が違う版ができない。",
+          "irreversible": "なし（あとで「付ける」に戻すのは version.sh の 1 行）",
+          "harm": {
+            "when": "なし。",
+            "who": "なし。",
+            "link": "なし。",
+            "unknown": "なし。"
+          },
+          "recommended": true
+        },
+        {
+          "label": "付ける（いまのまま）",
+          "gain": "手を入れない。revert の commit にも番号があり、「その commit に番号があるか」で迷わない。",
+          "irreversible": "中身が同じで番号が違う版が配布元に残る（印は取り消さない）",
+          "harm": {
+            "when": "製品に触れる merge の直後に revert が入り、間の run が取り消されたとき。",
+            "who": "版番号を見比べる人（自分）。中身は同じなので使う人の害は無い。",
+            "link": "0.2.1 と 0.2.2 の組み立てが同じ木から作られる。",
+            "unknown": "なし。"
+          }
+        }
+      ]
+    }
+  ]
+}
