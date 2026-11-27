@@ -4,6 +4,7 @@
 
 WHEN main への push の CI の run が成功で終わる THE SYSTEM SHALL その run の commit に、前に番号を付けた commit からの差分が製品（`docs/`・`openspec/`・名前が `.md` で終わるファイル以外。道具・CI・試験を含む）に触れていれば、次の番号を 1 つ付ける。
 THE SYSTEM SHALL 差分が `docs/`・`openspec/`・`*.md` だけの commit には番号を付けない。
+THE SYSTEM SHALL 前の番号の commit との差分が空の commit（間の変更が戻され、木が同じ）には番号を付けない（製品は変わっていない）。
 THE SYSTEM SHALL 取り消された・落ちた run の commit には番号を付けない。その commit の中身は、後で番号が付く子孫の commit の番号に入る（番号は前の番号から 1 つ進む）。
 THE SYSTEM SHALL 番号の付いていない commit で、番号を付けた commit の祖先（main の first-parent の上で、それより前の commit）には、後からその run が成功しても番号を付けない。
 THE SYSTEM SHALL 1 つの commit に番号を 2 つ付けず、既に番号の印がある commit の run を走らせ直したときは、それが最新の番号でなくても、付けた番号のまま返す（欠けた配布物の続きを置く）。
@@ -11,7 +12,7 @@ IF 番号の印がまだ 1 つも無い THEN THE SYSTEM SHALL 製品が変わっ
 THE SYSTEM SHALL main に commit を積まずに番号を付ける（番号を記録するのに main のファイルを書き換えない）。
 THE SYSTEM SHALL PR の run・fork の run・main 以外の枝の run では番号を付けない（PR の組み立ては自分の番号を持たない）。
 
-導出元: FR-134。deep.md Q1（答え待ち・推奨: CI が通り、前の番号から製品が変わった commit に付ける）・D4（仮）。premises P2・P3・P12・P13。review/deep.md R1・R2。
+導出元: FR-134。deep.md Q1（答え待ち・推奨: CI が通り、前の番号から製品が変わった commit に付ける）・Q6（差分が空の commit に番号を付けない）・D4（仮）。premises P2・P3・P12・P13。review/deep.md R1・R2。
 「製品が変わった」の見分けは、PR の CI が配る形の組み立てを走らせるかの判定（`tools/release/changes.sh code`）と同じにする。
 
 #### Scenario: 製品に触れた merge の commit の run が成功すると、次の番号が付く
@@ -23,6 +24,11 @@ THE SYSTEM SHALL PR の run・fork の run・main 以外の枝の run では番�
 - **GIVEN** 番号 `0.2.0` を付けた commit の後に、`docs/` と `openspec/` だけに触れる merge を 1 つ足した main の木
 - **WHEN** その commit の run が成功で終わったとして、番号付けの判定を走らせる
 - **THEN** 判定は番号を付けないと返す
+
+#### Scenario: 前の番号の commit と差分が空の commit には番号を付けない
+- **GIVEN** 番号 `0.2.1` を付けた commit の後に、`crates/server/src/lib.rs` に触れる merge B（run は取り消された）と、B を戻す revert の merge C を順に足した main の木
+- **WHEN** C の run が成功で終わったとして、番号付けの判定を走らせる
+- **THEN** 判定は番号を付けないと返す（`0.2.1` の commit と C の差分は空）
 
 #### Scenario: 道具だけの merge の commit にも番号が付く
 - **GIVEN** 番号 `0.2.0` を付けた commit の後に、`tools/lanes.json` だけに触れる merge を 1 つ足した main の木

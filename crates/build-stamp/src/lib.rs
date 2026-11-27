@@ -37,7 +37,20 @@ pub fn channel(version: &str) -> Channel {
     }
 }
 
-/// 出所の版番号と、組み立てに渡された版番号を検査する。
+/// 左の数字のファイル（リポジトリの根から）。本人が PR で変える（design D9）。
+pub const MAJOR_PATH: &str = "tools/release/MAJOR";
+
+/// 左の数字のファイルの場所。この crate の `CARGO_MANIFEST_DIR`（`crates/build-stamp`）から根へ上がる。
+fn major_file() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(MAJOR_PATH)
+}
+
+/// 出所の版番号と、組み立てに渡された版番号を検査する（design D9。bash・gradle・画面と同じ規則）。
+///
+/// 渡した版が無ければ出所の版。渡した版の 3 つの数字が出所の版と同じなら「番号を持たない版」、
+/// 左が `tools/release/MAJOR` の値で `<左>.<真ん中>` が `0.0` でなければ「番号」。後ろの形は `-beta.<1〜98>`・`-dev.<YYYYMMDD>`。
 pub fn version(source: &str) -> Result<String, String> {
     let Some(given) = std::env::var(VERSION_ENV)
         .ok()
@@ -46,44 +59,100 @@ pub fn version(source: &str) -> Result<String, String> {
     else {
         return Ok(source.to_string());
     };
-    let source_parts = parse_version(source).ok_or_else(|| {
-        format!("版番号の出所が決めた形でない: 出所 {source}、渡した版番号 {given}")
+    let path = major_file();
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "左の数字のファイルが読めない: {}（{e}）、出所 {source}、渡した版番号 {given}",
+            path.display()
+        )
     })?;
-    let given_parts = parse_version(&given)
-        .ok_or_else(|| format!("版番号が決めた形でない: 出所 {source}、渡した版番号 {given}"))?;
-    if source_parts.base != given_parts.base {
+    let major = parse_major(&text).map_err(|reason| {
+        format!(
+            "左の数字のファイル{reason}: {:?}、出所 {source}、渡した版番号 {given}",
+            text.trim()
+        )
+    })?;
+    check_version(source, &given, major)
+}
+
+/// 左の数字のファイルの中身を読む。前後の空白を落とし、残りが ASCII の数字だけのときだけ値を返す
+/// （`parse` は `+0` も通す。bash・gradle・画面の `^\d+$` と同じにする。/code-review R9）。
+/// 先頭の 0 を除いて 19 桁以上は断る（bash の `fits_decimal`・gradle・画面と同じ桁。code.md R33）。
+/// 断る理由は形の誤りと桁あふれで分け、bash・gradle・画面と同じ文にする（code.md R34）。
+fn parse_major(text: &str) -> Result<u64, &'static str> {
+    const NOT_ONE_NUMBER: &str = "が数字 1 つでない";
+    const TOO_LARGE: &str = "の数字が大きすぎる";
+    let value = text.trim();
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+        return Err(NOT_ONE_NUMBER);
+    }
+    if value.trim_start_matches('0').len() > MAJOR_MAX_DIGITS {
+        return Err(TOO_LARGE);
+    }
+    value.parse::<u64>().map_err(|_| TOO_LARGE)
+}
+
+/// 左の数字のファイルが持てる桁（先頭の 0 を除く）。4 か所で同じ（code.md R33）。
+const MAJOR_MAX_DIGITS: usize = 18;
+
+/// 左の数字・真ん中・右の上限（versionCode の式 D3 の内側）。
+const MAX_LEFT: u64 = 209;
+const MAX_MIDDLE: u64 = 999;
+const MAX_RIGHT: u64 = 9999;
+
+/// `version` の本体。左の数字のファイルの値を引数に取る（表の試験が行ごとに値を変えて当てる）。
+fn check_version(source: &str, given: &str, major: u64) -> Result<String, String> {
+    let context = format!("左の数字のファイル {major}、出所 {source}、渡した版番号 {given}");
+    let source_parts = parse_version(source)
+        .filter(|p| p.suffix_free && p.numbers.0 == 0 && p.numbers.1 == 0 && p.numbers.2 >= 1)
+        .ok_or_else(|| format!("版番号の出所が 0.0.<N>（N は 1 以上）の形でない: {context}"))?;
+    let given_parts =
+        parse_version(given).ok_or_else(|| format!("版番号が決めた形でない: {context}"))?;
+    if given_parts.numbers != source_parts.numbers {
+        let (left, middle, _) = given_parts.numbers;
+        if left != major {
+            return Err(format!("左の数字が左の数字のファイルと違う: {context}"));
+        }
+        if left == 0 && middle == 0 {
+            return Err(format!(
+                "出所の版と違う 0.0.x は番号ではない（番号の <左>.<真ん中> は 0.0 でない）: {context}"
+            ));
+        }
+    }
+    let (left, middle, right) = given_parts.numbers;
+    if left > MAX_LEFT || middle > MAX_MIDDLE || right > MAX_RIGHT {
         return Err(format!(
-            "版番号の出所が一致しない: 出所 {source}、渡した版番号 {given}"
+            "数字が上限（左 {MAX_LEFT}・真ん中 {MAX_MIDDLE}・右 {MAX_RIGHT}）を超えた: {context}"
         ));
     }
-    Ok(given)
+    Ok(given.to_string())
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ParsedVersion<'a> {
-    base: (&'a str, &'a str, &'a str),
+struct ParsedVersion {
+    numbers: (u64, u64, u64),
+    suffix_free: bool,
 }
 
-fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
+fn parse_version(value: &str) -> Option<ParsedVersion> {
     let (base, suffix) = value
         .split_once('-')
         .map_or((value, None), |(b, s)| (b, Some(s)));
-    let mut numbers = base.split('.');
-    let base = (numbers.next()?, numbers.next()?, numbers.next()?);
-    if numbers.next().is_some()
-        || base.0.is_empty()
-        || base.1.is_empty()
-        || base.2.is_empty()
-        || !base.0.chars().all(|c| c.is_ascii_digit())
-        || !base.1.chars().all(|c| c.is_ascii_digit())
-        || !base.2.chars().all(|c| c.is_ascii_digit())
-    {
+    let mut parts = base.split('.');
+    let mut number = || {
+        let part = parts.next()?;
+        // 数字だけかを先に見る（`parse` は `+5` も通す。final review R12）
+        (!part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+            .then(|| part.parse::<u64>().ok())
+            .flatten()
+    };
+    let numbers = (number()?, number()?, number()?);
+    if parts.next().is_some() {
         return None;
     }
     match suffix {
         None => {}
         Some(suffix) if suffix.starts_with("beta.") => {
-            // 数字だけかを先に見る（`u8` の parse は `+5` も通す。final review R12）
             let digits = suffix.strip_prefix("beta.")?;
             if digits.is_empty()
                 || !digits.chars().all(|c| c.is_ascii_digit())
@@ -91,7 +160,7 @@ fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
             {
                 return None;
             }
-            // N は 1〜98（spec。99 は正式版の versionCode の末尾。final review R8）
+            // N は 1〜98（spec。99 は正式版の versionCode の末尾だった名残。final review R8）
             let n = digits.parse::<u8>().ok()?;
             if !(1..=98).contains(&n) {
                 return None;
@@ -105,7 +174,10 @@ fn parse_version(value: &str) -> Option<ParsedVersion<'_>> {
         }
         Some(_) => return None,
     }
-    Some(ParsedVersion { base })
+    Some(ParsedVersion {
+        numbers,
+        suffix_free: suffix.is_none(),
+    })
 }
 
 /// 印を組む。形は `<version>+<commit>[.dirty][.debug]`。
@@ -162,6 +234,8 @@ fn rerun_lines(repo: &Path, source_paths: &[&str]) -> Vec<String> {
         watch.push(common_dir.join("packed-refs"));
     }
     watch.extend(source_paths.iter().map(|p| repo.join(p)));
+    // 左の数字のファイル（版の規則が読む。変わったら組み直す）
+    watch.push(major_file());
     lines.extend(
         watch
             .iter()
@@ -338,46 +412,127 @@ mod tests {
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let given = "0.1.0-beta.2";
+        let given = "0.4.0-beta.2";
         std::env::set_var(VERSION_ENV, given);
-        let resolved = version("0.1.0").expect("渡した版番号を受ける");
+        let resolved = version("0.0.1").expect("渡した版番号を受ける");
         let stamp = stamp(&resolved, "release", d.path(), &[]);
         std::env::remove_var(VERSION_ENV);
         assert_eq!(stamp, format!("{given}+{head}"));
     }
 
     #[test]
-    fn st52_version_rejects_different_source_version() {
-        // Scenario: 出所の版と違う版番号を渡すと、組み立てが失敗する
+    fn st61_version_rejects_different_source_version() {
+        // Scenario: 出所の版と違う 0.0.x を渡すと、組み立てが失敗する
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::env::set_var(VERSION_ENV, "0.2.0-beta.2");
-        let error = version("0.1.0").expect_err("出所と違う版番号を拒む");
+        std::env::set_var(VERSION_ENV, "0.0.2");
+        let error = version("0.0.1").expect_err("出所と違う 0.0.x を拒む");
         std::env::remove_var(VERSION_ENV);
-        assert!(error.contains("0.1.0"), "{error}");
-        assert!(error.contains("0.2.0-beta.2"), "{error}");
+        assert!(error.contains("出所 0.0.1"), "{error}");
+        assert!(error.contains("渡した版番号 0.0.2"), "{error}");
+        assert!(error.contains("左の数字のファイル 0"), "{error}");
     }
 
     #[test]
-    fn st52_version_rejects_invalid_shapes() {
+    fn st61_version_rejects_major_that_differs_from_the_file() {
+        // Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する
+        let error = check_version("0.0.1", "1.4.0", 0).expect_err("左の数字が違う番号を拒む");
+        assert!(error.contains("左の数字のファイル 0"), "{error}");
+        assert!(error.contains("出所 0.0.1"), "{error}");
+        assert!(error.contains("渡した版番号 1.4.0"), "{error}");
+        // 本物のファイル（今は 0）を読む口でも同じ
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::env::set_var(VERSION_ENV, "1.4.0");
+        let real = version("0.0.1");
+        std::env::remove_var(VERSION_ENV);
+        assert!(real.is_err(), "MAJOR が 0 の木で 1.4.0 を受けた: {real:?}");
+    }
+
+    #[test]
+    fn st61_version_rejects_invalid_shapes() {
         // Scenario: 決めた形でない版番号を渡すと、組み立てが失敗する
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for given in [
-            "0.1.0-rc.1",
-            "0.1.0-beta.99",
-            "0.1.0-beta.0",
-            "0.1.0-dev.2026111",
-            "0.1.0-beta.+5",
+            "0.0.1-rc.1",
+            "0.0.1-beta.99",
+            "0.0.1-beta.0",
+            "0.0.1-dev.2026111",
+            "0.0.1-beta.+5",
+            "0.0.0",
         ] {
             std::env::set_var(VERSION_ENV, given);
-            let error = version("0.1.0").expect_err("決めた形でない版番号を拒む");
-            assert!(error.contains("0.1.0"), "{given}: {error}");
+            let error = version("0.0.1").expect_err("決めた形でない版番号を拒む");
+            assert!(error.contains("出所 0.0.1"), "{given}: {error}");
             assert!(error.contains(given), "{given}: {error}");
         }
         std::env::remove_var(VERSION_ENV);
+    }
+
+    #[test]
+    fn st61_major_file_accepts_only_digits() {
+        // 左の数字のファイルは数字 1 つだけ。符号・中の空白・空は断り、前後の空白（CRLF）は落とす（/code-review R9）
+        for text in ["+0", "-0", "0 0", "", " ", "0.1", "x"] {
+            assert_eq!(parse_major(text), Err("が数字 1 つでない"), "{text:?}");
+        }
+        for (text, want) in [
+            ("0", 0),
+            ("0\r\n", 0),
+            (" 1 \n", 1),
+            ("209", 209),
+            ("000000000000000000000001", 1),
+            ("999999999999999999", 999_999_999_999_999_999),
+        ] {
+            assert_eq!(parse_major(text), Ok(want), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn st61_major_file_too_large_says_so() {
+        // 先頭の 0 を除いて 19 桁以上は「数字が大きすぎる」で断る。bash・gradle・画面と同じ文（code.md R34）
+        for text in [
+            "1000000000000000000",
+            "0001000000000000000000",
+            "99999999999999999999999",
+        ] {
+            assert_eq!(parse_major(text), Err("の数字が大きすぎる"), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn st61_version_check_table_rows_agree() {
+        // 受ける・断る版番号の表（bash・Rust・gradle・TypeScript が同じ表を読む。design D9）
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tools/release/version-check-table.tsv");
+        let text = fs::read_to_string(&path).expect("表を読める");
+        let mut rows = 0;
+        for line in text
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let cols: Vec<&str> = line.split('\t').collect();
+            assert_eq!(cols.len(), 4, "{line}");
+            // 3 列目の形は断る検査の外で確かめ、中身は左の数字のファイルとして読む（code.md R23・R33）
+            assert!(
+                !cols[2].is_empty() && cols[2].chars().all(|c| c.is_ascii_digit()),
+                "3 列目が数字でない: {line}"
+            );
+            let got = parse_major(cols[2])
+                .map_err(|reason| format!("左の数字のファイル{reason}"))
+                .and_then(|major| check_version(cols[1], cols[0], major));
+            match cols[3] {
+                "ok" => assert_eq!(got.as_deref(), Ok(cols[0]), "{line}"),
+                "ng" => assert!(got.is_err(), "断るはずの行を受けた: {line}"),
+                other => panic!("ok|ng でない: {other}"),
+            }
+            rows += 1;
+        }
+        assert!(rows >= 10, "表の行が少ない: {rows}");
     }
 
     #[test]
@@ -386,9 +541,9 @@ mod tests {
         let _g = ENV
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for given in ["0.1.0-beta.1", "0.1.0-beta.90", "0.1.0-beta.98"] {
+        for given in ["0.4.0-beta.1", "0.4.0-beta.90", "0.4.0-beta.98"] {
             std::env::set_var(VERSION_ENV, given);
-            let resolved = version("0.1.0");
+            let resolved = version("0.0.1");
             std::env::remove_var(VERSION_ENV);
             assert_eq!(resolved.as_deref(), Ok(given));
         }

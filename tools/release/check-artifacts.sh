@@ -8,7 +8,7 @@ quiet_build() {
   "$@" >"$log" 2>&1 || { tail -n 40 "$log" >&2; return 1; }
 }
 . "$root/tools/release/android-tools.sh"
-usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] [--expect-license <ファイル>] | check <置き場> [...] | apk-version [--expect-version <版番号>] <apk...> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
+usage() { echo "使い方: $0 <置き場> [--channel <release|beta|nightly>] [--allow-debug-key] [--expect-version <版番号>] [--expect-license <ファイル>] | check <置き場> [...] | apk-version --expect-version <版番号> <apk...> | apk-build <版番号> | apk-label <apk> | apk-manifest <apk> | --self-test | --self-test-android" >&2; exit 2; }
 
 apk_dump() {
   local apk="$1"; [ -f "$apk" ] || die "APK が無い: $apk"
@@ -73,15 +73,31 @@ apk_version() {
   [ -n "$line" ] || die "APK の版番号が読めない: $apk"
   version_code="${line#versionCode=\'}"; version_code="${version_code%%\'*}"
   version_name="${line#*versionName=\'}"; version_name="${version_name%\'}"
-  expected_code="$("$root/tools/release/version.sh" code "$version_name")" || die "APK の versionName が不正: $version_name"
   echo "== Scenario: 組み立てた APK の versionCode は、渡した版番号から計算した値"
-  if [ -n "$want" ]; then
-    # 渡した版番号と比べる（APK 自身の versionName から計算するだけでは、渡した値を無視しても通る。code_verify R25）
-    [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
-    expected_code="$("$root/tools/release/version.sh" code "$want")"
-  fi
+  # 渡した版番号と必ず比べる（APK 自身の versionName から計算するだけでは、渡した値を無視した APK や、
+  # 置き場に残った別の組み立ての APK でも通る。code_verify R25・code-verify R4）
+  [ -n "$want" ] || die "比べる版番号（--expect-version）が無い: $apk"
+  [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
+  expected_code="$("$root/tools/release/version.sh" code "$want")" || die "渡した版番号が不正: $want"
   [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
   echo "OK: $line"
+}
+
+# 渡した版番号で携帯の release を組み、組んだ APK の版を渡した版番号と比べる（tasks 2.2）。
+# 前の組み立ての APK を拾わないよう、組む前に置き場を空にする（code-verify R4）
+apk_build() {
+  local v="$1" out="$root/collector-android/app/build/outputs/apk/release" apk n=0 log
+  "$root/tools/release/version.sh" check "$v" >/dev/null
+  rm -rf "$out"
+  log="$(mktemp "${TMPDIR:-/tmp}/apk-build.XXXXXX")"
+  quiet_build "$log" env ASHIATO_BUILD_VERSION="$v" "$root/collector-android/gradlew" -p "$root/collector-android" :app:assembleRelease \
+    || { rm -f "$log"; die "携帯の release を組めない（版番号 $v）"; }
+  rm -f "$log"
+  for apk in "$out"/*.apk; do
+    [ -f "$apk" ] || continue
+    apk_version "$apk" "$v"; n=$((n + 1))
+  done
+  [ "$n" -ge 1 ] || die "組んだ APK が無い: $out"
 }
 
 artifact_stamp() {
@@ -247,6 +263,23 @@ check_collector_windows_contents() {
   return 0
 }
 
+# 署名していない APK（D2（仮））: 署名した APK と同じ組み立ての印を持ち、署名を持たない
+check_unsigned_apk() {
+  local unsigned="$1" signed="$2" version="$3" name signer entries signed_stamp
+  name="$(basename "$unsigned")"
+  ARTIFACT_STAMP="$(artifact_stamp "$unsigned" "$version")" || exit 1
+  signed_stamp="$(artifact_stamp "$signed" "$version")" || exit 1
+  [[ "$ARTIFACT_STAMP" == "$signed_stamp" ]] || die "$name の組み立ての印が署名した APK と違う: $ARTIFACT_STAMP（署名した APK $signed_stamp）"
+  check_artifact_files "$unsigned" "$name"
+  check_apk_fields "$unsigned"
+  # 一覧を先に取る（grep -q が早く閉じると unzip が SIGPIPE で落ち、pipefail が拾う）
+  entries="$(/usr/bin/unzip -Z1 "$unsigned")" || die "$name を読めない"
+  if grep -Eiq '^META-INF/.*\.(SF|RSA|DSA|EC)$' <<<"$entries"; then die "$name が署名を持つ"; fi
+  signer="$(android_tool apksigner)" || die "apksigner が無い"
+  if "$signer" verify "$unsigned" >/dev/null 2>&1; then die "$name が署名を持つ"; fi
+  return 0
+}
+
 check_artifacts() {
   local dir="$1" channel=release allow_debug=0 expected_version="" expected_license="" expected cert apk name
   shift
@@ -265,6 +298,7 @@ check_artifacts() {
   [[ -d "$dir" ]] || die "配布物の置き場が無い: $dir"
   if [[ -z "$expected_version" ]]; then
     expected_version="$(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sed -nE \
+      -e '/-unsigned\.apk$/d' \
       -e 's/^ashiato-server-(.*)-linux-x86_64\.tar\.gz$/\1/p' \
       -e 's/^ashiato-server-(.*)-windows-x86_64\.zip$/\1/p' \
       -e 's/^ashiato-collector-windows-(.*)-x86_64\.zip$/\1/p' \
@@ -283,6 +317,12 @@ check_artifacts() {
     expected_names+=("ashiato-collector-${expected_version}.apk")
   fi
   EXPECTED_VERSION="$expected_version"
+  # 署名していない APK は番号の下書きの置き場（--allow-debug-key の検査）にだけ置く。公開へ上げる置き場にあれば落とす（D2（仮）・code.md R17）
+  if [[ "$allow_debug" != 1 ]]; then
+    for name in "$dir"/*-unsigned.apk; do
+      [[ -e "$name" ]] && die "署名していない APK は下書きの置き場にだけ置く（公開する置き場にある）: $(basename "$name")"
+    done
+  fi
   if [[ "$channel" == nightly || "$allow_debug" == 1 ]]; then SOURCE_BY_COMMIT=1; else SOURCE_BY_COMMIT=0; fi
   for name in "${expected_names[@]}"; do
     [[ -f "$dir/$name" ]] || die "欠けた配布物: $name"
@@ -339,6 +379,11 @@ check_artifacts() {
       [[ -n "${ASHIATO_EXPECT_CERT_SHA256:-}" && "$cert" == "$ASHIATO_EXPECT_CERT_SHA256" ]] || die "APK の署名の指紋が期待値と違う"
     fi
   fi
+  # 番号の置き場（D2（仮））: 署名していない APK があれば、debug の鍵の APK と同じ組み立てで、署名を持たないことを見る
+  local unsigned="$dir/ashiato-collector-${expected_version}-unsigned.apk"
+  if [[ "$channel" != nightly && -f "$unsigned" ]]; then
+    check_unsigned_apk "$unsigned" "$dir/ashiato-collector-${expected_version}.apk" "$expected_version"
+  fi
   echo "OK: $channel の配布物を検査した（版 $expected_version）"
 }
 
@@ -349,12 +394,14 @@ range_self_test() {
   clone="$work/clone"
   git clone -q --local --no-hardlinks "$root" "$clone"
   echo "== Scenario: 桁を超える版番号では、携帯の組み立てが失敗する"
-  sed -i 's/^version = "[^"]*"/version = "0.100.0"/' "$clone/Cargo.toml"
+  # 出所 0.0.1・左の数字のファイル 0 の写しの木に、真ん中の数字が上限 999 を超える番号（左は MAJOR と同じ）を渡す
+  sed -i 's/^version = "[^"]*"/version = "0.0.1"/' "$clone/Cargo.toml"
+  printf '0\n' >"$clone/tools/release/MAJOR"
   local output
-  if output=$(cd "$clone/collector-android" && ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug 2>&1); then
+  if output=$(cd "$clone/collector-android" && ASHIATO_BUILD_VERSION=0.1000.0 ./gradlew --no-build-cache --no-configuration-cache -q :app:assembleDebug 2>&1); then
     die "桁を超えた版番号の検査が成功した"
   fi
-  grep -Fq 'MINOR が上限を超えた' <<<"$output" || die "Gradle が MINOR 超過以外の理由で失敗した: $output"
+  grep -Fq '真ん中の数字が上限 999 を超えた' <<<"$output" || die "Gradle が真ん中の数字の超過以外の理由で失敗した: $output"
   echo "OK: 桁を超えた版番号を Gradle の版検査が拒否した"
 }
 
@@ -740,10 +787,19 @@ self_test() {
   fi
   if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$release_out" --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
+  echo "== Scenario: 署名していない APK は、公開する置き場にあれば検査が落ちる"
+  cp "$release_out/ashiato-collector-$v.apk" "$release_out/ashiato-collector-$v-unsigned.apk"
+  if output=$(ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$release_out" --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq '署名していない APK は下書きの置き場にだけ置く' <<<"$output" || { echo "$output"; return 1; }
+  rm -f "$release_out/ashiato-collector-$v-unsigned.apk"
   # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi
   grep -Fq '渡した版番号と違う' <<<"$output" || { echo "$output"; return 1; }
+  # 比べる版番号を渡さなければ、APK 自身の版だけで通さない（code-verify R4）
+  if output=$("$0" apk-version "$real/ashiato-collector-$v.apk" 2>&1); then return 1; fi
+  if output=$( (apk_version "$real/ashiato-collector-$v.apk" "") 2>&1); then return 1; fi
+  grep -Fq -- '--expect-version' <<<"$output" || { echo "$output"; return 1; }
   local nightly="$work/nightly"; mkdir -p "$nightly"
   local nightly_version="$v-dev.20261102"
   echo "== Scenario: 開発版のリリースの配布物は、開発版の APK を含む 4 つで、同じ版番号を持つ"
@@ -781,13 +837,47 @@ self_test() {
     echo "$output"
     return 1
   fi
+  # 番号 0.2.1 で組んだ 4 つ + 署名していない APK の 5 つ（番号の置き場。D2（仮））。携帯の 2 つは実物、残りは同じ印を持つ偽物
+  local n=0.2.1 num="$work/numbered" nstamp ncommit
+  mkdir -p "$num"
+  ASHIATO_BUILD_VERSION="$n" ASHIATO_APK_ALSO_UNSIGNED=1 "$root/tools/release/build.sh" apk "$num"
+  nstamp="$(artifact_stamp "$num/ashiato-collector-$n.apk" "$n")"
+  ncommit="${nstamp#*+}"
+  printf '%s' "$nstamp" >"$work/stamp"
+  printf 'Commit: %s\n' "$ncommit" >"$work/SOURCE.txt"
+  tar -czf "$num/ashiato-server-$n-linux-x86_64.tar.gz" -C "$work" stamp LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt
+  win_fixture "$work/windows-numbered" "$work/stamp" "$num/ashiato-server-$n-windows-x86_64.zip"
+  (cd "$work" && zip -q "$num/ashiato-collector-windows-$n-x86_64.zip" stamp ashiato-collector-windows.exe LICENSE SOURCE.txt THIRD-PARTY-NOTICES.txt)
+  echo "== Scenario: 番号を付けた配布物の印は、番号と commit を持つ"
+  check_artifacts "$num" --allow-debug-key --expect-version "$n" >/dev/null
+  [[ "$(find "$num" -maxdepth 1 -type f | wc -l)" == 5 ]] || die '番号の置き場が 5 つでない'
+  for name in "ashiato-server-$n-linux-x86_64.tar.gz" "ashiato-server-$n-windows-x86_64.zip" \
+    "ashiato-collector-windows-$n-x86_64.zip" "ashiato-collector-$n.apk"; do
+    [[ "$(artifact_stamp "$num/$name" "$n")" == "$n+$ncommit" ]] || die "$name の印が $n+<commit> でない"
+  done
+  [[ "$ncommit" =~ ^[0-9a-f]{40}$ ]] || die "印の commit が 40 桁でない: $ncommit"
+  echo "== Scenario: 署名していない APK は、debug の鍵の APK と同じ組み立て"
+  local unsigned="$num/ashiato-collector-$n-unsigned.apk" signed="$num/ashiato-collector-$n.apk" badging
+  [[ "$(artifact_stamp "$unsigned" "$n")" == "$(artifact_stamp "$signed" "$n")" ]] || die '署名していない APK の印が違う'
+  for name in "$signed" "$unsigned"; do
+    badging="$(apk_dump "$name")"
+    grep -Fq "versionCode='20001' versionName='$n'" <<<"$badging" || die "$(basename "$name") の versionCode が 20001 でない"
+  done
+  if "$(android_tool apksigner)" verify "$unsigned" >/dev/null 2>&1; then die '署名していない APK が署名を持つ'; fi
+  "$(android_tool apksigner)" verify "$signed" >/dev/null || die 'debug の鍵の APK の署名が読めない'
+  # 署名した APK を「署名していない」名前で置くと落ちる
+  cp "$signed" "$unsigned"
+  if output=$(check_artifacts "$num" --allow-debug-key --expect-version "$n" 2>&1); then return 1; fi
+  grep -Fq '署名を持つ' <<<"$output" || { echo "$output"; return 1; }
   echo "OK: 実物の release、欠落、印、資格情報、名前、チャンネルを検査した"
 }
 
 case "${1:-}" in
-  apk-version) shift; want=
-    if [ "${1:-}" = --expect-version ]; then [ "$#" -ge 2 ] || usage; want="$2"; shift 2; fi
+  apk-version) shift
+    [ "${1:-}" = --expect-version ] && [ "$#" -ge 2 ] || usage
+    want="$2"; shift 2
     [ "$#" -ge 1 ] || die "APK が無い"; for apk in "$@"; do apk_version "$apk" "$want"; done ;;
+  apk-build) [ "$#" = 2 ] || usage; apk_build "$2" ;;
   --self-test) self_test ;;
   --self-test-android) self_test_android ;;
   apk-label) [ "$#" = 2 ] || usage; apk_label "$2" ;;

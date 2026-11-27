@@ -12,11 +12,14 @@ jobs:
       build: ${{ steps.plan.outputs.build }}
       publish: ${{ steps.plan.outputs.publish }}
       version: ${{ steps.plan.outputs.version }}
+      commit: ${{ steps.plan.outputs.commit }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
       - id: plan
-        run: tools/release/version.sh nightly-plan | tee plan.txt && grep -E '^(build|publish|version)=' plan.txt >> "$GITHUB_OUTPUT"
+        # shell: bash を書く（書かないと bash -e で走り、pipefail が無いので version.sh が落ちても tee の 0 で緑になる。code.md R13・R25）
+        shell: bash
+        run: tools/release/version.sh nightly-plan | tee plan.txt && grep -E '^(build|publish|version|commit)=' plan.txt >> "$GITHUB_OUTPUT"
         env:
           ASHIATO_NIGHTLY_PUBLISH: ${{ vars.ASHIATO_NIGHTLY_PUBLISH }}
   package-linux:
@@ -25,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { fetch-depth: 0, persist-credentials: false }
+        with: { ref: "${{ needs.plan.outputs.commit }}", fetch-depth: 0, persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with:
@@ -53,7 +56,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { fetch-depth: 0, persist-credentials: false }
+        with: { ref: "${{ needs.plan.outputs.commit }}", fetch-depth: 0, persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
@@ -76,11 +79,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { fetch-depth: 0, persist-credentials: true }
+        with: { ref: "${{ needs.plan.outputs.commit }}", fetch-depth: 0, persist-credentials: true }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { pattern: nightly-*, path: nightly }
       - run: mkdir -p nightly/all && find nightly/nightly-linux nightly/nightly-windows -maxdepth 1 -type f -exec cp {} nightly/all/ \;
-      - run: tools/release/publish-nightly.sh nightly/all "${{ needs.plan.outputs.version }}"
+      - run: tools/release/publish-nightly.sh nightly/all "${{ needs.plan.outputs.version }}" "${{ needs.plan.outputs.commit }}"
     env:
       GH_TOKEN: ${{ github.token }}
       ASHIATO_SIGNING_KEYSTORE_B64: ${{ secrets.ASHIATO_SIGNING_KEYSTORE_B64 }}

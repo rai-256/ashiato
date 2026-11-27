@@ -183,9 +183,9 @@ windows_icacls() { MSYS2_ARG_CONV_EXCL='*' icacls.exe "$@" 2>/dev/null | tr -d '
 service_state_code() { windows_sc query "$1" | awk -F ':' 'toupper($1) ~ /STATE/ { split($2,a," "); print a[1]; exit }'; }
 
 # 各 Scenario の「前の版の初回インストール」の前に、PC を何も入っていない形へ戻す。
-# 同じ job の前の段（install-check・update-check-install）と前の Scenario が新しい版（0.5.0）を残すと、
-# 前の版（0.4.0）の初回インストールが「0.5.0 から 0.4.0 への更新」になって落ちる（2026-11-16 の CI。
-# 「更新 0.4.0 は移行が落ちたので、0.5.0 に戻しました」）。正式版と開発版の両方を消す。
+# 同じ job の前の段（install-check・update-check-install）と前の Scenario が新しい版（0.0.3）を残すと、
+# 前の版（0.0.2）の初回インストールが「0.0.3 から 0.0.2 への更新」になって落ちる（2026-11-16 の CI で、
+# 新しい版が残ったまま前の版を入れ、前の版への更新として落ちた）。正式版と開発版の両方を消す。
 reset_wait_seconds=120
 reset_machine() {
   local service until
@@ -691,15 +691,15 @@ run_windows_check() {
   trap "rm -rf '$work'" EXIT
   local i
   for i in "${!scenario_names[@]}"; do
-    local name="${scenario_names[$i]}" scenario_old="$old_zip" scenario_new="$new_zip" old_version=0.4.0 new_version=0.5.0
+    local name="${scenario_names[$i]}" scenario_old="$old_zip" scenario_new="$new_zip" old_version=0.0.2 new_version=0.0.3
     if [[ "$name" == '同じ版で走らせ直すと、更新の手順に入らない' ]]; then
       scenario_new="$old_zip"; new_version="$old_version"
     elif [[ "$name" == '開発版のインストーラは、正式版のインストールを更新しない' ]]; then
-      scenario_new="$dev_new_zip"; new_version=0.5.0-dev.20261116
+      scenario_new="$dev_new_zip"; new_version=0.0.3-dev.20261116
     elif [[ "$name" == '正式版のインストーラは、開発版のインストールを更新しない' ]]; then
-      scenario_old="$dev_old_zip"; old_version=0.4.0-dev.20261115
+      scenario_old="$dev_old_zip"; old_version=0.0.2-dev.20261115
     elif [[ "$name" == *'知らない版'* || "$name" == *'系統が違う DB'* || "$name" == '移行の前に止まると、窓に入らなかったことと種別が出る' ]]; then
-      scenario_old="$compat_old_zip"; scenario_new="$compat_new_zip"; old_version=0.4.1; new_version=0.6.0
+      scenario_old="$compat_old_zip"; scenario_new="$compat_new_zip"; old_version=0.0.4; new_version=0.0.5
     fi
     run_scenario "$name" "$scenario_old" "$scenario_new" "$work" "$old_version" "$new_version"
   done
@@ -730,11 +730,11 @@ EOF
 #!/usr/bin/env bash
 printf 'setup %s %s\n' "${ASHIATO_SETUP_TEST_STOP_AT:-none}" "$*" >> "${ST58_CALLS:?}"
 if [[ -n "${ASHIATO_SERVER_TEST_MIGRATE_FAIL:-}" ]]; then
-  printf '更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（202611152200_x・制約に反した）\n'
+  printf '更新 0.0.3 は移行が落ちたので、0.0.2 に戻しました（202611152200_x・制約に反した）\n'
   exit 1
 fi
 if [[ -n "${ST58_FAKE_DB_AHEAD:-}" ]]; then
-  printf '更新 0.5.0 は入りませんでした（DB に新しい版の知らない版がある）。0.4.0 のまま動いています\n'
+  printf '更新 0.0.3 は入りませんでした（DB に新しい版の知らない版がある）。0.0.2 のまま動いています\n'
   exit 1
 fi
 printf '更新が完了しました\n'
@@ -742,7 +742,7 @@ EOF
   cat >"$fake_path/ashiato-server.exe" <<'EOF'
 #!/usr/bin/env bash
 printf 'server %s\n' "$*" >> "${ST58_CALLS:?}"
-printf 'healthz=200 version=0.5.0\n'
+printf 'healthz=200 version=0.0.3\n'
 EOF
   cat >"$fake_path/psql" <<'EOF'
 #!/usr/bin/env bash
@@ -787,7 +787,7 @@ EOF
   set +e
   env ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001 "$fake_path/ashiato-setup.exe" install >"$window_output"
   set -e
-  assert_scenario_result '移行が落ちて戻すと、窓に戻したことと版と理由が出る' "$window_output" "$work/empty-trace" 1 0.4.0 0.5.0
+  assert_scenario_result '移行が落ちて戻すと、窓に戻したことと版と理由が出る' "$window_output" "$work/empty-trace" 1 0.0.2 0.0.3
   # 入らなかった窓: spec の GIVEN は「DB に知らない版」。差し込みではなく DB の細工で起こし、細工は後で戻す
   [[ -z "$(scenario_hook '移行の前に止まると、窓に入らなかったことと種別が出る')" ]] ||
     die '入らなかった窓の Scenario がインストーラの差し込みで止めている（spec は db_ahead）'
@@ -798,15 +798,15 @@ EOF
   set +e
   env ST58_FAKE_DB_AHEAD=1 "$fake_path/ashiato-setup.exe" install >"$window_output"
   set -e
-  printf '%s\n' 'outcome-last={"at":"t","result":"not_applied","to_version":"0.5.0","from_version":"0.4.0","reason":{"kind":"db_ahead"}}' >"$window_trace"
-  assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$window_output" "$window_trace" 1 0.4.0 0.5.0
+  printf '%s\n' 'outcome-last={"at":"t","result":"not_applied","to_version":"0.0.3","from_version":"0.0.2","reason":{"kind":"db_ahead"}}' >"$window_trace"
+  assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$window_output" "$window_trace" 1 0.0.2 0.0.3
   printf '%s\n' 'outcome-last={"at":"t","result":"rolled_back","reason":{"kind":"aborted"}}' >"$window_trace"
-  expect_fail assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$window_output" "$window_trace" 1 0.4.0 0.5.0
+  expect_fail assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$window_output" "$window_trace" 1 0.0.2 0.0.3
   local wrong_window_output="$work/wrong-window-install.out"
-  printf '%s\n' '更新 0.5.0 は移行が落ちたので、0.4.0 に戻しました（中断）' >"$wrong_window_output"
-  expect_fail assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$wrong_window_output" "$work/empty-trace" 1 0.4.0 0.5.0
+  printf '%s\n' '更新 0.0.3 は移行が落ちたので、0.0.2 に戻しました（中断）' >"$wrong_window_output"
+  expect_fail assert_scenario_result '移行の前に止まると、窓に入らなかったことと種別が出る' "$wrong_window_output" "$work/empty-trace" 1 0.0.2 0.0.3
   # サーバへの差し込みはサービスの環境で、新しい版だけに効く版番号を値にする（R58 (d)）
-  [[ "$(scenario_service_env '新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる' 0.5.0)" == 'ASHIATO_SERVER_TEST_NO_LISTEN=0.5.0' ]] ||
+  [[ "$(scenario_service_env '新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる' 0.0.3)" == 'ASHIATO_SERVER_TEST_NO_LISTEN=0.0.3' ]] ||
     die '待ち受けを開かない差し込みがサービスの環境で新しい版に絞られていない'
   [[ -z "$(scenario_hook '新しい版のサーバが待ち受けを開かなければ、戻して前の版で起きる')" ]] ||
     die 'サーバへの差し込みをインストーラの環境に置いている'
@@ -818,27 +818,27 @@ EOF
   # 同じ版の再実行でも退避の置き場（pre-migrate）の権限は直す。その行を移行と取り違えない（CI run 43970737732）
   local same_trace="$work/same-trace"
   printf '%s\n' 'result=ok takeown /F C:\ProgramData\ashiato\backups\pre-migrate /A /R /D Y' 'result=ok icacls C:\ProgramData\ashiato\backups\pre-migrate /reset /L' >"$same_trace"
-  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.0.3 0.0.3
   # 同じ権限を直す PowerShell の C# にある previous も、前の版の退け先と取り違えない（CI run 43979482400）
   printf '%s\n' '  [DllImport("advapi32.dll", SetLastError=true)] private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, uint length, IntPtr previous, IntPtr returnedLength);' >>"$same_trace"
-  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.0.3 0.0.3
   local same_previous_trace="$work/same-previous-trace"
   cp "$same_trace" "$same_previous_trace"; echo 'previous=present' >>"$same_previous_trace"
-  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.5.0 0.5.0
+  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.0.3 0.0.3
   local same_log
-  same_log="$( (current_scenario_work=''; assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.5.0 0.5.0) 2>&1 || true)"
+  same_log="$( (current_scenario_work=''; assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_previous_trace" 0 0.0.3 0.0.3) 2>&1 || true)"
   grep -Eq '^[0-9]+:previous=present$' <<<"$same_log" || die '同じ版の判定の失敗に当たった行が出ない'
   printf '%s\n' 'result=ok C:\Program Files\ashiato\ashiato-server.exe migrate (env DATABASE_OWNER_URL,MIGRATE_BACKUP_DIR,PG_DUMP)' >>"$same_trace"
-  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.5.0 0.5.0
+  expect_fail assert_scenario_result '同じ版で走らせ直すと、更新の手順に入らない' "$window_output" "$same_trace" 0 0.0.3 0.0.3
   local paused_trace="$work/paused-trace"
   printf '%s\n' 'pause-stage=migrating' 'pause-healthz=000' 'pause-server-state:' '' 'SERVICE_NAME: ashiato-server ' '        TYPE               : 10  WIN32_OWN_PROCESS  ' $'        STATE              : 1  STOPPED \r' 'pause-server-config:' 'START_TYPE         : 4   DISABLED' >"$paused_trace"
-  assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
+  assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.0.2 0.0.3
   sed -i 's/^pause-healthz=000$/pause-healthz=200/' "$paused_trace"
-  expect_fail assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.0.2 0.0.3
   # 待っている間の状態の判定が落ちたときは、観測（sc query の出力）が CI のログに出る（NG の 1 行だけで終わらない）
   sed -i -e 's/^pause-healthz=200$/pause-healthz=000/' -e 's/^.*STATE .*$/STATE              : 4  RUNNING/' "$paused_trace"
   local paused_log
-  paused_log="$( (current_scenario_work=''; assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.4.0 0.5.0) 2>&1 || true)"
+  paused_log="$( (current_scenario_work=''; assert_scenario_result '更新の移行の間、サーバは待ち受けない' "$window_output" "$paused_trace" 0 0.0.2 0.0.3) 2>&1 || true)"
   grep -Fq 'NG: 移行の段で待っている間にサーバが実行中でないと確認できない' <<<"$paused_log" || die '待っている間の状態の失敗に NG の行が出ない'
   grep -Fxq 'STATE              : 4  RUNNING' <<<"$paused_log" || die '待っている間の状態の失敗に観測が出ない'
   grep -Fxq 'START_TYPE         : 4   DISABLED' <<<"$paused_log" || die '待っている間の状態の失敗に開始の種類の観測が出ない'
@@ -855,7 +855,7 @@ EOF
   # success and a deliberately corrupted observation.  This keeps the
   # self-test from merely testing helper functions while CI owns Windows.
   cat >"$evidence_trace" <<'EOF'
-installed-version=0.4.0
+installed-version=0.0.2
 healthz=200
 update-stage=absent
 failed-databases-before=0
@@ -873,14 +873,14 @@ STATE : 4 RUNNING
 updater-config:
 START_TYPE : 4 DISABLED
 EOF
-  assert_scenario_result '書きかけの退避は戻さない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '書きかけ退避の判定が通らない'
-  assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 ||
+  assert_scenario_result '書きかけの退避は戻さない' "$evidence_output" "$evidence_trace" 1 0.0.2 0.0.3 || die '書きかけ退避の判定が通らない'
+  assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.0.2 0.0.3 ||
     die '戻した後に落ちた DB が無い判定が通らない'
   sed -i 's/^failed-databases=0$/failed-databases=1/' "$evidence_trace"
-  expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0
+  expect_fail assert_scenario_result '更新の移行が落ちると、退避から DB を戻し、前の版のサーバが起きる' "$evidence_output" "$evidence_trace" 1 0.0.2 0.0.3
   sed -i 's/^failed-databases=1$/failed-databases=0/' "$evidence_trace"
-  assert_scenario_result '戻しは DB の管理者の役割を使わない' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '戻し役割の判定が通らない'
-  assert_scenario_result 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' "$evidence_output" "$evidence_trace" 1 0.4.0 0.5.0 || die '更新確認の判定が通らない'
+  assert_scenario_result '戻しは DB の管理者の役割を使わない' "$evidence_output" "$evidence_trace" 1 0.0.2 0.0.3 || die '戻し役割の判定が通らない'
+  assert_scenario_result 'サーバの切った更新の確認は、更新でも戻しでも切ったまま' "$evidence_output" "$evidence_trace" 1 0.0.2 0.0.3 || die '更新確認の判定が通らない'
   [[ "$(scenario_hook '戻した回は退避を消さない')" == 'ASHIATO_SERVER_TEST_MIGRATE_FAIL=sqlstate:40001' ]] ||
     die '戻した回の退避を残す Scenario に移行失敗の差し込みが無い'
   local prep_name
@@ -919,24 +919,24 @@ EOF
   prior_name='更新が通ると、移行の前の退避は直前の 1 つだけになる'
   scenario_prior_failed_update "$prior_name" || die "前の回の残りが要る Scenario で先に落ちる更新を通さない: $prior_name"
   printf '%s\n' 'prior-failed-update=ok' 'backups-before=1' 'backups-after=1' >"$prior_trace"
-  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   sed -i '/^prior-failed-update=ok$/d' "$prior_trace"
-  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   # 前の回の落ちた DB は、落ちる更新でなく Scenario の中で直接置く（戻した回は待ち受けの後に消すので残らない。Q10）
   prior_name='更新が通ると、前の回に残した落ちた DB を消す'
   ! scenario_prior_failed_update "$prior_name" || die '落ちた DB の掃除の Scenario が、落ちた DB を残さない落ちる更新に頼っている'
   grep -Fq 'CREATE DATABASE ashiato_failed_' <<<"$(scenario_leftover_failed_db "$prior_name")" ||
     die '落ちた DB の掃除の Scenario が、前の回の落ちた DB を置いていない'
   printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=1' 'failed-databases=0' >"$prior_trace"
-  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   sed -i '/^leftover-failed-db=ok$/d' "$prior_trace"
-  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=0' 'failed-databases=0' >"$prior_trace"
-  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   printf '%s\n' 'leftover-failed-db=ok' 'failed-databases-before=1' 'failed-databases=1' >"$prior_trace"
-  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result "$prior_name" "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   printf '%s\n' 'prior-failed-update=ok' 'backups-before=0' 'backups-after=1' >"$prior_trace"
-  expect_fail assert_scenario_result '更新が通ると、移行の前の退避は直前の 1 つだけになる' "$evidence_output" "$prior_trace" 0 0.4.0 0.5.0
+  expect_fail assert_scenario_result '更新が通ると、移行の前の退避は直前の 1 つだけになる' "$evidence_output" "$prior_trace" 0 0.0.2 0.0.3
   ! scenario_prior_failed_update '新しい版のインストーラで走らせると、移行を当てて新しい版のサーバが起きる' ||
     die '通常更新の Scenario に先の落ちる更新を通している'
   echo 'OK: update-apply-install の自己試験'
