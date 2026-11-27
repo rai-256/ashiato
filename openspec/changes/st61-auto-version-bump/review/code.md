@@ -96,6 +96,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 - 判定: ADDRESSED（re-review 5 @bc6452b35e5d55e560ec22bcaa1f1caaf1b1c518）
 - 判定: ADDRESSED（re-review 6 @480aba6da40002e497bf26ef51f25846732ec2aa）
+- 判定: ADDRESSED（re-review 7 @9e05f5e69a59fecc02bff68d2950ad4ff3f825a2）
 
 ## R4. 2.2 の 3 本目の検証は、組んだ APK が渡した版番号かを見ていない。版を無視した APK でも rc=0 になる（実測 2 回）
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md 2.2 の 3 本目 / tools/release/check-artifacts.sh:65-87（`apk-version`）
@@ -190,6 +191,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 処置: fixed 2.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 - 判定: ADDRESSED（re-review 6 @480aba6da40002e497bf26ef51f25846732ec2aa）
+- 判定: ADDRESSED（re-review 7 @9e05f5e69a59fecc02bff68d2950ad4ff3f825a2）
 
 ## R10. The branch has a commit whose message is just `wip`. CLAUDE.md (git section) says: 「コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」」. Fix: reword the commit to the project's format, or squash it into a neighbouring commit.
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md:1
@@ -480,6 +482,7 @@ final reviewer（whole-branch の 3 回目。`code-reviewer.md`）の指摘。R2
 - 提案: 4 か所の MAJOR の読みに同じ上限（versionCode の左の上限 209、または bash と同じ 18 桁）を入れ、表に MAJOR の境目の行を足す。あるいは R29 の範囲は版の文字列だけと注記する
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 6 @480aba6da40002e497bf26ef51f25846732ec2aa）
+- 判定: ADDRESSED（re-review 7 @9e05f5e69a59fecc02bff68d2950ad4ff3f825a2）
 
 ## final review（e721251..4aeeb8c）
 
@@ -491,3 +494,4 @@ final reviewer（whole-branch の 4 回目。`code-reviewer.md`）の指摘。R3
 - kind: technical
 - 提案: `parse_major` を `Result<u64, &'static str>` にして、形の誤りと「数字が大きすぎる」を分けて報告する
 - 処置: fixed 2.1
+- 判定: ADDRESSED（re-review 7 @9e05f5e69a59fecc02bff68d2950ad4ff3f825a2）
