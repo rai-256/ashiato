@@ -165,3 +165,12 @@
 - `version-check-table.tsv` に 3 行: `0.0.1 0.0.1 999999999999999999 ok`（18 桁）・`0.0.1 0.0.1 1000000000000000000 ng`（19 桁）・`1.0.0 0.0.1 0000000000000000000001 ok`（先頭の 0 は数えない）。
 - 走らせたもの: `version.sh --self-test` rc=0、`vitest run src/__tests__/build-stamp.test.ts` 14 passed、`cargo test -p ashiato-build-stamp` 16 passed（`st61_version_check_table_rows_agree` を含む）、gradle `:app:verifyVersionCheckTable :app:verifyVersionCodeTable` BUILD SUCCESSFUL、`cargo fmt --check` OK。
 - 直しを外すと落ちること: TS を HEAD の版に戻すと vitest が `0.0.1 0.0.1 1000000000000000000 ng: expected [Function] to throw`、Rust の桁の検査を外すと `断るはずの行を受けた: 0.0.1 0.0.1 1000000000000000000 ng`（rc=101）、gradle の桁の検査を外すと `version-check-table.tsv の断る版番号を受けた: …1000000000000000000 ng`（rc=1）、bash を HEAD の version.sh に新しい表で走らせると `NG: version-check-table.tsv: 0.0.1（出所 0.0.1・左 1000000000000000000）は ng のはずが ok`。どれも元に戻した。
+
+## settle（R34）
+
+### R34（fixed 2.1）
+- `crates/build-stamp/src/lib.rs` の `parse_major` を `Option<u64>` から `Result<u64, &'static str>` にした。形の誤り（空・数字以外）は `が数字 1 つでない`、先頭の 0 を除いて 19 桁以上（と `u64` に入らない値）は `の数字が大きすぎる` を返す。
+- `version()` は理由を「左の数字のファイル」に続けて出す: 「左の数字のファイルが数字 1 つでない: …」/「左の数字のファイルの数字が大きすぎる: …」。bash の `major_value`（version.sh:51「左の数字のファイルの数字が大きすぎる」）と同じ文になった。gradle・TS（「tools/release/MAJOR の数字が大きすぎる」）とも「数字が大きすぎる」でそろう。
+- 試験: `st61_major_file_accepts_only_digits` を `Err("が数字 1 つでない")` / `Ok(..)` に直し、18 桁と先頭の 0 つきの受ける行を足した。新しい `st61_major_file_too_large_says_so` で 19 桁・先頭 0 つき 19 桁・23 桁が `Err("の数字が大きすぎる")` になることを固定。表の試験は `map_err` で理由を文に入れる形にした。
+- 走らせたもの: `scripts/quiet-run unit -- cargo test -p ashiato-build-stamp` rc=0（17 passed。新しい `st61_major_file_too_large_says_so` を含む）、`cargo clippy -p ashiato-build-stamp --all-targets -- -D warnings` OK、`cargo fmt` 済み。
+- 直しを外すと落ちること: 桁の検査を `if false` にすると `st61_major_file_too_large_says_so` が `left: Ok(1000000000000000000) right: Err("の数字が大きすぎる")` で FAILED。元に戻した。
