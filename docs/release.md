@@ -142,9 +142,14 @@ gh api --method DELETE repos/rai-256/ashiato/actions/artifacts/<artifact-id>
 
 ### PostgreSQL の小さい版を上げる PR
 
-`tools/release/pgsql.lock` の小さい版（minor version）を上げる PR では、変更前の小さい版を
-同梱した zip から更新と戻しの両方を通します。移行が失敗した場合に前の版へ戻ること、同じ
-大きい版（major version）のまま更新できることを確認し、結果を PR に残してから変更を取り込みます。
+`tools/release/pgsql.lock` を変える PR では、CI の `package-windows` が更新の試験の古い側の zip を、
+PR が変える前の lock（base との分岐点の lock）で組みます。`install-windows` が、その古い側から
+新しい側（PR の lock）への更新と、移行が落ちたときの古い側への戻しを Windows で通します。手で通す必要はありません。
+
+- PR では `install-windows` が緑で、`package-windows` の出力に `古い側 <前の版> → 新しい側 <今の版>` があることを見ます。
+- 大きい版（major version）が前の lock と違う lock では、CI が古い側を組まずに落ちます（大きい版を上げる道は別の Story が扱います）。
+- 分岐点の lock が取れないときや、前の lock と中身が同じときも CI が落ちます。lock を変えない PR は今のまま組みます。
+- 判定と確かめは `tools/release/pgsql-prev-lock.sh` にあります（`--self-test` と `check-workflow` は `chain` の job が走らせます）。
 
 ## 9. ST53 の確認バッチ（人間の確認待ち）
 

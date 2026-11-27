@@ -128,8 +128,9 @@ def allow_ghsas(root: Path) -> int:
             print(f"error: 許可の一覧を組めない（osv.dev への問い合わせ{suffix}）", file=os.sys.stderr)
             return 2
         try:
-            aliases = json.loads(proc.stdout)["aliases"]
-        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            # OSV の形では aliases は省略できる（保守終了の知らせなど、別名の無い勧告は鍵ごと無い）
+            aliases = json.loads(proc.stdout).get("aliases", [])
+        except (AttributeError, json.JSONDecodeError) as exc:
             print(f"error: 許可の一覧を組めない（osv.dev の応答: {exc}）", file=os.sys.stderr)
             return 2
         if not isinstance(aliases, list):
