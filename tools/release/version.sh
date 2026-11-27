@@ -214,6 +214,10 @@ number() {
   # 3. 差分が製品に触れるか（判定は PR の CI と同じ changes.sh）
   # 差分を先に取る（changes.sh が早く閉じると git diff が SIGPIPE で落ち、pipefail が「文書だけ」と誤読する）
   changed=$(git diff --name-only "$known" "$commit")
+  # 空の差分は changes.sh に渡さない（<<< は空行 1 行を渡し、「製品に触れた」と読まれる。deep.md Q6・code.md R24）
+  if [[ -z "$changed" ]]; then
+    echo "number="; echo "前の番号から製品が変わっていない（差分が空）"; return 0
+  fi
   # rc=1 だけが「文書だけ」。台本が無い・壊れている（2・127 など）を「文書だけ」と読むと、黙って番号が付かない（code.md R14）
   local code_rc=0
   "$ROOT/tools/release/changes.sh" code <<<"$changed" || code_rc=$?
@@ -304,6 +308,12 @@ number_self_test() {
   nt_new cancelled; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
   [[ -z "$(git -C "$d" tag --list 'build-*' --points-at HEAD)" ]] || return 1
   nt_merge docs/x docs/b.md; nt_expect 0.2.1 || return 1
+  echo "== Scenario: 前の番号の commit と差分が空の commit には番号を付けない"
+  nt_new reverted; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.1; nt_merge feat/b crates/server/src/lib.rs
+  git -C "$d" checkout -q -b revert/b; git -C "$d" revert -m 1 --no-edit HEAD >/dev/null
+  git -C "$d" checkout -q main; git -C "$d" merge -q --no-ff -m "Merge pull request #98 from o/revert/b" revert/b
+  git -C "$d" diff --quiet build-0.2.1 HEAD || return 1
+  nt_expect '' || return 1; grep -qx '前の番号から製品が変わっていない（差分が空）' <<<"$out" || { echo "$out"; return 1; }
   echo "== Scenario: 番号を付けた commit の祖先の run が後から成功しても、番号を付けない"
   nt_new ancestor; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
   local a; a=$(git -C "$d" rev-parse HEAD); nt_merge feat/c crates/server/src/lib.rs; nt_tag 0.2.1
