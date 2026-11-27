@@ -140,3 +140,10 @@
 - [ ] 12.3 **確認バッチの merge**: 次の確認バッチの merge の後の番号の真ん中が 1 上がり、右が 0 になること（D5）
 - [ ] 12.4 **main の差分の基準**（D8・review/spec.md R16）: main に入った後の最初の文書だけの merge の run の `changes` の job の出力に、基準の commit（前に成功した main の push の run の `head_sha`）が出て、全部走らせるに落ちていないこと
 - [ ] 12.5 **番号付けの順番待ち**（P18・P19・P20・D10）: main に入った後、取り消された CI の run の直後に成功した run があった回で、番号付けの判定の job が取り消されずに番号の印を作ったこと（印 `build-*` の push と、その印の下書きができたこと）。外れたら D10 の反転条件で上流へ返す
+
+## Task 13: 前の番号と差分が空の commit に番号を付けない（deep.md Q6）
+
+- [ ] 13.1 `tools/release/version.sh number` で、前の番号の commit（印が無ければ first-parent の親）からの差分 `changed` が空なら、`changes.sh code` を呼ばずに `number=` と「前の番号から製品が変わっていない（差分が空）」を返す（D4 の 3.。review/code.md R24）。
+  PR の CI の側（`ci.yml` の空の差分で code=true）は「迷ったら走らせる」の安全側なので変えない。
+  `--self-test` に印 `前の番号の commit と差分が空の commit には番号を付けない` を足す（使い捨ての木で、`0.2.1` の後に `crates/server/src/lib.rs` に触れる merge B と、B を戻す revert の merge C を足し、C で `number=` になる。空の差分の扱いを外すと `0.2.2` が付いて落ちる）
+  検証: `tools/release/version.sh --self-test` rc=0 / `bash -c 'out=$(tools/release/version.sh --self-test 2>&1); grep -qxF "== Scenario: 前の番号の commit と差分が空の commit には番号を付けない" <<<"$out"'` rc=0

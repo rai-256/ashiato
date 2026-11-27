@@ -1,3 +1,3 @@
-spec-digest: 869c247b444fd824ce1b783cc418f0645c74440d75183d963223dfe02d677124
-- Q5: 写った
+spec-digest: 70229df792e780bba394918cbb1efb3deae2699f50797afea766947b360856b8
+- Q6: 写った
 答え以外の変更: なし
