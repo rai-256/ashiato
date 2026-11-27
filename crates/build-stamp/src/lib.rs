@@ -66,9 +66,9 @@ pub fn version(source: &str) -> Result<String, String> {
             path.display()
         )
     })?;
-    let major = parse_major(&text).ok_or_else(|| {
+    let major = parse_major(&text).map_err(|reason| {
         format!(
-            "左の数字のファイルが数字 1 つでない: {:?}、出所 {source}、渡した版番号 {given}",
+            "左の数字のファイル{reason}: {:?}、出所 {source}、渡した版番号 {given}",
             text.trim()
         )
     })?;
@@ -78,13 +78,18 @@ pub fn version(source: &str) -> Result<String, String> {
 /// 左の数字のファイルの中身を読む。前後の空白を落とし、残りが ASCII の数字だけのときだけ値を返す
 /// （`parse` は `+0` も通す。bash・gradle・画面の `^\d+$` と同じにする。/code-review R9）。
 /// 先頭の 0 を除いて 19 桁以上は断る（bash の `fits_decimal`・gradle・画面と同じ桁。code.md R33）。
-fn parse_major(text: &str) -> Option<u64> {
+/// 断る理由は形の誤りと桁あふれで分け、bash・gradle・画面と同じ文にする（code.md R34）。
+fn parse_major(text: &str) -> Result<u64, &'static str> {
+    const NOT_ONE_NUMBER: &str = "が数字 1 つでない";
+    const TOO_LARGE: &str = "の数字が大きすぎる";
     let value = text.trim();
-    (!value.is_empty()
-        && value.chars().all(|c| c.is_ascii_digit())
-        && value.trim_start_matches('0').len() <= MAJOR_MAX_DIGITS)
-        .then(|| value.parse::<u64>().ok())
-        .flatten()
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+        return Err(NOT_ONE_NUMBER);
+    }
+    if value.trim_start_matches('0').len() > MAJOR_MAX_DIGITS {
+        return Err(TOO_LARGE);
+    }
+    value.parse::<u64>().map_err(|_| TOO_LARGE)
 }
 
 /// 左の数字のファイルが持てる桁（先頭の 0 を除く）。4 か所で同じ（code.md R33）。
@@ -472,10 +477,29 @@ mod tests {
     fn st61_major_file_accepts_only_digits() {
         // 左の数字のファイルは数字 1 つだけ。符号・中の空白・空は断り、前後の空白（CRLF）は落とす（/code-review R9）
         for text in ["+0", "-0", "0 0", "", " ", "0.1", "x"] {
-            assert_eq!(parse_major(text), None, "{text:?}");
+            assert_eq!(parse_major(text), Err("が数字 1 つでない"), "{text:?}");
         }
-        for (text, want) in [("0", 0), ("0\r\n", 0), (" 1 \n", 1), ("209", 209)] {
-            assert_eq!(parse_major(text), Some(want), "{text:?}");
+        for (text, want) in [
+            ("0", 0),
+            ("0\r\n", 0),
+            (" 1 \n", 1),
+            ("209", 209),
+            ("000000000000000000000001", 1),
+            ("999999999999999999", 999_999_999_999_999_999),
+        ] {
+            assert_eq!(parse_major(text), Ok(want), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn st61_major_file_too_large_says_so() {
+        // 先頭の 0 を除いて 19 桁以上は「数字が大きすぎる」で断る。bash・gradle・画面と同じ文（code.md R34）
+        for text in [
+            "1000000000000000000",
+            "0001000000000000000000",
+            "99999999999999999999999",
+        ] {
+            assert_eq!(parse_major(text), Err("の数字が大きすぎる"), "{text:?}");
         }
     }
 
@@ -499,7 +523,7 @@ mod tests {
                 "3 列目が数字でない: {line}"
             );
             let got = parse_major(cols[2])
-                .ok_or_else(|| "左の数字のファイルを断った".to_string())
+                .map_err(|reason| format!("左の数字のファイル{reason}"))
                 .and_then(|major| check_version(cols[1], cols[0], major));
             match cols[3] {
                 "ok" => assert_eq!(got.as_deref(), Ok(cols[0]), "{line}"),

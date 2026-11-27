@@ -490,3 +490,4 @@ final reviewer（whole-branch の 4 回目。`code-reviewer.md`）の指摘。R3
 - 根拠: crates/build-stamp/src/lib.rs:69-74・:80-87（`parse_major` は `Option<u64>` を返すので、形の誤りと桁あふれを区別できない）。比べた先は tools/release/version.sh:51・collector-android/app/build.gradle.kts:58・web/build-stamp.ts:66。断るかどうかは 4 か所でそろっていて、ずれているのは診断の文だけ（final review 4。Minor。読んだだけ）
 - kind: technical
 - 提案: `parse_major` を `Result<u64, &'static str>` にして、形の誤りと「数字が大きすぎる」を分けて報告する
+- 処置: fixed 2.1
