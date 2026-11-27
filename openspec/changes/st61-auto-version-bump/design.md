@@ -66,6 +66,7 @@ debug の鍵で署名した APK（本人が試しに入れる用）と、署名�
 1. run は main への push で、この repo の枝から走り、成功で終わった
 2. その commit は、番号の印 `build-*` の付いた最後の commit（以下「前の番号の commit」）の子孫で、main の first-parent の上にある
 3. 前の番号の commit からその commit までの差分が `tools/release/changes.sh code` で真（`docs/`・`openspec/`・`*.md` 以外に触れる）
+   —— 差分が空（前の番号の commit と木が同じ。製品に触れる merge と、それを戻す revert が続いたときなど）なら、製品は変わっていないとして付けない（deep.md Q6。review/code.md R24）。`changes.sh code` に空の入力を渡さない（空行 1 行を「製品に触れた」と読む）
 4. その commit にまだ番号が無い
 
 判定はまず 4. を見る: 番号の印が既にある commit は、最新の番号でなくても（欠番の commit を、後の番号が付いてから走らせ直しても）その番号を返し、下書きに欠けた配布物だけを足す（D7。review/spec.md R4）。

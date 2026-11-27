@@ -2,6 +2,7 @@
 // ST49 の画面の印の試験と ST52 の出所の版の試験（もとは buildStamp.test.ts。2 つの名前で同じ試験を 2 度走らせない。/code-review R38）
 import { describe, expect, it } from "vitest";
 import { webBuildStamp, type Git } from "../../build-stamp";
+import versionCheckTable from "../../../tools/release/version-check-table.tsv?raw";
 import { buildClaim, emptyInput, ingestItem } from "../attributes";
 import { WEB_VERSION } from "../buildStamp";
 import { buildFeeling, ingestFeelingItem } from "../feelings";
@@ -20,75 +21,107 @@ function fakeGit(opts: { head?: string | Error; status?: string | Error; statusB
 }
 
 describe("web build stamp", () => {
-  const base = { cargoToml: '[workspace.package]\nversion = "0.1.0"\n', env: {} };
+  const base = { cargoToml: '[workspace.package]\nversion = "0.0.1"\n', major: "0\n", env: {} };
 
   it("clean production: no suffix", () => {
     const s = webBuildStamp({ ...base, production: true, git: fakeGit({ head: `${HEAD}\n`, status: "" }) });
-    expect(s).toBe(`0.1.0+${HEAD}`);
+    expect(s).toBe(`0.0.1+${HEAD}`);
     expect(s).toMatch(STAMP);
   });
 
   // Scenario: 根の Cargo.toml を書き換えて commit していなければ、携帯と画面の印は .dirty を持つ
   it("uncommitted source-of-truth change adds .dirty", () => {
     const s = webBuildStamp({ ...base, production: false, git: fakeGit({ head: HEAD, status: "", statusByPath: { ":/Cargo.toml": " M Cargo.toml\n" } }) });
-    expect(s).toBe(`0.1.0+${HEAD}.dirty.debug`);
+    expect(s).toBe(`0.0.1+${HEAD}.dirty.debug`);
     expect(s).toMatch(STAMP);
   });
 
   it("production never gets .debug even when dirty", () => {
     const s = webBuildStamp({ ...base, production: true, git: fakeGit({ head: HEAD, status: "?? web/x\n" }) });
-    expect(s).toBe(`0.1.0+${HEAD}.dirty`);
+    expect(s).toBe(`0.0.1+${HEAD}.dirty`);
   });
 
   it("no git: unknown commit, not dirty", () => {
     const boom = new Error("no git");
     const s = webBuildStamp({ ...base, production: true, git: fakeGit({ head: boom, status: boom }) });
-    expect(s).toBe("0.1.0+unknown");
+    expect(s).toBe("0.0.1+unknown");
     expect(s).toMatch(STAMP);
   });
 
   it("a malformed HEAD is unknown", () => {
-    expect(webBuildStamp({ ...base, production: true, git: fakeGit({ head: "HEAD\n", status: "" }) })).toBe("0.1.0+unknown");
+    expect(webBuildStamp({ ...base, production: true, git: fakeGit({ head: "HEAD\n", status: "" }) })).toBe("0.0.1+unknown");
   });
 
   it("ASHIATO_BUILD_COMMIT wins over git", () => {
     const env = { ASHIATO_BUILD_COMMIT: "f".repeat(40) };
     const s = webBuildStamp({ ...base, env, production: true, git: fakeGit({ head: HEAD, status: "" }) });
-    expect(s).toBe(`0.1.0+${"f".repeat(40)}`);
+    expect(s).toBe(`0.0.1+${"f".repeat(40)}`);
   });
 
   it("an empty ASHIATO_BUILD_COMMIT falls through to git", () => {
     const s = webBuildStamp({ ...base, env: { ASHIATO_BUILD_COMMIT: "" }, production: true, git: fakeGit({ head: HEAD, status: "" }) });
-    expect(s).toBe(`0.1.0+${HEAD}`);
+    expect(s).toBe(`0.0.1+${HEAD}`);
   });
 
   // Scenario: 携帯と画面の印の版番号も、根の出所の版から読む
   it("reads the version from the workspace Cargo.toml", () => {
     const s = webBuildStamp({
-      cargoToml: '[workspace.package]\nversion = "0.9.0"\n',
+      cargoToml: '[workspace.package]\nversion = "0.0.9"\n',
       production: true,
       git: fakeGit({ head: HEAD, status: "" }),
     });
-    expect(s).toBe(`0.9.0+${HEAD}`);
+    expect(s).toBe(`0.0.9+${HEAD}`);
   });
 
   it("ASHIATO_BUILD_VERSION accepts a matching prerelease", () => {
     const s = webBuildStamp({
       ...base,
-      env: { ASHIATO_BUILD_VERSION: "0.1.0-beta.2" },
+      env: { ASHIATO_BUILD_VERSION: "0.4.0-beta.2" },
       production: true,
       git: fakeGit({ head: HEAD, status: "" }),
     });
-    expect(s).toBe(`0.1.0-beta.2+${HEAD}`);
+    expect(s).toBe(`0.4.0-beta.2+${HEAD}`);
   });
 
   // ベータ番号は 1〜98（spec。final review R8）。99・0・符号つきは拒む
   it("ASHIATO_BUILD_VERSION accepts beta.98 and rejects beta.99", () => {
     const stampWith = (given: string) =>
       webBuildStamp({ ...base, env: { ASHIATO_BUILD_VERSION: given }, production: true, git: fakeGit({ head: HEAD, status: "" }) });
-    expect(stampWith("0.1.0-beta.98")).toBe(`0.1.0-beta.98+${HEAD}`);
-    for (const given of ["0.1.0-beta.99", "0.1.0-beta.0", "0.1.0-beta.+5"]) {
+    expect(stampWith("0.4.0-beta.98")).toBe(`0.4.0-beta.98+${HEAD}`);
+    for (const given of ["0.4.0-beta.99", "0.4.0-beta.0", "0.4.0-beta.+5"]) {
       expect(() => stampWith(given)).toThrow(given);
+    }
+  });
+});
+
+describe("web build stamp version rule (design D9)", () => {
+  const stampWith = (source: string, given: string, major: string) =>
+    webBuildStamp({
+      cargoToml: `[workspace.package]\nversion = "${source}"\n`,
+      major,
+      env: { ASHIATO_BUILD_VERSION: given },
+      production: true,
+      git: fakeGit({ head: HEAD, status: "" }),
+    });
+
+  // Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する
+  it("rejects a number whose left digit differs from the MAJOR file", () => {
+    expect(() => stampWith("0.0.1", "1.4.0", "0\n")).toThrow(/左の数字のファイル 0.*出所 0\.0\.1.*渡した版番号 1\.4\.0/);
+  });
+
+  // Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する
+  it("agrees with every row of version-check-table.tsv", () => {
+    const rows = versionCheckTable.split("\n").filter((line) => line !== "" && !line.startsWith("#"));
+    expect(rows.length).toBeGreaterThanOrEqual(10);
+    for (const row of rows) {
+      const columns = row.split("\t");
+      expect(columns, row).toHaveLength(4);
+      const [given, source, major, verdict] = columns;
+      // 3 列目（左の数字）の形は断る検査の外で確かめる（壊れた ng の行が「断った」として通らない。code.md R23）
+      expect(major, `3 列目が数字でない: ${row}`).toMatch(/^\d+$/);
+      if (verdict === "ok") expect(stampWith(source, given, major), row).toBe(`${given}+${HEAD}`);
+      else if (verdict === "ng") expect(() => stampWith(source, given, major), row).toThrow();
+      else throw new Error(`ok|ng でない: ${row}`);
     }
   });
 });

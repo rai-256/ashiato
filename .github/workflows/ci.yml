@@ -21,6 +21,7 @@ jobs:
   # **比較できないときは全部走らせる**（黙って飛ばさない）。
   changes:
     runs-on: ubuntu-24.04
+    permissions: { contents: read, actions: read }
     outputs:
       code: ${{ steps.f.outputs.code }}
       android: ${{ steps.f.outputs.android }}
@@ -30,9 +31,21 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
+      # main への push は、直前の push でなく「前に成功した main の push の run」の commit を基準にする（design D8）。
+      # 取り消された merge のコードを、文書だけの merge の run が試してから番号が付く。見つからなければ all（全部走らせる）。
+      - id: prev
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PREV_SUCCESS_SHA="$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' || true)"
+          export PREV_SUCCESS_SHA
+          echo "base=$(tools/release/changes.sh base)" >> "$GITHUB_OUTPUT"
       - id: f
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || steps.prev.outputs.base }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -42,14 +55,15 @@ jobs:
           fi
           files="$(git diff --name-only "$BASE" "$HEAD")"
           echo "--- 変わったもの ---"; printf '%s\n' "$files"
-          has() { printf '%s\n' "$files" | grep -qE "$1"; }
+          # 一覧はパイプでなく <<< で渡す（大きな一覧で grep -q が先に終わると printf が SIGPIPE で落ち、pipefail が偽と読む。code.md R28）
+          has() { grep -qE "$1" <<<"$files"; }
           # 判定の正本は tools/release/changes.sh に置く。
-          if printf '%s\n' "$files" | tools/release/changes.sh code; then
+          if tools/release/changes.sh code <<<"$files"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
-          if printf '%s\n' "$files" | tools/release/changes.sh deps; then
+          if tools/release/changes.sh deps <<<"$files"; then
             echo "deps=true" >> "$GITHUB_OUTPUT"
           else
             echo "deps=false" >> "$GITHUB_OUTPUT"
@@ -519,12 +533,14 @@ jobs:
           src=""
           if [ "$RUN_SHA" = "$(git rev-parse HEAD)" ]; then
             src=HEAD
-          elif (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader \
-                  GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          elif (auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+                export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader GIT_CONFIG_VALUE_0="$auth"
                 git fetch --quiet --depth=1 origin "$RUN_SHA"); then
             src=FETCH_HEAD
           fi
           if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
+            # 鍵の形の検査（CI の chain job の --check-workflow）は export と値を 1 行で読む
+            # shellcheck disable=SC2155
             export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
             key="$(tools/release/windows-build-key.sh HEAD)" || key=""
           fi
@@ -570,13 +586,13 @@ jobs:
         run: tools/release/package.sh windows "$RUNNER_TEMP/package-windows"
         shell: bash
         env: { PGSQL_CACHE_DIR: "${{ runner.temp }}/pgsql-cache" }
-      # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.4.0 と 0.5.0 など）。
+      # 更新の試験の zip は、同じ commit から版番号だけを替えて組む（ST58 design D24。0.0.2 と 0.0.3 など）。
       # 版番号の出所の一致（version.sh・build-stamp）は配る組み立てを守るので緩めず、この runner の木の
       # Cargo.toml の出所の版だけを組むたびに替え、終わったら戻す
       - if: steps.reuse.outputs.cache-hit != 'true'
         run: |
           set_source() { sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"$1\"/" Cargo.toml; }
-          for spec in 0.4.0:old 0.5.0:new 0.4.0-dev.20261115:dev-old 0.5.0-dev.20261116:dev-new 0.4.1:compat-old 0.6.0:compat-new; do
+          for spec in 0.0.2:old 0.0.3:new 0.0.2-dev.20261115:dev-old 0.0.3-dev.20261116:dev-new 0.0.4:compat-old 0.0.5:compat-new; do
             v="${spec%%:*}"; name="${spec#*:}"
             set_source "${v%%-*}"
             [ "$(tools/release/version.sh source)" = "${v%%-*}" ] || { echo "出所の版を ${v%%-*} に替えられない"; exit 1; }

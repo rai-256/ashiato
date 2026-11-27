@@ -1,0 +1,74 @@
+{
+  "format": 2,
+  "title": "ST61 の深掘り（第 2 回）",
+  "subtitle": "版番号を自動で上げる —— 枝の commit の題",
+  "makes": "main に merge すると、この枝の commit の題もそのまま main の履歴に残る。1 つだけ、題が「wip」で規則に合わない commit がある。",
+  "note": "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q5",
+      "topic": "題が「wip」の commit（review/code.md R10）",
+      "kind": "irreversible",
+      "loss": "discarded",
+      "question": "題が「wip」の commit を、merge の前に書き直すか",
+      "decide": "枝の途中の commit 58f7a4d8c（番号の印と置き場の台本の途中の作業。本文なし）の題を、規則の形に書き直すか、そのまま merge するか。",
+      "points": [
+        "規則は「feat: / fix: / docs: / chore: + 日本語 1 行、本文に『なぜ』」（CLAUDE.md）。外れているのはこの 1 つだけ。",
+        "書き直すと、その後の commit の番号（SHA）が全部変わる。枝はまだ配布元へ push していないので、強制の push は要らない。",
+        "中身は直後の commit 53a74e0ce（feat(st61): 番号の印と下書きへの置き場…）の前半で、なぜはそちらの題で読める。"
+      ],
+      "no_figure": "commit の題 1 つの違いで、図にすると要点の繰り返しになる",
+      "why": "merge した後の main の履歴は書き換えない。だから「wip」の題は、**merge した時点で main に永久に残る**。",
+      "context": "main への merge は merge commit の形（squash しない）なので、枝の commit の題がそのまま main に入る。commit の題の形を機械で止める commit-msg の hook は、まだ無い。",
+      "multi": false,
+      "allow_free": true,
+      "family": {
+        "name": "規則の形に合わない commit の題が main に入る",
+        "siblings": [
+          {
+            "case": "Task agent が付けた題「wip」（本文なし）",
+            "decided": "未決 Q5"
+          },
+          {
+            "case": "グラフが付ける題（`chore(ST61): Task N を完了にする` など。本文なし）",
+            "decided": "グラフ（harness2）の決め。この Story の範囲の外"
+          },
+          {
+            "case": "これからの commit の題を機械で止める（commit-msg の hook）",
+            "decided": "この Story の範囲の外（ハーネスの改良の依頼にする）"
+          }
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "上流が拾える問いではない。Task 4 の実装の途中で agent が題を付けずに commit し、Task のレビューも commit の題を見ていなかった",
+        "prevention": "commit の題の形を commit-msg の hook で機械に止めさせる（ハーネスの改良）"
+      },
+      "options": [
+        {
+          "label": "そのまま merge する（書き直さない）",
+          "gain": "枝の commit の番号が変わらず、グラフの記録（review/code.md の HEAD の行など）とずれない。手間が無い。",
+          "irreversible": "main に「wip」の題が永久に残る",
+          "harm": {
+            "when": "git log で main の履歴を読み、この commit の目的を知りたいとき。",
+            "who": "だれにも見えない（自分の repo の履歴の中だけ）。",
+            "link": "直後の commit 53a74e0ce の題を読めば分かる。",
+            "unknown": "なし。"
+          },
+          "recommended": true
+        },
+        {
+          "label": "題を書き直してから merge する",
+          "gain": "main の履歴が全部規則の形になる。",
+          "irreversible": "枝の 40 個ほどの commit の番号が変わり、前の番号は捨てられる",
+          "harm": {
+            "when": "グラフの記録や指摘の根拠が、前の commit の番号を指していて、読み直したいとき。",
+            "who": "だれにも見えない（自分の repo とハーネスの記録の中だけ）。",
+            "link": "review/code.md の「HEAD 2d56b68ba」などの行が、もう無い commit を指す。",
+            "unknown": "グラフの merge gate が、書き換えた後の番号で指摘の commit の前後を正しく読めるか（試していない）。"
+          }
+        }
+      ]
+    }
+  ]
+}

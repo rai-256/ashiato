@@ -99,14 +99,14 @@ dependencies = [
 
 [[package]]
 name = "ashiato-build-stamp"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "ashiato-collector-windows"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "active-win-pos-rs",
  "anyhow",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "ashiato-server"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "ashiato-setup"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "argon2",
  "ashiato-build-stamp",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "ashiato-update-check"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "chrono",
  "semver",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "ashiato-updater"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "ashiato-build-stamp",
  "ashiato-update-check",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "ashiato-winsvc"
-version = "0.1.1"
+version = "0.0.1"
 dependencies = [
  "windows-service",
 ]

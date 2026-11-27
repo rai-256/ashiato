@@ -1,0 +1,2 @@
+=== ST61 の深掘り（第 2 回） の回答 ===
+Q5 [題が「wip」の commit（review/code.md R10）] -> そのまま merge する（書き直さない）

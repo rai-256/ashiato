@@ -27,44 +27,66 @@ val localProps = Properties().apply {
 fun credential(name: String): String =
     (project.findProperty(name) as String?) ?: localProps.getProperty(name, "")
 
-private data class ParsedBuildVersion(val major: Int, val minor: Int, val patch: Int, val suffix: String?)
+private data class ParsedBuildVersion(val major: Long, val minor: Long, val patch: Long, val suffix: String?) {
+    val numbers get() = "$major.$minor.$patch"
+}
 
 private fun parseBuildVersion(value: String): ParsedBuildVersion {
     val match = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)(-(?:beta\\.[1-9]|beta\\.[1-8]\\d|beta\\.9[0-8]|dev\\.\\d{8}))?$").matchEntire(value)
         ?: throw GradleException("版番号の形が違う: $value")
-    return ParsedBuildVersion(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt(), match.groupValues[4].ifEmpty { null })
+    fun number(i: Int) = match.groupValues[i].toLongOrNull() ?: throw GradleException("版番号の数字が大きすぎる: $value")
+    return ParsedBuildVersion(number(1), number(2), number(3), match.groupValues[4].ifEmpty { null })
 }
 
+// D3: 左×10,000,000 + 真ん中×10,000 + 右。後ろの -beta・-dev は値に入れない。上限（左 209・真ん中 999・右 9,999）を超えれば落とす
 private fun versionCodeFor(value: String): Int {
     val parsed = parseBuildVersion(value)
-    if (parsed.minor > 99) throw GradleException("MINOR が上限を超えた: ${parsed.minor}")
-    if (parsed.patch > 99) throw GradleException("PATCH が上限を超えた: ${parsed.patch}")
-    val tail = when {
-        parsed.suffix == null -> 99
-        parsed.suffix.startsWith("-dev.") -> 0
-        else -> parsed.suffix.removePrefix("-beta.").toInt()
-    }
-    return parsed.major * 1_000_000 + parsed.minor * 10_000 + parsed.patch * 100 + tail
+    if (parsed.major > 209) throw GradleException("左の数字が上限 209 を超えた: ${parsed.major}")
+    if (parsed.minor > 999) throw GradleException("真ん中の数字が上限 999 を超えた: ${parsed.minor}")
+    if (parsed.patch > 9999) throw GradleException("右の数字が上限 9999 を超えた: ${parsed.patch}")
+    return (parsed.major * 10_000_000 + parsed.minor * 10_000 + parsed.patch).toInt()
 }
 
 private fun sourceVersionFrom(cargoToml: String): String =
     Regex("(?ms)^\\[workspace\\.package\\].*?^version\\s*=\\s*\"([^\"]+)\"").find(cargoToml)?.groupValues?.get(1)
         ?: throw GradleException("Cargo.toml の [workspace.package] version が無い")
 
+private fun majorFrom(majorFile: String): Long {
+    val value = majorFile.trim()
+    if (!Regex("^\\d+$").matches(value)) throw GradleException("tools/release/MAJOR が数字 1 つでない: \"$value\"")
+    // 先頭の 0 を除いて 19 桁以上は断る（bash・Rust・画面と同じ桁。code.md R33）
+    if (value.trimStart('0').length > 18) throw GradleException("tools/release/MAJOR の数字が大きすぎる: $value")
+    return value.toLongOrNull() ?: throw GradleException("tools/release/MAJOR の数字が大きすぎる: $value")
+}
+
+// D9: 渡した版の 3 つの数字が出所の版と同じなら「番号を持たない版」、左が MAJOR の値で <左>.<真ん中> が 0.0 でなければ「番号」。
+// bash（version.sh）・Rust（build-stamp）・TypeScript（build-stamp.ts）と同じ規則で、同じ表（version-check-table.tsv）が固定する
+private fun checkBuildVersion(source: String, given: String, major: Long): String {
+    val context = "左の数字のファイル $major、出所 $source、渡した版番号 $given"
+    // 形の誤り・上限の誤りの文にも出所と MAJOR を含める（Rust・TS と同じ。code.md R20）
+    fun <T> withContext(block: () -> T): T = try { block() } catch (e: GradleException) { throw GradleException("${e.message}: $context", e) }
+    val sourceParsed = withContext { parseBuildVersion(source) }
+    if (sourceParsed.suffix != null || sourceParsed.major != 0L || sourceParsed.minor != 0L || sourceParsed.patch < 1) {
+        throw GradleException("版番号の出所が 0.0.<N>（N は 1 以上）の形でない: $context")
+    }
+    val givenParsed = withContext { parseBuildVersion(given) }
+    if (givenParsed.numbers != sourceParsed.numbers) {
+        if (givenParsed.major != major) throw GradleException("左の数字が左の数字のファイルと違う: $context")
+        if (givenParsed.major == 0L && givenParsed.minor == 0L) throw GradleException("出所の版と違う 0.0.x は番号ではない: $context")
+    }
+    withContext { versionCodeFor(given) }
+    return given
+}
+
 val cargoToml = providers.fileContents(rootProject.layout.projectDirectory.file("../Cargo.toml")).asText
 val sourceVersion = cargoToml.map { text -> sourceVersionFrom(text) }
+val majorFile = providers.fileContents(rootProject.layout.projectDirectory.file("../tools/release/MAJOR")).asText
 val buildVersionProvider = providers.environmentVariable("ASHIATO_BUILD_VERSION").orElse("")
 val buildVersionInput = buildVersionProvider.get().trim()
 val resolvedBuildVersion = if (buildVersionInput.isEmpty()) {
     sourceVersion.get()
 } else {
-    val source = sourceVersion.get()
-    val sourceParsed = parseBuildVersion(source)
-    val givenParsed = parseBuildVersion(buildVersionInput)
-    if (sourceParsed.major != givenParsed.major || sourceParsed.minor != givenParsed.minor || sourceParsed.patch != givenParsed.patch) {
-        throw GradleException("版番号の出所が一致しない: 出所 $source、渡した版番号 $buildVersionInput")
-    }
-    buildVersionInput
+    checkBuildVersion(sourceVersion.get(), buildVersionInput, majorFrom(majorFile.get()))
 }
 val resolvedVersionCode = versionCodeFor(resolvedBuildVersion)
 val isDevBuild = resolvedBuildVersion.contains("-dev.")
@@ -411,6 +433,31 @@ tasks.register("verifyVersionCodeTable") {
                 }
             }
         }
+    }
+}
+
+tasks.register("verifyVersionCheckTable") {
+    inputs.file(rootProject.file("../tools/release/version-check-table.tsv"))
+    doLast {
+        var rows = 0
+        rootProject.file("../tools/release/version-check-table.tsv").useLines { lines ->
+            lines.filter { it.isNotEmpty() && !it.startsWith("#") }.forEach { line ->
+                // Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する
+                val columns = line.split("\t")
+                if (columns.size != 4) throw GradleException("version-check-table.tsv の列が 4 つでない: $line")
+                // 表の列の読み取りは runCatching の外（3 列目が壊れた ng の行を「断った」と読まない。code.md R20）
+                if (!Regex("^\\d+$").matches(columns[2])) throw GradleException("version-check-table.tsv の 3 列目が数字でない: $line")
+                // 3 列目は左の数字のファイルの中身として読む（桁の上限も 4 か所で同じ。code.md R33）
+                val accepted = runCatching { checkBuildVersion(columns[1], columns[0], majorFrom(columns[2])) }.isSuccess
+                when (columns[3]) {
+                    "ok" -> if (!accepted) throw GradleException("version-check-table.tsv の受ける版番号を断った: $line")
+                    "ng" -> if (accepted) throw GradleException("version-check-table.tsv の断る版番号を受けた: $line")
+                    else -> throw GradleException("version-check-table.tsv の 4 列目が ok|ng でない: $line")
+                }
+                rows += 1
+            }
+        }
+        if (rows < 10) throw GradleException("version-check-table.tsv の行が少ない: $rows")
     }
 }
 
