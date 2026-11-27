@@ -66,6 +66,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 - 判定: ADDRESSED（re-review 5 @bc6452b35e5d55e560ec22bcaa1f1caaf1b1c518）
 - 判定: ADDRESSED（re-review 6 @480aba6da40002e497bf26ef51f25846732ec2aa）
+- 判定: ADDRESSED（re-review 8 @52aed864116ff2b74596f738cc72abdf120b33b7）
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -436,6 +437,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 6.1
 - 判定: ADDRESSED（re-review 5 @bc6452b35e5d55e560ec22bcaa1f1caaf1b1c518）
+- 判定: ADDRESSED（re-review 8 @52aed864116ff2b74596f738cc72abdf120b33b7）
 
 ## R29. The bash version rule accepts numbers that the Rust, Kotlin and TypeScript copies reject, so the four copies no longer agree. `parse_version` and `major_file` read each number with `$((10#…))`, which wraps silently above 2^64. A huge left number, or a huge value in the MAJOR file, becomes 0 and passes as a valid number. Rust (`u64` parse fails), gradle (`toLongOrNull` fails) and TS (`isSafeInteger` fails) all reject it. Fix: check the digit count first (for example `${#BASH_REMATCH[1]} <= 9`) in `parse_version`, `major_file` and the left-number read in `number()`, and add such a row to version-check-table.tsv.
 - 成果物: tools/release/version.sh:21
