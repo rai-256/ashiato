@@ -371,3 +371,18 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 結論: 申告と実測は不一致（1 件。R27）。19 項目の検証コマンドは全部実在し rc=0 だったが、R25 の直し（nightly.yml の判定の step の `shell: bash`）は消しても検査が落ちない（今は害が無い）
 - 確かめた範囲: tasks.md の `[x]` 19 項目の検証コマンドを全部実行した（cargo・gradle・apk-build・npm build・check-build-stamp を含む）。2 つの表を python で独立に計算し直した。Task 13 の分岐、前回の後の直し（R2・R6〜R9・R11〜R14・R18・R21〜R23・R25）、本人の決定 6 つを使い捨ての木で壊して走らせた。`git diff` が落ちる偽の git で Task 13 の新しい道を走らせた。新しい Scenario の印の先を読んだ。手 7 の 2.2 は作業ツリーで壊して戻した
 - 見ていない範囲: 配布元（GitHub）での実際の印・下書きの作成と number.yml・nightly.yml の実際の run（人間の確認待ち 12.1〜12.5）。Windows の runner での組み立て。R1・R3〜R5・R17・R19・R20 の直しは、今回は壊していない（前回と re-review 1〜4 の判定に任せた）。R15 は一時ファイルの数、R16 は grep だけで、壊していない。R24 は Task 13 として壊した。R10・R26 はコードの守りではないので対象外
+
+## security review（e721251..cc4b9bc）
+
+見た経路: fork の PR → ci（pull_request）→ workflow_run → number job。`number.yml:14` の `event == 'push'` と `head_repository.full_name == github.repository`、`branches: [main]` で書く権限の job に入らない。後ろの 3 job は `needs: number` なので一緒に飛ぶ（3）
+見た経路: main の push → number job（`contents: write`、`persist-credentials: true`）。`run:` に `${{ }}` で埋める値は head_sha（GitHub が出す hex）と `steps.decide.outputs.number` だけ。number は version.sh の `^build-[0-9]+\.[0-9]+\.[0-9]+$`（`version.sh:181,195`）と数の計算からしか作られず、merge の題（`version.sh:244-246`）は正規表現の判定に使うだけで出力されない。`number.sh:17` でも形を確かめ直す（4）
+見た経路: number.sh tag/place/complete → `git push` は `refs/tags/build-<番号>` の 1 つだけで、強制しない。`gh release create --draft`・`upload` は `--clobber` なし。下書きでない release には書かない（`number.sh:54,93,96,109`）（2。self-test は既存）
+見た経路: build-linux/windows（workflow 既定の `contents: read`、秘密なし、`persist-credentials: false`）→ artifact → place（write）。download-artifact は同じ run の `number-*` だけを取る。APK の組み立ては `-Pashiato.apiToken= -Pashiato.userId=` を空のまま組む（`build.sh` assemble_apk）。署名していない APK は `--allow-debug-key` の無い置き場で落ちる（check-artifacts.sh）（2）
+見た経路: nightly の publish（署名の秘密あり）→ `ref: needs.plan.outputs.commit` で checkout して台本を走らせる。commit は build-* の印が指す commit のうち main の first-parent 上のものに限られる（`version.sh:153-157`）。印を置けるのは書く権限を持つ人だけなので、未レビューのコードに秘密が渡る経路は無い（3）
+見た経路: ci.yml の `id: prev`（push のときだけ、`actions: read`）→ gh api の head_sha → `PREV_SUCCESS_SHA` → `changes.sh base` → `$GITHUB_OUTPUT`。値に改行や `$(id)` を入れると `all` になる（4）。`HEAD~1` のような rev 式は 40 桁に直さずそのまま返す（`changes.sh:31` は `$sha` を返す）。ただし値の出所は GitHub API の head_sha だけで、外から入れる口は無い
+見た経路: build-stamp（Rust `lib.rs` の `major_file`）・gradle・web/build-stamp.ts → `tools/release/MAJOR` と `ASHIATO_BUILD_VERSION` を読む。どちらも CI か手元の組み立てが与える値で、外からの入力は無い。数字の正規表現と上限を越えれば落ちる（2）
+見た経路: 足した文書・証跡（evidence.jsonl・code.md・docs/briefs/ST61-deep-r3.html）の `+` 行に token・鍵・記録の中身が無いか grep した。出たのは手元の worktree の絶対パスだけ（既存の文書と同じ扱い）（4）
+安全の決め手: 書く権限を持つ job（number・place）の `run:` に入るのは、GitHub が出す hex の sha と、`^[0-9]+\.[0-9]+\.[0-9]+$` に限った番号だけ。印の名前・merge の題・枝の名前は、そこまで届かない —— 確かさ 4。`/tmp/st61-sec/probe.sh` で確かめた。使い捨ての木に悪意のある名前の印（`build-0.2.0$(touch${IFS}pwned)`・`build-9.9.9-x"`・`build-1.0.0;id`）、`$(…)` を持つ枝、`number=6.6.6` などの行を混ぜた merge の題を置き、本物の `version.sh number` を走らせた。結果は `number=0.3.0` の 1 行だけで、`pwned` はできなかった。reuse の経路も同じだった。`changes.sh base` は改行と `$(id)` を入れた値で `all` を返した。書く権限の job に fork の run が入らないことは、`number.yml:14` の条件と GitHub の workflow_run の仕様を突き合わせた 3 で止まった。実際の GitHub の run では確かめていない
+見ていない範囲: GitHub 上での実際の number.yml・nightly.yml の run（branch protection や印の保護の設定を含む）。Windows の runner の組み立て。check-guards.sh の workflow 検査の中身
+
+指摘なし
