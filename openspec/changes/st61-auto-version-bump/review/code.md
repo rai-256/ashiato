@@ -480,3 +480,13 @@ final reviewer（whole-branch の 3 回目。`code-reviewer.md`）の指摘。R2
 - 提案: 4 か所の MAJOR の読みに同じ上限（versionCode の左の上限 209、または bash と同じ 18 桁）を入れ、表に MAJOR の境目の行を足す。あるいは R29 の範囲は版の文字列だけと注記する
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 6 @480aba6da40002e497bf26ef51f25846732ec2aa）
+
+## final review（e721251..4aeeb8c）
+
+final reviewer（whole-branch の 4 回目。`code-reviewer.md`）の指摘。R32・R33 の直し（2e16097..4aeeb8c）は効いていて、新しく壊れたものは無かった。release.yml の `shell: bash` を外すと `check-guards.sh workflows` が落ちる。4 か所（bash・Rust・TS・gradle）の MAJOR の桁の条件をそれぞれ外すと、どれも表の `0.0.1 0.0.1 1000000000000000000 ng` の行で落ちる（実測）。HEAD の一時 worktree で `version.sh --self-test`・`check-guards.sh --self-test`・`check-guards.sh workflows`・`changes.sh --self-test`・`number.sh --self-test`・`tools/check-version.sh --self-test`・`version_test.sh` は rc=0 だった。`cargo test -p ashiato-build-stamp` は 16 passed、`vitest build-stamp.test.ts` は 14 passed、gradle の `:app:verifyVersionCodeTable :app:verifyVersionCheckTable` は rc=0。Task 単位の Minor・⚠️ は、どれも処置済みか、code.md の「R にしない」の行か、人間の確認（12.x）に入っていて、新しく R にするものは無い。範囲外の観察として、evidence.jsonl の末尾は bf0312e98 で、480aba6da の後に `verify-run` の証跡が無い。判定: merge してよい（Critical・Important なし、Minor 1）。
+
+## R34. 19 桁以上の MAJOR を断るときの文が Rust だけ違う。Rust は「左の数字のファイルが数字 1 つでない」と出し、bash・gradle・TS は R33 の直しで「数字が大きすぎる」と出す
+- 成果物: crates/build-stamp/src/lib.rs
+- 根拠: crates/build-stamp/src/lib.rs:69-74・:80-87（`parse_major` は `Option<u64>` を返すので、形の誤りと桁あふれを区別できない）。比べた先は tools/release/version.sh:51・collector-android/app/build.gradle.kts:58・web/build-stamp.ts:66。断るかどうかは 4 か所でそろっていて、ずれているのは診断の文だけ（final review 4。Minor。読んだだけ）
+- kind: technical
+- 提案: `parse_major` を `Result<u64, &'static str>` にして、形の誤りと「数字が大きすぎる」を分けて報告する
