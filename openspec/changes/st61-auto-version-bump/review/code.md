@@ -441,3 +441,19 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: rejected: 固定の 0.0.1 は spec の Scenario「版番号を渡さずに組んだ部品の版番号は 0.0.1」（specs/distribution/spec.md:267-270。GIVEN「この repo の木」THEN「どれも `0.0.1`」）の THEN そのもので、続く「出所の版と違う 0.0.x を渡すと、組み立てが失敗する」（:506。GIVEN「出所の版が `0.0.1` の木」）の前提でもある。check-build-stamp.sh:275-279 は `ASHIATO_BUILD_VERSION=0.0.2` で組んで失敗することを見るので、出所を 0.0.2 に上げた木では、この行を消しても直後の検査が「出所と違う 0.0.x の組み立てが成功した」で落ちる（指摘の「組み立ては全部正しいのに通らない」は、行を外しても変わらない）。出所の版を上げるなら spec の 2 つの Scenario を一緒に変える変更になり、そのときにこの行が先に「出所の版が 0.0.1 でない」と理由を示して止めるのが意図どおり。`0.0.<N≥1>` に広げると、Scenario :267 の THEN を確かめなくなる
 - 判定: ADDRESSED（re-review 5 @bc6452b35e5d55e560ec22bcaa1f1caaf1b1c518）
+
+## final review（e721251..2e16097）
+
+final reviewer（whole-branch の 3 回目。`code-reviewer.md`）の指摘。R27〜R31 の処置（c442010..2e16097）は効いていて、新しく壊れたものは無かった。HEAD の一時 worktree で `version.sh --self-test`・`check-guards.sh --self-test`・`check-guards.sh workflows`・`changes.sh --self-test`・`number.sh --self-test` は rc=0、`vitest build-stamp.test.ts` は 14 passed、`cargo test -p ashiato-build-stamp` は 16 passed、gradle `:app:verifyVersionCodeTable :app:verifyVersionCheckTable` は rc=0（表に 5 行足した後の HEAD で）。Task 単位の Minor・⚠️ は全部、処置済みか code.md の「R にしない」の行（:294・:328）か工程の話で、新しく R にするものは無い。判定: merge してよい（Critical・Important なし、Minor 2）。
+
+## R32. release.yml の `id: plan` に、R13・R25 と同じ形（`shell:` が無いまま `version.sh plan … | tee plan.txt`）が残っている。既定の `bash -e` は pipefail を持たず、パイプの rc は `tee` の 0 になる
+- 成果物: .github/workflows/release.yml:17-19, tools/release/check-guards.sh
+- 根拠: release.yml:17-19 に `shell:` が無い（workflow・job の `defaults` も無い）。今は害が無い —— `plan()` の die はどれも最初の echo より前にあり、出力が空なら後ろの `grep '^channel=' plan.txt` が落ちて step も落ちる。ただこの枝は `plan()` に D11 の止め（印の commit に番号が無い）を足しており、その効き目はこの step が落ちることに懸かっている。number.yml（R13）と nightly.yml（R25・R27）は `shell: bash` を足して check-guards で守ったが、release.yml だけがそろっていない（final review。Minor。読んだだけ、確かさ 3）
+- kind: technical
+- 提案: release.yml の `id: plan` に `shell: bash` を足し、check-guards の `job_block "$release" plan` に nightly と同じ検査と、外した偽の release.yml で rc≠0 になる自己試験を足す
+
+## R33. MAJOR のファイルの桁の扱いが 4 か所でそろっていない。19 桁の MAJOR を bash は断り、Rust・gradle・TS は受ける。R29 の直しは版の文字列の側だけに届いた
+- 成果物: tools/release/version.sh:47-53, web/build-stamp.ts:62, crates/build-stamp/src/lib.rs:80, collector-android/app/build.gradle.kts:54-58
+- 根拠: MAJOR に `1000000000000000000`（19 桁）を入れて `0.0.1` を渡すと、bash の `major_file` は `fits_decimal` で「数字が大きすぎる」と止まる（実測 rc=1）。Rust の `parse_major`（u64）・gradle の `majorFrom`（Long）は受け、TS の `parseMajor` は `Number()` を返すだけで `isSafeInteger` を見ないので受ける（読んだだけ）。version-check-table.tsv の 3 列目は `major_file` を通らないので表では捕まらない。209 を超える MAJOR は番号に使えないので困る場面はほぼ無いが、「4 か所がそろう」（R8・R29）は MAJOR の側で成り立たない（final review。Minor。確かさ 2）
+- kind: technical
+- 提案: 4 か所の MAJOR の読みに同じ上限（versionCode の左の上限 209、または bash と同じ 18 桁）を入れ、表に MAJOR の境目の行を足す。あるいは R29 の範囲は版の文字列だけと注記する
