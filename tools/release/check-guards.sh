@@ -326,11 +326,14 @@ workflow() {
   job_block "$release" plan | grep -q 'version.sh plan' || die 'release の plan が無い'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' || die 'nightly の nightly-plan が無い'
   # 判定の step（id: plan）は shell: bash で走らせる。書かないと bash -e（pipefail なし）で走り、
-  # version.sh が出力の後に落ちても tee の 0 で緑になる（code.md R13・R25・R27）
-  local nightly_plan_step
-  nightly_plan_step="$(job_block "$nightly" plan | awk '/^      - id: plan$/{f=1; print; next} f && /^      - /{exit} f{print}')"
-  [[ -n "$nightly_plan_step" ]] || { die 'nightly の判定 job に id: plan の step が無い'; return 1; }
-  grep -qxF '        shell: bash' <<<"$nightly_plan_step" || { die 'nightly の判定の step（id: plan）の shell が bash と書かれていない（書かないと pipefail なしで走る）'; return 1; }
+  # version.sh が出力の後に落ちても tee の 0 で緑になる（code.md R13・R25・R27・R32）
+  local plan_name plan_file plan_step
+  for plan_name in nightly release; do
+    plan_file="$root/.github/workflows/$plan_name.yml"
+    plan_step="$(job_block "$plan_file" plan | awk '/^      - id: plan$/{f=1; print; next} f && /^      - /{exit} f{print}')"
+    [[ -n "$plan_step" ]] || { die "$plan_name の判定 job に id: plan の step が無い"; return 1; }
+    grep -qxF '        shell: bash' <<<"$plan_step" || { die "$plan_name の判定の step（id: plan）の shell が bash と書かれていない（書かないと pipefail なしで走る）"; return 1; }
+  done
   job_block "$release" package-linux | grep -qE 'ASHIATO_APK_UNSIGNED(:[[:space:]]*|=)"?1' || die 'release の APK が unsigned でない'
   job_block "$nightly" package-linux | grep -q 'tools/release/build.sh apk' || die 'nightly の組み立て job に APK が無い'
   job_block "$nightly" publish | grep -q 'tools/release/publish-nightly.sh' || die 'nightly の公開 job が公開手順を使っていない'
@@ -515,6 +518,10 @@ EOF
   ! cmp -s "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/nightly.yml" || die 'shell: bash を外した偽 nightly が元と同じ'
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '判定の step に shell: bash の無い偽 nightly を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
+  # 判定の step の shell: bash を外した偽 release（code.md R32）
+  sed '/^      - id: plan$/,/^        run: /{/^        shell: bash$/d}' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml"
+  ! cmp -s "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml" || die 'shell: bash を外した偽 release が元と同じ'
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '判定の step に shell: bash の無い偽 release を通した'; fi
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
   echo "== Scenario: CI の更新の試験の組み立ては、0.0.x だけを名乗る"

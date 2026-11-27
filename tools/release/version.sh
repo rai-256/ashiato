@@ -42,15 +42,22 @@ trim() {
   printf '%s' "${value%"${value##*[![:space:]]}"}"
 }
 
+# 左の数字のファイルの中身を数字にする。数字 1 つでなければ、先頭の 0 を除いて 19 桁以上なら落ちる（D9）。
+# Rust の parse_major・gradle の majorFrom・画面の parseMajor も同じ桁で断る（code.md R33）
+major_value() {
+  local value
+  value=$(trim "$1")
+  [[ "$value" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${value:-<空>}"
+  fits_decimal "$value" || die "左の数字のファイルの数字が大きすぎる: $value"
+  echo $((10#$value))
+}
+
 # 左の数字（tools/release/MAJOR）。数字 1 つでなければ落ちる（D9）
 major_file() {
   [[ -z "${1:-}" ]] && set -- "$ROOT/tools/release/MAJOR"
   local value
   value=$(cat "${1:-$ROOT/tools/release/MAJOR}" 2>/dev/null) || die "左の数字のファイルが読めない: ${1:-$ROOT/tools/release/MAJOR}"
-  value=$(trim "$value")
-  [[ "$value" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${value:-<空>}"
-  fits_decimal "$value" || die "左の数字のファイルの数字が大きすぎる: $value"
-  echo $((10#$value))
+  major_value "$value"
 }
 
 # D3: 左×10,000,000 + 真ん中×10,000 + 右。後ろの -beta・-dev は値に入れない
@@ -407,7 +414,8 @@ self_test() {
     # 3 列目（左の数字）の形は断る検査の外で確かめる（壊れた ng の行が「断った」として通らない。code.md R23）
     [[ "$left" =~ ^[0-9]+$ ]] || die "version-check-table.tsv の 3 列目が数字でない: $version（左 ${left:-<空>}）"
     [[ "$verdict" == ok || "$verdict" == ng ]] || die "version-check-table.tsv の 4 列目が ok|ng でない: $version"
-    if (check_rule "$version" "$source" "$left" >/dev/null 2>&1); then got=ok; else got=ng; fi
+    # 3 列目は左の数字のファイルの中身として読む（桁の上限も 4 か所で同じ。code.md R33）
+    if (major=$(major_value "$left") && check_rule "$version" "$source" "$major") >/dev/null 2>&1; then got=ok; else got=ng; fi
     [[ "$got" == "$verdict" ]] || die "version-check-table.tsv: $version（出所 $source・左 $left）は $verdict のはずが $got"
   done < "$ROOT/tools/release/version-check-table.tsv"
   [[ "$(major_file)" =~ ^[0-9]+$ ]] || return 1

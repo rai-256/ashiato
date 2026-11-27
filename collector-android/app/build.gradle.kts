@@ -54,6 +54,8 @@ private fun sourceVersionFrom(cargoToml: String): String =
 private fun majorFrom(majorFile: String): Long {
     val value = majorFile.trim()
     if (!Regex("^\\d+$").matches(value)) throw GradleException("tools/release/MAJOR が数字 1 つでない: \"$value\"")
+    // 先頭の 0 を除いて 19 桁以上は断る（bash・Rust・画面と同じ桁。code.md R33）
+    if (value.trimStart('0').length > 18) throw GradleException("tools/release/MAJOR の数字が大きすぎる: $value")
     return value.toLongOrNull() ?: throw GradleException("tools/release/MAJOR の数字が大きすぎる: $value")
 }
 
@@ -444,8 +446,9 @@ tasks.register("verifyVersionCheckTable") {
                 val columns = line.split("\t")
                 if (columns.size != 4) throw GradleException("version-check-table.tsv の列が 4 つでない: $line")
                 // 表の列の読み取りは runCatching の外（3 列目が壊れた ng の行を「断った」と読まない。code.md R20）
-                val major = columns[2].toLongOrNull() ?: throw GradleException("version-check-table.tsv の 3 列目が数字でない: $line")
-                val accepted = runCatching { checkBuildVersion(columns[1], columns[0], major) }.isSuccess
+                if (!Regex("^\\d+$").matches(columns[2])) throw GradleException("version-check-table.tsv の 3 列目が数字でない: $line")
+                // 3 列目は左の数字のファイルの中身として読む（桁の上限も 4 か所で同じ。code.md R33）
+                val accepted = runCatching { checkBuildVersion(columns[1], columns[0], majorFrom(columns[2])) }.isSuccess
                 when (columns[3]) {
                     "ok" -> if (!accepted) throw GradleException("version-check-table.tsv の受ける版番号を断った: $line")
                     "ng" -> if (accepted) throw GradleException("version-check-table.tsv の断る版番号を受けた: $line")

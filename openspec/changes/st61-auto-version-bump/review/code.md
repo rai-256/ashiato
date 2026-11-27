@@ -451,9 +451,11 @@ final reviewer（whole-branch の 3 回目。`code-reviewer.md`）の指摘。R2
 - 根拠: release.yml:17-19 に `shell:` が無い（workflow・job の `defaults` も無い）。今は害が無い —— `plan()` の die はどれも最初の echo より前にあり、出力が空なら後ろの `grep '^channel=' plan.txt` が落ちて step も落ちる。ただこの枝は `plan()` に D11 の止め（印の commit に番号が無い）を足しており、その効き目はこの step が落ちることに懸かっている。number.yml（R13）と nightly.yml（R25・R27）は `shell: bash` を足して check-guards で守ったが、release.yml だけがそろっていない（final review。Minor。読んだだけ、確かさ 3）
 - kind: technical
 - 提案: release.yml の `id: plan` に `shell: bash` を足し、check-guards の `job_block "$release" plan` に nightly と同じ検査と、外した偽の release.yml で rc≠0 になる自己試験を足す
+- 処置: fixed 8.1
 
 ## R33. MAJOR のファイルの桁の扱いが 4 か所でそろっていない。19 桁の MAJOR を bash は断り、Rust・gradle・TS は受ける。R29 の直しは版の文字列の側だけに届いた
 - 成果物: tools/release/version.sh:47-53, web/build-stamp.ts:62, crates/build-stamp/src/lib.rs:80, collector-android/app/build.gradle.kts:54-58
 - 根拠: MAJOR に `1000000000000000000`（19 桁）を入れて `0.0.1` を渡すと、bash の `major_file` は `fits_decimal` で「数字が大きすぎる」と止まる（実測 rc=1）。Rust の `parse_major`（u64）・gradle の `majorFrom`（Long）は受け、TS の `parseMajor` は `Number()` を返すだけで `isSafeInteger` を見ないので受ける（読んだだけ）。version-check-table.tsv の 3 列目は `major_file` を通らないので表では捕まらない。209 を超える MAJOR は番号に使えないので困る場面はほぼ無いが、「4 か所がそろう」（R8・R29）は MAJOR の側で成り立たない（final review。Minor。確かさ 2）
 - kind: technical
 - 提案: 4 か所の MAJOR の読みに同じ上限（versionCode の左の上限 209、または bash と同じ 18 桁）を入れ、表に MAJOR の境目の行を足す。あるいは R29 の範囲は版の文字列だけと注記する
+- 処置: fixed 1.1

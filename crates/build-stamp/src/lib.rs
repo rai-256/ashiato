@@ -77,12 +77,18 @@ pub fn version(source: &str) -> Result<String, String> {
 
 /// 左の数字のファイルの中身を読む。前後の空白を落とし、残りが ASCII の数字だけのときだけ値を返す
 /// （`parse` は `+0` も通す。bash・gradle・画面の `^\d+$` と同じにする。/code-review R9）。
+/// 先頭の 0 を除いて 19 桁以上は断る（bash の `fits_decimal`・gradle・画面と同じ桁。code.md R33）。
 fn parse_major(text: &str) -> Option<u64> {
     let value = text.trim();
-    (!value.is_empty() && value.chars().all(|c| c.is_ascii_digit()))
+    (!value.is_empty()
+        && value.chars().all(|c| c.is_ascii_digit())
+        && value.trim_start_matches('0').len() <= MAJOR_MAX_DIGITS)
         .then(|| value.parse::<u64>().ok())
         .flatten()
 }
+
+/// 左の数字のファイルが持てる桁（先頭の 0 を除く）。4 か所で同じ（code.md R33）。
+const MAJOR_MAX_DIGITS: usize = 18;
 
 /// 左の数字・真ん中・右の上限（versionCode の式 D3 の内側）。
 const MAX_LEFT: u64 = 209;
@@ -487,8 +493,14 @@ mod tests {
         {
             let cols: Vec<&str> = line.split('\t').collect();
             assert_eq!(cols.len(), 4, "{line}");
-            let major: u64 = cols[2].parse().expect("左の数字");
-            let got = check_version(cols[1], cols[0], major);
+            // 3 列目の形は断る検査の外で確かめ、中身は左の数字のファイルとして読む（code.md R23・R33）
+            assert!(
+                !cols[2].is_empty() && cols[2].chars().all(|c| c.is_ascii_digit()),
+                "3 列目が数字でない: {line}"
+            );
+            let got = parse_major(cols[2])
+                .ok_or_else(|| "左の数字のファイルを断った".to_string())
+                .and_then(|major| check_version(cols[1], cols[0], major));
             match cols[3] {
                 "ok" => assert_eq!(got.as_deref(), Ok(cols[0]), "{line}"),
                 "ng" => assert!(got.is_err(), "断るはずの行を受けた: {line}"),

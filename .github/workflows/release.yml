@@ -15,6 +15,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { fetch-depth: 0, persist-credentials: false }
       - id: plan
+        # shell: bash を書く（書かないと bash -e で走り、pipefail が無いので version.sh が落ちても tee の 0 で緑になる。code.md R13・R25・R32）
+        shell: bash
         run: |
           tools/release/version.sh plan "$GITHUB_REF_NAME" | tee plan.txt
           {

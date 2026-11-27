@@ -62,6 +62,8 @@ const LIMITS: [number, number, number] = [209, 999, 9999];
 export function parseMajor(text: string): number {
   const value = text.trim();
   if (!/^\d+$/.test(value)) throw new Error(`tools/release/MAJOR が数字 1 つでない: ${JSON.stringify(value)}`);
+  // 先頭の 0 を除いて 19 桁以上は断る（bash・Rust・gradle と同じ桁。code.md R33）
+  if (value.replace(/^0+/, "").length > 18) throw new Error(`tools/release/MAJOR の数字が大きすぎる: ${value}`);
   return Number(value);
 }
 

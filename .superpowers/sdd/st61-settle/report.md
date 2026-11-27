@@ -146,3 +146,22 @@
 
 ### R31（rejected）
 - 根拠: spec :267-270 の THEN が `0.0.1` を固定し、:506 の GIVEN も出所 0.0.1。check-build-stamp.sh:276-277 は 0.0.2 の組み立てが落ちることを見るので、出所を 0.0.2 にすると行を消しても落ちる。コードは変えていない
+
+## settle（R32・R33）
+
+### R32（fixed 8.1）
+- `.github/workflows/release.yml` の `id: plan` に `shell: bash` を足した（nightly.yml と同じ注釈つき）。
+- `tools/release/check-guards.sh workflows`: nightly だけを見ていた「判定の step（id: plan）が `shell: bash` を持つ」検査を、nightly と release の 2 つに回す形にした。
+- `--self-test` に、release.yml の `id: plan` から `shell: bash` を外した偽の木を足した（元と同じなら作り損ねとして落とす・`workflows` が通したら落とす）。
+- 走らせたもの: `check-guards.sh workflows` rc=0、`check-guards.sh --self-test` rc=0（末尾「OK: rules・Environment・workflow の守りを検査した」）。偽の木（release の shell: bash を外した）で `workflows` は rc=1「NG: release の判定の step（id: plan）の shell が bash と書かれていない（書かないと pipefail なしで走る）」。
+
+### R33（fixed 1.1）
+- MAJOR のファイルの桁を 4 か所でそろえた: 先頭の 0 を除いて 19 桁以上は断る（bash の `fits_decimal` と同じ 18 桁）。
+  - bash: `major_value`（中身を数字にする）を `major_file` から切り出した。
+  - Rust: `parse_major` に `MAJOR_MAX_DIGITS = 18` の桁の検査。
+  - gradle: `majorFrom` に `trimStart('0').length > 18` の検査。
+  - TS: `parseMajor` に同じ検査。
+- 表の 3 列目を、どの実装も「左の数字のファイルの中身」として MAJOR の読み（major_value / parse_major / majorFrom / parseMajor）に通すようにした（列の形 `^\d+$` の確かめは断る検査の外のまま。R23）。TS は元から `parseMajor` を通していた。
+- `version-check-table.tsv` に 3 行: `0.0.1 0.0.1 999999999999999999 ok`（18 桁）・`0.0.1 0.0.1 1000000000000000000 ng`（19 桁）・`1.0.0 0.0.1 0000000000000000000001 ok`（先頭の 0 は数えない）。
+- 走らせたもの: `version.sh --self-test` rc=0、`vitest run src/__tests__/build-stamp.test.ts` 14 passed、`cargo test -p ashiato-build-stamp` 16 passed（`st61_version_check_table_rows_agree` を含む）、gradle `:app:verifyVersionCheckTable :app:verifyVersionCodeTable` BUILD SUCCESSFUL、`cargo fmt --check` OK。
+- 直しを外すと落ちること: TS を HEAD の版に戻すと vitest が `0.0.1 0.0.1 1000000000000000000 ng: expected [Function] to throw`、Rust の桁の検査を外すと `断るはずの行を受けた: 0.0.1 0.0.1 1000000000000000000 ng`（rc=101）、gradle の桁の検査を外すと `version-check-table.tsv の断る版番号を受けた: …1000000000000000000 ng`（rc=1）、bash を HEAD の version.sh に新しい表で走らせると `NG: version-check-table.tsv: 0.0.1（出所 0.0.1・左 1000000000000000000）は ng のはずが ok`。どれも元に戻した。
