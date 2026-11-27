@@ -386,3 +386,31 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 見ていない範囲: GitHub 上での実際の number.yml・nightly.yml の run（branch protection や印の保護の設定を含む）。Windows の runner の組み立て。check-guards.sh の workflow 検査の中身
 
 指摘なし
+
+## /code-review（e721251..bfa8104）
+
+見た: Claude Code の組み込みの `/code-review`（4 件）。写しは scripts/code_review_record.py
+
+## R28. On a main push with a large changed-file list, CI marks the push as `code=false` and skips every code job. The branch rewrote `changes.sh code` as a single `grep -q` to stop a SIGPIPE false negative, but the caller in ci.yml still pipes `printf '%s\n' "$files" | tools/release/changes.sh code` under `set -euo pipefail`. When the list is over the 64 KB pipe buffer, `grep -q` exits on the first match, printf dies with SIGPIPE (rc=141), and `pipefail` makes the `if` false. The `deps` call on the next line has the same problem. Fix: pass the list with a here-string (`tools/release/changes.sh code <<<"$files"`), as `version.sh number` already does.
+- 成果物: .github/workflows/ci.yml:59
+- 根拠: Reproduced with 20,000 `crates/x*.rs` paths: `printf "%s\n" "$files" | tools/release/changes.sh code` returns rc=141, so the step writes code=false. The old changes.sh also returned false (rc=1), so the bug predates this branch, but the fix stops short of the caller. A main push after a large refactor skips the rust, e2e and android jobs, reports success, and number.yml then numbers the untested commit.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R29. The bash version rule accepts numbers that the Rust, Kotlin and TypeScript copies reject, so the four copies no longer agree. `parse_version` and `major_file` read each number with `$((10#…))`, which wraps silently above 2^64. A huge left number, or a huge value in the MAJOR file, becomes 0 and passes as a valid number. Rust (`u64` parse fails), gradle (`toLongOrNull` fails) and TS (`isSafeInteger` fails) all reject it. Fix: check the digit count first (for example `${#BASH_REMATCH[1]} <= 9`) in `parse_version`, `major_file` and the left-number read in `number()`, and add such a row to version-check-table.tsv.
+- 成果物: tools/release/version.sh:21
+- 根拠: `tools/release/version.sh check 18446744073709551616.2.0` → rc=0, and `version.sh code` returns 20000. Writing `18446744073709551616` into tools/release/MAJOR makes `version.sh major` print 0. So bash's check (release.yml / build.sh) passes while the Rust build.rs and gradle fail later with a different error. The version-check-table test does not catch this.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R30. Until the first number exists, a product change whose CI run was cancelled is never numbered. `number()` with no `prev` compares the commit only to its first parent (`$commit^1`). After a number exists it compares to the previous number's commit, which covers this case; without one there is no such base. Fix: when there is no previous number, compare against the root of the first-parent history (the empty tree) or the last `v*` tag, so every change since then counts.
+- 成果物: tools/release/version.sh:228
+- 根拠: No build-* tag exists yet. Merge A (product code) is pushed, then merge B (docs only) right after. ci's `cancel-in-progress: true` cancels A's run, and B's run succeeds. number(B) diffs B^1=A..B, sees docs only, and returns `number=`. A's code change is not numbered or built until another product change is merged.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
+
+## R31. The release section now fails whenever the source version is not exactly 0.0.1. The added `[ "$cargo_version" = 0.0.1 ] || fail …` pins the root Cargo.toml version. The spec allows any source version of the form 0.0.<N> (N ≥ 1), and check-version.sh and version.sh accept it. Fix: check `0.0.<N≥1>` with the same regex as check-version.sh, or drop the line.
+- 成果物: tools/check-build-stamp.sh:272
+- 根拠: If the source version is moved to 0.0.2 in a PR, the build-stamp job (`check-build-stamp.sh release`) fails with "この repo の木の出所の版が 0.0.1 でない" even though every build is correct.（確かさ 2）
+- kind: technical
+- 提案: （/code-review は提案を持たない。settle が直し方を決める）
