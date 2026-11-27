@@ -195,3 +195,59 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
+
+## final review（e721251..60205ce）
+
+final reviewer（whole-branch。`code-reviewer.md`）の指摘。HEAD で `version.sh` `number.sh` `changes.sh` `check-guards.sh`（`--self-test` と `workflows`）・`check-version.sh --self-test`・`draft.sh --self-test`・`check-no-release-branch.sh`・`check_scenarios.py` は rc=0。各 Task の Minor・⚠️ を全体と照合し、直っていたもの（T1 F6・T2 F1・T3 F4/F5・T5 F3・T9 F4）と R10 と同じもの（T4 F4）は外した。配布元の動きに依る ⚠️（`gh release view` の文言・組の動き・Windows の job）は人間の確認 12.1〜12.5 に残す。
+
+## R13. 番号付けの判定の step が落ちても run は緑になる。`number.yml` の `id: decide` は `shell:` を持たず（workflow・job の `defaults` も無い）、GitHub Actions は Linux で `bash -e {0}`（pipefail なし）で走らせるので、`version.sh number … | tee number.txt` の rc は `tee` の 0。左の数字を下げた（D14）・上限を超えた・versionCode に収まらない・MAJOR が壊れた・浅い木・前の印が読めない、の spec が「0 でない終了コードで終わる」と決めた場合がすべて `number=` 空 → 後ろの job を飛ばして success で終わる。`docs/release.md:30` の「止まると番号付けの run が落ち、理由が出る」と食い違う。同じ形（`sh -c 'echo NG >&2; exit 1' | tee x` の後に sed と if）を `bash -e` で走らせると rc=0（final reviewer の実測）。`check-guards.sh` の number_steps は shell を「あれば bash」としか見ず、未指定を通す。直し: decide の step に `shell: bash`（または `set -o pipefail`、パイプをやめて `>number.txt`）、number_workflow に「decide が `shell: bash` を持つ」検査と、外した偽の number.yml で rc≠0 になる mutant を `--self-test` に足す。
+- 成果物: .github/workflows/number.yml, tools/release/check-guards.sh
+- 根拠: .github/workflows/number.yml:30-35、docs/release.md:30、tools/release/check-guards.sh（number_steps の shell の検査）（final review。Important）
+- kind: technical
+
+## R14. `version.sh number` は `changes.sh code` の rc=1 だけでなく、rc=2・127・141 も「文書だけ」と読み、`number=` を返して exit 0 する（Task 3 F2 が残っている）。台本が無い・壊れているときも黙って番号が付かない（R13 と同じく止まらない）。直し: rc を取り、1 だけを「付けない」、それ以外は die。自己試験に、changes.sh が rc=2 を返す偽で rc≠0 になる Scenario を足す。
+- 成果物: tools/release/version.sh
+- 根拠: tools/release/version.sh:217（final review。Important）
+- kind: technical
+
+## R15. `number.sh` の `trap "rm -f '$err'" RETURN` は、後ろの die が exit で抜けると走らず、`$TMPDIR/number-gh-err.*` が残る。`number.sh --self-test` 1 回で 2 個残る（final reviewer の実測）。`HARNESS_TMP_LEAK=fail` に当たる恐れ。直し: stderr を変数で受けるか、EXIT の trap で消す。
+- 成果物: tools/release/number.sh
+- 根拠: tools/release/number.sh:86-87（Task 4 F2）（final review。Minor）
+- kind: technical
+
+## R16. 本番の `apk_version` に試験の固定値の特例 `[ "$version_name" != 0.4.0-beta.2 ] || [ "$version_code" = 40000 ]` が入っている。直前で `version.sh code "$want"` と比べているので冗長で、試験の値が本番の台本に漏れている。直し: 特例を消す（要るなら apk-build の検証の側へ）。
+- 成果物: tools/release/check-artifacts.sh
+- 根拠: tools/release/check-artifacts.sh:84（final review。Minor）
+- kind: technical
+
+## R17. release・beta の系統でも `*-unsigned.apk` があれば中身を検査して通す。release.yml は `release/all/*` をそのまま公開に上げ、check-guards は release.yml で `ASHIATO_APK_ALSO_UNSIGNED` を禁じていない。今は立てていないので届かないが、D2（仮）の「署名していない APK は下書きにだけ」を機械が守っていない。直し: `--allow-debug-key` の無い検査では `-unsigned.apk` があれば落とす（と自己試験の mutant）。
+- 成果物: tools/release/check-artifacts.sh
+- 根拠: tools/release/check-artifacts.sh:379-381、design.md D2（final review。Minor）
+- kind: technical
+
+## R18. place の job は push しないのに checkout が `persist-credentials: true`（Task 5 F4）。書く権限の token を作業木に残す必要が無い。直し: `false`。
+- 成果物: .github/workflows/number.yml
+- 根拠: .github/workflows/number.yml:107（final review。Minor）
+- kind: technical
+
+## R19. `version-check-table.tsv` に左が 1 の行は `1.0.0 ok` だけ。「左 1 で番号を持たない `0.0.1` が通る」「左 1 で `0.2.0` を断る」行が無く、MAJOR を上げた後に 4 か所のどこかが誤って断る・通す実装になっても表で捕まらない（Task 1 F4 の一部）。直し: その 2 行を足す。
+- 成果物: tools/release/version-check-table.tsv
+- 根拠: tools/release/version-check-table.tsv（final review。Minor）
+- kind: technical
+
+## R20. gradle の表の検証で `columns[2].toLong()` が `runCatching` の中にあり、3 列目が壊れた ng の行も「断った」として通る（Task 2 F2）。形の誤りの文が出所と MAJOR を含まない（Task 2 F3）。直し: 表の列の読み取りを `runCatching` の外に出す。
+- 成果物: collector-android/app/build.gradle.kts
+- 根拠: collector-android/app/build.gradle.kts:444（final review。Minor）
+- kind: technical
+
+## R21. number_workflow の `if:` の検査は 3 つの条件をそれぞれ「含むか」でしか見ず、`||` で結んだ偽の number.yml でも通る（Task 5 F2）。直し: `&&` で結んだ形を見るか、条件を分けて読む、と `||` の mutant。
+- 成果物: tools/release/check-guards.sh
+- 根拠: tools/release/check-guards.sh（number_workflow の `if:` の検査）（final review。Minor）
+- kind: technical
+
+## R22. 更新の試験の版の検査は `old|new|dev-*|compat-*` の名前の項目しか拾わず、別の名前の項目を足すと見逃す。`0.0.*` は `0.0.0` も通す（Task 7 F2・F3）。直し: 版の形の値を名前に依らず拾い、`0.0.[1-9]*` に限る。
+- 成果物: tools/release/check-guards.sh
+- 根拠: tools/release/check-guards.sh:331-339（final review。Minor）
+- kind: technical
+
+残りの害の小さいもの（R にしない）: `draft.sh:296` の `build-` の守りは自己試験の中だけで中身が無い（本番は `draft.sh:19` で構造上は安全。T10 F1/F2）・version.sh `major_file` の既定の道の二重（T1 F3）・number() の MAJOR 検査の写し（T3 F3）・「文書だけ」の Scenario が 2 つの merge で組む（T3 F6）・number.sh の偽の check-artifacts が `--expect-version` を照合しない（T4 F3）・ci.yml の `all` の暗黙の番兵（T6 F2）・nightly-plan の出力の形（T9 F3）・docs/release.md に「最初の番号は 0.2.0」が無い（T11 F1）。
