@@ -64,3 +64,41 @@
 - `--self-test` に偽の number.yml 4 つ: `defaults-workflow`（`defaults: { run: { shell: "python {0}" } }`）・`defaults-job`（place の job の `defaults.run.shell: "gh release create v1 {0}"`）・`env-workflow`（`BASH_ENV`）・`env-job`（place の job の `ENV`）。4 つとも YAML として読め（yaml.safe_load で該当の鍵が出る）、直す前の版（HEAD 6fe4304 の number_steps）では rc=0、直した後は rc=1。本物の number.yml は両方 rc=0
 - 壊して: workflow の単位の `check_defaults` の 1 行を外すと `--self-test` が `NG: 偽の number.yml（defaults-workflow）を通した` で rc=1
 - `scripts/verify-run 5.1`: `check-guards.sh --self-test`・`check-guards.sh workflows`・actionlint（docker）の 3 本とも PASS（2026-11-27 08:53 UTC）
+
+# settle（final review の指摘 R13〜R22。commit 1771c6f2f）
+
+## R13（fixed 5.1）判定の step が落ちても run が緑
+- `number.yml` の run の step すべて（decide・complete・build-linux の 2 つ・place の 2 つ）に `shell: bash` を書いた（GitHub は明示の `bash` を `bash --noprofile --norc -eo pipefail {0}` で走らせる）
+- `check-guards.sh` の `number_steps`: run を持つ step は、step の `shell`・job の `defaults.run.shell`・workflow の `defaults.run.shell` のどれかで shell を持たなければ「run の shell が bash と書かれていない」で落とす
+- `--self-test` に偽の number.yml 3 つ: `no-shell-decide`・`no-shell-complete`・`no-shell-place`（shell: bash の行を消す）。手で走らせて `no-shell-decide` は `NG: … number の 2 番目の step: run の shell が bash と書かれていない（書かないと pipefail なしで走る）`
+## R14（fixed 3.1）changes.sh の rc=1 以外を「文書だけ」と読む
+- `version.sh number`: rc を取り、1 だけを「文書だけ」、0 以外の他は `die "製品に触れるかの判定（changes.sh code）が落ちた: rc=<n>"`
+- 自己試験に `== Scenario: 製品に触れるかの判定が落ちると、番号を付けずに止まる`（changes.sh を `exit 2` の偽にして rc=2、消して rc=127。どちらも rc≠0・番号なし）
+- 壊して: `(( code_rc == 1 ))` を `(( code_rc != 0 ))` に戻すと `version.sh --self-test` が rc=1
+## R15（fixed 4.1）一時ファイルが残る
+- `number.sh place`: RETURN の trap をやめ、`gh release view` の stderr を読んだ直後に `rm -f`（die の前に消える）
+- 自己試験の TMPDIR を `$work/tmp` にし、最後に `== Scenario: 番号付けの台本は、止まっても一時ファイルを残さない`（空でなければ落ちる）
+- 壊して: `rm -f "$err"` を外すと `number-gh-err.*` が 3 つ残り `number.sh --self-test` rc=1。直した版は rc=0（走らせる前後で `/tmp/number-gh-err.*` の数は 16 のまま）
+## R16（fixed 2.2）本番の apk_version の試験の固定値
+- `check-artifacts.sh apk_version` の `0.4.0-beta.2 → 40000` の特例と注釈を消した（D3 の固定値は `version.sh --self-test` の「versionCode は版番号の 3 つの数字から決まる」が持つ）
+## R17（fixed 4.2）公開の置き場の署名していない APK
+- `check_artifacts`: `--allow-debug-key` の無い検査では、置き場に `*-unsigned.apk` があれば「署名していない APK は下書きの置き場にだけ置く」で落とす
+- 自己試験（実物の release の置き場）に `== Scenario: 署名していない APK は、公開する置き場にあれば検査が落ちる`（正しい指紋でも落ち、文を出す）
+## R18（fixed 5.1）place の persist-credentials
+- place の checkout を `persist-credentials: false`（`number.sh place` は gh と GH_TOKEN だけ。`git ls-remote` は公開の repo なので token 無しで読める）
+- `number_workflow` に「place が `persist-credentials: false`」の検査、`--self-test` に偽 `place-persist`（true に戻す）→ `NG: 置く job が書く権限の token を作業木に残す`
+## R19（fixed 1.1）表の左 1 の行
+- `version-check-table.tsv` に `0.0.1 0.0.1 1 ok`・`0.2.0 0.0.1 1 ng` を足した。bash（version.sh --self-test）・Rust（`cargo test -p ashiato-build-stamp` の st61_version_check_table_rows_agree ok、16 passed）・TS（vitest build-stamp 14 passed）・gradle（`:app:verifyVersionCheckTable --rerun-tasks` BUILD SUCCESSFUL）が同じ表で通る
+## R20（fixed 2.2）gradle の表の読み取りと誤りの文
+- 3 列目を `toLongOrNull` で `runCatching` の外で読み、数字でなければ「3 列目が数字でない」で落とす。壊して: 表に `0.0.2 0.0.1 x ng` を足すと `version-check-table.tsv の 3 列目が数字でない` で落ちた（戻した）
+- `checkBuildVersion` の形・上限の誤りに出所と MAJOR を付けた: `ASHIATO_BUILD_VERSION=0.4` で `版番号の形が違う: 0.4: 左の数字のファイル 0、出所 0.0.1、渡した版番号 0.4`
+## R21（fixed 5.1）if の || 
+- `number_workflow` の `if:` を 3 つを `&&` で結んだ 1 行と完全一致で見る。`--self-test` に偽 `or-if`（1 つ目の `&&` を `||`）→ `NG: 番号付けが「この repo の枝の、push の、成功した run」だけで起きない`
+## R22（fixed 7.1）更新の試験の版
+- 更新の試験の版を項目の名前に依らず版の形の値で拾い、`0.0.[1-9]*` に限る（配る形の job に渡す版も同じ）
+- `--self-test` に偽の ci.yml 2 つ（`0.4.0:extra`・`0.0.0:zero` を足す）→ それぞれ `0.0.<N≥1> でない版を名乗る: 0.4.0` / `: 0.0.0`
+
+## 走らせたもの
+- `scripts/verify-run 5.1`（check-guards --self-test・workflows・actionlint）・`1.1`・`3.1`・`4.1`・`7.1`: すべて PASS（evidence.jsonl、head 1771c6f2f）
+- `tools/release/check-artifacts.sh --self-test`（quiet-run、commit 後）rc=0。`scripts/verify-run 2.2`・`4.2` の結果は下に追記
+- `scripts/verify-run 2.2`・`4.2`: rc=0、各コマンド PASS（evidence.jsonl、head 1771c6f2f）
