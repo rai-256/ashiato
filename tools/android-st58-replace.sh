@@ -46,6 +46,8 @@ if ! adb -s "$serial" get-state >/dev/null 2>&1; then
 fi
 adb -s "$serial" wait-for-device >/dev/null
 version="$($root/tools/release/version.sh source)"
+# 版番号の後ろ（-beta・-dev）は versionCode に入らない（ST61 D3）ので、新しい版は番号（<左>.1.0）にして versionCode を上げる
+new_version="$($root/tools/release/version.sh major).1.0"
 artifact_dir="$(mktemp -d "${TMPDIR:-/tmp}/ashiato-st58-replace.XXXXXX")"
 cleanup_artifacts() { rm -f "$artifact_dir"/*; rmdir "$artifact_dir"; }
 trap cleanup_artifacts EXIT
@@ -54,7 +56,7 @@ old_apk="$artifact_dir/app-old.apk"
 new_apk="$artifact_dir/app-new.apk"
 (cd "$root/collector-android" && ASHIATO_BUILD_VERSION="${version}-beta.1" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
 cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$old_apk"
-(cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$version" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
+(cd "$root/collector-android" && ASHIATO_BUILD_VERSION="$new_version" ./gradlew --no-daemon --no-build-cache --no-configuration-cache -q -Pashiato.baseUrl=http://127.0.0.1 -Pashiato.apiToken=test -Pashiato.userId=test :app:assembleDebug)
 cp "$root/collector-android/app/build/outputs/apk/debug/app-debug.apk" "$new_apk"
 adb -s "$serial" install "$old_apk" >/dev/null
 old_code="$(adb -s "$serial" shell dumpsys package dev.ashiato.collector | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -1)"

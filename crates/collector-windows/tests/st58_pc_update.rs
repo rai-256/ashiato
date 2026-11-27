@@ -613,6 +613,12 @@ fn st58_pc_update_download_request_carries_no_version_or_device() {
             "許されない見出し: {line}"
         );
     }
-    assert!(!request.contains(env!("ASHIATO_VERSION")), "{request}");
+    // 宛先の host: 127.0.0.1:<port> の行を除いて見る（版 0.0.1 は 127.0.0.1 の一部に一致する）
+    let without_host: String = request
+        .split("\r\n")
+        .filter(|line| !line.to_ascii_lowercase().starts_with("host:"))
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    assert!(!without_host.contains(env!("ASHIATO_VERSION")), "{request}");
     assert!(!request.contains("pc-test"), "{request}");
 }

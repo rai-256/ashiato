@@ -539,8 +539,9 @@ jobs:
             src=FETCH_HEAD
           fi
           if [ -n "$src" ] && blob="$(git rev-parse "$src:.github/workflows/ci.yml")"; then
-            WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
-            export WINDOWS_BUILD_KEY_TOOLS
+            # 鍵の形の検査（CI の chain job の --check-workflow）は export と値を 1 行で読む
+            # shellcheck disable=SC2155
+            export WINDOWS_BUILD_KEY_TOOLS="$(rustc -V)|$(node -v)|ImageOS=$ImageOS|ImageVersion=$ImageVersion|ci.yml=$blob"
             key="$(tools/release/windows-build-key.sh HEAD)" || key=""
           fi
           [ -n "$key" ] || echo "::warning::組み立ての鍵を出せないので、前の組み立てを引かずにビルドする"

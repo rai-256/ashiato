@@ -155,7 +155,9 @@ fn st57_pc_update_state_is_written_only_locally() {
             "unexpected header: {line}"
         );
     }
-    assert!(!request.contains(env!("CARGO_PKG_VERSION")));
+    // 宛先の 127.0.0.1:<port> を除いて見る（版 0.0.1 は 127.0.0.1 の一部に一致する）
+    let without_host = request.replace(url.trim_start_matches("http://"), "");
+    assert!(!without_host.contains(env!("CARGO_PKG_VERSION")));
     assert!(dir.path().join("update-checks.jsonl").exists());
 }
 #[test]

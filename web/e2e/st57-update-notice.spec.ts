@@ -41,7 +41,7 @@ test("更新ありはどの画面でも見出しの上に出る", async ({ page 
 });
 
 // Scenario: 6 日確かめられていないだけなら帯は出ない
-test("6 日確かめられていないだけなら帯は出ない", async ({ page }) => { settings(); result({ latest: "0.1.0", checked_at: ago(1), last_ok_at: ago(6), last_reason: "unreachable" }); await coverage(page); await expect(page.getByTestId("update-band")).toHaveCount(0); });
+test("6 日確かめられていないだけなら帯は出ない", async ({ page }) => { const installed = await installedVersion(page); settings(); result({ latest: installed, checked_at: ago(1), last_ok_at: ago(6), last_reason: "unreachable" }); await coverage(page); await expect(page.getByTestId("update-band")).toHaveCount(0); });
 // Scenario: 7 日確かめられなければ帯に出る
 test("7 日確かめられなければ帯に出る", async ({ page }) => { settings(); const lastOk = ago(8); result({ checked_at: ago(1), last_ok_at: lastOk, last_reason: "unreachable" }); await coverage(page); await expect(page.getByTestId("update-band")).toContainText(`${date(lastOk)}・配布元に届かない`); });
 // Scenario: 帯の文字と地のコントラストは 4.5:1 以上
@@ -63,6 +63,6 @@ test("結果を読めないときは帯を出さず、設定にだけ出す", as
 // Scenario: まだ確かめていない更新係は、7 日たつまで帯を出さない
 test("まだ確かめていない更新係は、7 日たつまで帯を出さない", async ({ page }) => { settings(true, ago(2)); await coverage(page); await expect(page.getByTestId("update-band")).toHaveCount(0); await page.goto("/#/settings"); await expect(page.getByTestId("update-section")).toContainText("まだ確かめていない"); });
 // Scenario: 新しい版なしは設定にだけ出る
-test("新しい版なしは設定にだけ出る", async ({ page }) => { settings(); result({ latest: "0.1.0" }); await page.goto("/#/settings"); await expect(page.getByTestId("update-band")).toHaveCount(0); await expect(page.getByTestId("update-section")).toContainText("新しい版なし"); });
+test("新しい版なしは設定にだけ出る", async ({ page }) => { const installed = await installedVersion(page); settings(); result({ latest: installed }); await page.goto("/#/settings"); await expect(page.getByTestId("update-band")).toHaveCount(0); await expect(page.getByTestId("update-section")).toContainText("新しい版なし"); });
 // Scenario: 帯を出しても外部への要求は 0 件である
 test("帯を出しても外部への要求は 0 件である", async ({ page, baseURL }) => { settings(); result(); const origin = new URL(baseURL!).origin; const offsite: string[] = []; page.on("request", (r) => { const url = new URL(r.url()); if (!["data:", "blob:", "about:"].includes(url.protocol) && url.origin !== origin) offsite.push(r.url()); }); for (const hash of ["#/coverage", "#/day/", "#/master", "#/settings"]) { await page.goto(`/${hash}`); await expect(page.locator("h1")).toBeVisible(); } expect(offsite).toHaveLength(0); });
