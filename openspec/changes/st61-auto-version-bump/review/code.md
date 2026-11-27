@@ -63,6 +63,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
 - 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R2. 番号付けの workflow の検査は、公開と印 `v*` を作る step を、文字の並び 7 つの禁止でしか見ていない。`gh release create v<番号>` を足しても通る
 - 成果物: tools/release/check-guards.sh:162 / .github/workflows/number.yml
@@ -75,6 +76,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
 - 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R3. versionCode の上限（真ん中 999・左 209）は、狭めても試験が 1 本も落ちない。受ける側の境目の行が、どの表にも無い
 - 成果物: tools/release/version-table.tsv / tools/release/version-check-table.tsv / tools/release/version.sh:42-43 / web/build-stamp.ts:59 / crates/build-stamp/src/lib.rs:79-81 / collector-android/app/build.gradle.kts:44-45
@@ -87,6 +89,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: `version-table.tsv` に `0.999.9999`→9999999 と `209.999.9999`→2099999999 を、`version-check-table.tsv` に `0.999.9999`（左 0）ok と `209.0.0`（左 209）ok を足す。4 か所が同じ表を読むので、1 か所の変更で済む
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R4. 2.2 の 3 本目の検証は、組んだ APK が渡した版番号かを見ていない。版を無視した APK でも rc=0 になる（実測 2 回）
 - 成果物: openspec/changes/st61-auto-version-bump/tasks.md 2.2 の 3 本目 / tools/release/check-artifacts.sh:65-87（`apk-version`）
@@ -97,6 +100,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: 2.2 の 3 本目を `tools/release/check-artifacts.sh apk-version --expect-version 0.4.0-beta.2 collector-android/app/build/outputs/apk/release/*.apk` に直す（受け入れ条件は変えない。`plan_fix.py` の訂正の形）。あわせて、組む前に `app/build/outputs/apk/release/` を空にして、ほかの組み立ての残りを拾わないようにする
 - 処置: fixed 2.2
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R5. 置き場と番号の判定の守り 4 つに、試験が無い。消しても自己試験は通る
 - 成果物: tools/release/number.sh:95・:118・:49 / tools/release/version.sh:193
@@ -110,6 +114,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: `number.sh --self-test` の偽の `gh` に `isDraft:false` の release を返させ、`place` が rc≠0 で書く要求 0 件・`complete` が `complete=no` になることを見る。`version.sh` の自己試験に、前の番号の子孫で main の first-parent の上に無い commit（merge された枝の中の commit）を足す
 - 処置: fixed 4.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## code-verify の結論
 - 結論: 申告と実測は不一致（5 件。R1・R2・R3・R4・R5）。18 項目の検証コマンドは全部実在し rc=0 だったが、ci.yml の差分の基準の配線（R1）・番号付けの workflow の公開と `v*` の禁止（R2）・versionCode の上限（R3）・APK の版の検証（R4）・置き場の下書きの守りなど 4 つ（R5）は、壊しても検査が落ちない
@@ -145,6 +150,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R7. On a main push, the CI diff base can be a commit that is not an ancestor of HEAD, so code jobs get skipped. `base()` only checks that PREV_SUCCESS_SHA exists in the tree, not that it is an ancestor of HEAD. Fix: in base(), also require `git merge-base --is-ancestor "$sha" HEAD`, and fall back to `all` when that fails.
 - 成果物: tools/release/changes.sh:24
@@ -161,6 +167,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
 - 処置: fixed 1.1
 - 判定: ADDRESSED（re-review 1 @7054109bb4551bd3fb778dcff2cc64fec3c7775f）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R9. Only Rust accepts a MAJOR file containing `+0`. `text.trim().parse::<u64>()` allows a leading `+` (u64::from_str does), while bash, TS and gradle all require `^\d+$`. That is the same trap that parse_version guards against by checking for digits only (final review R12). Fix: check that the value is ASCII digits only before parsing.
 - 成果物: crates/build-stamp/src/lib.rs:68
@@ -186,6 +193,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 2 @e8c8db1ac2f8ed27e0ed3dd56c2900ece8fb7156）
 - 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## settle_review（re-review 2 @e8c8db1）: 処置の直しが新しく壊したもの
 
@@ -195,6 +203,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - kind: technical
 - 処置: fixed 5.1
 - 判定: ADDRESSED（re-review 3 @c862999539b427f4d46416a01d349dbb67f2cffa）
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## final review（e721251..60205ce）
 
@@ -205,54 +214,63 @@ final reviewer（whole-branch。`code-reviewer.md`）の指摘。HEAD で `versi
 - 根拠: .github/workflows/number.yml:30-35、docs/release.md:30、tools/release/check-guards.sh（number_steps の shell の検査）（final review。Important）
 - kind: technical
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R14. `version.sh number` は `changes.sh code` の rc=1 だけでなく、rc=2・127・141 も「文書だけ」と読み、`number=` を返して exit 0 する（Task 3 F2 が残っている）。台本が無い・壊れているときも黙って番号が付かない（R13 と同じく止まらない）。直し: rc を取り、1 だけを「付けない」、それ以外は die。自己試験に、changes.sh が rc=2 を返す偽で rc≠0 になる Scenario を足す。
 - 成果物: tools/release/version.sh
 - 根拠: tools/release/version.sh:217（final review。Important）
 - kind: technical
 - 処置: fixed 3.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R15. `number.sh` の `trap "rm -f '$err'" RETURN` は、後ろの die が exit で抜けると走らず、`$TMPDIR/number-gh-err.*` が残る。`number.sh --self-test` 1 回で 2 個残る（final reviewer の実測）。`HARNESS_TMP_LEAK=fail` に当たる恐れ。直し: stderr を変数で受けるか、EXIT の trap で消す。
 - 成果物: tools/release/number.sh
 - 根拠: tools/release/number.sh:86-87（Task 4 F2）（final review。Minor）
 - kind: technical
 - 処置: fixed 4.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R16. 本番の `apk_version` に試験の固定値の特例 `[ "$version_name" != 0.4.0-beta.2 ] || [ "$version_code" = 40000 ]` が入っている。直前で `version.sh code "$want"` と比べているので冗長で、試験の値が本番の台本に漏れている。直し: 特例を消す（要るなら apk-build の検証の側へ）。
 - 成果物: tools/release/check-artifacts.sh
 - 根拠: tools/release/check-artifacts.sh:84（final review。Minor）
 - kind: technical
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R17. release・beta の系統でも `*-unsigned.apk` があれば中身を検査して通す。release.yml は `release/all/*` をそのまま公開に上げ、check-guards は release.yml で `ASHIATO_APK_ALSO_UNSIGNED` を禁じていない。今は立てていないので届かないが、D2（仮）の「署名していない APK は下書きにだけ」を機械が守っていない。直し: `--allow-debug-key` の無い検査では `-unsigned.apk` があれば落とす（と自己試験の mutant）。
 - 成果物: tools/release/check-artifacts.sh
 - 根拠: tools/release/check-artifacts.sh:379-381、design.md D2（final review。Minor）
 - kind: technical
 - 処置: fixed 4.2
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R18. place の job は push しないのに checkout が `persist-credentials: true`（Task 5 F4）。書く権限の token を作業木に残す必要が無い。直し: `false`。
 - 成果物: .github/workflows/number.yml
 - 根拠: .github/workflows/number.yml:107（final review。Minor）
 - kind: technical
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R19. `version-check-table.tsv` に左が 1 の行は `1.0.0 ok` だけ。「左 1 で番号を持たない `0.0.1` が通る」「左 1 で `0.2.0` を断る」行が無く、MAJOR を上げた後に 4 か所のどこかが誤って断る・通す実装になっても表で捕まらない（Task 1 F4 の一部）。直し: その 2 行を足す。
 - 成果物: tools/release/version-check-table.tsv
 - 根拠: tools/release/version-check-table.tsv（final review。Minor）
 - kind: technical
 - 処置: fixed 1.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R20. gradle の表の検証で `columns[2].toLong()` が `runCatching` の中にあり、3 列目が壊れた ng の行も「断った」として通る（Task 2 F2）。形の誤りの文が出所と MAJOR を含まない（Task 2 F3）。直し: 表の列の読み取りを `runCatching` の外に出す。
 - 成果物: collector-android/app/build.gradle.kts
 - 根拠: collector-android/app/build.gradle.kts:444（final review。Minor）
 - kind: technical
 - 処置: fixed 2.2
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R21. number_workflow の `if:` の検査は 3 つの条件をそれぞれ「含むか」でしか見ず、`||` で結んだ偽の number.yml でも通る（Task 5 F2）。直し: `&&` で結んだ形を見るか、条件を分けて読む、と `||` の mutant。
 - 成果物: tools/release/check-guards.sh
 - 根拠: tools/release/check-guards.sh（number_workflow の `if:` の検査）（final review。Minor）
 - kind: technical
 - 処置: fixed 5.1
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
 
 ## R22. 更新の試験の版の検査は `old|new|dev-*|compat-*` の名前の項目しか拾わず、別の名前の項目を足すと見逃す。`0.0.*` は `0.0.0` も通す（Task 7 F2・F3）。直し: 版の形の値を名前に依らず拾い、`0.0.[1-9]*` に限る。
 - 成果物: tools/release/check-guards.sh
@@ -261,3 +279,4 @@ final reviewer（whole-branch。`code-reviewer.md`）の指摘。HEAD で `versi
 - 処置: fixed 7.1
 
 残りの害の小さいもの（R にしない）: `draft.sh:296` の `build-` の守りは自己試験の中だけで中身が無い（本番は `draft.sh:19` で構造上は安全。T10 F1/F2）・version.sh `major_file` の既定の道の二重（T1 F3）・number() の MAJOR 検査の写し（T3 F3）・「文書だけ」の Scenario が 2 つの merge で組む（T3 F6）・number.sh の偽の check-artifacts が `--expect-version` を照合しない（T4 F3）・ci.yml の `all` の暗黙の番兵（T6 F2）・nightly-plan の出力の形（T9 F3）・docs/release.md に「最初の番号は 0.2.0」が無い（T11 F1）。
+- 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
