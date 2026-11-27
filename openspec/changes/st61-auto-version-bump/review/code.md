@@ -310,3 +310,64 @@ final reviewer（whole-branch の 2 回目。`code-reviewer.md`）の指摘。�
 - 処置: fixed 7.1
 
 残りの害の小さいもの（R にしない）: Task 3 F7（number_self_test の RETURN trap が関数の後も残る。今は害が無い）。
+
+# code-verify 2 回目 — st61-auto-version-bump（HEAD 829858061、base e72125187）
+
+Task 13（deep.md 第 3 回 Q6）が足された後の再検証。前回（HEAD 2d56b68ba）からの直し（R1〜R26 の処置）と Task 13 を含む木で、手 1〜7 をやり直した。
+
+## 申告と実測
+
+申告: 19/19（`- [x]` は 1.1〜11.1 の 18 項目と 13.1。12.1〜12.5 は「人間の確認待ち」で `[ ]` のまま、ここでは対象外）
+
+| 項目 | 検証コマンド（tasks.md の本文のとおり） | 申告 | 実測 |
+|---|---|---|---|
+| 1.1 | `version.sh --self-test` / `version_test.sh` / `code 0.2.0=20000・1.0.0=10000000・0.1.10000 は落ちる` | rc=0 | 一致（3 本とも rc=0） |
+| 1.2 | `check-version.sh --self-test` / `check-version.sh` | rc=0 | 一致 |
+| 2.1 | `cargo test -p ashiato-build-stamp st61_` ＋ `--list` ≥3 | rc=0 | 一致（`st61_` は 5 本、5 passed） |
+| 2.2 | `:app:verifyVersionCodeTable :app:verifyVersionCheckTable` ＋表 ≥10 行 / `check-artifacts.sh --self-test-gradle-range` / `check-artifacts.sh apk-build 0.4.0-beta.2`（訂正後） | rc=0 | 一致（3 本目は `versionCode='40000' versionName='0.4.0-beta.2'`） |
+| 2.3 | `vitest run src/__tests__/build-stamp.test.ts` / `npm run build` | rc=0 | 一致（14 passed） |
+| 2.4 | `check-openapi.sh` / `check-build-stamp.sh release` / `check-build-stamp.sh android` | rc=0 | 一致 |
+| 3.1 | `version.sh --self-test` / 2 つの Requirement の Scenario 名の数え ≥20 | rc=0 | 一致（n=21。Task 13 の 1 本が増えた） |
+| 4.1 | `number.sh --self-test` | rc=0 | 一致 |
+| 4.2 | `check-artifacts.sh --self-test` | rc=0 | 一致 |
+| 4.3 | `check-released-migrations.sh --self-test` / `check-contract-version.sh --self-test` | rc=0 | 一致 |
+| 5.1 | `check-guards.sh --self-test` / `workflows` / actionlint number.yml | rc=0 | 一致 |
+| 6.1 | `changes.sh --self-test` / `workflows` / actionlint ci.yml | rc=0 | 一致 |
+| 7.1 | `check-guards.sh --self-test` / `workflows` / 0.4〜0.6 の版が無い grep / `update-apply-install.sh --list` ≥34 | rc=0 | 一致 |
+| 8.1 | `version.sh --self-test` / `check-no-release-branch.sh`（訂正後） | rc=0 | 一致 |
+| 9.1 | `version.sh --self-test` | rc=0 | 一致 |
+| 9.2 | `publish-nightly.sh --self-test` / `check-guards.sh --self-test` / `workflows` / actionlint nightly.yml | rc=0 | 一致 |
+| 10.1 | `draft.sh --self-test` | rc=0 | 一致 |
+| 11.1 | 手順書の grep / `check_scenarios.py . st61-auto-version-bump` | rc=0 | 一致（`scenarios: OK`。spec の Scenario は 129 本＝128＋Task 13 の 1） |
+| 13.1 | `version.sh --self-test` / Scenario `前の番号の commit と差分が空の commit には番号を付けない` の印の grep | rc=0 | 一致 |
+
+actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1.7.7` で rc=0。
+
+## 手ごとの結果
+
+- **手 1（固定値を独立に再計算）**: `version-table.tsv` の 18 行を python で `左×10,000,000＋真ん中×10,000＋右`（上限 209・999・9,999、beta は 1〜98）から計算し直し、18 行とも一致。`version-check-table.tsv` の 27 行（R3・R8・R19 で増えた行を含む）も、spec 476-479 行の規則を python で書き直した判定と全行一致（mismatch 0）
+- **手 2（ガードを壊す）**: 使い捨ての worktree（片付け済み）で 1 か所ずつ壊した。
+  - Task 13: `version.sh` の空の差分の分岐（`[[ -z "$changed" ]]`）を消すと `version.sh --self-test` rc=1（`number=0.2.2` が付いて落ちる）
+  - 前回の後の直し: R14（`changes.sh code` の rc≠0/1 を「付けない」に戻す）→ rc=1・R7（基準が HEAD の祖先かの検査を消す）→ `changes.sh --self-test` rc=1・R6（`trim` を素通しにする）→ `version.sh --self-test` rc=1・R8（bash の出所の版 0.0.x の検査を消す）→ rc=1・R18（place の `persist-credentials` を true）→ `workflows` rc=1・R21（`if:` を `||` に）→ rc=1・R22（更新の試験に `0.4.1:extra` を足す・`0.0.0` を名乗る）→ どちらも rc=1・R23（表に 3 列目 `x` の ng 行を足す）→ bash の自己試験と vitest がどちらも rc=1（vitest は「3 列目が数字でない」で落ちた）
+  - number.yml の守り（R2・R11・R12・R13）: `id: decide` の `shell: bash` を消す・workflow の単位に `defaults: { run: { shell: "python {0}" } }` を足す・workflow の単位に `env: { BASH_ENV: … }` を足す・flow 形式の `- { run: "gh release create v1" }` を足す・`find … -exec /usr/bin/gh release create v1 \;` を足す・`gh release create "v1"` を足す、の 6 つはどれも `check-guards.sh workflows` が rc=1
+  - R9: `crates/build-stamp/src/lib.rs` の `parse_major` を `text.trim().parse::<u64>().ok()`（`+0` を通す）に戻すと `cargo test -p ashiato-build-stamp st61_` は rc=101（`st61_major_file_accepts_only_digits` が落ちる）
+  - R16: `check-artifacts.sh` に `0.4.0-beta.2`・`40000` の特例の行は 0 件（grep rc=1。壊してはいない）
+  - **R25 の直し（nightly.yml の `id: plan` の `shell: bash`）は、消しても `check-guards.sh workflows` が rc=0**（R27）
+  - R15: `number.sh --self-test` の前後で `$TMPDIR/number-gh-err.*` の数は 16→16（残っている 16 個は 2026-11-23 の日付で、直す前のもの）
+- **手 3（Scenario と test）**: `check_scenarios.py` は `scenarios: OK`。新しい Scenario `前の番号の commit と差分が空の commit には番号を付けない`（spec 28 行）は、試験（version.sh の自己試験）が spec の GIVEN と同じ木（`0.2.1` → `crates/server/src/lib.rs` に触れる merge B → revert の merge C）を作り、`git diff --quiet build-0.2.1 HEAD` で差分が空であることを先に確かめてから `number=` と理由の行を見る。主張と同じ階層。design.md D4 の 3. も Q6 の答えに合わせて書かれている（69 行）
+- **手 4（本人の決定）**: 1 つずつ値を変えて `version.sh --self-test` を走らせた。Q1（文書だけには付けない: `changes.sh code` の rc=1 を「触れた」として番号の計算へ流す）は rc=1（文書だけの木に `number=0.2.1` が付いて落ちた）・Q2（`10000000`→`1000000`）・Q3（確認バッチの題の `/verify/` を変える）・最初の `0.2.0`（`minor=1` に）・Q6（空の差分の分岐を消す）はどれも rc=1。Q4（根の `Cargo.toml` を `0.1.0`）は `check-version.sh` が rc=1（`NG: 出所の版番号が 0.0.<1 以上> の形でない: 0.1.0`）。Q5（commit の題を書き直さない）はコードの値ではないので試験の対象外
+- **手 5（`[x]` と実体）**: 19 項目の検証コマンドは全部実在し、rc=0（上の表）。`cargo test --test <名前>` の型は無い。`cargo test … st61_` は `--list` で 5 本
+- **手 6: 該当なし**（確かめた範囲: Task 13 の分岐の周り —— 前の印が無い木で空の差分の commit（first-parent の親と比べる）・確認バッチの merge の後の空の差分（次に番号が付く commit で真ん中が上がる。`prev_commit..commit` の merge を数えるので消えない）・空の差分で `number=` を返したときの number.yml（後ろの job を飛ばして終わる。番号も組み立ても作らないので失うものは無い）を読んだ。走らせたもの —— `git diff --name-only` だけが落ちる偽の `git` を `PATH` の先に置き、印 `build-0.2.0` の後に製品の commit がある使い捨ての木で `version.sh number HEAD` を走らせると rc=128 で止まった（`set -euo pipefail` の下で `changed=$(…)` が落ちる。空の差分と読んで `number=` の rc=0 にはならない。偽を外すと `number=0.2.1` rc=0）。番号の組み立ての消し方は前回と同じく `docs/handoff/ST62.md` の `## st61-auto-version-bump R3` にある（11.1 の grep が rc=0）
+- **手 7**: 訂正は pending が 1 件（2.2 `2026-11-23T13:46:06+00:00`）。本体の作業ツリーで `build.gradle.kts:83` を `ASHIATO_BUILD_VERSION` を無視する形に壊すと、新しいコマンド `check-artifacts.sh apk-build 0.4.0-beta.2` は rc=1（`NG: APK の versionName が渡した版番号と違う: versionCode='1' versionName='0.0.1'（期待 0.4.0-beta.2）`）で落ちた。戻した後の `git status --porcelain`・`git diff` は壊す前と cmp で一致。`correction-review.md` に書いた。8.1 は前回の節がある。壊した木で組んだ APK が置き場（gitignore）に残ったので、戻した後に同じコマンドを走らせ直して rc=0（`versionCode='40000' versionName='0.4.0-beta.2'`）を見た。`plan_fix.py pending` は `[]`、`plan_fix.py check` は rc=0（2 件とも確かめ済み）
+
+## R27. R25 の直し（nightly.yml の判定の step に `shell: bash`）を、どの検査も守っていない。消しても `check-guards.sh workflows` は緑のまま
+- 成果物: .github/workflows/nightly.yml:21 / tools/release/check-guards.sh:310-333（nightly の検査）
+- 根拠: 使い捨ての worktree で nightly.yml の `id: plan` の `shell: bash` の行（とその注釈）を消すと、`tools/release/check-guards.sh workflows` は rc=0。number.yml で同じ行（`id: decide`）を消すと rc=1（`NG: … number.yml number の 2 番目の step: run の shell が bash と書かれていない`。`check-guards.sh:240`）。
+  nightly の検査（:319-333）は cron・`nightly-plan` の呼び出し・`ref:` などを見るが、`shell` を見る行は 0 件（grep）。R25 自身が書くとおり、今は `nightly-plan` が出力の前に落ちるので害は無い。出力の後に落ちる道を足したときに、step が緑のまま通る形へ黙って戻る
+- kind: technical
+- 提案: nightly の検査に「`id: plan` の step（または job・workflow の defaults）が `shell: bash` を持つ」を足し、`--self-test` に外した偽の nightly.yml で rc≠0 になる mutant を足す。number.yml と同じ関数（`check_shell` の型）を使えば 1 か所で済む
+
+## code-verify の結論
+- 結論: 申告と実測は不一致（1 件。R27）。19 項目の検証コマンドは全部実在し rc=0 だったが、R25 の直し（nightly.yml の判定の step の `shell: bash`）は消しても検査が落ちない（今は害が無い）
+- 確かめた範囲: tasks.md の `[x]` 19 項目の検証コマンドを全部実行した（cargo・gradle・apk-build・npm build・check-build-stamp を含む）。2 つの表を python で独立に計算し直した。Task 13 の分岐、前回の後の直し（R2・R6〜R9・R11〜R14・R18・R21〜R23・R25）、本人の決定 6 つを使い捨ての木で壊して走らせた。`git diff` が落ちる偽の git で Task 13 の新しい道を走らせた。新しい Scenario の印の先を読んだ。手 7 の 2.2 は作業ツリーで壊して戻した
+- 見ていない範囲: 配布元（GitHub）での実際の印・下書きの作成と number.yml・nightly.yml の実際の run（人間の確認待ち 12.1〜12.5）。Windows の runner での組み立て。R1・R3〜R5・R17・R19・R20 の直しは、今回は壊していない（前回と re-review 1〜4 の判定に任せた）。R15 は一時ファイルの数、R16 は grep だけで、壊していない。R24 は Task 13 として壊した。R10・R26 はコードの守りではないので対象外
