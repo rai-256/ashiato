@@ -1,0 +1,2140 @@
+{
+ "format": 2,
+ "purpose": "衛星（本体の外で作るアプリ）の作り手が、リポジトリのページを読めば何をどう呼べばよいか分かり、本体を更新しても同じ版の中で衛星が黙って壊れないようにする。",
+ "model": {
+  "kind": "diagram",
+  "caption": "この Story が作るもの",
+  "text": "本体のコード ─┬─ 内部の口の契約（今のまま・AGPL）\n              └─ 衛星向けの契約 v1（Apache-2.0）\n                     ├→ ページ（docs/satellite-api/）→ 衛星の作り手\n                     ├→ サーバ: /satellite/v1/me・無い版の断り\n                     └→ CI: main の写しと比べて壊す変更を止める"
+ },
+ "before_after": [
+  {
+   "area": "衛星の資格情報",
+   "before": "資格情報の要らない口のほか、すべて 403",
+   "after": "衛星向けの道だけ通る（いまは確かめる口だけ）"
+  },
+  {
+   "area": "API の契約",
+   "before": "docs/openapi.json の 1 つ（AGPL）",
+   "after": "内部の口の契約と、衛星向けの契約 v1（Apache-2.0）の 2 つ"
+  },
+  {
+   "area": "CI",
+   "before": "衛星向けの口の変更を見る検査は無い",
+   "after": "同じ版の中の壊す変更・上げ忘れ・前の版を外す変更を落とす"
+  }
+ ],
+ "highlights": [
+  "check.5",
+  "retire.2",
+  "me.3",
+  "log.2",
+  "check.6"
+ ],
+ "features": [
+  {
+   "id": "contract",
+   "title": "契約を分けて公開する",
+   "summary": "衛星向けの契約を内部の口と別に作り、Apache-2.0 にする",
+   "tldr": "衛星が使う口だけの契約を別に作り、Apache-2.0 でリポジトリのページにする。",
+   "gist": [
+    "内部の口の契約（docs/openapi.json）は今のまま。衛星向けの口を載せない。",
+    "ページは契約から機械で作り、手で書かない。ずれると CI が落ちる。"
+   ],
+   "words": [
+    {
+     "term": "衛星",
+     "def": "本体の外で別に作られ、資格情報で本体の口を呼ぶアプリ"
+    },
+    {
+     "term": "契約",
+     "def": "口・型・資格情報の渡し方を機械が読める形で書いたもの（OpenAPI）"
+    }
+   ],
+   "no_picture": "上の「作るもの」の図と同じになる",
+   "points": [
+    {
+     "id": "contract.1",
+     "kind": "normal",
+     "text": "衛星向けの契約は docs/satellite-api/v1/openapi.json に置き、許諾の欄は Apache-2.0。内部の口の契約の許諾は AGPL のまま",
+     "tags": [
+      "API"
+     ],
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+      ],
+      "scenarios": [
+       "衛星向けの契約は内部の口の契約と別に作られ、互いの口を持たない",
+       "衛星向けの契約は Apache-2.0 を宣言し、内部の口の契約は今の式のまま"
+      ]
+     }
+    },
+    {
+     "id": "contract.2",
+     "kind": "normal",
+     "text": "資格情報の渡し方（Authorization: Bearer ashsat_…）と、401・403 の断り（種別の欄 error を持つ JSON）を、すべての口に載せる",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+      ],
+      "scenarios": [
+       "衛星向けの契約は資格情報の渡し方を持ち、すべての口に付ける"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "contract.3",
+     "kind": "normal",
+     "text": "読むページは Markdown 2 枚（入口と版ごと）。GitHub がブラウザで整形して見せる。Apache-2.0 の全文 LICENSE を隣に 1 枚置く",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+      ],
+      "scenarios": [
+       "衛星向けの契約のページは、口・資格情報の渡し方・断りの種別・版・許諾を示す",
+       "契約の置き場の LICENSE は Apache-2.0 の全文で、README と CONTRIBUTING は 2 つのライセンスを分けて書く"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "contract.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "契約とページを手で直してもコードと違えば CI が落ちる。直すのはコードの側で、写しは作り直す",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+      ],
+      "scenarios": [
+       "コミットされた衛星向けの契約がコードとずれると検査が落ちる",
+       "コミットされた衛星向けの契約のページがコードとずれると検査が落ちる"
+      ]
+     }
+    },
+    {
+     "id": "contract.5",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "Apache-2.0 で公開した後に許諾を締める向きには変えられない（緩める向きにだけ変えられる。扉 #31）",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+      ],
+      "scenarios": [
+       "同じ版の中で許諾の欄を変えると検査が落ちる"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "version",
+   "title": "道に版を入れる",
+   "summary": "道の先頭に大きい版を持ち、版の一覧を 1 つのファイルに持つ",
+   "tldr": "衛星の口は /satellite/v1/… の形で、版は 1.0 から製品の版と別に数える。",
+   "gist": [
+    "版の一覧の正本は docs/satellite-api/versions.json の 1 つ。サーバ・契約・ページがここから読む。",
+    "同じ版の中で足したら小さい番号を上げる（1.0 → 1.1）。壊す変更は次の大きい版。"
+   ],
+   "words": [
+    {
+     "term": "大きい版",
+     "def": "版 1.0 の 1。上がると古い衛星はそのままでは動かない"
+    },
+    {
+     "term": "小さい版",
+     "def": "版 1.0 の 0。足しただけのときに上げる"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 120\" role=\"img\" aria-label=\"道の先頭の v1 で大きい版を示し、版の一覧のファイル 1 つからサーバ・契約・ページが版を読む\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"40\" width=\"150\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"75.0\" y=\"56.0\" text-anchor=\"middle\" fill=\"var(--ink)\">versions.json</text><text x=\"75.0\" y=\"72.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">版 1.0・外す日なし</text><rect x=\"220\" y=\"0\" width=\"160\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"300.0\" y=\"21.0\" text-anchor=\"middle\" fill=\"var(--ink)\">サーバ（確かめる口）</text><rect x=\"220\" y=\"43\" width=\"160\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"300.0\" y=\"64.0\" text-anchor=\"middle\" fill=\"var(--ink)\">契約の info.version</text><rect x=\"220\" y=\"86\" width=\"160\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"300.0\" y=\"107.0\" text-anchor=\"middle\" fill=\"var(--ink)\">ページの版の表</text><rect x=\"430\" y=\"43\" width=\"130\" height=\"34\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"495.0\" y=\"64.0\" text-anchor=\"middle\" fill=\"var(--ink)\">/satellite/v1/…</text><path d=\"M152 55 L216 17\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M152 60 L216 60\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M152 65 L216 103\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M382 17 L426 52\" stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"/></g></svg>",
+    "caption": "版の一覧 1 つから読む"
+   },
+   "points": [
+    {
+     "id": "version.1",
+     "kind": "normal",
+     "text": "衛星向けの口の道は /satellite/v1/ で始まる。読み出しの記録の口の名前にも版が残る",
+     "refs": {
+      "requirements": [
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ"
+      ],
+      "scenarios": [
+       "版の一覧にある版の口は、サーバの経路にある"
+      ],
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "version.2",
+     "kind": "normal",
+     "text": "契約の版は 1.0 の形で、製品の版（出所の版）や送信契約の版とは別に数える",
+     "refs": {
+      "requirements": [
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ"
+      ],
+      "scenarios": [
+       "衛星向けの契約の版は、版の一覧の版で、渡した版番号に依らない"
+      ],
+      "decisions": [
+       "Q7"
+      ]
+     }
+    },
+    {
+     "id": "version.3",
+     "kind": "normal",
+     "text": "版の一覧・契約の写し・サーバの経路が食い違うと CI が落ちる",
+     "refs": {
+      "requirements": [
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ"
+      ],
+      "scenarios": [
+       "版の一覧と契約の版が食い違うと検査が落ちる",
+       "サーバの経路は、2 つの契約の口と生存確認と版の受け口を合わせたものにちょうど一致する"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "me",
+   "title": "自分を確かめる口と断り",
+   "summary": "衛星が自分の識別子と、サーバが受ける版を確かめる",
+   "tldr": "GET /satellite/v1/me で、衛星の識別子・名前と受ける版の一覧だけが返る。",
+   "gist": [
+    "記録・件数・承認・本体の中の番号は返さない。",
+    "衛星の資格情報でない求め（API の合言葉・画面のログイン）は 403 not_satellite で断る。"
+   ],
+   "no_picture": "1 つの口の求めと応答だけで、図にすると本文の繰り返しになる",
+   "points": [
+    {
+     "id": "me.1",
+     "kind": "normal",
+     "text": "200 の本文は {satellite: {id, name}, api_versions: [{version: \"1.0\", sunset: null}]} だけ",
+     "examples": [
+      {
+       "wrong": "最後に使った時刻や承認の状態も返る",
+       "right": "識別子・名前と、版と外す日の一覧だけ"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる"
+      ],
+      "scenarios": [
+       "確かめる口は、衛星の識別子・名前と受ける版の一覧を返す"
+      ],
+      "decisions": [
+       "Q4",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "me.2",
+     "kind": "exception",
+     "text": "資格情報が無い・取り消した・外した衛星は 401 {error: unauthorized}。どの衛星向けの道でも同じ",
+     "refs": {
+      "requirements": [
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる"
+      ],
+      "scenarios": [
+       "取り消した資格情報か外した衛星の資格情報で確かめる口を呼ぶと 401 になる",
+       "資格情報の無い求めは、衛星向けの口で種別つきの 401 になる"
+      ]
+     }
+    },
+    {
+     "id": "me.3",
+     "kind": "exception",
+     "tags": [
+      "Security"
+     ],
+     "text": "API の合言葉と画面のログインでは衛星向けの口は通らない（403 not_satellite）。ST29 の衛星の管理の口 /satellites… は衛星向けの道に数えない",
+     "refs": {
+      "requirements": [
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+       "API の合言葉で通る口は、送る口と通知に要る読みの許可の一覧だけ"
+      ],
+      "scenarios": [
+       "API の合言葉と画面のログインでは、衛星向けの口は通らない",
+       "衛星の管理の口は衛星向けの道に数えない",
+       "画面のログインは許可の一覧の外の口も通る"
+      ]
+     }
+    },
+    {
+     "id": "me.4",
+     "kind": "caution",
+     "tags": [
+      "Security"
+     ],
+     "text": "衛星の資格情報でほかの口を呼ぶと、今どおり 403 で断る。通るのは衛星向けの契約の口だけで、記録を読む口も書く口もまだ無い",
+     "refs": {
+      "requirements": [
+       "衛星の資格情報では、まだどの口も通らない"
+      ],
+      "scenarios": [
+       "衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い",
+       "衛星の資格情報で送った記録は取り込まれない"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "title": "壊す変更を CI で止める",
+   "summary": "同じ版の中の壊す変更と、小さい版の上げ忘れを CI が落とす",
+   "tldr": "main にある版の写しと比べ、同じ版で口や欄を消す・変えると CI が落ちる。",
+   "gist": [
+    "比べる相手は PR の行き先の写し。PR の中で写しを書き換えても抜けられない。",
+    "口や欄を足すのは壊さない側。ただし小さい版を上げないと落ちる。"
+   ],
+   "words": [
+    {
+     "term": "壊す変更",
+     "def": "今動いている衛星が、直さないと動かなくなる契約の変更"
+    },
+    {
+     "term": "写し",
+     "def": "main にコミットされた版ごとの契約のファイル"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 130\" role=\"img\" aria-label=\"PR の契約を行き先の main の写しと同じ版の中で比べ、消す・変えるは落ち、足すは小さい版を上げれば通る\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"10\" width=\"150\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"75.0\" y=\"26.0\" text-anchor=\"middle\" fill=\"var(--ink)\">main の写し v1</text><text x=\"75.0\" y=\"42.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">比べる相手</text><rect x=\"0\" y=\"75\" width=\"150\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"75.0\" y=\"99.0\" text-anchor=\"middle\" fill=\"var(--ink)\">PR で作り直した契約</text><rect x=\"210\" y=\"42\" width=\"120\" height=\"40\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"270.0\" y=\"66.0\" text-anchor=\"middle\" fill=\"var(--ink)\">差を規則で見る</text><rect x=\"390\" y=\"0\" width=\"170\" height=\"36\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"475.0\" y=\"14.0\" text-anchor=\"middle\" fill=\"var(--warn)\">消す・型を変える</text><text x=\"475.0\" y=\"30.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">落ちる</text><rect x=\"390\" y=\"46\" width=\"170\" height=\"36\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"475.0\" y=\"60.0\" text-anchor=\"middle\" fill=\"var(--warn)\">足して 1.0 のまま</text><text x=\"475.0\" y=\"76.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">落ちる</text><rect x=\"390\" y=\"92\" width=\"170\" height=\"36\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"475.0\" y=\"106.0\" text-anchor=\"middle\" fill=\"var(--ink)\">足して 1.1 に上げる</text><text x=\"475.0\" y=\"122.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">通る</text><path d=\"M152 30 L206 55\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M152 95 L206 70\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M332 55 L386 18\" stroke=\"var(--warn)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aw)\"/><path d=\"M332 62 L386 64\" stroke=\"var(--warn)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aw)\"/><path d=\"M332 70 L386 108\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/></g></svg>",
+    "caption": "同じ版の中の比べ方"
+   },
+   "points": [
+    {
+     "id": "check.1",
+     "kind": "normal",
+     "text": "落ちるのは、口・状態の番号・応答の欄を消す、型・形式を変える、送る側に必須を足す・選べる値を減らす、資格情報・許諾を変える、のどれか",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "scenarios": [
+       "同じ版の中で口を消すと検査が落ちる",
+       "同じ版の中で欄の型を変えると検査が落ちる",
+       "同じ版の中で送る側に新しい必須の欄か引数を足すと検査が落ちる",
+       "同じ版の中で資格情報の方式を消すと検査が落ちる"
+      ],
+      "decisions": [
+       "Q2",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "check.2",
+     "kind": "normal",
+     "text": "口・応答の欄・任意の送る欄を足したら、小さい版を上げれば通る",
+     "examples": [
+      {
+       "wrong": "欄を足しただけで 1.0 のまま通る",
+       "right": "1.0 のままだと落ち、1.1 に上げると通る"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "scenarios": [
+       "口を足したのに小さい版を上げていないと検査が落ち、上げれば通る",
+       "応答の欄を足すのは壊す変更に数えない"
+      ],
+      "decisions": [
+       "Q7"
+      ]
+     }
+    },
+    {
+     "id": "check.3",
+     "kind": "normal",
+     "text": "比べる相手は main にある版ごとの写し。写しを書き換えても、比べる相手は行き先の写しなので通らない",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "scenarios": [
+       "写しを書き換えても、比べる相手は行き先の写しなので通らない",
+       "比べる相手を読めないと検査は落ち、その版の写しが無ければ比べずに通る"
+      ],
+      "decisions": [
+       "Q3",
+       "D10"
+      ]
+     }
+    },
+    {
+     "id": "check.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "内部の口だけの変更では落ちない。一方、契約の置き場や README・CONTRIBUTING だけの PR でも、サーバの検査の job が走る",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "scenarios": [
+       "内部の口の変更では衛星向けの契約の検査は落ちない",
+       "衛星向けの契約の置き場か README・CONTRIBUTING だけを変えた PR でもサーバの検査の job が走る",
+       "衛星向けの契約の置き場だけの変更は、製品に触れた変更に数えない"
+      ]
+     }
+    },
+    {
+     "id": "check.5",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "版 1 は main に入った日から凍る。衛星がまだ 1 つも無くても、確かめる口の欄や断りの形は同じ版の中で変えられない",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる",
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる"
+      ],
+      "scenarios": [
+       "同じ版の中で応答の欄を消すと検査が落ちる"
+      ],
+      "decisions": [
+       "Q3"
+      ]
+     }
+    },
+    {
+     "id": "check.6",
+     "kind": "caution",
+     "text": "規則の表に無い壊し方（参照の付け替え・説明だけで意味を変える など）は見逃しうる。見つけたら規則を足す",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "retire",
+   "title": "前の版を並べ・外す",
+   "summary": "壊す変更は次の版で出し、前の版は 6 か月以上と知らせの後でしか外さない",
+   "tldr": "版 2 を出しても版 1 は並べて動かし、外す日は Sunset の見出しで予告する。",
+   "gist": [
+    "6 か月は、次の版を最初に配った印 v* の日から数える。",
+    "本人に知らせる画面の Requirement が無いうちは、外す変更をいつも CI が止める。"
+   ],
+   "words": [
+    {
+     "term": "印",
+     "def": "配った版に付ける git のタグ v*"
+    },
+    {
+     "term": "Sunset",
+     "def": "外す日を応答で予告する HTTP の見出し（RFC 8594）"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 120\" role=\"img\" aria-label=\"版 2 を最初に配った日から 6 か月たち、本人に知らせる画面の Requirement があるときだけ版 1 を外せる。いまはどちらも無い\"><g font-size=\"12\" fill=\"var(--ink)\"><line x1=\"20\" y1=\"60\" x2=\"540\" y2=\"60\" stroke=\"var(--line)\" stroke-width=\"2\"/><rect x=\"20\" y=\"10\" width=\"130\" height=\"36\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"85.0\" y=\"24.0\" text-anchor=\"middle\" fill=\"var(--ink)\">版 2 を配る</text><text x=\"85.0\" y=\"40.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">印 v* の日</text><rect x=\"230\" y=\"10\" width=\"130\" height=\"36\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"295.0\" y=\"24.0\" text-anchor=\"middle\" fill=\"var(--ink)\">6 か月後</text><text x=\"295.0\" y=\"40.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">暦の月で同じ日</text><rect x=\"400\" y=\"10\" width=\"150\" height=\"36\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"475.0\" y=\"24.0\" text-anchor=\"middle\" fill=\"var(--ink)\">版 1 を外せる</text><text x=\"475.0\" y=\"40.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">知らせの画面も要る</text><rect x=\"20\" y=\"76\" width=\"330\" height=\"36\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"185.0\" y=\"90.0\" text-anchor=\"middle\" fill=\"var(--warn)\">この間は版 1 と版 2 が並んで動く</text><text x=\"185.0\" y=\"106.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">外す日は Sunset の見出しで予告</text><rect x=\"400\" y=\"76\" width=\"150\" height=\"36\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"475.0\" y=\"90.0\" text-anchor=\"middle\" fill=\"var(--warn)\">いまは印も画面も無い</text><text x=\"475.0\" y=\"106.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">外す変更は CI が止める</text><path d=\"M152 28 L226 28\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M362 28 L396 28\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/></g></svg>",
+    "caption": "前の版を外せるまで（日付は説明用）",
+    "note": "版 2 はまだ無い。図は外す規則を示すための例です"
+   },
+   "points": [
+    {
+     "id": "retire.1",
+     "kind": "normal",
+     "text": "壊す変更は /satellite/v2/… と docs/satellite-api/v2/ として足し、版 1 を残せば検査は通る",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ],
+      "scenarios": [
+       "新しい大きい版を足し、前の版を残せば検査は通る"
+      ]
+     }
+    },
+    {
+     "id": "retire.2",
+     "kind": "normal",
+     "text": "版 1 を外せるのは、版 2 を最初に配った日から 6 か月たち、版の一覧の notice が正典の Requirement の名前を持つときだけ",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ],
+      "scenarios": [
+       "次の版を最初に配った日から 6 か月たつ前は、前の版は外せない",
+       "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない",
+       "知らせの画面の名前が正典に無ければ前の版は外せない"
+      ],
+      "decisions": [
+       "Q6",
+       "Q8",
+       "D12"
+      ]
+     }
+    },
+    {
+     "id": "retire.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "配った日は印を作った日と印の commit の日の遅い方。同じ日が無い月は月の最終日まで外せない",
+     "examples": [
+      {
+       "wrong": "8 月 31 日に配った版 2 は、2 月 28 日に版 1 を外せない",
+       "right": "2 月 28 日（月の最終日）から外せる"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ],
+      "scenarios": [
+       "印を commit より後に作ったときは、印を作った日から数える",
+       "同じ日が無い月は、月の最終日まで外せない"
+      ],
+      "decisions": [
+       "D12"
+      ]
+     }
+    },
+    {
+     "id": "retire.4",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "サーバの経路から前の版の口を消しても、外す変更として止まる。今の木ではどの版も外す日を持たない",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ],
+      "scenarios": [
+       "サーバの経路から前の版の口を消しても外す変更に数える",
+       "6 か月の終わりより前の外す日は置けない",
+       "今の木では、どの版も外す日を持たず、外す変更も無い"
+      ]
+     }
+    },
+    {
+     "id": "retire.5",
+     "kind": "normal",
+     "text": "無い版の道は 404 unsupported_version と版の一覧、版の中の無い道は 404 not_found、違うメソッドは 405 method_not_allowed",
+     "refs": {
+      "requirements": [
+       "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+      ],
+      "scenarios": [
+       "版の一覧に無い版の道は、版の一覧つきの 404 になる",
+       "版の後ろに道の無い求めも、版の一覧つきの 404 になる",
+       "受ける版の中の、契約に無い道は not_found になる",
+       "契約にある道へ違うメソッドで送ると、種別つきの 405 になる"
+      ],
+      "decisions": [
+       "Q8",
+       "D11"
+      ]
+     }
+    },
+    {
+     "id": "retire.6",
+     "kind": "exception",
+     "text": "資格情報の判定が版の判定より先。資格情報の無い求めは無い版の道でも 401。外す日を持つ版の道では、401・403 にも Sunset が付く",
+     "refs": {
+      "requirements": [
+       "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+      ],
+      "scenarios": [
+       "資格情報の無い求めは、版の一覧に無い版の道でも 401 になる",
+       "外す日を持つ版の応答には Sunset の見出しが付く",
+       "外す日を持つ版の道では、資格情報の断りにも Sunset の見出しが付く",
+       "外す日を持たない版の応答には Sunset の見出しが付かない"
+      ],
+      "decisions": [
+       "D11"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "log",
+   "title": "衛星の求めの記録",
+   "summary": "衛星向けの道への求めを読み出しの記録に 1 行ずつ残す",
+   "tldr": "衛星向けの道の求めは返した状態と経路の形で読み出しの記録に 1 行残る。",
+   "gist": [
+    "届いた道の文字列は残さず、当たった経路の形（/satellite/v1/me など）を残す。",
+    "記録に書けなければ 500 で、衛星の情報を返さない。"
+   ],
+   "no_picture": "1 求め 1 行の決まりで、図にすると本文の繰り返しになる",
+   "points": [
+    {
+     "id": "log.1",
+     "kind": "normal",
+     "text": "確かめる口の 200 は ok、401 は unauthorized、403・404・405 は forbidden として、実際の状態の番号と一緒に残る",
+     "tags": [
+      "Logging"
+     ],
+     "refs": {
+      "requirements": [
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す",
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+      ],
+      "scenarios": [
+       "確かめる口を呼ぶと、衛星と 1 本の番号つきで ok の行が残る",
+       "衛星でない資格情報で衛星向けの口を呼ぶと、forbidden・403 の行が残る",
+       "衛星の資格情報で断った求めは、衛星と 1 本の番号つきで残る"
+      ],
+      "decisions": [
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "log.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "Logging"
+     ],
+     "text": "無い版や無い道への 404 も、結果の語は forbidden で残る（移行を足さないため。状態の列は 404）",
+     "examples": [
+      {
+       "wrong": "結果が not_found の行",
+       "right": "結果 forbidden・状態 404・口は /satellite/{*rest}"
+      }
+     ],
+     "refs": {
+      "requirements": [
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す",
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+      ],
+      "scenarios": [
+       "無い版の道への求めは、届いた道の文字列を残さずに 1 行残る"
+      ],
+      "decisions": [
+       "D13"
+      ]
+     }
+    },
+    {
+     "id": "log.3",
+     "kind": "exception",
+     "text": "記録に書けないときは、確かめる口は 500 {error: internal} で、衛星の情報も版の一覧も返さない",
+     "refs": {
+      "requirements": [
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す",
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+      ],
+      "scenarios": [
+       "読み出しの記録に書けないときは、確かめる口は 500 で衛星の情報を返さない",
+       "読み出しの記録に書けないときは記録を返さない"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "記録の封筒の形と衛星が書く口（ST39 が同じ版に足す）",
+   "refs": {}
+  },
+  {
+   "text": "内部の口を衛星向けの契約にも載せるか（ST39 の上流）",
+   "refs": {}
+  },
+  {
+   "text": "承認（ST38）と衛星の読み出し（ST45）",
+   "refs": {}
+  },
+  {
+   "text": "AI が使う MCP の道具（ST27 の上流）",
+   "refs": {}
+  },
+  {
+   "text": "本人に知らせる画面（外す予定の版を最近使った衛星を出す）",
+   "refs": {
+    "requirements": [
+     "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+    ]
+   }
+  },
+  {
+   "text": "SDK",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "版の一覧の置き場と形（docs/satellite-api/versions.json）",
+   "refs": {
+    "decisions": [
+     "D8"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "衛星",
+   "def": "本体の外で別に作られ、資格情報で本体の口を呼ぶアプリ"
+  },
+  {
+   "term": "内部の口",
+   "def": "本体の収集アプリと画面だけが使う口"
+  }
+ ],
+ "uses": [
+  {
+   "id": "U1",
+   "title": "読書記録の衛星を本体につなぐ",
+   "trigger": "本人が読書記録の衛星（dev.example.booklog）を作り始める。どの道を、どの資格情報で呼べばよいか知りたい。",
+   "steps": [
+    {
+     "do": "リポジトリの docs/satellite-api/README.md をブラウザで開く",
+     "see": "許諾 Apache-2.0、版の表（1.0・外す日なし）、版 1 のページへのリンク"
+    },
+    {
+     "do": "版 1 のページで資格情報の渡し方と確かめる口を読む",
+     "see": "Authorization: Bearer ashsat_… と GET /satellite/v1/me、断りの種別の表"
+    },
+    {
+     "do": "ST29 で発行した資格情報を衛星に設定し、GET /satellite/v1/me を呼ぶ",
+     "see": "200 で id dev.example.booklog・名前と、api_versions の 1.0"
+    },
+    {
+     "do": "資格情報を写し間違えて呼ぶ",
+     "see": "401 {\"error\": \"unauthorized\"}"
+    }
+   ],
+   "outcome": "資格情報が通ることと、サーバが版 1.0 を受けることが分かり、版 1 の契約からクライアントを作り始められる",
+   "without": "衛星の資格情報ではどの口も 403 で、設定できたかは管理の画面の「最後に使われた時刻」でしか分からない。口と型の契約も無い",
+   "refs": {
+    "requirements": [
+     "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+     "衛星は自分が誰かと、サーバが受ける版を確かめられる"
+    ],
+    "scenarios": [
+     "確かめる口は、衛星の識別子・名前と受ける版の一覧を返す",
+     "衛星向けの契約のページは、口・資格情報の渡し方・断りの種別・版・許諾を示す"
+    ],
+    "decisions": [
+     "Q4"
+    ]
+   }
+  },
+  {
+   "id": "U2",
+   "title": "本体を更新しても衛星が黙って壊れない",
+   "trigger": "本人が本体の内部の口を直す PR を出す。衛星が使う口に響いていないか気になる。",
+   "steps": [
+    {
+     "do": "内部の口だけを変えた PR を出す",
+     "see": "衛星向けの契約の検査は通る"
+    },
+    {
+     "do": "うっかり衛星向けの確かめる口の欄 name を消した PR を出す",
+     "see": "CI が落ち、当たった規則（応答の欄を消す）と場所が出る"
+    }
+   ],
+   "outcome": "衛星が頼る版 1 の形が、main に入る前に守られる",
+   "without": "衛星向けの口が変わっても気づかず、衛星が書けない間の記録が取れない",
+   "refs": {
+    "requirements": [
+     "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+    ],
+    "scenarios": [
+     "内部の口の変更では衛星向けの契約の検査は落ちない",
+     "同じ版の中で応答の欄を消すと検査が落ちる"
+    ],
+    "decisions": [
+     "Q2",
+     "Q3"
+    ]
+   }
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "版 1 の欄を変えたくなったとき",
+   "feature": "check",
+   "scene": "版 1 を main に入れた後、衛星がまだ無いうちに、本人が確かめる口の欄 name を display_name に変えたくなる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "decision",
+    "caption": "PR の中身と CI の結果（欄の名前は説明用）",
+    "head": [
+     "PR の中身",
+     "版の一覧",
+     "CI"
+    ],
+    "rows": [
+     [
+      "name を display_name に変える",
+      "1.0 のまま",
+      "落ちる（欄を消した）"
+     ],
+     [
+      "display_name を足し、name も残す",
+      "1.0 のまま",
+      "落ちる（小さい版の上げ忘れ）"
+     ],
+     [
+      "display_name を足し、name も残す",
+      "1.1 に上げる",
+      "通る"
+     ],
+     [
+      "name を消した版 2 を足し、版 1 を残す",
+      "1.0 と 2.0",
+      "通る（版 1 は外せないまま並ぶ）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "name を変える",
+     "outcome": "problem",
+     "result": "同じ版で欄を消すことになり CI が落ちる。衛星が 1 つも無くても同じ"
+    },
+    {
+     "label": "欄を足して 1.1 にする",
+     "outcome": "ok",
+     "result": "通る。古い衛星は name を読み続けられる"
+    }
+   ],
+   "why": "比べる相手は main にある版 1 の写しで、衛星がいるかどうかは見ない。版 1 は main に入った日から凍る（Q3）。",
+   "conditions": {
+    "occurs_when": [
+     "main に版 1 の写しがある",
+     "同じ版の中で欄を消す・型を変える"
+    ],
+    "not_when": [
+     "版 1 の写しを最初に足す PR の中（比べる相手に写しが無い）",
+     "足すだけで小さい版を上げる"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "欄の名前は説明用の値。実際に変えたい欄があるかは確かめていない",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+    ],
+    "scenarios": [
+     "同じ版の中で応答の欄を消すと検査が落ちる",
+     "任意の送る欄を足したのに小さい版を上げていないと検査が落ちる",
+     "比べる相手を読めないと検査は落ち、その版の写しが無ければ比べずに通る"
+    ],
+    "decisions": [
+     "Q3",
+     "Q7"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "版 2 を出して版 1 を外そうとする",
+   "feature": "retire",
+   "scene": "本人が壊す変更を版 2 として出し、衛星を全部版 2 に移した後、版 1 の口を消す PR を出す。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "外す PR の結果（日付は説明用）",
+    "head": [
+     "状況",
+     "CI"
+    ],
+    "rows": [
+     [
+      "版 2 の印がまだ無い",
+      "落ちる"
+     ],
+     [
+      "版 2 を 2027-01-10 に配り、2027-05-01 に外す",
+      "落ちる（6 か月たっていない）"
+     ],
+     [
+      "2027-07-10 に外す。知らせの画面の Requirement が無い",
+      "落ちる（notice が無い）"
+     ],
+     [
+      "2027-07-10 に外す。notice が正典の Requirement の名前",
+      "通る"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "6 か月たったが知らせの画面が無い",
+     "outcome": "problem",
+     "result": "外す変更は CI が止める。知らせの画面を作る Story は今どこにも無い"
+    },
+    {
+     "label": "版 1 を残して版 2 を並べる",
+     "outcome": "ok",
+     "result": "通る。2 つの版が並んで動き続ける"
+    }
+   ],
+   "why": "衛星の記録は途絶の通知に乗らないので、黙って版を外すと本人は格子の空白で初めて気づく。外す前に本人へ知らせる画面を条件にした（Q8）。",
+   "conditions": {
+    "occurs_when": [
+     "比べる相手にある版を、版の一覧・写し・サーバの経路のどれかから消す"
+    ],
+    "not_when": [
+     "版を足すだけ",
+     "外す日（sunset）を 6 か月の終わり以後に置くだけ"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "版 2 も印もまだ無い。日付は説明用の値",
+     "refs": {}
+    }
+   ],
+   "decisions": [
+    "IMP-02"
+   ],
+   "refs": {
+    "requirements": [
+     "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+    ],
+    "scenarios": [
+     "次の版の印がまだ無ければ、前の版は外せない",
+     "次の版を最初に配った日から 6 か月たつ前は、前の版は外せない",
+     "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない"
+    ],
+    "decisions": [
+     "Q6",
+     "Q8"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "衛星の作り手がリポジトリのページから口・型・資格情報・断り・版を読めるようになり、衛星は /satellite/v1/me で自分と受ける版を確かめられる。CI が同じ版の中の壊す変更を止めるのは、決めた規則の表に当たる差だけ。代わりに、版 1 は main に入った日から同じ版の中では消す・変えるができなくなり、前の版を外すには版の一覧の notice に正典の Requirement の名前が要る。",
+  "problem": "衛星は本体と別に作られて別に更新される。本人が本体の口を直したとき、衛星が使う口まで黙って変わると、衛星が書くはずだった記録は壊れている間取れない。いまは衛星向けの契約も版も無く、どの変更が衛星を壊すか見分けられない。",
+  "depth": "full",
+  "depth_why": "止める規則（CI を落とす・前の版を外させない・403 / 404 / 405 で断る）と MODIFIED の Requirement を持つ",
+  "memory": [
+   {
+    "kind": "data_flow",
+    "text": "確かめる口は、衛星自身の識別子・名前と版の一覧だけを衛星へ返す。記録・件数・承認・本体の中の番号は返さない",
+    "why": "承認（ST38）の前に通る口なので、承認していない種類が外へ出ない（扉 #15）",
+    "refs": {
+     "requirements": [
+      "衛星は自分が誰かと、サーバが受ける版を確かめられる"
+     ],
+     "scenarios": [
+      "確かめる口は、衛星の識別子・名前と受ける版の一覧を返す"
+     ]
+    }
+   },
+   {
+    "kind": "data_flow",
+    "text": "衛星向けの道の求めは読み出しの記録に、届いた道の文字列でなく経路の形で残る",
+    "why": "衛星が道に入れた任意の文字列を記録に残さない",
+    "refs": {
+     "requirements": [
+      "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す"
+     ],
+     "scenarios": [
+      "無い版の道への求めは、届いた道の文字列を残さずに 1 行残る"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "版 1 の形（確かめる口の欄・資格情報の渡し方・断りの形）は main に入った日から同じ版の中では消す・変えるができない",
+    "why": "外の衛星が頼る形なので、変えるなら版 2 を出して 6 か月以上並べる",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "decisions": [
+      "Q3"
+     ]
+    }
+   },
+   {
+    "kind": "one_way_door",
+    "text": "衛星向けの契約の Apache-2.0 は、公開した後に締める向きには変えられない",
+    "why": "公開後に生成されたクライアントの扱いが割れる（扉 #31）",
+    "refs": {
+     "requirements": [
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+     ],
+     "scenarios": [
+      "衛星向けの契約は Apache-2.0 を宣言し、内部の口の契約は今の式のまま"
+     ]
+    }
+   }
+  ],
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "code",
+    "name": "衛星向けの契約と書き出す bin（新しい satellite_api.rs と SatelliteApiDoc）",
+    "change": "内部の口の ApiDoc とは別の 2 つ目の契約を作り、docs/satellite-api/ に書き出す",
+    "searched": "ApiDoc・docs/openapi.json・check-openapi.sh の名前で crates・tools・collector-android・web を impact_deps.py で探し、読む側を開いた",
+    "refs": {
+     "requirements": [
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "auth",
+    "name": "読み出しの記録の middleware の、衛星の資格情報の扱い（access_log.rs）",
+    "change": "衛星向けの道だけ衛星の資格情報を通し、行をハンドラの後に返す状態で書く",
+    "searched": "Caller::Satellite・Verdict::Forbidden・every_route_refuses_satellite で crates を探した",
+    "refs": {
+     "requirements": [
+      "衛星の資格情報では、まだどの口も通らない",
+      "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "api",
+    "name": "衛星向けの道（/satellite/v1/me と版の受け口 3 本）",
+    "change": "新しい口と、無い版・無い道・違うメソッドの断りを足す",
+    "searched": "/satellite の字面で lib.rs の router と web/src・tools/smoke.d を探した（ST29 の /satellites… だけが出た）",
+    "no_dependents_why": "新しい道で、今これを呼ぶ部品は無い。収集アプリ・画面・台本は /satellites… の管理の口だけを使う",
+    "refs": {
+     "requirements": [
+      "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+      "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "file",
+    "name": "README.md・CONTRIBUTING.md のライセンスの節",
+    "change": "本体（AGPL-3.0）と衛星向けの契約（Apache-2.0）を分けて書き足す",
+    "searched": "CONTRIBUTING.md の名前で tools を探し、check-cla-section.sh を開いた",
+    "refs": {
+     "requirements": [
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "code",
+    "name": "CI の判定と配線（tools/release/changes.sh・ci.yml の rust の job）",
+    "change": "新しい判定 satellite を足し、rust の job の条件に加える。印を取り寄せた後に検査を 2 行置く",
+    "searched": "changes.sh の名前で tools・.github・走っている change を探した",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "ST61（st61-auto-version-bump）の内部の契約の版の数え方",
+    "role": "writes",
+    "assumes": "内部の契約の info.version を変えても、衛星向けの契約の版には響かない",
+    "holds": "yes",
+    "affects": "衛星向けの契約の版（版の一覧から読み、出所の版を読まない）",
+    "basis": "observed",
+    "evidence": [
+     "E8"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T2",
+    "who": "ST59（st59-change-password-from-web）の読み出しの記録の Requirement の書き直し",
+    "role": "writes",
+    "assumes": "同じ Requirement の別の文を直すので、archive の 3-way で両方の直しが残る",
+    "holds": "unknown",
+    "affects": "正典 data-sensitivity「誰がいつ読んだかを…」の本文",
+    "basis": "unconfirmed",
+    "evidence": [
+     "E9"
+    ],
+    "verify": "後に archive する側で openspec archive を走らせ、両方の ★ の注記と直した文が残ることを見る"
+   },
+   {
+    "id": "D3",
+    "target": "T2",
+    "who": "経路の試験 every_route_refuses_satellite（ST29）",
+    "role": "reads",
+    "assumes": "router の道は内部の契約の道と /healthz だけで、衛星の資格情報ではすべて 403",
+    "holds": "unknown",
+    "affects": "この Story の Task 4 が 2 つの契約の和で見る形に直す。直し忘れれば試験が落ちる（黙っては通らない）",
+    "basis": "observed",
+    "evidence": [
+     "E1",
+     "E2"
+    ],
+    "verify": "Task 4 の後、経路を 1 本足して試験が落ちることを見る"
+   },
+   {
+    "id": "D4",
+    "target": "T4",
+    "who": "tools/check-cla-section.sh（ST53 の検証の台本）",
+    "role": "reads",
+    "assumes": "CONTRIBUTING の最初の ## から ## 送る前に まで（ライセンスの節を含む）は origin/main から変わらない",
+    "holds": "no",
+    "affects": "ST42 の PR の中で手で走らせると落ちる。CI には配線されていない",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   },
+   {
+    "id": "D5",
+    "target": "T4",
+    "who": "CONTRIBUTING.md の冒頭の文",
+    "role": "reads",
+    "assumes": "貢献はすべて本体と同じ AGPL-3.0-only で配布する",
+    "holds": "no",
+    "affects": "契約（docs/satellite-api/）への貢献の許諾が、冒頭と節で二通りに読める",
+    "basis": "observed",
+    "evidence": [
+     "E6"
+    ],
+    "leads_to": [
+     "IMP-03"
+    ]
+   },
+   {
+    "id": "D6",
+    "target": "T5",
+    "who": "ST61 が番号を付ける判定に使う changes.sh code",
+    "role": "reads",
+    "assumes": "docs/ と .md だけの変更は製品に触れない",
+    "holds": "yes",
+    "affects": "製品に番号を付けるか（ST42 は code を変えず、別の判定 satellite を足す）",
+    "basis": "observed",
+    "evidence": [
+     "E3"
+    ]
+   },
+   {
+    "id": "D7",
+    "target": "T5",
+    "who": "rust の job の印の取り寄せ",
+    "role": "writes",
+    "assumes": "印 v* を読めるのは rust の job だけ",
+    "holds": "yes",
+    "affects": "前の版を外す規則の 6 か月の計算（印の無い job に置くと黙って通る）",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T5",
+    "who": "ch26-nightly-vulns-cleanup と st61-auto-version-bump の changes の job・changes.sh の変更",
+    "role": "writes",
+    "assumes": "ST42 が足す出力 satellite・changes.sh の case の行と、別の行で済む",
+    "holds": "unknown",
+    "affects": "3 本が同じ outputs と case を書き換えるので、後から merge する側の rebase で取り合う",
+    "basis": "observed",
+    "evidence": [
+     "E11",
+     "E12"
+    ],
+    "verify": "後から merge する側の rebase の後に changes.sh --self-test と actionlint を走らせる"
+   },
+   {
+    "id": "D9",
+    "target": "T5",
+    "who": "rust の job に渡す比べる相手（changes の job の BASE の式の写し）",
+    "role": "reads",
+    "assumes": "changes の job と同じ比べる相手を、同じ扱い（引けないときの振る舞い）で使う",
+    "holds": "no",
+    "affects": "ST61 が push の比べる相手を変えると写しが追随しない。changes の job は引けないと全部走らせるが、衛星向けの検査は読めないと落とす",
+    "basis": "observed",
+    "evidence": [
+     "E12"
+    ],
+    "leads_to": [
+     "IMP-04"
+    ]
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/server/src/access_log.rs:184",
+    "quote": "Some(Caller::Satellite { .. }) => Verdict::Forbidden,"
+   },
+   {
+    "id": "E2",
+    "source": "test",
+    "loc": "crates/server/src/satellite_routes_tests.rs:116",
+    "quote": "contract.insert(\"/healthz\".into());"
+   },
+   {
+    "id": "E3",
+    "source": "ops",
+    "loc": "tools/release/changes.sh:7",
+    "quote": "if grep -vE '^(docs/|openspec/)|\\.md$' | grep -q .; then"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": ".github/workflows/ci.yml:130",
+    "quote": "tags=\"$(git ls-remote --tags origin 'refs/tags/v*')\""
+   },
+   {
+    "id": "E5",
+    "source": "ops",
+    "loc": "tools/check-cla-section.sh:8",
+    "quote": "section() { sed -n '/^## /,/^## 送る前に/p'; }"
+   },
+   {
+    "id": "E6",
+    "source": "design",
+    "loc": "CONTRIBUTING.md:3",
+    "quote": "貢献も、本体と同じ AGPL-3.0-only と追加の許可を含む許諾の下で配布します。"
+   },
+   {
+    "id": "E7",
+    "source": "code",
+    "loc": "crates/server/src/lib.rs:4515",
+    "quote": "route_layer: `MatchedPath` が要る"
+   },
+   {
+    "id": "E8",
+    "source": "story",
+    "loc": "openspec/changes/st61-auto-version-bump/proposal.md:35",
+    "quote": "`docs/openapi.json`（`info.version`）"
+   },
+   {
+    "id": "E9",
+    "source": "story",
+    "loc": "openspec/changes/st59-change-password-from-web/specs/data-sensitivity/spec.md:56",
+    "quote": "### Requirement: 誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+   },
+   {
+    "id": "E11",
+    "source": "story",
+    "loc": "openspec/changes/ch26-nightly-vulns-cleanup/tasks.md:13",
+    "quote": "`changes`（PR の差分が lock を変えたかと分岐点を出す）"
+   },
+   {
+    "id": "E12",
+    "source": "story",
+    "loc": "openspec/changes/st61-auto-version-bump/tasks.md:91",
+    "quote": "push のときだけその commit を `BASE` にする"
+   },
+   {
+    "id": "E13",
+    "source": "story",
+    "loc": "openspec/changes/st61-auto-version-bump/design.md:149",
+    "quote": "印 `v<番号>`（と `-beta.<N>`）"
+   },
+   {
+    "id": "E14",
+    "source": "code",
+    "loc": "crates/server/src/lib.rs:4418",
+    "quote": "async fn strip_api_prefix("
+   },
+   {
+    "id": "E10",
+    "source": "spec",
+    "refs": {
+     "requirements": [
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない"
+     ]
+    }
+   }
+  ],
+  "lost": [
+   {
+    "before": "衛星向けの口・型は、本人の都合でいつでも変えられた（口そのものがまだ無かった）",
+    "after": "版 1 に載った口と型は、同じ版の中で消す・型を変える・必須を足すと CI が落ちる",
+    "who": "本体を作る本人と AI",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "同じ版の中で口を消すと検査が落ちる"
+     ]
+    },
+    "harm": {
+     "when": "版 1 の欄の名前や断りの形を、衛星がまだ無いうちに直したくなったとき。",
+     "who": "本体を作る本人と AI。衛星の作り手には見えない。",
+     "link": "直すなら版 2 を出し、版 1 を外せないまま並べ続ける（IMP-01・IMP-02）。",
+     "unknown": "版 1 の形を直したくなる場面がどれくらいあるかは確かめていない。"
+    }
+   },
+   {
+    "before": "README・CONTRIBUTING だけを直す PR は、重いサーバの検査の job を待たなかった",
+    "after": "README・CONTRIBUTING・docs/satellite-api/ だけの PR でも rust の job が走る",
+    "who": "PR を出す本人と AI",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "衛星向けの契約の置き場か README・CONTRIBUTING だけを変えた PR でもサーバの検査の job が走る"
+     ]
+    },
+    "harm": {
+     "when": "README や CONTRIBUTING の誤字だけを直す PR を出したとき。",
+     "who": "PR を出す本人と AI。利用者には見えない。",
+     "link": "Actions の予算（rust の job の分の時間）。",
+     "unknown": "README・CONTRIBUTING だけの PR の回数と、rust の job の時間は測っていない。"
+    }
+   }
+  ],
+  "lost_none": "",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "衛星は資格情報を付けて /satellite/v1/me を呼び、自分と受ける版を確かめられる",
+    "cannot": "記録を読む・書く（ST38・ST39・ST45 の後）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+      "衛星の資格情報では、まだどの口も通らない"
+     ],
+     "scenarios": [
+      "確かめる口は、衛星の識別子・名前と受ける版の一覧を返す",
+      "衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "本体を更新しても、同じ版の中の衛星向けの口と型は規則の表の範囲で変わらない",
+    "cannot": "規則の表に無い壊し方（参照の付け替えなど）は見逃しうる",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "内部の口の変更では衛星向けの契約の検査は落ちない"
+     ],
+     "decisions": [
+      "D9"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "evidence": [
+     "E7"
+    ],
+    "can": "この Story より前のサーバに戻すと、衛星の資格情報は今までどおり受ける",
+    "cannot": "/satellite/v1/me は無く、経路に当たらない求めとして断られる（JSON の種別は付かない）",
+    "basis": "observed",
+    "refs": {
+     "requirements": [
+      "衛星の資格情報では、まだどの口も通らない"
+     ],
+     "scenarios": [
+      "衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "ST29 で登録した衛星と資格情報はそのまま使える（渡し方は変わらない）",
+    "cannot": "この分析では見つけていない",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "衛星の資格情報では、まだどの口も通らない"
+     ],
+     "scenarios": [
+      "衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い"
+     ],
+     "decisions": [
+      "D6"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "版 1 の衛星と版 2 の衛星が、並べた 2 つの版をそれぞれ呼べる。外す日の決まった版の応答には Sunset が付く",
+    "cannot": "サーバに無い版を呼んだ衛星は 404 unsupported_version と版の一覧を受けるだけで、動かない",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する",
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "版の一覧に無い版の道は、版の一覧つきの 404 になる",
+      "新しい大きい版を足し、前の版を残せば検査は通る",
+      "外す日を持つ版の応答には Sunset の見出しが付く"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": false,
+    "why": "版の一覧と契約はサーバに埋め込まれ、DB に持たない。退避から戻しても版は変わらない（移行は無い）"
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "停止",
+    "rule": "同じ版の中で口・欄を消す・型を変える・必須を足すと CI が落ちる",
+    "target": "既存の衛星を黙って壊す変更",
+    "legit": "衛星がまだ 1 つも無い間に、本人が版 1 の欄の名前や形の誤りを直すことも止まる",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる",
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+      "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ"
+     ],
+     "scenarios": [
+      "同じ版の中で応答の欄を消すと検査が落ちる",
+      "版の一覧と契約の版が食い違うと検査が落ちる",
+      "コミットされた衛星向けの契約がコードとずれると検査が落ちる"
+     ],
+     "decisions": [
+      "Q2",
+      "Q3"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "停止",
+    "rule": "前の版を外す変更は、6 か月と、notice に正典の Requirement の名前の両方が無ければ CI が落ちる",
+    "target": "衛星が移る前に版を黙って外すこと",
+    "legit": "衛星を全部新しい版に移し終えた本人も、版の一覧の notice に正典の Requirement の名前を書くまで前の版を外せない",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない"
+     ],
+     "decisions": [
+      "Q6",
+      "Q8",
+      "D12"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "拒否",
+    "rule": "API の合言葉・画面のログインは衛星向けの道で 403 not_satellite",
+    "target": "衛星でない資格情報で衛星の口を使うこと",
+    "legit": "収集アプリも画面も衛星向けの口を使わないので、この分析では正当な利用を止めるものを見つけていない",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+      "API の合言葉で通る口は、送る口と通知に要る読みの許可の一覧だけ"
+     ],
+     "scenarios": [
+      "API の合言葉と画面のログインでは、衛星向けの口は通らない"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "拒否",
+    "rule": "無い版・無い道・違うメソッドは 404 / 405 で断る",
+    "target": "契約に無い呼び方",
+    "legit": "なし（版の一覧と種別が応答に付くので、衛星は移り先を知れる）",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+     ],
+     "scenarios": [
+      "版の一覧に無い版の道は、版の一覧つきの 404 になる"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "拒否",
+    "rule": "衛星の資格情報は衛星向けの道のほかで今どおり 403",
+    "target": "承認の前に衛星が記録を読む・書くこと",
+    "legit": "衛星向けの口のほかに衛星が使う口はまだ無いので、この分析では見つけていない",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "衛星の資格情報では、まだどの口も通らない"
+     ],
+     "scenarios": [
+      "ログインの印を併せて持っていても衛星の求めとして断る"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "拒否",
+    "rule": "読み出しの記録に書けなければ 500 で何も返さない",
+    "target": "記録の無い応答",
+    "legit": "DB が書けない間は確かめる口も使えない（内部の口と同じ扱い）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す",
+      "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+     ],
+     "scenarios": [
+      "読み出しの記録に書けないときは、確かめる口は 500 で衛星の情報を返さない"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R1",
+    "goal": "衛星がまだ無いうちに、版 1 の確かめる口の欄の名前を直したい",
+    "initial": "版 1 の写しが main にあり、衛星は 1 つも無い",
+    "action": "欄 name を display_name に変える PR を出す",
+    "trigger": "同じ版の中で応答の欄を消した",
+    "result": "CI が落ちる。直すには欄を足して 1.1 にするか、版 2 を出す",
+    "lost": "版 1 の形を直接直すこと",
+    "decision": "版 1 を凍らせる日を main に入った日のままにするか（IMP-01）",
+    "occurs_when": [
+     "main に版 1 の写しがある"
+    ],
+    "not_when": [
+     "版 1 の写しを最初に足す PR の中"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "同じ版の中で応答の欄を消すと検査が落ちる"
+     ],
+     "decisions": [
+      "Q3"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R2",
+    "goal": "使われなくなった版 1 を片付けたい",
+    "initial": "版 2 を配って 6 か月以上たち、衛星は全部版 2 に移っている",
+    "action": "版 1 の口と写しを消す PR を出す",
+    "trigger": "版の一覧の版 1 の notice が正典の Requirement の名前を持たない",
+    "result": "CI が落ちる。知らせの画面の Requirement の名前を書くまで版 1 は並び続ける",
+    "lost": "前の版を外して、保つ口を減らすこと",
+    "decision": "知らせの画面をどの Story が持つか（IMP-02）",
+    "occurs_when": [
+     "知らせの画面の Requirement が正典に無い"
+    ],
+    "not_when": [
+     "版 1 を外さずに並べ続ける"
+    ],
+    "basis": "derived",
+    "imp": "IMP-02",
+    "refs": {
+     "requirements": [
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない"
+     ],
+     "decisions": [
+      "Q8"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "版 1 は衛星が無いうちから凍る",
+    "text": "版 1 は main に入った日から凍る。衛星がまだ 1 つも無くても、確かめる口や断りの形の誤りは版 2 にしないと直せず、版 2 にすると版 1 は外せないまま並ぶ（IMP-02）",
+    "basis": "derived",
+    "unknowns": [
+     "版 1 の形を直したくなる誤りが ST38・ST39・ST45 の上流で見つかるかは確かめていない"
+    ],
+    "derived": "比べる相手は main の写しで、衛星の有無を見ない（Q3）。同じ版の中の消す・変えるは CI が落とす（R1）",
+    "undefined": "最初の衛星が使い始めるまで版 1 を直してよい期間（版 0 のような扱い）。仕様は定めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "このまま（main に入った日から凍る。Q3 の推奨）"
+     },
+     {
+      "label": "最初に配った印から凍らせる（それまでは直せる）"
+     }
+    ],
+    "verify": "ST39 の上流で、版 1 の口に足すだけで書き込みの口を載せられるかを確かめる",
+    "deps": [],
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "同じ版の中で応答の欄を消すと検査が落ちる"
+     ],
+     "decisions": [
+      "Q3"
+     ]
+    },
+    "harm": {
+     "when": "ST38・ST39・ST45 の上流で、版 1 の確かめる口や断りの形を変えたくなったとき。",
+     "who": "本体を作る本人と AI。衛星の作り手には、版が増えることとして見える。",
+     "link": "版 1 を外す道（IMP-02）。外せないので、直した分だけ並べる版が増える。",
+     "unknown": "版 1 の形を変えたくなる場面があるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "外す条件の知らせの画面を持つ Story がまだ無い",
+    "text": "前の版を外すには、版の一覧の notice に正典の Requirement の名前が要る。本人に知らせる画面の Requirement を持つ Story はまだ無いので、版 2 を出しても版 1 は並び続ける",
+    "basis": "derived",
+    "unknowns": [
+     "版 2 が要る壊す変更がいつ起きるかは確かめていない",
+     "関係の無い名前で (b) を満たす書き換えを、レビューが止めるかは確かめていない"
+    ],
+    "derived": "外せる条件 (b) は notice が正典の Requirement の名前と一字一句同じかだけを見る（R2）。知らせの画面の Requirement を持つ Story は今無い。一方、検査は名前の一致しか見ないので、関係の無い既存の名前を書いても通る",
+    "undefined": "知らせの画面をどの Story が作るか。仕様は「最初に前の版を外す作業の上流」とだけ書く",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "版を外す必要が出たときに /requirements から Story を足す"
+     },
+     {
+      "label": "いま Story を足しておく"
+     }
+    ],
+    "verify": "版 2 を出す最初の Story の上流で、版 1 を並べ続ける費用（保つ口・試験）を見積もる",
+    "deps": [],
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "6 か月たっても、本人に知らせる画面の名前が無ければ前の版は外せない"
+     ],
+     "decisions": [
+      "Q8"
+     ]
+    },
+    "harm": {
+     "when": "版 2 を出した後、使われなくなった版 1 を片付けたくなったとき。",
+     "who": "本体を作る本人と AI。衛星の作り手には、版 1 が動き続けることとして見える。",
+     "link": "版 1 の口・試験を保ち続ける手間。記録は失われない。",
+     "unknown": "版 2 がいつ要るか、並べ続ける手間がどれくらいかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "CONTRIBUTING の冒頭と古い検査が書き足しと食い違う",
+    "text": "CONTRIBUTING の冒頭は「貢献も本体と同じ AGPL-3.0-only で配布」と言い、ライセンスの節に足す Apache-2.0 の記述と二通りに読める。ST53 の check-cla-section.sh もライセンスの節の変更で落ちる（CI には無い）",
+    "basis": "observed",
+    "deps": [
+     "D4",
+     "D5"
+    ],
+    "evidence": [
+     "E5",
+     "E6"
+    ],
+    "derived": "tasks は「ライセンスの節」に書き足すだけで、冒頭の文と check-cla-section.sh に触れない。check-cla-section.sh は ST53 がこの節を変えないために置いたもので、ST42 はその範囲を意図して変える",
+    "undefined": "契約への貢献をどの許諾で受けるか（CLA は今のまま、と design D2）",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "冒頭の文も、契約は Apache-2.0 と分けて書く"
+     },
+     {
+      "label": "check-cla-section.sh の範囲の外の新しい節に契約の許諾を書く"
+     },
+     {
+      "label": "このまま（節だけで分ける）"
+     }
+    ],
+    "verify": "Task 5 の後、CONTRIBUTING を通して読んで、契約への貢献の許諾が 1 通りに読めるかを見る",
+    "refs": {
+     "requirements": [
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する"
+     ],
+     "scenarios": [
+      "契約の置き場の LICENSE は Apache-2.0 の全文で、README と CONTRIBUTING は 2 つのライセンスを分けて書く"
+     ]
+    },
+    "harm": {
+     "when": "外の人が契約（docs/satellite-api/）に貢献しようとして CONTRIBUTING を読んだとき。",
+     "who": "リポジトリは公開なので、外の貢献者に見える。",
+     "link": "CLA（契約への貢献も同じ CLA で受ける）。",
+     "unknown": "契約へ外から貢献が来るかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "衛星向けの検査の比べる相手が changes の job とずれうる",
+    "text": "rust の job の衛星向けの検査は、changes の job の比べる相手の式を写して使う。ST61 が main への push の比べる相手を変えても写しは追随しない。比べる相手を引けないとき、changes の job は全部走らせるが、衛星向けの検査は落とすので、main の push が赤になりうる",
+    "basis": "derived",
+    "deps": [
+     "D9"
+    ],
+    "evidence": [
+     "E12"
+    ],
+    "derived": "D10 は比べる相手を「changes の job と同じ式」で渡し、読めなければ落とす（仕様）",
+    "undefined": "main の push で比べる相手を引けないときに、衛星向けの検査をどう扱うか",
+    "feasibility": "unverified",
+    "unknowns": [
+     "main の push で github.event.before が引けない場面が実際に起きるかは確かめていない"
+    ],
+    "options": [
+     {
+      "label": "changes の job が出力した比べる相手を rust の job へ渡す"
+     },
+     {
+      "label": "このまま（ST61 の merge の後に合わせる。D10 の書き方）"
+     }
+    ],
+    "verify": "ST61 と ST42 の両方が入った木で、取り消された run の後の main の push を使い捨ての木で再現する",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ],
+     "scenarios": [
+      "比べる相手を読めないと検査は落ち、その版の写しが無ければ比べずに通る"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    },
+    "harm": {
+     "when": "ST61 の後、main の push の比べる相手が引けない run が来たとき。",
+     "who": "本人と AI（main の CI が赤に見える）。衛星の作り手には見えない。",
+     "link": "main が赤の間の自動 merge と確認バッチ。",
+     "unknown": "その run がどれくらい起きるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "medium",
+    "status": "open",
+    "title": "6 か月の起点にベータ版の印も入りうる",
+    "text": "外せる条件の配った印は v* のすべてで、ST61 が作るベータ版の印（-beta.N）も含みうる。正式版だけを追う衛星の作り手には、移る期間が 6 か月より短くなる",
+    "basis": "unconfirmed",
+    "deps": [],
+    "evidence": [
+     "E13"
+    ],
+    "derived": "D12 は v* の印のうち配った日が最も早いものから数える（仕様）",
+    "undefined": "ベータ版の印を配った日に数えるか。仕様は定めていない",
+    "feasibility": "unverified",
+    "unknowns": [
+     "ST61 のベータ版の印の名前が v* に当たるかは、ST61 が merge されるまで確かめていない"
+    ],
+    "options": [
+     {
+      "label": "正式版の印（-beta を含まない v*）だけで数える"
+     },
+     {
+      "label": "このまま（ベータを配った日も配った日に数える）"
+     }
+    ],
+    "verify": "Task 7 の自己試験に、ベータの印だけがある材料を足して結果を見る",
+    "refs": {
+     "requirements": [
+      "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+     ],
+     "scenarios": [
+      "次の版を最初に配った日から 6 か月たつ前は、前の版は外せない"
+     ],
+     "decisions": [
+      "Q6",
+      "D12"
+     ]
+    },
+    "harm": {
+     "when": "版 2 をベータで先に配り、6 か月後に版 1 を外すとき。",
+     "who": "正式版だけを使う衛星の作り手。",
+     "link": "外した後、移っていない衛星が書くはずだった記録。",
+     "unknown": "ベータを使う衛星の作り手がいるかは確かめていない。"
+    }
+   },
+   {
+    "id": "IMP-06",
+    "severity": "medium",
+    "status": "open",
+    "title": "衛星が呼ぶ URL の基点（/api の有無）が契約に無い",
+    "text": "サーバは /api を剥がして経路に当てる（strip_api_prefix）。衛星向けの契約に servers の記述が無く、衛星が /satellite/v1/me と /api/satellite/v1/me のどちらで呼ぶかが契約から決まらない。Sunset を付ける層がこの剥がしの内か外かも書いていない",
+    "basis": "observed",
+    "deps": [],
+    "evidence": [
+     "E14"
+    ],
+    "derived": "どちらの URL でも同じ経路に当たる（E14）。契約は道だけを持つ",
+    "undefined": "契約が示す基点と、/api つきで呼ばれたときの Sunset と読み出しの記録の口の名前",
+    "feasibility": "unverified",
+    "unknowns": [
+     "/api つきの求めで Sunset が付くかは確かめていない"
+    ],
+    "options": [
+     {
+      "label": "契約の servers に基点を 1 つ書き、ページにも書く"
+     },
+     {
+      "label": "このまま（どちらでも当たる）"
+     }
+    ],
+    "verify": "Task 3 の試験に /api/satellite/v1/me の求めを足し、200 と Sunset と記録の行を見る",
+    "refs": {
+     "requirements": [
+      "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+      "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+     ],
+     "scenarios": [
+      "外す日を持つ版の応答には Sunset の見出しが付く"
+     ],
+     "decisions": [
+      "D11"
+     ]
+    },
+    "harm": {
+     "when": "衛星の作り手が契約からクライアントを生成し、基点を自分で決めるとき。",
+     "who": "衛星の作り手。",
+     "link": "版 1 は凍るので、後から基点を決めると版 1 の契約の差になる（servers は今の規則の表には無い）。",
+     "unknown": "衛星の作り手がどちらを選ぶかは確かめていない。"
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "Scenario が全部通り、tools/check-satellite-contract.sh --self-test と本番が CI の rust の job で通る",
+    "refs": {
+     "requirements": [
+      "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+     ]
+    }
+   },
+   {
+    "text": "IMP-01〜IMP-06 を、書いた残るもののまま受け入れるか直すかを合意で決めている",
+    "refs": {}
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "衛星向けの契約（版 1）・確かめる口・版の受け口・衛星向けの道の読み出しの記録",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ",
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+       "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する",
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す"
+      ]
+     }
+    },
+    {
+     "text": "同じ版の中の壊す変更のうち、規則の表（design D9）に当たるもの",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "読み出しの記録は追記のみ。行は書き換えも削除もしない（今のまま）",
+     "refs": {
+      "requirements": [
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+      ],
+      "scenarios": [
+       "読み出しの記録の行は書き換えも削除もできない"
+      ]
+     }
+    },
+    {
+     "text": "衛星向けの道は /satellite そのものか /satellite/ で始まる道だけ。ST29 の管理の口 /satellites… は含まない",
+     "refs": {
+      "requirements": [
+       "衛星の資格情報では、まだどの口も通らない",
+       "API の合言葉で通る口は、送る口と通知に要る読みの許可の一覧だけ",
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す"
+      ],
+      "scenarios": [
+       "衛星の管理の口は衛星向けの道に数えない"
+      ]
+     }
+    },
+    {
+     "text": "外せる条件の 6 か月は印 v* を読める rust の job でだけ計算する。印がまだ無ければ外す条件は満たさない",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ],
+      "scenarios": [
+       "次の版の印がまだ無ければ、前の版は外せない"
+      ]
+     }
+    },
+    {
+     "text": "比べる相手にその版の写しが無いとき（その版を初めて足す PR）は比べずに通す",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "scenarios": [
+       "比べる相手を読めないと検査は落ち、その版の写しが無ければ比べずに通る"
+      ]
+     }
+    },
+    {
+     "text": "Sunset は外す日を持つ版の道の応答だけに付く",
+     "refs": {
+      "requirements": [
+       "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する"
+      ],
+      "scenarios": [
+       "外す日を持たない版の応答には Sunset の見出しが付かない"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "衛星向けの契約には衛星だけが使う口を載せ、内部の口は載せない。版の一覧に載る版の道だけを受ける",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ"
+      ]
+     }
+    },
+    {
+     "text": "記録の封筒の形・衛星が書く口（ST39）・承認（ST38）・衛星の読み出し（ST45）・MCP の道具（ST27）・SDK",
+     "refs": {}
+    },
+    {
+     "text": "本人に知らせる画面（どの Story も持っていない）",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "規則の表に無い壊し方は見逃しうる",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる"
+      ],
+      "decisions": [
+       "D9"
+      ]
+     }
+    },
+    {
+     "text": "版 1 は外せないまま並びうる（IMP-02）",
+     "refs": {
+      "requirements": [
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "change の 10 本の Requirement と、design の D1〜D14、premises の P1〜P10",
+     "refs": {
+      "requirements": [
+       "衛星向けの API の契約を、内部の口の契約と分けて生成し、Apache-2.0 で公開する",
+       "衛星向けの口は道に大きい版を持ち、版の一覧を 1 か所に持つ",
+       "衛星は自分が誰かと、サーバが受ける版を確かめられる",
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる",
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない",
+       "サーバに無い版や外した版を呼ばれたら版の一覧つきで断り、外す日の決まった版は見出しで予告する",
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す",
+       "衛星の資格情報では、まだどの口も通らない",
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す",
+       "API の合言葉で通る口は、送る口と通知に要る読みの許可の一覧だけ"
+      ]
+     }
+    },
+    {
+     "text": "読み出しの記録の middleware（access_log.rs）と経路の試験（satellite_routes_tests.rs）の今の前提",
+     "refs": {
+      "requirements": [
+       "衛星の資格情報では、まだどの口も通らない",
+       "衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す"
+      ]
+     }
+    },
+    {
+     "text": "走っている st61-auto-version-bump・st59-change-password-from-web・ch21-trial-use-before-verify・ch26-nightly-vulns-cleanup の触るファイル。ch21 は ci.yml・lib.rs の別の行。ch26 と st61 は changes の job と changes.sh を ST42 と同じ所で変える（D8）",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる",
+       "誰がいつ読んだかを、追記のみの読み出しの記録に残す"
+      ]
+     }
+    },
+    {
+     "text": "CI の判定 changes.sh と、印を取り寄せる rust の job",
+     "refs": {
+      "requirements": [
+       "同じ版の中で衛星を壊す変更を入れると CI が落ちる",
+       "壊す変更は新しい大きい版として出し、前の版は 6 か月以上と本人への知らせの後でしか外さない"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "utoipa で 2 つ目の契約を同じ crate から組めるか（premises P5 は確かさ 2）",
+     "why": "走らせていない。Task 1 で確かめる（組めなければ D1 の反転条件）"
+    },
+    {
+     "text": "印 v* が注釈つきで作られるか",
+     "why": "印を作る仕組みは ST61 が作り、まだ無い"
+    },
+    {
+     "text": "外の作り手がページをどう読むか",
+     "why": "外の作り手はまだいない"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "収集アプリ（携帯・PC）の送る口と送信契約",
+     "why": "衛星向けの道を使わず、内部の契約も変わらない"
+    }
+   ]
+  }
+ },
+ "sections": {
+  "makes": {
+   "tldr": "衛星が使う口だけの契約を版 1.0・Apache-2.0 で公開し、同じ版の壊す変更を CI が止める。",
+   "gist": [
+    "衛星は GET /satellite/v1/me で、自分と、サーバが受ける版を確かめられる。",
+    "内部の口の契約（docs/openapi.json）は今のまま変えない。"
+   ],
+   "words": [
+    {
+     "term": "衛星",
+     "def": "本体の外で別に作られ、資格情報で本体の口を呼ぶアプリ"
+    },
+    {
+     "term": "契約",
+     "def": "口・型・資格情報の渡し方を機械が読める形で書いたもの"
+    }
+   ],
+   "picture": {
+    "svg": "<svg viewBox=\"0 0 560 170\" role=\"img\" aria-label=\"本体のコードから内部の契約と衛星向けの契約を別々に作り、衛星向けだけを版つき・Apache-2.0 で公開し、CI が版の中の壊す変更を止める\"><g font-size=\"12\" fill=\"var(--ink)\"><rect x=\"0\" y=\"65\" width=\"120\" height=\"40\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"60.0\" y=\"89.0\" text-anchor=\"middle\" fill=\"var(--ink)\">本体のコード</text><rect x=\"200\" y=\"10\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"285.0\" y=\"28.0\" text-anchor=\"middle\" fill=\"var(--ink)\">内部の口の契約</text><text x=\"285.0\" y=\"44.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">docs/openapi.json・AGPL</text><rect x=\"200\" y=\"110\" width=\"170\" height=\"44\" rx=\"8\" fill=\"var(--pick-soft)\" stroke=\"var(--pick)\"/><text x=\"285.0\" y=\"128.0\" text-anchor=\"middle\" fill=\"var(--ink)\">衛星向けの契約 v1</text><text x=\"285.0\" y=\"144.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">Apache-2.0・版 1.0</text><rect x=\"440\" y=\"110\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--surface)\" stroke=\"var(--line)\"/><text x=\"500.0\" y=\"128.0\" text-anchor=\"middle\" fill=\"var(--ink)\">衛星の作り手</text><text x=\"500.0\" y=\"144.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">ページを読む</text><rect x=\"440\" y=\"10\" width=\"120\" height=\"44\" rx=\"8\" fill=\"var(--warn-bg)\" stroke=\"var(--warn)\"/><text x=\"500.0\" y=\"28.0\" text-anchor=\"middle\" fill=\"var(--warn)\">CI の検査</text><text x=\"500.0\" y=\"44.0\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--ink-2)\">版の中の壊す変更</text><path d=\"M122 78 L196 34\" stroke=\"var(--ink-3)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#as)\"/><path d=\"M122 92 L196 128\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M372 132 L436 132\" stroke=\"var(--pick)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aa)\"/><path d=\"M372 120 L436 50\" stroke=\"var(--warn)\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#aw)\"/></g></svg>",
+    "caption": "2 つの契約と、それを読むもの"
+   }
+  },
+  "change": {
+   "tldr": "衛星の資格情報で、衛星向けの道（いまは確かめる口だけ）が通るようになる。"
+  },
+  "lost": {
+   "tldr": "版 1 の口と型を同じ版で変えられなくなり、README だけの PR でも重い検査を待つ。"
+  },
+  "uses": {
+   "tldr": "衛星を作るとき、ページを読んで資格情報を設定し、確かめる口で通るかを見られる。"
+  },
+  "watch": {
+   "tldr": "版 1 は main に入った日から凍る。無い版への 404 は記録に forbidden で残る。"
+  },
+  "findings": {
+   "tldr": "中くらいの 5 件（版 1 が早く凍る・知らせの画面の持ち主が無い・URL の基点など）と軽い 1 件。重大は無い。"
+  },
+  "rest": {
+   "tldr": "封筒・書く口・承認・読み出し・知らせの画面・SDK は作らない。版の一覧の置き場は AI に任せた。"
+  }
+ }
+}

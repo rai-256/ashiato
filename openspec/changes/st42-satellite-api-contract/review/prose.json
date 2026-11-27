@@ -1,0 +1,15 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 118,
+ "applied": [
+  "impact.overview",
+  "points[retire.3].text",
+  "features[log].tldr",
+  "impact.scope.preconditions[2].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}
