@@ -37,7 +37,7 @@ change: `openspec/changes/st42-satellite-api-contract/`（FR-89・FR-95・FR-103
 
 ## tasks
 
-9 Task・12 項目（人間の確認待ちは無い。画面は持たない）。ST42 が印を置く Scenario は 59 本（Rust 21・台本の本番 4・台本の `--self-test` 34）。
+9 Task・12 項目（人間の確認待ちは無い。画面は持たない）。ST42 が印を置く Scenario は 60 本（Rust 22・台本の本番 4・台本の `--self-test` 34）。
 
 ## レビュー
 

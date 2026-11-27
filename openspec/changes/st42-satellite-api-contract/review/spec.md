@@ -197,7 +197,7 @@ design の D 番号のうち観測できる振る舞いで specs に無いもの
   - 本番の検査も `cargo run` を含む（D10 (1)）。tasks.md :80・:89・:97 は、それを `scripts/quiet-run` を通さずに走らせている（AGENTS.md「数十秒以上かかるもの」）
 - kind: technical
 - 提案: D10 に、作り直した契約とページを置いたフォルダを受ける引数（例: `--generated <dir>`。`--self-test` の中だけで使い、本番の CI では使わない）を足す。「写しを書き換えても通らない」（:169）は、作り直したもの・コミットされた写し・比べる相手の 3 つが別の材料であることで確かめる。tasks の本番の検証は `scripts/quiet-run` を通す
-- 処置: fixed D10 —— `--generated <フォルダ>` を足し、`--self-test` は材料の JSON で当てる（Rust を組み直さない）と書いた。本番の cargo を含む検証は `scripts/quiet-run` を通した
+- 処置: fixed D10 —— `--generated <フォルダ>` を足し、`--self-test` は材料の JSON で当てる（Rust を組み直さない）と書いた。cargo test・内部の契約の検査・clippy は `scripts/quiet-run` を通した。台本の本番は `== Scenario:` の行を数えるために直に走らせる（tasks の Global Constraints に理由を書いた）
 
 ## R17. `changes.sh code` は `.md` で終わるファイルを除くので、ページ（`docs/satellite-api/**/README.md`）だけの PR や、根の README・CONTRIBUTING だけの PR では検査が走らない
 - 成果物: openspec/changes/st42-satellite-api-contract/specs/satellite-platform/spec.md

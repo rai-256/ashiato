@@ -10,7 +10,7 @@
 ## Global Constraints
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust はコメント（`// Scenario: …`）、bash は `echo "== Scenario: …"`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせる。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change で ST42 が印を置く Scenario は 59 本**（satellite-platform の ADDED。Rust 21 本・台本の本番 4 本・台本の `--self-test` 34 本）。全部このファイルのどこかの Task が名指しする。
+- **この change で ST42 が印を置く Scenario は 60 本**（satellite-platform の ADDED。Rust 22 本・台本の本番 4 本・台本の `--self-test` 34 本）。全部このファイルのどこかの Task が名指しする。
   MODIFIED の「衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い」は本文が変わったので、印を持つ `satellite_routes_tests::every_route_refuses_satellite` を直す（Task 4）。
   MODIFIED で本文をそのまま写した Scenario（satellite-platform の 4 本・data-sensitivity の 2 つの Requirement の全部）の印は ST29・ST44 が持っている。**消さない・名前を変えない**
 - **本人の決定（下流は変えない）**: 第 1 回の 7 問は推奨で書いた（答えが違えば `spec --answers` が写し直す）。Q1 道に版（`/satellite/v1/…`）/ Q2 自前の台本で決めた規則 / Q3 版ごとの写し（行き先にあるもの）と比べる /
@@ -25,7 +25,7 @@
 - **衛星の資格情報の値・衛星の識別子の文字列・届いた道の文字列を、読み出しの記録・ログに出さない**（試験の値も偽の値だけ）
 - **壊してはいけないもの**（Story）: ST01 の API 契約（`docs/openapi.json`）とそれを見る検査（`tools/check-openapi.sh`）・ST29 の衛星の資格情報（発行・取り消し・外す・内部の口で 403）。既存の試験は変わらず通る
 - **新しい Rust の crate・npm の依存・外の道具（oasdiff など）を足さない**（D9）。移行を足さない（D13）
-- **長いコマンドは `scripts/quiet-run`**（cargo test・bin を組み直す台本の本番）。台本の `--self-test` は `--generated` で材料を渡し、場合ごとに Rust を組み直さない（D10）。縦串・偽データのシナリオを足すなら Story ごとの新しいファイル（`tools/smoke.d/` など）に置き、共有の台本の本体に書き足さない
+- **長いコマンドは `scripts/quiet-run`**（cargo test・bin を組み直す台本の本番）。台本の本番は数十秒かからない（bin の組み立ては cargo の中で済んでいる）ので、出力の行を数えるために直に走らせる。`--self-test` は `--generated` で材料を渡し、場合ごとに Rust を組み直さない（D10）。縦串・偽データのシナリオを足すなら Story ごとの新しいファイル（`tools/smoke.d/` など）に置き、共有の台本の本体に書き足さない
 
 ## Task 1: 2 つ目の契約と書き出す bin、版の一覧（D1・D2・D7・D8）
 
@@ -33,7 +33,7 @@
   `SatelliteApiDoc`（`#[derive(OpenApi)]`）に `info(license(name = "Apache-2.0", identifier = "Apache-2.0"))`・securitySchemes（HTTP bearer。説明に `Authorization: Bearer ashsat_<識別子>_<乱数>`）・断りの型（`error` は文字列。既知の値を説明に並べる）を持たせる。
   口は Task 2 が足す（ここでは型と文書の枠）。`info.version` は版の一覧から入れる関数で作る（`ASHIATO_BUILD_VERSION` を読まない）。
   `crates/server/src/bin/satellite_api.rs` を足す（`contract <N>` は契約の JSON、`page <N>` と `index` は Task 5 が中身を作る）。premises P5 を確かさ 4 に上げる（premises.md の P5 の行の結果・出所・確かさを書き直す）
-  試験（`crates/server/src/st42_tests.rs`。DB を使わない。名前は `st42_contract_` で始める）: `衛星向けの契約は内部の口の契約と別に作られ、互いの口を持たない`（Task 2 の後に `/satellite/v1/me` を見る形で通る。ここでは内部の契約に `/satellite` が無いことと、衛星向けの契約に `/events` が無いことまで）・
+  試験（`crates/server/src/st42_tests.rs`。DB を使わない。名前は `st42_contract_` で始める）: `衛星向けの契約は内部の口の契約と別に作られ、互いの口を持たない`（Task 2 の後に `/satellite/v1/me` を見る形で通る。ここでは内部の契約に衛星向けの道（`/satellite` そのものか `/satellite/` で始まる道）が無いことと、衛星向けの契約に `/events` が無いことまで）・
   `衛星向けの契約は Apache-2.0 を宣言し、内部の口の契約は今の式のまま`・`衛星向けの契約は資格情報の渡し方を持ち、すべての口に付ける`（Task 2 の後に 401・403 を見る形で通る）
   検証: `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-server st42_contract_ && test "$(cargo test -p ashiato-server st42_contract_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0 /
   `bash -c 'cargo run -q -p ashiato-server --bin satellite_api -- contract 1 | jq -e ".info.license.identifier == \"Apache-2.0\" and .info.version == \"1.0\"" >/dev/null'` rc=0 /
@@ -42,13 +42,13 @@
 ## Task 2: 確かめる口と、衛星向けの道の断り・読み出しの記録（D5・D6・D13）
 
 - [ ] 2.1 `GET /satellite/v1/me` を `lib.rs` の router に字面の `.route(` で足す（`.nest(` を使わない）。応答は D6 の形（`{"satellite": {"id", "name"}, "api_versions": [{"version", "sunset"}]}`）で、ほかの欄を持たない。
-  `access_log::middleware` を直す: `/satellite` で始まる経路では、衛星の資格情報を通し、API の合言葉・画面のログインは 403 `{"error": "not_satellite"}`、資格情報無し・認められないものは 401 `{"error": "unauthorized"}`（どちらも `application/json`）。
+  `access_log::middleware` を直す: 衛星向けの道（`/satellite` そのものか `/satellite/` で始まる経路。`/satellites…` は含まない）では、衛星の資格情報を通し、API の合言葉・画面のログインは 403 `{"error": "not_satellite"}`、資格情報無し・認められないものは 401 `{"error": "unauthorized"}`（どちらも `application/json`）。
   この道だけ、行はハンドラの後に返す状態で書き、書けなければ応答を捨てて 500 `{"error": "internal"}`（D13）。ほかの経路の衛星の 403（本文 `forbidden`）・内部の口の 401 / 403 の本文・ハンドラの前に書く動きは変えない。
   `SatelliteApiDoc` にこの口を載せる（401・403 の応答と断りの型を付ける）。`docs/satellite-api/v1/openapi.json` を bin で書き出してコミットする
   試験（`crates/server/src/st42_tests.rs`。名前は `st42_me_` で始める）: `確かめる口は、衛星の識別子・名前と受ける版の一覧を返す`・`取り消した資格情報か外した衛星の資格情報で確かめる口を呼ぶと 401 になる`・`資格情報の無い求めは、衛星向けの口で種別つきの 401 になる`・
-  `API の合言葉と画面のログインでは、衛星向けの口は通らない`・`確かめる口を呼ぶと、衛星と 1 本の番号つきで ok の行が残る`（行の全列に識別子の文字列も資格情報の値も無いことまで見る）・`衛星でない資格情報で衛星向けの口を呼ぶと、forbidden・403 の行が残る`・
+  `API の合言葉と画面のログインでは、衛星向けの口は通らない`・`衛星の管理の口は衛星向けの道に数えない`（ST29 の画面が今どおり使える）・`確かめる口を呼ぶと、衛星と 1 本の番号つきで ok の行が残る`（行の全列に識別子の文字列も資格情報の値も無いことまで見る）・`衛星でない資格情報で衛星向けの口を呼ぶと、forbidden・403 の行が残る`・
   `読み出しの記録に書けないときは、確かめる口は 500 で衛星の情報を返さない`（ST29・ST44 の試験が読み出しの記録を書けなくする作り方に合わせる）
-  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st42_me_ && test "$(cargo test -p ashiato-server st42_me_ -- --list 2>/dev/null | grep -c ": test$")" -ge 7'` rc=0 /
+  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st42_me_ && test "$(cargo test -p ashiato-server st42_me_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'` rc=0 /
   `bash -c 'scripts/quiet-run ct -- cargo test -p ashiato-server st42_contract_ && test "$(cargo test -p ashiato-server st42_contract_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0
 
 ## Task 3: 版の受け口・405・Sunset の見出し（D11・D12 のサーバの側）
@@ -120,7 +120,7 @@
 
 - [ ] 9.1 サーバの試験の全体が通る
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0
-  絞った検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st42_ && test "$(cargo test -p ashiato-server st42_ -- --list 2>/dev/null | grep -c ": test$")" -ge 21'` rc=0
+  絞った検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st42_ && test "$(cargo test -p ashiato-server st42_ -- --list 2>/dev/null | grep -c ": test$")" -ge 22'` rc=0
 - [ ] 9.2 内部の口の契約と、許諾・境界の検査が変わらず通る
   検証: `scripts/quiet-run openapi -- tools/check-openapi.sh` rc=0 / `tools/check-spdx.sh --self-test` rc=0 / `tools/check-spdx.sh` rc=0 / `scripts/quiet-run clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
 - [ ] 9.3 spec の Scenario の印がすべて試験にある

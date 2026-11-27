@@ -22,7 +22,7 @@ LICENSE は版をまたいで 1 枚にする（版ごとに写すと、同じ全
 #### Scenario: 衛星向けの契約は内部の口の契約と別に作られ、互いの口を持たない
 
 - **WHEN** 2 つの契約をコードから作り直す
-- **THEN** 衛星向けの契約は自分が誰かを確かめる口 `GET /satellite/v1/me` を持ち、内部の口の契約は `/satellite` で始まる口を 1 つも持たず、衛星向けの契約は内部の口（`/events` など）を 1 つも持たない
+- **THEN** 衛星向けの契約は自分が誰かを確かめる口 `GET /satellite/v1/me` を持ち、内部の口の契約は衛星向けの道（`/satellite` そのものか `/satellite/` で始まる道）を 1 つも持たず、衛星向けの契約は内部の口（`/events` など）を 1 つも持たない
 
 #### Scenario: 衛星向けの契約は Apache-2.0 を宣言し、内部の口の契約は今の式のまま
 
@@ -49,7 +49,7 @@ LICENSE は版をまたいで 1 枚にする（版ごとに写すと、同じ全
 #### Scenario: 衛星向けの契約のページは、口・資格情報の渡し方・断りの種別・版・許諾を示す
 
 - **WHEN** 衛星向けの契約の検査を今の木に当てる
-- **THEN** 終了コードは 0 で、`docs/satellite-api/v1/README.md` は `GET /satellite/v1/me`・`Authorization: Bearer ashsat_`・断りの種別 `unauthorized` `not_satellite` `unsupported_version` `not_found` `method_not_allowed`・版 `1.0`・`Apache-2.0` を含み、`docs/satellite-api/README.md` は版の一覧と各版のページへのリンクを含み、2 枚の相対リンクの先はどれも木にある
+- **THEN** 終了コードは 0 で、`docs/satellite-api/v1/README.md` は `GET /satellite/v1/me`・`Authorization: Bearer ashsat_`・断りの種別 `unauthorized` `not_satellite` `unsupported_version` `not_found` `method_not_allowed` `internal`・版 `1.0`・`Apache-2.0` を含み、`docs/satellite-api/README.md` は版の一覧と各版のページへのリンクを含み、2 枚の相対リンクの先はどれも木にある
 
 #### Scenario: 契約の置き場の LICENSE は Apache-2.0 の全文で、README と CONTRIBUTING は 2 つのライセンスを分けて書く
 
@@ -100,8 +100,8 @@ THE SYSTEM SHALL 版の一覧にある大きい版ごとに、`docs/satellite-ap
 WHEN 有効な衛星の資格情報を付けた求めが `GET /satellite/v1/me` に届く THE SYSTEM SHALL 200 で、本文 `{"satellite": {"id": <衛星の識別子>, "name": <衛星の名前>}, "api_versions": <版の一覧>}` を返す。
 版の一覧は、サーバが受ける衛星向けの API の版ごとに `{"version": <版。1.0 の形>, "sunset": <外す日。YYYY-MM-DD か null>}` を持つ配列にする。
 THE SYSTEM SHALL この口の応答の本文に、上の欄のほかの欄を持たせない（記録・件数・承認・資格情報の値・本体の中の番号・時刻を返さない）。
-WHEN 資格情報が無いか認められない求め（取り消した・外した衛星の資格情報を含む）が `/satellite` で始まる道に届く THE SYSTEM SHALL 401 で、本文 `{"error": "unauthorized"}` を返す。
-WHEN API の合言葉か画面のログインの求めが `/satellite` で始まる道に届く THE SYSTEM SHALL 403 で、本文 `{"error": "not_satellite"}` を返し、ハンドラの処理を行わない。
+WHEN 資格情報が無いか認められない求め（取り消した・外した衛星の資格情報を含む）が衛星向けの道に届く THE SYSTEM SHALL 401 で、本文 `{"error": "unauthorized"}` を返す。
+WHEN API の合言葉か画面のログインの求めが衛星向けの道に届く THE SYSTEM SHALL 403 で、本文 `{"error": "not_satellite"}` を返し、ハンドラの処理を行わない。
 
 導出元: FR-89 / FR-103。深掘り Q4（推奨: 受ける版の一覧を返す）。ST29 の深掘り Q7（本人:「ST42 が置く」）と正典「衛星の資格情報では、まだどの口も通らない」の導出元の注記。
 衛星の作り手は、資格情報を設定できたかと、相手のサーバがどの版を受けるかを、この口を 1 回呼んで確かめる。並べている間も、衛星はどの版へ移れるかを知れる。
@@ -122,6 +122,11 @@ WHEN API の合言葉か画面のログインの求めが `/satellite` で始ま
 
 - **WHEN** 資格情報を付けずに `GET /satellite/v1/me` を呼ぶ
 - **THEN** 401 で、本文は `{"error": "unauthorized"}` である
+
+#### Scenario: 衛星の管理の口は衛星向けの道に数えない
+
+- **WHEN** 正しい合言葉でログインした印を付けて衛星の一覧（`GET /satellites`）を求め、続けて有効な衛星の資格情報を付けて同じ口を求める
+- **THEN** ログインの印の求めは 200 で衛星の一覧を返し、衛星の資格情報の求めは 403 で、本文は内部の口と同じ 1 つの文字列（`forbidden`）である
 
 #### Scenario: API の合言葉と画面のログインでは、衛星向けの口は通らない
 
@@ -328,7 +333,7 @@ THE SYSTEM SHALL 版の一覧の項目に外す日（`sunset`）を置く変更�
 
 - **GIVEN** 比べる相手に版 1 と版 2 があり、版 1 の写しと版の一覧の項目は残し、作り直した版 1 の契約から版 1 の口を全部消した使い捨ての木
 - **WHEN** 衛星向けの契約の検査を当てる
-- **THEN** 検査は 0 でない終了コードで終わり、版 1 を外す変更であることが示される
+- **THEN** 検査は 0 でない終了コードで終わり、口を消す規則に加えて、版 1 を外す変更であることと、外せる条件を満たさないことが示される
 
 #### Scenario: 6 か月の終わりより前の外す日は置けない
 
@@ -346,7 +351,7 @@ THE SYSTEM SHALL 版の一覧の項目に外す日（`sunset`）を置く変更�
 WHEN 有効な衛星の資格情報を付けた求めが、`/satellite`・`/satellite/` か、版の一覧に無い大きい版の道（`/satellite/<版の一覧に無いもの>` で始まる）に届く THE SYSTEM SHALL 404 で、本文 `{"error": "unsupported_version", "api_versions": <版の一覧>}` を返す（版の一覧は確かめる口と同じ形）。
 WHEN 有効な衛星の資格情報を付けた求めが、版の一覧にある大きい版の道で、その版の契約に無い道に届く THE SYSTEM SHALL 404 で、本文 `{"error": "not_found"}` を返す。
 WHEN 有効な衛星の資格情報を付けた求めが、契約にある道へ契約に無いメソッドで届く THE SYSTEM SHALL 405 で、本文 `{"error": "method_not_allowed"}` を返す。
-THE SYSTEM SHALL `/satellite` で始まる道では、資格情報の判定を版の判定より先に行う（資格情報が無いか認められない求めは、どの道でも 401 `{"error": "unauthorized"}`、衛星でない資格情報は 403 `{"error": "not_satellite"}`）。
+THE SYSTEM SHALL 衛星向けの道では、資格情報の判定を版の判定より先に行う（資格情報が無いか認められない求めは、どの道でも 401 `{"error": "unauthorized"}`、衛星でない資格情報は 403 `{"error": "not_satellite"}`）。
 WHERE 版の一覧の項目が外す日（`sunset`）を持つ THE SYSTEM SHALL その大きい版の道へのすべての応答（401・403・404・405 の断りを含む）に、見出し `Sunset`（その日の 00:00 UTC を HTTP の日付の形で）を付ける。外す日を持たない版の応答には付けない。
 
 導出元: FR-95。深掘り Q8（推奨: いま決める。断り＋版の一覧、外す前は見出しで予告）。review/spec.md R7・R8。
@@ -398,7 +403,7 @@ WHERE 版の一覧の項目が外す日（`sunset`）を持つ THE SYSTEM SHALL 
 
 ### Requirement: 衛星向けの口への求めを、読み出しの記録に 1 求め 1 行残す
 
-THE SYSTEM SHALL `/satellite` で始まる道に届いたすべての求めを、読み出しの記録に 1 求め 1 行残す。行の結果は、通したものは `ok`、資格情報が無いか認められないものは `unauthorized`、それ以外の断り（403・404・405）は `forbidden` とし、状態の列に実際に返す状態の番号を書く。
+THE SYSTEM SHALL 衛星向けの道（`/satellite` そのものか、`/satellite/` で始まる道。ST29 の管理の口 `/satellites…` は含まない）に届いたすべての求めを、読み出しの記録に 1 求め 1 行残す。行の結果は、通したものは `ok`、資格情報が無いか認められないものは `unauthorized`、それ以外の断り（403・404・405）は `forbidden` とし、状態の列に実際に返す状態の番号を書く。
 THE SYSTEM SHALL その行の口の名前に、届いた道の文字列ではなく、当たった経路の形（`/satellite/v1/me` や、版の受け口の形）を書く。
 THE SYSTEM SHALL 衛星の資格情報の行には、今と同じく、どの衛星か・どの 1 本の資格情報かを本体の中の番号で持たせ、衛星の識別子の文字列・資格情報の値を持たせない。
 WHEN 衛星向けの口への求めの行を書けない THE SYSTEM SHALL その求めに 500 で本文 `{"error": "internal"}` を返し、衛星の情報も版の一覧も返さない。
@@ -434,12 +439,12 @@ WHEN 衛星向けの口への求めの行を書けない THE SYSTEM SHALL その
 ### Requirement: 衛星の資格情報では、まだどの口も通らない
 
 THE SYSTEM SHALL 衛星の資格情報を、呼び出し元を識別できる資格情報として受ける。
-WHEN 衛星の資格情報を付けた求めが、資格情報の要らない口（生存確認・ログイン・ログアウト）と衛星向けの道（`/satellite` で始まる道。「衛星は自分が誰かと、サーバが受ける版を確かめられる」）以外の口に届く THE SYSTEM SHALL その求めを 403 で断り、ハンドラの処理を行わない。
+WHEN 衛星の資格情報を付けた求めが、資格情報の要らない口（生存確認・ログイン・ログアウト）と衛星向けの道（`/satellite` そのものか、`/satellite/` で始まる道。ST29 の管理の口 `/satellites…` は含まない。「衛星は自分が誰かと、サーバが受ける版を確かめられる」）以外の口に届く THE SYSTEM SHALL その求めを 403 で断り、ハンドラの処理を行わない。
 THE SYSTEM SHALL 衛星向けの道のほかで衛星の求めを断る 403 の応答の本文を、どの口でも同じ 1 つの文字列にし、記録・件数・衛星や資格情報の情報を含めない。
 THE SYSTEM SHALL 衛星の資格情報を付けた求めの応答で、ログインの印を出し直さない。
 THE SYSTEM SHALL 資格情報の要らない口に、衛星の資格情報を付けた求めと付けない求めとで同じ応答を返す。
 THE SYSTEM SHALL 衛星の資格情報を付けた求めを、同じ求めがログインの印を併せて持っていても、衛星の求めとして扱う。
-THE SYSTEM SHALL 衛星の資格情報の求めをハンドラに届けるのは `/satellite` で始まる道だけにし、そのうち 2xx を返すのは衛星向けの契約に載った口だけにする（ほかは版の受け口が 404・405 で断る）。ST42 の時点で衛星向けの契約に載るのは、自分が誰かを確かめる口だけで、記録を読む口も書く口も無い。
+THE SYSTEM SHALL 衛星の資格情報の求めをハンドラに届けるのは衛星向けの道だけにし、そのうち 2xx を返すのは衛星向けの契約に載った口だけにする（ほかは版の受け口が 404・405 で断る）。ST42 の時点で衛星向けの契約に載るのは、自分が誰かを確かめる口だけで、記録を読む口も書く口も無い。
 
 導出元: PERM-8 / PERM-10 / 扉 #15。深掘り Q6 / Q7/ C8 / C12 / D18（仮）。申し送り `docs/handoff/ST29.md`（st17 C2・st33 C4）。
 衛星が読めるのは承認（ST38）と衛星の読み出しの門（ST45）の後、書けるのは書き手の列（ST37）の後。それより前に通る口があると、承認していない種類が外へ出る（扉 #15）。

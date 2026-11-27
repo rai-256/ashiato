@@ -68,7 +68,7 @@
 
 ### D5（仮）. 衛星向けの口の断りの本文と種別（聞かない既定 3）
 
-- 衛星向けの道（`/satellite/` で始まる）の断りは、すべて `application/json` で `{"error": "<種別>"}`（版の受け口は欄を足す。D11）
+- 衛星向けの道（`/satellite` そのものか、`/satellite/` で始まる道。ST29 の管理の口 `/satellites…` は含まない）の断りは、すべて `application/json` で `{"error": "<種別>"}`（版の受け口は欄を足す。D11）
 - 版 1 の種別: `unauthorized`（401。資格情報が無い・認められない）・`not_satellite`（403。API の合言葉・画面のログイン）・`unsupported_version`（404）・`not_found`（404）・`method_not_allowed`（405）・`internal`（500。読み出しの記録に書けない）
 - `error` は契約の型で列挙にせず文字列にする（説明に既知の値を並べる）。後の Story（ST38 の `not_approved` など）が種別を足しても、型の選べる値が増えることにならず、D9 の規則で壊さない側に入る。
   ページに「知らない値は状態の番号で扱う」と書く
@@ -128,6 +128,7 @@
 - 比べる相手は引数 `--base <commit>`。CI は `changes` の job と同じ比べる相手（今は `github.event.pull_request.base.sha || github.event.before`。ST61 が main への push の比べる相手を「前に成功した main の run」に変えたら、それに合わせる）を渡す。渡されない（手元）なら `git merge-base HEAD origin/main`
 - 作り直した契約とページは、既定では bin で作る（本番。`cargo run` を含むので `scripts/quiet-run` で走らせる）。`--generated <フォルダ>` を渡すと、そのフォルダの契約とページを作り直したものとして使う（`--self-test` が材料の JSON を置いて当てるため。場合ごとに Rust を組み直さない。review/spec.md R16）。作り直したもの・コミットされた写し・比べる相手は別の材料で、写しの書き換えでは抜けられない
 - ページの相対リンクの先が木にあることも (1) で見る（review/spec.md R19）
+- 検査は最初に落ちたところで止めず、(1)〜(5) の当たったものを全部示してから 0 でない終了コードで終わる（材料の木では、作り直した契約とコミットされた写しのずれと規則の違反が同時に出ることがある。Scenario の THEN は、示されたものの中に当たった規則があるかで見る）
 - 比べる相手の commit を読めない → 落とす。比べる相手に `docs/satellite-api/v<N>/openapi.json` が無い → その版は比べずに通し、そう示す
 - 今日の日付は `SATELLITE_CONTRACT_TODAY`（`YYYY-MM-DD`）で差し替えられる（自己試験と 6 か月の Scenario のため）。無ければ UTC の今日
 - `tools/check-openapi.sh` に書き足さない（ST61 が触っている。共有の台本の取り合いを避ける）
@@ -160,8 +161,8 @@
 
 ### D13（仮）. 衛星向けの道の読み出しの記録
 
-- middleware は `/satellite/` で始まる経路で、衛星の資格情報を `Verdict::Pass` にする（ほかの経路は今どおり `Forbidden`）。API の合言葉・画面のログインは `Forbidden`、資格情報無しは `Unauthorized`
-- `/satellite` で始まる道だけ、行は**ハンドラの後に**、返す状態で書く（今の middleware はハンドラの前に固定の状態で書く。衛星向けの口は記録を返さず DB を変えないので、後で書いても「行の無い読み出し」は生まれない。review/spec.md R9）:
+- middleware は衛星向けの道（`/satellite` そのものか `/satellite/` で始まる経路。`/satellites…` は今どおり）で、衛星の資格情報を `Verdict::Pass` にする（ほかの経路は今どおり `Forbidden`）。API の合言葉・画面のログインは `Forbidden`、資格情報無しは `Unauthorized`
+- 衛星向けの道だけ、行は**ハンドラの後に**、返す状態で書く（今の middleware はハンドラの前に固定の状態で書く。衛星向けの口は記録を返さず DB を変えないので、後で書いても「行の無い読み出し」は生まれない。review/spec.md R9）:
   確かめる口の 200 → 結果 `ok`・状態 200、受け口の 404・405 → 結果 `forbidden`・状態 404 / 405、断りの 401 → `unauthorized`、403 → `forbidden`（結果の語は今の CHECK の中から選び、移行を足さない。ST59 の D9（仮）と同じ形）
 - 行を書けなければ、作った応答を捨てて 500 `{"error": "internal"}` を返す
 - ほかの道の middleware の動き（ハンドラの前に書き、書けなければハンドラを呼ばずに 500）は変えない
