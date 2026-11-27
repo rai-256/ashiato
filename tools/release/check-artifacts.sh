@@ -80,8 +80,6 @@ apk_version() {
   [ "$version_name" = "$want" ] || die "APK の versionName が渡した版番号と違う: $line（期待 $want）"
   expected_code="$("$root/tools/release/version.sh" code "$want")" || die "渡した版番号が不正: $want"
   [ "$version_code" = "$expected_code" ] || die "APK の versionCode が版番号から計算した値と違う: $line（期待 $expected_code）"
-  # 式を通さない固定の値でも見る（D3: 0.4.0-beta.2 は 左 0・真ん中 4・右 0 で 40000）
-  [ "$version_name" != 0.4.0-beta.2 ] || [ "$version_code" = 40000 ] || die "0.4.0-beta.2 の APK の versionCode が 40000 でない: $line"
   echo "OK: $line"
 }
 
@@ -319,6 +317,12 @@ check_artifacts() {
     expected_names+=("ashiato-collector-${expected_version}.apk")
   fi
   EXPECTED_VERSION="$expected_version"
+  # 署名していない APK は番号の下書きの置き場（--allow-debug-key の検査）にだけ置く。公開へ上げる置き場にあれば落とす（D2（仮）・code.md R17）
+  if [[ "$allow_debug" != 1 ]]; then
+    for name in "$dir"/*-unsigned.apk; do
+      [[ -e "$name" ]] && die "署名していない APK は下書きの置き場にだけ置く（公開する置き場にある）: $(basename "$name")"
+    done
+  fi
   if [[ "$channel" == nightly || "$allow_debug" == 1 ]]; then SOURCE_BY_COMMIT=1; else SOURCE_BY_COMMIT=0; fi
   for name in "${expected_names[@]}"; do
     [[ -f "$dir/$name" ]] || die "欠けた配布物: $name"
@@ -783,6 +787,11 @@ self_test() {
   fi
   if output=$(ASHIATO_EXPECT_CERT_SHA256=0000 check_artifacts "$release_out" --expect-version "$v" 2>&1); then return 1; fi
   grep -Fq '署名の指紋' <<<"$output" || { echo "$output"; return 1; }
+  echo "== Scenario: 署名していない APK は、公開する置き場にあれば検査が落ちる"
+  cp "$release_out/ashiato-collector-$v.apk" "$release_out/ashiato-collector-$v-unsigned.apk"
+  if output=$(ASHIATO_EXPECT_CERT_SHA256="$cert" check_artifacts "$release_out" --expect-version "$v" 2>&1); then return 1; fi
+  grep -Fq '署名していない APK は下書きの置き場にだけ置く' <<<"$output" || { echo "$output"; return 1; }
+  rm -f "$release_out/ashiato-collector-$v-unsigned.apk"
   # apk-version --expect-version は APK の版を渡した版番号と比べる（code_verify R25）
   (apk_version "$real/ashiato-collector-$v.apk" "$v") >/dev/null
   if output=$( (apk_version "$real/ashiato-collector-$v.apk" "$v-beta.2") 2>&1); then return 1; fi

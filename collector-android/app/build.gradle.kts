@@ -61,16 +61,18 @@ private fun majorFrom(majorFile: String): Long {
 // bash（version.sh）・Rust（build-stamp）・TypeScript（build-stamp.ts）と同じ規則で、同じ表（version-check-table.tsv）が固定する
 private fun checkBuildVersion(source: String, given: String, major: Long): String {
     val context = "左の数字のファイル $major、出所 $source、渡した版番号 $given"
-    val sourceParsed = parseBuildVersion(source)
+    // 形の誤り・上限の誤りの文にも出所と MAJOR を含める（Rust・TS と同じ。code.md R20）
+    fun <T> withContext(block: () -> T): T = try { block() } catch (e: GradleException) { throw GradleException("${e.message}: $context", e) }
+    val sourceParsed = withContext { parseBuildVersion(source) }
     if (sourceParsed.suffix != null || sourceParsed.major != 0L || sourceParsed.minor != 0L || sourceParsed.patch < 1) {
         throw GradleException("版番号の出所が 0.0.<N>（N は 1 以上）の形でない: $context")
     }
-    val givenParsed = parseBuildVersion(given)
+    val givenParsed = withContext { parseBuildVersion(given) }
     if (givenParsed.numbers != sourceParsed.numbers) {
         if (givenParsed.major != major) throw GradleException("左の数字が左の数字のファイルと違う: $context")
         if (givenParsed.major == 0L && givenParsed.minor == 0L) throw GradleException("出所の版と違う 0.0.x は番号ではない: $context")
     }
-    versionCodeFor(given)
+    withContext { versionCodeFor(given) }
     return given
 }
 
@@ -441,7 +443,9 @@ tasks.register("verifyVersionCheckTable") {
                 // Scenario: 渡した番号の左の数字が左の数字のファイルと違うと、組み立てが失敗する
                 val columns = line.split("\t")
                 if (columns.size != 4) throw GradleException("version-check-table.tsv の列が 4 つでない: $line")
-                val accepted = runCatching { checkBuildVersion(columns[1], columns[0], columns[2].toLong()) }.isSuccess
+                // 表の列の読み取りは runCatching の外（3 列目が壊れた ng の行を「断った」と読まない。code.md R20）
+                val major = columns[2].toLongOrNull() ?: throw GradleException("version-check-table.tsv の 3 列目が数字でない: $line")
+                val accepted = runCatching { checkBuildVersion(columns[1], columns[0], major) }.isSuccess
                 when (columns[3]) {
                     "ok" -> if (!accepted) throw GradleException("version-check-table.tsv の受ける版番号を断った: $line")
                     "ng" -> if (accepted) throw GradleException("version-check-table.tsv の断る版番号を受けた: $line")

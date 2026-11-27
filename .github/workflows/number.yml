@@ -27,7 +27,9 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: true
+      # shell: bash を書く（書かないと bash -e で走り、pipefail が無いので version.sh が落ちても tee の 0 で緑になる。code.md R13）
       - id: decide
+        shell: bash
         run: |
           tools/release/version.sh number "${{ github.event.workflow_run.head_sha }}" | tee number.txt
           number="$(sed -n 's/^number=//p' number.txt)"
@@ -37,6 +39,7 @@ jobs:
       # 印が既にあり（reuse=yes）、下書きに配布物が名前で揃っていれば、組み立てと置く job を飛ばす。揃ったかは number.sh complete が答える
       - id: complete
         if: steps.decide.outputs.reuse == 'yes'
+        shell: bash
         run: tools/release/number.sh complete "${{ steps.decide.outputs.number }}" "${{ github.event.workflow_run.head_sha }}" | tee -a "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,10 +61,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: tools/release/build.sh server-linux "$RUNNER_TEMP/number"
+        shell: bash
         env:
           ASHIATO_RELEASE: "1"
           ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
       - run: tools/release/build.sh apk "$RUNNER_TEMP/number"
+        shell: bash
         env:
           ASHIATO_RELEASE: "1"
           ASHIATO_BUILD_VERSION: "${{ needs.number.outputs.number }}"
@@ -104,10 +109,12 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { pattern: number-*, path: number }
       - run: mkdir -p number/all && find number/number-linux number/number-windows -maxdepth 1 -type f -exec cp {} number/all/ \;
+        shell: bash
       - run: tools/release/number.sh place "${{ needs.number.outputs.number }}" "${{ github.event.workflow_run.head_sha }}" number/all
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

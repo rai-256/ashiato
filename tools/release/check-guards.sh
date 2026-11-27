@@ -200,18 +200,20 @@ def check_env(env, where):
             bad.append(f"{where}: 殻が先に読むファイルを指す env {key}")
 def check_defaults(defaults, where):
     if defaults is None:
-        return
+        return None
     if not isinstance(defaults, dict) or not isinstance(defaults.get("run", {}), dict):
-        bad.append(f"{where}: defaults が対応表でない"); return
+        bad.append(f"{where}: defaults が対応表でない"); return None
     run = defaults.get("run") or {}
     if "shell" in run:
         check_shell(run["shell"], f"{where} の defaults.run")
-check_defaults(doc.get("defaults"), "number.yml の workflow")
+        return run["shell"]
+    return None
+workflow_shell = check_defaults(doc.get("defaults"), "number.yml の workflow")
 check_env(doc.get("env"), "number.yml の workflow")
 for jname, job in jobs.items():
     if not isinstance(job, dict):
         bad.append(f"{jname}: job が対応表でない"); continue
-    check_defaults(job.get("defaults"), f"number.yml {jname} の job")
+    job_shell = check_defaults(job.get("defaults"), f"number.yml {jname} の job") or workflow_shell
     check_env(job.get("env"), f"number.yml {jname} の job")
     if "uses" in job:
         bad.append(f"{jname}: 別の workflow を呼ぶ job: {job['uses']}")
@@ -233,6 +235,10 @@ for jname, job in jobs.items():
         if "shell" in step:
             check_shell(step["shell"], where)
         if "run" in step:
+            # shell を書かない run は bash -e（pipefail なし）で走り、パイプの左が落ちても緑になる。
+            # どの run も、step・job・workflow のどこかで shell: bash を持つ（code.md R13）
+            if step.get("shell", job_shell) is None:
+                bad.append(f"{where}: run の shell が bash と書かれていない（書かないと pipefail なしで走る）")
             for line in str(step["run"]).splitlines():
                 if line.strip() and not line.strip().startswith("#"):
                     check_cmd(line, where)
@@ -268,9 +274,9 @@ number_workflow() {
   grep -qE '^    types: \[completed\]' "$file" || { die 'number.yml が終わった run だけで起きない'; return 1; }
   grep -qE '^    branches: \[main\]' "$file" || { die 'number.yml が main の run だけで起きない'; return 1; }
   block="$(job_block "$file" number)"
-  grep -q "^    if: .*github.event.workflow_run.event == 'push'" <<<"$block" || { die '番号付けが push の run だけで起きない'; return 1; }
-  grep -q "^    if: .*github.event.workflow_run.conclusion == 'success'" <<<"$block" || { die '番号付けが成功した run だけで起きない'; return 1; }
-  grep -q "^    if: .*github.event.workflow_run.head_repository.full_name == github.repository" <<<"$block" || { die '番号付けがこの repo の枝の run だけで起きない'; return 1; }
+  # 3 つの条件を && で結んだ形そのものを見る（含むかだけでは || で結んだ形も通る。code.md R21）
+  grep -qxF "    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository" <<<"$block" \
+    || { die '番号付けが「この repo の枝の、push の、成功した run」だけで起きない（3 つを && で結んだ if でない）'; return 1; }
   # 組は判定の job にだけ置き、workflow の単位には置かない。取り消す設定は持たない
   if grep -qE '^concurrency:' "$file"; then die '同時に走らせない組が workflow の単位にある'; return 1; fi
   { grep -qE '^    concurrency:' <<<"$block" && grep -qE '^      group: number$' <<<"$block"; } || { die '判定の job に同時に走らせない組が無い'; return 1; }
@@ -294,6 +300,9 @@ number_workflow() {
   done
   block="$(job_block "$file" number)"
   { grep -q 'ref: \${{ github.event.workflow_run.head_sha }}' <<<"$block" && grep -q 'fetch-depth: 0' <<<"$block"; } || { die '判定の job が終わった run の commit を全部の履歴で取り出さない'; return 1; }
+  # 置く job は gh と GH_TOKEN だけで書く。書く権限の token を作業木（.git/config）に残さない（code.md R18）
+  job_block "$file" place | grep -qxF '          persist-credentials: false' || { die '置く job が書く権限の token を作業木に残す（persist-credentials: false でない）'; return 1; }
+  if job_block "$file" place | grep -q 'persist-credentials: true'; then die '置く job が書く権限の token を作業木に残す'; return 1; fi
   grep -q 'ASHIATO_APK_ALSO_UNSIGNED' <<<"$(job_block "$file" build-linux)" || { die '番号付けの APK に署名していない APK が足されない'; return 1; }
 }
 
@@ -329,14 +338,15 @@ workflow() {
   # 番号を持たない組み立ては 0.0.x だけを名乗る（D6）。更新の試験の版と、配る形の job に渡す版番号を見る
   local spec_line spec_versions spec_v
   spec_line="$(job_block "$ci" package-windows | grep -E 'for spec in ' || true)"
-  spec_versions="$(grep -oE '[0-9][0-9A-Za-z.+-]*:(old|new|dev-old|dev-new|compat-old|compat-new)' <<<"$spec_line" | cut -d: -f1)"
+  # 項目の名前に依らず、版の形の値（数字.数字.数字…）を全部拾う。0.0.0 は番号を持たない版でもない（code.md R22）
+  spec_versions="$(grep -oE '(^|[^0-9A-Za-z.])[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*' <<<"$spec_line" | sed -E 's/^[^0-9]//')"
   [[ -n "$spec_versions" ]] || die '更新の試験の組み立ての版が読めない'
   for spec_v in $spec_versions; do
-    [[ "$spec_v" == 0.0.* ]] || die "CI の更新の試験の組み立てが 0.0.x でない版を名乗る: $spec_v"
+    [[ "$spec_v" == 0.0.[1-9]* ]] || die "CI の更新の試験の組み立てが 0.0.<N≥1> でない版を名乗る: $spec_v"
   done
   local given_v
   while IFS= read -r given_v; do
-    [[ "$given_v" == 0.0.* || "$given_v" == '$v' ]] || die "配る形の組み立ての job が番号の形の版番号を渡す: $given_v"
+    [[ "$given_v" == 0.0.[1-9]* || "$given_v" == '$v' ]] || die "配る形の組み立ての job が番号の形の版番号を渡す: $given_v"
   done < <(grep -oE 'ASHIATO_BUILD_VERSION(:[[:space:]]*|=)"?[^"[:space:],}]*' "$ci" | sed -E 's/^ASHIATO_BUILD_VERSION(:[[:space:]]*|=)"?//')
   local head_ref='ref: \${{ github.event.pull_request.head.sha || github.sha }}'
   for job in package-linux package-windows; do
@@ -496,6 +506,14 @@ EOF
   CHECK_GUARDS_ROOT="$root" "$0" workflows >/dev/null 2>&1 || die '本物の ci.yml が 0.0.x の検査を通らない'
   if sed 's/0\.0\.2:old/0.4.0:old/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '0.4.0 の更新の試験の組み立てを通した'; fi
   ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（0.4.0）が元と同じ'
+  # 別の名前の項目・0.0.0 も見逃さない（code.md R22）
+  local spec_variant
+  for spec_variant in '0.4.0:extra' '0.0.0:zero'; do
+    sed "s/0\.0\.2:old /0.0.2:old $spec_variant /" "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
+    ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" || die "偽の ci.yml（$spec_variant）が元と同じ"
+    if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "更新の試験の組み立ての版 $spec_variant を通した"; fi
+  done
+  cp "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml"
   echo "== Scenario: 配る形の組み立ての job は、番号を版番号に渡さない"
   if sed '/^  package-linux:$/,/^    steps:$/ s/^    steps:$/    env: { ASHIATO_BUILD_VERSION: 0.2.0 }\n    steps:/' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '番号の形の版番号を渡す偽の ci.yml を通した'; fi
   grep -q 'ASHIATO_BUILD_VERSION: 0.2.0' "$fake_root/.github/workflows/ci.yml" || die '偽の ci.yml（0.2.0）に版番号が入っていない'
@@ -600,6 +618,8 @@ EOF
   number_mutant no-same-repo -e "s/ && github.event.workflow_run.head_repository.full_name == github.repository//"
   number_mutant no-main -e '/^    branches: \[main\]/d'
   number_mutant not-ci -e 's/^    workflows: \[ci\]/    workflows: [nightly]/'
+  # 3 つの条件を || で結んだ if（code.md R21）
+  number_mutant or-if -e "s/'push' \&\& github.event.workflow_run.conclusion/'push' || github.event.workflow_run.conclusion/"
   echo "== Scenario: 番号付けの workflow は、前の組み立てを使い回さず、書く権限をその job にだけ持つ"
   number_mutant write-in-build -e '/^  build-linux:/,/^  build-windows:/s/^    runs-on: ubuntu-24.04/    runs-on: ubuntu-24.04\n    permissions:\n      contents: write/'
   number_mutant no-write-in-place -e '/^  place:/,$s/contents: write/contents: read/'
@@ -620,6 +640,13 @@ EOF
   number_mutant find-exec-abs -e '$a\      - run: find . -maxdepth 0 -exec /usr/bin/gh release create v1 \\;'
   number_mutant gh-release-action -e 's#^      - uses: actions/download-artifact@\(.*\)#      - uses: softprops/action-gh-release@v2\n&#'
   number_mutant shell-python -e '0,/^        shell: bash$/s//        shell: python {0}/'
+  echo "== Scenario: 番号付けの判定が止まると、番号付けの run が落ちる"
+  # shell を書かない run は bash -e（pipefail なし）で走り、version.sh number が落ちても tee の 0 で緑になる（code.md R13）
+  number_mutant no-shell-decide -e '/^      - id: decide$/,/^      - id: complete$/{/^        shell: bash$/d}'
+  number_mutant no-shell-complete -e '/^      - id: complete$/,/^  build-linux:$/{/^        shell: bash$/d}'
+  number_mutant no-shell-place -e '/^  place:$/,${/^        shell: bash$/d}'
+  echo "== Scenario: 置く job は、書く権限の token を作業木に残さない"
+  number_mutant place-persist -e '/^  place:$/,${s/persist-credentials: false/persist-credentials: true/}'
   # shell と env を workflow・job の単位に置いた偽の number.yml（code.md R12）
   number_mutant defaults-workflow -e 's/^jobs:$/defaults: { run: { shell: "python {0}" } }\n&/'
   number_mutant defaults-job -e '/^  place:$/a\    defaults:\n      run:\n        shell: "gh release create v1 {0}"'

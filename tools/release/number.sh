@@ -65,7 +65,7 @@ expected_names() {
 }
 
 place() {
-  local number="$1" commit dir="$3" name tag_commit view err rc body line want
+  local number="$1" commit dir="$3" name tag_commit view err err_text rc body line want
   local -a names=() missing=() have=()
   check_number "$number"
   commit=$(full_commit "$2")
@@ -83,12 +83,13 @@ place() {
   [[ "$tag_commit" == "$commit" ]] || die "印 build-$number は別の commit を指している: $tag_commit（渡した commit $commit）"
 
   want="ashiato-build: $number $commit"
+  # stderr は読んだらすぐ消す（RETURN の trap は die の exit で走らず、一時ファイルが残った。code.md R15）
   err=$(mktemp "${TMPDIR:-/tmp}/number-gh-err.XXXXXX")
-  trap "rm -f '$err'" RETURN
   rc=0
   view=$(gh release view "build-$number" --json body,isDraft,assets 2>"$err") || rc=$?
+  err_text=$(cat "$err"); rm -f "$err"
   if (( rc != 0 )); then
-    grep -qi 'release not found' "$err" || die "下書きを読めない: $(cat "$err")"
+    grep -qi 'release not found' <<<"$err_text" || die "下書きを読めない: $err_text"
     gh release create "build-$number" --draft --title "$number" --target "$commit" --notes "$want" >/dev/null
     have=()
   else
@@ -129,8 +130,11 @@ self_test() {
   work=$(mktemp -d "${TMPDIR:-/tmp}/number-self-test.XXXXXX")
   trap 'rm -rf "${work:-}"' RETURN
   local bare="$work/origin.git" d="$work/tree" fake="$work/bin" calls="$work/gh-calls" state="$work/gh-state" pushes="$work/pushes"
-  mkdir -p "$fake" "$state"
+  mkdir -p "$fake" "$state" "$work/tmp"
   : >"$calls"; : >"$pushes"
+  # 試験の中の一時ファイルは $work/tmp に作らせ、最後に空かを見る（die で抜けても残さない。code.md R15）
+  local outer_tmp="${TMPDIR:-}"
+  export TMPDIR="$work/tmp"
 
   # 偽の配布元（git）。push ごとに更新した参照を控える
   git init -q --bare -b main "$bare"
@@ -317,6 +321,10 @@ EOF
   after=$(git -C "$d" rev-parse main)
   [[ "$before" == "$after" && "$(git -C "$bare" rev-parse main)" == "$before" ]] || { echo "main の commit が変わった"; return 1; }
   [[ "$(cat "$pushes")" == "refs/tags/build-$next" ]] || { echo "記録が印だけでない"; cat "$pushes"; return 1; }
+
+  echo "== Scenario: 番号付けの台本は、止まっても一時ファイルを残さない"
+  [[ -z "$(ls -A "$work/tmp")" ]] || { echo "一時ファイルが残った:"; ls -A "$work/tmp"; return 1; }
+  if [[ -n "$outer_tmp" ]]; then export TMPDIR="$outer_tmp"; else unset TMPDIR; fi
 
   echo "OK: 番号の印と下書きへの置き場を確認した"
 }

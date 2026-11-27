@@ -214,9 +214,13 @@ number() {
   # 3. 差分が製品に触れるか（判定は PR の CI と同じ changes.sh）
   # 差分を先に取る（changes.sh が早く閉じると git diff が SIGPIPE で落ち、pipefail が「文書だけ」と誤読する）
   changed=$(git diff --name-only "$known" "$commit")
-  if ! "$ROOT/tools/release/changes.sh" code <<<"$changed"; then
+  # rc=1 だけが「文書だけ」。台本が無い・壊れている（2・127 など）を「文書だけ」と読むと、黙って番号が付かない（code.md R14）
+  local code_rc=0
+  "$ROOT/tools/release/changes.sh" code <<<"$changed" || code_rc=$?
+  if (( code_rc == 1 )); then
     echo "number="; echo "前の番号から製品が変わっていない（docs/・openspec/・*.md だけ）"; return 0
   fi
+  (( code_rc == 0 )) || die "製品に触れるかの判定（changes.sh code）が落ちた: rc=$code_rc"
   # 左の数字は、その commit の中のファイルから読む
   left=$(git show "$commit:tools/release/MAJOR" 2>/dev/null) || die "左の数字のファイルが読めない: $commit"
   left=$(trim "$left")
@@ -351,6 +355,13 @@ number_self_test() {
   echo "== Scenario: 組み立てが落ちた番号は、次の commit に回さない"
   nt_new failed-build; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs; nt_tag 0.2.1
   nt_merge feat/c crates/server/src/lib.rs; nt_expect 0.2.2 || return 1
+  echo "== Scenario: 製品に触れるかの判定が落ちると、番号を付けずに止まる"
+  # changes.sh が rc=1（文書だけ）以外で落ちたとき（台本が無い・壊れている）に、黙って番号なしで終えない（code.md R14）
+  nt_new changes-broken; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.2.0; nt_merge feat/b crates/server/src/lib.rs
+  printf '#!/usr/bin/env bash\nexit 2\n' >"$d/tools/release/changes.sh"
+  nt_refuse 'changes.sh code）が落ちた: rc=2' || return 1
+  rm -f "$d/tools/release/changes.sh"
+  nt_refuse 'changes.sh code）が落ちた: rc=127' || return 1
   echo "== Scenario: 浅い木では、番号付けの判定は通らない"
   git clone -q --depth=1 "file://$d" "$work/shallow-number"
   if out=$(cd "$work/shallow-number" && tools/release/version.sh number HEAD 2>&1); then return 1; fi
