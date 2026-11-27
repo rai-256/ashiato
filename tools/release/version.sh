@@ -14,9 +14,18 @@ source_version() {
   sed -n '/^\[workspace\.package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p;}' "${1:-$ROOT/Cargo.toml}" | head -n1
 }
 
+# 数字の列を 10 進数として $(( )) で読めるか。先頭の 0 を除いて 19 桁以上は 64 ビットを越え得て、$(( )) が黙って
+# 回る（2^64 が 0 になる）。Rust（u64）・gradle（Long）・画面（安全な整数）は断るので、bash も断る（code.md R29）。
+# 18 桁までは正しく読め、どれも上限（209・999・9999）を越えて断られる
+fits_decimal() {
+  local digits="${1#"${1%%[!0]*}"}"
+  (( ${#digits} <= 18 ))
+}
+
 parse_version() {
   local value="$1"
   if [[ "$value" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([1-9]|[1-8][0-9]|9[0-8])|-dev\.[0-9]{8})?$ ]]; then
+    fits_decimal "${BASH_REMATCH[1]}" && fits_decimal "${BASH_REMATCH[2]}" && fits_decimal "${BASH_REMATCH[3]}" || return 1
     # 先頭の 0 を 8 進数と読まない（Kotlin・Rust・TS と同じ 10 進数。/code-review R36）
     MAJOR=$((10#${BASH_REMATCH[1]})); MINOR=$((10#${BASH_REMATCH[2]})); PATCH=$((10#${BASH_REMATCH[3]}))
     SUFFIX=${BASH_REMATCH[4]}
@@ -40,6 +49,7 @@ major_file() {
   value=$(cat "${1:-$ROOT/tools/release/MAJOR}" 2>/dev/null) || die "左の数字のファイルが読めない: ${1:-$ROOT/tools/release/MAJOR}"
   value=$(trim "$value")
   [[ "$value" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${value:-<空>}"
+  fits_decimal "$value" || die "左の数字のファイルの数字が大きすぎる: $value"
   echo $((10#$value))
 }
 
@@ -229,6 +239,7 @@ number() {
   left=$(git show "$commit:tools/release/MAJOR" 2>/dev/null) || die "左の数字のファイルが読めない: $commit"
   left=$(trim "$left")
   [[ "$left" =~ ^[0-9]+$ ]] || die "左の数字のファイルが数字 1 つでない: ${left:-<空>}"
+  fits_decimal "$left" || die "左の数字のファイルの数字が大きすぎる: $left"
   left=$((10#$left))
   if [[ -z "$prev" ]]; then
     (( left == 0 )) && { minor=2; patch=0; } || { minor=0; patch=0; }
@@ -354,6 +365,8 @@ number_self_test() {
   nt_refuse '左の数字.*小さい' || return 1
   echo "== Scenario: 左の数字のファイルが数字 1 つでなければ、番号を付けずに止まる"
   nt_new major-bad; nt_merge chore/major tools/release/MAJOR 0.1; nt_refuse '数字 1 つでない' || return 1
+  # 64 ビットを越える数字（2^64）は 0 に回って 0.x の番号になる。回らずに止まる（code.md R29）
+  nt_new major-huge; nt_merge chore/major tools/release/MAJOR 18446744073709551616; nt_refuse '数字が大きすぎる' || return 1
   echo "== Scenario: 真ん中か左が上限を超える番号は付けない"
   nt_new minor-cap; nt_merge feat/a crates/server/src/lib.rs; nt_tag 0.999.4; nt_merge verify/2026-11-23 crates/server/src/lib.rs
   nt_refuse '真ん中の数字が上限 999 を超えた' || return 1
@@ -402,7 +415,8 @@ self_test() {
   local broken; broken=$(mktemp -d "${TMPDIR:-/tmp}/version-major.XXXXXX")
   mkdir -p "$broken/tools/release"; cp "$ROOT/tools/release/version.sh" "$ROOT/tools/release/version-check-table.tsv" "$broken/tools/release/"
   printf '[workspace.package]\nversion = "0.0.1"\n' > "$broken/Cargo.toml"
-  for content in x '' '+0' '0 0' '-0'; do
+  # 64 ビットを越える数字は $(( )) で 0 に回るので断る（code.md R29）
+  for content in x '' '+0' '0 0' '-0' 18446744073709551616; do
     printf '%s' "$content" > "$broken/tools/release/MAJOR"
     if "$broken/tools/release/version.sh" check 0.2.0 >/dev/null 2>&1; then rm -rf "$broken"; return 1; fi
   done

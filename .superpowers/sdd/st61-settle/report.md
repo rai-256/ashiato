@@ -122,3 +122,27 @@
 ### R26（fixed 7.1）
 - `tools/release/update-apply-install.sh` の注釈から、実際には出ていない CI の文の引用を外し、「新しい版が残ったまま前の版を入れ、前の版への更新として落ちた」と起きたことだけを書いた。
 - `scripts/verify-run 7.1` PASS。
+
+## settle 5 回目（R27〜R31）
+
+### R27（fixed 9.2）— nightly の判定の step の `shell: bash` を検査で守る
+- 変更: `tools/release/check-guards.sh` の `workflow()` に、nightly.yml の plan job の `- id: plan` の step を取り出し `        shell: bash` の行があるかを見る検査を足した。`--self-test` に、その行を外した偽の nightly.yml を `workflows` が落とす mutant を足した（元と同じなら落ちる確かめ付き）
+- 確かめ: 外した偽の木で `check-guards.sh workflows` → rc=1（`NG: nightly の判定の step（id: plan）の shell が bash と書かれていない…`）。本物で rc=0。`check-guards.sh --self-test` rc=0
+
+### R28（fixed 6.1）— ci.yml の変わったものの一覧をパイプで渡さない
+- 再現: 20,000 行の `crates/x*.rs` で `printf '%s\n' "$files" | changes.sh code` は rc=141（code=false）。同じ形の `has()`（android・windows・stamp の判定）も false になった。`<<<"$files"` ではどちらも true
+- 変更: `.github/workflows/ci.yml` の `id: f` で、`changes.sh code` / `changes.sh deps` / `has()` の 3 つを `<<<"$files"` に替えた。`check-guards.sh workflows` に「`"$files" |` の形が無い」「code・deps を `<<<"$files"` で呼ぶ」の検査を足し、`--self-test` に 3 つ（code・deps・has）をパイプに戻した偽の ci.yml の mutant を足した
+- 確かめ: has をパイプに戻した偽の木で rc=1（`NG: ci が変わったものの一覧をパイプで判定へ渡す…`）。actionlint 1.7.7（docker）で ci.yml・nightly.yml rc=0
+
+### R29（fixed 1.1）— bash の版の規則が 64 ビットで回らない
+- 再現: `version.sh check 18446744073709551616.2.0` rc=0・`version.sh code` が 20000
+- 変更: `tools/release/version.sh` に `fits_decimal`（先頭の 0 を除いて 18 桁まで）を足し、`parse_version` の 3 つの数字・`major_file`・`number()` の左の数字の読みで使う。Rust・gradle・画面はどれも先頭の 0 を受ける（`0.08.0` の既存の行）ので、桁数は先頭の 0 を除いて数える。18 桁までは bash で正しく読め、どの写しでも上限（209・999・9999）で断られる
+- 表: `version-check-table.tsv` に `18446744073709551616.2.0`・`0.18446744073709551616.0`・`0.2.18446744073709551616`・`999999999999999999.2.0`（ng）と `000000000000000000000000.2.0`（ok。先頭の 0 だけの長い列は 0）を足した。自己試験に MAJOR=`18446744073709551616` の check が落ちる行と、番号付けで MAJOR を 2^64 にした木が「数字が大きすぎる」で止まる行を足した
+- 確かめ: `version.sh --self-test` rc=0・`version_test.sh` rc=0・`tools/check-version.sh --self-test`/`check-version.sh` rc=0・`cargo test -p ashiato-build-stamp st61_` 5 passed（初回は 3 本落ちたが、古いビルドの残りで、`touch crates/build-stamp/src/lib.rs` で組み直すと通った。lib.rs は変えていない）・gradle `:app:verifyVersionCodeTable :app:verifyVersionCheckTable` BUILD SUCCESSFUL・vitest build-stamp 14 passed
+- `scripts/verify-run` 1.1・1.2・2.1・2.2・2.3・5.1・6.1・7.1・9.2・13.1 はどれも PASS（evidence.jsonl）
+
+### R30（rejected）
+- 再現: 使い捨ての木（印 build-* なし）で 製品の merge A → 文書だけの merge B。`number(B)`=`number=`、`number(A)`=0.2.0（A の run の走らせ直し）、続く製品の merge C も 0.2.0。spec :11・Scenario :58・design D4 どおり。提案の空の木の基準は Scenario :58 を落とす。理由は code.md の処置に書いた
+
+### R31（rejected）
+- 根拠: spec :267-270 の THEN が `0.0.1` を固定し、:506 の GIVEN も出所 0.0.1。check-build-stamp.sh:276-277 は 0.0.2 の組み立てが落ちることを見るので、出所を 0.0.2 にすると行を消しても落ちる。コードは変えていない

@@ -366,6 +366,7 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
   nightly の検査（:319-333）は cron・`nightly-plan` の呼び出し・`ref:` などを見るが、`shell` を見る行は 0 件（grep）。R25 自身が書くとおり、今は `nightly-plan` が出力の前に落ちるので害は無い。出力の後に落ちる道を足したときに、step が緑のまま通る形へ黙って戻る
 - kind: technical
 - 提案: nightly の検査に「`id: plan` の step（または job・workflow の defaults）が `shell: bash` を持つ」を足し、`--self-test` に外した偽の nightly.yml で rc≠0 になる mutant を足す。number.yml と同じ関数（`check_shell` の型）を使えば 1 か所で済む
+- 処置: fixed 9.2
 
 ## code-verify の結論
 - 結論: 申告と実測は不一致（1 件。R27）。19 項目の検証コマンドは全部実在し rc=0 だったが、R25 の直し（nightly.yml の判定の step の `shell: bash`）は消しても検査が落ちない（今は害が無い）
@@ -396,21 +397,25 @@ actionlint はこの機械に無く、3 本とも docker の `rhysd/actionlint:1
 - 根拠: Reproduced with 20,000 `crates/x*.rs` paths: `printf "%s\n" "$files" | tools/release/changes.sh code` returns rc=141, so the step writes code=false. The old changes.sh also returned false (rc=1), so the bug predates this branch, but the fix stops short of the caller. A main push after a large refactor skips the rust, e2e and android jobs, reports success, and number.yml then numbers the untested commit.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 6.1
 
 ## R29. The bash version rule accepts numbers that the Rust, Kotlin and TypeScript copies reject, so the four copies no longer agree. `parse_version` and `major_file` read each number with `$((10#…))`, which wraps silently above 2^64. A huge left number, or a huge value in the MAJOR file, becomes 0 and passes as a valid number. Rust (`u64` parse fails), gradle (`toLongOrNull` fails) and TS (`isSafeInteger` fails) all reject it. Fix: check the digit count first (for example `${#BASH_REMATCH[1]} <= 9`) in `parse_version`, `major_file` and the left-number read in `number()`, and add such a row to version-check-table.tsv.
 - 成果物: tools/release/version.sh:21
 - 根拠: `tools/release/version.sh check 18446744073709551616.2.0` → rc=0, and `version.sh code` returns 20000. Writing `18446744073709551616` into tools/release/MAJOR makes `version.sh major` print 0. So bash's check (release.yml / build.sh) passes while the Rust build.rs and gradle fail later with a different error. The version-check-table test does not catch this.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: fixed 1.1
 
 ## R30. Until the first number exists, a product change whose CI run was cancelled is never numbered. `number()` with no `prev` compares the commit only to its first parent (`$commit^1`). After a number exists it compares to the previous number's commit, which covers this case; without one there is no such base. Fix: when there is no previous number, compare against the root of the first-parent history (the empty tree) or the last `v*` tag, so every change since then counts.
 - 成果物: tools/release/version.sh:228
 - 根拠: No build-* tag exists yet. Merge A (product code) is pushed, then merge B (docs only) right after. ci's `cancel-in-progress: true` cancels A's run, and B's run succeeds. number(B) diffs B^1=A..B, sees docs only, and returns `number=`. A's code change is not numbered or built until another product change is merged.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 再現した（使い捨ての木。印 build-* なし・製品に触れる merge A・文書だけの merge B）。`version.sh number B` は `number=`、取り消された A の run を走らせ直すと `number(A)=0.2.0`、次に製品に触れる merge C は `number(C)=0.2.0`（A の中身を含む）。この挙動は spec の Requirement（specs/distribution/spec.md:11「番号の印がまだ 1 つも無い THEN 製品が変わったかを、その commit の first-parent の親からの差分で決める」）と Scenario「番号の印が無い木では、文書だけの merge に番号を付けない」（:58）、design.md D4 の「番号の印がまだ 1 つも無いときは…first-parent の親からの差分」（review/spec.md R5 で決めた）そのもの。提案の直し（空の木と比べる）では、印の無い木の文書だけの merge に 0.2.0 が付き、Scenario :58 が落ちる。最後の `v*` の印は repo に 1 つも無い（`git tag -l "v*"` が空）ので基準にならない。取り消された中身は失われず、A の run の走らせ直しか次の製品の merge で番号に入る（Requirement :8 は保たれる）。起きるのは最初の番号が付く前の 1 回だけで、番号が遅れるだけ
 
 ## R31. The release section now fails whenever the source version is not exactly 0.0.1. The added `[ "$cargo_version" = 0.0.1 ] || fail …` pins the root Cargo.toml version. The spec allows any source version of the form 0.0.<N> (N ≥ 1), and check-version.sh and version.sh accept it. Fix: check `0.0.<N≥1>` with the same regex as check-version.sh, or drop the line.
 - 成果物: tools/check-build-stamp.sh:272
 - 根拠: If the source version is moved to 0.0.2 in a PR, the build-stamp job (`check-build-stamp.sh release`) fails with "この repo の木の出所の版が 0.0.1 でない" even though every build is correct.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。settle が直し方を決める）
+- 処置: rejected: 固定の 0.0.1 は spec の Scenario「版番号を渡さずに組んだ部品の版番号は 0.0.1」（specs/distribution/spec.md:267-270。GIVEN「この repo の木」THEN「どれも `0.0.1`」）の THEN そのもので、続く「出所の版と違う 0.0.x を渡すと、組み立てが失敗する」（:506。GIVEN「出所の版が `0.0.1` の木」）の前提でもある。check-build-stamp.sh:275-279 は `ASHIATO_BUILD_VERSION=0.0.2` で組んで失敗することを見るので、出所を 0.0.2 に上げた木では、この行を消しても直後の検査が「出所と違う 0.0.x の組み立てが成功した」で落ちる（指摘の「組み立ては全部正しいのに通らない」は、行を外しても変わらない）。出所の版を上げるなら spec の 2 つの Scenario を一緒に変える変更になり、そのときにこの行が先に「出所の版が 0.0.1 でない」と理由を示して止めるのが意図どおり。`0.0.<N≥1>` に広げると、Scenario :267 の THEN を確かめなくなる

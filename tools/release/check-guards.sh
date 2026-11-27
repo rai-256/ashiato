@@ -311,6 +311,11 @@ workflow() {
   [[ -f "$ci" && -f "$release" && -f "$nightly" ]] || die 'workflow が不足している'
   number_workflow "$root/.github/workflows/number.yml" || return 1
   grep -q 'tools/release/changes.sh code' "$ci" || die 'ci が共有の code 判定を使っていない'
+  # 変わったものの一覧をパイプで判定へ渡さない。大きな一覧では grep -q が先に終わり、左の printf が SIGPIPE で落ち、
+  # pipefail が「触れていない」と読んでコードの job を飛ばす（code.md R28）。<<< で渡す
+  if grep -qE '"\$files"[[:space:]]*\|' "$ci"; then die 'ci が変わったものの一覧をパイプで判定へ渡す（大きな一覧で SIGPIPE が偽になる）'; return 1; fi
+  grep -qF 'tools/release/changes.sh code <<<"$files"' "$ci" || { die 'ci が変わったものの一覧を <<< で code 判定へ渡さない'; return 1; }
+  grep -qF 'tools/release/changes.sh deps <<<"$files"' "$ci" || { die 'ci が変わったものの一覧を <<< で deps 判定へ渡さない'; return 1; }
   ci_changes_base "$ci" || return 1
   job_block "$ci" package-linux | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Linux package が code=true でない'
   job_block "$ci" package-windows | grep -q 'if: needs.changes.outputs.code == '\''true'\''' || die 'Windows package が code=true でない'
@@ -320,6 +325,12 @@ workflow() {
   job_block "$nightly" publish | grep -q "ASHIATO_NIGHTLY_PUBLISH == 'on'" || die 'nightly publish の条件が無い'
   job_block "$release" plan | grep -q 'version.sh plan' || die 'release の plan が無い'
   job_block "$nightly" plan | grep -q 'version.sh nightly-plan' || die 'nightly の nightly-plan が無い'
+  # 判定の step（id: plan）は shell: bash で走らせる。書かないと bash -e（pipefail なし）で走り、
+  # version.sh が出力の後に落ちても tee の 0 で緑になる（code.md R13・R25・R27）
+  local nightly_plan_step
+  nightly_plan_step="$(job_block "$nightly" plan | awk '/^      - id: plan$/{f=1; print; next} f && /^      - /{exit} f{print}')"
+  [[ -n "$nightly_plan_step" ]] || { die 'nightly の判定 job に id: plan の step が無い'; return 1; }
+  grep -qxF '        shell: bash' <<<"$nightly_plan_step" || { die 'nightly の判定の step（id: plan）の shell が bash と書かれていない（書かないと pipefail なしで走る）'; return 1; }
   job_block "$release" package-linux | grep -qE 'ASHIATO_APK_UNSIGNED(:[[:space:]]*|=)"?1' || die 'release の APK が unsigned でない'
   job_block "$nightly" package-linux | grep -q 'tools/release/build.sh apk' || die 'nightly の組み立て job に APK が無い'
   job_block "$nightly" publish | grep -q 'tools/release/publish-nightly.sh' || die 'nightly の公開 job が公開手順を使っていない'
@@ -499,6 +510,10 @@ EOF
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'commit を outputs に出さない偽 nightly を通した'; fi
   sed 's/|version|commit)=/|version)=/' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'commit を出力へ写さない偽 nightly を通した'; fi
+  # 判定の step の shell: bash を外した偽 nightly（code.md R27）
+  sed '/^      - id: plan$/,/^        run: /{/^        shell: bash$/d}' "$root/.github/workflows/nightly.yml" >"$fake_root/.github/workflows/nightly.yml"
+  ! cmp -s "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/nightly.yml" || die 'shell: bash を外した偽 nightly が元と同じ'
+  if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die '判定の step に shell: bash の無い偽 nightly を通した'; fi
   cp "$root/.github/workflows/ci.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   if sed 's/contents: write/contents: read/' "$root/.github/workflows/release.yml" >"$fake_root/.github/workflows/release.yml" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'release publish の権限欠落を通した'; fi
   cp "$root/.github/workflows/release.yml" "$fake_root/.github/workflows/release.yml"
@@ -549,6 +564,18 @@ EOF
   cp "$root/.github/workflows/release.yml" "$root/.github/workflows/nightly.yml" "$fake_root/.github/workflows/"
   sed 's#tools/release/changes.sh code#tools/release/not-changes.sh code#' "$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
   if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'YAML の code 判定が台本を呼ばないのを通した'; fi
+  # 変わったものの一覧をパイプで判定へ渡す偽の ci.yml（code.md R28）
+  local pipe_variant
+  for pipe_variant in code deps has; do
+    case "$pipe_variant" in
+      code) sed "s#tools/release/changes.sh code <<<\"\$files\"#printf '%s\\n' \"\$files\" | tools/release/changes.sh code#" ;;
+      deps) sed "s#tools/release/changes.sh deps <<<\"\$files\"#printf '%s\\n' \"\$files\" | tools/release/changes.sh deps#" ;;
+      has) sed "s#grep -qE \"\$1\" <<<\"\$files\"#printf '%s\\n' \"\$files\" | grep -qE \"\$1\"#" ;;
+    esac <"$root/.github/workflows/ci.yml" >"$fake_root/.github/workflows/ci.yml"
+    ! cmp -s "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml" || die "パイプで渡す偽の ci.yml（$pipe_variant）が元と同じ"
+    if CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die "変わったものの一覧をパイプで渡す偽の ci.yml（$pipe_variant）を通した"; fi
+  done
+  cp "$root/.github/workflows/ci.yml" "$fake_root/.github/workflows/ci.yml"
   echo "== Scenario: PR の配布物は、PR の head の commit から組まれ、同じ commit の期待値で検査される"
   local ci_saved="$fake_root/.github/workflows/ci.yml"
   if sed '/ref: \${{ github.event.pull_request.head.sha || github.sha }}/d' "$ci_saved" >"$work/ci-missing-linux.yml" && cp "$work/ci-missing-linux.yml" "$ci_saved" && CHECK_GUARDS_ROOT="$fake_root" "$0" workflows >/dev/null 2>&1; then die 'Linux package の ref 欠落を通した'; fi
