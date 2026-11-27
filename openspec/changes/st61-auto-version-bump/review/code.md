@@ -280,3 +280,29 @@ final reviewer（whole-branch。`code-reviewer.md`）の指摘。HEAD で `versi
 
 残りの害の小さいもの（R にしない）: `draft.sh:296` の `build-` の守りは自己試験の中だけで中身が無い（本番は `draft.sh:19` で構造上は安全。T10 F1/F2）・version.sh `major_file` の既定の道の二重（T1 F3）・number() の MAJOR 検査の写し（T3 F3）・「文書だけ」の Scenario が 2 つの merge で組む（T3 F6）・number.sh の偽の check-artifacts が `--expect-version` を照合しない（T4 F3）・ci.yml の `all` の暗黙の番兵（T6 F2）・nightly-plan の出力の形（T9 F3）・docs/release.md に「最初の番号は 0.2.0」が無い（T11 F1）。
 - 判定: ADDRESSED（re-review 4 @c667ca2c6110d4140c770dda07ec482fdb16bb2c）
+
+## final review（e721251..c442010）
+
+final reviewer（whole-branch の 2 回目。`code-reviewer.md`）の指摘。直しの波（60205ce..c442010）の R13〜R22 はどれも効いていて、新しく壊れたものは無かった。HEAD で `check-guards.sh --self-test`・`check-guards.sh workflows`・`version.sh --self-test`・`number.sh --self-test`・`changes.sh --self-test`・`version_test.sh`・`check-version.sh --self-test` は rc=0、TMPDIR に何も残らない。`cargo test -p ashiato-build-stamp` は 16 passed、`vitest build-stamp.test.ts` は 14 passed。R15 を RETURN trap に戻すと `number.sh --self-test` は rc=1。判定: merge してよい（Critical・Important なし、Minor 4）。
+
+## R23. R20 の直し（表の 3 列目を読み取る処理を、断る検査の外に出す）は gradle にしか届いていない。TS は major を `stampWith` の中で解釈し、ng の行を `toThrow()` だけで見ている。bash の表の試験も 3 列目を確かめない。3 列目が壊れた ng の行は「断った」として通る（Task 2 F2 の TS と bash の半分）。final reviewer が一時 worktree の表に `0.2.0	0.0.1	x	ng` を足して実測した結果は、vitest 14 passed、`version.sh --self-test` rc=0。Rust（`lib.rs:490` の panic）と gradle は落ちる。Global Constraints の「4 か所が同じ表を読む」のうち、表の形を守るのは 2 か所だけ。直し: TS では `/^\d+$/` の検査を `stampWith` の外でする。bash では表を読むループで 3 列目が数字かを確かめる。
+- 成果物: web/src/__tests__/build-stamp.test.ts, tools/release/version.sh
+- 根拠: web/src/__tests__/build-stamp.test.ts:117-119、tools/release/version.sh（表の試験。:380-386 付近）（final review 2。Minor）
+- kind: technical
+
+## R24. 前の番号と木が同じ commit にも番号が付く。`changed` が空のとき `changes.sh code <<<"$changed"` には空行が 1 行渡り、`grep -qvE` がその空行を拾って rc=0（製品に触れた）になる。実測では `changes.sh code <<<""` は rc=0、`printf '' | changes.sh code` は rc=1。0.2.1 の後に、製品に触れる merge B（run は取り消された）と、その revert C が続くとする。A..C の差分は空なのに、C に 0.2.2 が付く。中身が同じで番号が違う版が 2 つできる。D4（仮）の「前の番号から製品が変わった commit に付ける」とずれる（ブランチの中に前からある形。直しの波が作ったものではない）。CI の側（ci.yml:60 も同じく空の差分で code=true）は「迷ったら走らせる」の安全側なので、直すのは番号付けの側だけでよい。直し: version.sh の number で `[[ -z "$changed" ]]` を「変わっていない」と扱う。自己試験に、空の差分（revert）の Scenario を足す。仮の決定 D4 の解釈に関わるので、直すか残すかは処置の表で決める。
+- 成果物: tools/release/version.sh
+- 根拠: tools/release/version.sh:216-219、design.md D4（final review 2。Minor）
+- kind: premise
+
+## R25. nightly.yml の `id: plan` は、R13 と同じ形（`shell:` が無いまま `version.sh nightly-plan | tee plan.txt`）が残っている。今は害が無い。`nightly-plan` が落ちる道（require_full_history・main_ref・rev-list）はどれも出力より前にあり、出力が空なら後ろの `grep` が rc=1 になって step が落ちる。出力の後に落ちる道を足すと、step は緑のまま通る。直し: `shell: bash` を書き、number.yml とそろえる。
+- 成果物: .github/workflows/nightly.yml
+- 根拠: .github/workflows/nightly.yml:19-20（final review 2。Minor）
+- kind: technical
+
+## R26. 注釈が、実際には出ていない CI の文を記録として引いている。注釈には「2026-11-16 の CI。『更新 0.0.2 は移行が落ちたので、0.0.3 に戻しました』」とあるが、元の文は 0.4.0・0.5.0 だった（Task 7 F4。code.md の R にも「残りの害の小さいもの」にも入っていない）。直し: 引用を外し、起きたことだけを書く。
+- 成果物: tools/release/update-apply-install.sh
+- 根拠: tools/release/update-apply-install.sh:187-188（final review 2。Minor）
+- kind: technical
+
+残りの害の小さいもの（R にしない）: Task 3 F7（number_self_test の RETURN trap が関数の後も残る。今は害が無い）。
