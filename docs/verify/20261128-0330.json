@@ -1,0 +1,384 @@
+{
+  "title": "確認バッチ 20261128-0330",
+  "subtitle": "ST61 main の製品が変わるたびに版番号が自動で進む / CH26 夜間の脆弱性検査の 4 件を片付ける（chrono・libsqlite3-sys・rustix・同梱の PostgreSQL 17.12） / ST59 合言葉を画面から変えられる",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261128-0330/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。読む・作り直すのは画面の合言葉でログインして（`tools/web-login.sh`）。API の合言葉は送るだけ。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `cookie=\"$(tools/web-login.sh http://127.0.0.1:18787)\"; curl -sS -H \"$cookie\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261128-0330 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261128-0330/app-debug.apk` を作ったが、エミュレータへ入れられなかった（adb: failed to install dist/verify-20261128-0330/app-debug.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade detected: Update version code 1 is older than current 10000]  エミュレータ emulator-5554 への APK のインストールに失敗しました）。手で入れて確かめる。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261128-0330`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261128-0330 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261128-0330/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261128-033240-d0e7465（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST61-T12.1",
+      "topic": "ST61 12.1",
+      "kind": "check",
+      "question": "下書きは認証なしの一覧に出ない（P5・D1（仮））: 使い捨ての下書き 1 つを作り、認証なしの `curl https://api.github.com/repos/rai-256/ashiato/releases?per_page=20` に出ないことを見て、消す。P5 の確かさを 4 にする。出たら D1 の反転条件で上流へ返す",
+      "why": "ST61 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。持ち越しの一覧に残る（見られるようになったら操作盤で「次の確認に入れる」）"
+        }
+      ]
+    },
+    {
+      "id": "ST61-T12.2",
+      "topic": "ST61 12.2",
+      "kind": "check",
+      "question": "最初の番号: この Story が main に入った後、最初に製品に触れる merge の CI が通ると、印 `build-0.2.0` と下書き `build-0.2.0` に 5 つの配布物が並び、main の commit が増えていないこと（完了の判定の 1 つ目）",
+      "why": "ST61 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。持ち越しの一覧に残る（見られるようになったら操作盤で「次の確認に入れる」）"
+        }
+      ]
+    },
+    {
+      "id": "ST61-T12.3",
+      "topic": "ST61 12.3",
+      "kind": "check",
+      "question": "確認バッチの merge: 次の確認バッチの merge の後の番号の真ん中が 1 上がり、右が 0 になること（D5）",
+      "why": "ST61 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。持ち越しの一覧に残る（見られるようになったら操作盤で「次の確認に入れる」）"
+        }
+      ]
+    },
+    {
+      "id": "ST61-T12.4",
+      "topic": "ST61 12.4",
+      "kind": "check",
+      "question": "main の差分の基準（D8・review/spec.md R16）: main に入った後の最初の文書だけの merge の run の `changes` の job の出力に、基準の commit（前に成功した main の push の run の `head_sha`）が出て、全部走らせるに落ちていないこと",
+      "why": "ST61 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。持ち越しの一覧に残る（見られるようになったら操作盤で「次の確認に入れる」）"
+        }
+      ]
+    },
+    {
+      "id": "ST61-T12.5",
+      "topic": "ST61 12.5",
+      "kind": "check",
+      "question": "番号付けの順番待ち（P18・P19・P20・D10）: main に入った後、取り消された CI の run の直後に成功した run があった回で、番号付けの判定の job が取り消されずに番号の印を作ったこと（印 `build-*` の push と、その印の下書きができたこと）。外れたら D10 の反転条件で上流へ返す",
+      "why": "ST61 の tasks.md「人間の確認待ち」。機械で代われない",
+      "context": "",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。持ち越しの一覧に残る（見られるようになったら操作盤で「次の確認に入れる」）"
+        }
+      ]
+    },
+    {
+      "id": "ST61-PD1",
+      "topic": "ST61 仮D1",
+      "kind": "check",
+      "question": "ST61 の仮の決定 D1: 番号を付けた組み立てをいつまで残すか →「全部残す（番号ごとに配布元の下書きのリリースに置く）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 消さないので、どの番号にも後から組み直さずに札を付けられる（失わない側の費用: 月に約 1.7 GB（コードの番号だけ。公開のリポジトリで置き場の代金は無い））\n乗っている決定: P5, P11\n出所: review/deep.md#R3",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST61-PD2",
+      "topic": "ST61 仮D2",
+      "kind": "check",
+      "question": "ST61 の仮の決定 D2: 番号ごとに残す携帯の APK をどの署名の状態で残すか →「署名していない APK も一緒に残す（debug の鍵のものは試しに入れる用）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 正式な鍵を後で足すか main で付けるか（ST62 の未決）のどちらに決めても、組み直さずに済む（失わない側の費用: 番号ごとに APK が 1 つ増える（数十 MB 以下））\n出所: review/deep.md#R7",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST61-L4",
+      "topic": "ST61 確かめたこと・残るリスク",
+      "kind": "check",
+      "question": "ST61 について、下の確かめたこと・未確認・残るリスクを読んだ。この残るリスクを受けてよいか",
+      "why": "人間はコードではなく、独立の席が何を確かめ何を確かめていないかと、GO の影響分析に残るリスクを受ける",
+      "context": "code-verify: 結論: 申告と実測は不一致（1 件。R27）。19 項目の検証コマンドは全部実在し rc=0 だったが、R25 の直し（nightly.yml の判定の step の `shell: bash`）は消しても検査が落ちない（今は害が無い）\n見た範囲: tasks.md の `[x]` 19 項目の検証コマンドを全部実行した（cargo・gradle・apk-build・npm build・check-build-stamp を含む）。2 つの表を python で独立に計算し直した。Task 13 の分岐、前回の後の直し（R2・R6〜R9・R11〜R14・R18・R21〜R23・R25）、本人の決定 6 つを使い捨ての木で壊して走らせた。`git diff` が落ちる偽の git で Task 13 の新しい道を走らせた。新しい Scenario の印の先を読んだ。手 7 の 2.2 は作業ツリーで壊して戻した\n見ていない範囲: 配布元（GitHub）での実際の印・下書きの作成と number.yml・nightly.yml の実際の run（人間の確認待ち 12.1〜12.5）。Windows の runner での組み立て。R1・R3〜R5・R17・R19・R20 の直しは、今回は壊していない（前回と re-review 1〜4 の判定に任せた）。R15 は一時ファイルの数、R16 は grep だけで、壊していない。R24 は Task 13 として壊した。R10・R26 はコードの守りではないので対象外\nsecurity-review: 結論: 指摘なし\n見た範囲: fork の PR → ci（pull_request）→ workflow_run → number job。`number.yml:14` の `event == 'push'` と `head_repository.full_name == github.repository`、`branches: [main]` で書く権限の job に入らない。後ろの 3 job は `needs: number` なので一緒に飛ぶ（3）\n見ていない範囲: GitHub 上での実際の number.yml・nightly.yml の run（branch protection や印の保護の設定を含む）。Windows の runner の組み立て。check-guards.sh の workflow 検査の中身\n[NOTE] 機械が承認した検証コマンドの訂正: 8.1: `bash -c '! grep -nF \"release/\" tools/release/version.sh'` → `tools/release/check-no-release-branch.sh`（2026-11-23。plan-corrections.md）\n[NOTE] 機械が承認した検証コマンドの訂正: 2.2: `bash -c 'ASHIATO_BUILD_VERSION=0.4.0-beta.2 scripts/quiet-run apk -- ./collector-android/gradlew -p collector-android :app:assembleRelease && tools/release/check-artifacts.sh apk-version collector-android/app/build/outputs/apk/release/*.apk'` → `tools/release/check-artifacts.sh apk-build 0.4.0-beta.2`（2026-11-23。plan-corrections.md）\n残るリスク: PR の組み立ては、携帯には上書きで入らず、サーバには入れ替わらないか版を下げる更新に入る（IMP-01・IMP-02）\n残るリスク: 手元で番号を名乗る組み立てを作れる（IMP-04。ST64）\n残るリスク: 番号付けの順番待ちと印の push の前提が未確認（IMP-03）",
+      "options": [
+        {
+          "label": "通った（残るリスクを受ける）",
+          "detail": "ここに記録した根拠と残るリスクを受ける"
+        },
+        {
+          "label": "通らなかった（受けない）",
+          "detail": "受けない。補足に理由を書く"
+        }
+      ]
+    },
+    {
+      "id": "ST61-F",
+      "topic": "ST61 違和感",
+      "kind": "check",
+      "question": "ST61「main の製品が変わるたびに版番号が自動で進む」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（8 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261128-0330/ST61-spec.html"
+    },
+    {
+      "id": "CH26-PD2",
+      "topic": "CH26 仮D2",
+      "kind": "check",
+      "question": "CH26 の仮の決定 D2: libsqlite3-sys の勧告（直る版は rusqlite 0.41・互換の範囲外）を上げずに例外の表に「届かない」で書くか →「例外の表に届かない: の理由と 90 日以内の期限で書く」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 何も捨てない。行は 90 日で切れて検査がまた落ち、本人はいつでも rusqlite 0.41 へ上げる change を立てられる（失わない側の費用: 例外の 1 行。上げる側は rusqlite の範囲を 0.32 から 0.41 に替え、履歴を読む本体のコードの追従を確かめる change になる）\n出所: design.md#D2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-PD3",
+      "topic": "CH26 仮D3",
+      "kind": "check",
+      "question": "CH26 の仮の決定 D3: chrono の保守終了の勧告（直る版が無い）を例外の表にどう書くか →「届かない: の理由で書き、期限が来たら検査がまた落ちるままにする」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 何も捨てない。90 日で本人の前に戻り、置き換えるか延ばすかをそのとき決められる（失わない側の費用: 例外の 1 行）\n出所: design.md#D3",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-PD7",
+      "topic": "CH26 仮D7",
+      "kind": "check",
+      "question": "CH26 の仮の決定 D7: lock を変える PR で古い側の試験の zip を組む「前の lock」をどこから取り、どの zip を入れ替え、大きい版が違うときどうするか →「変えたかは PR 自身の差分（分岐点から head）で決め、前の lock は分岐点の lock。変えた PR でだけ test-old の 1 つを入れ替え、前の lock が取れない・同じ中身・大きい版が違うなら CI を落とす。変えていない PR と PR でない run は今のまま」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 何も捨てない。CI の定義の中の決め方で、変えれば次の run から効く（失わない側の費用: CI の定義の数行）\n乗っている決定: D5\n出所: design.md#D7",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-AQ1",
+      "topic": "CH26 答えで直した Q1",
+      "kind": "check",
+      "question": "CH26 の Q1「判定と zip の版の確かめの置き場（D8）」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: ch26-nightly-vulns-cleanup/deep.md の Q1・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-AQ2",
+      "topic": "CH26 答えで直した Q2",
+      "kind": "check",
+      "question": "CH26 の Q2「使い回しの鍵に前の lock を入れるか（D9）」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: ch26-nightly-vulns-cleanup/deep.md の Q2・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-AQ3",
+      "topic": "CH26 答えで直した Q3",
+      "kind": "check",
+      "question": "CH26 の Q3「更新の後に動いている PostgreSQL の版を見るか（D10）」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: ch26-nightly-vulns-cleanup/deep.md の Q3・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH26-F",
+      "topic": "CH26 違和感",
+      "kind": "check",
+      "question": "CH26「夜間の脆弱性検査の 4 件を片付ける（chrono・libsqlite3-sys・rustix・同梱の PostgreSQL 17.12）」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/dependency-vulnerability-scan/spec.md / specs/distribution/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（3 件。例: impact.evidence[E7]: quote が .github/workflows/ci.yml:573 の近く（前後 10 行）に無い —— 読んだ実物から引く）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261128-0330/CH26-spec.html"
+    },
+    {
+      "id": "ST59-PD9",
+      "topic": "ST59 仮D9",
+      "kind": "check",
+      "question": "ST59 の仮の決定 D9: 画面の合言葉と収集アプリの値を変える求めを、読み出しの記録にどの順と語で残すか →「変えた行（ok）は書き戻しの前に書き、書けなければ何も変えずに 500。書き戻しで落ちたら打ち消しの行を足す。語は今の CHECK の中から選び、移行を足さない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 変えた求めの行が欠けない（行が多い側に倒す）（失わない側の費用: 順の入れ替えだけで、移行も新しい語も要らない）\n乗っている決定: D1\n出所: review/spec.md#R2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST59-L4",
+      "topic": "ST59 確かめたこと・残るリスク",
+      "kind": "check",
+      "question": "ST59 について、下の確かめたこと・未確認・残るリスクを読んだ。この残るリスクを受けてよいか",
+      "why": "人間はコードではなく、独立の席が何を確かめ何を確かめていないかと、GO の影響分析に残るリスクを受ける",
+      "context": "未確認: code-verify の結論・範囲の記録が無い\nsecurity-review: 結論: 指摘あり（review/code.md を読む）\n見た範囲: - `POST /api/web-password` → `refresh_cookie`（`decide_with_secrets`）→ `access_log::middleware` は素通し（`access_log.rs:166-169` に今回足した）→ `web_password_post_inner` の `caller != Caller::WebSession` で 403（`web_session.rs:727`）→ 今の合言葉の照合（`LOGIN_CHECK` の印と失敗の数え上げはログインと共有）→ `validate_new_web_password` → Argon2id の照らす値 → `service::replace_setting(\"WEB_PASSWORD_VERIFIER\")` → `replace_secrets`（2）\n見ていない範囲: 記録なし（未確認）\n[NOTE] 機械が承認した検証コマンドの訂正: 無し\n残るリスク: 落とした携帯の値で、変える前に送られた偽の記録は後から見分けられない（FR-128 の帰結）\n残るリスク: 網からノードを外した後も、最大 60 秒は 429 が残る（IMP-02）\n残るリスク: IMP-01〜IMP-05",
+      "options": [
+        {
+          "label": "通った（残るリスクを受ける）",
+          "detail": "ここに記録した根拠と残るリスクを受ける"
+        },
+        {
+          "label": "通らなかった（受けない）",
+          "detail": "受けない。補足に理由を書く"
+        }
+      ]
+    },
+    {
+      "id": "ST59-F",
+      "topic": "ST59 違和感",
+      "kind": "check",
+      "question": "ST59「合言葉を画面から変えられる」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: tasks.md\n仕様書の要点がいまの仕様とずれている（15 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ ST59-web-change-secrets（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261128-033240-d0e7465\\scenarios\\ST59-web-change-secrets\\video.webm",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261128-0330/ST59-spec.html"
+    }
+  ]
+}

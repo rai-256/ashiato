@@ -277,17 +277,23 @@ EOF
   local version
   version="$("$root/tools/release/version.sh" source)"
   export DRAFT_SELF_TEST_VERSION="$version"
+  # 確かめの下書きに渡す版番号は固定の 0.0.1-beta.1。下書きの印の名前は v<版番号>で、番号の印 build-* と混ざらない（D7）
+  local draft_version=0.0.1-beta.1
 
   echo "== Scenario: 確かめの組み立ては、印を作らずに下書きのリリースになる"
-  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 "${version}-beta.1"
+  DRAFT_SELF_TEST_CALLS="$calls" PATH="$fake_bin:$PATH" "$0" 42 "$draft_version"
   [[ "$(wc -l <"$calls")" == 1 ]] || die '下書きの要求が 1 つでない'
-  grep -Fq "release create v${version}-beta.1 " "$calls" || die '下書きの release create が無い'
+  grep -Fq "release create v$draft_version " "$calls" || die '下書きの release create が無い'
   grep -Fq -- '--draft' "$calls" || die 'draft 指定が無い'
   grep -Fq -- '--prerelease' "$calls" || die 'prerelease 指定が無い'
   grep -Fq -- '--target main' "$calls" || die 'main target 指定が無い'
   grep -Fq -- '--notes' "$calls" || die '本文の指定が無い'
   grep -Fq "出所の版 $version" "$calls" || die '本文に配布物の出所の版が無い'
   ! grep -Eq 'tag|publish' "$calls" || die '印または公開の要求が出た'
+  local created_tag
+  created_tag="$(awk '{print $3}' "$calls")"
+  [[ "$created_tag" == "v$draft_version" ]] || die "下書きの印の名前が想定と違う: $created_tag"
+  [[ "$created_tag" != build-* ]] || die "下書きの印の名前が build- で始まる: $created_tag"
   [[ "$(tr ' ' '\n' <"$calls" | grep -cE '\.(tar\.gz|zip|apk)$')" == 4 ]] || die '載せる配布物が 4 つでない'
   for name in "ashiato-server-$version-linux-x86_64.tar.gz" "ashiato-server-$version-windows-x86_64.zip" \
     "ashiato-collector-windows-$version-x86_64.zip" "ashiato-collector-$version.apk"; do
@@ -303,7 +309,7 @@ EOF
   echo "== Scenario: 確かめの組み立ても、配布物が欠ければ下書きを作らない"
   : >"$calls"
   if DRAFT_SELF_TEST_CALLS="$calls" DRAFT_SELF_TEST_MISSING_APK=1 PATH="$fake_bin:$PATH" \
-      "$0" 42 "${version}-beta.1" >/dev/null 2>&1; then
+      "$0" 42 "$draft_version" >/dev/null 2>&1; then
     die '配布物が欠けたのに成功した'
   fi
   [[ ! -s "$calls" ]] || die '配布物が欠けたのに配布元へ要求を出した'
@@ -312,7 +318,7 @@ EOF
   local run out
   for run in $'fork/ashiato\to/ashiato\tsuccess\tci' $'o/ashiato\to/ashiato\tsuccess\tnightly' $'o/ashiato\to/ashiato\tfailure\tci'; do
     : >"$calls"
-    if out="$(DRAFT_SELF_TEST_CALLS="$calls" DRAFT_SELF_TEST_RUN="$run" PATH="$fake_bin:$PATH" "$0" 42 "${version}-beta.1" 2>&1)"; then
+    if out="$(DRAFT_SELF_TEST_CALLS="$calls" DRAFT_SELF_TEST_RUN="$run" PATH="$fake_bin:$PATH" "$0" 42 "$draft_version" 2>&1)"; then
       die "出所の確かめを通らない run で成功した: $run"
     fi
     grep -Fq 'run 42 は' <<<"$out" || die "出所の確かめ以外の理由で落ちた: $out"

@@ -331,6 +331,12 @@ echo "== Scenario: 開発版の印 nightly は、最後の配った印に数え�
 new_tree; git -C "$T" tag nightly
 echo "== Scenario: 開発版の印は、配った印に数えない"; expect 0
 
+# 番号の印 build-<番号> も配った印に数えない（今の数え方は v[0-9]*）。数えれば、版を上げずに変えた欄で落ちる
+new_tree; git -C "$T" tag build-0.2.0
+git -C "$T" commit --allow-empty -q -m numbered; git -C "$T" tag build-0.2.1
+edit_copy '.android.ingest.id.required = false'; commit_all current-change
+echo "== Scenario: 番号の印は、配った印に数えない"; expect 0
+
 new_tree; tag_beta; git -C "$T" commit --allow-empty -q -m next
 git clone -q --depth=1 "file://$T" "$work/shallow"
 git -C "$work/shallow" fetch -q --depth=1 origin '+refs/tags/v*:refs/tags/v*'

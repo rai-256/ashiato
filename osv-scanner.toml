@@ -259,3 +259,11 @@ reason = "届かない: 携帯の組み立ての道具専用"
 id = "GHSA-xpw8-rcwv-8f8p"
 ignoreUntil = "2027-02-06"
 reason = "届かない: 携帯の計測テストの実行基盤の試験専用"
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0459"
+ignoreUntil = "2027-02-20"
+reason = "届かない: 開くのは本人のブラウザが書いた履歴の写しで、書ける者は収集アプリの記憶をもともと読める"
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = "2027-02-20"
+reason = "届かない: 保守終了の知らせで、直す版も既知の欠陥も無い"

@@ -350,6 +350,12 @@ PY
   printf '%s\n' '[[IgnoredVulns]]' 'id = "RUSTSEC-2020-0071"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' '[[IgnoredVulns]]' 'id = "GHSA-35jh-r3h4-6jhm"' "ignoreUntil = \"$(date -u -d '+1 day' +%F)\"" 'reason = "届かない: 自己試験"' > "$tmp/root/osv-scanner.toml"
   expect_rc 0 env CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
   [[ "$(cat "$tmp/actual")" == 'GHSA-wcg3-cvx6-7396,GHSA-35jh-r3h4-6jhm' ]] || return 1
+  echo "== Scenario: 別名の鍵を持たない勧告は、別名なしとして許可の一覧を組む"
+  mkdir -p "$tmp/noalias-bin"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' '{\"id\":\"RUSTSEC-2020-0071\"}'" > "$tmp/noalias-bin/curl"
+  chmod +x "$tmp/noalias-bin/curl"
+  expect_rc 0 env PATH="$tmp/noalias-bin:$PATH" CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
+  [[ "$(cat "$tmp/actual")" == 'GHSA-35jh-r3h4-6jhm' ]] || return 1
   echo "== Scenario: 別名を問い合わせられなければ、許可の一覧を出さない"
   expect_rc 2 env HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY= CHECK_VULNS_ROOT="$tmp/root" "$SCRIPT_DIR/check-vulns.sh" allow-ghsas || return 1
   ! grep -Eq '^GHSA-' "$tmp/actual" || return 1

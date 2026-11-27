@@ -65,3 +65,27 @@
 - 3 問とも本人が推奨の側（いまの仕様のまま）を選んだ。D8・D9・D10 は本人の決定になり、仮の台帳には戻さない（第 2 回の差し戻しで `provisional.py resolve` 済み）。土台の D7 はまだ仮のまま（別の席は確かとした）
 - 要件へ戻すもの: なし（要件は変えない change。CI の決め方を本人が決めた）
 - 仕様（design D8〜D10・`docs/changes/CH26.md` の完了の判定 6 の「D7（仮）〜D9（仮）」「D10（仮）」の書き方）へ写すのは、この後の `spec --answers Q1,Q2,Q3`
+
+## 実装の途中の本人の決定（2026-11-23）
+
+### Q-impl-1. 実装の途中で挙がった url の勧告（`RUSTSEC-2026-0592`、#374）をどう扱うか
+
+- 経緯: Task 1.2 の検証で `tools/check-vulns.sh` が url 2.5.8 の新しい勧告で落ち、実装の席が A で返した（診断 `.git/hx/doctor/CH26-202611221920.md`）
+- 選択肢: ① CH26 で 2.5.9 に上げ、lock の Scenario と `check-ch26.sh lock` を直す ② 例外の表に足す ③ url だけ別の change にする
+- 答え: ①（本人の選択。推奨と同じ）
+- 決まったこと: design D11。spec の Scenario「上げた後の Cargo.lock は…」の THEN を rustix・url・form_urlencoded の 3 組に、「全体の検査と毎晩の検査は…」に `RUSTSEC-2026-0592` を足した。完了の判定 1・2・7 も合わせた
+- 要件へ戻すもの: なし
+
+## Task 3 の実装の途中で出た問い（2026-11-23）
+
+### Q-impl-2. 「中身が同じ」の比べ方に、退避の戻しで必ず出る表記の違いを許すか
+
+- 経緯: `check-ch26.sh minor-swap` の Scenario 1〜3（17.6→17.12→17.6 の置き場の入れ替え）は PASS。Scenario 4（17.12 の `pg_dump --format=custom` を 17.6 の `pg_restore` で空の DB に戻す）だけ、平文の `pg_dump` の比べで 2 行違う（CHECK 制約 `event_end_values`・`event_version_end_values` の括弧の入れ子が `((a AND b) AND c)` → `(a AND b AND c)` に平らになる）
+- 実測: **17.12 の退避を 17.12 の空の DB に戻しても同じ 2 行が違う**。小さい版の違いでなく、`pg_restore` が式を読み直す表記の正規化（意味は同じ）
+- 問い: design D5 の「中身が同じ」（版の行と鍵の行だけを除いた平文の一致）を、この表記の正規化を許す形に変えてよいか（変えるなら D5 の定義を人間が決める）
+- 台本の状態: 上のまま commit 済み・`minor-swap` は rc≠0（Scenario 4）。台本は直していない
+- 答え（`deep-answers-5.txt`）: `Q-impl-2 [退避の戻しの比べ方] -> 括弧の入れ子だけ同じとみなす`（本人の選択。推奨と同じ。補足なし）
+- 決まったこと: design D5 の「中身が同じ」を、退避の戻し（`pg_restore` を通る道。Scenario 4）に限り、CHECK 制約の括弧の入れ子の違いだけを揃えてから比べる形に広げる。括弧の入れ子以外の表記の違いは許さない（族の 3 つ目もこの答えで決まった）。置き場の入れ替え（Scenario 1〜3）は完全一致のまま
+- 要件へ戻すもの: なし（要件は変えない change。台本の比べ方の定義）
+- 仕様（design D5・Scenario 4 の THEN）と台本への写しは、この後の `spec --answers Q-impl-2`（新しい Task として tasks.md の末尾へ）
+- 写した先（`spec --answers Q-impl-2`、2026-11-23）: Task 3 はまだ未完（`[ ]`）で、次に回るのも Task 3 なので、末尾に新しい Task を足さず、Task 3 の 3.1 の本文を答えに合わせ、自己試験の 3.2 を足した（3.1 の検証の行は変えていない）
