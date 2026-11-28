@@ -1,0 +1,41 @@
+{
+  "status": "accepted",
+  "digest": "dfb2757fe6913a37312f3987a59cc602da25982a99ca0b02df88a6631d79510b",
+  "head": "85d501b514dd4eb8269811b74b1f8ab232c8932c",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-11-28T13:37:32Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "版 1 は衛星が無いうちから凍る"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "外す条件の知らせの画面を持つ Story がまだ無い"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "CONTRIBUTING の冒頭と古い検査が書き足しと食い違う"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "衛星向けの検査の比べる相手が changes の job とずれうる"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "6 か月の起点にベータ版の印も入りうる"
+    },
+    {
+      "id": "IMP-06",
+      "severity": "medium",
+      "title": "衛星が呼ぶ URL の基点（/api の有無）が契約に無い"
+    }
+  ]
+}

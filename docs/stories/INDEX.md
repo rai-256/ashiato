@@ -104,7 +104,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST44, ST49 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
 | `record-deletion` | 削除 | ST22, ST23, ST49 |
-| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST55, ST56, ST59 |
+| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST42, ST44, ST45, ST55, ST56, ST59 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51, ST55, ST58 |
@@ -143,6 +143,8 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   C34（日の境界のタイムゾーン）は ST41 の上流で決める（計算し直せる B 段）。ただし主観の「日」の記録の出来事の時刻は FR-41 ★ 2026-10-07 で Asia/Tokyo に凍結済み（変えると全行の書き直し。docs/audit/2026-10-12-st17-consistency.md C8）。検索・視聴の履歴の承認（FR-88 の未決）は `handoff/ST38.md`
 > - 下の 2026-09 の訂正の表で PERM-3 / PERM-4 の担い手を ST24 としている行は、2026-10-11 から ST27（AI の衛星の最初の承認）と ST38（承認）に移った
 > - 経緯は `docs/audit/2026-10-09-satellite-foundation.md` と `docs/audit/2026-10-11-consistency.md`
+> - ★ 2026-11-27 ST42 の上流（`openspec/changes/st42-satellite-api-contract/proposal.md`）: `data-sensitivity` に ST42 を足した（衛星向けの契約の口を、API の合言葉と画面のログインで通る口の範囲から外す。前倒しではない）。
+>   `record-envelope` の ST42 は FR-103 の「記録の封筒の形」の割り当てで、封筒は衛星が書く口を作る ST39 が衛星向けの契約の同じ版に追加として載せる（ST42 は delta を置かない。`docs/handoff/ST39.md`）
 
 > **訂正（2026-09-08、ST01 の上流工程と実装後の検証で判明）**
 >
